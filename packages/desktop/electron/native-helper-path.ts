@@ -11,7 +11,7 @@ const platformDir = process.platform === 'win32'
 // Resolved helper locations never change within a run, so cache the first
 // successful lookup per base name. This avoids re-running up to 4 synchronous
 // existsSync stats on every hot-path helper invocation (selection probe,
-// recent-apps, wakeword, parakeet) — each stat passes through the Windows
+// recent-apps, wakeword) — each stat passes through the Windows
 // antivirus minifilter and runs on the main thread. Only successful
 // resolutions are cached forever, so a helper that is downloaded mid-session
 // (e.g. via `native:download`) is still picked up on a later call.

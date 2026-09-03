@@ -317,15 +317,6 @@
         "label": "받아쓰기 소리",
         "description": "받아쓰기가 시작되고 멈출 때 소리를 재생합니다."
       },
-      "enhance": {
-        "label": "전사 향상",
-        "description": "삽입하기 전에 Mercury로 로컬 받아쓰기 텍스트를 정리합니다."
-      },
-      "localDictation": {
-        "label": "기기 내 전사",
-        "description": "Inworld 대신 로컬 Parakeet 모델을 사용합니다. 사양이 낮은 Mac에서는 메모리를 더 사용할 수 있습니다.",
-        "unavailableFallback": "이 Mac에서는 사용할 수 없습니다."
-      },
       "speaker": {
         "title": "스피커",
         "outputLabel": "출력 장치",
@@ -363,10 +354,9 @@
         "shortcuts": "받아쓰기 및 음성 단축키를 변경합니다.",
         "account": "로그아웃하거나 데이터를 삭제하거나 계정을 영구적으로 삭제합니다.",
         "legal": "서비스 약관 및 개인정보 처리방침.",
-        "microphone": "입력 장치를 선택하고 호출어, 받아쓰기 소리, 기기 내 전사를 사용합니다.",
         "speaker": "Stella의 음성이 재생되는 스피커 또는 헤드폰을 선택합니다.",
         "wakeWord": "“Hey Stella”를 듣고 음성 대화를 시작합니다.",
-        "onDeviceTranscription": "클라우드 전사 대신 로컬 Parakeet 모델을 사용합니다."
+        "microphone": "Stella가 어느 마이크를 사용해야 하나요?"
       }
     },
     "errors": {
@@ -1475,14 +1465,10 @@
       "stopAndTranscribeLabel": "받아쓰기를 중지하고 전사",
       "stopTranscribeSend": "중지, 전사, 보내기",
       "stopTranscribeSendLabel": "받아쓰기를 중지하고 전사한 뒤 보내기",
-      "localNotReadyTitle": "로컬 받아쓰기가 준비되지 않았습니다",
-      "localNotReadyBody": "이 기기에서 받아쓰려면 음성 기능을 다운로드하거나, 로그인해 클라우드 전사를 사용하세요.",
       "signInTitle": "받아쓰기를 사용하려면 로그인하세요",
-      "signInBody": "기기 내 전사를 사용할 수 없을 때는 받아쓰기에 Stella 로그인이 필요합니다. 로그인해 계속하세요.",
       "failedTitle": "받아쓰기가 되지 않았습니다",
       "failedBody": "Stella가 그 내용을 전사하지 못했습니다. 다시 시도해 주세요.",
-      "partialTitle": "받아쓰기의 일부만 전사되었습니다",
-      "partialBody": "녹음의 일부를 전사하지 못해 삽입된 텍스트가 불완전할 수 있습니다."
+      "signInBody": "받아쓰기를 사용하려면 로그인하세요"
     },
     "voice": {
       "signInTitle": "음성을 사용하려면 로그인하세요",

@@ -317,15 +317,6 @@
         "label": "Suara dikte",
         "description": "Memutar suara saat dikte dimulai dan berhenti."
       },
-      "enhance": {
-        "label": "Tingkatkan transkripsi",
-        "description": "Membersihkan teks dikte lokal dengan Mercury sebelum disisipkan."
-      },
-      "localDictation": {
-        "label": "Transkripsi di perangkat",
-        "description": "Menggunakan model Parakeet lokal alih-alih Inworld. Ini dapat menggunakan lebih banyak memori pada Mac kelas bawah.",
-        "unavailableFallback": "Tidak tersedia di Mac ini."
-      },
       "speaker": {
         "title": "Speaker",
         "outputLabel": "Perangkat keluaran",
@@ -363,10 +354,9 @@
         "shortcuts": "Ubah pintasan dikte dan suara.",
         "account": "Keluar, hapus data Anda, atau hapus akun Anda secara permanen.",
         "legal": "Ketentuan Layanan dan Kebijakan Privasi.",
-        "microphone": "Pilih perangkat masukan Anda, aktifkan kata pemicu, suara dikte, dan transkripsi di perangkat.",
         "speaker": "Pilih speaker atau headphone tempat suara Stella diputar.",
         "wakeWord": "Mendengarkan “Hey Stella” dan memulai percakapan suara.",
-        "onDeviceTranscription": "Menggunakan model Parakeet lokal alih-alih transkripsi cloud."
+        "microphone": "Mikrofon mana yang harus didengarkan Stella?"
       }
     },
     "errors": {
@@ -1475,14 +1465,10 @@
       "stopAndTranscribeLabel": "Hentikan dikte dan transkripsikan",
       "stopTranscribeSend": "Berhenti, transkripsikan, dan kirim",
       "stopTranscribeSendLabel": "Hentikan dikte, transkripsikan, dan kirim",
-      "localNotReadyTitle": "Dikte lokal belum siap",
-      "localNotReadyBody": "Unduh fitur suara untuk mendikte di perangkat ini, atau masuk untuk memakai transkripsi cloud.",
       "signInTitle": "Masuk untuk memakai dikte",
-      "signInBody": "Dikte mengharuskan Anda masuk ke Stella saat transkripsi di perangkat tidak tersedia. Masuk untuk melanjutkan.",
       "failedTitle": "Dikte tidak berhasil",
       "failedBody": "Stella tidak dapat mentranskripsikannya. Silakan coba lagi.",
-      "partialTitle": "Sebagian dikte Anda berhasil ditranskripsikan",
-      "partialBody": "Sebagian rekaman tidak dapat ditranskripsikan, jadi teks yang disisipkan mungkin tidak lengkap."
+      "signInBody": "Masuk untuk memakai dikte"
     },
     "voice": {
       "signInTitle": "Masuk untuk memakai suara",

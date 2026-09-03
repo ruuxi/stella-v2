@@ -317,15 +317,6 @@
         "label": "Sonidos de dictado",
         "description": "Reproduce un sonido cuando el dictado empieza y se detiene."
       },
-      "enhance": {
-        "label": "Mejorar la transcripción",
-        "description": "Limpia el texto de dictado local con Mercury antes de insertarlo."
-      },
-      "localDictation": {
-        "label": "Transcripción en el dispositivo",
-        "description": "Usa el modelo local Parakeet en lugar de Inworld. Esto puede usar más memoria en Macs de gama baja.",
-        "unavailableFallback": "No disponible en este Mac."
-      },
       "speaker": {
         "title": "Altavoz",
         "outputLabel": "Dispositivo de salida",
@@ -363,10 +354,9 @@
         "shortcuts": "Cambia los atajos de dictado y voz.",
         "account": "Cierra sesión, elimina tus datos o elimina permanentemente tu cuenta.",
         "legal": "Términos del servicio y política de privacidad.",
-        "microphone": "Elige tu dispositivo de entrada, activa la palabra de activación, los sonidos de dictado y la transcripción en el dispositivo.",
         "speaker": "Elige el altavoz o los auriculares por los que suena la voz de Stella.",
         "wakeWord": "Escucha «Hey Stella» e inicia una conversación de voz.",
-        "onDeviceTranscription": "Usa el modelo local Parakeet en lugar de la transcripción en la nube."
+        "microphone": "¿Qué micrófono debe escuchar Stella?"
       }
     },
     "errors": {
@@ -1493,14 +1483,10 @@
       "stopAndTranscribeLabel": "Parar el dictado y transcribir",
       "stopTranscribeSend": "Parar, transcribir y enviar",
       "stopTranscribeSendLabel": "Parar el dictado, transcribir y enviar",
-      "localNotReadyTitle": "El dictado local no está listo",
-      "localNotReadyBody": "Descarga la función de voz para dictar en este dispositivo, o inicia sesión para usar la transcripción en la nube.",
       "signInTitle": "Inicia sesión para usar el dictado",
-      "signInBody": "El dictado necesita que tengas la sesión iniciada en Stella cuando la transcripción en el dispositivo no está disponible. Inicia sesión para seguir.",
       "failedTitle": "El dictado no funcionó",
       "failedBody": "Stella no pudo transcribir eso. Inténtalo de nuevo.",
-      "partialTitle": "Solo se transcribió parte de tu dictado",
-      "partialBody": "Parte de la grabación no se pudo transcribir, así que el texto insertado puede estar incompleto."
+      "signInBody": "Inicia sesión para usar el dictado"
     },
     "voice": {
       "signInTitle": "Inicia sesión para usar la voz",

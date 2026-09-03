@@ -1,6 +1,6 @@
 /**
  * Push-to-talk dictation that streams 16 kHz mono PCM through Stella's
- * authenticated relay to Meta Muse and returns the cumulative final text.
+ * authenticated dictation relay and returns the cumulative final text.
  *
  * Mirrors desktop's dictation UX: while recording the leaf recording bar polls
  * this recorder for its waveform/timer, and on stop we wait for the transcript
@@ -20,7 +20,7 @@ import {
   type RecordingAudioLease,
 } from "./mobile-audio-session";
 import { stopReadAloudForDictation } from "./read-aloud";
-import { MuseDictationStream } from "./muse-dictation-stream";
+import { DictationStream } from "./dictation-stream";
 import {
   startDictationMeter,
   stopDictationMeter,
@@ -41,7 +41,7 @@ export type UseDictationOptions = {
   anonymous: boolean;
   /** Retained for caller compatibility with the retired batch endpoint. */
   headers?: Record<string, string>;
-  /** Optional BCP-47 hint reserved for future Muse language biasing. */
+  /** Optional BCP-47 hint reserved for future language biasing. */
   language?: string;
   /** Fired once a transcript comes back. */
   onTranscript: (text: string) => void;
@@ -67,7 +67,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const statusRef = useRef<DictationStatus>("idle");
   const operationInFlightRef = useRef(false);
   const recordingLeaseRef = useRef<RecordingAudioLease | null>(null);
-  const museStreamRef = useRef<MuseDictationStream | null>(null);
+  const dictationStreamRef = useRef<DictationStream | null>(null);
   const audioSubscriptionRef = useRef<EventSubscription | null>(null);
 
   const safeSetStatus = useCallback((next: DictationStatus) => {
@@ -95,7 +95,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     stopReadAloudForDictation();
     operationInFlightRef.current = true;
     // Apple 5.1.1(i): voice audio is sent to a third-party AI transcription
-    // service (Meta Muse). Don't even start the recorder until the user has
+    // transcription service. Don't even start the recorder until the user has
     // explicitly agreed to the data-sharing disclosure.
     if (!hasAiConsent()) {
       requestAiConsent();
@@ -150,9 +150,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
 
       resetDictationTranscriptPreview();
-      const muse = new MuseDictationStream(updateDictationTranscriptPreview);
-      await muse.open();
-      museStreamRef.current = muse;
+      const stream = new DictationStream(updateDictationTranscriptPreview);
+      await stream.open();
+      dictationStreamRef.current = stream;
       const emitter = new LegacyEventEmitter(AudioStudioModule);
       audioSubscriptionRef.current = emitter.addListener<{
         encoded?: string;
@@ -164,7 +164,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         const bytes = audioEventToPcm16(audio);
         if (bytes.byteLength === 0) return;
         updateDictationMeter(pcm16Level(bytes));
-        museStreamRef.current?.send(bytes);
+        dictationStreamRef.current?.send(bytes);
       });
       await AudioStudioModule.startRecording({
         sampleRate: 16_000,
@@ -184,8 +184,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     } catch (error) {
       console.warn("[dictation] start failed", error);
       await AudioStudioModule.stopRecording().catch(() => undefined);
-      museStreamRef.current?.cancel();
-      museStreamRef.current = null;
+      dictationStreamRef.current?.cancel();
+      dictationStreamRef.current = null;
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
@@ -226,8 +226,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       resetDictationTranscriptPreview();
 
       if (!commit || durationMs < MIN_RECORDING_MS) {
-        museStreamRef.current?.cancel();
-        museStreamRef.current = null;
+        dictationStreamRef.current?.cancel();
+        dictationStreamRef.current = null;
         safeSetStatus("idle");
         // Cleanup the empty/cancelled clip best-effort.
         if (uri) {
@@ -256,8 +256,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       let file: File | null = null;
       try {
         if (uri) file = new File(uri);
-        const text = (await museStreamRef.current?.finish()) ?? "";
-        museStreamRef.current = null;
+        const text = (await dictationStreamRef.current?.finish()) ?? "";
+        dictationStreamRef.current = null;
         if (text && !cancelledRef.current) {
           options.onTranscript(text);
           return text;
@@ -273,8 +273,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         );
         return null;
       } finally {
-        museStreamRef.current?.cancel();
-        museStreamRef.current = null;
+        dictationStreamRef.current?.cancel();
+        dictationStreamRef.current = null;
         try {
           file?.delete();
         } catch {
@@ -305,8 +305,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     return () => {
       mountedRef.current = false;
       statusRef.current = "idle";
-      museStreamRef.current?.cancel();
-      museStreamRef.current = null;
+      dictationStreamRef.current?.cancel();
+      dictationStreamRef.current = null;
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();

@@ -27,7 +27,6 @@
     "./electron/bootstrap/resets.js": "./electron/bootstrap/resets.js",
     "./electron/bootstrap/runtime.js": "./electron/bootstrap/runtime.js",
     "./electron/dev-url.js": "./electron/dev-url.js",
-    "./electron/dictation/local-dictation-download.js": "./electron/dictation/local-dictation-download.js",
     "./electron/input/mouse-hook.js": "./electron/input/mouse-hook.js",
     "./electron/ipc/agent-handlers.js": "./electron/ipc/agent-handlers.js",
     "./electron/ipc/browser-fetch-session.js": "./electron/ipc/browser-fetch-session.js",

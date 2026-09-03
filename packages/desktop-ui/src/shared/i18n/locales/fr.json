@@ -317,15 +317,6 @@
         "label": "Sons de la dictée",
         "description": "Joue un son lorsque la dictée démarre et s'arrête."
       },
-      "enhance": {
-        "label": "Améliorer la transcription",
-        "description": "Nettoie le texte de dictée locale avec Mercury avant de l'insérer."
-      },
-      "localDictation": {
-        "label": "Transcription sur l'appareil",
-        "description": "Utilise le modèle local Parakeet au lieu d'Inworld. Cela peut consommer plus de mémoire sur les Mac d'entrée de gamme.",
-        "unavailableFallback": "Indisponible sur ce Mac."
-      },
       "speaker": {
         "title": "Haut-parleur",
         "outputLabel": "Périphérique de sortie",
@@ -363,10 +354,9 @@
         "shortcuts": "Modifiez les raccourcis de dictée et de voix.",
         "account": "Déconnectez-vous, supprimez vos données ou supprimez définitivement votre compte.",
         "legal": "Conditions d'utilisation et politique de confidentialité.",
-        "microphone": "Choisissez votre périphérique d'entrée, activez le mot d'activation, les sons de dictée et la transcription sur l'appareil.",
         "speaker": "Choisissez le haut-parleur ou le casque par lequel la voix de Stella est diffusée.",
         "wakeWord": "Écoute « Hey Stella » et démarre une conversation vocale.",
-        "onDeviceTranscription": "Utilise le modèle local Parakeet au lieu de la transcription dans le cloud."
+        "microphone": "Quel micro Stella doit-elle écouter ?"
       }
     },
     "errors": {
@@ -1493,14 +1483,10 @@
       "stopAndTranscribeLabel": "Arrêter la dictée et transcrire",
       "stopTranscribeSend": "Arrêter, transcrire et envoyer",
       "stopTranscribeSendLabel": "Arrêter la dictée, transcrire et envoyer",
-      "localNotReadyTitle": "La dictée locale n’est pas prête",
-      "localNotReadyBody": "Téléchargez la fonction vocale pour dicter sur cet appareil, ou connectez-vous pour utiliser la transcription dans le cloud.",
       "signInTitle": "Connectez-vous pour utiliser la dictée",
-      "signInBody": "La dictée nécessite d’être connecté à Stella lorsque la transcription sur l’appareil n’est pas disponible. Connectez-vous pour continuer.",
       "failedTitle": "La dictée n’a pas fonctionné",
       "failedBody": "Stella n’a pas pu transcrire cela. Veuillez réessayer.",
-      "partialTitle": "Une partie de votre dictée a été transcrite",
-      "partialBody": "Une partie de l’enregistrement n’a pas pu être transcrite, le texte inséré peut donc être incomplet."
+      "signInBody": "Connectez-vous pour utiliser la dictée"
     },
     "voice": {
       "signInTitle": "Connectez-vous pour utiliser la voix",

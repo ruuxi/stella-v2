@@ -18,8 +18,6 @@ const MOBILE_BRIDGE_LOCAL_STORAGE_KEYS = new Set([
     "stella-preferred-speaker-id",
     "stella-mic-enabled",
     "stella-dictation-super-fast",
-    "stella-dictation-enhance",
-    "stella-dictation-local",
     "stella-media-history",
     "stella-media-form",
     "stella-store-seen-blueprint-ids",

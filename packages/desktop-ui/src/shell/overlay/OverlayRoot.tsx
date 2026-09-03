@@ -7,7 +7,7 @@ import {
   type Dispatch,
 } from "react";
 import { RegionCapture } from "./RegionCapture";
-import { InworldDictationSession } from "@/features/dictation/services/inworld-dictation";
+import { DictationSession } from "@/features/dictation/services/dictation-session";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
 import {
@@ -241,7 +241,7 @@ function useOverlayHitTesting(
 function useOverlayDictation() {
   const [levels, setLevels] = useState<number[]>([]);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const sessionRef = useRef<InworldDictationSession | null>(null);
+  const sessionRef = useRef<DictationSession | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const transcriptRef = useRef("");
   const startedAtRef = useRef<number | null>(null);
@@ -308,7 +308,7 @@ function useOverlayDictation() {
         clearSession();
       }
 
-      const session = new InworldDictationSession();
+      const session = new DictationSession();
       sessionRef.current = session;
       sessionIdRef.current = sessionId;
       transcriptRef.current = "";

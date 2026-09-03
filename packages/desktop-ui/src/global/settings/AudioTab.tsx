@@ -16,12 +16,10 @@ import {
   isMicrophoneEnabled,
 } from "@/features/voice/services/shared-microphone";
 import {
-  isDictationEnhanceEnabled,
   isDictationSuperFastEnabled,
-  setDictationEnhancePreference,
   setDictationSuperFastModeEnabled,
   setDictationSuperFastPreference,
-} from "@/features/dictation/services/inworld-dictation";
+} from "@/features/dictation/services/dictation-session";
 import { requestBrowserMicrophoneAccess } from "@/global/permissions/microphone-permission";
 import { useT } from "@/shared/i18n";
 import { platformCapabilities } from "@/platform/capabilities";
@@ -43,9 +41,6 @@ export function AudioTab() {
   const [micEnabled, setMicEnabled] = useState(() => isMicrophoneEnabled());
   const [dictationSuperFast, setDictationSuperFast] = useState(
     () => isMicrophoneEnabled() && isDictationSuperFastEnabled(),
-  );
-  const [enhanceDictation, setEnhanceDictation] = useState(() =>
-    isDictationEnhanceEnabled(),
   );
   const [audioInputDevices, setAudioInputDevices] = useState<MediaDeviceInfo[]>(
     [],
@@ -152,11 +147,6 @@ export function AudioTab() {
     });
   }, []);
 
-  const handleEnhanceDictationToggle = useCallback((checked: boolean) => {
-    setEnhanceDictation(checked);
-    setDictationEnhancePreference(checked);
-  }, []);
-
   const handleMicChange = useCallback((deviceId: string) => {
     setSelectedMicId(deviceId);
     if (deviceId) {
@@ -229,26 +219,6 @@ export function AudioTab() {
       ) : null}
     </>
   );
-  const afterSounds = micEnabled ? (
-    <div className="settings-row">
-      <div className="settings-row-info">
-        <div className="settings-row-label">
-          {t("settings.audio.enhance.label")}
-        </div>
-        <div className="settings-row-sublabel">
-          {t("settings.audio.enhance.description")}
-        </div>
-      </div>
-      <div className="settings-row-control">
-        <Switch
-          checked={enhanceDictation}
-          onCheckedChange={handleEnhanceDictationToggle}
-          hideLabel
-        />
-      </div>
-    </div>
-  ) : null;
-
   return (
     <div className="settings-tab-content">
       <div className="settings-card">
@@ -285,14 +255,10 @@ export function AudioTab() {
             <NativeAudioDesktopRows
               micEnabled={micEnabled}
               afterWakeWord={afterWakeWord}
-              afterSounds={afterSounds}
             />
           </Suspense>
         ) : (
-          <>
-            {afterWakeWord}
-            {afterSounds}
-          </>
+          afterWakeWord
         )}
       </div>
 

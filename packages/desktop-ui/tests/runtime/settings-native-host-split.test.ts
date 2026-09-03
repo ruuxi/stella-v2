@@ -35,7 +35,7 @@ describe("website settings native-host isolation", () => {
       "packages/desktop-ui/src/global/settings/tabs/NativeAudioDesktopSettings.tsx",
     );
     expect(source).not.toMatch(
-      /getWakeWordEnabled|getSoundEffectsEnabled|useMicrophoneRecovery|localStatus|getPermissionStatus/,
+      /getWakeWordEnabled|getSoundEffectsEnabled|useMicrophoneRecovery|getPermissionStatus/,
     );
     expect(source).not.toMatch(
       /from ["'].\/tabs\/NativeAudioDesktopSettings["']/,
@@ -45,15 +45,12 @@ describe("website settings native-host isolation", () => {
     expect(source.match(/<Suspense fallback=\{null\}>/gu)).toHaveLength(1);
     expect(source).toContain("<NativeAudioDesktopRows");
     expect(source).toContain("afterWakeWord={afterWakeWord}");
-    expect(source).toContain("afterSounds={afterSounds}");
 
     const orderedRows = [
       "<NativeMicrophoneRecoveryRow />",
       "<NativeWakeWordRow micEnabled={micEnabled} />",
       "{afterWakeWord}",
       "<NativeDictationSoundsRow />",
-      "{afterSounds}",
-      "<NativeLocalDictationRow micEnabled={micEnabled} />",
     ].map((marker) => nativeSource.indexOf(marker));
     expect(orderedRows.every((index) => index >= 0)).toBe(true);
     expect(orderedRows).toEqual([...orderedRows].sort((a, b) => a - b));

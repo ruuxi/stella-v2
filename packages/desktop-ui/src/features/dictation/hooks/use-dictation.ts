@@ -1,11 +1,11 @@
 /**
- * useDictation — wires an InworldDictationSession to the composer textarea.
+ * useDictation wires a DictationSession to the composer textarea.
  *
  * Flow:
  *   - First toggle: start recording. The composer swaps in a recording
  *     bar (waveform + timer + cancel/confirm) driven by the `levels`,
  *     `elapsedMs`, and `cancel` values returned here.
- *   - Confirm (or Cmd/Ctrl+Shift+M): stop. Muse finalizes the cumulative
+ *   - Confirm (or Cmd/Ctrl+Shift+M): stop. The service finalizes the cumulative
  *     transcript it has built while the user speaks, then we append it to
  *     whatever the composer text was at the
  *     moment we started recording.
@@ -19,14 +19,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ensureDictationSuperFastWarm,
-  InworldDictationSession,
+  DictationSession,
   isDictationSuperFastEnabled,
-  isLocalDictationEnabled,
-  probeLocalDictationInstallable,
-  warmLocalDictationModel,
   type DictationSessionState,
-} from "@/features/dictation/services/inworld-dictation";
-import { DOWNLOAD_LOCAL_DICTATION_ACTION } from "@/features/dictation/services/local-dictation-download";
+} from "@/features/dictation/services/dictation-session";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import {
   createDictationTranscriptPreview,
@@ -85,7 +81,7 @@ interface UseDictationResult {
   levels: number[];
   /** Elapsed time of the current recording, in milliseconds. */
   elapsedMs: number;
-  /** Stable leaf-level store for Muse's cumulative streaming transcript. */
+  /** Stable leaf-level store for the cumulative streaming transcript. */
   transcriptPreview: DictationTranscriptPreview;
   error: string | null;
 }
@@ -118,7 +114,7 @@ export const useDictation = ({
   }
   const transcriptPreview = transcriptPreviewRef.current;
 
-  const sessionRef = useRef<InworldDictationSession | null>(null);
+  const sessionRef = useRef<DictationSession | null>(null);
   const baseTextRef = useRef("");
   const messageRef = useRef(message);
   const setMessageRef = useRef(setMessage);
@@ -133,22 +129,7 @@ export const useDictation = ({
    * new recording.
    */
   const sendAfterCommitRef = useRef(false);
-  /**
-   * Perf: the local Parakeet helper used to be warmed on composer mount, which
-   * spawned the serve process + loaded the model on every launch even for users
-   * who never dictate. We now warm lazily on the first `start()` instead. This
-   * ref makes warming idempotent so it only does the work once per hook
-   * lifecycle.
-   */
   const warmedRef = useRef(false);
-  /**
-   * Whether on-device dictation can actually be installed + run on this machine
-   * (the native helper is present). Only then do we offer "Download voice
-   * feature"; where the helper isn't shipped (e.g. Windows today) the download
-   * can never succeed, so we surface the plain sign-in path and stay on cloud.
-   * Probed once on mount; defaults false so we never dangle a broken download.
-   */
-  const localInstallableRef = useRef(false);
 
   messageRef.current = message;
   setMessageRef.current = setMessage;
@@ -173,19 +154,6 @@ export const useDictation = ({
   }, []);
 
   stateRef.current = state;
-
-  // Learn whether on-device dictation can actually be installed here (native
-  // helper present). Gates the "Download voice feature" affordance so we never
-  // offer a download that structurally can't succeed on this machine.
-  useEffect(() => {
-    let cancelled = false;
-    void probeLocalDictationInstallable().then((installable) => {
-      if (!cancelled) localInstallableRef.current = installable;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // While listening, tick a 4-Hz timer for the visible mm:ss display.
   // The initial 0:00 paint is set in `start()` before the session begins
@@ -226,16 +194,13 @@ export const useDictation = ({
     async (source: "button" | "shortcut") => {
       if (sessionRef.current) return;
       if (disabled) return;
-      // Perf: warm the local model before recording. Idempotent via warmedRef so
-      // it only does work once per hook lifecycle (warm-then-transcribe path).
       if (!warmedRef.current) {
         warmedRef.current = true;
-        void warmLocalDictationModel().catch(() => undefined);
         if (isDictationSuperFastEnabled()) {
           void ensureDictationSuperFastWarm().catch(() => undefined);
         }
       }
-      const session = new InworldDictationSession();
+      const session = new DictationSession();
       sessionRef.current = session;
       baseTextRef.current = messageRef.current;
       setError(null);
@@ -258,42 +223,19 @@ export const useDictation = ({
                 errMessage,
               );
               setError(errMessage);
-              // Surface a toast so a failed dictation isn't silent. Local
-              // (Parakeet) transcription falls back to the managed API, which
-              // needs the user signed in — when that returns 401/unauthorized the
-              // user previously got zero feedback and assumed dictation was just
-              // broken. Detect the auth case and route it to the sign-in toast;
-              // everything else (mic permission, pipeline, transcription
-              // failures) gets a generic "didn't work" so the user still knows
-              // something happened.
               const normalized = errMessage.toLowerCase();
               const needsSignIn =
                 /\b401\b|\b403\b|unauthor|unauthenticated|sign[\s-]?in|not signed in/.test(
                   normalized,
                 );
               if (needsSignIn) {
-                const canDownloadLocalDictation =
-                  localInstallableRef.current && isLocalDictationEnabled();
-                // Dictation lives in the composer, so the "sign in first"
-                // guidance is pinned right above it rather than toasted.
-                presentComposerNotice(
-                  canDownloadLocalDictation
-                    ? {
-                        conversationId: null,
-                        kind: "sign-in",
-                        title: t("features.dictation.localNotReadyTitle"),
-                        description: t("features.dictation.localNotReadyBody"),
-                        action: DOWNLOAD_LOCAL_DICTATION_ACTION,
-                        secondaryAction: SIGN_IN_TOAST_ACTION,
-                      }
-                    : {
-                        conversationId: null,
-                        kind: "sign-in",
-                        title: t("features.dictation.signInTitle"),
-                        description: t("features.dictation.signInBody"),
-                        action: SIGN_IN_TOAST_ACTION,
-                      },
-                );
+                presentComposerNotice({
+                  conversationId: null,
+                  kind: "sign-in",
+                  title: t("features.dictation.signInTitle"),
+                  description: t("features.dictation.signInBody"),
+                  action: SIGN_IN_TOAST_ACTION,
+                });
               } else {
                 showToast({
                   title: t("features.dictation.failedTitle"),
@@ -316,24 +258,13 @@ export const useDictation = ({
               queueMicrotask(fireCommitIfPending);
             }
           },
-          onFinalTranscript: (transcript, meta) => {
+          onFinalTranscript: (transcript) => {
             const next = joinTranscriptOntoBase(
               baseTextRef.current,
               transcript,
             );
             setMessageRef.current(next);
             onTranscriptCommittedRef.current?.();
-            if (meta?.partial) {
-              // Some segments of a long dictation failed; the recovered text is
-              // already in the composer, so flag that it may be incomplete
-              // rather than letting the user assume it captured everything.
-              showToast({
-                title: t("features.dictation.partialTitle"),
-                description: t("features.dictation.partialBody"),
-                variant: "error",
-                duration: 8000,
-              });
-            }
           },
           onPartialTranscript: (transcript) => {
             transcriptPreview.setText(transcript);

@@ -317,15 +317,6 @@
         "label": "Zvuky diktování",
         "description": "Přehraje zvuk, když diktování začne a skončí."
       },
-      "enhance": {
-        "label": "Vylepšit přepis",
-        "description": "Před vložením vyčistí text místního diktování pomocí Mercury."
-      },
-      "localDictation": {
-        "label": "Přepis na zařízení",
-        "description": "Používá místní model Parakeet místo Inworld. Na slabších Macích to může využívat více paměti.",
-        "unavailableFallback": "Na tomto Macu není dostupné."
-      },
       "speaker": {
         "title": "Reproduktor",
         "outputLabel": "Výstupní zařízení",
@@ -363,10 +354,9 @@
         "shortcuts": "Změňte klávesové zkratky pro diktování a hlas.",
         "account": "Odhlaste se, smažte svá data nebo trvale smažte svůj účet.",
         "legal": "Podmínky služby a zásady ochrany osobních údajů.",
-        "microphone": "Vyberte vstupní zařízení, povolte aktivační slovo, zvuky diktování a přepis na zařízení.",
         "speaker": "Vyberte reproduktor nebo sluchátka, kterými se přehrává hlas Stelly.",
         "wakeWord": "Naslouchá „Hey Stella“ a zahájí hlasovou konverzaci.",
-        "onDeviceTranscription": "Používá místní model Parakeet místo cloudového přepisu."
+        "microphone": "Který mikrofon má Stella poslouchat?"
       }
     },
     "errors": {
@@ -1502,14 +1492,10 @@
       "stopAndTranscribeLabel": "Zastavit diktování a přepsat",
       "stopTranscribeSend": "Zastavit, přepsat a odeslat",
       "stopTranscribeSendLabel": "Zastavit diktování, přepsat a odeslat",
-      "localNotReadyTitle": "Místní diktování není připravené",
-      "localNotReadyBody": "Stáhněte si hlasovou funkci, abyste mohli diktovat na tomto zařízení, nebo se přihlaste a použijte přepis v cloudu.",
       "signInTitle": "Pro diktování se přihlaste",
-      "signInBody": "Když není přepis na zařízení dostupný, diktování vyžaduje přihlášení ke Stelle. Přihlaste se a pokračujte.",
       "failedTitle": "Diktování nefungovalo",
       "failedBody": "Stella to nedokázala přepsat. Zkuste to prosím znovu.",
-      "partialTitle": "Přepsala se jen část diktování",
-      "partialBody": "Část nahrávky se nepodařilo přepsat, vložený text proto může být neúplný."
+      "signInBody": "Pro diktování se přihlaste"
     },
     "voice": {
       "signInTitle": "Pro hlas se přihlaste",

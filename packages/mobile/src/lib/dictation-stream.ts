@@ -10,7 +10,7 @@ type TranscriptFrame = {
   message?: unknown;
 };
 
-export class MuseDictationStream {
+export class DictationStream {
   private socket: WebSocket | null = null;
   private transcript = "";
   private finalTranscript = "";
@@ -35,7 +35,7 @@ export class MuseDictationStream {
       this.socket = socket;
       const timer = setTimeout(() => {
         socket.close();
-        reject(new Error("Muse transcription took too long to connect."));
+        reject(new Error("Dictation took too long to connect."));
       }, 10_000);
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
@@ -44,7 +44,7 @@ export class MuseDictationStream {
       };
       socket.onerror = () => {
         clearTimeout(timer);
-        reject(new Error("Could not connect to Muse transcription."));
+        reject(new Error("Could not connect to dictation."));
       };
       socket.onmessage = (event) => {
         if (typeof event.data !== "string") return;
@@ -68,7 +68,7 @@ export class MuseDictationStream {
           this.streamError = new Error(
             typeof frame.message === "string"
               ? frame.message
-              : "Muse transcription failed.",
+              : "Dictation failed.",
           );
         }
       };
@@ -85,12 +85,12 @@ export class MuseDictationStream {
     if (this.streamError) throw this.streamError;
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      throw new Error("Muse transcription is not connected.");
+      throw new Error("Dictation is not connected.");
     }
     return await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         socket.close();
-        reject(new Error("Muse transcription took too long to finish."));
+        reject(new Error("Dictation took too long to finish."));
       }, 15_000);
       socket.onclose = (event) => {
         clearTimeout(timer);
@@ -99,12 +99,12 @@ export class MuseDictationStream {
         else if (event.code === 1000 || this.finalTranscript) {
           resolve((this.finalTranscript || this.transcript).trim());
         } else {
-          reject(new Error(event.reason || "Muse transcription disconnected."));
+          reject(new Error(event.reason || "Dictation disconnected."));
         }
       };
       socket.onerror = () => {
         clearTimeout(timer);
-        reject(new Error("Muse transcription failed."));
+        reject(new Error("Dictation failed."));
       };
       socket.send(JSON.stringify({ type: "endStream" }));
     });

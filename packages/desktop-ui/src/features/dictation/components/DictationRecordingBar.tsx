@@ -1,6 +1,6 @@
 /**
  * DictationRecordingBar — replaces the composer's textarea + toolbar while
- * dictation is active. The surrounding pill grows as Muse's cumulative text
+ * dictation is active. The surrounding pill grows as cumulative text
  * wraps, while the waveform and controls remain anchored underneath:
  *
  *   A live transcript that can wrap and revise
@@ -10,7 +10,7 @@
  * the dictation directly. In-app composers also use that quieter treatment.
  *
  * The transcript subscribes to a leaf-level external store, and the waveform
- * uses one <canvas>, so Muse and meter updates do not reconcile the chat tree.
+ * uses one <canvas>, so transcript and meter updates do not reconcile the chat tree.
  */
 
 import { useEffect, useRef } from "react";

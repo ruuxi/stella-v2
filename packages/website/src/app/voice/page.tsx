@@ -18,7 +18,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "Voice",
   description:
-    "Talk to Stella out loud. On supported Macs, dictation and optional wake-word detection can run on-device.",
+    "Talk to Stella out loud with fast cloud dictation and optional wake-word detection.",
   alternates: { canonical: "/voice" },
 };
 
@@ -42,18 +42,17 @@ export default function VoicePage() {
           </div>
         </section>
 
-        {/* On-device dictation */}
+        {/* Cloud dictation */}
         <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
             <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                On-device
+                Cloud dictation
               </span>
               <h2>Your voice becomes text instantly.</h2>
               <p>
-                Press the key and talk. On a modern Mac it all happens right on
-                your computer, so your words show up the moment you finish — fast,
-                and even when you&apos;re offline.
+                Press the key and talk. Stella streams your speech to its cloud
+                dictation service, so your words show up the moment you finish.
               </p>
             </div>
 
@@ -94,7 +93,7 @@ export default function VoicePage() {
           </div>
         </section>
 
-        {/* Cloud fallback */}
+        {/* Cross-platform dictation */}
         <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
             <div className={styles.copy} data-reveal-child>
@@ -103,9 +102,8 @@ export default function VoicePage() {
               </span>
               <h2>It works on every computer.</h2>
               <p>
-                No modern Mac? No problem. On other computers your voice is
-                turned into text in the cloud, so dictation feels the same
-                everywhere — Windows and Mac alike.
+                Stella uses the same cloud dictation service on every supported
+                computer, so dictation behaves the same on Windows and Mac.
               </p>
             </div>
 

@@ -31,9 +31,9 @@ const mobileConsentModal = readFileSync(
 );
 
 describe("mobile and CarPlay dictation provider policy", () => {
-  test("CarPlay reuses mobile dictation and the shared stream reaches Muse", () => {
+  test("CarPlay reuses mobile dictation and the shared stream reaches the relay", () => {
     expect(carPlayBridge).toContain("useDictation({");
-    expect(mobileDictation).toContain("new MuseDictationStream(");
+    expect(mobileDictation).toContain("new DictationStream(");
     expect(mobileDictation).toContain("sampleRate: 16_000");
     expect(mobileConsentModal).toContain("Meta Muse");
   });

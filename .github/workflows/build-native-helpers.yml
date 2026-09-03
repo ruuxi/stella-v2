@@ -80,23 +80,6 @@ jobs:
                 cp -R "$entry" "$stage_dir/$name"
                 continue
               fi
-              if [ "$name" = "parakeet_transcriber" ]; then
-                # CoreML/ANE parakeet helper ships on arm64 only.
-                if [ "$arch_label" = "arm64" ]; then
-                  cp "$entry" "$stage_dir/$name"
-                  chmod +x "$stage_dir/$name"
-                fi
-                continue
-              fi
-              if [ "$name" = "parakeet_cpp_transcriber" ]; then
-                # parakeet.cpp helper covers Intel macOS (x86_64) only; arm64
-                # uses the CoreML helper above.
-                if [ "$arch_label" = "x86_64" ]; then
-                  cp "$entry" "$stage_dir/$name"
-                  chmod +x "$stage_dir/$name"
-                fi
-                continue
-              fi
               # Universal mach-o → thin to the requested arch
               if file "$entry" | grep -q "Mach-O"; then
                 if lipo -info "$entry" >/dev/null 2>&1; then
@@ -157,11 +140,6 @@ jobs:
           restore-keys: |
             native-rust-v1-windows-${{ hashFiles('packages/native/wakeword/Cargo.lock') }}-
 
-      # parakeet_cpp_transcriber.exe (local on-device dictation) is built with
-      # cmake + MSVC from parakeet.cpp. The windows-latest runner already ships
-      # cmake, git, and the VS Build Tools, but the MSVC dev environment
-      # (cl.exe, INCLUDE/LIB) must be activated on PATH for the toolchain to be
-      # picked up consistently. Set up x64.
       - name: Set up MSVC developer environment (x64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -224,11 +202,6 @@ jobs:
       - name: Build native helpers (Windows)
         shell: pwsh
         working-directory: packages/native
-        env:
-          # Enforce the on-device dictation helper in CI: build.ps1 hard-fails
-          # (instead of silently skipping) if parakeet_cpp_transcriber.exe does
-          # not build, so a missing helper can never silently ship again.
-          REQUIRE_PARAKEET_CPP: "1"
         run: powershell -ExecutionPolicy Bypass -File build.ps1
 
       - name: Snapshot Defender threat detections
@@ -261,7 +234,7 @@ jobs:
           # Hard-fail if Defender (or anything else) ate a binary the
           # build script said it produced; surface the regression in CI
           # rather than shipping a broken Windows tarball.
-          required=("window_info.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe" "parakeet_cpp_transcriber.exe" "stella-update-splash.exe")
+          required=("window_info.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe" "stella-update-splash.exe")
           missing=0
           for name in "${required[@]}"; do
             if [ ! -f "$OUT/$name" ]; then

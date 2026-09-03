@@ -317,15 +317,6 @@
         "label": "Suoni della dettatura",
         "description": "Riproduce un suono quando la dettatura inizia e si ferma."
       },
-      "enhance": {
-        "label": "Migliora la trascrizione",
-        "description": "Ripulisce il testo della dettatura locale con Mercury prima di inserirlo."
-      },
-      "localDictation": {
-        "label": "Trascrizione sul dispositivo",
-        "description": "Usa il modello locale Parakeet invece di Inworld. Può usare più memoria sui Mac di fascia bassa.",
-        "unavailableFallback": "Non disponibile su questo Mac."
-      },
       "speaker": {
         "title": "Altoparlante",
         "outputLabel": "Dispositivo di uscita",
@@ -363,10 +354,9 @@
         "shortcuts": "Modifica le scorciatoie per dettatura e voce.",
         "account": "Esci, elimina i tuoi dati o elimina definitivamente il tuo account.",
         "legal": "Termini di servizio e informativa sulla privacy.",
-        "microphone": "Scegli il dispositivo di ingresso, attiva la parola di attivazione, i suoni della dettatura e la trascrizione sul dispositivo.",
         "speaker": "Scegli l'altoparlante o le cuffie attraverso cui viene riprodotta la voce di Stella.",
         "wakeWord": "Ascolta «Hey Stella» e avvia una conversazione vocale.",
-        "onDeviceTranscription": "Usa il modello locale Parakeet invece della trascrizione nel cloud."
+        "microphone": "Quale microfono deve ascoltare Stella?"
       }
     },
     "errors": {
@@ -1493,14 +1483,10 @@
       "stopAndTranscribeLabel": "Ferma la dettatura e trascrivi",
       "stopTranscribeSend": "Ferma, trascrivi e invia",
       "stopTranscribeSendLabel": "Ferma la dettatura, trascrivi e invia",
-      "localNotReadyTitle": "La dettatura locale non è pronta",
-      "localNotReadyBody": "Scarica la funzione vocale per dettare su questo dispositivo, oppure accedi per usare la trascrizione nel cloud.",
       "signInTitle": "Accedi per usare la dettatura",
-      "signInBody": "La dettatura richiede l'accesso a Stella quando la trascrizione sul dispositivo non è disponibile. Accedi per continuare.",
       "failedTitle": "La dettatura non ha funzionato",
       "failedBody": "Stella non è riuscita a trascriverlo. Riprova.",
-      "partialTitle": "Solo una parte della tua dettatura è stata trascritta",
-      "partialBody": "Una parte della registrazione non è stata trascritta, quindi il testo inserito potrebbe essere incompleto."
+      "signInBody": "Accedi per usare la dettatura"
     },
     "voice": {
       "signInTitle": "Accedi per usare la voce",

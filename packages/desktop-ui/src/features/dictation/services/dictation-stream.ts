@@ -3,7 +3,7 @@ import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
 import { postServiceJson } from "@/platform/http/service-request";
 
 type RealtimeConfig = { relayOrigin: string; modelId: string };
-type MuseTranscriptFrame = {
+type DictationTranscriptFrame = {
   type?: unknown;
   transcript?: unknown;
   text?: unknown;
@@ -21,7 +21,7 @@ const exactBuffer = (pcm: Int16Array): ArrayBuffer =>
     pcm.byteOffset + pcm.byteLength,
   ) as ArrayBuffer;
 
-export class MuseDictationStream {
+export class DictationStream {
   private socket: WebSocket | null = null;
   private transcript = "";
   private finalTranscript = "";
@@ -50,7 +50,7 @@ export class MuseDictationStream {
       this.socket = socket;
       const timer = setTimeout(() => {
         socket.close();
-        reject(new Error("Muse transcription took too long to connect."));
+        reject(new Error("Dictation took too long to connect."));
       }, OPEN_TIMEOUT_MS);
       socket.binaryType = "arraybuffer";
       socket.onopen = () => {
@@ -59,7 +59,7 @@ export class MuseDictationStream {
       };
       socket.onerror = () => {
         clearTimeout(timer);
-        reject(new Error("Could not connect to Muse transcription."));
+        reject(new Error("Could not connect to dictation."));
       };
       socket.onmessage = (event) => this.handleMessage(event.data);
       socket.onclose = (event) => {
@@ -73,7 +73,7 @@ export class MuseDictationStream {
           this.finishResolve(this.finalTranscript || this.transcript);
         } else if (this.finishReject) {
           this.finishReject(
-            new Error(event.reason || "Muse transcription disconnected."),
+            new Error(event.reason || "Dictation disconnected."),
           );
         }
         this.clearFinishHandlers();
@@ -91,15 +91,15 @@ export class MuseDictationStream {
     for (const chunk of chunks) {
       const socket = this.socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
-        throw new Error("Muse transcription disconnected.");
+        throw new Error("Dictation disconnected.");
       }
       while (socket.bufferedAmount > 256 * 1024) {
         if (Date.now() >= deadline) {
-          throw new Error("Muse transcription took too long to receive audio.");
+          throw new Error("Dictation took too long to receive audio.");
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
         if (socket.readyState !== WebSocket.OPEN) {
-          throw new Error("Muse transcription disconnected.");
+          throw new Error("Dictation disconnected.");
         }
       }
       this.send(chunk);
@@ -110,13 +110,13 @@ export class MuseDictationStream {
     if (this.streamError) throw this.streamError;
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      throw new Error("Muse transcription is not connected.");
+      throw new Error("Dictation is not connected.");
     }
     return await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.clearFinishHandlers();
         socket.close();
-        reject(new Error("Muse transcription took too long to finish."));
+        reject(new Error("Dictation took too long to finish."));
       }, FINAL_TIMEOUT_MS);
       this.finishResolve = (value) => {
         clearTimeout(timer);
@@ -138,9 +138,9 @@ export class MuseDictationStream {
 
   private handleMessage(value: unknown): void {
     if (typeof value !== "string") return;
-    let frame: MuseTranscriptFrame;
+    let frame: DictationTranscriptFrame;
     try {
-      frame = JSON.parse(value) as MuseTranscriptFrame;
+      frame = JSON.parse(value) as DictationTranscriptFrame;
     } catch {
       return;
     }
@@ -148,7 +148,7 @@ export class MuseDictationStream {
       this.streamError = new Error(
         typeof frame.message === "string"
           ? frame.message
-          : "Muse transcription failed.",
+          : "Dictation failed.",
       );
       this.finishReject?.(this.streamError);
       this.clearFinishHandlers();

@@ -317,15 +317,6 @@
         "label": "Âm thanh đọc chính tả",
         "description": "Phát âm thanh khi đọc chính tả bắt đầu và dừng."
       },
-      "enhance": {
-        "label": "Cải thiện phiên âm",
-        "description": "Làm sạch văn bản đọc chính tả cục bộ bằng Mercury trước khi chèn."
-      },
-      "localDictation": {
-        "label": "Phiên âm trên thiết bị",
-        "description": "Dùng mô hình Parakeet cục bộ thay vì Inworld. Việc này có thể dùng nhiều bộ nhớ hơn trên các máy Mac cấu hình thấp.",
-        "unavailableFallback": "Không khả dụng trên máy Mac này."
-      },
       "speaker": {
         "title": "Loa",
         "outputLabel": "Thiết bị đầu ra",
@@ -363,10 +354,9 @@
         "shortcuts": "Thay đổi phím tắt đọc chính tả và giọng nói.",
         "account": "Đăng xuất, xóa dữ liệu của bạn hoặc xóa vĩnh viễn tài khoản của bạn.",
         "legal": "Điều khoản dịch vụ và chính sách quyền riêng tư.",
-        "microphone": "Chọn thiết bị đầu vào, bật từ đánh thức, âm thanh đọc chính tả và phiên âm trên thiết bị.",
         "speaker": "Chọn loa hoặc tai nghe phát giọng nói của Stella.",
         "wakeWord": "Lắng nghe “Hey Stella” và bắt đầu cuộc trò chuyện bằng giọng nói.",
-        "onDeviceTranscription": "Dùng mô hình Parakeet cục bộ thay vì phiên âm trên đám mây."
+        "microphone": "Stella nên nghe micrô nào?"
       }
     },
     "errors": {
@@ -1475,14 +1465,10 @@
       "stopAndTranscribeLabel": "Dừng đọc chính tả và chuyển thành văn bản",
       "stopTranscribeSend": "Dừng, chuyển thành văn bản và gửi",
       "stopTranscribeSendLabel": "Dừng đọc chính tả, chuyển thành văn bản và gửi",
-      "localNotReadyTitle": "Đọc chính tả cục bộ chưa sẵn sàng",
-      "localNotReadyBody": "Hãy tải tính năng giọng nói để đọc chính tả trên thiết bị này, hoặc đăng nhập để dùng chuyển văn bản trên đám mây.",
       "signInTitle": "Đăng nhập để dùng đọc chính tả",
-      "signInBody": "Khi không có chuyển văn bản trên thiết bị, đọc chính tả yêu cầu bạn đăng nhập vào Stella. Hãy đăng nhập để tiếp tục.",
       "failedTitle": "Đọc chính tả không thành công",
       "failedBody": "Stella không chuyển được nội dung đó thành văn bản. Vui lòng thử lại.",
-      "partialTitle": "Chỉ một phần nội dung đọc chính tả được chuyển thành văn bản",
-      "partialBody": "Một phần bản ghi không chuyển được thành văn bản, nên nội dung chèn vào có thể chưa đầy đủ."
+      "signInBody": "Đăng nhập để dùng đọc chính tả"
     },
     "voice": {
       "signInTitle": "Đăng nhập để dùng giọng nói",

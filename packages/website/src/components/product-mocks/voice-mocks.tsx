@@ -86,8 +86,8 @@ export function VoiceDictationMock() {
 
       <p className={ui.caption}>
         <Mic size={13} aria-hidden="true" />
-        Hold the dictation key and talk. On a modern Mac the Parakeet model
-        transcribes on the machine itself — no network round trip.
+        Hold the dictation key and talk. Stella streams your speech to its cloud
+        dictation service and inserts the transcript when you stop.
       </p>
     </div>
   );
@@ -148,15 +148,46 @@ export function VoiceEveryComputerMock() {
         >
           <div className={ui.section}>
             <div className={ui.sectionHead}>
-              <span>Mac · Apple silicon</span>
+              <span>Mac</span>
             </div>
             <ul className={ui.list}>
               <li className={ui.row}>
                 <span className={ui.rowText}>
-                  <span className={ui.rowTitle}>On-device transcription</span>
+                  <span className={ui.rowTitle}>Super Fast dictation</span>
                   <span className={ui.rowSub}>
-                    Transcribe locally with the Parakeet model instead of the
-                    cloud.
+                    Keep the microphone warm so dictation starts with less
+                    delay.
+                  </span>
+                </span>
+                <span className={ui.toggle} data-state="on" />
+              </li>
+              <li className={ui.row}>
+                <span className={ui.rowText}>
+                  <span className={ui.rowTitle}>Dictation sounds</span>
+                  <span className={ui.rowSub}>
+                    Play a sound when dictation starts and stops.
+                  </span>
+                </span>
+                <span className={ui.toggle} data-state="on" />
+              </li>
+            </ul>
+          </div>
+        </MockWindow>
+
+        <MockWindow
+          title="Settings — Audio"
+          icon={<Monitor size={12} aria-hidden="true" />}
+        >
+          <div className={ui.section}>
+            <div className={ui.sectionHead}>
+              <span>Windows</span>
+            </div>
+            <ul className={ui.list}>
+              <li className={ui.row}>
+                <span className={ui.rowText}>
+                  <span className={ui.rowTitle}>Enable microphone</span>
+                  <span className={ui.rowSub}>
+                    Required for talking to Stella.
                   </span>
                 </span>
                 <span className={ui.toggle} data-state="on" />
@@ -174,41 +205,12 @@ export function VoiceEveryComputerMock() {
             </ul>
           </div>
         </MockWindow>
-
-        <MockWindow
-          title="Settings — Audio"
-          icon={<Monitor size={12} aria-hidden="true" />}
-        >
-          <div className={ui.section}>
-            <div className={ui.sectionHead}>
-              <span>Windows &amp; older Macs</span>
-            </div>
-            <ul className={ui.list}>
-              <li className={ui.row}>
-                <span className={ui.rowText}>
-                  <span className={ui.rowTitle}>Enable microphone</span>
-                  <span className={ui.rowSub}>
-                    Required for talking to Stella.
-                  </span>
-                </span>
-                <span className={ui.toggle} data-state="on" />
-              </li>
-              <li className={ui.row} data-disabled="true">
-                <span className={ui.rowText}>
-                  <span className={ui.rowTitle}>On-device transcription</span>
-                  <span className={ui.rowSub}>Unavailable on this device.</span>
-                </span>
-                <span className={ui.toggle} data-state="off" />
-              </li>
-            </ul>
-          </div>
-        </MockWindow>
       </div>
 
       <p className={ui.caption}>
         <Cloud size={13} aria-hidden="true" />
-        Where the local model can&apos;t run, Stella transcribes in the cloud
-        instead — same key, same bar, same result.
+        Stella uses one cloud dictation path everywhere. Same key, same bar,
+        same result.
       </p>
     </div>
   );

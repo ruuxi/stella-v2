@@ -322,15 +322,6 @@
         "label": "Dictation sounds",
         "description": "Play a sound when dictation starts and stops."
       },
-      "enhance": {
-        "label": "Enhance transcription",
-        "description": "Clean up local dictation text with Mercury before inserting it."
-      },
-      "localDictation": {
-        "label": "On-device transcription",
-        "description": "Transcribe locally with the Parakeet model instead of the cloud. This can use more memory on lower-end devices.",
-        "unavailableFallback": "Unavailable on this device."
-      },
       "speaker": {
         "title": "Speaker",
         "outputLabel": "Output device",
@@ -368,10 +359,9 @@
         "shortcuts": "Change dictation and voice shortcuts.",
         "account": "Sign out, delete your data, or permanently delete your account.",
         "legal": "Terms of Service and Privacy Policy.",
-        "microphone": "Pick your input device, enable wake word, dictation sounds, and on-device transcription.",
+        "microphone": "Pick your input device, enable wake word, and control dictation sounds.",
         "speaker": "Pick the speaker or headphones Stella's voice plays through.",
-        "wakeWord": "Listen for “Hey Stella” and start a voice conversation.",
-        "onDeviceTranscription": "Use the local Parakeet model instead of cloud transcription."
+        "wakeWord": "Listen for “Hey Stella” and start a voice conversation."
       }
     },
     "errors": {
@@ -1489,14 +1479,10 @@
       "stopAndTranscribeLabel": "Stop dictation and transcribe",
       "stopTranscribeSend": "Stop, transcribe, and send",
       "stopTranscribeSendLabel": "Stop dictation, transcribe, and send",
-      "localNotReadyTitle": "Local dictation isn't ready",
-      "localNotReadyBody": "Download the voice feature to dictate on this device, or sign in to use cloud transcription.",
       "signInTitle": "Sign in to use dictation",
-      "signInBody": "Dictation needs you signed in to Stella when on-device transcription isn't available. Sign in to keep going.",
+      "signInBody": "Sign in to Stella to use dictation.",
       "failedTitle": "Dictation didn't work",
-      "failedBody": "Stella couldn't transcribe that. Please try again.",
-      "partialTitle": "Part of your dictation was transcribed",
-      "partialBody": "Some of the recording couldn't be transcribed, so the inserted text may be incomplete."
+      "failedBody": "Stella couldn't transcribe that. Please try again."
     },
     "voice": {
       "signInTitle": "Sign in to use voice",

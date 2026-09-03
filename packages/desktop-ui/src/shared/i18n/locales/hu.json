@@ -317,15 +317,6 @@
         "label": "Diktálási hangok",
         "description": "Hangot játszik le, amikor a diktálás elindul és leáll."
       },
-      "enhance": {
-        "label": "Átirat javítása",
-        "description": "A helyi diktálás szövegét a Mercury segítségével rendezi, mielőtt beilleszti."
-      },
-      "localDictation": {
-        "label": "Eszközön történő átírás",
-        "description": "A helyi Parakeet modellt használja az Inworld helyett. Ez gyengébb Mac-eken több memóriát igényelhet.",
-        "unavailableFallback": "Ezen a Macen nem érhető el."
-      },
       "speaker": {
         "title": "Hangszóró",
         "outputLabel": "Kimeneti eszköz",
@@ -363,10 +354,9 @@
         "shortcuts": "Módosítsd a diktálás és a hang gyorsbillentyűit.",
         "account": "Jelentkezz ki, töröld az adataidat, vagy töröld véglegesen a fiókodat.",
         "legal": "Felhasználási feltételek és adatvédelmi szabályzat.",
-        "microphone": "Válaszd ki a bemeneti eszközt, engedélyezd az ébresztőszót, a diktálási hangokat és az eszközön történő átírást.",
         "speaker": "Válaszd ki azt a hangszórót vagy fejhallgatót, amelyen a Stella hangja megszólal.",
         "wakeWord": "Figyel a „Hey Stella” szóra, és hangbeszélgetést indít.",
-        "onDeviceTranscription": "A helyi Parakeet modellt használja a felhőalapú átírás helyett."
+        "microphone": "Melyik mikrofont hallgassa a Stella?"
       }
     },
     "errors": {
@@ -1484,14 +1474,10 @@
       "stopAndTranscribeLabel": "Diktálás leállítása és átírás",
       "stopTranscribeSend": "Leállítás, átírás és küldés",
       "stopTranscribeSendLabel": "Diktálás leállítása, átírás és küldés",
-      "localNotReadyTitle": "A helyi diktálás nem áll készen",
-      "localNotReadyBody": "Töltsd le a hangfunkciót az eszközön való diktáláshoz, vagy jelentkezz be a felhőalapú átíráshoz.",
       "signInTitle": "Jelentkezz be a diktálás használatához",
-      "signInBody": "A diktáláshoz be kell jelentkezned a Stellába, ha az eszközön történő átírás nem érhető el. Jelentkezz be a folytatáshoz.",
       "failedTitle": "A diktálás nem sikerült",
       "failedBody": "A Stella nem tudta átírni. Próbáld újra.",
-      "partialTitle": "A diktálásod egy része lett átírva",
-      "partialBody": "A felvétel egy részét nem sikerült átírni, ezért a beszúrt szöveg hiányos lehet."
+      "signInBody": "Jelentkezz be a diktálás használatához"
     },
     "voice": {
       "signInTitle": "Jelentkezz be a hang használatához",

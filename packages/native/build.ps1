@@ -4,11 +4,6 @@
 $outputDir = Join-Path $PSScriptRoot "out\win32"
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
-# Pinned parakeet.cpp (C++/ggml ASR) revision for the Windows local dictation
-# helper. Keep in sync with desktop/native/build.sh.
-$ParakeetCppRepo = "https://github.com/mudler/parakeet.cpp"
-$ParakeetCppCommit = "9edf17c3ada66e0f881dcff155492867db7ac4cf"
-
 $defaultLibs = @("user32.lib", "gdi32.lib", "gdiplus.lib", "ole32.lib", "oleaut32.lib", "uuid.lib")
 $defaultGccLibs = @("-luser32", "-lgdi32", "-lgdiplus", "-lole32", "-loleaut32", "-luuid")
 $windowInfoLibs = $defaultLibs + @("dwmapi.lib")
@@ -112,115 +107,6 @@ foreach ($t in $targets) {
 }
 
 if (-not $allOk) { exit 1 }
-
-# parakeet_cpp_transcriber.exe — local on-device dictation (parakeet.cpp / ggml).
-#
-# Strictness is controlled by the REQUIRE_PARAKEET_CPP env flag:
-#   - CI sets REQUIRE_PARAKEET_CPP=1 so any failure (missing toolchain, clone,
-#     cmake configure/build, or a missing binary) HARD-FAILS the workflow. A
-#     silently-skipped required helper is exactly what previously shipped a
-#     Windows tarball with no on-device dictation, so CI must never swallow it.
-#   - Local/dev runs leave the flag unset, so the helper is best-effort: a
-#     failure just leaves that machine on cloud dictation instead of blocking
-#     the whole native build for contributors without cmake/MSVC.
-$RequireParakeetCpp = ($env:REQUIRE_PARAKEET_CPP -eq "1")
-
-# Emit a failure for the parakeet.cpp helper. In strict (CI) mode this prints a
-# GitHub Actions ::error:: annotation and terminates the whole build with a
-# non-zero exit; otherwise it warns and lets the caller skip gracefully.
-function Fail-ParakeetCpp($message, $logPath) {
-    if ($logPath -and (Test-Path $logPath)) {
-        Get-Content $logPath -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-    }
-    if ($RequireParakeetCpp) {
-        Write-Host "::error::parakeet_cpp_transcriber.exe is required but failed: $message"
-        exit 1
-    }
-    Write-Host "  WARNING: $message (non-fatal; set REQUIRE_PARAKEET_CPP=1 to enforce)"
-}
-
-function Build-ParakeetCpp {
-    $cmake = Get-Command cmake -ErrorAction SilentlyContinue
-    if (-not $cmake) { Fail-ParakeetCpp "cmake not on PATH" $null; return }
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $git) { Fail-ParakeetCpp "git not on PATH" $null; return }
-
-    $work = Join-Path $env:TEMP ("parakeet-cpp-" + [System.Guid]::NewGuid().ToString("N"))
-    $src = Join-Path $work "parakeet.cpp"
-    $log = Join-Path $work "build.log"
-    New-Item -ItemType Directory -Force -Path $work | Out-Null
-    try {
-        Write-Host "Cloning parakeet.cpp ($ParakeetCppCommit)..."
-        & git clone --quiet $ParakeetCppRepo $src 2>&1 | Out-File -FilePath $log -Encoding utf8
-        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "clone failed" $log; return }
-        & git -C $src checkout --quiet $ParakeetCppCommit 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "checkout failed" $log; return }
-        & git -C $src submodule update --init --recursive --quiet 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "submodule init failed" $log; return }
-
-        # The pinned parakeet.cpp backend.hpp uses int64_t without including
-        # <cstdint>. Patch that header directly instead of force-including the
-        # C++ header globally: /FIcstdint also reaches ggml's C translation
-        # units under the Visual Studio generator, where MSVC rejects it with
-        # STL1003 ("expected C++ compiler").
-        $backendHeader = Join-Path $src "src\backend.hpp"
-        $backendSource = [System.IO.File]::ReadAllText($backendHeader)
-        if (-not $backendSource.Contains("#include <cstddef>")) {
-            Fail-ParakeetCpp "backend.hpp include anchor not found" $log
-            return
-        }
-        $backendSource = $backendSource.Replace(
-            "#include <cstddef>",
-            "#include <cstddef>`n#include <cstdint>"
-        )
-        [System.IO.File]::WriteAllText($backendHeader, $backendSource)
-
-        # MSVC only exposes M_PI from <cmath> when this opt-in is defined
-        # before any standard header. The pinned upstream sources use M_PI in
-        # exactly these two translation units.
-        foreach ($mathSourceRelative in @("src\fft.cpp", "src\mel_gpu.cpp")) {
-            $mathSourcePath = Join-Path $src $mathSourceRelative
-            $mathSource = [System.IO.File]::ReadAllText($mathSourcePath)
-            if (-not $mathSource.Contains("M_PI")) {
-                Fail-ParakeetCpp "$mathSourceRelative M_PI anchor not found" $log
-                return
-            }
-            [System.IO.File]::WriteAllText(
-                $mathSourcePath,
-                "#define _USE_MATH_DEFINES`n$mathSource"
-            )
-        }
-
-        $stella = Join-Path $src "examples\stella"
-        New-Item -ItemType Directory -Force -Path $stella | Out-Null
-        Copy-Item -Force (Join-Path $PSScriptRoot "src\parakeet-cpp\main.cpp") (Join-Path $stella "main.cpp")
-        Copy-Item -Force (Join-Path $PSScriptRoot "src\parakeet-cpp\CMakeLists.txt") (Join-Path $stella "CMakeLists.txt")
-        Add-Content -Path (Join-Path $src "CMakeLists.txt") -Value "add_subdirectory(examples/stella)"
-
-        Write-Host "Building parakeet_cpp_transcriber (static, x64)..."
-        # Static CRT (/MT) so the shipped helper needs no VC++ redistributable.
-        & cmake -S $src -B (Join-Path $src "build") -A x64 `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-            -DPARAKEET_SHARED=OFF `
-            -DBUILD_SHARED_LIBS=OFF `
-            -DPARAKEET_BUILD_CLI=OFF `
-            -DPARAKEET_BUILD_TESTS=OFF `
-            -DGGML_NATIVE=OFF 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "cmake configure failed" $log; return }
-        & cmake --build (Join-Path $src "build") --config Release --target parakeet_cpp_transcriber 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "cmake build failed" $log; return }
-
-        $built = Join-Path $src "build\stella-helper\parakeet_cpp_transcriber.exe"
-        if (-not (Test-Path $built)) { Fail-ParakeetCpp "binary not found after build" $log; return }
-        Copy-Item -Force $built (Join-Path $outputDir "parakeet_cpp_transcriber.exe")
-        Write-Host "  Build successful: parakeet_cpp_transcriber.exe"
-    } finally {
-        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
-    }
-}
-Write-Host "Building parakeet_cpp_transcriber.exe (REQUIRE_PARAKEET_CPP=$($RequireParakeetCpp))..."
-Build-ParakeetCpp
 
 # wakeword_listener — Rust binary, x86_64 Windows via cargo. Skipped silently
 # when cargo is unavailable so non-Rust contributors aren't blocked.

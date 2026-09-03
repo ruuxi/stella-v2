@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveDictationPcmWorkletUrl } from "@/features/dictation/services/inworld-dictation";
+import { resolveDictationPcmWorkletUrl } from "@/features/dictation/services/dictation-session";
 
 describe("dictation PCM worklet URL", () => {
   it("resolves beside the packaged renderer entry instead of the filesystem root", () => {

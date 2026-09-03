@@ -317,15 +317,6 @@
         "label": "Dźwięki dyktowania",
         "description": "Odtwarza dźwięk, gdy dyktowanie się zaczyna i kończy."
       },
-      "enhance": {
-        "label": "Ulepsz transkrypcję",
-        "description": "Porządkuje lokalny tekst dyktowania za pomocą Mercury przed wstawieniem."
-      },
-      "localDictation": {
-        "label": "Transkrypcja na urządzeniu",
-        "description": "Używa lokalnego modelu Parakeet zamiast Inworld. Na słabszych Macach może zużywać więcej pamięci.",
-        "unavailableFallback": "Niedostępne na tym Macu."
-      },
       "speaker": {
         "title": "Głośnik",
         "outputLabel": "Urządzenie wyjściowe",
@@ -363,10 +354,9 @@
         "shortcuts": "Zmień skróty dyktowania i głosu.",
         "account": "Wyloguj się, usuń dane lub trwale usuń konto.",
         "legal": "Warunki korzystania i polityka prywatności.",
-        "microphone": "Wybierz urządzenie wejściowe, włącz słowo aktywujące, dźwięki dyktowania i transkrypcję na urządzeniu.",
         "speaker": "Wybierz głośnik lub słuchawki, przez które odtwarzany jest głos Stelli.",
         "wakeWord": "Nasłuchuje „Hey Stella” i rozpoczyna rozmowę głosową.",
-        "onDeviceTranscription": "Używa lokalnego modelu Parakeet zamiast transkrypcji w chmurze."
+        "microphone": "Którego mikrofonu ma używać Stella?"
       }
     },
     "errors": {
@@ -1502,14 +1492,10 @@
       "stopAndTranscribeLabel": "Zatrzymaj dyktowanie i przepisz",
       "stopTranscribeSend": "Zatrzymaj, przepisz i wyślij",
       "stopTranscribeSendLabel": "Zatrzymaj dyktowanie, przepisz i wyślij",
-      "localNotReadyTitle": "Lokalne dyktowanie nie jest gotowe",
-      "localNotReadyBody": "Pobierz moduł głosowy, aby dyktować na tym urządzeniu, albo zaloguj się, aby korzystać z transkrypcji w chmurze.",
       "signInTitle": "Zaloguj się, aby używać dyktowania",
-      "signInBody": "Gdy transkrypcja na urządzeniu jest niedostępna, dyktowanie wymaga zalogowania do Stelli. Zaloguj się, aby kontynuować.",
       "failedTitle": "Dyktowanie nie zadziałało",
       "failedBody": "Stella nie mogła tego przepisać. Spróbuj ponownie.",
-      "partialTitle": "Przepisano tylko część dyktowania",
-      "partialBody": "Części nagrania nie udało się przepisać, więc wstawiony tekst może być niepełny."
+      "signInBody": "Zaloguj się, aby używać dyktowania"
     },
     "voice": {
       "signInTitle": "Zaloguj się, aby używać głosu",

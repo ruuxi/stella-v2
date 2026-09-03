@@ -317,15 +317,6 @@
         "label": "Sanelun äänet",
         "description": "Toistaa äänen, kun sanelu alkaa ja pysähtyy."
       },
-      "enhance": {
-        "label": "Paranna litterointia",
-        "description": "Siistii paikallisen sanelutekstin Mercuryllä ennen lisäämistä."
-      },
-      "localDictation": {
-        "label": "Laitteella tapahtuva litterointi",
-        "description": "Käyttää paikallista Parakeet-mallia Inworldin sijaan. Tämä voi käyttää enemmän muistia heikommissa Mac-tietokoneissa.",
-        "unavailableFallback": "Ei käytettävissä tässä Macissa."
-      },
       "speaker": {
         "title": "Kaiutin",
         "outputLabel": "Lähtölaite",
@@ -363,10 +354,9 @@
         "shortcuts": "Muuta sanelun ja puheen pikanäppäimiä.",
         "account": "Kirjaudu ulos, poista tietosi tai poista tilisi pysyvästi.",
         "legal": "Käyttöehdot ja tietosuojakäytäntö.",
-        "microphone": "Valitse syöttölaite ja ota käyttöön herätyssana, sanelun äänet ja laitteella tapahtuva litterointi.",
         "speaker": "Valitse kaiutin tai kuulokkeet, joiden kautta Stellan ääni toistetaan.",
         "wakeWord": "Kuuntelee ”Hey Stella” -sanaa ja aloittaa puhekeskustelun.",
-        "onDeviceTranscription": "Käyttää paikallista Parakeet-mallia pilvilitteroinnin sijaan."
+        "microphone": "Mitä mikrofonia Stellan tulisi kuunnella?"
       }
     },
     "errors": {
@@ -1484,14 +1474,10 @@
       "stopAndTranscribeLabel": "Pysäytä sanelu ja litteroi",
       "stopTranscribeSend": "Pysäytä, litteroi ja lähetä",
       "stopTranscribeSendLabel": "Pysäytä sanelu, litteroi ja lähetä",
-      "localNotReadyTitle": "Paikallinen sanelu ei ole valmis",
-      "localNotReadyBody": "Lataa ääniominaisuus sanellaksesi tällä laitteella tai kirjaudu sisään käyttääksesi pilvilitterointia.",
       "signInTitle": "Kirjaudu sisään käyttääksesi sanelua",
-      "signInBody": "Sanelu vaatii kirjautumisen Stellaan, kun laitteella tapahtuva litterointi ei ole käytettävissä. Kirjaudu sisään jatkaaksesi.",
       "failedTitle": "Sanelu ei toiminut",
       "failedBody": "Stella ei pystynyt litteroimaan sitä. Yritä uudelleen.",
-      "partialTitle": "Osa sanelustasi litteroitiin",
-      "partialBody": "Osaa tallenteesta ei voitu litteroida, joten lisätty teksti voi olla puutteellinen."
+      "signInBody": "Kirjaudu sisään käyttääksesi sanelua"
     },
     "voice": {
       "signInTitle": "Kirjaudu sisään käyttääksesi ääntä",

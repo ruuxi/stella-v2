@@ -1,7 +1,7 @@
 /**
  * Mobile mirror of desktop's DictationRecordingBar
  * (`desktop/src/features/dictation/components/DictationRecordingBar.tsx`).
- * The composer pill grows as Muse's cumulative text wraps, while the waveform
+ * The composer pill grows as cumulative text wraps, while the waveform
  * and controls remain anchored underneath:
  *
  *   A live transcript that can wrap and revise

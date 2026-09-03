@@ -317,15 +317,6 @@
         "label": "Sons do ditado",
         "description": "Toca um som quando o ditado começa e para."
       },
-      "enhance": {
-        "label": "Aprimorar a transcrição",
-        "description": "Limpa o texto do ditado local com o Mercury antes de inseri-lo."
-      },
-      "localDictation": {
-        "label": "Transcrição no dispositivo",
-        "description": "Usa o modelo local Parakeet em vez do Inworld. Isso pode usar mais memória em Macs mais simples.",
-        "unavailableFallback": "Indisponível neste Mac."
-      },
       "speaker": {
         "title": "Alto-falante",
         "outputLabel": "Dispositivo de saída",
@@ -363,10 +354,9 @@
         "shortcuts": "Altere os atalhos de ditado e voz.",
         "account": "Saia, exclua seus dados ou exclua permanentemente sua conta.",
         "legal": "Termos de Serviço e Política de Privacidade.",
-        "microphone": "Escolha o dispositivo de entrada, ative a palavra de ativação, os sons do ditado e a transcrição no dispositivo.",
         "speaker": "Escolha o alto-falante ou os fones pelos quais a voz da Stella é reproduzida.",
         "wakeWord": "Ouve “Hey Stella” e inicia uma conversa por voz.",
-        "onDeviceTranscription": "Usa o modelo local Parakeet em vez da transcrição na nuvem."
+        "microphone": "Qual microfone a Stella deve ouvir?"
       }
     },
     "errors": {
@@ -1493,14 +1483,10 @@
       "stopAndTranscribeLabel": "Parar o ditado e transcrever",
       "stopTranscribeSend": "Parar, transcrever e enviar",
       "stopTranscribeSendLabel": "Parar o ditado, transcrever e enviar",
-      "localNotReadyTitle": "O ditado local não está pronto",
-      "localNotReadyBody": "Baixe o recurso de voz para ditar neste dispositivo, ou entre para usar a transcrição na nuvem.",
       "signInTitle": "Entre para usar o ditado",
-      "signInBody": "O ditado exige que você esteja conectado à Stella quando a transcrição no dispositivo não está disponível. Entre para continuar.",
       "failedTitle": "O ditado não funcionou",
       "failedBody": "A Stella não conseguiu transcrever isso. Tente novamente.",
-      "partialTitle": "Só parte do seu ditado foi transcrita",
-      "partialBody": "Parte da gravação não pôde ser transcrita, então o texto inserido pode estar incompleto."
+      "signInBody": "Entre para usar o ditado"
     },
     "voice": {
       "signInTitle": "Entre para usar a voz",

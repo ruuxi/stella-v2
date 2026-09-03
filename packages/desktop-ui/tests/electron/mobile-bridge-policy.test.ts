@@ -81,7 +81,6 @@ describe("mobile bridge policy", () => {
         "stella-billing-last-seen-plan:user@example.com": "pro",
         "stella-nickname:user@example.com": "Rahul",
         "stella-nickname-asked:user@example.com": "true",
-        "stella-dictation-local": "true",
         "stella.displayPanel.width": "480",
         "better-auth_cookie": "secret",
         "better-auth_session_token": "secret",
@@ -96,7 +95,6 @@ describe("mobile bridge policy", () => {
         "stella-billing-last-seen-plan:user@example.com": "pro",
         "stella-nickname:user@example.com": "Rahul",
         "stella-nickname-asked:user@example.com": "true",
-        "stella-dictation-local": "true",
         "stella-onboarding-complete": "true",
       },
       mobileBridgeCapabilities: {

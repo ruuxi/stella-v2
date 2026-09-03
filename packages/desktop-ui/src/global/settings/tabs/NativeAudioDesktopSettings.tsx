@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Switch } from "@/ui/switch";
-import {
-  isLocalDictationEnabled,
-  isLocalDictationPlatform,
-  setLocalDictationPreference,
-} from "@/features/dictation/services/inworld-dictation";
 import { useMicrophoneRecovery } from "@/global/permissions/use-microphone-recovery";
 import { useT } from "@/shared/i18n";
 
@@ -17,11 +12,9 @@ export async function darwinMicrophoneIsDenied(): Promise<boolean> {
 export function NativeAudioDesktopRows({
   micEnabled,
   afterWakeWord,
-  afterSounds,
 }: {
   micEnabled: boolean;
   afterWakeWord: ReactNode;
-  afterSounds: ReactNode;
 }) {
   return (
     <>
@@ -29,8 +22,6 @@ export function NativeAudioDesktopRows({
       <NativeWakeWordRow micEnabled={micEnabled} />
       {afterWakeWord}
       <NativeDictationSoundsRow />
-      {afterSounds}
-      <NativeLocalDictationRow micEnabled={micEnabled} />
     </>
   );
 }
@@ -217,69 +208,6 @@ export function NativeDictationSoundsRow() {
           onCheckedChange={(checked) =>
             handleDictationSoundEffectsToggle(Boolean(checked))
           }
-          hideLabel
-        />
-      </div>
-    </div>
-  );
-}
-
-export function NativeLocalDictationRow({
-  micEnabled,
-}: {
-  micEnabled: boolean;
-}) {
-  const t = useT();
-  const localDictationSupported = isLocalDictationPlatform();
-  const [localDictation, setLocalDictation] = useState(() =>
-    isLocalDictationEnabled(),
-  );
-  const [localDictationUnavailableReason, setLocalDictationUnavailableReason] =
-    useState<string | null>(null);
-
-  useEffect(() => {
-    if (!localDictationSupported) return;
-    let cancelled = false;
-    void window.electronAPI?.dictation
-      ?.localStatus?.()
-      .then((status) => {
-        if (cancelled) return;
-        setLocalDictationUnavailableReason(
-          status.available
-            ? null
-            : (status.reason ??
-                t("settings.audio.localDictation.unavailableFallback")),
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [localDictationSupported, t]);
-
-  const handleLocalDictationToggle = useCallback((checked: boolean) => {
-    setLocalDictation(checked);
-    setLocalDictationPreference(checked);
-  }, []);
-
-  if (!localDictationSupported || !micEnabled) return null;
-
-  return (
-    <div className="settings-row">
-      <div className="settings-row-info">
-        <div className="settings-row-label">
-          {t("settings.audio.localDictation.label")}
-        </div>
-        <div className="settings-row-sublabel">
-          {localDictationUnavailableReason ??
-            t("settings.audio.localDictation.description")}
-        </div>
-      </div>
-      <div className="settings-row-control">
-        <Switch
-          checked={localDictation && !localDictationUnavailableReason}
-          onCheckedChange={handleLocalDictationToggle}
-          disabled={Boolean(localDictationUnavailableReason)}
           hideLabel
         />
       </div>

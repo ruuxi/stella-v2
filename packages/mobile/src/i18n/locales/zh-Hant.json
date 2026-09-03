@@ -317,15 +317,6 @@
         "label": "聽寫聲音",
         "description": "在聽寫開始和停止時播放聲音。"
       },
-      "enhance": {
-        "label": "增強轉錄",
-        "description": "在插入之前用 Mercury 整理本機聽寫文字。"
-      },
-      "localDictation": {
-        "label": "裝置端轉錄",
-        "description": "使用本機 Parakeet 模型而非 Inworld。在低階 Mac 上這可能佔用更多記憶體。",
-        "unavailableFallback": "此 Mac 上無法使用。"
-      },
       "speaker": {
         "title": "喇叭",
         "outputLabel": "輸出裝置",
@@ -363,10 +354,9 @@
         "shortcuts": "變更聽寫與語音快速鍵。",
         "account": "登出、刪除你的資料或永久刪除你的帳號。",
         "legal": "服務條款和隱私權政策。",
-        "microphone": "選擇輸入裝置，啟用喚醒詞、聽寫聲音和裝置端轉錄。",
         "speaker": "選擇播放 Stella 語音的喇叭或耳機。",
         "wakeWord": "監聽「Hey Stella」並開始語音對話。",
-        "onDeviceTranscription": "使用本機 Parakeet 模型而非雲端轉錄。"
+        "microphone": "Stella 應該使用哪個麥克風？"
       }
     },
     "errors": {
@@ -1475,14 +1465,10 @@
       "stopAndTranscribeLabel": "停止聽寫並轉錄",
       "stopTranscribeSend": "停止、轉錄並傳送",
       "stopTranscribeSendLabel": "停止聽寫、轉錄並傳送",
-      "localNotReadyTitle": "本機聽寫尚未就緒",
-      "localNotReadyBody": "下載語音功能以在此裝置上聽寫，或登入以使用雲端轉錄。",
       "signInTitle": "登入以使用聽寫",
-      "signInBody": "當裝置端轉錄無法使用時，聽寫需要你登入 Stella。請登入以繼續。",
       "failedTitle": "聽寫沒有成功",
       "failedBody": "Stella 無法轉錄該內容。請再試一次。",
-      "partialTitle": "只轉錄了部分聽寫內容",
-      "partialBody": "部分錄音無法轉錄，因此插入的文字可能不完整。"
+      "signInBody": "登入以使用聽寫"
     },
     "voice": {
       "signInTitle": "登入以使用語音",

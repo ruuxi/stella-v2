@@ -35,7 +35,7 @@ Everything the car needs already existed in the app; CarPlay only wires it up:
   `/api/mobile/offline-chat/stream` pipeline the Chat tab uses). It runs on a
   dedicated `"carplay"` transcript so the always-mounted CarPlay bridge never
   races the Chat tab's `"cloud"` store.
-- **Dictation** → `useDictation` (the same Muse realtime stream
+- **Dictation** → `useDictation` (the same realtime stream
   push-to-talk recorder the composer mic uses — including AI-consent and mic
   permission handling).
 - **Text-to-speech** → `speakReply` from `src/lib/read-aloud.ts` (the same

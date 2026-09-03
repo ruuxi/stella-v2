@@ -317,15 +317,6 @@
         "label": "Dicteergeluiden",
         "description": "Speelt een geluid af wanneer dicteren start en stopt."
       },
-      "enhance": {
-        "label": "Transcriptie verbeteren",
-        "description": "Schoont lokale dicteertekst op met Mercury voordat deze wordt ingevoegd."
-      },
-      "localDictation": {
-        "label": "Transcriptie op het apparaat",
-        "description": "Gebruikt het lokale Parakeet-model in plaats van Inworld. Dit kan meer geheugen gebruiken op eenvoudigere Macs.",
-        "unavailableFallback": "Niet beschikbaar op deze Mac."
-      },
       "speaker": {
         "title": "Luidspreker",
         "outputLabel": "Uitvoerapparaat",
@@ -363,10 +354,9 @@
         "shortcuts": "Wijzig de sneltoetsen voor dicteren en spraak.",
         "account": "Meld je af, verwijder je gegevens of verwijder je account definitief.",
         "legal": "Servicevoorwaarden en privacybeleid.",
-        "microphone": "Kies je invoerapparaat, schakel het wekwoord, dicteergeluiden en transcriptie op het apparaat in.",
         "speaker": "Kies de luidspreker of koptelefoon waardoor Stella's stem klinkt.",
         "wakeWord": "Luistert naar “Hey Stella” en start een spraakgesprek.",
-        "onDeviceTranscription": "Gebruikt het lokale Parakeet-model in plaats van transcriptie in de cloud."
+        "microphone": "Naar welke microfoon moet Stella luisteren?"
       }
     },
     "errors": {
@@ -1484,14 +1474,10 @@
       "stopAndTranscribeLabel": "Dictee stoppen en transcriberen",
       "stopTranscribeSend": "Stoppen, transcriberen en versturen",
       "stopTranscribeSendLabel": "Dictee stoppen, transcriberen en versturen",
-      "localNotReadyTitle": "Lokaal dictee is niet gereed",
-      "localNotReadyBody": "Download de spraakfunctie om op dit apparaat te dicteren, of log in om transcriptie in de cloud te gebruiken.",
       "signInTitle": "Log in om dictee te gebruiken",
-      "signInBody": "Voor dictee moet je bij Stella ingelogd zijn als transcriptie op het apparaat niet beschikbaar is. Log in om verder te gaan.",
       "failedTitle": "Dictee werkte niet",
       "failedBody": "Stella kon dat niet transcriberen. Probeer het opnieuw.",
-      "partialTitle": "Een deel van je dictee is getranscribeerd",
-      "partialBody": "Een deel van de opname kon niet worden getranscribeerd, dus de ingevoegde tekst is mogelijk onvolledig."
+      "signInBody": "Log in om dictee te gebruiken"
     },
     "voice": {
       "signInTitle": "Log in om stem te gebruiken",

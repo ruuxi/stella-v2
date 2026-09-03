@@ -14,8 +14,6 @@ import { promisify } from "node:util";
 import { getDictationSoundEffectsEnabled, loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { runNativeHelper } from "../native-helper.js";
 import { applyShortcutRegistration, } from "./shortcut-registration.js";
-import { downloadLocalParakeet, getLocalParakeetStatus, transcribeWithLocalParakeet, warmLocalParakeet, } from "../dictation/local-parakeet.js";
-import { createLocalDictationDownloader } from "../dictation/local-dictation-download.js";
 const DEFAULT_DICTATION_SHORTCUT = "Alt";
 const DEFAULT_NON_MAC_DICTATION_SHORTCUT = "Control+M";
 const LEGACY_DEFAULT_DICTATION_SHORTCUT = "Control+M";
@@ -590,24 +588,6 @@ export const registerDictationHandlers = (options) => {
             saveLocalPreferences(stellaDataDir, prefs);
         }
         return { enabled: nextEnabled };
-    });
-    ipcMain.handle("dictation:warmLocal", () => warmLocalParakeet());
-    ipcMain.handle("dictation:localStatus", () => getLocalParakeetStatus());
-    const downloadLocalDictation = createLocalDictationDownloader({
-        downloadModel: downloadLocalParakeet,
-    });
-    ipcMain.handle("dictation:downloadLocalModel", (event) => {
-        if (!options.assertPrivilegedSender(event, "dictation:downloadLocalModel")) {
-            throw new Error("Blocked untrusted local dictation download request.");
-        }
-        return downloadLocalDictation();
-    });
-    ipcMain.handle("dictation:transcribeLocal", async (_event, payload) => {
-        const audioBase64 = payload?.audioBase64;
-        if (!audioBase64) {
-            throw new Error("Missing dictation audio.");
-        }
-        return transcribeWithLocalParakeet(audioBase64);
     });
     ipcMain.on("dictation:inAppStarted", (_event, payload) => {
         if (!payload?.startId)

@@ -31,7 +31,7 @@ import { withI18n } from "../../helpers/i18n";
 const fake = vi.hoisted(() => {
   type FakeCallbacks = {
     onStateChange?: (state: string, error?: string) => void;
-    onFinalTranscript?: (text: string, meta?: { partial?: boolean }) => void;
+    onFinalTranscript?: (text: string) => void;
     onLevel?: (level: number) => void;
   };
 
@@ -57,7 +57,7 @@ const fake = vi.hoisted(() => {
       const text = await new Promise<string>((resolve) => {
         this.finishTranscription = resolve;
       });
-      // Mirrors InworldDictationSession.stop(): "idle" is emitted first and
+      // Mirrors DictationSession.stop(): "idle" is emitted first and
       // the final transcript follows synchronously.
       this.state = "idle";
       this.callbacks.onStateChange?.("idle");
@@ -74,12 +74,10 @@ const fake = vi.hoisted(() => {
   return { control, FakeDictationSession };
 });
 
-vi.mock("@/features/dictation/services/inworld-dictation", () => ({
-  InworldDictationSession: fake.FakeDictationSession,
+vi.mock("@/features/dictation/services/dictation-session", () => ({
+  DictationSession: fake.FakeDictationSession,
   isDictationSuperFastEnabled: () => false,
-  probeLocalDictationInstallable: async () => false,
   ensureDictationSuperFastWarm: async () => undefined,
-  warmLocalDictationModel: async () => undefined,
 }));
 
 vi.mock("@/ui/toast", () => ({

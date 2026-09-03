@@ -317,15 +317,6 @@
         "label": "Dikteringsljud",
         "description": "Spelar upp ett ljud när dikteringen startar och stoppar."
       },
-      "enhance": {
-        "label": "Förbättra transkribering",
-        "description": "Snyggar till lokal dikteringstext med Mercury innan den infogas."
-      },
-      "localDictation": {
-        "label": "Transkribering på enheten",
-        "description": "Använder den lokala Parakeet-modellen i stället för Inworld. Detta kan använda mer minne på enklare Mac-datorer.",
-        "unavailableFallback": "Inte tillgänglig på den här Macen."
-      },
       "speaker": {
         "title": "Högtalare",
         "outputLabel": "Utdataenhet",
@@ -363,10 +354,9 @@
         "shortcuts": "Ändra kortkommandon för diktering och röst.",
         "account": "Logga ut, radera dina data eller radera ditt konto permanent.",
         "legal": "Användarvillkor och integritetspolicy.",
-        "microphone": "Välj inmatningsenhet, aktivera väckningsord, dikteringsljud och transkribering på enheten.",
         "speaker": "Välj högtalaren eller hörlurarna som Stellas röst spelas upp genom.",
         "wakeWord": "Lyssnar efter ”Hey Stella” och startar en röstkonversation.",
-        "onDeviceTranscription": "Använder den lokala Parakeet-modellen i stället för transkribering i molnet."
+        "microphone": "Vilken mikrofon ska Stella lyssna på?"
       }
     },
     "errors": {
@@ -1484,14 +1474,10 @@
       "stopAndTranscribeLabel": "Stoppa dikteringen och transkribera",
       "stopTranscribeSend": "Stoppa, transkribera och skicka",
       "stopTranscribeSendLabel": "Stoppa dikteringen, transkribera och skicka",
-      "localNotReadyTitle": "Lokal diktering är inte redo",
-      "localNotReadyBody": "Ladda ner röstfunktionen för att diktera på den här enheten, eller logga in för att använda transkribering i molnet.",
       "signInTitle": "Logga in för att använda diktering",
-      "signInBody": "Diktering kräver att du är inloggad på Stella när transkribering på enheten inte är tillgänglig. Logga in för att fortsätta.",
       "failedTitle": "Dikteringen fungerade inte",
       "failedBody": "Stella kunde inte transkribera det. Försök igen.",
-      "partialTitle": "En del av din diktering transkriberades",
-      "partialBody": "En del av inspelningen kunde inte transkriberas, så den infogade texten kan vara ofullständig."
+      "signInBody": "Logga in för att använda diktering"
     },
     "voice": {
       "signInTitle": "Logga in för att använda röst",

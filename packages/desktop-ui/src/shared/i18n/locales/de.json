@@ -317,15 +317,6 @@
         "label": "Diktat-Töne",
         "description": "Spielt einen Ton ab, wenn das Diktat startet und stoppt."
       },
-      "enhance": {
-        "label": "Transkription verbessern",
-        "description": "Bereinigt lokalen Diktattext mit Mercury, bevor er eingefügt wird."
-      },
-      "localDictation": {
-        "label": "Transkription auf dem Gerät",
-        "description": "Verwendet das lokale Parakeet-Modell statt Inworld. Das kann auf schwächeren Macs mehr Speicher beanspruchen.",
-        "unavailableFallback": "Auf diesem Mac nicht verfügbar."
-      },
       "speaker": {
         "title": "Lautsprecher",
         "outputLabel": "Ausgabegerät",
@@ -363,10 +354,9 @@
         "shortcuts": "Ändere die Tastenkürzel für Diktat und Sprache.",
         "account": "Abmelden, deine Daten löschen oder dein Konto dauerhaft löschen.",
         "legal": "Nutzungsbedingungen und Datenschutzrichtlinie.",
-        "microphone": "Wähle dein Eingabegerät, aktiviere das Aktivierungswort, Diktat-Töne und Transkription auf dem Gerät.",
         "speaker": "Wähle den Lautsprecher oder Kopfhörer, über den Stellas Stimme wiedergegeben wird.",
         "wakeWord": "Hört auf „Hey Stella“ und startet ein Sprachgespräch.",
-        "onDeviceTranscription": "Verwendet das lokale Parakeet-Modell statt der Cloud-Transkription."
+        "microphone": "Welches Mikrofon soll Stella verwenden?"
       }
     },
     "errors": {
@@ -1484,14 +1474,10 @@
       "stopAndTranscribeLabel": "Diktat stoppen und transkribieren",
       "stopTranscribeSend": "Stoppen, transkribieren und senden",
       "stopTranscribeSendLabel": "Diktat stoppen, transkribieren und senden",
-      "localNotReadyTitle": "Lokales Diktat ist nicht bereit",
-      "localNotReadyBody": "Lade die Sprachfunktion herunter, um auf diesem Gerät zu diktieren, oder melde dich an, um die Cloud-Transkription zu nutzen.",
       "signInTitle": "Melde dich an, um das Diktat zu nutzen",
-      "signInBody": "Für das Diktat musst du bei Stella angemeldet sein, wenn die Transkription auf dem Gerät nicht verfügbar ist. Melde dich an, um weiterzumachen.",
       "failedTitle": "Das Diktat hat nicht funktioniert",
       "failedBody": "Stella konnte das nicht transkribieren. Bitte versuch es erneut.",
-      "partialTitle": "Ein Teil deines Diktats wurde transkribiert",
-      "partialBody": "Ein Teil der Aufnahme konnte nicht transkribiert werden, der eingefügte Text ist daher möglicherweise unvollständig."
+      "signInBody": "Melde dich an, um das Diktat zu nutzen"
     },
     "voice": {
       "signInTitle": "Melde dich an, um die Sprachfunktion zu nutzen",

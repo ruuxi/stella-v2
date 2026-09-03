@@ -317,15 +317,6 @@
         "label": "Sunete de dictare",
         "description": "Redă un sunet când dictarea pornește și se oprește."
       },
-      "enhance": {
-        "label": "Îmbunătățește transcrierea",
-        "description": "Curăță textul dictării locale cu Mercury înainte de a-l insera."
-      },
-      "localDictation": {
-        "label": "Transcriere pe dispozitiv",
-        "description": "Folosește modelul local Parakeet în loc de Inworld. Acesta poate folosi mai multă memorie pe Mac-urile mai slabe.",
-        "unavailableFallback": "Indisponibil pe acest Mac."
-      },
       "speaker": {
         "title": "Difuzor",
         "outputLabel": "Dispozitiv de ieșire",
@@ -363,10 +354,9 @@
         "shortcuts": "Modifică scurtăturile pentru dictare și voce.",
         "account": "Deconectează-te, șterge-ți datele sau șterge-ți definitiv contul.",
         "legal": "Termeni și condiții și politică de confidențialitate.",
-        "microphone": "Alege dispozitivul de intrare, activează cuvântul de activare, sunetele de dictare și transcrierea pe dispozitiv.",
         "speaker": "Alege difuzorul sau căștile prin care se redă vocea Stellei.",
         "wakeWord": "Ascultă „Hey Stella” și pornește o conversație vocală.",
-        "onDeviceTranscription": "Folosește modelul local Parakeet în loc de transcrierea în cloud."
+        "microphone": "Ce microfon ar trebui să asculte Stella?"
       }
     },
     "errors": {
@@ -1493,14 +1483,10 @@
       "stopAndTranscribeLabel": "Oprește dictarea și transcrie",
       "stopTranscribeSend": "Oprește, transcrie și trimite",
       "stopTranscribeSendLabel": "Oprește dictarea, transcrie și trimite",
-      "localNotReadyTitle": "Dictarea locală nu este pregătită",
-      "localNotReadyBody": "Descarcă funcția de voce pentru a dicta pe acest dispozitiv sau conectează-te pentru a folosi transcrierea în cloud.",
       "signInTitle": "Conectează-te pentru a folosi dictarea",
-      "signInBody": "Dictarea are nevoie să fii conectat la Stella atunci când transcrierea pe dispozitiv nu este disponibilă. Conectează-te ca să continui.",
       "failedTitle": "Dictarea nu a funcționat",
       "failedBody": "Stella nu a putut transcrie asta. Încearcă din nou.",
-      "partialTitle": "O parte din dictarea ta a fost transcrisă",
-      "partialBody": "O parte din înregistrare nu a putut fi transcrisă, așa că textul inserat poate fi incomplet."
+      "signInBody": "Conectează-te pentru a folosi dictarea"
     },
     "voice": {
       "signInTitle": "Conectează-te pentru a folosi vocea",

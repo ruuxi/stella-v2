@@ -317,15 +317,6 @@
         "label": "Dikte sesleri",
         "description": "Dikte başladığında ve durduğunda bir ses çalar."
       },
-      "enhance": {
-        "label": "Yazıya dökmeyi iyileştir",
-        "description": "Yerel dikte metnini eklemeden önce Mercury ile temizler."
-      },
-      "localDictation": {
-        "label": "Cihazda yazıya dökme",
-        "description": "Inworld yerine yerel Parakeet modelini kullanır. Bu, düşük donanımlı Mac'lerde daha fazla bellek kullanabilir.",
-        "unavailableFallback": "Bu Mac'te kullanılamıyor."
-      },
       "speaker": {
         "title": "Hoparlör",
         "outputLabel": "Çıkış aygıtı",
@@ -363,10 +354,9 @@
         "shortcuts": "Dikte ve ses kısayollarını değiştirin.",
         "account": "Çıkış yapın, verilerinizi silin veya hesabınızı kalıcı olarak silin.",
         "legal": "Hizmet Koşulları ve Gizlilik Politikası.",
-        "microphone": "Giriş aygıtınızı seçin; uyandırma sözcüğünü, dikte seslerini ve cihazda yazıya dökmeyi etkinleştirin.",
         "speaker": "Stella'nın sesinin çalındığı hoparlörü veya kulaklığı seçin.",
         "wakeWord": "“Hey Stella” ifadesini dinler ve sesli bir konuşma başlatır.",
-        "onDeviceTranscription": "Bulut tabanlı yazıya dökme yerine yerel Parakeet modelini kullanır."
+        "microphone": "Stella hangi mikrofonu dinlemeli?"
       }
     },
     "errors": {
@@ -1484,14 +1474,10 @@
       "stopAndTranscribeLabel": "Dikteyi durdur ve yazıya dök",
       "stopTranscribeSend": "Durdur, yazıya dök ve gönder",
       "stopTranscribeSendLabel": "Dikteyi durdur, yazıya dök ve gönder",
-      "localNotReadyTitle": "Yerel dikte hazır değil",
-      "localNotReadyBody": "Bu cihazda dikte etmek için ses özelliğini indirin ya da bulut yazıya dökmeyi kullanmak için giriş yapın.",
       "signInTitle": "Dikteyi kullanmak için giriş yapın",
-      "signInBody": "Cihazda yazıya dökme kullanılamadığında dikte için Stella'ya giriş yapmış olmanız gerekir. Devam etmek için giriş yapın.",
       "failedTitle": "Dikte çalışmadı",
       "failedBody": "Stella bunu yazıya dökemedi. Lütfen tekrar deneyin.",
-      "partialTitle": "Diktenizin bir kısmı yazıya döküldü",
-      "partialBody": "Kaydın bir kısmı yazıya dökülemedi, bu yüzden eklenen metin eksik olabilir."
+      "signInBody": "Dikteyi kullanmak için giriş yapın"
     },
     "voice": {
       "signInTitle": "Sesi kullanmak için giriş yapın",

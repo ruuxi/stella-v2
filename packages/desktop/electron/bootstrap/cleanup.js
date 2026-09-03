@@ -1,6 +1,5 @@
 import { stopAllDesktopAutomationDaemons } from "../services/desktop-automation-cleanup.js";
 import { stopOrphanedStellaBrowserDaemons } from "../services/stella-browser-bridge-service.js";
-import { stopLocalParakeet } from "../dictation/local-parakeet.js";
 import { stopNativeHelperDaemons } from "../native-helper-daemon.js";
 import { stopOfficePreviewSessions } from "./office-preview-bridge.js";
 export const registerBootstrapProcessCleanups = (context) => {
@@ -75,9 +74,6 @@ export const registerBootstrapProcessCleanups = (context) => {
     // sockets so the next launch starts clean.
     processRuntime.registerCleanup("before-quit", "desktop-automation-daemon", async () => {
         await stopAllDesktopAutomationDaemons();
-    });
-    processRuntime.registerCleanup("before-quit", "local-parakeet", () => {
-        stopLocalParakeet();
     });
     // Long-lived `--serve` helper daemons (window_info, recent_apps). Kill them
     // on quit so a rebuilt binary is picked up next launch and no orphan lingers.

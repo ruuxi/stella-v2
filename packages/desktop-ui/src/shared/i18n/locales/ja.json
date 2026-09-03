@@ -317,15 +317,6 @@
         "label": "音声入力のサウンド",
         "description": "音声入力の開始時と停止時にサウンドを再生します。"
       },
-      "enhance": {
-        "label": "文字起こしを強化",
-        "description": "ローカルの音声入力テキストを挿入する前に Mercury で整えます。"
-      },
-      "localDictation": {
-        "label": "デバイス上の文字起こし",
-        "description": "Inworld の代わりにローカルの Parakeet モデルを使用します。低スペックの Mac ではメモリ使用量が増える場合があります。",
-        "unavailableFallback": "この Mac では利用できません。"
-      },
       "speaker": {
         "title": "スピーカー",
         "outputLabel": "出力デバイス",
@@ -363,10 +354,9 @@
         "shortcuts": "音声入力と音声のショートカットを変更します。",
         "account": "サインアウト、データの削除、またはアカウントの完全な削除を行います。",
         "legal": "利用規約とプライバシーポリシー。",
-        "microphone": "入力デバイスを選択し、ウェイクワード・音声入力のサウンド・デバイス上の文字起こしを有効にします。",
         "speaker": "Stella の声を再生するスピーカーまたはヘッドフォンを選びます。",
         "wakeWord": "「Hey Stella」を待ち受けて音声会話を開始します。",
-        "onDeviceTranscription": "クラウドの文字起こしの代わりにローカルの Parakeet モデルを使用します。"
+        "microphone": "Stella はどのマイクを使用しますか？"
       }
     },
     "errors": {
@@ -1475,14 +1465,10 @@
       "stopAndTranscribeLabel": "音声入力を停止して文字起こし",
       "stopTranscribeSend": "停止して文字起こしし、送信",
       "stopTranscribeSendLabel": "音声入力を停止して文字起こしし、送信",
-      "localNotReadyTitle": "ローカルの音声入力は準備できていません",
-      "localNotReadyBody": "このデバイスで音声入力するには音声機能をダウンロードするか、サインインしてクラウドの文字起こしをご利用ください。",
       "signInTitle": "音声入力を使うにはサインインしてください",
-      "signInBody": "デバイス上の文字起こしが使えない場合、音声入力には Stella へのサインインが必要です。サインインして続けてください。",
       "failedTitle": "音声入力できませんでした",
       "failedBody": "Stella はそれを文字起こしできませんでした。もう一度お試しください。",
-      "partialTitle": "音声入力の一部だけが文字起こしされました",
-      "partialBody": "録音の一部を文字起こしできなかったため、挿入されたテキストは不完全な可能性があります。"
+      "signInBody": "音声入力を使うにはサインインしてください"
     },
     "voice": {
       "signInTitle": "音声を使うにはサインインしてください",

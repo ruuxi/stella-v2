@@ -7,7 +7,7 @@
  * using that constant — never raw strings.
  */
 import type { UiState } from "./ui";
-import type { Theme } from "@/shared/theme/themes/types";
+import type { Theme } from "@stella/theme";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
@@ -453,33 +453,6 @@ export type ElectronDictationApi = {
   getSoundEffectsEnabled: () => Promise<boolean>;
   /** Enable or disable dictation start/stop sound effects. */
   setSoundEffectsEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
-  localStatus: () => Promise<{
-    available: boolean;
-    model: string;
-    reason?: string;
-    /**
-     * Whether on-device dictation can actually run on this machine — the native
-     * helper is present so a model download can make it available. False on
-     * platforms/builds where the helper isn't shipped (e.g. Windows today), so
-     * the UI must not offer a "Download voice feature" affordance that can't
-     * succeed and should stay on cloud transcription instead.
-     */
-    installable?: boolean;
-  }>;
-  downloadLocalModel: () => Promise<{
-    available: boolean;
-    model: string;
-    reason?: string;
-  }>;
-  warmLocal: () => Promise<{
-    available: boolean;
-    model: string;
-    reason?: string;
-  }>;
-  transcribeLocal: (payload: { audioBase64: string }) => Promise<{
-    transcript: string;
-    model: string;
-  }>;
   onOverlayStart: (
     callback: (data: { sessionId: string }) => void,
   ) => () => void;

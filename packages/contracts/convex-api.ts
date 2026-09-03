@@ -84,14 +84,14 @@ export type PublicApiType = {
     "publishMyAppOperations": FunctionReference<'mutation', 'public', { appId: string; manifestJson: string; }, any, string | undefined>;
     "listPendingOpInvocations": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
     "claimOpInvocation": FunctionReference<'mutation', 'public', { invocationId: string; }, any, string | undefined>;
-    "completeOpInvocation": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorMessage?: string | undefined; invocationId: string; ok: boolean; }, any, string | undefined>;
+    "completeOpInvocation": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorMessage?: string | undefined; ok: boolean; invocationId: string; }, any, string | undefined>;
   };
   "cloud_browser": {
     "listMyPendingBrowserInteractions": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getMyBrowserInteraction": FunctionReference<'action', 'public', { interactionId: string; }, any, string | undefined>;
     "mintMyBrowserLiveViewCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
     "mintMyBrowserSessionTransferCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
-    "importMyBrowserSessionTransfer": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; transfer: { schemaVersion: 1; algorithm: 'x25519-hkdf-sha256-aes-256-gcm-v1'; capabilityId: string; clientPublicKey: string; iv: string; ciphertext: string; }; }, any, string | undefined>;
+    "importMyBrowserSessionTransfer": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; transfer: { schemaVersion: 1; capabilityId: string; algorithm: 'x25519-hkdf-sha256-aes-256-gcm-v1'; clientPublicKey: string; iv: string; ciphertext: string; }; }, any, string | undefined>;
     "decideMyBrowserInteraction": FunctionReference<'action', 'public', { requestId: string; interactionId: string; decision: 'done' | 'cancel'; expectedRevision: number; }, any, string | undefined>;
     "resetMyBrowserProfile": FunctionReference<'action', 'public', { requestId: string; }, any, string | undefined>;
   };
@@ -221,6 +221,9 @@ export type PublicApiType = {
       "createSecret": FunctionReference<'mutation', 'public', { metadata?: Value | undefined; provider: string; label: string; plaintext: string; }, any, string | undefined>;
       "listSecrets": FunctionReference<'query', 'public', { provider?: string | undefined; }, any, string | undefined>;
       "deleteSecret": FunctionReference<'mutation', 'public', { secretId: Id<'secrets'>; }, any, string | undefined>;
+    };
+    "x_bot": {
+      "listXBotRunsByHandle": FunctionReference<'query', 'public', { handle: string; }, any, string | undefined>;
     };
   };
   "device_identity": {

@@ -1345,6 +1345,10 @@
         "videoToVideo": {
           "description": "Transforma un vídeo con instrucciones de texto",
           "name": "De vídeo a vídeo"
+        },
+        "referenceToVideo": {
+          "description": "Genera un vídeo a partir de referencias de imagen, vídeo y audio",
+          "name": "De referencia a vídeo"
         }
       },
       "imageFailure": {
@@ -1383,8 +1387,6 @@
         "generationFailed": "Error de generación",
         "lead": "Crea imágenes, audio, música, vídeo y 3D.",
         "openOutputsFolder": "Abrir la carpeta de resultados",
-        "profileBest": "Mejor",
-        "profileFast": "Rápido",
         "prompt": "Prompt",
         "promptPlaceholder": "Describe lo que quieres…",
         "quality": "Calidad",
@@ -1395,7 +1397,10 @@
         "sourceVideo": "Vídeo de origen",
         "submitting": "Enviando…",
         "title": "Multimedia",
-        "transformVideo": "Transformar vídeo"
+        "transformVideo": "Transformar vídeo",
+        "qualityHigh": "Alta",
+        "qualityMedium": "Media",
+        "qualityLow": "Baja"
       }
     }
   },
@@ -1797,7 +1802,8 @@
       "nicknameDescription": "Elige un nombre para que Stella lo use en toda la app.",
       "nicknameLabel": "Apodo",
       "nicknamePlaceholder": "Tu apodo",
-      "notNow": "Ahora no"
+      "notNow": "Ahora no",
+      "emailNotSupported": "Ese proveedor de correo no está admitido. Usa otra dirección."
     },
     "legal": {
       "terms": {
@@ -1886,7 +1892,10 @@
       "chat": "Chat",
       "settings": "Ajustes",
       "openLabel": "Abrir la navegación",
-      "closeLabel": "Cerrar la navegación"
+      "closeLabel": "Cerrar la navegación",
+      "account": "Cuenta",
+      "signIn": "Iniciar sesión",
+      "backToChat": "Volver al chat"
     },
     "search": {
       "placeholder": "Buscar mensajes",
@@ -1935,7 +1944,8 @@
       "legalConjunction": " y la ",
       "legalPrivacy": "Política de privacidad",
       "legalSuffix": ".",
-      "continueAsGuest": "Continuar sin iniciar sesión"
+      "continueAsGuest": "Continuar sin iniciar sesión",
+      "emailNotSupported": "Ese proveedor de correo no está admitido. Usa otra dirección."
     },
     "chat": {
       "emptyPrompt": "Pregúntale lo que sea a Stella",
@@ -2006,7 +2016,8 @@
       "statusAsleep": "En reposo",
       "connectingLabel": "Conectando con tu ordenador",
       "connectedLabel": "Ordenador conectado",
-      "disconnectedLabel": "Ordenador desconectado"
+      "disconnectedLabel": "Ordenador desconectado",
+      "pairLabel": "Vincular un ordenador"
     },
     "desktop": {
       "pairTitle": "Vincula tu móvil",
@@ -2162,6 +2173,21 @@
       "clearLabel": "Borrar el diagnóstico",
       "empty": "Todavía no hay diagnósticos de CarPlay registrados. Conéctate a CarPlay una vez y vuelve aquí.",
       "clipboardEmpty": "(no hay diagnósticos de CarPlay registrados)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} en curso",
+        "one": "{count} en curso",
+        "many": "{count} en curso"
+      },
+      "openLabel": "Mostrar actividad"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Buscar actividad y archivos",
+      "signedOutHint": "Inicia sesión para ver en qué está trabajando Stella en segundo plano."
+    },
+    "account": {
+      "title": "Cuenta"
     }
   }
 }

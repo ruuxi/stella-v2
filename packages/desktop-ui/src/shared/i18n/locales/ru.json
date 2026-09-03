@@ -1353,6 +1353,10 @@
         "videoToVideo": {
           "description": "Преобразование видео текстовыми инструкциями",
           "name": "Видео в видео"
+        },
+        "referenceToVideo": {
+          "description": "Создайте видео по изображениям, видео и аудиореференсам",
+          "name": "Из референса в видео"
         }
       },
       "imageFailure": {
@@ -1391,8 +1395,6 @@
         "generationFailed": "Не удалось создать",
         "lead": "Создавайте изображения, звук, музыку, видео и 3D.",
         "openOutputsFolder": "Открыть папку результатов",
-        "profileBest": "Лучшее",
-        "profileFast": "Быстро",
         "prompt": "Запрос",
         "promptPlaceholder": "Опишите, что хотите получить…",
         "quality": "Качество",
@@ -1403,7 +1405,10 @@
         "sourceVideo": "Исходное видео",
         "submitting": "Отправка…",
         "title": "Медиа",
-        "transformVideo": "Преобразовать видео"
+        "transformVideo": "Преобразовать видео",
+        "qualityHigh": "Высокое",
+        "qualityMedium": "Среднее",
+        "qualityLow": "Низкое"
       }
     }
   },
@@ -1814,7 +1819,8 @@
       "nicknameDescription": "Выберите имя, которое Stella будет использовать в приложении.",
       "nicknameLabel": "Псевдоним",
       "nicknamePlaceholder": "Ваш псевдоним",
-      "notNow": "Не сейчас"
+      "notNow": "Не сейчас",
+      "emailNotSupported": "Этот почтовый провайдер не поддерживается. Используйте другой адрес."
     },
     "legal": {
       "terms": {
@@ -1904,7 +1910,10 @@
       "chat": "Чат",
       "settings": "Настройки",
       "openLabel": "Открыть навигацию",
-      "closeLabel": "Закрыть навигацию"
+      "closeLabel": "Закрыть навигацию",
+      "account": "Аккаунт",
+      "signIn": "Войти",
+      "backToChat": "Назад к чату"
     },
     "search": {
       "placeholder": "Поиск по сообщениям",
@@ -1953,7 +1962,8 @@
       "legalConjunction": " и ",
       "legalPrivacy": "Политику конфиденциальности",
       "legalSuffix": ".",
-      "continueAsGuest": "Продолжить без входа"
+      "continueAsGuest": "Продолжить без входа",
+      "emailNotSupported": "Этот почтовый провайдер не поддерживается. Используйте другой адрес."
     },
     "chat": {
       "emptyPrompt": "Спросите у Stella что угодно",
@@ -2025,7 +2035,8 @@
       "statusAsleep": "Спит",
       "connectingLabel": "Подключение к вашему компьютеру",
       "connectedLabel": "Компьютер подключён",
-      "disconnectedLabel": "Компьютер отключён"
+      "disconnectedLabel": "Компьютер отключён",
+      "pairLabel": "Привязать компьютер"
     },
     "desktop": {
       "pairTitle": "Свяжите телефон",
@@ -2182,6 +2193,22 @@
       "clearLabel": "Очистить диагностику",
       "empty": "Диагностика CarPlay ещё не записана. Подключитесь один раз к CarPlay, а потом вернитесь сюда.",
       "clipboardEmpty": "(диагностика CarPlay не записана)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} в работе",
+        "one": "{count} в работе",
+        "few": "{count} в работе",
+        "many": "{count} в работе"
+      },
+      "openLabel": "Показать активность"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Поиск по активности и файлам",
+      "signedOutHint": "Войдите, чтобы видеть, чем Stella занимается в фоне."
+    },
+    "account": {
+      "title": "Аккаунт"
     }
   }
 }

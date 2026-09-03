@@ -1329,6 +1329,10 @@
         "videoToVideo": {
           "description": "텍스트 지시로 동영상 변환",
           "name": "동영상에서 동영상"
+        },
+        "referenceToVideo": {
+          "description": "이미지, 동영상, 오디오 참조로 동영상을 생성합니다",
+          "name": "참조에서 동영상으로"
         }
       },
       "imageFailure": {
@@ -1367,8 +1371,6 @@
         "generationFailed": "생성 실패",
         "lead": "이미지, 오디오, 음악, 동영상, 3D를 만들어 보세요.",
         "openOutputsFolder": "출력 폴더 열기",
-        "profileBest": "최고 품질",
-        "profileFast": "빠름",
         "prompt": "프롬프트",
         "promptPlaceholder": "원하는 것을 설명하세요…",
         "quality": "품질",
@@ -1379,7 +1381,10 @@
         "sourceVideo": "원본 동영상",
         "submitting": "제출 중…",
         "title": "미디어",
-        "transformVideo": "동영상 변환"
+        "transformVideo": "동영상 변환",
+        "qualityHigh": "높음",
+        "qualityMedium": "보통",
+        "qualityLow": "낮음"
       }
     }
   },
@@ -1761,7 +1766,8 @@
       "nicknameDescription": "Stella가 앱 전반에서 사용할 이름을 정하세요.",
       "nicknameLabel": "별명",
       "nicknamePlaceholder": "내 별명",
-      "notNow": "나중에"
+      "notNow": "나중에",
+      "emailNotSupported": "이 이메일 제공업체는 지원되지 않습니다. 다른 주소를 사용하세요."
     },
     "legal": {
       "terms": {
@@ -1848,7 +1854,10 @@
       "chat": "채팅",
       "settings": "설정",
       "openLabel": "탐색 열기",
-      "closeLabel": "탐색 닫기"
+      "closeLabel": "탐색 닫기",
+      "account": "계정",
+      "signIn": "로그인",
+      "backToChat": "채팅으로 돌아가기"
     },
     "search": {
       "placeholder": "메시지 검색",
@@ -1897,7 +1906,8 @@
       "legalConjunction": " 및 ",
       "legalPrivacy": "개인정보 처리방침",
       "legalSuffix": "에 동의하는 것으로 간주됩니다.",
-      "continueAsGuest": "로그인하지 않고 계속"
+      "continueAsGuest": "로그인하지 않고 계속",
+      "emailNotSupported": "이 이메일 제공업체는 지원되지 않습니다. 다른 주소를 사용하세요."
     },
     "chat": {
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
@@ -1966,7 +1976,8 @@
       "statusAsleep": "잠자기",
       "connectingLabel": "컴퓨터에 연결 중",
       "connectedLabel": "컴퓨터 연결됨",
-      "disconnectedLabel": "컴퓨터 연결 끊김"
+      "disconnectedLabel": "컴퓨터 연결 끊김",
+      "pairLabel": "컴퓨터 연결"
     },
     "desktop": {
       "pairTitle": "휴대폰 페어링",
@@ -2120,6 +2131,19 @@
       "clearLabel": "진단 지우기",
       "empty": "아직 기록된 CarPlay 진단이 없습니다. CarPlay에 한 번 연결한 뒤 다시 여기로 오세요.",
       "clipboardEmpty": "(기록된 CarPlay 진단 없음)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count}개 진행 중"
+      },
+      "openLabel": "활동 보기"
+    },
+    "sidebar": {
+      "searchPlaceholder": "활동 및 파일 검색",
+      "signedOutHint": "로그인하면 Stella가 백그라운드에서 진행 중인 작업을 볼 수 있습니다."
+    },
+    "account": {
+      "title": "계정"
     }
   }
 }

@@ -1329,6 +1329,10 @@
         "videoToVideo": {
           "description": "テキストの指示で動画を変換",
           "name": "動画から動画"
+        },
+        "referenceToVideo": {
+          "description": "画像・動画・音声の参照から動画を生成します",
+          "name": "参照から動画"
         }
       },
       "imageFailure": {
@@ -1367,8 +1371,6 @@
         "generationFailed": "生成に失敗しました",
         "lead": "画像・オーディオ・音楽・動画・3D を作成します。",
         "openOutputsFolder": "出力フォルダを開く",
-        "profileBest": "高品質",
-        "profileFast": "高速",
         "prompt": "プロンプト",
         "promptPlaceholder": "作りたいものを説明してください…",
         "quality": "品質",
@@ -1379,7 +1381,10 @@
         "sourceVideo": "ソース動画",
         "submitting": "送信中…",
         "title": "メディア",
-        "transformVideo": "動画を変換"
+        "transformVideo": "動画を変換",
+        "qualityHigh": "高",
+        "qualityMedium": "中",
+        "qualityLow": "低"
       }
     }
   },
@@ -1761,7 +1766,8 @@
       "nicknameDescription": "Stella がアプリ全体で使う名前を決めてください。",
       "nicknameLabel": "ニックネーム",
       "nicknamePlaceholder": "あなたのニックネーム",
-      "notNow": "今はしない"
+      "notNow": "今はしない",
+      "emailNotSupported": "このメールプロバイダはサポートされていません。別のアドレスを使ってください。"
     },
     "legal": {
       "terms": {
@@ -1848,7 +1854,10 @@
       "chat": "チャット",
       "settings": "設定",
       "openLabel": "ナビゲーションを開く",
-      "closeLabel": "ナビゲーションを閉じる"
+      "closeLabel": "ナビゲーションを閉じる",
+      "account": "アカウント",
+      "signIn": "サインイン",
+      "backToChat": "チャットに戻る"
     },
     "search": {
       "placeholder": "メッセージを検索",
@@ -1897,7 +1906,8 @@
       "legalConjunction": "および",
       "legalPrivacy": "プライバシーポリシー",
       "legalSuffix": "に同意したものとみなされます。",
-      "continueAsGuest": "サインインせずに続ける"
+      "continueAsGuest": "サインインせずに続ける",
+      "emailNotSupported": "このメールプロバイダはサポートされていません。別のアドレスを使ってください。"
     },
     "chat": {
       "emptyPrompt": "Stella に何でも聞いてください",
@@ -1966,7 +1976,8 @@
       "statusAsleep": "スリープ中",
       "connectingLabel": "コンピュータに接続しています",
       "connectedLabel": "コンピュータに接続しました",
-      "disconnectedLabel": "コンピュータの接続が切れました"
+      "disconnectedLabel": "コンピュータの接続が切れました",
+      "pairLabel": "コンピュータをペアリング"
     },
     "desktop": {
       "pairTitle": "携帯をペアリング",
@@ -2120,6 +2131,19 @@
       "clearLabel": "診断をクリア",
       "empty": "CarPlay の診断はまだ記録されていません。一度 CarPlay に接続してから、ここに戻ってきてください。",
       "clipboardEmpty": "（CarPlay の診断は記録されていません）"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count}件進行中"
+      },
+      "openLabel": "アクティビティを表示"
+    },
+    "sidebar": {
+      "searchPlaceholder": "アクティビティとファイルを検索",
+      "signedOutHint": "サインインすると、Stellaがバックグラウンドで進めている作業を確認できます。"
+    },
+    "account": {
+      "title": "アカウント"
     }
   }
 }

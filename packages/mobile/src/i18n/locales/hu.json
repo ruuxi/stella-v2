@@ -1337,6 +1337,10 @@
         "videoToVideo": {
           "description": "Videó átalakítása szöveges utasításokkal",
           "name": "Videóból videó"
+        },
+        "referenceToVideo": {
+          "description": "Készíts videót kép-, videó- és hangreferenciákból",
+          "name": "Referenciából videó"
         }
       },
       "imageFailure": {
@@ -1375,8 +1379,6 @@
         "generationFailed": "A generálás sikertelen",
         "lead": "Készíts képeket, hangot, zenét, videót és 3D-t.",
         "openOutputsFolder": "Kimeneti mappa megnyitása",
-        "profileBest": "Legjobb",
-        "profileFast": "Gyors",
         "prompt": "Prompt",
         "promptPlaceholder": "Írd le, mit szeretnél…",
         "quality": "Minőség",
@@ -1387,7 +1389,10 @@
         "sourceVideo": "Forrásvideó",
         "submitting": "Elküldés…",
         "title": "Média",
-        "transformVideo": "Videó átalakítása"
+        "transformVideo": "Videó átalakítása",
+        "qualityHigh": "Magas",
+        "qualityMedium": "Közepes",
+        "qualityLow": "Alacsony"
       }
     }
   },
@@ -1780,7 +1785,8 @@
       "nicknameDescription": "Válassz nevet, amelyet a Stella az egész alkalmazásban használ.",
       "nicknameLabel": "Becenév",
       "nicknamePlaceholder": "A beceneved",
-      "notNow": "Most nem"
+      "notNow": "Most nem",
+      "emailNotSupported": "Ez az e-mail-szolgáltató nem támogatott. Használj másik címet."
     },
     "legal": {
       "terms": {
@@ -1868,7 +1874,10 @@
       "chat": "Csevegés",
       "settings": "Beállítások",
       "openLabel": "Navigáció megnyitása",
-      "closeLabel": "Navigáció bezárása"
+      "closeLabel": "Navigáció bezárása",
+      "account": "Fiók",
+      "signIn": "Bejelentkezés",
+      "backToChat": "Vissza a csevegéshez"
     },
     "search": {
       "placeholder": "Keresés az üzenetekben",
@@ -1917,7 +1926,8 @@
       "legalConjunction": " és az ",
       "legalPrivacy": "Adatvédelmi szabályzatot",
       "legalSuffix": ".",
-      "continueAsGuest": "Folytatás bejelentkezés nélkül"
+      "continueAsGuest": "Folytatás bejelentkezés nélkül",
+      "emailNotSupported": "Ez az e-mail-szolgáltató nem támogatott. Használj másik címet."
     },
     "chat": {
       "emptyPrompt": "Kérdezz bármit a Stellától",
@@ -1987,7 +1997,8 @@
       "statusAsleep": "Alvó állapotban",
       "connectingLabel": "Csatlakozás a számítógépedhez",
       "connectedLabel": "Számítógép csatlakoztatva",
-      "disconnectedLabel": "Számítógép leválasztva"
+      "disconnectedLabel": "Számítógép leválasztva",
+      "pairLabel": "Számítógép párosítása"
     },
     "desktop": {
       "pairTitle": "Párosítsd a telefonod",
@@ -2142,6 +2153,20 @@
       "clearLabel": "Diagnosztika törlése",
       "empty": "Még nincs rögzített CarPlay-diagnosztika. Csatlakozz egyszer a CarPlayhez, majd gyere vissza ide.",
       "clipboardEmpty": "(nincs rögzített CarPlay-diagnosztika)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} folyamatban",
+        "one": "{count} folyamatban"
+      },
+      "openLabel": "Tevékenység megjelenítése"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Keresés a tevékenységben és a fájlokban",
+      "signedOutHint": "Jelentkezz be, hogy lásd, min dolgozik a Stella a háttérben."
+    },
+    "account": {
+      "title": "Fiók"
     }
   }
 }

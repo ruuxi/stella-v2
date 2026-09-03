@@ -1329,6 +1329,10 @@
         "videoToVideo": {
           "description": "Ubah video dengan instruksi teks",
           "name": "Video ke Video"
+        },
+        "referenceToVideo": {
+          "description": "Buat video dari referensi gambar, video, dan audio",
+          "name": "Referensi ke video"
         }
       },
       "imageFailure": {
@@ -1367,8 +1371,6 @@
         "generationFailed": "Pembuatan gagal",
         "lead": "Buat gambar, audio, musik, video, dan 3D.",
         "openOutputsFolder": "Buka folder keluaran",
-        "profileBest": "Terbaik",
-        "profileFast": "Cepat",
         "prompt": "Prompt",
         "promptPlaceholder": "Jelaskan apa yang Anda inginkan…",
         "quality": "Kualitas",
@@ -1379,7 +1381,10 @@
         "sourceVideo": "Video sumber",
         "submitting": "Mengirim…",
         "title": "Media",
-        "transformVideo": "Ubah video"
+        "transformVideo": "Ubah video",
+        "qualityHigh": "Tinggi",
+        "qualityMedium": "Sedang",
+        "qualityLow": "Rendah"
       }
     }
   },
@@ -1761,7 +1766,8 @@
       "nicknameDescription": "Pilih nama yang akan dipakai Stella di seluruh aplikasi.",
       "nicknameLabel": "Nama panggilan",
       "nicknamePlaceholder": "Nama panggilan Anda",
-      "notNow": "Nanti saja"
+      "notNow": "Nanti saja",
+      "emailNotSupported": "Penyedia email itu tidak didukung. Gunakan alamat lain."
     },
     "legal": {
       "terms": {
@@ -1848,7 +1854,10 @@
       "chat": "Obrolan",
       "settings": "Pengaturan",
       "openLabel": "Buka navigasi",
-      "closeLabel": "Tutup navigasi"
+      "closeLabel": "Tutup navigasi",
+      "account": "Akun",
+      "signIn": "Masuk",
+      "backToChat": "Kembali ke obrolan"
     },
     "search": {
       "placeholder": "Cari pesan",
@@ -1897,7 +1906,8 @@
       "legalConjunction": " dan ",
       "legalPrivacy": "Kebijakan Privasi",
       "legalSuffix": " kami.",
-      "continueAsGuest": "Lanjutkan tanpa masuk"
+      "continueAsGuest": "Lanjutkan tanpa masuk",
+      "emailNotSupported": "Penyedia email itu tidak didukung. Gunakan alamat lain."
     },
     "chat": {
       "emptyPrompt": "Tanya Stella apa saja",
@@ -1966,7 +1976,8 @@
       "statusAsleep": "Tidur",
       "connectingLabel": "Menghubungkan ke komputer Anda",
       "connectedLabel": "Komputer terhubung",
-      "disconnectedLabel": "Komputer terputus"
+      "disconnectedLabel": "Komputer terputus",
+      "pairLabel": "Pasangkan komputer"
     },
     "desktop": {
       "pairTitle": "Pasangkan ponsel Anda",
@@ -2120,6 +2131,19 @@
       "clearLabel": "Bersihkan diagnostik",
       "empty": "Belum ada diagnostik CarPlay yang terekam. Hubungkan ke CarPlay sekali, lalu kembali ke sini.",
       "clipboardEmpty": "(tidak ada diagnostik CarPlay yang terekam)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} sedang berjalan"
+      },
+      "openLabel": "Tampilkan aktivitas"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Cari aktivitas dan file",
+      "signedOutHint": "Masuk untuk melihat apa yang dikerjakan Stella di latar belakang."
+    },
+    "account": {
+      "title": "Akun"
     }
   }
 }

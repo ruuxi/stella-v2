@@ -1369,6 +1369,10 @@
         "videoToVideo": {
           "description": "حوّل فيديو بتعليمات نصية",
           "name": "من فيديو إلى فيديو"
+        },
+        "referenceToVideo": {
+          "description": "أنشئ فيديو من مراجع صور وفيديو وصوت",
+          "name": "من مرجع إلى فيديو"
         }
       },
       "imageFailure": {
@@ -1407,8 +1411,6 @@
         "generationFailed": "فشل التوليد",
         "lead": "أنشئ صورًا وصوتًا وموسيقى وفيديو ونماذج ثلاثية الأبعاد.",
         "openOutputsFolder": "افتح مجلد المخرجات",
-        "profileBest": "الأفضل",
-        "profileFast": "سريع",
         "prompt": "المطالبة",
         "promptPlaceholder": "صِف ما تريده…",
         "quality": "الجودة",
@@ -1419,7 +1421,10 @@
         "sourceVideo": "الفيديو المصدر",
         "submitting": "جارٍ الإرسال…",
         "title": "الوسائط",
-        "transformVideo": "حوّل الفيديو"
+        "transformVideo": "حوّل الفيديو",
+        "qualityHigh": "عالية",
+        "qualityMedium": "متوسطة",
+        "qualityLow": "منخفضة"
       }
     }
   },
@@ -1848,7 +1853,8 @@
       "nicknameDescription": "اختر اسمًا تستخدمه Stella في كل أنحاء التطبيق.",
       "nicknameLabel": "الاسم المستعار",
       "nicknamePlaceholder": "اسمك المستعار",
-      "notNow": "ليس الآن"
+      "notNow": "ليس الآن",
+      "emailNotSupported": "مزود البريد هذا غير مدعوم. استخدم عنواناً آخر."
     },
     "legal": {
       "terms": {
@@ -1940,7 +1946,10 @@
       "chat": "الدردشة",
       "settings": "الإعدادات",
       "openLabel": "فتح التنقل",
-      "closeLabel": "إغلاق التنقل"
+      "closeLabel": "إغلاق التنقل",
+      "account": "الحساب",
+      "signIn": "تسجيل الدخول",
+      "backToChat": "العودة إلى المحادثة"
     },
     "search": {
       "placeholder": "البحث في الرسائل",
@@ -1989,7 +1998,8 @@
       "legalConjunction": " و",
       "legalPrivacy": "سياسة الخصوصية",
       "legalSuffix": ".",
-      "continueAsGuest": "المتابعة دون تسجيل الدخول"
+      "continueAsGuest": "المتابعة دون تسجيل الدخول",
+      "emailNotSupported": "مزود البريد هذا غير مدعوم. استخدم عنواناً آخر."
     },
     "chat": {
       "emptyPrompt": "اسأل Stella عن أي شيء",
@@ -2062,7 +2072,8 @@
       "statusAsleep": "في وضع السكون",
       "connectingLabel": "جارٍ الاتصال بكمبيوترك",
       "connectedLabel": "تم الاتصال بالكمبيوتر",
-      "disconnectedLabel": "انقطع الاتصال بالكمبيوتر"
+      "disconnectedLabel": "انقطع الاتصال بالكمبيوتر",
+      "pairLabel": "اربط جهاز كمبيوتر"
     },
     "desktop": {
       "pairTitle": "إقران هاتفك",
@@ -2221,6 +2232,23 @@
       "clearLabel": "مسح التشخيصات",
       "empty": "لم تُسجَّل أي تشخيصات لـ CarPlay بعد. اتصل بـ CarPlay مرة واحدة ثم عُد إلى هنا.",
       "clipboardEmpty": "(لم تُسجَّل أي تشخيصات لـ CarPlay)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} قيد التنفيذ",
+        "one": "{count} قيد التنفيذ",
+        "few": "{count} قيد التنفيذ",
+        "many": "{count} قيد التنفيذ",
+        "two": "{count} قيد التنفيذ"
+      },
+      "openLabel": "عرض النشاط"
+    },
+    "sidebar": {
+      "searchPlaceholder": "ابحث في النشاط والملفات",
+      "signedOutHint": "سجّل الدخول لترى ما تعمل عليه Stella في الخلفية."
+    },
+    "account": {
+      "title": "الحساب"
     }
   }
 }

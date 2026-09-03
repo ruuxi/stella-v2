@@ -1337,6 +1337,10 @@
         "videoToVideo": {
           "description": "Omdan en video med tekstinstruktioner",
           "name": "Video til video"
+        },
+        "referenceToVideo": {
+          "description": "Generer en video ud fra billed-, video- og lydreferencer",
+          "name": "Reference til video"
         }
       },
       "imageFailure": {
@@ -1375,8 +1379,6 @@
         "generationFailed": "Genereringen mislykkedes",
         "lead": "Lav billeder, lyd, musik, video og 3D.",
         "openOutputsFolder": "Åbn outputmappen",
-        "profileBest": "Bedst",
-        "profileFast": "Hurtig",
         "prompt": "Prompt",
         "promptPlaceholder": "Beskriv, hvad du gerne vil have…",
         "quality": "Kvalitet",
@@ -1387,7 +1389,10 @@
         "sourceVideo": "Kildevideo",
         "submitting": "Sender…",
         "title": "Medier",
-        "transformVideo": "Omdan video"
+        "transformVideo": "Omdan video",
+        "qualityHigh": "Høj",
+        "qualityMedium": "Mellem",
+        "qualityLow": "Lav"
       }
     }
   },
@@ -1780,7 +1785,8 @@
       "nicknameDescription": "Vælg et navn, som Stella kan bruge i hele appen.",
       "nicknameLabel": "Kaldenavn",
       "nicknamePlaceholder": "Dit kaldenavn",
-      "notNow": "Ikke nu"
+      "notNow": "Ikke nu",
+      "emailNotSupported": "Den e-mailudbyder understøttes ikke. Brug en anden adresse."
     },
     "legal": {
       "terms": {
@@ -1868,7 +1874,10 @@
       "chat": "Chat",
       "settings": "Indstillinger",
       "openLabel": "Åbn navigationen",
-      "closeLabel": "Luk navigationen"
+      "closeLabel": "Luk navigationen",
+      "account": "Konto",
+      "signIn": "Log ind",
+      "backToChat": "Tilbage til chat"
     },
     "search": {
       "placeholder": "Søg i beskeder",
@@ -1917,7 +1926,8 @@
       "legalConjunction": " og ",
       "legalPrivacy": "Privatlivspolitik",
       "legalSuffix": ".",
-      "continueAsGuest": "Fortsæt uden at logge ind"
+      "continueAsGuest": "Fortsæt uden at logge ind",
+      "emailNotSupported": "Den e-mailudbyder understøttes ikke. Brug en anden adresse."
     },
     "chat": {
       "emptyPrompt": "Spørg Stella om hvad som helst",
@@ -1988,7 +1998,8 @@
       "statusAsleep": "På vågeblus",
       "connectingLabel": "Opretter forbindelse til din computer",
       "connectedLabel": "Computer tilsluttet",
-      "disconnectedLabel": "Computer afbrudt"
+      "disconnectedLabel": "Computer afbrudt",
+      "pairLabel": "Par en computer"
     },
     "desktop": {
       "pairTitle": "Par din telefon",
@@ -2143,6 +2154,20 @@
       "clearLabel": "Ryd diagnostik",
       "empty": "Ingen CarPlay-diagnostik registreret endnu. Tilslut til CarPlay én gang, og kom så tilbage hertil.",
       "clipboardEmpty": "(ingen CarPlay-diagnostik registreret)"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} i gang",
+        "one": "{count} i gang"
+      },
+      "openLabel": "Vis aktivitet"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Søg i aktivitet og filer",
+      "signedOutHint": "Log ind for at se, hvad Stella arbejder på i baggrunden."
+    },
+    "account": {
+      "title": "Konto"
     }
   }
 }

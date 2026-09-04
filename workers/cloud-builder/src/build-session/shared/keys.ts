@@ -16,8 +16,12 @@ import {
 } from "../../workspace.js";
 import type { OwnerGateRefusalCode } from "../../owner-gate.js";
 import { AgentTurnAuthorityLostError } from "./errors.js";
+import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import type { TurnBrokerTurnStateCheckpointReceipt } from "@stella/contracts/turn-credential-broker";
+import { nativeHistoryCursorFromRows } from "../../native-state-checkpoint.js";
 import type { Env } from "./env.js";
-import type { TurnRequest } from "./types.js";
+import type { ObservedBrowserSuspension, TurnRequest } from "./types.js";
 
 /** Retry cadence for outbox events a queue outage refused. */
 export const OUTBOX_DEBT_KEY = "outboxDebt";
@@ -479,4 +483,194 @@ export const mintAgentTurnModelGateway = async (
     agentTypes: ["general"],
   });
   return { origin, capability: minted.token, expiresAt: minted.expiresAt };
+};
+
+export const AGENT_HISTORY_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
+
+export const validBuilderFallbackMessages = (
+  value: unknown,
+): value is Array<{ ordinal: number; role: string; payloadJson: string }> => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 1_024) {
+    return false;
+  }
+  let bytes = 0;
+  return value.every((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return false;
+    }
+    const row = entry as Record<string, unknown>;
+    if (
+      Object.keys(row).sort().join(",") !== "ordinal,payloadJson,role" ||
+      row.ordinal !== index ||
+      typeof row.role !== "string" ||
+      !["user", "assistant", "toolResult"].includes(row.role) ||
+      typeof row.payloadJson !== "string"
+    ) {
+      return false;
+    }
+    bytes += new TextEncoder().encode(row.payloadJson).byteLength;
+    if (bytes > AGENT_HISTORY_RESPONSE_MAX_BYTES) return false;
+    try {
+      const payload = JSON.parse(row.payloadJson) as { role?: unknown };
+      return payload?.role === row.role;
+    } catch {
+      return false;
+    }
+  });
+};
+
+export const validTurnStateCheckpointReceipt = (
+  value: unknown,
+): value is TurnBrokerTurnStateCheckpointReceipt => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const receipt = value as Record<string, unknown>;
+  const allowed = new Set(["operationId", "historyCursor", "manifestId"]);
+  return (
+    Object.keys(receipt).every((key) => allowed.has(key)) &&
+    typeof receipt.operationId === "string" &&
+    /^[0-9a-f]{64}$/u.test(receipt.operationId) &&
+    typeof receipt.historyCursor === "string" &&
+    /^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(receipt.historyCursor) &&
+    typeof receipt.manifestId === "string" &&
+    /^[0-9a-f]{64}$/u.test(receipt.manifestId)
+  );
+};
+
+export const cloudBrowserSuspensionMarker = (
+  suspension: CloudBrowserSuspension,
+): string =>
+  JSON.stringify([
+    suspension.schemaVersion,
+    suspension.outcome,
+    suspension.interactionId,
+    suspension.interactionRevision,
+    suspension.interactionKind,
+    suspension.toolCallId,
+    suspension.requestDigest,
+    suspension.profileId,
+    suspension.profileEpoch,
+    suspension.displayOrigin,
+    suspension.displayTitle ?? null,
+    suspension.expiresAt,
+  ]);
+
+export const canonicalToolCallId = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  new TextEncoder().encode(value).byteLength <= 256 &&
+  !/[\u0000-\u001f\u007f]/u.test(value);
+
+/**
+ * Bind the Gateway's neutral request id to the one unresolved outer Code call
+ * in the exact canonical checkpoint. This is the trust boundary that makes a
+ * Gateway observation resumable after executor stdout/finalizer loss.
+ */
+export const bindObservedBrowserSuspensionToCanonicalCodeCall = async (args: {
+  observation: ObservedBrowserSuspension;
+  turnId: string;
+  attemptGeneration: number;
+  checkpoint: TurnBrokerTurnStateCheckpointReceipt;
+  rows: Array<{ turnId: string; role: string; payloadJson: string }>;
+  now?: number;
+}): Promise<CloudBrowserSuspension | null> => {
+  const { observation, checkpoint, rows } = args;
+  const now = args.now ?? Date.now();
+  if (
+    observation.schemaVersion !== 1 ||
+    observation.turnId !== args.turnId ||
+    observation.attemptGeneration !== args.attemptGeneration ||
+    !Number.isSafeInteger(observation.observedAt) ||
+    observation.observedAt < 0 ||
+    typeof observation.brokerRequestId !== "string" ||
+    observation.brokerRequestId.length === 0 ||
+    !SHA256_HEX.test(observation.requestBodySha256) ||
+    !SHA256_HEX.test(observation.responseBodySha256) ||
+    !isCloudBrowserSuspension(observation.suspension) ||
+    observation.suspension.expiresAt <= now ||
+    !validTurnStateCheckpointReceipt(checkpoint) ||
+    rows.at(-1)?.turnId !== args.turnId ||
+    (await nativeHistoryCursorFromRows(rows)) !== checkpoint.historyCursor
+  ) {
+    return null;
+  }
+
+  const currentRows = rows.filter((row) => row.turnId === args.turnId);
+  if (currentRows.length === 0) return null;
+  const parsedRows: Array<{
+    row: (typeof currentRows)[number];
+    payload: Record<string, unknown>;
+  }> = [];
+  for (const row of currentRows) {
+    try {
+      const payload = JSON.parse(row.payloadJson) as unknown;
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        Array.isArray(payload) ||
+        (payload as Record<string, unknown>).role !== row.role
+      ) {
+        return null;
+      }
+      parsedRows.push({ row, payload: payload as Record<string, unknown> });
+    } catch {
+      return null;
+    }
+  }
+
+  let assistantIndex = -1;
+  for (let index = parsedRows.length - 1; index >= 0; index -= 1) {
+    if (parsedRows[index]?.row.role === "assistant") {
+      assistantIndex = index;
+      break;
+    }
+  }
+  if (
+    assistantIndex < 0 ||
+    parsedRows
+      .slice(assistantIndex + 1)
+      .some((entry) => entry.row.role !== "toolResult")
+  ) {
+    return null;
+  }
+
+  const assistantContent = parsedRows[assistantIndex]?.payload.content;
+  if (!Array.isArray(assistantContent)) return null;
+  const toolCalls: Array<{ id: string; name: string }> = [];
+  for (const part of assistantContent) {
+    if (
+      !part ||
+      typeof part !== "object" ||
+      Array.isArray(part) ||
+      (part as Record<string, unknown>).type !== "toolCall"
+    ) {
+      continue;
+    }
+    const candidate = part as Record<string, unknown>;
+    if (
+      !canonicalToolCallId(candidate.id) ||
+      typeof candidate.name !== "string"
+    ) {
+      return null;
+    }
+    toolCalls.push({ id: candidate.id, name: candidate.name });
+  }
+
+  const resolved = new Set<string>();
+  for (const entry of parsedRows.slice(assistantIndex + 1)) {
+    if (
+      entry.row.role !== "toolResult" ||
+      !canonicalToolCallId(entry.payload.toolCallId)
+    ) {
+      return null;
+    }
+    resolved.add(entry.payload.toolCallId);
+  }
+  const unresolved = toolCalls.filter((call) => !resolved.has(call.id));
+  if (unresolved.length !== 1 || unresolved[0]?.name !== "code") return null;
+
+  const bound = {
+    ...observation.suspension,
+    toolCallId: unresolved[0].id,
+  };
+  return isCloudBrowserSuspension(bound) ? bound : null;
 };

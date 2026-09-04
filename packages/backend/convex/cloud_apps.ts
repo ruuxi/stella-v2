@@ -615,6 +615,7 @@ const cloudAgentThreadProjectionValidator = v.object({
   ownerId: v.string(),
   conversationId: v.string(),
   parentTurnId: v.optional(v.string()),
+  workspaceForkId: v.optional(v.string()),
   description: v.string(),
   placement: executionPlacementValidator,
   agentType: v.string(),
@@ -4293,6 +4294,27 @@ export const getAgentThreadProbeInternal = internalQuery({
         };
       }),
     );
+  },
+});
+
+/** On-demand report lookup, independent of the Activity page window. */
+export const getMyAgentThread = query({
+  args: { conversationId: v.string(), threadId: v.string() },
+  returns: v.union(v.null(), cloudAgentThreadProjectionValidator),
+  handler: async (ctx, args) => {
+    const ownerId = await requireOwnerId(ctx);
+    const thread = await ctx.db
+      .query("cloud_agent_threads")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    if (
+      !thread ||
+      thread.ownerId !== ownerId ||
+      thread.conversationId !== args.conversationId
+    ) {
+      return null;
+    }
+    return projectCloudAgentThread(thread);
   },
 });
 

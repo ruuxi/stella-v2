@@ -19,6 +19,11 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
 
+const cloudReportState = vi.hoisted(() => ({ report: null as import("@stella/contracts/local-chat").LocalChatAgentReport | null | undefined }));
+vi.mock("@/features/cloud/use-cloud-agent-report", () => ({
+  useCloudAgentReport: (_conversation: string, _thread: string, enabled: boolean) => enabled ? cloudReportState.report : null,
+}));
+
 const openConversationFocus = vi.fn();
 vi.mock("@/features/chat/services/conversation-focus-store", () => ({
   openConversationFocus: (...args: unknown[]) => openConversationFocus(...args),
@@ -93,6 +98,7 @@ describe("ReplyPreview rendering", () => {
     openConversationFocus.mockReset();
     getAgentReport.mockReset();
     activityRecords.clear();
+    cloudReportState.report = null;
     __testing.clearReportCache();
     (window as unknown as { electronAPI: unknown }).electronAPI = {
       localChat: { getAgentReport },
@@ -211,6 +217,24 @@ describe("ReplyPreview rendering", () => {
       root: { kind: "agent", threadId: "pricing-research" },
       title: "Pricing research (live)",
     });
+  });
+
+  it("loads a cloud report when the local lookup misses and updates an open report", async () => {
+    getAgentReport.mockResolvedValue(null);
+    cloudReportState.report = undefined;
+    const render = () => root.render(withI18n(<ReplyPreview conversationId="c1" refs={[{ kind: "agent", threadId: "cloud-thread", title: "Cloud research" }]} />));
+    act(render);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".reply-preview__report-toggle")!.click();
+    });
+    expect(container.textContent).not.toContain("no longer available");
+    cloudReportState.report = { threadId: "cloud-thread", description: "Cloud research", agentType: "general", status: "completed", startedAt: 1, result: "The full saved cloud report." };
+    act(render);
+    expect(container.textContent).toContain("The full saved cloud report.");
+    cloudReportState.report = { ...cloudReportState.report, result: "The follow-up report." };
+    act(render);
+    expect(container.textContent).toContain("The follow-up report.");
+    expect(container.textContent).not.toContain("The full saved cloud report.");
   });
 
   it("stacks up to three previews and collapses the rest behind a count", () => {

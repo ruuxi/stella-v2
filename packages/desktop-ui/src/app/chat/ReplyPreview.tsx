@@ -21,6 +21,7 @@ import { Popover } from "@/ui/popover";
 import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
+import { useCloudAgentReport } from "@/features/cloud/use-cloud-agent-report";
 import "./reply-preview.css";
 
 const MAX_STACKED_PREVIEWS = 3;
@@ -158,6 +159,9 @@ function AgentReplyPreview({
     undefined,
   );
   const requestedRef = useRef(false);
+  const [reportRequested, setReportRequested] = useState(false);
+  const cloudReport = useCloudAgentReport(conversationId, reference.threadId, reportRequested);
+  const resolvedReport = cloudReport === undefined ? undefined : cloudReport ?? report;
   const title =
     liveTitle?.trim() ||
     (reference.title !== reference.threadId ? reference.title.trim() : "") ||
@@ -166,6 +170,7 @@ function AgentReplyPreview({
   const prefetch = useCallback(() => {
     if (requestedRef.current) return;
     requestedRef.current = true;
+    setReportRequested(true);
     void fetchAgentReport(reference.threadId).then((next) => {
       setReport(next);
     });
@@ -210,12 +215,12 @@ function AgentReplyPreview({
           ? t("app.chat.replyPreview.statusPaused")
           : t("app.chat.replyPreview.statusDone");
   const reportBody =
-    report === undefined
+    resolvedReport === undefined
       ? null
-      : report === null
+      : resolvedReport === null
         ? t("app.chat.replyPreview.reportUnavailable")
-        : report.result?.trim() ||
-          report.error?.trim() ||
+        : resolvedReport.result?.trim() ||
+          resolvedReport.error?.trim() ||
           t("app.chat.replyPreview.reportEmpty");
 
   return (

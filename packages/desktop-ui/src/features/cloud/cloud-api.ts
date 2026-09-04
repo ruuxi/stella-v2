@@ -68,6 +68,7 @@ export type CloudAgentThread = {
   conversationId: string;
   /** Absent when the desktop dispatched the agent — no cloud turn above it. */
   parentTurnId?: string;
+  workspaceForkId?: string;
   description: string;
   /** Where the thread runs: "cloud" or "computer". */
   placement: string;
@@ -312,6 +313,11 @@ export const cloudApi = {
     { execution: CloudExecutionSelection },
     null
   >("cloud_engines:setMyCloudExecution"),
+  getMyAgentThread: makeFunctionReference<
+    "query",
+    { conversationId: string; threadId: string },
+    CloudAgentThread | null
+  >("cloud_apps:getMyAgentThread"),
   listMyAgentThreads: makeFunctionReference<
     "query",
     { conversationId: string },

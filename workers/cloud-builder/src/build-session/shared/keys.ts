@@ -326,6 +326,10 @@ export const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
 
 export const ORCHESTRATOR_INTERNAL_ORIGIN = "https://orchestrator-session";
 export const HEADER_CONVERSATION_ID = "x-stella-conversation-id";
+/** Headers the outer Worker forwards a dispatched turn's routing on. */
+export const HEADER_BUILD_SESSION_NAME = "x-stella-build-session-name";
+export const HEADER_TURN_BROKER_ENDPOINT = "x-stella-turn-broker-endpoint";
+export const HEADER_PREVIEW_BASE_URL = "x-stella-preview-base-url";
 /** Digest shape every artifact and gateway observation must present. */
 export const SHA256_HEX = /^[0-9a-f]{64}$/;
 

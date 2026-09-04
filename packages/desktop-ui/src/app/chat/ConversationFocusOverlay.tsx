@@ -1,13 +1,9 @@
 /**
  * Focus (lineage) overlay — iMessage's thread view for the single chat.
  *
- * Opens over the timeline when a reply preview, a "N replies" affordance,
- * a Tasks row, or an inline agent card is activated. The timeline behind
- * dims; the panel lists only the rows that belong to the focused message
- * or agent thread, rendered through the same row projection as the main
- * chat (cards, tool activity, artifacts included). Escape, the close
- * button, or a click on the dimmed backdrop returns to the full timeline,
- * whose scroll position is untouched because it never unmounted.
+ * The selected chain sits above the dimmed timeline in the same chat column.
+ * The composer stays available below it. Escape, the close button, or a
+ * click outside the column restores the original timeline and scroll position.
  */
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { ConversationEvents } from "@/app/chat/ConversationEvents";
@@ -29,10 +25,10 @@ import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-
 import "./conversation-focus-overlay.css";
 
 const FOCUS_CONTENT_STYLE = {
-  paddingTop: 16,
-  paddingBottom: 24,
-  paddingLeft: 20,
-  paddingRight: 20,
+  paddingTop: 48,
+  paddingBottom: 30,
+  paddingLeft: 24,
+  paddingRight: 24,
 } as const;
 
 type ConversationFocusOverlayProps = {
@@ -100,7 +96,13 @@ function FocusPanel({
   }, []);
 
   useEffect(() => {
+    const trigger = document.activeElement;
     closeButtonRef.current?.focus({ preventScroll: true });
+    return () => {
+      if (trigger instanceof HTMLElement && trigger.isConnected) {
+        trigger.focus({ preventScroll: true });
+      }
+    };
   }, []);
 
   const heading = useMemo(() => {
@@ -138,21 +140,10 @@ function FocusPanel({
     >
       <section
         className="conversation-focus__panel"
-        role="dialog"
-        aria-modal="false"
+        role="region"
         aria-label={t("app.chat.focus.ariaLabel", { title: heading })}
       >
         <header className="conversation-focus__header">
-          <div className="conversation-focus__heading">
-            <span className="conversation-focus__kicker">
-              {root.kind === "agent"
-                ? t("app.chat.focus.kickerAgent")
-                : t("app.chat.focus.kickerMessage")}
-            </span>
-            <h2 className="conversation-focus__title" title={heading}>
-              {heading}
-            </h2>
-          </div>
           <button
             ref={closeButtonRef}
             type="button"
@@ -164,8 +155,8 @@ function FocusPanel({
             <X size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         </header>
-        <div className="conversation-focus__body chat-viewport-region chat-viewport-region--sidebar has-messages">
-          <div className="chat-conversation-surface chat-conversation-surface--sidebar conversation-focus__surface">
+        <div className="conversation-focus__body">
+          <div className="conversation-focus__surface">
             {lineage.error ? (
               <div className="conversation-focus__error" role="alert">
                 {t("app.chat.focus.error")}
@@ -181,7 +172,9 @@ function FocusPanel({
                 listRef={scroll.listRef}
                 className="conversation-focus__list"
                 contentContainerStyle={FOCUS_CONTENT_STYLE}
-                estimatedItemSize={120}
+                estimatedItemSize={140}
+                alignItemsAtEnd
+                reserveTailSpace={false}
               />
             )}
           </div>

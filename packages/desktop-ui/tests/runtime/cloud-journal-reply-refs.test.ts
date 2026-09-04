@@ -54,7 +54,7 @@ describe("cloud journal reply refs", () => {
       {
         kind: "agent",
         threadId: "pricing-research",
-        title: "pricing-research",
+        title: "",
       },
     ]);
     expect(countReplyRefs(messages)).toEqual({
@@ -81,8 +81,45 @@ describe("cloud journal reply refs", () => {
       {
         kind: "agent",
         threadId: "pricing-research",
-        title: "pricing-research",
+        title: "",
       },
+    ]);
+  });
+
+  it("uses the persisted spawn description for agent citations", () => {
+    const records: JournalRecord[] = [
+      {
+        kind: "card",
+        seq: 1,
+        turnId: "spawn",
+        createdAtMs: 1000,
+        card: {
+          type: "agent-lifecycle",
+          eventId: "start",
+          event: {
+            type: "agent-started",
+            payload: {
+              agentId: "thread-uuid",
+              attemptGeneration: 1,
+              description: "Pricing research",
+              agentType: "general",
+            },
+          },
+        },
+      },
+      message(2, "wake", "user", "agent finished", { hidden: true }),
+      message(
+        3,
+        "wake",
+        "assistant",
+        "Done.\n\n```refs\nagent:thread-uuid\n```",
+      ),
+    ];
+    const reply = journalRecordsToMessageRecords(records).find(
+      (m) => m._id === "cloud:wake:message:3",
+    );
+    expect(replyRefsFromPayload(reply?.payload)).toEqual([
+      { kind: "agent", threadId: "thread-uuid", title: "Pricing research" },
     ]);
   });
 

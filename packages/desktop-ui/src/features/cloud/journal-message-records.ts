@@ -31,6 +31,7 @@ export const resolveJournalReplyRefs = (args: {
   raw: readonly RawReplyRef[];
   recordsBySeq: ReadonlyMap<number, JournalMessageRecord>;
   turnUserRecord: JournalMessageRecord | undefined;
+  agentTitles?: ReadonlyMap<string, string>;
 }): ReplyRef[] => {
   const refs: ReplyRef[] = [];
   const seen = new Set<string>();
@@ -42,7 +43,11 @@ export const resolveJournalReplyRefs = (args: {
   };
   for (const ref of args.raw) {
     if (ref.kind === "agent") {
-      push({ kind: "agent", threadId: ref.threadId, title: ref.threadId });
+      push({
+        kind: "agent",
+        threadId: ref.threadId,
+        title: args.agentTitles?.get(ref.threadId) ?? "",
+      });
       continue;
     }
     const record = args.recordsBySeq.get(ref.sequence);
@@ -66,7 +71,12 @@ export const resolveJournalReplyRefs = (args: {
   if (refs.length === 0 && args.turnUserRecord?.hidden) {
     const match = LIFECYCLE_THREAD_RE.exec(messageText(args.turnUserRecord.payload));
     const threadId = match?.[1]?.trim();
-    if (threadId) push({ kind: "agent", threadId, title: threadId });
+    if (threadId)
+      push({
+        kind: "agent",
+        threadId,
+        title: args.agentTitles?.get(threadId) ?? "",
+      });
   }
   return refs;
 };
@@ -200,7 +210,26 @@ export const journalRecordsToMessageRecords = (
 ): MessageRecord[] => {
   const byTurn = new Map<string, JournalRecord[]>();
   const recordsBySeq = new Map<number, JournalMessageRecord>();
+  const agentTitles = new Map<string, string>();
   for (const record of records) {
+    if (
+      record.kind === "card" &&
+      record.card.type === "agent-lifecycle" &&
+      record.card.event.type === "agent-started"
+    ) {
+      const { agentId, description } = record.card.event.payload;
+      if (description.trim()) agentTitles.set(agentId, description.trim());
+    }
+    if (record.kind === "message" && record.role === "toolResult") {
+      const details = asRecord(record.payload.details);
+      if (
+        typeof details?.thread_id === "string" &&
+        typeof details.description === "string" &&
+        details.description.trim()
+      ) {
+        agentTitles.set(details.thread_id, details.description.trim());
+      }
+    }
     const turn = byTurn.get(record.turnId);
     if (turn) turn.push(record);
     else byTurn.set(record.turnId, [record]);
@@ -247,7 +276,12 @@ export const journalRecordsToMessageRecords = (
               record,
               text,
               userMessageId,
-              resolveJournalReplyRefs({ raw: refs, recordsBySeq, turnUserRecord }),
+              resolveJournalReplyRefs({
+                raw: refs,
+                recordsBySeq,
+                turnUserRecord,
+                agentTitles,
+              }),
             ),
           });
         }

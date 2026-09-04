@@ -56,6 +56,8 @@ type Props = {
   contentContainerStyle?: CSSProperties;
   estimatedItemSize?: number;
   extraTail?: React.ReactNode;
+  alignItemsAtEnd?: boolean;
+  reserveTailSpace?: boolean;
 };
 
 /**
@@ -168,6 +170,8 @@ export const ConversationEvents = memo(function ConversationEvents({
   contentContainerStyle,
   estimatedItemSize,
   extraTail,
+  alignItemsAtEnd,
+  reserveTailSpace,
 }: Props) {
   const { rows: projectedRows } = useEventRows({
     messages,
@@ -220,6 +224,8 @@ export const ConversationEvents = memo(function ConversationEvents({
       contentContainerStyle={contentContainerStyle}
       estimatedItemSize={estimatedItemSize}
       extraTail={extraTail}
+      alignItemsAtEnd={alignItemsAtEnd}
+      reserveTailSpace={reserveTailSpace}
     />
   );
 });

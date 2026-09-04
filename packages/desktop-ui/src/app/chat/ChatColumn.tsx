@@ -29,6 +29,7 @@ import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ConversationEvents } from "./ConversationEvents";
 import { ConversationFocusOverlay } from "./ConversationFocusOverlay";
+import { useConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useChatMessages } from "@/context/use-chat-messages";
 import { Composer } from "./Composer";
 import { HomeContent } from "@/app/home/HomeContent";
@@ -74,6 +75,8 @@ export const ChatColumn = memo(function ChatColumn({
   showHomeContent,
 }: ChatColumnProps) {
   const t = useT();
+  const focus = useConversationFocus(conversationId);
+  const homeObscuresChat = showHomeContent && !focus;
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
   const { noteManualScroll } = scroll;
@@ -300,7 +303,7 @@ export const ChatColumn = memo(function ChatColumn({
           `forceHidden` — avoids re-running the strip's 460ms width/slide
           animation on every home↔chat switch. */}
       <div
-        className={`full-body-chat-layer${showHomeContent ? " full-body-chat-layer--hidden" : ""}`}
+        className={`full-body-chat-layer${homeObscuresChat ? " full-body-chat-layer--hidden" : ""}`}
         data-testid="chat-surface"
         data-conversation-id={conversationId ?? undefined}
         data-has-older-messages={
@@ -309,7 +312,7 @@ export const ChatColumn = memo(function ChatColumn({
         data-loading-older-messages={
           conversation.history.isLoadingOlder ? "true" : "false"
         }
-        inert={showHomeContent || undefined}
+        inert={homeObscuresChat || undefined}
       >
         <div className="full-body-main" {...dropHandlers}>
           {/* Viewport region: list + overlay scroll-to-bottom.
@@ -319,33 +322,41 @@ export const ChatColumn = memo(function ChatColumn({
             strip — instead of sitting at the inside edge of the
             centered chat column. */}
           <div className="chat-viewport-region">
-            <ConversationEvents
-              messages={messages}
+            <div style={{ height: "100%" }} inert={Boolean(focus) || undefined}>
+              <ConversationEvents
+                messages={messages}
+                conversationId={conversationId}
+                agentModelConfigByThread={agentModelConfigByThread}
+                pendingUserMessageId={
+                  conversation.streaming.pendingUserMessageId
+                }
+                queuedUserMessages={conversation.streaming.queuedUserMessages}
+                onCancelQueued={handleCancelQueued}
+                indicator={indicatorProps}
+                hasOlderMessages={conversation.history.hasOlderMessages}
+                isLoadingOlder={conversation.history.isLoadingOlder}
+                isLoadingHistory={conversation.history.isInitialLoading}
+                listRef={listRef}
+                className="session-content"
+                contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
+                estimatedItemSize={140}
+                extraTail={conversation.extraTail}
+              />
+
+              {showScrollButton && !assistantReplyPeek.visible && (
+                <button
+                  className="scroll-to-bottom"
+                  onClick={() => scrollToBottom("smooth")}
+                  aria-label={t("app.chat.column.scrollToBottom")}
+                >
+                  <ChevronDown size={16} strokeWidth={2.5} />
+                </button>
+              )}
+            </div>
+            <ConversationFocusOverlay
               conversationId={conversationId}
               agentModelConfigByThread={agentModelConfigByThread}
-              pendingUserMessageId={conversation.streaming.pendingUserMessageId}
-              queuedUserMessages={conversation.streaming.queuedUserMessages}
-              onCancelQueued={handleCancelQueued}
-              indicator={indicatorProps}
-              hasOlderMessages={conversation.history.hasOlderMessages}
-              isLoadingOlder={conversation.history.isLoadingOlder}
-              isLoadingHistory={conversation.history.isInitialLoading}
-              listRef={listRef}
-              className="session-content"
-              contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
-              estimatedItemSize={140}
-              extraTail={conversation.extraTail}
             />
-
-            {showScrollButton && !assistantReplyPeek.visible && (
-              <button
-                className="scroll-to-bottom"
-                onClick={() => scrollToBottom("smooth")}
-                aria-label={t("app.chat.column.scrollToBottom")}
-              >
-                <ChevronDown size={16} strokeWidth={2.5} />
-              </button>
-            )}
           </div>
 
           {/* Inline connect offer (agent-initiated) pinned above the
@@ -383,12 +394,7 @@ export const ChatColumn = memo(function ChatColumn({
         </div>
       </div>
 
-      <ConversationFocusOverlay
-        conversationId={conversationId}
-        agentModelConfigByThread={agentModelConfigByThread}
-      />
-
-      {homeVisible && (
+      {homeVisible && !focus && (
         <div
           className={`full-body-home-overlay full-body-main--home${homeLeaving ? " full-body-main--home-leaving" : ""}`}
           {...dropHandlers}

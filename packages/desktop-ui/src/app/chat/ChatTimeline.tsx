@@ -121,6 +121,7 @@ type ChatTimelineProps = {
    * the top of the empty viewport. Default true.
    */
   alignItemsAtEnd?: boolean;
+  reserveTailSpace?: boolean;
   /**
    * Estimated row height — Legend uses this for first-render layout
    * before measuring real items. ~120px matches the average chat row
@@ -324,6 +325,7 @@ export const ChatTimeline = memo(function ChatTimeline({
   listRef,
   recycleItems = true,
   alignItemsAtEnd = false,
+  reserveTailSpace = true,
   estimatedItemSize = 120,
   className,
   contentContainerStyle,
@@ -413,19 +415,26 @@ export const ChatTimeline = memo(function ChatTimeline({
    * current `scrollTop`.
    */
   const ListFooter = useMemo(
-    () => (
-      <div
-        className={
-          "event-list-trailing-region" +
-          (hasQueuedTimelineItem
-            ? " event-list-trailing-region--after-queue"
-            : "")
-        }
-      >
-        {extraTail && <div className="event-list-extra-tail">{extraTail}</div>}
-      </div>
-    ),
-    [extraTail, hasQueuedTimelineItem],
+    () =>
+      !reserveTailSpace ? (
+        extraTail ? (
+          <>{extraTail}</>
+        ) : null
+      ) : (
+        <div
+          className={
+            "event-list-trailing-region" +
+            (hasQueuedTimelineItem
+              ? " event-list-trailing-region--after-queue"
+              : "")
+          }
+        >
+          {extraTail && (
+            <div className="event-list-extra-tail">{extraTail}</div>
+          )}
+        </div>
+      ),
+    [extraTail, hasQueuedTimelineItem, reserveTailSpace],
   );
 
   if (isLoadingHistory && rows.length === 0) {

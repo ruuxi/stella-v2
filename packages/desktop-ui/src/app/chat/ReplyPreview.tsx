@@ -158,7 +158,10 @@ function AgentReplyPreview({
     undefined,
   );
   const requestedRef = useRef(false);
-  const title = liveTitle?.trim() || reference.title || reference.threadId;
+  const title =
+    liveTitle?.trim() ||
+    (reference.title !== reference.threadId ? reference.title.trim() : "") ||
+    t("app.chat.focus.agentFallback");
 
   const prefetch = useCallback(() => {
     if (requestedRef.current) return;

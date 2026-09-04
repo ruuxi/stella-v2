@@ -5,6 +5,7 @@ import type { ExecutionSession } from "@cloudflare/sandbox";
 import type { CloudTurnSource } from "@stella/contracts/turn-plane/turn-start";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/outbox";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";
+import { mintTurnCapability } from "../../capability-signer.js";
 import { sha256Hex } from "../../hash.js";
 import { inSubshell } from "../../shell-subshell.js";
 import { sandboxLifecycleId } from "../../sandbox-lifecycle.js";
@@ -14,6 +15,7 @@ import {
   WORLD_ROOT,
 } from "../../workspace.js";
 import type { OwnerGateRefusalCode } from "../../owner-gate.js";
+import { AgentTurnAuthorityLostError } from "./errors.js";
 import type { Env } from "./env.js";
 import type { TurnRequest } from "./types.js";
 
@@ -433,4 +435,48 @@ export const sweepR2Prefix = async (
     cursor = listing.cursor;
   }
   return { deleted, done: false };
+};
+
+/**
+ * Where the broker credential is handed to the executor: a one-shot file that
+ * sits in `/workspace`, above the checkpointed world, with a random name so
+ * nothing can be waiting on a known path.
+ *
+ * Deliberately not an env var on the exec session: the executor's own
+ * environment is inherited by every shell the agent spawns, and `unsetenv`
+ * does not scrub `/proc/<pid>/environ`, so an env handoff stays readable for
+ * the whole turn — which is the defect this avoids.
+ */
+export const turnBrokerCredentialsPath = (): string =>
+  `/workspace/.turn-broker-${crypto.randomUUID()}.json`;
+
+/**
+ * Mint the model-gateway capability for one admitted agent turn. It is the
+ * only credential the sandbox or resident loop presents for model calls:
+ * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
+ * meaningless anywhere but the gateway. The reusable Convex turn token never
+ * accompanies model traffic.
+ */
+export const mintAgentTurnModelGateway = async (
+  env: Pick<
+    Env,
+    "MODEL_GATEWAY_URL" | "CAPABILITY_SIGNING_KEY" | "CAPABILITY_SIGNING_KID"
+  >,
+  turn: TurnRequest,
+  execution: CloudExecutionSelection,
+): Promise<{ origin: string; capability: string; expiresAt: number }> => {
+  const origin = env.MODEL_GATEWAY_URL?.trim() ?? "";
+  if (!origin) throw new Error("Model gateway is not configured.");
+  if (!turn.conversationId) throw new AgentTurnAuthorityLostError();
+  const minted = await mintTurnCapability(env, {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    turnId: turn.turnId,
+    conversationId: turn.conversationId,
+    execution,
+    audience: turn.audience,
+    budgetMicroCents: turn.budgetMicroCents,
+    agentTypes: ["general"],
+  });
+  return { origin, capability: minted.token, expiresAt: minted.expiresAt };
 };

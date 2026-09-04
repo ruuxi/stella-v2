@@ -121,36 +121,8 @@ const APP_BUILD_CONTROL_PLANE_EXECUTION = {
   reasoningEffort: "default",
 } as CloudExecutionSelection;
 
-/**
- * Mint the model-gateway capability for one admitted agent turn. It is the
- * only credential the sandbox or resident loop presents for model calls:
- * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
- * meaningless anywhere but the gateway. The reusable Convex turn token never
- * accompanies model traffic.
- */
-export const mintAgentTurnModelGateway = async (
-  env: Pick<
-    Env,
-    "MODEL_GATEWAY_URL" | "CAPABILITY_SIGNING_KEY" | "CAPABILITY_SIGNING_KID"
-  >,
-  turn: TurnRequest,
-  execution: CloudExecutionSelection,
-): Promise<{ origin: string; capability: string; expiresAt: number }> => {
-  const origin = env.MODEL_GATEWAY_URL?.trim() ?? "";
-  if (!origin) throw new Error("Model gateway is not configured.");
-  if (!turn.conversationId) throw new AgentTurnAuthorityLostError();
-  const minted = await mintTurnCapability(env, {
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    turnId: turn.turnId,
-    conversationId: turn.conversationId,
-    execution,
-    audience: turn.audience,
-    budgetMicroCents: turn.budgetMicroCents,
-    agentTypes: ["general"],
-  });
-  return { origin, capability: minted.token, expiresAt: minted.expiresAt };
-};
+/** @see src/build-session/shared/keys.ts */
+export { mintAgentTurnModelGateway } from "./shared/keys.js";
 
 /**
  * Normal turn cleanup must retain exact cancellation receipts. The key list

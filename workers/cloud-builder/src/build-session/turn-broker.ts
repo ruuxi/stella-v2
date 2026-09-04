@@ -110,18 +110,8 @@ export type TurnBrokerHost = Pick<
 /** Local copy of the artifact digest shape; see `app-build-artifacts.ts`. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-/**
- * Where the broker credential is handed to the executor: a one-shot file that
- * sits in `/workspace`, above the checkpointed world, with a random name so
- * nothing can be waiting on a known path.
- *
- * Deliberately not an env var on the exec session: the executor's own
- * environment is inherited by every shell the agent spawns, and `unsetenv`
- * does not scrub `/proc/<pid>/environ`, so an env handoff stays readable for
- * the whole turn — which is the defect this avoids.
- */
-export const turnBrokerCredentialsPath = (): string =>
-  `/workspace/.turn-broker-${crypto.randomUUID()}.json`;
+/** @see src/build-session/shared/keys.ts */
+export { turnBrokerCredentialsPath } from "./shared/keys.js";
 
 const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 64 * 1024;
 

@@ -22,9 +22,9 @@ import {
 } from "../src/sandbox-lifecycle.js";
 
 const TARGET: SandboxTarget = {
-  sandboxId: "agent:turn/one ✓",
+  sandboxId: "world:owner/one ✓",
   size: "small",
-  workload: "resident-attachment",
+  workload: "world",
 };
 
 class MemoryStorage implements SandboxLifecycleStorage {
@@ -105,7 +105,7 @@ describe("sandbox destroy debt", () => {
       sandboxDestroyDebtKey({ ...TARGET, size: "large" }),
     );
     expect(sandboxDestroyDebtKey(TARGET)).not.toBe(
-      sandboxDestroyDebtKey({ ...TARGET, workload: "agent" }),
+      sandboxDestroyDebtKey({ ...TARGET, workload: "app-build" }),
     );
     expect(sandboxDestroyDebtKey(TARGET)).not.toBe(
       sandboxDestroyDebtKey({ ...TARGET, sandboxId: `${TARGET.sandboxId}:2` }),
@@ -237,28 +237,23 @@ describe("sandbox lifecycle identity and safe diagnostics", () => {
     attemptGeneration: 1,
   };
 
-  test("is stable for exact replay and distinct across ABA successors", async () => {
-    const current = await sandboxLifecycleId("agent", exact);
-    expect(await sandboxLifecycleId("agent", exact)).toBe(current);
+  test("pins one world id across turns, attempts, and owner generations", async () => {
+    const identity = { ownerId: exact.ownerId, workspaceKey: "workspace-a" };
+    const current = await sandboxLifecycleId("world", identity);
+    expect(await sandboxLifecycleId("world", identity)).toBe(current);
     expect(
-      await sandboxLifecycleId("agent", {
-        ...exact,
-        attemptGeneration: 2,
+      await sandboxLifecycleId("world", {
+        ...identity,
+        workspaceKey: "workspace-b",
       }),
     ).not.toBe(current);
     expect(
-      await sandboxLifecycleId("agent", {
-        ...exact,
-        ownerGeneration: "generation-2",
+      await sandboxLifecycleId("world", {
+        ...identity,
+        ownerId: "owner-b",
       }),
     ).not.toBe(current);
-    expect(
-      await sandboxLifecycleId("agent", {
-        ...exact,
-        turnId: "other-turn",
-      }),
-    ).not.toBe(current);
-    expect(current).toMatch(/^agent-[a-f0-9]{40}$/);
+    expect(current).toMatch(/^world-[a-f0-9]{40}$/);
   });
 
   test("serializes only an allowlisted code and bounded byte count", () => {
@@ -288,21 +283,21 @@ describe("sandbox inventory reconciliation", () => {
     workload: "app-build",
   };
   const agent: SandboxTarget = {
-    sandboxId: "agent-one",
+    sandboxId: "world-one",
     size: "small",
-    workload: "agent",
+    workload: "world",
   };
   const retiring: SandboxTarget = {
-    sandboxId: "resident-old",
+    sandboxId: "world-old",
     size: "small",
-    workload: "resident-attachment",
+    workload: "world",
   };
 
   test("classifies owned, live, orphan, missing, and retiring snapshots", () => {
     const orphan: SandboxTarget = {
       sandboxId: "acceptance-leak",
       size: "large",
-      workload: "agent",
+      workload: "world",
     };
     const durable = [
       { target: appBuild, lifecycle: "owned" as const },
@@ -338,7 +333,7 @@ describe("sandbox inventory reconciliation", () => {
       [{ target: appBuild, lifecycle: "owned" }],
       [
         { ...appBuild, size: "small" },
-        { ...appBuild, workload: "agent" },
+        { ...appBuild, workload: "world" },
       ],
     );
 
@@ -346,7 +341,7 @@ describe("sandbox inventory reconciliation", () => {
     expect(result.missing).toEqual([appBuild]);
     expect(result.orphan).toEqual([
       { ...appBuild, size: "small" },
-      { ...appBuild, workload: "agent" },
+      { ...appBuild, workload: "world" },
     ]);
   });
 

@@ -21,7 +21,7 @@ type EgressDecision =
   | { decision: "deny"; reason?: EgressRefusalReason };
 
 type SandboxOutboundContext = {
-  /** Stable sandbox Durable Object id. Stella uses one id per turn. */
+  /** Stable sandbox Durable Object id. Agents share one id per owner world. */
   containerId: string;
 };
 
@@ -36,7 +36,7 @@ type GeneralAgentEgressDeps = {
   limits: GeneralAgentEgressLimits;
 };
 
-type TurnEgressState = {
+type ContainerEgressState = {
   responseBytes: number;
   requestTimes: number[];
   lastSeenAt: number;
@@ -112,7 +112,7 @@ const boundedContentLength = (response: Response): number | null => {
 const meteredResponse = (args: {
   request: Request;
   response: Response;
-  state: TurnEgressState;
+  state: ContainerEgressState;
   budgetBytes: number;
 }): Response => {
   if (!args.response.body) return args.response;
@@ -157,7 +157,7 @@ const meteredResponse = (args: {
 
 /**
  * Stateful policy factory. Production keys state by `ctx.containerId`, which
- * is Stella's exact-turn sandbox id. Tests inject small limits and a clock.
+ * is Stella's owner-world sandbox id. Tests inject small limits and a clock.
  */
 export const createGeneralAgentEgress = (
   overrides: Partial<GeneralAgentEgressDeps> = {},
@@ -175,18 +175,19 @@ export const createGeneralAgentEgress = (
     },
     ...overrides,
   };
-  const turns = new Map<string, TurnEgressState>();
+  const containers = new Map<string, ContainerEgressState>();
 
   return async (request, _env, context): Promise<Response> => {
     const now = deps.now();
-    for (const [id, state] of turns) {
-      if (state.lastSeenAt < now - EGRESS_STATE_RETENTION_MS) turns.delete(id);
+    for (const [id, state] of containers) {
+      if (state.lastSeenAt < now - EGRESS_STATE_RETENTION_MS)
+        containers.delete(id);
     }
-    const turnId = context?.containerId.trim() || "unscoped";
-    let state = turns.get(turnId);
+    const containerId = context?.containerId.trim() || "unscoped";
+    let state = containers.get(containerId);
     if (!state) {
       state = { responseBytes: 0, requestTimes: [], lastSeenAt: now };
-      turns.set(turnId, state);
+      containers.set(containerId, state);
     }
     state.lastSeenAt = now;
 
@@ -207,7 +208,7 @@ export const createGeneralAgentEgress = (
         request,
         403,
         "egress_budget",
-        "This turn's network download budget is used up.",
+        "This container's network download budget is used up.",
       );
     }
 

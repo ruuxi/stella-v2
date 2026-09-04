@@ -18,13 +18,9 @@ import type { ExecutionSession, Process } from "@cloudflare/sandbox";
 import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import {
-  ATTACHED_TOOL_DIR,
-  ATTACHED_TOOL_HOST_INPUT_PATH,
   ATTACHED_TOOL_PROTOCOL_VERSION,
-  ATTACHED_TOOL_REQUEST_PATH,
   ATTACHED_TOOL_RESPONSE_MAX_BYTES,
-  ATTACHED_TOOL_RESULT_PATH,
-  ATTACHED_TOOL_SOCKET_PATH,
+  attachedToolPathsForDirectory,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
   parseAttachedToolControlResponse,
@@ -72,8 +68,8 @@ const READINESS_ATTEMPTS = 240;
  * stdout instead.
  */
 const READINESS_READY_MARKER = "stella-attached-tool-host-ready";
-const readinessProbe = (): string =>
-  `if test -S ${quoted([ATTACHED_TOOL_SOCKET_PATH])}; then echo ${READINESS_READY_MARKER}; fi`;
+const readinessProbe = (socketPath: string): string =>
+  `if test -S ${quoted([socketPath])}; then echo ${READINESS_READY_MARKER}; fi`;
 
 /** Enough of the daemon's stderr to name the failure, never a log dump. */
 const DAEMON_STDERR_EXCERPT_CHARS = 400;
@@ -84,17 +80,6 @@ const DAEMON_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "killed",
   "error",
 ]);
-
-/**
- * What a daemon that stopped before listening can still tell us. Both reads
- * are best-effort: a handle the SDK cannot describe any more is reported as
- * unknown rather than turning a diagnosis into a second failure.
- */
-/**
- * Where the daemon's stderr is also written. The SDK's process logs are
- * empty for a daemon that died abruptly, and this file is what remains.
- */
-export const DAEMON_STDERR_PATH = `${ATTACHED_TOOL_DIR}/daemon.stderr`;
 
 /**
  * An SDK process call that never settles must not wedge the attach: the
@@ -121,15 +106,18 @@ const bounded = async <T>(
 
 const describeDaemon = async (
   daemon: Process | undefined,
+  daemonStderrPath: string | undefined,
   session?: ExecutionSession,
 ): Promise<{ status: string; stderr: string }> => {
   if (!daemon) return { status: "unknown", stderr: "" };
   const status = await bounded(daemon.getStatus?.(), "unknown");
   const logs = await bounded(daemon.getLogs?.(), null);
   let stderr = (logs?.stderr ?? "").replace(/\s+/gu, " ").trim();
-  if (!stderr && session) {
+  if (!stderr && session && daemonStderrPath) {
     const persisted = await session
-      .exec(`tail -c ${DAEMON_STDERR_EXCERPT_CHARS} ${quoted([DAEMON_STDERR_PATH])}`)
+      .exec(
+        `tail -c ${DAEMON_STDERR_EXCERPT_CHARS} ${quoted([daemonStderrPath])}`,
+      )
       .catch(() => null);
     if (persisted?.success) {
       stderr = persisted.stdout.replace(/\s+/gu, " ").trim();
@@ -170,6 +158,7 @@ export type AgentSandboxAttachmentDeps = Readonly<{
   attachWorld(args: {
     sandboxId: string;
     instanceSize: "small" | "large";
+    sessionId: string;
   }): Promise<
     Readonly<{
       session: ExecutionSession;
@@ -196,10 +185,20 @@ export type AgentSandboxAttachmentDeps = Readonly<{
    */
   startDaemon?: (
     command: string,
-    options: Readonly<{ cwd: string }>,
+    options: Readonly<{ cwd: string; processId: string }>,
   ) => Promise<Process>;
-  /** The exact teardown the cancellation sweeps perform. */
-  destroy(sandboxId: string): Promise<void>;
+  /** Release one turn without stopping the shared container. */
+  release(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+    sessionId: string;
+    daemonDirectory: string;
+  }): Promise<void>;
+  /** Destroy the shared container only for OOM escalation or retirement. */
+  destroy(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+  }): Promise<void>;
   emitEvent?: (kind: string, payload: unknown) => void;
 }>;
 
@@ -263,13 +262,15 @@ const readBoundedFrame = async (
 };
 
 /** A client failure that means the daemon itself was not there to answer. */
-const DAEMON_UNREACHABLE = /ECONNREFUSED|ENOENT|EPIPE|ECONNRESET|unreachable|socket closed/iu;
+const DAEMON_UNREACHABLE =
+  /ECONNREFUSED|ENOENT|EPIPE|ECONNRESET|unreachable|socket closed/iu;
 
 export const createAgentSandboxAttachment = (
   deps: AgentSandboxAttachmentDeps,
 ): SandboxAttachment => {
   let attached: ExecutionSession | undefined;
   let daemon: Process | undefined;
+  let daemonDirectory: string | undefined;
   let daemonLossReported = false;
   let sessionTerminationReported = false;
 
@@ -296,11 +297,6 @@ export const createAgentSandboxAttachment = (
     }
   };
 
-  /**
-   * One round trip. The stale result is removed first so a lost predecessor's
-   * answer can never be read as this call's, and the client's own failure
-   * frame is what surfaces a transport problem as a tool error.
-   */
   /**
    * A shell that exited under a bridge call is reported once, with the SDK's
    * own exit reason, and surfaces as a tool error rather than being swallowed
@@ -329,28 +325,45 @@ export const createAgentSandboxAttachment = (
     frame: AttachedToolRequest | AttachedToolControlRequest,
   ): Promise<unknown> => {
     const session = requireSession();
+    if (!daemonDirectory) {
+      throw new AttachedToolHostUnavailableError(
+        "This turn has no workspace bridge directory.",
+      );
+    }
+    const paths = attachedToolPathsForDirectory(daemonDirectory);
     deps.context.assertActive();
     try {
       // The stale result may simply not exist yet; only a dead shell is news.
-      await session.deleteFile(ATTACHED_TOOL_RESULT_PATH).catch((error) => {
+      await session.deleteFile(paths.result).catch((error) => {
         if (isSessionTerminatedError(error)) throw error;
       });
       await writeProtected(
         session,
-        ATTACHED_TOOL_REQUEST_PATH,
+        paths.request,
         encodeAttachedToolFrame(frame),
       );
       deps.context.assertActive();
-      const call = await session.exec(quoted(CLIENT_ARGV), {
-        cwd: EXECUTOR_ROOT,
-      });
+      const call = await session.exec(
+        quoted([
+          ...CLIENT_ARGV,
+          "--socket",
+          paths.socket,
+          "--request",
+          paths.request,
+          "--result",
+          paths.result,
+        ]),
+        {
+          cwd: EXECUTOR_ROOT,
+        },
+      );
       if (!call.success) {
         throw new AttachedToolHostUnavailableError(
           "The workspace could not run that call.",
         );
       }
       deps.context.assertActive();
-      return await readBoundedFrame(session, ATTACHED_TOOL_RESULT_PATH);
+      return await readBoundedFrame(session, paths.result);
     } catch (error) {
       if (isSessionTerminatedError(error)) throw sessionTerminated(error);
       throw error;
@@ -374,7 +387,14 @@ export const createAgentSandboxAttachment = (
       return;
     }
     daemonLossReported = true;
-    const described = await describeDaemon(daemon, attached);
+    const paths = daemonDirectory
+      ? attachedToolPathsForDirectory(daemonDirectory)
+      : undefined;
+    const described = await describeDaemon(
+      daemon,
+      paths?.daemonStderr,
+      attached,
+    );
     // What the container itself can still say about the bridge: the socket
     // directory and the process table, bounded, so a dead daemon can be
     // told apart from one that never listened or was replaced.
@@ -391,12 +411,14 @@ export const createAgentSandboxAttachment = (
       stderr: described.stderr,
       error: response.error,
       socketDir: await inspect(
-        `ls -la --time-style=full-iso ${quoted([ATTACHED_TOOL_DIR])}`,
+        paths
+          ? `ls -la --time-style=full-iso ${quoted([paths.directory])}`
+          : "true",
       ),
       processes: await inspect("ps -eo pid,ppid,stat,etime,args"),
       memory: await inspect("free -m 2>&1 | head -2"),
       processRecords: await inspect(
-        "for f in /tmp/sandbox-processes/*.json; do echo \"== $f\"; head -c 700 \"$f\"; echo; done 2>&1 | tail -c 1400",
+        'for f in /tmp/sandbox-processes/*.json; do echo "== $f"; head -c 700 "$f"; echo; done 2>&1 | tail -c 1400',
       ),
       exitCode: String(
         (daemon as { exitCode?: unknown } | undefined)?.exitCode ?? "",
@@ -408,7 +430,13 @@ export const createAgentSandboxAttachment = (
     daemon: Process | undefined,
     reason: string,
   ): Promise<AttachedToolHostUnavailableError> => {
-    const described = await describeDaemon(daemon, attached);
+    const described = await describeDaemon(
+      daemon,
+      daemonDirectory
+        ? attachedToolPathsForDirectory(daemonDirectory).daemonStderr
+        : undefined,
+      attached,
+    );
     deps.emitEvent?.("attached_daemon_failed", {
       reason,
       status: described.status,
@@ -424,10 +452,11 @@ export const createAgentSandboxAttachment = (
   const waitForDaemon = async (
     session: ExecutionSession,
     daemon: Process | undefined,
+    socketPath: string,
   ): Promise<void> => {
     for (let attempt = 0; attempt < READINESS_ATTEMPTS; attempt += 1) {
       deps.context.assertActive();
-      const listening = await session.exec(readinessProbe());
+      const listening = await session.exec(readinessProbe(socketPath));
       if (
         listening.success &&
         listening.stdout.includes(READINESS_READY_MARKER)
@@ -456,6 +485,19 @@ export const createAgentSandboxAttachment = (
       deps.context.assertActive();
       const world = await deps.attachWorld(args);
       attached = world.session;
+      daemonDirectory = args.daemonDirectory;
+      const paths = attachedToolPathsForDirectory(args.daemonDirectory);
+      deps.context.assertActive();
+      const directory = await world.session.exec(
+        `mkdir -p ${quoted([paths.directory])} && chown 0:0 ${quoted([
+          paths.directory,
+        ])} && chmod 0700 ${quoted([paths.directory])}`,
+      );
+      if (!directory.success) {
+        throw new AttachedToolHostUnavailableError(
+          "The workspace bridge directory could not be prepared.",
+        );
+      }
       deps.context.assertActive();
       const handoff = await deps.prepareBrokerHandoff({
         session: world.session,
@@ -463,7 +505,7 @@ export const createAgentSandboxAttachment = (
       deps.context.assertActive();
       await writeProtected(
         world.session,
-        ATTACHED_TOOL_HOST_INPUT_PATH,
+        paths.hostInput,
         JSON.stringify(handoff),
       );
       deps.context.assertActive();
@@ -475,15 +517,24 @@ export const createAgentSandboxAttachment = (
       // Started outside the session shell when the caller can: a session
       // process is a child of that persistent shell, and the shell has just
       // run the restore scripts and will run every bridged call next.
-      const daemonCommand = `${quoted(DAEMON_ARGV)} 2>>${quoted([DAEMON_STDERR_PATH])}`;
+      const daemonCommand = `${quoted([
+        ...DAEMON_ARGV,
+        "--dir",
+        paths.directory,
+      ])} 2>>${quoted([paths.daemonStderr])}`;
+      const processId = `attached-daemon-${args.sessionId}`.slice(0, 64);
       daemon = deps.startDaemon
-        ? await deps.startDaemon(daemonCommand, { cwd: EXECUTOR_ROOT })
+        ? await deps.startDaemon(daemonCommand, {
+            cwd: EXECUTOR_ROOT,
+            processId,
+          })
         : await world.session.startProcess(daemonCommand, {
             cwd: EXECUTOR_ROOT,
+            processId,
           });
       daemonLossReported = false;
       sessionTerminationReported = false;
-      await waitForDaemon(world.session, daemon);
+      await waitForDaemon(world.session, daemon, paths.socket);
       return {
         coldStartMs: world.coldContainerStartMs,
         restoreMs: world.restoreMs,
@@ -528,9 +579,22 @@ export const createAgentSandboxAttachment = (
       return response;
     },
 
-    destroy: async (sandboxId): Promise<void> => {
+    release: async (args): Promise<void> => {
+      const status = await bounded(daemon?.getStatus?.(), "completed");
+      if (daemon && !DAEMON_TERMINAL_STATUSES.has(status)) {
+        await bounded(daemon.kill("SIGKILL"), undefined);
+      }
       attached = undefined;
-      await deps.destroy(sandboxId);
+      daemon = undefined;
+      daemonDirectory = undefined;
+      await deps.release(args);
+    },
+
+    destroy: async (args): Promise<void> => {
+      attached = undefined;
+      daemon = undefined;
+      daemonDirectory = undefined;
+      await deps.destroy(args);
     },
   };
 };

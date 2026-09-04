@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 type FakeSandbox = {
   calls: string[];
-  setKeepAlive: (enabled: boolean) => Promise<void>;
   destroy: () => Promise<void>;
 };
 
@@ -13,7 +12,6 @@ const handles: Array<{
   sandbox: FakeSandbox;
 }> = [];
 let nextBehaviour: {
-  releaseFails?: boolean;
   destroyFails?: boolean;
 } = {};
 
@@ -32,13 +30,6 @@ mock.module("@cloudflare/sandbox", () => ({
     const behaviour = nextBehaviour;
     const sandbox: FakeSandbox = {
       calls,
-      setKeepAlive(enabled: boolean) {
-        calls.push(`keepAlive:${enabled}:${this === sandbox ? "stub" : "detached"}`);
-        if (behaviour.releaseFails) {
-          return Promise.reject(new Error("release rpc failed"));
-        }
-        return Promise.resolve();
-      },
       destroy: async () => {
         calls.push("destroy");
         if (behaviour.destroyFails) throw new Error("destroy rpc failed");
@@ -108,7 +99,7 @@ const retire = (
     environment() as never,
   );
 
-const AGENT_ID = `agent-${"a".repeat(40)}`;
+const WORLD_ID = `world-${"a".repeat(40)}`;
 
 const silenced = async <T>(work: () => Promise<T>): Promise<T> => {
   const previousError = console.error;
@@ -124,56 +115,40 @@ const silenced = async <T>(work: () => Promise<T>): Promise<T> => {
 };
 
 describe("POST /internal/sandboxes/retire", () => {
-  test("releases keep-alive on the stub, then destroys the exact tuple in its own namespace", async () => {
+  test("destroys the exact world tuple in its own namespace", async () => {
     handles.length = 0;
     nextBehaviour = {};
     const response = await silenced(() =>
-      retire({ sandboxId: AGENT_ID, size: "small", workload: "resident-attachment" }),
+      retire({ sandboxId: WORLD_ID, size: "small", workload: "world" }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
-      target: { sandboxId: AGENT_ID, size: "small", workload: "resident-attachment" },
-      keepAliveReleased: true,
+      target: { sandboxId: WORLD_ID, size: "small", workload: "world" },
     });
     expect(handles).toHaveLength(1);
     const [handle] = handles;
     // Size selects the namespace; a retire stub never carries keep-alive on.
     expect(handle!.namespace).toBe("SANDBOX_SMALL");
-    expect(handle!.id).toBe(AGENT_ID);
+    expect(handle!.id).toBe(WORLD_ID);
     expect(handle!.options).toMatchObject({
       keepAlive: false,
       sleepAfter: 600_000,
       normalizeId: true,
       transport: "rpc",
     });
-    expect(handle!.sandbox.calls).toEqual(["keepAlive:false:stub", "destroy"]);
-  });
-
-  test("retries the release after destroy when the first release fails", async () => {
-    handles.length = 0;
-    nextBehaviour = { releaseFails: true };
-    const response = await silenced(() =>
-      retire({ sandboxId: AGENT_ID, size: "large", workload: "agent" }),
-    );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      keepAliveReleased: false,
-    });
-    expect(handles[0]!.namespace).toBe("Sandbox");
-    expect(handles[0]!.sandbox.calls).toEqual([
-      "keepAlive:false:stub",
-      "destroy",
-      "keepAlive:false:stub",
-    ]);
+    expect(handle!.sandbox.calls).toEqual(["destroy"]);
   });
 
   test("reports a destroy that did not settle as a 502 with safe diagnostics only", async () => {
     handles.length = 0;
     nextBehaviour = { destroyFails: true };
     const response = await silenced(() =>
-      retire({ sandboxId: `app-${"b".repeat(40)}`, size: "large", workload: "app-build" }),
+      retire({
+        sandboxId: `app-${"b".repeat(40)}`,
+        size: "large",
+        workload: "app-build",
+      }),
     );
     expect(response.status).toBe(502);
     const body = (await response.json()) as Record<string, unknown>;
@@ -191,14 +166,24 @@ describe("POST /internal/sandboxes/retire", () => {
     handles.length = 0;
     nextBehaviour = {};
     for (const body of [
-      { sandboxId: "not-a-lifecycle-id", size: "small", workload: "agent" },
-      { sandboxId: AGENT_ID, size: "medium", workload: "agent" },
-      { sandboxId: AGENT_ID, size: "small", workload: "something-else" },
+      { sandboxId: "not-a-lifecycle-id", size: "small", workload: "world" },
+      { sandboxId: WORLD_ID, size: "medium", workload: "world" },
+      {
+        sandboxId: `agent-${"a".repeat(40)}`,
+        size: "small",
+        workload: "world",
+      },
+      { sandboxId: WORLD_ID, size: "small", workload: "app-build" },
+      { sandboxId: `app-${"a".repeat(40)}`, size: "large", workload: "world" },
+      { sandboxId: WORLD_ID, size: "small", workload: "something-else" },
       {},
     ]) {
       const response = await retire(body);
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ ok: false, reason: "invalid_target" });
+      expect(await response.json()).toEqual({
+        ok: false,
+        reason: "invalid_target",
+      });
     }
     expect(handles).toHaveLength(0);
   });
@@ -206,7 +191,7 @@ describe("POST /internal/sandboxes/retire", () => {
   test("requires the service bearer", async () => {
     handles.length = 0;
     const response = await retire(
-      { sandboxId: AGENT_ID, size: "small", workload: "agent" },
+      { sandboxId: WORLD_ID, size: "small", workload: "world" },
       null,
     );
     expect(response.status).toBe(401);

@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("sandbox egress policy", () => {
-  test("uses the fixed per-turn egress limits", () => {
+  test("uses the fixed per-container egress limits", () => {
     expect(GENERAL_AGENT_EGRESS_BUDGET_BYTES).toBe(500 * 1024 * 1024);
     expect(GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE).toBe(120);
     expect(GENERAL_AGENT_EGRESS_ALLOWED_PORTS).toEqual([80, 443, 22]);
@@ -86,7 +86,9 @@ describe("sandbox egress policy", () => {
       },
     });
     const response = await policy(
-      new Request("https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev/internal/worlds/name/export"),
+      new Request(
+        "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev/internal/worlds/name/export",
+      ),
       undefined,
       { containerId: "world-attach" },
     );
@@ -121,7 +123,7 @@ describe("sandbox egress policy", () => {
     expect(fetchCalls).toBe(3);
   });
 
-  test("connection rate is capped per turn and rolls after one minute", async () => {
+  test("connection rate is capped per container and rolls after one minute", async () => {
     let now = 10_000;
     let fetchCalls = 0;
     const policy = createGeneralAgentEgress({
@@ -135,26 +137,26 @@ describe("sandbox egress policy", () => {
     const request = () => new Request("https://example.com/rate");
 
     expect(
-      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+      (await policy(request(), undefined, { containerId: "world-a" })).status,
     ).toBe(204);
     expect(
-      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+      (await policy(request(), undefined, { containerId: "world-a" })).status,
     ).toBe(204);
     expect(
-      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+      (await policy(request(), undefined, { containerId: "world-a" })).status,
     ).toBe(429);
     expect(
-      (await policy(request(), undefined, { containerId: "turn-b" })).status,
+      (await policy(request(), undefined, { containerId: "world-b" })).status,
     ).toBe(204);
 
     now += 60_001;
     expect(
-      (await policy(request(), undefined, { containerId: "turn-a" })).status,
+      (await policy(request(), undefined, { containerId: "world-a" })).status,
     ).toBe(204);
     expect(fetchCalls).toBe(4);
   });
 
-  test("response bytes exhaust a per-turn budget and emit egress_budget telemetry", async () => {
+  test("response bytes exhaust a per-container budget and emit egress_budget telemetry", async () => {
     const events: string[] = [];
     console.log = (value?: unknown) => events.push(String(value));
     const policy = createGeneralAgentEgress({
@@ -163,21 +165,23 @@ describe("sandbox egress policy", () => {
     });
     const request = () => new Request("https://example.com/download");
 
-    const first = await policy(request(), undefined, { containerId: "turn-a" });
+    const first = await policy(request(), undefined, {
+      containerId: "world-a",
+    });
     expect(await first.text()).toBe("abc");
     const second = await policy(request(), undefined, {
-      containerId: "turn-a",
+      containerId: "world-a",
     });
     expect(await second.text()).toBe("abc");
     const refused = await policy(request(), undefined, {
-      containerId: "turn-a",
+      containerId: "world-a",
     });
     expect(refused.status).toBe(403);
 
-    const otherTurn = await policy(request(), undefined, {
-      containerId: "turn-b",
+    const otherContainer = await policy(request(), undefined, {
+      containerId: "world-b",
     });
-    expect(await otherTurn.text()).toBe("abc");
+    expect(await otherContainer.text()).toBe("abc");
     expect(
       events.some((event) => event.includes('"reason":"egress_budget"')),
     ).toBe(true);

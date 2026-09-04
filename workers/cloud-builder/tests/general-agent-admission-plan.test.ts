@@ -4,7 +4,7 @@ import {
   parseTurnComputePlan,
   turnComputePlanKey,
 } from "../src/general-agent-turn.js";
-import { sandboxLifecycleId } from "../src/sandbox-lifecycle.js";
+import { worldSandboxId } from "../src/workspace.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -140,13 +140,7 @@ const admit = async (
 
 const expectedSandboxId = async (
   turn: ReturnType<typeof agentTurn>,
-): Promise<string> =>
-  await sandboxLifecycleId("agent", {
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration,
-  });
+): Promise<string> => await worldSandboxId(turn.ownerId);
 
 const storedPlan = (
   harness: ReturnType<typeof admissionHarness>,

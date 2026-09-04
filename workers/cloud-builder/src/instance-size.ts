@@ -4,10 +4,9 @@
  * A container's instance type is a deploy-time property of its class in
  * wrangler.jsonc — `ContainerStartupOptions` has no size field, so a single
  * class cannot be sized per turn. The ladder is therefore expressed as two
- * container classes over the same image: `SandboxSmall` for the default turn
- * and the existing `Sandbox` for heavy work and OOM retries. When the small
- * binding is missing (a deployment that has not added it yet) everything
- * falls back to the large class, which is the behavior that shipped before.
+ * container classes over the same image: `SandboxSmall` for the default world
+ * and `Sandbox` for heavy work and OOM retries. Deployments without the small
+ * binding use the large class.
  */
 
 export type InstanceSize = "small" | "large";
@@ -45,10 +44,9 @@ const HEAVY_STACK_PATTERN =
   /\b(docker|kubernetes|ffmpeg|transcod\w*|puppeteer|playwright|chromium|headless browser|webpack|next\s?build|gradle|maven|xcode|cargo build|rustc|cmake|\.tar\.gz|torch|pytorch|tensorflow|cuda|llama\.cpp|pandas|numpy|monorepo|npm install|bun install|pnpm install|yarn install|type ?check the (whole|entire)|build the (whole|entire))\b/i;
 
 /**
- * Where a turn starts on the ladder. A world with no checkpoint has to build
- * itself from nothing, which is the expensive part, so it starts large; once
- * it is checkpointed the turn is ordinary work again and is sized by what it
- * was asked to do, escalating only if it actually runs out of memory.
+ * The first turn that cold-starts an owner's container proposes its class from
+ * the prompt. WorldStore remembers that choice, and an OOM permanently raises
+ * later cold starts to large.
  */
 export const initialInstanceSize = (args: { prompt: string }): InstanceSize =>
   HEAVY_STACK_PATTERN.test(args.prompt) ? "large" : "small";

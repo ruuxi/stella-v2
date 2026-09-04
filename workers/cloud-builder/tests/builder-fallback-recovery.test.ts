@@ -13,10 +13,8 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const {
-  BuildSession,
-  bindObservedBrowserSuspensionToCanonicalCodeCall,
-} = await import("../src/index.js");
+const { BuildSession, bindObservedBrowserSuspensionToCanonicalCodeCall } =
+  await import("../src/index.js");
 mock.restore();
 
 const mapStorage = (values = new Map<string, unknown>()) => {
@@ -200,14 +198,13 @@ describe("Builder fallback recovery", () => {
   test("binds an observed Gateway wait only to one canonical unresolved Code call", async () => {
     const cursor = await nativeHistoryCursorFromRows(browserRows);
     const checkpoint = receipt(cursor);
-    const bound =
-      await bindObservedBrowserSuspensionToCanonicalCodeCall({
-        observation: observedBrowserSuspension(),
-        turnId: "turn-1",
-        attemptGeneration: 1,
-        checkpoint,
-        rows: browserRows,
-      });
+    const bound = await bindObservedBrowserSuspensionToCanonicalCodeCall({
+      observation: observedBrowserSuspension(),
+      turnId: "turn-1",
+      attemptGeneration: 1,
+      checkpoint,
+      rows: browserRows,
+    });
     expect(bound).toMatchObject({
       interactionId: "interaction-1",
       toolCallId: "outer-code-call",
@@ -232,9 +229,7 @@ describe("Builder fallback recovery", () => {
         observation: observedBrowserSuspension(),
         turnId: "turn-1",
         attemptGeneration: 1,
-        checkpoint: receipt(
-          await nativeHistoryCursorFromRows(ambiguousRows),
-        ),
+        checkpoint: receipt(await nativeHistoryCursorFromRows(ambiguousRows)),
         rows: ambiguousRows,
       }),
     ).toBeNull();
@@ -347,10 +342,7 @@ describe("Builder fallback recovery", () => {
     );
     expect(result).toEqual(accepted);
 
-    expect(calls).toEqual([
-      "append-suspension-transcript",
-      "publish-original",
-    ]);
+    expect(calls).toEqual(["append-suspension-transcript", "publish-original"]);
     expect(canonical).toEqual(browserRows);
     expect(
       state.values.get("builderFallbackTranscript:turn-1:1"),
@@ -448,15 +440,12 @@ describe("Builder fallback recovery", () => {
     const cursor = await nativeHistoryCursorFromRows(browserRows);
     const accepted = receipt(cursor);
     state.values.set("agentExecutionMarker:turn-1:1", marker);
-    state.values.set(
-      "observedBrowserSuspension",
-      observedBrowserSuspension(),
-    );
+    state.values.set("observedBrowserSuspension", observedBrowserSuspension());
     instance["recoverAgentTurnAfterExecutorLoss"] = async () => accepted;
     instance["fetchCanonicalAgentHistory"] = () => browserRows;
     instance["ownsExactTurn"] = async () => true;
     const calls: string[] = [];
-    instance["terminateCurrentAgentSandbox"] = async () => {
+    instance["terminateCurrentAgentSession"] = async () => {
       calls.push("terminate");
     };
     let delivered: Record<string, unknown> | undefined;

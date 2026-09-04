@@ -2,7 +2,7 @@
   "a0308ae0-ef75-4f05-960c-033c72d0b2ce": [
     {
       "id": "17edee7b3307a3ec7e611948a303852239574edbbb19517bbdad2de189e819c9",
-      "name": "agent-8cf8109a-ec39-4213-907c-080cfea3c7c0",
+      "name": "world-8cf8109a-ec39-4213-907c-080cfea3c7c0",
       "state": "running",
       "location": "dfw05",
       "version": 23,
@@ -10,7 +10,7 @@
     },
     {
       "id": "63e318dc8089fd42cb9a3068fa1509b22e1e74dc42676460a8e1e7333581f450",
-      "name": "agent-111e2e29-18d6-4be4-aa9b-e37ff5e9d868",
+      "name": "world-111e2e29-18d6-4be4-aa9b-e37ff5e9d868",
       "state": "running",
       "location": "dfw16",
       "version": 23,
@@ -18,7 +18,7 @@
     },
     {
       "id": "0072f827280a87b3a8659abd6a6ee19fa493300298a7920f69695764cf8e05f6",
-      "name": "agent-d75e3d4c-baeb-43ed-9774-3a08fdb37b5d",
+      "name": "world-d75e3d4c-baeb-43ed-9774-3a08fdb37b5d",
       "state": "inactive",
       "location": null,
       "version": null,
@@ -38,7 +38,7 @@
   "a03766cb-ca50-4c21-bfec-452ed335ac69": [
     {
       "id": "e8fae85eb0fb4753d178fd1af1ff1d0175a87228198fe355035f43c688727553",
-      "name": "agent-62b9c5ee-ef32-4434-9f3e-709f5f6a925f",
+      "name": "world-62b9c5ee-ef32-4434-9f3e-709f5f6a925f",
       "state": "inactive",
       "location": null,
       "version": null,

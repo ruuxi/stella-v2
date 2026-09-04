@@ -12,6 +12,7 @@ import {
   type ExecutionSession,
   type Sandbox as SandboxType,
 } from "@cloudflare/sandbox";
+import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
 import {
   AppBuildSandbox as AppBuildSandboxBase,
   ContainerProxy,
@@ -19,6 +20,7 @@ import {
 } from "./sandbox-egress-classes.js";
 import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
 import { inSubshell } from "./shell-subshell.js";
+import { worldMaterializationCommand } from "./world-materialization.js";
 import { OrchestratorSession } from "./orchestrator-session.js";
 import { deliverOutboxBatch, enqueueOutbox } from "./outbox.js";
 import {
@@ -97,8 +99,10 @@ import {
   WORLD_DRIVE_ROOT,
   WORLD_ROOT,
   WORLD_STELLA_ROOT,
+  agentTurnSessionId,
   checkpointBackupName,
   checkpointKey,
+  worldSandboxId,
   worldName,
 } from "./workspace.js";
 import {
@@ -443,12 +447,7 @@ const SANDBOX_RUNNING_STATUSES: ReadonlySet<string> = new Set([
   "healthy",
 ]);
 
-/**
- * The idle timeout the sandbox applies once keep-alive is off. The SDK ignores
- * it while keep-alive is on, so a live turn is unaffected; it is what makes a
- * teardown stub's container, or one a stray RPC revived after its destroy,
- * stop on its own instead of running until the next successful destroy.
- */
+/** Idle timeout for an unpinned shared world or app-build container. */
 const sandboxSleepAfterMs = (
   env: Pick<Env, "SANDBOX_IDLE_TIMEOUT_MS">,
 ): number | undefined => {
@@ -457,15 +456,11 @@ const sandboxSleepAfterMs = (
 };
 
 /**
- * One sandbox handle per exact tuple. Size selects the namespace as much as
- * the id does: the container classes are separate namespaces, so a handle
- * built for the wrong size silently addresses a different container.
+ * One unpinned sandbox handle per exact tuple. Size selects the namespace as
+ * much as the id does: the classes are separate namespaces, so a handle built
+ * for the wrong size silently addresses a different container.
  */
-const sandboxHandle = (
-  env: Env,
-  target: SandboxTarget,
-  options: { keepAlive?: boolean } = {},
-) => {
+const sandboxHandle = (env: Env, target: SandboxTarget) => {
   const namespace =
     target.workload === "app-build"
       ? env.APP_BUILD_SANDBOX
@@ -476,10 +471,7 @@ const sandboxHandle = (
   return getSandbox(namespace, target.sandboxId, {
     transport: "rpc",
     enableDefaultSession: false,
-    // A teardown stub asks the SDK to drop keep-alive as its configured
-    // state, so the sandbox itself records the release on its first call.
-    // A live stub keeps the container awake across the whole turn.
-    keepAlive: options.keepAlive ?? true,
+    keepAlive: false,
     ...(sleepAfter === undefined ? {} : { sleepAfter }),
     normalizeId: true,
     containerTimeouts: {
@@ -492,14 +484,13 @@ const sandboxHandle = (
 
 /** Every id this worker mints: a lifecycle fingerprint or a diagnostic echo. */
 const RETIRE_SANDBOX_ID =
-  /^(?:(?:agent|agent-lg|app)-[0-9a-f]{40}|echo-[0-9a-f-]{36})$/u;
+  /^(?:(?:world|app)-[0-9a-f]{40}|echo-[0-9a-f-]{36})$/u;
 
 /**
  * Retire one container by its exact tuple, for the inventory reaper. There is
  * no per-instance stop in Wrangler or the public API and only the sandbox
  * object holds the container handle, so the reaper's adapter posts the tuple
- * here and the worker performs the same release-then-destroy a turn's own
- * teardown does. Never guesses a namespace from the id alone.
+ * here and the worker destroys it. Never guesses a namespace from the id.
  */
 const retireSandboxInstance = async (
   env: Env,
@@ -517,7 +508,9 @@ const retireSandboxInstance = async (
     !RETIRE_SANDBOX_ID.test(sandboxId) ||
     (size !== "small" && size !== "large") ||
     typeof workload !== "string" ||
-    !(SANDBOX_WORKLOADS as readonly string[]).includes(workload)
+    !(SANDBOX_WORKLOADS as readonly string[]).includes(workload) ||
+    (sandboxId.startsWith("world-") && workload !== "world") ||
+    (!sandboxId.startsWith("world-") && workload !== "app-build")
   ) {
     return json({ ok: false, reason: "invalid_target" }, 400);
   }
@@ -526,29 +519,7 @@ const retireSandboxInstance = async (
     size,
     workload: workload as SandboxWorkload,
   };
-  const sandbox = sandboxHandle(env, target, { keepAlive: false });
-  const releasable = sandbox as typeof sandbox & {
-    setKeepAlive?: (enabled: boolean) => Promise<unknown>;
-  };
-  const releaseKeepAlive = async (): Promise<boolean> => {
-    if (typeof releasable.setKeepAlive !== "function") return true;
-    try {
-      await withInfrastructureDeadline(
-        releasable.setKeepAlive(false),
-        10_000,
-        "Sandbox keep-alive release did not settle.",
-      );
-      return true;
-    } catch (error) {
-      log("error", "sandbox_operator_keep_alive_release_failed", {
-        workload: target.workload,
-        instanceSize: target.size,
-        ...sandboxLifecycleFailureFields(error),
-      });
-      return false;
-    }
-  };
-  let keepAliveReleased = await releaseKeepAlive();
+  const sandbox = sandboxHandle(env, target);
   try {
     await withInfrastructureDeadline(
       sandbox.destroy(),
@@ -567,19 +538,16 @@ const retireSandboxInstance = async (
         ok: false,
         reason: "destroy_failed",
         target,
-        keepAliveReleased,
         ...failure,
       },
       502,
     );
   }
-  if (!keepAliveReleased) keepAliveReleased = await releaseKeepAlive();
   log("info", "sandbox_retired_by_operator", {
     workload: target.workload,
     instanceSize: target.size,
-    keepAliveReleased,
   });
-  return json({ ok: true, target, keepAliveReleased });
+  return json({ ok: true, target });
 };
 
 /**
@@ -1955,7 +1923,7 @@ const sessionName = (value: string): string =>
     .slice(0, 56);
 
 const exactTurnSandboxId = async (
-  prefix: "app" | "agent" | "agent-lg",
+  prefix: "app",
   turn: TurnRequest,
 ): Promise<string> =>
   await sandboxLifecycleId(prefix, {
@@ -3009,7 +2977,7 @@ export class BuildSession extends DurableObject<Env> {
         this.abortResidentAgent(turn);
         return this.builderFallbackRecoveries.has(turn.turnId)
           ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSandbox(turn);
+          : this.terminateCurrentAgentSession(turn);
       },
       // createSession() may ignore AbortSignal and resolve after the immediate
       // destroy. Sweep again after the underlying turn promise has unwound so
@@ -3018,7 +2986,7 @@ export class BuildSession extends DurableObject<Env> {
         this.abortResidentAgent(turn);
         return this.builderFallbackRecoveries.has(turn.turnId)
           ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSandbox(turn);
+          : this.terminateCurrentAgentSession(turn);
       },
     });
     this.agentTurnExecutions.set(turn.turnId, execution);
@@ -3058,8 +3026,8 @@ export class BuildSession extends DurableObject<Env> {
       // A pending platform createSession may materialize after the first
       // destroy. Interrupt closes the local admission latch; the second sweep
       // runs only after the underlying app-turn promise has unwound.
-      onInterrupt: () => this.terminateCurrentAgentSandbox(turn),
-      afterInterrupt: () => this.terminateCurrentAgentSandbox(turn),
+      onInterrupt: () => this.terminateCurrentAgentSession(turn),
+      afterInterrupt: () => this.terminateCurrentAgentSession(turn),
     });
     this.appTurnExecutions.set(turn.turnId, execution);
     const tracked = this.trackTurn(turn.turnId, execution.settled);
@@ -3330,7 +3298,8 @@ export class BuildSession extends DurableObject<Env> {
           (!workspaceHead ||
             confirmed?.workspace?.restore?.operationId !==
               workspaceHead.operationId ||
-            confirmed.workspace.restore.manifestId !== workspaceHead.manifestId ||
+            confirmed.workspace.restore.manifestId !==
+              workspaceHead.manifestId ||
             typeof confirmed.workspace.promoted !== "boolean" ||
             typeof confirmed.workspace.replayed !== "boolean")) ||
         (threadConfirmationRequired &&
@@ -3375,14 +3344,10 @@ export class BuildSession extends DurableObject<Env> {
       ),
       identity,
     );
-    const sandbox = this.sandbox(
-      target.sandboxId,
-      target.size,
-      compute?.sandboxId === target.sandboxId ? "resident-attachment" : "agent",
-    );
-    const executionSessionId = sessionName(
-      `agent-run-${turn.turnId}-${target.size}`,
-    );
+    const sandbox = this.sandbox(target.sandboxId, target.size, "world");
+    const executionSessionId =
+      compute?.sessionId ?? agentTurnSessionId(turn.turnId);
+    if (!(await this.sandboxContainerRunning(sandbox))) return;
     await sandbox.killAllProcesses(executionSessionId);
     await sandbox.deleteSession(executionSessionId).catch(() => undefined);
   }
@@ -3481,12 +3446,17 @@ export class BuildSession extends DurableObject<Env> {
     const target: SandboxTarget = {
       sandboxId: compute.sandboxId!,
       size: compute.instanceSize,
-      workload: "resident-attachment",
+      workload: "world",
     };
     try {
-      await this.destroySandboxDurably(target, "resident_attach_recovery");
+      await this.releaseAgentSessionResources({
+        ...target,
+        workload: "world",
+        sessionId: compute.sessionId!,
+        daemonDirectory: compute.daemonDirectory!,
+      });
     } catch (error) {
-      log("error", "agent_compute_recovery_destroy_deferred", {
+      log("error", "agent_compute_recovery_release_deferred", {
         turnId: turn.turnId,
         threadId: turn.threadId,
         instanceSize: compute.instanceSize,
@@ -3570,7 +3540,7 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
-  private async clearLegacySandboxTupleForResidentAdmission(
+  private async clearUnattachedAgentSandboxTuple(
     turn: TurnRequest,
   ): Promise<void> {
     const attemptGeneration = turn.attemptGeneration!;
@@ -5130,7 +5100,11 @@ export class BuildSession extends DurableObject<Env> {
       const target = await this.currentSandboxTarget();
       if (target) {
         try {
-          await this.destroySandboxDurably(target, "owner_purge");
+          if (turn.kind === "agent") {
+            await this.terminateCurrentAgentSession(turn);
+          } else {
+            await this.destroySandboxDurably(target, "owner_purge");
+          }
         } catch {
           return json({ error: "Owner turn is still unwinding." }, 409);
         }
@@ -5303,9 +5277,8 @@ export class BuildSession extends DurableObject<Env> {
     id: string,
     size: InstanceSize = "large",
     workload: SandboxWorkload = "app-build",
-    options: { keepAlive?: boolean } = {},
   ) {
-    return sandboxHandle(this.env, { sandboxId: id, size, workload }, options);
+    return sandboxHandle(this.env, { sandboxId: id, size, workload });
   }
 
   /**
@@ -5341,10 +5314,7 @@ export class BuildSession extends DurableObject<Env> {
 
   /**
    * Convert one exact sandbox target into durable teardown debt before the
-   * first lifecycle RPC leaves this object. `keepAlive` remains enabled for
-   * the whole active lease; only retirement disables it. A reset or platform
-   * timeout therefore leaves an alarm-owned tombstone, never an untracked
-   * container.
+   * first lifecycle RPC leaves this object.
    */
   private async destroySandboxDurably(
     target: SandboxTarget,
@@ -5372,48 +5342,13 @@ export class BuildSession extends DurableObject<Env> {
       target.sandboxId,
       target.size,
       target.workload,
-      { keepAlive: false },
     );
     try {
-      // A destroy is still attempted when this advisory transition fails. The
-      // durable tombstone remains authority until destroy itself confirms.
-      // The release is invoked as a method on the stub, the one form every
-      // workerd RPC property supports: a detached reference invoked through
-      // `Function.prototype.call` is not an RPC call on the object.
-      const releasable = sandbox as typeof sandbox & {
-        setKeepAlive?: (enabled: boolean) => Promise<unknown>;
-      };
-      const releaseKeepAlive = async (phase: "before" | "after") => {
-        if (typeof releasable.setKeepAlive !== "function") return true;
-        try {
-          await withInfrastructureDeadline(
-            releasable.setKeepAlive(false),
-            10_000,
-            "Sandbox keep-alive release did not settle.",
-          );
-          return true;
-        } catch (error) {
-          log("error", "sandbox_keep_alive_release_failed", {
-            lifecycleReason: event,
-            phase,
-            workload: target.workload,
-            instanceSize: target.size,
-            ...sandboxLifecycleFailureFields(error),
-          });
-          return false;
-        }
-      };
-      const released = await releaseKeepAlive("before");
       await withInfrastructureDeadline(
         sandbox.destroy(),
         30_000,
         "Sandbox destruction did not settle.",
       );
-      // A destroyed container is not gone for good: any later RPC to its
-      // sandbox boots it again, and with keep-alive still persisted it then
-      // never sleeps. The release is durable sandbox state, so retry it once
-      // the destroy has settled rather than accepting the first failure.
-      if (!released) await releaseKeepAlive("after");
     } catch (error) {
       const advanced = advanceSandboxDestroyDebt(debt, Date.now());
       await persistSandboxDestroyDebt(this.ctx.storage, advanced);
@@ -5473,7 +5408,7 @@ export class BuildSession extends DurableObject<Env> {
       return;
     }
     try {
-      await this.terminateCurrentAgentSandbox(turn);
+      await this.terminateCurrentAgentSession(turn);
     } catch (error) {
       if (!(error instanceof SandboxLifecycleDeferredError)) {
         log("error", "recovered_agent_sandbox_termination_deferred", {
@@ -5583,7 +5518,7 @@ export class BuildSession extends DurableObject<Env> {
           ? {
               sandboxId: compute.sandboxId,
               size: compute.instanceSize,
-              workload: "resident-attachment",
+              workload: "world",
             }
           : undefined;
       }
@@ -5591,7 +5526,7 @@ export class BuildSession extends DurableObject<Env> {
         ? {
             sandboxId: storedSandboxId,
             size: storedSize ?? "large",
-            workload: "agent",
+            workload: "world",
           }
         : undefined;
     }
@@ -5611,13 +5546,8 @@ export class BuildSession extends DurableObject<Env> {
       : undefined;
   }
 
-  /**
-   * Stop the command session first, then destroy its container. `destroy()` is
-   * the authoritative boundary, while the explicit process kill makes a
-   * native Claude Code child stop promptly instead of waiting for the
-   * container teardown handshake.
-   */
-  private async terminateCurrentAgentSandbox(turn: TurnRequest): Promise<void> {
+  /** Release one turn's processes, daemon, session, and bridge directory. */
+  private async terminateCurrentAgentSession(turn: TurnRequest): Promise<void> {
     const target = await this.ctx.storage.transaction(async (txn) => {
       const markerKey =
         turn.kind === "agent" &&
@@ -5655,22 +5585,8 @@ export class BuildSession extends DurableObject<Env> {
                 )
             : Promise.resolve(null),
         ]);
-      // The ladder's record names the instance before it exists, so a Stop
-      // arriving mid boot destroys the exact reservation instead of skipping
-      // teardown because the shared key was not written yet. A record still in
-      // `resident` names nothing, which is what keeps a chat-only Stop free.
-      // Exact attempt state is authoritative. The shared compatibility key can
-      // still name a predecessor while this attempt is between reservation and
-      // attach; preferring it would destroy the wrong container and falsely
-      // ACK Stop while leaking the current one.
+      // The ladder's exact record wins over the eager-path mirrors.
       const sandboxId = compute ? compute.sandboxId : storedSandboxId;
-      // An exact compute record names this attempt's own container, so its
-      // teardown proceeds even after a successor turn was admitted and took
-      // over `turn` — a follow-up dispatched from the completion wake lands
-      // within the second, before the finished attempt's teardown runs, and
-      // skipping here leaked that container on keep-alive for good. Only the
-      // shared mirror needs the identity fence: that key may already name the
-      // successor's container.
       if (
         !sandboxId ||
         (!compute && !exactTurnIdentityMatches(current, turn))
@@ -5684,11 +5600,14 @@ export class BuildSession extends DurableObject<Env> {
         sandboxId,
         size,
         workload:
-          turn.kind === "agent" && compute
-            ? ("resident-attachment" as const)
-            : turn.kind === "agent"
-              ? ("agent" as const)
-              : ("app-build" as const),
+          turn.kind === "agent" ? ("world" as const) : ("app-build" as const),
+        sessionId: compute?.sessionId ?? agentTurnSessionId(turn.turnId),
+        daemonDirectory:
+          compute?.daemonDirectory ??
+          attachedToolPaths({
+            turnId: turn.turnId,
+            attemptGeneration: turn.attemptGeneration ?? 1,
+          }).directory,
         executorAdmitted:
           executionMarker?.schemaVersion === 1 &&
           executionMarker.turnId === turn.turnId &&
@@ -5698,46 +5617,45 @@ export class BuildSession extends DurableObject<Env> {
       };
     });
     if (!target) return;
-    if (turn.kind === "agent" && target.executorAdmitted) {
-      // Retirement never holds a keep-alive stub for its target: the SDK
-      // records keep-alive as the sandbox's configured state on the stub's
-      // first call, and a live stub here would re-enable it for a container
-      // that is about to be destroyed. The process sweep is a container RPC,
-      // so it only runs against a container the sandbox says is running;
-      // against one that already exited it would boot the instance just to
-      // kill nothing, and with keep-alive persisted that revived container
-      // never sleeps again.
-      const sandbox = this.sandbox(
-        target.sandboxId,
-        target.size,
-        target.workload,
-        { keepAlive: false },
-      );
-      const size = target.size;
-      const executionSessionId = sessionName(
-        `agent-run-${turn.turnId}-${size}`,
-      );
-      if (await this.sandboxContainerRunning(sandbox)) {
-        await withInfrastructureDeadline(
-          sandbox.killAllProcesses(executionSessionId),
-          30_000,
-          "Agent process teardown did not settle.",
-        ).catch((error) => {
-          log("error", "agent_process_kill_failed", {
-            turnId: turn.turnId,
-            sessionId: executionSessionId,
-            ...sandboxLifecycleFailureFields(error),
-          });
-        });
-      } else {
-        log("info", "agent_process_kill_skipped", {
-          turnId: turn.turnId,
-          sessionId: executionSessionId,
-          reason: "container_not_running",
-        });
-      }
-    }
-    await this.destroySandboxDurably(target, "agent_termination");
+    if (turn.kind !== "agent") return;
+    await this.releaseAgentSessionResources({ ...target, workload: "world" });
+  }
+
+  private async releaseAgentSessionResources(target: {
+    sandboxId: string;
+    size: InstanceSize;
+    workload: "world";
+    sessionId: string;
+    daemonDirectory: string;
+  }): Promise<void> {
+    const sandbox = this.sandbox(
+      target.sandboxId,
+      target.size,
+      target.workload,
+    );
+    if (!(await this.sandboxContainerRunning(sandbox))) return;
+    await withInfrastructureDeadline(
+      sandbox.killAllProcesses(target.sessionId),
+      30_000,
+      "Agent process teardown did not settle.",
+    ).catch(() => undefined);
+    await withInfrastructureDeadline(
+      sandbox.killProcess(
+        `attached-daemon-${target.sessionId}`.slice(0, 64),
+        "SIGKILL",
+      ),
+      10_000,
+      "Attached daemon teardown did not settle.",
+    ).catch(() => undefined);
+    const session = await sandbox
+      .getSession(target.sessionId)
+      .catch(() => undefined);
+    await session
+      ?.exec(`rm -rf -- '${target.daemonDirectory.replace(/'/gu, `'"'"'`)}'`, {
+        origin: "internal",
+      })
+      .catch(() => undefined);
+    await sandbox.deleteSession(target.sessionId).catch(() => undefined);
   }
 
   /**
@@ -6931,7 +6849,11 @@ export class BuildSession extends DurableObject<Env> {
         const target = await this.currentSandboxTarget();
         if (await this.ownsExactTurn(turn)) {
           if (target) {
-            await this.destroySandboxDurably(target, "owner_fence_alarm");
+            if (turn.kind === "agent") {
+              await this.terminateCurrentAgentSession(turn);
+            } else {
+              await this.destroySandboxDurably(target, "owner_fence_alarm");
+            }
           }
         }
         try {
@@ -7037,10 +6959,7 @@ export class BuildSession extends DurableObject<Env> {
       }
       const target = await this.currentSandboxTarget();
       if (target) {
-        await this.destroySandboxDurably(
-          target,
-          "browser_suspension_alarm",
-        ).catch(() => undefined);
+        await this.terminateCurrentAgentSession(turn).catch(() => undefined);
       }
       if (!(await this.ownsExactTurn(turn))) return;
       if (!(await this.deliverBrowserSuspension(turn, browserSuspension))) {
@@ -7098,7 +7017,7 @@ export class BuildSession extends DurableObject<Env> {
         let deliverable = pending;
         if (pending.terminateSandbox) {
           try {
-            await this.terminateCurrentAgentSandbox(turn);
+            await this.terminateCurrentAgentSession(turn);
           } catch (error) {
             log("error", "pending_terminal_sandbox_termination_failed", {
               turnId: turn.turnId,
@@ -7256,7 +7175,7 @@ export class BuildSession extends DurableObject<Env> {
             return;
           }
           try {
-            await this.terminateCurrentAgentSandbox(turn);
+            await this.terminateCurrentAgentSession(turn);
           } catch (error) {
             log("error", "browser_suspension_sandbox_termination_deferred", {
               turnId: turn.turnId,
@@ -7324,7 +7243,7 @@ export class BuildSession extends DurableObject<Env> {
       return;
     }
     try {
-      await this.terminateCurrentAgentSandbox(turn);
+      await this.terminateCurrentAgentSession(turn);
     } catch (error) {
       if (!(error instanceof SandboxLifecycleDeferredError)) {
         log("error", "timeout_sandbox_termination_failed", {
@@ -7679,7 +7598,7 @@ export class BuildSession extends DurableObject<Env> {
         // A restarted isolate has no live Effect fiber/finalizer, but may still
         // own the durable sandbox id. Teardown remains mandatory in that case.
         if (!agentExecution) {
-          await this.terminateCurrentAgentSandbox(turn);
+          await this.terminateCurrentAgentSession(turn);
         }
         pending = { ...pending, terminateSandbox: false };
         if (
@@ -7807,9 +7726,9 @@ export class BuildSession extends DurableObject<Env> {
     const { turn, operationKey, operation } = args;
     await this.assertTurnWritable(turn);
     this.assertAgentTurnIdentity(turn);
-    const worldCheckpoint = await this.env.WORLDS
-      .getByName(await worldName(turn.ownerId))
-      .checkpoint({ historyCursor: operation.payload.historyCursor });
+    const worldCheckpoint = await this.env.WORLDS.getByName(
+      await worldName(turn.ownerId),
+    ).checkpoint({ historyCursor: operation.payload.historyCursor });
 
     const prepared = await this.callOwnerTurnState<PreparedTurnStateOperation>(
       turn,
@@ -7880,8 +7799,7 @@ export class BuildSession extends DurableObject<Env> {
     });
     try {
       let nativeUpload:
-        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
-        | undefined;
+        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -9324,7 +9242,7 @@ export class BuildSession extends DurableObject<Env> {
           orphan?: PendingTerminal;
           orphanTurn?: TurnRequest;
         };
-    const exactSandboxId = await exactTurnSandboxId("agent", turn);
+    const sharedWorldSandboxId = await worldSandboxId(turn.ownerId);
     const admission = await this.ctx.blockConcurrencyWhile(
       async (): Promise<Admission> => {
         const current = await this.ctx.storage.get<TurnRequest>("turn");
@@ -9426,10 +9344,9 @@ export class BuildSession extends DurableObject<Env> {
         }
         const computePlan = this.admittedComputePlan(turn);
         const resident = computePlan?.plan.kind === "resident_stella";
-        // A resident turn reserves no container, so it mints no id. Every
-        // other turn keeps today's exact name; the id is what both
-        // cancellation sweeps destroy.
-        const sandboxId = resident ? undefined : exactSandboxId;
+        // A resident turn still starts without compute. If it attaches, it
+        // uses the same owner-world container as the eager path.
+        const sandboxId = resident ? undefined : sharedWorldSandboxId;
         // A predecessor whose terminal state never reached Convex left it
         // here. Taking over the DO takes the alarm with it, so this is its last
         // chance; the stale delivery below cannot mutate this successor.
@@ -9889,11 +9806,10 @@ export class BuildSession extends DurableObject<Env> {
     }
     const attemptGeneration = turn.attemptGeneration!;
     const identity = { turnId: turn.turnId, attemptGeneration };
-    // `sandboxId`/`sandboxSize` predate resident placement and are not scoped
-    // to an attempt. Clear a predecessor's values before this attempt can
-    // attach; an exact replay that already owns a compute reservation keeps
-    // its shared compatibility mirror.
-    await this.clearLegacySandboxTupleForResidentAdmission(turn);
+    // These fields mirror the currently attached resource for alarm cleanup.
+    // Clear a predecessor before this resident attempt can attach; an exact
+    // replay with a compute record keeps the mirror for its existing session.
+    await this.clearUnattachedAgentSandboxTuple(turn);
     await this.event(
       turn,
       "auto",
@@ -9910,20 +9826,25 @@ export class BuildSession extends DurableObject<Env> {
       turn.turnBrokerRoute.sessionId,
     );
 
-    // The same name the container path would have minted, so every teardown,
-    // archive and recovery path keyed on it works without a second scheme.
-    const sandboxId = await exactTurnSandboxId("agent", turn);
-    const instanceSize: InstanceSize = !this.env.SANDBOX_SMALL
+    const sandboxId = await worldSandboxId(turn.ownerId);
+    const world = this.env.WORLDS.getByName(await worldName(turn.ownerId));
+    const proposedSize: InstanceSize = !this.env.SANDBOX_SMALL
       ? "large"
       : initialInstanceSize({ prompt: turn.prompt });
+    const instanceSize = proposedSize;
+    const sessionId = agentTurnSessionId(turn.turnId);
+    const daemonDirectory = attachedToolPaths(identity).directory;
     let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
     let residentHistory: AgentHistoryRow[] = [];
     let residentSandbox: ReturnType<BuildSession["sandbox"]> | undefined;
     const attachment = createAgentSandboxAttachment({
       context: execution,
-      attachWorld: async ({ instanceSize: size }) => {
+      attachWorld: async ({
+        instanceSize: size,
+        sessionId: attachedSessionId,
+      }) => {
         await this.ctx.storage.put({ sandboxId, sandboxSize: size });
-        residentSandbox = this.sandbox(sandboxId, size, "resident-attachment");
+        residentSandbox = this.sandbox(sandboxId, size, "world");
         // The thread before this turn — exactly what the container path
         // resolves against. Read here rather than at admission so a
         // chat-only resident turn never pays for it. Resolving against an
@@ -9944,12 +9865,13 @@ export class BuildSession extends DurableObject<Env> {
           size,
           history: residentHistory,
           commandTimeoutMs,
+          sessionId: attachedSessionId,
           ...restore,
         });
         // D9's fork. Only a confirmed world is worth archiving, so the marker
-        // lands after the restore: an eviction before this point recovers by
-        // destroying the reservation, and one after it recovers by archiving
-        // the disk the way a lost container executor already does.
+        // lands after the restore: an eviction before this point releases the
+        // incomplete session, and one after it recovers by archiving the disk
+        // the way a lost container executor already does.
         await this.persistAgentExecutionMarker(turn, {
           schemaVersion: 1,
           turnId: turn.turnId,
@@ -9979,10 +9901,27 @@ export class BuildSession extends DurableObject<Env> {
         return await residentSandbox.startProcess(command, {
           cwd: options.cwd,
           env: executorSessionEnvironment(),
+          processId: options.processId,
         });
       },
-      destroy: async () => {
-        await this.terminateCurrentAgentSandbox(turn);
+      release: async (target) => {
+        await this.releaseAgentSessionResources({
+          sandboxId: target.sandboxId,
+          size: target.instanceSize,
+          sessionId: target.sessionId,
+          daemonDirectory: target.daemonDirectory,
+          workload: "world",
+        });
+      },
+      destroy: async (target) => {
+        await this.destroySandboxDurably(
+          {
+            sandboxId: target.sandboxId,
+            size: target.instanceSize,
+            workload: "world",
+          },
+          "agent_oom_resize",
+        );
       },
       // Without this the attachment's own diagnostics (a daemon that exited
       // before listening, or stopped answering mid-turn, with its stderr)
@@ -10003,7 +9942,14 @@ export class BuildSession extends DurableObject<Env> {
     const ladder = createAgentComputeLadder({
       ...identity,
       sandboxId,
+      sessionId,
+      daemonDirectory,
       initialInstanceSize: instanceSize,
+      selectInstanceSize: async (initial) =>
+        await world.selectContainerSize(initial),
+      rememberInstanceSize: async (size) => {
+        await world.rememberContainerSize(size);
+      },
       store: {
         read: async () =>
           parsePersistedAgentCompute(
@@ -10149,7 +10095,7 @@ export class BuildSession extends DurableObject<Env> {
     } finally {
       this.residentAgentAborts.delete(turn.turnId);
       // The sweep for an exceptional exit only. A turn that reached its
-      // completion sequence has already destroyed and retired what attached.
+      // completion sequence has already released what attached.
       if (!computeReleased) await ladder.teardown().catch(() => undefined);
     }
   }
@@ -10157,11 +10103,8 @@ export class BuildSession extends DurableObject<Env> {
   /**
    * A completed resident turn releases its compute before its terminal is
    * delivered. Delivery deletes the exact compute record with the rest of the
-   * turn's storage, and the ladder's destroy resolves its target from that
-   * record: run after delivery it found nothing, returned without a destroy,
-   * and every container an attached turn had used outlived the turn on
-   * persisted keep-alive. The failure paths already sequence claim, teardown,
-   * deliver; this is the same order for success.
+   * turn's storage; after that, cleanup would no longer know which session and
+   * daemon directory belong to the turn. Failure paths use the same order.
    */
   private async finishResidentAgentTurn(
     turn: TurnRequest,
@@ -10181,14 +10124,6 @@ export class BuildSession extends DurableObject<Env> {
     try {
       await ladder.teardown();
     } catch (error) {
-      if (error instanceof SandboxLifecycleDeferredError) {
-        log("error", "resident_compute_destroy_deferred", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-          ...sandboxLifecycleFailureFields(error),
-        });
-        return;
-      }
       log("error", "resident_compute_release_failed", {
         turnId: turn.turnId,
         threadId: turn.threadId,
@@ -10430,7 +10365,13 @@ export class BuildSession extends DurableObject<Env> {
   ): Promise<void> {
     const commandTimeoutMs = Number(this.env.TURN_TIMEOUT_MS);
     const requestStarted = performance.now();
-    let sandbox = this.sandbox(sandboxId, "large", "agent");
+    let sandbox = this.sandbox(sandboxId, "large", "world");
+    const sessionId = agentTurnSessionId(turn.turnId);
+    const daemonDirectory = attachedToolPaths({
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+    }).directory;
+    const world = this.env.WORLDS.getByName(await worldName(turn.ownerId));
     log("info", "agent_turn_started", {
       turnId: turn.turnId,
       threadId: turn.threadId,
@@ -10532,12 +10473,13 @@ export class BuildSession extends DurableObject<Env> {
 
       // Without the small class bound there is only one rung, so start (and
       // stay) on the large one rather than pretending to size anything.
-      let size: InstanceSize = !this.env.SANDBOX_SMALL
+      const proposedSize: InstanceSize = !this.env.SANDBOX_SMALL
         ? "large"
         : initialInstanceSize({ prompt: turn.prompt });
+      let size = await world.selectContainerSize(proposedSize);
       await this.ctx.storage.put("sandboxSize", size);
       execution.assertActive();
-      sandbox = this.sandbox(sandboxId, size, "agent");
+      sandbox = this.sandbox(sandboxId, size, "world");
       let escalated = false;
       let attempt = await this.runAgentAttempt({
         turn,
@@ -10554,6 +10496,7 @@ export class BuildSession extends DurableObject<Env> {
         cloudSkillHome,
         cloudSkillCatalog,
         commandTimeoutMs,
+        sessionId,
       });
       execution.assertActive();
 
@@ -10571,15 +10514,15 @@ export class BuildSession extends DurableObject<Env> {
           agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
         );
         await this.destroySandboxDurably(
-          { sandboxId, size, workload: "agent" },
+          { sandboxId, size, workload: "world" },
           "agent_oom_resize",
-        ).catch(() => undefined);
+        );
         execution.assertActive();
         size = "large";
         escalated = true;
-        const escalatedId = await exactTurnSandboxId("agent-lg", turn);
+        await world.rememberContainerSize("large");
         await this.ctx.storage.put({
-          sandboxId: escalatedId,
+          sandboxId,
           sandboxSize: size,
         });
         execution.assertActive();
@@ -10614,7 +10557,7 @@ export class BuildSession extends DurableObject<Env> {
           execution.signal,
         ).catch(() => undefined);
         execution.assertActive();
-        sandbox = this.sandbox(escalatedId, size, "agent");
+        sandbox = this.sandbox(sandboxId, size, "world");
         attempt = await this.runAgentAttempt({
           turn,
           execution,
@@ -10630,6 +10573,7 @@ export class BuildSession extends DurableObject<Env> {
           cloudSkillHome,
           cloudSkillCatalog,
           commandTimeoutMs,
+          sessionId,
         });
         execution.assertActive();
       }
@@ -10647,10 +10591,13 @@ export class BuildSession extends DurableObject<Env> {
         !(await this.ownsExactTurn(turn)) ||
         (await this.ctx.storage.get<boolean>("terminal"))
       ) {
-        await this.destroySandboxDurably(
-          { sandboxId, size, workload: "agent" },
-          "agent_superseded",
-        ).catch(() => undefined);
+        await this.releaseAgentSessionResources({
+          sandboxId,
+          size,
+          workload: "world",
+          sessionId,
+          daemonDirectory,
+        }).catch(() => undefined);
         log("info", "agent_turn_superseded", {
           turnId: turn.turnId,
           threadId: turn.threadId,
@@ -10724,10 +10671,13 @@ export class BuildSession extends DurableObject<Env> {
           turnExecution: execution,
         });
         if (interior.outcome === "abandoned") {
-          await this.destroySandboxDurably(
-            { sandboxId, size, workload: "agent" },
-            "agent_interior_abandoned",
-          ).catch(() => undefined);
+          await this.releaseAgentSessionResources({
+            sandboxId,
+            size,
+            workload: "world",
+            sessionId,
+            daemonDirectory,
+          }).catch(() => undefined);
           return;
         }
         if (interior.outcome === "published") {
@@ -10820,10 +10770,13 @@ export class BuildSession extends DurableObject<Env> {
         !(await this.ownsExactTurn(turn)) ||
         (await this.ctx.storage.get<boolean>("terminal"))
       ) {
-        await this.destroySandboxDurably(
-          { sandboxId, size, workload: "agent" },
-          "agent_authority_lost",
-        ).catch(() => undefined);
+        await this.releaseAgentSessionResources({
+          sandboxId,
+          size,
+          workload: "world",
+          sessionId,
+          daemonDirectory,
+        }).catch(() => undefined);
         return;
       }
       if (checkpointError) {
@@ -10924,10 +10877,13 @@ export class BuildSession extends DurableObject<Env> {
           turn,
           pendingBrowserSuspension,
         );
-        await this.destroySandboxDurably(
-          { sandboxId, size, workload: "agent" },
-          "agent_browser_suspended",
-        ).catch(() => undefined);
+        await this.releaseAgentSessionResources({
+          sandboxId,
+          size,
+          workload: "world",
+          sessionId,
+          daemonDirectory,
+        }).catch(() => undefined);
         if (!retained) return;
 
         const delivered = await this.deliverBrowserSuspension(
@@ -11003,10 +10959,13 @@ export class BuildSession extends DurableObject<Env> {
         };
       }
       const delivered = await this.deliverTerminal(turn, pending);
-      await this.destroySandboxDurably(
-        { sandboxId, size, workload: "agent" },
-        "agent_terminal",
-      ).catch(() => undefined);
+      await this.releaseAgentSessionResources({
+        sandboxId,
+        size,
+        workload: "world",
+        sessionId,
+        daemonDirectory,
+      }).catch(() => undefined);
       // Storage is the redelivery's only memory: clear it once the terminal
       // state is in Convex, and leave it — with the alarm deliverTerminal
       // re-armed — when it is not.
@@ -11071,7 +11030,7 @@ export class BuildSession extends DurableObject<Env> {
         executionMarker &&
         !(
           error instanceof CapturedSessionAbandonedError &&
-          error.disposition === "sandbox_destroyed"
+          error.disposition === "compute_released"
         ) &&
         !(error instanceof AgentTurnAuthorityLostError) &&
         !(error instanceof OwnerPurgeFenceError) &&
@@ -11098,12 +11057,12 @@ export class BuildSession extends DurableObject<Env> {
       }
       if (await this.ctx.storage.get<boolean>("terminal")) return;
       try {
-        await this.terminateCurrentAgentSandbox(turn);
-      } catch (destroyError) {
-        log("error", "agent_sandbox_destruction_deferred", {
+        await this.terminateCurrentAgentSession(turn);
+      } catch (releaseError) {
+        log("error", "agent_session_release_deferred", {
           turnId: turn.turnId,
           threadId: turn.threadId,
-          message: errorMessage(destroyError),
+          message: errorMessage(releaseError),
         });
         await this.claimTerminalDecision(
           turn,
@@ -11209,6 +11168,7 @@ export class BuildSession extends DurableObject<Env> {
     turnStateThreadRestoreConfirmationRequired: boolean;
     history: AgentHistoryRow[];
     commandTimeoutMs: number;
+    sessionId: string;
   }): Promise<{
     session: ExecutionSession;
     coldContainerStartMs: number;
@@ -11218,7 +11178,7 @@ export class BuildSession extends DurableObject<Env> {
     const coldStarted = performance.now();
     await this.assertAgentExecutionActive(turn, turnExecution);
     const session = await sandbox.createSession({
-      id: sessionName(`agent-run-${turn.turnId}-${args.size}`),
+      id: args.sessionId,
       cwd: "/opt/stella",
       commandTimeoutMs: args.commandTimeoutMs,
       env: executorSessionEnvironment(),
@@ -11232,6 +11192,8 @@ export class BuildSession extends DurableObject<Env> {
     turnExecution.assertActive();
     const restoreStarted = performance.now();
     const name = await worldName(turn.ownerId);
+    const world = this.env.WORLDS.getByName(name);
+    const head = await world.head();
     const capability = await issueWorldCapability({
       secret: this.env.BUILDER_SERVICE_SECRET,
       worldName: name,
@@ -11241,11 +11203,18 @@ export class BuildSession extends DurableObject<Env> {
       ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
     });
     const origin = this.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
+    const exportUrl = `${origin}/internal/worlds/${name}/export?manifest=${encodeURIComponent(head.manifestId)}`;
     const materialized = await session.exec(
-      `find ${WORLD_ROOT} -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && curl --fail --silent --show-error -H 'Authorization: Bearer ${capability}' '${origin}/internal/worlds/${name}/export' | tar -x -f - -C ${WORLD_ROOT}`,
+      worldMaterializationCommand({
+        worldRoot: WORLD_ROOT,
+        manifestId: head.manifestId,
+        exportUrl,
+        capability,
+      }),
       { origin: "internal", timeout: args.commandTimeoutMs },
     );
-    if (!materialized.success) throw new AgentTurnError("Stella could not materialize this world.");
+    if (!materialized.success)
+      throw new AgentTurnError("Stella could not materialize this world.");
     turnExecution.assertActive();
     restoreMs = Math.round(performance.now() - restoreStarted);
 
@@ -11333,6 +11302,7 @@ export class BuildSession extends DurableObject<Env> {
     cloudSkillHome?: CloudHomeStore;
     cloudSkillCatalog?: CloudSkillCatalogSnapshot;
     commandTimeoutMs: number;
+    sessionId: string;
   }): Promise<{
     result: AgentExecutorResult;
     oom: boolean;
@@ -11356,8 +11326,8 @@ export class BuildSession extends DurableObject<Env> {
       turnExecution.signal,
     );
     let cloudSkills:
-      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-      | undefined = undefined;
+      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+      undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -11543,7 +11513,7 @@ export class BuildSession extends DurableObject<Env> {
               teardownPending,
               Date.now() + 1_000,
             );
-            await this.terminateCurrentAgentSandbox(turn);
+            await this.terminateCurrentAgentSession(turn);
             await this.ctx.storage
               .transaction(async (transaction) => {
                 if (
@@ -11562,7 +11532,7 @@ export class BuildSession extends DurableObject<Env> {
                   message: errorMessage(error),
                 });
               });
-            return "sandbox_destroyed" as const;
+            return "compute_released" as const;
           },
           onStarted: async () => {
             // The durable marker means the trusted executor that can spawn
@@ -13245,8 +13215,7 @@ const moveWorldCheckpoint = async (
     )) ?? { backupIds: [] },
   });
   const stateMarker = async (state: CheckpointState): Promise<string> =>
-    !state.descriptor &&
-    state.debt.backupIds.length === 0
+    !state.descriptor && state.debt.backupIds.length === 0
       ? "absent"
       : await stableValueMarker({
           descriptor: state.descriptor ?? null,
@@ -13266,8 +13235,7 @@ const moveWorldCheckpoint = async (
       throw new Error("Workspace backup descriptor is invalid.");
     }
   }
-  const hasSourceState =
-    Boolean(fromDescriptor) || sourceIds.size > 0;
+  const hasSourceState = Boolean(fromDescriptor) || sourceIds.size > 0;
   let sourceTurnStatePresent = Boolean(existingPlan?.turnState);
   let sourceTurnStateFingerprint: string | null =
     existingPlan?.turnState?.manifest.fingerprint ?? null;
@@ -13872,7 +13840,8 @@ const parseWorldPushListing = (value: unknown): WorldListingEntry[] | null => {
   if (!Array.isArray(entries) || entries.length > 200_000) return null;
   const parsed: WorldListingEntry[] = [];
   for (const value of entries) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return null;
     const row = value as Record<string, unknown>;
     if (
       typeof row.path !== "string" ||
@@ -13882,9 +13851,11 @@ const parseWorldPushListing = (value: unknown): WorldListingEntry[] | null => {
       !Number.isSafeInteger(row.size) ||
       Number(row.size) < 0 ||
       (row.kind === "file" &&
-        (typeof row.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(row.sha256))) ||
+        (typeof row.sha256 !== "string" ||
+          !/^[0-9a-f]{64}$/u.test(row.sha256))) ||
       (row.kind === "symlink" && typeof row.target !== "string")
-    ) return null;
+    )
+      return null;
     parsed.push({
       path: row.path,
       kind: row.kind,
@@ -13910,24 +13881,40 @@ const handleWorldRoute = async (
     worldName: world,
     now: Date.now(),
   }).catch(() => ({ ok: false as const }));
-  if (!authorization.ok) return json({ error: "World capability was rejected." }, 403);
+  if (!authorization.ok)
+    return json({ error: "World capability was rejected." }, 403);
   const stub = env.WORLDS.getByName(world);
   if (action === "export") {
-    if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
-    return new Response(await stub.exportTar(), {
-      headers: { "content-type": "application/x-tar", "cache-control": "private, no-store" },
+    if (request.method !== "GET")
+      return json({ error: "Method not allowed." }, 405);
+    const manifestId = new URL(request.url).searchParams.get("manifest");
+    if (!manifestId || !(await stub.manifest(manifestId, { limit: 1 }))) {
+      return json({ error: "World manifest was not found." }, 404);
+    }
+    return new Response(await stub.exportTar(manifestId), {
+      headers: {
+        "content-type": "application/x-tar",
+        "cache-control": "private, no-store",
+        "x-stella-world-manifest": manifestId,
+      },
     });
   }
-  if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  if (request.method !== "POST")
+    return json({ error: "Method not allowed." }, 405);
   const blobSha = request.headers.get("x-stella-world-blob-sha256");
   if (blobSha) {
-    if (!/^[0-9a-f]{64}$/u.test(blobSha) || !request.body) return json({ error: "Malformed world blob upload." }, 400);
+    if (!/^[0-9a-f]{64}$/u.test(blobSha) || !request.body)
+      return json({ error: "Malformed world blob upload." }, 400);
     const upload = await stub.beginBlob();
     const reader = request.body.getReader();
     for (;;) {
       const part = await reader.read();
       if (part.done) break;
-      for (let offset = 0; offset < part.value.byteLength; offset += 8 * 1024 * 1024) {
+      for (
+        let offset = 0;
+        offset < part.value.byteLength;
+        offset += 8 * 1024 * 1024
+      ) {
         await stub.appendBlob(
           upload.uploadId,
           part.value.subarray(offset, offset + 8 * 1024 * 1024),
@@ -13979,7 +13966,10 @@ export default {
       );
     }
 
-    const worldRoute = /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|push)$/u.exec(url.pathname);
+    const worldRoute =
+      /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|push)$/u.exec(
+        url.pathname,
+      );
     if (worldRoute) {
       return await handleWorldRoute(
         request,
@@ -15073,14 +15063,12 @@ export default {
         return json({ error: "ownerId and artifactPrefix required." }, 400);
       }
       const ownerHash = await sha256Hex(ownerId);
-      if (
-        !(
-          LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
-          isOwnerAppBuildPrefix(prefix, ownerHash) ||
-          (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
-            prefix.startsWith(`interiors/${ownerHash}/`))
-        )
-      ) {
+      if (!(
+        LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
+        isOwnerAppBuildPrefix(prefix, ownerHash) ||
+        (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
+          prefix.startsWith(`interiors/${ownerHash}/`))
+      )) {
         return json({ error: "artifactPrefix does not belong to owner." }, 403);
       }
       try {

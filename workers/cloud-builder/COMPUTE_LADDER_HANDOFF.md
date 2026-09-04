@@ -116,13 +116,9 @@ the base commit); worker typecheck, `wrangler types --check`,
 Run from a machine with Docker and the dev credentials. Dev worker versions
 `49cff631` (commit `0cb42b380`) and `86400928` (this commit).
 
-- The six leaked small containers were reaped with the retire script. Two
-  script defects on the way: the adapter was not executable, and the
-  inventory classifies every `agent-*` instance as
-  `agent-or-resident-attachment` (it cannot tell the two apart without a
-  durable export), which the route rejected as `invalid_target`. The adapter
-  now resolves that classification to the first candidate; both candidates
-  address the same namespace, the Worker keys it on `app-build` versus size.
+- The six leaked small containers were reaped with the retire script. The
+  inventory now classifies the shared `world-*` namespace directly; the
+  retirement route verifies that namespace against the `world` workload.
 - The wedged thread `14e0abfd…` was `failed` after the deploy's own recovery;
   `POST /sessions/:id/expire` answered `404 no_agent_turn`, which is correct.
 - The follow-up cell passed on both versions: `sandbox_ready` on both turns,

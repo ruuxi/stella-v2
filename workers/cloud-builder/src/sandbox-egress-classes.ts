@@ -5,14 +5,14 @@ export { ContainerProxy };
 
 /**
  * General-agent sandboxes retain Internet access for model-selected tools.
- * HTTP(S) passes through the per-turn byte, connection-rate, and destination
+ * HTTP(S) passes through the per-container byte, connection-rate, and destination
  * port policy before it reaches the public network.
  */
 export class GeneralAgentSandbox<Env = unknown> extends SandboxBase<Env> {
   enableInternet = true;
   // Includes the cloud-builder origin used by world export/push as well as
   // model-selected public destinations; the outbound handler enforces ports,
-  // rate, and byte budgets per turn.
+  // rate, and byte budgets per container.
   allowedHosts = ["*"];
 }
 

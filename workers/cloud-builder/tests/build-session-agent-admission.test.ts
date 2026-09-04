@@ -191,7 +191,7 @@ const harness = async (
     startAgentTurn: async (target: { turnId: string }) => {
       started.push(target.turnId);
     },
-    terminateCurrentAgentSandbox: async () => undefined,
+    terminateCurrentAgentSession: async () => undefined,
     settleAgentTransientBackup: async () => true,
     scheduleDurabilityAlarm: async () => undefined,
   });

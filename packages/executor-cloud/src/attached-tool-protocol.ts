@@ -61,11 +61,51 @@ export const ATTACHED_TOOL_PROTOCOL_VERSION = 2;
  * is owned by the unprivileged tool account; this directory is root-owned, so
  * a tool the agent ran cannot read a frame or plant one.
  */
-export const ATTACHED_TOOL_DIR = "/workspace/attached";
-export const ATTACHED_TOOL_SOCKET_PATH = `${ATTACHED_TOOL_DIR}/tool-host.sock`;
-export const ATTACHED_TOOL_HOST_INPUT_PATH = `${ATTACHED_TOOL_DIR}/host-input.json`;
-export const ATTACHED_TOOL_REQUEST_PATH = `${ATTACHED_TOOL_DIR}/request.json`;
-export const ATTACHED_TOOL_RESULT_PATH = `${ATTACHED_TOOL_DIR}/result.json`;
+export const ATTACHED_TOOL_ROOT = "/workspace/attached";
+
+export type AttachedToolPaths = Readonly<{
+  directory: string;
+  socket: string;
+  hostInput: string;
+  request: string;
+  result: string;
+  daemonStderr: string;
+}>;
+
+const ATTACHED_TOOL_DIRECTORY =
+  /^\/workspace\/attached\/[A-Za-z0-9._~-]{1,256}-[1-9][0-9]*$/u;
+
+export const attachedToolPaths = (args: {
+  turnId: string;
+  attemptGeneration: number;
+}): AttachedToolPaths => {
+  if (
+    !/^[A-Za-z0-9._~-]{1,256}$/u.test(args.turnId) ||
+    !Number.isSafeInteger(args.attemptGeneration) ||
+    args.attemptGeneration < 1
+  ) {
+    throw new TypeError("Attached tool identity must be exact.");
+  }
+  return attachedToolPathsForDirectory(
+    `${ATTACHED_TOOL_ROOT}/${args.turnId}-${args.attemptGeneration}`,
+  );
+};
+
+export const attachedToolPathsForDirectory = (
+  directory: string,
+): AttachedToolPaths => {
+  if (!ATTACHED_TOOL_DIRECTORY.test(directory)) {
+    throw new TypeError("Attached tool directory must be exact.");
+  }
+  return {
+    directory,
+    socket: `${directory}/tool-host.sock`,
+    hostInput: `${directory}/host-input.json`,
+    request: `${directory}/request.json`,
+    result: `${directory}/result.json`,
+    daemonStderr: `${directory}/daemon.stderr`,
+  };
+};
 
 /** One framed request, including its identity envelope. */
 export const ATTACHED_TOOL_REQUEST_MAX_BYTES = 1024 * 1024;

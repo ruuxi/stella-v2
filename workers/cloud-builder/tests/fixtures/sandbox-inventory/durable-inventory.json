@@ -3,21 +3,21 @@
   "environment": "bn118",
   "targets": [
     {
-      "sandboxId": "agent-8cf8109a-ec39-4213-907c-080cfea3c7c0",
+      "sandboxId": "world-8cf8109a-ec39-4213-907c-080cfea3c7c0",
       "size": "small",
-      "workload": "resident-attachment",
+      "workload": "world",
       "lifecycle": "owned"
     },
     {
-      "sandboxId": "agent-111e2e29-18d6-4be4-aa9b-e37ff5e9d868",
+      "sandboxId": "world-111e2e29-18d6-4be4-aa9b-e37ff5e9d868",
       "size": "small",
-      "workload": "agent",
+      "workload": "world",
       "lifecycle": "retiring"
     },
     {
-      "sandboxId": "agent-missing",
+      "sandboxId": "world-missing",
       "size": "small",
-      "workload": "agent",
+      "workload": "world",
       "lifecycle": "owned"
     }
   ]

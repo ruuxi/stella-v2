@@ -71,8 +71,7 @@ type CapturedSession = Pick<ExecutionSession, "startProcess"> &
   Partial<Pick<ExecutionSession, "getProcess">>;
 
 export type CapturedSessionAbandonDisposition =
-  | "session_quiesced"
-  | "sandbox_destroyed";
+  "session_quiesced" | "compute_released";
 
 export class CapturedSessionAbandonedError extends Error {
   readonly disposition: CapturedSessionAbandonDisposition;

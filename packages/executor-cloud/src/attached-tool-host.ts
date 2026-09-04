@@ -19,7 +19,7 @@
  * world cannot undo and guessing would run it twice.
  */
 
-import { createServer, type Server, type Socket } from "node:net";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { mkdir, rm } from "node:fs/promises";
 import { Deferred, Effect } from "effect";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
@@ -33,13 +33,12 @@ import {
 } from "@stella/runtime/kernel/tools/types.js";
 import type { TurnBrokerInput } from "@stella/contracts/turn-credential-broker";
 import {
-  ATTACHED_TOOL_DIR,
   ATTACHED_TOOL_MAX_DELIVERED_FILES,
   ATTACHED_TOOL_MAX_IMAGES,
   ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
   ATTACHED_TOOL_RESPONSE_MAX_BYTES,
-  ATTACHED_TOOL_SOCKET_PATH,
+  type AttachedToolPaths,
   AttachedToolProtocolError,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
@@ -91,6 +90,31 @@ const asError = (error: unknown): Error =>
 const boundedText = (value: unknown, max: number): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= max;
 
+/** Remove only an abandoned Unix socket; never steal a live daemon's path. */
+export const removeStaleAttachedToolSocket = async (
+  socketPath: string,
+): Promise<void> => {
+  const disposition = await new Promise<"missing" | "stale" | "live">(
+    (resolve, reject) => {
+      const probe = connect(socketPath);
+      probe.once("connect", () => {
+        probe.destroy();
+        resolve("live");
+      });
+      probe.once("error", (error: NodeJS.ErrnoException) => {
+        probe.destroy();
+        if (error.code === "ENOENT") resolve("missing");
+        else if (error.code === "ECONNREFUSED") resolve("stale");
+        else reject(error);
+      });
+    },
+  );
+  if (disposition === "live") {
+    throw new Error("Another attached tool daemon already owns this socket.");
+  }
+  if (disposition === "stale") await rm(socketPath);
+};
+
 export const parseAttachedToolHostInput = (
   value: unknown,
 ): AttachedToolHostInput => {
@@ -100,8 +124,7 @@ export const parseAttachedToolHostInput = (
   const row = value as Record<string, unknown>;
   const broker = row.turnBroker as { credentialsPath?: unknown } | undefined;
   const world = row.world as
-    | { origin?: unknown; name?: unknown; capability?: unknown }
-    | undefined;
+    { origin?: unknown; name?: unknown; capability?: unknown } | undefined;
   if (
     !boundedText(row.turnId, 256) ||
     !Number.isSafeInteger(row.attemptGeneration) ||
@@ -343,6 +366,7 @@ export const createAttachedToolDispatcher = (args: {
  */
 export const runAttachedToolHost = (
   input: AttachedToolHostInput,
+  paths: AttachedToolPaths,
 ): Effect.Effect<AttachedToolHostReport, Error> =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -510,9 +534,10 @@ export const runAttachedToolHost = (
           // A failed answer is still an answer. Closing the socket instead
           // left the client with a bare transport failure, so the worker
           // learned nothing about why a quiesce or tool call failed.
-          await writeFrame(socket, attachedToolAnswerFailure(frame, message)).catch(
-            () => undefined,
-          );
+          await writeFrame(
+            socket,
+            attachedToolAnswerFailure(frame, message),
+          ).catch(() => undefined);
         } finally {
           socket.end();
         }
@@ -521,8 +546,8 @@ export const runAttachedToolHost = (
       const server: Server = yield* Effect.acquireRelease(
         Effect.tryPromise({
           try: async () => {
-            await mkdir(ATTACHED_TOOL_DIR, { mode: 0o700, recursive: true });
-            await rm(ATTACHED_TOOL_SOCKET_PATH, { force: true });
+            await mkdir(paths.directory, { mode: 0o700, recursive: true });
+            await removeStaleAttachedToolSocket(paths.socket);
             const listener = createServer(
               { allowHalfOpen: false },
               (socket) => {
@@ -531,7 +556,7 @@ export const runAttachedToolHost = (
             );
             await new Promise<void>((resolve, reject) => {
               listener.once("error", reject);
-              listener.listen(ATTACHED_TOOL_SOCKET_PATH, () => resolve());
+              listener.listen(paths.socket, () => resolve());
             });
             return listener;
           },
@@ -542,7 +567,7 @@ export const runAttachedToolHost = (
             await new Promise<void>((resolve) =>
               listener.close(() => resolve()),
             );
-            await rm(ATTACHED_TOOL_SOCKET_PATH, { force: true });
+            await rm(paths.socket, { force: true });
           }),
       );
       server.on("error", (error) => {

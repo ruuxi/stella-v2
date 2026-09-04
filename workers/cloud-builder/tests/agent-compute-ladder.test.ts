@@ -20,6 +20,8 @@ import { createTurnRetryCancellation } from "../src/turn-cancellation.js";
 
 const IDENTITY = { turnId: "turn-1", attemptGeneration: 1 } as const;
 const SANDBOX_ID = "agent-turn-1-abc";
+const SESSION_ID = "agent-run-turn-1";
+const DAEMON_DIRECTORY = "/workspace/attached/turn-1-1";
 
 const OK: SerializedAgentToolResult = {
   outcome: { kind: "ok", text: "listed" },
@@ -36,6 +38,9 @@ type Journal = {
 const harness = (
   options: {
     boot?: (args: { instanceSize: "small" | "large" }) => Promise<AttachBoot>;
+    selectInstanceSize?: (
+      initial: "small" | "large",
+    ) => Promise<"small" | "large">;
     callTool?: (request: AttachedToolRequest) => Promise<AttachedToolResponse>;
     notices?: readonly string[];
     deliveredFiles?: readonly string[];
@@ -87,7 +92,10 @@ const harness = (
             deliveredFiles: options.deliveredFiles ?? [],
           };
     },
-    destroy: async (sandboxId) => {
+    release: async ({ sessionId, daemonDirectory }) => {
+      journal.calls.push(`release:${sessionId}:${daemonDirectory}`);
+    },
+    destroy: async ({ sandboxId }) => {
       journal.calls.push(`destroy:${sandboxId}`);
     },
   };
@@ -96,7 +104,14 @@ const harness = (
   const ladder = createAgentComputeLadder({
     ...IDENTITY,
     sandboxId: SANDBOX_ID,
+    sessionId: SESSION_ID,
+    daemonDirectory: DAEMON_DIRECTORY,
     initialInstanceSize: "small",
+    selectInstanceSize:
+      options.selectInstanceSize ?? (async (initial) => initial),
+    rememberInstanceSize: async (size) => {
+      journal.calls.push(`remember:${size}`);
+    },
     store,
     attachment,
     context: {
@@ -145,6 +160,23 @@ describe("agent compute ladder", () => {
     expect(journal.phases[0]).toBe("attaching");
     expect(journal.calls[0]).toBe(`boot:${SANDBOX_ID}:small`);
     expect(journal.phases).toEqual(["attaching", "attached"]);
+  });
+
+  test("the first real attach adopts the size remembered by the world", async () => {
+    let selected = 0;
+    const { ladder, journal, record } = harness({
+      selectInstanceSize: async (initial) => {
+        selected += 1;
+        expect(initial).toBe("small");
+        return "large";
+      },
+    });
+
+    await ladder.execute(call("call-1"));
+
+    expect(selected).toBe(1);
+    expect(journal.calls[0]).toBe(`boot:${SANDBOX_ID}:large`);
+    expect(record()?.instanceSize).toBe("large");
   });
 
   test("concurrent first calls share one attach", async () => {
@@ -245,6 +277,7 @@ describe("agent compute ladder", () => {
     expect(journal.calls).toEqual([
       `boot:${SANDBOX_ID}:small`,
       `destroy:${SANDBOX_ID}`,
+      "remember:large",
       `boot:${SANDBOX_ID}:large`,
       "control:boot_report",
       "tool:exec_command:call-1",
@@ -275,7 +308,10 @@ describe("agent compute ladder", () => {
     );
 
     expect(calls).toBe(2);
-    expect(journal.calls.at(-1)).toBe(`destroy:${SANDBOX_ID}`);
+    expect(journal.calls.slice(-2)).toEqual([
+      `destroy:${SANDBOX_ID}`,
+      "remember:large",
+    ]);
     expect(journal.phases.at(-1)).toBe("quiesced");
   });
 
@@ -307,7 +343,7 @@ describe("agent compute ladder", () => {
     expect(events[0]?.payload).toMatchObject({ reason: "interior_build" });
   });
 
-  test("a stop landing mid-boot still destroys the reserved instance", async () => {
+  test("a stop landing mid-boot releases the reserved session", async () => {
     let release: (() => void) | null = null;
     let entered: (() => void) | null = null;
     const stalled = new Promise<void>((resolve) => {
@@ -331,13 +367,15 @@ describe("agent compute ladder", () => {
     // arriving now can act on.
     expect(journal.phases).toEqual(["attaching"]);
     await ladder.teardown();
-    expect(journal.calls).toContain(`destroy:${SANDBOX_ID}`);
+    expect(journal.calls).toContain(
+      `release:${SESSION_ID}:${DAEMON_DIRECTORY}`,
+    );
 
     release?.();
     await running;
   });
 
-  test("teardown destroys exactly what attached, and only that", async () => {
+  test("teardown releases exactly what attached, and only once", async () => {
     const resident = harness();
     await resident.ladder.teardown();
     expect(resident.journal.calls).toEqual([]);
@@ -348,8 +386,8 @@ describe("agent compute ladder", () => {
     await attachedRun.ladder.teardown();
 
     expect(
-      attachedRun.journal.calls.filter((entry) => entry.startsWith("destroy:")),
-    ).toEqual([`destroy:${SANDBOX_ID}`, `destroy:${SANDBOX_ID}`]);
+      attachedRun.journal.calls.filter((entry) => entry.startsWith("release:")),
+    ).toEqual([`release:${SESSION_ID}:${DAEMON_DIRECTORY}`]);
   });
 
   test("the compute record names the reason it attached", async () => {
@@ -374,6 +412,8 @@ describe("persisted compute record", () => {
     phase: "attached",
     instanceSize: "small",
     sandboxId: SANDBOX_ID,
+    sessionId: SESSION_ID,
+    daemonDirectory: DAEMON_DIRECTORY,
   };
 
   test("keys are scoped to the exact attempt", () => {
@@ -393,7 +433,7 @@ describe("persisted compute record", () => {
     ).toBeNull();
   });
 
-  test("refuses an attached record with no instance to destroy", () => {
+  test("refuses an attached record with no sandbox", () => {
     const { sandboxId: _omitted, ...withoutSandbox } = record;
     expect(parsePersistedAgentCompute(withoutSandbox, IDENTITY)).toBeNull();
   });

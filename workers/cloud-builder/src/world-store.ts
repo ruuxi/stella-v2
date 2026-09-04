@@ -23,8 +23,14 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.readFile(path, options);
   }
 
-  writeFile(path: string, bytes: Uint8Array, options: { mode?: number; mtime?: number } = {}) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.writeFile(path, bytes, options));
+  writeFile(
+    path: string,
+    bytes: Uint8Array,
+    options: { mode?: number; mtime?: number } = {},
+  ) {
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.writeFile(path, bytes, options),
+    );
   }
 
   beginBlob() {
@@ -32,19 +38,30 @@ export class WorldStore extends DurableObject<Env> {
   }
 
   appendBlob(uploadId: string, bytes: Uint8Array) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.appendBlob(uploadId, bytes));
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.appendBlob(uploadId, bytes),
+    );
   }
 
-  finishBlob(uploadId: string, options: { path?: string; sha256?: string; mode?: number; mtime?: number }) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.finishBlob(uploadId, options));
+  finishBlob(
+    uploadId: string,
+    options: { path?: string; sha256?: string; mode?: number; mtime?: number },
+  ) {
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.finishBlob(uploadId, options),
+    );
   }
 
   mkdir(path: string, options: { mode?: number } = {}) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.mkdir(path, options));
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.mkdir(path, options),
+    );
   }
 
   remove(path: string, options: { recursive?: boolean } = {}) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.remove(path, options));
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.remove(path, options),
+    );
   }
 
   rename(from: string, to: string) {
@@ -52,7 +69,9 @@ export class WorldStore extends DurableObject<Env> {
   }
 
   symlink(path: string, target: string) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.symlink(path, target));
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.symlink(path, target),
+    );
   }
 
   tool(call: WorldToolCall) {
@@ -62,17 +81,30 @@ export class WorldStore extends DurableObject<Env> {
   }
 
   async checkpoint(options: { historyCursor: string }) {
-    const result = await this.ctx.blockConcurrencyWhile(() => this.world.checkpoint(options));
+    const result = await this.ctx.blockConcurrencyWhile(() =>
+      this.world.checkpoint(options),
+    );
     await this.ctx.storage.setAlarm(Date.now() + 1_000);
     return result;
   }
 
-  manifest(manifestId: string, options: { cursor?: string; limit?: number } = {}) {
+  manifest(
+    manifestId: string,
+    options: { cursor?: string; limit?: number } = {},
+  ) {
     return this.world.manifest(manifestId, options);
   }
 
   head() {
     return this.world.head();
+  }
+
+  selectContainerSize(initial: "small" | "large") {
+    return this.world.selectContainerSize(initial);
+  }
+
+  rememberContainerSize(size: "small" | "large") {
+    return this.world.rememberContainerSize(size);
   }
 
   diff(listing: WorldListingEntry[]) {

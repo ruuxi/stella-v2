@@ -349,10 +349,10 @@ export const inferWorkload = (className, name) => {
       candidates: ["app-build"],
     };
   }
-  if (name?.startsWith("agent-")) {
+  if (name?.startsWith("world-")) {
     return {
-      classification: "agent-or-resident-attachment",
-      candidates: ["agent", "resident-attachment"],
+      classification: "world",
+      candidates: ["world"],
     };
   }
   return { classification: "unknown", candidates: [] };
@@ -400,11 +400,7 @@ export const parseDurableInventory = (value) => {
     if (entry.size !== "small" && entry.size !== "large") {
       throw new TypeError(`Durable target ${index} size is invalid.`);
     }
-    if (
-      entry.workload !== "app-build" &&
-      entry.workload !== "agent" &&
-      entry.workload !== "resident-attachment"
-    ) {
+    if (entry.workload !== "app-build" && entry.workload !== "world") {
       throw new TypeError(`Durable target ${index} workload is invalid.`);
     }
     if (entry.lifecycle !== "owned" && entry.lifecycle !== "retiring") {

@@ -159,7 +159,9 @@ describe("strict Builder session process boundary", () => {
       cwd: "/opt/stella",
       env: { STELLA_CLOUD_WORKSPACE_ROOT: "/workspace/drive" },
     });
-    expect((capturedOptions as { sessionId?: string }).sessionId).toBeUndefined();
+    expect(
+      (capturedOptions as { sessionId?: string }).sessionId,
+    ).toBeUndefined();
   });
 
   test("observes a fast terminal process from durable status without an exit-stream race", async () => {
@@ -253,7 +255,7 @@ describe("strict Builder session process boundary", () => {
           phases.push(input.phase);
           await new Promise((resolve) => setTimeout(resolve, 5));
           abandoned = true;
-          return "sandbox_destroyed";
+          return "compute_released";
         },
       },
     ).then(
@@ -265,7 +267,7 @@ describe("strict Builder session process boundary", () => {
       "start could not be confirmed",
     );
     expect((failure as CapturedSessionAbandonedError).disposition).toBe(
-      "sandbox_destroyed",
+      "compute_released",
     );
     expect(phases).toEqual(["start_uncertain"]);
     expect(abandoned).toBe(true);
@@ -289,7 +291,7 @@ describe("strict Builder session process boundary", () => {
         signal: controller.signal,
         onAbandon: async (input) => {
           phases.push(input.phase);
-          return "sandbox_destroyed";
+          return "compute_released";
         },
       },
     );

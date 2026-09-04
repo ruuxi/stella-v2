@@ -25,7 +25,7 @@ if (args.flag("help")) {
     `\nRead-only: this command never destroys, deploys, or writes cloud state.\n`,
   );
   process.stdout.write(
-    `Durable export: {"schemaVersion":1,"environment":"dev|bn118","targets":[{"sandboxId":"...","size":"small|large","workload":"app-build|agent|resident-attachment","lifecycle":"owned|retiring"}]}\n`,
+    `Durable export: {"schemaVersion":1,"environment":"dev|bn118","targets":[{"sandboxId":"...","size":"small|large","workload":"app-build|world","lifecycle":"owned|retiring"}]}\n`,
   );
   process.exit(0);
 }

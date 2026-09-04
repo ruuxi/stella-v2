@@ -201,7 +201,7 @@ const recoveryHarness = () => {
       return { historyCursor: "v1:recovered", nativeCheckpoint: undefined };
     },
     recoverObservedBrowserSuspension: async () => null,
-    terminateCurrentAgentSandbox: async () => undefined,
+    terminateCurrentAgentSession: async () => undefined,
     destroySandboxDurably: async (target: Record<string, unknown>) => {
       destroyed.push(structuredClone(target));
     },
@@ -475,7 +475,7 @@ describe("resident agent turn recovery", () => {
     const leaseId = "run:owner-purge-debt";
     const receiptKey = `buildOwnerFenceLeaseReceipt:${leaseId}`;
     const destroyKey =
-      "sandbox-lifecycle:v1:destroy-pending:resident-attachment:small:sandbox-owner-purge";
+      "sandbox-lifecycle:v1:destroy-pending:world:small:world-owner-oom";
     harness.values.set(receiptKey, {
       schemaVersion: 1,
       ownerId: turn.ownerId,
@@ -518,7 +518,7 @@ describe("resident agent turn recovery", () => {
 
     await (
       (BuildSession.prototype as unknown as Record<string, unknown>)[
-        "clearLegacySandboxTupleForResidentAdmission"
+        "clearUnattachedAgentSandboxTuple"
       ] as (this: unknown, turn: unknown) => Promise<void>
     ).call(harness.instance, turn);
 

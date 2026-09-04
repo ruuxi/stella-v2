@@ -104,9 +104,9 @@ describe("sandbox inventory operational parser", () => {
       classification: "app-build",
       candidates: ["app-build"],
     });
-    expect(inferWorkload("SandboxSmall", "agent-a")).toEqual({
-      classification: "agent-or-resident-attachment",
-      candidates: ["agent", "resident-attachment"],
+    expect(inferWorkload("SandboxSmall", "world-a")).toEqual({
+      classification: "world",
+      candidates: ["world"],
     });
     expect(inferWorkload("Sandbox", "other")).toEqual({
       classification: "unknown",
@@ -190,7 +190,7 @@ describe("sandbox inventory operational parser", () => {
       orphan: [
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ],
-      missing: [expect.objectContaining({ sandboxId: "agent-missing" })],
+      missing: [expect.objectContaining({ sandboxId: "world-missing" })],
     });
   });
 });
@@ -218,7 +218,7 @@ describe("sandbox cleanup safety gate", () => {
       selected: [
         expect.objectContaining({
           instanceId,
-          name: "agent-8cf8109a-ec39-4213-907c-080cfea3c7c0",
+          name: "world-8cf8109a-ec39-4213-907c-080cfea3c7c0",
         }),
       ],
       confirmation: cleanupConfirmation("bn118", [instanceId]),

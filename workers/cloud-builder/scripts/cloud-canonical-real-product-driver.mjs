@@ -13181,12 +13181,11 @@ const stepGeneralAgentRealSandbox = async ({
       ),
     "General sandbox emitted an unrecognized resize event.",
   );
-  const sessionId =
-    `agent-${browser.childTurnId}${resizedEvents.length === 1 ? "-lg" : ""}`
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/gu, "-")
-      .replace(/^-+|-+$/gu, "")
-      .slice(0, 56);
+  const sessionId = `agent-run-${browser.childTurnId}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 56);
   rawLog.push(
     rawReceipt("worker", "journal.sandbox-completion", {
       outcome: "completed",

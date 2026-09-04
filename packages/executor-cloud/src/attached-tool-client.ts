@@ -15,13 +15,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
 import {
-  ATTACHED_TOOL_DIR,
   ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
-  ATTACHED_TOOL_REQUEST_PATH,
   ATTACHED_TOOL_RESPONSE_MAX_BYTES,
-  ATTACHED_TOOL_RESULT_PATH,
-  ATTACHED_TOOL_SOCKET_PATH,
   AttachedToolProtocolError,
   type AttachedToolControlResponse,
   type AttachedToolResponse,
@@ -46,7 +42,8 @@ export const attachedToolClientFailure = (
     Boolean(request) &&
     typeof request === "object" &&
     "control" in (request as Record<string, unknown>);
-  const error = message.slice(0, 8_000) || "The attached tool host is unreachable.";
+  const error =
+    message.slice(0, 8_000) || "The attached tool host is unreachable.";
   return isControl
     ? { version: ATTACHED_TOOL_PROTOCOL_VERSION, status: "failed", error }
     : {
@@ -70,17 +67,18 @@ export type AttachedToolClientPaths = Readonly<{
 export const attachedToolClientPaths = (
   argv: readonly string[],
 ): AttachedToolClientPaths => {
-  const flag = (name: string, fallback: string): string => {
+  const flag = (name: string): string => {
     const index = argv.indexOf(name);
     const value = index >= 0 ? argv[index + 1] : undefined;
-    return value && path.isAbsolute(value) && !value.includes("\u0000")
-      ? value
-      : fallback;
+    if (!value || !path.isAbsolute(value) || value.includes("\u0000")) {
+      throw new Error(`Attached tool client requires ${name}.`);
+    }
+    return value;
   };
   return {
-    socketPath: flag("--socket", ATTACHED_TOOL_SOCKET_PATH),
-    requestPath: flag("--request", ATTACHED_TOOL_REQUEST_PATH),
-    resultPath: flag("--result", ATTACHED_TOOL_RESULT_PATH),
+    socketPath: flag("--socket"),
+    requestPath: flag("--request"),
+    resultPath: flag("--result"),
   };
 };
 
@@ -165,7 +163,10 @@ export const runAttachedToolClient = (
     );
     yield* Effect.tryPromise({
       try: async () => {
-        await mkdir(ATTACHED_TOOL_DIR, { mode: 0o700, recursive: true });
+        await mkdir(path.dirname(paths.resultPath), {
+          mode: 0o700,
+          recursive: true,
+        });
         await writeFile(
           paths.resultPath,
           `${encodeAttachedToolFrame(answer)}\n`,

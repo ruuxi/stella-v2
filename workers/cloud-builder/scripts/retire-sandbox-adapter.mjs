@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // The adapter `retire-sandbox-instances.mjs --apply --adapter <this file>`
 // invokes once per exact instance. It receives one JSON argument naming the
-// instance's exact tuple and posts it to the deployed Worker's operator route,
-// which performs the same keep-alive release and destroy a turn's own teardown
-// does. Wrangler cannot stop one container instance and only the sandbox
+// instance's exact tuple and posts it to the deployed Worker's operator route.
+// Wrangler cannot stop one container instance and only the sandbox
 // Durable Object holds the container handle, so this is the only stop path.
 //
 // Environment:
@@ -39,22 +38,15 @@ if (
   process.exit(2);
 }
 
-// The Worker names a container by an exact workload, but the inventory can
-// only tell `agent` from `resident-attachment` with a durable export, so an
-// `agent-*` instance usually arrives as the ambiguous classification with
-// both candidates. Both address the same namespace: the Worker keys the
-// namespace on `app-build` versus size, never on which of the two agent
-// workloads minted the id. Resolving to the first candidate therefore
-// changes only the label on the retire log line, never the target. An
-// `app-build` candidate is never mixed in, and an empty candidate list
-// (an id this worker did not mint) stays unresolved and fails here.
-const EXACT_WORKLOADS = new Set(["app-build", "agent", "resident-attachment"]);
+// A durable export can supply the exact workload when an old platform record
+// lacks the SDK-visible sandbox id. An empty candidate list remains unresolved.
+const EXACT_WORKLOADS = new Set(["app-build", "world"]);
 const resolveWorkload = (plan) => {
   if (EXACT_WORKLOADS.has(plan.workload)) return plan.workload;
   const candidates = Array.isArray(plan.workloadCandidates)
     ? plan.workloadCandidates.filter((entry) => EXACT_WORKLOADS.has(entry))
     : [];
-  if (candidates.length === 0 || candidates.includes("app-build")) {
+  if (candidates.length !== 1) {
     return null;
   }
   return candidates[0];

@@ -4,6 +4,7 @@ import {
   ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
   AttachedToolProtocolError,
+  attachedToolPaths,
   attachedToolFingerprint,
   decodeAttachedToolFrame,
   encodeAttachedToolFrame,
@@ -33,6 +34,24 @@ const result = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("attached tool protocol", () => {
+  test("gives concurrent turns distinct daemon directories and files", () => {
+    const first = attachedToolPaths({ turnId: "turn-a", attemptGeneration: 1 });
+    const second = attachedToolPaths({
+      turnId: "turn-b",
+      attemptGeneration: 1,
+    });
+    expect(first).toEqual({
+      directory: "/workspace/attached/turn-a-1",
+      socket: "/workspace/attached/turn-a-1/tool-host.sock",
+      hostInput: "/workspace/attached/turn-a-1/host-input.json",
+      request: "/workspace/attached/turn-a-1/request.json",
+      result: "/workspace/attached/turn-a-1/result.json",
+      daemonStderr: "/workspace/attached/turn-a-1/daemon.stderr",
+    });
+    expect(second.directory).not.toBe(first.directory);
+    expect(second.socket).not.toBe(first.socket);
+  });
+
   test("serves only the four bridged tools", () => {
     expect([...ATTACHED_TOOL_NAMES]).toEqual([
       "exec_command",
@@ -143,9 +162,9 @@ describe("attached tool protocol", () => {
       deliveredFiles: ["out.txt"],
     });
     expect(parsed.status).toBe("quiesced");
-    expect(
-      parsed.status === "quiesced" ? parsed.deliveredFiles : [],
-    ).toEqual(["out.txt"]);
+    expect(parsed.status === "quiesced" ? parsed.deliveredFiles : []).toEqual([
+      "out.txt",
+    ]);
     expect(() =>
       parseAttachedToolControlResponse({
         version: ATTACHED_TOOL_PROTOCOL_VERSION,
@@ -167,7 +186,10 @@ describe("attached tool protocol", () => {
         ...base,
         linkedPaths: ["/world/drive/report.md"],
       }),
-    ).toMatchObject({ control: "quiesce", linkedPaths: ["/world/drive/report.md"] });
+    ).toMatchObject({
+      control: "quiesce",
+      linkedPaths: ["/world/drive/report.md"],
+    });
     expect(() => parseAttachedToolControlRequest(base)).toThrow(
       AttachedToolProtocolError,
     );

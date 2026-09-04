@@ -10,13 +10,17 @@ import {
 } from "../src/general-agent-turn.js";
 import { createTurnRetryCancellation } from "../src/turn-cancellation.js";
 import {
-  ATTACHED_TOOL_HOST_INPUT_PATH,
   ATTACHED_TOOL_PROTOCOL_VERSION,
-  ATTACHED_TOOL_REQUEST_PATH,
-  ATTACHED_TOOL_RESULT_PATH,
-  ATTACHED_TOOL_SOCKET_PATH,
+  attachedToolPaths,
   type AttachedToolRequest,
 } from "@stella/executor-cloud/attached-tool-protocol";
+
+const PATHS = attachedToolPaths({ turnId: "turn-1", attemptGeneration: 1 });
+const BOOT = {
+  sandboxId: "world-owner-1",
+  sessionId: "agent-run-turn-1",
+  daemonDirectory: PATHS.directory,
+} as const;
 
 const liveContext = () => {
   const cancellation = createTurnRetryCancellation();
@@ -207,12 +211,15 @@ const fakeSession = (options: {
       // The probe is an `if`, so it exits zero either way and reports on
       // stdout; a bare `test -S` would be a non-zero exit while waiting.
       if (command.startsWith("if test -S")) {
-        return { ...ok, stdout: ready ? "stella-attached-tool-host-ready\n" : "" };
+        return {
+          ...ok,
+          stdout: ready ? "stella-attached-tool-host-ready\n" : "",
+        };
       }
       if (ready) return ok;
       if (options.errexit) {
         throw new Error(
-          "Session 'agent-run-1-small' shell exited (exit code: 1)",
+          "Session 'agent-run-turn-1' shell exited (exit code: 1)",
         );
       }
       return { success: false, exitCode: 1, stdout: "", stderr: "" };
@@ -227,7 +234,7 @@ const fakeSession = (options: {
       };
     }
     if (command.includes("--attached-tool-client")) {
-      files.set(ATTACHED_TOOL_RESULT_PATH, resultText());
+      files.set(PATHS.result, resultText());
       return ok;
     }
     return ok;
@@ -286,7 +293,8 @@ const attachmentFor = (fake: ReturnType<typeof fakeSession>) => {
       restoreMs: 340,
     }),
     prepareBrokerHandoff: async () => HANDOFF,
-    destroy: async (sandboxId) => {
+    release: async () => undefined,
+    destroy: async ({ sandboxId }) => {
       destroyed.push(sandboxId);
     },
     emitEvent: (kind, payload) => {
@@ -327,14 +335,15 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     const { attachment } = attachmentFor(fake);
 
     const boot = await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "small",
     });
 
     expect(boot).toEqual({ coldStartMs: 1_200, restoreMs: 340 });
     const probes = fake.execs.filter((c) => c.includes("test -S"));
     expect(probes).toHaveLength(4);
-    for (const probe of probes) expect(probe.startsWith("if test -S")).toBe(true);
+    for (const probe of probes)
+      expect(probe.startsWith("if test -S")).toBe(true);
   });
 
   test("a daemon that exits before listening fails the boot with its own stderr", async () => {
@@ -347,8 +356,10 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     const { attachment } = attachmentFor(fake);
 
     await expect(
-      attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" }),
-    ).rejects.toThrow(/exited before it could listen \(failed\): error: Module not found/u);
+      attachment.boot({ ...BOOT, instanceSize: "small" }),
+    ).rejects.toThrow(
+      /exited before it could listen \(failed\): error: Module not found/u,
+    );
     // Fast: the readiness window is not waited out for a process that is gone.
     expect(fake.execs.filter((c) => c.includes("test -S"))).toHaveLength(1);
   });
@@ -356,10 +367,12 @@ describe("the sandbox attachment is the container side of the ladder", () => {
   test("the one-shot client runs from the executor root as well", async () => {
     const fake = fakeSession({ resultFrame: COMPLETED_FRAME });
     const { attachment } = attachmentFor(fake);
-    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+    await attachment.boot({ ...BOOT, instanceSize: "small" });
     await attachment.callTool({ request: TOOL_REQUEST });
 
-    const client = fake.execs.findIndex((c) => c.includes("--attached-tool-client"));
+    const client = fake.execs.findIndex((c) =>
+      c.includes("--attached-tool-client"),
+    );
     expect(client).toBeGreaterThanOrEqual(0);
     expect(fake.execOptions[client]).toEqual({ cwd: "/opt/stella" });
   });
@@ -369,27 +382,27 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     const { attachment } = attachmentFor(fake);
 
     const boot = await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "small",
     });
 
     expect(boot).toEqual({ coldStartMs: 1_200, restoreMs: 340 });
-    expect(JSON.parse(fake.files.get(ATTACHED_TOOL_HOST_INPUT_PATH)!)).toEqual(
-      HANDOFF,
-    );
+    expect(JSON.parse(fake.files.get(PATHS.hostInput)!)).toEqual(HANDOFF);
     // stderr is also persisted: the SDK keeps nothing for a daemon that died
     // abruptly, and that file is what the attachment reads back.
     expect(fake.processes).toEqual([
-      "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' 2>>'/workspace/attached/daemon.stderr'",
+      "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' '--dir' '/workspace/attached/turn-1-1' 2>>'/workspace/attached/turn-1-1/daemon.stderr'",
     ]);
     // The SDK gives a background process no session working directory, and
     // the argv is relative to the image's executor root.
-    expect(fake.processOptions).toEqual([{ cwd: "/opt/stella" }]);
+    expect(fake.processOptions).toEqual([
+      { cwd: "/opt/stella", processId: "attached-daemon-agent-run-turn-1" },
+    ]);
     // The socket appearing is the readiness signal, so a daemon that is slow
     // to listen must be waited for rather than called into.
     expect(
       fake.execs.filter((command) =>
-        command.startsWith(`if test -S '${ATTACHED_TOOL_SOCKET_PATH}'`),
+        command.startsWith(`if test -S '${PATHS.socket}'`),
       ),
     ).toHaveLength(3);
   });
@@ -398,7 +411,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     const fake = fakeSession({ resultFrame: COMPLETED_FRAME });
     const { attachment } = attachmentFor(fake);
     await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "large",
     });
 
@@ -408,9 +421,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     });
 
     expect(response).toMatchObject({ status: "completed" });
-    expect(JSON.parse(fake.files.get(ATTACHED_TOOL_REQUEST_PATH)!)).toEqual(
-      TOOL_REQUEST,
-    );
+    expect(JSON.parse(fake.files.get(PATHS.request)!)).toEqual(TOOL_REQUEST);
     expect(
       fake.execs.some((command) =>
         command.includes("'--attached-tool-client'"),
@@ -425,7 +436,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     });
     const { attachment } = attachmentFor(fake);
     await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "large",
     });
 
@@ -447,7 +458,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     });
     const { attachment } = attachmentFor(fake);
     await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "large",
     });
 
@@ -474,7 +485,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     });
     const { attachment, events } = attachmentFor(fake);
     await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "large",
     });
 
@@ -506,7 +517,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     const { attachment, events } = attachmentFor(fake);
 
     await expect(
-      attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" }),
+      attachment.boot({ ...BOOT, instanceSize: "small" }),
     ).rejects.toThrow(
       "The workspace bridge exited before it could listen (error): attached tool host received SIGTERM",
     );
@@ -530,14 +541,14 @@ describe("the sandbox attachment is the container side of the ladder", () => {
         status: "failed",
         toolCallId: "call-1",
         fingerprint: "a".repeat(64),
-        error: "connect ECONNREFUSED /workspace/attached/tool-host.sock",
+        error: `connect ECONNREFUSED ${PATHS.socket}`,
       },
       daemonStatus: "exited",
       daemonStderr: "TypeError: drive ledger is not iterable",
     });
     const { attachment, events } = attachmentFor(fake);
     await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "large",
     });
 
@@ -560,7 +571,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
       reason: "The workspace bridge stopped answering",
       status: "exited",
       stderr: "TypeError: drive ledger is not iterable",
-      error: "connect ECONNREFUSED /workspace/attached/tool-host.sock",
+      error: `connect ECONNREFUSED ${PATHS.socket}`,
     });
   });
 
@@ -581,13 +592,16 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     const fake = fakeSession({ resultFrame: COMPLETED_FRAME });
     const { attachment, destroyed } = attachmentFor(fake);
     await attachment.boot({
-      sandboxId: "agent-turn-1",
+      ...BOOT,
       instanceSize: "large",
     });
 
-    await attachment.destroy("agent-turn-1");
+    await attachment.destroy({
+      sandboxId: BOOT.sandboxId,
+      instanceSize: "large",
+    });
 
-    expect(destroyed).toEqual(["agent-turn-1"]);
+    expect(destroyed).toEqual([BOOT.sandboxId]);
     await expect(
       attachment.control({
         sandboxId: "agent-turn-1",
@@ -621,16 +635,20 @@ describe("the daemon outlives the session shell", () => {
           getLogs: async () => ({ stdout: "", stderr: "" }),
         } as never;
       },
+      release: async () => undefined,
       destroy: async () => undefined,
     });
 
-    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+    await attachment.boot({ ...BOOT, instanceSize: "small" });
 
     expect(started).toEqual([
       {
         command:
-          "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' 2>>'/workspace/attached/daemon.stderr'",
-        options: { cwd: "/opt/stella" },
+          "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' '--dir' '/workspace/attached/turn-1-1' 2>>'/workspace/attached/turn-1-1/daemon.stderr'",
+        options: {
+          cwd: "/opt/stella",
+          processId: "attached-daemon-agent-run-turn-1",
+        },
       },
     ]);
     // Nothing was started inside the session shell.
@@ -641,7 +659,7 @@ describe("the daemon outlives the session shell", () => {
     const fake = fakeSession({ resultFrame: COMPLETED_FRAME });
     const shellExited = () => {
       const error = new Error(
-        "Session 'agent-run-1-small' ended because its shell exited (exit code: 1)",
+        "Session 'agent-run-turn-1' ended because its shell exited (exit code: 1)",
       );
       error.name = "SessionTerminatedError";
       return error;
@@ -663,22 +681,27 @@ describe("the daemon outlives the session shell", () => {
         restoreMs: 5,
       }),
       prepareBrokerHandoff: async () => HANDOFF,
+      release: async () => undefined,
       destroy: async () => undefined,
       emitEvent: (kind, payload) => {
         events.push({ kind, payload });
       },
     });
-    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+    await attachment.boot({ ...BOOT, instanceSize: "small" });
 
     await expect(
       attachment.callTool({ sandboxId: "agent-turn-1", request: TOOL_REQUEST }),
-    ).rejects.toThrow(/workspace shell exited under that call: .*shell exited \(exit code: 1\)/u);
+    ).rejects.toThrow(
+      /workspace shell exited under that call: .*shell exited \(exit code: 1\)/u,
+    );
     await expect(
       attachment.callTool({ sandboxId: "agent-turn-1", request: TOOL_REQUEST }),
     ).rejects.toThrow(AttachedToolHostUnavailableError);
 
     expect(deleteCalls).toBe(2);
-    const reported = events.filter((e) => e.kind === "attached_session_terminated");
+    const reported = events.filter(
+      (e) => e.kind === "attached_session_terminated",
+    );
     expect(reported).toHaveLength(1);
     expect(reported[0]!.payload).toMatchObject({
       error: expect.stringContaining("shell exited (exit code: 1)"),
@@ -701,9 +724,10 @@ describe("the daemon outlives the session shell", () => {
         restoreMs: 5,
       }),
       prepareBrokerHandoff: async () => HANDOFF,
+      release: async () => undefined,
       destroy: async () => undefined,
     });
-    await attachment.boot({ sandboxId: "agent-turn-1", instanceSize: "small" });
+    await attachment.boot({ ...BOOT, instanceSize: "small" });
     const response = await attachment.callTool({
       sandboxId: "agent-turn-1",
       request: TOOL_REQUEST,

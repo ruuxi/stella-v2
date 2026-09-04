@@ -120,8 +120,7 @@ const admissionReceipt = (
   exact: ReturnType<typeof turn>,
 ) =>
   values.get(`chatTurnAdmission:${exact.clientMsgId}`) as
-    | { turnId: string; leaseId: string; phase: string }
-    | undefined;
+    { turnId: string; leaseId: string; phase: string } | undefined;
 
 const queuedKeys = (values: Map<string, unknown>): string[] =>
   [...values.keys()].filter((key) => key.startsWith("queued:"));
@@ -451,7 +450,7 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
     runningTurns: new Map<string, Set<Promise<unknown>>>(),
     appTurnExecutions: new Map<string, unknown>(),
     agentTurnExecutions: new Map<string, unknown>(),
-    terminateCurrentAgentSandbox: async (target: { turnId: string }) => {
+    terminateCurrentAgentSession: async (target: { turnId: string }) => {
       terminated.push(target.turnId);
     },
     registerTurn: async (target: Record<string, unknown>) => {
@@ -499,13 +498,13 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
   };
 };
 
-const terminateCurrentAgentSandbox = async (
+const terminateCurrentAgentSession = async (
   instance: BuildSession & Record<string, unknown>,
   target: ReturnType<typeof agentTurn>,
 ): Promise<void> => {
   const terminate = (
     BuildSession.prototype as unknown as Record<string, unknown>
-  )["terminateCurrentAgentSandbox"] as (
+  )["terminateCurrentAgentSession"] as (
     this: BuildSession & Record<string, unknown>,
     turn: ReturnType<typeof agentTurn>,
   ) => Promise<void>;
@@ -513,34 +512,10 @@ const terminateCurrentAgentSandbox = async (
 };
 
 describe("BuildSession sandbox termination", () => {
-  test("does not resolve the process RPC before an executor is admitted", async () => {
-    const harness = buildSessionHarness();
-    const current = { ...agentTurn("agent-provisioning"), workspace: "stella" };
-    const sandboxId = `agent-${current.turnId}`;
-    harness.values.set("turn", current);
-    harness.values.set("sandboxId", sandboxId);
-    harness.values.set("sandboxSize", "large");
-    let processKills = 0;
-    let destroys = 0;
-    harness.instance["sandbox"] = () => ({
-      killAllProcesses: async () => {
-        processKills += 1;
-      },
-      destroy: async () => {
-        destroys += 1;
-      },
-    });
-
-    await terminateCurrentAgentSandbox(harness.instance, current);
-
-    expect(processKills).toBe(0);
-    expect(destroys).toBe(1);
-  });
-
-  test("kills the exact process session after executor admission", async () => {
+  test("turn end deletes its session and leaves the shared container running", async () => {
     const harness = buildSessionHarness();
     const current = { ...agentTurn("agent-admitted"), workspace: "stella" };
-    const sandboxId = `agent-${current.turnId}`;
+    const sandboxId = `world-${"a".repeat(40)}`;
     harness.values.set("turn", current);
     harness.values.set("sandboxId", sandboxId);
     harness.values.set("sandboxSize", "large");
@@ -554,29 +529,37 @@ describe("BuildSession sandbox termination", () => {
       workspaceRoot: "/workspace/stella",
       startedAt: Date.now(),
     });
-    let processKills = 0;
-    let destroys = 0;
+    const calls: string[] = [];
     harness.instance["sandbox"] = () => ({
       getState: async () => ({ status: "running" }),
-      killAllProcesses: async () => {
-        processKills += 1;
-      },
-      destroy: async () => {
-        destroys += 1;
-      },
+      killAllProcesses: async (sessionId: string) =>
+        calls.push(`kill:${sessionId}`),
+      killProcess: async (processId: string) =>
+        calls.push(`daemon:${processId}`),
+      getSession: async () => ({
+        exec: async (command: string) => {
+          calls.push(command);
+          return { success: true };
+        },
+      }),
+      deleteSession: async (sessionId: string) =>
+        calls.push(`delete:${sessionId}`),
+      destroy: async () => calls.push("destroy"),
     });
 
-    await terminateCurrentAgentSandbox(harness.instance, current);
+    await terminateCurrentAgentSession(harness.instance, current);
 
-    expect(processKills).toBe(1);
-    expect(destroys).toBe(1);
+    expect(calls).toContain(`kill:agent-run-${current.turnId}`);
+    expect(calls).toContain(`delete:agent-run-${current.turnId}`);
+    expect(
+      calls.some((call) =>
+        call.includes(`/workspace/attached/${current.turnId}-1`),
+      ),
+    ).toBe(true);
+    expect(calls).not.toContain("destroy");
   });
 
-  test("destroys a finished attempt's exact container even after its successor took over the turn", async () => {
-    // The completion wake dispatches the follow-up within the second, so the
-    // successor is admitted (and owns `turn`) before the finished attempt's
-    // teardown runs. The exact compute record still names attempt 1's own
-    // container; fencing that on the current turn leaked it on keep-alive.
+  test("an exact compute record releases a finished attempt after a successor takes over", async () => {
     const harness = buildSessionHarness();
     const finished = { ...agentTurn("agent-finished"), workspace: "stella" };
     const successor = {
@@ -591,52 +574,59 @@ describe("BuildSession sandbox termination", () => {
       attemptGeneration: 1,
       phase: "attached",
       instanceSize: "small",
-      sandboxId: "sandbox-finished-attempt",
+      sandboxId: `world-${"b".repeat(40)}`,
+      sessionId: `agent-run-${finished.turnId}`,
+      daemonDirectory: `/workspace/attached/${finished.turnId}-1`,
       attachReason: "process_tool",
     });
-    const sandboxes: Array<{
-      id: string;
-      size: string;
-      workload: string;
-      keepAlive: boolean | undefined;
-    }> = [];
-    let destroys = 0;
-    harness.instance["sandbox"] = (
-      id: string,
-      size: string,
-      workload: string,
-      options?: { keepAlive?: boolean },
-    ) => {
-      sandboxes.push({ id, size, workload, keepAlive: options?.keepAlive });
-      return {
-        setKeepAlive: async () => undefined,
-        destroy: async () => {
-          destroys += 1;
-        },
-      };
-    };
+    const calls: string[] = [];
+    harness.instance["sandbox"] = () => ({
+      getState: async () => ({ status: "healthy" }),
+      killAllProcesses: async (sessionId: string) =>
+        calls.push(`kill:${sessionId}`),
+      killProcess: async () => undefined,
+      getSession: async () => ({ exec: async () => ({ success: true }) }),
+      deleteSession: async (sessionId: string) =>
+        calls.push(`delete:${sessionId}`),
+    });
 
-    await terminateCurrentAgentSandbox(harness.instance, finished);
+    await terminateCurrentAgentSession(harness.instance, finished);
 
-    expect(destroys).toBe(1);
-    // Both the process sweep and the durable destroy resolve the same exact
-    // target; neither may fall back to the successor's mirror.
-    expect(sandboxes.length).toBeGreaterThanOrEqual(1);
-    for (const sandbox of sandboxes) {
-      expect(sandbox).toMatchObject({
-        id: "sandbox-finished-attempt",
-        size: "small",
-        workload: "resident-attachment",
-      });
-    }
-    // The teardown stub carries keep-alive off as its configured state, so
-    // the sandbox records the release even when the explicit call fails.
-    expect(sandboxes.some((sandbox) => sandbox.keepAlive === false)).toBe(true);
+    expect(calls).toEqual([
+      `kill:agent-run-${finished.turnId}`,
+      `delete:agent-run-${finished.turnId}`,
+    ]);
+  });
+
+  test("a missing predecessor session does not break follow-up cleanup", async () => {
+    const harness = buildSessionHarness();
+    const current = agentTurn("agent-follow-up");
+    const sandboxId = `world-${"c".repeat(40)}`;
+    harness.values.set("turn", current);
+    harness.values.set("sandboxId", sandboxId);
+    harness.values.set("sandboxSize", "small");
+    const calls: string[] = [];
+    harness.instance["sandbox"] = () => ({
+      getState: async () => ({ status: "running" }),
+      killAllProcesses: async () => undefined,
+      killProcess: async () => undefined,
+      getSession: async () => {
+        throw new Error(
+          `Session 'agent-run-${current.turnId}' does not exist.`,
+        );
+      },
+      deleteSession: async (sessionId: string) =>
+        calls.push(`delete:${sessionId}`),
+    });
+
+    await terminateCurrentAgentSession(harness.instance, current);
+
+    expect(calls).toEqual([`delete:agent-run-${current.turnId}`]);
   });
 
   test("still fences the shared sandbox mirror on the current turn", async () => {
-    // Without an exact record the mirror may already name the successor's
-    // container, so a stale terminate must not destroy it.
+    // Without an exact compute record, a stale turn has no authority to clean
+    // a session after the mirror has moved to the successor.
     const harness = buildSessionHarness();
     const finished = { ...agentTurn("agent-stale"), workspace: "stella" };
     const successor = {
@@ -646,102 +636,17 @@ describe("BuildSession sandbox termination", () => {
     harness.values.set("turn", successor);
     harness.values.set("sandboxId", "sandbox-of-successor");
     harness.values.set("sandboxSize", "large");
-    let destroys = 0;
+    let calls = 0;
     harness.instance["sandbox"] = () => ({
-      destroy: async () => {
-        destroys += 1;
+      getState: async () => {
+        calls += 1;
+        return { status: "running" };
       },
     });
 
-    await terminateCurrentAgentSandbox(harness.instance, finished);
+    await terminateCurrentAgentSession(harness.instance, finished);
 
-    expect(destroys).toBe(0);
-  });
-
-  test("retries the keep-alive release after destroy when the first release fails", async () => {
-    // A destroyed container boots again on the next RPC to its sandbox; with
-    // keep-alive still persisted it then never sleeps.
-    const harness = buildSessionHarness();
-    const current = { ...agentTurn("agent-keepalive"), workspace: "stella" };
-    const sandboxId = `agent-${current.turnId}`;
-    harness.values.set("turn", current);
-    harness.values.set("sandboxId", sandboxId);
-    harness.values.set("sandboxSize", "large");
-    const calls: string[] = [];
-    let releases = 0;
-    harness.instance["sandbox"] = () => ({
-      setKeepAlive: async (enabled: boolean) => {
-        releases += 1;
-        calls.push(`keepAlive:${enabled}`);
-        if (releases === 1) throw new Error("rpc failed");
-      },
-      destroy: async () => {
-        calls.push("destroy");
-      },
-    });
-    const previousError = console.error;
-    console.error = () => undefined;
-    try {
-      await terminateCurrentAgentSandbox(harness.instance, current);
-    } finally {
-      console.error = previousError;
-    }
-    expect(calls).toEqual(["keepAlive:false", "destroy", "keepAlive:false"]);
-  });
-
-  test("captures only safe lifecycle diagnostics when SDK errors contain provider HTML and URLs", async () => {
-    const harness = buildSessionHarness();
-    const current = {
-      ...agentTurn("agent-sensitive-error"),
-      workspace: "stella",
-    };
-    const sandboxId = `agent-${current.turnId}`;
-    harness.values.set("turn", current);
-    harness.values.set("sandboxId", sandboxId);
-    harness.values.set("sandboxSize", "large");
-    harness.values.set(`agentExecutionMarker:${current.turnId}:1`, {
-      schemaVersion: 1,
-      turnId: current.turnId,
-      attemptGeneration: 1,
-      sandboxId,
-      size: "large",
-      workspace: "stella",
-      workspaceRoot: "/workspace/stella",
-      startedAt: Date.now(),
-    });
-    const sensitive =
-      "https://provider.invalid/private?token=secret <html>provider failure</html>";
-    harness.instance["sandbox"] = () => ({
-      getState: async () => ({ status: "healthy" }),
-      killAllProcesses: async () => {
-        throw new Error(sensitive);
-      },
-      setKeepAlive: async () => {
-        throw new Error(sensitive);
-      },
-      destroy: async () => {
-        throw new Error(sensitive);
-      },
-    });
-    const captured: string[] = [];
-    const previousError = console.error;
-    console.error = (...parts: unknown[]) => captured.push(parts.join(" "));
-    try {
-      await expect(
-        terminateCurrentAgentSandbox(harness.instance, current),
-      ).rejects.toThrow("Sandbox retirement is pending");
-    } finally {
-      console.error = previousError;
-    }
-    const logs = captured.join("\n");
-    expect(logs).toContain("agent_process_kill_failed");
-    expect(logs).toContain("sandbox_keep_alive_release_failed");
-    expect(logs).toContain("sandbox_destroy_deferred");
-    expect(logs).toContain("failureCode");
-    expect(logs).toContain("detailBytes");
-    expect(logs).not.toContain("provider.invalid");
-    expect(logs).not.toContain("secret");
-    expect(logs).not.toContain("html");
+    expect(calls).toBe(0);
   });
 });
 
@@ -1075,8 +980,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       controlledExecution(running, () => {
         (
           instance["currentTurnCancellation"] as
-            | { abort?: () => void }
-            | undefined
+            { abort?: () => void } | undefined
         )?.abort?.();
       }),
     );
@@ -1133,8 +1037,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       controlledExecution(running, () => {
         (
           instance["currentTurnCancellation"] as
-            | { abort?: () => void }
-            | undefined
+            { abort?: () => void } | undefined
         )?.abort?.();
       }),
     );
@@ -1661,7 +1564,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       current.turnId,
       controlledExecution(running, async () => {
         await (
-          harness.instance["terminateCurrentAgentSandbox"] as (
+          harness.instance["terminateCurrentAgentSession"] as (
             target: ReturnType<typeof agentTurn>,
           ) => Promise<void>
         )(current);
@@ -1781,7 +1684,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       current.turnId,
       controlledExecution(running, async () => {
         await (
-          harness.instance["terminateCurrentAgentSandbox"] as (
+          harness.instance["terminateCurrentAgentSession"] as (
             target: ReturnType<typeof agentTurn>,
           ) => Promise<void>
         )(current);
@@ -2491,7 +2394,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       observeDestroy = resolve;
     });
     let destroyCalls = 0;
-    harness.instance["terminateCurrentAgentSandbox"] = async () => {
+    harness.instance["terminateCurrentAgentSession"] = async () => {
       destroyCalls += 1;
       observeDestroy();
     };
@@ -4565,7 +4468,7 @@ const residentStopHarness = (turnId: string) => {
     turnComputePlanKey(current.turnId, 1),
     residentPlanRecord(current.turnId),
   );
-  delete harness.instance["terminateCurrentAgentSandbox"];
+  delete harness.instance["terminateCurrentAgentSession"];
   const order: string[] = [];
   const destroyed: SandboxCall[] = [];
   const killed: string[] = [];
@@ -4577,6 +4480,9 @@ const residentStopHarness = (turnId: string) => {
       killAllProcesses: async (sessionId: string) => {
         killed.push(sessionId);
       },
+      killProcess: async () => undefined,
+      getSession: async () => ({ exec: async () => ({ success: true }) }),
+      deleteSession: async () => undefined,
       destroy: async () => {
         destroyed.push({ sandboxId, size });
       },
@@ -4660,7 +4566,7 @@ describe("resident placement exact Stop", () => {
     expect(driven.harness.values.has("pendingTerminal")).toBe(false);
   });
 
-  test("a Stop during attach destroys the exact reserved instance", async () => {
+  test("a Stop during attach releases the exact reserved session", async () => {
     const driven = residentStopHarness("agent-resident-attaching");
     const reserved = `agent-${driven.current.turnId}-attempt-1`;
     // A predecessor's unscoped compatibility mirror may survive until
@@ -4675,6 +4581,8 @@ describe("resident placement exact Stop", () => {
       phase: "attaching",
       instanceSize: "small",
       sandboxId: reserved,
+      sessionId: `agent-run-${driven.current.turnId}`,
+      daemonDirectory: `/workspace/attached/${driven.current.turnId}-1`,
     });
 
     const response = await driven.harness.instance.fetch(
@@ -4682,11 +4590,11 @@ describe("resident placement exact Stop", () => {
     );
     await driven.running.catch(() => undefined);
 
-    expect(driven.destroyed).toEqual([
-      { sandboxId: reserved, size: "small" },
-      { sandboxId: reserved, size: "small" },
+    expect(driven.destroyed).toEqual([]);
+    expect(driven.killed).toEqual([
+      `agent-run-${driven.current.turnId}`,
+      `agent-run-${driven.current.turnId}`,
     ]);
-    expect(driven.killed).toEqual([]);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       canceled: true,
@@ -4721,6 +4629,8 @@ describe("resident placement exact Stop", () => {
       phase: "attached",
       instanceSize: "large",
       sandboxId,
+      sessionId: `agent-run-${driven.current.turnId}`,
+      daemonDirectory: `/workspace/attached/${driven.current.turnId}-1`,
     });
 
     let settled = false;
@@ -4730,7 +4640,7 @@ describe("resident placement exact Stop", () => {
         settled = true;
         return response;
       });
-    while (driven.destroyed.length === 0) await Promise.resolve();
+    while (driven.killed.length === 0) await Promise.resolve();
     expect(settled).toBe(false);
     expect(driven.harness.values.get("pendingTerminal")).toMatchObject({
       turnId: driven.current.turnId,
@@ -4741,13 +4651,10 @@ describe("resident placement exact Stop", () => {
     const response = await cancellation;
     await driven.running.catch(() => undefined);
 
-    expect(driven.destroyed).toEqual([
-      { sandboxId, size: "large" },
-      { sandboxId, size: "large" },
-    ]);
+    expect(driven.destroyed).toEqual([]);
     expect(driven.killed).toEqual([
-      `agent-run-${driven.current.turnId}-large`,
-      `agent-run-${driven.current.turnId}-large`,
+      `agent-run-${driven.current.turnId}`,
+      `agent-run-${driven.current.turnId}`,
     ]);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -4785,22 +4692,20 @@ describe("BuildSession teardown never revives the container it retires", () => {
     // exited it boots the instance just to kill nothing, and with keep-alive
     // still persisted that revived container never sleeps again.
     const { harness, current } = admitted("agent-stopped-container");
-    const stubs: Array<{ keepAlive: boolean | undefined }> = [];
+    let stubs = 0;
     let processKills = 0;
     let destroys = 0;
     harness.instance["sandbox"] = (
       _id: string,
       _size: string,
       _workload: string,
-      options?: { keepAlive?: boolean },
     ) => {
-      stubs.push({ keepAlive: options?.keepAlive });
+      stubs += 1;
       return {
         getState: async () => ({ status: "stopped" }),
         killAllProcesses: async () => {
           processKills += 1;
         },
-        setKeepAlive: async () => undefined,
         destroy: async () => {
           destroys += 1;
         },
@@ -4809,15 +4714,13 @@ describe("BuildSession teardown never revives the container it retires", () => {
     const previousError = console.error;
     console.error = () => undefined;
     try {
-      await terminateCurrentAgentSandbox(harness.instance, current);
+      await terminateCurrentAgentSession(harness.instance, current);
     } finally {
       console.error = previousError;
     }
     expect(processKills).toBe(0);
-    expect(destroys).toBe(1);
-    // Retirement never holds a keep-alive stub for its target.
-    expect(stubs.length).toBeGreaterThanOrEqual(2);
-    for (const stub of stubs) expect(stub.keepAlive).toBe(false);
+    expect(destroys).toBe(0);
+    expect(stubs).toBe(1);
   });
 
   test("treats an unanswerable container state as not running", async () => {
@@ -4830,43 +4733,16 @@ describe("BuildSession teardown never revives the container it retires", () => {
       killAllProcesses: async () => {
         processKills += 1;
       },
-      setKeepAlive: async () => undefined,
       destroy: async () => undefined,
     });
     const previousError = console.error;
     console.error = () => undefined;
     try {
-      await terminateCurrentAgentSandbox(harness.instance, current);
+      await terminateCurrentAgentSession(harness.instance, current);
     } finally {
       console.error = previousError;
     }
     expect(processKills).toBe(0);
-  });
-
-  test("releases keep-alive as a method call on the stub", async () => {
-    // A workerd RPC property is only an RPC call when invoked on its stub. A
-    // detached reference run through Function.prototype.call is what every
-    // release did before, and what every fake with a plain function hid.
-    const { harness, current } = admitted("agent-method-release");
-    const invocations: Array<{ enabled: boolean; onStub: boolean }> = [];
-    const stub = {
-      getState: async () => ({ status: "stopped" }),
-      killAllProcesses: async () => undefined,
-      setKeepAlive(this: unknown, enabled: boolean) {
-        invocations.push({ enabled, onStub: this === stub });
-        return Promise.resolve();
-      },
-      destroy: async () => undefined,
-    };
-    harness.instance["sandbox"] = () => stub;
-    const previousError = console.error;
-    console.error = () => undefined;
-    try {
-      await terminateCurrentAgentSandbox(harness.instance, current);
-    } finally {
-      console.error = previousError;
-    }
-    expect(invocations).toEqual([{ enabled: false, onStub: true }]);
   });
 });
 
@@ -4964,7 +4840,7 @@ describe("a watchdog that has passed never waits on a container that will not di
     };
     harness.values.set("turn", current);
     harness.instance["claimTerminalDecision"] = async () => true;
-    harness.instance["terminateCurrentAgentSandbox"] = async () => {
+    harness.instance["terminateCurrentAgentSession"] = async () => {
       throw new SandboxLifecycleDeferredError();
     };
     const delivered: Array<Record<string, unknown>> = [];
@@ -5009,7 +4885,7 @@ describe("a watchdog that has passed never waits on a container that will not di
     };
     harness.values.set("turn", current);
     harness.instance["claimTerminalDecision"] = async () => true;
-    harness.instance["terminateCurrentAgentSandbox"] = async () => {
+    harness.instance["terminateCurrentAgentSession"] = async () => {
       throw new Error("storage transaction failed");
     };
     let delivered = 0;

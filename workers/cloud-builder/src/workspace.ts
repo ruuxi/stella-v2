@@ -9,6 +9,7 @@
  */
 
 import { sha256Hex } from "./hash.js";
+import { sandboxLifecycleId } from "./sandbox-lifecycle.js";
 
 /** The single checkpointed mount every cloud turn runs in. */
 export const WORLD_ROOT = "/workspace/world";
@@ -32,6 +33,21 @@ export const checkpointKey = async (ownerId: string): Promise<string> =>
 /** Durable Object name for an owner's one shared cloud filesystem. */
 export const worldName = async (ownerId: string): Promise<string> =>
   `${await sha256Hex(ownerId)}:${await sha256Hex(await checkpointKey(ownerId))}`;
+
+/** Stable Cloudflare Sandbox id for the owner's shared world container. */
+export const worldSandboxId = async (ownerId: string): Promise<string> =>
+  await sandboxLifecycleId("world", {
+    ownerId,
+    workspaceKey: await checkpointKey(ownerId),
+  });
+
+/** One persistent-shell session per agent turn, capped for the Sandbox SDK. */
+export const agentTurnSessionId = (turnId: string): string =>
+  `agent-run-${turnId}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 56);
 
 /** Backup name derived from the checkpoint key; stable across turns. */
 export const checkpointBackupName = (key: string): string =>

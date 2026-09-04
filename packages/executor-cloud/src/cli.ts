@@ -8,7 +8,7 @@ import { runStubTurn } from "./stub-turn.js";
 import { runAppTurn } from "./app-turn.js";
 import { runAgentTurn } from "./agent-turn.js";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "./agent-turn-result-file.js";
-import { ATTACHED_TOOL_HOST_INPUT_PATH } from "./attached-tool-protocol.js";
+import { attachedToolPathsForDirectory } from "./attached-tool-protocol.js";
 import {
   parseAttachedToolHostInput,
   runAttachedToolHost,
@@ -33,7 +33,9 @@ if (process.argv.includes("--attached-tool-host")) {
     });
   }
   process.on("uncaughtException", (error) => {
-    console.error(`attached tool host crashed: ${String(error?.stack ?? error)}`);
+    console.error(
+      `attached tool host crashed: ${String(error?.stack ?? error)}`,
+    );
     process.exit(1);
   });
   process.on("unhandledRejection", (error) => {
@@ -42,12 +44,20 @@ if (process.argv.includes("--attached-tool-host")) {
     );
     process.exit(1);
   });
-  const raw = await readFile(ATTACHED_TOOL_HOST_INPUT_PATH, "utf8");
-  await rm(ATTACHED_TOOL_HOST_INPUT_PATH, { force: true });
+  const directoryFlag = process.argv.indexOf("--dir");
+  const directory =
+    directoryFlag >= 0 ? process.argv[directoryFlag + 1] : undefined;
+  if (!directory) throw new Error("Attached tool host requires --dir.");
+  const paths = attachedToolPathsForDirectory(directory);
+  const raw = await readFile(paths.hostInput, "utf8");
+  await rm(paths.hostInput, { force: true });
   let report: unknown;
   try {
     report = await Effect.runPromise(
-      runAttachedToolHost(parseAttachedToolHostInput(JSON.parse(raw) as unknown)),
+      runAttachedToolHost(
+        parseAttachedToolHostInput(JSON.parse(raw) as unknown),
+        paths,
+      ),
     );
   } catch (error) {
     console.error(

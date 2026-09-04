@@ -5,8 +5,8 @@
  * process or the world filesystem attaches one, and it stays attached for the
  * rest of the turn. Everything about that transition that has to survive an
  * isolate loss is written down before it happens: the record naming the
- * sandbox is durable *before* the instance is created, so a Stop arriving mid
- * boot destroys the exact instance rather than leaking it.
+ * sandbox, session, and daemon directory are durable before the session is
+ * created, so a Stop arriving mid boot can clean the exact turn resources.
  *
  * The sandbox itself is behind `SandboxAttachment`. This module decides when
  * to boot, when to refuse, when to replay and when to give up; it does not
@@ -30,23 +30,17 @@ import type { TurnComputeUse } from "./general-agent-turn.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 
 export type AgentComputePhase =
-  | "resident"
-  | "attaching"
-  | "attached"
-  | "quiesced";
+  "resident" | "attaching" | "attached" | "quiesced";
 
 export type AttachReason =
-  | "process_tool"
-  | "filesystem_tool"
-  | "interior_build";
+  "process_tool" | "filesystem_tool" | "interior_build";
 
 /**
  * The durable fact about where this turn's work is happening.
  *
- * `sandboxId` appears from `attaching` onward and never changes afterwards for
- * a given attempt, because it is what both cancellation sweeps destroy. A
- * `resident` record has none, which is exactly what makes a Stop on a chat-only
- * turn a true no-op instead of a lookup that boots a container to kill it.
+ * `sandboxId`, `sessionId`, and `daemonDirectory` appear from `attaching`
+ * onward and identify exactly what cancellation releases. A `resident` record
+ * has none, which makes a Stop on a chat-only turn a true no-op.
  */
 type PersistedAgentComputeBase = Readonly<{
   turnId: string;
@@ -54,6 +48,8 @@ type PersistedAgentComputeBase = Readonly<{
   phase: AgentComputePhase;
   instanceSize: "small" | "large";
   sandboxId?: string;
+  sessionId?: string;
+  daemonDirectory?: string;
   attachReason?: AttachReason;
   attachedAt?: number;
   coldStartMs?: number;
@@ -80,8 +76,8 @@ const PHASES: ReadonlySet<string> = new Set([
 
 /**
  * Read back a compute record for this exact attempt. A record left by another
- * attempt names a container this attempt never reserved, and both destroying
- * it and trusting it would be wrong, so it does not parse.
+ * attempt names a session this attempt never created, and both releasing it
+ * and trusting it would be wrong, so it does not parse.
  */
 export const parsePersistedAgentCompute = (
   value: unknown,
@@ -98,7 +94,12 @@ export const parsePersistedAgentCompute = (
   ) {
     return null;
   }
-  if (value.phase !== "resident" && typeof value.sandboxId !== "string") {
+  if (
+    value.phase !== "resident" &&
+    (typeof value.sandboxId !== "string" ||
+      typeof value.sessionId !== "string" ||
+      typeof value.daemonDirectory !== "string")
+  ) {
     return null;
   }
   return value as unknown as PersistedAgentCompute;
@@ -131,6 +132,8 @@ export type SandboxAttachment = Readonly<{
   boot(args: {
     sandboxId: string;
     instanceSize: "small" | "large";
+    sessionId: string;
+    daemonDirectory: string;
   }): Promise<AttachBoot>;
   callTool(args: {
     sandboxId: string;
@@ -144,7 +147,16 @@ export type SandboxAttachment = Readonly<{
     /** Required for `quiesce`: untrusted reply-linked paths to deliver. */
     linkedPaths?: readonly string[];
   }): Promise<AttachedToolControlResponse>;
-  destroy(sandboxId: string): Promise<void>;
+  release(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+    sessionId: string;
+    daemonDirectory: string;
+  }): Promise<void>;
+  destroy(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+  }): Promise<void>;
 }>;
 
 export type AgentComputeLadderInput = Readonly<{
@@ -152,7 +164,11 @@ export type AgentComputeLadderInput = Readonly<{
   attemptGeneration: number;
   /** Reserved at admission and never re-minted, so a sweep has one target. */
   sandboxId: string;
+  sessionId: string;
+  daemonDirectory: string;
   initialInstanceSize: "small" | "large";
+  selectInstanceSize(initial: "small" | "large"): Promise<"small" | "large">;
+  rememberInstanceSize(size: "small" | "large"): Promise<void>;
   store: AgentComputeStore;
   attachment: SandboxAttachment;
   context: TurnExecutionContext;
@@ -197,7 +213,7 @@ export type AgentComputeLadder = Readonly<{
    * would be silently useless.
    */
   attachForInteriorBuild(): Promise<void>;
-  /** Destroy whatever was reserved. A no-op for a record that never attached. */
+  /** Release the exact turn session. A no-op for a turn that never attached. */
   teardown(): Promise<void>;
   compute(): TurnComputeUse;
 }>;
@@ -226,6 +242,7 @@ export const createAgentComputeLadder = (
   let bootNoticePending: string | null = null;
   let interiorBuild = false;
   let admitted = false;
+  let released = false;
   let quiesceResult: Awaited<ReturnType<AgentComputeLadder["quiesce"]>> | null =
     null;
 
@@ -236,13 +253,18 @@ export const createAgentComputeLadder = (
 
   const boot = async (reason: AttachReason): Promise<void> => {
     input.context.assertActive();
-    // Durable before the instance exists. A sweep that arrives between this
-    // write and the boot returning still knows the id to destroy.
+    const instanceSize = await input.selectInstanceSize(record.instanceSize);
+    input.context.assertActive();
+    // Durable before the session exists. A sweep that arrives between this
+    // write and boot returning still knows the exact resources to release.
     await persist({
       ...record,
       schemaVersion: 1,
       phase: "attaching",
+      instanceSize,
       sandboxId: input.sandboxId,
+      sessionId: input.sessionId,
+      daemonDirectory: input.daemonDirectory,
       attachReason: reason,
     });
     input.context.assertActive();
@@ -250,11 +272,15 @@ export const createAgentComputeLadder = (
     const result = await input.attachment.boot({
       sandboxId: input.sandboxId,
       instanceSize: record.instanceSize,
+      sessionId: input.sessionId,
+      daemonDirectory: input.daemonDirectory,
     });
     await persist({
       ...record,
       phase: "attached",
       sandboxId: input.sandboxId,
+      sessionId: input.sessionId,
+      daemonDirectory: input.daemonDirectory,
       attachReason: reason,
       attachedAt: started,
       coldStartMs: result.coldStartMs,
@@ -349,7 +375,11 @@ export const createAgentComputeLadder = (
     error: SandboxOutOfMemoryError,
   ): Promise<void> => {
     await persist({ ...record, phase: "quiesced" });
-    await input.attachment.destroy(input.sandboxId);
+    await input.attachment.destroy({
+      sandboxId: input.sandboxId,
+      instanceSize: record.instanceSize,
+    });
+    await input.rememberInstanceSize("large");
     if (admitted) {
       await persist({ ...record, instanceSize: "large" });
       throw error;
@@ -437,14 +467,19 @@ export const createAgentComputeLadder = (
     },
 
     async teardown() {
-      // A turn that never reserved a container has nothing to destroy, and
-      // asking for one here would boot the very instance the sweep exists to
-      // avoid.
+      if (released) return;
+      // A turn that never attached has no session to release.
       if (record.phase === "resident") return;
       if (record.phase !== "quiesced") {
         await persist({ ...record, phase: "quiesced" });
       }
-      await input.attachment.destroy(input.sandboxId);
+      await input.attachment.release({
+        sandboxId: input.sandboxId,
+        instanceSize: record.instanceSize,
+        sessionId: input.sessionId,
+        daemonDirectory: input.daemonDirectory,
+      });
+      released = true;
     },
 
     compute() {

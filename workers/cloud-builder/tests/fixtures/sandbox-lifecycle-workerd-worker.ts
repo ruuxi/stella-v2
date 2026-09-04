@@ -18,7 +18,7 @@ type FixtureEnv = {
 const target = {
   sandboxId: "workerd-lifecycle-proof",
   size: "small" as const,
-  workload: "resident-attachment" as const,
+  workload: "world" as const,
 };
 
 type Snapshot = {
@@ -37,8 +37,6 @@ type AbaSnapshot = Snapshot & {
 
 export class SandboxSdkProof extends DurableObject<FixtureEnv> {
   async configure(): Promise<void> {}
-
-  async setKeepAlive(_enabled: boolean): Promise<void> {}
 
   async destroy(): Promise<void> {
     await this.ctx.storage.put("destroyed", true);
@@ -79,8 +77,8 @@ export class SandboxLifecycleProof extends DurableObject<FixtureEnv> {
       turnId: "turn-reused",
     };
     const [oldId, successorId] = await Promise.all([
-      sandboxLifecycleId("agent", { ...base, attemptGeneration: 1 }),
-      sandboxLifecycleId("agent", { ...base, attemptGeneration: 2 }),
+      sandboxLifecycleId("app", { ...base, attemptGeneration: 1 }),
+      sandboxLifecycleId("app", { ...base, attemptGeneration: 2 }),
     ]);
     const createdAt = Date.now();
     await this.ctx.storage.delete("completed");
@@ -88,7 +86,7 @@ export class SandboxLifecycleProof extends DurableObject<FixtureEnv> {
     await persistSandboxDestroyDebt(
       this.ctx.storage,
       createSandboxDestroyDebt(
-        { sandboxId: oldId, size: "small", workload: "agent" },
+        { sandboxId: oldId, size: "small", workload: "app-build" },
         createdAt,
       ),
     );
@@ -115,7 +113,7 @@ export class SandboxLifecycleProof extends DurableObject<FixtureEnv> {
           {
             transport: "rpc",
             enableDefaultSession: false,
-            keepAlive: true,
+            keepAlive: false,
             normalizeId: true,
             labels: {
               service: "sandbox-lifecycle-workerd-proof",
@@ -123,7 +121,6 @@ export class SandboxLifecycleProof extends DurableObject<FixtureEnv> {
             },
           },
         );
-        await sandbox.setKeepAlive(false);
         await sandbox.destroy();
         await clearSandboxDestroyDebt(this.ctx.storage, debt);
       }

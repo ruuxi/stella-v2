@@ -1,7 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createServer } from "node:net";
 import {
   createAttachedToolDispatcher,
   parseAttachedToolHostInput,
+  removeStaleAttachedToolSocket,
   serializeToolResult,
   type AttachedToolHostReport,
   type CallState,
@@ -24,6 +29,38 @@ const REPORT: AttachedToolHostReport = {
   bootNotices: [],
   deliveredFiles: [],
 };
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map(async (directory) => {
+      await rm(directory, { force: true, recursive: true });
+    }),
+  );
+});
+
+describe("attached tool daemon socket ownership", () => {
+  test("refuses to unlink a live daemon socket and removes it once stale", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "stella-daemon-"));
+    temporaryDirectories.push(directory);
+    const socketPath = path.join(directory, "tool-host.sock");
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+
+    await expect(removeStaleAttachedToolSocket(socketPath)).rejects.toThrow(
+      "already owns this socket",
+    );
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    await removeStaleAttachedToolSocket(socketPath);
+    await expect(Bun.file(socketPath).exists()).resolves.toBe(false);
+  });
+});
 
 const toolFrame = (overrides: Record<string, unknown> = {}) => ({
   version: ATTACHED_TOOL_PROTOCOL_VERSION,

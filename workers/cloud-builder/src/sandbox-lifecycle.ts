@@ -10,11 +10,7 @@
 
 import type { InstanceSize } from "./instance-size.js";
 
-export const SANDBOX_WORKLOADS = [
-  "app-build",
-  "agent",
-  "resident-attachment",
-] as const;
+export const SANDBOX_WORKLOADS = ["app-build", "world"] as const;
 
 export type SandboxWorkload = (typeof SANDBOX_WORKLOADS)[number];
 
@@ -31,19 +27,49 @@ export type SandboxLifecycleIdentity = Readonly<{
   attemptGeneration: number;
 }>;
 
+export type WorldSandboxLifecycleIdentity = Readonly<{
+  ownerId: string;
+  workspaceKey: string;
+}>;
+
 const bytesToHex = (bytes: Uint8Array): string =>
   [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /**
- * Stable for exact replay, distinct for every owner/turn attempt successor.
+ * Stable for an exact app attempt or for an owner's one world container.
  * Only a SHA-256 fingerprint enters the SDK-visible id; authority material
  * and user-controlled prefixes never do.
  */
 export const sandboxLifecycleId = async (
-  workloadPrefix: "app" | "agent" | "agent-lg" | "echo",
-  identity: SandboxLifecycleIdentity,
+  workloadPrefix: "app" | "echo" | "world",
+  identity: SandboxLifecycleIdentity | WorldSandboxLifecycleIdentity,
 ): Promise<string> => {
+  if (workloadPrefix === "world") {
+    if (
+      !("workspaceKey" in identity) ||
+      !identity.ownerId ||
+      !identity.workspaceKey
+    ) {
+      throw new TypeError("World sandbox lifecycle identity must be exact.");
+    }
+    const canonical = [
+      "stella-sandbox-lifecycle-v1",
+      "world",
+      identity.ownerId,
+      identity.workspaceKey,
+    ].join("\u0000");
+    const digest = bytesToHex(
+      new Uint8Array(
+        await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(canonical),
+        ),
+      ),
+    );
+    return `world-${digest.slice(0, 40)}`;
+  }
   if (
+    "workspaceKey" in identity ||
     !identity.ownerId ||
     !identity.ownerGeneration ||
     !identity.turnId ||
@@ -73,10 +99,7 @@ export const sandboxLifecycleId = async (
 
 export type SandboxLifecycleFailureFields = Readonly<{
   failureCode:
-    | "aborted"
-    | "deadline_exceeded"
-    | "out_of_memory"
-    | "sandbox_rpc_failed";
+    "aborted" | "deadline_exceeded" | "out_of_memory" | "sandbox_rpc_failed";
   /**
    * The error's class name only (letters and digits), never its message:
    * enough to tell an SDK transport error from a platform reset without

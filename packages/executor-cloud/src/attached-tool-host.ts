@@ -72,7 +72,7 @@ import {
   WORLD_ROOT,
   toolStateDir,
 } from "./workspace-paths.js";
-import { pushWorldProjection } from "./world-sync.js";
+import { pullWorldProjection, pushWorldProjection } from "./world-sync.js";
 
 export type AttachedToolHostInput = Readonly<{
   turnId: string;
@@ -124,7 +124,8 @@ export const parseAttachedToolHostInput = (
   const row = value as Record<string, unknown>;
   const broker = row.turnBroker as { credentialsPath?: unknown } | undefined;
   const world = row.world as
-    { origin?: unknown; name?: unknown; capability?: unknown } | undefined;
+    | { origin?: unknown; name?: unknown; capability?: unknown }
+    | undefined;
   if (
     !boundedText(row.turnId, 256) ||
     !Number.isSafeInteger(row.attemptGeneration) ||
@@ -198,6 +199,29 @@ export const serializeToolResult = (
   details: result.details ?? null,
   authorizedImages: serializeImages(result),
 });
+
+const appendSyncNotices = (
+  result: SerializedAgentToolResult,
+  notices: readonly string[],
+): SerializedAgentToolResult => {
+  if (notices.length === 0) return result;
+  const notice = notices
+    .map((message) => `World sync notice: ${message}`)
+    .join("\n");
+  return {
+    ...result,
+    outcome:
+      result.outcome.kind === "ok"
+        ? {
+            kind: "ok",
+            text: `${result.outcome.text}${result.outcome.text ? "\n\n" : ""}${notice}`,
+          }
+        : {
+            kind: "error",
+            message: `${result.outcome.message}\n\n${notice}`.slice(0, 8_000),
+          },
+  };
+};
 
 const readFrame = (socket: Socket, maxBytes: number): Promise<unknown> =>
   new Promise((resolve, reject) => {
@@ -447,6 +471,19 @@ export const runAttachedToolHost = (
         params: Record<string, unknown>,
       ): Promise<SerializedAgentToolResult> => {
         calls.set(key, { kind: "running" });
+        const syncAtBoundary =
+          toolName === "exec_command" || toolName === "write_stdin";
+        const syncNotices: string[] = [];
+        if (syncAtBoundary) {
+          await pullWorldProjection({
+            root: WORLD_ROOT,
+            access: input.world,
+          }).catch((error) => {
+            const message = asError(error).message;
+            console.error(`world pull failed: ${message}`);
+            syncNotices.push(`pull failed: ${message}`);
+          });
+        }
         let result: ToolResult;
         try {
           result = await toolHost.executeTool(toolName, params, {
@@ -454,12 +491,33 @@ export const runAttachedToolHost = (
             requestId: toolCallId,
           });
         } catch (error) {
+          if (syncAtBoundary) {
+            await pushWorldProjection({
+              root: WORLD_ROOT,
+              access: input.world,
+            }).catch((failure) =>
+              console.error(`world push failed: ${asError(failure).message}`),
+            );
+          }
           // The command may already have run. Recording the loss keeps a
           // replay from re-running it behind the caller's back.
           calls.set(key, { kind: "lost", error: asError(error).message });
           throw asError(error);
         }
-        const serialized = serializeToolResult(result);
+        if (syncAtBoundary) {
+          await pushWorldProjection({
+            root: WORLD_ROOT,
+            access: input.world,
+          }).catch((error) => {
+            const message = asError(error).message;
+            console.error(`world push failed: ${message}`);
+            syncNotices.push(`push failed: ${message}`);
+          });
+        }
+        const serialized = appendSyncNotices(
+          serializeToolResult(result),
+          syncNotices,
+        );
         calls.set(key, { kind: "done", result: serialized });
         return serialized;
       };

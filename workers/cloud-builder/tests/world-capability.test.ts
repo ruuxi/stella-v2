@@ -18,14 +18,39 @@ describe("world attach capability", () => {
       now: 1_000,
       ttlMs: 5_000,
     });
-    expect(worldCapabilityFromRequest(new Request("https://builder.test", {
-      headers: { authorization: `Bearer ${capability}` },
-    }))).toBe(capability);
-    expect(await verifyWorldCapability({ secret, capability, worldName: name, now: 5_999 })).toMatchObject({
+    expect(
+      worldCapabilityFromRequest(
+        new Request("https://builder.test", {
+          headers: { authorization: `Bearer ${capability}` },
+        }),
+      ),
+    ).toBe(capability);
+    expect(
+      await verifyWorldCapability({
+        secret,
+        capability,
+        worldName: name,
+        now: 5_999,
+      }),
+    ).toMatchObject({
       ok: true,
       claims: { w: name, t: "turn-1", g: 3, e: 6_000 },
     });
-    expect(await verifyWorldCapability({ secret, capability, worldName: `${"c".repeat(64)}:${"d".repeat(64)}`, now: 5_999 })).toEqual({ ok: false });
-    expect(await verifyWorldCapability({ secret, capability, worldName: name, now: 6_001 })).toEqual({ ok: false });
+    expect(
+      await verifyWorldCapability({
+        secret,
+        capability,
+        worldName: `${"c".repeat(64)}:${"d".repeat(64)}`,
+        now: 5_999,
+      }),
+    ).toEqual({ ok: false });
+    expect(
+      await verifyWorldCapability({
+        secret,
+        capability,
+        worldName: name,
+        now: 6_000,
+      }),
+    ).toEqual({ ok: false });
   });
 });

@@ -9,11 +9,13 @@ import { executeWorldTool, type WorldToolFileApi } from "./tools.js";
 import { IncrementalSha256 } from "./sha256.js";
 import {
   WORLD_CHUNK_BYTES,
+  WORLD_CHANGE_LOG_MAX_ROWS,
   WORLD_FILE_LIMIT_BYTES,
   WORLD_QUOTA_BYTES,
   WORLD_R2_THRESHOLD_BYTES,
   WORLD_READ_LIMIT_BYTES,
   type WorldEntry,
+  type WorldChanges,
   type WorldListingEntry,
   type WorldToolCall,
   type WorldToolResult,
@@ -36,6 +38,8 @@ type UploadPartRow = { ordinal: number; bytes: ArrayBuffer };
 type HeadRow = { value: string };
 type ManifestRow = { manifest_id: string; parent_manifest_id: string | null };
 type ContainerSize = "small" | "large";
+type ChangeKind = "upsert" | "delete";
+type ChangeRow = { revision: number; path: string; kind: ChangeKind };
 
 const encoder = new TextEncoder();
 
@@ -48,12 +52,14 @@ export const WORLD_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS world_manifests(manifest_id TEXT PRIMARY KEY, parent_manifest_id TEXT, history_cursor TEXT, created_at INTEGER NOT NULL, sealed INTEGER NOT NULL DEFAULT 0)",
   "CREATE TABLE IF NOT EXISTS world_tombstones(manifest_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(manifest_id, path))",
   "CREATE TABLE IF NOT EXISTS world_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS world_changes(revision INTEGER NOT NULL, path TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('upsert','delete')), PRIMARY KEY(revision, path))",
   "CREATE TABLE IF NOT EXISTS world_uploads(upload_id TEXT PRIMARY KEY, size INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS world_upload_parts(upload_id TEXT NOT NULL, ordinal INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(upload_id, ordinal))",
   "CREATE TABLE IF NOT EXISTS world_blob_pins(sha256 TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS world_dirents_manifest ON world_dirents(manifest_id)",
   "CREATE INDEX IF NOT EXISTS world_nodes_blob ON world_nodes(blob_sha256)",
   "CREATE INDEX IF NOT EXISTS world_blob_chunks_chunk ON world_blob_chunks(chunk_sha256)",
+  "CREATE INDEX IF NOT EXISTS world_changes_revision ON world_changes(revision)",
 ] as const;
 
 const byteView = (value: ArrayBuffer | Uint8Array): Uint8Array =>
@@ -133,6 +139,8 @@ const tarHeader = (entry: WorldEntry): Uint8Array => {
 };
 
 export class WorldSqlStore implements WorldToolFileApi {
+  private pendingChanges: Map<string, ChangeKind> | null = null;
+
   constructor(
     private readonly sql: SqlStorage,
     private readonly bucket: Pick<R2Bucket, "get" | "put" | "delete">,
@@ -155,6 +163,76 @@ export class WorldSqlStore implements WorldToolFileApi {
       "INSERT INTO world_meta(key, value) VALUES ('head', ?)",
       live,
     );
+    this.sql.exec(
+      "INSERT INTO world_meta(key, value) VALUES ('revision', '0'), ('change_floor', '0')",
+    );
+  }
+
+  private metaInteger(key: "revision" | "change_floor"): number {
+    const value = Number(
+      this.sql
+        .exec<HeadRow>("SELECT value FROM world_meta WHERE key = ?", key)
+        .one().value,
+    );
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`Invalid world ${key}.`);
+    }
+    return value;
+  }
+
+  private revision(): number {
+    return this.metaInteger("revision");
+  }
+
+  private noteChange(path: string, kind: ChangeKind): void {
+    if (!this.pendingChanges) {
+      throw new Error("World change was recorded outside a mutation.");
+    }
+    this.pendingChanges.set(path, kind);
+  }
+
+  /**
+   * One live-manifest operation owns one revision. Later operations win for
+   * the same path; there are deliberately no file locks or merge checks.
+   */
+  private async mutate<T>(operation: () => Promise<T> | T): Promise<{
+    value: T;
+    revision: number;
+  }> {
+    const outer = this.pendingChanges === null;
+    if (outer) this.pendingChanges = new Map();
+    try {
+      const value = await operation();
+      if (!outer) return { value, revision: this.revision() };
+      const changes = this.pendingChanges!;
+      if (changes.size === 0) return { value, revision: this.revision() };
+      const revision = this.revision() + 1;
+      this.sql.exec(
+        "UPDATE world_meta SET value = ? WHERE key = 'revision'",
+        String(revision),
+      );
+      for (const [path, kind] of changes) {
+        this.sql.exec(
+          "INSERT INTO world_changes(revision, path, kind) VALUES (?, ?, ?)",
+          revision,
+          path,
+          kind,
+        );
+      }
+      const count = this.sql
+        .exec<{ count: number }>("SELECT COUNT(*) AS count FROM world_changes")
+        .one().count;
+      if (count > WORLD_CHANGE_LOG_MAX_ROWS) {
+        this.sql.exec("DELETE FROM world_changes");
+        this.sql.exec(
+          "UPDATE world_meta SET value = ? WHERE key = 'change_floor'",
+          String(revision),
+        );
+      }
+      return { value, revision };
+    } finally {
+      if (outer) this.pendingChanges = null;
+    }
   }
 
   private liveManifest(): string {
@@ -431,6 +509,7 @@ export class WorldSqlStore implements WorldToolFileApi {
         parts.name,
         node.node_id,
       );
+      this.noteChange(current, "upsert");
     }
   }
 
@@ -467,6 +546,7 @@ export class WorldSqlStore implements WorldToolFileApi {
       manifest,
       path,
     );
+    this.noteChange(path, "upsert");
     return {
       path,
       kind: entry.kind,
@@ -482,132 +562,157 @@ export class WorldSqlStore implements WorldToolFileApi {
     input: string,
     bytes: Uint8Array,
     options: { mode?: number; mtime?: number } = {},
-  ): Promise<WorldEntry> {
-    const path = normalizeWorldPath(input);
-    if (bytes.byteLength > WORLD_READ_LIMIT_BYTES)
-      throw new Error(
-        "writeFile bytes exceed 8 MiB; use beginBlob/appendBlob/finishBlob.",
+  ): Promise<WorldEntry & { revision: number }> {
+    const mutation = await this.mutate(async () => {
+      const path = normalizeWorldPath(input);
+      if (bytes.byteLength > WORLD_READ_LIMIT_BYTES)
+        throw new Error(
+          "writeFile bytes exceed 8 MiB; use beginBlob/appendBlob/finishBlob.",
+        );
+      const manifest = this.liveManifest();
+      const prior = this.entryRow(path, manifest);
+      if (prior && prior.kind !== "file")
+        throw new Error(`Path is not a file: ${path}`);
+      const projectedSize = (await this.allEntries(""))
+        .filter((entry) => entry.kind === "file" && entry.path !== path)
+        .reduce((total, entry) => total + entry.size, bytes.byteLength);
+      if (projectedSize > WORLD_QUOTA_BYTES)
+        throw new Error("world_quota_exceeded");
+      const sha256 = await this.storeBlob(bytes);
+      return this.putNode(
+        {
+          path,
+          kind: "file",
+          mode: options.mode ?? prior?.mode ?? 0o644,
+          mtime: options.mtime ?? this.now(),
+          size: bytes.byteLength,
+          sha256,
+        },
+        manifest,
       );
-    const manifest = this.liveManifest();
-    const prior = this.entryRow(path, manifest);
-    if (prior && prior.kind !== "file")
-      throw new Error(`Path is not a file: ${path}`);
-    const projectedSize = (await this.allEntries(""))
-      .filter((entry) => entry.kind === "file" && entry.path !== path)
-      .reduce((total, entry) => total + entry.size, bytes.byteLength);
-    if (projectedSize > WORLD_QUOTA_BYTES)
-      throw new Error("world_quota_exceeded");
-    const sha256 = await this.storeBlob(bytes);
-    return this.putNode(
-      {
-        path,
-        kind: "file",
-        mode: options.mode ?? prior?.mode ?? 0o644,
-        mtime: options.mtime ?? this.now(),
-        size: bytes.byteLength,
-        sha256,
-      },
-      manifest,
-    );
+    });
+    return { ...mutation.value, revision: mutation.revision };
   }
 
-  async mkdir(input: string, options: { mode?: number } = {}): Promise<void> {
-    const path = normalizeWorldPath(input);
-    const existing = this.entryRow(path);
-    if (existing) {
-      if (existing.kind !== "dir")
-        throw new Error(`Path already exists and is not a directory: ${path}`);
-      return;
-    }
-    this.putNode({
-      path,
-      kind: "dir",
-      mode: options.mode ?? 0o755,
-      mtime: this.now(),
-      size: 0,
+  async mkdir(
+    input: string,
+    options: { mode?: number } = {},
+  ): Promise<{ revision: number }> {
+    const mutation = await this.mutate(async () => {
+      const path = normalizeWorldPath(input);
+      const existing = this.entryRow(path);
+      if (existing) {
+        if (existing.kind !== "dir")
+          throw new Error(
+            `Path already exists and is not a directory: ${path}`,
+          );
+        return;
+      }
+      this.putNode({
+        path,
+        kind: "dir",
+        mode: options.mode ?? 0o755,
+        mtime: this.now(),
+        size: 0,
+      });
     });
+    return { revision: mutation.revision };
   }
 
   async remove(
     input: string,
     options: { recursive?: boolean } = {},
-  ): Promise<void> {
-    const path = normalizeWorldPath(input);
-    const manifest = this.liveManifest();
-    const parentManifest = this.sql
-      .exec<ManifestRow>(
-        "SELECT manifest_id, parent_manifest_id FROM world_manifests WHERE manifest_id = ?",
-        manifest,
-      )
-      .one().parent_manifest_id;
-    const entries = await this.allEntries(path);
-    if (entries.length === 0) throw new Error(`Path not found: ${path}`);
-    if (!options.recursive && entries.some((entry) => entry.path !== path))
-      throw new Error(`Directory is not empty: ${path}`);
-    for (const entry of entries.sort(
-      (left, right) => right.path.length - left.path.length,
-    )) {
-      const parts = direntParts(entry.path);
-      this.sql.exec(
-        "DELETE FROM world_dirents WHERE manifest_id = ? AND parent_path = ? AND name = ?",
-        manifest,
-        parts.parent,
-        parts.name,
-      );
-      if (parentManifest && this.entryRow(entry.path, parentManifest)) {
-        this.sql.exec(
-          "INSERT OR IGNORE INTO world_tombstones(manifest_id, path) VALUES (?, ?)",
+  ): Promise<{ revision: number }> {
+    const mutation = await this.mutate(async () => {
+      const path = normalizeWorldPath(input);
+      const manifest = this.liveManifest();
+      const parentManifest = this.sql
+        .exec<ManifestRow>(
+          "SELECT manifest_id, parent_manifest_id FROM world_manifests WHERE manifest_id = ?",
           manifest,
-          entry.path,
-        );
-      } else {
+        )
+        .one().parent_manifest_id;
+      const entries = await this.allEntries(path);
+      if (entries.length === 0) throw new Error(`Path not found: ${path}`);
+      if (!options.recursive && entries.some((entry) => entry.path !== path))
+        throw new Error(`Directory is not empty: ${path}`);
+      for (const entry of entries.sort(
+        (left, right) => right.path.length - left.path.length,
+      )) {
+        const parts = direntParts(entry.path);
         this.sql.exec(
-          "DELETE FROM world_tombstones WHERE manifest_id = ? AND path = ?",
+          "DELETE FROM world_dirents WHERE manifest_id = ? AND parent_path = ? AND name = ?",
           manifest,
-          entry.path,
+          parts.parent,
+          parts.name,
         );
+        if (parentManifest && this.entryRow(entry.path, parentManifest)) {
+          this.sql.exec(
+            "INSERT OR IGNORE INTO world_tombstones(manifest_id, path) VALUES (?, ?)",
+            manifest,
+            entry.path,
+          );
+        } else {
+          this.sql.exec(
+            "DELETE FROM world_tombstones WHERE manifest_id = ? AND path = ?",
+            manifest,
+            entry.path,
+          );
+        }
+        this.noteChange(entry.path, "delete");
       }
-    }
-  }
-
-  async rename(fromInput: string, toInput: string): Promise<void> {
-    const from = normalizeWorldPath(fromInput);
-    const to = normalizeWorldPath(toInput);
-    if (pathWithin(to, from))
-      throw new Error("Cannot rename a path into itself.");
-    const entries = await this.allEntries(from);
-    if (entries.length === 0) throw new Error(`Path not found: ${from}`);
-    if (await this.stat(to)) throw new Error(`Path already exists: ${to}`);
-    const manifest = this.liveManifest();
-    this.ensureParents(to, manifest);
-    for (const entry of entries) {
-      const suffix = entry.path.slice(from.length);
-      const nextPath = `${to}${suffix}`;
-      const row = this.entryRow(entry.path, manifest);
-      if (!row) continue;
-      const parts = direntParts(nextPath);
-      this.sql.exec(
-        "INSERT INTO world_dirents(manifest_id, parent_path, name, node_id) VALUES (?, ?, ?, ?)",
-        manifest,
-        parts.parent,
-        parts.name,
-        row.node_id,
-      );
-    }
-    await this.remove(from, { recursive: true });
-  }
-
-  async symlink(input: string, target: string): Promise<void> {
-    const path = normalizeWorldPath(input);
-    if (this.entryRow(path)) throw new Error(`Path already exists: ${path}`);
-    this.putNode({
-      path,
-      kind: "symlink",
-      mode: 0o777,
-      mtime: this.now(),
-      size: encoder.encode(target).byteLength,
-      target,
     });
+    return { revision: mutation.revision };
+  }
+
+  async rename(
+    fromInput: string,
+    toInput: string,
+  ): Promise<{ revision: number }> {
+    const mutation = await this.mutate(async () => {
+      const from = normalizeWorldPath(fromInput);
+      const to = normalizeWorldPath(toInput);
+      if (pathWithin(to, from))
+        throw new Error("Cannot rename a path into itself.");
+      const entries = await this.allEntries(from);
+      if (entries.length === 0) throw new Error(`Path not found: ${from}`);
+      if (await this.stat(to)) throw new Error(`Path already exists: ${to}`);
+      const manifest = this.liveManifest();
+      this.ensureParents(to, manifest);
+      for (const entry of entries) {
+        const suffix = entry.path.slice(from.length);
+        const nextPath = `${to}${suffix}`;
+        const row = this.entryRow(entry.path, manifest);
+        if (!row) continue;
+        const parts = direntParts(nextPath);
+        this.sql.exec(
+          "INSERT INTO world_dirents(manifest_id, parent_path, name, node_id) VALUES (?, ?, ?, ?)",
+          manifest,
+          parts.parent,
+          parts.name,
+          row.node_id,
+        );
+        this.noteChange(nextPath, "upsert");
+      }
+      await this.remove(from, { recursive: true });
+    });
+    return { revision: mutation.revision };
+  }
+
+  async symlink(input: string, target: string): Promise<{ revision: number }> {
+    const mutation = await this.mutate(async () => {
+      const path = normalizeWorldPath(input);
+      if (this.entryRow(path)) throw new Error(`Path already exists: ${path}`);
+      this.putNode({
+        path,
+        kind: "symlink",
+        mode: 0o777,
+        mtime: this.now(),
+        size: encoder.encode(target).byteLength,
+        target,
+      });
+    });
+    return { revision: mutation.revision };
   }
 
   async beginBlob(): Promise<{ uploadId: string }> {
@@ -662,7 +767,7 @@ export class WorldSqlStore implements WorldToolFileApi {
   async finishBlob(
     uploadId: string,
     options: { path?: string; sha256?: string; mode?: number; mtime?: number },
-  ): Promise<WorldEntry> {
+  ): Promise<WorldEntry & { revision: number }> {
     const upload = this.sql
       .exec<{
         size: number;
@@ -772,20 +877,25 @@ export class WorldSqlStore implements WorldToolFileApi {
         mtime: options.mtime ?? this.now(),
         size: upload.size,
         sha256,
+        revision: this.revision(),
       };
     }
-    return this.putNode({
-      path,
-      kind: "file",
-      mode: options.mode ?? prior?.mode ?? 0o644,
-      mtime: options.mtime ?? this.now(),
-      size: upload.size,
-      sha256,
-    });
+    const mutation = await this.mutate(() =>
+      this.putNode({
+        path,
+        kind: "file",
+        mode: options.mode ?? prior?.mode ?? 0o644,
+        mtime: options.mtime ?? this.now(),
+        size: upload.size,
+        sha256,
+      }),
+    );
+    return { ...mutation.value, revision: mutation.revision };
   }
 
   async tool(call: WorldToolCall): Promise<WorldToolResult> {
-    return executeWorldTool(this, call);
+    const result = await executeWorldTool(this, call);
+    return { ...result, revision: this.revision() };
   }
 
   private manifestEntries(
@@ -939,6 +1049,7 @@ export class WorldSqlStore implements WorldToolFileApi {
         !existing ||
         existing.kind !== entry.kind ||
         existing.mode !== entry.mode ||
+        existing.mtime !== (entry.mtime ?? existing.mtime) ||
         existing.size !== entry.size ||
         existing.sha256 !== entry.sha256 ||
         existing.target !== entry.target
@@ -952,7 +1063,7 @@ export class WorldSqlStore implements WorldToolFileApi {
   async pushDiff(input: {
     entries: WorldListingEntry[];
     deleted: string[];
-  }): Promise<{ missingBlobs: string[] }> {
+  }): Promise<{ missingBlobs: string[]; revision: number }> {
     const missing = new Set<string>();
     for (const entry of input.entries) {
       normalizeWorldPath(entry.path);
@@ -972,6 +1083,9 @@ export class WorldSqlStore implements WorldToolFileApi {
       else if (blob.size !== entry.size)
         throw new Error(`Blob size mismatch for ${entry.path}.`);
     }
+    if (missing.size > 0) {
+      return { missingBlobs: [...missing].sort(), revision: this.revision() };
+    }
     const projected = new Map(
       (await this.allEntries("")).map((entry) => [entry.path, entry]),
     );
@@ -981,43 +1095,125 @@ export class WorldSqlStore implements WorldToolFileApi {
         if (pathWithin(candidate, path)) projected.delete(candidate);
     }
     for (const entry of input.entries) {
-      if (
-        entry.kind !== "file" ||
-        !entry.sha256 ||
-        !missing.has(entry.sha256)
-      ) {
-        projected.set(entry.path, {
-          ...entry,
-          mtime: entry.mtime ?? this.now(),
-        });
-      }
+      projected.set(entry.path, {
+        ...entry,
+        mtime: entry.mtime ?? this.now(),
+      });
     }
     const projectedSize = [...projected.values()]
       .filter((entry) => entry.kind === "file")
       .reduce((total, entry) => total + entry.size, 0);
     if (projectedSize > WORLD_QUOTA_BYTES)
       throw new Error("world_quota_exceeded");
-    for (const path of input.deleted.sort(
-      (left, right) => right.length - left.length,
-    ))
-      if (await this.stat(path)) await this.remove(path, { recursive: true });
-    for (const entry of [...input.entries].sort(
-      (left, right) => left.path.length - right.path.length,
-    )) {
-      if (entry.kind === "file" && entry.sha256 && missing.has(entry.sha256))
-        continue;
-      this.putNode(entry);
-      if (entry.kind === "file" && entry.sha256) {
-        this.sql.exec(
-          "DELETE FROM world_blob_pins WHERE sha256 = ?",
-          entry.sha256,
-        );
+    const mutation = await this.mutate(async () => {
+      for (const path of input.deleted.sort(
+        (left, right) => right.length - left.length,
+      )) {
+        if (await this.stat(path)) await this.remove(path, { recursive: true });
       }
-    }
-    return { missingBlobs: [...missing].sort() };
+      for (const entry of [...input.entries].sort(
+        (left, right) => left.path.length - right.path.length,
+      )) {
+        this.putNode(entry);
+        if (entry.kind === "file" && entry.sha256) {
+          this.sql.exec(
+            "DELETE FROM world_blob_pins WHERE sha256 = ?",
+            entry.sha256,
+          );
+        }
+      }
+    });
+    return { missingBlobs: [], revision: mutation.revision };
   }
 
-  exportTar(manifestId = this.liveManifest()): ReadableStream<Uint8Array> {
+  async changesSince(revision: number): Promise<WorldChanges> {
+    if (!Number.isSafeInteger(revision) || revision < 0) {
+      throw new Error("World revision must be a non-negative integer.");
+    }
+    const current = this.revision();
+    const floor = this.metaInteger("change_floor");
+    if (revision < floor) {
+      return {
+        revision: current,
+        entries: [],
+        deleted: [],
+        resync: true,
+      };
+    }
+    if (revision >= current) {
+      return {
+        revision: current,
+        entries: [],
+        deleted: [],
+        resync: false,
+      };
+    }
+    const next = this.sql
+      .exec<{
+        revision: number;
+      }>("SELECT MIN(revision) AS revision FROM world_changes WHERE revision > ?", revision)
+      .toArray()[0]?.revision;
+    if (!Number.isSafeInteger(next)) {
+      return {
+        revision: current,
+        entries: [],
+        deleted: [],
+        resync: false,
+      };
+    }
+    const rows = this.sql
+      .exec<ChangeRow>(
+        "SELECT revision, path, kind FROM world_changes WHERE revision = ? ORDER BY path",
+        next,
+      )
+      .toArray();
+    const entries: WorldEntry[] = [];
+    const deleted: string[] = [];
+    for (const row of rows) {
+      if (row.kind === "delete") {
+        deleted.push(row.path);
+        continue;
+      }
+      const entry = this.entryRow(row.path);
+      if (entry) entries.push(rowEntry(entry));
+      else deleted.push(row.path);
+    }
+    return {
+      revision: next!,
+      entries,
+      deleted,
+      resync: false,
+    };
+  }
+
+  exportBlob(
+    sha256: string,
+  ): { size: number; body: ReadableStream<Uint8Array> } | null {
+    if (!/^[0-9a-f]{64}$/u.test(sha256)) return null;
+    const blob = this.blobRow(sha256);
+    if (!blob) return null;
+    const store = this;
+    let offset = 0;
+    return {
+      size: blob.size,
+      body: new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (offset >= blob.size) {
+            controller.close();
+            return;
+          }
+          const length = Math.min(WORLD_READ_LIMIT_BYTES, blob.size - offset);
+          controller.enqueue(await store.blobBytes(sha256, offset, length));
+          offset += length;
+        },
+      }),
+    };
+  }
+
+  exportTar(manifestId = this.liveManifest()): {
+    revision: number;
+    body: ReadableStream<Uint8Array>;
+  } {
     const store = this;
     async function* generate(): AsyncGenerator<Uint8Array> {
       let cursor = "";
@@ -1047,13 +1243,16 @@ export class WorldSqlStore implements WorldToolFileApi {
       yield new Uint8Array(1024);
     }
     const iterator = generate();
-    return new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        const next = await iterator.next();
-        if (next.done) controller.close();
-        else controller.enqueue(next.value);
-      },
-    });
+    return {
+      revision: this.revision(),
+      body: new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          const next = await iterator.next();
+          if (next.done) controller.close();
+          else controller.enqueue(next.value);
+        },
+      }),
+    };
   }
 
   async collectGarbage(limit: number): Promise<boolean> {

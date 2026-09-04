@@ -862,7 +862,7 @@ export const worker = {
     }
 
     const worldRoute =
-      /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|push)$/u.exec(
+      /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|changes|push)$/u.exec(
         url.pathname,
       );
     if (worldRoute) {
@@ -870,8 +870,22 @@ export const worker = {
         request,
         env,
         worldRoute[1]!,
-        worldRoute[2] === "export" ? "export" : "push",
+        worldRoute[2] === "export"
+          ? { kind: "export" }
+          : worldRoute[2] === "changes"
+            ? { kind: "changes" }
+            : { kind: "push" },
       );
+    }
+    const worldBlobRoute =
+      /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/blob\/([0-9a-f]{64})$/u.exec(
+        url.pathname,
+      );
+    if (worldBlobRoute) {
+      return await handleWorldRoute(request, env, worldBlobRoute[1]!, {
+        kind: "blob",
+        sha256: worldBlobRoute[2]!,
+      });
     }
 
     const vitePreviewMatch = url.pathname.match(

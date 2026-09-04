@@ -1510,7 +1510,11 @@ export const handleWorldRoute = async (
   request: Request,
   env: Env,
   world: string,
-  action: "export" | "push",
+  action:
+    | { kind: "export" }
+    | { kind: "changes" }
+    | { kind: "blob"; sha256: string }
+    | { kind: "push" },
 ): Promise<Response> => {
   const authorization = await verifyWorldCapability({
     secret: env.BUILDER_SERVICE_SECRET,
@@ -1521,18 +1525,43 @@ export const handleWorldRoute = async (
   if (!authorization.ok)
     return json({ error: "World capability was rejected." }, 403);
   const stub = env.WORLDS.getByName(world);
-  if (action === "export") {
+  if (action.kind === "changes") {
     if (request.method !== "GET")
       return json({ error: "Method not allowed." }, 405);
-    const manifestId = new URL(request.url).searchParams.get("manifest");
-    if (!manifestId || !(await stub.manifest(manifestId, { limit: 1 }))) {
+    const since = Number(new URL(request.url).searchParams.get("since"));
+    if (!Number.isSafeInteger(since) || since < 0) {
+      return json({ error: "Malformed world revision." }, 400);
+    }
+    return json(await stub.changesSince(since));
+  }
+  if (action.kind === "blob") {
+    if (request.method !== "GET")
+      return json({ error: "Method not allowed." }, 405);
+    const blob = await stub.exportBlob(action.sha256);
+    if (!blob) return json({ error: "World blob was not found." }, 404);
+    return new Response(blob.body, {
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-length": String(blob.size),
+        "cache-control": "private, no-store",
+      },
+    });
+  }
+  if (action.kind === "export") {
+    if (request.method !== "GET")
+      return json({ error: "Method not allowed." }, 405);
+    const requested = new URL(request.url).searchParams.get("manifest");
+    const manifestId = requested ?? (await stub.head()).manifestId;
+    if (!(await stub.manifest(manifestId, { limit: 1 }))) {
       return json({ error: "World manifest was not found." }, 404);
     }
-    return new Response(await stub.exportTar(manifestId), {
+    const exported = await stub.exportTar(manifestId);
+    return new Response(exported.body, {
       headers: {
         "content-type": "application/x-tar",
         "cache-control": "private, no-store",
         "x-stella-world-manifest": manifestId,
+        "x-stella-world-revision": String(exported.revision),
       },
     });
   }

@@ -8,7 +8,7 @@ export class WorldStore extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.world = new WorldSqlStore(ctx.storage.sql, env.WORLDS_BUCKET);
-    ctx.blockConcurrencyWhile(async () => this.world.initialize());
+    void ctx.blockConcurrencyWhile(async () => this.world.initialize());
   }
 
   stat(path: string) {
@@ -113,6 +113,14 @@ export class WorldStore extends DurableObject<Env> {
 
   pushDiff(input: { entries: WorldListingEntry[]; deleted: string[] }) {
     return this.ctx.blockConcurrencyWhile(() => this.world.pushDiff(input));
+  }
+
+  changesSince(revision: number) {
+    return this.world.changesSince(revision);
+  }
+
+  exportBlob(sha256: string) {
+    return this.world.exportBlob(sha256);
   }
 
   exportTar(manifestId?: string) {

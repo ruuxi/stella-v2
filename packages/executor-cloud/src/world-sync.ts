@@ -1,7 +1,24 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { lstat, readdir, readlink } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { constants as fsConstants, createReadStream } from "node:fs";
+import {
+  chmod,
+  chown,
+  lchown,
+  lstat,
+  lutimes,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 export type WorldSyncAccess = Readonly<{
   origin: string;
@@ -9,7 +26,12 @@ export type WorldSyncAccess = Readonly<{
   capability: string;
 }>;
 
-type WorldListingEntry = {
+export type WorldMarker = Readonly<{
+  manifestId: string;
+  revision: number;
+}>;
+
+export type WorldListingEntry = {
   path: string;
   kind: "file" | "dir" | "symlink";
   mode: number;
@@ -19,73 +41,622 @@ type WorldListingEntry = {
   target?: string;
 };
 
+type WorldIndexEntry = {
+  size: number;
+  mtime: number;
+  sha256?: string;
+};
+
+type WorldIndex = Record<string, WorldIndexEntry>;
+
+type WorldChanges = {
+  revision: number;
+  entries: WorldListingEntry[];
+  deleted: string[];
+  resync: boolean;
+};
+
+const WORLD_PATH_LIMIT_BYTES = 1_024;
+const WORLD_FILE_LIMIT_BYTES = 256 * 1024 * 1024;
+const WORLD_ENTRY_LIMIT = 200_000;
+const WORLD_UID = 42_424;
+const WORLD_GID = 42_424;
+
+const asError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
+const statePaths = (root: string) => ({
+  marker: path.join(root, ".stella", "world-manifest"),
+  index: path.join(path.dirname(root), ".stella-world-index.json"),
+  lock: path.join(path.dirname(root), ".world-materialize.lock"),
+  staging: path.join(path.dirname(root), ".stella-world-staging"),
+});
+
+const isErrno = (error: unknown, code: string): boolean =>
+  error instanceof Error && "code" in error && error.code === code;
+
+const validateRelativePath = (value: string): string => {
+  if (
+    !value ||
+    Buffer.byteLength(value, "utf8") > WORLD_PATH_LIMIT_BYTES ||
+    value.startsWith("/") ||
+    value.includes("\\") ||
+    value.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error(`Invalid world path: ${value}`);
+  }
+  return value;
+};
+
+const absoluteWorldPath = (root: string, relative: string): string => {
+  const normalized = validateRelativePath(relative);
+  const absolute = path.resolve(root, normalized);
+  const boundary = `${path.resolve(root)}${path.sep}`;
+  if (!absolute.startsWith(boundary)) {
+    throw new Error(`World path escapes its root: ${relative}`);
+  }
+  return absolute;
+};
+
+const shouldSkip = (relative: string, kind: "file" | "dir" | "symlink") =>
+  relative === ".stella/world-manifest" ||
+  (kind === "dir" &&
+    (relative === "node_modules" ||
+      relative.endsWith("/node_modules") ||
+      relative === ".git/objects" ||
+      relative.endsWith("/.git/objects")));
+
 const fileSha256 = async (filePath: string): Promise<string> => {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(filePath)) hash.update(chunk);
   return hash.digest("hex");
 };
 
+const readIndex = async (indexPath: string): Promise<WorldIndex> => {
+  try {
+    const value = JSON.parse(await readFile(indexPath, "utf8")) as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const index: WorldIndex = {};
+    for (const [entryPath, raw] of Object.entries(value)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+      const row = raw as Record<string, unknown>;
+      if (
+        !Number.isSafeInteger(row.size) ||
+        Number(row.size) < 0 ||
+        !Number.isSafeInteger(row.mtime) ||
+        (row.sha256 !== undefined &&
+          (typeof row.sha256 !== "string" ||
+            !/^[0-9a-f]{64}$/u.test(row.sha256)))
+      ) {
+        return {};
+      }
+      index[validateRelativePath(entryPath)] = {
+        size: Number(row.size),
+        mtime: Number(row.mtime),
+        ...(typeof row.sha256 === "string" ? { sha256: row.sha256 } : {}),
+      };
+    }
+    return index;
+  } catch {
+    return {};
+  }
+};
+
+const writeJsonAtomic = async (
+  filePath: string,
+  value: unknown,
+): Promise<void> => {
+  await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const temporary = `${filePath}.${randomUUID()}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+  await rename(temporary, filePath);
+};
+
+export const readWorldMarker = async (root: string): Promise<WorldMarker> => {
+  const value = JSON.parse(
+    await readFile(statePaths(root).marker, "utf8"),
+  ) as unknown;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("World marker is invalid.");
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.manifestId !== "string" ||
+    !row.manifestId ||
+    !Number.isSafeInteger(row.revision) ||
+    Number(row.revision) < 0
+  ) {
+    throw new Error("World marker is invalid.");
+  }
+  return { manifestId: row.manifestId, revision: Number(row.revision) };
+};
+
+const writeWorldMarker = async (
+  root: string,
+  marker: WorldMarker,
+): Promise<void> => {
+  const markerPath = statePaths(root).marker;
+  await ensureDirectoryPath(root, ".stella");
+  const stateDirectory = path.dirname(markerPath);
+  const directoryTimes = await lstat(stateDirectory);
+  await writeJsonAtomic(markerPath, marker);
+  await chmod(markerPath, 0o600);
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    await chown(markerPath, 0, 0);
+  }
+  await utimes(
+    stateDirectory,
+    directoryTimes.atimeMs / 1_000,
+    directoryTimes.mtimeMs / 1_000,
+  );
+};
+
+/** Hold the same container-wide flock used by cold materialization. */
+export const withWorldSyncLock = async <T>(
+  root: string,
+  operation: () => Promise<T>,
+): Promise<T> => {
+  const lockPath = statePaths(root).lock;
+  await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  const lock = spawn(
+    "/bin/bash",
+    [
+      "-c",
+      '( set -eu; exec 9>"$1"; /usr/bin/flock --exclusive 9; printf R; cat >/dev/null )',
+      "world-sync-lock",
+      lockPath,
+    ],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+  await new Promise<void>((resolve, reject) => {
+    lock.once("error", (error) => reject(error));
+    lock.once("exit", (code) => {
+      if (code !== null)
+        reject(new Error(`World lock exited with code ${code}.`));
+    });
+    lock.stdout.once("data", (chunk: Buffer) => {
+      if (chunk.includes(0x52)) resolve();
+      else reject(new Error("World lock did not report readiness."));
+    });
+  });
+  try {
+    return await operation();
+  } finally {
+    lock.stdin.end();
+    if (lock.exitCode === null) {
+      await new Promise<void>((resolve) => lock.once("exit", () => resolve()));
+    }
+  }
+};
+
 export const listWorldProjection = async (
   root: string,
-): Promise<WorldListingEntry[]> => {
+  previous: WorldIndex = {},
+  hashFile: (filePath: string) => Promise<string> = fileSha256,
+): Promise<{ entries: WorldListingEntry[]; index: WorldIndex }> => {
   const entries: WorldListingEntry[] = [];
+  const index: WorldIndex = {};
   const walk = async (relative: string): Promise<void> => {
-    const absolute = relative ? path.join(root, relative) : root;
+    const absolute = relative ? absoluteWorldPath(root, relative) : root;
     const names = (await readdir(absolute)).sort((left, right) =>
       left.localeCompare(right),
     );
     for (const name of names) {
       const child = relative ? `${relative}/${name}` : name;
-      if (child === ".stella/world-manifest") continue;
-      const childPath = path.join(root, child);
+      if (Buffer.byteLength(child, "utf8") > WORLD_PATH_LIMIT_BYTES) continue;
+      const childPath = absoluteWorldPath(root, child);
       const stat = await lstat(childPath);
+      const kind = stat.isSymbolicLink()
+        ? "symlink"
+        : stat.isDirectory()
+          ? "dir"
+          : stat.isFile()
+            ? "file"
+            : null;
+      if (!kind || shouldSkip(child, kind)) continue;
       const common = {
         path: child,
         mode: stat.mode & 0o7777,
         mtime: Math.trunc(stat.mtimeMs),
-        size: stat.size,
+        size: kind === "dir" ? 0 : stat.size,
       };
-      if (stat.isSymbolicLink()) {
-        entries.push({
-          ...common,
-          kind: "symlink",
-          target: await readlink(childPath),
-        });
-      } else if (stat.isDirectory()) {
-        entries.push({ ...common, kind: "dir", size: 0 });
+      if (kind === "symlink") {
+        entries.push({ ...common, kind, target: await readlink(childPath) });
+        index[child] = { size: common.size, mtime: common.mtime };
+      } else if (kind === "dir") {
+        entries.push({ ...common, kind });
+        index[child] = { size: 0, mtime: common.mtime };
         await walk(child);
-      } else if (stat.isFile()) {
-        entries.push({
-          ...common,
-          kind: "file",
-          sha256: await fileSha256(childPath),
-        });
+      } else {
+        if (stat.size > WORLD_FILE_LIMIT_BYTES) {
+          throw new Error(`World file exceeds 256 MiB: ${child}`);
+        }
+        const prior = previous[child];
+        const sha256 =
+          prior?.sha256 &&
+          prior.size === common.size &&
+          prior.mtime === common.mtime
+            ? prior.sha256
+            : await hashFile(childPath);
+        entries.push({ ...common, kind, sha256 });
+        index[child] = { size: common.size, mtime: common.mtime, sha256 };
+      }
+      if (entries.length > WORLD_ENTRY_LIMIT) {
+        throw new Error("World projection exceeds 200000 entries.");
       }
     }
   };
   await walk("");
-  return entries;
+  return { entries, index };
 };
 
-const syncUrl = (access: WorldSyncAccess): string =>
-  `${access.origin.replace(/\/+$/u, "")}/internal/worlds/${access.name}/push`;
+const routeUrl = (access: WorldSyncAccess, route: string): string =>
+  `${access.origin.replace(/\/+$/u, "")}/internal/worlds/${access.name}/${route}`;
 
 const headers = (access: WorldSyncAccess): Headers =>
   new Headers({ authorization: `Bearer ${access.capability}` });
 
+const parseRevision = (value: unknown): number => {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error("World response revision is invalid.");
+  }
+  return Number(value);
+};
+
+const parseEntry = (value: unknown): WorldListingEntry => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("World change entry is invalid.");
+  }
+  const row = value as Record<string, unknown>;
+  const entryPath =
+    typeof row.path === "string" ? validateRelativePath(row.path) : "";
+  if (
+    !entryPath ||
+    (row.kind !== "file" && row.kind !== "dir" && row.kind !== "symlink") ||
+    !Number.isSafeInteger(row.mode) ||
+    !Number.isSafeInteger(row.mtime) ||
+    !Number.isSafeInteger(row.size) ||
+    Number(row.size) < 0 ||
+    (row.kind === "file" &&
+      (typeof row.sha256 !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(row.sha256))) ||
+    (row.kind === "symlink" && typeof row.target !== "string")
+  ) {
+    throw new Error("World change entry is invalid.");
+  }
+  return {
+    path: entryPath,
+    kind: row.kind,
+    mode: Number(row.mode),
+    mtime: Number(row.mtime),
+    size: Number(row.size),
+    ...(typeof row.sha256 === "string" ? { sha256: row.sha256 } : {}),
+    ...(typeof row.target === "string" ? { target: row.target } : {}),
+  };
+};
+
+const getChanges = async (
+  access: WorldSyncAccess,
+  since: number,
+): Promise<WorldChanges> => {
+  const response = await fetch(routeUrl(access, `changes?since=${since}`), {
+    headers: headers(access),
+  });
+  const value = (await response.json().catch(() => null)) as unknown;
+  if (
+    !response.ok ||
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new Error(`World pull failed with HTTP ${response.status}.`);
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    !Array.isArray(row.entries) ||
+    !Array.isArray(row.deleted) ||
+    typeof row.resync !== "boolean"
+  ) {
+    throw new Error("World changes response is invalid.");
+  }
+  const entries = row.entries.map(parseEntry);
+  const deleted = row.deleted.map((entry) => {
+    if (typeof entry !== "string")
+      throw new Error("World deletion is invalid.");
+    return validateRelativePath(entry);
+  });
+  return {
+    revision: parseRevision(row.revision),
+    entries,
+    deleted,
+    resync: row.resync,
+  };
+};
+
+const ensureDirectoryPath = async (
+  root: string,
+  relative: string,
+): Promise<void> => {
+  const rootStat = await lstat(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("World root is not a real directory.");
+  }
+  let current = root;
+  for (const segment of validateRelativePath(relative).split("/")) {
+    current = path.join(current, segment);
+    try {
+      const stat = await lstat(current);
+      if (stat.isDirectory()) continue;
+      await rm(current, { recursive: true, force: true });
+    } catch (error) {
+      if (!isErrno(error, "ENOENT")) throw error;
+    }
+    await mkdir(current, { mode: 0o755 });
+  }
+};
+
+const ensureParentDirectories = async (root: string, relative: string) => {
+  const parent = path.posix.dirname(relative);
+  if (parent !== ".") await ensureDirectoryPath(root, parent);
+};
+
+const setEntryOwnership = async (
+  absolute: string,
+  symlinkEntry: boolean,
+): Promise<void> => {
+  if (typeof process.getuid !== "function" || process.getuid() !== 0) return;
+  if (symlinkEntry) await lchown(absolute, WORLD_UID, WORLD_GID);
+  else await chown(absolute, WORLD_UID, WORLD_GID);
+};
+
+const setTreeOwnership = async (root: string): Promise<void> => {
+  if (typeof process.getuid !== "function" || process.getuid() !== 0) return;
+  const walk = async (absolute: string): Promise<void> => {
+    const stat = await lstat(absolute);
+    if (stat.isSymbolicLink()) {
+      await lchown(absolute, WORLD_UID, WORLD_GID);
+      return;
+    }
+    await chown(absolute, WORLD_UID, WORLD_GID);
+    if (!stat.isDirectory()) return;
+    for (const name of await readdir(absolute)) {
+      await walk(path.join(absolute, name));
+    }
+  };
+  await walk(root);
+};
+
+const writeResponseToFile = async (
+  response: Response,
+  filePath: string,
+  expected: WorldListingEntry & { kind: "file"; sha256: string },
+): Promise<void> => {
+  if (!response.ok || !response.body) {
+    throw new Error(`World blob fetch failed with HTTP ${response.status}.`);
+  }
+  const handle = await open(
+    filePath,
+    fsConstants.O_CREAT |
+      fsConstants.O_EXCL |
+      fsConstants.O_WRONLY |
+      fsConstants.O_NOFOLLOW,
+    0o600,
+  );
+  const hasher = createHash("sha256");
+  let size = 0;
+  try {
+    const reader = response.body.getReader();
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > expected.size || size > WORLD_FILE_LIMIT_BYTES) {
+        throw new Error(`World blob size mismatch for ${expected.path}.`);
+      }
+      hasher.update(part.value);
+      let offset = 0;
+      while (offset < part.value.byteLength) {
+        const written = await handle.write(
+          part.value,
+          offset,
+          part.value.byteLength - offset,
+        );
+        offset += written.bytesWritten;
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+  if (size !== expected.size || hasher.digest("hex") !== expected.sha256) {
+    throw new Error(`World blob integrity check failed for ${expected.path}.`);
+  }
+};
+
+const applyFile = async (
+  root: string,
+  access: WorldSyncAccess,
+  entry: WorldListingEntry & { kind: "file"; sha256: string },
+): Promise<void> => {
+  const paths = statePaths(root);
+  await mkdir(paths.staging, { recursive: true, mode: 0o700 });
+  const temporary = path.join(paths.staging, randomUUID());
+  const response = await fetch(routeUrl(access, `blob/${entry.sha256}`), {
+    headers: headers(access),
+  });
+  try {
+    await writeResponseToFile(response, temporary, entry);
+    await chmod(temporary, entry.mode & 0o7777);
+    await utimes(temporary, entry.mtime / 1_000, entry.mtime / 1_000);
+    await setEntryOwnership(temporary, false);
+    await ensureParentDirectories(root, entry.path);
+    const destination = absoluteWorldPath(root, entry.path);
+    await rm(destination, { recursive: true, force: true });
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+};
+
+const applyChanges = async (
+  root: string,
+  access: WorldSyncAccess,
+  changes: WorldChanges,
+): Promise<void> => {
+  for (const deleted of [...changes.deleted].sort(
+    (left, right) => right.length - left.length,
+  )) {
+    await rm(absoluteWorldPath(root, deleted), {
+      recursive: true,
+      force: true,
+    });
+  }
+  const directories = changes.entries
+    .filter((entry) => entry.kind === "dir")
+    .sort((left, right) => left.path.length - right.path.length);
+  for (const entry of directories) {
+    await ensureParentDirectories(root, entry.path);
+    const destination = absoluteWorldPath(root, entry.path);
+    try {
+      const stat = await lstat(destination);
+      if (!stat.isDirectory()) {
+        await rm(destination, { recursive: true, force: true });
+        await mkdir(destination, { mode: entry.mode & 0o7777 });
+      }
+    } catch (error) {
+      if (!isErrno(error, "ENOENT")) throw error;
+      await mkdir(destination, { mode: entry.mode & 0o7777 });
+    }
+    await chmod(destination, entry.mode & 0o7777);
+    await setEntryOwnership(destination, false);
+  }
+  for (const entry of changes.entries) {
+    if (entry.kind === "dir") continue;
+    if (entry.kind === "file" && entry.sha256) {
+      await applyFile(root, access, {
+        ...entry,
+        kind: "file",
+        sha256: entry.sha256,
+      });
+      continue;
+    }
+    if (entry.kind !== "symlink" || entry.target === undefined) {
+      throw new Error(`World change is incomplete: ${entry.path}`);
+    }
+    await ensureParentDirectories(root, entry.path);
+    const destination = absoluteWorldPath(root, entry.path);
+    await rm(destination, { recursive: true, force: true });
+    await symlink(entry.target, destination);
+    await lutimes(destination, entry.mtime / 1_000, entry.mtime / 1_000);
+    await setEntryOwnership(destination, true);
+  }
+  for (const entry of [...directories].reverse()) {
+    const destination = absoluteWorldPath(root, entry.path);
+    await utimes(destination, entry.mtime / 1_000, entry.mtime / 1_000);
+  }
+};
+
+const extractWorldExport = async (
+  root: string,
+  access: WorldSyncAccess,
+): Promise<WorldMarker> => {
+  const response = await fetch(routeUrl(access, "export"), {
+    headers: headers(access),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`World export failed with HTTP ${response.status}.`);
+  }
+  const manifestId = response.headers.get("x-stella-world-manifest") ?? "";
+  const revision = parseRevision(
+    Number(response.headers.get("x-stella-world-revision")),
+  );
+  if (!manifestId) throw new Error("World export manifest is invalid.");
+  for (const name of await readdir(root)) {
+    await rm(path.join(root, name), { recursive: true, force: true });
+  }
+  const tar = spawn(
+    "/usr/bin/tar",
+    ["-x", "-f", "-", "-C", root, "--no-same-owner"],
+    { stdio: ["pipe", "ignore", "ignore"] },
+  );
+  const exited = new Promise<number | null>((resolve, reject) => {
+    tar.once("error", reject);
+    tar.once("exit", resolve);
+  });
+  const reader = response.body.getReader();
+  for (;;) {
+    const part = await reader.read();
+    if (part.done) break;
+    if (!tar.stdin.write(part.value)) {
+      await new Promise<void>((resolve) => tar.stdin.once("drain", resolve));
+    }
+  }
+  tar.stdin.end();
+  const exitCode = await exited;
+  if (exitCode !== 0)
+    throw new Error(`World tar extraction exited ${exitCode}.`);
+  await setTreeOwnership(root);
+  return { manifestId, revision };
+};
+
+const updateIndexForPull = (
+  index: WorldIndex,
+  changes: WorldChanges,
+): WorldIndex => {
+  for (const deleted of changes.deleted) {
+    for (const entryPath of Object.keys(index)) {
+      if (entryPath === deleted || entryPath.startsWith(`${deleted}/`)) {
+        delete index[entryPath];
+      }
+    }
+  }
+  for (const entry of changes.entries) {
+    index[entry.path] = {
+      size: entry.size,
+      mtime: entry.mtime,
+      ...(entry.sha256 ? { sha256: entry.sha256 } : {}),
+    };
+  }
+  return index;
+};
+
+export const pullWorldProjection = async (args: {
+  root: string;
+  access: WorldSyncAccess;
+}): Promise<WorldMarker> =>
+  await withWorldSyncLock(args.root, async () => {
+    let marker = await readWorldMarker(args.root);
+    let index = await readIndex(statePaths(args.root).index);
+    for (;;) {
+      const changes = await getChanges(args.access, marker.revision);
+      if (changes.resync) {
+        marker = await extractWorldExport(args.root, args.access);
+        await rm(statePaths(args.root).index, { force: true });
+        await writeWorldMarker(args.root, marker);
+        return marker;
+      }
+      if (changes.revision <= marker.revision) return marker;
+      await applyChanges(args.root, args.access, changes);
+      index = updateIndexForPull(index, changes);
+      marker = { ...marker, revision: changes.revision };
+      await writeJsonAtomic(statePaths(args.root).index, index);
+      await writeWorldMarker(args.root, marker);
+    }
+  });
+
 const postListing = async (
   access: WorldSyncAccess,
   entries: WorldListingEntry[],
-): Promise<string[]> => {
+): Promise<{ missingBlobs: string[]; revision: number }> => {
   const requestHeaders = headers(access);
   requestHeaders.set("content-type", "application/json");
-  const response = await fetch(syncUrl(access), {
+  const response = await fetch(routeUrl(access, "push"), {
     method: "POST",
     headers: requestHeaders,
     body: JSON.stringify({ entries }),
   });
   const value = (await response.json().catch(() => null)) as {
     missingBlobs?: unknown;
+    revision?: unknown;
   } | null;
   if (
     !response.ok ||
@@ -97,7 +668,10 @@ const postListing = async (
   ) {
     throw new Error(`World push failed with HTTP ${response.status}.`);
   }
-  return value.missingBlobs;
+  return {
+    missingBlobs: value.missingBlobs,
+    revision: parseRevision(value.revision),
+  };
 };
 
 const uploadBlob = async (
@@ -114,35 +688,52 @@ const uploadBlob = async (
     body: createReadStream(filePath) as never,
     duplex: "half",
   };
-  const response = await fetch(syncUrl(access), init);
-  if (!response.ok)
+  const response = await fetch(routeUrl(access, "push"), init);
+  if (!response.ok) {
     throw new Error(`World blob upload failed with HTTP ${response.status}.`);
+  }
   await response.body?.cancel();
 };
 
 export const pushWorldProjection = async (args: {
   root: string;
   access: WorldSyncAccess;
-}): Promise<void> => {
-  const entries = await listWorldProjection(args.root);
-  const files = new Map(
-    entries
-      .filter(
-        (
-          entry,
-        ): entry is WorldListingEntry & { kind: "file"; sha256: string } =>
-          entry.kind === "file" && Boolean(entry.sha256),
-      )
-      .map((entry) => [entry.sha256, path.join(args.root, entry.path)]),
-  );
-  let missing = await postListing(args.access, entries);
-  while (missing.length > 0) {
-    for (const sha256 of missing) {
-      const filePath = files.get(sha256);
-      if (!filePath)
-        throw new Error(`World requested an unknown blob ${sha256}.`);
-      await uploadBlob(args.access, sha256, filePath);
+  hashFile?: (filePath: string) => Promise<string>;
+}): Promise<WorldMarker> =>
+  await withWorldSyncLock(args.root, async () => {
+    const paths = statePaths(args.root);
+    const marker = await readWorldMarker(args.root);
+    const previous = await readIndex(paths.index);
+    const projection = await listWorldProjection(
+      args.root,
+      previous,
+      args.hashFile,
+    );
+    const files = new Map(
+      projection.entries
+        .filter(
+          (
+            entry,
+          ): entry is WorldListingEntry & { kind: "file"; sha256: string } =>
+            entry.kind === "file" && Boolean(entry.sha256),
+        )
+        .map((entry) => [
+          entry.sha256,
+          absoluteWorldPath(args.root, entry.path),
+        ]),
+    );
+    let pushed = await postListing(args.access, projection.entries);
+    while (pushed.missingBlobs.length > 0) {
+      for (const sha256 of pushed.missingBlobs) {
+        const filePath = files.get(sha256);
+        if (!filePath)
+          throw new Error(`World requested an unknown blob ${sha256}.`);
+        await uploadBlob(args.access, sha256, filePath);
+      }
+      pushed = await postListing(args.access, projection.entries);
     }
-    missing = await postListing(args.access, entries);
-  }
-};
+    const nextMarker = { ...marker, revision: pushed.revision };
+    await writeJsonAtomic(paths.index, projection.index);
+    await writeWorldMarker(args.root, nextMarker);
+    return nextMarker;
+  });

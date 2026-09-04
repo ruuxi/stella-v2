@@ -17,6 +17,8 @@ describe("world cold materialization", () => {
     expect(exportWorld).toBeGreaterThan(markerCheck);
     expect(command).toContain("/workspace/.world-materialize.lock");
     expect(command).toContain("/workspace/world/.stella/world-manifest");
+    expect(command).toContain("x-stella-world-revision");
+    expect(command).toContain('{"manifestId":"%s","revision":%s}');
     expect(command.match(/curl --fail/gu)).toHaveLength(1);
   });
 });

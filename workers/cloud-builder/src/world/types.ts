@@ -17,7 +17,14 @@ export type WorldToolCall = {
   arguments: Record<string, unknown>;
 };
 
-export type WorldToolResult = { ok: boolean; output: string };
+export type WorldToolResult = { ok: boolean; output: string; revision: number };
+
+export type WorldChanges = {
+  revision: number;
+  entries: WorldEntry[];
+  deleted: string[];
+  resync: boolean;
+};
 
 export const WORLD_CHUNK_BYTES = 512 * 1024;
 export const WORLD_R2_THRESHOLD_BYTES = 4 * 1024 * 1024;
@@ -25,6 +32,6 @@ export const WORLD_FILE_LIMIT_BYTES = 256 * 1024 * 1024;
 export const WORLD_READ_LIMIT_BYTES = 8 * 1024 * 1024;
 export const WORLD_QUOTA_BYTES = 4 * 1024 * 1024 * 1024;
 export const WORLD_PATH_LIMIT_BYTES = 1024;
+export const WORLD_CHANGE_LOG_MAX_ROWS = 10_000;
 
 export const WORLD_ROOT = "/workspace/world";
-

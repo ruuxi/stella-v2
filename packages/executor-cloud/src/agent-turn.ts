@@ -90,7 +90,11 @@ import {
   WORLD_ROOT,
   toolStateDir,
 } from "./workspace-paths.js";
-import { pushWorldProjection, type WorldSyncAccess } from "./world-sync.js";
+import {
+  pullWorldProjection,
+  pushWorldProjection,
+  type WorldSyncAccess,
+} from "./world-sync.js";
 import {
   nativeHistoryCursorFromMessages,
   nativeHistoryCursorFromRows,
@@ -171,7 +175,9 @@ export const parseCloudModelGatewayInput = (
   ) {
     return null;
   }
-  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(row.capability)) {
+  if (
+    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(row.capability)
+  ) {
     return null;
   }
   return { origin: origin.origin, capability: row.capability };
@@ -480,9 +486,7 @@ export const createBuilderFallbackAgentTurnResult = (args: {
   error?: string;
   usage: AgentTurnTerminalResult["usage"];
   historyCursor: string;
-  messages: NonNullable<
-    AgentTurnTerminalResult["builderFallback"]
-  >["messages"];
+  messages: NonNullable<AgentTurnTerminalResult["builderFallback"]>["messages"];
   nativeCheckpoint?: NonNullable<
     AgentTurnTerminalResult["builderFallback"]
   >["nativeCheckpoint"];
@@ -749,6 +753,11 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       const workspaceStateDir = toolStateDir(workspaceRoot);
       const driveWorkspace = WORLD_DRIVE_WORKSPACE;
       const toolHome = CLOUD_TOOL_HOME;
+      yield* Effect.tryPromise({
+        try: () =>
+          pullWorldProjection({ root: workspaceRoot, access: input.world }),
+        catch: asError,
+      });
       yield* Effect.tryPromise({
         try: () =>
           prepareCloudToolFilesystem({
@@ -1206,6 +1215,17 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           );
         });
       }
+      const executorBoundaryPushFailure = yield* Effect.promise(async () => {
+        try {
+          await pushWorldProjection({ root: WORLD_ROOT, access: input.world });
+          return undefined;
+        } catch (error) {
+          return asError(error);
+        }
+      });
+      if (executorBoundaryPushFailure && !execution.errorMessage) {
+        execution.errorMessage = executorBoundaryPushFailure.message;
+      }
       if (produced.length === 0) {
         if (suspendedError) {
           throw new Error(
@@ -1461,36 +1481,36 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           try {
             return {
               receipt: await commitTurnStateBeforeTranscript({
-              historyCursor,
-              ...(nativeStateCheckpoint
-                ? { nativeCheckpoint: nativeStateCheckpoint }
-                : {}),
-              ...(suspendedError
-                ? { suspensionTranscript: transcriptRows }
-                : {}),
-              broker,
-              appendTranscript: async () => {
-                // One mutation owns the complete produced transcript: a
-                // committed prefix would poison the next continuation's
-                // canonical state.
-                let response = await postJson("/api/cloud/messages", {
-                  conversationId: input.threadId,
-                  turnId: input.turnId,
-                  messages: transcriptRows,
-                });
-                if (!response.ok) {
-                  response = await postJson("/api/cloud/messages", {
+                historyCursor,
+                ...(nativeStateCheckpoint
+                  ? { nativeCheckpoint: nativeStateCheckpoint }
+                  : {}),
+                ...(suspendedError
+                  ? { suspensionTranscript: transcriptRows }
+                  : {}),
+                broker,
+                appendTranscript: async () => {
+                  // One mutation owns the complete produced transcript: a
+                  // committed prefix would poison the next continuation's
+                  // canonical state.
+                  let response = await postJson("/api/cloud/messages", {
                     conversationId: input.threadId,
                     turnId: input.turnId,
                     messages: transcriptRows,
                   });
-                }
-                if (!response.ok) {
-                  throw new Error(
-                    `Thread transcript persist failed (${response.status}).`,
-                  );
-                }
-              },
+                  if (!response.ok) {
+                    response = await postJson("/api/cloud/messages", {
+                      conversationId: input.threadId,
+                      turnId: input.turnId,
+                      messages: transcriptRows,
+                    });
+                  }
+                  if (!response.ok) {
+                    throw new Error(
+                      `Thread transcript persist failed (${response.status}).`,
+                    );
+                  }
+                },
               }),
             } as const;
           } catch (error) {

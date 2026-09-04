@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 import { WorldSqlStore } from "../src/world/store.js";
+import { WORLD_CHANGE_LOG_MAX_ROWS } from "../src/world/types.js";
 import { sha256BytesHex } from "../src/hash.js";
 import { handleEdit, handleRead } from "@stella/runtime/kernel/tools/file.js";
 import { handleGrep } from "@stella/runtime/kernel/tools/search.js";
@@ -167,14 +168,108 @@ describe("WorldSqlStore", () => {
     });
     expect(
       await world.pushDiff({ entries: listing, deleted: ["old.txt"] }),
-    ).toEqual({ missingBlobs: [sha256] });
+    ).toEqual({ missingBlobs: [sha256], revision: 1 });
     const { uploadId } = await world.beginBlob();
     await world.appendBlob(uploadId, bytes);
     await world.finishBlob(uploadId, { sha256 });
     expect(
       await world.pushDiff({ entries: listing, deleted: ["old.txt"] }),
-    ).toEqual({ missingBlobs: [] });
+    ).toEqual({ missingBlobs: [], revision: 2 });
     expect(decoder.decode(await world.readFile("new.txt"))).toBe("new");
+  });
+
+  test("pages changes by revision and reports tool-write revisions", async () => {
+    const world = createWorld();
+    const first = await world.writeFile("src/one.txt", encoder.encode("one"));
+    const second = await world.tool({
+      name: "Write",
+      arguments: {
+        file_path: "/workspace/world/src/two.txt",
+        content: "two",
+      },
+    });
+    expect(first.revision).toBe(1);
+    expect(second.revision).toBe(2);
+
+    const pageOne = await world.changesSince(0);
+    expect(pageOne).toMatchObject({ revision: 1, resync: false, deleted: [] });
+    expect(pageOne.entries.map((entry) => entry.path)).toEqual([
+      "src",
+      "src/one.txt",
+    ]);
+    const pageTwo = await world.changesSince(pageOne.revision);
+    expect(pageTwo).toMatchObject({ revision: 2, resync: false, deleted: [] });
+    expect(pageTwo.entries.map((entry) => entry.path)).toEqual(["src/two.txt"]);
+    expect(await world.changesSince(pageTwo.revision)).toEqual({
+      revision: 2,
+      entries: [],
+      deleted: [],
+      resync: false,
+    });
+
+    await world.remove("src/one.txt");
+    expect(await world.changesSince(2)).toMatchObject({
+      revision: 3,
+      deleted: ["src/one.txt"],
+      resync: false,
+    });
+  });
+
+  test("compacts an oversized change batch into a manifest resync", async () => {
+    const world = createWorld();
+    const entries = Array.from(
+      { length: WORLD_CHANGE_LOG_MAX_ROWS + 1 },
+      (_, index) => ({
+        path: `bulk/${String(index).padStart(5, "0")}`,
+        kind: "dir" as const,
+        mode: 0o755,
+        mtime: index,
+        size: 0,
+      }),
+    );
+    expect(await world.pushDiff({ entries, deleted: [] })).toEqual({
+      missingBlobs: [],
+      revision: 1,
+    });
+    expect(await world.changesSince(0)).toEqual({
+      revision: 1,
+      entries: [],
+      deleted: [],
+      resync: true,
+    });
+    const fake = stores.at(-1)!;
+    expect(
+      fake.sql
+        .exec<{ count: number }>("SELECT COUNT(*) AS count FROM world_changes")
+        .one().count,
+    ).toBeLessThanOrEqual(WORLD_CHANGE_LOG_MAX_ROWS);
+  });
+
+  test("uses last-writer-wins across two pushes to the same path", async () => {
+    const world = createWorld();
+    const push = async (text: string, mtime: number) => {
+      const bytes = encoder.encode(text);
+      const sha256 = await sha256BytesHex(bytes);
+      const upload = await world.beginBlob();
+      await world.appendBlob(upload.uploadId, bytes);
+      await world.finishBlob(upload.uploadId, { sha256 });
+      return await world.pushDiff({
+        entries: [
+          {
+            path: "shared.txt",
+            kind: "file",
+            mode: 0o644,
+            mtime,
+            size: bytes.byteLength,
+            sha256,
+          },
+        ],
+        deleted: [],
+      });
+    };
+    expect((await push("first", 1)).revision).toBe(1);
+    expect((await push("second", 2)).revision).toBe(2);
+    expect(decoder.decode(await world.readFile("shared.txt"))).toBe("second");
   });
 
   test("records tombstones only for paths inherited from the parent manifest", async () => {
@@ -203,7 +298,9 @@ describe("WorldSqlStore", () => {
   test("exports a readable ustar stream", async () => {
     const world = createWorld();
     await world.writeFile("hello.txt", encoder.encode("hello"));
-    const response = new Response(world.exportTar());
+    const exported = world.exportTar();
+    expect(exported.revision).toBe(1);
+    const response = new Response(exported.body);
     const tar = new Uint8Array(await response.arrayBuffer());
     expect(decoder.decode(tar.slice(0, 9))).toBe("hello.txt");
     expect(decoder.decode(tar.slice(257, 262))).toBe("ustar");

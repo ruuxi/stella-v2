@@ -47,9 +47,10 @@ describe("general agent prompt", () => {
       workspace: "materialized",
       office: true,
     });
-    const [lazyHead, lazyTail] = lazy.split(
-      "\n\nNothing is on disk yet.",
-    ) as [string, string];
+    const [lazyHead, lazyTail] = lazy.split("\n\nNothing is on disk yet.") as [
+      string,
+      string,
+    ];
     const marker = "\n\n/workspace/world/stella is the editable source tree";
     expect(lazyTail.slice(lazyTail.indexOf(marker))).toBe(
       materialized.slice(materialized.indexOf(marker)),
@@ -75,10 +76,29 @@ describe("general agent prompt", () => {
         office: false,
         skills: {
           ...withSkills.skills!,
-          entries: Array.from({ length: 21 }, () => withSkills.skills!.entries[0]!),
+          entries: Array.from(
+            { length: 21 },
+            () => withSkills.skills!.entries[0]!,
+          ),
         },
       }),
     ).toThrow("Cloud skill catalog exceeded its runtime bound.");
+  });
+
+  test("names the isolated root in lazy and materialized prompts", () => {
+    const root = `/workspace/forks/fork-${crypto.randomUUID()}/world`;
+    for (const workspace of ["lazy", "materialized"] as const) {
+      const prompt = buildGeneralAgentPrompt({
+        workspace,
+        office: false,
+        workspaceRoot: root,
+      });
+      expect(prompt).toContain(root);
+      expect(prompt).toContain(`${root}/drive`);
+      expect(prompt).toContain(`${root}/stella`);
+      expect(prompt).toContain("This is an isolated workspace.");
+      expect(prompt).not.toContain("/workspace/world/stella");
+    }
   });
 
   test("lazy rejects a skill root outside the pinned sandbox path", () => {

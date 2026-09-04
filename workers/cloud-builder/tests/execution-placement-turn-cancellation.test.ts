@@ -120,7 +120,8 @@ const admissionReceipt = (
   exact: ReturnType<typeof turn>,
 ) =>
   values.get(`chatTurnAdmission:${exact.clientMsgId}`) as
-    { turnId: string; leaseId: string; phase: string } | undefined;
+    | { turnId: string; leaseId: string; phase: string }
+    | undefined;
 
 const queuedKeys = (values: Map<string, unknown>): string[] =>
   [...values.keys()].filter((key) => key.startsWith("queued:"));
@@ -303,7 +304,12 @@ type ExecutableCloudTool = {
 const cloudAgentTool = async (
   instance: OrchestratorSession & Record<string, unknown>,
   targetTurn: ReturnType<typeof turn>,
-  name: "spawn_agent" | "send_input" | "pause_agent" | "agent_status",
+  name:
+    | "spawn_agent"
+    | "send_input"
+    | "pause_agent"
+    | "agent_status"
+    | "merge_workspace",
 ): Promise<ExecutableCloudTool> => {
   const tools = await (
     instance["createTools"] as (
@@ -980,7 +986,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
       controlledExecution(running, () => {
         (
           instance["currentTurnCancellation"] as
-            { abort?: () => void } | undefined
+            | { abort?: () => void }
+            | undefined
         )?.abort?.();
       }),
     );
@@ -1037,7 +1044,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
       controlledExecution(running, () => {
         (
           instance["currentTurnCancellation"] as
-            { abort?: () => void } | undefined
+            | { abort?: () => void }
+            | undefined
         )?.abort?.();
       }),
     );
@@ -1805,10 +1813,13 @@ describe("execution-placement exact cloud turn cancellation", () => {
 
   test("owner purge closes agent admission and joins a late session before ACK", async () => {
     const harness = buildSessionHarness();
+    const workspaceForkId = `fork-${crypto.randomUUID()}`;
     const current = {
       ...agentTurn("agent-owner-purge-late-session"),
       ownerPurgeGeneration: "purge-generation-1",
       ownerPurgeLeaseId: "lease:agent-owner-purge-late-session",
+      workspace: "fork" as const,
+      workspaceForkId,
     };
     harness.values.set("turn", current);
     harness.values.set("turnId", current.turnId);
@@ -1856,6 +1867,18 @@ describe("execution-placement exact cloud turn cancellation", () => {
     harness.instance["cleanupTransientWrites"] = async () => undefined;
     harness.instance["callOwnerFence"] = async () =>
       Response.json({ ok: true });
+    const dropped: string[] = [];
+    harness.instance["env"] = {
+      ...(harness.instance["env"] as Record<string, unknown>),
+      WORLDS: {
+        getByName: () => ({
+          dropFork: async (forkId: string) => {
+            dropped.push(forkId);
+            return { dropped: true };
+          },
+        }),
+      },
+    };
 
     await createStarted;
     let acknowledged = false;
@@ -1892,6 +1915,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(teardownCalls).toBe(2);
     expect(sessionLive).toBe(false);
     expect(executorCalls).toBe(0);
+    expect(dropped).toEqual([workspaceForkId]);
   });
 
   test("a delayed owner-purge callback cannot erase an ABA successor", async () => {
@@ -4170,6 +4194,62 @@ describe("execution-placement exact cloud turn cancellation", () => {
       status: "active",
       status_detail: "running",
       description: "Shell marker",
+    });
+  });
+
+  test("merge_workspace explicitly merges an orchestrator child into shared", async () => {
+    const harness = sessionHarness();
+    const forkId = `fork-${crypto.randomUUID()}`;
+    const remember = (
+      harness.instance["rememberCloudAgentControlReceipt"] as (
+        value: unknown,
+      ) => Promise<unknown>
+    ).bind(harness.instance);
+    await remember({
+      threadId: "thread-isolated",
+      attemptGeneration: 1,
+      threadUpdatedAt: 100,
+      status: "completed",
+      workspace: "fork",
+      workspaceForkId: forkId,
+    });
+    const calls: unknown[] = [];
+    harness.instance["env"] = {
+      ...(harness.instance["env"] as Record<string, unknown>),
+      WORLDS: {
+        getByName: () => ({
+          merge: async (input: unknown) => {
+            calls.push(input);
+            return {
+              applied: ["result.txt"],
+              deleted: [],
+              conflicts: ["result.txt"],
+            };
+          },
+        }),
+      },
+    };
+    const merge = await cloudAgentTool(
+      harness.instance,
+      turn("turn-merge-workspace"),
+      "merge_workspace",
+    );
+
+    const result = await merge.execute("tool-merge-workspace", {
+      thread_id: "thread-isolated",
+      into: "shared",
+    });
+
+    expect(calls).toEqual([
+      { from: forkId, into: "shared", strategy: "last_writer_wins" },
+    ]);
+    expect(result.details).toEqual({
+      thread_id: "thread-isolated",
+      into: "shared",
+      applied_count: 1,
+      deleted_count: 0,
+      conflict_count: 1,
+      conflicts: ["result.txt"],
     });
   });
 

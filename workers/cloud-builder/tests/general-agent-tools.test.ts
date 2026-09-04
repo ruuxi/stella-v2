@@ -53,6 +53,7 @@ describe("general-agent capability table", () => {
       "send_input",
       "pause_agent",
       "agent_status",
+      "merge_workspace",
       PUBLISH_STELLA_INTERIOR_TOOL_NAME,
     ]);
   });
@@ -75,7 +76,6 @@ describe("general-agent capability table", () => {
     );
     expect(() => computeForTool("")).toThrow(UnknownGeneralAgentToolError);
   });
-
 });
 
 describe("pinned resident catalog", () => {
@@ -97,6 +97,7 @@ describe("pinned resident catalog", () => {
     expect(catalog.map((tool) => tool.name)).not.toContain("send_input");
     expect(catalog.map((tool) => tool.name)).not.toContain("pause_agent");
     expect(catalog.map((tool) => tool.name)).not.toContain("agent_status");
+    expect(catalog.map((tool) => tool.name)).not.toContain("merge_workspace");
   });
 
   test("carries each descriptor's model-visible surface unchanged", () => {
@@ -160,10 +161,7 @@ describe("pinned resident catalog", () => {
         { type: "text", text: "from the workspace" },
       ]);
     }
-    expect(seen).toEqual([
-      "exec_command:call-1",
-      "write_stdin:call-1",
-    ]);
+    expect(seen).toEqual(["exec_command:call-1", "write_stdin:call-1"]);
   });
 
   test("never sends code to the ladder; without a JS sandbox it refuses with its own reason", async () => {

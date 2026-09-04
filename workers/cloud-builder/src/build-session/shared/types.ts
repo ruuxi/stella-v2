@@ -56,7 +56,8 @@ export type TurnRequest = {
   conversationId?: string;
   sessionId?: string;
   threadId?: string;
-  workspace?: string;
+  workspace?: "shared" | "new" | "fork";
+  workspaceForkId?: string;
   /** Exact immutable route selected by Convex for this turn. */
   execution?: CloudExecutionSelection;
   /** Managed-model audience Convex resolved for the owner at dispatch. */

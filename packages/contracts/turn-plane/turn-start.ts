@@ -159,6 +159,8 @@ export type CloudAgentTurnSource =
   | "browser-resume"
   | "agent-thread";
 
+export type CloudAgentWorkspace = "shared" | "new" | "fork";
+
 export type CloudAgentTurnStartRequest = {
   protocol: typeof TURN_PLANE_PROTOCOL;
   kind: "agent";
@@ -170,6 +172,8 @@ export type CloudAgentTurnStartRequest = {
   agentDepth: number;
   /** The BuildSession thread that spawned this one, absent for root spawns. */
   parentThreadId?: string;
+  workspace?: CloudAgentWorkspace;
+  workspaceForkId?: string;
   /** 1 for a fresh thread; N+1 for a continuation of an existing thread. */
   attemptGeneration: number;
   /**

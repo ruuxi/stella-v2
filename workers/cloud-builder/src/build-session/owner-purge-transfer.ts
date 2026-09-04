@@ -1525,6 +1525,7 @@ export const handleWorldRoute = async (
   if (!authorization.ok)
     return json({ error: "World capability was rejected." }, 403);
   const stub = env.WORLDS.getByName(world);
+  const fork = new URL(request.url).searchParams.get("fork") ?? undefined;
   if (action.kind === "changes") {
     if (request.method !== "GET")
       return json({ error: "Method not allowed." }, 405);
@@ -1532,7 +1533,7 @@ export const handleWorldRoute = async (
     if (!Number.isSafeInteger(since) || since < 0) {
       return json({ error: "Malformed world revision." }, 400);
     }
-    return json(await stub.changesSince(since));
+    return json(await stub.changesSince(since, { ...(fork ? { fork } : {}) }));
   }
   if (action.kind === "blob") {
     if (request.method !== "GET")
@@ -1551,11 +1552,12 @@ export const handleWorldRoute = async (
     if (request.method !== "GET")
       return json({ error: "Method not allowed." }, 405);
     const requested = new URL(request.url).searchParams.get("manifest");
-    const manifestId = requested ?? (await stub.head()).manifestId;
+    const forkOptions = fork ? { fork } : {};
+    const manifestId = requested ?? (await stub.head(forkOptions)).manifestId;
     if (!(await stub.manifest(manifestId, { limit: 1 }))) {
       return json({ error: "World manifest was not found." }, 404);
     }
-    const exported = await stub.exportTar(manifestId);
+    const exported = await stub.exportTar(manifestId, forkOptions);
     return new Response(exported.body, {
       headers: {
         "content-type": "application/x-tar",
@@ -1587,16 +1589,21 @@ export const handleWorldRoute = async (
         );
       }
     }
-    await stub.finishBlob(upload.uploadId, { sha256: blobSha });
+    await stub.finishBlob(upload.uploadId, {
+      sha256: blobSha,
+      ...(fork ? { fork } : {}),
+    });
     return json({ ok: true });
   }
   const listing = parseWorldPushListing(await request.json().catch(() => null));
   if (!listing) return json({ error: "Malformed world listing." }, 400);
-  const delta = await stub.diff(listing);
+  const forkOptions = fork ? { fork } : {};
+  const delta = await stub.diff(listing, forkOptions);
   const changed = new Set(delta.changed);
   const pushed = await stub.pushDiff({
     entries: listing.filter((entry) => changed.has(entry.path)),
     deleted: delta.deleted,
+    ...forkOptions,
   });
   return json({ ok: pushed.missingBlobs.length === 0, ...pushed });
 };

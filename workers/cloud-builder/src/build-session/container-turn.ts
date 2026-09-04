@@ -49,8 +49,9 @@ import type {
 } from "../turn-state-registry.js";
 import {
   agentTurnSessionId,
+  stellaRootForWorld,
   WORLD_ROOT,
-  WORLD_STELLA_ROOT,
+  worldRootForFork,
   worldName,
 } from "../workspace.js";
 import { issueWorldCapability } from "../world-capability.js";
@@ -153,16 +154,18 @@ export type ContainerTurnHost = Pick<
  */
 export const seedFirstStellaToolWorkspace = async (
   session: Pick<ExecutionSession, "exec">,
+  worldRoot: string = WORLD_ROOT,
 ): Promise<void> => {
+  const stellaRoot = stellaRootForWorld(worldRoot);
   const seeded = await strictSessionExec(session, [
     "/bin/sh",
     "-lc",
-    `set -eu; test ! -e '${WORLD_STELLA_ROOT}'; mkdir '${WORLD_STELLA_ROOT}'; cp -a /opt/stella/packages/desktop-ui/. '${WORLD_STELLA_ROOT}/'; ln -s /opt/stella/node_modules '${WORLD_STELLA_ROOT}/node_modules'; mkdir '${WORLD_STELLA_ROOT}/.stella'; cp /opt/stella/interior-seed.json '${WORLD_STELLA_ROOT}/.stella/interior-source.json'; chown -R 42424:42424 '${WORLD_STELLA_ROOT}'; chmod 0750 '${WORLD_STELLA_ROOT}'`,
+    `set -eu; test ! -e '${stellaRoot}'; mkdir '${stellaRoot}'; cp -a /opt/stella/packages/desktop-ui/. '${stellaRoot}/'; ln -s /opt/stella/node_modules '${stellaRoot}/node_modules'; mkdir '${stellaRoot}/.stella'; cp /opt/stella/interior-seed.json '${stellaRoot}/.stella/interior-source.json'; chown -R 42424:42424 '${stellaRoot}'; chmod 0750 '${stellaRoot}'`,
   ]);
   if (!seeded.success) {
     throw new Error("The Stella interior source seed could not be created.");
   }
-  await normalizeToolWorkspaceRoot(session, WORLD_ROOT);
+  await normalizeToolWorkspaceRoot(session, worldRoot);
 };
 
 /**
@@ -173,9 +176,11 @@ export const seedFirstStellaToolWorkspace = async (
  */
 export const stellaToolWorkspaceExists = async (
   session: Pick<ExecutionSession, "exec">,
+  worldRoot: string = WORLD_ROOT,
 ): Promise<boolean> => {
+  const stellaRoot = stellaRootForWorld(worldRoot);
   const result = await session.exec(
-    `if [ -e '${WORLD_STELLA_ROOT}' ] || [ -L '${WORLD_STELLA_ROOT}' ]; then if [ -d '${WORLD_STELLA_ROOT}' ] && [ ! -L '${WORLD_STELLA_ROOT}' ]; then printf '%s\\n' present; else printf '%s\\n' invalid; fi; else printf '%s\\n' absent; fi`,
+    `if [ -e '${stellaRoot}' ] || [ -L '${stellaRoot}' ]; then if [ -d '${stellaRoot}' ] && [ ! -L '${stellaRoot}' ]; then printf '%s\\n' present; else printf '%s\\n' invalid; fi; else printf '%s\\n' absent; fi`,
   );
   if (!result.success) {
     throw new Error("The Stella interior source could not be inspected.");
@@ -1310,6 +1315,8 @@ export const attachAgentWorld = async (
   restoreMs: number;
 }> => {
   const { turn, execution: turnExecution, sandbox } = args;
+  const worldRoot = worldRootForFork(turn.workspaceForkId);
+  const stellaRoot = stellaRootForWorld(worldRoot);
   const coldStarted = performance.now();
   await host.assertAgentExecutionActive(turn, turnExecution);
   const session = await sandbox.createSession({
@@ -1323,12 +1330,15 @@ export const attachAgentWorld = async (
 
   // Sandbox disk is a projection of the world object, never its owner.
   let restoreMs = 0;
-  await normalizeToolWorkspaceRoot(session, WORLD_ROOT);
+  await normalizeToolWorkspaceRoot(session, worldRoot);
   turnExecution.assertActive();
   const restoreStarted = performance.now();
   const name = await worldName(turn.ownerId);
   const world = host.env.WORLDS.getByName(name);
-  const head = await world.head();
+  const forkOptions = turn.workspaceForkId
+    ? { fork: turn.workspaceForkId }
+    : {};
+  const head = await world.head(forkOptions);
   const capability = await issueWorldCapability({
     secret: host.env.BUILDER_SERVICE_SECRET,
     worldName: name,
@@ -1338,12 +1348,16 @@ export const attachAgentWorld = async (
     ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
   });
   const origin = host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
-  const exportUrl = `${origin}/internal/worlds/${name}/export?manifest=${encodeURIComponent(head.manifestId)}`;
+  const exportUrl = new URL(`${origin}/internal/worlds/${name}/export`);
+  exportUrl.searchParams.set("manifest", head.manifestId);
+  if (turn.workspaceForkId) {
+    exportUrl.searchParams.set("fork", turn.workspaceForkId);
+  }
   const materialized = await session.exec(
     worldMaterializationCommand({
-      worldRoot: WORLD_ROOT,
+      worldRoot,
       manifestId: head.manifestId,
-      exportUrl,
+      exportUrl: exportUrl.toString(),
       capability,
     }),
     { origin: "internal", timeout: args.commandTimeoutMs },
@@ -1357,10 +1371,10 @@ export const attachAgentWorld = async (
   // image, never an empty directory the model has to invent. Once it exists
   // its recorded seed has to still match the image, or a self-update would
   // be built on top of a renderer Stella no longer ships.
-  const stellaPresent = await stellaToolWorkspaceExists(session);
+  const stellaPresent = await stellaToolWorkspaceExists(session, worldRoot);
   turnExecution.assertActive();
   if (!stellaPresent) {
-    await seedFirstStellaToolWorkspace(session);
+    await seedFirstStellaToolWorkspace(session, worldRoot);
     turnExecution.assertActive();
   } else {
     const readJson = async (filePath: string) => {
@@ -1369,7 +1383,7 @@ export const attachAgentWorld = async (
       return JSON.parse(atob(read.content)) as Record<string, unknown>;
     };
     const [interiorState, imageSeed] = await Promise.all([
-      readJson(`${WORLD_STELLA_ROOT}/.stella/interior-source.json`),
+      readJson(`${stellaRoot}/.stella/interior-source.json`),
       readJson("/opt/stella/interior-seed.json"),
     ]);
     const interiorSeedRevision =
@@ -1559,6 +1573,7 @@ export const runAgentAttempt = async (
         world: {
           origin: host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),
           name: await worldName(turn.ownerId),
+          ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
           capability: await issueWorldCapability({
             secret: host.env.BUILDER_SERVICE_SECRET,
             worldName: await worldName(turn.ownerId),

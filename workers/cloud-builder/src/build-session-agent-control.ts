@@ -2,6 +2,7 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
+  MERGE_WORKSPACE_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   SEND_INPUT_TOOL_DESCRIPTOR,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
@@ -29,6 +30,7 @@ import {
 import type { GeneralAgentAgentControl } from "./general-agent-do-local-tools.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex } from "./hash.js";
+import { worldName } from "./workspace.js";
 
 export type BuildSessionAgentControlParent = Readonly<{
   ownerId: string;
@@ -38,11 +40,12 @@ export type BuildSessionAgentControlParent = Readonly<{
   threadId: string;
   agentDepth: number;
   execution: CloudExecutionSelection;
+  workspaceForkId?: string;
 }>;
 
 export type BuildSessionAgentControlDependencies = Readonly<{
   storage: CloudAgentControlStorage;
-  env: Pick<Cloudflare.Env, "BUILD_SESSIONS">;
+  env: Pick<Cloudflare.Env, "BUILD_SESSIONS" | "WORLDS">;
   dispatch: CloudAgentDispatchDependencies;
   parent: BuildSessionAgentControlParent;
   now?: () => number;
@@ -94,6 +97,9 @@ export const createBuildSessionAgentControl = (
         parentTurnId: parent.turnId,
         parentThreadId: parent.threadId,
         agentDepth: parent.agentDepth,
+        ...(parent.workspaceForkId
+          ? { workspaceForkId: parent.workspaceForkId }
+          : {}),
       },
       attempt,
       ...(signal ? { signal } : {}),
@@ -143,11 +149,24 @@ export const createBuildSessionAgentControl = (
         const prompt = typeof params.prompt === "string" ? params.prompt : "";
         const model =
           typeof params.model === "string" ? params.model.trim() : "";
+        if (
+          params.workspace !== undefined &&
+          params.workspace !== "shared" &&
+          params.workspace !== "new" &&
+          params.workspace !== "fork"
+        ) {
+          throw new Error('workspace must be "shared", "new", or "fork".');
+        }
+        const workspace =
+          params.workspace === "new" || params.workspace === "fork"
+            ? params.workspace
+            : "shared";
         const execution = resolveCloudSpawnExecution(model, parent.execution);
         const value = await fingerprint("spawn_agent", {
           description,
           prompt,
           model: model && model !== "default" ? model : null,
+          workspace,
         });
         let outcome = await readOutcome(toolCallId, "spawn_agent", value);
         if (!outcome) {
@@ -161,6 +180,7 @@ export const createBuildSessionAgentControl = (
               description,
               prompt,
               execution,
+              workspace,
             },
             signal,
           );
@@ -177,6 +197,10 @@ export const createBuildSessionAgentControl = (
             thread_id: outcome.control.threadId,
             status: "running",
             description,
+            workspace,
+            ...(outcome.control.workspaceForkId
+              ? { workspace_fork_id: outcome.control.workspaceForkId }
+              : {}),
             attempt_generation: outcome.control.attemptGeneration,
             thread_updated_at: outcome.control.threadUpdatedAt,
           },
@@ -233,6 +257,10 @@ export const createBuildSessionAgentControl = (
                   description: prior.description ?? "Continued task",
                   prompt: message,
                   execution: prior.execution ?? parent.execution,
+                  workspace: prior.workspace ?? "shared",
+                  ...(prior.workspaceForkId
+                    ? { workspaceForkId: prior.workspaceForkId }
+                    : {}),
                 },
                 signal,
               );
@@ -249,6 +277,10 @@ export const createBuildSessionAgentControl = (
                 description: prior.description ?? "Continued task",
                 prompt: message,
                 execution: prior.execution ?? parent.execution,
+                workspace: prior.workspace ?? "shared",
+                ...(prior.workspaceForkId
+                  ? { workspaceForkId: prior.workspaceForkId }
+                  : {}),
               },
               signal,
             );
@@ -385,6 +417,39 @@ export const createBuildSessionAgentControl = (
           disposition,
         );
         return pauseResult(outcome.control, disposition);
+      }
+
+      if (toolName === MERGE_WORKSPACE_TOOL_DESCRIPTOR.name) {
+        const threadId =
+          typeof params.thread_id === "string" ? params.thread_id.trim() : "";
+        if (params.into !== undefined && params.into !== "shared") {
+          throw new Error('merge_workspace into must be "shared".');
+        }
+        const control = await requireCloudAgentControlReceipt({
+          storage: deps.storage,
+          threadId,
+        });
+        if (!control.workspaceForkId) {
+          throw new Error(`${threadId} does not have an isolated workspace.`);
+        }
+        const merged = await deps.env.WORLDS.getByName(
+          await worldName(parent.ownerId),
+        ).merge({
+          from: control.workspaceForkId,
+          into: "shared",
+          strategy: "last_writer_wins",
+        });
+        return textResult(
+          `Merged ${threadId}'s workspace into shared: ${merged.applied.length} applied, ${merged.deleted.length} deleted, ${merged.conflicts.length} conflicts.`,
+          {
+            thread_id: threadId,
+            into: "shared",
+            applied_count: merged.applied.length,
+            deleted_count: merged.deleted.length,
+            conflict_count: merged.conflicts.length,
+            conflicts: merged.conflicts,
+          },
+        );
       }
 
       throw new Error(`${toolName} is not an agent orchestration tool.`);

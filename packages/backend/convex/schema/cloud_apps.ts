@@ -332,6 +332,7 @@ export const cloudAppsSchema = {
     // above it, only the local chat that asked for it.
     parentTurnId: v.optional(v.string()),
     parentThreadId: v.optional(v.string()),
+    workspaceForkId: v.optional(v.string()),
     // Durable origin metadata for desktop-dispatched threads. Optional for
     // rolling compatibility with rows and installed clients from before local
     // completion recovery existed.

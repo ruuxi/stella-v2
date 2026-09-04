@@ -9,12 +9,14 @@ import {
   type CloudAgentSteerMessage,
   type CloudAgentTurnStartRequest,
   type CloudAgentTurnStartResponse,
+  type CloudAgentWorkspace,
 } from "@stella/contracts/turn-plane/turn-start";
 import type { OwnerGateAdmission } from "./owner-gate.js";
 import { snapshotAllowsExecutionEngine } from "./owner-gate.js";
 import { HEADER_GATE_ADMITTED } from "./turn-start-request.js";
 import { parseCloudExecutionSelection } from "./turn-start-request.js";
 import { sha256Hex } from "./hash.js";
+import { worldName } from "./workspace.js";
 
 export const MAX_CLOUD_AGENT_DEPTH = 2;
 export const CLOUD_AGENT_DEPTH_LIMIT_ERROR =
@@ -45,6 +47,8 @@ export type CloudAgentControlReceipt = {
   turnId?: string;
   execution?: CloudExecutionSelection;
   description?: string;
+  workspace?: CloudAgentWorkspace;
+  workspaceForkId?: string;
 };
 
 export type CloudAgentToolKind = "spawn_agent" | "send_input" | "pause_agent";
@@ -116,6 +120,26 @@ export const normalizeCloudAgentControlReceipt = (
     typeof candidate.description === "string"
       ? candidate.description.trim().slice(0, CLOUD_AGENT_DESCRIPTION_CHARS)
       : "";
+  const workspace =
+    candidate.workspace === "shared" ||
+    candidate.workspace === "new" ||
+    candidate.workspace === "fork"
+      ? candidate.workspace
+      : undefined;
+  const workspaceForkId =
+    typeof candidate.workspaceForkId === "string" &&
+    /^fork-[0-9a-f-]{36}$/u.test(candidate.workspaceForkId)
+      ? candidate.workspaceForkId
+      : undefined;
+  if (
+    (workspaceForkId !== undefined &&
+      workspace !== "new" &&
+      workspace !== "fork") ||
+    ((workspace === "new" || workspace === "fork") &&
+      workspaceForkId === undefined)
+  ) {
+    return null;
+  }
   return {
     threadId,
     attemptGeneration: candidate.attemptGeneration!,
@@ -124,6 +148,8 @@ export const normalizeCloudAgentControlReceipt = (
     ...(turnId ? { turnId } : {}),
     ...(execution ? { execution } : {}),
     ...(description ? { description } : {}),
+    ...(workspace ? { workspace } : {}),
+    ...(workspaceForkId ? { workspaceForkId } : {}),
   };
 };
 
@@ -292,6 +318,7 @@ export type CloudAgentDispatchCaller = Readonly<{
   parentTurnId: string;
   parentThreadId?: string;
   agentDepth: number;
+  workspaceForkId?: string;
 }>;
 
 export type CloudAgentDispatchAttempt = Readonly<{
@@ -302,9 +329,11 @@ export type CloudAgentDispatchAttempt = Readonly<{
   description: string;
   prompt: string;
   execution: CloudExecutionSelection;
+  workspace?: CloudAgentWorkspace;
+  workspaceForkId?: string;
 }>;
 
-type CloudAgentDispatchEnv = Pick<Cloudflare.Env, "BUILD_SESSIONS"> &
+type CloudAgentDispatchEnv = Pick<Cloudflare.Env, "BUILD_SESSIONS" | "WORLDS"> &
   Partial<Pick<Cloudflare.Env, "CLOUD_BUILDER_PUBLIC_URL">>;
 
 export type CloudAgentDispatchDependencies = Readonly<{
@@ -365,6 +394,19 @@ export const dispatchCloudAgentTurn = async (args: {
   if (agentDepth > MAX_CLOUD_AGENT_DEPTH) {
     throw new Error(CLOUD_AGENT_DEPTH_LIMIT_ERROR);
   }
+  const workspace = attempt.workspace ?? "shared";
+  if (workspace !== "shared" && workspace !== "new" && workspace !== "fork") {
+    throw new Error("Cloud agent workspace is invalid.");
+  }
+  if (
+    attempt.workspaceForkId !== undefined &&
+    !/^fork-[0-9a-f-]{36}$/u.test(attempt.workspaceForkId)
+  ) {
+    throw new Error("Cloud agent workspace fork id is invalid.");
+  }
+  if (workspace === "shared" && attempt.workspaceForkId !== undefined) {
+    throw new Error("A shared cloud agent cannot name a workspace fork.");
+  }
   const admission = await dependencies.ownerGateAdmit({
     ownerId: caller.ownerId,
     turnId: attempt.turnId,
@@ -396,6 +438,30 @@ export const dispatchCloudAgentTurn = async (args: {
     );
   }
   const now = (dependencies.now ?? Date.now)();
+  let workspaceForkId = attempt.workspaceForkId;
+  if (workspace !== "shared" && !workspaceForkId) {
+    try {
+      workspaceForkId = (
+        await dependencies.env.WORLDS.getByName(
+          await worldName(caller.ownerId),
+        ).fork({
+          kind: workspace,
+          threadId: attempt.threadId,
+          ...(workspace === "fork"
+            ? { from: caller.workspaceForkId ?? "shared" }
+            : {}),
+        })
+      ).forkId;
+    } catch (error) {
+      await release();
+      throw new Error(
+        `Creating the isolated workspace failed: ${errorMessage(error)}`.slice(
+          0,
+          400,
+        ),
+      );
+    }
+  }
   const payload: CloudAgentTurnStartRequest = {
     protocol: TURN_PLANE_PROTOCOL,
     kind: "agent",
@@ -415,6 +481,8 @@ export const dispatchCloudAgentTurn = async (args: {
     source: "agent-thread",
     clientMsgId: attempt.clientMsgId,
     parentTurnId: caller.parentTurnId,
+    workspace,
+    ...(workspaceForkId ? { workspaceForkId } : {}),
   };
   let response: Response;
   try {
@@ -486,6 +554,8 @@ export const dispatchCloudAgentTurn = async (args: {
       prompt: attempt.prompt,
       execution: attempt.execution,
       placement: "cloud",
+      workspace,
+      ...(workspaceForkId ? { workspaceForkId } : {}),
       createdAt: now,
     },
   ]);
@@ -497,6 +567,8 @@ export const dispatchCloudAgentTurn = async (args: {
     turnId: attempt.turnId,
     execution: attempt.execution,
     description: attempt.description,
+    workspace,
+    ...(workspaceForkId ? { workspaceForkId } : {}),
   };
 };
 

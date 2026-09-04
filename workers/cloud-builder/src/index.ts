@@ -1,14 +1,12 @@
 import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
-import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
 import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
-import type { CloudAgentTurnStartRequest } from "@stella/contracts/turn-plane/turn-start";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { DurableObject } from "cloudflare:workers";
 import { createAgentComputeLadder } from "./agent-compute-ladder.js";
@@ -22,6 +20,7 @@ import {
   runAgentTurn,
   startAgentTurn,
   startAppTurn,
+  turnRequestFromAgentStart,
 } from "./build-session/admission.js";
 import {
   advanceBuilderFallback,
@@ -1102,7 +1101,7 @@ export class BuildSession extends DurableObject<Env> {
     // uses, so the orchestrator's direct dispatch and Convex's service call
     // are admitted by one rule rather than two. The app-build lane keeps its
     // own dispatch payload.
-    let agentStart: CloudAgentTurnStartRequest | undefined;
+    let turn: TurnRequest;
     if (
       raw &&
       typeof raw === "object" &&
@@ -1111,47 +1110,10 @@ export class BuildSession extends DurableObject<Env> {
     ) {
       const parsed = parseCloudAgentTurnStartRequest(raw);
       if (!parsed.ok) return json({ error: parsed.message }, 400);
-      agentStart = parsed.request;
+      turn = turnRequestFromAgentStart(parsed.request);
+    } else {
+      turn = (raw ?? {}) as TurnRequest;
     }
-    const turn = (
-      agentStart
-        ? {
-            kind: "agent",
-            ownerId: agentStart.ownerId,
-            ownerGeneration: agentStart.ownerGeneration,
-            appId: "agent",
-            conversationId: agentStart.conversationId,
-            threadId: agentStart.threadId,
-            agentDepth: agentStart.agentDepth,
-            turnId: agentStart.turnId ?? crypto.randomUUID(),
-            attemptGeneration: agentStart.attemptGeneration,
-            prompt: agentStart.prompt,
-            description: agentStart.description,
-            execution: agentStart.execution,
-            audience: agentStart.audience as ManagedModelAudience,
-            budgetMicroCents: agentStart.budgetMicroCents,
-            source: agentStart.source,
-            ...(agentStart.clientMsgId
-              ? { clientMsgId: agentStart.clientMsgId }
-              : {}),
-            ...(agentStart.parentTurnId
-              ? { parentTurnId: agentStart.parentTurnId }
-              : {}),
-            ...(agentStart.parentThreadId
-              ? { parentThreadId: agentStart.parentThreadId }
-              : {}),
-            ...(agentStart.originDeviceId
-              ? { originDeviceId: agentStart.originDeviceId }
-              : {}),
-            ...(agentStart.originConversationId
-              ? { originConversationId: agentStart.originConversationId }
-              : {}),
-            ...(agentStart.browserResume !== undefined
-              ? { browserResume: agentStart.browserResume }
-              : {}),
-          }
-        : ((raw ?? {}) as TurnRequest)
-    ) as TurnRequest;
     // These fields come only from the authenticated outer gateway. Delete any
     // body-shaped values first so a service caller cannot choose where the
     // sandbox sends its capability or which BuildSession identity it claims.

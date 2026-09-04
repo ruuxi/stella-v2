@@ -280,6 +280,9 @@ const applyThreadSpawned = async (
         ? { originConversationId: event.originConversationId }
         : {}),
       execution: event.execution,
+      ...(event.workspaceForkId
+        ? { workspaceForkId: event.workspaceForkId }
+        : {}),
       sandboxLeaseExpiresAt: cloudAgentSandboxLeaseExpiresAt(
         "cloud",
         event.createdAt,
@@ -295,6 +298,9 @@ const applyThreadSpawned = async (
     conversationId: event.conversationId,
     parentTurnId: event.parentTurnId,
     ...(event.parentThreadId ? { parentThreadId: event.parentThreadId } : {}),
+    ...(event.workspaceForkId
+      ? { workspaceForkId: event.workspaceForkId }
+      : {}),
     ...(event.originDeviceId ? { originDeviceId: event.originDeviceId } : {}),
     ...(event.originConversationId
       ? { originConversationId: event.originConversationId }

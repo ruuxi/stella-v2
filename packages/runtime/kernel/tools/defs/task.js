@@ -1,15 +1,15 @@
 /**
  * Sub-agent management tools.
  *
- * Four tools cover the durable agent thread surface: `spawn_agent`,
+ * Five tools cover the durable agent thread surface: `spawn_agent`,
  * `send_input`, and `pause_agent` manipulate threads, and `agent_status` is
  * a read-only, non-interrupting status snapshot. Exposure is two-tier and
  * depends on who owns the running thread, not only on its agent type:
  *
  *   - the orchestrator and a top-level (root-spawned) General agent get all
- *     four, so a General agent can run its own subagents;
+ *     five, so a General agent can run its own subagents;
  *   - a parent-owned General agent — one spawned BY another agent — gets the
- *     same toolset as a top-level General MINUS these four.
+ *     same toolset as a top-level General MINUS these five.
  *
  * The second tier is enforced by absence from the catalog rather than by the
  * depth-limit tool error, so a subagent cannot attempt a third level or steer
@@ -19,6 +19,7 @@ import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   AGENT_ORCHESTRATION_TOOL_NAMES,
   AGENT_STATUS_TOOL_DESCRIPTOR,
+  MERGE_WORKSPACE_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   SEND_INPUT_TOOL_DESCRIPTOR,
   SPAWN_AGENT_MODEL_DESCRIPTION,
@@ -26,6 +27,7 @@ import {
 } from "./agent-orchestration-def.js";
 import {
   handleAgentStatus,
+  handleMergeWorkspace,
   handleSendInput,
   handleSpawnAgent,
 } from "../state.js";
@@ -59,5 +61,10 @@ export const createAgentTools = (stateContext) => [
     agentTypes: AGENT_SPAWNERS,
     execute: async (args, context) =>
       handleAgentStatus(stateContext, args, context),
+  },
+  {
+    ...MERGE_WORKSPACE_TOOL_DESCRIPTOR,
+    agentTypes: AGENT_SPAWNERS,
+    execute: async () => handleMergeWorkspace(),
   },
 ];

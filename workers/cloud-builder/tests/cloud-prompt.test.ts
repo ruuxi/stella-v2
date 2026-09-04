@@ -267,7 +267,7 @@ describe("canonical cloud prompts", () => {
       memoryEnabled: true,
     });
     expect(prompt).toContain(
-      "code, spawn_agent, send_input, pause_agent, agent_status, web, Recall, Remember, Schedule",
+      "code, spawn_agent, send_input, pause_agent, agent_status, merge_workspace, web, Recall, Remember, Schedule",
     );
     expect(prompt).toContain("check on it with agent_status");
   });

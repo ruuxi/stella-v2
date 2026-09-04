@@ -1,5 +1,9 @@
 import type { CloudExecutionSelection } from "../agent-engine.js";
-import type { CloudTurnLane, CloudTurnSource } from "./turn-start.js";
+import type {
+  CloudAgentWorkspace,
+  CloudTurnLane,
+  CloudTurnSource,
+} from "./turn-start.js";
 
 /**
  * The outbox is the only write path from the cloud-builder data plane to the
@@ -103,7 +107,8 @@ export type ThreadSpawnedEvent = OutboxBase & {
   prompt: string;
   execution: CloudExecutionSelection;
   placement: "cloud";
-  workspace?: string;
+  workspace?: CloudAgentWorkspace;
+  workspaceForkId?: string;
   originDeviceId?: string;
   originConversationId?: string;
   createdAt: number;

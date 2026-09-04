@@ -68,6 +68,7 @@ export const dispatchCloudAgentTurnInternal = internalAction({
     ),
     clientMsgId: v.optional(v.string()),
     parentTurnId: v.optional(v.string()),
+    workspaceForkId: v.optional(v.string()),
     originDeviceId: v.optional(v.string()),
     originConversationId: v.optional(v.string()),
     browserResume: v.optional(cloudBrowserResumeReceiptValidator),
@@ -147,6 +148,9 @@ export const dispatchCloudAgentTurnInternal = internalAction({
           source: args.source,
           ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
           ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
+          ...(args.workspaceForkId
+            ? { workspace: "fork", workspaceForkId: args.workspaceForkId }
+            : {}),
           ...(args.originDeviceId
             ? { originDeviceId: args.originDeviceId }
             : {}),

@@ -272,6 +272,84 @@ describe("WorldSqlStore", () => {
     expect(decoder.decode(await world.readFile("shared.txt"))).toBe("second");
   });
 
+  test("fork copies metadata, shares chunks, and new starts empty", async () => {
+    const world = createWorld();
+    await world.writeFile("shared.txt", encoder.encode("shared bytes"));
+    const fake = stores.at(-1)!;
+    const before = fake.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM world_chunks")
+      .one().count;
+
+    const forked = await world.fork({
+      kind: "fork",
+      threadId: "thread-fork",
+    });
+    expect(
+      decoder.decode(
+        await world.readFile("shared.txt", { fork: forked.forkId }),
+      ),
+    ).toBe("shared bytes");
+    expect(
+      fake.sql
+        .exec<{ count: number }>("SELECT COUNT(*) AS count FROM world_chunks")
+        .one().count,
+    ).toBe(before);
+
+    const fresh = await world.fork({
+      kind: "new",
+      threadId: "thread-new",
+    });
+    expect(await world.list("", { fork: fresh.forkId })).toEqual({
+      entries: [],
+    });
+    expect(await world.forkStatus(fresh.forkId)).toMatchObject({
+      kind: "new",
+      baseManifestId: null,
+      changedSinceBase: 0,
+      revision: 0,
+    });
+    expect(await world.dropFork(fresh.forkId)).toEqual({ dropped: true });
+    expect(await world.dropFork(fresh.forkId)).toEqual({ dropped: false });
+  });
+
+  test("merge applies upserts and tombstones and takes reported conflicts", async () => {
+    const world = createWorld();
+    await world.writeFile("conflict.txt", encoder.encode("base"));
+    await world.writeFile("deleted.txt", encoder.encode("delete me"));
+    const isolated = await world.fork({
+      kind: "fork",
+      threadId: "thread-merge",
+    });
+
+    await world.writeFile("conflict.txt", encoder.encode("fork wins"), {
+      fork: isolated.forkId,
+    });
+    await world.writeFile("added.txt", encoder.encode("added"), {
+      fork: isolated.forkId,
+    });
+    await world.remove("deleted.txt", { fork: isolated.forkId });
+    await world.writeFile("conflict.txt", encoder.encode("shared loses"));
+
+    const merged = await world.merge({
+      from: isolated.forkId,
+      into: "shared",
+      strategy: "last_writer_wins",
+    });
+    expect(merged.applied).toEqual(["added.txt", "conflict.txt"]);
+    expect(merged.deleted).toEqual(["deleted.txt"]);
+    expect(merged.conflicts).toEqual(["conflict.txt"]);
+    expect(decoder.decode(await world.readFile("conflict.txt"))).toBe(
+      "fork wins",
+    );
+    expect(decoder.decode(await world.readFile("added.txt"))).toBe("added");
+    expect(await world.stat("deleted.txt")).toBeNull();
+    expect(await world.forkStatus(isolated.forkId)).toMatchObject({
+      kind: "fork",
+      changedSinceBase: 3,
+      revision: 3,
+    });
+  });
+
   test("records tombstones only for paths inherited from the parent manifest", async () => {
     const fake = openSqlStorageFake();
     stores.push(fake);

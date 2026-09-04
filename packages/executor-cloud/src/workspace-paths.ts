@@ -12,6 +12,9 @@ import path from "node:path";
 /** The single checkpointed root, mirrored from the builder worker. */
 export const WORLD_ROOT = "/workspace/world";
 
+export const worldRootForFork = (fork?: string): string =>
+  !fork || fork === "shared" ? WORLD_ROOT : `/workspace/forks/${fork}/world`;
+
 /** Stella's own editable renderer source, a plain directory in the world. */
 export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
 
@@ -22,6 +25,9 @@ export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
  */
 export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
 
+export const worldDriveRoot = (worldRoot: string): string =>
+  path.join(worldRoot, "drive");
+
 /**
  * Where the tool host keeps its private state (shell state, deferred-delete
  * logs, office sessions).
@@ -31,7 +37,8 @@ export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
  * files the tool account must never write. This state is per-turn scratch that
  * happens to ride along in the checkpoint.
  */
-export const toolStateDir = (root: string): string => path.join(root, ".stella");
+export const toolStateDir = (root: string): string =>
+  path.join(root, ".stella");
 
 /**
  * Drive hydration's ledger must be contained by the exact tree whose files it
@@ -42,3 +49,8 @@ export const WORLD_DRIVE_WORKSPACE = Object.freeze({
   root: WORLD_DRIVE_ROOT,
   stateDir: toolStateDir(WORLD_DRIVE_ROOT),
 });
+
+export const worldDriveWorkspace = (worldRoot: string) => {
+  const root = worldDriveRoot(worldRoot);
+  return Object.freeze({ root, stateDir: toolStateDir(root) });
+};

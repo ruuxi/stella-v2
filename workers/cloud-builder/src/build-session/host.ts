@@ -397,7 +397,7 @@ export interface BuildSessionInternals {
       resultJson?: string;
       errorMessage?: string;
     },
-  ): string;
+  ): Promise<string>;
   wakeParentAgentOrConversation(
     turn: TurnRequest,
     completion: {
@@ -505,7 +505,12 @@ export interface BuildSessionInternals {
     prompt: string;
     workspaceRestored: boolean;
     turnBroker: { credentialsPath: string };
-    world: { origin: string; name: string; capability: string };
+    world: {
+      origin: string;
+      name: string;
+      capability: string;
+      fork?: string;
+    };
   }>;
   runResidentAgentTurn(
     turn: TurnRequest,

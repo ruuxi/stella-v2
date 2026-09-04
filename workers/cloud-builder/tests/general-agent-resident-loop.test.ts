@@ -39,11 +39,13 @@ mock.module("@cloudflare/sandbox", () => ({
 const { runResidentStellaLoop } = await import("../src/general-agent-turn.js");
 const { NO_WORKSPACE_ATTACHED_MESSAGE, createResidentGeneralAgentTools } =
   await import("../src/general-agent-tools.js");
-const { createTurnRetryCancellation } =
-  await import("../src/turn-cancellation.js");
+const { createTurnRetryCancellation } = await import(
+  "../src/turn-cancellation.js"
+);
 const { openSqlStorageFake } = await import("./fixtures/sql-storage.js");
-const { nativeHistoryCursorFromRows } =
-  await import("../src/native-state-checkpoint.js");
+const { nativeHistoryCursorFromRows } = await import(
+  "../src/native-state-checkpoint.js"
+);
 
 type Sealed = Awaited<ReturnType<AgentTurnJournal["seal"]>>;
 
@@ -173,6 +175,7 @@ const RESIDENT_TOOLS = createResidentGeneralAgentTools(
     ["send_input", noopDoLocalTool("send_input")],
     ["pause_agent", noopDoLocalTool("pause_agent")],
     ["agent_status", noopDoLocalTool("agent_status")],
+    ["merge_workspace", noopDoLocalTool("merge_workspace")],
     ["publish_stella_interior", noopDoLocalTool("publish_stella_interior")],
   ]),
 );
@@ -311,6 +314,7 @@ describe("resident Stella loop", () => {
       "send_input",
       "pause_agent",
       "agent_status",
+      "merge_workspace",
       "publish_stella_interior",
     ]);
   });

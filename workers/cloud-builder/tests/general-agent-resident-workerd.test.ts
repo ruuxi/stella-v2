@@ -87,9 +87,7 @@ const awaitReady = async (
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(
-        `wrangler exited before readiness:\n${describeOutput()}`,
-      );
+      throw new Error(`wrangler exited before readiness:\n${describeOutput()}`);
     }
     try {
       const response = await fetch(`${base}/`);
@@ -166,10 +164,9 @@ describe("resident general-agent turn in workerd", () => {
       usage: { inputTokens: 13, outputTokens: 4, llmCalls: 1 },
       durability: { kind: "transcript_only" },
     });
-    expect(turn.body.transcript.rows.map((row: { role: string }) => row.role)).toEqual([
-      "user",
-      "assistant",
-    ]);
+    expect(
+      turn.body.transcript.rows.map((row: { role: string }) => row.role),
+    ).toEqual(["user", "assistant"]);
     expect(turn.body.result.durability.transcript.historyCursor).toBe(
       turn.body.transcript.historyCursor,
     );
@@ -188,6 +185,7 @@ describe("resident general-agent turn in workerd", () => {
       "send_input",
       "pause_agent",
       "agent_status",
+      "merge_workspace",
       "publish_stella_interior",
     ]);
   }, 90_000);
@@ -314,10 +312,9 @@ describe("wired resident general-agent turn in workerd", () => {
       engine: "stella",
       residentDisabled: false,
     });
-    expect(wired.body.transcript.rows.map((row: { role: string }) => row.role)).toEqual([
-      "user",
-      "assistant",
-    ]);
+    expect(
+      wired.body.transcript.rows.map((row: { role: string }) => row.role),
+    ).toEqual(["user", "assistant"]);
     expect(wired.body.residualJournalRows).toBe(0);
   }, 120_000);
 });

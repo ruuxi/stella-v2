@@ -725,6 +725,7 @@ export type ResidentStellaLoopInput = Readonly<{
   workspacePrompt: Readonly<{
     office: boolean;
     skills?: GeneralAgentPromptSkills;
+    workspaceRoot?: string;
   }>;
   now: () => number;
   createModel?: ResidentModelFactory;
@@ -861,6 +862,9 @@ export const runResidentStellaLoop = async (
       systemPrompt: buildGeneralAgentPrompt({
         workspace: "lazy",
         office: input.workspacePrompt.office,
+        ...(input.workspacePrompt.workspaceRoot
+          ? { workspaceRoot: input.workspacePrompt.workspaceRoot }
+          : {}),
         ...(input.workspacePrompt.skills
           ? { skills: input.workspacePrompt.skills }
           : {}),

@@ -80,6 +80,29 @@ describe("first Stella workspace seed", () => {
     expect(command).not.toContain("/workspace/world/drive");
   });
 
+  test("initializes only a named fork root and its private Drive", async () => {
+    let command = "";
+    const session = {
+      exec: async (nextCommand: string) => {
+        command = nextCommand;
+        return { success: true, exitCode: 0, stdout: "", stderr: "" };
+      },
+    };
+    const forkRoot = `/workspace/forks/fork-${crypto.randomUUID()}/world`;
+
+    await normalizeToolWorkspaceRoot(session as never, forkRoot);
+
+    expect(command).toContain(`mkdir -p '${forkRoot}'`);
+    expect(command).toContain(`mkdir -m 0750 '${forkRoot}/drive'`);
+    expect(command).not.toContain("'/workspace/world/drive'");
+    await expect(
+      normalizeToolWorkspaceRoot(
+        session as never,
+        "/workspace/forks/not-a-fork/world",
+      ),
+    ).rejects.toThrow("Invalid cloud workspace mount path.");
+  });
+
   test("reports a missing checkout without a non-zero Sandbox command", async () => {
     let command = "";
     const session = {
@@ -111,9 +134,9 @@ describe("first Stella workspace seed", () => {
       }),
     };
 
-    await expect(
-      stellaToolWorkspaceExists(session as never),
-    ).rejects.toThrow("not a safe directory");
+    await expect(stellaToolWorkspaceExists(session as never)).rejects.toThrow(
+      "not a safe directory",
+    );
   });
 
   test("re-normalizes the workspace after the archival copy changes its mode", async () => {

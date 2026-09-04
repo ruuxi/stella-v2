@@ -13,6 +13,8 @@ import {
   steerCloudAgent,
 } from "../cloud-agent-dispatch.js";
 import { HEADER_OWNER } from "../conversation-hub.js";
+import { worldName } from "../workspace.js";
+import type { WorldListingEntry } from "../world/types.js";
 import type {
   ExactTurnCancellation,
   ExactTurnCancellationRequest,
@@ -316,7 +318,7 @@ export const deliverTerminal = async (
   }
 };
 
-const agentCompletionText = (
+const agentCompletionText = async (
   host: TerminalDeliveryHost,
   turn: TurnRequest,
   completion: {
@@ -324,7 +326,7 @@ const agentCompletionText = (
     resultJson?: string;
     errorMessage?: string;
   },
-): string => {
+): Promise<string> => {
   let resultText = completion.errorMessage ?? "";
   if (completion.resultJson) {
     try {
@@ -346,9 +348,47 @@ const agentCompletionText = (
         ? "[Agent canceled]"
         : "[Agent failed]";
   const description = turn.description?.trim() || turn.threadId;
-  return `${label} ${description} (thread ${turn.threadId})\n\n${
-    resultText || "No result was reported."
-  }`.slice(0, TURN_PROMPT_MAX_CHARS);
+  let forkText = "";
+  if (turn.workspaceForkId) {
+    const world = host.env.WORLDS.getByName(await worldName(turn.ownerId));
+    const status = await world.forkStatus(turn.workspaceForkId);
+    let changedPaths: string[] = [];
+    if (status.baseManifestId) {
+      const baseEntries: WorldListingEntry[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const page = await world.manifest(status.baseManifestId, {
+          ...(cursor ? { cursor } : {}),
+          limit: 10_000,
+        });
+        if (!page) break;
+        baseEntries.push(...page.entries);
+        if (!page.cursor) break;
+        cursor = page.cursor;
+      }
+      const delta = await world.diff(baseEntries, {
+        fork: turn.workspaceForkId,
+      });
+      changedPaths = [...new Set([...delta.changed, ...delta.deleted])]
+        .sort()
+        .slice(0, 50);
+    } else {
+      changedPaths = (
+        await world.list("", { fork: turn.workspaceForkId, limit: 50 })
+      ).entries.map((entry) => entry.path);
+    }
+    forkText = `\n\nforkStatus: ${JSON.stringify({
+      forkId: turn.workspaceForkId,
+      changedSinceBase: status.changedSinceBase,
+      changedPaths,
+    })}`;
+  }
+  const heading = `${label} ${description} (thread ${turn.threadId})\n\n`;
+  const bodyLimit = Math.max(
+    0,
+    TURN_PROMPT_MAX_CHARS - heading.length - forkText.length,
+  );
+  return `${heading}${(resultText || "No result was reported.").slice(0, bodyLimit)}${forkText}`;
 };
 
 export const wakeParentAgentOrConversation = async (
@@ -376,7 +416,7 @@ export const wakeParentAgentOrConversation = async (
             : completion.status === "canceled"
               ? "child_canceled"
               : "child_failed",
-        text: agentCompletionText(host, turn, completion),
+        text: await agentCompletionText(host, turn, completion),
         threadId: turn.threadId,
         attemptGeneration: turn.attemptGeneration ?? 1,
         createdAt: completion.threadUpdatedAt,
@@ -432,7 +472,7 @@ export const wakeParentConversation = async (
       0,
       64,
     ),
-    prompt: agentCompletionText(host, turn, completion),
+    prompt: await agentCompletionText(host, turn, completion),
     lane: "wake",
     source: "agent-thread",
     hiddenMessage: true,
@@ -1115,6 +1155,11 @@ export const cancelForOwnerPurge = async (
   }
 
   await host.cleanupTransientWrites(turn);
+  if (turn.workspaceForkId) {
+    await host.env.WORLDS.getByName(await worldName(turn.ownerId)).dropFork(
+      turn.workspaceForkId,
+    );
+  }
   await host.deleteTurnStoragePreservingExactCancellations(turn, true);
   // The thread transcript is this owner's private job state and lives in
   // SQL tables the key-value sweep above cannot see.

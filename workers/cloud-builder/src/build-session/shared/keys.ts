@@ -9,11 +9,7 @@ import { mintTurnCapability } from "../../capability-signer.js";
 import { sha256Hex } from "../../hash.js";
 import { inSubshell } from "../../shell-subshell.js";
 import { sandboxLifecycleId } from "../../sandbox-lifecycle.js";
-import {
-  APP_BUILD_ROOT,
-  WORLD_DRIVE_ROOT,
-  WORLD_ROOT,
-} from "../../workspace.js";
+import { APP_BUILD_ROOT, WORLD_ROOT } from "../../workspace.js";
 import type { OwnerGateRefusalCode } from "../../owner-gate.js";
 import { AgentTurnAuthorityLostError } from "./errors.js";
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
@@ -367,14 +363,18 @@ export const exactTurnSandboxId = async (
  * checkpointed tree; `app` is the throwaway build root of the legacy app-build
  * turn, which is never checkpointed.
  */
-const TOOL_WORKSPACE_ROOTS = new Set([WORLD_ROOT, APP_BUILD_ROOT]);
+const FORK_WORKSPACE_ROOT = /^\/workspace\/forks\/fork-[0-9a-f-]{36}\/world$/u;
 
 /** Establish the post-mount fixed boundary before any model-shaped process. */
 export const normalizeToolWorkspaceRoot = async (
   session: Pick<ExecutionSession, "exec">,
   workspaceRoot: string,
 ): Promise<void> => {
-  if (!TOOL_WORKSPACE_ROOTS.has(workspaceRoot)) {
+  if (
+    workspaceRoot !== WORLD_ROOT &&
+    workspaceRoot !== APP_BUILD_ROOT &&
+    !FORK_WORKSPACE_ROOT.test(workspaceRoot)
+  ) {
     throw new Error("Invalid cloud workspace mount path.");
   }
   const command = [
@@ -382,16 +382,16 @@ export const normalizeToolWorkspaceRoot = async (
     "test ! -L /workspace",
     'test "$(readlink -f /workspace)" = /workspace',
     "test \"$(stat -c '%u:%g:%a' /workspace)\" = 0:42424:750",
-    `if [ -e '${workspaceRoot}' ] || [ -L '${workspaceRoot}' ]; then test -d '${workspaceRoot}' && test ! -L '${workspaceRoot}'; else mkdir '${workspaceRoot}'; fi`,
+    `if [ -e '${workspaceRoot}' ] || [ -L '${workspaceRoot}' ]; then test -d '${workspaceRoot}' && test ! -L '${workspaceRoot}'; else mkdir -p '${workspaceRoot}'; fi`,
     `chown 42424:42424 '${workspaceRoot}'`,
     `chmod 0750 '${workspaceRoot}'`,
     `test "$(readlink -f '${workspaceRoot}')" = '${workspaceRoot}'`,
     `test "$(stat -c '%u:%g:%a' '${workspaceRoot}')" = 42424:42424:750`,
-    ...(workspaceRoot === WORLD_ROOT
+    ...(workspaceRoot !== APP_BUILD_ROOT
       ? [
-          `if [ -e '${WORLD_DRIVE_ROOT}' ] || [ -L '${WORLD_DRIVE_ROOT}' ]; then test -d '${WORLD_DRIVE_ROOT}' && test ! -L '${WORLD_DRIVE_ROOT}'; else mkdir -m 0750 '${WORLD_DRIVE_ROOT}' && chown 42424:42424 '${WORLD_DRIVE_ROOT}'; fi`,
-          `test "$(readlink -f '${WORLD_DRIVE_ROOT}')" = '${WORLD_DRIVE_ROOT}'`,
-          `test "$(stat -c '%u:%g:%a' '${WORLD_DRIVE_ROOT}')" = 42424:42424:750`,
+          `if [ -e '${workspaceRoot}/drive' ] || [ -L '${workspaceRoot}/drive' ]; then test -d '${workspaceRoot}/drive' && test ! -L '${workspaceRoot}/drive'; else mkdir -m 0750 '${workspaceRoot}/drive' && chown 42424:42424 '${workspaceRoot}/drive'; fi`,
+          `test "$(readlink -f '${workspaceRoot}/drive')" = '${workspaceRoot}/drive'`,
+          `test "$(stat -c '%u:%g:%a' '${workspaceRoot}/drive')" = 42424:42424:750`,
         ]
       : []),
     "if [ -e /workspace/.stella-tool-home ] || [ -L /workspace/.stella-tool-home ]; then test -d /workspace/.stella-tool-home && test ! -L /workspace/.stella-tool-home && test \"$(stat -c '%u:%g:%a' /workspace/.stella-tool-home)\" = 42424:42424:700; else mkdir /workspace/.stella-tool-home && chown 42424:42424 /workspace/.stella-tool-home && chmod 0700 /workspace/.stella-tool-home; fi",

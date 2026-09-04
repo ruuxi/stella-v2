@@ -151,6 +151,37 @@ describe("world projection sync", () => {
     expect(hashed.map((file) => path.basename(file))).toEqual(["source.txt"]);
   });
 
+  test("addresses an isolated fork on every world sync request", async () => {
+    const root = await fixture();
+    const fork = `fork-${crypto.randomUUID()}`;
+    const urls: URL[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      urls.push(url);
+      if (url.pathname.endsWith("/push")) {
+        return Response.json({ missingBlobs: [], revision: 1 });
+      }
+      return Response.json({
+        revision: 1,
+        entries: [],
+        deleted: [],
+        resync: false,
+      });
+    }) as typeof fetch;
+
+    const isolatedAccess = { ...access, fork };
+    await pushWorldProjection({ root, access: isolatedAccess });
+    await pullWorldProjection({ root, access: isolatedAccess });
+
+    expect(urls.map((url) => url.pathname.split("/").at(-1))).toEqual([
+      "push",
+      "changes",
+    ]);
+    expect(urls.every((url) => url.searchParams.get("fork") === fork)).toBe(
+      true,
+    );
+  });
+
   test("pull applies upserts and deletions without following symlinks", async () => {
     const root = await fixture(1);
     await writeFile(path.join(root, "stella", "gone.txt"), "gone");

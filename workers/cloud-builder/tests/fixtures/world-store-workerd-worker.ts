@@ -33,6 +33,40 @@ export default {
         changes: await compacted.changesSince(0),
       });
     }
+    if (new URL(request.url).pathname === "/fork") {
+      const forkWorld = env.WORLDS.getByName("fixture-fork");
+      await forkWorld.writeFile("base.txt", encoder.encode("shared"), {});
+      const isolated = await forkWorld.fork({
+        kind: "fork",
+        threadId: "thread-fork",
+      });
+      const isolatedRoot = `/workspace/forks/${isolated.forkId}/world`;
+      const write = await forkWorld.tool({
+        name: "Write",
+        fork: isolated.forkId,
+        arguments: {
+          file_path: `${isolatedRoot}/base.txt`,
+          content: "isolated",
+        },
+      });
+      const fresh = await forkWorld.fork({
+        kind: "new",
+        threadId: "thread-new",
+      });
+      return Response.json({
+        isolated,
+        write,
+        shared: decoder.decode(
+          (await forkWorld.readFile("base.txt", {})) ?? new Uint8Array(),
+        ),
+        forked: decoder.decode(
+          (await forkWorld.readFile("base.txt", { fork: isolated.forkId })) ??
+            new Uint8Array(),
+        ),
+        fresh: await forkWorld.list("", { fork: fresh.forkId }),
+        status: await forkWorld.forkStatus(isolated.forkId),
+      });
+    }
     await world.writeFile("src/one.txt", encoder.encode("alpha\nbeta\n"), {});
     const before = decoder.decode(
       (await world.readFile("src/one.txt", {})) ?? new Uint8Array(),

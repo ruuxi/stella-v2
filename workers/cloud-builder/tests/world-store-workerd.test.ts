@@ -102,4 +102,25 @@ describe("WorldStore in real Workerd", () => {
       },
     });
   }, 30_000);
+
+  test("keeps forked tools isolated and starts new workspaces empty", async () => {
+    const response = await fetch(`${origin}/fork`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      write: { ok: true },
+      shared: "shared",
+      forked: "isolated",
+      fresh: { entries: [] },
+      status: {
+        kind: "fork",
+        changedSinceBase: 1,
+        revision: 1,
+      },
+    });
+    expect(body.isolated).toMatchObject({
+      forkId: expect.stringMatching(/^fork-[0-9a-f-]{36}$/u),
+      headManifestId: expect.stringMatching(/^live:/u),
+    });
+  });
 });

@@ -33,7 +33,12 @@ import {
   turnBrokerStorageKey,
 } from "../turn-credential-broker.js";
 import { issueWorldCapability } from "../world-capability.js";
-import { agentTurnSessionId, worldName, worldSandboxId } from "../workspace.js";
+import {
+  agentTurnSessionId,
+  worldName,
+  worldRootForFork,
+  worldSandboxId,
+} from "../workspace.js";
 import type { createAgentControlPlane } from "../agent-control-plane.js";
 import type { SealedTurnTranscript } from "../agent-turn-journal.js";
 import type {
@@ -295,7 +300,7 @@ export const prepareAgentBrokerHandoff = async (
   prompt: string;
   workspaceRestored: boolean;
   turnBroker: { credentialsPath: string };
-  world: { origin: string; name: string; capability: string };
+  world: { origin: string; name: string; capability: string; fork?: string };
 }> => {
   const { turn } = args;
   if (!turn.turnBrokerRoute || !turn.threadId) {
@@ -346,6 +351,7 @@ export const prepareAgentBrokerHandoff = async (
       origin: host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),
       name,
       capability: worldCapability,
+      ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
     },
   };
 };
@@ -548,12 +554,21 @@ export const runResidentAgentTurn = async (
       threadId: turn.threadId!,
       agentDepth: turn.agentDepth,
       execution: plan.execution,
+      ...(turn.workspaceForkId
+        ? { workspaceForkId: turn.workspaceForkId }
+        : {}),
     },
   });
   const doLocal = createGeneralAgentDoLocalTools({
     control,
     agentControl,
-    world: host.env.WORLDS.getByName(await worldName(turn.ownerId)),
+    world: {
+      tool: (call) =>
+        world.tool({
+          ...call,
+          ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
+        }),
+    },
     requestInteriorBuild: () => ladder.requestInteriorBuild(),
     now: () => Date.now(),
     signal: execution.signal,
@@ -630,7 +645,10 @@ export const runResidentAgentTurn = async (
             ids,
           ),
       },
-      workspacePrompt: { office: false },
+      workspacePrompt: {
+        office: false,
+        workspaceRoot: worldRootForFork(turn.workspaceForkId),
+      },
       now: () => Date.now(),
       onAgentStarted: (abort) => {
         host.residentAgentAborts.set(turn.turnId, abort);

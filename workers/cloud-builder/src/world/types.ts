@@ -15,6 +15,7 @@ export type WorldListingEntry = Omit<WorldEntry, "mtime"> & { mtime?: number };
 export type WorldToolCall = {
   name: "Read" | "Write" | "Edit" | "Grep" | "apply_patch" | "glob";
   arguments: Record<string, unknown>;
+  fork?: string;
 };
 
 export type WorldToolResult = { ok: boolean; output: string; revision: number };
@@ -26,6 +27,22 @@ export type WorldChanges = {
   resync: boolean;
 };
 
+export type WorldForkKind = "shared" | "fork" | "new";
+
+export type WorldForkStatus = {
+  kind: WorldForkKind;
+  baseManifestId: string | null;
+  headManifestId: string;
+  changedSinceBase: number;
+  revision: number;
+};
+
+export type WorldMergeResult = {
+  applied: string[];
+  deleted: string[];
+  conflicts: string[];
+};
+
 export const WORLD_CHUNK_BYTES = 512 * 1024;
 export const WORLD_R2_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const WORLD_FILE_LIMIT_BYTES = 256 * 1024 * 1024;
@@ -33,5 +50,3 @@ export const WORLD_READ_LIMIT_BYTES = 8 * 1024 * 1024;
 export const WORLD_QUOTA_BYTES = 4 * 1024 * 1024 * 1024;
 export const WORLD_PATH_LIMIT_BYTES = 1024;
 export const WORLD_CHANGE_LOG_MAX_ROWS = 10_000;
-
-export const WORLD_ROOT = "/workspace/world";

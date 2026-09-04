@@ -1,8 +1,10 @@
 import {
   TURN_PLANE_PROTOCOL,
+  type CloudAgentTurnStartRequest,
   type CloudAgentTurnStartResponse,
   type CloudTurnSource,
 } from "@stella/contracts/turn-plane/turn-start";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   OutboxEvent,
   ThreadSpawnedEvent,
@@ -81,6 +83,38 @@ export type AdmissionHost = Pick<
   | "trackTurn"
   | "unregisterTurn"
 >;
+
+export const turnRequestFromAgentStart = (
+  start: CloudAgentTurnStartRequest,
+): TurnRequest => ({
+  kind: "agent",
+  ownerId: start.ownerId,
+  ownerGeneration: start.ownerGeneration,
+  appId: "agent",
+  conversationId: start.conversationId,
+  threadId: start.threadId,
+  agentDepth: start.agentDepth,
+  turnId: start.turnId ?? crypto.randomUUID(),
+  attemptGeneration: start.attemptGeneration,
+  prompt: start.prompt,
+  description: start.description,
+  execution: start.execution,
+  audience: start.audience as ManagedModelAudience,
+  budgetMicroCents: start.budgetMicroCents,
+  source: start.source,
+  ...(start.workspace ? { workspace: start.workspace } : {}),
+  ...(start.workspaceForkId ? { workspaceForkId: start.workspaceForkId } : {}),
+  ...(start.clientMsgId ? { clientMsgId: start.clientMsgId } : {}),
+  ...(start.parentTurnId ? { parentTurnId: start.parentTurnId } : {}),
+  ...(start.parentThreadId ? { parentThreadId: start.parentThreadId } : {}),
+  ...(start.originDeviceId ? { originDeviceId: start.originDeviceId } : {}),
+  ...(start.originConversationId
+    ? { originConversationId: start.originConversationId }
+    : {}),
+  ...(start.browserResume !== undefined
+    ? { browserResume: start.browserResume as TurnRequest["browserResume"] }
+    : {}),
+});
 
 export const startAgentTurn = (
   host: AdmissionHost,
@@ -427,6 +461,10 @@ const projectAgentTurnStart = async (
       prompt: turn.prompt,
       execution: turn.execution!,
       placement: "cloud",
+      ...(turn.workspace ? { workspace: turn.workspace } : {}),
+      ...(turn.workspaceForkId
+        ? { workspaceForkId: turn.workspaceForkId }
+        : {}),
       ...(turn.originDeviceId ? { originDeviceId: turn.originDeviceId } : {}),
       ...(turn.originConversationId
         ? { originConversationId: turn.originConversationId }

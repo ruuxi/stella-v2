@@ -744,6 +744,9 @@ const projectCloudAgentThread = (row: Doc<"cloud_agent_threads">) => ({
   ownerId: row.ownerId,
   conversationId: row.conversationId,
   ...(row.parentTurnId === undefined ? {} : { parentTurnId: row.parentTurnId }),
+  ...(row.workspaceForkId === undefined
+    ? {}
+    : { workspaceForkId: row.workspaceForkId }),
   description: row.description,
   placement: row.placement,
   agentType: row.agentType,
@@ -1690,14 +1693,14 @@ export const isCloudBuildTurnDispatchableInternal = internalQuery({
       .unique();
     return Boolean(
       turn &&
-      turn.ownerId === args.ownerId &&
-      turn.ownerGeneration === args.ownerGeneration &&
-      turn.conversationId === args.conversationId &&
-      turn.appId === args.appId &&
-      turn.sessionId === args.sessionId &&
-      turn.kind === "build" &&
-      turn.status === "running" &&
-      !turn.terminalKind,
+        turn.ownerId === args.ownerId &&
+        turn.ownerGeneration === args.ownerGeneration &&
+        turn.conversationId === args.conversationId &&
+        turn.appId === args.appId &&
+        turn.sessionId === args.sessionId &&
+        turn.kind === "build" &&
+        turn.status === "running" &&
+        !turn.terminalKind,
     );
   },
 });
@@ -3042,6 +3045,9 @@ const spawnCloudAgent = async (
     placement: "cloud",
     threadId,
     ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
+    ...(continuedThread?.workspaceForkId
+      ? { workspaceForkId: continuedThread.workspaceForkId }
+      : {}),
     ...(args.source ? { source: args.source } : {}),
     ...(clientMsgId ? { clientMsgId } : {}),
     ...(intentFingerprint ? { spawnIntentFingerprint: intentFingerprint } : {}),

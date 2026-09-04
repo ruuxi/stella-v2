@@ -85,10 +85,9 @@ import {
   type GeneralAgentPromptSkills,
 } from "./general-agent-prompt.js";
 import {
-  WORLD_DRIVE_ROOT,
-  WORLD_DRIVE_WORKSPACE,
-  WORLD_ROOT,
   toolStateDir,
+  worldDriveWorkspace,
+  worldRootForFork,
 } from "./workspace-paths.js";
 import {
   pullWorldProjection,
@@ -636,10 +635,12 @@ export const CLOUD_GENERAL_PROMPT = (options: {
   office: boolean;
   drive?: DriveSyncResult;
   skills?: GeneralAgentPromptSkills;
+  workspaceRoot?: string;
 }): string =>
   buildGeneralAgentPrompt({
     workspace: "materialized",
     office: options.office,
+    ...(options.workspaceRoot ? { workspaceRoot: options.workspaceRoot } : {}),
     ...(options.drive ? { drive: options.drive } : {}),
     ...(options.skills ? { skills: options.skills } : {}),
   });
@@ -749,9 +750,9 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           checkpointPolicy: "preserve_prior",
         };
       }
-      const workspaceRoot = WORLD_ROOT;
+      const workspaceRoot = worldRootForFork(input.world.fork);
       const workspaceStateDir = toolStateDir(workspaceRoot);
-      const driveWorkspace = WORLD_DRIVE_WORKSPACE;
+      const driveWorkspace = worldDriveWorkspace(workspaceRoot);
       const toolHome = CLOUD_TOOL_HOME;
       yield* Effect.tryPromise({
         try: () =>
@@ -829,6 +830,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       const officeBinPath = resolveOfficeBinPath();
       const cloudSystemPrompt = CLOUD_GENERAL_PROMPT({
         office: Boolean(officeBinPath),
+        workspaceRoot,
         ...(input.skills ? { skills: input.skills } : {}),
         drive: driveSync,
       });
@@ -1217,7 +1219,10 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       }
       const executorBoundaryPushFailure = yield* Effect.promise(async () => {
         try {
-          await pushWorldProjection({ root: WORLD_ROOT, access: input.world });
+          await pushWorldProjection({
+            root: workspaceRoot,
+            access: input.world,
+          });
           return undefined;
         } catch (error) {
           return asError(error);
@@ -1305,7 +1310,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           // linked path is still an agent-chosen string; `collectProducedFiles`
           // authorizes every one beneath the workspace boundary.
           const collected = await collectProducedFiles({
-            workspaceRoot: WORLD_DRIVE_ROOT,
+            workspaceRoot: driveWorkspace.root,
             linked: extractLocalFileLinkPaths(execution.finalText),
             gitAware: false,
             drivePrefix: "",
@@ -1442,7 +1447,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         const results = await Promise.allSettled([
           toolHost.shutdown(),
           claudeToolMcpHost?.close() ?? Promise.resolve(),
-          pushWorldProjection({ root: WORLD_ROOT, access: input.world }),
+          pushWorldProjection({ root: workspaceRoot, access: input.world }),
         ]);
         return [
           ...(browserTurnFailure ? [browserTurnFailure] : []),

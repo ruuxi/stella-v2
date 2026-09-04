@@ -67,10 +67,9 @@ import {
 } from "./cloud-process-isolation.js";
 import { cloudAgentToolContext } from "./cloud-tool-context.js";
 import {
-  WORLD_DRIVE_ROOT,
-  WORLD_DRIVE_WORKSPACE,
-  WORLD_ROOT,
   toolStateDir,
+  worldDriveWorkspace,
+  worldRootForFork,
 } from "./workspace-paths.js";
 import { pullWorldProjection, pushWorldProjection } from "./world-sync.js";
 
@@ -81,7 +80,12 @@ export type AttachedToolHostInput = Readonly<{
   prompt: string;
   workspaceRestored: boolean;
   turnBroker: TurnBrokerInput;
-  world: Readonly<{ origin: string; name: string; capability: string }>;
+  world: Readonly<{
+    origin: string;
+    name: string;
+    capability: string;
+    fork?: string;
+  }>;
 }>;
 
 const asError = (error: unknown): Error =>
@@ -124,7 +128,7 @@ export const parseAttachedToolHostInput = (
   const row = value as Record<string, unknown>;
   const broker = row.turnBroker as { credentialsPath?: unknown } | undefined;
   const world = row.world as
-    | { origin?: unknown; name?: unknown; capability?: unknown }
+    | { origin?: unknown; name?: unknown; capability?: unknown; fork?: unknown }
     | undefined;
   if (
     !boundedText(row.turnId, 256) ||
@@ -140,7 +144,10 @@ export const parseAttachedToolHostInput = (
     !boundedText(world.origin, 2_048) ||
     typeof world.name !== "string" ||
     !/^[0-9a-f]{64}:[0-9a-f]{64}$/u.test(world.name) ||
-    !boundedText(world.capability, 4_096)
+    !boundedText(world.capability, 4_096) ||
+    (world.fork !== undefined &&
+      (typeof world.fork !== "string" ||
+        !/^fork-[0-9a-f-]{36}$/u.test(world.fork)))
   ) {
     throw new Error("Attached tool host input is invalid.");
   }
@@ -155,6 +162,7 @@ export const parseAttachedToolHostInput = (
       origin: world.origin,
       name: world.name,
       capability: world.capability,
+      ...(typeof world.fork === "string" ? { fork: world.fork } : {}),
     },
   };
 };
@@ -409,9 +417,9 @@ export const runAttachedToolHost = (
         body: unknown,
       ): Promise<Response> => await broker.postJson(route, body);
 
-      const workspaceRoot = WORLD_ROOT;
+      const workspaceRoot = worldRootForFork(input.world.fork);
       const workspaceStateDir = toolStateDir(workspaceRoot);
-      const driveWorkspace = WORLD_DRIVE_WORKSPACE;
+      const driveWorkspace = worldDriveWorkspace(workspaceRoot);
       yield* Effect.tryPromise({
         try: () =>
           prepareCloudToolFilesystem({
@@ -461,7 +469,7 @@ export const runAttachedToolHost = (
       });
 
       const calls = new Map<string, CallState>();
-      const notice = driveHydrationNotice(driveSync);
+      const notice = driveHydrationNotice(driveSync, workspaceRoot);
       const bootNotices = notice ? [notice] : [];
 
       const execute = async (
@@ -476,7 +484,7 @@ export const runAttachedToolHost = (
         const syncNotices: string[] = [];
         if (syncAtBoundary) {
           await pullWorldProjection({
-            root: WORLD_ROOT,
+            root: workspaceRoot,
             access: input.world,
           }).catch((error) => {
             const message = asError(error).message;
@@ -493,7 +501,7 @@ export const runAttachedToolHost = (
         } catch (error) {
           if (syncAtBoundary) {
             await pushWorldProjection({
-              root: WORLD_ROOT,
+              root: workspaceRoot,
               access: input.world,
             }).catch((failure) =>
               console.error(`world push failed: ${asError(failure).message}`),
@@ -506,7 +514,7 @@ export const runAttachedToolHost = (
         }
         if (syncAtBoundary) {
           await pushWorldProjection({
-            root: WORLD_ROOT,
+            root: workspaceRoot,
             access: input.world,
           }).catch((error) => {
             const message = asError(error).message;
@@ -526,9 +534,9 @@ export const runAttachedToolHost = (
         linkedPaths: readonly string[],
       ): Promise<AttachedToolHostReport> => {
         await toolHost.shutdown();
-        await pushWorldProjection({ root: WORLD_ROOT, access: input.world });
+        await pushWorldProjection({ root: workspaceRoot, access: input.world });
         const collected = await collectProducedFiles({
-          workspaceRoot: WORLD_DRIVE_ROOT,
+          workspaceRoot: driveWorkspace.root,
           linked: linkedPaths,
           gitAware: false,
           drivePrefix: "",

@@ -77,6 +77,7 @@ import {
 } from "@stella/runtime/kernel/tools/defs/web-def.js";
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
+  MERGE_WORKSPACE_TOOL_DESCRIPTOR,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
   SEND_INPUT_TOOL_DESCRIPTOR,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
@@ -133,6 +134,7 @@ import {
 } from "./cloud-skill-tools.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex } from "./hash.js";
+import { worldName } from "./workspace.js";
 import {
   agentStatusResult as sharedAgentStatusResult,
   commitCloudAgentToolOutcome as commitSharedCloudAgentToolOutcome,
@@ -270,7 +272,11 @@ import {
  */
 type Env = Pick<
   Cloudflare.Env,
-  "BUILD_SESSIONS" | "OWNER_GATES" | "LOADER" | "BUILDER_SERVICE_SECRET"
+  | "BUILD_SESSIONS"
+  | "OWNER_GATES"
+  | "WORLDS"
+  | "LOADER"
+  | "BUILDER_SERVICE_SECRET"
 > &
   Partial<
     Pick<
@@ -2634,7 +2640,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       const callbackIdentity = { ownerId, ownerGeneration, turnId };
       const receiptMatches = Boolean(
         leaseReceipt &&
-        this.ownerFenceReceiptMatches(leaseReceipt, callbackIdentity, leaseId),
+          this.ownerFenceReceiptMatches(
+            leaseReceipt,
+            callbackIdentity,
+            leaseId,
+          ),
       );
       if (leaseReceipt && !receiptMatches) {
         return json({ error: "Owner purge lease identity is stale." }, 409);
@@ -4887,13 +4897,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     ]);
     return Boolean(
       retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
-      localLease ||
-      queued.size > 0 ||
-      this.live ||
-      this.activeTurnId ||
-      this.currentAgent ||
-      this.currentTurnCancellation ||
-      this.journal.inboxSize().rows > 0,
+        localLease ||
+        queued.size > 0 ||
+        this.live ||
+        this.activeTurnId ||
+        this.currentAgent ||
+        this.currentTurnCancellation ||
+        this.journal.inboxSize().rows > 0,
     );
   }
 
@@ -4912,10 +4922,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     const row = next.rows[0];
     return Boolean(
       row &&
-      row.seq === throughSeq + 1 &&
-      row.kind === "message" &&
-      row.role === "user" &&
-      row.hidden === 0,
+        row.seq === throughSeq + 1 &&
+        row.kind === "message" &&
+        row.role === "user" &&
+        row.hidden === 0,
     );
   }
 
@@ -8221,6 +8231,8 @@ export class OrchestratorSession extends DurableObject<Env> {
         description: string;
         prompt: string;
         execution: CloudExecutionSelection;
+        workspace?: "shared" | "new" | "fork";
+        workspaceForkId?: string;
       },
       signal?: AbortSignal,
     ): Promise<CloudAgentControlReceipt> =>
@@ -8277,8 +8289,18 @@ export class OrchestratorSession extends DurableObject<Env> {
             description: string;
             prompt: string;
             model?: string;
+            workspace?: "shared" | "new" | "fork";
           };
+          if (
+            args.workspace !== undefined &&
+            args.workspace !== "shared" &&
+            args.workspace !== "new" &&
+            args.workspace !== "fork"
+          ) {
+            throw new Error('workspace must be "shared", "new", or "fork".');
+          }
           const model = args.model?.trim();
+          const workspace = args.workspace ?? "shared";
           // Parsed before the replay read so an invalid override fails the
           // same way every time, without consulting the ledger.
           const execution = resolveCloudSpawnExecution(model, turn.execution);
@@ -8286,6 +8308,7 @@ export class OrchestratorSession extends DurableObject<Env> {
             description: args.description,
             prompt: args.prompt,
             model: model && model !== "default" ? model : null,
+            workspace,
           });
           let outcome = await this.readCloudAgentToolOutcome(
             turn,
@@ -8303,6 +8326,7 @@ export class OrchestratorSession extends DurableObject<Env> {
                 description: args.description,
                 prompt: args.prompt,
                 execution,
+                workspace,
               },
               signal,
             );
@@ -8328,6 +8352,10 @@ export class OrchestratorSession extends DurableObject<Env> {
               description: args.description,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,
+              workspace,
+              ...(control.workspaceForkId
+                ? { workspace_fork_id: control.workspaceForkId }
+                : {}),
             },
           };
         },
@@ -8397,6 +8425,10 @@ export class OrchestratorSession extends DurableObject<Env> {
                     description: prior.description ?? "Continued task",
                     prompt: args.message,
                     execution: prior.execution ?? turn.execution,
+                    workspace: prior.workspace ?? "shared",
+                    ...(prior.workspaceForkId
+                      ? { workspaceForkId: prior.workspaceForkId }
+                      : {}),
                   },
                   signal,
                 );
@@ -8412,6 +8444,10 @@ export class OrchestratorSession extends DurableObject<Env> {
                   description: prior.description ?? "Continued task",
                   prompt: args.message,
                   execution: prior.execution ?? turn.execution,
+                  workspace: prior.workspace ?? "shared",
+                  ...(prior.workspaceForkId
+                    ? { workspaceForkId: prior.workspaceForkId }
+                    : {}),
                 },
                 signal,
               );
@@ -8590,6 +8626,49 @@ export class OrchestratorSession extends DurableObject<Env> {
               ? outcome.disposition
               : disposition,
           );
+        },
+      },
+      {
+        ...MERGE_WORKSPACE_TOOL_DESCRIPTOR,
+        label: "Merge workspace",
+        parameters:
+          MERGE_WORKSPACE_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
+        execute: async (_toolCallId, params) => {
+          const args = params as { thread_id?: string; into?: string };
+          const threadId = (args.thread_id ?? "").trim();
+          if (args.into !== undefined && args.into !== "shared") {
+            throw new Error('merge_workspace into must be "shared".');
+          }
+          const control = await this.requireCloudAgentControlReceipt(
+            threadId,
+            "any",
+          );
+          if (!control.workspaceForkId) {
+            throw new Error(`${threadId} does not have an isolated workspace.`);
+          }
+          const merged = await this.env.WORLDS.getByName(
+            await worldName(turn.ownerId),
+          ).merge({
+            from: control.workspaceForkId,
+            into: "shared",
+            strategy: "last_writer_wins",
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Merged ${threadId}'s workspace into shared: ${merged.applied.length} applied, ${merged.deleted.length} deleted, ${merged.conflicts.length} conflicts.`,
+              },
+            ],
+            details: {
+              thread_id: threadId,
+              into: "shared",
+              applied_count: merged.applied.length,
+              deleted_count: merged.deleted.length,
+              conflict_count: merged.conflicts.length,
+              conflicts: merged.conflicts,
+            },
+          };
         },
       },
       // The desktop `web` tool's exact surface (web-def) and fetch pipeline

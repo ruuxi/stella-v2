@@ -82,21 +82,24 @@ const fuzzyNormalizeText = (text: string): string =>
 const readText = async (
   api: WorldToolFileApi,
   path: string,
+  root: string,
 ): Promise<string> => {
   const entry = await api.stat(path);
-  if (!entry) throw new Error(`File not found: ${absoluteWorldPath(path)}`);
+  if (!entry)
+    throw new Error(`File not found: ${absoluteWorldPath(path, root)}`);
   if (entry.kind !== "file")
-    throw new Error(`Path is not a file: ${absoluteWorldPath(path)}`);
+    throw new Error(`Path is not a file: ${absoluteWorldPath(path, root)}`);
   if (entry.size > TOOL_FILE_LIMIT_BYTES) {
     throw new Error(
-      `File too large to read safely (${entry.size} bytes): ${absoluteWorldPath(path)}`,
+      `File too large to read safely (${entry.size} bytes): ${absoluteWorldPath(path, root)}`,
     );
   }
   const bytes = await api.readFile(path, {});
-  if (!bytes) throw new Error(`File not found: ${absoluteWorldPath(path)}`);
+  if (!bytes)
+    throw new Error(`File not found: ${absoluteWorldPath(path, root)}`);
   if (bytes.includes(0))
     throw new Error(
-      `Binary files are not supported: ${absoluteWorldPath(path)}`,
+      `Binary files are not supported: ${absoluteWorldPath(path, root)}`,
     );
   return decoder.decode(bytes);
 };
@@ -104,15 +107,16 @@ const readText = async (
 const handleRead = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
+  root: string,
 ): Promise<string> => {
   try {
-    const path = worldRelativeToolPath(args.file_path);
+    const path = worldRelativeToolPath(args.file_path, root);
     if (/\.(?:png|jpe?g|gif|webp)$/iu.test(path)) {
       throw new Error(
-        `Binary files are not supported: ${absoluteWorldPath(path)}`,
+        `Binary files are not supported: ${absoluteWorldPath(path, root)}`,
       );
     }
-    const content = await readText(api, path);
+    const content = await readText(api, path, root);
     const offsetValue = Number(args.offset ?? 1);
     const limitValue = Number(args.limit ?? 2000);
     const offset = Number.isFinite(offsetValue) ? offsetValue : 1;
@@ -122,7 +126,7 @@ const handleRead = async (
       sanitizeToolVisibleText(content, { codeFile: true }),
     ).split("\n");
     const formatted = formatWithHashLines(lines, displayLines, offset, limit);
-    return `File: ${absoluteWorldPath(path)}\n${formatted.header}\n\n${formatted.body}`;
+    return `File: ${absoluteWorldPath(path, root)}\n${formatted.header}\n\n${formatted.body}`;
   } catch (error) {
     throw new Error(`Error reading file: ${asError(error)}`);
   }
@@ -131,22 +135,23 @@ const handleRead = async (
 const handleWrite = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
+  root: string,
 ): Promise<string> => {
   try {
-    const path = worldRelativeToolPath(args.file_path);
+    const path = worldRelativeToolPath(args.file_path, root);
     const previous = await api.stat(path);
     const content = String(args.content ?? "");
     if (content.includes("\0"))
       throw new Error("File content contains a NUL byte.");
     let final = content;
     if (previous?.kind === "file") {
-      const current = await readText(api, path);
+      const current = await readText(api, path, root);
       final = restoreLineEnding(normalizeLf(content), lineEnding(current));
     }
     await api.writeFile(path, encoder.encode(final), {});
     return previous
-      ? `Wrote ${absoluteWorldPath(path)}`
-      : `Created ${absoluteWorldPath(path)}`;
+      ? `Wrote ${absoluteWorldPath(path, root)}`
+      : `Created ${absoluteWorldPath(path, root)}`;
   } catch (error) {
     throw new Error(`Error writing file: ${asError(error)}`);
   }
@@ -260,9 +265,10 @@ const exactEdit = (
 const handleEdit = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
+  root: string,
 ): Promise<string> => {
-  const path = worldRelativeToolPath(args.file_path);
-  const content = await readText(api, path).catch((error) => {
+  const path = worldRelativeToolPath(args.file_path, root);
+  const content = await readText(api, path, root).catch((error) => {
     throw new Error(`Error reading file: ${asError(error)}`);
   });
   const hasAnchor =
@@ -291,7 +297,7 @@ const handleEdit = async (
         ? `line ${applied.startLine}`
         : `lines ${applied.startLine}-${applied.endLine}`;
     const action = applied.linesRemoved === 0 ? "Inserted after" : "Replaced";
-    return `${action} ${range} in ${absoluteWorldPath(path)} (-${applied.linesRemoved}/+${applied.linesAdded} lines)`;
+    return `${action} ${range} in ${absoluteWorldPath(path, root)} (-${applied.linesRemoved}/+${applied.linesAdded} lines)`;
   }
   const edited = exactEdit(
     content,
@@ -300,9 +306,9 @@ const handleEdit = async (
     Boolean(args.replace_all),
   );
   if (edited.noChange)
-    return `Edit already applied to ${absoluteWorldPath(path)}; no write was needed.`;
+    return `Edit already applied to ${absoluteWorldPath(path, root)}; no write was needed.`;
   await api.writeFile(path, encoder.encode(edited.content), {});
-  return `Replaced ${edited.replacements} occurrence(s) in ${absoluteWorldPath(path)}`;
+  return `Replaced ${edited.replacements} occurrence(s) in ${absoluteWorldPath(path, root)}`;
 };
 
 const globRegex = (pattern: string): RegExp => {
@@ -337,14 +343,15 @@ const typeExtensions: Readonly<Record<string, readonly string[]>> = {
 const handleGrep = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
+  root: string,
 ): Promise<string> => {
   const pattern = String(args.pattern ?? "");
   const prefix =
-    args.path === undefined ? "" : worldRelativeToolPath(args.path);
+    args.path === undefined ? "" : worldRelativeToolPath(args.path, root);
   const base = await api.stat(prefix);
   if (prefix && !base)
     throw new Error(
-      `Path not found: ${absoluteWorldPath(prefix)}\nCheck the path or search its nearest existing parent directory.`,
+      `Path not found: ${absoluteWorldPath(prefix, root)}\nCheck the path or search its nearest existing parent directory.`,
     );
   let expression: RegExp;
   try {
@@ -387,7 +394,7 @@ const handleGrep = async (
       if (matching.length >= maxResults) break;
     }
     if (matching.length === 0) continue;
-    const absolute = absoluteWorldPath(entry.path);
+    const absolute = absoluteWorldPath(entry.path, root);
     if (outputMode === "files_with_matches") output.push(absolute);
     else if (outputMode === "count")
       output.push(`${absolute}:${matching.length}`);
@@ -426,7 +433,7 @@ type PatchOp =
       }>;
     };
 
-const parsePatch = (value: string): PatchOp[] => {
+const parsePatch = (value: string, root: string): PatchOp[] => {
   let text = value.replaceAll("\r\n", "\n").trim();
   const wrapped = text.split("\n");
   if (
@@ -443,14 +450,14 @@ const parsePatch = (value: string): PatchOp[] => {
     const line = lines[index] ?? "";
     if (line.trim() === "*** End Patch") return ops;
     if (line.startsWith("*** Add File: ")) {
-      const path = worldRelativeToolPath(line.slice(14).trim());
+      const path = worldRelativeToolPath(line.slice(14).trim(), root);
       const added: string[] = [];
       index += 1;
       while (index < lines.length && !(lines[index] ?? "").startsWith("*** ")) {
         const next = lines[index] ?? "";
         if (!next.startsWith("+"))
           throw new Error(
-            `apply_patch: lines under '*** Add File: ${absoluteWorldPath(path)}' must start with '+'. Saw: '${next}'`,
+            `apply_patch: lines under '*** Add File: ${absoluteWorldPath(path, root)}' must start with '+'. Saw: '${next}'`,
           );
         added.push(next.slice(1));
         index += 1;
@@ -461,17 +468,20 @@ const parsePatch = (value: string): PatchOp[] => {
     if (line.startsWith("*** Delete File: ")) {
       ops.push({
         kind: "delete",
-        path: worldRelativeToolPath(line.slice(17).trim()),
+        path: worldRelativeToolPath(line.slice(17).trim(), root),
       });
       index += 1;
       continue;
     }
     if (line.startsWith("*** Update File: ")) {
-      const path = worldRelativeToolPath(line.slice(17).trim());
+      const path = worldRelativeToolPath(line.slice(17).trim(), root);
       index += 1;
       let moveTo: string | undefined;
       if ((lines[index] ?? "").startsWith("*** Move to: ")) {
-        moveTo = worldRelativeToolPath((lines[index] ?? "").slice(13).trim());
+        moveTo = worldRelativeToolPath(
+          (lines[index] ?? "").slice(13).trim(),
+          root,
+        );
         index += 1;
       }
       const hunks: Extract<PatchOp, { kind: "update" }>["hunks"] = [];
@@ -491,7 +501,7 @@ const parsePatch = (value: string): PatchOp[] => {
           index += 1;
         } else if (hunks.length > 0)
           throw new Error(
-            `apply_patch: expected '@@' header inside Update File '${absoluteWorldPath(path)}'.`,
+            `apply_patch: expected '@@' header inside Update File '${absoluteWorldPath(path, root)}'.`,
           );
         while (index < lines.length) {
           const next = lines[index] ?? "";
@@ -516,14 +526,14 @@ const parsePatch = (value: string): PatchOp[] => {
         }
         if (hunk.lines.length === 0 && !hunk.eof) {
           throw new Error(
-            `apply_patch: empty hunk inside Update File '${absoluteWorldPath(path)}'.`,
+            `apply_patch: empty hunk inside Update File '${absoluteWorldPath(path, root)}'.`,
           );
         }
         hunks.push(hunk);
       }
       if (hunks.length === 0) {
         throw new Error(
-          `apply_patch: Update File '${absoluteWorldPath(path)}' has no hunks.`,
+          `apply_patch: Update File '${absoluteWorldPath(path, root)}' has no hunks.`,
         );
       }
       ops.push({ kind: "update", path, ...(moveTo ? { moveTo } : {}), hunks });
@@ -636,39 +646,40 @@ const patchMissHint = (lines: string[], expected: string[]): string => {
 const handlePatch = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
+  root: string,
 ): Promise<string> => {
   const patch = String(args.input ?? args.patch ?? "").trim();
   if (!patch) throw new Error("apply_patch requires a patch envelope.");
   const results: Array<Record<string, unknown>> = [];
-  for (const op of parsePatch(patch)) {
+  for (const op of parsePatch(patch, root)) {
     if (op.kind === "add") {
       if (await api.stat(op.path))
         throw new Error(
-          `apply_patch: file already exists for Add: ${absoluteWorldPath(op.path)}`,
+          `apply_patch: file already exists for Add: ${absoluteWorldPath(op.path, root)}`,
         );
       await api.writeFile(
         op.path,
         encoder.encode(op.lines.join("\n") + (op.lines.length ? "\n" : "")),
         {},
       );
-      results.push({ kind: "add", path: absoluteWorldPath(op.path) });
+      results.push({ kind: "add", path: absoluteWorldPath(op.path, root) });
       continue;
     }
     if (op.kind === "delete") {
       if (!(await api.stat(op.path)))
         throw new Error(
-          `apply_patch: file not found for Delete: ${absoluteWorldPath(op.path)}`,
+          `apply_patch: file not found for Delete: ${absoluteWorldPath(op.path, root)}`,
         );
       await api.remove(op.path, {});
-      results.push({ kind: "delete", path: absoluteWorldPath(op.path) });
+      results.push({ kind: "delete", path: absoluteWorldPath(op.path, root) });
       continue;
     }
     let content: string;
     try {
-      content = await readText(api, op.path);
+      content = await readText(api, op.path, root);
     } catch {
       throw new Error(
-        `apply_patch: file not found for Update: ${absoluteWorldPath(op.path)}`,
+        `apply_patch: file not found for Update: ${absoluteWorldPath(op.path, root)}`,
       );
     }
     const trailing = content.endsWith("\n");
@@ -687,7 +698,7 @@ const handlePatch = async (
         const location = seek(lines, [hunk.header], cursor, false);
         if (location < 0)
           throw new Error(
-            `apply_patch: failed to find context '${hunk.header}' in ${absoluteWorldPath(op.path)}.\n\n${patchMissHint(lines, [hunk.header])}`,
+            `apply_patch: failed to find context '${hunk.header}' in ${absoluteWorldPath(op.path, root)}.\n\n${patchMissHint(lines, [hunk.header])}`,
           );
         cursor = location + 1;
       }
@@ -727,7 +738,7 @@ const handlePatch = async (
           continue;
         }
         throw new Error(
-          `apply_patch: failed to find expected lines in ${absoluteWorldPath(op.path)}:\n${originalOldLines.join("\n")}\n\n${patchMissHint(lines, originalOldLines)}`,
+          `apply_patch: failed to find expected lines in ${absoluteWorldPath(op.path, root)}:\n${originalOldLines.join("\n")}\n\n${patchMissHint(lines, originalOldLines)}`,
         );
       }
       replacements.push({
@@ -740,8 +751,8 @@ const handlePatch = async (
     if (replacements.length === 0 && alreadyAppliedHunks > 0) {
       results.push({
         kind: "noop",
-        path: absoluteWorldPath(op.path),
-        note: `Patch already applied to ${absoluteWorldPath(op.path)}; no write was needed.`,
+        path: absoluteWorldPath(op.path, root),
+        note: `Patch already applied to ${absoluteWorldPath(op.path, root)}; no write was needed.`,
       });
       continue;
     }
@@ -755,9 +766,9 @@ const handlePatch = async (
     if (op.moveTo && op.moveTo !== op.path) await api.remove(op.path, {});
     results.push({
       kind: "update",
-      path: absoluteWorldPath(op.path),
-      ...(op.moveTo ? { movedTo: absoluteWorldPath(op.moveTo) } : {}),
-      written: absoluteWorldPath(target),
+      path: absoluteWorldPath(op.path, root),
+      ...(op.moveTo ? { movedTo: absoluteWorldPath(op.moveTo, root) } : {}),
+      written: absoluteWorldPath(target, root),
     });
   }
   return JSON.stringify({ results });
@@ -766,10 +777,11 @@ const handlePatch = async (
 const handleGlob = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
+  root: string,
 ): Promise<string> => {
   const pattern = String(args.pattern ?? args.glob ?? "**/*");
   const prefix =
-    args.path === undefined ? "" : worldRelativeToolPath(args.path);
+    args.path === undefined ? "" : worldRelativeToolPath(args.path, root);
   const expression = globRegex(pattern);
   const listing = await listAll(api, prefix);
   return listing
@@ -778,27 +790,28 @@ const handleGlob = async (
         prefix === "" ? entry.path : entry.path.slice(prefix.length + 1),
       ),
     )
-    .map((entry) => absoluteWorldPath(entry.path))
+    .map((entry) => absoluteWorldPath(entry.path, root))
     .join("\n");
 };
 
 export const executeWorldTool = async (
   api: WorldToolFileApi,
   call: WorldToolCall,
+  root: string,
 ): Promise<WorldToolResult> => {
   try {
     const output =
       call.name === "Read"
-        ? await handleRead(api, call.arguments)
+        ? await handleRead(api, call.arguments, root)
         : call.name === "Write"
-          ? await handleWrite(api, call.arguments)
+          ? await handleWrite(api, call.arguments, root)
           : call.name === "Edit"
-            ? await handleEdit(api, call.arguments)
+            ? await handleEdit(api, call.arguments, root)
             : call.name === "Grep"
-              ? await handleGrep(api, call.arguments)
+              ? await handleGrep(api, call.arguments, root)
               : call.name === "apply_patch"
-                ? await handlePatch(api, call.arguments)
-                : await handleGlob(api, call.arguments);
+                ? await handlePatch(api, call.arguments, root)
+                : await handleGlob(api, call.arguments, root);
     return { ok: true, output, revision: 0 };
   } catch (error) {
     return { ok: false, output: asError(error), revision: 0 };

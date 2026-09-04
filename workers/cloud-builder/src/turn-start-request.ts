@@ -6,6 +6,7 @@
  */
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import {
   CLIENT_MSG_ID_PATTERN,
@@ -420,6 +421,38 @@ export const parseCloudAgentTurnStartRequest = (
     if (!parentThreadId) return fail("parentThreadId is malformed.");
     request.parentThreadId = parentThreadId;
   }
+  if (value.workspace !== undefined) {
+    if (
+      value.workspace !== "shared" &&
+      value.workspace !== "new" &&
+      value.workspace !== "fork"
+    ) {
+      return fail("workspace must be shared, new, or fork.");
+    }
+    request.workspace = value.workspace;
+  }
+  if (value.workspaceForkId !== undefined) {
+    const workspaceForkId = bounded(value.workspaceForkId);
+    if (!/^fork-[0-9a-f-]{36}$/u.test(workspaceForkId)) {
+      return fail("workspaceForkId is malformed.");
+    }
+    request.workspaceForkId = workspaceForkId;
+  }
+  if (request.workspace === "shared" && request.workspaceForkId !== undefined) {
+    return fail("A shared workspace cannot name a workspaceForkId.");
+  }
+  if (
+    request.workspaceForkId !== undefined &&
+    request.workspace === undefined
+  ) {
+    return fail("workspace is required when workspaceForkId is present.");
+  }
+  if (
+    (request.workspace === "new" || request.workspace === "fork") &&
+    request.workspaceForkId === undefined
+  ) {
+    return fail("An isolated workspace requires workspaceForkId.");
+  }
   if (
     (request.agentDepth === 1 && request.parentThreadId !== undefined) ||
     (request.agentDepth === 2 && request.parentThreadId === undefined)
@@ -440,6 +473,9 @@ export const parseCloudAgentTurnStartRequest = (
     request.originConversationId = originConversationId;
   }
   if (value.browserResume !== undefined) {
+    if (!isCloudBrowserResumeReceipt(value.browserResume)) {
+      return fail("browserResume is malformed.");
+    }
     request.browserResume = value.browserResume;
   }
   return { ok: true, request };

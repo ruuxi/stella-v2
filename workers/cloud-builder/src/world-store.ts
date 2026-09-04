@@ -8,25 +8,34 @@ export class WorldStore extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.world = new WorldSqlStore(ctx.storage.sql, env.WORLDS_BUCKET);
-    void ctx.blockConcurrencyWhile(async () => this.world.initialize());
+    void ctx.blockConcurrencyWhile(() => {
+      this.world.initialize();
+      return Promise.resolve();
+    });
   }
 
-  stat(path: string) {
-    return this.world.stat(path);
+  stat(path: string, options: { fork?: string } = {}) {
+    return this.world.stat(path, options);
   }
 
-  list(prefix: string, options: { cursor?: string; limit?: number } = {}) {
+  list(
+    prefix: string,
+    options: { cursor?: string; limit?: number; fork?: string } = {},
+  ) {
     return this.world.list(prefix, options);
   }
 
-  readFile(path: string, options: { offset?: number; length?: number } = {}) {
+  readFile(
+    path: string,
+    options: { offset?: number; length?: number; fork?: string } = {},
+  ) {
     return this.world.readFile(path, options);
   }
 
   writeFile(
     path: string,
     bytes: Uint8Array,
-    options: { mode?: number; mtime?: number } = {},
+    options: { mode?: number; mtime?: number; fork?: string } = {},
   ) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.writeFile(path, bytes, options),
@@ -45,32 +54,40 @@ export class WorldStore extends DurableObject<Env> {
 
   finishBlob(
     uploadId: string,
-    options: { path?: string; sha256?: string; mode?: number; mtime?: number },
+    options: {
+      path?: string;
+      sha256?: string;
+      mode?: number;
+      mtime?: number;
+      fork?: string;
+    },
   ) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.finishBlob(uploadId, options),
     );
   }
 
-  mkdir(path: string, options: { mode?: number } = {}) {
+  mkdir(path: string, options: { mode?: number; fork?: string } = {}) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.mkdir(path, options),
     );
   }
 
-  remove(path: string, options: { recursive?: boolean } = {}) {
+  remove(path: string, options: { recursive?: boolean; fork?: string } = {}) {
     return this.ctx.blockConcurrencyWhile(() =>
       this.world.remove(path, options),
     );
   }
 
-  rename(from: string, to: string) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.rename(from, to));
+  rename(from: string, to: string, options: { fork?: string } = {}) {
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.world.rename(from, to, options),
+    );
   }
 
-  symlink(path: string, target: string) {
+  symlink(path: string, target: string, options: { fork?: string } = {}) {
     return this.ctx.blockConcurrencyWhile(() =>
-      this.world.symlink(path, target),
+      this.world.symlink(path, target, options),
     );
   }
 
@@ -80,7 +97,7 @@ export class WorldStore extends DurableObject<Env> {
       : this.ctx.blockConcurrencyWhile(() => this.world.tool(call));
   }
 
-  async checkpoint(options: { historyCursor: string }) {
+  async checkpoint(options: { historyCursor: string; fork?: string }) {
     const result = await this.ctx.blockConcurrencyWhile(() =>
       this.world.checkpoint(options),
     );
@@ -95,8 +112,8 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.manifest(manifestId, options);
   }
 
-  head() {
-    return this.world.head();
+  head(options: { fork?: string } = {}) {
+    return this.world.head(options);
   }
 
   selectContainerSize(initial: "small" | "large") {
@@ -107,24 +124,48 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.rememberContainerSize(size);
   }
 
-  diff(listing: WorldListingEntry[]) {
-    return this.world.diff(listing);
+  diff(listing: WorldListingEntry[], options: { fork?: string } = {}) {
+    return this.world.diff(listing, options);
   }
 
-  pushDiff(input: { entries: WorldListingEntry[]; deleted: string[] }) {
+  pushDiff(input: {
+    entries: WorldListingEntry[];
+    deleted: string[];
+    fork?: string;
+  }) {
     return this.ctx.blockConcurrencyWhile(() => this.world.pushDiff(input));
   }
 
-  changesSince(revision: number) {
-    return this.world.changesSince(revision);
+  changesSince(revision: number, options: { fork?: string } = {}) {
+    return this.world.changesSince(revision, options);
   }
 
   exportBlob(sha256: string) {
     return this.world.exportBlob(sha256);
   }
 
-  exportTar(manifestId?: string) {
-    return this.world.exportTar(manifestId);
+  exportTar(manifestId?: string, options: { fork?: string } = {}) {
+    return this.world.exportTar(manifestId, options);
+  }
+
+  fork(input: { from?: string; kind: "fork" | "new"; threadId: string }) {
+    return this.ctx.blockConcurrencyWhile(() => this.world.fork(input));
+  }
+
+  merge(input: { from: string; into?: string; strategy: "last_writer_wins" }) {
+    return this.ctx.blockConcurrencyWhile(() => this.world.merge(input));
+  }
+
+  forkStatus(forkId: string) {
+    return this.world.forkStatus(forkId);
+  }
+
+  async dropFork(forkId: string) {
+    const result = await this.ctx.blockConcurrencyWhile(() =>
+      this.world.dropFork(forkId),
+    );
+    await this.ctx.storage.setAlarm(Date.now() + 1_000);
+    return result;
   }
 
   async alarm(): Promise<void> {

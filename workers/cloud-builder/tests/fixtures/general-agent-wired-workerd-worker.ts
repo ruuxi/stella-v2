@@ -130,6 +130,7 @@ const TOOLS = createResidentGeneralAgentTools(
     ["send_input", doLocalTool("send_input")],
     ["pause_agent", doLocalTool("pause_agent")],
     ["agent_status", doLocalTool("agent_status")],
+    ["merge_workspace", doLocalTool("merge_workspace")],
   ]),
 );
 

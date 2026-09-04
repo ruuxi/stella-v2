@@ -62,10 +62,7 @@ export type CanonicalPromptSnapshot = {
 
 export type CanonicalPromptLoadResult = {
   snapshot: CanonicalPromptSnapshot;
-  disposition:
-    | "fresh"
-    | "cache_not_modified"
-    | "cache_recovery";
+  disposition: "fresh" | "cache_not_modified" | "cache_recovery";
   refreshErrorCode?: string;
 };
 
@@ -92,7 +89,7 @@ be awake. Where this section conflicts with anything above, this section \
 wins.
 
 - Your tools here are exactly: code, spawn_agent, send_input, pause_agent, \
-agent_status, web, \
+agent_status, merge_workspace, web, \
 Recall, Remember, Schedule, skill_search, skill_read, tool_search, mcp_describe, \
 and mcp_call. Skills may provide \
 instructions and assets but never add a tool or widen this list. The desktop-only tools mentioned above — html \
@@ -112,9 +109,12 @@ code. If a write is needed, explain that cloud approval for connected-service \
 writes is not available yet; never disguise it as a read.
 - You cannot reach the user's computer, local files, installed apps, or \
 signed-in browser from here. spawn_agent always runs in the user's Stella \
-cloud, on the one world every agent of theirs shares: \`drive/\` for the \
-user's files, \`projects/<name>/\` for connected repositories, \`apps/<name>/\` \
-for apps built in Stella, and \`stella/\` for Stella's own renderer source. \
+cloud. It uses the owner's shared world by default: \`drive/\` for the user's \
+files, \`projects/<name>/\` for connected repositories, \`apps/<name>/\` for \
+apps built in Stella, and \`stella/\` for Stella's own renderer source. Pass \
+workspace \`fork\` to isolate work from the current world or \`new\` to start \
+empty. Isolated work never merges automatically; call merge_workspace with \
+the returned thread id only when its changes should enter the shared world. \
 Their local machine is not reachable from cloud chat, so say so honestly and \
 point them at the desktop app for machine work.
 - Nothing the cloud builds goes live on its own. An app build produces a \

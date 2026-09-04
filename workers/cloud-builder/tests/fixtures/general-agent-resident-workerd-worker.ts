@@ -171,6 +171,7 @@ const DO_LOCAL = new Map([
   ["send_input", doLocalTool("send_input")],
   ["pause_agent", doLocalTool("pause_agent")],
   ["agent_status", doLocalTool("agent_status")],
+  ["merge_workspace", doLocalTool("merge_workspace")],
 ]);
 
 /** Names only; the executable catalog is built per turn with the loader. */
@@ -262,9 +263,10 @@ export class ResidentTurnHarness extends DurableObject {
   }
 
   private async runTurn(request: Request): Promise<Response> {
-    const body = ((await request.json().catch(() => null)) as {
-      script?: string;
-    } | null) ?? {};
+    const body =
+      ((await request.json().catch(() => null)) as {
+        script?: string;
+      } | null) ?? {};
     const script = SCRIPTS[body.script ?? "text"];
     if (!script) return Response.json({ code: "bad_script" }, { status: 400 });
 

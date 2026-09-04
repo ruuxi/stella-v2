@@ -507,6 +507,7 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
         const originConversationId = optionalId(record.originConversationId);
         const parentThreadId = optionalId(record.parentThreadId);
         const workspace = optionalId(record.workspace);
+        const workspaceForkId = optionalId(record.workspaceForkId);
         if (
           !isId(record.threadId) ||
           !isId(record.conversationId) ||
@@ -523,6 +524,18 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           originDeviceId === null ||
           originConversationId === null ||
           workspace === null ||
+          (workspace !== undefined &&
+            workspace !== "shared" &&
+            workspace !== "new" &&
+            workspace !== "fork") ||
+          workspaceForkId === null ||
+          (workspaceForkId !== undefined &&
+            !/^fork-[0-9a-f-]{36}$/u.test(workspaceForkId)) ||
+          (workspaceForkId !== undefined &&
+            workspace !== "new" &&
+            workspace !== "fork") ||
+          ((workspace === "new" || workspace === "fork") &&
+            workspaceForkId === undefined) ||
           Boolean(originDeviceId) !== Boolean(originConversationId) ||
           !isFinite(record.createdAt)
         ) {
@@ -544,6 +557,7 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
             execution: parseExecutionSelection(record.execution),
             placement: "cloud",
             ...(workspace ? { workspace } : {}),
+            ...(workspaceForkId ? { workspaceForkId } : {}),
             ...(originDeviceId ? { originDeviceId } : {}),
             ...(originConversationId ? { originConversationId } : {}),
             createdAt: record.createdAt,

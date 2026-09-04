@@ -108,6 +108,7 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
   send_input: "do_local",
   pause_agent: "do_local",
   agent_status: "do_local",
+  merge_workspace: "do_local",
   [PUBLISH_STELLA_INTERIOR_TOOL_NAME]: "do_local",
 } as const satisfies Record<string, GeneralAgentToolCompute>;
 

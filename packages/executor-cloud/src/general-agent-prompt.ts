@@ -53,11 +53,15 @@ type GeneralAgentPromptWorkspace =
 export type GeneralAgentPromptOptions = {
   office: boolean;
   skills?: GeneralAgentPromptSkills;
+  workspaceRoot?: string;
 } & GeneralAgentPromptWorkspace;
 
-const LAZY_WORKSPACE_SENTENCE = `Nothing is on disk yet. The workspace tools \
+const lazyWorkspaceSentence = (
+  workspaceRoot: string,
+) => `Nothing is on disk yet. The workspace tools \
 (\`exec_command\`, \`Read\`, \`apply_patch\`) restore this world and \
-synchronize the user's drive into it the first time you call one, so call one \
+synchronize the user's drive into it the first time you call one. Its root is \
+${workspaceRoot}, so call one \
 before you reason about what a path contains.`;
 
 /**
@@ -66,14 +70,17 @@ before you reason about what a path contains.`;
  * a whole turn in a sandbox. Round 6 shipped three of them that had never been
  * rendered.
  */
-const driveSection = (drive: DriveSyncResult | undefined): string => {
+const driveSection = (
+  drive: DriveSyncResult | undefined,
+  workspaceRoot: string,
+): string => {
   // `drive/` holds the user's own files, so the agent has to know that a file
   // it does not recognize is not scratch, and a name already taken is a file
   // to open rather than recreate.
   const driveSentences: string[] = [];
   if (drive) {
     const loaded = drive.materialized.length;
-    driveSentences.push(`${WORLD_ROOT}/drive is the user's drive.`);
+    driveSentences.push(`${workspaceRoot}/drive is the user's drive.`);
     if (loaded > 0) {
       driveSentences.push(
         `The ${loaded} ${loaded === 1 ? "file" : "files"} in it — everything the user uploaded and everything earlier turns produced — ${loaded === 1 ? "is" : "are"} already on disk at the drive ${loaded === 1 ? "path" : "paths"} the user knows ${loaded === 1 ? "it" : "them"} by.`,
@@ -130,8 +137,10 @@ const driveSection = (drive: DriveSyncResult | undefined): string => {
  * turn that only learns them when the container attaches mid-turn. One
  * renderer, so the two paths cannot describe one drive two different ways.
  */
-export const driveHydrationNotice = (drive: DriveSyncResult): string =>
-  driveSection(drive).trim();
+export const driveHydrationNotice = (
+  drive: DriveSyncResult,
+  workspaceRoot: string = WORLD_ROOT,
+): string => driveSection(drive, workspaceRoot).trim();
 
 const skillSection = (skills: GeneralAgentPromptSkills | undefined): string => {
   const entries = skills?.entries ?? [];
@@ -164,10 +173,11 @@ const skillSection = (skills: GeneralAgentPromptSkills | undefined): string => {
 export const buildGeneralAgentPrompt = (
   options: GeneralAgentPromptOptions,
 ): string => {
+  const workspaceRoot = options.workspaceRoot ?? WORLD_ROOT;
   const workspaceLines =
     options.workspace === "lazy"
-      ? `\n\n${LAZY_WORKSPACE_SENTENCE}`
-      : driveSection(options.drive);
+      ? `\n\n${lazyWorkspaceSentence(workspaceRoot)}`
+      : driveSection(options.drive, workspaceRoot);
   const documents = options.office
     ? `Documents: \`stella-office\` creates and edits .docx/.xlsx/.pptx \
 (run \`stella-office\` with no arguments for its command reference). PDFs: \
@@ -178,7 +188,7 @@ sandbox — do not plan around them.`
     : `PDFs: \`pdftotext\`, \`pdfinfo\`, \`pdftoppm\`, \`pdfimages\`. Audio and \
 video: \`mediainfo\`. There is no LibreOffice, ffmpeg or Python in this \
 sandbox — do not plan around them.`;
-  const stellaLines = `\n\n${WORLD_ROOT}/stella is the editable source tree for \
+  const stellaLines = `\n\n${workspaceRoot}/stella is the editable source tree for \
 the user's Stella web interior. Change the existing renderer source in place; \
 do not replace it with a new app, do not edit generated build output, and do \
 not attempt to deploy it yourself. Nothing is built or published unless you ask \
@@ -189,17 +199,21 @@ records a candidate. The user still selects that candidate in Settings, so it \
 never switches their interior on its own. A build failure prevents a candidate \
 but does not discard the source changes.`;
   const skillLines = skillSection(options.skills);
+  const isolationLines =
+    workspaceRoot === WORLD_ROOT
+      ? ""
+      : "\nThis is an isolated workspace. Its files do not enter the shared world automatically; your completion report tells the parent what changed so the parent can decide whether to merge it.";
   return `You are a Stella background agent running in a cloud sandbox. \
 Complete the task you were given, then stop — your final message is delivered \
 to the orchestrator as your report, so make it a concise, self-contained \
 summary of what you did and found. Link every file the user should receive as \
 a markdown link whose target is the file's absolute path in the world (for \
-example \`[report.md](${WORLD_ROOT}/drive/report.md)\`) — only files linked \
+example \`[report.md](${workspaceRoot}/drive/report.md)\`) — only files linked \
 this way in your final message are delivered.
 
-${WORLD_ROOT} is the user's whole world and your current working directory. \
+${workspaceRoot} is the user's whole world and your current working directory. \
 Everything you write inside it is checkpointed and persists across turns; \
-anything outside it is discarded when the sandbox stops. It holds \`drive/\` \
+anything outside it is discarded when the sandbox stops.${isolationLines} It holds \`drive/\` \
 (the user's files), \`projects/<slug>/\` (repository checkouts), \`apps/<slug>/\` \
 (hosted app sources), and \`stella/\` (the user's Stella interior source). Put \
 new work where it belongs among those; deliverables the user should receive go \

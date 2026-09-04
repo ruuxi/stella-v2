@@ -18,6 +18,7 @@ import {
   type TelemetryEventContext,
   type TelemetryEventV1,
 } from "@stella/contracts/telemetry/events";
+import { Deferred, Effect, Layer, ManagedRuntime } from "effect";
 
 /**
  * Node/Electron-only remote telemetry delivery.
@@ -35,6 +36,32 @@ const DEFAULT_FLUSH_INTERVAL_MS = 5_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_INITIAL_RETRY_MS = 1_000;
 const DEFAULT_MAX_RETRY_MS = 60_000;
+
+const remoteTelemetryRuntime = ManagedRuntime.make(Layer.empty);
+
+type TelemetryTimer = {
+  cancel: () => void;
+};
+
+const forkTelemetryTimer = (
+  delayMs: number,
+  fire: () => void,
+): TelemetryTimer => {
+  const canceled = Deferred.makeUnsafe<void>();
+  void remoteTelemetryRuntime
+    .runPromise(
+      Effect.raceFirst(
+        Effect.sleep(delayMs).pipe(Effect.andThen(Effect.sync(fire))),
+        Deferred.await(canceled),
+      ),
+    )
+    .catch(() => undefined);
+  return {
+    cancel: () => {
+      Deferred.doneUnsafe(canceled, Effect.void);
+    },
+  };
+};
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -119,18 +146,13 @@ const batchId = (events: readonly TelemetryEventV1[]): string =>
 const withUnrefTimeout = async <T>(
   promise: Promise<T>,
   timeoutMs: number,
-): Promise<T | null> => {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
-    timer.unref?.();
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
+): Promise<T | null> =>
+  remoteTelemetryRuntime.runPromise(
+    Effect.raceFirst(
+      Effect.tryPromise(() => promise),
+      Effect.sleep(timeoutMs).pipe(Effect.as(null)),
+    ),
+  );
 
 export class RemoteTelemetryClient {
   private readonly options: Required<
@@ -160,7 +182,7 @@ export class RemoteTelemetryClient {
   private writeTail: Promise<void> = Promise.resolve();
   private readonly ready: Promise<void>;
   private flushPromise: Promise<boolean> | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private timer: TelemetryTimer | null = null;
   private timerDueAt = 0;
   private retryAttempt = 0;
   private closing = false;
@@ -439,28 +461,28 @@ export class RemoteTelemetryClient {
       schemaVersion: TELEMETRY_SCHEMA_VERSION,
       events,
     };
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(new Error("telemetry request timed out")),
-      this.options.requestTimeoutMs,
-    );
-    timeout.unref?.();
     let ok = false;
     let permanentRejection = false;
     try {
-      const response = await this.options.fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-stella-telemetry-batch-id": batchId(events),
-          ...(transport.authToken?.trim()
-            ? { authorization: `Bearer ${transport.authToken.trim()}` }
-            : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-        redirect: "error",
-      });
+      const response = await remoteTelemetryRuntime.runPromise(
+        Effect.tryPromise({
+          try: (signal) =>
+            this.options.fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-stella-telemetry-batch-id": batchId(events),
+                ...(transport.authToken?.trim()
+                  ? { authorization: `Bearer ${transport.authToken.trim()}` }
+                  : {}),
+              },
+              body: JSON.stringify(body),
+              signal,
+              redirect: "error",
+            }),
+          catch: (error) => error,
+        }).pipe(Effect.timeout(this.options.requestTimeoutMs)),
+      );
       ok = response.ok;
       // Drop only payload errors. Auth, routing, and rate-limit failures can
       // recover after a token refresh, Worker rollout, or backoff window.
@@ -468,8 +490,6 @@ export class RemoteTelemetryClient {
       await response.body?.cancel().catch(() => undefined);
     } catch {
       ok = false;
-    } finally {
-      clearTimeout(timeout);
     }
 
     if (!ok && !permanentRejection) {
@@ -511,16 +531,15 @@ export class RemoteTelemetryClient {
     if (this.timer && this.timerDueAt <= dueAt) return;
     this.clearScheduledFlush();
     this.timerDueAt = dueAt;
-    this.timer = setTimeout(() => {
+    this.timer = forkTelemetryTimer(delayMs, () => {
       this.timer = null;
       this.timerDueAt = 0;
       void this.flush();
-    }, delayMs);
-    this.timer.unref?.();
+    });
   }
 
   private clearScheduledFlush(): void {
-    if (this.timer) clearTimeout(this.timer);
+    this.timer?.cancel();
     this.timer = null;
     this.timerDueAt = 0;
   }

@@ -49,8 +49,5 @@
   },
   "workers/cloud-builder/src/cloud-code-worker-executor.ts": {
     "setTimeout(": 1
-  },
-  "workers/cloud-builder/src/index-flush.ts": {
-    "setTimeout(": 2
   }
 }

@@ -220,7 +220,15 @@ First dev run of the five steps (2026-09-04, version `2b3f99ed` and later):
 - The seeded `stella/` checkout cost about five minutes of DO time per new
   owner world on the first shell command (about 1,340 blobs pushed one
   request at a time). The user chose to delete the seed and the whole
-  interior publish feature (`cb9c58659`); a new world starts empty.
+  interior publish feature (`bc014e974`); a new world starts empty.
+- After the seed removal a fresh world had no `drive/` directory once
+  materialization replaced the world root, so the daemon failed to boot and
+  the attach retry tripped on its leftover session; fixed in `7db17c776`
+  (normalize again after materialization, the daemon creates the drive
+  parent, a retry replaces its session).
+- Final run on version `49a00c9b`: cell 1 attach 12 s / done 21 s, follow-up
+  attach 5 s / done 13 s; cell 2 (parent, child, steer) done in 77 s with
+  the parent reporting `parent child`, the child's report and thread id.
 - Still worth doing: batch the push protocol (many blobs per request) so a
   large tree is bounded by bytes rather than file count; kill the daemon's
   process group at turn end rather than only the daemon.

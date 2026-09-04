@@ -407,6 +407,93 @@ import {
   type NativeStateCheckpointVersion,
 } from "./native-state-checkpoint.js";
 
+import type { BuildSessionInternals } from "./build-session/host.js";
+import type { Env } from "./build-session/shared/env.js";
+import type {
+  AgentComputeRecoveryClaim,
+  AgentExecutionMarker,
+  AgentExecutorResult,
+  AppTurnAdmissionClaim,
+  BuildOwnerFenceLeaseReceipt,
+  BuildOwnerFenceLeaseSlot,
+  BuilderFallbackInput,
+  BuilderFallbackTranscript,
+  ConversationCaller,
+  DispatchCaller,
+  Execution,
+  ExecutorResult,
+  InteriorBuildOutput,
+  NativeTransientBackup,
+  ObservedBrowserSuspension,
+  OwnerPurgeReport,
+  OwnerPurgeRequest,
+  OwnerTransferCoordinatorContext,
+  PendingAppBuildPublication,
+  PendingBrowserSuspension,
+  PendingTerminal,
+  TurnRequest,
+  TurnStateCheckpointOperation,
+  WorkspaceBackupDebt,
+  WorkspaceCheckpointImports,
+} from "./build-session/shared/types.js";
+import {
+  AgentTurnAuthorityLostError,
+  AgentTurnError,
+  AppTurnAuthorityLostError,
+  BrowserGatewayResponseTooLargeError,
+  OwnerProductTransferConfigurationError,
+  OwnerProductTransferConflictError,
+  OwnerPurgeFenceError,
+  TurnStateOwnerCallError,
+} from "./build-session/shared/errors.js";
+import {
+  AGENT_RECOVERY_PENDING_KEY,
+  AGENT_TURN_HEARTBEAT_MS,
+  AGENT_WATCHDOG_DEADLINE_KEY,
+  APP_TURN_ADMISSION_CLAIM_KEY,
+  BUILDER_FALLBACK_MAX_RETRIES,
+  BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
+  BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX,
+  CLOUD_TURN_SOURCES,
+  OBSERVED_BROWSER_SUSPENSION_KEY,
+  OUTBOX_DEBT_KEY,
+  OUTBOX_DEBT_MAX,
+  OUTBOX_DEBT_RETRY_MS,
+  OWNER_FENCE_LEASE_RETRY_MS,
+  OWNER_GATE_REFUSAL_STATUS,
+  OWNER_PURGE_STALE_LEASE_GRACE_MS,
+  PENDING_BROWSER_SUSPENSION_KEY,
+  TERMINAL_EVENT_STATUS,
+  agentComputeRecoveryClaimKey,
+  agentExecutionMarkerKey,
+  agentRecoveryIdentity,
+  backupDebtKey,
+  buildOwnerFenceLeaseReceiptKey,
+  builderFallbackRetryKey,
+  builderFallbackTranscriptKey,
+  checkpointImportsKey,
+  contentType,
+  conversationName,
+  errorMessage,
+  exactTurnIdentityMatches,
+  executionFailureFields,
+  isBuildOwnerFenceDurabilityKey,
+  json,
+  log,
+  nativeBackupDebtKey,
+  nativeStateIntegrityKeyFor,
+  nativeTransientBackupKey,
+  pendingAppBuildPublicationKey,
+  sessionName,
+  turnDispatchIdentity,
+  turnStateBaseWorkspaceRevisionKey,
+  turnStateCheckpointOperationKey,
+  withInfrastructureDeadline,
+  workspaceTransferReceiptsKey,
+} from "./build-session/shared/keys.js";
+
+export type { ObservedBrowserSuspension } from "./build-session/shared/types.js";
+
 export { ContainerProxy };
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };
@@ -429,17 +516,6 @@ SandboxSmall.outbound = generalAgentEgress;
 /** Permanently offline app-build namespace with baked dependencies. */
 export class AppBuildSandbox extends AppBuildSandboxBase<Env> {}
 AppBuildSandbox.outbound = appBuildEgress;
-
-type Env = Cloudflare.Env & {
-  /**
-   * Kill switch for the resident placement. Absent or any value other than
-   * `"0"` lets a Stella turn run its agent loop in this Durable Object; `"0"`
-   * sends every turn down the eager-container path. The placement is recorded
-   * at admission rather than re-derived later, so flipping this never
-   * re-places a turn that is already running.
-   */
-  RESIDENT_GENERAL_AGENT_TURNS?: string;
-};
 
 /** Container states in which a process sweep reaches a running process. */
 const SANDBOX_RUNNING_STATUSES: ReadonlySet<string> = new Set([
@@ -577,42 +653,6 @@ const APP_BUILD_CONTROL_PLANE_EXECUTION = {
   reasoningEffort: "default",
 } as CloudExecutionSelection;
 
-/** Retry cadence for outbox events a queue outage refused. */
-const OUTBOX_DEBT_KEY = "outboxDebt";
-const OUTBOX_DEBT_MAX = 200;
-const OUTBOX_DEBT_RETRY_MS = 30_000;
-
-/** Sources a `turn.started` event may carry; the agent lane has one extra. */
-const CLOUD_TURN_SOURCES: readonly CloudTurnSource[] = [
-  "desktop",
-  "web",
-  "mobile",
-  "schedule",
-  "agent-thread",
-  "placement",
-  "probe",
-];
-
-/** HTTP status for each owner-gate refusal on the agent lane. */
-const OWNER_GATE_REFUSAL_STATUS: Record<OwnerGateRefusalCode, number> = {
-  owner_purged: 410,
-  sign_in_required: 403,
-  owner_suspended: 403,
-  generation_stale: 409,
-  internal: 503,
-};
-
-/** Terminal event kind -> the status Convex projects onto the turn row. */
-const TERMINAL_EVENT_STATUS: Record<
-  string,
-  NonNullable<TurnEventEvent["terminalStatus"]>
-> = {
-  completed: "completed",
-  failed: "failed",
-  canceled: "canceled",
-  waiting_for_user: "waiting_for_user",
-};
-
 /**
  * Mint the model-gateway capability for one admitted agent turn. It is the
  * only credential the sandbox or resident loop presents for model calls:
@@ -644,355 +684,6 @@ const mintAgentTurnModelGateway = async (
   return { origin, capability: minted.token, expiresAt: minted.expiresAt };
 };
 
-/** An error whose message is safe to show the user verbatim. */
-class AgentTurnError extends Error {
-  constructor(readonly userMessage: string) {
-    super(userMessage);
-    this.name = "AgentTurnError";
-  }
-}
-
-/** Exact Convex attempt/token authority was revoked or could not be proven. */
-class AgentTurnAuthorityLostError extends Error {
-  constructor() {
-    super("Cloud agent attempt authority was lost.");
-    this.name = "AgentTurnAuthorityLostError";
-  }
-}
-
-/** Exact Convex app-turn/token authority was revoked or could not be proven. */
-class AppTurnAuthorityLostError extends Error {
-  constructor() {
-    super("Cloud app attempt authority was lost.");
-    this.name = "AppTurnAuthorityLostError";
-  }
-}
-
-type Execution = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-};
-
-type TurnRequest = {
-  // "agent" runs a spawned general agent against a persistent workspace;
-  // absent/anything else is the legacy app-build turn.
-  kind?: string;
-  ownerId: string;
-  appId: string;
-  turnId: string;
-  prompt: string;
-  /** One short sentence describing the agent thread's work (agent turns). */
-  description?: string;
-  /** Who asked for this attempt; decides whether the session projects `thread.spawned`. */
-  source?: string;
-  /** Reliable-delivery id from the dispatcher; a replay names the same turn. */
-  clientMsgId?: string;
-  /** The parent chat turn whose tool call spawned this thread. */
-  parentTurnId?: string;
-  /** The direct parent agent thread, absent only for conversation spawns. */
-  parentThreadId?: string;
-  /** One for conversation children, two for their children. */
-  agentDepth: number;
-  /**
-   * Desktop that owns this thread's delivery. Present means Convex's
-   * projection wakes the parent conversation, so the session must not.
-   */
-  originDeviceId?: string;
-  originConversationId?: string;
-  preflightDelayMs?: number;
-  watchdogMs?: number;
-  /** Trusted control-plane continuation of a suspended browser tool call. */
-  browserResume?: CloudBrowserResumeReceipt;
-  conversationId?: string;
-  sessionId?: string;
-  threadId?: string;
-  workspace?: string;
-  /** Exact immutable route selected by Convex for this turn. */
-  execution?: CloudExecutionSelection;
-  /** Managed-model audience Convex resolved for the owner at dispatch. */
-  audience: ManagedModelAudience;
-  /** Spend ceiling for this turn's model calls (`GATEWAY_BUDGET_UNLIMITED` allowed). */
-  budgetMicroCents: number;
-  /** Convex owner-lifecycle generation captured before this dispatch. */
-  ownerGeneration: string;
-  /** Monotonic generation of this exact reused agent thread attempt. */
-  attemptGeneration?: number;
-  /** Trusted outer-router facts; never accepted from the dispatch body. */
-  turnBrokerRoute?: {
-    sessionId: string;
-    endpoint: string;
-  };
-  /** Trusted outer-router facts for the agent-only signed preview proxy. */
-  previewRoute?: {
-    buildSessionName: string;
-    baseUrl: string;
-  };
-  /** Worker-issued lease. Callers cannot choose this value. */
-  ownerPurgeGeneration?: string;
-  ownerPurgeLeaseId?: string;
-  /**
-   * The owner gate admitted this turn before dispatching it and releases it
-   * itself if the dispatch fails. Set from a trusted internal header, never
-   * from the body; the session still releases on its terminal paths.
-   */
-  gateAdmittedByCaller?: boolean;
-};
-
-const turnDispatchIdentity = (
-  turn: TurnRequest,
-): Omit<
-  TurnRequest,
-  | "ownerPurgeGeneration"
-  | "ownerPurgeLeaseId"
-  | "gateAdmittedByCaller"
-  | "audience"
-  | "budgetMicroCents"
-> => {
-  const identity = { ...turn } as Partial<TurnRequest>;
-  delete identity.ownerPurgeGeneration;
-  delete identity.ownerPurgeLeaseId;
-  // Who admitted the owner gate is a routing fact about one dispatch, not
-  // part of the turn: the same attempt replayed through the public route and
-  // through the orchestrator must still classify as a replay.
-  delete identity.gateAdmittedByCaller;
-  // The allowance is the owner gate's answer, not the caller's: the stored
-  // turn carries the snapshot's values while a replayed dispatch still
-  // carries the dispatcher's hints. Comparing them would turn every retry
-  // after a plan change into an idempotency conflict.
-  delete identity.audience;
-  delete identity.budgetMicroCents;
-  return identity as Omit<
-    TurnRequest,
-    | "ownerPurgeGeneration"
-    | "ownerPurgeLeaseId"
-    | "gateAdmittedByCaller"
-    | "audience"
-    | "budgetMicroCents"
-  >;
-};
-
-/**
- * The owner-purge lease changes when an alarm borrows an auxiliary lease, so
- * it is intentionally excluded. Everything that can distinguish an ABA turn
- * (including its agent attempt generation) remains exact.
- */
-const exactTurnIdentityMatches = (
-  current: TurnRequest | undefined,
-  expected: TurnRequest,
-): boolean =>
-  current !== undefined &&
-  current.ownerId === expected.ownerId &&
-  current.ownerGeneration === expected.ownerGeneration &&
-  current.turnId === expected.turnId &&
-  current.kind === expected.kind &&
-  current.appId === expected.appId &&
-  current.conversationId === expected.conversationId &&
-  current.sessionId === expected.sessionId &&
-  current.threadId === expected.threadId &&
-  current.attemptGeneration === expected.attemptGeneration &&
-  JSON.stringify(current.browserResume ?? null) ===
-    JSON.stringify(expected.browserResume ?? null);
-
-type BuildOwnerFenceLeaseReceipt = {
-  schemaVersion: 1;
-  ownerId: string;
-  ownerGeneration: string;
-  turnId: string;
-  leaseId: string;
-  kind: "run" | "aux";
-  phase: "registering" | "registered" | "unregister_pending";
-  registrationGeneration?: string;
-  slotKey?: string;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type BuildOwnerFenceLeaseSlot = {
-  schemaVersion: 1;
-  ownerId: string;
-  ownerGeneration: string;
-  turnId: string;
-  leaseId: string;
-  kind: "run" | "aux";
-};
-
-const BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX = "buildOwnerFenceLeaseReceipt:";
-const BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX = "ownerFenceLeaseSlot:";
-const OWNER_FENCE_LEASE_RETRY_MS = 30_000;
-const buildOwnerFenceLeaseReceiptKey = (leaseId: string): string =>
-  `${BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
-const isBuildOwnerFenceDurabilityKey = (key: string): boolean =>
-  key.startsWith(BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX) ||
-  key.startsWith(BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX);
-
-type AgentComputeRecoveryClaim = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  sandboxId: string;
-  createdAt: number;
-};
-
-const agentComputeRecoveryClaimKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `agentComputeRecovery:${turnId}:${attemptGeneration}`;
-
-type AppTurnAdmissionClaim = {
-  schemaVersion: 1;
-  claimId: string;
-  turnId: string;
-  ownerGeneration: string;
-  createdAt: number;
-};
-const APP_TURN_ADMISSION_CLAIM_KEY = "appTurnAdmissionClaim";
-
-type PendingAppBuildPublication = {
-  turnId: string;
-  /**
-   * `"callback"` still names the step, but the step is now an outbox append —
-   * a permanent Convex rejection is no longer visible here, so nothing falls
-   * from it into cleanup. `"cleanup"` is reached only by a build that failed
-   * after uploading bytes, and its job is to remove them and terminate.
-   */
-  phase: "callback" | "cleanup";
-  artifactPrefix: string;
-  /** Absent on a cleanup-only record: no build was ever recorded. */
-  buildId?: string;
-  callbackBody: Record<string, unknown>;
-  completionSeq: number | "auto";
-  completionResult: Record<string, unknown>;
-  failureMessage?: string;
-};
-
-type TurnStateCheckpointOperation =
-  | {
-      state: "pending";
-      turnId: string;
-      attemptGeneration: number;
-      requestId: string;
-      requestFingerprint: string;
-      createdAt: number;
-      baseWorkspaceRevision: number;
-      /** Persisted immediately after owner prepare, before either R2 upload. */
-      operationId?: string;
-      payload?: TurnBrokerTurnStateCheckpointRequest;
-    }
-  | {
-      state: "succeeded";
-      turnId: string;
-      attemptGeneration: number;
-      requestId: string;
-      requestFingerprint: string;
-      createdAt: number;
-      baseWorkspaceRevision: number;
-      payload: TurnBrokerTurnStateCheckpointRequest;
-      operationId: string;
-      receipt: TurnBrokerTurnStateCheckpointReceipt;
-    }
-  | {
-      state: "failed";
-      turnId: string;
-      attemptGeneration: number;
-      requestId: string;
-      requestFingerprint: string;
-      createdAt: number;
-      baseWorkspaceRevision: number;
-      operationId?: string;
-      payload?: TurnBrokerTurnStateCheckpointRequest;
-      status: number;
-    };
-
-type BuilderFallbackTranscript = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  requestId: string;
-  requestFingerprint: string;
-  createdAt: number;
-  payload: TurnBrokerTurnStateCheckpointRequest;
-  messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
-  checkpointReceipt?: TurnBrokerTurnStateCheckpointReceipt;
-  transcriptCommitted: boolean;
-  workspacePublished: boolean;
-};
-
-type AgentExecutionMarker = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  sandboxId: string;
-  size: InstanceSize;
-  startedAt: number;
-};
-
-/**
- * What recovery already knows about a lost turn, if anything. The container
- * path recovers a transcript the executor handed up before it died; a resident
- * turn recovers one from its own journal. Absent both, the fallback synthesizes
- * the two rows a thread needs to stay readable.
- */
-type BuilderFallbackInput = {
-  historyCursor?: string;
-  messages?: Array<{ ordinal: number; role: string; payloadJson: string }>;
-  nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-};
-
-class OwnerPurgeFenceError extends Error {
-  constructor() {
-    super("This owner's cloud activity is being purged.");
-    this.name = "OwnerPurgeFenceError";
-  }
-}
-
-class TurnStateOwnerCallError extends Error {
-  constructor(readonly status: number) {
-    super(`Turn state owner operation failed (${status}).`);
-    this.name = "TurnStateOwnerCallError";
-  }
-}
-
-type AgentExecutorResult = {
-  outcome?: "completed" | "suspended";
-  ok: boolean;
-  finalText?: string;
-  error?: string;
-  usage?: Record<string, unknown>;
-  checkpointPolicy?: "preserve_prior" | "builder_fallback";
-  checkpointMs?: number;
-  turnStateCheckpoint?: TurnBrokerTurnStateCheckpointReceipt;
-  suspension?: CloudBrowserSuspension;
-  builderFallback?: {
-    historyCursor: string;
-    messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
-    nativeCheckpoint?: TurnBrokerTurnStateCheckpointRequest["nativeCheckpoint"];
-  };
-};
-
-type InteriorBuildOutput = {
-  schemaVersion: 1;
-  sourceRevision: string;
-  baseRevision?: string;
-  upstreamSeedRevision: string;
-  outputRoot: string;
-  entries: {
-    full: "index.html";
-    mini: "mini.html";
-    overlay: "overlay.html";
-    pet: "pet.html";
-  };
-  files: Array<{
-    path: string;
-    size: number;
-    sha256: string;
-    contentType: string;
-  }>;
-  artifactSha256: string;
-  size: number;
-};
-
 const INTERIOR_BRIDGE_ABI = 1;
 const INTERIOR_MIN_SHELL_VERSION = "0.0.0";
 const INTERIOR_MAX_FILES = 2_000;
@@ -1002,110 +693,9 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SAFE_ARTIFACT_PATH =
   /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/**
- * A terminal state that has been decided but may not have reached Convex yet.
- *
- * It is written to DO storage before the first delivery attempt so the alarm
- * can re-deliver exactly this, unchanged. Without it the success path was the
- * one terminal path with no retry, and it is the one carrying the only copy of
- * the agent's report.
- */
-type PendingTerminal = {
-  /** Fences a stale payload against a successor turn on the same DO. */
-  turnId: string;
-  /** Fences ABA reuse of the same thread/turn-shaped durable receipt. */
-  attemptGeneration: number;
-  kind: "completed" | "failed" | "canceled";
-  /** Optional turn-event kind when the thread status uses a coarser value. */
-  eventKind?: "timeout";
-  payload: Record<string, unknown>;
-  /** Message for the thread's final state; a completed turn sends its report. */
-  threadError?: string;
-  /**
-   * Cancellation is not complete until the sandbox process is gone. This flag
-   * makes that requirement durable: if container teardown fails or the DO is
-   * evicted mid-cancel, the alarm retries teardown before it delivers the
-   * terminal state.
-   */
-  terminateSandbox?: boolean;
-  /**
-   * The turn-event ordinal this terminal reserved. Remembered with the
-   * decision so a redelivery re-sends the same `turn.event` rather than
-   * minting a second one Convex would have to reconcile.
-   */
-  eventSeq?: number;
-  /**
-   * When the thread was decided terminal. Fixed with the decision because the
-   * parent's wake carries it in `agentThreadControl.threadUpdatedAt`, which is
-   * part of that turn's idempotency fingerprint: a retry with a fresh clock
-   * would be refused as a different message under the same id.
-   */
-  completedAt?: number;
-};
-
-/**
- * Durable handoff from a finished executor to Convex's waiting projection.
- * The descriptor is intentionally secret-free. It is committed before the
- * sandbox is destroyed so a Worker restart can redeliver the same interaction.
- */
-type PendingBrowserSuspension = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  suspension: CloudBrowserSuspension;
-  payload: Record<string, unknown>;
-  createdAt: number;
-};
-
-const PENDING_BROWSER_SUSPENSION_KEY = "pendingBrowserSuspension";
-
-/**
- * The Browser Gateway has already entered human control, but the trusted
- * executor has not yet returned the canonical outer Code tool-call binding.
- * Keeping this separate from `PendingBrowserSuspension` prevents an alarm
- * from exposing a takeover before the matching transcript checkpoint is
- * authoritative.
- */
-export type ObservedBrowserSuspension = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  brokerRequestId: string;
-  requestBodySha256: string;
-  responseBodySha256: string;
-  suspension: CloudBrowserSuspension;
-  observedAt: number;
-};
-
-const OBSERVED_BROWSER_SUSPENSION_KEY = "observedBrowserSuspension";
 const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 64 * 1024;
 
 const AGENT_HISTORY_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
-
-type ExecutorResult = {
-  ok: true;
-  runtimeTools: string[];
-  metrics: {
-    dependencyHydrationMs: number;
-    productionBuildMs: number;
-    activeCpuSeconds: number;
-    peakMemoryBytes: number;
-    workspaceDiskBytes: number;
-  };
-};
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store" },
-  });
-
-class BrowserGatewayResponseTooLargeError extends Error {
-  constructor() {
-    super("Browser Gateway response exceeded its bound.");
-    this.name = "BrowserGatewayResponseTooLargeError";
-  }
-}
 
 /** Bound a service-binding response even when Content-Length is absent. */
 const readBrowserGatewayResponseBody = async (
@@ -1150,69 +740,6 @@ const readBrowserGatewayResponseBody = async (
   return body;
 };
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
-const withInfrastructureDeadline = async <T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> => {
-  return await runToolEffect(
-    Effect.raceFirst(
-      Effect.tryPromise({
-        try: () => operation,
-        catch: (error) => error,
-      }),
-      Effect.sleep(timeoutMs).pipe(
-        Effect.flatMap(() => Effect.fail(new Error(message))),
-      ),
-    ),
-  );
-};
-
-const log = (
-  level: "info" | "error",
-  event: string,
-  fields: Record<string, unknown> = {},
-) => {
-  console[level](
-    JSON.stringify({
-      service: "stella-v2-cloud-builder",
-      event,
-      timestamp: new Date().toISOString(),
-      ...fields,
-    }),
-  );
-};
-
-const executionFailureFields = (
-  stderr: string,
-): { failureCode: string; stderrBytes: number } => ({
-  failureCode: classifyAgentFailureDiagnostic(stderr),
-  stderrBytes: new TextEncoder().encode(stderr).byteLength,
-});
-
-/**
- * The single spelling of a conversation id, used as the Durable Object name.
- *
- * Four callers build these URLs — Convex (raw), the socket client, the runtime
- * journal writer, and the dev probe — and two of them percent-encode. Two
- * spellings of one id would address two DIFFERENT Durable Objects, which is a
- * split-brain no amount of downstream care recovers from. Decoding once here
- * makes every spelling converge; conversation ids are `crypto.randomUUID()`, so
- * decode is the identity for every id that exists today and this only closes
- * the latent case. A segment that is not valid percent-encoding is used as-is
- * rather than throwing — it cannot match a real conversation either way.
- */
-const conversationName = (segment: string): string => {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-};
-
 // ---------------------------------------------------------------------------
 // The user-authenticated conversation surfaces
 //
@@ -1230,15 +757,6 @@ const HEADER_BUILD_SESSION_NAME = "x-stella-build-session-name";
 const HEADER_TURN_BROKER_ENDPOINT = "x-stella-turn-broker-endpoint";
 const HEADER_PREVIEW_BASE_URL = "x-stella-preview-base-url";
 const HEADER_PREVIEW_CAPABILITY = "x-stella-preview-capability";
-type ConversationCaller = {
-  ownerId: string;
-  subject: string;
-  sessionId: string;
-  expiresAtMs: number;
-  issuer: string;
-  isAnonymous: boolean;
-};
-
 /**
  * Verify the caller. `wantsSocket` decides only how a refusal is shaped: a
  * WebSocket client that gets an HTTP 4xx before the 101 sees close code 1006
@@ -1549,27 +1067,6 @@ const forwardToDevicePresence = async (
   }
   return await env.OWNER_GATES.getByName(caller.ownerId).fetch(forwarded);
 };
-
-/**
- * Who may submit a dispatch, and as what.
- *
- * Three callers exist and they are told apart before anything is parsed: the
- * service secret (Convex schedules and cloud-originated work, any ingress), a
- * signed-in user whose request carries a mobile pairing proof (ingress
- * `mobile`, bound to the phone and the desktop the proof names), and a plain
- * signed-in user (ingress `desktop` or `browser` only — nothing else has a
- * device the worker can vouch for).
- */
-type DispatchCaller =
-  | { kind: "service"; ownerId: string; ownerGeneration: string }
-  | { kind: "user"; ownerId: string; isAnonymous: boolean }
-  | {
-      kind: "mobile";
-      ownerId: string;
-      isAnonymous: boolean;
-      mobileDeviceId: string;
-      desktopDeviceId: string;
-    };
 
 const handleDispatchSubmitRoute = async (
   request: Request,
@@ -1915,13 +1412,6 @@ const handleDispatchControlRoute = async (
   }
 };
 
-const sessionName = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 56);
-
 const exactTurnSandboxId = async (
   prefix: "app",
   turn: TurnRequest,
@@ -2042,30 +1532,6 @@ export const stellaToolWorkspaceExists = async (
   }
 };
 
-const contentType = (path: string): string => {
-  if (path.endsWith(".html")) return "text/html; charset=utf-8";
-  if (path.endsWith(".js") || path.endsWith(".mjs"))
-    return "text/javascript; charset=utf-8";
-  if (path.endsWith(".css")) return "text/css; charset=utf-8";
-  if (path.endsWith(".json")) return "application/json; charset=utf-8";
-  if (path.endsWith(".map")) return "application/json";
-  if (path.endsWith(".svg")) return "image/svg+xml";
-  if (path.endsWith(".png")) return "image/png";
-  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
-  if (path.endsWith(".webp")) return "image/webp";
-  if (path.endsWith(".gif")) return "image/gif";
-  if (path.endsWith(".ico")) return "image/x-icon";
-  if (path.endsWith(".woff")) return "font/woff";
-  if (path.endsWith(".woff2")) return "font/woff2";
-  if (path.endsWith(".ttf")) return "font/ttf";
-  if (path.endsWith(".wasm")) return "application/wasm";
-  if (path.endsWith(".webmanifest")) return "application/manifest+json";
-  if (path.endsWith(".txt")) return "text/plain; charset=utf-8";
-  if (path.endsWith(".mp3")) return "audio/mpeg";
-  if (path.endsWith(".wav")) return "audio/wav";
-  return "application/octet-stream";
-};
-
 const requirePublicOrigin = (
   value: string | undefined,
   label: string,
@@ -2088,24 +1554,6 @@ const requirePublicOrigin = (
   }
 };
 
-/** Longer than the 30s callback timeout; covers an evicted isolate's last send. */
-const OWNER_PURGE_STALE_LEASE_GRACE_MS = 35_000;
-const backupDebtKey = (workspaceKey: string): string =>
-  `${workspaceKey}:backup-debt`;
-const turnStateCheckpointOperationKey = (requestId: string): string =>
-  `turnStateCheckpointOperation:${requestId}`;
-const builderFallbackTranscriptKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `builderFallbackTranscript:${turnId}:${attemptGeneration}`;
-const agentExecutionMarkerKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `agentExecutionMarker:${turnId}:${attemptGeneration}`;
-const turnStateBaseWorkspaceRevisionKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `turnStateBaseWorkspaceRevision:${turnId}:${attemptGeneration}`;
 const validTurnStateCheckpointReceipt = (
   value: unknown,
 ): value is TurnBrokerTurnStateCheckpointReceipt => {
@@ -2466,72 +1914,6 @@ export const waitForCloudAgentTurnResultText = async (
   }
 };
 
-const nativeTransientBackupKey = (turnId: string): string =>
-  `nativeTransientBackup:${turnId}`;
-const nativeBackupDebtKey = (workspaceKey: string): string =>
-  `${workspaceKey}:native-backup-debt`;
-type NativeTransientBackup = {
-  backupId: string;
-  checkpointKey: string;
-  workspaceKey: string;
-};
-const nativeStateIntegrityKeyFor = async (
-  env: Pick<Env, "BUILDER_SERVICE_SECRET">,
-  turn: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "threadId">,
-): Promise<string> =>
-  await sha256Hex(
-    [
-      "stella-native-state-v2",
-      env.BUILDER_SERVICE_SECRET,
-      turn.ownerId,
-      turn.ownerGeneration,
-      turn.threadId,
-    ].join("\u0000"),
-  );
-const AGENT_WATCHDOG_DEADLINE_KEY = "agentWatchdogDeadlineAt";
-/**
- * How many alarm passes a builder-fallback recovery may fail before the turn
- * is failed outright. Each pass boots the lost container again; unbounded,
- * a container whose disk can no longer be read kept a thread "running" and a
- * container restarting every thirty seconds indefinitely.
- */
-const BUILDER_FALLBACK_MAX_RETRIES = 10;
-const builderFallbackRetryKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `builderFallbackRetries:${turnId}:${attemptGeneration}`;
-/**
- * How often a live agent turn re-arms its alarm when nothing else (a world
- * lease renewal) would. The alarm is the only thing that notices a turn whose
- * isolate was replaced under it — a deploy, an eviction — so without this a
- * resident turn lost that way sat as "running" until its full watchdog
- * deadline, holding the owner's agent lane for the whole wait.
- */
-const AGENT_TURN_HEARTBEAT_MS = 60_000;
-const AGENT_RECOVERY_PENDING_KEY = "agentRecoveryPending";
-const agentRecoveryIdentity = (turn: TurnRequest): string =>
-  `${turn.turnId}:${turn.attemptGeneration ?? 0}`;
-const pendingAppBuildPublicationKey = (turnId: string): string =>
-  `pendingAppBuildPublication:${turnId}`;
-type WorkspaceBackupDebt = { backupIds: string[] };
-const checkpointImportsKey = (workspaceKey: string): string =>
-  `${workspaceKey}:checkpoint-imports`;
-type WorkspaceCheckpointImport = {
-  sourceWorkspaceKey: string;
-  sourceWorkspace: string;
-  descriptor?: DirectoryBackup;
-  backupIds: string[];
-  /** Finds pre-cleanup-debt backups during eventual account/workspace purge. */
-  historicalBackupName: string;
-};
-type WorkspaceCheckpointImports = {
-  schemaVersion: 1;
-  imports: WorkspaceCheckpointImport[];
-};
-/** Legacy eventual-KV receipt key, retained only so purge removes old rows. */
-const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
-  `${workspaceKey}:owner-transfer-receipts`;
-
 export class BuildSession extends DurableObject<Env> {
   private readonly runningTurns = new Map<string, Set<Promise<unknown>>>();
   /** Effect-supervised app-build work; owner purge interrupts before joining. */
@@ -2566,6 +1948,17 @@ export class BuildSession extends DurableObject<Env> {
   private readonly exactTurnCancellations = new ExactTurnCancellationLedger(
     this.ctx.storage,
   );
+
+  /**
+   * The structural view of this instance handed to every extracted module in
+   * `src/build-session/`. Every member stays `private`; the modules take
+   * `Pick<BuildSessionInternals, …>` of this surface instead.
+   *
+   * @see src/build-session/host.ts
+   */
+  private get self(): BuildSessionInternals {
+    return this as unknown as BuildSessionInternals;
+  }
 
   /**
    * Normal turn cleanup must retain exact cancellation receipts. The key list
@@ -7799,7 +7192,8 @@ export class BuildSession extends DurableObject<Env> {
     });
     try {
       let nativeUpload:
-        Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
+        | Awaited<ReturnType<typeof uploadTurnStateArchive>>
+        | undefined;
       if (prepared.objectKeys.native) {
         nativeUpload = await uploadTurnStateArchive({
           session,
@@ -11326,8 +10720,8 @@ export class BuildSession extends DurableObject<Env> {
       turnExecution.signal,
     );
     let cloudSkills:
-      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
-      undefined;
+      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
+      | undefined = undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -12338,65 +11732,6 @@ export class BuildSession extends DurableObject<Env> {
   }
 }
 
-// ── Owner-scoped storage outside Convex ──────────────────────────────────────
-
-/**
- * THE LIST. Every store outside Convex that holds data belonging to one owner,
- * how it is addressed, and what deletes it. `POST /owners/purge` walks exactly
- * this list; a store that is not here is a store account deletion does not
- * reach, so adding one to the system without adding it here is the defect.
- *
- *  id                | where                    | addressed by
- *  ------------------|--------------------------|--------------------------------
- *  agent-home        | R2 AGENT_HOME            | `agent-home/<sha256(owner)>/`
- *  conversations     | R2 CONVERSATION_ARCHIVE  | `conversations/<sha256(owner)>/`
- *  interiors         | R2 APP_BUILDS            | `interiors/<sha256(owner)>/`
- *                    |                          | (also catches orphan uploads)
- *  backups           | R2 BACKUP_BUCKET         | `backups/<backupId>/` — the id
- *                    |                          | is only in the KV descriptor
- *  builds            | R2 APP_BUILDS            | app
- *                    |                          | `builds/<ownerHash>/<buildId>/`
- *                    |                          | (legacy exact `builds/<buildId>/`)
- *                    |                          | or interior
- *                    |                          | `interiors/<ownerHash>/<buildId>/`
- *  checkpoints       | KV APP_ROUTES            | `ws:<sha256(owner:workspace)>`
- *                    |                          | and `…:size`
- *  native-checkpoints| KV + R2 BACKUP_BUCKET    | `ws:<hash>:native-state:<threadHash>`
- *                    |                          | plus its descriptor/name-derived backup
- *  routes            | KV APP_ROUTES            | `app:<slug>`, owner in the value
- *
- * Deliberately NOT here, with the reason:
- *  - OrchestratorSession DO SQLite and the R2 objects its manifest names are
- *    purged per conversation through `POST /conversations/:id/purge`, because
- *    only the DO can say its own storage is gone. The `conversations/` prefix
- *    sweep above is the backstop for segments whose index row was already lost.
- *  - Sandbox / SandboxSmall / BuildSession DOs hold no durable owner state:
- *    each is destroyed at the end of the turn that created it, and a workspace
- *    that must survive is a `backups/` archive, which IS here.
- *  - The per-user drive bucket is bound to Convex (the @convex-dev/r2
- *    component), not to this worker. Convex deletes it from its own file rows;
- *    see DRIVE in convex/cloud_purge.ts.
- *
- * The two hash prefixes are duplicated from their owners deliberately —
- * importing `ConversationArchive` or `AgentHome` here would pull a DO-shaped
- * module into the worker entry for two string literals. They must stay in step
- * with `archive.ts` (`conversations/<hash>/`) and `agent-home.ts:163`
- * (`agent-home/<hash>/`).
- */
-type OwnerPurgeRequest = {
-  ownerId?: string;
-  /** Convex lifecycle generation; distinct from the external purge fence. */
-  ownerGeneration?: string;
-  /** Issued by `/owners/purge/begin`; proves this owner is quiesced. */
-  purgeGeneration?: string;
-  /** App slugs whose hosted route row must go. */
-  appSlugs?: string[];
-  /** App/interior build artifactPrefix values in APP_BUILDS. */
-  buildPrefixes?: string[];
-  /** Private browser profiles that must be confirmed gone before row drain. */
-  browserProfiles?: string[];
-};
-
 const ownerFenceStub = (env: Env, ownerId: string) =>
   env.OWNER_GATES.getByName(ownerId);
 
@@ -12475,15 +11810,6 @@ const cloudHomeLeaseRunner =
           if (!asserted.ok) throw new OwnerPurgeFenceError();
         }),
     );
-
-type OwnerTransferCoordinatorContext = {
-  operationId: string;
-  planFingerprint: string;
-  passId: string;
-  attempt: OwnerTransferCoordinatorAttempt;
-  stub: DurableObjectStub<OwnerTransferCoordinator>;
-  reservation?: OwnerTransferReservationEnvelope;
-};
 
 const transferControl = (
   request: OwnerTransferControl,
@@ -12669,13 +11995,6 @@ const beginOwnerPurge = async (
   throw new Error("Owner cloud turns did not quiesce before purge.");
 };
 
-type OwnerPurgeReport = {
-  ok: true;
-  deleted: number;
-  /** Stores this pass did not finish. Non-empty means "ask again". */
-  pending: string[];
-};
-
 /** Pages of 1000 keys per bucket prefix. 10M objects is not a real owner. */
 const R2_SWEEP_MAX_PAGES = 10_000;
 /** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
@@ -12839,22 +12158,6 @@ export const purgeNativeStateForWorkspace = async (
   await env.APP_ROUTES.delete(debtKey);
   return { deleted, keys: keys.length };
 };
-
-class OwnerProductTransferConflictError extends Error {
-  constructor(
-    message: string,
-    readonly code:
-      | "owner_transfer_conflict"
-      | "destination_checkpoint_changed"
-      | "owner_purge_permanent"
-      | "owner_purge_temporary"
-      | "transfer_busy" = "owner_transfer_conflict",
-  ) {
-    super(message);
-    this.name = "OwnerProductTransferConflictError";
-  }
-}
-class OwnerProductTransferConfigurationError extends Error {}
 
 const requireTransferReservation = (
   coordinator: OwnerTransferCoordinatorContext,
@@ -13339,9 +12642,9 @@ const moveWorldCheckpoint = async (
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-        planBody?.code === "owner_purge_permanent" ||
-        planBody?.code === "owner_purge_temporary" ||
-        planBody?.code === "transfer_busy"
+      planBody?.code === "owner_purge_permanent" ||
+      planBody?.code === "owner_purge_temporary" ||
+      planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );
@@ -15063,12 +14366,14 @@ export default {
         return json({ error: "ownerId and artifactPrefix required." }, 400);
       }
       const ownerHash = await sha256Hex(ownerId);
-      if (!(
-        LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
-        isOwnerAppBuildPrefix(prefix, ownerHash) ||
-        (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
-          prefix.startsWith(`interiors/${ownerHash}/`))
-      )) {
+      if (
+        !(
+          LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
+          isOwnerAppBuildPrefix(prefix, ownerHash) ||
+          (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
+            prefix.startsWith(`interiors/${ownerHash}/`))
+        )
+      ) {
         return json({ error: "artifactPrefix does not belong to owner." }, 403);
       }
       try {

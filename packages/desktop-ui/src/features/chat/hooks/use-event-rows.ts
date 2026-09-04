@@ -1,3 +1,4 @@
+import { withReplyContext } from "../lib/reply-context";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { parseReplyRefs } from "@/features/chat/lib/reply-refs";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
@@ -1041,7 +1042,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         ? computed.filter((_, index) => !droppedRowIndices.has(index))
         : computed;
 
-    return coalesceVoiceSessionRows(coalesceInlineImageRows(deduped));
+    return withReplyContext(coalesceVoiceSessionRows(coalesceInlineImageRows(deduped)));
   }, [developerResourcePreviewsEnabled, displayMessages, lifecycleIndex]);
 
   const rowsStableRef = useRef<StableTurnRowsState<EventRowViewModel> | null>(

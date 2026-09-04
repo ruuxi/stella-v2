@@ -1,148 +1,30 @@
-/* iMessage-style reply preview: a stack of small muted bubbles quoting what
-   the reply is about, joined to the assistant bubble below by a thin
-   connector that curls out of the preview's left edge. */
-
-.reply-preview {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  width: fit-content;
-  max-width: 85%;
-  margin-left: 14px;
-  padding-bottom: 10px;
-}
-
-.reply-preview__connector {
-  position: absolute;
-  left: -9px;
-  bottom: -2px;
-  width: 14px;
-  height: 18px;
-  border-left: 1.5px solid var(--border-strong, var(--border));
-  border-bottom: 1.5px solid var(--border-strong, var(--border));
-  border-bottom-left-radius: 10px;
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-.reply-preview__bubble {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 6px 12px;
-  border-radius: var(--radius-2xl, 16px);
-  border: 1px solid var(--border);
-  background: var(--surface-inset);
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--font-size-sm, 12.5px);
-  line-height: 1.35;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
-}
-
-.reply-preview__bubble:hover {
-  background: var(--surface-hover, var(--surface-inset));
-  border-color: var(--border-strong, var(--border));
-}
-
-.reply-preview__bubble:focus-visible {
-  outline: 2px solid var(--ring, var(--primary));
-  outline-offset: 1px;
-}
-
-.reply-preview__bubble--user {
-  border-bottom-right-radius: 4px;
-}
-
-.reply-preview__bubble--assistant {
-  border-bottom-left-radius: 4px;
-}
-
-.reply-preview__label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--muted-foreground);
-  opacity: 0.85;
-}
-
-.reply-preview__text {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--foreground);
-  opacity: 0.8;
-}
-
-/* Agent previews are a compact task row: status glyph, title, status. */
-.reply-preview__bubble--agent {
-  cursor: default;
-  padding: 0;
-  overflow: hidden;
-}
-
-.reply-preview__agent-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  padding: 7px 12px 5px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.reply-preview__agent-head:hover .reply-preview__agent-title {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-  text-underline-offset: 2px;
-}
-
-.reply-preview__agent-icon {
+.reply-context { margin: 0 0 4px; }
+.reply-context__link {
   display: inline-flex;
-  flex: none;
-  width: 14px;
-  height: 14px;
   align-items: center;
-  justify-content: center;
-}
-
-.reply-preview__agent-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.reply-preview__agent-status {
-  flex: none;
-  font-size: 11px;
+  gap: 4px;
+  max-width: min(28rem, 100%);
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
   color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }
+.reply-context__link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-context__link svg { flex: none; }
+.reply-context__link:hover { color: var(--foreground); }
+.reply-context__link:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: 3px; }
+.conversation-focus .reply-context { display: none; }
+.task-report { border-radius: 8px; background: var(--background); }
 
 .reply-preview__report-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin: 0 8px 6px;
-  padding: 2px 8px;
+  margin: 0;
+  padding: 7px 10px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -234,7 +116,7 @@
 }
 
 .reply-preview__more {
-  padding: 2px 8px;
+  padding: 7px 10px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -255,7 +137,7 @@
   align-items: center;
   gap: 5px;
   width: fit-content;
-  padding: 2px 8px;
+  padding: 7px 10px;
   margin-top: -2px;
   border: none;
   border-radius: 999px;

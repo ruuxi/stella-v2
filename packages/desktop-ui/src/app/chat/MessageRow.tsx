@@ -53,9 +53,6 @@ import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
-import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
-import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
-import { useReplyCounts } from "@/features/chat/services/reply-counts-store";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
@@ -443,7 +440,7 @@ type UserRowProps = {
 };
 
 export const UserMessageRow = memo(
-  function UserMessageRow({ row, conversationId }: UserRowProps) {
+  function UserMessageRow({ row }: UserRowProps) {
     const t = useT();
     const messageActions = useUserMessageActions();
     const actionsBusy = useUserMessageActionsBusy();
@@ -602,14 +599,6 @@ export const UserMessageRow = memo(
             copyAttachment={copyAttachment ?? undefined}
           />
         )}
-        {conversationId ? (
-          <MessageReplyCount
-            conversationId={conversationId}
-            messageId={row.id}
-            preview={text}
-            align="end"
-          />
-        ) : null}
       </div>
     );
   },
@@ -617,35 +606,6 @@ export const UserMessageRow = memo(
     prev.conversationId === next.conversationId &&
     eventRowEqual(prev.row, next.row),
 );
-
-/**
- * "N replies" under an original once a later reply cited it. Subscribes per
- * row to the conversation's reply counts; the store is one shared snapshot,
- * so the cost is a Map lookup per row, not a fetch.
- */
-function MessageReplyCount({
-  conversationId,
-  messageId,
-  preview,
-  align,
-}: {
-  conversationId: string;
-  messageId: string;
-  preview: string;
-  align: "start" | "end";
-}) {
-  const counts = useReplyCounts(conversationId);
-  const count = counts.messages[messageId] ?? 0;
-  const open = useCallback(() => {
-    openConversationFocus({
-      conversationId,
-      root: { kind: "message", id: messageId },
-      title: preview,
-    });
-  }, [conversationId, messageId, preview]);
-  if (count <= 0) return null;
-  return <ReplyCountBadge count={count} onOpen={open} align={align} />;
-}
 
 type AssistantRowProps = {
   row: AssistantRowViewModel;
@@ -767,14 +727,6 @@ export const AssistantMessageRow = memo(
               timestampMs={row.timestampMs}
             />
           )}
-          {conversationId && row.sourceMessageId ? (
-            <MessageReplyCount
-              conversationId={conversationId}
-              messageId={row.sourceMessageId}
-              preview={text}
-              align="start"
-            />
-          ) : null}
         </div>
       </div>
     );

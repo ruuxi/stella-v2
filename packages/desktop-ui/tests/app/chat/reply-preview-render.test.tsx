@@ -80,190 +80,51 @@ vi.mock("@/app/chat/Markdown", () => ({
   ),
 }));
 
-import { ReplyPreview, __testing } from "@/app/chat/ReplyPreview";
-
+import { ReplyPreview } from "@/app/chat/ReplyPreview";
+import { TaskReportButton, __testing } from "@/app/chat/TaskReportButton";
 const getAgentReport = vi.fn();
-
-describe("ReplyPreview rendering", () => {
+describe("work context navigation", () => {
   let container: HTMLDivElement;
   let root: Root;
-
   beforeEach(() => {
-    (
-      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-    ).IS_REACT_ACT_ENVIRONMENT = true;
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    activityRecords.clear();
     openConversationFocus.mockReset();
     getAgentReport.mockReset();
-    activityRecords.clear();
     cloudReportState.report = null;
     __testing.clearReportCache();
-    (window as unknown as { electronAPI: unknown }).electronAPI = {
-      localChat: { getAgentReport },
-    };
+    Object.defineProperty(window, "electronAPI", { configurable: true, value: { localChat: { getAgentReport } } });
   });
-
-  afterEach(() => {
-    act(() => root.unmount());
-    container.remove();
+  afterEach(() => { act(() => root.unmount()); container.remove(); });
+  it("shows one compact task label without status, quotation, or Report", () => {
+    act(() => root.render(withI18n(<ReplyPreview conversationId="c1" refs={[{ kind: "agent", threadId: "a1", title: "Research" }]} />)));
+    expect(container.textContent).toBe("Research");
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    act(() => container.querySelector("button")!.click());
+    expect(openConversationFocus).toHaveBeenCalledWith({ conversationId: "c1", root: { kind: "agent", threadId: "a1" }, title: "Research" });
   });
-
-  it("quotes a cited message and opens focus on click", () => {
-    act(() => {
-      root.render(
-        withI18n(
-          <ReplyPreview
-            conversationId="c1"
-            refs={[
-              {
-                kind: "message",
-                id: "m7",
-                sequence: 7,
-                role: "user",
-                preview: "Compare vendor pricing for me",
-              },
-            ]}
-          />,
-        ),
-      );
-    });
-    const bubble = container.querySelector<HTMLButtonElement>(
-      '[data-reply-ref-message-id="m7"]',
-    );
-    expect(bubble).not.toBeNull();
-    expect(bubble!.textContent).toContain("Replying to you");
-    expect(bubble!.textContent).toContain("Compare vendor pricing for me");
-    act(() => bubble!.click());
-    expect(openConversationFocus).toHaveBeenCalledWith({
-      conversationId: "c1",
-      root: { kind: "message", id: "m7" },
-      title: "Compare vendor pricing for me",
-    });
-  });
-
-  it("shows an agent's live title and status, and opens its full report in a panel", async () => {
-    activityRecords.set("pricing-research", {
-      status: "completed",
-      description: "Pricing research (live)",
-    });
-    getAgentReport.mockResolvedValue({
-      threadId: "pricing-research",
-      description: "Pricing research",
-      agentType: "general",
-      status: "completed",
-      result: "Three vendors publish rates; two need a call.",
-      startedAt: 1,
-      completedAt: 2,
-    });
-    act(() => {
-      root.render(
-        withI18n(
-          <ReplyPreview
-            conversationId="c1"
-            refs={[
-              {
-                kind: "agent",
-                threadId: "pricing-research",
-                title: "Pricing research",
-              },
-            ]}
-          />,
-        ),
-      );
-    });
-    const bubble = container.querySelector<HTMLElement>(
-      '[data-reply-ref-thread-id="pricing-research"]',
-    );
-    expect(bubble).not.toBeNull();
-    expect(bubble!.textContent).toContain("Pricing research (live)");
-    expect(bubble!.textContent).not.toContain("Done");
-    expect(
-      container.querySelector('[data-testid="reply-preview-report"]'),
-    ).toBeNull();
-
-    const toggle = bubble!.querySelector<HTMLButtonElement>(
-      ".reply-preview__report-toggle",
-    );
-    await act(async () => {
-      toggle!.click();
-      await Promise.resolve();
-    });
-    expect(getAgentReport).toHaveBeenCalledWith({
-      threadId: "pricing-research",
-    });
-    const report = container.querySelector(
-      '[data-testid="reply-preview-report"]',
-    );
-    expect(report).not.toBeNull();
-    expect(report!.textContent).toContain("Pricing research (live)");
-    expect(report!.textContent).toContain("Three vendors publish rates");
-
-    const close = report!.querySelector<HTMLButtonElement>(
-      ".reply-preview-report__close",
-    );
-    act(() => close!.click());
-    expect(
-      container.querySelector('[data-testid="reply-preview-report"]'),
-    ).toBeNull();
-
-    const head = bubble!.querySelector<HTMLButtonElement>(
-      ".reply-preview__agent-head",
-    );
-    act(() => head!.click());
-    expect(openConversationFocus).toHaveBeenCalledWith({
-      conversationId: "c1",
-      root: { kind: "agent", threadId: "pricing-research" },
-      title: "Pricing research (live)",
-    });
-  });
-
-  it("loads a cloud report when the local lookup misses and updates an open report", async () => {
+  it("keeps the full cloud report available in the focus action and refreshes it", async () => {
     getAgentReport.mockResolvedValue(null);
     cloudReportState.report = undefined;
-    const render = () => root.render(withI18n(<ReplyPreview conversationId="c1" refs={[{ kind: "agent", threadId: "cloud-thread", title: "Cloud research" }]} />));
+    const render = () => root.render(withI18n(<TaskReportButton conversationId="c1" reference={{ kind: "agent", threadId: "a1", title: "Research" }} />));
     act(render);
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".reply-preview__report-toggle")!.click();
-    });
+    await act(async () => { container.querySelector("button")!.click(); });
     expect(container.textContent).not.toContain("no longer available");
-    cloudReportState.report = { threadId: "cloud-thread", description: "Cloud research", agentType: "general", status: "completed", startedAt: 1, result: "The full saved cloud report." };
+    cloudReportState.report = { threadId: "a1", description: "Research", agentType: "general", status: "completed", startedAt: 1, result: "Full cloud report" };
     act(render);
-    expect(container.textContent).toContain("The full saved cloud report.");
-    cloudReportState.report = { ...cloudReportState.report, result: "The follow-up report." };
+    expect(container.textContent).toContain("Full cloud report");
+    cloudReportState.report = { ...cloudReportState.report, result: "Follow-up report" };
     act(render);
-    expect(container.textContent).toContain("The follow-up report.");
-    expect(container.textContent).not.toContain("The full saved cloud report.");
+    expect(container.textContent).toContain("Follow-up report");
+    expect(container.textContent).not.toContain("Full cloud report");
   });
-
-  it("stacks up to three previews and collapses the rest behind a count", () => {
-    act(() => {
-      root.render(
-        withI18n(
-          <ReplyPreview
-            conversationId="c1"
-            refs={[1, 2, 3, 4, 5].map((n) => ({
-              kind: "message" as const,
-              id: `m${n}`,
-              sequence: n,
-              role: "user" as const,
-              preview: `message ${n}`,
-            }))}
-          />,
-        ),
-      );
-    });
-    expect(container.querySelectorAll(".reply-preview__bubble")).toHaveLength(
-      3,
-    );
-    const more = container.querySelector<HTMLButtonElement>(
-      ".reply-preview__more",
-    );
-    expect(more!.textContent).toBe("+2 more");
-    act(() => more!.click());
-    expect(container.querySelectorAll(".reply-preview__bubble")).toHaveLength(
-      5,
-    );
+  it("keeps local reports available", async () => {
+    getAgentReport.mockResolvedValue({ status: "completed", result: "Local report" });
+    act(() => root.render(withI18n(<TaskReportButton conversationId="c1" reference={{ kind: "agent", threadId: "local", title: "Local task" }} />)));
+    await act(async () => { container.querySelector("button")!.click(); });
+    expect(container.textContent).toContain("Local report");
   });
 });

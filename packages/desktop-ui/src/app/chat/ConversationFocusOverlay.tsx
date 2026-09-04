@@ -1,3 +1,4 @@
+import { TaskReportButton } from "./TaskReportButton";
 /**
  * Focus (lineage) overlay — iMessage's thread view for the single chat.
  *
@@ -144,6 +145,13 @@ function FocusPanel({
         aria-label={t("app.chat.focus.ariaLabel", { title: heading })}
       >
         <header className="conversation-focus__header">
+          {root.kind === "agent" && <TaskReportButton
+            key={root.threadId}
+            reference={{ kind: "agent", threadId: root.threadId, title: heading }}
+            conversationId={conversationId}
+            status={activity.get(root.threadId)?.status}
+            liveTitle={heading}
+          />}
           <button
             ref={closeButtonRef}
             type="button"

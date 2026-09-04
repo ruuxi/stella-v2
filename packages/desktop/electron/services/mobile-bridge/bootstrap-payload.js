@@ -22,7 +22,6 @@ const MOBILE_BRIDGE_LOCAL_STORAGE_KEYS = new Set([
     "stella-media-form",
     "stella-store-seen-blueprint-ids",
     "stella.store.lastTab",
-    "stella:pet:installed",
     "stella:emoji-pack:active",
     "stella-developer-resource-previews",
     "stella:orb-position",

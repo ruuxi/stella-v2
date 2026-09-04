@@ -8,8 +8,8 @@ import { EYE_N, EYE_POSES, lerpPose } from "./eyes.js";
  * `createStellaMark` mounts one `<svg>` into a host element and animates it
  * from its own rAF loop, so React only ever mounts the host and pokes the
  * returned handle when a prop changes. This replaces the WebGL aurora — one
- * animated mark can be mounted many times over (indicator, onboarding, pet
- * overlay) without a shared GPU context or a renderer pool to manage.
+ * animated mark can be mounted many times over (indicator and onboarding)
+ * without a shared GPU context or a renderer pool to manage.
  *
  * The activity `state` is the rig's only real input: it selects a silhouette,
  * an eye pose, and a motion profile, and the rig eases between whatever it is

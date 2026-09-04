@@ -149,6 +149,7 @@ import {
   IPC_VOICE_CREATE_INWORLD_SESSION,
   IPC_VOICE_PREFERENCES_CHANGED,
   IPC_VOICE_REPORT_SESSION_ERROR,
+  IPC_VOICE_RTC_TOGGLE,
   IPC_VOICE_SESSION_ERROR,
 } from "@stella/contracts/desktop/ipc-channels";
 import type {
@@ -648,6 +649,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   voice: {
+    toggleRtc: () => ipcRenderer.send(IPC_VOICE_RTC_TOGGLE),
     persistTranscript: (payload: {
       conversationId: string;
       role: "user" | "assistant";
@@ -1924,46 +1926,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onUpdated: onIpc<void>(IPC_USER_APPS_UPDATED),
     // Alias retained for consumers that use the event-style naming convention.
     onChanged: onIpc<void>(IPC_USER_APPS_UPDATED),
-  },
-
-  pet: {
-    getState: () =>
-      ipcRenderer.invoke("pet:getState") as Promise<{
-        open: boolean;
-        status: {
-          state:
-            "idle" | "running" | "waiting" | "review" | "failed" | "waving";
-          title: string;
-          message: string;
-          isLoading: boolean;
-        };
-      }>,
-    setOpen: (open: boolean) => ipcRenderer.send("pet:setOpen", open),
-    onSetOpen: onIpc<boolean>("pet:setOpen"),
-    moveWindow: (position: { x: number; y: number }) =>
-      ipcRenderer.send("pet:moveWindow", position),
-    setComposerActive: (active: boolean) =>
-      ipcRenderer.send("pet:setComposerActive", active),
-    setInteractive: (active: boolean) =>
-      ipcRenderer.send("pet:setInteractive", active),
-    requestVoice: () => ipcRenderer.send("pet:requestVoice"),
-    requestDictation: () => ipcRenderer.send("pet:requestDictation"),
-    onDictationActive: onIpc<boolean>("pet:dictationActive"),
-    pushStatus: (status: {
-      state: "idle" | "running" | "waiting" | "review" | "failed" | "waving";
-      title: string;
-      message: string;
-      isLoading: boolean;
-    }) => ipcRenderer.send("pet:status", status),
-    onStatus: onIpc<{
-      state: "idle" | "running" | "waiting" | "review" | "failed" | "waving";
-      title: string;
-      message: string;
-      isLoading: boolean;
-    }>("pet:status"),
-    openChat: () => ipcRenderer.send("pet:openChat"),
-    sendMessage: (text: string) => ipcRenderer.send("pet:sendMessage", text),
-    onSendMessage: onIpc<string>("pet:sendMessage"),
   },
 
   nativeIntegrations: {

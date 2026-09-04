@@ -20,7 +20,7 @@ describe("composer realtime voice control", () => {
     expect(composer).toContain("!hasText");
     expect(composer).toContain("!hasAttachedChips");
     expect(composer).toContain("!dictationInFlight");
-    expect(composer).toContain("window.electronAPI?.pet?.requestVoice?.()");
+    expect(composer).toContain("window.electronAPI?.voice?.toggleRtc?.()");
     expect(composer.indexOf("<ComposerMicButton")).toBeLessThan(
       composer.indexOf("<ComposerRealtimeVoiceButton"),
     );

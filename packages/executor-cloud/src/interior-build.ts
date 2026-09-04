@@ -32,7 +32,6 @@ const REQUIRED_ENTRIES = {
   full: "index.html",
   mini: "mini.html",
   overlay: "overlay.html",
-  pet: "pet.html",
 } as const;
 const SOURCE_EXCLUDES = new Set(["node_modules", "dist", ".stella", ".git"]);
 

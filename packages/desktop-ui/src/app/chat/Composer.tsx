@@ -237,7 +237,7 @@ function ComposerImpl({
     !hasAttachedChips &&
     !dictationInFlight;
   const toggleRealtimeVoice = useCallback(() => {
-    window.electronAPI?.pet?.requestVoice?.();
+    window.electronAPI?.voice?.toggleRtc?.();
   }, []);
   const contextSuggestions = useComposerContextSuggestions(
     suggestionsActive,

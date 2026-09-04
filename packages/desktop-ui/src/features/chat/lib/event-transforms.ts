@@ -165,7 +165,7 @@ export type TaskLiveDecoration = {
  * Tasks that should drive "is Stella working right now" surfaces: running
  * rows plus terminals fresh enough to still deserve a completion beat.
  * The full task list is durable history (rows persist forever), so
- * presence-driven consumers (pet mood, transient chips) select from this
+ * presence-driven consumers such as transient chips select from this
  * instead — an hour-old error row must not read as "Stella just failed".
  */
 export function selectFreshActivityTasks(

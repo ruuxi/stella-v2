@@ -10,7 +10,7 @@ import {
 } from "./interior-bridge-runtime.js";
 
 describe("immutable Stella interior bridge", () => {
-  test("a real Vite production build places the bridge before modules in all four entries", async () => {
+  test("a real Vite production build places the bridge before modules in every entry", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "stella-interior-bridge-"));
     const output = path.join(root, "dist");
     try {
@@ -19,7 +19,7 @@ describe("immutable Stella interior bridge", () => {
         path.join(root, "src", "entry.js"),
         "globalThis.__INTERIOR_MODULE_RAN__ = true;\n",
       );
-      const entries = ["index.html", "mini.html", "overlay.html", "pet.html"];
+      const entries = ["index.html", "mini.html", "overlay.html"];
       await Promise.all(
         entries.map((entry) =>
           writeFile(

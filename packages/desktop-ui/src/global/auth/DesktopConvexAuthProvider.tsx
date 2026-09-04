@@ -68,7 +68,7 @@ export function useAuthBootstrapState() {
 
 /**
  * `useAuth` hook for `ConvexProviderWithAuth`. Exported so secondary
- * windows (e.g. the floating pet overlay) can wire Convex auth without
+ * windows can wire Convex auth without
  * the full `DesktopConvexAuthProvider` bootstrap chain (anonymous-session
  * creation, magic-link layer, runtime token sync). Those side effects
  * only belong in the primary shell window.

@@ -66,17 +66,6 @@ export const CustomStore = ({ size = 18, className = "", ...props }: IconProps) 
   </svg>
 );
 
-export const CustomPet = ({ size = 18, className = "", ...props }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-pet ${className}`} {...props}>
-    <circle className="pet-paw1" cx="11" cy="4.5" r="1.6" />
-    <circle className="pet-paw2" cx="17.5" cy="7.5" r="1.6" />
-    <circle className="pet-paw3" cx="20" cy="13" r="1.6" />
-    <circle className="pet-paw4" cx="6.5" cy="7.5" r="1.6" />
-    <circle className="pet-paw5" cx="4" cy="13" r="1.6" />
-    <path className="pet-pad" d="M12 21c-3.3 0-6-2-6-4.6 0-2.6 2.7-4.4 6-4.4s6 1.8 6 4.4c0 2.6-2.7 4.6-6 4.6z" />
-  </svg>
-);
-
 export const CustomDevice = ({ size = 18, className = "", ...props }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-device ${className}`} {...props}>
     <g className="device-body-group">

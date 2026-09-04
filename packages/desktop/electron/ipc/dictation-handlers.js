@@ -115,14 +115,6 @@ export const registerDictationHandlers = (options) => {
     const { windowManager } = options;
     let currentShortcut = "";
     let activeOverlaySessionId = null;
-    /**
-     * When set, the active overlay session's transcript is delivered to
-     * Stella's chat (via IPC_PET_SEND_MESSAGE) instead of being pasted
-     * into whatever app is in the foreground. Used by the pet's mic
-     * action button so a click → dictate → auto-send-to-Stella round-trip
-     * lands the spoken text in chat regardless of which app is focused.
-     */
-    let activeOverlayRoute = "paste";
     let pendingInAppStartId = null;
     let activePushToTalk = null;
     let mutedOutputVolume = null;
@@ -253,32 +245,18 @@ export const registerDictationHandlers = (options) => {
             return focused;
         return null;
     };
-    const broadcastPetDictationActive = (active) => {
-        for (const window of windowManager.getAllWindows()) {
-            if (window.isDestroyed())
-                continue;
-            window.webContents.send("pet:dictationActive", active);
-        }
-    };
     const hideOverlaySession = (sessionId) => {
         if (activeOverlaySessionId !== sessionId)
             return;
-        const wasPetRoute = activeOverlayRoute === "stella-chat";
         activeOverlaySessionId = null;
-        activeOverlayRoute = "paste";
         setDictationSourceActive(`overlay:${sessionId}`, false);
         restoreOutputAfterDictation();
         options.getOverlayController()?.hideDictation();
-        if (wasPetRoute)
-            broadcastPetDictationActive(false);
     };
     const stopOverlaySession = () => {
         const sessionId = activeOverlaySessionId;
         if (!sessionId)
             return;
-        if (activeOverlayRoute === "stella-chat") {
-            broadcastPetDictationActive(false);
-        }
         options
             .getOverlayController()
             ?.send("dictation:overlayStop", { sessionId });
@@ -293,7 +271,7 @@ export const registerDictationHandlers = (options) => {
             y: workArea.y + workArea.height - 24,
         };
     };
-    const startOverlaySession = (route = "paste", muteTiming = "immediate") => {
+    const startOverlaySession = (muteTiming = "immediate") => {
         const overlay = options.getOverlayController();
         if (!overlay)
             return;
@@ -303,7 +281,6 @@ export const registerDictationHandlers = (options) => {
         }
         const sessionId = randomUUID();
         activeOverlaySessionId = sessionId;
-        activeOverlayRoute = route;
         setDictationSourceActive(`overlay:${sessionId}`, true);
         const position = getOverlayDictationPosition();
         void overlay.showDictation(position.x, position.y).then((shown) => {
@@ -319,8 +296,6 @@ export const registerDictationHandlers = (options) => {
         else {
             muteOutputForDictation();
         }
-        if (route === "stella-chat")
-            broadcastPetDictationActive(true);
     };
     const revealOverlayPushToTalk = (sessionId) => {
         if (activeOverlaySessionId !== sessionId)
@@ -504,7 +479,7 @@ export const registerDictationHandlers = (options) => {
             return;
         }
         playEnabledDictationSound("startRecording");
-        startOverlaySession("paste", "afterStartCue");
+        startOverlaySession("afterStartCue");
     };
     const applyDictationShortcutRegistration = (requestedShortcut) => {
         if (currentShortcut &&
@@ -611,21 +586,10 @@ export const registerDictationHandlers = (options) => {
     ipcMain.on("dictation:overlayCompleted", (_event, payload) => {
         if (payload.sessionId !== activeOverlaySessionId)
             return;
-        const route = activeOverlayRoute;
-        activeOverlayRoute = "paste";
         hideOverlaySession(payload.sessionId);
         const text = payload.text.trim();
         if (!text)
             return;
-        if (route === "stella-chat") {
-            // Pet mic flow: deliver transcript to Stella's chat instead of
-            // pasting into the foreground app.
-            const fullWindow = windowManager.getFullWindow();
-            if (fullWindow && !fullWindow.isDestroyed()) {
-                fullWindow.webContents.send("pet:sendMessage", text);
-            }
-            return;
-        }
         pasteTextIntoFocusedApp(`${text} `).catch((error) => {
             console.warn("[dictation] OS-wide paste failed:", error);
         });
@@ -636,21 +600,6 @@ export const registerDictationHandlers = (options) => {
         hideOverlaySession(payload.sessionId);
         console.warn("[dictation] overlay dictation failed:", payload.error);
     });
-    /**
-     * Start an overlay dictation session whose transcript routes to
-     * Stella's chat instead of pasting. Used by the pet's mic action
-     * button so a click → speak → auto-send round-trip lands the
-     * transcript as a chat message regardless of the foreground app.
-     * Toggling while a session is active stops it (same UX as the
-     * default overlay session toggle).
-     */
-    const startPetDictation = () => {
-        if (activeOverlaySessionId) {
-            stopOverlaySession();
-            return;
-        }
-        startOverlaySession("stella-chat");
-    };
     return {
         isEnabled: () => dictationBridgeIsSupported() &&
             currentShortcut === PUSH_TO_TALK_DICTATION_SHORTCUT,
@@ -659,6 +608,5 @@ export const registerDictationHandlers = (options) => {
         stop: stopPushToTalk,
         cancel: cancelPushToTalk,
         discard: discardPushToTalk,
-        startPetDictation,
     };
 };

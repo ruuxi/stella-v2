@@ -9,7 +9,7 @@ import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction";
-import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_EXECUTE_MOBILE_TOOL, IPC_VOICE_EXECUTE_TOOL, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_CREATE_INWORLD_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_EXECUTE_MOBILE_TOOL, IPC_VOICE_EXECUTE_TOOL, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_CREATE_INWORLD_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_RTC_TOGGLE, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
 import { requireMatchingCloudConversationId } from "../cloud-conversation-mode.js";
 const DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2.1";
 const DEFAULT_XAI_REALTIME_MODEL = "grok-voice-think-fast-1.0";
@@ -126,10 +126,6 @@ export const registerVoiceHandlers = (options) => {
     };
     const broadcastRuntimeState = () => {
         const windows = options.windowManager.getAllWindows();
-        const petWindow = options.getPetWindow?.() ?? null;
-        if (petWindow && !petWindow.isDestroyed() && !windows.includes(petWindow)) {
-            windows.push(petWindow);
-        }
         for (const window of windows) {
             if (window.isDestroyed())
                 continue;
@@ -156,8 +152,13 @@ export const registerVoiceHandlers = (options) => {
     const toggleVoiceRtc = () => {
         if (!options.getAppReady())
             return;
-        options.togglePetVoice();
+        options.toggleRealtimeVoice();
     };
+    ipcMain.on(IPC_VOICE_RTC_TOGGLE, (event) => {
+        if (!options.assertPrivilegedSender(event, IPC_VOICE_RTC_TOGGLE))
+            return;
+        toggleVoiceRtc();
+    });
     const loadConfiguredShortcut = () => {
         return loadLocalPreferences(options.stellaAppDir).voiceRtcShortcut;
     };

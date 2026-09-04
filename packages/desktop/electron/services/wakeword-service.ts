@@ -10,7 +10,7 @@ import { getFileLogger } from "@stella/runtime/observability/file-logger";
  *
  * The listener emits NDJSON `ready` / `wake` events on stdout. We translate
  * `wake` events into a single callback (`onWake`) that the bootstrap layer
- * wires to `togglePetVoice`. The listener auto-pauses while a voice session
+ * wires to `toggleRealtimeVoice`. The listener auto-pauses while a voice session
  * is active so the assistant can't trigger itself.
  */
 

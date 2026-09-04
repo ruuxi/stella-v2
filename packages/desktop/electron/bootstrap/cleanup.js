@@ -43,14 +43,6 @@ export const registerBootstrapProcessCleanups = (context) => {
         context.state.trayController?.destroy();
         context.state.trayController = null;
     });
-    processRuntime.registerCleanup("before-quit", "pet-window", () => {
-        context.state.petController?.destroy();
-        context.state.petController = null;
-    });
-    processRuntime.registerCleanup("before-quit", "pet-handlers", () => {
-        context.state.petHandlersDispose?.();
-        context.state.petHandlersDispose = null;
-    });
     processRuntime.registerCleanup("before-quit", "mobile-bridge", async () => {
         await context.state.mobileBridgeResource?.stop();
     });

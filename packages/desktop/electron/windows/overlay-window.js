@@ -241,8 +241,8 @@ class OverlayWindow {
         // Chrome stops rendering video when the overlay becomes visible.
         this.window.setOpacity(0.99);
         // Showing a hidden BrowserWindow can reset mouse-event policy on some
-        // Electron/macOS paths. Keep passive overlay surfaces (including the pet)
-        // click-through unless their renderer explicitly claims interactivity.
+        // Electron/macOS paths. Keep passive overlay surfaces click-through
+        // unless their renderer explicitly claims interactivity.
         if (!options?.focus) {
             this.window.setIgnoreMouseEvents(true, { forward: true });
             this.window.setFocusable(false);

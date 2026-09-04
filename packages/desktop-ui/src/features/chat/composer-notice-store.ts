@@ -136,7 +136,7 @@ export const useComposerNotice = (
 /**
  * Surfaces register while mounted so non-React callers can tell whether a
  * pinned notice would actually be visible somewhere. Windows without a
- * composer (the overlay, the pet) fall back to the toast.
+ * composer, such as the overlay, fall back to the toast.
  */
 export const registerComposerNoticeSurface = (): (() => void) => {
   mountedSurfaces += 1;

@@ -1457,7 +1457,7 @@ export class RealtimeVoiceSession {
           if (matchesGoodbye(transcript)) {
             queueMicrotask(() => {
               try {
-                window.electronAPI?.pet?.requestVoice?.();
+                window.electronAPI?.voice?.toggleRtc?.();
               } catch (err) {
                 console.debug(
                   "[realtime-voice] goodbye toggle failed:",

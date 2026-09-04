@@ -301,9 +301,9 @@ export class DesktopUpdater {
     // Arm the shutdown before anything can quit. quitAndInstall makes the
     // updater close every window and then waits for THIS process to exit
     // before it swaps the bundle in and relaunches. The always-on-top overlay
-    // and pet windows preventDefault their `close` unless `isQuitting` is
-    // already set, so if that window sweep runs before `before-quit-for-update`
-    // lands (not guaranteed on macOS) they cancel the quit — the app lingers
+    // window preventsDefault its `close` unless `isQuitting` is already set,
+    // so if that window sweep runs before `before-quit-for-update` lands (not
+    // guaranteed on macOS) it cancels the quit — the app lingers
     // in the Dock with the update staged and never relaunches. Do it here,
     // synchronously and before the quit is scheduled, so the shutdown can't be
     // vetoed. Best-effort: a failure must never abort the restart.

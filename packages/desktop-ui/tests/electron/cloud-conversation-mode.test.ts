@@ -4,11 +4,10 @@ import {
   selectedCloudConversationId,
   withCloudConversationStorage,
 } from "@stella/desktop/electron/cloud-conversation-mode.js";
-import { togglePetVoice } from "@stella/desktop/electron/services/pet-voice-control.js";
+import { toggleRealtimeVoice } from "@stella/desktop/electron/services/realtime-voice-control.js";
 
-const makePetVoiceDeps = (conversationId: string | null) => {
+const makeRealtimeVoiceDeps = (conversationId: string | null) => {
   let activatedWith: string | null = null;
-  let petOpened = false;
   return {
     deps: {
       uiStateService: {
@@ -18,16 +17,8 @@ const makePetVoiceDeps = (conversationId: string | null) => {
           activatedWith = selected;
         },
       },
-      getPetController: () => ({
-        isVisible: () => false,
-        setOpen: (open: boolean) => {
-          petOpened = open;
-        },
-      }),
-      windowManager: { getAllWindows: () => [] },
     } as never,
     activatedWith: () => activatedWith,
-    petOpened: () => petOpened,
   };
 };
 
@@ -77,17 +68,15 @@ describe("desktop cloud conversation authority", () => {
     expect(request.storageMode).toBe("local");
   });
 
-  it("does not open or activate pet voice before cloud selection", () => {
-    const setup = makePetVoiceDeps(null);
-    togglePetVoice(setup.deps);
+  it("does not activate realtime voice before cloud selection", () => {
+    const setup = makeRealtimeVoiceDeps(null);
+    toggleRealtimeVoice(setup.deps);
     expect(setup.activatedWith()).toBeNull();
-    expect(setup.petOpened()).toBe(false);
   });
 
-  it("activates pet voice with the normalized selected cloud id", () => {
-    const setup = makePetVoiceDeps(" cloud-conversation ");
-    togglePetVoice(setup.deps);
+  it("activates realtime voice with the normalized selected cloud id", () => {
+    const setup = makeRealtimeVoiceDeps(" cloud-conversation ");
+    toggleRealtimeVoice(setup.deps);
     expect(setup.activatedWith()).toBe("cloud-conversation");
-    expect(setup.petOpened()).toBe(true);
   });
 });

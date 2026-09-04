@@ -81,13 +81,11 @@ describe("M4 desktop release contracts", () => {
       "packages/desktop/electron/bootstrap/app-shell.js",
     );
     expect(appShell.match(/isQuitting: \(\) => state\.isQuitting/g)).toHaveLength(
-      3,
+      2,
     );
 
-    for (const auxiliaryWindow of ["overlay-window.js", "pet-window.js"]) {
-      expect(
-        read(`packages/desktop/electron/windows/${auxiliaryWindow}`),
-      ).toContain("if (this.options.isQuitting?.())");
-    }
+    expect(
+      read("packages/desktop/electron/windows/overlay-window.js"),
+    ).toContain("if (this.options.isQuitting?.())");
   });
 });

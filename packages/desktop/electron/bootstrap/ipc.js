@@ -12,9 +12,8 @@ import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
-import { registerPetHandlers } from "../ipc/pet-handlers.js";
 import { ipcMain, shell } from "electron";
-import { cleanupPetVoiceSession, togglePetVoice, } from "../services/pet-voice-control.js";
+import { toggleRealtimeVoice, } from "../services/realtime-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
@@ -361,11 +360,11 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         // Fires the instant a restart-to-install is accepted, before the
         // updater starts quitting. electron-updater/Squirrel closes every
         // window and then waits for this process to exit before it swaps the
-        // bundle in and relaunches. The always-on-top overlay and pet windows
-        // veto their own `close` (preventDefault) unless `isQuitting` is set,
-        // so if that sweep runs before `before-quit-for-update` lands they can
-        // strand a hidden, still-live app that never relaunches. Arm the quit
-        // flag and force-destroy those windows now — `destroy()` tears the
+        // bundle in and relaunches. The always-on-top overlay window vetoes
+        // its own `close` unless `isQuitting` is set, so if that sweep runs
+        // before `before-quit-for-update` lands it can strand a hidden,
+        // still-live app that never relaunches. Arm the quit flag and
+        // force-destroy the window now — `destroy()` tears the
         // BrowserWindow down without emitting `close`, so nothing can veto it.
         onBeforeRestart: () => {
             state.isQuitting = true;
@@ -375,18 +374,10 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             catch (error) {
                 console.error("Failed to destroy overlay window for update restart.", error);
             }
-            try {
-                state.petController?.destroy();
-            }
-            catch (error) {
-                console.error("Failed to destroy pet window for update restart.", error);
-            }
         },
     });
-    const togglePetVoiceImpl = () => togglePetVoice({
+    const toggleRealtimeVoiceImpl = () => toggleRealtimeVoice({
         uiStateService: services.uiStateService,
-        getPetController: () => state.petController ?? null,
-        windowManager: state.windowManager,
     });
     let wakeword = null;
     let wakewordPausedForVoice = services.uiStateService.state.isVoiceRtcActive;
@@ -398,9 +389,9 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         uiState: services.uiStateService.state,
         getAppReady: () => state.appReady,
         windowManager: state.windowManager,
-        getPetWindow: () => state.petController?.getWindow() ?? null,
         broadcastUiState: () => services.uiStateService.broadcast(),
-        togglePetVoice: togglePetVoiceImpl,
+        toggleRealtimeVoice: toggleRealtimeVoiceImpl,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
         getStellaHostRunner: lifecycle.getRunner,
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         getBroadcastToMobile: lazyMobileBroadcast,
@@ -408,9 +399,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         stellaAppDir: state.stellaAppDir,
         stellaDataDirPath: state.stellaDataDirPath,
     });
-    // Register dictation first so we can pass `startPetDictation` into
-    // the pet handlers — the pet's mic action is dictation now (voice
-    // is wake-word driven, not button-driven).
     const dictationPushToTalk = registerDictationHandlers({
         windowManager: state.windowManager,
         getOverlayController: () => state.overlayController ?? null,
@@ -423,13 +411,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         },
     });
     services.globalInputHook.setDictationPushToTalkHandlers(dictationPushToTalk);
-    state.petHandlersDispose = registerPetHandlers({
-        windowManager: state.windowManager,
-        getPetController: () => state.petController ?? null,
-        toggleVoiceRtc: togglePetVoiceImpl,
-        startPetDictation: () => dictationPushToTalk.startPetDictation(),
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
     // ── Wake-word listener ──────────────────────────────────────────────
     // Spawns the native `wakeword_listener` helper. On a "Hey Stella"
     // detection it activates the realtime voice agent. Mic buttons stay dictation-only — voice is
@@ -437,12 +418,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     // the assistant cannot trigger itself.
     services.uiStateService.onVoiceActiveChanged((active) => {
         wakewordPausedForVoice = active;
-        if (!active) {
-            cleanupPetVoiceSession({
-                getPetController: () => state.petController ?? null,
-                windowManager: state.windowManager,
-            });
-        }
         syncWakewordPause();
     });
     syncWakewordPause();
@@ -466,7 +441,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 if (services.uiStateService.state.isVoiceRtcActive)
                     return;
                 console.log(`[wakeword] detected "${event.model}" (score=${event.score.toFixed(3)})`);
-                togglePetVoiceImpl();
+                toggleRealtimeVoiceImpl();
             },
         });
         // Inherit any pause state accumulated (voice/dictation) during the deferral

@@ -44,7 +44,6 @@ export default defineConfig({
         full: path.join(workspaceRoot, "index.html"),
         mini: path.join(workspaceRoot, "mini.html"),
         overlay: path.join(workspaceRoot, "overlay.html"),
-        pet: path.join(workspaceRoot, "pet.html"),
       },
     },
   },

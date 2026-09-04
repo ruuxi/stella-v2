@@ -4,7 +4,7 @@
 
 Production uses `BrowserWindow.loadFile()` and the Vite output under
 `packages/desktop-ui/dist`. The renderer stays on `file://` because it is a
-fully local, multi-entry UI (`index`, `mini`, `overlay`, and `pet`) and all
+fully local, multi-entry UI (`index`, `mini`, and `overlay`) and all
 privileged work already crosses the context-isolated preload bridge. A custom
 scheme would add protocol registration, routing, and CSP surface without an M2
 capability benefit.

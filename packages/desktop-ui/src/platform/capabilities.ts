@@ -22,7 +22,6 @@ export const platformCapabilities = Object.freeze({
   onboarding: !websiteBuild,
   nativeBridges: !websiteBuild,
   phoneAccess: !websiteBuild,
-  pet: !websiteBuild,
   shortcuts: !websiteBuild,
   nativeSettings: !websiteBuild,
   localFiles: !websiteBuild,

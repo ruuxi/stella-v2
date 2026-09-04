@@ -4,7 +4,6 @@ import path from "path";
 import { resolveStellaDataDir } from "@stella/runtime/kernel/home/stella-home";
 import { getDevServerUrl } from "../renderer-location.js";
 import { OverlayWindowController } from "../windows/overlay-window.js";
-import { PetWindowController } from "../windows/pet-window.js";
 import { WindowManager } from "../windows/window-manager.js";
 import { TrayController } from "../windows/tray-controller.js";
 import { configureNotificationActivationHandling } from "../services/notification-service.js";
@@ -32,14 +31,6 @@ const initializeWindowShell = (context) => {
     });
     configureNotificationActivationHandling(context);
     state.overlayController = new OverlayWindowController({
-        preloadPath,
-        sessionPartition: config.sessionPartition,
-        electronDir: config.electronDir,
-        isDev: config.useDevServer,
-        getDevServerUrl,
-        isQuitting: () => state.isQuitting,
-    });
-    state.petController = new PetWindowController({
         preloadPath,
         sessionPartition: config.sessionPartition,
         electronDir: config.electronDir,

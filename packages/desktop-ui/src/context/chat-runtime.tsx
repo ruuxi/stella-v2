@@ -6,25 +6,11 @@ import {
   UserMessageActionsBusyContext,
   UserMessageActionsContext,
 } from "@/app/chat/user-message-actions-context";
-import { usePetStatusBroadcast } from "@/shell/pet/use-pet-status-broadcast";
 import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
 import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
 import { platformCapabilities } from "@/platform/capabilities";
 
-function NativeRuntimeBridges({
-  messages,
-  runtime,
-}: {
-  messages: ReturnType<typeof useFullShellChat>["messages"];
-  runtime: ReturnType<typeof useFullShellChat>["runtime"];
-}) {
-  usePetStatusBroadcast({
-    messages,
-    tasks: runtime.conversation.tasks,
-    runtimeStatusText: runtime.conversation.streaming.runtimeStatusText ?? "",
-    isStreaming: runtime.conversation.isStreaming,
-    pendingUserMessageId: runtime.conversation.pendingUserMessageId ?? null,
-  });
+function NativeRuntimeBridges() {
   useTaskDecorationPublisher();
   return null;
 }
@@ -73,7 +59,7 @@ export function ChatRuntimeProvider({
   return (
     <ChatRuntimeContext.Provider value={runtime}>
       {platformCapabilities.nativeBridges ? (
-        <NativeRuntimeBridges messages={messages} runtime={runtime} />
+        <NativeRuntimeBridges />
       ) : null}
       <ChatMessagesContext.Provider value={messages}>
         <UserMessageActionsContext.Provider value={runtime.messageActions}>

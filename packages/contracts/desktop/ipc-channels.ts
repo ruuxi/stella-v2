@@ -132,6 +132,7 @@ export const IPC_VOICE_GET_RUNTIME_STATE = "voice:getRuntimeState" as const;
 export const IPC_VOICE_RUNTIME_STATE = "voice:runtimeState" as const;
 export const IPC_VOICE_RTC_SET_SHORTCUT = "voice-rtc:setShortcut" as const;
 export const IPC_VOICE_RTC_GET_SHORTCUT = "voice-rtc:getShortcut" as const;
+export const IPC_VOICE_RTC_TOGGLE = "voice-rtc:toggle" as const;
 /** Renderer (overlay voice runtime) → main: an actionable voice session error. */
 export const IPC_VOICE_REPORT_SESSION_ERROR =
   "voice:reportSessionError" as const;
@@ -260,10 +261,6 @@ export const IPC_PROMPT_PRESETS_SELECT = "promptPresets:select" as const;
 export const IPC_CUSTOMIZATIONS_RESET = "customizations:reset" as const;
 export const IPC_PREFERENCES_GET_WAKE_WORD = "preferences:getWakeWord" as const;
 export const IPC_PREFERENCES_SET_WAKE_WORD = "preferences:setWakeWord" as const;
-export const IPC_PET_REQUEST_DICTATION = "pet:requestDictation" as const;
-/** Main → renderer broadcast: pet-mic dictation is currently
- *  recording. Drives the pet's "Sending to Stella…" status pill. */
-export const IPC_PET_DICTATION_ACTIVE = "pet:dictationActive" as const;
 export const IPC_LLM_CREDENTIALS_LIST = "llmCredentials:list" as const;
 export const IPC_LLM_CREDENTIALS_LIST_OAUTH_PROVIDERS =
   "llmCredentials:listOAuthProviders" as const;
@@ -450,42 +447,3 @@ export const IPC_USER_APPS_LIST = "userApps:list" as const;
 export const IPC_USER_APPS_START = "userApps:start" as const;
 export const IPC_USER_APPS_STOP = "userApps:stop" as const;
 export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;
-
-// ── Pet Overlay ─────────────────────────────────────────────────────────────
-//
-// The pet renders inside the existing transparent overlay window. State is
-// owned by the main process so toggles from any window (Pets settings,
-// pet's own context menu) reach every renderer; agent status is produced
-// by the full-shell chat surface and broadcast to all renderers via
-// `pet:status` so the overlay can drive the right animation and bubble.
-//
-//   pet:setOpen      any window → main → all renderers (toggle visibility)
-//   pet:status       full window → main → all renderers (mood + bubble copy)
-//   pet:openChat     pet → main (focus full window + open the sidebar chat)
-//   pet:sendMessage  pet → main → full window (deliver popover-composer text)
-
-export const IPC_PET_SET_OPEN = "pet:setOpen" as const;
-export const IPC_PET_GET_STATE = "pet:getState" as const;
-/** Renderer drag handler: move the dedicated pet window to an absolute
- *  screen-coords position. Sent on every pointermove so the window
- *  follows the cursor smoothly during a drag gesture. */
-export const IPC_PET_MOVE_WINDOW = "pet:moveWindow" as const;
-/** Pet renderer toggles the inline chat composer. Main grows the
- *  dedicated pet window to make room for the composer to the left of
- *  the sprite *and* flips `focusable` on so the textarea can receive
- *  keystrokes (the resting pet window is non-focusable so it never
- *  steals focus from the active app). */
-export const IPC_PET_SET_COMPOSER_ACTIVE = "pet:setComposerActive" as const;
-/** Pet voice button: ask main to enter voice (RTC) mode through the shared
- *  voice-overlay plumbing. */
-export const IPC_PET_REQUEST_VOICE = "pet:requestVoice" as const;
-/** Renderer-driven mouse passthrough toggle. The pet window is small
- *  but most of its rectangle is transparent space around the sprite +
- *  action arc; we keep `setIgnoreMouseEvents(true, { forward: true })`
- *  by default and let the renderer flip it to `false` only while the
- *  cursor is over a visibly-interactive element. Without this empty
- *  pixels of the pet window block clicks to whatever app is below. */
-export const IPC_PET_SET_INTERACTIVE = "pet:setInteractive" as const;
-export const IPC_PET_STATUS = "pet:status" as const;
-export const IPC_PET_OPEN_CHAT = "pet:openChat" as const;
-export const IPC_PET_SEND_MESSAGE = "pet:sendMessage" as const;

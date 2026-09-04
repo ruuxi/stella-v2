@@ -6,10 +6,6 @@ import { CredentialRequestLayer } from "./global/auth/CredentialRequestLayer";
 import { FullShell } from "./shell/FullShell";
 import { CloudHomeSyncBridge } from "./features/cloud/CloudHomeSyncBridge";
 import { CloudMemoryPreferenceBridge } from "./features/cloud/CloudMemoryPreferenceBridge";
-import {
-  readPetOpenPreference,
-  writePetOpenPreference,
-} from "./shell/pet/pet-preferences";
 import { platformCapabilities } from "./platform/capabilities";
 
 const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
@@ -24,22 +20,11 @@ const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
 // eager chunk anyway), and the cost of missing the event is high.
 function App() {
   useEffect(() => {
-    if (!platformCapabilities.pet) return;
+    if (!platformCapabilities.nativeBridges) return;
     const timer = window.setTimeout(() => {
       window.sessionStorage.removeItem(AUTO_REPAIR_SIGNATURE_KEY);
     }, 20_000);
     return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!platformCapabilities.pet) return;
-    if (readPetOpenPreference()) {
-      window.electronAPI?.pet?.setOpen?.(true);
-    }
-    const cleanup = window.electronAPI?.pet?.onSetOpen?.((open) => {
-      writePetOpenPreference(open);
-    });
-    return () => cleanup?.();
   }, []);
 
   return (

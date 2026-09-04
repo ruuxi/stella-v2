@@ -1,6 +1,5 @@
 import { BrowserWindow } from "electron";
 import { OverlayWindowController } from "../windows/overlay-window.js";
-import { PetWindowController } from "../windows/pet-window.js";
 import { WindowManager } from "../windows/window-manager.js";
 import { BootstrapLifecycleBindings } from "./lifecycle-bindings.js";
 import { ProcessRuntime } from "../process-runtime.js";
@@ -14,14 +13,9 @@ export const getMobileBroadcast = (context) => {
     return context.state.mobileBridgeResource?.broadcastToMobile ?? null;
 };
 export const getAllWindows = (context) => {
-    const windows = context.state.windowManager
+    return context.state.windowManager
         ? context.state.windowManager.getAllWindows()
         : BrowserWindow.getAllWindows();
-    const petWindow = context.state.petController?.getWindow() ?? null;
-    if (!petWindow || petWindow.isDestroyed() || windows.includes(petWindow)) {
-        return windows;
-    }
-    return [...windows, petWindow];
 };
 export const forEachWindow = (context, callback) => {
     for (const window of getAllWindows(context)) {
@@ -68,8 +62,6 @@ export const createBootstrapContext = (config) => {
         localChatUpdateUnsubscribe: null,
         threadActivityUpdateUnsubscribe: null,
         overlayController: null,
-        petController: null,
-        petHandlersDispose: null,
         meetingCaptureController: null,
         processRuntime,
         scheduleUpdateUnsubscribe: null,

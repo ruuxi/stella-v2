@@ -17,7 +17,6 @@ describe("website platform capabilities", () => {
       onboarding: false,
       nativeBridges: false,
       phoneAccess: false,
-      pet: false,
       shortcuts: false,
       nativeSettings: false,
       localFiles: false,

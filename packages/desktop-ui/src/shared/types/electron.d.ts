@@ -357,6 +357,8 @@ export type ElectronUiStateKvApi = {
 };
 
 export type ElectronVoiceApi = {
+  /** Toggle the desktop realtime voice session. */
+  toggleRtc: () => void;
   persistTranscript: (payload: {
     conversationId: string;
     role: "user" | "assistant";
@@ -1746,61 +1748,6 @@ export type ElectronApi = {
   localChat: ElectronLocalChatApi;
   nativeIntegrations: ElectronNativeIntegrationsApi;
   home: ElectronHomeApi;
-  pet: ElectronPetApi;
-};
-
-type PetOverlayMood =
-  "idle" | "running" | "waiting" | "review" | "failed" | "waving";
-
-type PetOverlayStatusPayload = {
-  state: PetOverlayMood;
-  title: string;
-  message: string;
-  isLoading: boolean;
-};
-
-type ElectronPetApi = {
-  /** Read the main-process canonical visibility/status. Used by the overlay
-   *  renderer on mount because it can be loaded after the original broadcast. */
-  getState: () => Promise<{
-    open: boolean;
-    status: PetOverlayStatusPayload;
-  }>;
-  /** Toggle the floating pet visibility from any window. */
-  setOpen: (open: boolean) => void;
-  /** Move the dedicated pet window to an absolute screen-coords
-   *  position. Used by the renderer's drag handler. */
-  moveWindow: (position: { x: number; y: number }) => void;
-  /** Toggle the inline chat composer next to the pet. Main grows the
-   *  pet window leftward to make room for the composer and flips
-   *  `focusable` on so the textarea can receive keystrokes. Pass
-   *  `false` to collapse the composer and restore the resting
-   *  footprint. */
-  setComposerActive: (active: boolean) => void;
-  /** Renderer-driven mouse passthrough toggle. Defaults to click-through
-   *  on the empty pixels of the pet window; the renderer flips this to
-   *  `true` while the cursor is over a visibly-interactive element so
-   *  clicks land on the pet, not the app below. */
-  setInteractive: (active: boolean) => void;
-  /** Pet voice button — ask main to enter voice (RTC) mode. */
-  requestVoice: () => void;
-  /** Pet mic button — start a dictation overlay whose transcript is
-   *  delivered to Stella's chat instead of pasted into the focused app. */
-  requestDictation: () => void;
-  /** Subscribe to pet-mic dictation start/stop broadcasts. */
-  onDictationActive: (callback: (active: boolean) => void) => () => void;
-  /** Subscribe to visibility broadcasts coming back from main. */
-  onSetOpen: (callback: (open: boolean) => void) => () => void;
-  /** Push a derived `PetOverlayStatus` to every renderer. */
-  pushStatus: (status: PetOverlayStatusPayload) => void;
-  /** Subscribe to status broadcasts (fan-out from `pushStatus`). */
-  onStatus: (callback: (status: PetOverlayStatusPayload) => void) => () => void;
-  /** Ask main to focus the full window and open the chat sidebar. */
-  openChat: () => void;
-  /** Forward a popover-composer message to the full window's chat. */
-  sendMessage: (text: string) => void;
-  /** Receive `pet:sendMessage` payloads (full window only). */
-  onSendMessage: (callback: (text: string) => void) => () => void;
 };
 
 declare global {

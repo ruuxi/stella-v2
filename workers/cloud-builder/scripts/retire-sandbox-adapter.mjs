@@ -39,6 +39,34 @@ if (
   process.exit(2);
 }
 
+// The Worker names a container by an exact workload, but the inventory can
+// only tell `agent` from `resident-attachment` with a durable export, so an
+// `agent-*` instance usually arrives as the ambiguous classification with
+// both candidates. Both address the same namespace: the Worker keys the
+// namespace on `app-build` versus size, never on which of the two agent
+// workloads minted the id. Resolving to the first candidate therefore
+// changes only the label on the retire log line, never the target. An
+// `app-build` candidate is never mixed in, and an empty candidate list
+// (an id this worker did not mint) stays unresolved and fails here.
+const EXACT_WORKLOADS = new Set(["app-build", "agent", "resident-attachment"]);
+const resolveWorkload = (plan) => {
+  if (EXACT_WORKLOADS.has(plan.workload)) return plan.workload;
+  const candidates = Array.isArray(plan.workloadCandidates)
+    ? plan.workloadCandidates.filter((entry) => EXACT_WORKLOADS.has(entry))
+    : [];
+  if (candidates.length === 0 || candidates.includes("app-build")) {
+    return null;
+  }
+  return candidates[0];
+};
+const workload = resolveWorkload(selected);
+if (workload === null) {
+  console.error(
+    `retire-sandbox-adapter: cannot resolve workload ${JSON.stringify(selected.workload)} to an exact target.`,
+  );
+  process.exit(2);
+}
+
 const builderUrl = process.env.CLOUD_BUILDER_URL;
 const serviceSecret = process.env.BUILDER_SERVICE_SECRET;
 if (!builderUrl || !serviceSecret) {
@@ -59,7 +87,7 @@ const response = await fetch(
     body: JSON.stringify({
       sandboxId: selected.sandboxId,
       size: selected.size,
-      workload: selected.workload,
+      workload,
     }),
   },
 );
@@ -77,7 +105,8 @@ process.stdout.write(
     instanceId: selected.instanceId,
     sandboxId: selected.sandboxId,
     size: selected.size,
-    workload: selected.workload,
+    workload,
+    classification: selected.workload,
     status: response.status,
     result,
   })}\n`,

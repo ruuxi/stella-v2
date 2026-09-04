@@ -115,7 +115,76 @@ executor-cloud 157 pass, 2 fail (root-only Linux boundary tests, identical on
 the base commit); worker typecheck, `wrangler types --check`,
 `lint:promises` clean; `check:ratchet` no longer reports cloud-builder.
 
-## 3. Do these first, in order (needs Docker and dev credentials)
+## 2b. 2026-09-03 evening: section 3 done, one more leak fixed
+
+Run from a machine with Docker and the dev credentials. Dev worker versions
+`49cff631` (commit `0cb42b380`) and `86400928` (this commit).
+
+- The six leaked small containers were reaped with the retire script. Two
+  script defects on the way: the adapter was not executable, and the
+  inventory classifies every `agent-*` instance as
+  `agent-or-resident-attachment` (it cannot tell the two apart without a
+  durable export), which the route rejected as `invalid_target`. The adapter
+  now resolves that classification to the first candidate; both candidates
+  address the same namespace, the Worker keys it on `app-build` versus size.
+- The wedged thread `14e0abfd…` was `failed` after the deploy's own recovery;
+  `POST /sessions/:id/expire` answered `404 no_agent_turn`, which is correct.
+- The follow-up cell passed on both versions: `sandbox_ready` on both turns,
+  the restored daemon served `Read`, final content `hello world`, no
+  `attached_session_terminated`, no `sandbox_keep_alive_release_failed`.
+- The first run also showed a leak the previous fix did not cover: a
+  **completed** resident turn left its container running with keep-alive
+  persisted (both turns' containers, 18 minutes and counting, no destroy
+  RPC in the tail). Cause: `runResidentAgentTurn` delivered the terminal,
+  whose delivery deletes the turn's storage including the exact compute
+  record, and only then ran `ladder.teardown()` in `finally`;
+  `terminateCurrentAgentSandbox` resolves its target from that record, found
+  nothing, and returned without a destroy. Fix in this commit:
+  `finishResidentAgentTurn` releases the compute before delivery, a deferred
+  destroy releases the world slot early (same rule as the watchdog path),
+  and the `finally` sweep runs only on an exceptional exit. Regression tests
+  in `tests/general-agent-resident-recovery.test.ts`. Verified live:
+  `sandbox_destroyed` (`agent_termination`) 0.1 s before the completed event,
+  small-class inventory zero within 12 s of completion on both turns. This
+  is very likely where the original six leaks came from.
+- `.agents/skills/verify-stella/cloud-turn.mjs` gained `--email` so a
+  follow-up can re-enter a conversation as the same owner; the harness also
+  exits on the orchestrator's first `completed` row, so poll `agent_events`
+  yourself for the agent thread.
+
+Operational facts learned:
+
+- A deploy that changes the image rolls the container application; for
+  about ten minutes afterwards the platform still counts the old instances
+  against `max_instances`, `wrangler containers instances` shows them
+  `inactive`, the application `health` block still says `healthy`, and a new
+  attach loops on "Maximum number of running container instances exceeded"
+  (the follow-up attach took 6 minutes on the first run, 14 s once settled).
+  The retire script's exact-live check also flaps during that window.
+- `wrangler tail` drops most log lines of long Durable Object invocations
+  (an alarm-driven turn shows as one object with zero logs). Workers Logs
+  are enabled, but the telemetry query API needs an observability scope
+  that neither the wrangler OAuth login nor the Convex-held API token has.
+- There is no `lint:promises` script anywhere in the repo; `check:ratchet`
+  runs from the repo root and scans `workers/cloud-builder/.image/` if a
+  deploy is staging at the same time.
+- The Convex-held `CLOUDFLARE_API_TOKEN` cannot list containers; the wrangler
+  login can.
+
+Follow-ups worth a look, not done:
+
+- `destroySandboxDurably` writes its debt record before the destroy attempt,
+  so a watchdog alarm firing in the same instant retries the same target
+  (`sandbox_destroyed` twice at 00:11:53.723, reasons `agent_termination`
+  and `alarm_retry`). Harmless on a container that is already gone, but a
+  destroy RPC on a reset sandbox object is the revival path; the debt should
+  probably be claimed by the in-flight attempt.
+- Escalating this leak into the durable record itself (make
+  `deps.destroy(sandboxId)` use the id it is handed, plus size from the
+  ladder record, instead of re-reading storage) would make the teardown
+  order-independent.
+
+## 3. Do these first, in order (needs Docker and dev credentials; done 2026-09-03, repeat after any deploy)
 
 1. Confirm no dev thread is `running`:
    `cd packages/backend && bunx convex data cloud_agent_threads --limit 5 --order desc`.

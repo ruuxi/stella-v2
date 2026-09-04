@@ -3,7 +3,10 @@
 // dev cloud-builder worker without launching the Electron verifier, then
 // polls the Convex event projection for the resulting agent events.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--wait 180]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180]
+//
+// A follow-up into an existing conversation must arrive as the same owner, so
+// pass the `--email` the first run printed together with its `--conversation`.
 //
 // Needs, from the agent secret store or `bunx convex env get` in packages/backend:
 //   STELLA_ADMIN_API_SECRET   mints a Pro test owner (dev only)
@@ -41,12 +44,13 @@ const convexEnv = (name) =>
 const adminSecret = convexEnv("STELLA_ADMIN_API_SECRET");
 const serviceSecret = convexEnv("BUILDER_SERVICE_SECRET");
 
+const email = flag("--email", `agent-headless-${randomUUID().slice(0, 8)}@test.stella.local`);
 const session = await (
   await fetch(`${siteUrl}/api/admin/test-accounts/session`, {
     method: "POST",
     headers: { authorization: `Bearer ${adminSecret}`, "content-type": "application/json" },
     body: JSON.stringify({
-      email: `agent-headless-${randomUUID().slice(0, 8)}@test.stella.local`,
+      email,
       plan: "pro",
       usageMode: "unlimited",
     }),
@@ -70,7 +74,7 @@ const started = await fetch(`${builderUrl}/conversations/${conversationId}/turns
   }),
 });
 const startedBody = await started.json().catch(() => null);
-console.log(JSON.stringify({ ownerId, conversationId, status: started.status, response: startedBody }));
+console.log(JSON.stringify({ ownerId, email, conversationId, status: started.status, response: startedBody }));
 if (!started.ok) process.exit(1);
 
 // Poll the projection: the orchestrator's completion and any agent thread

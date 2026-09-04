@@ -76,6 +76,7 @@ for (const selected of plan.selected) {
         sandboxId: selected.name,
         size: selected.size,
         workload: selected.workload,
+        workloadCandidates: selected.workloadCandidates,
       }),
     ],
     {

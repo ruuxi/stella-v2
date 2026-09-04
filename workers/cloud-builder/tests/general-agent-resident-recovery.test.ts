@@ -6,6 +6,7 @@ import {
   INTERRUPTED_TOOL_RESULT_TEXT,
 } from "../src/agent-turn-journal.js";
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
+import { SandboxLifecycleDeferredError } from "../src/sandbox-lifecycle.js";
 import {
   turnComputePlan,
   turnComputePlanKey,
@@ -780,5 +781,60 @@ describe("resident agent turn recovery", () => {
     await runAlarm(harness.instance, turn);
 
     expect(harness.fallbackInputs).toEqual([undefined]);
+  });
+});
+
+describe("resident agent turn completion", () => {
+  const finishWith = async (
+    teardown: () => Promise<void>,
+  ): Promise<{ order: string[] }> => {
+    const harness = recoveryHarness();
+    const order: string[] = [];
+    harness.instance["deliverResidentTerminal"] = async () => {
+      order.push("deliver");
+    };
+    harness.instance["releaseWorldLeaseDespiteDeferredDestroy"] = async () => {
+      order.push("release_world_lease");
+      return true;
+    };
+    const finish = (
+      harness.instance["finishResidentAgentTurn"] as (
+        turn: unknown,
+        ladder: { teardown: () => Promise<void> },
+        result: unknown,
+        requestStarted: number,
+      ) => Promise<void>
+    ).bind(harness.instance);
+    await finish(
+      residentTurn(),
+      {
+        teardown: async () => {
+          order.push("teardown");
+          await teardown();
+        },
+      },
+      {},
+      0,
+    );
+    return { order };
+  };
+
+  test("a completed turn destroys what attached before the terminal deletes the exact record", async () => {
+    const { order } = await finishWith(async () => undefined);
+    expect(order).toEqual(["teardown", "deliver"]);
+  });
+
+  test("a deferred destroy releases the world slot early and still delivers", async () => {
+    const { order } = await finishWith(async () => {
+      throw new SandboxLifecycleDeferredError();
+    });
+    expect(order).toEqual(["teardown", "release_world_lease", "deliver"]);
+  });
+
+  test("a failed lease retirement never withholds a completed terminal", async () => {
+    const { order } = await finishWith(async () => {
+      throw new Error("owner gate unavailable");
+    });
+    expect(order).toEqual(["teardown", "deliver"]);
   });
 });

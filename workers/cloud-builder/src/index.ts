@@ -10598,6 +10598,7 @@ export class BuildSession extends DurableObject<Env> {
         ])
       : undefined;
 
+    let computeReleased = false;
     try {
       execution.assertActive();
       const modelGateway = await mintAgentTurnModelGateway(
@@ -10653,11 +10654,64 @@ export class BuildSession extends DurableObject<Env> {
             commandTimeoutMs,
           }),
       });
-      await this.deliverResidentTerminal(turn, result, requestStarted);
+      computeReleased = true;
+      await this.finishResidentAgentTurn(turn, ladder, result, requestStarted);
       return result;
     } finally {
       this.residentAgentAborts.delete(turn.turnId);
-      await ladder.teardown().catch(() => undefined);
+      // The sweep for an exceptional exit only. A turn that reached its
+      // completion sequence has already destroyed and retired what attached.
+      if (!computeReleased) await ladder.teardown().catch(() => undefined);
+    }
+  }
+
+  /**
+   * A completed resident turn releases its compute before its terminal is
+   * delivered. Delivery deletes the exact compute record with the rest of the
+   * turn's storage, and the ladder's destroy resolves its target from that
+   * record: run after delivery it found nothing, returned without a destroy,
+   * and every container an attached turn had used outlived the turn on
+   * persisted keep-alive. The failure paths already sequence claim, teardown,
+   * deliver; this is the same order for success.
+   */
+  private async finishResidentAgentTurn(
+    turn: TurnRequest,
+    ladder: Pick<ReturnType<typeof createAgentComputeLadder>, "teardown">,
+    result: GeneralAgentTurnResult,
+    requestStarted: number,
+  ): Promise<void> {
+    await this.releaseResidentCompute(turn, ladder);
+    await this.deliverResidentTerminal(turn, result, requestStarted);
+  }
+
+  /**
+   * A destroy that cannot settle is alarm-owned debt, the same rule the
+   * watchdog and executor-loss paths apply: it never withholds a finished
+   * turn's terminal or keeps the owner's world slot held until the container
+   * finally dies. A lease retirement that fails is logged and left to the
+   * lease TTL for the same reason.
+   */
+  private async releaseResidentCompute(
+    turn: TurnRequest,
+    ladder: Pick<ReturnType<typeof createAgentComputeLadder>, "teardown">,
+  ): Promise<void> {
+    try {
+      await ladder.teardown();
+    } catch (error) {
+      if (error instanceof SandboxLifecycleDeferredError) {
+        log("error", "resident_compute_destroy_deferred", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          ...sandboxLifecycleFailureFields(error),
+        });
+        await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
+        return;
+      }
+      log("error", "resident_compute_release_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
     }
   }
 

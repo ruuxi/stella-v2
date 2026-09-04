@@ -8,12 +8,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const skillRoot = path.resolve(scriptDir, "..");
 const featureDir = path.join(skillRoot, "features");
 const indexPath = path.join(featureDir, "README.md");
-const expectedHeadings = [
-  "Sub-features",
-  "How to get to it (user POV)",
-  "Gotchas",
-];
-
 const failures = [];
 const featureFiles = readdirSync(featureDir)
   .filter((name) => name.endsWith(".md") && name !== "README.md")
@@ -36,16 +30,6 @@ for (const file of featureFiles) {
   const source = readFileSync(path.join(featureDir, file), "utf8");
   const h1 = source.match(/^# (.+)$/m);
   if (!h1) failures.push(`${file} needs one H1 title.`);
-  const headings = [...source.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
-  const headingsValid =
-    headings.length === 4 &&
-    headings[0] === expectedHeadings[0] &&
-    headings[1] === expectedHeadings[1] &&
-    /^Driving it with control-stella(?:-ios)?$/.test(headings[2]) &&
-    headings[3] === expectedHeadings[2];
-  if (!headingsValid) {
-    failures.push(`${file} H2 order is ${JSON.stringify(headings)}; expected Sub-features, How to get to it (user POV), a control-stella driving section, and Gotchas.`);
-  }
   for (const match of source.matchAll(commandPattern)) {
     const parts = match[2] ? [match[1], match[2]] : [match[1]];
     if (!resolveCommand(parts)) failures.push(`${file} references unknown desktop command: ${parts.join(" ")}.`);

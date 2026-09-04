@@ -26,8 +26,9 @@ export const COMMANDS = [
   command("settings", "state", "settings-state", "Read Settings dialog state"),
   command("settings", "close", "settings-close", "Close Settings safely"),
   command("apps", "open", "apps-open", "Open the Apps library from New tab", ["apps"]),
-  command("apps", "state", "apps-state", "Classify the visible Apps state"),
+  command("apps", "state", "apps-state", "Observe the visible Apps surface without inferring readiness"),
   command("apps", "ask", "apps-ask", "Use the empty-state create-app handoff"),
+  command("inspect", "observe", "observe", "Capture state, controls, ARIA and screenshot; optionally compare a previous observation"),
   command("inspect", "state", "inspect-state", "Read a redacted semantic shell state"),
   command("inspect", "components", "components", "List visible interactive components", ["components"]),
   command("inspect", "aria", "snapshot", "Write an accessibility snapshot", ["snapshot"]),
@@ -107,10 +108,11 @@ export const helpText = () => {
   lines.push("  chat send --text <message> [--timeout <ms>]");
   lines.push("  settings tab --name <tab>");
   lines.push("  settings search --query <text>");
+  lines.push("  inspect observe --path <directory> [--since <observation.json>]");
   lines.push("  inspect aria|screenshot --path <artifact>");
   lines.push("  inspect eval --js <expression>              unsafe escape hatch");
-  lines.push("  drive click --role <role> --name <name>");
-  lines.push("  drive fill --placeholder <text> --value <text>");
+  lines.push("  drive click --role <role> --name <name> [--within <CSS scope>]");
+  lines.push("  drive fill --placeholder <text> --value <text> [--within <CSS scope>]");
   lines.push("  drive press --key <key-or-chord>             e.g. Shift+Enter, Meta+KeyN");
   lines.push("  diagnostics console|network-log [--duration <ms>] [--limit <count>]");
   lines.push("  performance trace|profile --duration <ms> --path <artifact>");

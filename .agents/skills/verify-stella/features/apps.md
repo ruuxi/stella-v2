@@ -25,7 +25,7 @@ Preconditions:
 - A populated-runtime test needs a seeded app. Do not create one merely to make the state non-empty unless that mutation is in scope.
 
 - **Open.** Run `node .agents/skills/verify-stella/control-stella.mjs apps open`.
-- **Classify.** Run `node .agents/skills/verify-stella/control-stella.mjs apps state`. Require one explicit state among loading, empty, ready, unsupported, or error.
+- **Observe.** Run `node .agents/skills/verify-stella/control-stella.mjs apps state`. Read the returned surface text and inspect the visible content to assess loading, empty, populated, unsupported, or error behavior. The helper does not infer readiness from absent error text.
 - **Empty handoff.** Only in an empty state, run `node .agents/skills/verify-stella/control-stella.mjs apps ask`. Require a create-app draft in the real composer. Do not send it unless generation is in scope.
 - **Populated library.** Use `inspect components`, `drive fill`, and `drive click` to prove search, sort, and a named card. Capture the selected app tab.
 - **Runtime.** For a seeded local app, start it through the visible control, wait with `drive settle`, inspect status, then stop or retry through the user control.

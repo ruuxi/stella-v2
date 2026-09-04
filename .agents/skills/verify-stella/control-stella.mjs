@@ -29,6 +29,8 @@ import {
   resolveCommand,
 } from "./cli/registry.mjs";
 
+import { DOM_TOOLS_JS, compareObservations } from "./cli/dom.mjs";
+
 const scriptPath = fileURLToPath(import.meta.url);
 const skillRoot = path.dirname(scriptPath);
 const repoRoot = path.resolve(skillRoot, "../../..");
@@ -85,6 +87,7 @@ const fail = (message, code = 1, details = {}) => {
         message,
         recovery: details.recovery ?? null,
         retryable: details.retryable ?? false,
+        ...(details.candidates ? { candidates: details.candidates, count: details.count } : {}),
       },
     })}\n`,
   );
@@ -364,6 +367,11 @@ const runtimeEvaluate = async (ws, expression) => {
       result.exceptionDetails.exception?.description ??
       result.exceptionDetails.text ??
       "Runtime.evaluate failed";
+    const target = description.match(/STELLA_TARGET:([^\n]+)/);
+    if (target) {
+      const details = JSON.parse(target[1]);
+      throw Object.assign(new Error(details.message), details);
+    }
     throw new Error(description);
   }
   return result.result?.value;
@@ -962,74 +970,10 @@ const cmdInfo = () => {
   process.stdout.write(`${JSON.stringify(run, null, 2)}\n`);
 };
 
-const FIND_ELEMENT_JS = String.raw`
-({ role, name, placeholder, selector, text }) => {
-  const visible = (el) => {
-    if (!(el instanceof Element)) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
-      return false;
-    }
-    if (el.closest('[inert], [aria-hidden="true"]')) return false;
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0
-      && rect.right > 0 && rect.bottom > 0
-      && rect.left < window.innerWidth && rect.top < window.innerHeight;
-  };
-  const implicitRole = (el) => {
-    const explicit = el.getAttribute("role");
-    if (explicit) return explicit;
-    if (el.tagName === "BUTTON") return "button";
-    if (el.tagName === "A") return "link";
-    if (el.tagName === "TEXTAREA") return "textbox";
-    if (el.tagName === "INPUT") {
-      if (el.type === "search") return "searchbox";
-      if (el.type === "submit") return "button";
-      return "textbox";
-    }
-    return el.tagName.toLowerCase();
-  };
-  const accessibleName = (el) =>
-    (el.getAttribute("aria-label")
-      || el.getAttribute("title")
-      || el.getAttribute("placeholder")
-      || el.textContent
-      || "")
-      .replace(/\s+/g, " ")
-      .trim();
-  if (selector) {
-    const el = [...document.querySelectorAll(selector)].find(visible);
-    if (!el || !visible(el)) throw new Error("No visible node for " + selector);
-    return el;
-  }
-  const nodes = text
-    ? [...document.querySelectorAll("body *")]
-    : [...document.querySelectorAll("button, a, input, textarea, [role], [aria-label], [placeholder]")];
-  const match = nodes.find((el) => {
-    if (!visible(el)) return false;
-    if (placeholder && el.getAttribute("placeholder") !== placeholder) return false;
-    if (role && implicitRole(el) !== role) return false;
-    if (name && accessibleName(el) !== name) return false;
-    if (text && !accessibleName(el).includes(text) && !(el.textContent || "").includes(text)) {
-      return false;
-    }
-    return Boolean(role || name || placeholder || text);
-  });
-  if (!match) {
-    throw new Error(
-      "No visible match"
-        + (role ? " role=" + role : "")
-        + (name ? " name=" + name : "")
-        + (placeholder ? " placeholder=" + placeholder : "")
-        + (text ? " text=" + text : ""),
-    );
-  }
-  return match;
-}
-`;
+const FIND_ELEMENT_JS = `(${DOM_TOOLS_JS}).find`;
 
 const evaluateFind = (ws, query) =>
-  runtimeEvaluate(ws, `(${FIND_ELEMENT_JS})(${JSON.stringify(query)}); true`);
+  runtimeEvaluate(ws, `(${FIND_ELEMENT_JS})(${JSON.stringify({ ...query, unique: false })}); true`);
 
 const clickQuery = (run, query) =>
   withCdp(run, async (ws) => {
@@ -1117,12 +1061,13 @@ const waitQuery = async (run, query, timeoutMs = 10_000) => {
 
 const cmdClick = async (options) => {
   const run = requireRun();
-  if (!options.name && !options.selector)
-    fail("click requires --name or --selector");
+  if (!options.name && !options.selector && !options.role)
+    fail("click requires --name, --role, or --selector");
   const hit = await clickQuery(run, {
     role: options.role ?? null,
     name: options.name ?? null,
     selector: options.selector ?? null,
+    within: options.within ?? null,
   });
   process.stdout.write(`${JSON.stringify(hit)}\n`);
 };
@@ -1139,6 +1084,7 @@ const cmdFill = async (options) => {
       placeholder: options.placeholder ?? null,
       name: options.name ?? null,
       selector: options.selector ?? null,
+      within: options.within ?? null,
       role: options.role ?? null,
     },
     options.value,
@@ -1215,6 +1161,7 @@ const cmdWait = async (options) => {
   const run = requireRun();
   const query = {
     selector: options.selector ?? null,
+    within: options.within ?? null,
     name: options.name ?? null,
     text: options.text ?? null,
     placeholder: options.placeholder ?? null,
@@ -1395,51 +1342,40 @@ const cmdChatSend = async (options, positionals) => {
   const before = await readShellState(run);
   if (!before.activeConversationId || !before.composer.enabled) {
     fail("The chat composer is not ready.", 2, {
-      errorCode: "APP_NOT_READY",
-      recovery: "Run `chat ready`; if it is false, run `session doctor` and relaunch the isolated verifier.",
-      retryable: true,
+      errorCode: "APP_NOT_READY", recovery: "Inspect the app and run `session doctor`.", retryable: true,
     });
   }
-  await fillQuery(run, { selector: "textarea.composer-input" }, text);
+  const timeoutMs = boundedInteger(options.timeout, 10_000, { min: 500, max: 13_000, label: "--timeout" });
+  const observe = () => withCdp(run, (ws) => runtimeEvaluate(ws,
+    `(${DOM_TOOLS_JS}).chat(${JSON.stringify(text)}, ${JSON.stringify(before.activeConversationId)})`));
+  const baseline = await observe();
+  if (!baseline.surfaceFound) fail("The active chat surface could not be identified.");
+  const within = `[data-testid="chat-surface"][data-conversation-id=${JSON.stringify(before.activeConversationId)}]`;
+  await fillQuery(run, { within, selector: "textarea.composer-input" }, text);
   await dispatchKey(run, KEY_CODES.Enter);
-  const timeoutMs = boundedInteger(options.timeout, 10_000, {
-    min: 500,
-    max: 13_000,
-    label: "--timeout",
-  });
   const deadline = Date.now() + timeoutMs;
-  let result = null;
-  while (Date.now() < deadline) {
-    result = await withCdp(run, (ws) =>
-      runtimeEvaluate(
-        ws,
-        `(() => {
-          const composer = [...document.querySelectorAll("textarea.composer-input")]
-            .find((el) => el.getBoundingClientRect().width > 0);
-          const bodyText = document.body.innerText || "";
-          return {
-            composerCleared: !composer || composer.value.length === 0,
-            userMessageVisible: bodyText.includes(${JSON.stringify(text)}),
-            providerErrorVisible: /retry|provider|connect a model|could not start/i.test(bodyText),
-          };
-        })()`,
-      ),
-    );
-    if (result.userMessageVisible || result.providerErrorVisible) break;
+  let observed;
+  let newMessageIds = [];
+  let newNotices = [];
+  do {
+    observed = await observe();
+    newMessageIds = observed.matchingMessageIds.filter((id) => !baseline.mountedMatchingMessageIds.includes(id));
+    newNotices = observed.notices.filter((notice) => !baseline.notices.some((prior) => JSON.stringify(prior) === JSON.stringify(notice)));
+    if (newMessageIds.length || newNotices.length) break;
     await delay(200);
-  }
-  if (!result?.userMessageVisible && !result?.providerErrorVisible) {
-    throw new Error("The submitted message did not become visible before the timeout.");
-  }
-  emitSuccess(
-    "chat.send",
-    {
-      conversationId: before.activeConversationId,
-      ...result,
-    },
-    run,
-    startedAt,
-  );
+  } while (Date.now() < deadline);
+  const observation = newMessageIds.length ? "new-user-message" : newNotices.length ? "new-notice" : "no-new-evidence";
+  emitSuccess("chat.send", {
+    conversationId: before.activeConversationId,
+    action: "enter-dispatched", observation,
+    userMessageVisible: newMessageIds.length > 0,
+    newMessageIds, newNotices: newNotices.map((notice) => ({ ...notice, text: redactText(notice.text) })),
+    composerCleared: observed.composerCleared,
+    surfaceFound: observed.surfaceFound,
+    timedOut: observation === "no-new-evidence",
+    responseCompletion: "not-assessed",
+  }, run, startedAt);
+  if (observation === "no-new-evidence") process.exitCode = 2;
 };
 
 const cmdChatState = async () => {
@@ -1569,14 +1505,6 @@ const cmdSettingsClose = async () => {
   emitSuccess("settings.close", state, run, startedAt);
 };
 
-const classifyAppsState = (text) => {
-  if (/No apps yet|Nothing here yet/i.test(text)) return "empty";
-  if (/unavailable/i.test(text)) return "unsupported";
-  if (/try again|could not|failed/i.test(text)) return "error";
-  if (/loading/i.test(text)) return "loading";
-  return "ready";
-};
-
 const APPS_TEXT_JS = `(() => {
   const visible = (el) => {
     const style = getComputedStyle(el);
@@ -1602,7 +1530,7 @@ const cmdAppsOpen = async () => {
   );
   emitSuccess(
     "apps.open",
-    { state: classifyAppsState(text), text },
+    { text: redactText(text), classification: "not-assessed" },
     run,
     startedAt,
   );
@@ -1616,7 +1544,7 @@ const cmdAppsState = async () => {
   );
   emitSuccess(
     "apps.state",
-    { state: classifyAppsState(text), text },
+    { text: redactText(text), classification: "not-assessed" },
     run,
     startedAt,
   );
@@ -1719,24 +1647,49 @@ const cmdSnapshot = async (options) => {
 const cmdComponents = async () => {
   const startedAt = Date.now();
   const run = requireRun();
-  const components = await withCdp(run, (ws) =>
-    runtimeEvaluate(
-      ws,
-      `(() => {
-        const nodes = [...document.querySelectorAll("button, a, input, textarea, select, [role], [data-testid]")];
-        return nodes.flatMap((el) => {
-          const style = getComputedStyle(el);
-          const rect = el.getBoundingClientRect();
-          if (style.display === "none" || style.visibility === "hidden" || el.closest('[inert], [aria-hidden="true"]') || rect.width <= 0 || rect.height <= 0 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= window.innerWidth || rect.top >= window.innerHeight) return [];
-          const role = el.getAttribute("role") || ({ BUTTON: "button", A: "link", TEXTAREA: "textbox", INPUT: "textbox" }[el.tagName] || null);
-          const name = (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || el.textContent || "")
-            .replace(/\\s+/g, " ").trim().slice(0, 160);
-          return [{ role, name, testId: el.getAttribute("data-testid"), tag: el.tagName.toLowerCase(), disabled: Boolean(el.disabled), rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) } }];
-        });
-      })()`,
-    ),
-  );
+  const components = await withCdp(run, (ws) => runtimeEvaluate(ws, `(${DOM_TOOLS_JS}).components()`));
   emitSuccess("inspect.components", { components }, run, startedAt);
+};
+
+const cmdObserve = async (options) => {
+  const startedAt = Date.now();
+  const run = requireRun();
+  if (!options.path) fail("inspect observe requires --path <artifact-directory>.");
+  const before = options.since ? JSON.parse(readFileSync(path.resolve(options.since), "utf8")) : null;
+  if (before && (before.runId !== run.runId || before.schemaVersion !== 1 || !before.state || !Array.isArray(before.components))) {
+    fail("--since must reference an observation from this run.");
+  }
+  const directory = path.resolve(options.path);
+  const stem = `observation-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const paths = { observation: path.join(directory, `${stem}.json`), screenshot: path.join(directory, `${stem}.png`), aria: path.join(directory, `${stem}.aria.txt`) };
+  const capture = await withCdp(run, async (ws) => {
+    const observed = await runtimeEvaluate(ws, `({ state: ${SHELL_STATE_JS}, components: (${DOM_TOOLS_JS}).components() })`);
+    const accessibility = await cdpSend(ws, 21, "Accessibility.getFullAXTree", {});
+    const screenshot = await cdpSend(ws, 20, "Page.captureScreenshot", { format: "png" });
+    return { ...observed, accessibility: accessibility.nodes.filter((node) => !node.ignored).map((node) => ({
+      nodeId: node.nodeId, parentId: node.parentId ?? null,
+      role: node.role?.value ?? null, name: redactText(node.name?.value ?? ""),
+      properties: Object.fromEntries((node.properties ?? []).filter((property) =>
+        ["disabled", "checked", "selected", "expanded", "focused", "required"].includes(property.name)
+      ).map((property) => [property.name, property.value?.value])),
+    })), screenshot: screenshot.data };
+  });
+  const observation = {
+    schemaVersion: 1, runId: run.runId,
+    startedAt: new Date(startedAt).toISOString(), finishedAt: new Date().toISOString(),
+    captureMode: "sequential-semantic-state-then-screenshot",
+    state: capture.state,
+    accessibility: capture.accessibility,
+    controlScope: "light-dom; accessibility tree and screenshot may expose additional controls",
+    components: capture.components.map((component) => ({ ...component, name: redactText(component.name) })),
+    paths,
+  };
+  if (before) observation.changes = compareObservations(before, observation);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(paths.screenshot, Buffer.from(capture.screenshot, "base64"));
+  writeFileSync(paths.aria, capture.accessibility.map((node) => `${node.nodeId} parent=${node.parentId} ${node.role} ${JSON.stringify(node.name)} ${JSON.stringify(node.properties)}`).join("\n") + "\n");
+  writeFileSync(paths.observation, JSON.stringify(observation, null, 2) + "\n");
+  emitSuccess("inspect.observe", observation, run, startedAt);
 };
 
 const cmdClickXy = async (options, positionals) => {
@@ -2190,6 +2143,9 @@ try {
     case "inspect-state":
       await cmdInspectState();
       break;
+    case "observe":
+      await cmdObserve(options);
+      break;
     case "components":
       await cmdComponents();
       break;
@@ -2254,8 +2210,9 @@ try {
   }
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error), 1, {
-    errorCode: /timed out/i.test(String(error)) ? "TIMEOUT" : "COMMAND_FAILED",
-    recovery: "Run `session doctor`. If the instance is unhealthy, run `cleanup plan` before `session launch --replace`.",
+    errorCode: error.code ?? (/timed out/i.test(String(error)) ? "TIMEOUT" : "COMMAND_FAILED"),
+    candidates: error.candidates, count: error.count,
+    recovery: error.code === "AMBIGUOUS_TARGET" || error.code === "TARGET_NOT_FOUND" ? "Run `inspect observe` or `inspect components`; narrow the query with --within or --selector." : "Run `session doctor`. If the instance is unhealthy, run `cleanup plan` before `session launch --replace`.",
     retryable: true,
   });
 }

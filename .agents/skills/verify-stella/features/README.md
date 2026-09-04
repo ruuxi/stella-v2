@@ -1,30 +1,10 @@
 # Stella Feature Map
 
-This is the maintained map of Stella's user-visible desktop and iOS surfaces. Read the relevant feature file before driving the app. Commands use the agent-friendly desktop control utility at `.agents/skills/verify-stella/control-stella.mjs`; the compatibility wrapper under `scripts/` is not the canonical entry point.
+These notes describe Stella's desktop and iOS surfaces, entry points, and non-obvious dependencies. Consult the notes relevant to the behavior being verified; there is no requirement to read or exercise every linked surface.
 
-## Desktop baseline
+The [verification skill](../SKILL.md) defines evidence and isolation boundaries. Driving sections are examples to adapt, not mandatory sequences or exhaustive acceptance criteria. Their expected states describe those examples; choose coverage from the requested behavior, current source, and observed app state.
 
-- Launch only with `node .agents/skills/verify-stella/control-stella.mjs session launch` and require `session doctor` to report healthy.
-- Use the isolated run data and Chromium profile created by the helper. Never attach to the developer's Stella window or `~/.stella`.
-- Start a recipe with no dialog or popover open. Use `drive press --key Escape` to dismiss transient UI.
-- Prefer named journeys such as `settings open` and `apps open`. Use `drive`, `inspect`, and `diagnostics` commands when the map calls for a lower-level action.
-- Store ARIA snapshots and screenshots under `.agents/skills/verify-stella/artifacts/<feature>/`.
-
-## iOS baseline
-
-- Use the existing `stella-mac` SSH alias and `.agents/skills/verify-stella/scripts/control-stella-ios.sh` from a local Linux session.
-- Stage the Linux working tree into the helper-owned disposable Mac directory. Do not modify or reset the developer's Mac checkout.
-- Simulator screenshots and observable app state are proof. A successful Expo build alone is not proof.
-- Prefer the project-scoped XcodeBuildMCP tools for accessibility snapshots and semantic input. Run `snapshot_ui` before acting, target only refs from the current snapshot, and refresh after navigation or layout changes.
-- Use coordinate input only as a fallback after a fresh whole-screen capture confirms the Simulator window and `doctor` reports `screen_input=yes`.
-
-## Proof contract
-
-- Prove the user entry point and the resulting visible state. Do not substitute an internal setter or raw database mutation.
-- Pair a screenshot with an accessibility snapshot where the platform supports it.
-- For mutations, read the result back from a second user-visible state or the isolated persisted data.
-- Report blocked paths with the exact command and missing prerequisite. Authentication, provider credentials, entitlements, hardware, and remote cloud state are valid blockers.
-- Cleanup only resources the verifier owns. Preserve artifacts.
+The [desktop reference](../references/desktop.md) covers harness setup and diagnostics. The [iOS infrastructure reference](ios.md) covers SSH, disposable source staging, and Simulator control. Keep environment and resource-ownership requirements when adapting an example.
 
 ## Desktop features
 

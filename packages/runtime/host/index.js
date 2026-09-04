@@ -1846,20 +1846,11 @@ export class StellaRuntimeHost {
         };
         const onStatus = (status) => {
             if (!status || status.dispatchId !== dispatch.dispatchId || terminal) return;
-            // Cloud placement is a hand-off, not an execution this desktop
-            // follows to the end: the gate starts the conversation's own
-            // Durable Object turn, records its id, and never settles the
-            // dispatch itself. The web shell stops watching the dispatch as
-            // soon as `cloudTurnId` is known and tracks the turn over the
-            // conversation socket. Do the same here: drop the watcher and the
-            // bookkeeping, or the status poll runs against the gate forever.
-            // The renderer keeps its own view of the turn from the socket, so
-            // no synthetic terminal event is sent for a turn that is still
-            // streaming elsewhere.
+            // The placement run ends at hand-off. The conversation socket
+            // owns the cloud turn's subsequent liveness and cancellation.
+            // Balance RUN_STARTED so desktop replay cannot retain a phantom run.
             if (isCloudHandedOff(status)) {
-                terminal = true;
-                placed.subscription?.unsubscribe();
-                this.placedDispatchByRunId.delete(runId);
+                finish({ state: "completed" });
                 return;
             }
             if (Number.isFinite(status.revision) && status.revision > lastRevision) {

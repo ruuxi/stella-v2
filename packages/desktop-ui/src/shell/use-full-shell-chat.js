@@ -276,30 +276,30 @@ export function useFullShellChat({
   const streamingAssistants = cloudChat.isWebShell
     ? EMPTY_STREAMING_ASSISTANTS
     : localStreamingAssistants;
-  const runtimeStatusText = cloudChat.isWebShell
+  // Desktop placement stops owning a run when the cloud accepts it.
+  // Follow the canonical turn while no local execution owns the controls.
+  const useCloudRun = cloudChat.isWebShell || (!localIsStreaming && cloudChat.isStreaming);
+  const runtimeStatusText = useCloudRun
     ? cloudChat.runtimeStatusText
     : localRuntimeStatusText;
-  const activeToolCallId = cloudChat.isWebShell ? null : localActiveToolCallId;
-  const activeToolName = cloudChat.isWebShell
+  const activeToolCallId = useCloudRun ? null : localActiveToolCallId;
+  const activeToolName = useCloudRun
     ? cloudChat.activeToolName
     : localActiveToolName;
-  const latestCompletedTool = cloudChat.isWebShell
+  const latestCompletedTool = useCloudRun
     ? null
     : localLatestCompletedTool;
-  const hasToolActivity = cloudChat.isWebShell
+  const hasToolActivity = useCloudRun
     ? Boolean(cloudChat.activeToolName)
     : localHasToolActivity;
-  const isToolActive = cloudChat.isWebShell
+  const isToolActive = useCloudRun
     ? Boolean(cloudChat.activeToolName)
     : localIsToolActive;
-  const reasoningText = cloudChat.isWebShell ? "" : localReasoningText;
-  const isStreaming = cloudChat.isWebShell
-    ? cloudChat.isStreaming
-    : localIsStreaming;
-  // The web shell has no per-message landing signal: a cloud turn ends at the
-  // moment its reply row commits, so the indicator exits on `isStreaming`
-  // rather than handing off to a reply that is still arriving.
-  const answerLanded = cloudChat.isWebShell ? false : localAnswerLanded;
+  const reasoningText = useCloudRun ? "" : localReasoningText;
+  const isStreaming = cloudChat.isStreaming || localIsStreaming;
+  // Cloud replies arrive as committed journal rows. The terminal turn row
+  // clears the indicator; there is no local streaming handoff to animate.
+  const answerLanded = useCloudRun ? false : localAnswerLanded;
   const pendingUserMessageId = cloudChat.isWebShell
     ? cloudChat.pendingUserMessageId
     : localPendingUserMessageId;
@@ -312,7 +312,7 @@ export function useFullShellChat({
   const sendMessage = cloudChat.isWebShell
     ? cloudChat.sendMessage
     : localSendMessage;
-  const cancelCurrentStream = cloudChat.isWebShell
+  const cancelCurrentStream = useCloudRun
     ? cloudChat.cancelCurrentStream
     : localCancelCurrentStream;
   // The DO window is the only history authority. SQLite page cursors are

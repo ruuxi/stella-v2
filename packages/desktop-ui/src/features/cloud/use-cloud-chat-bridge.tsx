@@ -429,7 +429,7 @@ export function useCloudChatBridge({
   );
   const pendingInFlight = conversation.pending.filter((entry) => !entry.error);
   const isStreaming = Boolean(
-    enabled && webShell && (conversation.state.live || pendingInFlight.length),
+    enabled && (conversation.state.live || (webShell && pendingInFlight.length)),
   );
 
   const sendMessage = useCallback(
@@ -455,7 +455,7 @@ export function useCloudChatBridge({
   );
 
   const cancelCurrentStream = useCallback(() => {
-    if (!enabled || !webShell) return;
+    if (!enabled) return;
     const pendingEntry = conversation.pending.findLast((entry) => !entry.error);
     const turnId =
       conversation.state.live?.turnId ??
@@ -474,7 +474,7 @@ export function useCloudChatBridge({
         variant: "error",
       });
     });
-  }, [conversation, enabled, webShell]);
+  }, [conversation, enabled]);
 
   // Reply references in cloud mode resolve client-side from the loaded
   // journal window (there is no local `entry_ref` index for a cloud

@@ -161,6 +161,7 @@ export function useStreamingChatCore({
   const queuedMessageOrderRef = useRef(0);
   const queueDrainPausedRef = useRef(false);
   const pendingSendRef = useRef<symbol | null>(null);
+  const [isSending, setIsSending] = useState(false);
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
   const { isLocalStorage, storageMode } = useChatStore();
@@ -216,6 +217,11 @@ export function useStreamingChatCore({
       userMessageId?: string;
       outcome: "completed" | "error" | "canceled";
     }) => {
+      if (event.userMessageId && event.outcome !== "completed") {
+        setOptimisticEvents((current) =>
+          current.filter((message) => message._id !== event.userMessageId),
+        );
+      }
       if (
         event.userMessageId &&
         drainingQueuedMessageIdRef.current === event.userMessageId
@@ -266,6 +272,7 @@ export function useStreamingChatCore({
     queuedMessageOrderRef.current = 0;
     queueDrainPausedRef.current = false;
     pendingSendRef.current = null;
+    setIsSending(false);
     setOptimisticEvents([]);
     setQueuedUserMessages([]);
     setPendingUserMessageId(null);
@@ -428,16 +435,19 @@ export function useStreamingChatCore({
     setPendingUserMessageId,
   ]);
 
-  useEffect(() => {
-    if (optimisticEvents.length === 0) return;
+  const acknowledgeMessages = useCallback((messages: readonly MessageRecord[]) => {
     const persistedIds = new Set(
-      persistedMessages.map((message) => message._id),
+      messages.map((message) => message._id),
     );
     setOptimisticEvents((current) => {
       const next = current.filter((event) => !persistedIds.has(event._id));
       return next.length === current.length ? current : next;
     });
-  }, [optimisticEvents, persistedMessages]);
+  }, []);
+
+  useEffect(() => {
+    if (optimisticEvents.length > 0) acknowledgeMessages(persistedMessages);
+  }, [acknowledgeMessages, optimisticEvents, persistedMessages]);
 
   useEffect(() => {
     const persistedIds = new Set(
@@ -487,6 +497,7 @@ export function useStreamingChatCore({
 
       const sendAttempt = Symbol("composer-send");
       pendingSendRef.current = sendAttempt;
+      setIsSending(true);
 
       const attachments =
         isLocalStorage && hasAttachments
@@ -566,6 +577,7 @@ export function useStreamingChatCore({
       } finally {
         if (pendingSendRef.current === sendAttempt) {
           pendingSendRef.current = null;
+          setIsSending(false);
         }
       }
     },
@@ -584,6 +596,7 @@ export function useStreamingChatCore({
   return {
     taskDecorations,
     optimisticEvents,
+    acknowledgeMessages,
     queuedUserMessages,
     runtimeStatusText,
     activeToolCallId,
@@ -593,8 +606,8 @@ export function useStreamingChatCore({
     isToolActive,
     reasoningText,
     streamingAssistants,
-    isStreaming,
-    answerLanded,
+    isStreaming: isSending || isStreaming,
+    answerLanded: !isSending && answerLanded,
     pendingUserMessageId,
     removeQueuedUserMessage,
     sendMessage,

@@ -227,6 +227,7 @@ export function useFullShellChat({
   const {
     taskDecorations: localTaskDecorations,
     optimisticEvents: localOptimisticEvents,
+    acknowledgeMessages: acknowledgeLocalMessages,
     runtimeStatusText: localRuntimeStatusText,
     activeToolCallId: localActiveToolCallId,
     activeToolName: localActiveToolName,
@@ -265,6 +266,17 @@ export function useFullShellChat({
     onCancel: localCancelCurrentStream,
   });
   const persistedMessages = cloudChat.persistedMessages;
+  // Cloud placement can acknowledge IPC before its journal reaches this
+  // window. Keep pending sends working until canonical history takes over,
+  // and retire their overlays even when no SQLite write occurs on this device.
+  useEffect(() => {
+    acknowledgeLocalMessages(persistedMessages);
+  }, [acknowledgeLocalMessages, persistedMessages, localOptimisticEvents]);
+  const awaitingMessageAdmission = useMemo(() => {
+    const persistedIds = new Set(persistedMessages.map((message) => message._id));
+    return localOptimisticEvents.some((event) =>
+      event.type === "user_message" && !persistedIds.has(event._id));
+  }, [localOptimisticEvents, persistedMessages]);
   const activities = cloudChat.activities;
   const persistedFiles = cloudChat.files;
   const tasks = cloudChat.tasks;
@@ -296,10 +308,10 @@ export function useFullShellChat({
     ? Boolean(cloudChat.activeToolName)
     : localIsToolActive;
   const reasoningText = useCloudRun ? "" : localReasoningText;
-  const isStreaming = cloudChat.isStreaming || localIsStreaming;
+  const isStreaming = cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
   // Cloud replies arrive as committed journal rows. The terminal turn row
   // clears the indicator; there is no local streaming handoff to animate.
-  const answerLanded = useCloudRun ? false : localAnswerLanded;
+  const answerLanded = useCloudRun || awaitingMessageAdmission ? false : localAnswerLanded;
   const pendingUserMessageId = cloudChat.isWebShell
     ? cloudChat.pendingUserMessageId
     : localPendingUserMessageId;

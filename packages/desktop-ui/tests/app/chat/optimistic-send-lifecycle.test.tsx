@@ -8,6 +8,8 @@ import type { MessageRecord } from "@stella/contracts/local-chat";
 const stream = vi.hoisted(() => {
   let resolve: ((accepted: boolean) => void) | null = null;
   return {
+    answerLanded: false,
+    finish: (_event: { userMessageId?: string; outcome: "completed" | "error" | "canceled" }) => {},
     start: vi.fn(
       () =>
         new Promise<boolean>((next) => {
@@ -36,7 +38,8 @@ vi.mock("@/context/chat-store-context", () => ({
 vi.mock("@/features/chat/streaming/use-local-agent-stream", async () => {
   const React = await import("react");
   return {
-    useLocalAgentStream: () => {
+    useLocalAgentStream: ({ onRunFinished }: { onRunFinished: typeof stream.finish }) => {
+      stream.finish = onRunFinished;
       const [pendingUserMessageId, setPendingUserMessageId] =
         React.useState<string | null>(null);
       return {
@@ -47,7 +50,7 @@ vi.mock("@/features/chat/streaming/use-local-agent-stream", async () => {
         latestCompletedTool: null,
         hasToolActivity: false,
         isToolActive: false,
-        answerLanded: false,
+        answerLanded: stream.answerLanded,
         reasoningText: "",
         streamingAssistants: [],
         isStreaming: false,
@@ -85,6 +88,7 @@ describe("optimistic send lifecycle", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     stream.start.mockClear();
     stream.reset();
+    stream.answerLanded = false;
     persistedMessages = [];
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -126,6 +130,8 @@ describe("optimistic send lifecycle", () => {
     expect(onClear).toHaveBeenCalledOnce();
     expect(onOptimisticStart).toHaveBeenCalledOnce();
     expect(stream.start).toHaveBeenCalledOnce();
+    expect(chat.isStreaming).toBe(true);
+    expect(chat.answerLanded).toBe(false);
     await expect(repeatedSend!).resolves.toBe(false);
 
     await act(async () => {
@@ -135,6 +141,7 @@ describe("optimistic send lifecycle", () => {
 
     expect(container.textContent).toBe("0");
     expect(onRestore).toHaveBeenCalledOnce();
+    expect(chat.isStreaming).toBe(false);
   });
 
   it("reconciles the accepted optimistic row by its canonical id", async () => {
@@ -156,6 +163,7 @@ describe("optimistic send lifecycle", () => {
       stream.accept(true);
       await send!;
     });
+    expect(chat.isStreaming).toBe(false);
     persistedMessages = [
       {
         _id: userMessageId,
@@ -169,6 +177,69 @@ describe("optimistic send lifecycle", () => {
 
     expect(chat.optimisticEvents).toHaveLength(0);
     expect(persistedMessages).toHaveLength(1);
+  });
+  it("starts working on the next send even when the previous answer landed", async () => {
+    stream.answerLanded = true;
+    await act(async () => root.render(<Probe />));
+    expect(chat.answerLanded).toBe(true);
+    let send: Promise<boolean>;
+    await act(async () => {
+      send = chat.sendMessage({
+        text: "next question",
+        selectedText: null,
+        chatContext: null,
+        onClear: vi.fn(),
+      });
+    });
+    expect(chat.isStreaming).toBe(true);
+    expect(chat.answerLanded).toBe(false);
+    await act(async () => {
+      stream.accept(false);
+      await send!;
+    });
+    expect(chat.isStreaming).toBe(false);
+  });
+  it("keeps an accepted send pending until cloud history acknowledges it without a local write", async () => {
+    let send: Promise<boolean>;
+    await act(async () => {
+      send = chat.sendMessage({
+        text: "cloud handoff",
+        selectedText: null,
+        chatContext: null,
+        onClear: vi.fn(),
+      });
+    });
+    await act(async () => {
+      stream.start.mock.calls[0]?.[0].onUserMessageAccepted("dsp:handoff");
+      stream.accept(true);
+      await send!;
+    });
+    expect(chat.optimisticEvents.map(event => event._id)).toEqual(["dsp:handoff"]);
+    await act(async () => chat.acknowledgeMessages([{
+      _id: "dsp:handoff",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "cloud handoff" },
+      toolEvents: [],
+    }]));
+    expect(persistedMessages).toEqual([]);
+    expect(chat.optimisticEvents).toEqual([]);
+  });
+  it.each(["error", "canceled"] as const)("clears admission wait when the accepted run ends with %s", async outcome => {
+    let send: Promise<boolean>;
+    await act(async () => {
+      send = chat.sendMessage({
+        text: "failed admission", selectedText: null, chatContext: null, onClear: vi.fn(),
+      });
+    });
+    await act(async () => {
+      stream.start.mock.calls[0]?.[0].onUserMessageAccepted("dsp:failed");
+      stream.accept(true);
+      await send!;
+    });
+    expect(chat.optimisticEvents).toHaveLength(1);
+    await act(async () => stream.finish({ userMessageId: "dsp:failed", outcome }));
+    expect(chat.optimisticEvents).toEqual([]);
   });
   it.each([true, false])("reconciles a cloud dispatch id when the journal arrives first: %s", async canonicalFirst => {
     let send: Promise<boolean>;

@@ -1804,7 +1804,11 @@ export class StellaRuntimeHost {
         if (!dispatch?.dispatchId) throw new Error("Execution placement returned an invalid dispatch.");
         const runId = `placed:${dispatch.dispatchId}`;
         const requestId = payload.requestId;
-        const userMessageId = payload.userMessageEventId ?? idempotencyKey;
+        // Cloud admission uses the dispatch identity for its journal row.
+        // Start/status/finish events and the acceptance reply must agree.
+        const userMessageId = target.mode === "cloud"
+            ? dispatch.dispatchId
+            : payload.userMessageEventId ?? idempotencyKey;
         let lastRevision = -1;
         let terminal = false;
         const placed = {
@@ -1874,7 +1878,7 @@ export class StellaRuntimeHost {
         onStatus(dispatch);
         // Cloud admission journals the placement dispatch id, rather than the
         // desktop's optimistic id. Return that identity to the sending renderer.
-        return { runId, userMessageId: target.mode === "cloud" ? dispatch.dispatchId : userMessageId };
+        return { runId, userMessageId };
     }
     async healthCheck() {
         const health = await this.getWorkerHealth({ ensureWorker: false });

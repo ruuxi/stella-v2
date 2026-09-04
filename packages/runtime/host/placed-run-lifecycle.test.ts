@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { StellaRuntimeHost } from "./index.js";
 
 test("cloud hand-off balances the desktop start and ignores later dispatch updates", async () => {
-  const events: Array<{ type: string; outcome?: string }> = [];
+  const events: Array<{ type: string; outcome?: string; userMessageId?: string }> = [];
   let onStatus: (status: object) => void = () => {};
   let unsubscribed = 0;
   const host = {
@@ -28,6 +28,7 @@ test("cloud hand-off balances the desktop start and ignores later dispatch updat
   expect(events.map(event => event.type)).toEqual(["run-started"]);
   onStatus({ dispatchId: "dispatch-1", placement: "cloud", cloudTurnId: "turn-1" });
   expect(events.map(event => event.type)).toEqual(["run-started", "run-finished"]);
+  expect(events.map(event => event.userMessageId)).toEqual(["dispatch-1", "dispatch-1"]);
   expect(events[1]?.outcome).toBe("completed");
   expect(host.placedDispatchByRunId.size).toBe(0);
   expect(unsubscribed).toBe(1);

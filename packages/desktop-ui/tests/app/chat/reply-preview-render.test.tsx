@@ -172,7 +172,7 @@ describe("ReplyPreview rendering", () => {
     );
     expect(bubble).not.toBeNull();
     expect(bubble!.textContent).toContain("Pricing research (live)");
-    expect(bubble!.textContent).toContain("Done");
+    expect(bubble!.textContent).not.toContain("Done");
     expect(
       container.querySelector('[data-testid="reply-preview-report"]'),
     ).toBeNull();

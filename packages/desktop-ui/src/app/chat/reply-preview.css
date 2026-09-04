@@ -179,7 +179,6 @@
   align-items: center;
   gap: 8px;
   padding: 8px 8px 8px 14px;
-  border-bottom: 1px solid var(--border);
 }
 
 .reply-preview-report__title {

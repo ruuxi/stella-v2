@@ -230,12 +230,15 @@ function AgentReplyPreview({
         className="reply-preview__agent-head"
         onClick={open}
         title={t("app.chat.replyPreview.openTask")}
+        aria-label={`${title}, ${statusLabel}`}
       >
         <span className="reply-preview__agent-icon" aria-hidden="true">
           <AgentLifecycleStatusIcon status={status ?? "completed"} />
         </span>
         <span className="reply-preview__agent-title">{title}</span>
-        <span className="reply-preview__agent-status">{statusLabel}</span>
+        {status && status !== "completed" && (
+          <span className="reply-preview__agent-status">{statusLabel}</span>
+        )}
       </button>
       <Popover open={reportOpen} onOpenChange={onReportOpenChange}>
         <Popover.Trigger asChild>

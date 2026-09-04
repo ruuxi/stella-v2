@@ -176,6 +176,45 @@ Follow-ups worth a look, not done:
   ladder record, instead of re-reading storage) would make the teardown
   order-independent.
 
+## 2c. 2026-09-04: the five-step plan landed; section 4 below is superseded
+
+The user replaced section 4 with a five-step plan (design and status in
+`~/Documents/stella-world-do-design.md`; decisions in this repo's history).
+All five steps are on master, each as its own commit, greenfield (no
+compatibility paths, no migrations):
+
+1. `baac4aabd` policy: plan quotas, owner-gate windows/ceilings and the world
+   lease deleted; cloud generals get spawn_agent/send_input/pause_agent/
+   agent_status (shared dispatch in `cloud-agent-dispatch.ts`, steer mailbox,
+   child terminals steer a running parent, depth 2).
+2. `371c4ada8` `WorldStore` per owner world (binding `WORLDS`, migration v9,
+   R2 `WORLDS_BUCKET`): content-addressed chunked filesystem in SQLite, the
+   file tools run inside it, checkpoint = `{historyCursor, manifestId}`, the
+   workspace squashfs path and the remembered instance size are gone.
+3. `2e7a71a87` one shared container per owner world (`world-<hash>`), one
+   session and daemon directory per turn, cold start materialized from the
+   world, turn end releases the session only.
+4. `fa21869e6` sync at command boundaries: revision + change log in the DO,
+   daemon pulls before and pushes after every exec_command/write_stdin, a
+   per-daemon capability for the turn.
+5. `c5332b5df` isolation on request: world forks, `spawn_agent.workspace`,
+   forked agents under `/workspace/forks/<forkId>/world`, terminals report
+   `forkStatus`, explicit `merge_workspace`.
+
+Between 3 and 4, `src/index.ts` was split into `src/build-session/*`
+(`f1c47aa59`..`a88fab371`; plan in
+`~/Documents/stella-build-session-split-plan.md`). New BuildSession behavior
+goes in the matching module; index.ts holds class shells and delegators.
+
+Not yet deployed: dev still runs the section 2b fix (`86400928`). Before the
+first deploy of this work: create `stella-v2-worlds-basic-nightingale-118`
+and `stella-v2-worlds-prod` (dev bucket exists), expect migration v9 to add
+`WorldStore`, and re-run the follow-up cell in section 3 step 5 plus a
+two-agent cell (parent spawns a child; both edit the world; the child's
+completion steers the parent). Known pre-existing failures: the Docker-backed
+egress workerd fixture (container never starts on this machine) and one
+telemetry principal-scope test in desktop-ui.
+
 ## 3. Do these first, in order (needs Docker and dev credentials; done 2026-09-03, repeat after any deploy)
 
 1. Confirm no dev thread is `running`:
@@ -202,7 +241,7 @@ Follow-ups worth a look, not done:
    method-call fix was the whole story; `Error` with 48 detail bytes is the
    10 second deadline and points at a reset sandbox object.
 
-## 4. The ladder work, in order
+## 4. The ladder work, in order (superseded by section 2c; kept for context)
 
 Each item is a design-then-code unit. Land them one at a time behind the
 existing closed capability table and its parity test

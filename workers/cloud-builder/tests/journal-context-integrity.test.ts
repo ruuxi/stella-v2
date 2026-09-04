@@ -259,3 +259,48 @@ describe("canonical journal context integrity", () => {
     ).toHaveLength(1);
   });
 });
+
+test("lifecycle cards survive journal reconstruction and duplicate delivery without entering model context", async () => {
+  const { state, journal } = await openHarness();
+  const { cloudAgentActivationCard, cloudAgentTerminalCard } =
+    await import("../src/cloud-agent-lifecycle.js");
+  const control = {
+    threadId: "thread",
+    attemptGeneration: 1,
+    threadUpdatedAt: 30,
+    status: "running",
+    description: "Task",
+  } as const;
+  const cards = [
+    cloudAgentActivationCard({
+      outcome: { kind: "spawn_agent", fingerprint: "f", control },
+      parentTurnId: "root",
+      toolCallId: "call",
+    }),
+    cloudAgentTerminalCard({
+      ...control,
+      status: "completed",
+      lifecycleReport: "Report",
+    }),
+  ];
+  for (const card of cards) {
+    if (!card) throw new Error("Missing lifecycle card");
+    const input = {
+      turnId: "root",
+      writer: "orchestrator",
+      writerKey: card.eventId,
+      createdAt: 30,
+      card,
+    };
+    expect(journal.appendCard(input).inserted).toBe(true);
+    expect(journal.appendCard(input).inserted).toBe(false);
+  }
+  const restored = new Journal(state, () => undefined);
+  await restored.bootstrap();
+  expect(
+    restored
+      .newest(100)
+      .map((record) => (record.kind === "card" ? record.card : null)),
+  ).toEqual(cards);
+  expect(restored.selectWindow("next", 100_000).messages).toEqual([]);
+});

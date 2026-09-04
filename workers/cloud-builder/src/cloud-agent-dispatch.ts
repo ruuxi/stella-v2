@@ -40,6 +40,8 @@ const CLOUD_AGENT_CONTROL_STATUSES: readonly CloudAgentControlStatus[] = [
 ];
 
 export type CloudAgentControlReceipt = {
+  /** Report fixed with the terminal decision, never parsed from the wake prompt. */
+  lifecycleReport?: string;
   threadId: string;
   attemptGeneration: number;
   threadUpdatedAt: number;
@@ -141,6 +143,9 @@ export const normalizeCloudAgentControlReceipt = (
     return null;
   }
   return {
+    ...(typeof candidate.lifecycleReport === "string"
+      ? { lifecycleReport: candidate.lifecycleReport }
+      : {}),
     threadId,
     attemptGeneration: candidate.attemptGeneration!,
     threadUpdatedAt: candidate.threadUpdatedAt!,

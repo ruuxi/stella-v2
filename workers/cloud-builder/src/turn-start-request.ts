@@ -106,7 +106,16 @@ export const parseAgentThreadControl = (
   ) {
     return null;
   }
+  if (
+    value.lifecycleReport !== undefined &&
+    (typeof value.lifecycleReport !== "string" ||
+      value.lifecycleReport.length > TURN_PROMPT_MAX_CHARS)
+  )
+    return null;
   return {
+    ...(typeof value.lifecycleReport === "string"
+      ? { lifecycleReport: value.lifecycleReport }
+      : {}),
     threadId,
     attemptGeneration: value.attemptGeneration as number,
     threadUpdatedAt: value.threadUpdatedAt as number,

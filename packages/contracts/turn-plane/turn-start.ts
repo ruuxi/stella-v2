@@ -46,6 +46,8 @@ export const TURN_ATTACHMENTS_MAX = 4;
 export const TURN_TITLE_MAX_CHARS = 120;
 
 export type CloudAgentThreadControl = {
+  /** Report fixed with the terminal decision, never parsed from the wake prompt. */
+  lifecycleReport?: string;
   threadId: string;
   attemptGeneration: number;
   threadUpdatedAt: number;

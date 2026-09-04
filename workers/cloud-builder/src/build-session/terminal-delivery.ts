@@ -318,15 +318,10 @@ export const deliverTerminal = async (
   }
 };
 
-const agentCompletionText = async (
-  host: TerminalDeliveryHost,
-  turn: TurnRequest,
-  completion: {
-    status: "completed" | "failed" | "canceled";
-    resultJson?: string;
-    errorMessage?: string;
-  },
-): Promise<string> => {
+const agentLifecycleReport = (completion: {
+  resultJson?: string;
+  errorMessage?: string;
+}): string => {
   let resultText = completion.errorMessage ?? "";
   if (completion.resultJson) {
     try {
@@ -341,6 +336,22 @@ const agentCompletionText = async (
       resultText = completion.resultJson;
     }
   }
+  return (resultText || "No result was reported.").slice(
+    0,
+    TURN_PROMPT_MAX_CHARS,
+  );
+};
+
+const agentCompletionText = async (
+  host: TerminalDeliveryHost,
+  turn: TurnRequest,
+  completion: {
+    status: "completed" | "failed" | "canceled";
+    resultJson?: string;
+    errorMessage?: string;
+  },
+): Promise<string> => {
+  const resultText = agentLifecycleReport(completion);
   const label =
     completion.status === "completed"
       ? "[Agent completed]"
@@ -477,6 +488,7 @@ export const wakeParentConversation = async (
     source: "agent-thread",
     hiddenMessage: true,
     agentThreadControl: {
+      lifecycleReport: agentLifecycleReport(completion),
       threadId: turn.threadId,
       attemptGeneration: turn.attemptGeneration ?? 1,
       threadUpdatedAt: completion.threadUpdatedAt,

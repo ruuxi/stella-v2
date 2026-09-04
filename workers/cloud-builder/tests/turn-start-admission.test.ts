@@ -543,6 +543,7 @@ describe("OrchestratorSession turn admission", () => {
       attemptGeneration: 2,
       threadUpdatedAt: 400,
       status: "completed",
+      lifecycleReport: "The structured report.",
     };
     const response = await h.dispatch(
       start({

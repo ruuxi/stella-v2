@@ -1,3 +1,4 @@
+import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 /**
  * The conversation transcript's shared vocabulary: tuning constants, the wire
  * protocol's record and frame shapes, and the two interfaces that split the
@@ -157,6 +158,7 @@ export type TurnPhase =
   | "timeout";
 
 export type ConversationCard =
+  | CloudAgentLifecycleCard
   | { type: "build"; buildId: string; appId?: string }
   | { type: "operation"; operation: string; args?: unknown; result?: unknown }
   | {

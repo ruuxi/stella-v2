@@ -1,3 +1,7 @@
+import {
+  cloudAgentActivationCard,
+  cloudAgentTerminalCard,
+} from "./cloud-agent-lifecycle.js";
 /**
  * The cloud orchestrator: Stella's delegation-only agent loop running inside
  * a Durable Object — one DO per conversation, one turn at a time, ~token
@@ -556,6 +560,7 @@ const chatTurnFingerprintSource = (
           attemptGeneration: request.agentThreadControl.attemptGeneration,
           threadUpdatedAt: request.agentThreadControl.threadUpdatedAt,
           status: request.agentThreadControl.status,
+          lifecycleReport: request.agentThreadControl.lifecycleReport,
         }
       : undefined,
   });
@@ -3515,6 +3520,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       });
       this.journal.setTurnSpan(turn.turnId, prompt.seq);
       this.publish(prompt.record);
+      this.publishAgentTerminal(turn);
       this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
       try {
         await this.emitTurnEvent(
@@ -3771,6 +3777,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       });
       this.journal.setTurnSpan(turn.turnId, promptRow.seq);
       this.publish(promptRow.record);
+      this.publishAgentTerminal(turn);
 
       const startedRow = this.journal.appendTurn({
         turnId: turn.turnId,
@@ -8088,13 +8095,15 @@ export class OrchestratorSession extends DurableObject<Env> {
     kind: CloudAgentToolKind,
     fingerprint: string,
   ): Promise<CloudAgentToolOutcome | null> {
-    return await readSharedCloudAgentToolOutcome({
+    const outcome = await readSharedCloudAgentToolOutcome({
       storage: this.ctx.storage,
       parentTurnId: turn.turnId,
       toolCallId,
       kind,
       fingerprint,
     });
+    if (outcome) this.publishAgentActivation(turn, toolCallId, outcome);
+    return outcome;
   }
 
   private async commitCloudAgentToolOutcome(
@@ -8105,7 +8114,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     value: unknown,
     disposition?: CloudAgentToolOutcome["disposition"],
   ): Promise<CloudAgentToolOutcome> {
-    return await commitSharedCloudAgentToolOutcome({
+    const outcome = await commitSharedCloudAgentToolOutcome({
       storage: this.ctx.storage,
       parentTurnId: turn.turnId,
       toolCallId,
@@ -8114,6 +8123,54 @@ export class OrchestratorSession extends DurableObject<Env> {
       value,
       ...(disposition ? { disposition } : {}),
     });
+    this.publishAgentActivation(turn, toolCallId, outcome);
+    return outcome;
+  }
+
+  private publishAgentTerminal(turn: ChatTurnRequest): void {
+    if (!turn.agentThreadControl) return;
+    const card = cloudAgentTerminalCard(turn.agentThreadControl);
+    if (card) {
+      this.publishAgentLifecycleCard(
+        turn.turnId,
+        turn.agentThreadControl.threadUpdatedAt,
+        card,
+      );
+    }
+  }
+
+  private publishAgentLifecycleCard(
+    turnId: string,
+    createdAt: number,
+    card: import("@stella/contracts/cloud-agent-lifecycle").CloudAgentLifecycleCard,
+  ): void {
+    const appended = this.journal.appendCard({
+      turnId,
+      createdAt,
+      card,
+      writer: "orchestrator",
+      writerKey: card.eventId,
+    });
+    this.journal.setTurnSpan(turnId, appended.seq);
+    if (appended.inserted) this.publish(appended.record);
+  }
+
+  private publishAgentActivation(
+    turn: ChatTurnRequest,
+    toolCallId: string,
+    outcome: CloudAgentToolOutcome,
+  ): void {
+    const card = cloudAgentActivationCard({
+      outcome,
+      parentTurnId: turn.turnId,
+      toolCallId,
+    });
+    if (card)
+      this.publishAgentLifecycleCard(
+        turn.turnId,
+        outcome.control.threadUpdatedAt,
+        card,
+      );
   }
 
   private async requireCloudAgentControlReceipt(

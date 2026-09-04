@@ -1,3 +1,7 @@
+import {
+  parseCloudAgentLifecycleCard,
+  type CloudAgentLifecycleCard,
+} from "@stella/contracts/cloud-agent-lifecycle";
 /**
  * The conversation socket's wire contract, client side.
  *
@@ -84,6 +88,7 @@ export type JournalFile = {
 };
 
 export type JournalCard =
+  | CloudAgentLifecycleCard
   | { type: "build"; buildId: string; appId?: string }
   | {
       type: "operation";
@@ -326,6 +331,7 @@ const decodeCard = (value: unknown): JournalCard | null => {
   const raw = asRecord(value);
   const type = str(raw?.type);
   if (!raw || !type) return null;
+  if (type === "agent-lifecycle") return parseCloudAgentLifecycleCard(raw);
   if (type === "build") {
     const buildId = str(raw.buildId);
     if (!buildId) return null;

@@ -167,6 +167,7 @@ const sessionHarness = (
     OrchestratorSession.prototype,
   ) as OrchestratorSession & Record<string, unknown>;
   const journalTerminal = new Map<string, string>();
+  const lifecycleCards = new Map<string, unknown>();
   Object.assign(instance, {
     ctx,
     env: {
@@ -206,6 +207,11 @@ const sessionHarness = (
       isDeleted: () => false,
       upsertTurn: () => undefined,
       appendMessage: () => ({ seq: 0, record: undefined }),
+      appendCard: (input: { writerKey: string; card: unknown }) => {
+        const inserted = !lifecycleCards.has(input.writerKey);
+        if (inserted) lifecycleCards.set(input.writerKey, input.card);
+        return { seq: lifecycleCards.size, inserted, record: undefined };
+      },
       setTurnSpan: () => undefined,
     },
     activeConversationEditLock: async () => null,
@@ -229,6 +235,7 @@ const sessionHarness = (
     storage,
     gates,
     outbox,
+    lifecycleCards,
     ledger: instance["exactTurnCancellations"] as ExactTurnCancellationLedger,
   };
 };
@@ -4022,6 +4029,21 @@ describe("execution-placement exact cloud turn cancellation", () => {
       thread_id: calls[0]?.threadId,
       attempt_generation: 1,
     });
+    expect([...first.lifecycleCards.values()]).toMatchObject([
+      {
+        type: "agent-lifecycle",
+        event: {
+          type: "agent-started",
+          payload: {
+            agentId: calls[0]?.threadId,
+            rootRunId: parentTurn.turnId,
+            attemptGeneration: 1,
+            description: "Audit the boundary",
+            agentType: "general",
+          },
+        },
+      },
+    ]);
     expect(gates.admits).toHaveLength(1);
     expect(outbox.events.map((event) => event.kind)).toEqual([
       "thread.spawned",
@@ -4055,6 +4077,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
     expect(await replay.execute("tool-spawn-outcome", params)).toEqual(
       original,
     );
+    expect(restarted.lifecycleCards).toEqual(first.lifecycleCards);
+    await replay.execute("tool-spawn-outcome", params);
+    expect(restarted.lifecycleCards.size).toBe(1);
     await expect(
       replay.execute("tool-spawn-outcome", {
         ...params,

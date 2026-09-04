@@ -736,6 +736,7 @@ describe("the parent conversation wake", () => {
       source: "agent-thread",
       hiddenMessage: true,
       agentThreadControl: {
+        lifecycleReport: "the report",
         threadId: THREAD_ID,
         attemptGeneration: 1,
         threadUpdatedAt: 1_800_000_000_000,

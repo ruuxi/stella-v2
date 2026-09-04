@@ -105,6 +105,17 @@ const toolResultEvent = (
   };
 };
 
+export const journalLifecycleEvent = (
+  record: JournalRecord,
+): EventRecord | null =>
+  record.kind === "card" && record.card.type === "agent-lifecycle"
+    ? {
+        _id: record.card.eventId,
+        timestamp: record.createdAtMs,
+        ...record.card.event,
+      }
+    : null;
+
 /**
  * Projects the canonical Durable Object journal into the legacy event shape
  * consumed by Activity's file attribution and diagnostic trace surfaces.
@@ -116,6 +127,11 @@ export const journalRecordsToCloudActivityEvents = (
   const threadIds = agentThreadIdsByTurn(records);
   const events: EventRecord[] = [];
   for (const record of records) {
+    const lifecycle = journalLifecycleEvent(record);
+    if (lifecycle) {
+      events.push(lifecycle);
+      continue;
+    }
     if (record.kind === "message" && record.role === "toolResult") {
       events.push(toolResultEvent(record));
       continue;

@@ -1,3 +1,4 @@
+import { journalLifecycleEvent } from "./journal-activity-files";
 import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import type { JournalRecord } from "./conversation-protocol";
@@ -213,6 +214,11 @@ export const journalRecordsToMessageRecords = (
     let turnUserRecord: JournalMessageRecord | undefined;
 
     for (const record of turnRecords) {
+      const lifecycle = journalLifecycleEvent(record);
+      if (lifecycle) {
+        events.push(lifecycle);
+        continue;
+      }
       if (record.kind !== "message") continue;
       const timestamp = timestampOf(record.payload, record.createdAtMs);
       if (record.role === "user") {

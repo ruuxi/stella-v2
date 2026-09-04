@@ -555,7 +555,12 @@ describe("BuildSession sandbox termination", () => {
 
     await terminateCurrentAgentSession(harness.instance, current);
 
-    expect(calls).toContain(`kill:agent-run-${current.turnId}`);
+    // The container is shared by the owner's agents, so a turn's teardown
+    // kills only its own daemon and never the container-wide process table.
+    expect(calls.some((call) => call.startsWith("kill:"))).toBe(false);
+    expect(calls).toContain(
+      `daemon:${`attached-daemon-agent-run-${current.turnId}`.slice(0, 64)}`,
+    );
     expect(calls).toContain(`delete:agent-run-${current.turnId}`);
     expect(
       calls.some((call) =>
@@ -599,7 +604,6 @@ describe("BuildSession sandbox termination", () => {
     await terminateCurrentAgentSession(harness.instance, finished);
 
     expect(calls).toEqual([
-      `kill:agent-run-${finished.turnId}`,
       `delete:agent-run-${finished.turnId}`,
     ]);
   });
@@ -4552,6 +4556,7 @@ const residentStopHarness = (turnId: string) => {
   const order: string[] = [];
   const destroyed: SandboxCall[] = [];
   const killed: string[] = [];
+  const daemonKills: string[] = [];
   let sandboxCalls = 0;
   harness.instance["sandbox"] = (sandboxId: string, size: string) => {
     sandboxCalls += 1;
@@ -4560,7 +4565,9 @@ const residentStopHarness = (turnId: string) => {
       killAllProcesses: async (sessionId: string) => {
         killed.push(sessionId);
       },
-      killProcess: async () => undefined,
+      killProcess: async (processId: string) => {
+        daemonKills.push(processId);
+      },
       getSession: async () => ({ exec: async () => ({ success: true }) }),
       deleteSession: async () => undefined,
       destroy: async () => {
@@ -4600,6 +4607,7 @@ const residentStopHarness = (turnId: string) => {
     order,
     destroyed,
     killed,
+    daemonKills,
     running,
     sandboxCalls: () => sandboxCalls,
   };
@@ -4671,10 +4679,9 @@ describe("resident placement exact Stop", () => {
     await driven.running.catch(() => undefined);
 
     expect(driven.destroyed).toEqual([]);
-    expect(driven.killed).toEqual([
-      `agent-run-${driven.current.turnId}`,
-      `agent-run-${driven.current.turnId}`,
-    ]);
+    // The shared container's process table is never swept; only the turn's
+    // own daemon is killed and its session deleted.
+    expect(driven.killed).toEqual([]);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       canceled: true,
@@ -4720,7 +4727,7 @@ describe("resident placement exact Stop", () => {
         settled = true;
         return response;
       });
-    while (driven.killed.length === 0) await Promise.resolve();
+    while (driven.daemonKills.length === 0) await Promise.resolve();
     expect(settled).toBe(false);
     expect(driven.harness.values.get("pendingTerminal")).toMatchObject({
       turnId: driven.current.turnId,
@@ -4732,10 +4739,11 @@ describe("resident placement exact Stop", () => {
     await driven.running.catch(() => undefined);
 
     expect(driven.destroyed).toEqual([]);
-    expect(driven.killed).toEqual([
-      `agent-run-${driven.current.turnId}`,
-      `agent-run-${driven.current.turnId}`,
-    ]);
+    // Two sweeps, each killing only this turn's daemon; the shared
+    // container's process table is never swept.
+    expect(driven.killed).toEqual([]);
+    const daemonId = `attached-daemon-agent-run-${driven.current.turnId}`.slice(0, 64);
+    expect(driven.daemonKills).toEqual([daemonId, daemonId]);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       canceled: true,

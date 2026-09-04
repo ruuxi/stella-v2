@@ -400,7 +400,17 @@ export const quiesceCurrentAgentSession = async (
   const executionSessionId =
     compute?.sessionId ?? agentTurnSessionId(turn.turnId);
   if (!(await host.sandboxContainerRunning(sandbox))) return;
-  await sandbox.killAllProcesses(executionSessionId);
+  // The container is shared by every agent of the owner world and the SDK's
+  // `killAllProcesses` ignores its session argument, so only this attempt's
+  // own executor process is killed before its session is deleted.
+  await sandbox
+    .killProcess(
+      sessionName(
+        `agent-executor-${turn.turnId}-${turn.attemptGeneration}`,
+      ),
+      "SIGKILL",
+    )
+    .catch(() => undefined);
   await sandbox.deleteSession(executionSessionId).catch(() => undefined);
 };
 

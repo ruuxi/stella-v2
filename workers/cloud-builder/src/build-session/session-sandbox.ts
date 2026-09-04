@@ -441,11 +441,11 @@ export const releaseAgentSessionResources = async (
 ): Promise<void> => {
   const sandbox = host.sandbox(target.sandboxId, target.size, target.workload);
   if (!(await host.sandboxContainerRunning(sandbox))) return;
-  await withInfrastructureDeadline(
-    sandbox.killAllProcesses(target.sessionId),
-    30_000,
-    "Agent process teardown did not settle.",
-  ).catch(() => undefined);
+  // Never `killAllProcesses` here: the SDK ignores its session argument and
+  // kills every process in the container, and the container is shared by
+  // every agent of the owner world (observed 2026-09-04: a child's turn end
+  // killed its parent's daemon). Only this turn's own daemon is killed; its
+  // session shell and the shell's children end with `deleteSession`.
   await withInfrastructureDeadline(
     sandbox.killProcess(
       `attached-daemon-${target.sessionId}`.slice(0, 64),

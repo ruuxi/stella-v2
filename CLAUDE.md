@@ -24,15 +24,15 @@ Secrets (set in the agent platform's secret store, never committed):
 - `CLOUDFLARE_API_TOKEN`: token with Workers Scripts and Durable Objects edit.
 - `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account that owns the workers.
 
-Non-secret dev deployment values (public service locations, same tier as the
-tracked `VITE_CONVEX_URL`). Write them to `packages/backend/.env.local` if it
-is absent:
+The non-secret dev deployment values (public service locations, same tier as
+the tracked `VITE_CONVEX_URL`) are committed in `packages/backend/.env`, so no
+setup step is needed. The Convex CLI still owns `packages/backend/.env.local`
+and writes deploy state there; that file stays gitignored and overrides `.env`
+when present.
 
-```
-CONVEX_DEPLOYMENT=dev:outgoing-bulldog-865
-CONVEX_URL=https://outgoing-bulldog-865.convex.cloud
-CONVEX_SITE_URL=https://outgoing-bulldog-865.convex.site
-```
+Use `bunx convex env get <NAME>` to read a single deployment variable. Avoid
+`convex env list` in an agent session: it prints every deployment secret in
+cleartext into the transcript.
 
 ### Test accounts
 

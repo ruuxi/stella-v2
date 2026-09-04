@@ -724,6 +724,12 @@ async function getOwnerTabs(ownerId, { ensureWindow = false } = {}) {
   return pruneOwnerTabs(ownerId);
 }
 
+export async function getOwnerTabIds(command) {
+  const ownerId = getCommandOwnerId(command);
+  const tabs = await getOwnerTabs(ownerId);
+  return tabs.map((tab) => tab.id);
+}
+
 /**
  * Get the currently active logical tab for the command owner.
  */

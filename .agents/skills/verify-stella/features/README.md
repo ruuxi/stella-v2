@@ -36,6 +36,7 @@ This is the maintained map of Stella's user-visible desktop and iOS surfaces. Re
 - [Quick chat](./quick-chat.md) covers the isolated sidebar conversation launched from New tab.
 - [Files and viewers](./files-and-viewers.md) covers Files navigation and file-preview tabs.
 - [Browser and takeover](./browser-and-takeover.md) covers browser tabs and cloud-browser user intervention.
+- [Agent cursor and computer use](./agent-cursor-and-computer-use.md) covers synchronized pointer presentation in browser and native computer-use actions.
 - [Apps](./apps.md) covers empty, loading, populated, runtime, error, and cloud app states.
 - [Settings](./settings.md) covers entry points, tabs, global search, and dismissal.
 - [Desktop companion](./companion.md) covers the floating mark: toggle, hover arc, mini composer, bubbles, drag, and shortcut dictation.

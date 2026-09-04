@@ -25,6 +25,7 @@ import {
   finalizeOwnerTabs,
   cleanupStaleGroups,
   cleanupStaleTabs,
+  getOwnerTabIds,
 } from "./commands/tabs.js";
 import {
   handleNavigate,
@@ -103,6 +104,32 @@ import {
   handleSiteModToggle,
   syncContentScriptRegistration,
 } from "./commands/site-mods.js";
+import { evaluateRuntime } from "./lib/debugger.js";
+import {
+  buildAgentCursorHideExpression,
+  takeAgentCursorTabs,
+} from "./lib/agent-cursor.js";
+
+async function hideOwnerAgentCursors(command) {
+  const turnKey = [command.ownerId, command.sessionId, command.turnId]
+    .filter(Boolean)
+    .join(":");
+  const tabIds = new Set(takeAgentCursorTabs(command.ownerId));
+  for (const tabId of await getOwnerTabIds(command).catch(() => [])) {
+    tabIds.add(tabId);
+  }
+  await Promise.all(
+    [...tabIds].map((tabId) =>
+      evaluateRuntime(
+        tabId,
+        buildAgentCursorHideExpression({
+          turnKey: turnKey || "external-browser",
+        }),
+        { timeoutMs: 1_000 },
+      ).catch(() => undefined),
+    ),
+  );
+}
 
 // --- Command Router ---
 
@@ -187,16 +214,19 @@ const HANDLERS = {
   tab_close: handleTabClose,
   mark_tab: handleMarkTab,
   finalize_tabs: async (cmd) => {
+    await hideOwnerAgentCursors(cmd);
     const data = await finalizeOwnerTabs(cmd);
     await releaseOwnerLease(cmd);
     return { id: cmd.id, success: true, data };
   },
   close_owner: async (cmd) => {
+    await hideOwnerAgentCursors(cmd);
     const data = await finalizeOwnerTabs(cmd, []);
     await releaseOwnerLease(cmd);
     return { id: cmd.id, success: true, data };
   },
   release_owner_lease: async (cmd) => {
+    await hideOwnerAgentCursors(cmd);
     await releaseOwnerLease(cmd);
     return { id: cmd.id, success: true, data: { released: true } };
   },

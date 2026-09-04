@@ -2901,14 +2901,13 @@ func forgetPreparedTarget(pid: Int32) {
 
 let overlayFadeInDuration: TimeInterval = 0.18
 let legacyOverlayFadeOutDuration: TimeInterval = 0.22
-let overlayHoldDuration: TimeInterval = 0.30  // visible time after fade-in completes
-let legacyOverlayCursorMoveDuration: TimeInterval = 1.10
+let legacyOverlayCursorMoveDuration: TimeInterval = 0.85
 let overlayCursorPreRotationDuration: TimeInterval = 0.55
 let overlayCursorPreRotationLeadFraction: CGFloat = 0.55
 let overlayCursorOvershoot: CGFloat = 0.18
 let overlayCursorSettleDuration: TimeInterval = 0.32
 let overlayCursorMinPathDistance: CGFloat = 6
-let overlayCursorBaseRotation: CGFloat = 0.18
+let overlayCursorBaseRotation: CGFloat = 44 * .pi / 180
 let overlayCursorTangentLagFraction: CGFloat = 0.45
 let overlayFadeOutDuration: TimeInterval = 0.18
 let overlayCursorMoveDuration: TimeInterval = 0.85
@@ -2918,26 +2917,10 @@ let overlayCursorTimingControl1: CGPoint = CGPoint(x: 0.42, y: 0.0)
 let overlayCursorTimingControl2: CGPoint = CGPoint(x: 0.58, y: 1.0)
 let overlayCursorMaxAngleRateRadPerSec: CGFloat = 9.5
 let overlayCursorTangentCarryoverFraction: CGFloat = 1.0
-let overlayCursorLoadingWiggleAmplitudeDegrees: CGFloat = 4.5
-let overlayCursorLoadingWiggleFrequencyHz: CGFloat = 1.6
-let overlayCursorLoadingWiggleRampDuration: TimeInterval = 0.22
-let overlayCursorClickCloseEnoughProgress: CGFloat = 0.88
-let overlayCursorClickCloseEnoughDistance: CGFloat = 18
-let overlayCursorClickPressDuration: TimeInterval = 0.055
-let overlayCursorClickPulseDuration: TimeInterval = 0.18
-let overlayCursorClickPressedScale: CGFloat = 0.92
-let overlayCursorClickReleaseOvershootScale: CGFloat = 1.03
+let overlayCursorLoadingWiggleAmplitudeDegrees: CGFloat = 12.5
+let overlayCursorLoadingWiggleFrequencyHz: CGFloat = 1.0 / 0.66
+let overlayCursorLoadingWiggleDuration: TimeInterval = 1.41
 let overlayIdleTimeout: TimeInterval = 20.0
-let overlayCursorTailAnchor = CGPoint(x: 15, y: 14)
-let overlayCursorTailLength: CGFloat = 16.0
-let overlayCursorTailBaseWidth: CGFloat = 6.4
-let overlayCursorTailTipWidth: CGFloat = 0.7
-let overlayCursorTailSegmentCount = 14
-let overlayCursorTailIdleWiggleAmplitude: CGFloat = 1.6
-let overlayCursorTailMoveWiggleAmplitude: CGFloat = 3.4
-let overlayCursorTailWiggleFrequencyHz: CGFloat = 1.55
-let overlayCursorTailWaveNumber: CGFloat = 1.35
-let overlayCursorTailRestingCurl: CGFloat = 0.0
 
 final class ActionOverlayWindow: NSPanel {
     init(frame: CGRect) {
@@ -2965,70 +2948,62 @@ final class ActionOverlayWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-// Programmatic cursor sprite. Draws a small white pointer with a soft
-// drop shadow and a thin black outline so it remains visible on both
-// light and dark surfaces. Drawn once per process and cached.
-//
-// Shape: sleek triangular pointer, 24pt × 30pt, anchor at the tip.
+// The reference cursor artwork is stored inline so the standalone native
+// helper and both browser surfaces use the same pixels without a resource
+// lookup that can fail outside the packaged app.
 private var cachedSoftwareCursorImage: NSImage?
 
 func softwareCursorImage() -> NSImage {
     if let cached = cachedSoftwareCursorImage { return cached }
-    let size = NSSize(width: 30, height: 38)
-    let image = NSImage(size: size, flipped: false) { rect in
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: rect.width / 2, y: rect.height - 2))
-        path.addLine(to: CGPoint(x: rect.width - 7, y: 14))
-        path.addLine(to: CGPoint(x: 7, y: 14))
-        path.closeSubpath()
-        guard
-            let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let gradient = CGGradient(
-                colorsSpace: colorSpace,
-                colors: [
-                    NSColor(calibratedWhite: 1, alpha: 0.98).cgColor,
-                    NSColor(calibratedRed: 0.82, green: 0.85, blue: 0.89, alpha: 0.98).cgColor,
-                ] as CFArray,
-                locations: [0, 1]
-            )
-        else {
-            return false
-        }
-        ctx.saveGState()
-        ctx.setShadow(
-            offset: CGSize(width: 0, height: -1),
-            blur: 4,
-            color: NSColor.black.withAlphaComponent(0.4).cgColor
-        )
-        ctx.setFillColor(NSColor.white.withAlphaComponent(0.98).cgColor)
-        ctx.addPath(path)
-        ctx.fillPath()
-        ctx.restoreGState()
-
-        ctx.saveGState()
-        ctx.addPath(path)
-        ctx.clip()
-        ctx.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: rect.width / 2, y: rect.height - 2),
-            end: CGPoint(x: rect.width / 2, y: 14),
-            options: []
-        )
-        ctx.restoreGState()
-
-        ctx.saveGState()
-        ctx.setLineJoin(.round)
-        ctx.setLineCap(.round)
-        ctx.setStrokeColor(NSColor(calibratedWhite: 0.08, alpha: 0.72).cgColor)
-        ctx.setLineWidth(1.2)
-        ctx.addPath(path)
-        ctx.strokePath()
-        ctx.restoreGState()
-        return true
+    let encoded = "iVBORw0KGgoAAAANSUhEUgAAAC4AAAAwCAYAAABuZUjcAAAABmJLR0QA/wD/AP+gvaeTAAAEeklEQVRoge2YXWgcVRTHf2dndzOzm6+KiUUMhNooNG0qeQhNJaZpEiNFm6ItPhQSxYBiBeubCmJ9ENsH0QcRpakWLJogQdpSUCJpkgcJJimIGLGlsMU8pEpr0jQfm93k+DCTr5pkszuzTcH9wzCXYff+f+cy95xzBzLKKKN7UpLoB6pqAk3AY8AvwFciMpluMFdSVVNV+3S5/lTVZlX1bTTfqlLVl1VVY19e09HGAR07HtHYyMx8AIOqWrdRbIlWrRRg8tzfRKMGoxdvE2mJMHLqJrMTc+VAp6r2qmpN+lGXKxH4rwBU3M+0BohqgKkZP8Ptk/Q33SDSNk18SquALieA/XfrFVpzc6pqCPgjfj32UKQlwtSMn6gG7CCw75obZMuhICWNQiAEwGXgY+CMiIxvCLgD3wycHjl1k+H2yWXQ80FMi0EsF0r2QXkj5BcCMA60AydF5OeNAPcB/bMTc+X9TTeYuGX8B3rCDxMGTBowlQVbd8HuetheBmI7DAFtQJuIXLkr4A58HdAZaZvmt9bYqtB3jsMPwN5qqK2EosKF6S4B54ELwKCIzKUN3IHvjU9p1feHZ7g16k8IvXQcy4JHS6ChHBp2QFH+wrTXgR+AHqBHRK6mA7wG6Br6RulrlaSgY6Z9j5v2eMuDsHcr1BdDRQEEF/PQMNAHDDjXoIiMugJ34Htjk1R9cRj+iaYGHTMhnrU4DoagcjPUFED1fVAWhvBiILPAWeClOwNIFnw/cLbrJHSfcw8dzwKxwDKVkKVYlhK2lG05sDMMFaZQZxgIdIjIQTfgPuD30b945P1X7XznJbRlOeMlz44SYA/GHJArIhPzLElVOScDfJRfaKe8dEOvpVTK8xlgfHd9eqE3IbxCgGoMgO+WrnZK4CJyG2jbXmbnaa+hCy14AT+fkcVTGIi9OVu8WHGAVhG7uHgFHbaUZywfnxLkAH6yoAt4XEQOrJQSUwJ3eo+h2kpvoB8OwYdWgNcIkINcBupFpFZEflqNwU0L2lZUaFdEN9B12cInZoBSfFHgGFAmIj8mMncD/jXYZTwV6LCpHM01eDcYIBu5BuwRkfdEJLoe85TBnb7iUsOO5KFzTOVYnp/n/AbYm2+niPQl4+/2tHK+KN/uPZKBPpHnp8bwAZwGDorIWLLGbsEvgN0wrQc6ZCpv5xlU2NDHReRFEYmnYuwWfBAYqS9e30Z8Pdeg3jAAPheRt9wYuwJ3WoDOigK7y1sL+slsWfpOH3Hj6xrcUU/QB7s2rw5dHII3gn6Aq0CziMy6NfUCvBugtpBVK+Kbpp9sJAo8n8pGXEmuwZ20OPzEJlbsPZ62fJTaNh+IyKBrYkdefbzpKwtDeIWGqRk/wBXghEdegHfgA2EfbMtZ/p4/i0GOfVY5IiLTHnkB2MvhgQbAPm6N+Rb76X329F0i0umRz4K8WvFBIF5p+hZOLofs1hTgHY880iNV/XZOVbs1rt0a1zn7U3THRnMllKrmq2qHqsadq0NV8xP/8x6Rqlqqam00R0YZZZTR/0T/AonhuxCuMeKdAAAAAElFTkSuQmCC"
+    guard let data = Data(base64Encoded: encoded),
+          let image = NSImage(data: data) else {
+        return NSImage(size: NSSize(width: 23, height: 24))
     }
+    image.size = NSSize(width: 23, height: 24)
     cachedSoftwareCursorImage = image
     return image
+}
+
+func makeReferenceCursorLayer(position: CGPoint, contentsScale: CGFloat) -> CALayer {
+    let image = softwareCursorImage()
+    let container = CALayer()
+    container.contentsScale = contentsScale
+    container.bounds = CGRect(x: 0, y: 0, width: 24, height: 24)
+    container.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+    container.position = position
+    setCursorTransform(container, rotation: overlayCursorBaseRotation, scale: 1)
+    container.shadowColor = NSColor(calibratedRed: 0.2, green: 0.61, blue: 1, alpha: 1).cgColor
+    container.shadowOpacity = 0.48
+    container.shadowRadius = 15
+    container.shadowOffset = .zero
+
+    let head = CALayer()
+    head.contents = image
+    head.contentsScale = contentsScale
+    head.bounds = CGRect(origin: .zero, size: image.size)
+    head.anchorPoint = CGPoint(x: 0, y: 1)
+    head.position = CGPoint(x: 12, y: 26.5)
+    head.transform = CATransform3DMakeRotation(-44 * .pi / 180, 0, 0, 1)
+    head.shadowColor = NSColor(calibratedRed: 0.2, green: 0.61, blue: 1, alpha: 1).cgColor
+    head.shadowOpacity = 0.9
+    head.shadowRadius = 6
+    head.shadowOffset = .zero
+    container.addSublayer(head)
+
+    let opacity = CABasicAnimation(keyPath: "opacity")
+    opacity.fromValue = 0
+    opacity.toValue = 1
+    opacity.duration = 0.42
+    opacity.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+    let scale = CABasicAnimation(keyPath: "transform.scale")
+    scale.fromValue = 0.4
+    scale.toValue = 1
+    scale.duration = 0.42
+    scale.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+    container.add(opacity, forKey: "cursorEntranceOpacity")
+    container.add(scale, forKey: "cursorEntranceScale")
+    return container
 }
 
 // One-shot AppKit bootstrap for the overlay path. The CLI is launched as a
@@ -3150,23 +3125,10 @@ final class ActionOverlayController {
     }
 
     private func makeCursorLayer(at point: CGPoint, viewportFrame: CGRect, screen: NSScreen) -> CALayer {
-        let img = softwareCursorImage()
-        let layer = CALayer()
-        layer.contents = img
-        layer.contentsScale = screen.backingScaleFactor
-        let size = img.size
-        // Anchor at the cursor tip so rotation
-        // pivots around the visible action point rather than the sprite
-        // center.
-        layer.bounds = CGRect(origin: .zero, size: size)
-        layer.anchorPoint = CGPoint(x: 0.5, y: 36.0 / 38.0)
-        layer.position = overlayLocalPoint(fromAXPoint: point, viewportFrame: viewportFrame)
-        setCursorRotation(layer, rotation: overlayCursorBaseRotation)
-        layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = 0.35
-        layer.shadowRadius = 4
-        layer.shadowOffset = CGSize(width: 0, height: -1)
-        return layer
+        makeReferenceCursorLayer(
+            position: overlayLocalPoint(fromAXPoint: point, viewportFrame: viewportFrame),
+            contentsScale: screen.backingScaleFactor
+        )
     }
 
     private func screenContaining(point: CGPoint) -> NSScreen? {
@@ -3268,12 +3230,6 @@ func normalizeAngle(_ angle: CGFloat) -> CGFloat {
 
 func shortestAngleDelta(from current: CGFloat, to target: CGFloat) -> CGFloat {
     normalizeAngle(target - current)
-}
-
-func smoothstep(edge0: CGFloat, edge1: CGFloat, value: CGFloat) -> CGFloat {
-    guard edge0 != edge1 else { return value >= edge1 ? 1 : 0 }
-    let t = max(0, min(1, (value - edge0) / (edge1 - edge0)))
-    return t * t * (3 - 2 * t)
 }
 
 func addPoints(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
@@ -3654,10 +3610,6 @@ func withActionOverlay<T>(
         runAnimationLoop(for: preLead + legacyOverlayCursorMoveDuration + overlayCursorSettleDuration + 0.04)
     }
 
-    // Brief hold so the user actually sees the cursor land before the action
-    // perturbs the UI.
-    runAnimationLoop(for: overlayHoldDuration)
-
     let result = body()
 
     saveOverlayCursorState(statePath: statePath, point: cursor)
@@ -3667,10 +3619,10 @@ func withActionOverlay<T>(
 
 func overlayEnabled(_ options: ActionOptions) -> Bool {
     if envBool("STELLA_COMPUTER_NO_OVERLAY") { return false }
-    // Deferred chains optimize for command throughput. The daemon can keep
-    // its decorative overlay alive, but the action must not synchronously
-    // wait for cursor travel/click animation.
-    return options.showOverlay && !options.deferObservation
+    // Observation deferral controls post-action state capture, not whether the
+    // user sees an agent action. Cursor arrival remains synchronized with the
+    // real action for typed runtime commands as well as direct helper use.
+    return options.showOverlay
 }
 
 struct UnifiedOverlayTarget {
@@ -3746,13 +3698,9 @@ final class PersistentOverlayController {
     private let busyUntilPath: String
     private var window: ActionOverlayWindow?
     private var cursorLayer: CALayer?
-    private var tailGradient: CAGradientLayer?
-    private var tailGradientMask: CAShapeLayer?
-    private var tailStroke: CAShapeLayer?
     private var currentScreen: NSScreen?
     private var currentViewportFrame: CGRect?
     private var currentTargetIdentity: OverlayTargetIdentity?
-    private var currentInteractionKind: String?
     private var lastOrderedAboveWindowID: CGWindowID?
     private var lastTargetOnScreen: Bool?
     private var animationFinishesAt: CFTimeInterval = 0
@@ -3766,9 +3714,6 @@ final class PersistentOverlayController {
     private var lastArrivalTangent: CGPoint?
     private var renderedAngle: CGFloat = overlayCursorBaseRotation
     private var idleAnimationStartedAt: CFTimeInterval?
-    private var clickPulseStartedAt: CFTimeInterval?
-    private var shouldTriggerClickPulse = false
-    private var didTriggerClickPulseForMove = false
     private var lastTickAt: CFTimeInterval?
 
     init(busyUntilPath: String) {
@@ -3797,7 +3742,7 @@ final class PersistentOverlayController {
         viewportFrame: CGRect,
         cursorAt cursorPoint: CGPoint,
         targetIdentity: OverlayTargetIdentity?,
-        interactionKind: String?
+        interactionKind _: String?
     ) {
         guard tryBootstrapAppKit() else { return }
         let now = CACurrentMediaTime()
@@ -3809,13 +3754,10 @@ final class PersistentOverlayController {
         }
 
         currentTargetIdentity = targetIdentity
-        currentInteractionKind = interactionKind
-
         if window == nil || currentScreen !== targetScreen || !rectsApproximatelyEqual(currentViewportFrame, viewportFrame) {
             rebuildWindow(screen: targetScreen, viewportFrame: viewportFrame, cursorPoint: cursorPoint)
             refreshOverlayWindowOrdering()
         }
-        currentInteractionKind = interactionKind
 
         if isBusy(at: now) {
             pendingShow = (viewportFrame, cursorPoint)
@@ -3832,57 +3774,24 @@ final class PersistentOverlayController {
         setTarget(pending.cursorPoint, viewportFrame: pending.viewportFrame)
     }
 
-    private func scheduleAnimationFinish(extraTail: TimeInterval = 0) {
+    private func scheduleAnimationFinish() {
         let now = CACurrentMediaTime()
-        animationFinishesAt = now + activeDuration + extraTail
-    }
-
-    private func isClickLikeInteraction(_ kind: String?) -> Bool {
-        switch kind {
-        case "click", "click-point", "secondary-action", "perform-secondary-action":
-            return true
-        default:
-            return false
-        }
+        animationFinishesAt = now + activeDuration
     }
 
     private func loadingAngleOffset(at now: CFTimeInterval) -> CGFloat {
         guard activePath == nil, window != nil else { return 0 }
         let start = idleAnimationStartedAt ?? now
         let elapsed = max(0, now - start)
-        let ramp = min(1, elapsed / overlayCursorLoadingWiggleRampDuration)
-        let amplitude = (overlayCursorLoadingWiggleAmplitudeDegrees * .pi / 180) * CGFloat(ramp)
+        let progress = min(1, elapsed / overlayCursorLoadingWiggleDuration)
+        if progress >= 1 {
+            idleAnimationStartedAt = nil
+            return 0
+        }
+        let envelope = sin(CGFloat(progress) * .pi)
+        let amplitude = (overlayCursorLoadingWiggleAmplitudeDegrees * .pi / 180) * envelope
         let phase = CGFloat(elapsed) * overlayCursorLoadingWiggleFrequencyHz * 2 * .pi
         return sin(phase) * amplitude
-    }
-
-    private func startClickPulseIfNeeded(at now: CFTimeInterval) {
-        guard clickPulseStartedAt == nil else { return }
-        clickPulseStartedAt = now
-    }
-
-    private func clickPulseScale(at now: CFTimeInterval) -> CGFloat {
-        guard let startedAt = clickPulseStartedAt else { return 1 }
-        let elapsed = now - startedAt
-        if elapsed <= 0 {
-            return 1
-        }
-        if elapsed >= overlayCursorClickPulseDuration {
-            clickPulseStartedAt = nil
-            return 1
-        }
-        if elapsed <= overlayCursorClickPressDuration {
-            let t = CGFloat(elapsed / overlayCursorClickPressDuration)
-            let eased = smoothstep(edge0: 0, edge1: 1, value: t)
-            return 1 + (overlayCursorClickPressedScale - 1) * eased
-        }
-        let releaseElapsed = elapsed - overlayCursorClickPressDuration
-        let releaseDuration = overlayCursorClickPulseDuration - overlayCursorClickPressDuration
-        let t = CGFloat(releaseElapsed / max(releaseDuration, 0.0001))
-        let overshoot = sin(t * .pi)
-        let base = overlayCursorClickPressedScale + (1 - overlayCursorClickPressedScale) * t
-        let boost = (overlayCursorClickReleaseOvershootScale - 1) * overshoot
-        return base + boost
     }
 
     func tick() {
@@ -3898,17 +3807,14 @@ final class PersistentOverlayController {
         lastTickAt = now
 
         let idleAngleOffset = loadingAngleOffset(at: now)
-        let clickScale = clickPulseScale(at: now)
 
         guard let path = activePath else {
             rememberCurrentAXCursorPoint()
             applyCursorState(
                 cursor,
                 position: position,
-                rotation: renderedAngle + idleAngleOffset,
-                scale: clickScale
+                rotation: renderedAngle + idleAngleOffset
             )
-            updateTailPath(at: now, hasActivePath: false)
             return
         }
 
@@ -3926,25 +3832,13 @@ final class PersistentOverlayController {
         currentPosition = nextPosition
         rememberCurrentAXCursorPoint()
         renderedAngle = newAngle
-        applyCursorState(cursor, position: nextPosition, rotation: newAngle, scale: clickScale)
-        updateTailPath(at: now, hasActivePath: true)
+        applyCursorState(cursor, position: nextPosition, rotation: newAngle)
 
         if progress >= 1 {
             lastArrivalTangent = normalized(path.tangent(at: 1))
             activePath = nil
             idleAnimationStartedAt = now
         }
-    }
-
-    func triggerClickPulse() {
-        guard window != nil, currentPosition != nil else { return }
-        let now = CACurrentMediaTime()
-        startClickPulseIfNeeded(at: now)
-        animationFinishesAt = max(animationFinishesAt, now + overlayCursorClickPulseDuration)
-        writeBusyUntil(
-            remainingSeconds: overlayCursorClickPulseDuration,
-            actionReadyInSeconds: overlayCursorClickPulseDuration
-        )
     }
 
     func hide() {
@@ -3990,9 +3884,6 @@ final class PersistentOverlayController {
         }
         renderedAngle = overlayCursorBaseRotation
         idleAnimationStartedAt = CACurrentMediaTime()
-        clickPulseStartedAt = nil
-        shouldTriggerClickPulse = false
-        didTriggerClickPulseForMove = false
         lastTickAt = CACurrentMediaTime()
 
         window = win
@@ -4068,176 +3959,20 @@ final class PersistentOverlayController {
             c1: overlayCursorTimingControl1,
             c2: overlayCursorTimingControl2
         )
-        shouldTriggerClickPulse = false
-        didTriggerClickPulseForMove = false
-        clickPulseStartedAt = nil
         idleAnimationStartedAt = nil
         activeStartTime = CACurrentMediaTime()
         let scaled = overlayCursorMoveDuration * Double(min(1.0, max(0.45, distance / 600.0)))
         activeDuration = scaled
-        let clickTail: TimeInterval = 0
-        scheduleAnimationFinish(extraTail: clickTail)
+        scheduleAnimationFinish()
         let totalRemaining = activeDuration + 0.06
         writeBusyUntil(remainingSeconds: totalRemaining, actionReadyInSeconds: totalRemaining)
     }
 
     private func makeCursorLayer(at point: CGPoint, viewportFrame: CGRect, screen: NSScreen) -> CALayer {
-        let img = softwareCursorImage()
-        let container = CALayer()
-        container.contentsScale = screen.backingScaleFactor
-        container.bounds = CGRect(origin: .zero, size: img.size)
-        container.anchorPoint = CGPoint(x: 0.5, y: 36.0 / 38.0)
-        container.position = overlayLocalPoint(fromAXPoint: point, viewportFrame: viewportFrame)
-        setCursorTransform(container, rotation: overlayCursorBaseRotation, scale: 1)
-        container.shadowColor = NSColor.black.cgColor
-        container.shadowOpacity = 0.35
-        container.shadowRadius = 4
-        container.shadowOffset = CGSize(width: 0, height: -1)
-
-        let initialPath = tailPath(phase: 0, amplitude: overlayCursorTailIdleWiggleAmplitude)
-
-        let gradient = CAGradientLayer()
-        gradient.contentsScale = screen.backingScaleFactor
-        gradient.frame = container.bounds
-        gradient.colors = [
-            NSColor(calibratedWhite: 1, alpha: 0.98).cgColor,
-            NSColor(calibratedRed: 0.82, green: 0.85, blue: 0.89, alpha: 0.98).cgColor,
-        ]
-        gradient.startPoint = CGPoint(x: 0.5, y: 1)
-        gradient.endPoint = CGPoint(x: 0.5, y: 0)
-
-        let mask = CAShapeLayer()
-        mask.contentsScale = screen.backingScaleFactor
-        mask.frame = container.bounds
-        mask.fillColor = NSColor.white.cgColor
-        mask.path = initialPath
-        gradient.mask = mask
-
-        let stroke = CAShapeLayer()
-        stroke.contentsScale = screen.backingScaleFactor
-        stroke.frame = container.bounds
-        stroke.fillColor = NSColor.clear.cgColor
-        stroke.strokeColor = NSColor(calibratedWhite: 0.08, alpha: 0.72).cgColor
-        stroke.lineWidth = 1.2
-        stroke.lineJoin = .round
-        stroke.lineCap = .round
-        stroke.path = initialPath
-
-        container.addSublayer(gradient)
-        container.addSublayer(stroke)
-        tailGradient = gradient
-        tailGradientMask = mask
-        tailStroke = stroke
-
-        let head = CALayer()
-        head.contents = img
-        head.contentsScale = screen.backingScaleFactor
-        head.frame = container.bounds
-        container.addSublayer(head)
-        return container
-    }
-
-    private func tailPath(phase: CGFloat, amplitude: CGFloat) -> CGPath {
-        let segments = max(4, overlayCursorTailSegmentCount)
-        let length = overlayCursorTailLength
-        let curl = overlayCursorTailRestingCurl
-        let waveK = overlayCursorTailWaveNumber * .pi
-        var centerline: [CGPoint] = []
-        var lateralBasis: [CGPoint] = []
-        for i in 0...segments {
-            let s = CGFloat(i) / CGFloat(segments)
-            let bend = curl * s
-            let dir = CGPoint(x: -sin(bend), y: -cos(bend))
-            let prev = centerline.last ?? overlayCursorTailAnchor
-            let step = length / CGFloat(segments)
-            let next = i == 0
-                ? overlayCursorTailAnchor
-                : CGPoint(x: prev.x + dir.x * step, y: prev.y + dir.y * step)
-            centerline.append(next)
-            lateralBasis.append(CGPoint(x: -dir.y, y: dir.x))
-        }
-
-        var lateral: [CGFloat] = []
-        for i in 0...segments {
-            let s = CGFloat(i) / CGFloat(segments)
-            let ramp = 0.18 + 0.82 * s * s
-            let wave = sin(phase + s * waveK)
-            lateral.append(amplitude * ramp * wave)
-        }
-
-        var halfWidths: [CGFloat] = []
-        for i in 0...segments {
-            let s = CGFloat(i) / CGFloat(segments)
-            let w = overlayCursorTailBaseWidth
-                + (overlayCursorTailTipWidth - overlayCursorTailBaseWidth) * s
-            halfWidths.append(w * 0.5)
-        }
-
-        var leftEdge: [CGPoint] = []
-        var rightEdge: [CGPoint] = []
-        for i in 0...segments {
-            let c = centerline[i]
-            let lat = lateralBasis[i]
-            let off = lateral[i]
-            let hw = halfWidths[i]
-            let centerOffset = CGPoint(x: c.x + lat.x * off, y: c.y + lat.y * off)
-            leftEdge.append(
-                CGPoint(x: centerOffset.x + lat.x * hw, y: centerOffset.y + lat.y * hw)
-            )
-            rightEdge.append(
-                CGPoint(x: centerOffset.x - lat.x * hw, y: centerOffset.y - lat.y * hw)
-            )
-        }
-
-        let path = CGMutablePath()
-        guard let firstLeft = leftEdge.first, let firstRight = rightEdge.first else {
-            return path
-        }
-        path.move(to: firstLeft)
-        for i in 1..<leftEdge.count {
-            let prev = leftEdge[i - 1]
-            let curr = leftEdge[i]
-            let mid = CGPoint(x: (prev.x + curr.x) * 0.5, y: (prev.y + curr.y) * 0.5)
-            path.addQuadCurve(to: mid, control: prev)
-            if i == leftEdge.count - 1 {
-                path.addLine(to: curr)
-            }
-        }
-
-        let tip = centerline.last!
-        let lastRight = rightEdge.last!
-        let tipDir = lateralBasis.last!
-        let beyondTip = CGPoint(
-            x: tip.x - tipDir.y * overlayCursorTailTipWidth * 0.6,
-            y: tip.y + tipDir.x * overlayCursorTailTipWidth * 0.6
+        makeReferenceCursorLayer(
+            position: overlayLocalPoint(fromAXPoint: point, viewportFrame: viewportFrame),
+            contentsScale: screen.backingScaleFactor
         )
-        path.addQuadCurve(to: lastRight, control: beyondTip)
-        for i in stride(from: rightEdge.count - 2, through: 0, by: -1) {
-            let next = rightEdge[i]
-            let prev = rightEdge[i + 1]
-            let mid = CGPoint(x: (prev.x + next.x) * 0.5, y: (prev.y + next.y) * 0.5)
-            path.addQuadCurve(to: mid, control: prev)
-            if i == 0 {
-                path.addLine(to: next)
-            }
-        }
-        path.addLine(to: firstRight)
-        path.closeSubpath()
-        return path
-    }
-
-    private func updateTailPath(at now: CFTimeInterval, hasActivePath: Bool) {
-        guard let mask = tailGradientMask, let stroke = tailStroke else { return }
-        let phase = CGFloat(now) * overlayCursorTailWiggleFrequencyHz * 2 * .pi
-        let amplitude = hasActivePath
-            ? overlayCursorTailMoveWiggleAmplitude
-            : overlayCursorTailIdleWiggleAmplitude
-        let path = tailPath(phase: phase, amplitude: amplitude)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        mask.path = path
-        stroke.path = path
-        CATransaction.commit()
     }
 
     private func applyCursorState(
@@ -4275,15 +4010,11 @@ final class PersistentOverlayController {
         window?.orderOut(nil)
         window = nil
         cursorLayer = nil
-        tailGradient = nil
-        tailGradientMask = nil
-        tailStroke = nil
         currentScreen = nil
         currentViewportFrame = nil
         if !preservingTargetIdentity {
             currentTargetIdentity = nil
         }
-        currentInteractionKind = nil
         lastOrderedAboveWindowID = nil
         lastTargetOnScreen = nil
         currentPosition = nil
@@ -4291,9 +4022,6 @@ final class PersistentOverlayController {
         lastArrivalTangent = nil
         renderedAngle = overlayCursorBaseRotation
         idleAnimationStartedAt = nil
-        clickPulseStartedAt = nil
-        shouldTriggerClickPulse = false
-        didTriggerClickPulseForMove = false
         lastTickAt = nil
     }
 }
@@ -4337,17 +4065,13 @@ final class UnifiedAutomationOverlayService {
             interactionKind: target.interactionKind
         )
 
-        let isClickLike = overlayInteractionIsClickLike(target.interactionKind)
-        if isClickLike {
+        let requiresArrival = overlayInteractionIsClickLike(target.interactionKind)
+            || target.interactionKind == "drag"
+        if requiresArrival {
             waitUntilIdle()
         }
 
         let result = body()
-
-        if isClickLike {
-            controller.triggerClickPulse()
-        }
-
         waitUntilIdle()
         return result
     }
@@ -9981,12 +9705,25 @@ func executeCommandInternal(args: [String]) throws -> CommandExecutionResult {
         }
         try prepareTargetForAction(target, statePath: options.statePath, raise: options.raise)
         try ensureSafeActionContext(snapshot: snapshot, target: target)
-        guard let dragDispatch = postDrag(
-            from: CGPoint(x: fromX, y: fromY),
-            to: CGPoint(x: toX, y: toY),
+        let dragStart = CGPoint(x: fromX, y: fromY)
+        let dragEnd = CGPoint(x: toX, y: toY)
+        let dragDispatch = withUnifiedActionOverlay(
+            enabled: overlayEnabled(options),
+            statePath: options.statePath,
+            snapshot: snapshot,
             target: target,
-            raise: options.raise
-        ) else {
+            frame: nil,
+            cursorPoint: dragStart,
+            interactionKind: "drag"
+        ) {
+            postDrag(
+                from: dragStart,
+                to: dragEnd,
+                target: target,
+                raise: options.raise
+            )
+        }
+        guard let dragDispatch else {
             throw failureWithScreenshot(
                 "Failed to send pointer drag.",
                 statePath: options.statePath,

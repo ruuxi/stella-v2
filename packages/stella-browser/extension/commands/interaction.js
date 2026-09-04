@@ -13,6 +13,10 @@ import {
 } from "../lib/selector.js";
 import { ensureDebugger, evaluateRuntime } from "../lib/debugger.js";
 import {
+  buildAgentCursorPresentationExpression,
+  trackAgentCursorTab,
+} from "../lib/agent-cursor.js";
+import {
   abortableCommandDelay,
   markCommandMutationDispatched,
   throwIfCommandAborted,
@@ -83,8 +87,32 @@ async function getClickablePoint(tabId, resolved) {
   return point;
 }
 
+async function presentAgentCursor(
+  command,
+  tabId,
+  point,
+  animateMovement = true,
+) {
+  trackAgentCursorTab(command.ownerId, tabId);
+  const turnKey = [command.ownerId, command.sessionId, command.turnId]
+    .filter(Boolean)
+    .join(":");
+  await evaluateRuntime(
+    tabId,
+    buildAgentCursorPresentationExpression({
+      x: point.x,
+      y: point.y,
+      animateMovement,
+      turnKey: turnKey || "external-browser",
+    }),
+    { timeoutMs: 5_000 },
+  ).catch(() => undefined);
+  throwIfCommandAborted(command);
+}
+
 async function dispatchPointerClick(command, tabId, point, clickCount) {
   await ensureDebugger(tabId);
+  await presentAgentCursor(command, tabId, point);
   markCommandMutationDispatched(command);
   await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
     type: "mouseMoved",
@@ -120,6 +148,8 @@ export async function handleClick(command) {
   if (!selector) throw new Error("Selector is required for click");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  const point = await getClickablePoint(tab.id, resolved);
+  await presentAgentCursor(command, tab.id, point);
   markCommandMutationDispatched(command);
   await injectScript(
     tab.id,
@@ -248,6 +278,8 @@ export async function handleHover(command) {
   if (!selector) throw new Error("Selector is required for hover");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  const point = await getClickablePoint(tab.id, resolved);
+  await presentAgentCursor(command, tab.id, point);
   markCommandMutationDispatched(command);
   await injectScript(
     tab.id,
@@ -440,6 +472,8 @@ export async function handleCheck(command) {
   if (!selector) throw new Error("Selector is required for check");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  const point = await getClickablePoint(tab.id, resolved);
+  await presentAgentCursor(command, tab.id, point);
   markCommandMutationDispatched(command);
   await injectScript(
     tab.id,
@@ -460,6 +494,8 @@ export async function handleUncheck(command) {
   if (!selector) throw new Error("Selector is required for uncheck");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  const point = await getClickablePoint(tab.id, resolved);
+  await presentAgentCursor(command, tab.id, point);
   markCommandMutationDispatched(command);
   await injectScript(
     tab.id,
@@ -500,7 +536,6 @@ export async function handleDblclick(command) {
   if (!selector) throw new Error("Selector is required for dblclick");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  markCommandMutationDispatched(command);
   const point = await getClickablePoint(tab.id, resolved);
   await dispatchPointerClick(command, tab.id, point, 2);
 
@@ -698,6 +733,7 @@ export async function handleMouseMove(command) {
   const y = command.y ?? 0;
 
   await ensureDebugger(tab.id);
+  await presentAgentCursor(command, tab.id, { x, y });
   markCommandMutationDispatched(command);
   await chrome.debugger.sendCommand(
     { tabId: tab.id },
@@ -720,6 +756,7 @@ export async function handleMouseDown(command) {
   const button = command.button || "left";
 
   await ensureDebugger(tab.id);
+  await presentAgentCursor(command, tab.id, { x, y });
   markCommandMutationDispatched(command);
   await chrome.debugger.sendCommand(
     { tabId: tab.id },
@@ -744,6 +781,7 @@ export async function handleMouseUp(command) {
   const button = command.button || "left";
 
   await ensureDebugger(tab.id);
+  await presentAgentCursor(command, tab.id, { x, y });
   markCommandMutationDispatched(command);
   await chrome.debugger.sendCommand(
     { tabId: tab.id },
@@ -771,6 +809,7 @@ export async function handleDrag(command) {
   await ensureDebugger(tab.id);
 
   // Mouse down at start
+  await presentAgentCursor(command, tab.id, { x: startX, y: startY });
   markCommandMutationDispatched(command);
   await chrome.debugger.sendCommand(
     { tabId: tab.id },
@@ -790,6 +829,7 @@ export async function handleDrag(command) {
     throwIfCommandAborted(command);
     const x = startX + (endX - startX) * (i / steps);
     const y = startY + (endY - startY) * (i / steps);
+    await presentAgentCursor(command, tab.id, { x, y }, false);
     await chrome.debugger.sendCommand(
       { tabId: tab.id },
       "Input.dispatchMouseEvent",

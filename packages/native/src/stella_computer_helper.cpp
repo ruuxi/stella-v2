@@ -15,8 +15,10 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -24,6 +26,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #pragma comment(lib, "gdiplus.lib")
@@ -369,6 +372,394 @@ static bool envFlag(const char* name) {
     std::transform(v.begin(), v.end(), v.begin(), ::tolower);
     return v == "1" || v == "true" || v == "yes" || v == "on";
 }
+
+// This is the same 23x24 cursor artwork used by the browser agent cursor. Keep
+// the bytes in the native helper so background Win32 input can have the same
+// visual affordance without involving Stella's renderer.
+static const char* kAgentCursorPngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAC4AAAAwCAYAAABuZUjcAAAABmJLR0QA/wD/AP+gvaeTAAAEeklEQVRoge2YXWgcVRTHf2dndzOzm6+KiUUMhNooNG0qeQhNJaZpEiNFm6ItPhQSxYBiBeubCmJ9ENsH0QcRpakWLJogQdpSUCJpkgcJJimIGLGlsMU8pEpr0jQfm93k+DCTr5pkszuzTcH9wzCXYff+f+cy95xzBzLKKKN7UpLoB6pqAk3AY8AvwFciMpluMFdSVVNV+3S5/lTVZlX1bTTfqlLVl1VVY19e09HGAR07HtHYyMx8AIOqWrdRbIlWrRRg8tzfRKMGoxdvE2mJMHLqJrMTc+VAp6r2qmpN+lGXKxH4rwBU3M+0BohqgKkZP8Ptk/Q33SDSNk18SquALieA/XfrFVpzc6pqCPgjfj32UKQlwtSMn6gG7CCw75obZMuhICWNQiAEwGXgY+CMiIxvCLgD3wycHjl1k+H2yWXQ80FMi0EsF0r2QXkj5BcCMA60AydF5OeNAPcB/bMTc+X9TTeYuGX8B3rCDxMGTBowlQVbd8HuetheBmI7DAFtQJuIXLkr4A58HdAZaZvmt9bYqtB3jsMPwN5qqK2EosKF6S4B54ELwKCIzKUN3IHvjU9p1feHZ7g16k8IvXQcy4JHS6ChHBp2QFH+wrTXgR+AHqBHRK6mA7wG6Br6RulrlaSgY6Z9j5v2eMuDsHcr1BdDRQEEF/PQMNAHDDjXoIiMugJ34Htjk1R9cRj+iaYGHTMhnrU4DoagcjPUFED1fVAWhvBiILPAWeClOwNIFnw/cLbrJHSfcw8dzwKxwDKVkKVYlhK2lG05sDMMFaZQZxgIdIjIQTfgPuD30b945P1X7XznJbRlOeMlz44SYA/GHJArIhPzLElVOScDfJRfaKe8dEOvpVTK8xlgfHd9eqE3IbxCgGoMgO+WrnZK4CJyG2jbXmbnaa+hCy14AT+fkcVTGIi9OVu8WHGAVhG7uHgFHbaUZywfnxLkAH6yoAt4XEQOrJQSUwJ3eo+h2kpvoB8OwYdWgNcIkINcBupFpFZEflqNwU0L2lZUaFdEN9B12cInZoBSfFHgGFAmIj8mMncD/jXYZTwV6LCpHM01eDcYIBu5BuwRkfdEJLoe85TBnb7iUsOO5KFzTOVYnp/n/AbYm2+niPQl4+/2tHK+KN/uPZKBPpHnp8bwAZwGDorIWLLGbsEvgN0wrQc6ZCpv5xlU2NDHReRFEYmnYuwWfBAYqS9e30Z8Pdeg3jAAPheRt9wYuwJ3WoDOigK7y1sL+slsWfpOH3Hj6xrcUU/QB7s2rw5dHII3gn6Aq0CziMy6NfUCvBugtpBVK+Kbpp9sJAo8n8pGXEmuwZ20OPzEJlbsPZ62fJTaNh+IyKBrYkdefbzpKwtDeIWGqRk/wBXghEdegHfgA2EfbMtZ/p4/i0GOfVY5IiLTHnkB2MvhgQbAPm6N+Rb76X329F0i0umRz4K8WvFBIF5p+hZOLofs1hTgHY880iNV/XZOVbs1rt0a1zn7U3THRnMllKrmq2qHqsadq0NV8xP/8x6Rqlqqam00R0YZZZTR/0T/AonhuxCuMeKdAAAAAElFTkSuQmCC";
+
+class AgentCursorOverlay {
+public:
+    AgentCursorOverlay() {
+        worker_ = std::thread(&AgentCursorOverlay::run, this);
+        std::unique_lock<std::mutex> lock(mutex_);
+        started_.wait(lock, [this] { return startedReady_; });
+    }
+
+    ~AgentCursorOverlay() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stopping_ = true;
+        }
+        wake_.notify_all();
+        if (worker_.joinable()) worker_.join();
+    }
+
+    AgentCursorOverlay(const AgentCursorOverlay&) = delete;
+    AgentCursorOverlay& operator=(const AgentCursorOverlay&) = delete;
+
+    // Returns once the software cursor has arrived at the action point. The
+    // caller intentionally dispatches the real input only after this returns.
+    bool moveToAndWait(POINT target, HWND targetWindow) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!startupOk_ || stopping_) return false;
+        target_ = target;
+        targetWindow_ = targetWindow;
+        hasTarget_ = true;
+        visible_ = true;
+        const unsigned long long request = ++requestGeneration_;
+        lastActivity_ = std::chrono::steady_clock::now();
+        wake_.notify_all();
+        const bool completed = arrived_.wait_for(lock, std::chrono::seconds(5), [this, request] {
+            return stopping_ || arrivedGeneration_ >= request;
+        });
+        return completed && !stopping_ && arrivedGeneration_ >= request;
+    }
+
+    void hide() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        visible_ = false;
+        hasTarget_ = false;
+        wake_.notify_all();
+    }
+
+private:
+    static constexpr int kCanvasSize = 64;
+    static constexpr double kBaseRotation = -44.0;
+    static constexpr double kThinkDurationSeconds = 1.41;
+    static constexpr double kThinkPeriodSeconds = 0.66;
+    static constexpr double kThinkAmplitudeDegrees = 12.5;
+    static constexpr double kIdleTimeoutSeconds = 20.0;
+
+    static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+        switch (message) {
+        case WM_NCHITTEST:
+            return HTTRANSPARENT;
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_DESTROY:
+            return 0;
+        default:
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+        }
+    }
+
+    static std::vector<unsigned char> decodeBase64(const char* input) {
+        static const char alphabet[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::vector<unsigned char> output;
+        unsigned int value = 0;
+        int bits = -8;
+        for (const unsigned char* cursor = reinterpret_cast<const unsigned char*>(input);
+             cursor && *cursor; ++cursor) {
+            if (*cursor == '=') break;
+            const char* found = strchr(alphabet, *cursor);
+            if (!found) continue;
+            value = (value << 6) | (unsigned int)(found - alphabet);
+            bits += 6;
+            if (bits >= 0) {
+                output.push_back((unsigned char)((value >> bits) & 0xff));
+                bits -= 8;
+            }
+        }
+        return output;
+    }
+
+    bool loadCursorAsset() {
+        std::vector<unsigned char> bytes = decodeBase64(kAgentCursorPngBase64);
+        if (bytes.empty()) return false;
+        HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
+        if (!memory) return false;
+        void* destination = GlobalLock(memory);
+        if (!destination) {
+            GlobalFree(memory);
+            return false;
+        }
+        memcpy(destination, bytes.data(), bytes.size());
+        GlobalUnlock(memory);
+        IStream* stream = nullptr;
+        if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream)) || !stream) {
+            GlobalFree(memory);
+            return false;
+        }
+        std::unique_ptr<Gdiplus::Bitmap> bitmap;
+        {
+            Gdiplus::Bitmap decoded(stream);
+            if (decoded.GetLastStatus() == Gdiplus::Ok) {
+                bitmap.reset(decoded.Clone(
+                    0,
+                    0,
+                    decoded.GetWidth(),
+                    decoded.GetHeight(),
+                    PixelFormat32bppARGB));
+            }
+        }
+        stream->Release();
+        if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) return false;
+        cursorAsset_ = std::move(bitmap);
+        return true;
+    }
+
+    bool createWindow() {
+        if (!loadCursorAsset()) return false;
+        HINSTANCE instance = GetModuleHandleW(nullptr);
+        static const wchar_t className[] = L"StellaComputerAgentCursor";
+        WNDCLASSEXW windowClass = {};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.hInstance = instance;
+        windowClass.lpfnWndProc = &AgentCursorOverlay::windowProc;
+        windowClass.lpszClassName = className;
+        windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        RegisterClassExW(&windowClass);
+        hwnd_ = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            className,
+            L"Stella computer-use cursor",
+            WS_POPUP,
+            0, 0, kCanvasSize, kCanvasSize,
+            nullptr, nullptr, instance, nullptr);
+        if (!hwnd_) return false;
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
+        SetWindowDisplayAffinity(hwnd_, WDA_EXCLUDEFROMCAPTURE);
+        return true;
+    }
+
+    void render(double x, double y, double rotation, HWND targetWindow) {
+        if (!hwnd_ || !cursorAsset_) return;
+        Gdiplus::Bitmap canvas(kCanvasSize, kCanvasSize, PixelFormat32bppARGB);
+        Gdiplus::Graphics graphics(&canvas);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        graphics.Clear(Gdiplus::Color(0, 0, 0, 0));
+
+        // A soft blue radial glow, deliberately limited to the cursor. There
+        // is no click ring, pulse, or tail in the Windows contract.
+        Gdiplus::GraphicsPath glowPath;
+        glowPath.AddEllipse(Gdiplus::RectF(8.0f, 8.0f, 48.0f, 48.0f));
+        Gdiplus::PathGradientBrush glowBrush(&glowPath);
+        glowBrush.SetCenterColor(Gdiplus::Color(100, 51, 156, 255));
+        Gdiplus::Color edge(0, 51, 156, 255);
+        INT edgeCount = 1;
+        glowBrush.SetSurroundColors(&edge, &edgeCount);
+        graphics.FillPath(&glowBrush, &glowPath);
+
+        graphics.TranslateTransform((Gdiplus::REAL)(kCanvasSize / 2), (Gdiplus::REAL)(kCanvasSize / 2));
+        graphics.RotateTransform((Gdiplus::REAL)rotation);
+        graphics.TranslateTransform(-12.0f, -12.0f);
+        graphics.TranslateTransform(12.0f, -2.5f);
+        graphics.RotateTransform(44.0f);
+        graphics.DrawImage(cursorAsset_.get(), Gdiplus::RectF(0, 0, 23, 24));
+
+        HBITMAP bitmap = nullptr;
+        if (canvas.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &bitmap) != Gdiplus::Ok || !bitmap) return;
+        HDC screen = GetDC(nullptr);
+        HDC memory = CreateCompatibleDC(screen);
+        HGDIOBJ previous = SelectObject(memory, bitmap);
+        POINT destination = {
+            (LONG)std::lround(x - kCanvasSize / 2.0),
+            (LONG)std::lround(y - kCanvasSize / 2.0),
+        };
+        SIZE size = { kCanvasSize, kCanvasSize };
+        POINT source = { 0, 0 };
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+        if (targetWindow && IsWindow(targetWindow) && targetWindow != attachedTargetWindow_) {
+            SetWindowLongPtrW(hwnd_, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(targetWindow));
+            attachedTargetWindow_ = targetWindow;
+        }
+        SetWindowPos(hwnd_, HWND_TOP, destination.x, destination.y,
+                     kCanvasSize, kCanvasSize,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        UpdateLayeredWindow(hwnd_, screen, &destination, &size, memory, &source,
+                            0, &blend, ULW_ALPHA);
+        SelectObject(memory, previous);
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+        ReleaseDC(nullptr, screen);
+    }
+
+    void hideWindow() {
+        if (hwnd_) ShowWindow(hwnd_, SW_HIDE);
+    }
+
+    static void pumpMessages() {
+        MSG message = {};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+
+    void run() {
+        const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        const bool ownsComApartment = SUCCEEDED(comResult);
+        startupOk_ = (ownsComApartment || comResult == RPC_E_CHANGED_MODE) && createWindow();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (startupOk_) {
+                POINT cursor = {};
+                if (GetCursorPos(&cursor)) {
+                    currentX_ = (double)cursor.x;
+                    currentY_ = (double)cursor.y;
+                }
+            }
+            startedReady_ = true;
+        }
+        started_.notify_all();
+        if (!startupOk_) {
+            if (ownsComApartment) CoUninitialize();
+            return;
+        }
+
+        std::unique_lock<std::mutex> lock(mutex_);
+        while (!stopping_) {
+            pumpMessages();
+            const auto now = std::chrono::steady_clock::now();
+            if (hasTarget_) {
+                const POINT target = target_;
+                const HWND targetWindow = targetWindow_;
+                const double startX = currentX_;
+                const double startY = currentY_;
+                const unsigned long long request = requestGeneration_;
+                hasTarget_ = false;
+                const double distance = std::hypot((double)target.x - startX, (double)target.y - startY);
+                const double duration = std::max(0.25, std::min(0.85, distance / 900.0));
+                const bool useScoot = distance <= 196.0;
+                const double directX = distance > 0.001 ? ((double)target.x - startX) / distance : 0.0;
+                const double directY = distance > 0.001 ? ((double)target.y - startY) / distance : 0.0;
+                const double scootRotation = std::max(-1.0, std::min(1.0, directX * 0.75 - directY * 0.62)) * 70.0;
+                const double clickX = std::sin(-44.0 * 3.141592653589793 / 180.0);
+                const double clickY = -std::cos(-44.0 * 3.141592653589793 / 180.0);
+                const double startHandle = std::max(48.0, std::min({640.0, distance * 0.41960295031576633, distance * 0.9}));
+                const double endHandle = std::max(48.0, std::min({640.0, distance * 0.15, distance * 0.9}));
+                const double virtualLeft = (double)GetSystemMetrics(SM_XVIRTUALSCREEN) + 20.0;
+                const double virtualTop = (double)GetSystemMetrics(SM_YVIRTUALSCREEN) + 20.0;
+                const double virtualRight = virtualLeft + (double)GetSystemMetrics(SM_CXVIRTUALSCREEN) - 40.0;
+                const double virtualBottom = virtualTop + (double)GetSystemMetrics(SM_CYVIRTUALSCREEN) - 40.0;
+                const auto clampX = [virtualLeft, virtualRight](double value) {
+                    return std::max(virtualLeft, std::min(virtualRight, value));
+                };
+                const auto clampY = [virtualTop, virtualBottom](double value) {
+                    return std::max(virtualTop, std::min(virtualBottom, value));
+                };
+                const double control1X = clampX(startX + clickX * startHandle);
+                const double control1Y = clampY(startY + clickY * startHandle);
+                const double control2X = clampX((double)target.x - clickX * endHandle);
+                const double control2Y = clampY((double)target.y - clickY * endHandle);
+                lock.unlock();
+                const auto startedAt = std::chrono::steady_clock::now();
+                while (true) {
+                    pumpMessages();
+                    const double elapsed = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - startedAt).count();
+                    const double progress = std::min(1.0, elapsed / duration);
+                    const double eased = progress * progress * (3.0 - 2.0 * progress);
+                    double nextX = startX + ((double)target.x - startX) * eased;
+                    double nextY = startY + ((double)target.y - startY) * eased;
+                    double rotation = kBaseRotation;
+                    if (useScoot) {
+                        rotation += std::sin(eased * 3.141592653589793) * scootRotation;
+                    } else {
+                        const double inverse = 1.0 - eased;
+                        nextX = inverse * inverse * inverse * startX
+                            + 3.0 * inverse * inverse * eased * control1X
+                            + 3.0 * inverse * eased * eased * control2X
+                            + eased * eased * eased * (double)target.x;
+                        nextY = inverse * inverse * inverse * startY
+                            + 3.0 * inverse * inverse * eased * control1Y
+                            + 3.0 * inverse * eased * eased * control2Y
+                            + eased * eased * eased * (double)target.y;
+                        const double tangentX = 3.0 * inverse * inverse * (control1X - startX)
+                            + 6.0 * inverse * eased * (control2X - control1X)
+                            + 3.0 * eased * eased * ((double)target.x - control2X);
+                        const double tangentY = 3.0 * inverse * inverse * (control1Y - startY)
+                            + 6.0 * inverse * eased * (control2Y - control1Y)
+                            + 3.0 * eased * eased * ((double)target.y - control2Y);
+                        if (std::hypot(tangentX, tangentY) > 0.001) {
+                            rotation = std::atan2(tangentY, tangentX) * 180.0 / 3.141592653589793 + 90.0;
+                        }
+                    }
+                    render(nextX, nextY, rotation, targetWindow);
+                    if (progress >= 1.0) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                }
+                lock.lock();
+                currentX_ = (double)target.x;
+                currentY_ = (double)target.y;
+                arrivedGeneration_ = std::max(arrivedGeneration_, request);
+                wobbleStartedAt_ = std::chrono::steady_clock::now();
+                wobbling_ = true;
+                lastActivity_ = wobbleStartedAt_;
+                arrived_.notify_all();
+                continue;
+            }
+
+            if (visible_) {
+                const double idleSeconds = std::chrono::duration<double>(now - lastActivity_).count();
+                if (idleSeconds > kIdleTimeoutSeconds) {
+                    visible_ = false;
+                    wobbling_ = false;
+                    hideWindow();
+                } else {
+                    double rotation = kBaseRotation;
+                    if (wobbling_) {
+                        const double elapsed = std::chrono::duration<double>(now - wobbleStartedAt_).count();
+                        if (elapsed >= kThinkDurationSeconds) {
+                            wobbling_ = false;
+                        } else {
+                            const double envelope = std::sin((elapsed / kThinkDurationSeconds) * 3.141592653589793);
+                            rotation += std::sin((elapsed / kThinkPeriodSeconds) * 2.0 * 3.141592653589793)
+                                * envelope * kThinkAmplitudeDegrees;
+                        }
+                    }
+                    lock.unlock();
+                    render(currentX_, currentY_, rotation, targetWindow_);
+                    lock.lock();
+                }
+            }
+            if (!visible_) hideWindow();
+            wake_.wait_for(lock, std::chrono::milliseconds(16), [this] {
+                return stopping_ || hasTarget_;
+            });
+        }
+        lock.unlock();
+        hideWindow();
+        if (hwnd_) {
+            DestroyWindow(hwnd_);
+            hwnd_ = nullptr;
+        }
+        if (ownsComApartment) CoUninitialize();
+    }
+
+    std::thread worker_;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    std::condition_variable started_;
+    std::condition_variable arrived_;
+    bool startedReady_ = false;
+    bool startupOk_ = false;
+    bool stopping_ = false;
+    bool visible_ = false;
+    bool hasTarget_ = false;
+    bool wobbling_ = false;
+    HWND hwnd_ = nullptr;
+    HWND targetWindow_ = nullptr;
+    HWND attachedTargetWindow_ = nullptr;
+    std::unique_ptr<Gdiplus::Bitmap> cursorAsset_;
+    POINT target_ = {};
+    unsigned long long requestGeneration_ = 0;
+    unsigned long long arrivedGeneration_ = 0;
+    double currentX_ = 0;
+    double currentY_ = 0;
+    std::chrono::steady_clock::time_point lastActivity_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point wobbleStartedAt_ = std::chrono::steady_clock::now();
+};
+
+static AgentCursorOverlay* gAgentCursorOverlay = nullptr;
 
 static std::string readUtf8File(const std::wstring& path) {
     std::ifstream input(path, std::ios::binary);
@@ -3111,6 +3502,43 @@ static std::string executeOperation(IUIAutomation* uia, const Json& operation) {
         throw std::runtime_error("unsupported dispatch mode: " + dispatch);
     }
 
+    // The software cursor is deliberately driven from the same native action
+    // boundary as the real input. Background PostMessage/CG-style delivery
+    // does not move the user's physical cursor, so the visual cursor must
+    // arrive before the click or drag is injected. A failed/disabled overlay
+    // never changes the action's dispatch semantics.
+    if (!envFlag("STELLA_COMPUTER_NO_OVERLAY") && gAgentCursorOverlay &&
+        (tool == "click" || tool == "drag")) {
+        POINT visualPoint = {};
+        bool haveVisualPoint = false;
+        if (tool == "click") {
+            Frame elementFrame = parseFrame(elementJsonValue);
+            if (elementFrame.present && windowFrame.present) {
+                visualPoint = screenPointFromFrame(elementFrame, windowFrame);
+                haveVisualPoint = true;
+            } else if (windowFrame.present && operation.get("x") && operation.get("y")) {
+                double screenshotWidth = operation.num("screenshot_width", windowFrame.width);
+                double screenshotHeight = operation.num("screenshot_height", windowFrame.height);
+                double scaleX = screenshotWidth > 0 ? windowFrame.width / screenshotWidth : 1.0;
+                double scaleY = screenshotHeight > 0 ? windowFrame.height / screenshotHeight : 1.0;
+                visualPoint.x = (LONG)std::lround(windowFrame.x + operation.num("x") * scaleX);
+                visualPoint.y = (LONG)std::lround(windowFrame.y + operation.num("y") * scaleY);
+                haveVisualPoint = true;
+            }
+        } else if (windowFrame.present && operation.get("from_x") && operation.get("from_y")) {
+            double screenshotWidth = operation.num("screenshot_width", windowFrame.width);
+            double screenshotHeight = operation.num("screenshot_height", windowFrame.height);
+            double scaleX = screenshotWidth > 0 ? windowFrame.width / screenshotWidth : 1.0;
+            double scaleY = screenshotHeight > 0 ? windowFrame.height / screenshotHeight : 1.0;
+            visualPoint.x = (LONG)std::lround(windowFrame.x + operation.num("from_x") * scaleX);
+            visualPoint.y = (LONG)std::lround(windowFrame.y + operation.num("from_y") * scaleY);
+            haveVisualPoint = true;
+        }
+        if (haveVisualPoint) {
+            gAgentCursorOverlay->moveToAndWait(visualPoint, process.hwnd);
+        }
+    }
+
     if (tool == "click") {
         std::string button = operation.str("mouse_button", "left");
         bool handled = false;
@@ -3309,14 +3737,24 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    // Start the passive overlay only after GDI+ and UI Automation are ready;
+    // the helper's process lifetime owns it in both one-shot and daemon mode.
+    if (!envFlag("STELLA_COMPUTER_NO_OVERLAY")) {
+        gAgentCursorOverlay = new AgentCursorOverlay();
+    }
+
     if (daemonMode) {
         try {
             int code = runDaemon(uia, parseDaemonOptions(argc, argv));
+            delete gAgentCursorOverlay;
+            gAgentCursorOverlay = nullptr;
             releaseAllTargetStates(uia);
             safeRelease(uia);
             if (gdiplusToken) Gdiplus::GdiplusShutdown(gdiplusToken);
             return code;
         } catch (const std::exception& error) {
+            delete gAgentCursorOverlay;
+            gAgentCursorOverlay = nullptr;
             releaseAllTargetStates(uia);
             safeRelease(uia);
             if (gdiplusToken) Gdiplus::GdiplusShutdown(gdiplusToken);
@@ -3340,6 +3778,8 @@ int main(int argc, char** argv) {
         fwrite("\n", 1, 1, stdout);
     }
 
+    delete gAgentCursorOverlay;
+    gAgentCursorOverlay = nullptr;
     releaseAllTargetStates(uia);
     safeRelease(uia);
     if (gdiplusToken) Gdiplus::GdiplusShutdown(gdiplusToken);

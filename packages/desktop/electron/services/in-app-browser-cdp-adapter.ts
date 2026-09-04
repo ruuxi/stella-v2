@@ -2,6 +2,10 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import {
+  buildAgentCursorHideExpression,
+  buildAgentCursorPresentationExpression,
+} from "../../../stella-browser/extension/lib/agent-cursor.js";
 import { buildInAppBrowserUserAgent } from "./in-app-browser-auth-policy.js";
 
 export type InAppBrowserDebuggerTarget = {
@@ -66,6 +70,7 @@ type CdpRequest = {
 type ClientState = {
   socket: WebSocket;
   sessions: Map<string, string>;
+  cursorTabs: Set<string>;
   discoverTargets: boolean;
   ownerId: string;
 };
@@ -296,6 +301,7 @@ export class InAppBrowserCdpAdapter {
     this.unsubscribeDebuggerEvents?.();
     this.unsubscribeDebuggerEvents = null;
     for (const client of this.clients) {
+      await this.hideClientAgentCursors(client);
       client.socket.close();
     }
     this.clients.clear();
@@ -317,6 +323,7 @@ export class InAppBrowserCdpAdapter {
     const client: ClientState = {
       socket,
       sessions: new Map(),
+      cursorTabs: new Set(),
       discoverTargets: false,
       ownerId,
     };
@@ -324,8 +331,12 @@ export class InAppBrowserCdpAdapter {
     socket.on("message", (data) => {
       void this.handleMessage(client, data);
     });
-    socket.once("close", () => this.clients.delete(client));
-    socket.once("error", () => this.clients.delete(client));
+    const detach = () => {
+      if (!this.clients.delete(client)) return;
+      void this.hideClientAgentCursors(client);
+    };
+    socket.once("close", detach);
+    socket.once("error", detach);
   }
 
   private async handleMessage(client: ClientState, raw: RawData) {
@@ -466,7 +477,7 @@ export class InAppBrowserCdpAdapter {
       throw new Error(`CDP method ${method} requires a page session.`);
     }
 
-    await this.presentAgentAction(tabId, method, params, client.ownerId);
+    await this.presentAgentAction(client, tabId, method, params);
     return await this.sendPageCommand(tabId, method, params, client.ownerId);
   }
 
@@ -565,49 +576,25 @@ export class InAppBrowserCdpAdapter {
   }
 
   private async presentAgentAction(
+    client: ClientState,
     tabId: string,
     method: string,
     params: Record<string, unknown>,
-    ownerId?: string,
   ) {
     if (method !== "Input.dispatchMouseEvent") return;
     const x = Number(params.x);
     const y = Number(params.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    const kind = params.type === "mousePressed" ? "click" : "move";
-    const expression = `(() => {
-      const ROOT_ID = '__stella_agent_pointer__';
-      let root = document.getElementById(ROOT_ID);
-      if (!root) {
-        root = document.createElement('div');
-        root.id = ROOT_ID;
-        root.setAttribute('aria-hidden', 'true');
-        root.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;contain:layout style;transition:transform 220ms cubic-bezier(.2,.8,.2,1);';
-        const cursor = document.createElement('div');
-        cursor.dataset.cursor = 'true';
-        cursor.style.cssText = 'position:absolute;width:20px;height:25px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));transform:translate(-2px,-2px);';
-        cursor.innerHTML = '<svg viewBox="0 0 20 25" width="20" height="25"><path d="M2 1.5v18.2l4.7-4.1 3.1 7.2 3.1-1.35-3.1-7.1h6.4L2 1.5Z" fill="#101116" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg>';
-        const badge = document.createElement('div');
-        badge.textContent = 'Stella';
-        badge.style.cssText = 'position:absolute;left:15px;top:19px;padding:3px 7px;border-radius:999px;background:#101116;color:white;font:600 11px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 3px 12px rgba(0,0,0,.22);white-space:nowrap;';
-        root.append(cursor, badge);
-        (document.documentElement || document.body).appendChild(root);
-      }
-      root.style.transform = 'translate3d(${x}px,${y}px,0)';
-      if ('${kind}' === 'click') {
-        const ring = document.createElement('div');
-        ring.dataset.stellaClickRing = 'true';
-        ring.style.cssText = 'position:absolute;left:0;top:0;width:28px;height:28px;margin:-14px;border:2px solid rgba(255,255,255,.95);border-radius:50%;background:rgba(20,22,28,.12);animation:__stella_agent_click__ 420ms ease-out forwards;';
-        if (!document.getElementById('__stella_agent_pointer_style__')) {
-          const style = document.createElement('style');
-          style.id = '__stella_agent_pointer_style__';
-          style.textContent = '@keyframes __stella_agent_click__{from{opacity:.92;transform:scale(.35)}to{opacity:0;transform:scale(2.6)}}@media(prefers-reduced-motion:reduce){#__stella_agent_pointer__{transition:none!important}#__stella_agent_pointer__ [data-stella-click-ring]{animation:none!important;opacity:.55;transform:none}}';
-          (document.head || document.documentElement).appendChild(style);
-        }
-        root.prepend(ring);
-        setTimeout(() => ring.remove(), 460);
-      }
-    })()`;
+    const dragging =
+      params.type === "mouseMoved" &&
+      (params.button === "left" || Number(params.buttons) > 0);
+    const expression = buildAgentCursorPresentationExpression({
+      x,
+      y,
+      animateMovement: !dragging,
+      turnKey: client.ownerId,
+    });
+    client.cursorTabs.add(tabId);
     await Promise.resolve(
       this.controller.sendDebuggerCommand(
         tabId,
@@ -615,12 +602,33 @@ export class InAppBrowserCdpAdapter {
         {
           expression,
           returnByValue: true,
+          awaitPromise: true,
         },
-        ownerId,
+        client.ownerId,
       ),
     ).catch(() => undefined);
-    if (kind === "click") {
-      await new Promise((resolve) => setTimeout(resolve, 180));
-    }
+  }
+
+  private async hideClientAgentCursors(client: ClientState) {
+    const tabIds = [...client.cursorTabs];
+    client.cursorTabs.clear();
+    await Promise.all(
+      tabIds.map((tabId) =>
+        Promise.resolve(
+          this.controller.sendDebuggerCommand(
+            tabId,
+            "Runtime.evaluate",
+            {
+              expression: buildAgentCursorHideExpression({
+                turnKey: client.ownerId,
+              }),
+              returnByValue: true,
+              awaitPromise: true,
+            },
+            client.ownerId,
+          ),
+        ).catch(() => undefined),
+      ),
+    );
   }
 }

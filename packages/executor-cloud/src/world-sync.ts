@@ -104,13 +104,25 @@ const absoluteWorldPath = (root: string, relative: string): string => {
   return absolute;
 };
 
-const shouldSkip = (relative: string, kind: "file" | "dir" | "symlink") =>
-  relative === ".stella/world-manifest" ||
-  (kind === "dir" &&
-    (relative === "node_modules" ||
-      relative.endsWith("/node_modules") ||
-      relative === ".git/objects" ||
-      relative.endsWith("/.git/objects")));
+const isNodeModulesDirectory = (relative: string): boolean =>
+  relative === "node_modules" || relative.endsWith("/node_modules");
+
+const indexedNodeModulesDirectories = (index: WorldIndex): Set<string> => {
+  const directories = new Set<string>();
+  for (const entryPath of Object.keys(index)) {
+    const segments = entryPath.split("/");
+    for (
+      let segmentIndex = 0;
+      segmentIndex < segments.length;
+      segmentIndex += 1
+    ) {
+      if (segments[segmentIndex] === "node_modules") {
+        directories.add(segments.slice(0, segmentIndex + 1).join("/"));
+      }
+    }
+  }
+  return directories;
+};
 
 const fileSha256 = async (filePath: string): Promise<string> => {
   const hash = createHash("sha256");
@@ -121,10 +133,14 @@ const fileSha256 = async (filePath: string): Promise<string> => {
 const readIndex = async (indexPath: string): Promise<WorldIndex> => {
   try {
     const value = JSON.parse(await readFile(indexPath, "utf8")) as unknown;
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("World index is invalid.");
+    }
     const index: WorldIndex = {};
     for (const [entryPath, raw] of Object.entries(value)) {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error("World index is invalid.");
+      }
       const row = raw as Record<string, unknown>;
       if (
         !Number.isSafeInteger(row.size) ||
@@ -134,7 +150,7 @@ const readIndex = async (indexPath: string): Promise<WorldIndex> => {
           (typeof row.sha256 !== "string" ||
             !/^[0-9a-f]{64}$/u.test(row.sha256)))
       ) {
-        return {};
+        throw new Error("World index is invalid.");
       }
       index[validateRelativePath(entryPath)] = {
         size: Number(row.size),
@@ -143,8 +159,9 @@ const readIndex = async (indexPath: string): Promise<WorldIndex> => {
       };
     }
     return index;
-  } catch {
-    return {};
+  } catch (error) {
+    if (isErrno(error, "ENOENT")) return {};
+    throw asError(error);
   }
 };
 
@@ -242,14 +259,20 @@ export const listWorldProjection = async (
 ): Promise<{ entries: WorldListingEntry[]; index: WorldIndex }> => {
   const entries: WorldListingEntry[] = [];
   const index: WorldIndex = {};
-  const walk = async (relative: string): Promise<void> => {
+  const durableNodeModules = indexedNodeModulesDirectories(previous);
+  const walk = async (
+    relative: string,
+    insideDurableNodeModules = false,
+  ): Promise<void> => {
     const absolute = relative ? absoluteWorldPath(root, relative) : root;
     const names = (await readdir(absolute)).sort((left, right) =>
       left.localeCompare(right),
     );
     for (const name of names) {
       const child = relative ? `${relative}/${name}` : name;
-      if (Buffer.byteLength(child, "utf8") > WORLD_PATH_LIMIT_BYTES) continue;
+      if (Buffer.byteLength(child, "utf8") > WORLD_PATH_LIMIT_BYTES) {
+        throw new Error(`World path exceeds 1024 UTF-8 bytes: ${child}`);
+      }
       const childPath = absoluteWorldPath(root, child);
       const stat = await lstat(childPath);
       const kind = stat.isSymbolicLink()
@@ -259,7 +282,24 @@ export const listWorldProjection = async (
           : stat.isFile()
             ? "file"
             : null;
-      if (!kind || shouldSkip(child, kind)) continue;
+      if (!kind) {
+        throw new Error(
+          `World contains an unsupported filesystem entry: ${child}`,
+        );
+      }
+      if (child === ".stella/world-manifest") continue;
+      // Dependency installations are explicitly ephemeral. If a node_modules
+      // subtree came from the durable index, however, scan it rather than
+      // turning the policy into an accidental authoritative deletion.
+      const durableNodeModulesEntry =
+        insideDurableNodeModules || durableNodeModules.has(child);
+      if (
+        kind === "dir" &&
+        isNodeModulesDirectory(child) &&
+        !durableNodeModulesEntry
+      ) {
+        continue;
+      }
       const common = {
         path: child,
         mode: stat.mode & 0o7777,
@@ -272,7 +312,7 @@ export const listWorldProjection = async (
       } else if (kind === "dir") {
         entries.push({ ...common, kind });
         index[child] = { size: 0, mtime: common.mtime };
-        await walk(child);
+        await walk(child, durableNodeModulesEntry);
       } else {
         if (stat.size > WORLD_FILE_LIMIT_BYTES) {
           throw new Error(`World file exceeds 256 MiB: ${child}`);
@@ -566,6 +606,36 @@ const applyChanges = async (
   }
 };
 
+const indexRestoredNodeModules = async (root: string): Promise<WorldIndex> => {
+  const index: WorldIndex = {};
+  let visited = 0;
+  const walk = async (relative: string): Promise<void> => {
+    const absolute = relative ? absoluteWorldPath(root, relative) : root;
+    for (const name of await readdir(absolute)) {
+      const child = relative ? `${relative}/${name}` : name;
+      if (Buffer.byteLength(child, "utf8") > WORLD_PATH_LIMIT_BYTES) {
+        throw new Error(`World path exceeds 1024 UTF-8 bytes: ${child}`);
+      }
+      const stat = await lstat(absoluteWorldPath(root, child));
+      if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+      visited += 1;
+      if (visited > WORLD_ENTRY_LIMIT) {
+        throw new Error("World projection exceeds 200000 entries.");
+      }
+      if (isNodeModulesDirectory(child)) {
+        // A directory present in an authoritative export is durable historical
+        // data, not a newly generated dependency tree. One root marker is
+        // enough: listWorldProjection preserves its entire nested subtree.
+        index[child] = { size: 0, mtime: Math.trunc(stat.mtimeMs) };
+        continue;
+      }
+      await walk(child);
+    }
+  };
+  await walk("");
+  return index;
+};
+
 const extractWorldExport = async (
   root: string,
   access: WorldSyncAccess,
@@ -641,7 +711,11 @@ export const pullWorldProjection = async (args: {
       const changes = await getChanges(args.access, marker.revision);
       if (changes.resync) {
         marker = await extractWorldExport(args.root, args.access);
-        await rm(statePaths(args.root).index, { force: true });
+        // The export is authoritative. Seed the otherwise fresh index with
+        // any dependency roots it restored so the following authoritative
+        // push cannot reinterpret historical durable data as ephemeral.
+        index = await indexRestoredNodeModules(args.root);
+        await writeJsonAtomic(statePaths(args.root).index, index);
         await writeWorldMarker(args.root, marker);
         return marker;
       }
@@ -862,7 +936,26 @@ export const pushWorldProjection = async (args: {
   await withWorldSyncLock(args.root, async () => {
     const paths = statePaths(args.root);
     const marker = await readWorldMarker(args.root);
+    const indexExists = await lstat(paths.index)
+      .then((stat) => {
+        if (!stat.isFile() || stat.isSymbolicLink()) {
+          throw new Error("World index is not a regular file.");
+        }
+        return true;
+      })
+      .catch((error: unknown) => {
+        if (isErrno(error, "ENOENT")) return false;
+        throw error;
+      });
     const previous = await readIndex(paths.index);
+    if (!indexExists && marker.revision > 0) {
+      const unclassifiedNodeModules = await indexRestoredNodeModules(args.root);
+      if (Object.keys(unclassifiedNodeModules).length > 0) {
+        throw new Error(
+          "World index is missing; refusing to omit unclassified node_modules from an authoritative push.",
+        );
+      }
+    }
     const projection = await listWorldProjection(
       args.root,
       previous,

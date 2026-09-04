@@ -86,6 +86,84 @@ describe("world projection sync", () => {
     ).toBe("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
   });
 
+  test("persists git objects so user commits survive synchronization", async () => {
+    const root = await fixture();
+    const objectPath = path.join(
+      root,
+      "projects",
+      "example",
+      ".git",
+      "objects",
+      "ab",
+    );
+    await mkdir(objectPath, { recursive: true });
+    await writeFile(path.join(objectPath, "commit-object"), "commit bytes");
+
+    const projection = await listWorldProjection(root);
+
+    expect(
+      projection.entries.find(
+        (entry) =>
+          entry.path === "projects/example/.git/objects/ab/commit-object",
+      )?.kind,
+    ).toBe("file");
+  });
+
+  test("keeps new node_modules ephemeral but never omits an indexed durable subtree", async () => {
+    const root = await fixture();
+    const dependency = path.join(
+      root,
+      "projects",
+      "example",
+      "node_modules",
+      "pkg",
+    );
+    await mkdir(dependency, { recursive: true });
+    await writeFile(path.join(dependency, "index.js"), "durable when indexed");
+
+    const ephemeral = await listWorldProjection(root);
+    expect(
+      ephemeral.entries.some((entry) => entry.path.includes("node_modules")),
+    ).toBe(false);
+
+    const durable = await listWorldProjection(root, {
+      "projects/example/node_modules/pkg/index.js": {
+        size: 20,
+        mtime: 0,
+        sha256: "0".repeat(64),
+      },
+    });
+    expect(
+      durable.entries.find(
+        (entry) => entry.path === "projects/example/node_modules/pkg/index.js",
+      )?.kind,
+    ).toBe("file");
+  });
+
+  test("fails explicitly for overlong paths and unsupported filesystem entries", async () => {
+    const root = await fixture();
+    const segments = Array.from(
+      { length: 11 },
+      (_, index) => `${String(index).padStart(2, "0")}-${"界".repeat(34)}`,
+    );
+    const overlong = path.join(root, ...segments);
+    await mkdir(overlong, { recursive: true });
+    await expect(listWorldProjection(root)).rejects.toThrow(
+      "World path exceeds 1024 UTF-8 bytes",
+    );
+
+    await rm(path.join(root, segments[0]!), { recursive: true });
+    const fifo = path.join(root, "user-data.fifo");
+    const process = Bun.spawn(["mkfifo", fifo], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    expect(await process.exited).toBe(0);
+    await expect(listWorldProjection(root)).rejects.toThrow(
+      "World contains an unsupported filesystem entry: user-data.fifo",
+    );
+  });
+
   test("posts, uploads requested blobs, and repeats until no blob is missing", async () => {
     const root = await fixture();
     const calls: Array<{
@@ -387,6 +465,97 @@ describe("world projection sync", () => {
       await readlink(path.join(root, "projects", "example", "latest")),
     ).toBe("source.txt");
     expect((await readWorldMarker(root)).revision).toBe(2);
+  });
+
+  test("refuses an authoritative push when an old restored world has unclassified node_modules and no index", async () => {
+    const root = await fixture(7);
+    await mkdir(path.join(root, "project", "node_modules", "dependency"), {
+      recursive: true,
+    });
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests += 1;
+      return Response.json({ missingBlobs: [], revision: 8 });
+    }) as unknown as typeof fetch;
+
+    await expect(pushWorldProjection({ root, access })).rejects.toThrow(
+      "refusing to omit unclassified node_modules",
+    );
+    expect(requests).toBe(0);
+    expect((await readWorldMarker(root)).revision).toBe(7);
+
+    await writeFile(
+      path.join(path.dirname(root), ".stella-world-index.json"),
+      "[]\n",
+    );
+    await expect(pushWorldProjection({ root, access })).rejects.toThrow(
+      "World index is invalid",
+    );
+    expect(requests).toBe(0);
+  });
+
+  test("preserves historical node_modules restored by a full export on the next push", async () => {
+    const root = await fixture();
+    const exportBase = await mkdtemp(
+      path.join(tmpdir(), "stella-world-export-"),
+    );
+    roots.push(exportBase);
+    const source = path.join(exportBase, "source");
+    const dependency = path.join(
+      source,
+      "project",
+      "node_modules",
+      "outer",
+      "node_modules",
+      "inner",
+    );
+    await mkdir(dependency, { recursive: true });
+    await writeFile(path.join(dependency, "index.js"), "historical dependency");
+    const archive = path.join(exportBase, "world.tar");
+    const tar = Bun.spawn(["/usr/bin/tar", "-cf", archive, "-C", source, "."], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    expect(await tar.exited).toBe(0);
+    const archiveBytes = await readFile(archive);
+    let pushedEntries: Array<{ path: string }> = [];
+    globalThis.fetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/changes")) {
+        return Response.json({
+          revision: 1,
+          entries: [],
+          deleted: [],
+          resync: true,
+        });
+      }
+      if (url.pathname.endsWith("/export")) {
+        return new Response(archiveBytes, {
+          headers: {
+            "x-stella-world-manifest": "manifest:exported",
+            "x-stella-world-revision": "1",
+          },
+        });
+      }
+      pushedEntries = (
+        JSON.parse(String(init?.body)) as { entries: Array<{ path: string }> }
+      ).entries;
+      return Response.json({ missingBlobs: [], revision: 2 });
+    }) as typeof fetch;
+
+    await pullWorldProjection({ root, access });
+    await pushWorldProjection({ root, access });
+
+    expect(
+      pushedEntries.some(
+        (entry) =>
+          entry.path ===
+          "project/node_modules/outer/node_modules/inner/index.js",
+      ),
+    ).toBe(true);
   });
 
   test("serializes every daemon through the container-wide flock", async () => {

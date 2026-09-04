@@ -294,6 +294,7 @@ const applyThreadSpawned = async (
     ownerGeneration: event.ownerGeneration,
     conversationId: event.conversationId,
     parentTurnId: event.parentTurnId,
+    ...(event.parentThreadId ? { parentThreadId: event.parentThreadId } : {}),
     ...(event.originDeviceId ? { originDeviceId: event.originDeviceId } : {}),
     ...(event.originConversationId
       ? { originConversationId: event.originConversationId }

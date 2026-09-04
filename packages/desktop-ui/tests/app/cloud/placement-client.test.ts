@@ -228,37 +228,6 @@ describe("owner gate placement client", () => {
     ).toBe("Bearer fresh");
   });
 
-  test("surfaces a quota refusal as a typed, definitive error", async () => {
-    const { fetch } = recorder(() =>
-      json(
-        {
-          error: {
-            code: "quota_daily",
-            message: "Daily limit reached.",
-            retryable: false,
-          },
-        },
-        429,
-      ),
-    );
-    await expect(
-      submitDispatch({
-        socketOrigin: ORIGIN,
-        request: await browserExecutionSubmitArgs({
-          clientMsgId: "client:one",
-          conversationId: "conversation-browser",
-          submission,
-        }),
-        getToken: token,
-        fetch,
-      }),
-    ).rejects.toMatchObject({
-      name: "PlacementClientError",
-      code: "quota_daily",
-      isQuota: true,
-    });
-  });
-
   test("maps anonymous and suspended cloud-agent refusals", () => {
     expect(
       new PlacementClientError({ code: "sign_in_required", status: 403 }),
@@ -356,7 +325,11 @@ describe("placementHttpOrigin", () => {
       fetch: async (input) => {
         urls.push(String(input));
         return new Response(
-          JSON.stringify({ protocol: 1, devices: [], cloud: { capabilities: [] } }),
+          JSON.stringify({
+            protocol: 1,
+            devices: [],
+            cloud: { capabilities: [] },
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       },

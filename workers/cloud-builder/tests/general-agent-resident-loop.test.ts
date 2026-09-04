@@ -36,18 +36,14 @@ mock.module("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
 }));
 
-const { runResidentStellaLoop } = await import(
-  "../src/general-agent-turn.js"
-);
+const { runResidentStellaLoop } = await import("../src/general-agent-turn.js");
 const { NO_WORKSPACE_ATTACHED_MESSAGE, createResidentGeneralAgentTools } =
   await import("../src/general-agent-tools.js");
-const { createTurnRetryCancellation } = await import(
-  "../src/turn-cancellation.js"
-);
+const { createTurnRetryCancellation } =
+  await import("../src/turn-cancellation.js");
 const { openSqlStorageFake } = await import("./fixtures/sql-storage.js");
-const { nativeHistoryCursorFromRows } = await import(
-  "../src/native-state-checkpoint.js"
-);
+const { nativeHistoryCursorFromRows } =
+  await import("../src/native-state-checkpoint.js");
 
 type Sealed = Awaited<ReturnType<AgentTurnJournal["seal"]>>;
 
@@ -168,10 +164,11 @@ const noopDoLocalTool = (name: string): AgentTool => ({
 const RESIDENT_TOOLS = createResidentGeneralAgentTools(
   new Map([
     ["web", noopDoLocalTool("web")],
-    [
-      "publish_stella_interior",
-      noopDoLocalTool("publish_stella_interior"),
-    ],
+    ["spawn_agent", noopDoLocalTool("spawn_agent")],
+    ["send_input", noopDoLocalTool("send_input")],
+    ["pause_agent", noopDoLocalTool("pause_agent")],
+    ["agent_status", noopDoLocalTool("agent_status")],
+    ["publish_stella_interior", noopDoLocalTool("publish_stella_interior")],
   ]),
 );
 
@@ -302,6 +299,10 @@ describe("resident Stella loop", () => {
       "web",
       "Read",
       "code",
+      "spawn_agent",
+      "send_input",
+      "pause_agent",
+      "agent_status",
       "publish_stella_interior",
     ]);
   });
@@ -327,6 +328,50 @@ describe("resident Stella loop", () => {
     expect(result.outcome === "completed" && result.usage.llmCalls).toBe(2);
   });
 
+  test("drains steer messages into the journal before the next model call", async () => {
+    const built = harness({
+      script: [assistantCalls("web"), assistantText("I used the update.")],
+    });
+    openJournals.push(built);
+    let drains = 0;
+    const acknowledged: string[] = [];
+    const result = await runResidentStellaLoop({
+      ...built.input,
+      steer: {
+        drain: async () => {
+          drains += 1;
+          return drains === 2
+            ? [
+                {
+                  id: "steer-1",
+                  kind: "input" as const,
+                  text: "Use the newer constraint.",
+                  createdAt: 1_800_000_000_001,
+                },
+              ]
+            : [];
+        },
+        acknowledge: (ids) => acknowledged.push(...ids),
+      },
+    });
+
+    expect(result.outcome).toBe("completed");
+    expect(acknowledged).toEqual(["steer-1"]);
+    expect(
+      built.contexts[1]?.messages.some(
+        (message) =>
+          message.role === "user" &&
+          JSON.stringify(message.content).includes("newer constraint"),
+      ),
+    ).toBe(true);
+    expect(
+      built.appended[0]?.rows.map((row) => [row.role, row.payloadJson]),
+    ).toContainEqual([
+      "user",
+      expect.stringContaining("Use the newer constraint."),
+    ]);
+  });
+
   test("carries pruned Convex history into the model context", async () => {
     const { contexts } = await run({
       script: [assistantText("done")],
@@ -344,9 +389,10 @@ describe("resident Stella loop", () => {
       ],
     });
 
-    expect(
-      contexts[0]?.messages.map((message) => message.role),
-    ).toEqual(["user", "user"]);
+    expect(contexts[0]?.messages.map((message) => message.role)).toEqual([
+      "user",
+      "user",
+    ]);
   });
 
   test("fails preflight without a transcript when history will not parse", async () => {
@@ -375,9 +421,9 @@ describe("resident Stella loop", () => {
     const { sql } = await run({ script: [assistantText("done")] });
 
     const remaining = sql
-      .exec<{ count: number }>(
-        "SELECT COUNT(*) AS count FROM agent_turn_journal",
-      )
+      .exec<{
+        count: number;
+      }>("SELECT COUNT(*) AS count FROM agent_turn_journal")
       .one();
     expect(remaining.count).toBe(0);
   });

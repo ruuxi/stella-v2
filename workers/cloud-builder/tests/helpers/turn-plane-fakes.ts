@@ -25,11 +25,6 @@ export const sampleOwnerSnapshot = (
   isAnonymous: false,
   identityLevel: 3,
   plan: "pro",
-  unlimited: false,
-  quotas: {
-    chat: { burstStarts: 20, dailyTurns: 500, concurrent: 2 },
-    agent: { burstStarts: 10, dailyTurns: 100, concurrent: 2 },
-  },
   allowance: { audience: "pro", budgetMicroCents: 250_000_000 },
   execution: {
     engine: "stella",

@@ -9,7 +9,7 @@
  * Turn *starts* deliberately do not go over the socket. On the desktop they
  * are an authenticated `POST /conversations/:id/turns` to the builder (the
  * conversation Durable Object owns admission: idempotency, owner adoption,
- * quota, journaling); in the web shell they go to the owner gate's placement
+ * owner policy, journaling); in the web shell they go to the owner gate's placement
  * routes on the same builder, which decide between a paired computer and the
  * cloud. A socket verb would be a way around all of that.
  */
@@ -21,11 +21,7 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import {
-  useQueries,
-  useQuery,
-  type RequestForQueries,
-} from "convex/react";
+import { useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { cloudApi } from "./cloud-api";

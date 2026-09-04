@@ -22,6 +22,10 @@ import type {
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import {
+  AGENT_ORCHESTRATION_TOOL_DESCRIPTORS,
+  AGENT_ORCHESTRATION_TOOL_NAMES,
+} from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
+import {
   APPLY_PATCH_TOOL_DESCRIPTION,
   APPLY_PATCH_TOOL_NAME,
   APPLY_PATCH_TOOL_PARAMETERS,
@@ -88,6 +92,10 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
   [LEGACY_VIEW_IMAGE_TOOL_NAME]: "container",
   [CODE_TOOL_NAME]: "js_sandbox",
   [WEB_TOOL_NAME]: "do_local",
+  spawn_agent: "do_local",
+  send_input: "do_local",
+  pause_agent: "do_local",
+  agent_status: "do_local",
   [PUBLISH_STELLA_INTERIOR_TOOL_NAME]: "do_local",
 } as const satisfies Record<string, GeneralAgentToolCompute>;
 
@@ -201,6 +209,10 @@ export const GENERAL_AGENT_TOOL_DESCRIPTORS: readonly GeneralAgentToolDescriptor
       description: CODE_TOOL_DESCRIPTION,
       parameters: CODE_TOOL_PARAMETERS,
     },
+    ...AGENT_ORCHESTRATION_TOOL_DESCRIPTORS.map((descriptor) => ({
+      ...descriptor,
+      label: descriptor.name,
+    })),
     PUBLISH_STELLA_INTERIOR_DESCRIPTOR,
   ];
 
@@ -319,8 +331,13 @@ export const createResidentGeneralAgentTools = (
   doLocal: ReadonlyMap<string, AgentTool>,
   compute?: GeneralAgentComputeBridge,
   jsSandbox?: ReadonlyMap<string, AgentTool>,
+  options: Readonly<{ agentDepth?: number }> = {},
 ): readonly AgentTool[] =>
-  GENERAL_AGENT_TOOL_DESCRIPTORS.map((descriptor) => {
+  GENERAL_AGENT_TOOL_DESCRIPTORS.filter(
+    (descriptor) =>
+      (options.agentDepth ?? 0) < 2 ||
+      !AGENT_ORCHESTRATION_TOOL_NAMES.includes(descriptor.name),
+  ).map((descriptor) => {
     const placement = computeForTool(descriptor.name);
     if (placement === "container") {
       return compute && BRIDGED_TOOL_NAMES.has(descriptor.name)

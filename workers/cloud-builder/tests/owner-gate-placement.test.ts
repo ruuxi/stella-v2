@@ -20,9 +20,8 @@ mock.module("cloudflare:workers", () => ({
   RpcTarget: class {},
   WorkerEntrypoint: class {},
 }));
-const { DISPATCH_CLOUD_RETRY_DELAY_MS, OwnerGate } = await import(
-  "../src/owner-gate.js",
-);
+const { DISPATCH_CLOUD_RETRY_DELAY_MS, OwnerGate } =
+  await import("../src/owner-gate.js");
 mock.restore();
 
 /**
@@ -80,15 +79,15 @@ const submitBody = (
   ...overrides,
 });
 
-const lastFrame = (
-  socket: { sent: Array<{ type: string }> },
-  type: string,
-) => [...socket.sent].reverse().find((frame) => frame.type === type);
+const lastFrame = (socket: { sent: Array<{ type: string }> }, type: string) =>
+  [...socket.sent].reverse().find((frame) => frame.type === type);
 
 describe("dispatch submission", () => {
   test("offers mobile work to the paired desktop with the payload and its hash", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
 
     const result = await withNow(NOW, () =>
@@ -187,9 +186,9 @@ describe("dispatch submission", () => {
     expect(lastFrame(socket, "offer")).toBeUndefined();
     expect(lastFrame(socket, "dispatch")).toBeDefined();
     // The slot it occupies is accounted for immediately.
-    expect((await harness.instance.devices(NOW)).devices[0].availability.chatSlots).toBe(
-      0,
-    );
+    expect(
+      (await harness.instance.devices(NOW)).devices[0].availability.chatSlots,
+    ).toBe(0);
   });
 
   test("a desktop dispatch with no requesting device is a bad request", async () => {
@@ -241,7 +240,10 @@ describe("dispatch submission", () => {
         now: NOW,
       }),
     );
-    expect(conflicting).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(conflicting).toMatchObject({
+      ok: false,
+      error: { code: "conflict" },
+    });
   });
 
   const agentBody = (overrides: Partial<DispatchSubmitRequest> = {}) =>
@@ -261,48 +263,29 @@ describe("dispatch submission", () => {
       ...overrides,
     });
 
-  test("an agent dispatch is metered by this gate, and its refusal is a placement error", async () => {
-    const harness = open(OwnerGate, {
-      snapshot: sampleOwnerSnapshot({
-        unlimited: false,
-        quotas: {
-          chat: { burstStarts: 1, dailyTurns: 50, concurrent: 5 },
-          agent: { burstStarts: 1, dailyTurns: 50, concurrent: 5 },
-        },
-      }),
-    });
+  test("an agent dispatch registers once and exact replay stays idempotent", async () => {
+    const harness = open(OwnerGate);
+    const request = agentBody();
     const admitted = await withNow(NOW, () =>
-      harness.instance.submit({ request: agentBody(), now: NOW }),
+      harness.instance.submit({ request, now: NOW }),
     );
     expect(admitted.ok).toBe(true);
-    // The gate holds this one: one start, one running slot, under the
-    // dispatch id the build session was told to adopt.
+    // The gate holds one running row under the dispatch id the build session
+    // was told to adopt.
     const status = await harness.instance.status(NOW);
-    expect(status.starts.agent).toBe(1);
-    expect(status.running.map((run: { turnId: string }) => run.turnId)).toEqual([
-      admitted.response.dispatch.dispatchId,
-    ]);
-
-    const refused = await withNow(NOW, () =>
-      harness.instance.submit({ request: agentBody(), now: NOW }),
+    expect(status.running.map((run: { turnId: string }) => run.turnId)).toEqual(
+      [admitted.response.dispatch.dispatchId],
     );
-    expect(refused).toMatchObject({
-      ok: false,
-      error: { code: "quota_burst", retryable: true },
-    });
-    expect(refused.error.retryAfterMs).toBeGreaterThan(0);
+
+    const replayed = await withNow(NOW, () =>
+      harness.instance.submit({ request, now: NOW }),
+    );
+    expect(replayed.ok).toBe(true);
+    expect((await harness.instance.status(NOW)).running).toHaveLength(1);
   });
 
   test("a chat dispatch takes no admission here: the conversation object owns it", async () => {
-    const harness = open(OwnerGate, {
-      snapshot: sampleOwnerSnapshot({
-        unlimited: false,
-        quotas: {
-          chat: { burstStarts: 1, dailyTurns: 50, concurrent: 5 },
-          agent: { burstStarts: 1, dailyTurns: 50, concurrent: 5 },
-        },
-      }),
-    });
+    const harness = open(OwnerGate);
     for (let index = 0; index < 3; index += 1) {
       const result = await withNow(NOW, () =>
         harness.instance.submit({
@@ -314,13 +297,10 @@ describe("dispatch submission", () => {
           now: NOW,
         }),
       );
-      // A burst of one would have refused the second submit had the gate
-      // metered it; every one of them reaches the orchestrator instead.
       expect(result.response.dispatch.state).toBe("cloud_running");
     }
     expect(harness.forwarded).toHaveLength(3);
     const status = await harness.instance.status(NOW);
-    expect(status.starts.chat).toBe(0);
     expect(status.running).toHaveLength(0);
   });
 
@@ -340,7 +320,6 @@ describe("dispatch submission", () => {
     );
     expect(placed.response.dispatch.state).toBe("computer_accepted");
     const status = await harness.instance.status(NOW);
-    expect(status.starts.chat).toBe(0);
     expect(status.running).toHaveLength(0);
     expect(harness.forwarded).toHaveLength(0);
   });
@@ -364,7 +343,9 @@ describe("dispatch submission", () => {
 describe("claim, ack, and completion", () => {
   const offered = async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
     const result = await withNow(NOW, () =>
       harness.instance.submit({
@@ -426,7 +407,9 @@ describe("claim, ack, and completion", () => {
         claimRequestId: "claim-1",
       }),
     );
-    expect(lastFrame(first.socket, "claimed")).toMatchObject({ replayed: true });
+    expect(lastFrame(first.socket, "claimed")).toMatchObject({
+      replayed: true,
+    });
   });
 
   test("a device that was not offered the work cannot claim it", async () => {
@@ -451,7 +434,9 @@ describe("claim, ack, and completion", () => {
         claimRequestId: "claim-1",
       }),
     );
-    expect(lastFrame(other.socket, "error")).toMatchObject({ code: "forbidden" });
+    expect(lastFrame(other.socket, "error")).toMatchObject({
+      code: "forbidden",
+    });
   });
 
   test("an ack accepts durably and deletes the payload for good", async () => {
@@ -479,9 +464,9 @@ describe("claim, ack, and completion", () => {
     const reconciling = await harness.instance.dispatchStatus(dispatchId);
     expect(reconciling.response.dispatch.state).toBe("reconciliation_required");
     // Exactly one `offer` frame ever carried those bytes.
-    expect(
-      socket.sent.filter((frame) => frame.type === "offer"),
-    ).toHaveLength(1);
+    expect(socket.sent.filter((frame) => frame.type === "offer")).toHaveLength(
+      1,
+    );
   });
 
   test("running, renew, and complete walk the dispatch to a terminal state", async () => {
@@ -500,7 +485,8 @@ describe("claim, ack, and completion", () => {
       harness.sendFrame(socket, { type: "running", dispatchId }),
     );
     expect(
-      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch.state,
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
     ).toBe("computer_running");
     await withNow(NOW + 400, () =>
       harness.sendFrame(socket, { type: "renew", dispatchId }),
@@ -516,7 +502,8 @@ describe("claim, ack, and completion", () => {
     expect(done.response.dispatch.state).toBe("completed");
     // The slot and the owner-gate admission both came back.
     expect(
-      (await harness.instance.devices(NOW + 500)).devices[0].availability.chatSlots,
+      (await harness.instance.devices(NOW + 500)).devices[0].availability
+        .chatSlots,
     ).toBe(1);
     expect((await harness.instance.status(NOW + 500)).running).toHaveLength(0);
   });
@@ -544,7 +531,8 @@ describe("claim, ack, and completion", () => {
     // The new socket cannot prove itself (a fresh key), so it is closed.
     expect(reconnected.socket.closes[0]!.code).toBe(4403);
     expect(
-      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch.state,
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
     ).toBe("computer_accepted");
   });
 
@@ -597,7 +585,8 @@ describe("claim, ack, and completion", () => {
     );
     expect(lastFrame(socket, "error")).toMatchObject({ code: "conflict" });
     expect(
-      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch.state,
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
     ).toBe("computer_accepted");
   });
 });
@@ -605,7 +594,9 @@ describe("claim, ack, and completion", () => {
 describe("the cloud branch", () => {
   test("a chat fallback sends the exact orchestrator turn the contract names", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     await withNow(NOW, () => harness.connect(desk));
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -706,6 +697,7 @@ describe("the cloud branch", () => {
       ownerGeneration: "generation-1",
       conversationId: "conversation-1",
       threadId: call.name,
+      agentDepth: 1,
       attemptGeneration: 1,
       turnId: dispatchId,
       prompt: "Rename the screenshots",
@@ -735,12 +727,12 @@ describe("the cloud branch", () => {
         Response.json(
           {
             error: {
-              code: "quota_daily",
-              message: "You've reached today's limit for your plan.",
-              retryable: true,
+              code: "owner_purged",
+              message: "This account's cloud data is no longer available.",
+              retryable: false,
             },
           },
-          { status: 429 },
+          { status: 410 },
         ),
     });
     const submitted = await withNow(NOW, () =>
@@ -751,8 +743,8 @@ describe("the cloud branch", () => {
     );
     expect(submitted.response.dispatch).toMatchObject({
       state: "failed",
-      errorCode: "quota_daily",
-      errorMessage: "You've reached today's limit for your plan.",
+      errorCode: "owner_purged",
+      errorMessage: "This account's cloud data is no longer available.",
     });
     expect((await harness.instance.status(NOW)).running).toHaveLength(0);
   });
@@ -776,9 +768,6 @@ describe("the cloud branch", () => {
 
   test("each refusal the orchestrator returns becomes the dispatch's own error", async () => {
     for (const [status, code] of [
-      [429, "quota_burst"],
-      [429, "quota_daily"],
-      [429, "quota_concurrency"],
       [410, "owner_purged"],
       [409, "idempotency_conflict"],
       [403, "generation_stale"],
@@ -951,7 +940,9 @@ describe("the cloud branch", () => {
 describe("cancellation", () => {
   test("cancels an unclaimed offer outright and withdraws it", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -981,7 +972,9 @@ describe("cancellation", () => {
 
   test("a device-placed run gets a cancel frame and stays pending until its terminal", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -1021,7 +1014,8 @@ describe("cancellation", () => {
       }),
     );
     expect(
-      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch.state,
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
     ).toBe("canceled");
   });
 
@@ -1120,7 +1114,9 @@ describe("cancellation", () => {
 describe("leases and projections", () => {
   test("a claim that is never acked returns the dispatch to the fallback", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -1149,7 +1145,9 @@ describe("leases and projections", () => {
 
   test("every transition bumps the revision and projects it exactly once", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -1199,7 +1197,9 @@ describe("leases and projections", () => {
 
   test("the payload's own ttl clears the bytes without moving the dispatch", async () => {
     const desk = await generateDeviceKey("desk-1");
-    const harness = open(OwnerGate, { snapshot: snapshotWith([desk], ["desk-1"]) });
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
     const { socket } = await withNow(NOW, () => harness.connect(desk));
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -1228,7 +1228,8 @@ describe("leases and projections", () => {
     );
     await withNow(NOW + 900_100, () => harness.instance.alarm());
     expect(
-      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch.state,
+      (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
+        .state,
     ).toBe("computer_running");
   });
 });

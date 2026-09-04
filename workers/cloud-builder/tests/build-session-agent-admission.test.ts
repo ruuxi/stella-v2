@@ -8,6 +8,7 @@ import type { CloudTurnStartRequest } from "@stella/contracts/turn-plane/turn-st
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
 import { HEADER_GATE_ADMITTED } from "../src/turn-start-request.js";
 import { readThreadHistory } from "../src/thread-transcript.js";
+import { SteerMailbox } from "../src/steer-mailbox.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 import {
   capabilitySignerEnv,
@@ -45,6 +46,7 @@ const agentDispatch = (overrides: Record<string, unknown> = {}) => ({
   ownerGeneration: "generation-1",
   conversationId: "conversation-1",
   threadId: THREAD_ID,
+  agentDepth: 1,
   attemptGeneration: 1,
   turnId: "turn-1",
   clientMsgId: "turn-1-client",
@@ -68,6 +70,7 @@ const harness = async (
   options: {
     gates?: ReturnType<typeof fakeOwnerGates>;
     orchestrator?: (request: Request) => Promise<Response>;
+    buildSession?: (threadId: string, request: Request) => Promise<Response>;
   } = {},
 ) => {
   const values = new Map<string, unknown>();
@@ -142,6 +145,20 @@ const harness = async (
       STELLA_CONVEX_SITE_URL: "https://convex.example",
       OWNER_GATES: gates.namespace,
       TURN_OUTBOX: outbox.queue,
+      BUILD_SESSIONS: {
+        getByName: (threadId: string) => ({
+          fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
+            options.buildSession
+              ? await options.buildSession(
+                  threadId,
+                  new Request(input as string, init),
+                )
+              : Response.json(
+                  { accepted: false, reason: "not_running" },
+                  { status: 409 },
+                ),
+        }),
+      },
       ORCHESTRATOR_SESSIONS: {
         getByName: () => ({
           fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -255,7 +272,6 @@ describe("BuildSession agent-turn admission", () => {
         lane: "agent",
         turnId: "turn-1",
         conversationId: "conversation-1",
-        workspace: "world",
         expectedGeneration: "generation-1",
       },
     });
@@ -327,7 +343,6 @@ describe("BuildSession agent-turn admission", () => {
       attemptGeneration: 1,
       description: "the thing",
       placement: "cloud",
-      workspace: "world",
     });
     h.close();
   });
@@ -358,32 +373,6 @@ describe("BuildSession agent-turn admission", () => {
     expect(h.outbox.events.map((event) => event.kind)).toEqual([
       "turn.started",
     ]);
-    h.close();
-  });
-
-  test("a quota refusal answers the gate's code and never starts the turn", async () => {
-    const h = await harness({
-      gates: fakeOwnerGates({
-        admit: () => ({
-          ok: false,
-          code: "quota_concurrency",
-          message: "Your plan's agents are all busy. Wait for one to finish.",
-          retryable: true,
-          retryAfterMs: 5_000,
-        }),
-      }),
-    });
-
-    const response = await dispatch(h.instance, agentDispatch());
-
-    expect(response.status).toBe(429);
-    expect(await response.json()).toMatchObject({
-      code: "quota_concurrency",
-      retryable: true,
-      retryAfterMs: 5_000,
-    });
-    expect(h.started).toEqual([]);
-    expect(h.outbox.events).toEqual([]);
     h.close();
   });
 
@@ -444,6 +433,77 @@ describe("BuildSession agent-turn admission", () => {
     expect(
       h.outbox.events.filter((event) => event.kind === "turn.started"),
     ).toHaveLength(1);
+    h.close();
+  });
+});
+
+describe("BuildSession steer mailbox", () => {
+  test("accepts messages only while the current attempt is running", async () => {
+    const h = await harness();
+    h.values.set("turn", { ...agentDispatch(), appId: "agent" });
+    h.values.set("terminal", false);
+    const message = {
+      id: "steer-1",
+      kind: "input",
+      text: "Check the newest evidence.",
+      createdAt: 123,
+    };
+    const accepted = await h.instance.fetch(
+      new Request("https://build-session/steer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(message),
+      }),
+    );
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({
+      accepted: true,
+      turnId: "turn-1",
+      attemptGeneration: 1,
+    });
+    expect(
+      SteerMailbox.open(h.sql).drain({
+        turnId: "turn-1",
+        attemptGeneration: 1,
+      }),
+    ).toEqual([message]);
+
+    const childReceipt = {
+      id: "child-wake-1",
+      kind: "child_completed",
+      text: "[Agent completed] Child report.",
+      threadId: "child-thread",
+      attemptGeneration: 3,
+      createdAt: 124,
+    };
+    const childAccepted = await h.instance.fetch(
+      new Request("https://build-session/steer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(childReceipt),
+      }),
+    );
+    expect(childAccepted.status).toBe(200);
+    expect(h.values.get("cloudAgentControl:child-thread")).toMatchObject({
+      threadId: "child-thread",
+      attemptGeneration: 3,
+      status: "completed",
+      threadUpdatedAt: 124,
+    });
+
+    h.values.set("terminal", true);
+    const refused = await h.instance.fetch(
+      new Request("https://build-session/steer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...message, id: "steer-2" }),
+      }),
+    );
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      accepted: false,
+      reason: "not_running",
+    });
     h.close();
   });
 });
@@ -568,12 +628,76 @@ describe("the parent conversation wake", () => {
     threadId: THREAD_ID,
     turnId: "turn-1",
     attemptGeneration: 1,
+    agentDepth: 1,
     appId: "agent",
     prompt: "do the thing",
     description: "the thing",
     audience: "pro",
     budgetMicroCents: 1,
   };
+
+  test("steers a running parent agent and falls back to the conversation after it stops", async () => {
+    const steerCalls: Array<{
+      threadId: string;
+      body: Record<string, unknown>;
+    }> = [];
+    let parentRunning = true;
+    const h = await harness({
+      buildSession: async (threadId, request) => {
+        steerCalls.push({
+          threadId,
+          body: (await request.json()) as Record<string, unknown>,
+        });
+        return parentRunning
+          ? Response.json({
+              accepted: true,
+              turnId: "parent-turn",
+              attemptGeneration: 1,
+            })
+          : Response.json(
+              { accepted: false, reason: "not_running" },
+              { status: 409 },
+            );
+      },
+    });
+    const childTurn = {
+      ...completedTurn,
+      parentThreadId: "parent-thread",
+      agentDepth: 2,
+    };
+    const completion = {
+      status: "completed" as const,
+      threadUpdatedAt: 1_800_000_000_000,
+      resultJson: JSON.stringify({ finalText: "the child report" }),
+    };
+
+    await invoke<Promise<void>>(
+      h.instance,
+      "wakeParentAgentOrConversation",
+      childTurn,
+      completion,
+    );
+    expect(steerCalls[0]).toMatchObject({
+      threadId: "parent-thread",
+      body: {
+        kind: "child_completed",
+        threadId: THREAD_ID,
+        attemptGeneration: 1,
+        text: `[Agent completed] the thing (thread ${THREAD_ID})\n\nthe child report`,
+      },
+    });
+    expect(h.orchestratorCalls).toHaveLength(0);
+
+    parentRunning = false;
+    await invoke<Promise<void>>(
+      h.instance,
+      "wakeParentAgentOrConversation",
+      childTurn,
+      completion,
+    );
+    expect(h.orchestratorCalls).toHaveLength(1);
+    h.close();
+  });
 
   test("carries the report as a hidden wake turn with the thread's receipt", async () => {
     const h = await harness();

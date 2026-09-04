@@ -99,15 +99,11 @@ SDK's `sleepAfter` (`sandboxHandle`); new bearer route
 `POST /internal/sandboxes/retire` and `scripts/retire-sandbox-adapter.mjs`
 give `scripts/retire-sandbox-instances.mjs` its missing adapter.
 
-**Wedged owner.** Every post-watchdog terminal was gated on the destroy
-settling and the world slot was released only after a confirmed destroy, so
-a container that would not die held the thread `running` and refused every
-new attach for the owner. Fixes: the timeout and executor-loss paths treat a
-`SandboxLifecycleDeferredError` as the alarm-owned debt it is, call
-`releaseWorldLeaseDespiteDeferredDestroy`, and deliver the terminal; a fiber
-still held past its watchdog is interrupted and its handle dropped in
-`runScheduledTurnAlarm`; new bearer route `POST /sessions/:id/expire`
-(DO path `/expire-agent-turn`) expires a wedged thread now.
+**Deferred destroy.** The timeout and executor-loss paths treat a
+`SandboxLifecycleDeferredError` as alarm-owned debt and deliver the terminal;
+a fiber still held past its watchdog is interrupted and its handle dropped in
+`runScheduledTurnAlarm`. The bearer route `POST /sessions/:id/expire` (DO path
+`/expire-agent-turn`) expires a wedged thread now.
 
 Verification in a no-Docker, non-root environment: cloud-builder 975 pass,
 2 fail (Docker-backed egress workerd fixture, identical on the base commit);
@@ -198,10 +194,9 @@ Follow-ups worth a look, not done:
    Confirm the small class inventory reads zero afterwards.
 4. Unwedge the earlier test owner: bearer
    `POST $CLOUD_BUILDER_URL/sessions/<threadId 14e0abfd…>/expire` with an
-   empty JSON body. If new attaches still get the owner-purge message, check
-   the fence rejection code in the worker logs: `world_busy` clears with the
-   30 minute lease TTL; `owner_purge_temporary` means a temporary purge was
-   begun on that owner and must be released once its leases expire.
+   empty JSON body. If new attaches still get the owner-purge message,
+   `owner_purge_temporary` means a temporary purge was begun on that owner and
+   must be released once its leases expire.
 5. Re-run the follow-up cell: one conversation through
    `.agents/skills/verify-stella/cloud-turn.mjs`, a first turn that reads a
    file, then a `send_input` follow-up. Expect the daemon to survive, no

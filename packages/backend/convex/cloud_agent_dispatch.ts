@@ -42,7 +42,11 @@ const readableError = (error: unknown): string => {
 
 const log = (event: string, fields: Record<string, unknown>) =>
   console.warn(
-    JSON.stringify({ service: "convex-cloud-agent-dispatch", event, ...fields }),
+    JSON.stringify({
+      service: "convex-cloud-agent-dispatch",
+      event,
+      ...fields,
+    }),
   );
 
 export const dispatchCloudAgentTurnInternal = internalAction({
@@ -73,16 +77,19 @@ export const dispatchCloudAgentTurnInternal = internalAction({
   handler: async (ctx, args) => {
     const dispatchAttempt = args.dispatchAttempt ?? 1;
     const fail = async (message: string) => {
-      await ctx.runMutation(internal.cloud_apps.failCloudAgentDispatchInternal, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        conversationId: args.conversationId,
-        threadId: args.threadId,
-        turnId: args.turnId,
-        attemptGeneration: args.attemptGeneration,
-        message,
-        now: Date.now(),
-      });
+      await ctx.runMutation(
+        internal.cloud_apps.failCloudAgentDispatchInternal,
+        {
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+          conversationId: args.conversationId,
+          threadId: args.threadId,
+          turnId: args.turnId,
+          attemptGeneration: args.attemptGeneration,
+          message,
+          now: Date.now(),
+        },
+      );
     };
     try {
       const { generation } = await assertOwnerDataAccessActive(
@@ -129,6 +136,7 @@ export const dispatchCloudAgentTurnInternal = internalAction({
           ownerGeneration: args.ownerGeneration,
           conversationId: args.conversationId,
           threadId: args.threadId,
+          agentDepth: 1,
           attemptGeneration: args.attemptGeneration,
           turnId: args.turnId,
           prompt: args.prompt,
@@ -139,7 +147,9 @@ export const dispatchCloudAgentTurnInternal = internalAction({
           source: args.source,
           ...(args.clientMsgId ? { clientMsgId: args.clientMsgId } : {}),
           ...(args.parentTurnId ? { parentTurnId: args.parentTurnId } : {}),
-          ...(args.originDeviceId ? { originDeviceId: args.originDeviceId } : {}),
+          ...(args.originDeviceId
+            ? { originDeviceId: args.originDeviceId }
+            : {}),
           ...(args.originConversationId
             ? { originConversationId: args.originConversationId }
             : {}),
@@ -149,7 +159,8 @@ export const dispatchCloudAgentTurnInternal = internalAction({
       return null;
     } catch (error) {
       const definitive =
-        isBuilderTurnError(error) && (!error.retryable || error.code === "unconfigured");
+        isBuilderTurnError(error) &&
+        (!error.retryable || error.code === "unconfigured");
       if (definitive || dispatchAttempt >= MAX_DISPATCH_ATTEMPTS) {
         log("agent_dispatch_failed", {
           turnId: args.turnId,

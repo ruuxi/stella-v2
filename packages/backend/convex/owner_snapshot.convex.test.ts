@@ -162,11 +162,6 @@ describe("GET /api/gateway/owner-snapshot", () => {
       identityLevel: 1,
       writable: true,
       plan: "free",
-      unlimited: false,
-      quotas: {
-        chat: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
-        agent: { burstStarts: 1, dailyTurns: 1, concurrent: 1 },
-      },
       allowance: {
         audience: "free",
         budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
@@ -254,10 +249,6 @@ describe("GET /api/gateway/owner-snapshot", () => {
       isAnonymous: true,
       identityLevel: 0,
       writable: true,
-      quotas: {
-        chat: { burstStarts: 4, dailyTurns: 3, concurrent: 1 },
-        agent: { burstStarts: 0, dailyTurns: 0, concurrent: 0 },
-      },
       allowance: {
         audience: "anonymous",
         budgetMicroCents: dollarsToMicroCents(0.1),

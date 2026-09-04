@@ -428,6 +428,8 @@ describe("thread projections", () => {
       threadId,
       conversationId: CONVERSATION_ID,
       parentTurnId: "parent-turn",
+      parentThreadId: "parent-thread",
+      agentDepth: 2,
       attemptGeneration: 1,
       description: "Research the thing",
       prompt: "research",
@@ -502,6 +504,7 @@ describe("thread projections", () => {
         .withIndex("by_threadId", (q) => q.eq("threadId", threadId))
         .unique();
       expect(thread).toMatchObject({
+        parentThreadId: "parent-thread",
         status: "completed",
         attemptGeneration: 1,
         resultJson: JSON.stringify({ finalText: "done" }),
@@ -546,6 +549,7 @@ describe("thread projections", () => {
       threadId,
       conversationId: CONVERSATION_ID,
       parentTurnId: "parent-turn",
+      agentDepth: 1,
       attemptGeneration: 1,
       description: "Desktop spawn",
       prompt: "go",

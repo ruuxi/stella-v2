@@ -70,10 +70,6 @@ const FALLBACK_MESSAGES: Record<DispatchErrorCode, string> = {
   generation_stale: "This request started before the account data was reset.",
   capability_unavailable:
     "No computer with what this needs is online right now.",
-  quota_burst: "You're sending messages quickly. Wait a moment and try again.",
-  quota_daily: "You've reached today's cloud chat limit. Try again tomorrow.",
-  quota_concurrency:
-    "Stella is still working on an earlier turn. Wait for it to finish, then try again.",
   sign_in_required: "Sign in to Stella to use cloud agents.",
   owner_suspended: "This account can't use Stella's cloud right now.",
   internal: "That didn't send. Try again.",
@@ -121,10 +117,6 @@ export class PlacementClientError extends Error {
     this.retryAfterMs = retryAfterMs;
   }
 
-  get isQuota(): boolean {
-    return this.code.startsWith("quota_");
-  }
-
   get isAuth(): boolean {
     return (
       this.code === "unauthorized" ||
@@ -157,8 +149,6 @@ const codeForStatus = (status: number): DispatchErrorCode => {
       return "not_found";
     case 409:
       return "conflict";
-    case 429:
-      return "quota_burst";
     default:
       return "internal";
   }

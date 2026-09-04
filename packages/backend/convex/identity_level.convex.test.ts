@@ -141,7 +141,7 @@ describe("identity ladder", () => {
     expect((await snapshotFields(t, credited)).identityLevel).toBe(3);
   });
 
-  it("gives email-only Free owners forty percent and one agent turn", async () => {
+  it("gives email-only Free owners forty percent of the model allowance", async () => {
     process.env.STELLA_FREE_EMAIL_ALLOWANCE_SHARE = "0.4";
     const t = createTest();
     const ownerId = await seedOwner(t, "limited-email");
@@ -164,11 +164,6 @@ describe("identity ladder", () => {
 
     const snapshot = await snapshotFields(t, ownerId);
     expect(snapshot.identityLevel).toBe(1);
-    expect(snapshot.quotas.agent).toEqual({
-      burstStarts: 1,
-      dailyTurns: 1,
-      concurrent: 1,
-    });
     expect(snapshot.allowance).toMatchObject({
       audience: "free",
       budgetMicroCents: dollarsToMicroCents(0.7),

@@ -40,11 +40,7 @@ import {
 } from "./auth";
 import { appSdkSessionOwnsCurrentApp } from "./lib/app_sdk_session";
 import { sessionIdentityMatchesExpectedSubject } from "./lib/session_identity";
-import {
-  CLOUD_SANDBOX_LEASE_MS,
-  cloudAgentSandboxLeaseExpiresAt,
-  cloudSandboxThreadIsActive,
-} from "./lib/computer_agent_thread";
+import { cloudAgentSandboxLeaseExpiresAt } from "./lib/computer_agent_thread";
 import { executionPlacementValidator } from "./schema/execution_placement";
 import {
   assertOwnerDataAccessActive,
@@ -111,30 +107,12 @@ export const ownerModelAllowanceFields = async (
   };
 };
 
-export type CloudPlanQuota = {
-  dailyTurns: number;
-  concurrentTurns: number;
-  burstStarts: number;
-};
-
-export const CLOUD_PLAN_QUOTAS: Record<SubscriptionPlan, CloudPlanQuota> = {
-  free: { dailyTurns: 3, concurrentTurns: 1, burstStarts: 4 },
-  go: { dailyTurns: 10, concurrentTurns: 1, burstStarts: 6 },
-  pro: { dailyTurns: 25, concurrentTurns: 2, burstStarts: 10 },
-};
-
-export const UNLIMITED_CLOUD_QUOTA: CloudPlanQuota = {
-  dailyTurns: 200,
-  concurrentTurns: 6,
-  burstStarts: 40,
-};
-
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
 /**
  * The operation-vs-build classifier is a bounded Stella routing decision, not
  * user-visible model output. It is lifecycle-leased provider overhead and must
- * never silently consume user quota or write user usage logs.
+ * never silently consume the owner's model allowance or write usage logs.
  */
 export const CLOUD_APP_ROUTE_MODEL_BILLING_POLICY = "managed_usage" as const;
 
@@ -146,8 +124,7 @@ export const resolveCloudPlan = async (
   ownerId: string,
 ): Promise<{
   plan: SubscriptionPlan;
-  quota: CloudPlanQuota;
-  unlimited: boolean;
+  usageMode: "default" | "unlimited";
 }> => {
   const profile = await ctx.db
     .query("billing_profiles")
@@ -159,11 +136,9 @@ export const resolveCloudPlan = async (
     profile.activePlan !== "free"
       ? profile.activePlan
       : "free";
-  const unlimited = profile?.usageMode === "unlimited";
   return {
     plan,
-    quota: unlimited ? UNLIMITED_CLOUD_QUOTA : CLOUD_PLAN_QUOTAS[plan],
-    unlimited,
+    usageMode: profile?.usageMode ?? "default",
   };
 };
 
@@ -193,11 +168,6 @@ const getBuildRef = makeFunctionReference<"query", { buildId: string }, any>(
 const activateBuildRef = makeFunctionReference<"mutation", any, any>(
   "cloud_apps:activateBuildInternal",
 );
-const checkQuotaRef = makeFunctionReference<
-  "query",
-  { ownerId: string },
-  { allowed: boolean; reason?: string }
->("cloud_apps:checkQuotaInternal");
 const runCloudTurnRef = makeFunctionReference<"action", any, any>(
   "cloud_apps:runCloudTurnInternal",
 );
@@ -407,34 +377,6 @@ export const resolveOwnerExecutionInMutation = async (
         ? DEFAULT_CLOUD_CODEX_EXECUTION
         : DEFAULT_CLOUD_EXECUTION;
   return await assertExecutionAvailable(ctx, ownerId, execution);
-};
-
-// The build lane's quota counts builds: "build", the pre-routing "auto"
-// (which may become a build), and legacy rows from before lanes existed.
-// Chat, wake, agent, and operation turns share the same table but draw from
-// their own budgets. Counting queries the per-lane index — a mixed-lane
-// window is defeatable, since chat rows outnumber builds by up to 20x and
-// crowd them out of any fixed-size take().
-const BUILD_LANES: Array<string | undefined> = ["build", "auto", undefined];
-
-const listRecentBuildTurns = async (
-  ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
-  ownerId: string,
-  limitPerLane: number,
-): Promise<Array<{ turnId: string; status: string }>> => {
-  const cutoff = Date.now() - 86_400_000;
-  const perLane = await Promise.all(
-    BUILD_LANES.map((lane) =>
-      ctx.db
-        .query("agent_turns")
-        .withIndex("by_ownerId_and_lane_and_createdAt", (q) =>
-          q.eq("ownerId", ownerId).eq("lane", lane).gte("createdAt", cutoff),
-        )
-        .order("desc")
-        .take(limitPerLane),
-    ),
-  );
-  return perLane.flat();
 };
 
 const hashToken = async (value: string): Promise<string> => {
@@ -815,8 +757,7 @@ const projectCloudAgentThread = (row: Doc<"cloud_agent_threads">) => ({
 /**
  * A retried send must not become a second turn. The composer mints one id per
  * message and replays it on retry; if a turn already carries it, that turn is
- * the answer — before any quota is charged, because the first attempt already
- * paid.
+ * the answer before any new turn state is written.
  */
 const findTurnByClientMsgId = async (
   ctx: MutationCtx,
@@ -868,8 +809,6 @@ const findTurnByClientMsgId = async (
 };
 
 const MAX_DISPATCHED_PROMPT_CHARS = 8_000;
-const LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT = 256;
-
 export const createTurnInternal = internalMutation({
   args: {
     turnId: v.string(),
@@ -936,35 +875,6 @@ export const getBuildInternal = internalQuery({
       .query("cloud_app_builds")
       .withIndex("by_buildId", (q) => q.eq("buildId", args.buildId))
       .unique(),
-});
-
-export const checkQuotaInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.object({ allowed: v.boolean(), reason: v.optional(v.string()) }),
-  handler: async (ctx, args) => {
-    const dayStart = Date.now() - 24 * 60 * 60 * 1_000;
-    const turns = await ctx.db
-      .query("agent_turns")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId).gte("createdAt", dayStart),
-      )
-      .take(10);
-    if (turns.some((turn) => turn.status === "running")) {
-      return {
-        allowed: false,
-        reason:
-          "Your plan allows one active build at a time. Wait for it to finish or cancel it.",
-      };
-    }
-    if (turns.length >= 10) {
-      return {
-        allowed: false,
-        reason:
-          "Daily cloud-build quota reached. Try again after the rolling 24-hour window resets.",
-      };
-    }
-    return { allowed: true };
-  },
 });
 
 const requireOwnerId = requireUserId;
@@ -1280,24 +1190,6 @@ export const listMyAppBuilds = query({
   },
 });
 
-export const getMyCloudLimits = query({
-  args: {},
-  returns: v.object({
-    plan: v.string(),
-    dailyTurns: v.number(),
-    concurrentTurns: v.number(),
-  }),
-  handler: async (ctx) => {
-    const ownerId = await requireOwnerId(ctx);
-    const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
-    return {
-      plan,
-      dailyTurns: quota.dailyTurns,
-      concurrentTurns: quota.concurrentTurns,
-    };
-  },
-});
-
 const APP_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 
 const normalizeAppId = (value: string): string => {
@@ -1368,8 +1260,7 @@ const startAppBuildTurnCore = async (
         execution: requestedExecution,
       })
     : undefined;
-  // Ahead of every quota and rate check: an exact replay is not a new request,
-  // and charging it would punish the user for a dropped response.
+  // Resolve an exact replay before creating any new turn state.
   if (clientMsgId) {
     const replayed = await findTurnByClientMsgId(ctx, {
       ownerId,
@@ -1387,7 +1278,6 @@ const startAppBuildTurnCore = async (
       };
     }
   }
-  const { plan, quota } = await resolveCloudPlan(ctx, ownerId);
   const existingApp = await ctx.db
     .query("cloud_apps")
     .withIndex("by_appId", (q) => q.eq("appId", appId))
@@ -1396,8 +1286,7 @@ const startAppBuildTurnCore = async (
     throw new ConvexError("App not found.");
   }
   // Turns aimed at an active app that has registered operations enter the
-  // routed lane, which never reserves build quota up front (the router
-  // re-checks it if the model chooses a build).
+  // routed lane so the router can select an operation or a build.
   const opsManifest =
     existingApp?.status === "active"
       ? await ctx.db
@@ -1406,49 +1295,6 @@ const startAppBuildTurnCore = async (
           .unique()
       : null;
   const routed = opsManifest !== null;
-  if (routed) {
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_ops_start",
-      ownerId,
-      { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
-      "Too many app requests in a row. Wait a moment and try again.",
-    );
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_ops_daily",
-      ownerId,
-      { rate: quota.dailyTurns * 20, periodMs: 24 * 60 * 60_000 },
-      "You've reached today's limit for quick app changes. Try again tomorrow.",
-    );
-  } else {
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_apps_start",
-      ownerId,
-      { rate: quota.burstStarts, periodMs: 10 * 60_000 },
-      "You're sending requests quickly. Give Stella a few minutes, then try again.",
-    );
-    const buildTurns = await listRecentBuildTurns(
-      ctx,
-      ownerId,
-      quota.dailyTurns + 1,
-    );
-    const running = buildTurns.filter((turn) => turn.status === "running");
-    if (running.length >= quota.concurrentTurns) {
-      throw new ConvexError(
-        "Stella is still working on an earlier change. Wait for it to finish, then try again.",
-      );
-    }
-    if (buildTurns.length >= quota.dailyTurns) {
-      throw new ConvexError(
-        `You've used all ${quota.dailyTurns} app updates included with the ${
-          plan === "free" ? "Free" : plan
-        } plan today. Try again tomorrow.`,
-      );
-    }
-  }
-
   const now = args.now;
   const explicitExecution = requestedExecution
     ? await assertExecutionAvailable(ctx, ownerId, requestedExecution)
@@ -1844,14 +1690,14 @@ export const isCloudBuildTurnDispatchableInternal = internalQuery({
       .unique();
     return Boolean(
       turn &&
-        turn.ownerId === args.ownerId &&
-        turn.ownerGeneration === args.ownerGeneration &&
-        turn.conversationId === args.conversationId &&
-        turn.appId === args.appId &&
-        turn.sessionId === args.sessionId &&
-        turn.kind === "build" &&
-        turn.status === "running" &&
-        !turn.terminalKind,
+      turn.ownerId === args.ownerId &&
+      turn.ownerGeneration === args.ownerGeneration &&
+      turn.conversationId === args.conversationId &&
+      turn.appId === args.appId &&
+      turn.sessionId === args.sessionId &&
+      turn.kind === "build" &&
+      turn.status === "running" &&
+      !turn.terminalKind,
     );
   },
 });
@@ -2862,8 +2708,7 @@ const spawnIntentFingerprint = async (
  * The thread and turn rows are written optimistically so the originating
  * desktop's recovery subscription sees the thread at once; the builder is
  * told the same ids, and the outbox projection of the same turn is a
- * duplicate. Every gate (plan quota, one-running-agent exclusivity) applies
- * to both origins identically because the outbox never adds rows here.
+ * duplicate. The outbox never adds rows here.
  */
 const spawnCloudAgent = async (
   ctx: MutationCtx,
@@ -3068,13 +2913,6 @@ const spawnCloudAgent = async (
           "That cloud thread changed before the continuation arrived. Refresh its status and try again.",
       };
     }
-    if (["running", "waiting_for_user", "resuming"].includes(thread.status)) {
-      return {
-        ok: false,
-        error:
-          "That agent is still working. Wait for its [Agent completed] event, then send the follow-up.",
-      };
-    }
     continuedThread = thread;
   }
   let execution = executionOverride;
@@ -3146,106 +2984,6 @@ const spawnCloudAgent = async (
             : "That cloud execution route is unavailable.",
       };
     }
-  }
-  const { quota } = await resolveCloudPlan(ctx, args.ownerId);
-  // Fresh cloud threads carry an explicit expiring lease. The index range is
-  // the admission authority: computer rows use lease marker 0 and terminal
-  // rows leave the exact "running" prefix, so neither can shadow capacity.
-  const leasedThreads = (
-    await Promise.all(
-      (["running", "resuming"] as const).map((status) =>
-        ctx.db
-          .query("cloud_agent_threads")
-          .withIndex("by_owner_status_lease_updatedAt", (q) =>
-            q
-              .eq("ownerId", args.ownerId)
-              .eq("status", status)
-              .gt("sandboxLeaseExpiresAt", args.now),
-          )
-          .take(quota.concurrentTurns + 1),
-      ),
-    )
-  ).flat();
-
-  // Rolling compatibility for threads created before the lease field existed.
-  // New computer rows use an explicit 0 marker, so only pre-deploy rows can
-  // enter this slice. The one-hour updatedAt bound preserves the old watchdog
-  // grace. If a pathological legacy slice exceeds the bound, fail closed
-  // instead of letting a fixed mixed window hide an active cloud sandbox.
-  const legacyLeaseRows = (
-    await Promise.all(
-      (["running", "resuming"] as const).map((status) =>
-        ctx.db
-          .query("cloud_agent_threads")
-          .withIndex("by_owner_status_lease_updatedAt", (q) =>
-            q
-              .eq("ownerId", args.ownerId)
-              .eq("status", status)
-              .eq("sandboxLeaseExpiresAt", undefined)
-              .gt("updatedAt", args.now - CLOUD_SANDBOX_LEASE_MS),
-          )
-          .order("desc")
-          .take(LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT + 1),
-      ),
-    )
-  ).flat();
-  if (legacyLeaseRows.length > LEGACY_SANDBOX_ADMISSION_SCAN_LIMIT) {
-    return {
-      ok: false,
-      error:
-        "Stella is reconciling active agents from an earlier version. Wait a moment, then try again.",
-    };
-  }
-  const runningThreads = [
-    ...leasedThreads,
-    ...legacyLeaseRows.filter(
-      (candidate) =>
-        candidate.status === "resuming" ||
-        cloudSandboxThreadIsActive({
-          placement: candidate.placement,
-          status: candidate.status,
-          sandboxLeaseExpiresAt: candidate.sandboxLeaseExpiresAt,
-          updatedAt: candidate.updatedAt,
-          now: args.now,
-        }),
-    ),
-  ].filter((candidate) => candidate.threadId !== threadId);
-  if (runningThreads.length >= quota.concurrentTurns) {
-    return {
-      ok: false,
-      error: `Your plan allows ${quota.concurrentTurns} concurrent background agent${
-        quota.concurrentTurns === 1 ? "" : "s"
-      }. Wait for one to finish, then try again.`,
-    };
-  }
-  // One sandboxed agent per owner at a time. Every owner has one world, and a
-  // turn restores its checkpoint at start and overwrites it at end, so a
-  // second concurrent agent would silently lose the first one's work
-  // (last-writer-wins on the ws:* key). This mutation is transactional, so
-  // the check-and-insert can't race with itself.
-  const occupied = (
-    await Promise.all(
-      (["running", "resuming"] as const).map((status) =>
-        ctx.db
-          .query("cloud_agent_threads")
-          .withIndex("by_ownerId_and_placement_and_status", (q) =>
-            q
-              .eq("ownerId", args.ownerId)
-              .eq("placement", "cloud")
-              .eq("status", status),
-          )
-          .take(2),
-      ),
-    )
-  )
-    .flat()
-    .filter((thread) => thread.threadId !== threadId);
-  if (occupied.length > 0) {
-    return {
-      ok: false,
-      error:
-        "Another agent is already working in your cloud world. Wait for it to finish, then try again.",
-    };
   }
   let attemptGeneration = 1;
   if (continuedThread) {
@@ -3492,14 +3230,6 @@ export const spawnCloudAgentFromDesktop = mutation({
         status: "running" as const,
       };
     }
-    const { quota } = await resolveCloudPlan(ctx, ownerId);
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_chat_start",
-      ownerId,
-      { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
-      "Too many cloud turns in a row. Wait a moment and try again.",
-    );
     // A desktop spawn joins the conversation the user is already reading
     // rather than minting a sibling that would become "newest" and re-point
     // their cloud chat. Falls through to a fresh one only when they have none.
@@ -3665,14 +3395,6 @@ export const continueMyCloudAgentFromDesktop = mutation({
     ) {
       throw new ConvexError(`Thread not found: ${threadId}`);
     }
-    const { quota } = await resolveCloudPlan(ctx, ownerId);
-    await enforceMutationRateLimit(
-      ctx,
-      "cloud_chat_start",
-      ownerId,
-      { rate: quota.burstStarts * 5, periodMs: 10 * 60_000 },
-      "Too many cloud turns in a row. Wait a moment and try again.",
-    );
     const spawned = await spawnCloudAgent(ctx, {
       ownerId,
       ownerGeneration: lifecycle.generation,
@@ -5820,9 +5542,6 @@ export const startBenchmarkTurn = internalAction({
     const appId = `orbit-${turnId.slice(0, 8)}`;
     const ownerId = "benchmark:cloud-m1";
     const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
-    const quota = await ctx.runQuery(checkQuotaRef, { ownerId });
-    if (!quota.allowed)
-      throw new ConvexError(quota.reason ?? "Build quota exceeded.");
     await ctx.runMutation(createTurnRef, {
       turnId,
       sessionId,
@@ -5870,9 +5589,6 @@ export const startLifecycleTurn = internalAction({
     const app = await ctx.runQuery(getAppRef, { appId: args.appId });
     if (!app) throw new ConvexError("Lifecycle app was not found.");
     const { generation } = await assertOwnerDataAccessActive(ctx, app.ownerId);
-    const quota = await ctx.runQuery(checkQuotaRef, { ownerId: app.ownerId });
-    if (!quota.allowed)
-      throw new ConvexError(quota.reason ?? "Build quota exceeded.");
     const builderUrl = process.env.CLOUD_BUILDER_URL?.trim();
     const builderSecret = process.env.BUILDER_SERVICE_SECRET?.trim();
     if (!builderUrl || !builderSecret)
@@ -6587,39 +6303,7 @@ export const reserveBuildLaneInternal = internalMutation({
     if (!turn || turn.ownerId !== args.ownerId || turn.terminalKind) {
       return { ok: false };
     }
-    const now = Date.now();
-    const { plan, quota } = await resolveCloudPlan(ctx, args.ownerId);
-    const buildTurns = (
-      await listRecentBuildTurns(ctx, args.ownerId, quota.dailyTurns + 2)
-    ).filter((candidate) => candidate.turnId !== args.turnId);
-    const running = buildTurns.filter(
-      (candidate) => candidate.status === "running",
-    );
-    const fail = async (message: string) => {
-      await appendTurnEvent(
-        ctx,
-        turn,
-        "failed",
-        { message },
-        true,
-        now,
-        args.ownerGeneration,
-      );
-      return { ok: false };
-    };
-    if (running.length >= quota.concurrentTurns) {
-      return await fail(
-        "Stella is still working on an earlier change. Wait for it to finish, then try again.",
-      );
-    }
-    if (buildTurns.length >= quota.dailyTurns) {
-      return await fail(
-        `You've used all ${quota.dailyTurns} app updates included with the ${
-          plan === "free" ? "Free" : plan
-        } plan today. Try again tomorrow.`,
-      );
-    }
-    await ctx.db.patch(turn._id, { lane: "build", updatedAt: now });
+    await ctx.db.patch(turn._id, { lane: "build", updatedAt: Date.now() });
     return { ok: true };
   },
 });

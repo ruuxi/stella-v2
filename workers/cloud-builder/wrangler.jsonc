@@ -168,7 +168,7 @@
         "class_name": "OwnerTransferCoordinator",
       },
       {
-        // One object per owner: plan snapshot, quota windows, running turns.
+        // One object per owner: plan snapshot and running-turn replay registry.
         "name": "OWNER_GATES",
         "class_name": "OwnerGate",
       },
@@ -493,10 +493,12 @@
           "rollout_active_grace_period": 960,
         },
         {
+          // Physical capacity guard only. The model-gateway token budget is
+          // the only product limit.
           "class_name": "SandboxSmall",
           "image": "./Dockerfile",
           "instance_type": "standard-2",
-          "max_instances": 6,
+          "max_instances": 24,
           "rollout_active_grace_period": 960,
         },
         {

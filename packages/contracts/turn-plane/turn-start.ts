@@ -12,7 +12,7 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  *     turns: schedules, execution placement's cloud branch).
  *
  * The conversation Durable Object owns admission: idempotency on
- * `clientMsgId`, owner adoption for a fresh conversation, quota through the
+ * `clientMsgId`, owner adoption for a fresh conversation, policy through the
  * owner gate, journaling the prompt, minting the turn capabilities, and
  * queueing the run. Convex learns about the turn through the outbox.
  */
@@ -24,7 +24,8 @@ export const turnStartPath = (conversationId: string): string =>
   `${TURN_START_PATH_PREFIX}/${encodeURIComponent(conversationId)}/turns`;
 
 export const TURN_OWNER_ID_HEADER = "x-stella-owner-id" as const;
-export const TURN_OWNER_GENERATION_HEADER = "x-stella-owner-generation" as const;
+export const TURN_OWNER_GENERATION_HEADER =
+  "x-stella-owner-generation" as const;
 
 /** Client-visible lanes. `wake` and `schedule` require service authentication. */
 export type CloudTurnLane = "chat" | "wake" | "schedule";
@@ -92,9 +93,6 @@ export type CloudTurnStartErrorCode =
   | "bad_request"
   | "conversation_locked"
   | "idempotency_conflict"
-  | "quota_burst"
-  | "quota_daily"
-  | "quota_concurrency"
   | "owner_purged"
   | "generation_stale"
   | "execution_unavailable"
@@ -129,6 +127,32 @@ export const AGENT_TURN_START_PATH_PREFIX = "/sessions" as const;
 export const agentTurnStartPath = (threadId: string): string =>
   `${AGENT_TURN_START_PATH_PREFIX}/${encodeURIComponent(threadId)}/turns`;
 
+export const agentSteerPath = (threadId: string): string =>
+  `${AGENT_TURN_START_PATH_PREFIX}/${encodeURIComponent(threadId)}/steer`;
+
+export type CloudAgentSteerKind =
+  | "input"
+  | "child_completed"
+  | "child_canceled"
+  | "child_failed";
+
+export type CloudAgentSteerMessage = {
+  id: string;
+  kind: CloudAgentSteerKind;
+  text: string;
+  threadId?: string;
+  attemptGeneration?: number;
+  createdAt: number;
+};
+
+export type CloudAgentSteerResponse =
+  | {
+      accepted: true;
+      turnId: string;
+      attemptGeneration: number;
+    }
+  | { accepted: false; reason: "not_running" };
+
 export type CloudAgentTurnSource =
   | "desktop"
   | "placement"
@@ -142,6 +166,10 @@ export type CloudAgentTurnStartRequest = {
   ownerGeneration: string;
   conversationId: string;
   threadId: string;
+  /** Root-spawned agents are depth 1; their children are depth 2. */
+  agentDepth: number;
+  /** The BuildSession thread that spawned this one, absent for root spawns. */
+  parentThreadId?: string;
   /** 1 for a fresh thread; N+1 for a continuation of an existing thread. */
   attemptGeneration: number;
   /**

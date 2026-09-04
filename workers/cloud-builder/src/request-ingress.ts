@@ -56,9 +56,7 @@ export const serviceJsonBodyLimit = (
   pathname: string,
 ): number | null => {
   if (method !== "POST" || pathname === "/m0/echo") return null;
-  if (
-    /^\/sessions\/[^/]+\/(turns|cancel|expire)$/u.test(pathname)
-  ) {
+  if (/^\/sessions\/[^/]+\/(turns|steer|cancel|expire)$/u.test(pathname)) {
     return pathname.endsWith("/turns")
       ? CLOUD_BUILDER_BODY_LIMITS.turn
       : CLOUD_BUILDER_BODY_LIMITS.tinyControl;

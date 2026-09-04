@@ -96,6 +96,8 @@ export type ThreadSpawnedEvent = OutboxBase & {
   threadId: string;
   conversationId: string;
   parentTurnId: string;
+  parentThreadId?: string;
+  agentDepth: number;
   attemptGeneration: number;
   description: string;
   prompt: string;

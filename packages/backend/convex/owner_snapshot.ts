@@ -37,7 +37,7 @@ import {
  * The owner snapshot: the one control-plane read the cloud-builder's owner
  * gate performs (`@stella/contracts/turn-plane/owner-snapshot`). Everything a
  * turn admission needs to know about an owner — write fence and generation,
- * plan quotas, model allowance, default execution, execution devices and
+ * plan, model allowance, default execution, execution devices and
  * their public keys, paired phones — in one document the gate caches for
  * `ttlMs`; Convex pushes a fresh replacement on change.
  */
@@ -46,12 +46,6 @@ export const OWNER_SNAPSHOT_TTL_MS = 300_000;
 const MAX_PAIRED_DEVICES = 100;
 /** Matches `MAX_EXECUTION_DEVICES` in execution_placement.ts. */
 const MAX_EXECUTION_DEVICES = 64;
-
-const laneQuotaValidator = v.object({
-  burstStarts: v.number(),
-  dailyTurns: v.number(),
-  concurrent: v.number(),
-});
 
 const connectedEngineValidator = v.union(
   v.literal("anthropic"),
@@ -86,8 +80,6 @@ export const ownerSnapshotValidator = v.object({
   writable: v.boolean(),
   enforcement: v.optional(ownerEnforcementValidator),
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
-  unlimited: v.boolean(),
-  quotas: v.object({ chat: laneQuotaValidator, agent: laneQuotaValidator }),
   allowance: v.object({
     audience: managedModelAudienceValidator,
     budgetMicroCents: v.number(),
@@ -109,8 +101,6 @@ type OwnerSnapshotFields = {
   writable: boolean;
   enforcement?: OwnerSnapshot["enforcement"];
   plan: OwnerSnapshot["plan"];
-  unlimited: boolean;
-  quotas: OwnerSnapshot["quotas"];
   allowance: OwnerSnapshot["allowance"];
   execution: CloudExecutionSelection;
   pairedDevices: NonNullable<OwnerSnapshot["pairedDevices"]>;
@@ -126,8 +116,6 @@ const ownerSnapshotFieldsValidator = v.object({
   writable: v.boolean(),
   enforcement: v.optional(ownerEnforcementValidator),
   plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
-  unlimited: v.boolean(),
-  quotas: v.object({ chat: laneQuotaValidator, agent: laneQuotaValidator }),
   allowance: v.object({
     audience: managedModelAudienceValidator,
     budgetMicroCents: v.number(),
@@ -156,12 +144,7 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       : await resolveIdentityLevel(ctx, ownerId);
     const writable =
       access.allowed && !migrationFenced && enforcement.status !== "suspended";
-    const { plan, quota, unlimited } = await resolveCloudPlan(ctx, ownerId);
-    const lane = {
-      burstStarts: quota.burstStarts,
-      dailyTurns: quota.dailyTurns,
-      concurrent: quota.concurrentTurns,
-    };
+    const { plan } = await resolveCloudPlan(ctx, ownerId);
     const resolvedAllowance = writable
       ? await runPeekOwnerModelAllowance(ctx, {
           ownerId,
@@ -225,16 +208,6 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       writable,
       ...(enforcement.status !== "ok" ? { enforcement } : {}),
       plan,
-      unlimited,
-      quotas: {
-        chat: lane,
-        agent:
-          identityLevel === 0
-            ? { burstStarts: 0, dailyTurns: 0, concurrent: 0 }
-            : identityLevel === 1 && plan === "free"
-              ? { burstStarts: 1, dailyTurns: 1, concurrent: 1 }
-              : lane,
-      },
       allowance,
       execution,
       pairedDevices: paired

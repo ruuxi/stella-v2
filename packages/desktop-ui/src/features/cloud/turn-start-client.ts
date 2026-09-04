@@ -6,7 +6,7 @@
  * The cloud-builder worker is the turn gateway: it verifies the same Better
  * Auth JWT the conversation socket presents and hands the request to the
  * conversation's Durable Object, which owns admission (idempotency on
- * `clientMsgId`, owner adoption for a fresh conversation, quota, journaling)
+ * `clientMsgId`, owner adoption for a fresh conversation, policy, journaling)
  * and answers 202. Convex learns about the turn through the outbox, so no
  * Convex mutation is involved in starting one.
  *
@@ -52,10 +52,6 @@ const FALLBACK_MESSAGES: Record<CloudTurnStartErrorCode, string> = {
     "This conversation is busy. Wait for the current turn to finish, then try again.",
   idempotency_conflict:
     "This message was already sent with different content. Send it again as a new message.",
-  quota_burst: "You're sending messages quickly. Wait a moment and try again.",
-  quota_daily: "You've reached today's cloud chat limit. Try again tomorrow.",
-  quota_concurrency:
-    "Stella is still working on an earlier turn. Wait for it to finish, then try again.",
   owner_purged:
     "This account's cloud data was reset. Start a new conversation.",
   generation_stale: "This request started before the account data was reset.",
@@ -81,7 +77,7 @@ export class CloudTurnStartClientError extends Error {
   /** HTTP status, or 0 when the request never left the client. */
   readonly status: number;
   readonly retryable: boolean;
-  /** Set on quota refusals that name a wait; already folded into `message`. */
+  /** Set on retryable refusals that name a wait; already folded into `message`. */
   readonly retryAfterMs: number | null;
 
   constructor(args: {
@@ -108,10 +104,6 @@ export class CloudTurnStartClientError extends Error {
     this.status = args.status;
     this.retryable = args.retryable ?? false;
     this.retryAfterMs = retryAfterMs;
-  }
-
-  get isQuota(): boolean {
-    return this.code.startsWith("quota_");
   }
 
   get isAuth(): boolean {
@@ -218,8 +210,6 @@ const codeForStatus = (status: number): CloudTurnStartErrorCode => {
       return "forbidden";
     case 409:
       return "conversation_locked";
-    case 429:
-      return "quota_burst";
     default:
       return "internal";
   }

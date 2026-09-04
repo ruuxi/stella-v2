@@ -4,14 +4,12 @@
  * Convex call on the turn's critical path.
  *
  * It holds exactly one control-plane read — the owner snapshot Convex serves
- * from `GET /api/gateway/owner-snapshot` (plan quotas, model allowance,
+ * from `GET /api/gateway/owner-snapshot` (plan, model allowance,
  * default execution, owner generation, write fence) — cached for the
  * snapshot's own `ttlMs`. Convex normally pushes the replacement snapshot
  * when billing or lifecycle state changes; a push without one marks the copy
- * stale for background refresh. Everything else it decides from its own SQLite:
- * rolling start windows (burst per 10 minutes, daily per 24 hours) and the
- * registry of running turns (per-lane concurrency, one running agent per
- * workspace). Conversation and thread objects admit through it and release
+ * stale for background refresh. Its SQLite registry records running turns for
+ * replay detection. Conversation and thread objects admit through it and release
  * on their terminal paths; a release that never arrives is bounded by
  * `TURN_TIMEOUT_MS` plus a grace, after which a running row is treated as
  * released, so a lost isolate can never wedge an owner permanently.
@@ -31,7 +29,6 @@ import {
 import {
   CONVEX_OWNER_SNAPSHOT_PATH,
   OWNER_SNAPSHOT_VERSION,
-  type CloudLaneQuota,
   type CloudPlanId,
   type OwnerSnapshot,
 } from "@stella/contracts/turn-plane/owner-snapshot";
@@ -134,31 +131,15 @@ export type OwnerGateAdmitInput = {
   turnId: string;
   conversationId: string;
   /**
-   * Agent lane: the workspace this run occupies. At most one running agent
-   * per workspace — the one-sandbox-per-owner-world rule that Convex used to
-   * enforce at spawn.
-   */
-  workspace?: string;
-  /**
    * Service callers pin the owner generation they dispatched with. A
    * mismatch after a forced snapshot refresh is `generation_stale`.
    */
   expectedGeneration?: string;
-  /**
-   * `bypass` registers the run (so it counts for everyone else) without
-   * consulting the windows or the concurrency ceiling. Used for turns the
-   * user cannot retry — an agent-completion wake — and never for anything a
-   * client can submit.
-   */
-  quota?: "enforce" | "bypass";
   /** Test seam; defaults to `Date.now()`. */
   now?: number;
 };
 
 export type OwnerGateRefusalCode =
-  | "quota_burst"
-  | "quota_daily"
-  | "quota_concurrency"
   | "owner_purged"
   | "sign_in_required"
   | "owner_suspended"
@@ -209,15 +190,6 @@ export type OwnerGateSnapshotWithLease =
       lease: { status: "skipped"; reason: "snapshot_unavailable" };
     };
 
-export const OWNER_GATE_BURST_WINDOW_MS = 10 * 60_000;
-export const OWNER_GATE_DAILY_WINDOW_MS = 24 * 60 * 60_000;
-export const OWNER_GATE_CPU_MINUTES_PER_DAY: Readonly<
-  Record<CloudPlanId, number>
-> = {
-  free: 45,
-  go: 120,
-  pro: 300,
-};
 /** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
 export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
 /**
@@ -239,31 +211,14 @@ export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
 export const OWNER_GATE_STALE_SNAPSHOT_TTLS = 3;
 const DEFAULT_TURN_TIMEOUT_MS = 900_000;
 const SNAPSHOT_KEY = "ownerSnapshot";
-const CONCURRENCY_RETRY_MIN_MS = 1_000;
-const CONCURRENCY_RETRY_MAX_MS = 30_000;
-
 const DDL = [
-  `CREATE TABLE IF NOT EXISTS starts (
-     id   INTEGER PRIMARY KEY AUTOINCREMENT,
-     lane TEXT    NOT NULL,
-     at   INTEGER NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS starts_lane_at ON starts(lane, at)`,
   `CREATE TABLE IF NOT EXISTS running (
      turn_id         TEXT    PRIMARY KEY,
      lane            TEXT    NOT NULL,
      conversation_id TEXT    NOT NULL,
-     workspace       TEXT,
      started_at      INTEGER NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS running_lane ON running(lane)`,
-  `CREATE INDEX IF NOT EXISTS running_workspace ON running(workspace)`,
-  `CREATE TABLE IF NOT EXISTS cpu_minutes (
-     turn_id TEXT PRIMARY KEY,
-     at      INTEGER NOT NULL,
-     minutes REAL    NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS cpu_minutes_at ON cpu_minutes(at)`,
   // One row per device that has ever proven itself here. `connected` goes
   // false on close rather than deleting the row, so an offline device still
   // reports its last availability to `GET /owners/me/devices`.
@@ -383,35 +338,6 @@ const isOwnerEnforcementStatus = (
   value: unknown,
 ): value is OwnerEnforcement["status"] =>
   OWNER_ENFORCEMENT_STATUSES.some((status) => status === value);
-
-type ParsedLaneQuota = CloudLaneQuota & { cpuMinutesPerDay?: number };
-
-const parseLaneQuota = (value: unknown): ParsedLaneQuota | null => {
-  if (!isRecord(value)) return null;
-  if (
-    !isCount(value.burstStarts) ||
-    !isCount(value.dailyTurns) ||
-    !isCount(value.concurrent)
-  ) {
-    return null;
-  }
-  return {
-    burstStarts: value.burstStarts,
-    dailyTurns: value.dailyTurns,
-    concurrent: value.concurrent,
-    ...(isCount(value.cpuMinutesPerDay)
-      ? { cpuMinutesPerDay: value.cpuMinutesPerDay }
-      : {}),
-  };
-};
-
-const agentCpuMinutesPerDay = (snapshot: OwnerSnapshot): number => {
-  const quota: unknown = snapshot.quotas.agent;
-  if (isRecord(quota) && isCount(quota.cpuMinutesPerDay)) {
-    return quota.cpuMinutesPerDay;
-  }
-  return OWNER_GATE_CPU_MINUTES_PER_DAY[snapshot.plan];
-};
 
 const parseOwnerEnforcement = (value: unknown): OwnerEnforcement | null => {
   if (!isRecord(value)) return null;
@@ -540,11 +466,6 @@ export const parseOwnerSnapshot = (
   if (value.enforcement !== undefined && !enforcement) return null;
   const plan = value.plan;
   if (plan !== "free" && plan !== "go" && plan !== "pro") return null;
-  if (typeof value.unlimited !== "boolean") return null;
-  if (!isRecord(value.quotas)) return null;
-  const chat = parseLaneQuota(value.quotas.chat);
-  const agent = parseLaneQuota(value.quotas.agent);
-  if (!chat || !agent) return null;
   if (!isRecord(value.allowance)) return null;
   if (!isManagedModelAudience(value.allowance.audience)) return null;
   if (
@@ -602,8 +523,6 @@ export const parseOwnerSnapshot = (
     identityLevel,
     ...(enforcement ? { enforcement } : {}),
     plan: plan as CloudPlanId,
-    unlimited: value.unlimited,
-    quotas: { chat, agent },
     allowance: {
       audience: value.allowance.audience,
       budgetMicroCents: value.allowance.budgetMicroCents,
@@ -1278,56 +1197,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   private prune(now: number): void {
     this.ctx.storage.sql.exec(
-      `DELETE FROM starts WHERE at < ?`,
-      now - OWNER_GATE_DAILY_WINDOW_MS,
-    );
-    this.ctx.storage.sql.exec(
       `DELETE FROM running WHERE started_at < ?`,
       now - (this.turnTimeoutMs() + OWNER_GATE_RUNNING_GRACE_MS),
     );
-    this.ctx.storage.sql.exec(
-      `DELETE FROM cpu_minutes WHERE at < ?`,
-      now - OWNER_GATE_DAILY_WINDOW_MS,
-    );
-  }
-
-  private cpuMinutesUsed(now: number): number {
-    const row = this.ctx.storage.sql
-      .exec<{
-        minutes: number | null;
-      }>(
-        `SELECT SUM(minutes) AS minutes FROM cpu_minutes WHERE at > ?`,
-        now - OWNER_GATE_DAILY_WINDOW_MS,
-      )
-      .one();
-    return typeof row.minutes === "number" && Number.isFinite(row.minutes)
-      ? Math.max(0, row.minutes)
-      : 0;
-  }
-
-  /**
-   * When one more start fits a window: the moment enough of the oldest
-   * starts in it expire. `starts` is ascending; with `count >= limit`, the
-   * `(count - limit + 1)`th oldest start leaving the window frees a slot.
-   */
-  private windowRefusal(
-    lane: OwnerGateLane,
-    windowMs: number,
-    limit: number,
-    now: number,
-  ): number | null {
-    const rows = this.ctx.storage.sql
-      .exec<{
-        at: number;
-      }>(
-        `SELECT at FROM starts WHERE lane = ? AND at > ? ORDER BY at ASC`,
-        lane,
-        now - windowMs,
-      )
-      .toArray();
-    if (rows.length < limit) return null;
-    const frees = rows[rows.length - limit]?.at ?? now;
-    return Math.max(1, frees + windowMs - now);
   }
 
   async admit(input: OwnerGateAdmitInput): Promise<OwnerGateAdmission> {
@@ -1374,7 +1246,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
           )
         : refuse(
             "internal",
-            "Stella can't check your plan right now. Try again shortly.",
+            "Stella can't check your account right now. Try again shortly.",
             true,
           );
     }
@@ -1418,147 +1290,22 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (existing.length > 0) {
       return { ok: true, snapshot, replayed: true };
     }
-    const quota = snapshot.quotas[input.lane];
-    const enforce = input.quota !== "bypass";
-    if (enforce && !snapshot.unlimited) {
-      if (
-        input.lane === "agent" &&
-        this.cpuMinutesUsed(now) >= agentCpuMinutesPerDay(snapshot)
-      ) {
-        return refuse(
-          "quota_daily",
-          "Daily cloud agent time is used up.",
-          true,
-        );
-      }
-      const burst = this.windowRefusal(
-        input.lane,
-        OWNER_GATE_BURST_WINDOW_MS,
-        quota.burstStarts,
-        now,
-      );
-      if (burst !== null) {
-        return refuse(
-          "quota_burst",
-          "You're sending messages faster than your plan allows. Try again in a few minutes.",
-          true,
-          burst,
-        );
-      }
-      const daily = this.windowRefusal(
-        input.lane,
-        OWNER_GATE_DAILY_WINDOW_MS,
-        quota.dailyTurns,
-        now,
-      );
-      if (daily !== null) {
-        return refuse(
-          "quota_daily",
-          "You've reached today's limit for your plan.",
-          true,
-          daily,
-        );
-      }
-    }
-    if (enforce) {
-      const running = this.ctx.storage.sql
-        .exec<{
-          started_at: number;
-        }>(
-          `SELECT started_at FROM running WHERE lane = ? ORDER BY started_at ASC`,
-          input.lane,
-        )
-        .toArray();
-      if (running.length >= quota.concurrent) {
-        const oldest = running[0]?.started_at ?? now;
-        const frees =
-          oldest + this.turnTimeoutMs() + OWNER_GATE_RUNNING_GRACE_MS - now;
-        return refuse(
-          "quota_concurrency",
-          input.lane === "agent"
-            ? "Your plan's agents are all busy. Wait for one to finish."
-            : "Another turn is still running. Wait for it to finish.",
-          true,
-          Math.min(
-            CONCURRENCY_RETRY_MAX_MS,
-            Math.max(CONCURRENCY_RETRY_MIN_MS, frees),
-          ),
-        );
-      }
-    }
-    const workspace = input.workspace?.trim() || null;
-    if (input.lane === "agent" && workspace) {
-      const busy = this.ctx.storage.sql
-        .exec<{
-          turn_id: string;
-          started_at: number;
-        }>(
-          `SELECT turn_id, started_at FROM running WHERE lane = 'agent' AND workspace = ?`,
-          workspace,
-        )
-        .toArray();
-      if (busy.length > 0) {
-        const frees =
-          (busy[0]?.started_at ?? now) +
-          this.turnTimeoutMs() +
-          OWNER_GATE_RUNNING_GRACE_MS -
-          now;
-        return refuse(
-          "quota_concurrency",
-          "Another agent is already running in this workspace. Wait for it to finish.",
-          true,
-          Math.min(
-            CONCURRENCY_RETRY_MAX_MS,
-            Math.max(CONCURRENCY_RETRY_MIN_MS, frees),
-          ),
-        );
-      }
-    }
-    // A bypassed admission (an agent-completion wake) occupies a running
-    // slot so concurrency stays truthful, but it is not a start the user
-    // chose: it must not eat their burst or daily windows.
-    if (enforce) {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO starts (lane, at) VALUES (?, ?)`,
-        input.lane,
-        now,
-      );
-    }
     this.ctx.storage.sql.exec(
-      `INSERT INTO running (turn_id, lane, conversation_id, workspace, started_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO running (turn_id, lane, conversation_id, started_at)
+       VALUES (?, ?, ?, ?)`,
       turnId,
       input.lane,
       input.conversationId ?? "",
-      workspace,
       now,
     );
     return { ok: true, snapshot, replayed: false };
   }
 
   /** Idempotent: a release for a turn the gate no longer tracks is a no-op. */
-  async release(input: { turnId: string; now?: number }): Promise<void> {
+  async release(input: { turnId: string }): Promise<void> {
     this.ensureSchema();
     const turnId = input.turnId?.trim() ?? "";
     if (!turnId) return;
-    const running = this.ctx.storage.sql
-      .exec<{
-        lane: string;
-        started_at: number;
-      }>(`SELECT lane, started_at FROM running WHERE turn_id = ?`, turnId)
-      .toArray()[0];
-    if (running?.lane === "agent") {
-      const now = input.now ?? Date.now();
-      const minutes = Math.max(0, now - running.started_at) / 60_000;
-      if (minutes > 0) {
-        this.ctx.storage.sql.exec(
-          `INSERT OR IGNORE INTO cpu_minutes (turn_id, at, minutes) VALUES (?, ?, ?)`,
-          turnId,
-          now,
-          minutes,
-        );
-      }
-    }
     this.ctx.storage.sql.exec(`DELETE FROM running WHERE turn_id = ?`, turnId);
   }
 
@@ -1568,10 +1315,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       turnId: string;
       lane: string;
       conversationId: string;
-      workspace: string | null;
       startedAt: number;
     }>;
-    starts: { chat: number; agent: number };
   }> {
     this.ensureSchema();
     this.prune(now);
@@ -1580,30 +1325,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         turn_id: string;
         lane: string;
         conversation_id: string;
-        workspace: string | null;
         started_at: number;
       }>(
-        `SELECT turn_id, lane, conversation_id, workspace, started_at FROM running ORDER BY started_at ASC`,
+        `SELECT turn_id, lane, conversation_id, started_at FROM running ORDER BY started_at ASC`,
       )
       .toArray()
       .map((row) => ({
         turnId: row.turn_id,
         lane: row.lane,
         conversationId: row.conversation_id,
-        workspace: row.workspace,
         startedAt: row.started_at,
       }));
-    const count = (lane: OwnerGateLane): number =>
-      this.ctx.storage.sql
-        .exec<{
-          n: number;
-        }>(
-          `SELECT COUNT(*) AS n FROM starts WHERE lane = ? AND at > ?`,
-          lane,
-          now - OWNER_GATE_DAILY_WINDOW_MS,
-        )
-        .one().n;
-    return { running, starts: { chat: count("chat"), agent: count("agent") } };
+    return { running };
   }
 
   // ── Device presence sockets ───────────────────────────────────────────
@@ -2062,7 +1795,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       const presence = this.presenceRow(device.deviceId);
       const online = Boolean(
         presence?.connected &&
-          presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
+        presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
       );
       devices.push({
         deviceId: device.deviceId,
@@ -2462,7 +2195,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /**
-   * The cloud said no. A quota, fence, or shape refusal is the dispatch's own
+   * The cloud said no. A fence or shape refusal is the dispatch's own
    * terminal error, reported with the builder's code so the client sees the
    * same reason it would have seen submitting the turn directly. Only a 503
    * — the builder unavailable, not the request refused — is worth one retry.
@@ -2589,6 +2322,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ownerGeneration: row.owner_generation,
       conversationId: row.conversation_id,
       threadId,
+      agentDepth: 1,
       attemptGeneration: 1,
       // The session adopts the dispatch id as its turn id, so the release it
       // sends on the terminal path frees exactly the slot this gate admitted.

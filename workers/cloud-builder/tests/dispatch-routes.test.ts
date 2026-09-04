@@ -113,7 +113,8 @@ const environment = async (
 ) => {
   const submits: Submitted[] = [];
   const statuses: Array<{ ownerId: string; dispatchId: string }> = [];
-  const cancels: Array<{ ownerId: string; input: Record<string, unknown> }> = [];
+  const cancels: Array<{ ownerId: string; input: Record<string, unknown> }> =
+    [];
   const snapshot = sampleOwnerSnapshot({
     pairedDevices: [
       {
@@ -164,7 +165,10 @@ const environment = async (
               ok: true,
               response: {
                 protocol: PLACEMENT_PROTOCOL,
-                dispatch: { dispatchId: input.dispatchId, state: "cancel_pending" },
+                dispatch: {
+                  dispatchId: input.dispatchId,
+                  state: "cancel_pending",
+                },
               },
             };
           },
@@ -251,7 +255,9 @@ const proofHeaders = async (
   const signed = await signMobilePairingProof({
     ...fields,
     pairingKey,
-    ...(overrides.issuedAt !== undefined ? { issuedAt: overrides.issuedAt } : {}),
+    ...(overrides.issuedAt !== undefined
+      ? { issuedAt: overrides.issuedAt }
+      : {}),
   });
   return mobilePairingProofHeaders({ ...fields, ...signed });
 };
@@ -380,7 +386,10 @@ describe("POST /owners/me/dispatches", () => {
         "a desktop the phone is not paired to",
         await proofHeaders(request, { desktopDeviceId: "desk-9" }),
       ],
-      ["another pairing secret", await proofHeaders(request, { pairSecret: "nope" })],
+      [
+        "another pairing secret",
+        await proofHeaders(request, { pairSecret: "nope" }),
+      ],
       [
         "a stale proof",
         await proofHeaders(request, { issuedAt: Date.now() - 10 * 60_000 }),
@@ -467,7 +476,6 @@ describe("POST /owners/me/dispatches", () => {
       ["conflict", 409],
       ["owner_purged", 410],
       ["generation_stale", 403],
-      ["quota_concurrency", 429],
       ["capability_unavailable", 409],
       ["internal", 503],
     ] as const) {
@@ -567,9 +575,13 @@ describe("dispatch status and cancel", () => {
   test("cancel requires an id and forwards it to the gate", async () => {
     const { env, cancels } = await environment();
     const bad = await worker.fetch(
-      post("/owners/me/dispatches/dsp:abc/cancel", {}, {
-        authorization: `Bearer ${await userJwt()}`,
-      }),
+      post(
+        "/owners/me/dispatches/dsp:abc/cancel",
+        {},
+        {
+          authorization: `Bearer ${await userJwt()}`,
+        },
+      ),
       env,
       {} as ExecutionContext,
     );
@@ -601,9 +613,13 @@ describe("dispatch status and cancel", () => {
     expect(
       (
         await worker.fetch(
-          post("/owners/me/dispatches/dsp:abc", {}, {
-            authorization: `Bearer ${await userJwt()}`,
-          }),
+          post(
+            "/owners/me/dispatches/dsp:abc",
+            {},
+            {
+              authorization: `Bearer ${await userJwt()}`,
+            },
+          ),
           env,
           {} as ExecutionContext,
         )
@@ -656,10 +672,9 @@ describe("GET /owners/me/devices/:deviceId/presence", () => {
   test("speaks WebSocket only and refuses an unauthenticated upgrade", async () => {
     const { env } = await environment();
     const plain = await worker.fetch(
-      new Request(
-        "https://builder.example/owners/me/devices/desk-1/presence",
-        { headers: { authorization: `Bearer ${await userJwt()}` } },
-      ),
+      new Request("https://builder.example/owners/me/devices/desk-1/presence", {
+        headers: { authorization: `Bearer ${await userJwt()}` },
+      }),
       env,
       {} as ExecutionContext,
     );

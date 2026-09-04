@@ -73,9 +73,6 @@ const ERROR_CODES: ReadonlySet<string> = new Set<CloudTurnStartErrorCode>([
   "bad_request",
   "conversation_locked",
   "idempotency_conflict",
-  "quota_burst",
-  "quota_daily",
-  "quota_concurrency",
   "owner_purged",
   "generation_stale",
   "execution_unavailable",
@@ -178,7 +175,8 @@ const postJson = async (
   headers: Record<string, string>,
   body: unknown,
 ): Promise<{ status: number; body: unknown }> => {
-  const endpoint = args.endpoint === undefined ? resolveBuilderEndpoint() : args.endpoint;
+  const endpoint =
+    args.endpoint === undefined ? resolveBuilderEndpoint() : args.endpoint;
   if (!endpoint) {
     throw new BuilderTurnError({
       code: "unconfigured",
@@ -189,7 +187,9 @@ const postJson = async (
     });
   }
   const timeout = AbortSignal.timeout(args.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  const signal = args.signal ? AbortSignal.any([args.signal, timeout]) : timeout;
+  const signal = args.signal
+    ? AbortSignal.any([args.signal, timeout])
+    : timeout;
   const doFetch = args.fetch ?? fetch;
   const response = await doFetch(`${endpoint.url}${path}`, {
     method: "POST",

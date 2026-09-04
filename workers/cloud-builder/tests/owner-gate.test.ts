@@ -9,9 +9,6 @@ mock.module("cloudflare:workers", () => ({
 }));
 const {
   OWNER_GATE_BACKGROUND_SNAPSHOT_TIMEOUT_MS,
-  OWNER_GATE_BURST_WINDOW_MS,
-  OWNER_GATE_CPU_MINUTES_PER_DAY,
-  OWNER_GATE_DAILY_WINDOW_MS,
   OWNER_GATE_RUNNING_GRACE_MS,
   OWNER_GATE_SNAPSHOT_TIMEOUT_MS,
   OwnerGate,
@@ -24,9 +21,8 @@ mock.restore();
 /**
  * The owner gate decides admission from its own SQLite plus one cached
  * control-plane read. These tests drive the real class with an in-memory
- * SQLite and a scripted snapshot transport: the windows, the concurrency
- * ceiling, the one-agent-per-workspace rule, the write fence, the generation
- * check, and the cache's failure policy are all exercised without Convex.
+ * SQLite and a scripted snapshot transport. The replay registry, write fence,
+ * generation check, and cache failure policy are exercised without Convex.
  */
 
 const NOW = 1_800_000_000_000;
@@ -125,7 +121,7 @@ afterEach(() => {
 });
 
 describe("OwnerGate admission", () => {
-  test("admits within quota, registers the run, and replays the same turn id", async () => {
+  test("registers the run and replays the same turn id", async () => {
     const { instance } = open();
     const first = await instance.admit(chat("turn-1"));
     expect(first).toMatchObject({ ok: true, replayed: false });
@@ -135,7 +131,6 @@ describe("OwnerGate admission", () => {
     expect(replay).toMatchObject({ ok: true, replayed: true });
     const status = await instance.status(NOW);
     expect(status.running).toHaveLength(1);
-    expect(status.starts.chat).toBe(1);
     await instance.release({ turnId: "turn-1" });
     expect((await instance.status(NOW)).running).toHaveLength(0);
     // Releasing again, or an unknown turn, is a no-op.
@@ -143,274 +138,33 @@ describe("OwnerGate admission", () => {
     await instance.release({ turnId: "never-admitted" });
   });
 
-  test("refuses the burst window with the time until the oldest start expires", async () => {
-    const { instance } = open({
-      snapshot: sampleOwnerSnapshot({
-        quotas: {
-          chat: { burstStarts: 2, dailyTurns: 100, concurrent: 10 },
-          agent: { burstStarts: 10, dailyTurns: 100, concurrent: 2 },
-        },
-      }),
-    });
-    expect((await instance.admit(chat("t1", NOW))).ok).toBe(true);
-    await instance.release({ turnId: "t1" });
-    expect((await instance.admit(chat("t2", NOW + 60_000))).ok).toBe(true);
-    await instance.release({ turnId: "t2" });
-    const refused = await instance.admit(chat("t3", NOW + 120_000));
-    expect(refused).toMatchObject({
-      ok: false,
-      code: "quota_burst",
-      retryable: true,
-      retryAfterMs: OWNER_GATE_BURST_WINDOW_MS - 120_000,
-    });
-    // Once the oldest start leaves the window a slot frees.
-    const later = await instance.admit(
-      chat("t4", NOW + OWNER_GATE_BURST_WINDOW_MS + 1),
-    );
-    expect(later.ok).toBe(true);
-  });
-
-  test("refuses the daily window and prunes starts older than 24 hours", async () => {
-    const { instance } = open({
-      snapshot: sampleOwnerSnapshot({
-        quotas: {
-          chat: { burstStarts: 100, dailyTurns: 2, concurrent: 10 },
-          agent: { burstStarts: 10, dailyTurns: 100, concurrent: 2 },
-        },
-      }),
-    });
-    expect((await instance.admit(chat("d1", NOW))).ok).toBe(true);
-    await instance.release({ turnId: "d1" });
-    expect((await instance.admit(chat("d2", NOW + 3_600_000))).ok).toBe(true);
-    await instance.release({ turnId: "d2" });
-    const refused = await instance.admit(chat("d3", NOW + 7_200_000));
-    expect(refused).toMatchObject({
-      ok: false,
-      code: "quota_daily",
-      retryAfterMs: OWNER_GATE_DAILY_WINDOW_MS - 7_200_000,
-    });
-    const nextDay = await instance.admit(
-      chat("d4", NOW + OWNER_GATE_DAILY_WINDOW_MS + 1),
-    );
-    expect(nextDay.ok).toBe(true);
-    expect(
-      (await instance.status(NOW + OWNER_GATE_DAILY_WINDOW_MS + 1)).starts.chat,
-    ).toBe(2);
-  });
-
-  test("an unlimited plan skips the windows but never the concurrency ceiling", async () => {
-    const { instance } = open({
-      snapshot: sampleOwnerSnapshot({
-        unlimited: true,
-        quotas: {
-          chat: { burstStarts: 0, dailyTurns: 0, concurrent: 1 },
-          agent: { burstStarts: 0, dailyTurns: 0, concurrent: 1 },
-        },
-      }),
-    });
-    expect((await instance.admit(chat("u1"))).ok).toBe(true);
-    const busy = await instance.admit(chat("u2"));
-    expect(busy).toMatchObject({ ok: false, code: "quota_concurrency" });
-    await instance.release({ turnId: "u1" });
-    expect((await instance.admit(chat("u2"))).ok).toBe(true);
-  });
-
-  test("concurrency counts per lane and a run older than the timeout plus grace is presumed released", async () => {
-    const { instance } = open({
-      snapshot: sampleOwnerSnapshot({
-        quotas: {
-          chat: { burstStarts: 100, dailyTurns: 100, concurrent: 1 },
-          agent: { burstStarts: 100, dailyTurns: 100, concurrent: 1 },
-        },
-      }),
-    });
-    expect((await instance.admit(chat("c1"))).ok).toBe(true);
-    const refused = await instance.admit(chat("c2", NOW + 1_000));
-    expect(refused).toMatchObject({
-      ok: false,
-      code: "quota_concurrency",
-      retryable: true,
-    });
-    if (refused.ok) return;
-    expect(refused.retryAfterMs).toBeGreaterThanOrEqual(1_000);
-    expect(refused.retryAfterMs).toBeLessThanOrEqual(30_000);
-    // The agent lane has its own ceiling.
-    const agent = await instance.admit({
-      lane: "agent",
-      turnId: "a1",
-      conversationId: "conversation-1",
-      workspace: "world",
-      now: NOW + 1_000,
-    });
-    expect(agent.ok).toBe(true);
-    // A chat run whose isolate died is treated as released after the grace.
+  test("admits concurrent turns and prunes stale running rows", async () => {
+    const { instance } = open();
+    expect((await instance.admit(chat("concurrent-1"))).ok).toBe(true);
+    expect((await instance.admit(chat("concurrent-2"))).ok).toBe(true);
+    expect((await instance.status(NOW)).running).toHaveLength(2);
     const stale = NOW + TURN_TIMEOUT_MS + OWNER_GATE_RUNNING_GRACE_MS + 1;
-    expect((await instance.admit(chat("c3", stale))).ok).toBe(true);
+    expect((await instance.status(stale)).running).toHaveLength(0);
   });
 
-  test("one running agent per workspace, independent of the agent ceiling", async () => {
-    const { instance } = open({
-      snapshot: sampleOwnerSnapshot({
-        quotas: {
-          chat: { burstStarts: 100, dailyTurns: 100, concurrent: 10 },
-          agent: { burstStarts: 100, dailyTurns: 100, concurrent: 10 },
-        },
-      }),
-    });
-    const spawn = (turnId: string, workspace: string, now = NOW) =>
-      instance.admit({
-        lane: "agent",
-        turnId,
-        conversationId: "conversation-1",
-        workspace,
-        now,
-      });
-    expect((await spawn("a1", "world")).ok).toBe(true);
-    const busy = await spawn("a2", "world");
-    expect(busy).toMatchObject({ ok: false, code: "quota_concurrency" });
-    if (busy.ok) return;
-    expect(busy.message).toContain("workspace");
-    expect((await spawn("a3", "other-workspace")).ok).toBe(true);
-    await instance.release({ turnId: "a1" });
-    expect((await spawn("a2", "world")).ok).toBe(true);
-  });
-
-  test("accounts released agent runtime against the snapshot CPU-minute allowance", async () => {
-    const base = sampleOwnerSnapshot({ plan: "free" });
-    const parsed = parseOwnerSnapshot(
-      {
-        ...base,
-        quotas: {
-          ...base.quotas,
-          agent: {
-            ...base.quotas.agent,
-            cpuMinutesPerDay: 1,
-          },
-        },
-      },
-      base.ownerId,
-    );
-    if (!parsed) throw new Error("CPU quota snapshot did not parse.");
-    const { instance } = open({ snapshot: parsed });
-    const agent = (turnId: string, now: number) =>
-      instance.admit({
-        lane: "agent",
-        turnId,
-        conversationId: "conversation-1",
-        workspace: turnId,
-        now,
-      });
-
-    expect((await agent("cpu-1", NOW)).ok).toBe(true);
-    await instance.release({ turnId: "cpu-1", now: NOW + 60_000 });
-    expect(await agent("cpu-2", NOW + 60_001)).toMatchObject({
-      ok: false,
-      code: "quota_daily",
-      message: "Daily cloud agent time is used up.",
-    });
-    expect(
-      (await agent("cpu-3", NOW + 60_000 + OWNER_GATE_DAILY_WINDOW_MS + 1)).ok,
-    ).toBe(true);
-  });
-
-  test("uses the plan CPU-minute default and lets unlimited owners skip it", async () => {
-    expect(OWNER_GATE_CPU_MINUTES_PER_DAY).toEqual({
-      free: 45,
-      go: 120,
-      pro: 300,
-    });
-    const admission = (
-      instance: Awaited<ReturnType<typeof open>>["instance"],
-      turnId: string,
-      now: number,
-    ) =>
-      instance.admit({
-        lane: "agent",
-        turnId,
-        conversationId: "conversation-1",
-        workspace: turnId,
-        now,
-      });
-
-    const finite = open({ snapshot: sampleOwnerSnapshot({ plan: "free" }) });
-    expect((await admission(finite.instance, "free-1", NOW)).ok).toBe(true);
-    await finite.instance.release({
-      turnId: "free-1",
-      now: NOW + 45 * 60_000,
-    });
-    expect(
-      await admission(finite.instance, "free-2", NOW + 45 * 60_000 + 1),
-    ).toMatchObject({ ok: false, code: "quota_daily" });
-
-    const unlimited = open({
-      snapshot: sampleOwnerSnapshot({ plan: "free", unlimited: true }),
-    });
-    expect((await admission(unlimited.instance, "unlimited-1", NOW)).ok).toBe(
-      true,
-    );
-    await unlimited.instance.release({
-      turnId: "unlimited-1",
-      now: NOW + 45 * 60_000,
-    });
-    expect(
-      (
-        await admission(
-          unlimited.instance,
-          "unlimited-2",
-          NOW + 45 * 60_000 + 1,
-        )
-      ).ok,
-    ).toBe(true);
-  });
-
-  test("a bypass admission registers the run without consulting windows or ceilings", async () => {
-    const { instance } = open({
-      snapshot: sampleOwnerSnapshot({
-        quotas: {
-          chat: { burstStarts: 1, dailyTurns: 1, concurrent: 1 },
-          agent: { burstStarts: 1, dailyTurns: 1, concurrent: 1 },
-        },
-      }),
-    });
-    expect((await instance.admit(chat("b1"))).ok).toBe(true);
-    expect((await instance.admit(chat("b2"))).ok).toBe(false);
-    const wake = await instance.admit(chat("wake-1", NOW, { quota: "bypass" }));
-    expect(wake).toMatchObject({ ok: true, replayed: false });
-    const status = await instance.status(NOW);
-    expect(status.running.map((row) => row.turnId)).toEqual(["b1", "wake-1"]);
-    // The wake occupied a slot but did not spend a start the user chose.
-    expect(status.starts.chat).toBe(1);
-    await instance.release({ turnId: "b1" });
-    await instance.release({ turnId: "wake-1" });
-    expect((await instance.admit(chat("b3", NOW + 1))).ok).toBe(false);
-    expect(
-      (await instance.admit(chat("b4", NOW + OWNER_GATE_DAILY_WINDOW_MS + 1)))
-        .ok,
-    ).toBe(true);
-  });
-
-  test("anonymous owners may chat but cannot enter the agent lane, even with quota bypass", async () => {
+  test("anonymous owners may chat but cannot enter the agent lane", async () => {
     const { instance } = open({
       snapshot: sampleOwnerSnapshot({ isAnonymous: true, identityLevel: 0 }),
     });
     expect((await instance.admit(chat("anonymous-chat"))).ok).toBe(true);
     await instance.release({ turnId: "anonymous-chat" });
-    for (const quota of ["enforce", "bypass"] as const) {
-      await expect(
-        instance.admit({
-          lane: "agent",
-          turnId: `anonymous-agent-${quota}`,
-          conversationId: "conversation-1",
-          workspace: "world",
-          quota,
-          now: NOW,
-        }),
-      ).resolves.toMatchObject({
-        ok: false,
-        code: "sign_in_required",
-        retryable: false,
-      });
-    }
+    await expect(
+      instance.admit({
+        lane: "agent",
+        turnId: "anonymous-agent",
+        conversationId: "conversation-1",
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "sign_in_required",
+      retryable: false,
+    });
   });
 
   test("maps a suspended owner to owner_suspended for turns and dispatches", async () => {
@@ -703,7 +457,7 @@ describe("owner snapshot parsing", () => {
   test("accepts a well-formed snapshot for the addressed owner only", () => {
     expect(parseOwnerSnapshot(sampleOwnerSnapshot(), "owner-1")).toMatchObject({
       ownerId: "owner-1",
-      quotas: { chat: { burstStarts: 20 } },
+      plan: "pro",
     });
     expect(parseOwnerSnapshot(sampleOwnerSnapshot(), "owner-2")).toBeNull();
     for (const identityLevel of [0, 1, 2, 3] as const) {
@@ -714,7 +468,7 @@ describe("owner snapshot parsing", () => {
     }
   });
 
-  test("rejects malformed quotas, allowances, executions, and engines", () => {
+  test("rejects malformed allowances, executions, and engines", () => {
     const base = sampleOwnerSnapshot();
     for (const broken of [
       { ...base, v: 2 },
@@ -728,14 +482,6 @@ describe("owner snapshot parsing", () => {
       { ...base, enforcement: { status: "blocked" } },
       { ...base, enforcement: { status: "suspended", until: "later" } },
       { ...base, plan: "enterprise" },
-      { ...base, quotas: { chat: base.quotas.chat } },
-      {
-        ...base,
-        quotas: {
-          ...base.quotas,
-          chat: { ...base.quotas.chat, concurrent: -1 },
-        },
-      },
       { ...base, allowance: { ...base.allowance, audience: "vip" } },
       { ...base, allowance: { ...base.allowance, budgetMicroCents: NaN } },
       { ...base, execution: { ...base.execution, provider: "anthropic" } },

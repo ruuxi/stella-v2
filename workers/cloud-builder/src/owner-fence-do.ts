@@ -42,7 +42,7 @@ export type OwnerPurgeFence = {
       sessionId: string;
       turnId: string;
       namespace: "build" | "orchestrator" | "activity";
-      role: "run" | "aux" | "orchestrator" | "activity" | "transfer" | "world";
+      role: "run" | "aux" | "orchestrator" | "activity" | "transfer";
       /** Convex owner-lifecycle generation carried by the admitted activity. */
       ownerGeneration?: string;
       /** Fence generation returned when this exact lease was admitted. */
@@ -105,7 +105,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       sessionId?: string;
       turnId?: string;
       namespace?: "build" | "orchestrator" | "activity";
-      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer" | "world";
+      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer";
       workspace?: string;
       expiresAt?: number;
     };
@@ -280,9 +280,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
               ? "transfer"
               : body.role === "activity"
                 ? "activity"
-                : body.role === "world"
-                  ? "world"
-                  : "aux";
+                : "aux";
       const expiresAt =
         typeof body.expiresAt === "number" &&
         Number.isFinite(body.expiresAt) &&
@@ -299,7 +297,6 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
         namespace,
         role,
         expiresAt,
-        ...(role === "world" ? { worldSlot: 1 as const } : {}),
       };
       if (
         !leaseStore.activeLease(body.leaseId, now) &&
@@ -341,11 +338,8 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       if (result.status === "conflict") {
         return json(
           {
-            code: result.code === "world_busy" ? "world_busy" : "bad_request",
-            error:
-              result.code === "world_busy"
-                ? "Another world is already attached for this owner."
-                : "Owner lease identity conflicts.",
+            code: "bad_request",
+            error: "Owner lease identity conflicts.",
           },
           409,
         );

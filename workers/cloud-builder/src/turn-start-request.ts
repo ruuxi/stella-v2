@@ -251,9 +251,6 @@ export const TURN_START_ERROR_STATUS: Record<CloudTurnStartErrorCode, number> =
     bad_request: 400,
     conversation_locked: 423,
     idempotency_conflict: 409,
-    quota_burst: 429,
-    quota_daily: 429,
-    quota_concurrency: 429,
     owner_purged: 410,
     sign_in_required: 403,
     owner_suspended: 403,
@@ -349,6 +346,13 @@ export const parseCloudAgentTurnStartRequest = (
   if (!conversationId) return fail("conversationId is required.");
   if (!threadId) return fail("threadId is required.");
   if (
+    !Number.isSafeInteger(value.agentDepth) ||
+    (value.agentDepth as number) < 1 ||
+    (value.agentDepth as number) > 2
+  ) {
+    return fail("agentDepth must be 1 or 2.");
+  }
+  if (
     !Number.isSafeInteger(value.attemptGeneration) ||
     (value.attemptGeneration as number) < 1
   ) {
@@ -387,6 +391,7 @@ export const parseCloudAgentTurnStartRequest = (
     ownerGeneration,
     conversationId,
     threadId,
+    agentDepth: value.agentDepth as number,
     attemptGeneration: value.attemptGeneration as number,
     prompt,
     description,
@@ -409,6 +414,19 @@ export const parseCloudAgentTurnStartRequest = (
     const parentTurnId = bounded(value.parentTurnId);
     if (!parentTurnId) return fail("parentTurnId is malformed.");
     request.parentTurnId = parentTurnId;
+  }
+  if (value.parentThreadId !== undefined) {
+    const parentThreadId = bounded(value.parentThreadId, MAX_THREAD_ID_CHARS);
+    if (!parentThreadId) return fail("parentThreadId is malformed.");
+    request.parentThreadId = parentThreadId;
+  }
+  if (
+    (request.agentDepth === 1 && request.parentThreadId !== undefined) ||
+    (request.agentDepth === 2 && request.parentThreadId === undefined)
+  ) {
+    return fail(
+      "parentThreadId must be absent at depth 1 and present at depth 2.",
+    );
   }
   if (value.originDeviceId !== undefined) {
     const originDeviceId = bounded(value.originDeviceId);

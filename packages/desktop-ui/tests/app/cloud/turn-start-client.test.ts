@@ -321,57 +321,6 @@ describe("cloud turn start client", () => {
     });
   });
 
-  test("maps 429 to quota errors and surfaces retryAfterMs", async () => {
-    const { fetch } = fetchMock(
-      jsonResponse(
-        429,
-        errorBody({
-          code: "quota_burst",
-          message: "Slow down.",
-          retryable: true,
-          retryAfterMs: 12_400,
-        }),
-      ),
-    );
-    const error = await startCloudTurn({
-      socketOrigin: ORIGIN,
-      conversationId: CONVERSATION_ID,
-      request,
-      getToken: tokens("jwt-1"),
-      fetch,
-    }).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(CloudTurnStartClientError);
-    expect(error).toMatchObject({
-      code: "quota_burst",
-      status: 429,
-      retryable: true,
-      retryAfterMs: 12_400,
-      message: "Slow down. Try again in 13s.",
-    });
-    expect((error as CloudTurnStartClientError).isQuota).toBe(true);
-
-    // A Retry-After header stands in when the body names no wait.
-    const headerOnly = fetchMock(
-      jsonResponse(429, errorBody({ code: "quota_daily", retryable: true }), {
-        "retry-after": "90",
-      }),
-    );
-    await expect(
-      startCloudTurn({
-        socketOrigin: ORIGIN,
-        conversationId: CONVERSATION_ID,
-        request,
-        getToken: tokens("jwt-1"),
-        fetch: headerOnly.fetch,
-      }),
-    ).rejects.toMatchObject({
-      code: "quota_daily",
-      retryAfterMs: 90_000,
-      message:
-        "You've reached today's cloud chat limit. Try again tomorrow. Try again in 90s.",
-    });
-  });
-
   test("falls back to a status-derived code when the body is not a contract error", async () => {
     const { fetch } = fetchMock(new Response("boom", { status: 503 }));
     await expect(

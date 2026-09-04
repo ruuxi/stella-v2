@@ -86,93 +86,6 @@ describe("owner fence SQLite store", () => {
     });
   });
 
-  test("enforces one active world slot and frees it through expiry", () => {
-    const store = openStore();
-    const first = registration("world-1", {
-      namespace: "build",
-      role: "world",
-      worldSlot: 1,
-      expiresAt: NOW + 1_000,
-    });
-    const second = registration("world-2", {
-      namespace: "build",
-      role: "world",
-      worldSlot: 1,
-      sessionId: "session-2",
-      turnId: "turn-2",
-      expiresAt: NOW + 60_000,
-    });
-
-    expect(store.registerLeaseExact(first, NOW).status).toBe("registered");
-    expect(store.registerLeaseExact(second, NOW)).toMatchObject({
-      status: "conflict",
-      code: "world_busy",
-      existing: { leaseId: "world-1" },
-    });
-    expect(store.nextExpiry()).toBe(NOW + 1_000);
-
-    expect(store.registerLeaseExact(second, NOW + 1_001).status).toBe(
-      "registered",
-    );
-    expect(store.lease("world-1")).toMatchObject({
-      state: "retired",
-      retiredAt: NOW + 1_001,
-    });
-    expect(
-      store.activeLeases(NOW + 1_001).map((lease) => lease.leaseId),
-    ).toEqual(["world-2"]);
-  });
-
-  test("backs world exclusivity with a partial SQLite unique index", () => {
-    const fake = openSqlStorageFake();
-    opened.push(fake);
-    const store = new OwnerFenceStore(fake.sql);
-    store.initialize(NOW);
-    store.registerLeaseExact(
-      registration("world-index-1", {
-        namespace: "activity",
-        role: "world",
-        worldSlot: 1,
-      }),
-      NOW,
-    );
-
-    expect(() =>
-      fake.sql.exec(
-        `INSERT INTO owner_fence_leases (
-           lease_id, owner_id, owner_generation, reservation_generation,
-           session_id, turn_id, namespace, role, state, expires_at,
-           world_slot, created_at, renewed_at, retired_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 'activity', 'world', 'active', ?, 1, ?, ?, NULL)`,
-        "world-index-2",
-        "owner-1",
-        "owner-generation-1",
-        "fence-generation-1",
-        "session-2",
-        "turn-2",
-        NOW + 60_000,
-        NOW,
-        NOW,
-      ),
-    ).toThrow();
-  });
-
-  test("requires world role and slot to agree", () => {
-    const store = openStore();
-    expect(() =>
-      store.registerLeaseExact(
-        registration("bad-world", {
-          namespace: "activity",
-          role: "world",
-        }),
-        NOW,
-      ),
-    ).toThrow(OwnerFenceLeaseValidationError);
-    expect(() =>
-      store.registerLeaseExact(registration("bad-run", { worldSlot: 1 }), NOW),
-    ).toThrow(OwnerFenceLeaseValidationError);
-  });
-
   test("renews only an exact live identity and never resurrects expiry", () => {
     const store = openStore();
     const input = registration("lease-renew", { expiresAt: NOW + 1_000 });
@@ -284,22 +197,23 @@ describe("owner fence SQLite store", () => {
     ).toMatchObject({ inserted: 0, replayed: 1, conflicts: [] });
   });
 
-  test("builds rollback mirrors without truncating and maps world to build/run", () => {
+  test("builds rollback mirrors without truncating active leases", () => {
     const store = openStore();
-    const world = registration("world-mirror", {
-      namespace: "build",
-      role: "world",
-      worldSlot: 1,
+    const activity = registration("activity-mirror", {
+      namespace: "activity",
+      role: "activity",
     });
-    store.registerLeaseExact(world, NOW);
+    store.registerLeaseExact(activity, NOW);
     store.registerLeaseExact(registration("ordinary-mirror"), NOW);
 
-    expect(ownerFenceLeaseToLegacyLease(store.lease("world-mirror")!)).toEqual({
-      leaseId: "world-mirror",
+    expect(
+      ownerFenceLeaseToLegacyLease(store.lease("activity-mirror")!),
+    ).toEqual({
+      leaseId: "activity-mirror",
       sessionId: "session-1",
       turnId: "turn-1",
-      namespace: "build",
-      role: "run",
+      namespace: "activity",
+      role: "activity",
       ownerGeneration: "owner-generation-1",
       reservationGeneration: "fence-generation-1",
       expiresAt: NOW + 60_000,
@@ -313,8 +227,8 @@ describe("owner fence SQLite store", () => {
     expect(complete.status).toBe("complete");
     if (complete.status === "complete") {
       expect(Object.keys(complete.active).sort()).toEqual([
+        "activity-mirror",
         "ordinary-mirror",
-        "world-mirror",
       ]);
     }
   });

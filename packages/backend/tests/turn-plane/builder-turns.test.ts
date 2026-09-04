@@ -22,7 +22,14 @@ describe("startBuilderTurn", () => {
   it("posts the contract request with the service secret and owner headers", async () => {
     const { calls, fetchImpl } = capture(() =>
       Response.json(
-        { protocol: 1, conversationId: "conv-1", turnId: "turn-1", accepted: true, replayed: false, createdConversation: true },
+        {
+          protocol: 1,
+          conversationId: "conv-1",
+          turnId: "turn-1",
+          accepted: true,
+          replayed: false,
+          createdConversation: true,
+        },
         { status: 202 },
       ),
     );
@@ -49,7 +56,9 @@ describe("startBuilderTurn", () => {
       createdConversation: true,
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe("https://builder.test/conversations/conv%201/turns");
+    expect(calls[0]!.url).toBe(
+      "https://builder.test/conversations/conv%201/turns",
+    );
     const headers = calls[0]!.init.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer service-secret");
     expect(headers["x-stella-owner-id"]).toBe("owner-1");
@@ -65,15 +74,21 @@ describe("startBuilderTurn", () => {
   });
 
   it("maps contract errors to typed, retryability-aware failures", async () => {
-    const quota = capture(() =>
+    const refused = capture(() =>
       Response.json(
-        { error: { code: "quota_daily", message: "Daily limit.", retryable: false, retryAfterMs: 3_600_000 } },
-        { status: 429 },
+        {
+          error: {
+            code: "generation_stale",
+            message: "Generation changed.",
+            retryable: false,
+          },
+        },
+        { status: 403 },
       ),
     );
     const failure = await startBuilderTurn({
       endpoint,
-      fetch: quota.fetchImpl,
+      fetch: refused.fetchImpl,
       ownerId: "o",
       ownerGeneration: "g",
       conversationId: "c",
@@ -81,11 +96,10 @@ describe("startBuilderTurn", () => {
     }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(BuilderTurnError);
     expect(failure).toMatchObject({
-      code: "quota_daily",
-      status: 429,
+      code: "generation_stale",
+      status: 403,
       retryable: false,
-      retryAfterMs: 3_600_000,
-      message: "Daily limit.",
+      message: "Generation changed.",
     });
 
     const outage = capture(() => new Response("bad gateway", { status: 502 }));
@@ -97,7 +111,11 @@ describe("startBuilderTurn", () => {
       conversationId: "c",
       request: { clientMsgId: "client-msg-0001", prompt: "x" },
     }).catch((error: unknown) => error);
-    expect(transient).toMatchObject({ code: "internal", status: 502, retryable: true });
+    expect(transient).toMatchObject({
+      code: "internal",
+      status: 502,
+      retryable: true,
+    });
 
     const malformed = capture(() => Response.json({ accepted: true }));
     const bad = await startBuilderTurn({
@@ -121,7 +139,11 @@ describe("startBuilderTurn", () => {
       conversationId: "c",
       request: { clientMsgId: "client-msg-0001", prompt: "x" },
     }).catch((error: unknown) => error);
-    expect(failure).toMatchObject({ code: "unconfigured", status: 503, retryable: false });
+    expect(failure).toMatchObject({
+      code: "unconfigured",
+      status: 503,
+      retryable: false,
+    });
     expect(calls).toHaveLength(0);
   });
 });
@@ -129,7 +151,12 @@ describe("startBuilderTurn", () => {
 describe("startBuilderAgentTurn", () => {
   it("posts an agent turn to the session route and adopts the requested turn id", async () => {
     const { calls, fetchImpl } = capture(() =>
-      Response.json({ turnId: "turn-9", threadId: "thr-1", attemptGeneration: 1, replayed: true }),
+      Response.json({
+        turnId: "turn-9",
+        threadId: "thr-1",
+        attemptGeneration: 1,
+        replayed: true,
+      }),
     );
     const result = await startBuilderAgentTurn({
       endpoint,
@@ -143,7 +170,12 @@ describe("startBuilderAgentTurn", () => {
         turnId: "turn-9",
         prompt: "do it",
         description: "Do it",
-        execution: { engine: "stella", provider: "stella", model: "stella/default", reasoningEffort: "default" },
+        execution: {
+          engine: "stella",
+          provider: "stella",
+          model: "stella/default",
+          reasoningEffort: "default",
+        },
         audience: "pro",
         budgetMicroCents: 1_000,
         source: "desktop",
@@ -186,12 +218,20 @@ describe("startBuilderAgentTurn", () => {
         turnId: "turn-1",
         prompt: "p",
         description: "d",
-        execution: { engine: "stella", provider: "stella", model: "stella/default", reasoningEffort: "default" },
+        execution: {
+          engine: "stella",
+          provider: "stella",
+          model: "stella/default",
+          reasoningEffort: "default",
+        },
         audience: "free",
         budgetMicroCents: 0,
         source: "placement",
       },
     }).catch((error: unknown) => error);
-    expect(failure).toMatchObject({ code: "idempotency_conflict", retryable: false });
+    expect(failure).toMatchObject({
+      code: "idempotency_conflict",
+      retryable: false,
+    });
   });
 });

@@ -48,6 +48,10 @@ describe("general-agent capability table", () => {
   test("classifies the do-local half exactly as the design pins it", () => {
     expect([...generalAgentToolNamesFor("do_local")]).toEqual([
       "web",
+      "spawn_agent",
+      "send_input",
+      "pause_agent",
+      "agent_status",
       PUBLISH_STELLA_INTERIOR_TOOL_NAME,
     ]);
   });
@@ -97,6 +101,19 @@ describe("pinned resident catalog", () => {
     expect(catalog.map((tool) => tool.name)).toEqual(
       GENERAL_AGENT_TOOL_DESCRIPTORS.map((descriptor) => descriptor.name),
     );
+  });
+
+  test("withholds all orchestration tools from a depth-2 agent", () => {
+    const catalog = createResidentGeneralAgentTools(
+      doLocalStubs(),
+      undefined,
+      undefined,
+      { agentDepth: 2 },
+    );
+    expect(catalog.map((tool) => tool.name)).not.toContain("spawn_agent");
+    expect(catalog.map((tool) => tool.name)).not.toContain("send_input");
+    expect(catalog.map((tool) => tool.name)).not.toContain("pause_agent");
+    expect(catalog.map((tool) => tool.name)).not.toContain("agent_status");
   });
 
   test("carries each descriptor's model-visible surface unchanged", () => {
@@ -205,7 +222,9 @@ describe("pinned resident catalog", () => {
             description: "dynamic worker",
             parameters: { type: "object" } as never,
             execute: async (toolCallId: string) => ({
-              content: [{ type: "text" as const, text: `ran code ${toolCallId}` }],
+              content: [
+                { type: "text" as const, text: `ran code ${toolCallId}` },
+              ],
               details: null,
             }),
           },

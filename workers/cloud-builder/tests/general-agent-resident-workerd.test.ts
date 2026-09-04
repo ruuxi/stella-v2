@@ -181,6 +181,10 @@ describe("resident general-agent turn in workerd", () => {
       "web",
       "Read",
       "code",
+      "spawn_agent",
+      "send_input",
+      "pause_agent",
+      "agent_status",
       "publish_stella_interior",
     ]);
   }, 90_000);

@@ -17,7 +17,7 @@
  * arrives from the Worker with a verified caller on trusted headers; the DO
  * decides idempotency (by `clientMsgId`), ownership (a fresh conversation
  * adopts its first verified caller — conversation ids are client-minted
- * UUIDs), quota (through the owner gate), the execution, and mints the turn's
+ * UUIDs), owner policy (through the owner gate), the execution, and mints the turn's
  * two capabilities itself. Convex learns about all of it through the
  * `TURN_OUTBOX` queue: `conversation.created`, `turn.started`, every
  * `turn.event` (with a DO-assigned `eventSeq`), `conversation.index`,
@@ -75,6 +75,12 @@ import {
   WEB_TOOL_NAME,
   WEB_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/web-def.js";
+import {
+  AGENT_STATUS_TOOL_DESCRIPTOR,
+  PAUSE_AGENT_TOOL_DESCRIPTOR,
+  SEND_INPUT_TOOL_DESCRIPTOR,
+  SPAWN_AGENT_TOOL_DESCRIPTOR,
+} from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import type { TSchema } from "@sinclair/typebox";
 import {
   createCloudRelayModel,
@@ -87,15 +93,12 @@ import {
   type ConversationCreatedEvent,
   type ConversationDeletedEvent,
   type OutboxEvent,
-  type ThreadSpawnedEvent,
   type TurnEventEvent,
   type TurnStartedEvent,
 } from "@stella/contracts/turn-plane/outbox";
 import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
-  type CloudAgentTurnStartRequest,
-  type CloudAgentTurnStartResponse,
   type CloudTurnLane,
   type CloudTurnSource,
   type CloudTurnStartRequest,
@@ -114,7 +117,6 @@ import {
 } from "./owner-gate.js";
 import { enqueueOutbox } from "./outbox.js";
 import {
-  HEADER_GATE_ADMITTED,
   HEADER_TURN_AUTH_KIND,
   conversationTitleFor,
   parseCloudExecutionSelection,
@@ -131,6 +133,22 @@ import {
 } from "./cloud-skill-tools.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex } from "./hash.js";
+import {
+  agentStatusResult as sharedAgentStatusResult,
+  commitCloudAgentToolOutcome as commitSharedCloudAgentToolOutcome,
+  dispatchCloudAgentTurn,
+  isCloudAgentControlActive,
+  pauseResult as sharedPauseResult,
+  readCloudAgentToolOutcome as readSharedCloudAgentToolOutcome,
+  rememberCloudAgentControlReceipt as rememberSharedCloudAgentControlReceipt,
+  requireCloudAgentControlReceipt as requireSharedCloudAgentControlReceipt,
+  steerCloudAgent,
+  toolFingerprint as sharedToolFingerprint,
+  toolScopedId as sharedToolScopedId,
+  type CloudAgentControlReceipt,
+  type CloudAgentToolKind,
+  type CloudAgentToolOutcome,
+} from "./cloud-agent-dispatch.js";
 import {
   authorizeDevAcceptanceProbe,
   DEV_ACCEPTANCE_PROBE_STATE_KEY,
@@ -323,58 +341,6 @@ export type ChatTurnRequest = {
   queuedAt?: number;
 };
 
-type CloudAgentControlStatus =
-  | "running"
-  | "waiting_for_user"
-  | "resuming"
-  | "completed"
-  | "failed"
-  | "canceled";
-
-const CLOUD_AGENT_CONTROL_STATUSES: readonly CloudAgentControlStatus[] = [
-  "running",
-  "waiting_for_user",
-  "resuming",
-  "completed",
-  "failed",
-  "canceled",
-];
-
-/** Running or about to be: the thread cannot take a follow-up yet. */
-const isCloudAgentControlActive = (status: CloudAgentControlStatus): boolean =>
-  status === "running" || status === "resuming";
-
-type CloudAgentControlReceipt = {
-  threadId: string;
-  attemptGeneration: number;
-  threadUpdatedAt: number;
-  status: CloudAgentControlStatus;
-  /** The agent turn that ran this attempt; what a pause cancels. */
-  turnId?: string;
-  /** The execution the thread runs with; a continuation inherits it. */
-  execution?: CloudExecutionSelection;
-  /**
-   * The spawn's short label, kept so `agent_status` can name the thread
-   * without a Convex round trip. A lifecycle receipt never carries it.
-   */
-  description?: string;
-};
-
-/** Longest description a control receipt keeps; the spawn schema is shorter. */
-const CLOUD_AGENT_DESCRIPTION_CHARS = 200;
-
-/** The one workspace a cloud owner has: one running sandboxed agent at a time. */
-const OWNER_WORLD_WORKSPACE = "world";
-
-type CloudAgentToolKind = "spawn_agent" | "send_input" | "pause_agent";
-
-type CloudAgentToolOutcome = {
-  kind: CloudAgentToolKind;
-  fingerprint: string;
-  control: CloudAgentControlReceipt;
-  disposition?: "paused" | "pending" | "already_terminal";
-};
-
 /**
  * Durable admission intent, keyed by `clientMsgId`. Written before the
  * owner-fence register so a lost response replays against the exact same
@@ -498,9 +464,8 @@ const LOCAL_TURN_LEASE_KEY = "localTurnLease";
 const LOCAL_TURN_RECEIPT_PREFIX = "localTurnReceipt:";
 const LOCAL_CLIENT_MESSAGE_PREFIX = "localClientMessage:";
 const CHAT_TURN_ADMISSION_PREFIX = "chatTurnAdmission:";
-const CLOUD_AGENT_CONTROL_PREFIX = "cloudAgentControl:";
-const CLOUD_AGENT_TOOL_OUTCOME_PREFIX = "cloudAgentToolOutcome:";
-const OWNER_FENCE_LEASE_RECEIPT_PREFIX = "ownerFenceLeaseReceipt:";
+const ORCHESTRATOR_FENCE_LEASE_RECEIPT_PREFIX =
+  "orchestratorFenceLeaseReceipt:";
 const OWNER_FENCE_RUN_SLOT_PREFIX = "ownerFenceRunSlot:";
 const OWNER_FENCE_ID_HEADER = "x-stella-owner-fence-id";
 const localTurnReceiptKey = (turnId: string): string =>
@@ -523,12 +488,8 @@ const CONVERSATION_PROJECTED_KEY = "conversationProjected";
 const OUTBOX_DEBT_KEY = "outboxDebt";
 const OUTBOX_DEBT_MAX = 64;
 const OUTBOX_DEBT_RETRY_MS = 30_000;
-const cloudAgentControlKey = (threadId: string): string =>
-  `${CLOUD_AGENT_CONTROL_PREFIX}${threadId}`;
-const cloudAgentToolOutcomeKey = (turnId: string, toolCallId: string): string =>
-  `${CLOUD_AGENT_TOOL_OUTCOME_PREFIX}${turnId}:${toolCallId}`;
-const ownerFenceLeaseReceiptKey = (leaseId: string): string =>
-  `${OWNER_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
+const orchestratorFenceLeaseReceiptKey = (leaseId: string): string =>
+  `${ORCHESTRATOR_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
 
 const isDurableChatTurnAdmissionIntent = (
   receipt: Partial<ChatTurnAdmissionReceipt>,
@@ -617,108 +578,6 @@ const staleOwnerGenerationResponse = (): Response =>
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
-
-const normalizeCloudAgentControlReceipt = (
-  value: unknown,
-): CloudAgentControlReceipt | null => {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Partial<CloudAgentControlReceipt>;
-  const threadId =
-    typeof candidate.threadId === "string" ? candidate.threadId.trim() : "";
-  const status = candidate.status;
-  if (
-    !threadId ||
-    threadId.length > 256 ||
-    !Number.isSafeInteger(candidate.attemptGeneration) ||
-    candidate.attemptGeneration! < 1 ||
-    !Number.isSafeInteger(candidate.threadUpdatedAt) ||
-    candidate.threadUpdatedAt! < 0 ||
-    !CLOUD_AGENT_CONTROL_STATUSES.includes(status as CloudAgentControlStatus)
-  ) {
-    return null;
-  }
-  const turnId =
-    typeof candidate.turnId === "string" ? candidate.turnId.trim() : "";
-  if (candidate.turnId !== undefined && (!turnId || turnId.length > 128)) {
-    return null;
-  }
-  const execution =
-    candidate.execution === undefined
-      ? undefined
-      : parseCloudExecutionSelection(candidate.execution);
-  if (candidate.execution !== undefined && !execution) return null;
-  // Tolerated rather than validated: an older receipt has none, and a
-  // malformed one must not make the whole control state unreadable.
-  const description =
-    typeof candidate.description === "string"
-      ? candidate.description.trim().slice(0, CLOUD_AGENT_DESCRIPTION_CHARS)
-      : "";
-  return {
-    threadId,
-    attemptGeneration: candidate.attemptGeneration!,
-    threadUpdatedAt: candidate.threadUpdatedAt!,
-    status: status as CloudAgentControlStatus,
-    ...(turnId ? { turnId } : {}),
-    ...(execution ? { execution } : {}),
-    ...(description ? { description } : {}),
-  };
-};
-
-const advanceCloudAgentControlReceipt = (
-  existing: CloudAgentControlReceipt | null,
-  receipt: CloudAgentControlReceipt,
-): CloudAgentControlReceipt => {
-  if (!existing) return receipt;
-  if (receipt.attemptGeneration < existing.attemptGeneration) return existing;
-  if (receipt.attemptGeneration > existing.attemptGeneration) return receipt;
-
-  // Time is correlation data, not a logical revision: two Convex mutations
-  // can share a millisecond, and a regressed wall clock must not strand a
-  // completed attempt as running. Within one generation the state machine is
-  // authoritative — running may advance to one immutable terminal status,
-  // while a delayed running receipt can never resurrect that attempt.
-  const existingTerminal = !isCloudAgentControlActive(existing.status);
-  const receiptTerminal = !isCloudAgentControlActive(receipt.status);
-  // The turn id and execution are facts of the attempt, not of its status:
-  // a lifecycle receipt from the BuildSession carries neither, and advancing
-  // the status must not forget them.
-  const merged = (
-    winner: CloudAgentControlReceipt,
-  ): CloudAgentControlReceipt => ({
-    ...winner,
-    ...(winner.turnId === undefined && existing.turnId !== undefined
-      ? { turnId: existing.turnId }
-      : {}),
-    ...(winner.execution === undefined && existing.execution !== undefined
-      ? { execution: existing.execution }
-      : {}),
-    ...(winner.description === undefined && existing.description !== undefined
-      ? { description: existing.description }
-      : {}),
-  });
-  if (!existingTerminal && receiptTerminal) return merged(receipt);
-  if (existingTerminal && !receiptTerminal) return existing;
-  if (existingTerminal && receiptTerminal) {
-    if (receipt.status !== existing.status) {
-      throw new Error("A terminal cloud agent attempt cannot be rewritten.");
-    }
-    return receipt.threadUpdatedAt > existing.threadUpdatedAt
-      ? merged(receipt)
-      : existing;
-  }
-  return receipt.threadUpdatedAt > existing.threadUpdatedAt
-    ? merged(receipt)
-    : existing;
-};
-
-const sameCloudAgentControlReceipt = (
-  left: CloudAgentControlReceipt,
-  right: CloudAgentControlReceipt,
-): boolean =>
-  left.threadId === right.threadId &&
-  left.attemptGeneration === right.attemptGeneration &&
-  left.threadUpdatedAt === right.threadUpdatedAt &&
-  left.status === right.status;
 
 const log = (
   level: "info" | "error",
@@ -902,28 +761,6 @@ const previewArgs = (args: unknown): string => {
     return "";
   }
 };
-
-const SPAWN_AGENT_PARAMETERS = {
-  type: "object",
-  properties: {
-    description: {
-      type: "string",
-      description:
-        "One short, user-friendly sentence summarizing what this work is about.",
-    },
-    prompt: {
-      type: "string",
-      description:
-        "Detailed instructions for the sub-agent. This is the agent's only context.",
-    },
-    model: {
-      type: "string",
-      description:
-        'Optional route for this one spawn. Omit to inherit this conversation exactly. Use "claude[/model]", "codex[/model]", or a canonical "stella/..." model. Append :low, :medium, :high, or :xhigh to preserve an explicitly requested reasoning effort.',
-    },
-  },
-  required: ["description", "prompt"],
-} as const;
 
 export class OrchestratorSession extends DurableObject<Env> {
   // Serializes turns: Convex can dispatch a wake turn while a user turn is
@@ -1124,7 +961,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   private async hasOwnerFenceLeaseRetirementDebt(): Promise<boolean> {
     const receipts = await this.ctx.storage.list<OwnerFenceLeaseReceipt>({
-      prefix: OWNER_FENCE_LEASE_RECEIPT_PREFIX,
+      prefix: ORCHESTRATOR_FENCE_LEASE_RECEIPT_PREFIX,
       limit: 100,
     });
     return [...receipts.values()].some(
@@ -1134,7 +971,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   private async retryOwnerFenceLeaseRetirements(): Promise<void> {
     const receipts = await this.ctx.storage.list<OwnerFenceLeaseReceipt>({
-      prefix: OWNER_FENCE_LEASE_RECEIPT_PREFIX,
+      prefix: ORCHESTRATOR_FENCE_LEASE_RECEIPT_PREFIX,
       limit: 100,
     });
     for (const receipt of receipts.values()) {
@@ -1154,7 +991,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     receipt: OwnerFenceLeaseReceipt,
     generation = receipt.registrationGeneration,
   ): Promise<boolean> {
-    const receiptKey = ownerFenceLeaseReceiptKey(receipt.leaseId);
+    const receiptKey = orchestratorFenceLeaseReceiptKey(receipt.leaseId);
     let pending = receipt;
     await this.ctx.blockConcurrencyWhile(async () => {
       const current =
@@ -1249,7 +1086,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       const leaseId = freshLease
         ? crypto.randomUUID()
         : (turn.ownerPurgeLeaseId ?? slot?.leaseId ?? crypto.randomUUID());
-      const receiptKey = ownerFenceLeaseReceiptKey(leaseId);
+      const receiptKey = orchestratorFenceLeaseReceiptKey(leaseId);
       const current =
         await this.ctx.storage.get<OwnerFenceLeaseReceipt>(receiptKey);
       if (current && !this.ownerFenceReceiptMatches(current, turn, leaseId)) {
@@ -1345,7 +1182,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
     let committed = false;
     await this.ctx.blockConcurrencyWhile(async () => {
-      const receiptKey = ownerFenceLeaseReceiptKey(receipt.leaseId);
+      const receiptKey = orchestratorFenceLeaseReceiptKey(receipt.leaseId);
       const current =
         await this.ctx.storage.get<OwnerFenceLeaseReceipt>(receiptKey);
       if (
@@ -1487,7 +1324,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       throw new OwnerPurgeFenceError();
     }
     const receipt = await this.ctx.storage.get<OwnerFenceLeaseReceipt>(
-      ownerFenceLeaseReceiptKey(turn.ownerPurgeLeaseId),
+      orchestratorFenceLeaseReceiptKey(turn.ownerPurgeLeaseId),
     );
     if (
       !receipt ||
@@ -1504,7 +1341,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     leaseId: string,
     generation?: string,
   ): Promise<boolean> {
-    const receiptKey = ownerFenceLeaseReceiptKey(leaseId);
+    const receiptKey = orchestratorFenceLeaseReceiptKey(leaseId);
     let receipt =
       await this.ctx.storage.get<OwnerFenceLeaseReceipt>(receiptKey);
     if (receipt && !this.ownerFenceReceiptMatches(receipt, turn, leaseId)) {
@@ -2792,16 +2629,12 @@ export class OrchestratorSession extends DurableObject<Env> {
         return json({ error: "Owner purge lease identity required." }, 400);
       }
       const leaseReceipt = await this.ctx.storage.get<OwnerFenceLeaseReceipt>(
-        ownerFenceLeaseReceiptKey(leaseId),
+        orchestratorFenceLeaseReceiptKey(leaseId),
       );
       const callbackIdentity = { ownerId, ownerGeneration, turnId };
       const receiptMatches = Boolean(
         leaseReceipt &&
-          this.ownerFenceReceiptMatches(
-            leaseReceipt,
-            callbackIdentity,
-            leaseId,
-          ),
+        this.ownerFenceReceiptMatches(leaseReceipt, callbackIdentity, leaseId),
       );
       if (leaseReceipt && !receiptMatches) {
         return json({ error: "Owner purge lease identity is stale." }, 409);
@@ -3165,9 +2998,6 @@ export class OrchestratorSession extends DurableObject<Env> {
         turnId,
         conversationId,
         ...(expectedGeneration ? { expectedGeneration } : {}),
-        // An agent-completion wake is the system finishing the user's own
-        // request; a burst window must never swallow it.
-        quota: lane === "wake" ? "bypass" : "enforce",
       });
       if (!admission.ok) {
         return turnStartErrorResponse(
@@ -5057,13 +4887,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     ]);
     return Boolean(
       retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
-        localLease ||
-        queued.size > 0 ||
-        this.live ||
-        this.activeTurnId ||
-        this.currentAgent ||
-        this.currentTurnCancellation ||
-        this.journal.inboxSize().rows > 0,
+      localLease ||
+      queued.size > 0 ||
+      this.live ||
+      this.activeTurnId ||
+      this.currentAgent ||
+      this.currentTurnCancellation ||
+      this.journal.inboxSize().rows > 0,
     );
   }
 
@@ -5082,10 +4912,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     const row = next.rows[0];
     return Boolean(
       row &&
-        row.seq === throughSeq + 1 &&
-        row.kind === "message" &&
-        row.role === "user" &&
-        row.hidden === 0,
+      row.seq === throughSeq + 1 &&
+      row.kind === "message" &&
+      row.role === "user" &&
+      row.hidden === 0,
     );
   }
 
@@ -8236,19 +8066,10 @@ export class OrchestratorSession extends DurableObject<Env> {
   private async rememberCloudAgentControlReceipt(
     value: unknown,
   ): Promise<CloudAgentControlReceipt> {
-    const receipt = normalizeCloudAgentControlReceipt(value);
-    if (!receipt) {
-      throw new Error("Cloud agent returned an invalid control receipt.");
-    }
-    const key = cloudAgentControlKey(receipt.threadId);
-    const rawExisting = await this.ctx.storage.get<unknown>(key);
-    const existing = normalizeCloudAgentControlReceipt(rawExisting);
-    if (rawExisting !== undefined && !existing) {
-      throw new Error("Cloud agent control state is corrupt.");
-    }
-    const advanced = advanceCloudAgentControlReceipt(existing, receipt);
-    if (advanced !== existing) await this.ctx.storage.put(key, advanced);
-    return advanced;
+    return await rememberSharedCloudAgentControlReceipt(
+      this.ctx.storage,
+      value,
+    );
   }
 
   private async readCloudAgentToolOutcome(
@@ -8257,44 +8078,13 @@ export class OrchestratorSession extends DurableObject<Env> {
     kind: CloudAgentToolKind,
     fingerprint: string,
   ): Promise<CloudAgentToolOutcome | null> {
-    const raw = await this.ctx.storage.get<unknown>(
-      cloudAgentToolOutcomeKey(turn.turnId, toolCallId),
-    );
-    if (raw === undefined) return null;
-    if (!raw || typeof raw !== "object") {
-      throw new Error("Cloud agent tool outcome is corrupt.");
-    }
-    const candidate = raw as Partial<CloudAgentToolOutcome>;
-    const control = normalizeCloudAgentControlReceipt(candidate.control);
-    if (
-      candidate.kind !== kind ||
-      typeof candidate.fingerprint !== "string" ||
-      !candidate.fingerprint ||
-      !control ||
-      (candidate.disposition !== undefined &&
-        !["paused", "pending", "already_terminal"].includes(
-          candidate.disposition,
-        ))
-    ) {
-      throw new Error("Cloud agent tool outcome is corrupt.");
-    }
-    if (candidate.fingerprint !== fingerprint) {
-      throw new Error("That cloud agent tool call was replayed differently.");
-    }
-    const controlKey = cloudAgentControlKey(control.threadId);
-    const rawCurrent = await this.ctx.storage.get<unknown>(controlKey);
-    const current = normalizeCloudAgentControlReceipt(rawCurrent);
-    if (rawCurrent !== undefined && !current) {
-      throw new Error("Cloud agent control state is corrupt.");
-    }
-    const advanced = advanceCloudAgentControlReceipt(current, control);
-    if (advanced !== current) await this.ctx.storage.put(controlKey, advanced);
-    return {
+    return await readSharedCloudAgentToolOutcome({
+      storage: this.ctx.storage,
+      parentTurnId: turn.turnId,
+      toolCallId,
       kind,
       fingerprint,
-      control,
-      ...(candidate.disposition ? { disposition: candidate.disposition } : {}),
-    };
+    });
   }
 
   private async commitCloudAgentToolOutcome(
@@ -8305,56 +8095,25 @@ export class OrchestratorSession extends DurableObject<Env> {
     value: unknown,
     disposition?: CloudAgentToolOutcome["disposition"],
   ): Promise<CloudAgentToolOutcome> {
-    const existingOutcome = await this.readCloudAgentToolOutcome(
-      turn,
+    return await commitSharedCloudAgentToolOutcome({
+      storage: this.ctx.storage,
+      parentTurnId: turn.turnId,
       toolCallId,
       kind,
       fingerprint,
-    );
-    if (existingOutcome) return existingOutcome;
-    const receipt = normalizeCloudAgentControlReceipt(value);
-    if (!receipt) {
-      throw new Error("Cloud agent returned an invalid control receipt.");
-    }
-    const controlKey = cloudAgentControlKey(receipt.threadId);
-    const rawExisting = await this.ctx.storage.get<unknown>(controlKey);
-    const existing = normalizeCloudAgentControlReceipt(rawExisting);
-    if (rawExisting !== undefined && !existing) {
-      throw new Error("Cloud agent control state is corrupt.");
-    }
-    const control = advanceCloudAgentControlReceipt(existing, receipt);
-    // One durable write closes the response-loss window: after this point a
-    // retry finds the exact tool outcome before consulting mutable status.
-    const outcome: CloudAgentToolOutcome = {
-      kind,
-      fingerprint,
-      control: receipt,
+      value,
       ...(disposition ? { disposition } : {}),
-    };
-    await this.ctx.storage.put({
-      [controlKey]: control,
-      [cloudAgentToolOutcomeKey(turn.turnId, toolCallId)]: outcome,
     });
-    return outcome;
   }
 
   private async requireCloudAgentControlReceipt(
     threadIdValue: string,
     expected: "running" | "terminal" | "any",
   ): Promise<CloudAgentControlReceipt> {
-    const threadId = threadIdValue.trim();
-    if (!threadId || threadId.length > 256) {
-      throw new Error("A valid cloud agent thread id is required.");
-    }
-    const raw = await this.ctx.storage.get<unknown>(
-      cloudAgentControlKey(threadId),
-    );
-    const receipt = normalizeCloudAgentControlReceipt(raw);
-    if (!receipt || receipt.threadId !== threadId) {
-      throw new Error(
-        `No exact control receipt is available for ${threadId}. Wait for its latest lifecycle update and try again.`,
-      );
-    }
+    const receipt = await requireSharedCloudAgentControlReceipt({
+      storage: this.ctx.storage,
+      threadId: threadIdValue,
+    });
     const statusMatches =
       expected === "any"
         ? true
@@ -8364,8 +8123,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (!statusMatches) {
       throw new Error(
         expected === "running"
-          ? `${threadId} is not currently running.`
-          : `${threadId} is still working. Wait for its terminal lifecycle update before continuing it.`,
+          ? `${receipt.threadId} is not currently running.`
+          : `${receipt.threadId} is still working.`,
       );
     }
     return receipt;
@@ -8438,16 +8197,17 @@ export class OrchestratorSession extends DurableObject<Env> {
     const toolScopedId = async (
       purpose: "thread" | "turn",
       toolCallId: string,
-    ): Promise<string> => {
-      const hex = await sha256Hex(
-        `cloud-agent\0${purpose}\0${turn.ownerGeneration}\0${turn.turnId}\0${toolCallId}`,
-      );
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-    };
+    ): Promise<string> =>
+      await sharedToolScopedId({
+        ownerGeneration: turn.ownerGeneration,
+        parentTurnId: turn.turnId,
+        purpose,
+        toolCallId,
+      });
 
     /**
      * Dispatch one agent attempt straight to its BuildSession. Admission is
-     * the owner gate's (agent lane, one running agent per owner world); the
+     * the owner gate's agent lane; the
      * BuildSession mints its own capabilities from the owner id, generation,
      * audience and budget carried here — the parent's control-plane
      * capability is never shared with it.
@@ -8463,258 +8223,55 @@ export class OrchestratorSession extends DurableObject<Env> {
         execution: CloudExecutionSelection;
       },
       signal?: AbortSignal,
-    ): Promise<CloudAgentControlReceipt> => {
-      const admission = await this.ownerGateAdmit(turn.ownerId, {
-        lane: "agent",
-        turnId: args.turnId,
-        conversationId: turn.conversationId,
-        workspace: OWNER_WORLD_WORKSPACE,
-        expectedGeneration: turn.ownerGeneration,
-      });
-      if (!admission.ok) {
-        throw new Error(
-          admission.code === "quota_concurrency"
-            ? await describeBusyWorkspace(admission.message)
-            : admission.message,
-        );
-      }
-      const release = () =>
-        this.releaseOwnerGate({ ownerId: turn.ownerId, turnId: args.turnId });
-      if (
-        !snapshotAllowsExecutionEngine(
-          admission.snapshot,
-          args.execution.engine,
-        )
-      ) {
-        await release();
-        throw new Error(
-          args.execution.engine === "anthropic"
-            ? "Connect Claude before using that cloud execution route."
-            : "Connect ChatGPT before using that cloud execution route.",
-        );
-      }
-      const publicOrigin = (this.env.CLOUD_BUILDER_PUBLIC_URL ?? "")
-        .trim()
-        .replace(/\/+$/, "");
-      if (!publicOrigin) {
-        await release();
-        throw new Error(
-          "Cloud agents are unavailable: the builder's public origin is not configured.",
-        );
-      }
-      const now = Date.now();
-      // The same shape Convex sends for a desktop-dispatched agent, so the
-      // BuildSession has one admission path. The turn id is pinned so a
-      // retried tool call replays against the same attempt.
-      const payload: CloudAgentTurnStartRequest = {
-        protocol: TURN_PLANE_PROTOCOL,
-        kind: "agent",
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        conversationId: turn.conversationId,
-        threadId: args.threadId,
-        attemptGeneration: args.attemptGeneration,
-        turnId: args.turnId,
-        prompt: args.prompt,
-        description: args.description,
-        execution: args.execution,
-        audience: admission.snapshot.allowance.audience,
-        budgetMicroCents: admission.snapshot.allowance.budgetMicroCents,
-        source: "agent-thread",
-        clientMsgId: args.clientMsgId,
-        parentTurnId: turn.turnId,
-      };
-      let response: Response;
-      try {
-        response = await this.env.BUILD_SESSIONS.getByName(args.threadId).fetch(
-          "https://build-session/turn",
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-stella-build-session-name": args.threadId,
-              "x-stella-turn-broker-endpoint": `${publicOrigin}/sessions/${encodeURIComponent(args.threadId)}/turn-broker`,
-              // This dispatch already holds the owner gate admission taken
-              // above, and releases it on every failure below. Without this
-              // the BuildSession would admit the same turn a second time.
-              [HEADER_GATE_ADMITTED]: "1",
-            },
-            body: JSON.stringify(payload),
-            ...(signal ? { signal } : {}),
-          },
-        );
-      } catch (error) {
-        await release();
-        throw new Error(
-          `Spawning the agent failed: ${errorMessage(error)}`.slice(0, 400),
-        );
-      }
-      if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as {
-          error?: unknown;
-          message?: unknown;
-        };
-        await release();
-        const detail =
-          typeof body.error === "string"
-            ? body.error
-            : typeof body.message === "string"
-              ? body.message
-              : `Spawning the agent failed (${response.status}).`;
-        throw new Error(detail);
-      }
-      // The session answers with the attempt it admitted; a pinned turn id
-      // must come back unchanged, and a replay must name the same attempt.
-      const accepted = (await response
-        .json()
-        .catch(() => null)) as Partial<CloudAgentTurnStartResponse> | null;
-      if (
-        accepted &&
-        ((typeof accepted.turnId === "string" &&
-          accepted.turnId !== args.turnId) ||
-          (typeof accepted.attemptGeneration === "number" &&
-            accepted.attemptGeneration !== args.attemptGeneration))
-      ) {
-        await release();
-        throw new Error(
-          `${args.threadId} was continued while this request was in flight. Refresh its status and try again.`,
-        );
-      }
-      await this.enqueueOutboxDurable([
-        {
-          ...this.outboxBase(
-            turn,
-            `${args.threadId}:${args.attemptGeneration}`,
-          ),
-          kind: "thread.spawned",
-          threadId: args.threadId,
+    ): Promise<CloudAgentControlReceipt> =>
+      await dispatchCloudAgentTurn({
+        dependencies: {
+          env: this.env,
+          ownerGateAdmit: async (input) =>
+            await this.ownerGateAdmit(input.ownerId, {
+              lane: "agent",
+              turnId: input.turnId,
+              conversationId: input.conversationId,
+              expectedGeneration: input.expectedGeneration,
+            }),
+          releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
+          enqueueOutbox: async (events) =>
+            await this.enqueueOutboxDurable([...events]),
+        },
+        caller: {
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
           conversationId: turn.conversationId,
           parentTurnId: turn.turnId,
-          attemptGeneration: args.attemptGeneration,
-          description: args.description,
-          prompt: args.prompt,
-          execution: args.execution,
-          placement: "cloud",
-          workspace: OWNER_WORLD_WORKSPACE,
-          createdAt: now,
-        } satisfies ThreadSpawnedEvent,
-      ]);
-      return {
-        threadId: args.threadId,
-        attemptGeneration: args.attemptGeneration,
-        threadUpdatedAt: now,
-        status: "running",
-        turnId: args.turnId,
-        execution: args.execution,
-        description: args.description,
-      };
-    };
+          agentDepth: 0,
+        },
+        attempt: args,
+        ...(signal ? { signal } : {}),
+      });
 
     const toolFingerprint = async (
       kind: CloudAgentToolKind,
       semanticInput: unknown,
     ): Promise<string> =>
-      await sha256Hex(
-        JSON.stringify([
-          "cloud-agent-tool/v1",
-          turn.ownerGeneration,
-          turn.turnId,
-          kind,
-          semanticInput,
-        ]),
-      );
-    /**
-     * The agents this conversation spawned that are still executing. Scoped
-     * to this conversation's own receipts on purpose: another conversation's
-     * agents are not this one's to see, steer, or stop.
-     */
-    const runningAgentsHere = async (): Promise<CloudAgentControlReceipt[]> => {
-      const entries = await this.ctx.storage.list<unknown>({
-        prefix: CLOUD_AGENT_CONTROL_PREFIX,
+      await sharedToolFingerprint({
+        ownerGeneration: turn.ownerGeneration,
+        parentTurnId: turn.turnId,
+        kind,
+        semanticInput,
       });
-      const running: CloudAgentControlReceipt[] = [];
-      for (const value of entries.values()) {
-        const receipt = normalizeCloudAgentControlReceipt(value);
-        if (receipt && isCloudAgentControlActive(receipt.status)) {
-          running.push(receipt);
-        }
-      }
-      return running;
-    };
-    /**
-     * A busy-workspace refusal is only actionable if the model knows which
-     * of its own agents holds the workspace; the gate itself cannot say.
-     */
-    const describeBusyWorkspace = async (message: string): Promise<string> => {
-      const running = await runningAgentsHere();
-      if (running.length === 0) return message;
-      const named = running
-        .map(
-          (receipt) =>
-            `${receipt.threadId}${receipt.description ? ` ("${receipt.description}")` : ""}`,
-        )
-        .join(", ");
-      return `${message} This conversation's running agent: ${named}. Check it with agent_status, or stop it with pause_agent before spawning another.`;
-    };
-    const agentStatusResult = (control: CloudAgentControlReceipt) => {
-      const active = isCloudAgentControlActive(control.status);
-      const status = active ? "active" : "paused";
-      const lastActiveAt = new Date(control.threadUpdatedAt).toISOString();
-      const currentTime = new Date().toISOString();
-      const text = [
-        `Thread ${control.threadId}: ${status} (${control.status}).`,
-        control.description ? `Description: ${control.description}.` : "",
-        `Last lifecycle change: ${lastActiveAt}. Current time: ${currentTime}.`,
-        active
-          ? "It is executing a turn right now; its report arrives as an [Agent completed] message. This snapshot did not interrupt it."
-          : "It is idle; send_input resumes it with its history. This snapshot did not message it.",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return {
-        content: [{ type: "text" as const, text }],
-        details: {
-          thread_id: control.threadId,
-          status,
-          status_detail: control.status,
-          ...(control.description ? { description: control.description } : {}),
-          last_active_at: lastActiveAt,
-          attempt_generation: control.attemptGeneration,
-          current_time: currentTime,
-          note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.",
-        },
-      };
-    };
+    const agentStatusResult = (control: CloudAgentControlReceipt) =>
+      sharedAgentStatusResult(control);
     const pauseResult = (
       control: CloudAgentControlReceipt,
-      disposition: NonNullable<CloudAgentToolOutcome["disposition"]>,
-    ) => ({
-      content: [
-        {
-          type: "text" as const,
-          text:
-            disposition === "pending"
-              ? `Pause requested for ${control.threadId}. It is stopping now and can be resumed later with send_input.`
-              : disposition === "already_terminal"
-                ? `${control.threadId} had already stopped. Resume it later with send_input.`
-                : `Paused ${control.threadId}. Resume it later with send_input.`,
-        },
-      ],
-      details: {
-        thread_id: control.threadId,
-        canceled: true,
-        attempt_generation: control.attemptGeneration,
-        thread_updated_at: control.threadUpdatedAt,
-      },
-    });
+      disposition: "paused" | "pending" | "already_terminal",
+    ) => sharedPauseResult(control, disposition);
 
     const tools: CloudCodeSourceAgentTool[] = [
       {
-        name: "spawn_agent",
+        ...SPAWN_AGENT_TOOL_DESCRIPTOR,
         label: "Spawn agent",
-        description:
-          "Spawn a sub-agent for a well-scoped background task. Returns immediately with a durable `thread_id`; the agent is NOT finished yet — you'll receive an [Agent completed] message on this conversation when it reports.",
-        parameters: SPAWN_AGENT_PARAMETERS as unknown as TSchema,
+        parameters:
+          SPAWN_AGENT_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
         execute: async (toolCallId, params, signal) => {
           const args = params as {
             description: string;
@@ -8776,39 +8333,17 @@ export class OrchestratorSession extends DurableObject<Env> {
         },
       },
       {
-        name: "send_input",
+        ...SEND_INPUT_TOOL_DESCRIPTOR,
         label: "Send input",
-        description:
-          "Send a follow-up message to an existing sub-agent thread after it has finished. The thread's conversation history is restored.",
-        parameters: {
-          type: "object",
-          properties: {
-            thread_id: {
-              type: "string",
-              description: "Durable thread id to continue or revise.",
-            },
-            description: {
-              type: "string",
-              description:
-                "One short, user-friendly sentence summarizing what this work is about.",
-            },
-            message: {
-              type: "string",
-              description: "Follow-up instruction to deliver to the agent.",
-            },
-          },
-          required: ["thread_id", "description", "message"],
-        } as unknown as TSchema,
+        parameters: SEND_INPUT_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
         execute: async (toolCallId, params, signal) => {
           const args = params as {
             thread_id: string;
-            description: string;
             message: string;
           };
           const threadId = args.thread_id.trim();
           const fingerprint = await toolFingerprint("send_input", {
             threadId,
-            description: args.description,
             message: args.message,
           });
           let outcome = await this.readCloudAgentToolOutcome(
@@ -8820,28 +8355,75 @@ export class OrchestratorSession extends DurableObject<Env> {
           if (!outcome) {
             const prior = await this.requireCloudAgentControlReceipt(
               threadId,
-              "terminal",
+              "any",
             );
-            const admitted = await dispatchAgentTurn(
-              {
+            let admitted: CloudAgentControlReceipt;
+            let disposition: "steered" | "resumed";
+            if (isCloudAgentControlActive(prior.status)) {
+              const steered = await steerCloudAgent({
+                env: this.env,
                 threadId: prior.threadId,
-                attemptGeneration: prior.attemptGeneration + 1,
-                turnId: await toolScopedId("turn", toolCallId),
-                clientMsgId: await toolScopedId("turn", toolCallId),
-                description: args.description,
-                prompt: args.message,
-                // A continuation keeps the thread's own route; the parent's
-                // is the fallback for a thread admitted without one.
-                execution: prior.execution ?? turn.execution,
-              },
-              signal,
-            );
+                message: {
+                  id: await toolScopedId("turn", toolCallId),
+                  kind: "input",
+                  text: args.message,
+                  createdAt: Date.now(),
+                },
+                ...(signal ? { signal } : {}),
+              });
+              if (steered.accepted) {
+                if (steered.attemptGeneration !== prior.attemptGeneration) {
+                  throw new Error(
+                    `${prior.threadId} was continued while this message was in flight. Refresh its status and try again.`,
+                  );
+                }
+                admitted = {
+                  ...prior,
+                  turnId: steered.turnId,
+                  status: "running",
+                  threadUpdatedAt: Math.max(
+                    Date.now(),
+                    prior.threadUpdatedAt + 1,
+                  ),
+                };
+                disposition = "steered";
+              } else {
+                admitted = await dispatchAgentTurn(
+                  {
+                    threadId: prior.threadId,
+                    attemptGeneration: prior.attemptGeneration + 1,
+                    turnId: await toolScopedId("turn", toolCallId),
+                    clientMsgId: await toolScopedId("turn", toolCallId),
+                    description: prior.description ?? "Continued task",
+                    prompt: args.message,
+                    execution: prior.execution ?? turn.execution,
+                  },
+                  signal,
+                );
+                disposition = "resumed";
+              }
+            } else {
+              admitted = await dispatchAgentTurn(
+                {
+                  threadId: prior.threadId,
+                  attemptGeneration: prior.attemptGeneration + 1,
+                  turnId: await toolScopedId("turn", toolCallId),
+                  clientMsgId: await toolScopedId("turn", toolCallId),
+                  description: prior.description ?? "Continued task",
+                  prompt: args.message,
+                  execution: prior.execution ?? turn.execution,
+                },
+                signal,
+              );
+              disposition = "resumed";
+            }
             outcome = await this.commitCloudAgentToolOutcome(
               turn,
               toolCallId,
               "send_input",
               fingerprint,
               admitted,
+              disposition,
             );
           }
           const control = outcome.control;
@@ -8849,40 +8431,37 @@ export class OrchestratorSession extends DurableObject<Env> {
             content: [
               {
                 type: "text",
-                text: `Delivered to ${control.threadId}. It is working again — an [Agent completed] message will arrive with its report.`,
+                text:
+                  outcome.disposition === "steered"
+                    ? `Delivered to ${control.threadId}. It is still working and will use the new instruction before its next model call.`
+                    : `Delivered to ${control.threadId}. It is working again — an [Agent completed] message will arrive with its report.`,
               },
             ],
             details: {
               thread_id: control.threadId,
               attempt_generation: control.attemptGeneration,
               thread_updated_at: control.threadUpdatedAt,
+              steered: outcome.disposition === "steered",
             },
           };
         },
       },
       {
-        name: "agent_status",
+        ...AGENT_STATUS_TOOL_DESCRIPTOR,
         label: "Agent status",
-        description:
-          "READ-ONLY status snapshot of a sub-agent thread spawned in this conversation: active (executing a turn right now) or paused (idle, resumable with send_input), its description, and when it last changed. It NEVER interrupts, messages, or resumes the agent — use it to check on a running or paused thread; never use send_input just to ask for status.",
-        parameters: {
-          type: "object",
-          properties: {
-            thread_id: {
-              type: "string",
-              description: "Durable thread id of the agent to check.",
-            },
-          },
-          required: ["thread_id"],
-        } as unknown as TSchema,
+        parameters:
+          AGENT_STATUS_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
         execute: async (_toolCallId, params) => {
           const args = params as { thread_id?: string };
           const threadId = (args.thread_id ?? "").trim();
           if (!threadId) throw new Error("thread_id is required.");
-          const control = normalizeCloudAgentControlReceipt(
-            await this.ctx.storage.get<unknown>(cloudAgentControlKey(threadId)),
-          );
-          if (!control || control.threadId !== threadId) {
+          let control: CloudAgentControlReceipt;
+          try {
+            control = await this.requireCloudAgentControlReceipt(
+              threadId,
+              "any",
+            );
+          } catch {
             throw new Error(
               `Thread not found in this conversation: ${threadId}. agent_status only sees agents spawned from this conversation.`,
             );
@@ -8891,24 +8470,10 @@ export class OrchestratorSession extends DurableObject<Env> {
         },
       },
       {
-        name: "pause_agent",
+        ...PAUSE_AGENT_TOOL_DESCRIPTOR,
         label: "Pause agent",
-        description:
-          "Stop a running sub-agent. The thread can be resumed later with send_input.",
-        parameters: {
-          type: "object",
-          properties: {
-            thread_id: {
-              type: "string",
-              description: "Durable thread id to pause.",
-            },
-            reason: {
-              type: "string",
-              description: "Optional explanation for why.",
-            },
-          },
-          required: ["thread_id"],
-        } as unknown as TSchema,
+        parameters:
+          PAUSE_AGENT_TOOL_DESCRIPTOR.parameters as unknown as TSchema,
         execute: async (toolCallId, params, signal) => {
           const args = params as { thread_id: string; reason?: string };
           const threadId = args.thread_id.trim();
@@ -8923,13 +8488,19 @@ export class OrchestratorSession extends DurableObject<Env> {
             fingerprint,
           );
           if (replay) {
-            return pauseResult(replay.control, replay.disposition ?? "paused");
+            return pauseResult(
+              replay.control,
+              replay.disposition === "pending" ||
+                replay.disposition === "already_terminal"
+                ? replay.disposition
+                : "paused",
+            );
           }
           const control = await this.requireCloudAgentControlReceipt(
             threadId,
             "any",
           );
-          let disposition: NonNullable<CloudAgentToolOutcome["disposition"]>;
+          let disposition: "paused" | "pending" | "already_terminal";
           let finalControl = control;
           if (!isCloudAgentControlActive(control.status)) {
             disposition = "already_terminal";
@@ -9014,7 +8585,10 @@ export class OrchestratorSession extends DurableObject<Env> {
           );
           return pauseResult(
             outcome.control,
-            outcome.disposition ?? disposition,
+            outcome.disposition === "pending" ||
+              outcome.disposition === "already_terminal"
+              ? outcome.disposition
+              : disposition,
           );
         },
       },

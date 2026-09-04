@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type { ToolMetadata } from "@stella/runtime/kernel/tools/types.js";
+import { AGENT_ORCHESTRATION_TOOL_DESCRIPTORS } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
   APPLY_PATCH_TOOL_DESCRIPTION,
   APPLY_PATCH_TOOL_NAME,
@@ -26,7 +26,6 @@ import {
   WRITE_STDIN_TOOL_NAME,
   WRITE_STDIN_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/write-stdin-def.js";
-import { cloudGeneralToolNames } from "./agent-turn.js";
 
 type StaticDescriptor = {
   name: string;
@@ -60,9 +59,13 @@ const STATIC_DESCRIPTORS: readonly StaticDescriptor[] = [
     description: CODE_TOOL_DESCRIPTION,
     parameters: CODE_TOOL_PARAMETERS,
   },
+  ...AGENT_ORCHESTRATION_TOOL_DESCRIPTORS,
 ];
 
-const realCloudCatalog = async (): Promise<ToolMetadata[]> => {
+const realDesktopGeneralCatalog = async (): Promise<ToolMetadata[]> => {
+  process.env.XDG_RUNTIME_DIR = "/tmp/stella-catalog-parity-runtime";
+  const { createToolHost } =
+    await import("@stella/runtime/kernel/tools/host.js");
   const host = createToolHost({
     stellaAppDir: "/tmp/stella-catalog-parity-world",
     stellaDataDir: "/tmp/stella-catalog-parity-state",
@@ -75,23 +78,37 @@ const realCloudCatalog = async (): Promise<ToolMetadata[]> => {
     webSearch: async () => ({ text: "" }),
   });
   try {
-    const catalog = host.getToolCatalog("general", {});
-    const byName = new Map(catalog.map((tool) => [tool.name, tool]));
-    return cloudGeneralToolNames("stella")
-      .map((name) => byName.get(name))
-      .filter((tool): tool is ToolMetadata => Boolean(tool));
+    return host.getToolCatalog("general", {});
   } finally {
     await host.shutdown();
   }
 };
 
+const realCloudCatalog = async (): Promise<ToolMetadata[]> => {
+  const catalog = await realDesktopGeneralCatalog();
+  const byName = new Map(catalog.map((tool) => [tool.name, tool]));
+  return [
+    EXEC_COMMAND_TOOL_NAME,
+    WRITE_STDIN_TOOL_NAME,
+    APPLY_PATCH_TOOL_NAME,
+    "web",
+    READ_TOOL_NAME,
+    CODE_TOOL_NAME,
+  ]
+    .map((name) => byName.get(name))
+    .filter((tool): tool is ToolMetadata => Boolean(tool));
+};
+
 describe("cloud general-agent catalog parity", () => {
   test("the static descriptors match the executor's real tool-host metadata", async () => {
-    const catalog = await realCloudCatalog();
+    const catalog = await realDesktopGeneralCatalog();
     const byName = new Map(catalog.map((tool) => [tool.name, tool]));
     for (const descriptor of STATIC_DESCRIPTORS) {
       const real = byName.get(descriptor.name);
-      expect(real, `${descriptor.name} missing from the real catalog`).toBeTruthy();
+      expect(
+        real,
+        `${descriptor.name} missing from the real catalog`,
+      ).toBeTruthy();
       expect(real!.name).toBe(descriptor.name);
       expect(real!.label ?? real!.name).toBe(descriptor.name);
       expect(real!.description).toBe(descriptor.description);

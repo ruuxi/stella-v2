@@ -18,8 +18,7 @@ export type OwnerFenceLeaseRole =
   | "aux"
   | "orchestrator"
   | "activity"
-  | "transfer"
-  | "world";
+  | "transfer";
 
 export type OwnerFenceLeaseState = "active" | "retired";
 
@@ -38,18 +37,13 @@ export type OwnerFenceLease = OwnerFenceLeaseIdentity &
   Readonly<{
     state: OwnerFenceLeaseState;
     expiresAt: number;
-    worldSlot: 1 | null;
     createdAt: number;
     renewedAt: number;
     retiredAt: number | null;
   }>;
 
 export type OwnerFenceLeaseRegistration = OwnerFenceLeaseIdentity &
-  Readonly<{
-    expiresAt: number;
-    /** Only a `world` lease may occupy the owner's singleton world slot. */
-    worldSlot?: 1;
-  }>;
+  Readonly<{ expiresAt: number }>;
 
 export type OwnerFenceLeaseRegistrationResult =
   | Readonly<{
@@ -58,7 +52,7 @@ export type OwnerFenceLeaseRegistrationResult =
     }>
   | Readonly<{
       status: "conflict";
-      code: "lease_id_conflict" | "lease_retired" | "world_busy";
+      code: "lease_id_conflict" | "lease_retired";
       existing?: OwnerFenceLease;
     }>;
 
@@ -78,7 +72,7 @@ export type LegacyOwnerFenceLease = Readonly<{
   sessionId: string;
   turnId: string;
   namespace: OwnerFenceLeaseNamespace;
-  role: Exclude<OwnerFenceLeaseRole, "world">;
+  role: OwnerFenceLeaseRole;
   ownerGeneration?: string;
   reservationGeneration?: string;
   workspace?: string;
@@ -101,7 +95,6 @@ type OwnerFenceLeaseRow = {
   role: string;
   state: string;
   expires_at: number;
-  world_slot: number | null;
   created_at: number;
   renewed_at: number;
   retired_at: number | null;
@@ -133,21 +126,16 @@ const DDL = [
      session_id               TEXT    NOT NULL,
      turn_id                  TEXT    NOT NULL,
      namespace                TEXT    NOT NULL CHECK (namespace IN ('build', 'orchestrator', 'activity')),
-     role                     TEXT    NOT NULL CHECK (role IN ('run', 'aux', 'orchestrator', 'activity', 'transfer', 'world')),
+     role                     TEXT    NOT NULL CHECK (role IN ('run', 'aux', 'orchestrator', 'activity', 'transfer')),
      state                    TEXT    NOT NULL CHECK (state IN ('active', 'retired')),
      expires_at               INTEGER NOT NULL,
-     world_slot               INTEGER CHECK (world_slot IS NULL OR world_slot = 1),
      created_at               INTEGER NOT NULL,
      renewed_at               INTEGER NOT NULL,
      retired_at               INTEGER,
-     CHECK ((role = 'world' AND world_slot = 1) OR (role <> 'world' AND world_slot IS NULL)),
      CHECK ((state = 'active' AND retired_at IS NULL) OR state = 'retired')
    )`,
   `CREATE INDEX IF NOT EXISTS owner_fence_leases_by_expiry
      ON owner_fence_leases(state, expires_at)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS owner_fence_one_world
-     ON owner_fence_leases(world_slot)
-     WHERE state = 'active' AND world_slot = 1`,
 ] as const;
 
 const NAMESPACES = new Set<OwnerFenceLeaseNamespace>([
@@ -161,7 +149,6 @@ const ROLES = new Set<OwnerFenceLeaseRole>([
   "orchestrator",
   "activity",
   "transfer",
-  "world",
 ]);
 
 const assertSafeTime = (value: number, field: string): void => {
@@ -220,7 +207,6 @@ const mapRow = (row: OwnerFenceLeaseRow): OwnerFenceLease => ({
   role: row.role as OwnerFenceLeaseRole,
   state: row.state as OwnerFenceLeaseState,
   expiresAt: row.expires_at,
-  worldSlot: row.world_slot === 1 ? 1 : null,
   createdAt: row.created_at,
   renewedAt: row.renewed_at,
   retiredAt: row.retired_at,
@@ -327,15 +313,6 @@ export class OwnerFenceStore {
   ): OwnerFenceLeaseRegistrationResult {
     assertIdentity(registration);
     this.assertBoundedExpiry(registration.expiresAt, now, maxLeaseMs);
-    const worldSlot = registration.worldSlot ?? null;
-    if (
-      (registration.role === "world" && worldSlot !== 1) ||
-      (registration.role !== "world" && worldSlot !== null)
-    ) {
-      throw new OwnerFenceLeaseValidationError(
-        "worldSlot must be occupied by exactly a world lease.",
-      );
-    }
     this.expireDueLeases(now);
     const existing = this.lease(registration.leaseId);
     if (existing) {
@@ -347,29 +324,13 @@ export class OwnerFenceStore {
       }
       return { status: "replayed", lease: existing };
     }
-    if (worldSlot === 1) {
-      const occupied = this.sql
-        .exec<OwnerFenceLeaseRow>(
-          `SELECT * FROM owner_fence_leases
-             WHERE state = 'active' AND world_slot = 1
-             LIMIT 1`,
-        )
-        .toArray()[0];
-      if (occupied) {
-        return {
-          status: "conflict",
-          code: "world_busy",
-          existing: mapRow(occupied),
-        };
-      }
-    }
     try {
       this.sql.exec(
         `INSERT INTO owner_fence_leases (
            lease_id, owner_id, owner_generation, reservation_generation,
            session_id, turn_id, namespace, role, state, expires_at,
-           world_slot, created_at, renewed_at, retired_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL)`,
+           created_at, renewed_at, retired_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL)`,
         registration.leaseId,
         registration.ownerId,
         registration.ownerGeneration,
@@ -379,7 +340,6 @@ export class OwnerFenceStore {
         registration.namespace,
         registration.role,
         registration.expiresAt,
-        worldSlot,
         now,
         now,
       );
@@ -393,17 +353,9 @@ export class OwnerFenceStore {
           existing: idConflict,
         };
       }
-      const worldConflict = this.sql
-        .exec<OwnerFenceLeaseRow>(
-          `SELECT * FROM owner_fence_leases
-             WHERE state = 'active' AND world_slot = 1
-             LIMIT 1`,
-        )
-        .toArray()[0];
       return {
         status: "conflict",
-        code: worldConflict ? "world_busy" : "lease_id_conflict",
-        ...(worldConflict ? { existing: mapRow(worldConflict) } : {}),
+        code: "lease_id_conflict",
       };
     }
     return { status: "registered", lease: this.lease(registration.leaseId)! };
@@ -638,19 +590,14 @@ export class OwnerFenceStore {
   }
 }
 
-/**
- * Downgrade a SQL row for a one-release rollback window. The old Worker knows
- * world ownership as a BuildSession `build/run` lease. That makes a rollback
- * owner purge call the exact BuildSession rather than waiting for expiry.
- */
 export const ownerFenceLeaseToLegacyLease = (
   lease: OwnerFenceLease,
 ): LegacyOwnerFenceLease => ({
   leaseId: lease.leaseId,
   sessionId: lease.sessionId,
   turnId: lease.turnId,
-  namespace: lease.role === "world" ? "build" : lease.namespace,
-  role: lease.role === "world" ? "run" : lease.role,
+  namespace: lease.namespace,
+  role: lease.role,
   ownerGeneration: lease.ownerGeneration,
   reservationGeneration: lease.reservationGeneration,
   expiresAt: lease.expiresAt,

@@ -480,13 +480,13 @@ describe("POST /conversations/:id/turns", () => {
       Response.json(
         {
           error: {
-            code: "quota_burst",
-            message: "slow down",
+            code: "internal",
+            message: "try again",
             retryable: true,
             retryAfterMs: 4_000,
           },
         },
-        { status: 429, headers: { "retry-after": "4" } },
+        { status: 503, headers: { "retry-after": "4" } },
       ),
     );
     const response = await worker.fetch(
@@ -494,9 +494,9 @@ describe("POST /conversations/:id/turns", () => {
       env,
       {} as ExecutionContext,
     );
-    expect(response.status).toBe(429);
+    expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("4");
-    expect((await errorBody(response)).error.code).toBe("quota_burst");
+    expect((await errorBody(response)).error.code).toBe("internal");
   });
 });
 

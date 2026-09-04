@@ -162,6 +162,10 @@ const doLocalTool = (name: string): AgentTool => ({
 const DO_LOCAL = new Map([
   ["web", doLocalTool("web")],
   ["publish_stella_interior", doLocalTool("publish_stella_interior")],
+  ["spawn_agent", doLocalTool("spawn_agent")],
+  ["send_input", doLocalTool("send_input")],
+  ["pause_agent", doLocalTool("pause_agent")],
+  ["agent_status", doLocalTool("agent_status")],
 ]);
 
 /** Names only; the executable catalog is built per turn with the loader. */

@@ -158,8 +158,6 @@ const recoveryHarness = () => {
   const claimed: Array<Record<string, unknown>> = [];
   const fallbackInputs: Array<Record<string, unknown>> = [];
   const destroyed: Array<Record<string, unknown>> = [];
-  const ownerFenceCalls: Array<Record<string, unknown>> = [];
-  let destroyFailures = 0;
   Object.assign(instance, {
     ctx,
     env: {
@@ -206,18 +204,6 @@ const recoveryHarness = () => {
     terminateCurrentAgentSandbox: async () => undefined,
     destroySandboxDurably: async (target: Record<string, unknown>) => {
       destroyed.push(structuredClone(target));
-      if (destroyFailures > 0) {
-        destroyFailures -= 1;
-        throw new Error("injected destroy failure");
-      }
-    },
-    callOwnerFence: async (
-      _ownerId: string,
-      path: string,
-      body: Record<string, unknown>,
-    ) => {
-      ownerFenceCalls.push({ path, ...structuredClone(body) });
-      return Response.json({});
     },
   });
   return {
@@ -228,10 +214,6 @@ const recoveryHarness = () => {
     claimed,
     fallbackInputs,
     destroyed,
-    ownerFenceCalls,
-    failNextDestroy: () => {
-      destroyFailures += 1;
-    },
   };
 };
 
@@ -470,109 +452,6 @@ describe("resident agent turn recovery", () => {
     expect(published).toHaveLength(1);
   });
 
-  test("an admitted attach without an execution marker destroys and retires before resident recovery", async () => {
-    const harness = recoveryHarness();
-    const turn = residentTurn();
-    seedResidentTurn(harness, turn);
-    const sandboxId = `agent:${turn.turnId}:attempt:1`;
-    const leaseId = "world:orphaned-attach";
-    harness.values.set("sandboxId", "stale-predecessor");
-    harness.values.set("sandboxSize", "large");
-    harness.values.set(agentComputeKey(turn.turnId, 1), {
-      schemaVersion: 2,
-      turnId: turn.turnId,
-      attemptGeneration: 1,
-      phase: "attaching",
-      instanceSize: "small",
-      sandboxId,
-      attachReason: "filesystem_tool",
-      worldLease: { leaseId, phase: "registering" },
-    });
-    harness.values.set(`ownerFenceLeaseReceipt:${leaseId}`, {
-      schemaVersion: 1,
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      turnId: turn.turnId,
-      leaseId,
-      kind: "world",
-      phase: "registering",
-      createdAt: 1_700_000_000_000,
-      updatedAt: 1_700_000_000_000,
-    });
-    await runAlarm(harness.instance, turn);
-
-    expect(harness.destroyed).toEqual([
-      {
-        sandboxId,
-        size: "small",
-        workload: "resident-attachment",
-      },
-    ]);
-    expect(harness.ownerFenceCalls).toHaveLength(1);
-    expect(harness.ownerFenceCalls[0]).toMatchObject({
-      path: "unregister",
-      leaseId,
-      turnId: turn.turnId,
-    });
-    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(false);
-    expect(harness.values.has(`ownerFenceLeaseReceipt:${leaseId}`)).toBe(false);
-    expect(harness.values.get("sandboxId")).toBe("stale-predecessor");
-    expect(committedTranscript(harness)).toHaveLength(4);
-  });
-
-  test("destroy failure retains exact compute and world slot until the retry succeeds", async () => {
-    const harness = recoveryHarness();
-    const turn = residentTurn();
-    seedResidentTurn(harness, turn);
-    const sandboxId = `agent:${turn.turnId}:attempt:1`;
-    const leaseId = "world:destroy-retry";
-    harness.values.set(agentComputeKey(turn.turnId, 1), {
-      schemaVersion: 2,
-      turnId: turn.turnId,
-      attemptGeneration: 1,
-      phase: "attached",
-      instanceSize: "large",
-      sandboxId,
-      attachReason: "process_tool",
-      worldLease: {
-        leaseId,
-        phase: "registered",
-        generation: "lease-generation",
-        expiresAt: Date.now() + 60_000,
-      },
-    });
-    harness.values.set(`ownerFenceLeaseReceipt:${leaseId}`, {
-      schemaVersion: 1,
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      turnId: turn.turnId,
-      leaseId,
-      kind: "world",
-      phase: "registered",
-      registrationGeneration: "lease-generation",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    harness.failNextDestroy();
-
-    await runAlarm(harness.instance, turn);
-    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(true);
-    expect(
-      harness.values.get(`ownerFenceLeaseReceipt:${leaseId}`),
-    ).toMatchObject({ phase: "registered" });
-    expect(harness.ownerFenceCalls).toEqual([]);
-
-    await runAlarm(harness.instance, turn);
-    expect(harness.destroyed).toHaveLength(2);
-    expect(harness.ownerFenceCalls.at(-1)).toMatchObject({
-      path: "unregister",
-      leaseId,
-      generation: "lease-generation",
-    });
-    expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(false);
-    expect(harness.values.has(`ownerFenceLeaseReceipt:${leaseId}`)).toBe(false);
-  });
-
   test("malformed admitted compute fails closed instead of entering resident recovery", async () => {
     const harness = recoveryHarness();
     const turn = residentTurn();
@@ -592,14 +471,12 @@ describe("resident agent turn recovery", () => {
     expect(harness.values.has(agentComputeKey(turn.turnId, 1))).toBe(true);
   });
 
-  test("shared owner-purge cleanup preserves deferred destroy and world-unregister debt", async () => {
+  test("shared owner-purge cleanup preserves run-lease and deferred-destroy debt", async () => {
     const harness = recoveryHarness();
     const turn = residentTurn();
     harness.values.set("turn", turn);
-    const leaseId = "world:owner-purge-debt";
-    const receiptKey = `ownerFenceLeaseReceipt:${leaseId}`;
-    const retirementKey =
-      "ownerFenceSandboxWorldRetirement:resident-attachment:small:sandbox-owner-purge";
+    const leaseId = "run:owner-purge-debt";
+    const receiptKey = `buildOwnerFenceLeaseReceipt:${leaseId}`;
     const destroyKey =
       "sandbox-lifecycle:v1:destroy-pending:resident-attachment:small:sandbox-owner-purge";
     harness.values.set(receiptKey, {
@@ -608,14 +485,10 @@ describe("resident agent turn recovery", () => {
       ownerGeneration: turn.ownerGeneration,
       turnId: turn.turnId,
       leaseId,
-      kind: "world",
+      kind: "run",
       phase: "unregister_pending",
       createdAt: Date.now(),
       updatedAt: Date.now(),
-    });
-    harness.values.set(retirementKey, {
-      schemaVersion: 1,
-      phase: "unregister_pending",
     });
     harness.values.set(destroyKey, { schemaVersion: 1 });
     delete harness.instance["deleteTurnStoragePreservingExactCancellations"];
@@ -629,7 +502,6 @@ describe("resident agent turn recovery", () => {
     expect(cleaned).toBe(true);
     expect(harness.values.has("turn")).toBe(false);
     expect(harness.values.has(receiptKey)).toBe(true);
-    expect(harness.values.has(retirementKey)).toBe(true);
     expect(harness.values.has(destroyKey)).toBe(true);
   });
 
@@ -640,7 +512,7 @@ describe("resident agent turn recovery", () => {
     harness.values.set("sandboxId", "stale-predecessor");
     harness.values.set("sandboxSize", "small");
     harness.values.set(agentComputeKey(turn.turnId, 1), {
-      schemaVersion: 2,
+      schemaVersion: 1,
       turnId: turn.turnId,
       attemptGeneration: 1,
       phase: "resident",
@@ -793,10 +665,6 @@ describe("resident agent turn completion", () => {
     harness.instance["deliverResidentTerminal"] = async () => {
       order.push("deliver");
     };
-    harness.instance["releaseWorldLeaseDespiteDeferredDestroy"] = async () => {
-      order.push("release_world_lease");
-      return true;
-    };
     const finish = (
       harness.instance["finishResidentAgentTurn"] as (
         turn: unknown,
@@ -824,14 +692,14 @@ describe("resident agent turn completion", () => {
     expect(order).toEqual(["teardown", "deliver"]);
   });
 
-  test("a deferred destroy releases the world slot early and still delivers", async () => {
+  test("a deferred destroy still delivers", async () => {
     const { order } = await finishWith(async () => {
       throw new SandboxLifecycleDeferredError();
     });
-    expect(order).toEqual(["teardown", "release_world_lease", "deliver"]);
+    expect(order).toEqual(["teardown", "deliver"]);
   });
 
-  test("a failed lease retirement never withholds a completed terminal", async () => {
+  test("a teardown failure never withholds a completed terminal", async () => {
     const { order } = await finishWith(async () => {
       throw new Error("owner gate unavailable");
     });

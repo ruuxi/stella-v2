@@ -11943,16 +11943,24 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     REPO_ROOT,
     "workers/cloud-builder/src/index.ts",
   );
-  const [orchestratorSource, buildSessionSource] = await Promise.all([
+  const orchestrationDescriptorPath = path.join(
+    REPO_ROOT,
+    "packages/runtime/kernel/tools/defs/agent-orchestration-def.ts",
+  );
+  const [
+    orchestratorSource,
+    buildSessionSource,
+    orchestrationDescriptorSource,
+  ] = await Promise.all([
     readFile(orchestratorPath, "utf8"),
     readFile(buildSessionPath, "utf8"),
+    readFile(orchestrationDescriptorPath, "utf8"),
   ]);
   const orchestratorAnchors = [
     'requireCloudContext(\n              "agent_home_memory",\n              agentHome.readDocuments(),',
     'requireCloudContext(\n              "agent_home_personality",\n              agentHome.readPersonality(),',
     "residentSection: buildResidentMemorySection(memoryDocuments)",
     "personalityOverride ?? canonicalPrompts.personalityBody",
-    '"Detailed instructions for the sub-agent. This is the agent\'s only context."',
   ];
   for (const anchor of orchestratorAnchors) {
     assert(
@@ -11960,6 +11968,12 @@ export const reviewedMemoryArchitectureBoundary = async () => {
       "Reviewed cloud orchestrator no longer enforces the authoritative memory/personality boundary.",
     );
   }
+  assert(
+    orchestrationDescriptorSource.includes(
+      '"Detailed instructions for the sub-agent. This is the agent\'s only context."',
+    ),
+    "Reviewed cloud orchestration descriptor no longer keeps child task context explicit.",
+  );
   const agentTurnStart = buildSessionSource.indexOf(
     "  private async runAgentTurn(",
   );
@@ -11993,7 +12007,9 @@ export const reviewedMemoryArchitectureBoundary = async () => {
   assert(
     // The thread transcript is the BuildSession's own table now; the child
     // still receives exactly that thread's rows and nothing wider.
-    historyLoaderSource.includes("return readThreadHistory(this.ctx.storage.sql, {") &&
+    historyLoaderSource.includes(
+      "return readThreadHistory(this.ctx.storage.sql, {",
+    ) &&
       historyLoaderSource.includes("excludeTurnId: turn.turnId") &&
       agentTurnSource.includes(
         "const history = this.fetchCanonicalAgentHistory(turn, {",
@@ -12016,6 +12032,9 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     canonicalJson({
       orchestratorSourceSha256: sha256(orchestratorSource),
       buildSessionSourceSha256: sha256(buildSessionSource),
+      orchestrationDescriptorSourceSha256: sha256(
+        orchestrationDescriptorSource,
+      ),
       boundary: "authoritative-parent-memory-explicit-child-context-v1",
     }),
   );
@@ -13482,8 +13501,8 @@ const stepOwnerResetMemoryReimport = async ({
   });
   const preResetSandboxTerminalVerified = Boolean(
     sandboxProbe.turnId === sandbox.turnId &&
-      (sandboxProbe.status === "completed" ||
-        sandboxProbe.turnStatus === "completed"),
+    (sandboxProbe.status === "completed" ||
+      sandboxProbe.turnStatus === "completed"),
   );
   assert(
     preResetSandboxTerminalVerified,
@@ -14998,7 +15017,7 @@ const stepCleanup = async ({
     sandboxTerminalBeforePurge = Boolean(
       (exact &&
         (exact.status === "completed" || exact.turnStatus === "completed")) ||
-        (!exact && state.ownerReset?.preResetSandboxTerminalVerified === true),
+      (!exact && state.ownerReset?.preResetSandboxTerminalVerified === true),
     );
     if (!sandboxTerminalBeforePurge) {
       failures.push({

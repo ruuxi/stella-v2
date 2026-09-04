@@ -314,7 +314,6 @@ import {
   createAgentComputeLadder,
   parsePersistedAgentCompute,
   type PersistedAgentCompute,
-  type PersistedAgentWorldLease,
 } from "./agent-compute-ladder.js";
 import {
   advanceSandboxDestroyDebt,
@@ -370,6 +369,13 @@ import {
 import { createAgentControlPlane } from "./agent-control-plane.js";
 import { createGeneralAgentDoLocalTools } from "./general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "./general-agent-tools.js";
+import { createBuildSessionAgentControl } from "./build-session-agent-control.js";
+import {
+  rememberCloudAgentControlReceipt,
+  steerCloudAgent,
+  type CloudAgentDispatchDependencies,
+} from "./cloud-agent-dispatch.js";
+import { SteerMailbox, parseSteerMessage } from "./steer-mailbox.js";
 import { createCloudCodeAgentTool } from "./cloud-code-tool.js";
 import { CODE_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/code-def.js";
 import {
@@ -584,13 +590,6 @@ const turnBrokerCredentialsPath = (): string =>
   `/workspace/.turn-broker-${crypto.randomUUID()}.json`;
 
 /**
- * The workspace an agent thread occupies for owner-gate concurrency. One
- * running agent per owner world is the rule the gate enforces; the
- * orchestrator names the same workspace when it admits its own spawns.
- */
-const OWNER_WORLD_WORKSPACE = "world";
-
-/**
  * App-build turns are dispatched without a pinned execution — the art
  * director's model is Convex's own choice, resolved through `/api/cloud/model`
  * — but a turn capability's binding is not optional. This placeholder is what
@@ -622,9 +621,6 @@ const CLOUD_TURN_SOURCES: readonly CloudTurnSource[] = [
 
 /** HTTP status for each owner-gate refusal on the agent lane. */
 const OWNER_GATE_REFUSAL_STATUS: Record<OwnerGateRefusalCode, number> = {
-  quota_burst: 429,
-  quota_daily: 429,
-  quota_concurrency: 429,
   owner_purged: 410,
   sign_in_required: 403,
   owner_suspended: 403,
@@ -721,6 +717,10 @@ type TurnRequest = {
   clientMsgId?: string;
   /** The parent chat turn whose tool call spawned this thread. */
   parentTurnId?: string;
+  /** The direct parent agent thread, absent only for conversation spawns. */
+  parentThreadId?: string;
+  /** One for conversation children, two for their children. */
+  agentDepth: number;
   /**
    * Desktop that owns this thread's delivery. Present means Convex's
    * projection wakes the parent conversation, so the session must not.
@@ -827,7 +827,7 @@ type BuildOwnerFenceLeaseReceipt = {
   ownerGeneration: string;
   turnId: string;
   leaseId: string;
-  kind: "run" | "aux" | "world";
+  kind: "run" | "aux";
   phase: "registering" | "registered" | "unregister_pending";
   registrationGeneration?: string;
   slotKey?: string;
@@ -841,46 +841,26 @@ type BuildOwnerFenceLeaseSlot = {
   ownerGeneration: string;
   turnId: string;
   leaseId: string;
-  kind: "run" | "aux" | "world";
+  kind: "run" | "aux";
 };
 
-const BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX = "ownerFenceLeaseReceipt:";
+const BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX = "buildOwnerFenceLeaseReceipt:";
 const BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX = "ownerFenceLeaseSlot:";
-const SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX =
-  "ownerFenceSandboxWorldRetirement:";
 const OWNER_FENCE_LEASE_RETRY_MS = 30_000;
-const OWNER_FENCE_LEASE_RENEW_LEAD_MS = 5 * 60_000;
-const ownerFenceLeaseReceiptKey = (leaseId: string): string =>
+const buildOwnerFenceLeaseReceiptKey = (leaseId: string): string =>
   `${BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
 const isBuildOwnerFenceDurabilityKey = (key: string): boolean =>
   key.startsWith(BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX) ||
-  key.startsWith(BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX) ||
-  key.startsWith(SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX);
-
-type SandboxWorldLeaseRetirement = {
-  schemaVersion: 1;
-  phase: "destroy_pending" | "unregister_pending";
-  target: SandboxTarget;
-  ownerId: string;
-  ownerGeneration: string;
-  turnId: string;
-  attemptGeneration: number;
-  leaseId: string;
-  registrationGeneration?: string;
-  createdAt: number;
-};
+  key.startsWith(BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX);
 
 type AgentComputeRecoveryClaim = {
   schemaVersion: 1;
   turnId: string;
   attemptGeneration: number;
   sandboxId: string;
-  leaseId?: string;
   createdAt: number;
 };
 
-const sandboxWorldLeaseRetirementKey = (target: SandboxTarget): string =>
-  `${SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX}${encodeURIComponent(target.workload)}:${encodeURIComponent(target.size)}:${encodeURIComponent(target.sandboxId)}`;
 const agentComputeRecoveryClaimKey = (
   turnId: string,
   attemptGeneration: number,
@@ -2721,6 +2701,27 @@ export class BuildSession extends DurableObject<Env> {
     return this.env.OWNER_GATES.getByName(ownerId);
   }
 
+  /** Shared dispatch dependencies used when this agent spawns a child. */
+  private childAgentDispatchDependencies(): CloudAgentDispatchDependencies {
+    return {
+      env: this.env,
+      ownerGateAdmit: async (input) =>
+        await this.ownerGateFor(input.ownerId).admit({
+          lane: "agent",
+          turnId: input.turnId,
+          conversationId: input.conversationId,
+          expectedGeneration: input.expectedGeneration,
+        }),
+      releaseOwnerGate: async (input) => {
+        await this.ownerGateFor(input.ownerId).release({
+          turnId: input.turnId,
+        });
+      },
+      enqueueOutbox: async (events) =>
+        await this.enqueueOutboxDurable([...events]),
+    };
+  }
+
   /**
    * Give this turn's slot back to the owner gate. Idempotent by construction
    * (the gate deletes a row it may not have), and never fatal: a release that
@@ -3467,14 +3468,12 @@ export class BuildSession extends DurableObject<Env> {
       }
       if (compute.phase === "resident") return undefined;
       const sandboxId = compute.sandboxId!;
-      const leaseId = compute.worldLease?.leaseId;
       if (
         existingClaim &&
         (existingClaim.schemaVersion !== 1 ||
           existingClaim.turnId !== turn.turnId ||
           existingClaim.attemptGeneration !== attemptGeneration ||
-          existingClaim.sandboxId !== sandboxId ||
-          existingClaim.leaseId !== leaseId)
+          existingClaim.sandboxId !== sandboxId)
       ) {
         throw new Error("Agent compute recovery claim was invalid.");
       }
@@ -3484,7 +3483,6 @@ export class BuildSession extends DurableObject<Env> {
           turnId: turn.turnId,
           attemptGeneration,
           sandboxId,
-          ...(leaseId ? { leaseId } : {}),
           createdAt: Date.now(),
         } satisfies AgentComputeRecoveryClaim);
       }
@@ -3524,21 +3522,6 @@ export class BuildSession extends DurableObject<Env> {
       });
       return "retry";
     }
-    const worldLease: PersistedAgentWorldLease | undefined = compute.worldLease;
-    if (
-      worldLease &&
-      !(await this.retireAgentWorldLease({
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        turnId: turn.turnId,
-        leaseId: worldLease.leaseId,
-        ...(worldLease.generation
-          ? { registrationGeneration: worldLease.generation }
-          : {}),
-      }))
-    ) {
-      return "retry";
-    }
     const attemptGeneration = turn.attemptGeneration!;
     const computeKey = agentComputeKey(turn.turnId, attemptGeneration);
     const claimKey = agentComputeRecoveryClaimKey(
@@ -3566,7 +3549,6 @@ export class BuildSession extends DurableObject<Env> {
         !latest ||
         latest.phase === "resident" ||
         latest.sandboxId !== compute!.sandboxId ||
-        latest.worldLease?.leaseId !== worldLease?.leaseId ||
         claim?.schemaVersion !== 1 ||
         claim.turnId !== turn.turnId ||
         claim.attemptGeneration !== attemptGeneration ||
@@ -4548,23 +4530,12 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   private async hasOwnerFenceLeaseRetirementDebt(): Promise<boolean> {
-    const [receipts, sandboxRetirements] = await Promise.all([
-      this.ctx.storage.list<BuildOwnerFenceLeaseReceipt>({
-        prefix: BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
-        limit: 512,
-      }),
-      this.ctx.storage.list<SandboxWorldLeaseRetirement>({
-        prefix: SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX,
-        limit: 512,
-      }),
-    ]);
-    return (
-      [...receipts.values()].some(
-        (receipt) => receipt.phase === "unregister_pending",
-      ) ||
-      [...sandboxRetirements.values()].some(
-        (retirement) => retirement.phase === "unregister_pending",
-      )
+    const receipts = await this.ctx.storage.list<BuildOwnerFenceLeaseReceipt>({
+      prefix: BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
+      limit: 512,
+    });
+    return [...receipts.values()].some(
+      (receipt) => receipt.phase === "unregister_pending",
     );
   }
 
@@ -4577,23 +4548,6 @@ export class BuildSession extends DurableObject<Env> {
       if (receipt.phase !== "unregister_pending") continue;
       await this.retireBuildOwnerFenceLease(receipt);
     }
-    const sandboxRetirements =
-      await this.ctx.storage.list<SandboxWorldLeaseRetirement>({
-        prefix: SANDBOX_WORLD_LEASE_RETIREMENT_PREFIX,
-        limit: 512,
-      });
-    for (const [key, retirement] of sandboxRetirements) {
-      if (
-        retirement.schemaVersion !== 1 ||
-        retirement.phase !== "unregister_pending" ||
-        key !== sandboxWorldLeaseRetirementKey(retirement.target)
-      ) {
-        continue;
-      }
-      if (await this.retireAgentWorldLease(retirement)) {
-        await this.ctx.storage.delete(key);
-      }
-    }
     if (await this.hasOwnerFenceLeaseRetirementDebt()) {
       await this.armOwnerFenceLeaseReconciliationAlarm();
     }
@@ -4602,7 +4556,7 @@ export class BuildSession extends DurableObject<Env> {
   private async registerBuildOwnerFenceLease(args: {
     turn: TurnRequest;
     kind: BuildOwnerFenceLeaseReceipt["kind"];
-    role: "run" | "aux" | "world";
+    role: "run" | "aux";
     slotKey?: string;
     leaseId?: string;
     mutateTurn?: boolean;
@@ -4628,7 +4582,7 @@ export class BuildSession extends DurableObject<Env> {
         slot?.leaseId ??
         crypto.randomUUID();
       if (slot && slot.leaseId !== leaseId) throw new OwnerPurgeFenceError();
-      const key = ownerFenceLeaseReceiptKey(leaseId);
+      const key = buildOwnerFenceLeaseReceiptKey(leaseId);
       const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
       if (
         current &&
@@ -4710,7 +4664,7 @@ export class BuildSession extends DurableObject<Env> {
     }
     let committed = false;
     await this.ctx.storage.transaction(async (txn) => {
-      const key = ownerFenceLeaseReceiptKey(receipt.leaseId);
+      const key = buildOwnerFenceLeaseReceiptKey(receipt.leaseId);
       const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
       if (
         !current ||
@@ -4812,7 +4766,7 @@ export class BuildSession extends DurableObject<Env> {
     leaseId: string,
     generation?: string,
   ): Promise<boolean> {
-    const key = ownerFenceLeaseReceiptKey(leaseId);
+    const key = buildOwnerFenceLeaseReceiptKey(leaseId);
     let receipt = await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
     if (receipt && !this.ownerFenceReceiptMatches(receipt, turn, leaseId)) {
       throw new OwnerPurgeFenceError();
@@ -4840,7 +4794,7 @@ export class BuildSession extends DurableObject<Env> {
     receipt: BuildOwnerFenceLeaseReceipt,
     generation = receipt.registrationGeneration,
   ): Promise<boolean> {
-    const key = ownerFenceLeaseReceiptKey(receipt.leaseId);
+    const key = buildOwnerFenceLeaseReceiptKey(receipt.leaseId);
     let pending = receipt;
     await this.ctx.storage.transaction(async (txn) => {
       const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
@@ -4902,224 +4856,6 @@ export class BuildSession extends DurableObject<Env> {
       }
     });
     return true;
-  }
-
-  /**
-   * Persist the exact world-lease identity beside a resident sandbox destroy
-   * tombstone. Compute records are ordinary turn state and may be deleted
-   * after terminal delivery; this coupling record is durability state and is
-   * retained until confirmed container teardown can retire the owner slot.
-   */
-  private async prepareSandboxWorldLeaseRetirement(
-    target: SandboxTarget,
-  ): Promise<SandboxWorldLeaseRetirement | undefined> {
-    if (target.workload !== "resident-attachment") return undefined;
-    const key = sandboxWorldLeaseRetirementKey(target);
-    const existing =
-      await this.ctx.storage.get<SandboxWorldLeaseRetirement>(key);
-    if (existing) {
-      if (
-        existing.schemaVersion !== 1 ||
-        (existing.phase !== "destroy_pending" &&
-          existing.phase !== "unregister_pending") ||
-        existing.target.sandboxId !== target.sandboxId ||
-        existing.target.size !== target.size ||
-        existing.target.workload !== target.workload
-      ) {
-        throw new Error("Sandbox world-lease retirement record was invalid.");
-      }
-      return existing;
-    }
-    const turn = await this.ctx.storage.get<TurnRequest>("turn");
-    if (
-      !turn ||
-      turn.kind !== "agent" ||
-      !Number.isSafeInteger(turn.attemptGeneration) ||
-      turn.attemptGeneration! < 1
-    ) {
-      return undefined;
-    }
-    const identity = {
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-    };
-    const compute = parsePersistedAgentCompute(
-      await this.ctx.storage.get(
-        agentComputeKey(identity.turnId, identity.attemptGeneration),
-      ),
-      identity,
-    );
-    if (compute?.sandboxId !== target.sandboxId || !compute.worldLease) {
-      return undefined;
-    }
-    const record: SandboxWorldLeaseRetirement = {
-      schemaVersion: 1,
-      phase: "destroy_pending",
-      target: { ...target },
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-      leaseId: compute.worldLease.leaseId,
-      ...(compute.worldLease.generation
-        ? { registrationGeneration: compute.worldLease.generation }
-        : {}),
-      createdAt: Date.now(),
-    };
-    return record;
-  }
-
-  /** Local debt first, then an idempotent remote unregister. */
-  private async retireAgentWorldLease(
-    identity: Pick<
-      SandboxWorldLeaseRetirement,
-      | "ownerId"
-      | "ownerGeneration"
-      | "turnId"
-      | "leaseId"
-      | "registrationGeneration"
-    >,
-  ): Promise<boolean> {
-    const key = ownerFenceLeaseReceiptKey(identity.leaseId);
-    let receipt = await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
-    const target = {
-      ownerId: identity.ownerId,
-      ownerGeneration: identity.ownerGeneration,
-      turnId: identity.turnId,
-    };
-    if (
-      receipt &&
-      (!this.ownerFenceReceiptMatches(receipt, target, identity.leaseId) ||
-        receipt.kind !== "world")
-    ) {
-      throw new OwnerPurgeFenceError();
-    }
-    if (!receipt) {
-      const now = Date.now();
-      receipt = {
-        schemaVersion: 1,
-        ...target,
-        leaseId: identity.leaseId,
-        kind: "world",
-        phase: "unregister_pending",
-        ...(identity.registrationGeneration
-          ? { registrationGeneration: identity.registrationGeneration }
-          : {}),
-        createdAt: now,
-        updatedAt: now,
-      };
-      await this.ctx.storage.put(key, receipt);
-    }
-    return await this.retireBuildOwnerFenceLease(
-      receipt,
-      identity.registrationGeneration,
-    );
-  }
-
-  /**
-   * The world stays exclusive until the exact container is confirmed gone.
-   * At that boundary, persist unregister debt before the destroy tombstone can
-   * disappear, so an isolate loss cannot strand either the container or slot.
-   */
-  private async retireWorldLeaseAfterConfirmedSandboxDestroy(
-    target: SandboxTarget,
-  ): Promise<boolean> {
-    if (target.workload !== "resident-attachment") return true;
-    const key = sandboxWorldLeaseRetirementKey(target);
-    const retirement =
-      (await this.ctx.storage.get<SandboxWorldLeaseRetirement>(key)) ??
-      (await this.prepareSandboxWorldLeaseRetirement(target));
-    if (!retirement) return true;
-    const pending = {
-      ...retirement,
-      phase: "unregister_pending" as const,
-    };
-    await this.ctx.storage.put(key, pending);
-    await this.ctx.storage.transaction(async (txn) => {
-      const computeKey = agentComputeKey(
-        pending.turnId,
-        pending.attemptGeneration,
-      );
-      const compute = parsePersistedAgentCompute(await txn.get(computeKey), {
-        turnId: pending.turnId,
-        attemptGeneration: pending.attemptGeneration,
-      });
-      if (
-        compute?.schemaVersion === 2 &&
-        compute?.sandboxId === target.sandboxId &&
-        compute.worldLease?.leaseId === pending.leaseId &&
-        compute.worldLease.phase !== "unregister_pending"
-      ) {
-        await txn.put(computeKey, {
-          ...compute,
-          worldLease: {
-            ...compute.worldLease,
-            phase: "unregister_pending",
-          },
-        } satisfies PersistedAgentCompute);
-      }
-    });
-    const retired = await this.retireAgentWorldLease(pending);
-    if (retired) await this.ctx.storage.delete(key);
-    return retired;
-  }
-
-  /**
-   * Release this exact attempt's world slot without waiting for its container
-   * to be confirmed gone. The slot normally stays exclusive until the exact
-   * destroy settles, and that is right while the turn is alive. Once the turn
-   * is terminal, keeping the slot bound to a container that will not die only
-   * turns one stuck teardown into an owner who cannot attach anything: every
-   * new agent is refused with the owner-purge message until the tombstone's
-   * alarm finally wins. The container's teardown stays alarm-owned debt; the
-   * exposure given up is a second attach while the old instance may still
-   * exist, and the old attempt can no longer write its world because the run
-   * lease that authorizes checkpoints is already gone.
-   */
-  private async releaseWorldLeaseDespiteDeferredDestroy(
-    turn: TurnRequest,
-  ): Promise<boolean> {
-    if (
-      turn.kind !== "agent" ||
-      !Number.isSafeInteger(turn.attemptGeneration) ||
-      turn.attemptGeneration! < 1
-    ) {
-      return true;
-    }
-    const identity = {
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-    };
-    const compute = parsePersistedAgentCompute(
-      await this.ctx.storage.get(
-        agentComputeKey(identity.turnId, identity.attemptGeneration),
-      ),
-      identity,
-    );
-    if (!compute?.sandboxId || !compute.worldLease) return true;
-    const target: SandboxTarget = {
-      sandboxId: compute.sandboxId,
-      size: compute.instanceSize,
-      workload: "resident-attachment",
-    };
-    try {
-      const released =
-        await this.retireWorldLeaseAfterConfirmedSandboxDestroy(target);
-      log(released ? "info" : "error", "agent_world_lease_released_early", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        instanceSize: target.size,
-        released,
-      });
-      return released;
-    } catch (error) {
-      log("error", "agent_world_lease_early_release_failed", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        message: errorMessage(error),
-      });
-      return false;
-    }
   }
 
   private async appendWorkspaceBackupDebt(
@@ -5430,6 +5166,7 @@ export class BuildSession extends DurableObject<Env> {
       ownerPurgeLeaseId: leaseId,
       appId: "agent",
       turnId,
+      agentDepth: 1,
       prompt: "",
       audience: "free",
       budgetMicroCents: 0,
@@ -5722,33 +5459,13 @@ export class BuildSession extends DurableObject<Env> {
     // destroy can never leave the signed proxy usable while retirement waits.
     await this.ctx.storage.delete(PREVIEW_ACCESS_STORAGE_KEY);
     const now = Date.now();
-    const preparedRetirement =
-      await this.prepareSandboxWorldLeaseRetirement(target);
     let debt!: SandboxDestroyDebt;
     await this.ctx.storage.transaction(async (txn) => {
       debt =
         (await readSandboxDestroyDebt(txn, target)) ??
         createSandboxDestroyDebt(target, now);
       const debtKey = sandboxDestroyDebtKey(target);
-      const retirementKey = sandboxWorldLeaseRetirementKey(target);
-      const existingRetirement =
-        await txn.get<SandboxWorldLeaseRetirement>(retirementKey);
-      if (
-        existingRetirement &&
-        preparedRetirement &&
-        (existingRetirement.leaseId !== preparedRetirement.leaseId ||
-          existingRetirement.turnId !== preparedRetirement.turnId ||
-          existingRetirement.attemptGeneration !==
-            preparedRetirement.attemptGeneration)
-      ) {
-        throw new Error("Sandbox world-lease retirement identity changed.");
-      }
-      await txn.put({
-        [debtKey]: debt,
-        ...(existingRetirement || !preparedRetirement
-          ? {}
-          : { [retirementKey]: preparedRetirement }),
-      });
+      await txn.put(debtKey, debt);
       const existingAlarm = await txn.getAlarm();
       await txn.setAlarm(
         existingAlarm === null
@@ -5815,10 +5532,6 @@ export class BuildSession extends DurableObject<Env> {
       });
       throw new SandboxLifecycleDeferredError();
     }
-    // This local transition writes unregister debt before the destroy
-    // tombstone is cleared. A reset at any following await therefore leaves
-    // at least one alarm-owned record that can finish retiring the world slot.
-    await this.retireWorldLeaseAfterConfirmedSandboxDestroy(target);
     await clearSandboxDestroyDebt(this.ctx.storage, debt);
     log("info", "sandbox_destroyed", {
       lifecycleReason: event,
@@ -5875,15 +5588,11 @@ export class BuildSession extends DurableObject<Env> {
         });
         return;
       }
-      // Same rule as the watchdog: a container whose destroy has not settled
-      // is alarm-owned debt, not a reason to leave the thread "running" and
-      // the owner's world slot held until it finally dies.
       log("error", "recovered_agent_sandbox_termination_deferred", {
         turnId: turn.turnId,
         threadId: turn.threadId,
         ...sandboxLifecycleFailureFields(error),
       });
-      await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
     }
     const delivered = await this.deliverTerminal(turn, {
       ...recoveredPending,
@@ -6746,116 +6455,6 @@ export class BuildSession extends DurableObject<Env> {
     });
   }
 
-  private async setExactTurnAlarmNoLaterThan(
-    turn: TurnRequest,
-    scheduledTime: number,
-  ): Promise<boolean> {
-    return await this.mutateExactTurn(turn, async (txn) => {
-      const current = await txn.getAlarm();
-      await txn.setAlarm(
-        current === null ? scheduledTime : Math.min(current, scheduledTime),
-      );
-    });
-  }
-
-  private worldLeaseRenewalAt(expiresAt: number): number {
-    return expiresAt - OWNER_FENCE_LEASE_RENEW_LEAD_MS;
-  }
-
-  /** Renew only the exact compute owned by a live in-memory executor. */
-  private async renewLiveAgentWorldLease(
-    turn: TurnRequest,
-  ): Promise<{ nextAt?: number; retry: boolean }> {
-    const attemptGeneration = turn.attemptGeneration!;
-    const key = agentComputeKey(turn.turnId, attemptGeneration);
-    const compute = parsePersistedAgentCompute(
-      await this.ctx.storage.get(key),
-      { turnId: turn.turnId, attemptGeneration },
-    );
-    const lease = compute?.worldLease;
-    if (
-      compute?.schemaVersion !== 2 ||
-      !lease ||
-      lease.phase !== "registered" ||
-      !lease.generation ||
-      !lease.expiresAt
-    ) {
-      return { retry: false };
-    }
-    const dueAt = this.worldLeaseRenewalAt(lease.expiresAt);
-    if (dueAt > Date.now() + 1_000) {
-      return { nextAt: dueAt, retry: false };
-    }
-    let response: Response;
-    try {
-      response = await this.callOwnerFence(turn.ownerId, "renew", {
-        leaseId: lease.leaseId,
-        sessionId: this.ctx.id.toString(),
-        turnId: turn.turnId,
-        ownerGeneration: turn.ownerGeneration,
-        generation: lease.generation,
-      });
-    } catch (error) {
-      log("error", "agent_world_lease_renew_deferred", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        message: errorMessage(error),
-      });
-      return { retry: true };
-    }
-    const payload = (await response.json().catch(() => null)) as {
-      expiresAt?: unknown;
-    } | null;
-    if (
-      !response.ok ||
-      typeof payload?.expiresAt !== "number" ||
-      !Number.isFinite(payload.expiresAt) ||
-      payload.expiresAt <= Date.now()
-    ) {
-      log("error", "agent_world_lease_renew_deferred", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        status: response.status,
-      });
-      return { retry: true };
-    }
-    const renewedExpiresAt = payload.expiresAt;
-    let committed = false;
-    await this.ctx.storage.transaction(async (txn) => {
-      const [current, raw] = await Promise.all([
-        txn.get<TurnRequest>("turn"),
-        txn.get(key),
-      ]);
-      const latest = parsePersistedAgentCompute(raw, {
-        turnId: turn.turnId,
-        attemptGeneration,
-      });
-      if (
-        !exactTurnIdentityMatches(current, turn) ||
-        latest?.schemaVersion !== 2 ||
-        latest.worldLease?.phase !== "registered" ||
-        latest.worldLease.leaseId !== lease.leaseId ||
-        latest.worldLease.generation !== lease.generation
-      ) {
-        return;
-      }
-      await txn.put(key, {
-        ...latest,
-        worldLease: { ...latest.worldLease, expiresAt: renewedExpiresAt },
-      } satisfies PersistedAgentCompute);
-      committed = true;
-    });
-    return committed
-      ? {
-          nextAt: Math.max(
-            Date.now() + 1_000,
-            this.worldLeaseRenewalAt(renewedExpiresAt),
-          ),
-          retry: false,
-        }
-      : { retry: false };
-  }
-
   /**
    * The positional shape every call site in this file already uses. `"auto"`
    * takes the next DO-assigned ordinal; an explicit number is an idempotent
@@ -7051,7 +6650,7 @@ export class BuildSession extends DurableObject<Env> {
           // one mutation, so the wake rode on the callback's latency and its
           // retry ladder. The parent session lives one Durable Object away, so
           // it is woken directly and the outbox stays a pure projection.
-          await this.wakeParentConversation(turn, {
+          await this.wakeParentAgentOrConversation(turn, {
             status: pending.kind,
             threadUpdatedAt: completedAt,
             ...(resultJson ? { resultJson } : {}),
@@ -7113,6 +6712,75 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
+  private agentCompletionText(
+    turn: TurnRequest,
+    completion: {
+      status: "completed" | "failed" | "canceled";
+      resultJson?: string;
+      errorMessage?: string;
+    },
+  ): string {
+    let resultText = completion.errorMessage ?? "";
+    if (completion.resultJson) {
+      try {
+        const parsed = JSON.parse(completion.resultJson) as {
+          finalText?: unknown;
+        };
+        resultText =
+          typeof parsed.finalText === "string" && parsed.finalText.trim()
+            ? parsed.finalText
+            : completion.resultJson;
+      } catch {
+        resultText = completion.resultJson;
+      }
+    }
+    const label =
+      completion.status === "completed"
+        ? "[Agent completed]"
+        : completion.status === "canceled"
+          ? "[Agent canceled]"
+          : "[Agent failed]";
+    const description = turn.description?.trim() || turn.threadId;
+    return `${label} ${description} (thread ${turn.threadId})\n\n${
+      resultText || "No result was reported."
+    }`.slice(0, TURN_PROMPT_MAX_CHARS);
+  }
+
+  private async wakeParentAgentOrConversation(
+    turn: TurnRequest,
+    completion: {
+      status: "completed" | "failed" | "canceled";
+      threadUpdatedAt: number;
+      resultJson?: string;
+      errorMessage?: string;
+    },
+  ): Promise<void> {
+    if (turn.parentThreadId && turn.threadId) {
+      const steered = await steerCloudAgent({
+        env: this.env,
+        threadId: turn.parentThreadId,
+        message: {
+          id: `wake:${turn.threadId}:${turn.attemptGeneration ?? 1}`.slice(
+            0,
+            256,
+          ),
+          kind:
+            completion.status === "completed"
+              ? "child_completed"
+              : completion.status === "canceled"
+                ? "child_canceled"
+                : "child_failed",
+          text: this.agentCompletionText(turn, completion),
+          threadId: turn.threadId,
+          attemptGeneration: turn.attemptGeneration ?? 1,
+          createdAt: completion.threadUpdatedAt,
+        },
+      });
+      if (steered.accepted) return;
+    }
+    await this.wakeParentConversation(turn, completion);
+  }
+
   /**
    * Wake the conversation that spawned this thread with the agent's report.
    *
@@ -7151,36 +6819,13 @@ export class BuildSession extends DurableObject<Env> {
       });
       return;
     }
-    let resultText = completion.errorMessage ?? "";
-    if (completion.resultJson) {
-      try {
-        const parsed = JSON.parse(completion.resultJson) as {
-          finalText?: unknown;
-        };
-        resultText =
-          typeof parsed.finalText === "string" && parsed.finalText.trim()
-            ? parsed.finalText
-            : completion.resultJson;
-      } catch {
-        resultText = completion.resultJson;
-      }
-    }
-    const label =
-      completion.status === "completed"
-        ? "[Agent completed]"
-        : completion.status === "canceled"
-          ? "[Agent canceled]"
-          : "[Agent failed]";
-    const description = turn.description?.trim() || turn.threadId;
     const body: CloudTurnStartRequest = {
       protocol: TURN_PLANE_PROTOCOL,
       clientMsgId: `wake:${turn.threadId}:${turn.attemptGeneration ?? 1}`.slice(
         0,
         64,
       ),
-      prompt: `${label} ${description} (thread ${turn.threadId})\n\n${
-        resultText || "No result was reported."
-      }`.slice(0, TURN_PROMPT_MAX_CHARS),
+      prompt: this.agentCompletionText(turn, completion),
       lane: "wake",
       source: "agent-thread",
       hiddenMessage: true,
@@ -7274,17 +6919,6 @@ export class BuildSession extends DurableObject<Env> {
         Number.isFinite(watchdogDeadlineAt) &&
         watchdogDeadlineAt > Date.now()
       ) {
-        const renewal = await this.renewLiveAgentWorldLease(turn);
-        if (renewal.retry) {
-          await this.setExactTurnAlarm(
-            turn,
-            Math.min(
-              watchdogDeadlineAt,
-              Date.now() + OWNER_FENCE_LEASE_RETRY_MS,
-            ),
-          );
-          return;
-        }
         // setAlarm() can race an alarm delivery that Cloudflare has already
         // begun. That stale callback then observes the successor turn and,
         // without this durable deadline fence, mistakes its live executor for
@@ -7292,11 +6926,7 @@ export class BuildSession extends DurableObject<Env> {
         // enter crash recovery while the local Effect fiber is still alive.
         await this.setExactTurnAlarm(
           turn,
-          Math.min(
-            watchdogDeadlineAt,
-            Date.now() + AGENT_TURN_HEARTBEAT_MS,
-            renewal.nextAt ?? watchdogDeadlineAt,
-          ),
+          Math.min(watchdogDeadlineAt, Date.now() + AGENT_TURN_HEARTBEAT_MS),
         );
         log("info", "agent_watchdog_alarm_rearmed", {
           turnId: turn.turnId,
@@ -7810,17 +7440,11 @@ export class BuildSession extends DurableObject<Env> {
         await this.setExactTurnAlarm(turn, Date.now() + 30_000);
         return;
       }
-      // The container's tombstone was written before its first lifecycle
-      // RPC, so from here its teardown is alarm-owned debt that outlives the
-      // turn. A destroy that has not settled must not hold the thread
-      // "running" or keep the owner's world slot for as long as the container
-      // refuses to die: release the slot and deliver the terminal now.
       log("error", "timeout_sandbox_termination_deferred", {
         turnId: turn.turnId,
         sandboxId,
         ...sandboxLifecycleFailureFields(error),
       });
-      await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
     }
     timeoutPending = { ...timeoutPending, terminateSandbox: false };
     if (
@@ -7880,7 +7504,7 @@ export class BuildSession extends DurableObject<Env> {
    * Operator-only: expire the current agent turn now instead of at its
    * watchdog. Nothing here delivers a terminal directly. The watchdog deadline
    * is moved to now, a hung local fiber gets the bounded interrupt a Stop
-   * would, the owner's world slot is released, and the alarm is re-armed so
+   * would, and the alarm is re-armed so
    * the ordinary timeout path (which tolerates a container that will not die)
    * fails the thread. The optional body names the exact turn the operator
    * looked at, so a stale request cannot expire a successor.
@@ -7942,21 +7566,17 @@ export class BuildSession extends DurableObject<Env> {
         this.agentTurnExecutions.delete(turn.turnId);
       }
     }
-    const worldLeaseReleased =
-      await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
     await this.setExactTurnAlarm(turn, now);
     log("info", "agent_turn_expired_by_operator", {
       turnId: turn.turnId,
       threadId: turn.threadId,
       attemptGeneration: turn.attemptGeneration,
-      worldLeaseReleased,
       interruptedLocalExecution: Boolean(running),
     });
     return json({
       expired: true,
       turnId: turn.turnId,
       attemptGeneration: turn.attemptGeneration,
-      worldLeaseReleased,
       interruptedLocalExecution: Boolean(running),
     });
   }
@@ -9103,6 +8723,58 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
+  private async handleSteer(request: Request): Promise<Response> {
+    const message = parseSteerMessage(await request.json().catch(() => null));
+    if (!message) return json({ error: "Invalid steer message." }, 400);
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const [turn, terminal] = await Promise.all([
+        this.ctx.storage.get<TurnRequest>("turn"),
+        this.ctx.storage.get<boolean>("terminal"),
+      ]);
+      if (
+        !turn ||
+        turn.kind !== "agent" ||
+        !turn.threadId ||
+        terminal !== false ||
+        !Number.isSafeInteger(turn.attemptGeneration)
+      ) {
+        return json({ accepted: false, reason: "not_running" }, 409);
+      }
+      const mailbox = SteerMailbox.open(this.ctx.storage.sql);
+      const result = mailbox.append(
+        {
+          turnId: turn.turnId,
+          attemptGeneration: turn.attemptGeneration!,
+        },
+        message,
+      );
+      if (result === "conflict") {
+        return json({ accepted: false, reason: "idempotency_conflict" }, 409);
+      }
+      if (result === "full") {
+        return json({ accepted: false, reason: "mailbox_full" }, 503);
+      }
+      if (message.kind !== "input") {
+        await rememberCloudAgentControlReceipt(this.ctx.storage, {
+          threadId: message.threadId,
+          attemptGeneration: message.attemptGeneration,
+          threadUpdatedAt: message.createdAt,
+          status:
+            message.kind === "child_completed"
+              ? "completed"
+              : message.kind === "child_canceled"
+                ? "canceled"
+                : "failed",
+        });
+      }
+      return json({
+        accepted: true,
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration,
+      });
+    });
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/turn-broker") {
@@ -9123,6 +8795,7 @@ export class BuildSession extends DurableObject<Env> {
     if (url.pathname === "/expire-agent-turn") {
       return await this.expireCurrentAgentTurn(request);
     }
+    if (url.pathname === "/steer") return await this.handleSteer(request);
     if (url.pathname === "/cancel") {
       const raw = await request.json().catch(() => null);
       const cancellation = parseExactTurnCancellationRequest(raw);
@@ -9169,6 +8842,7 @@ export class BuildSession extends DurableObject<Env> {
             appId: "agent",
             conversationId: agentStart.conversationId,
             threadId: agentStart.threadId,
+            agentDepth: agentStart.agentDepth,
             turnId: agentStart.turnId ?? crypto.randomUUID(),
             attemptGeneration: agentStart.attemptGeneration,
             prompt: agentStart.prompt,
@@ -9182,6 +8856,9 @@ export class BuildSession extends DurableObject<Env> {
               : {}),
             ...(agentStart.parentTurnId
               ? { parentTurnId: agentStart.parentTurnId }
+              : {}),
+            ...(agentStart.parentThreadId
+              ? { parentThreadId: agentStart.parentThreadId }
               : {}),
             ...(agentStart.originDeviceId
               ? { originDeviceId: agentStart.originDeviceId }
@@ -9596,7 +9273,6 @@ export class BuildSession extends DurableObject<Env> {
         lane: "agent",
         turnId: turn.turnId,
         conversationId: turn.conversationId ?? "",
-        workspace: OWNER_WORLD_WORKSPACE,
         expectedGeneration: turn.ownerGeneration,
       });
       if (!admission.ok) {
@@ -9736,12 +9412,13 @@ export class BuildSession extends DurableObject<Env> {
         threadId: turn.threadId ?? "",
         conversationId: turn.conversationId ?? "",
         parentTurnId: turn.parentTurnId ?? turn.turnId,
+        ...(turn.parentThreadId ? { parentThreadId: turn.parentThreadId } : {}),
+        agentDepth: turn.agentDepth,
         attemptGeneration,
         description: turn.description ?? "",
         prompt: turn.prompt,
         execution: turn.execution!,
         placement: "cloud",
-        workspace: OWNER_WORLD_WORKSPACE,
         ...(turn.originDeviceId ? { originDeviceId: turn.originDeviceId } : {}),
         ...(turn.originConversationId
           ? { originConversationId: turn.originConversationId }
@@ -10366,16 +10043,6 @@ export class BuildSession extends DurableObject<Env> {
       ? "large"
       : (remembered ??
         initialInstanceSize({ prompt: turn.prompt, restored: true }));
-    const worldLeaseId = `world:${await sha256Hex(
-      JSON.stringify({
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        turnId: turn.turnId,
-        attemptGeneration,
-        sandboxId,
-      }),
-    )}`;
-
     let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
     let residentHistory: AgentHistoryRow[] = [];
     let residentSandbox: ReturnType<BuildSession["sandbox"]> | undefined;
@@ -10481,86 +10148,6 @@ export class BuildSession extends DurableObject<Env> {
         },
       },
       attachment,
-      worldLease: {
-        leaseId: worldLeaseId,
-        acquire: async ({ leaseId }) => {
-          const grant = await this.registerBuildOwnerFenceLease({
-            turn,
-            kind: "world",
-            role: "world",
-            leaseId,
-          });
-          await this.setExactTurnAlarmNoLaterThan(
-            turn,
-            Math.max(
-              Date.now() + 1_000,
-              this.worldLeaseRenewalAt(grant.expiresAt),
-            ),
-          );
-          return {
-            generation: grant.generation,
-            expiresAt: grant.expiresAt,
-          };
-        },
-        renew: async ({ leaseId, generation }) => {
-          const response = await this.callOwnerFence(turn.ownerId, "renew", {
-            leaseId,
-            sessionId: this.ctx.id.toString(),
-            turnId: turn.turnId,
-            ownerGeneration: turn.ownerGeneration,
-            generation,
-          });
-          const payload = (await response.json().catch(() => null)) as {
-            expiresAt?: unknown;
-          } | null;
-          if (
-            !response.ok ||
-            typeof payload?.expiresAt !== "number" ||
-            !Number.isFinite(payload.expiresAt)
-          ) {
-            throw new OwnerPurgeFenceError();
-          }
-          await this.setExactTurnAlarmNoLaterThan(
-            turn,
-            Math.max(
-              Date.now() + 1_000,
-              this.worldLeaseRenewalAt(payload.expiresAt),
-            ),
-          );
-          return { expiresAt: payload.expiresAt };
-        },
-        retire: async ({ leaseId, generation }) => {
-          const key = ownerFenceLeaseReceiptKey(leaseId);
-          let receipt =
-            await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
-          if (
-            receipt &&
-            (!this.ownerFenceReceiptMatches(receipt, turn, leaseId) ||
-              receipt.kind !== "world")
-          ) {
-            throw new OwnerPurgeFenceError();
-          }
-          if (!receipt) {
-            const now = Date.now();
-            receipt = {
-              schemaVersion: 1,
-              ownerId: turn.ownerId,
-              ownerGeneration: turn.ownerGeneration,
-              turnId: turn.turnId,
-              leaseId,
-              kind: "world",
-              phase: "unregister_pending",
-              ...(generation ? { registrationGeneration: generation } : {}),
-              createdAt: now,
-              updatedAt: now,
-            };
-            await this.ctx.storage.put(key, receipt);
-          }
-          if (!(await this.retireBuildOwnerFenceLease(receipt, generation))) {
-            throw new Error("Owner-world lease retirement is pending.");
-          }
-        },
-      },
       context: execution,
       emitEvent: (kind, payload) => {
         void this.event(
@@ -10574,8 +10161,23 @@ export class BuildSession extends DurableObject<Env> {
       },
     });
 
+    const agentControl = createBuildSessionAgentControl({
+      storage: this.ctx.storage,
+      env: this.env,
+      dispatch: this.childAgentDispatchDependencies(),
+      parent: {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        conversationId: turn.conversationId!,
+        turnId: turn.turnId,
+        threadId: turn.threadId!,
+        agentDepth: turn.agentDepth,
+        execution: plan.execution,
+      },
+    });
     const doLocal = createGeneralAgentDoLocalTools({
       control,
+      agentControl,
       requestInteriorBuild: () => ladder.requestInteriorBuild(),
       now: () => Date.now(),
       signal: execution.signal,
@@ -10637,7 +10239,21 @@ export class BuildSession extends DurableObject<Env> {
           fetch: (input, init) => modelGatewayBinding.fetch(input, init),
         },
         sql: this.ctx.storage.sql,
-        tools: createResidentGeneralAgentTools(doLocal, ladder, jsSandbox),
+        tools: createResidentGeneralAgentTools(doLocal, ladder, jsSandbox, {
+          agentDepth: turn.agentDepth,
+        }),
+        steer: {
+          drain: async () =>
+            SteerMailbox.open(this.ctx.storage.sql).drain({
+              turnId: turn.turnId,
+              attemptGeneration,
+            }),
+          acknowledge: (ids) =>
+            SteerMailbox.open(this.ctx.storage.sql).acknowledge(
+              { turnId: turn.turnId, attemptGeneration },
+              ids,
+            ),
+        },
         workspacePrompt: { office: false },
         now: () => Date.now(),
         onAgentStarted: (abort) => {
@@ -10684,13 +10300,7 @@ export class BuildSession extends DurableObject<Env> {
     await this.deliverResidentTerminal(turn, result, requestStarted);
   }
 
-  /**
-   * A destroy that cannot settle is alarm-owned debt, the same rule the
-   * watchdog and executor-loss paths apply: it never withholds a finished
-   * turn's terminal or keeps the owner's world slot held until the container
-   * finally dies. A lease retirement that fails is logged and left to the
-   * lease TTL for the same reason.
-   */
+  /** Release resident compute without withholding the turn terminal. */
   private async releaseResidentCompute(
     turn: TurnRequest,
     ladder: Pick<ReturnType<typeof createAgentComputeLadder>, "teardown">,
@@ -10704,7 +10314,6 @@ export class BuildSession extends DurableObject<Env> {
           threadId: turn.threadId,
           ...sandboxLifecycleFailureFields(error),
         });
-        await this.releaseWorldLeaseDespiteDeferredDestroy(turn);
         return;
       }
       log("error", "resident_compute_release_failed", {
@@ -14001,9 +13610,9 @@ const moveWorldCheckpoint = async (
     throw new OwnerProductTransferConflictError(
       planBody?.message ?? "The durable workspace transfer plan was rejected.",
       planBody?.code === "destination_checkpoint_changed" ||
-      planBody?.code === "owner_purge_permanent" ||
-      planBody?.code === "owner_purge_temporary" ||
-      planBody?.code === "transfer_busy"
+        planBody?.code === "owner_purge_permanent" ||
+        planBody?.code === "owner_purge_temporary" ||
+        planBody?.code === "transfer_busy"
         ? planBody.code
         : "owner_transfer_conflict",
     );
@@ -15540,6 +15149,17 @@ export default {
         conversationName(journalProbeMatch[1]!),
       ).fetch(probe.toString(), { method: "GET" });
     }
+    const steerMatch = url.pathname.match(/^\/sessions\/([^/]+)\/steer$/);
+    if (request.method === "POST" && steerMatch) {
+      return env.BUILD_SESSIONS.getByName(steerMatch[1]!).fetch(
+        "https://build-session/steer",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        },
+      );
+    }
     const cancelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/cancel$/);
     if (request.method === "POST" && cancelMatch) {
       return env.BUILD_SESSIONS.getByName(cancelMatch[1]!).fetch(
@@ -15552,8 +15172,8 @@ export default {
       );
     }
     // Operator surface for a thread stuck "running": expire its watchdog now.
-    // The DO releases the owner's world slot, interrupts a hung local fiber,
-    // and re-arms its alarm so the ordinary timeout path delivers the terminal
+    // The DO interrupts a hung local fiber and re-arms its alarm so the
+    // ordinary timeout path delivers the terminal
     // while the container's teardown stays alarm-owned debt.
     const expireMatch = url.pathname.match(/^\/sessions\/([^/]+)\/expire$/);
     if (request.method === "POST" && expireMatch) {
@@ -15570,7 +15190,10 @@ export default {
     // Durable Object still owns. Wrangler cannot stop one instance and only the
     // sandbox object holds the container handle, so retirement is a keep-alive
     // release plus destroy on the exact tuple, by name.
-    if (request.method === "POST" && url.pathname === "/internal/sandboxes/retire") {
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/sandboxes/retire"
+    ) {
       return await retireSandboxInstance(env, request);
     }
     // Owner-level object storage sweep, the storage half of account deletion.

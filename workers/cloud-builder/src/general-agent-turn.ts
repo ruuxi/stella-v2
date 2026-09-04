@@ -62,6 +62,7 @@ import { AgentTurnJournal } from "./agent-turn-journal.js";
 import type { SealedTurnTranscript } from "./agent-turn-journal.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 import { assertTurnExecutionActive } from "./turn-cancellation.js";
+import type { SteerMessage } from "./steer-mailbox.js";
 
 export type { CanonicalTranscriptReceipt } from "./agent-control-plane.js";
 
@@ -139,7 +140,11 @@ export type GeneralAgentTurnPlan =
 export type TurnDurability =
   | Readonly<{
       kind: "none";
-      reason: "preflight_failed" | "canceled" | "sandbox_lost" | "commit_failed";
+      reason:
+        | "preflight_failed"
+        | "canceled"
+        | "sandbox_lost"
+        | "commit_failed";
     }>
   | Readonly<{
       kind: "transcript_only";
@@ -712,6 +717,10 @@ export type ResidentStellaLoopInput = Readonly<{
   modelGateway: ResidentModelGateway;
   sql: SqlStorage;
   tools: readonly AgentTool[];
+  steer?: Readonly<{
+    drain(): Promise<SteerMessage[]>;
+    acknowledge(ids: readonly string[]): void;
+  }>;
   workspacePrompt: Readonly<{
     office: boolean;
     skills?: GeneralAgentPromptSkills;
@@ -780,15 +789,6 @@ export const runResidentStellaLoop = async (
     );
   }
 
-  context.assertActive();
-  const model = await (input.createModel ?? relayModelFactory)({
-    gatewayOrigin: input.modelGateway.origin,
-    capability: input.modelGateway.capability,
-    execution: input.execution,
-    signal: context.signal,
-    ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
-  });
-
   const journal = AgentTurnJournal.open({
     sql: input.sql,
     identity: {
@@ -803,6 +803,46 @@ export const runResidentStellaLoop = async (
       timestamp: input.now(),
     },
     now: input.now(),
+  });
+
+  let journalError: string | undefined;
+  const asUserMessage = (message: SteerMessage): AgentMessage => ({
+    role: "user",
+    content: [{ type: "text", text: message.text }],
+    timestamp: message.createdAt,
+  });
+  const drainSteer = async (): Promise<AgentMessage[]> => {
+    if (!input.steer) return [];
+    const drained = await input.steer.drain();
+    const messages = drained.map(asUserMessage);
+    for (let index = 0; index < messages.length; index += 1) {
+      journal.append(messages[index]!);
+      input.steer.acknowledge([drained[index]!.id]);
+    }
+    return messages;
+  };
+  const promptMessage: AgentMessage = {
+    role: "user",
+    content: [{ type: "text", text: turn.prompt }],
+    timestamp: input.now(),
+  };
+  journal.append(promptMessage);
+  let initialSteer: AgentMessage[];
+  try {
+    initialSteer = await drainSteer();
+  } catch (error) {
+    return preflightFailure(
+      `Persisting agent input failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  context.assertActive();
+  const model = await (input.createModel ?? relayModelFactory)({
+    gatewayOrigin: input.modelGateway.origin,
+    capability: input.modelGateway.capability,
+    execution: input.execution,
+    signal: context.signal,
+    ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
   });
 
   // The model registry is a lazy import in the Worker (it is 433 KB of
@@ -830,7 +870,7 @@ export const runResidentStellaLoop = async (
         input.execution.reasoningEffort,
       ),
       tools: [...input.tools],
-      messages: history,
+      messages: [...history, promptMessage, ...initialSteer],
     },
     sessionId: turn.identity.threadId,
     getApiKey: () => input.modelGateway.capability,
@@ -839,6 +879,18 @@ export const runResidentStellaLoop = async (
     transformContext: buildDefaultTransformContext({ model }),
     degenerateResponseRetries: 0,
     providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
+    onTurnBoundary: async ({ context: boundaryContext }) => {
+      try {
+        const steering = await drainSteer();
+        return steering.length > 0
+          ? [...boundaryContext.messages, ...steering]
+          : undefined;
+      } catch (error) {
+        journalError ??=
+          error instanceof Error ? error.message : "journal append failed";
+        return undefined;
+      }
+    },
     ...(input.streamFn ? { streamFn: input.streamFn } : {}),
   });
   input.onAgentStarted?.(() => agent.abort());
@@ -846,7 +898,6 @@ export const runResidentStellaLoop = async (
   let inputTokens = 0;
   let outputTokens = 0;
   let llmCalls = 0;
-  let journalError: string | undefined;
   const unsubscribe = agent.subscribe((event: AgentEvent) => {
     if (context.cancellation.aborted || context.signal.aborted) return;
     if (event.type !== "message_end") return;
@@ -874,8 +925,7 @@ export const runResidentStellaLoop = async (
       execute: async (resume) => {
         context.assertActive();
         assertTurnExecutionActive(context.cancellation, context.signal);
-        if (resume) await agent.continue();
-        else await agent.prompt(turn.prompt);
+        await agent.continue();
         const completion = getAgentCompletion(agent);
         return { ...completion, finalText: completion.finalText.trim() };
       },
@@ -917,9 +967,7 @@ export const runResidentStellaLoop = async (
         } as const);
   } catch (commitError) {
     const message =
-      commitError instanceof Error
-        ? commitError.message
-        : String(commitError);
+      commitError instanceof Error ? commitError.message : String(commitError);
     return {
       outcome: "failed",
       ok: false,

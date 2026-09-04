@@ -44,6 +44,7 @@ const REQUIRED_SOURCES: readonly string[] = [
   "../../packages/runtime/kernel/tools/defs/apply-patch-def.ts",
   "../../packages/runtime/kernel/tools/defs/code-def.ts",
   "../../packages/runtime/kernel/tools/defs/web-def.ts",
+  "../../packages/runtime/kernel/tools/defs/agent-orchestration-def.ts",
 ];
 
 type ResidentGraph = {

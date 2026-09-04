@@ -216,9 +216,6 @@ export type DispatchErrorCode =
   | "owner_purged"
   | "generation_stale"
   | "capability_unavailable"
-  | "quota_burst"
-  | "quota_daily"
-  | "quota_concurrency"
   /** Anonymous owners may not dispatch agent work; sign in to continue. */
   | "sign_in_required"
   | "owner_suspended"
@@ -272,7 +269,12 @@ export type DevicePresenceServerFrame =
       claimExpiresAt: number;
       replayed: boolean;
     }
-  | { type: "cancel"; dispatchId: string; cancelRequestId: string; reason: string }
+  | {
+      type: "cancel";
+      dispatchId: string;
+      cancelRequestId: string;
+      reason: string;
+    }
   | { type: "dispatch"; dispatch: DispatchSummary }
   | { type: "pong"; serverTimeMs: number }
   | { type: "error"; code: string; message: string; retryable: boolean };

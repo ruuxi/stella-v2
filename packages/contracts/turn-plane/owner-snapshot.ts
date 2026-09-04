@@ -19,15 +19,6 @@ export const BUILDER_OWNER_SNAPSHOT_CHANGED_PATH =
 
 export type CloudPlanId = "free" | "go" | "pro";
 
-export type CloudLaneQuota = {
-  /** Starts allowed per 10-minute window. */
-  burstStarts: number;
-  /** Turns allowed per rolling 24 hours. */
-  dailyTurns: number;
-  /** Concurrently running turns (agents: concurrently running threads). */
-  concurrent: number;
-};
-
 export type OwnerSnapshot = {
   v: typeof OWNER_SNAPSHOT_VERSION;
   ownerId: string;
@@ -45,11 +36,6 @@ export type OwnerSnapshot = {
   /** Enforcement status; absent means `ok`. Suspended also sets `writable: false`. */
   enforcement?: OwnerEnforcement;
   plan: CloudPlanId;
-  unlimited: boolean;
-  quotas: {
-    chat: CloudLaneQuota;
-    agent: CloudLaneQuota;
-  };
   allowance: {
     audience: ManagedModelAudience;
     budgetMicroCents: number;

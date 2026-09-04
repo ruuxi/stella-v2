@@ -127,9 +127,10 @@ const harness = (
   const journal = options.journal ?? journalFake();
   const gates = options.gates ?? fakeOwnerGates();
   const outbox = options.outbox ?? fakeOutbox();
-  const instance = Object.create(
-    OrchestratorSession.prototype,
-  ) as InstanceType<typeof OrchestratorSession> & Record<string, unknown>;
+  const instance = Object.create(OrchestratorSession.prototype) as InstanceType<
+    typeof OrchestratorSession
+  > &
+    Record<string, unknown>;
   let registrations = 0;
   let unregistrations = 0;
   let enqueues = 0;
@@ -251,7 +252,6 @@ describe("OrchestratorSession turn admission", () => {
           lane: "chat",
           turnId,
           conversationId: "conversation-1",
-          quota: "enforce",
         },
       },
     ]);
@@ -322,19 +322,27 @@ describe("OrchestratorSession turn admission", () => {
     // The desktop subscribes with a client-minted id before it sends; the
     // hub resolves (and adopts) the verified connector through this seam.
     const adopted = await (
-      h.instance["resolveOwnerForCaller"] as (
-        caller: { ownerId: string },
-      ) => Promise<{ ownerId: string; ownerGeneration: string; title: string } | null>
+      h.instance["resolveOwnerForCaller"] as (caller: {
+        ownerId: string;
+      }) => Promise<{
+        ownerId: string;
+        ownerGeneration: string;
+        title: string;
+      } | null>
     ).call(h.instance, { ownerId: "owner-1" });
-    expect(adopted).toMatchObject({ ownerId: "owner-1", ownerGeneration: "generation-1", title: "" });
+    expect(adopted).toMatchObject({
+      ownerId: "owner-1",
+      ownerGeneration: "generation-1",
+      title: "",
+    });
     expect(h.journal.meta().owner_id).toBe("owner-1");
     expect(h.gates.snapshots).toEqual(["owner-1"]);
     // A different verified connector is refused, never adopted.
     expect(
       await (
-        h.instance["resolveOwnerForCaller"] as (
-          caller: { ownerId: string },
-        ) => Promise<unknown>
+        h.instance["resolveOwnerForCaller"] as (caller: {
+          ownerId: string;
+        }) => Promise<unknown>
       ).call(h.instance, { ownerId: "owner-2" }),
     ).toBeNull();
 
@@ -350,9 +358,14 @@ describe("OrchestratorSession turn admission", () => {
     expect(h.journal.binds).toHaveLength(1);
 
     // The second turn is not a creation.
-    const second = await h.dispatch(start({ clientMsgId: "client-msg-0002" }), USER);
+    const second = await h.dispatch(
+      start({ clientMsgId: "client-msg-0002" }),
+      USER,
+    );
     expect(await second.json()).toMatchObject({ createdConversation: false });
-    expect(h.outbox.events.filter((event) => event.kind === "conversation.created")).toHaveLength(1);
+    expect(
+      h.outbox.events.filter((event) => event.kind === "conversation.created"),
+    ).toHaveLength(1);
   });
 
   test("uses the request's title and pinned execution, and a long prompt is trimmed into a title", async () => {
@@ -384,7 +397,9 @@ describe("OrchestratorSession turn admission", () => {
   });
 
   test("a bound conversation refuses another owner before any side effect", async () => {
-    const h = harness({ journal: journalFake({ ownerId: "owner-2", title: "Theirs" }) });
+    const h = harness({
+      journal: journalFake({ ownerId: "owner-2", title: "Theirs" }),
+    });
     const response = await h.dispatch(start(), USER);
     expect(response.status).toBe(403);
     expect(await errorOf(response)).toMatchObject({
@@ -435,9 +450,6 @@ describe("OrchestratorSession turn admission", () => {
 
   test("maps every owner-gate refusal to the turn-start contract without persisting anything", async () => {
     const cases = [
-      [{ code: "quota_burst", retryable: true, retryAfterMs: 4_500 }, 429],
-      [{ code: "quota_daily", retryable: true, retryAfterMs: 60_000 }, 429],
-      [{ code: "quota_concurrency", retryable: true, retryAfterMs: 5_000 }, 429],
       [{ code: "owner_purged", retryable: false }, 410],
       [{ code: "generation_stale", retryable: false }, 403],
       [{ code: "internal", retryable: true }, 503],
@@ -477,7 +489,10 @@ describe("OrchestratorSession turn admission", () => {
       reasoningEffort: "default",
     };
     const refused = harness();
-    const response = await refused.dispatch(start({ execution: anthropic }), USER);
+    const response = await refused.dispatch(
+      start({ execution: anthropic }),
+      USER,
+    );
     expect(response.status).toBe(409);
     expect(await errorOf(response)).toMatchObject({
       code: "execution_unavailable",
@@ -517,7 +532,7 @@ describe("OrchestratorSession turn admission", () => {
     expect(h.gates.admits).toHaveLength(0);
   });
 
-  test("a service caller runs a wake turn with its control receipt, bypassing the windows", async () => {
+  test("a service caller runs a wake turn with its control receipt", async () => {
     const values = new Map<string, unknown>([["conversationProjected", true]]);
     const h = harness({
       values,
@@ -544,7 +559,6 @@ describe("OrchestratorSession turn admission", () => {
     expect(await response.json()).toMatchObject({ createdConversation: false });
     expect(h.gates.admits[0]?.input).toMatchObject({
       lane: "chat",
-      quota: "bypass",
       expectedGeneration: "generation-1",
     });
     const started = h.outbox.events.find(
@@ -557,7 +571,9 @@ describe("OrchestratorSession turn admission", () => {
       threadId: "thread-1",
       attemptGeneration: 2,
     });
-    expect(h.outbox.events.some((event) => event.kind === "conversation.created")).toBe(false);
+    expect(
+      h.outbox.events.some((event) => event.kind === "conversation.created"),
+    ).toBe(false);
     const queued = [...h.values.entries()].find(([key]) =>
       key.startsWith("queued:"),
     )?.[1] as Record<string, unknown>;
@@ -573,10 +589,13 @@ describe("OrchestratorSession turn admission", () => {
     );
     expect(stale.status).toBe(403);
     expect(await errorOf(stale)).toMatchObject({ code: "generation_stale" });
-    const noGeneration = await h.dispatch(start({ clientMsgId: "no-generation-1" }), {
-      kind: "service",
-      ownerId: "owner-1",
-    });
+    const noGeneration = await h.dispatch(
+      start({ clientMsgId: "no-generation-1" }),
+      {
+        kind: "service",
+        ownerId: "owner-1",
+      },
+    );
     expect(noGeneration.status).toBe(400);
 
     const wakeWithoutControl = await h.dispatch(
@@ -616,7 +635,9 @@ describe("OrchestratorSession turn admission", () => {
     });
     expect(h.unregistrations()).toBe(1);
     expect(h.gates.releases).toHaveLength(1);
-    expect([...h.values.keys()].some((key) => key.startsWith("queued:"))).toBe(false);
+    expect([...h.values.keys()].some((key) => key.startsWith("queued:"))).toBe(
+      false,
+    );
   });
 
   test("a refused outbox at admission becomes durable debt the alarm retries", async () => {
@@ -688,14 +709,20 @@ describe("turn.event ordinals", () => {
     ]);
     expect(new Set([a, b])).toEqual(new Set([2, 3]));
     // Another turn has its own counter.
-    expect(await emit.call(first.instance, turn("turn-2"), "started", {})).toBe(1);
+    expect(await emit.call(first.instance, turn("turn-2"), "started", {})).toBe(
+      1,
+    );
 
     const restarted = harness({ values, outbox });
     const emitAgain = restarted.instance["emitTurnEvent"] as Emit;
-    expect(await emitAgain.call(restarted.instance, t, "assistant", {})).toBe(4);
+    expect(await emitAgain.call(restarted.instance, t, "assistant", {})).toBe(
+      4,
+    );
 
     const terminalSeq = await (
-      restarted.instance["nextTurnEventSeq"] as (turnId: string) => Promise<number>
+      restarted.instance["nextTurnEventSeq"] as (
+        turnId: string,
+      ) => Promise<number>
     ).call(restarted.instance, "turn-1");
     expect(terminalSeq).toBe(5);
     const send = () =>
@@ -753,9 +780,9 @@ describe("turn.event ordinals", () => {
     const h = harness({ outbox });
     const emit = h.instance["emitTurnEvent"] as Emit;
     outbox.failNext(1);
-    await expect(emit.call(h.instance, turn("turn-x"), "started", {})).rejects.toThrow(
-      "queue unavailable",
-    );
+    await expect(
+      emit.call(h.instance, turn("turn-x"), "started", {}),
+    ).rejects.toThrow("queue unavailable");
     expect(await emit.call(h.instance, turn("turn-x"), "started", {})).toBe(2);
     expect(outbox.events).toHaveLength(1);
   });

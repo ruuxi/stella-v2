@@ -505,11 +505,17 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
       case "thread.spawned": {
         const originDeviceId = optionalId(record.originDeviceId);
         const originConversationId = optionalId(record.originConversationId);
+        const parentThreadId = optionalId(record.parentThreadId);
         const workspace = optionalId(record.workspace);
         if (
           !isId(record.threadId) ||
           !isId(record.conversationId) ||
           !isId(record.parentTurnId) ||
+          parentThreadId === null ||
+          !isNatural(record.agentDepth, 1) ||
+          record.agentDepth > 2 ||
+          (record.agentDepth === 1 && parentThreadId !== undefined) ||
+          (record.agentDepth === 2 && parentThreadId === undefined) ||
           !isNatural(record.attemptGeneration, 1) ||
           !isText(record.description, MAX_TEXT) ||
           !isText(record.prompt, MAX_PROMPT) ||
@@ -530,6 +536,8 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
             threadId: record.threadId,
             conversationId: record.conversationId,
             parentTurnId: record.parentTurnId,
+            ...(parentThreadId ? { parentThreadId } : {}),
+            agentDepth: record.agentDepth,
             attemptGeneration: record.attemptGeneration,
             description: record.description,
             prompt: record.prompt,

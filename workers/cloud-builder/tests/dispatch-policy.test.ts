@@ -223,9 +223,9 @@ describe("isEligibleDevice", () => {
 
 describe("cloudUnsupportedCapabilities", () => {
   test("names only what a sandbox cannot provide", () => {
-    expect(cloudUnsupportedCapabilities(["chat", "agent", "attachments"])).toEqual(
-      [],
-    );
+    expect(
+      cloudUnsupportedCapabilities(["chat", "agent", "attachments"]),
+    ).toEqual([]);
     expect(
       cloudUnsupportedCapabilities(["chat", "local-files", "computer-use"]),
     ).toEqual(["local-files", "computer-use"]);
@@ -261,20 +261,24 @@ describe("parseDispatchSubmitRequest", () => {
 
   test("refuses a deviceless ingress that claims a local subject", () => {
     expect(
-      parseDispatchSubmitRequest(body({ ingress: "browser", subject: "computer" })),
+      parseDispatchSubmitRequest(
+        body({ ingress: "browser", subject: "computer" }),
+      ),
     ).toEqual({
       ok: false,
       message: "browser ingress cannot claim a local execution subject.",
     });
     expect(
-      parseDispatchSubmitRequest(body({ ingress: "mobile", subject: "computer" })).ok,
+      parseDispatchSubmitRequest(
+        body({ ingress: "mobile", subject: "computer" }),
+      ).ok,
     ).toBe(true);
   });
 
   test("requires exactly one device id for a device target", () => {
-    expect(
-      parseDispatchSubmitRequest(body({ targetMode: "device" })).ok,
-    ).toBe(false);
+    expect(parseDispatchSubmitRequest(body({ targetMode: "device" })).ok).toBe(
+      false,
+    );
     expect(
       parseDispatchSubmitRequest(body({ targetDeviceId: "desk-1" })).ok,
     ).toBe(false);
@@ -324,12 +328,13 @@ describe("parseDispatchSubmitRequest", () => {
 
   test("rejects malformed protocol, keys, capabilities, and attachments", () => {
     expect(parseDispatchSubmitRequest(body({ protocol: 2 })).ok).toBe(false);
-    expect(parseDispatchSubmitRequest(body({ idempotencyKey: "short" })).ok).toBe(
-      false,
-    );
+    expect(
+      parseDispatchSubmitRequest(body({ idempotencyKey: "short" })).ok,
+    ).toBe(false);
     expect(parseDispatchSubmitRequest(body({ kind: "app" })).ok).toBe(false);
     expect(
-      parseDispatchSubmitRequest(body({ requiredCapabilities: ["teleport"] })).ok,
+      parseDispatchSubmitRequest(body({ requiredCapabilities: ["teleport"] }))
+        .ok,
     ).toBe(false);
     expect(
       parseDispatchSubmitRequest(
@@ -359,17 +364,19 @@ describe("dispatchErrorResponse", () => {
     expect(status("owner_purged")).toBe(410);
     expect(status("generation_stale")).toBe(403);
     expect(status("capability_unavailable")).toBe(409);
-    expect(status("quota_burst")).toBe(429);
-    expect(status("quota_daily")).toBe(429);
-    expect(status("quota_concurrency")).toBe(429);
     expect(status("internal")).toBe(503);
 
-    const retryable = dispatchErrorResponse("quota_burst", "slow down", true, 4_500);
+    const retryable = dispatchErrorResponse(
+      "internal",
+      "try again",
+      true,
+      4_500,
+    );
     expect(retryable.headers.get("retry-after")).toBe("5");
     expect(await retryable.json()).toEqual({
       error: {
-        code: "quota_burst",
-        message: "slow down",
+        code: "internal",
+        message: "try again",
         retryable: true,
         retryAfterMs: 4_500,
       },

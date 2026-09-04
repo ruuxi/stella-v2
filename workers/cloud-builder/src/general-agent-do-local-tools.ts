@@ -1,5 +1,5 @@
 /**
- * The two general-agent tools a resident turn executes itself.
+ * The general-agent tools a resident turn executes itself.
  *
  * `web` is fetch-and-search, which the Durable Object can already do. Deploy
  * is a request rather than an action in both placements: the container path
@@ -14,6 +14,7 @@ import type {
   AgentTool,
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
+import { AGENT_ORCHESTRATION_TOOL_DESCRIPTORS } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
   WEB_TOOL_DESCRIPTION,
   WEB_TOOL_NAME,
@@ -32,13 +33,41 @@ const errorResult = (message: string): AgentToolResult<unknown> => ({
   isError: true,
 });
 
+export type GeneralAgentAgentControl = Readonly<{
+  execute(
+    toolName: string,
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<AgentToolResult<unknown>>;
+}>;
+
 export const createGeneralAgentDoLocalTools = (deps: {
   control: GeneralAgentControlPlane;
   requestInteriorBuild: () => void;
   now: () => number;
+  agentControl: GeneralAgentAgentControl;
   signal?: AbortSignal;
 }): ReadonlyMap<string, AgentTool> => {
   const interior = descriptorForTool(PUBLISH_STELLA_INTERIOR_TOOL_NAME);
+  const orchestration = AGENT_ORCHESTRATION_TOOL_DESCRIPTORS.map(
+    (descriptor): readonly [string, AgentTool] => [
+      descriptor.name,
+      {
+        name: descriptor.name,
+        label: descriptor.name,
+        description: descriptor.description,
+        parameters: descriptor.parameters as unknown as TSchema,
+        execute: async (toolCallId, params, signal) =>
+          deps.agentControl.execute(
+            descriptor.name,
+            toolCallId,
+            (params ?? {}) as Record<string, unknown>,
+            signal ?? deps.signal,
+          ),
+      },
+    ],
+  );
   return new Map<string, AgentTool>([
     [
       WEB_TOOL_NAME,
@@ -61,6 +90,7 @@ export const createGeneralAgentDoLocalTools = (deps: {
         },
       },
     ],
+    ...orchestration,
     [
       PUBLISH_STELLA_INTERIOR_TOOL_NAME,
       {

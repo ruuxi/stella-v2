@@ -511,6 +511,21 @@ export const prepareCloudToolFilesystem = async (args: {
     }
     await assertToolOwnedDirectory(target, 0o700);
   };
+  // The drive state dir lives under the world's drive directory, which an
+  // empty world does not carry yet; create that parent for the tool account.
+  if (args.driveStateDir) {
+    const driveRoot = path.dirname(args.driveStateDir);
+    try {
+      await mkdir(driveRoot, { mode: 0o750 });
+      await chown(
+        driveRoot,
+        CLOUD_TOOL_PROCESS_IDENTITY.uid,
+        CLOUD_TOOL_PROCESS_IDENTITY.gid,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
   await ensureToolDirectory(args.toolHome);
   for (const target of new Set(
     [args.workspaceStateDir, args.driveStateDir].filter(

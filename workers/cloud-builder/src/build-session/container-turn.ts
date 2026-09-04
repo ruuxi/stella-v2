@@ -1253,12 +1253,21 @@ export const attachAgentWorld = async (
   const worldRoot = worldRootForFork(turn.workspaceForkId);
   const coldStarted = performance.now();
   await host.assertAgentExecutionActive(turn, turnExecution);
-  const session = await sandbox.createSession({
+  const sessionOptions = {
     id: args.sessionId,
     cwd: "/opt/stella",
     commandTimeoutMs: args.commandTimeoutMs,
     env: executorSessionEnvironment(),
-  });
+  };
+  // A failed attach leaves its session behind in the shared container; the
+  // retry owns the same id, so an existing session is replaced, never reused.
+  const session = await sandbox.createSession(sessionOptions).catch(
+    async (error: unknown) => {
+      if (!/already exists/iu.test(errorMessage(error))) throw error;
+      await sandbox.deleteSession(args.sessionId).catch(() => undefined);
+      return await sandbox.createSession(sessionOptions);
+    },
+  );
   turnExecution.assertActive();
   const coldContainerStartMs = Math.round(performance.now() - coldStarted);
 
@@ -1298,6 +1307,9 @@ export const attachAgentWorld = async (
   );
   if (!materialized.success)
     throw new AgentTurnError("Stella could not materialize this world.");
+  // Materialization replaces everything under the world root, including the
+  // drive directory the daemon expects, so the boundary is normalized again.
+  await normalizeToolWorkspaceRoot(session, worldRoot);
   turnExecution.assertActive();
   restoreMs = Math.round(performance.now() - restoreStarted);
 

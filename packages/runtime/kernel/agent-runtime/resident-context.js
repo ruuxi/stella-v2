@@ -33,6 +33,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { redactMemoryText } from "../memory/redaction.js";
+import {
+  renderExecutionDevices,
+  renderExecutionDestination,
+} from "@stella/contracts/execution-context";
+import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 
 export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const BOOTSTRAP_SKILLS_CUSTOM_TYPE = "bootstrap.skills_catalog";
@@ -130,6 +135,28 @@ export const RESIDENT_BLOCKS = [
     // The catalog carries its own `<skills>` envelope; no startup_doc wrap.
     resolve: (context) => context.skillsCatalog?.trim() || undefined,
   },
+  {
+    id: "execution-devices",
+    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+    docPath: "stella://context/execution-devices",
+    resolve: (context) =>
+      context.executionContext
+        ? renderExecutionDevices(context.executionContext)
+        : undefined,
+  },
+  {
+    id: "execution-destination",
+    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
+    docPath: "stella://context/execution-destination",
+    resolve: (context) =>
+      context.executionContext
+        ? renderExecutionDestination(context.executionContext)
+        : undefined,
+    changeReminder: (context) =>
+      wrapSystemReminder(
+        `The execution destination changed. ${renderExecutionDestination(context.executionContext)} Existing agents keep their own execution locations.`,
+      ),
+  },
 ];
 
 /** Full message text for a block, or undefined when the block is absent. */
@@ -157,25 +184,19 @@ export const isRetiredMemoryCustomMessage = (customMessage) => {
   );
 };
 
-const hasPersistedResidentText = (context, customType, text) => {
-  const needle = text.trim();
-  return (
-    context.threadHistory?.some((entry) => {
-      const customMessage = entry.customMessage;
-      if (
-        entry.role !== "runtimeInternal" ||
-        customMessage?.customType !== customType
-      ) {
-        return false;
-      }
-      // Match on the full block body, not just its identity. A resident
-      // block whose content changed mid-thread (a Remember replace/remove or
-      // a skill save) must re-append so
-      // the thread sees the current version; the stale copy already in
-      // history is left untouched until compaction folds it away.
-      return customMessageContentText(customMessage.content).trim() === needle;
-    }) ?? false
-  );
+const latestResidentText = (context, block) => {
+  const identity = block.docPath ? `doc:${block.docPath}` : block.id;
+  const history = context.threadHistory ?? [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (
+      entry.role !== "runtimeInternal" ||
+      residentIdentityForCustomMessage(entry.customMessage) !== identity
+    )
+      continue;
+    return customMessageContentText(entry.customMessage.content).trim();
+  }
+  return undefined;
 };
 
 const createInternalPromptMessage = (text, customType) => ({
@@ -196,8 +217,19 @@ export const buildResidentContextMessages = (context) => {
   for (const block of RESIDENT_BLOCKS) {
     const text = renderResidentBlockText(block, context);
     if (!text) continue;
-    if (hasPersistedResidentText(context, block.customType, text)) continue;
+    // Compare with the latest copy, not any historical match: A → B → A
+    // is still a change and must restore A before the next user message.
+    const previous = latestResidentText(context, block);
+    if (previous === text.trim()) continue;
     messages.push(createInternalPromptMessage(text, block.customType));
+    if (previous && block.changeReminder) {
+      messages.push(
+        createInternalPromptMessage(
+          block.changeReminder(context),
+          `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}${block.id}`,
+        ),
+      );
+    }
   }
   return messages;
 };

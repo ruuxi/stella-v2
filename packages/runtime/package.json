@@ -10,6 +10,7 @@
     "test": "bun run test:bun && bun run test:vitest && bun run test:harness"
   },
   "exports": {
+    "./kernel/agent-runtime/execution-context-history": "./kernel/agent-runtime/execution-context-history.ts",
     ".": "./index.ts",
     "./ai/models": "./ai/models.ts",
     "./ai/models.js": "./ai/models.ts",

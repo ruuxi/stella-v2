@@ -10,8 +10,46 @@ import type {
 } from "./cloud-transcript-write.js";
 import {
   launchPreparedOrchestratorRun,
+  parseCanonicalCloudHistory,
   type PreparedOrchestratorRun,
 } from "./orchestrator-launch.js";
+import { createExecutionContextSnapshot } from "@stella/contracts/execution-context";
+import { buildResidentContextMessages } from "../agent-runtime/resident-context.js";
+
+test("cloud history restores execution context for a device turn without replaying unchanged blocks", () => {
+  const cloud = createExecutionContextSnapshot({
+    devices: [],
+    destination: { kind: "cloud" },
+  });
+  const history = parseCanonicalCloudHistory([
+    JSON.stringify({
+      role: "user",
+      content: "Hello",
+      timestamp: 1,
+      executionContext: cloud,
+    }),
+  ]);
+  expect(history).toHaveLength(3);
+  expect(history[0].role).toBe("runtimeInternal");
+  expect(history[0].customMessage.display).toBe(false);
+  expect(history[2].content).toBe("Hello");
+  expect(
+    buildResidentContextMessages({
+      executionContext: cloud,
+      threadHistory: history,
+    }),
+  ).toEqual([]);
+  const device = createExecutionContextSnapshot({
+    devices: [],
+    destination: { kind: "device", deviceId: "desktop", label: "Desktop" },
+  });
+  const updates = buildResidentContextMessages({
+    executionContext: device,
+    threadHistory: history,
+  });
+  expect(updates).toHaveLength(2);
+  expect(updates[1].text).toContain("The execution destination changed.");
+});
 
 const RUN_ID = "run-1";
 const CONVERSATION_ID = "conversation-1";

@@ -1,4 +1,5 @@
 import path from "path";
+import { loadDeviceExecutionContext } from "./execution-context.js";
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 import { stripMessageRefTag } from "@stella/contracts/reply-refs";
 import { createFashionApi } from "./fashion-api.js";
@@ -1059,6 +1060,14 @@ export const createRunnerContext = ({
     notifyThreadActivityUpdated,
     getDefaultConversationId,
     cloudTranscript,
+    loadExecutionContext: async () => {
+      const authToken = context.state.authToken;
+      return loadDeviceExecutionContext({
+        deviceId,
+        baseUrl: authToken ? await cloudRealtimeBaseUrl() : null,
+        authToken,
+      });
+    },
     paths: {
       // The stella-runtime extension (agent definitions, orchestrator hooks)
       // ships in the app bundle and is loaded from there. The data dir has no
@@ -1688,6 +1697,9 @@ export const buildAgentContext = async (
     shouldInjectDynamicReminder: reminderState.shouldInjectDynamicReminder,
     staleUserReminderText,
     connectorTransitionReminderText,
+    executionContext: injectsRuntimeReminders
+      ? await context.loadExecutionContext?.()
+      : undefined,
     toolsAllowlist,
     model,
     resolvedLlm,

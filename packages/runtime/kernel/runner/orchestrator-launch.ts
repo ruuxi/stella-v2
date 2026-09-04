@@ -9,6 +9,7 @@ import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { getOrCreateOrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import { createRuntimePromptAgentMessage } from "../agent-runtime/run-preparation.js";
 import { buildThreadMessagePreview } from "../agent-runtime/thread-memory.js";
+import { executionContextHistoryEntries } from "../agent-runtime/execution-context-history.js";
 import {
   resolveAgentModelRoute,
   type BuildAgentContextArgs,
@@ -67,13 +68,14 @@ const buildCloudUserMessage = (
   if (message.role !== "user") {
     throw new Error("Cloud local turns require a user message.");
   }
-  return message;
+  const executionContext = prepared.agentContext.executionContext;
+  return { ...message, ...(executionContext ? { executionContext } : {}) };
 };
 
 export const parseCanonicalCloudHistory = (
   serializedHistory: string[],
-): NonNullable<LocalAgentContext["threadHistory"]> =>
-  serializedHistory.map((serialized, index) => {
+): NonNullable<LocalAgentContext["threadHistory"]> => {
+  const messages = serializedHistory.map((serialized, index) => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(serialized);
@@ -90,19 +92,35 @@ export const parseCanonicalCloudHistory = (
       );
     }
     const payload = parsed as PersistedRuntimeThreadPayload;
+    return payload;
+  });
+  return executionContextHistoryEntries(messages).map((entry) => {
+    const payload = entry.kind === "resident"
+      ? createRuntimePromptAgentMessage(entry.prompt, entry.timestamp)
+      : entry.message;
     return {
       timestamp:
         typeof (payload as { timestamp?: unknown }).timestamp === "number"
           ? (payload as { timestamp: number }).timestamp
           : undefined,
-      role,
+      role: payload.role,
       content: buildThreadMessagePreview(payload),
+      ...(payload.role === "runtimeInternal"
+        ? {
+            customMessage: {
+              customType: payload.customType,
+              content: payload.content,
+              display: false,
+            },
+          }
+        : {}),
       ...(payload.role === "toolResult"
         ? { toolCallId: payload.toolCallId }
         : {}),
       payload,
     };
   });
+};
 
 const cloudFinishPhase = (
   terminal: DeferredTerminalCallback | null,

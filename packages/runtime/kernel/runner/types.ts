@@ -372,6 +372,7 @@ export type RunnerState = {
 };
 
 export type RunnerContext = {
+  loadExecutionContext?: () => Promise<import("@stella/contracts/execution-context").ExecutionContextSnapshot>;
   convexApi: unknown;
   deviceId: string;
   stellaAppDir: string;

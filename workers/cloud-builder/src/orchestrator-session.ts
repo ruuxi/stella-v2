@@ -2,6 +2,8 @@ import {
   cloudAgentActivationCard,
   cloudAgentTerminalCard,
 } from "./cloud-agent-lifecycle.js";
+import { createExecutionContextSnapshot } from "@stella/contracts/execution-context";
+import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-runtime/execution-context-history";
 /**
  * The cloud orchestrator: Stella's delegation-only agent loop running inside
  * a Durable Object — one DO per conversation, one turn at a time, ~token
@@ -3760,6 +3762,14 @@ export class OrchestratorSession extends DurableObject<Env> {
       // this clean boundary rather than splicing into a tool-call pair.
       this.drainInbox();
 
+      const destinations = await this.ownerGate(turn.ownerId)
+        .devices()
+        .catch(() => null);
+      await assertExactTurnActive();
+      const executionContext = createExecutionContextSnapshot({
+        devices: destinations?.devices ?? null,
+        destination: { kind: "cloud" },
+      });
       const promptRow = this.journal.appendMessage({
         turnId: turn.turnId,
         writer: "orchestrator",
@@ -3772,6 +3782,7 @@ export class OrchestratorSession extends DurableObject<Env> {
           role: "user",
           content: [{ type: "text", text: turn.prompt }],
           timestamp: now,
+          executionContext,
           ...(turn.source ? { source: turn.source } : {}),
         } as AgentMessage,
       });
@@ -3805,9 +3816,23 @@ export class OrchestratorSession extends DurableObject<Env> {
         turn.turnId,
         CLOUD_HISTORY_TOKEN_BUDGET,
       );
-      const history = stampUserMessageSequences(
+      const journalHistory = stampUserMessageSequences(
         await this.hydrateWindow(selection),
         selection.rows,
+      );
+      // Materialize hidden resident blocks from durable turn metadata. A
+      // shortened window restores the catalog at its head; unchanged turns
+      // preserve the prefix and transitions append before their user message.
+      const history: AgentMessage[] = executionContextHistoryEntries(
+        journalHistory,
+      ).map((entry) =>
+        entry.kind === "message"
+          ? entry.message
+          : {
+              role: "user",
+              content: [{ type: "text", text: entry.prompt.text }],
+              timestamp: entry.timestamp,
+            },
       );
       await assertExactTurnActive();
       this.journal.setTurnContext(

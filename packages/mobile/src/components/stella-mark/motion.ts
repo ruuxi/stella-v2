@@ -130,7 +130,10 @@ export function toolCharacterMotion(
   timeMs: number,
 ): ToolCharacterMotion {
   "worklet";
-  const breathe = breatheScale(timeMs, BREATHE_AMPLITUDE);
+  // Keep this inline: the iOS worklet serializer left the same-file helper
+  // reference undefined when this pose first mounted after sending a message.
+  const breathe =
+    1 + BREATHE_AMPLITUDE * Math.sin((timeMs / BREATHE_MS) * 2 * Math.PI);
   const bobX =
     Math.sin(timeMs * 0.00042) * 0.45 +
     Math.sin(timeMs * 0.001) * 0.16;

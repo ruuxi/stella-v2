@@ -14,9 +14,10 @@ import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
+  CompanionActivity,
   CompanionDragMove,
   CompanionLayout,
-  CompanionLayoutMode,
+  CompanionPanelStatus,
   CompanionSendRequest,
   CompanionState,
   CompanionVisibility,
@@ -48,23 +49,28 @@ import {
   IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_SCAN_LOCAL,
+  IPC_COMPANION_ACTIVITY,
   IPC_COMPANION_DRAG_END,
   IPC_COMPANION_DRAG_MOVE,
   IPC_COMPANION_DRAG_START,
   IPC_COMPANION_FOCUS,
   IPC_COMPANION_GET_STATE,
   IPC_COMPANION_GET_VISIBLE,
+  IPC_COMPANION_HELLO,
+  IPC_COMPANION_HOVER,
   IPC_COMPANION_LAYOUT,
   IPC_COMPANION_OPEN_MAIN,
+  IPC_COMPANION_PANEL_STATUS,
   IPC_COMPANION_PUBLISH_STATE,
   IPC_COMPANION_SEND,
   IPC_COMPANION_SEND_REQUESTED,
-  IPC_COMPANION_SET_LAYOUT,
+  IPC_COMPANION_SET_EXPANDED,
   IPC_COMPANION_SET_VISIBLE,
   IPC_COMPANION_SHOW_CONTEXT_MENU,
   IPC_COMPANION_STATE,
   IPC_COMPANION_STOP,
   IPC_COMPANION_STOP_REQUESTED,
+  IPC_COMPANION_TOGGLE_EXPANDED,
   IPC_COMPANION_VISIBLE_CHANGED,
   IPC_DISCOVERY_COLLECT_ALL_SIGNALS,
   IPC_HOME_CAPTURE_APP_WINDOW,
@@ -809,10 +815,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   companion: {
-    // Window plumbing (companion renderer → main).
-    setLayout: (mode: CompanionLayoutMode) =>
-      ipcRenderer.send(IPC_COMPANION_SET_LAYOUT, mode),
+    // Window plumbing (companion renderers → main).
+    hello: () => ipcRenderer.send(IPC_COMPANION_HELLO),
     onLayout: onIpc<CompanionLayout>(IPC_COMPANION_LAYOUT),
+    setHovered: (hovered: boolean) =>
+      ipcRenderer.send(IPC_COMPANION_HOVER, hovered),
+    reportPanelStatus: (status: CompanionPanelStatus) =>
+      ipcRenderer.send(IPC_COMPANION_PANEL_STATUS, status),
+    onActivity: onIpc<CompanionActivity>(IPC_COMPANION_ACTIVITY),
+    toggleExpanded: () => ipcRenderer.send(IPC_COMPANION_TOGGLE_EXPANDED),
+    onSetExpanded: onIpc<{ expanded: boolean }>(IPC_COMPANION_SET_EXPANDED),
     dragStart: (cursor: CompanionDragMove) =>
       ipcRenderer.send(IPC_COMPANION_DRAG_START, cursor),
     dragMove: (cursor: CompanionDragMove) =>

@@ -207,7 +207,7 @@ export const registerDictationHandlers = (options) => {
         const companion = options.getCompanionController();
         if (!companion)
             return;
-        playEnabledDictationSound(isRendererRecording(companion.getWindow()) ? "stopRecording" : "startRecording");
+        playEnabledDictationSound(isRendererRecording(companion.getPanelWindow()) ? "stopRecording" : "startRecording");
         // `show` resolves once the companion renderer is mounted, so the toggle
         // reaches a listening `useDictation` even on a cold first summon.
         void companion
@@ -215,7 +215,7 @@ export const registerDictationHandlers = (options) => {
             .then((shown) => {
             if (!shown)
                 return;
-            companion.send("dictation:toggle", {
+            companion.sendToPanel("dictation:toggle", {
                 startId: randomUUID(),
                 source: "companion",
             });

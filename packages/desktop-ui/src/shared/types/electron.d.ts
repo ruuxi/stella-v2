@@ -7,9 +7,10 @@
  * using that constant — never raw strings.
  */
 import type {
+  CompanionActivity,
   CompanionDragMove,
   CompanionLayout,
-  CompanionLayoutMode,
+  CompanionPanelStatus,
   CompanionSendRequest,
   CompanionState,
   CompanionVisibility,
@@ -472,8 +473,17 @@ export type ElectronDictationApi = {
  * shell publishes `CompanionState` and executes the sends it relays.
  */
 export type ElectronCompanionApi = {
-  setLayout: (mode: CompanionLayoutMode) => void;
+  hello: () => void;
   onLayout: (callback: (layout: CompanionLayout) => void) => () => void;
+  setHovered: (hovered: boolean) => void;
+  reportPanelStatus: (status: CompanionPanelStatus) => void;
+  onActivity: (
+    callback: (activity: CompanionActivity) => void,
+  ) => () => void;
+  toggleExpanded: () => void;
+  onSetExpanded: (
+    callback: (payload: { expanded: boolean }) => void,
+  ) => () => void;
   dragStart: (cursor: CompanionDragMove) => void;
   dragMove: (cursor: CompanionDragMove) => void;
   dragEnd: () => void;

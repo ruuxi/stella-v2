@@ -4,13 +4,14 @@ import path from 'path'
 import { isLowMemoryWindowsDevice } from '../resource-profile.js'
 import { resolveRendererRoot } from '../renderer-location.js'
 
-export type WindowLoadMode = 'full' | 'overlay' | 'companion'
+export type WindowLoadMode = 'full' | 'overlay' | 'companion' | 'companion-panel'
 
 const getWindowEntryFile = (windowMode: WindowLoadMode) => {
   switch (windowMode) {
     case 'overlay':
       return 'overlay.html'
     case 'companion':
+    case 'companion-panel':
       return 'companion.html'
     case 'full':
     default:

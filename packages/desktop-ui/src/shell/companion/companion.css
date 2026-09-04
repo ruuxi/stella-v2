@@ -1,6 +1,10 @@
 /* Companion — floating desktop Stella.
  *
- * Everything is positioned off two variables:
+ * Two windows share these styles: the mark window (`.companion-mark-root`,
+ * the mark alone, never resized) and the panel window (`.companion-root`,
+ * the arc, composer, and bubbles behind it).
+ *
+ * In the panel, everything is positioned off two variables:
  *   --companion-anchor-x : horizontal center of the mark, window px
  *   --companion-anchor-y : bottom edge of the mark, window px
  * Both are `calc(100% - …)` or fixed px relative to the two window edges the
@@ -26,6 +30,34 @@
 .companion-root[data-hovered],
 .companion-root[data-expanded] {
   --companion-stack-lift: 150px;
+}
+
+/* ── Mark window ────────────────────────────────────────────────────────── */
+
+.companion-mark-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  --companion-mark-size: 84px;
+}
+
+/* The mark sits where the panel expects it: centered horizontally, 14px up
+   from the bottom (see COMPANION_MARK_* in the contracts). */
+.companion-mark-root .companion-mark {
+  left: 50%;
+  top: calc(100% - 14px);
+  transform: translate(-50%, -100%);
+}
+
+.companion-mark-root[data-hovered] .companion-mark {
+  transform: translate(-50%, -100%) scale(1.04);
+}
+
+.companion-mark-root[data-dragging] .companion-mark {
+  cursor: grabbing;
+  transform: translate(-50%, -100%) scale(0.96);
 }
 
 /* ── Hull: the hover disc that holds the arc + mark ─────────────────────── */

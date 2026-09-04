@@ -1,13 +1,11 @@
 /**
  * The companion's prompt bar — the chat composer's pill, built from the same
- * primitives (textarea, mic, voice, send/stop) so it reads as the desktop
- * composer in miniature. Attachments, model mentions, and context chips are
- * left to the full app; this is for a quick line or a dictated one.
+ * primitives (textarea, send/stop). Mic and voice live on the arc around the
+ * mark, so the pill carries only the input and its send button; while a
+ * dictation is recording the pill shows the live transcript bar instead.
  */
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import {
-  ComposerMicButton,
-  ComposerRealtimeVoiceButton,
   ComposerStopButton,
   ComposerSubmitButton,
   ComposerTextarea,
@@ -24,11 +22,8 @@ type CompanionComposerProps = {
   dictation: Dictation;
   isStreaming: boolean;
   focusRequestId: number;
-  voiceActive: boolean;
-  showVoice: boolean;
   onSend: () => void;
   onStop: () => void;
-  onToggleVoice: () => void;
   onEscape: () => void;
 };
 
@@ -38,11 +33,8 @@ export function CompanionComposer({
   dictation,
   isStreaming,
   focusRequestId,
-  voiceActive,
-  showVoice,
   onSend,
   onStop,
-  onToggleVoice,
   onEscape,
 }: CompanionComposerProps) {
   const t = useT();
@@ -109,19 +101,6 @@ export function CompanionComposer({
             }}
           />
           <div className="companion-composer__actions">
-            <ComposerMicButton
-              className="companion-composer__icon"
-              isTranscribing={dictation.isTranscribing}
-              disabled={dictation.isTranscribing}
-              onClick={dictation.toggle}
-            />
-            {showVoice && !hasText ? (
-              <ComposerRealtimeVoiceButton
-                className="companion-composer__icon"
-                active={voiceActive}
-                onClick={onToggleVoice}
-              />
-            ) : null}
             {isStreaming ? (
               <ComposerStopButton
                 className="companion-composer__icon companion-composer__stop"

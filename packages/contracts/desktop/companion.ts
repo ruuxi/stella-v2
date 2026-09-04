@@ -12,15 +12,15 @@
 export const COMPANION_MARK_SIZE = 84;
 
 /**
- * Window size while nothing but the mark is showing. Wide enough for the
- * mark, its glow, and the running-agent badge that overhangs its corner.
+ * Size of the mark window. Wide enough for the mark, its glow, and the
+ * running-agent badge that overhangs its corner.
  */
 export const COMPANION_COMPACT_SIZE = { width: 128, height: 128 } as const;
 
 /**
- * Window size when the companion is hovered, expanded (composer open), or
- * showing message bubbles. The mark stays anchored at the same screen point;
- * everything else stacks upward from it.
+ * Size of the panel window that carries the arc, composer, and bubbles. It
+ * sits behind the mark window at a fixed size and is click-through until it
+ * has something to show, so nothing ever resizes on hover.
  */
 export const COMPANION_FULL_SIZE = { width: 400, height: 560 } as const;
 
@@ -35,7 +35,8 @@ export const COMPANION_MARK_TOP_INSET =
   COMPANION_MARK_SIZE -
   COMPANION_MARK_BOTTOM_INSET;
 
-export type CompanionLayoutMode = "compact" | "full";
+/** Which of the two companion windows a renderer is. */
+export type CompanionWindowKind = "mark" | "panel";
 
 /** Screen-space anchor: the center-bottom of the mark. */
 export type CompanionAnchor = { x: number; y: number };
@@ -44,18 +45,36 @@ export type CompanionEdgeH = "left" | "right";
 export type CompanionEdgeV = "top" | "bottom";
 
 /**
- * How the window grows around the mark. The full box always keeps one
- * horizontal and one vertical edge of the compact box fixed (the edges nearer
- * the screen border), so the mark — positioned in CSS relative to those two
- * edges — never moves on screen while the window resizes, regardless of when
- * this message lands relative to the resize.
+ * Sent by main to each companion renderer once it says hello, and again
+ * whenever the anchor's side of the screen changes. The panel box hangs from
+ * the compact box's edges that face the nearer screen borders, so the panel
+ * positions its content relative to those two edges.
  */
 export type CompanionLayout = {
-  mode: CompanionLayoutMode;
+  kind: CompanionWindowKind;
   width: number;
   height: number;
   edgeH: CompanionEdgeH;
   edgeV: CompanionEdgeV;
+};
+
+/** Panel → main: what the panel is doing. */
+export type CompanionPanelStatus = {
+  expanded: boolean;
+  recording: boolean;
+  transcribing: boolean;
+  /** Panel has content (composer, bubbles, recording) that must stay visible. */
+  wantsVisible: boolean;
+};
+
+/** Main → both renderers: the combined interaction state. */
+export type CompanionActivity = {
+  hovered: boolean;
+  /** Panel is interactive (hovered or wanted). */
+  panelActive: boolean;
+  expanded: boolean;
+  recording: boolean;
+  transcribing: boolean;
 };
 
 export type CompanionWorkState =

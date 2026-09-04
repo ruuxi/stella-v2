@@ -1,27 +1,25 @@
 /**
- * CompanionRoot — the floating desktop Stella.
- *
- * One window, three layers stacked upward from the mark's anchor point:
+ * CompanionPanelRoot — the fixed-size window behind the mark that carries
+ * everything but the mark itself:
  *
  *   ┌ bubbles: the latest exchange, iMessage style, fading after a dwell
  *   ├ composer: the prompt pill, open on click / dictation
- *   └ hull: an invisible disc around the mark that carries the arc of buttons
- *           (read aloud · dictate · voice) so moving from the mark to a
- *           button never crosses a gap that would end the hover
+ *   └ hull: a disc around the mark's spot holding the arc of buttons
+ *           (read aloud · dictate · voice); the mark window sits on top of
+ *           its center, so moving mark → button never crosses a gap
  *
- * The mark is the only permanent hit target. Hover grows the window (via
- * main) so the arc has room; leaving the hull collapses it after a grace
- * period. Click toggles the composer, drag moves the anchor, right-click
- * opens the native menu.
+ * Main keeps this window click-through until the mark is hovered or the
+ * panel reports it has something to show, so its transparent area never
+ * blocks the apps underneath while idle. The window is positioned so that
+ * one horizontal and one vertical edge coincide with the mark window's; the
+ * layout message says which, and everything is pinned to those edges.
  */
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   COMPANION_MARK_BOTTOM_INSET,
@@ -30,8 +28,6 @@ import {
   COMPANION_MARK_TOP_INSET,
   type CompanionEdgeH,
   type CompanionEdgeV,
-  type CompanionLayout,
-  type CompanionLayoutMode,
 } from "@stella/contracts/desktop/companion";
 import { useUiState } from "@/context/ui-state";
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
@@ -41,24 +37,12 @@ import { platformCapabilities } from "@/platform/capabilities";
 import { useT } from "@/shared/i18n";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
 import { AudioLines, Mic, Volume2 } from "@/ui/icons";
-import {
-  StellaCharacter,
-  type StellaCharacterState,
-} from "@/ui/stella-character/StellaCharacter";
-import type { StellaMarkHandle } from "@/ui/stella-character/rig";
 import { CompanionComposer } from "./CompanionComposer";
 import { useCompanionBubbles } from "./use-companion-bubbles";
-import {
-  useCompanionState,
-  useReadAloudEnabled,
-  useVoiceSpeakingState,
-} from "./use-companion-state";
+import { useCompanionState, useReadAloudEnabled } from "./use-companion-state";
+import { useCompanionWindow } from "./use-companion-window";
 import "./companion.css";
 
-/** Hover survives this long after the pointer leaves the hull. */
-const HOVER_LEAVE_GRACE_MS = 340;
-/** Pointer travel before a press becomes a drag instead of a click. */
-const DRAG_THRESHOLD_PX = 5;
 /** Arc geometry, in px around the mark's center. The arc opens toward the
  *  screen center (away from the anchored edges) so every button stays inside
  *  the window. */
@@ -69,19 +53,6 @@ const ARC_ANGLES_BY_EDGE: Record<
 > = {
   right: [172, 131, 90],
   left: [8, 49, 90],
-};
-
-const useDocumentVisible = (): boolean => {
-  const [visible, setVisible] = useState(
-    () =>
-      typeof document === "undefined" || document.visibilityState !== "hidden",
-  );
-  useEffect(() => {
-    const update = () => setVisible(document.visibilityState !== "hidden");
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
-  return visible;
 };
 
 const arcButtonStyle = (
@@ -100,7 +71,7 @@ const arcButtonStyle = (
 
 /**
  * Mark position as CSS, relative to the two anchored window edges. Expressed
- * with `100%` so it re-resolves on every resize without waiting for main.
+ * with `100%` so it re-resolves without waiting for main.
  */
 const anchorVars = (
   edgeH: CompanionEdgeH,
@@ -121,27 +92,23 @@ const anchorVars = (
   } as CSSProperties;
 };
 
-export function CompanionRoot() {
+export function CompanionPanelRoot() {
   const t = useT();
   const api = window.electronAPI?.companion;
   const state = useCompanionState();
+  const { layout, activity } = useCompanionWindow();
   const { state: uiState } = useUiState();
   const voiceActive = Boolean(uiState.isVoiceRtcActive);
-  const voice = useVoiceSpeakingState(voiceActive);
   const readAloudEnabled = useReadAloudEnabled();
-  const documentVisible = useDocumentVisible();
 
-  const [layout, setLayout] = useState<CompanionLayout | null>(null);
-  const [hovered, setHovered] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const [bubblesHovered, setBubblesHovered] = useState(false);
   const [focusRequestId, setFocusRequestId] = useState(0);
-  const markHandleRef = useRef<StellaMarkHandle | null>(null);
+  const hovered = activity.hovered;
 
   useDictationToggleBridge();
 
-  // ── Composer + dictation (lifted so the shortcut works while collapsed) ──
+  // ── Composer + dictation ─────────────────────────────────────────────
   const { message, setMessage, messageRef } = useComposerMessageState();
   /** Collapse once the send lands when dictation opened the composer. */
   const collapseAfterSendRef = useRef(false);
@@ -175,22 +142,36 @@ export function CompanionRoot() {
     });
   }, [dictation.isRecording]);
 
-  // ── Layout negotiation with main ─────────────────────────────────────
+  // Main relays the mark's click (and closes us when a drag starts).
+  useEffect(() => {
+    if (!api) return;
+    return api.onSetExpanded(({ expanded: next }) => {
+      if (!next) collapseAfterSendRef.current = false;
+      setExpanded(next === true);
+    });
+  }, [api]);
+
+  // ── Bubbles + what main needs to know ────────────────────────────────
   const { bubbles, visible: bubblesVisible } = useCompanionBubbles(
     state,
     hovered || expanded || bubblesHovered,
   );
-  const mode: CompanionLayoutMode = dragging
-    ? "compact"
-    : hovered || expanded || bubbles.length > 0
-      ? "full"
-      : "compact";
+  const wantsVisible = expanded || bubbles.length > 0 || dictationActive;
 
   useEffect(() => {
-    api?.setLayout(mode);
-  }, [api, mode]);
-
-  useEffect(() => api?.onLayout(setLayout), [api]);
+    api?.reportPanelStatus({
+      expanded,
+      recording: dictation.isRecording,
+      transcribing: dictation.isTranscribing,
+      wantsVisible,
+    });
+  }, [
+    api,
+    expanded,
+    dictation.isRecording,
+    dictation.isTranscribing,
+    wantsVisible,
+  ]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -211,9 +192,11 @@ export function CompanionRoot() {
       focusedSinceExpandRef.current = true;
     };
     const onBlur = () => {
-      setHovered(false);
       if (!focusedSinceExpandRef.current) return;
-      if (!dictationActiveRef.current) setExpanded(false);
+      if (!dictationActiveRef.current) {
+        collapseAfterSendRef.current = false;
+        setExpanded(false);
+      }
     };
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
@@ -224,9 +207,7 @@ export function CompanionRoot() {
   }, []);
 
   const collapse = useCallback(() => {
-    if (dictationActiveRef.current) {
-      dictation.cancel();
-    }
+    if (dictationActiveRef.current) dictation.cancel();
     collapseAfterSendRef.current = false;
     setExpanded(false);
   }, [dictation]);
@@ -239,127 +220,7 @@ export function CompanionRoot() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [collapse]);
 
-  // ── Hover with grace ─────────────────────────────────────────────────
-  const leaveTimerRef = useRef<number | null>(null);
-  const clearLeaveTimer = () => {
-    if (leaveTimerRef.current !== null) {
-      window.clearTimeout(leaveTimerRef.current);
-      leaveTimerRef.current = null;
-    }
-  };
-  const onHullEnter = () => {
-    clearLeaveTimer();
-    setHovered(true);
-  };
-  const onHullLeave = () => {
-    clearLeaveTimer();
-    leaveTimerRef.current = window.setTimeout(() => {
-      leaveTimerRef.current = null;
-      setHovered(false);
-    }, HOVER_LEAVE_GRACE_MS);
-  };
-  useEffect(() => clearLeaveTimer, []);
-
-  // ── Click / drag on the mark ─────────────────────────────────────────
-  const pressRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    moved: boolean;
-    lastX: number;
-    lastY: number;
-    frame: number | null;
-  } | null>(null);
-
-  const flushDragMove = useCallback(() => {
-    const press = pressRef.current;
-    if (!press) return;
-    press.frame = null;
-    api?.dragMove({ screenX: press.lastX, screenY: press.lastY });
-  }, [api]);
-
-  const onMarkPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pressRef.current = {
-      pointerId: event.pointerId,
-      startX: event.screenX,
-      startY: event.screenY,
-      lastX: event.screenX,
-      lastY: event.screenY,
-      moved: false,
-      frame: null,
-    };
-  };
-
-  const onMarkPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const press = pressRef.current;
-    if (!press || press.pointerId !== event.pointerId) return;
-    press.lastX = event.screenX;
-    press.lastY = event.screenY;
-    if (!press.moved) {
-      const dx = press.lastX - press.startX;
-      const dy = press.lastY - press.startY;
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      press.moved = true;
-      clearLeaveTimer();
-      setHovered(false);
-      setExpanded(false);
-      setDragging(true);
-      api?.dragStart({ screenX: press.startX, screenY: press.startY });
-    }
-    if (press.frame === null) {
-      press.frame = requestAnimationFrame(flushDragMove);
-    }
-  };
-
-  const endPress = (
-    event: ReactPointerEvent<HTMLButtonElement>,
-    cancelled: boolean,
-  ) => {
-    const press = pressRef.current;
-    if (!press || press.pointerId !== event.pointerId) return;
-    pressRef.current = null;
-    if (press.frame !== null) cancelAnimationFrame(press.frame);
-    if (press.moved) {
-      api?.dragMove({ screenX: press.lastX, screenY: press.lastY });
-      api?.dragEnd();
-      setDragging(false);
-      return;
-    }
-    if (cancelled) return;
-    markHandleRef.current?.sparkle();
-    setExpanded((prev) => {
-      if (prev) collapseAfterSendRef.current = false;
-      return !prev;
-    });
-  };
-
-  // ── Mark mood ────────────────────────────────────────────────────────
-  const markState = useMemo<StellaCharacterState>(() => {
-    if (dragging) return "happy";
-    if (dictation.isRecording) return "listening";
-    if (dictation.isTranscribing) return "thinking";
-    if (voiceActive) {
-      if (voice.isSpeaking) return "speaking";
-      if (voice.isUserSpeaking) return "listening";
-      return "waking";
-    }
-    if (state.readAloudPlaying) return "speaking";
-    if (state.isStreaming) return state.workState ?? "thinking";
-    return "idle";
-  }, [
-    dragging,
-    dictation.isRecording,
-    dictation.isTranscribing,
-    voiceActive,
-    voice.isSpeaking,
-    voice.isUserSpeaking,
-    state.readAloudPlaying,
-    state.isStreaming,
-    state.workState,
-  ]);
-
+  // ── Arc actions ──────────────────────────────────────────────────────
   const arcVisible = hovered || expanded;
   const showVoice = platformCapabilities.realtimeVoice;
   const toggleVoice = useCallback(() => {
@@ -371,20 +232,15 @@ export function CompanionRoot() {
 
   const edgeH: CompanionEdgeH = layout?.edgeH ?? "right";
   const edgeV: CompanionEdgeV = layout?.edgeV ?? "bottom";
-  const rootStyle = anchorVars(edgeH, edgeV);
-
-  const runningCount = state.runningAgentCount;
 
   return (
     <div
       className="companion-root"
-      data-mode={mode}
       data-hovered={hovered || undefined}
       data-expanded={expanded || undefined}
-      data-dragging={dragging || undefined}
       data-edge-h={edgeH}
       data-edge-v={edgeV}
-      style={rootStyle}
+      style={anchorVars(edgeH, edgeV)}
     >
       <div className="companion-stack">
         {bubbles.length > 0 ? (
@@ -428,11 +284,8 @@ export function CompanionRoot() {
             dictation={dictation}
             isStreaming={state.isStreaming}
             focusRequestId={focusRequestId}
-            voiceActive={voiceActive}
-            showVoice={showVoice}
             onSend={sendCurrent}
             onStop={() => api?.stop()}
-            onToggleVoice={toggleVoice}
             onEscape={collapse}
           />
         ) : null}
@@ -441,8 +294,8 @@ export function CompanionRoot() {
       <div
         className="companion-hull"
         data-active={arcVisible || undefined}
-        onMouseEnter={onHullEnter}
-        onMouseLeave={onHullLeave}
+        onMouseEnter={() => api?.setHovered(true)}
+        onMouseLeave={() => api?.setHovered(false)}
       >
         <div
           className="companion-arc"
@@ -512,44 +365,6 @@ export function CompanionRoot() {
             </button>
           ) : null}
         </div>
-
-        <button
-          type="button"
-          className="companion-mark"
-          aria-label={t(
-            expanded ? "companion.mark.close" : "companion.mark.open",
-          )}
-          aria-expanded={expanded}
-          onPointerDown={onMarkPointerDown}
-          onPointerMove={onMarkPointerMove}
-          onPointerUp={(event) => endPress(event, false)}
-          onPointerCancel={(event) => endPress(event, true)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            api?.showContextMenu();
-          }}
-        >
-          <StellaCharacter
-            size={COMPANION_MARK_SIZE}
-            state={markState}
-            shape="star"
-            ink="aurora"
-            glow
-            eyeColor="var(--card)"
-            followPointer={hovered || expanded}
-            paused={!documentVisible}
-            handleRef={markHandleRef}
-          />
-          {runningCount > 0 ? (
-            <span
-              className="companion-badge"
-              title={t("companion.badge.running", { count: runningCount })}
-              aria-label={t("companion.badge.running", { count: runningCount })}
-            >
-              {runningCount > 99 ? "99+" : runningCount}
-            </span>
-          ) : null}
-        </button>
       </div>
     </div>
   );

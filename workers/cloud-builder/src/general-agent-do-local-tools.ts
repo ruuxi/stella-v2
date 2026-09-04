@@ -16,6 +16,13 @@ import type {
 } from "@stella/runtime/kernel/agent-core/types.js";
 import { AGENT_ORCHESTRATION_TOOL_DESCRIPTORS } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
+  APPLY_PATCH_TOOL_NAME,
+} from "@stella/runtime/kernel/tools/defs/apply-patch-def.js";
+import { EDIT_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/edit-def.js";
+import { GREP_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/grep-def.js";
+import { READ_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/read-def.js";
+import { WRITE_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/write-def.js";
+import {
   WEB_TOOL_DESCRIPTION,
   WEB_TOOL_NAME,
   WEB_TOOL_PARAMETERS,
@@ -47,6 +54,12 @@ export const createGeneralAgentDoLocalTools = (deps: {
   requestInteriorBuild: () => void;
   now: () => number;
   agentControl: GeneralAgentAgentControl;
+  world: {
+    tool(call: {
+      name: "Read" | "Write" | "Edit" | "Grep" | "apply_patch";
+      arguments: Record<string, unknown>;
+    }): Promise<{ ok: boolean; output: string }>;
+  };
   signal?: AbortSignal;
 }): ReadonlyMap<string, AgentTool> => {
   const interior = descriptorForTool(PUBLISH_STELLA_INTERIOR_TOOL_NAME);
@@ -68,7 +81,34 @@ export const createGeneralAgentDoLocalTools = (deps: {
       },
     ],
   );
+  const worldTools = [
+    APPLY_PATCH_TOOL_NAME,
+    READ_TOOL_NAME,
+    WRITE_TOOL_NAME,
+    EDIT_TOOL_NAME,
+    GREP_TOOL_NAME,
+  ] as const;
   return new Map<string, AgentTool>([
+    ...worldTools.map((name): readonly [string, AgentTool] => {
+      const descriptor = descriptorForTool(name);
+      return [name, {
+        name,
+        label: descriptor.label,
+        description: descriptor.description,
+        parameters: descriptor.parameters as unknown as TSchema,
+        execute: async (_toolCallId, params) => {
+          const result = await deps.world.tool({
+            name,
+            arguments: (params ?? {}) as Record<string, unknown>,
+          });
+          return {
+            content: [{ type: "text", text: result.output || "(no output)" }],
+            details: null,
+            ...(result.ok ? {} : { isError: true }),
+          };
+        },
+      }];
+    }),
     [
       WEB_TOOL_NAME,
       {

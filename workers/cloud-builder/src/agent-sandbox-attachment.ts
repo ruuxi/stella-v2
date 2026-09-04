@@ -157,6 +157,7 @@ export type AttachedToolHostHandoff = Readonly<{
   prompt: string;
   workspaceRestored: boolean;
   turnBroker: Readonly<{ credentialsPath: string }>;
+  world: Readonly<{ origin: string; name: string; capability: string }>;
 }>;
 
 export type AgentSandboxAttachmentDeps = Readonly<{

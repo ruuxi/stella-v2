@@ -90,6 +90,7 @@ import {
   WORLD_ROOT,
   toolStateDir,
 } from "./workspace-paths.js";
+import { pushWorldProjection, type WorldSyncAccess } from "./world-sync.js";
 import {
   nativeHistoryCursorFromMessages,
   nativeHistoryCursorFromRows,
@@ -191,6 +192,8 @@ export type AgentTurnInput = {
   nativeStateIntegrityKey: string;
   /** One-shot pointer to the Builder-owned, short-lived turn broker. */
   turnBroker: TurnBrokerInput;
+  /** Short-lived capability for exporting and pushing this world's projection. */
+  world: WorldSyncAccess;
   /**
    * Model gateway access for this exact turn. The capability is a signed,
    * turn-scoped, budgeted, expiring token that is only valid at the gateway;
@@ -364,17 +367,18 @@ export const createSuspendedAgentTurnResult = (args: {
  * `stella-office`, poppler and `mediainfo` as shell commands, so they arrive
  * through `exec_command`. `Read` is the one catalog addition they need: a
  * plain-text read of extracted document text that does not cost a PTY turn.
- * `Grep` stays out deliberately; its handler downloads ripgrep into
- * `stellaDataDir/bin` on first use, which lands inside the checkpointed
- * workspace forever.
+ * File mutation and search are advertised here too, although resident turns
+ * execute them in the world Durable Object rather than this container host.
  */
 const CLOUD_GENERAL_TOOLS = [
   "exec_command",
   "write_stdin",
   "apply_patch",
   "web",
-  "view_image",
   "Read",
+  "Write",
+  "Edit",
+  "Grep",
 ] as const;
 
 const CLOUD_STELLA_TOOLS = [...CLOUD_GENERAL_TOOLS, "code"] as const;
@@ -869,7 +873,12 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
 
       const cloudCodeToolCallIds: string[] = [];
 
-      const catalog = toolHost.getToolCatalog("general", {});
+      const catalog = [
+        ...toolHost.getToolCatalog("general", {}),
+        ...toolHost.getToolCatalog("general", {
+          agentEngine: "claude_code_local",
+        }),
+      ];
       const byName = new Map(catalog.map((tool) => [tool.name, tool]));
       const cloudToolMetadata = [
         ...cloudGeneralToolNames(input.execution.engine)
@@ -1413,6 +1422,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         const results = await Promise.allSettled([
           toolHost.shutdown(),
           claudeToolMcpHost?.close() ?? Promise.resolve(),
+          pushWorldProjection({ root: WORLD_ROOT, access: input.world }),
         ]);
         return [
           ...(browserTurnFailure ? [browserTurnFailure] : []),

@@ -77,6 +77,23 @@ describe("sandbox egress policy", () => {
     expect(request.bodyUsed).toBe(false);
   });
 
+  test("general-agent egress permits the Worker origin used for world transport", async () => {
+    let forwarded = false;
+    const policy = createGeneralAgentEgress({
+      fetch: async () => {
+        forwarded = true;
+        return new Response(null, { status: 204 });
+      },
+    });
+    const response = await policy(
+      new Request("https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev/internal/worlds/name/export"),
+      undefined,
+      { containerId: "world-attach" },
+    );
+    expect(response.status).toBe(204);
+    expect(forwarded).toBe(true);
+  });
+
   test("general-agent egress refuses destination ports outside 80, 443, and 22", async () => {
     let fetchCalls = 0;
     const policy = createGeneralAgentEgress({

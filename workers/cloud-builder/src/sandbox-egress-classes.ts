@@ -10,6 +10,10 @@ export { ContainerProxy };
  */
 export class GeneralAgentSandbox<Env = unknown> extends SandboxBase<Env> {
   enableInternet = true;
+  // Includes the cloud-builder origin used by world export/push as well as
+  // model-selected public destinations; the outbound handler enforces ports,
+  // rate, and byte budgets per turn.
+  allowedHosts = ["*"];
 }
 
 GeneralAgentSandbox.outbound = generalAgentEgress;

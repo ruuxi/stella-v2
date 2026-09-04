@@ -200,13 +200,9 @@ export const parseTurnStateCheckpointRequest = (
 
 export const publicTurnStateCheckpointReceipt = (
   candidate: TurnStateCandidate,
-  replayed: boolean,
+  _replayed: boolean,
 ): TurnBrokerTurnStateCheckpointReceipt => ({
-  schemaVersion: 1,
   operationId: candidate.operationId,
   historyCursor: candidate.historyCursor,
-  workspaceSha256: candidate.workspace.sha256,
-  ...(candidate.native ? { nativeSha256: candidate.native.sha256 } : {}),
-  receipt: candidate.receipt,
-  replayed,
+  manifestId: candidate.workspace.manifestId,
 });

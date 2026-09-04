@@ -255,15 +255,9 @@ const builderHarness = async (
       checkpointRuns += 1;
       await runCheckpoint();
       const receipt = {
-        schemaVersion: 1 as const,
         operationId: "a".repeat(64),
         historyCursor: args.operation.payload.historyCursor,
-        workspaceSha256: "b".repeat(64),
-        ...(args.operation.payload.nativeCheckpoint
-          ? { nativeSha256: "c".repeat(64) }
-          : {}),
-        receipt: "e".repeat(64),
-        replayed: false,
+        manifestId: "b".repeat(64),
       };
       await storage.put(args.operationKey, {
         ...args.operation,
@@ -582,13 +576,9 @@ describe("native state Builder integration", () => {
     const checkpoint = await checkpointFor();
     const receipt = await client.commitNativeStateCheckpoint(checkpoint);
     expect(receipt).toMatchObject({
-      schemaVersion: 1,
       operationId: "a".repeat(64),
       historyCursor: checkpoint.cursor,
-      workspaceSha256: "b".repeat(64),
-      nativeSha256: "c".repeat(64),
-      receipt: "e".repeat(64),
-      replayed: true,
+      manifestId: "b".repeat(64),
     });
     expect(harness.checkpointRuns()).toBe(1);
     const operations = [...harness.values.entries()].filter(([key]) =>
@@ -598,7 +588,11 @@ describe("native state Builder integration", () => {
     expect(operations[0]?.[1]).toMatchObject({
       state: "succeeded",
       operationId: "a".repeat(64),
-      receipt: { replayed: false },
+      receipt: {
+        operationId: "a".repeat(64),
+        historyCursor: checkpoint.cursor,
+        manifestId: "b".repeat(64),
+      },
     });
   });
 
@@ -652,12 +646,7 @@ describe("native state Builder integration", () => {
     const receipt = await client.commitNativeStateCheckpoint(
       await checkpointFor(),
     );
-    expect(receipt.replayed).toBe(false);
-    expect(replayReceipt).toMatchObject({
-      operationId: receipt.operationId,
-      receipt: receipt.receipt,
-      replayed: true,
-    });
+    expect(replayReceipt).toEqual(receipt);
     expect(harness.checkpointRuns()).toBe(1);
   });
 

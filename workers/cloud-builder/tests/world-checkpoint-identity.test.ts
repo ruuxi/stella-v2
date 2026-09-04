@@ -5,8 +5,9 @@ import {
   WORLD_STELLA_ROOT,
   checkpointBackupName,
   checkpointKey,
-  instanceSizeKey,
+  worldName,
 } from "../src/workspace.js";
+import { sha256Hex } from "../src/hash.js";
 
 describe("world checkpoint identity", () => {
   test("gives one owner exactly one checkpoint key", async () => {
@@ -16,9 +17,11 @@ describe("world checkpoint identity", () => {
     expect(first).not.toBe(await checkpointKey("owner-b"));
   });
 
-  test("derives the size and backup names from that one key", async () => {
+  test("derives the world object and backup names from that one key", async () => {
     const key = await checkpointKey("owner-a");
-    expect(instanceSizeKey(key)).toBe(`${key}:size`);
+    expect(await worldName("owner-a")).toBe(
+      `${await sha256Hex("owner-a")}:${await sha256Hex(key)}`,
+    );
     expect(checkpointBackupName(key)).toBe(`stella-${key.slice(3, 27)}`);
   });
 

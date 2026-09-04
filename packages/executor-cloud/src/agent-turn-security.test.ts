@@ -70,13 +70,9 @@ describe("cloud native-state containment", () => {
           });
           calls.push("checkpoint");
           return {
-            schemaVersion: 1,
             operationId: "a".repeat(64),
             historyCursor: checkpoint.cursor,
-            workspaceSha256: "d".repeat(64),
-            nativeSha256: checkpoint.tree.digest,
-            receipt: "c".repeat(64),
-            replayed: false,
+            manifestId: "d".repeat(64),
           };
         },
       },
@@ -172,12 +168,9 @@ describe("cloud native-state containment", () => {
           });
           calls.push("checkpoint");
           return {
-            schemaVersion: 1,
             operationId: "a".repeat(64),
             historyCursor: "v1:suspension-cursor",
-            workspaceSha256: "b".repeat(64),
-            receipt: "c".repeat(64),
-            replayed: false,
+            manifestId: "b".repeat(64),
           };
         },
       },
@@ -193,8 +186,9 @@ describe("cloud native-state containment", () => {
     for (const engine of ["anthropic", "openai-codex"] as const) {
       expect(cloudGeneralToolNames(engine)).not.toContain("code");
       expect(cloudGeneralToolNames(engine)).toContain("exec_command");
-      expect(cloudGeneralToolNames(engine)).not.toContain("Write");
-      expect(cloudGeneralToolNames(engine)).not.toContain("Edit");
+      expect(cloudGeneralToolNames(engine)).toContain("Write");
+      expect(cloudGeneralToolNames(engine)).toContain("Edit");
+      expect(cloudGeneralToolNames(engine)).toContain("Grep");
     }
   });
 
@@ -303,12 +297,9 @@ describe("cloud native-state containment", () => {
       expiresAt: Date.now() + 60_000,
     };
     const turnStateCheckpoint = {
-      schemaVersion: 1 as const,
       operationId: "b".repeat(64),
       historyCursor: "v1:empty",
-      workspaceSha256: "c".repeat(64),
-      receipt: "d".repeat(64),
-      replayed: false,
+      manifestId: "c".repeat(64),
     };
     const result = createSuspendedAgentTurnResult({
       error: new AgentToolSuspendedError(suspension),

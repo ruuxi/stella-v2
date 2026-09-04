@@ -357,13 +357,9 @@ describe("executor turn credential broker", () => {
           throw new Error("response lost after durable checkpoint");
         }
         return Response.json({
-          schemaVersion: 1,
           operationId: "d".repeat(64),
           historyCursor: `v1:${"a".repeat(64)}`,
-          workspaceSha256: "e".repeat(64),
-          nativeSha256: "b".repeat(64),
-          receipt: "c".repeat(64),
-          replayed: true,
+          manifestId: "e".repeat(64),
         });
       },
     );
@@ -379,9 +375,10 @@ describe("executor turn credential broker", () => {
       },
       mac: "d".repeat(64),
     });
-    expect(receipt).toMatchObject({
-      receipt: "c".repeat(64),
-      replayed: true,
+    expect(receipt).toEqual({
+      operationId: "d".repeat(64),
+      historyCursor: `v1:${"a".repeat(64)}`,
+      manifestId: "e".repeat(64),
     });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.body).toBe(calls[1]?.body);
@@ -405,12 +402,9 @@ describe("executor turn credential broker", () => {
         calls += 1;
         captured = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return Response.json({
-          schemaVersion: 1,
           operationId: "b".repeat(64),
           historyCursor: cursor,
-          workspaceSha256: "c".repeat(64),
-          receipt: "d".repeat(64),
-          replayed: false,
+          manifestId: "c".repeat(64),
         });
       },
     );

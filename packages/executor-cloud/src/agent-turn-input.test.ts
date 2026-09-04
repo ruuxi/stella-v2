@@ -28,6 +28,11 @@ const input: AgentTurnInput = {
   workspaceRestored: false,
   nativeStateIntegrityKey: "a".repeat(64),
   turnBroker: { credentialsPath: "/workspace/.turn-broker-1.json" },
+  world: {
+    origin: "https://builder.example",
+    name: `${"a".repeat(64)}:${"b".repeat(64)}`,
+    capability: "wc1.payload.signature",
+  },
   modelGateway: { origin: "https://gateway.example", capability: CAPABILITY },
   execution: {
     engine: "stella",

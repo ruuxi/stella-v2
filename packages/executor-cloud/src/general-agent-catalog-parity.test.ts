@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { ToolMetadata } from "@stella/runtime/kernel/tools/types.js";
 import { AGENT_ORCHESTRATION_TOOL_DESCRIPTORS } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
+  EDIT_TOOL_DESCRIPTION,
+  EDIT_TOOL_NAME,
+  EDIT_TOOL_PARAMETERS,
+} from "@stella/runtime/kernel/tools/defs/edit-def.js";
+import {
   APPLY_PATCH_TOOL_DESCRIPTION,
   APPLY_PATCH_TOOL_NAME,
   APPLY_PATCH_TOOL_PARAMETERS,
@@ -17,6 +22,11 @@ import {
   EXEC_COMMAND_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/exec-command-def.js";
 import {
+  GREP_TOOL_DESCRIPTION,
+  GREP_TOOL_NAME,
+  GREP_TOOL_PARAMETERS,
+} from "@stella/runtime/kernel/tools/defs/grep-def.js";
+import {
   READ_TOOL_DESCRIPTION,
   READ_TOOL_NAME,
   READ_TOOL_PARAMETERS,
@@ -26,6 +36,11 @@ import {
   WRITE_STDIN_TOOL_NAME,
   WRITE_STDIN_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/write-stdin-def.js";
+import {
+  WRITE_TOOL_DESCRIPTION,
+  WRITE_TOOL_NAME,
+  WRITE_TOOL_PARAMETERS,
+} from "@stella/runtime/kernel/tools/defs/write-def.js";
 
 type StaticDescriptor = {
   name: string;
@@ -55,6 +70,21 @@ const STATIC_DESCRIPTORS: readonly StaticDescriptor[] = [
     parameters: APPLY_PATCH_TOOL_PARAMETERS,
   },
   {
+    name: WRITE_TOOL_NAME,
+    description: WRITE_TOOL_DESCRIPTION,
+    parameters: WRITE_TOOL_PARAMETERS,
+  },
+  {
+    name: EDIT_TOOL_NAME,
+    description: EDIT_TOOL_DESCRIPTION,
+    parameters: EDIT_TOOL_PARAMETERS,
+  },
+  {
+    name: GREP_TOOL_NAME,
+    description: GREP_TOOL_DESCRIPTION,
+    parameters: GREP_TOOL_PARAMETERS,
+  },
+  {
     name: CODE_TOOL_NAME,
     description: CODE_TOOL_DESCRIPTION,
     parameters: CODE_TOOL_PARAMETERS,
@@ -78,7 +108,13 @@ const realDesktopGeneralCatalog = async (): Promise<ToolMetadata[]> => {
     webSearch: async () => ({ text: "" }),
   });
   try {
-    return host.getToolCatalog("general", {});
+    const stella = host.getToolCatalog("general", {});
+    const native = host.getToolCatalog("general", {
+      agentEngine: "claude_code_local",
+    });
+    return [
+      ...new Map([...stella, ...native].map((tool) => [tool.name, tool])).values(),
+    ];
   } finally {
     await host.shutdown();
   }
@@ -93,6 +129,9 @@ const realCloudCatalog = async (): Promise<ToolMetadata[]> => {
     APPLY_PATCH_TOOL_NAME,
     "web",
     READ_TOOL_NAME,
+    WRITE_TOOL_NAME,
+    EDIT_TOOL_NAME,
+    GREP_TOOL_NAME,
     CODE_TOOL_NAME,
   ]
     .map((name) => byName.get(name))
@@ -119,7 +158,7 @@ describe("cloud general-agent catalog parity", () => {
     }
   });
 
-  test("the container half of the catalog is exactly these five names", async () => {
+  test("the cloud catalog has the pinned file tools", async () => {
     const catalog = await realCloudCatalog();
     expect(catalog.map((tool) => tool.name)).toEqual([
       EXEC_COMMAND_TOOL_NAME,
@@ -127,6 +166,9 @@ describe("cloud general-agent catalog parity", () => {
       APPLY_PATCH_TOOL_NAME,
       "web",
       READ_TOOL_NAME,
+      WRITE_TOOL_NAME,
+      EDIT_TOOL_NAME,
+      GREP_TOOL_NAME,
       CODE_TOOL_NAME,
     ]);
   });

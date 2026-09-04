@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { sha256BytesHex } from "../src/hash.js";
 import {
   copyTurnStateArchive,
-  copyTurnStateArchivePair,
   restoreTurnStateArchive,
   TURN_STATE_MAX_ARCHIVE_BYTES,
   type TurnStateArchiveSession,
@@ -14,7 +13,6 @@ import {
   TURN_STATE_OBJECT_FORMAT,
   TURN_STATE_OBJECT_PREFIX,
   TURN_STATE_SCHEMA_VERSION,
-  type TurnStateArchive,
   type TurnStateObjectKind,
 } from "../src/turn-state-registry.js";
 
@@ -51,7 +49,6 @@ Object.defineProperty(globalThis, "FixedLengthStream", {
   value: TestFixedLengthStream,
   writable: true,
 });
-
 const archiveKey = (
   kind: TurnStateObjectKind,
   operationByte = "e",
@@ -286,105 +283,6 @@ class FakeArchiveSession {
   }
 }
 
-type SwapFailureBoundary =
-  | "source-to-prior"
-  | "stage-to-source"
-  | "prior-to-retired"
-  | "retired-delete";
-
-class SwapStateArchiveSession extends FakeArchiveSession {
-  source: "old" | "new" | undefined = "old";
-  prior: "old" | "new" | undefined;
-  retired: "old" | "new" | undefined;
-  readonly stages = new Map<string, "new">();
-  private injected = false;
-
-  constructor(
-    bytes: Uint8Array,
-    private readonly failAt: SwapFailureBoundary,
-  ) {
-    super(bytes);
-  }
-
-  override async exec(
-    command: string,
-  ): Promise<Awaited<ReturnType<FakeArchiveSession["exec"]>>> {
-    const result = await super.exec(command);
-    if (!result.success) return result;
-
-    const extracted =
-      /\/usr\/bin\/unsquashfs [^\n]* -d (\/workspace\/\.stella-turn-state-restore-workspace-world-[0-9a-f]{64}) /u.exec(
-        command,
-      )?.[1];
-    if (extracted) this.stages.set(extracted, "new");
-
-    for (const match of command.matchAll(
-      /\/usr\/bin\/rm -rf -- (\/workspace\/\.stella-turn-state-restore-workspace-world-[0-9a-f]{64})/gu,
-    )) {
-      this.stages.delete(match[1]!);
-    }
-
-    const stage =
-      /\/usr\/bin\/mv -- (\/workspace\/\.stella-turn-state-restore-workspace-world-[0-9a-f]{64}) \/workspace\/world/u.exec(
-        command,
-      )?.[1];
-    if (!stage) return result;
-
-    // Interpret the fixed-path recovery prelude before the new four-boundary
-    // swap, so a second helper call exercises the real retry state machine.
-    if (this.prior) {
-      this.retired = undefined;
-      if (this.source) this.retired = this.source;
-      this.source = this.prior;
-      this.prior = undefined;
-      this.retired = undefined;
-    } else if (this.retired) {
-      if (!this.source)
-        throw new Error("fake recovery lost every complete tree");
-      this.retired = undefined;
-    }
-    if (!this.stages.has(stage)) {
-      throw new Error("fake swap stage is missing");
-    }
-
-    if (this.source) {
-      this.prior = this.source;
-      this.source = undefined;
-    }
-    if (this.fail("source-to-prior")) return this.failed(result);
-
-    this.source = this.stages.get(stage);
-    this.stages.delete(stage);
-    if (this.fail("stage-to-source")) return this.failed(result);
-
-    if (this.prior) {
-      this.retired = this.prior;
-      this.prior = undefined;
-    }
-    if (this.fail("prior-to-retired")) return this.failed(result);
-
-    this.retired = undefined;
-    if (this.fail("retired-delete")) return this.failed(result);
-    return result;
-  }
-
-  private fail(boundary: SwapFailureBoundary): boolean {
-    if (this.injected || this.failAt !== boundary) return false;
-    this.injected = true;
-    return true;
-  }
-
-  private failed(
-    result: Awaited<ReturnType<FakeArchiveSession["exec"]>>,
-  ): Awaited<ReturnType<FakeArchiveSession["exec"]>> {
-    return {
-      ...result,
-      success: false,
-      exitCode: 1,
-      stderr: `simulated crash after ${this.failAt}`,
-    };
-  }
-}
 
 type FakeStoredObject = {
   key: string;
@@ -508,7 +406,7 @@ class FakeArchiveBucket {
   corruptMetadata(key: string): void {
     const stored = this.objects.get(key);
     if (!stored) throw new Error("missing fake object");
-    stored.customMetadata = { ...stored.customMetadata, stellaKind: "native" };
+    stored.customMetadata = { ...stored.customMetadata, stellaSha256: "f".repeat(64) };
   }
 
   private publicObject(stored: FakeStoredObject): Partial<R2Object> {
@@ -537,306 +435,6 @@ class FakeArchiveBucket {
 }
 
 describe("turn state archive", () => {
-  test("shares one exact workspace/native R2 metadata contract", () => {
-    const workspace = {
-      kind: "workspace" as const,
-      key: archiveKey("workspace"),
-      sizeBytes: 17,
-      sha256: "a".repeat(64),
-    };
-    const native = {
-      kind: "native" as const,
-      key: archiveKey("native"),
-      sizeBytes: 23,
-      sha256: "b".repeat(64),
-    };
-
-    const workspaceMetadata = turnStateArchiveMetadata(workspace, { kind: "workspace" });
-    expect(workspaceMetadata).toEqual({
-      stellaSchemaVersion: "1",
-      stellaKind: "workspace",
-      stellaFormat: "squashfs-zstd-v1",
-      stellaKey: workspace.key,
-      stellaDirectory: "/workspace/world",
-      stellaSizeBytes: "17",
-      stellaSha256: "a".repeat(64),
-      stellaComplete: "true",
-    });
-    expect(
-      turnStateArchiveMetadataMatches(workspaceMetadata, workspace, { kind: "workspace" }),
-    ).toBe(true);
-    expect(
-      turnStateArchiveMetadataMatches(
-        { ...workspaceMetadata, unregistered: "value" },
-        workspace,
-        { kind: "workspace" },
-      ),
-    ).toBe(false);
-    expect(
-      turnStateArchiveMetadata(native, { kind: "native" }).stellaDirectory,
-    ).toBe("/home/stella-native-state/anthropic");
-    expect(() =>
-      turnStateArchiveMetadata(workspace, { kind: "native" }),
-    ).toThrow("metadata target kind does not match");
-  });
-
-  test("uploads a bounded workspace SquashFS to its exact reserved key", async () => {
-    const bytes = encoder.encode("deterministic workspace squashfs");
-    const session = new FakeArchiveSession(bytes);
-    const bucket = new FakeArchiveBucket();
-    const key = archiveKey("workspace");
-
-    const result = await uploadTurnStateArchive({
-      session: session.asSession(),
-      bucket: bucket.asUploadBucket(),
-      key,
-      target: { kind: "workspace" },
-    });
-
-    expect(result.replayed).toBe(false);
-    expect(result.archive).toEqual({
-      schemaVersion: TURN_STATE_SCHEMA_VERSION,
-      kind: "workspace",
-      format: TURN_STATE_OBJECT_FORMAT,
-      key,
-      sizeBytes: bytes.byteLength,
-      sha256: await sha256BytesHex(bytes),
-      etag: `etag-${(await sha256BytesHex(bytes)).slice(0, 24)}`,
-      complete: true,
-    });
-    expect(bucket.putCalls).toBe(1);
-    const options = bucket.putOptions[0] as R2PutOptions;
-    expect(options.onlyIf).toEqual({ etagDoesNotMatch: "*" });
-    expect(options.httpMetadata).toEqual({
-      contentType: "application/vnd.squashfs",
-    });
-    expect(options.customMetadata).toEqual({
-      stellaSchemaVersion: "1",
-      stellaKind: "workspace",
-      stellaFormat: "squashfs-zstd-v1",
-      stellaKey: key,
-      stellaDirectory: "/workspace/world",
-      stellaSizeBytes: String(bytes.byteLength),
-      stellaSha256: await sha256BytesHex(bytes),
-      stellaComplete: "true",
-    });
-    expect(hex(options.sha256 as ArrayBuffer)).toBe(
-      await sha256BytesHex(bytes),
-    );
-    expect(
-      session.commands.some((command) =>
-        command.includes("mksquashfs /workspace/world"),
-      ),
-    ).toBe(true);
-    expect(
-      session.commands.some((command) =>
-        command.includes("-no-xattrs -reproducible -mkfs-time 0"),
-      ),
-    ).toBe(true);
-    expect(session.commands.every((command) => !command.includes(key))).toBe(
-      true,
-    );
-    expect(session.commands.at(-1)).toContain(
-      "/home/stella-host-state/turn-state-archive/workspace-world-",
-    );
-  });
-
-  test("recovers a lost put response and exact later retries without overwriting", async () => {
-    const bytes = encoder.encode("replay-stable squashfs bytes");
-    const bucket = new FakeArchiveBucket();
-    bucket.failAfterStoreOnce = true;
-    const key = archiveKey("workspace");
-
-    const first = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(bytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key,
-      target: { kind: "workspace" },
-    });
-    expect(first.replayed).toBe(true);
-    expect(bucket.putCalls).toBe(1);
-
-    const second = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(bytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key,
-      target: { kind: "workspace" },
-    });
-    expect(second).toEqual(first);
-    expect(bucket.putCalls).toBe(1);
-  });
-
-  test("cancels a malformed Sandbox read before failing closed", async () => {
-    const bytes = encoder.encode("malformed Sandbox stream");
-    const session = new FakeArchiveSession(bytes);
-    session.reportedReadSize = bytes.byteLength + 1;
-    const bucket = new FakeArchiveBucket();
-
-    await expect(
-      uploadTurnStateArchive({
-        session: session.asSession(),
-        bucket: bucket.asUploadBucket(),
-        key: archiveKey("workspace"),
-        target: { kind: "workspace" },
-      }),
-    ).rejects.toThrow("sandbox stream is invalid");
-    expect(session.readCancelCalls).toBe(1);
-    expect(bucket.putCalls).toBe(0);
-  });
-
-  test("reclaims an expired crash claim and replays a durable upload after cleanup loss", async () => {
-    const bytes = encoder.encode("crash-recoverable squashfs bytes");
-    const bucket = new FakeArchiveBucket();
-    const claims = new FakeClaimManager();
-    const firstSession = new FakeArchiveSession(bytes, claims);
-    firstSession.failCleanupOnce = true;
-    const key = archiveKey("workspace", "1");
-
-    await expect(
-      uploadTurnStateArchive({
-        session: firstSession.asSession(),
-        bucket: bucket.asUploadBucket(),
-        key,
-        target: { kind: "workspace" },
-      }),
-    ).rejects.toThrow("scratch cleanup failed");
-    expect(bucket.objects.has(key)).toBe(true);
-    expect(claims.claims.size).toBe(1);
-    expect(
-      firstSession.commands.some(
-        (command) =>
-          command.includes("-mmin +20") &&
-          command.includes("workspace-world-*.sqsh"),
-      ),
-    ).toBe(true);
-
-    claims.expireAll();
-    const retrySession = new FakeArchiveSession(bytes, claims);
-    const retry = await uploadTurnStateArchive({
-      session: retrySession.asSession(),
-      bucket: bucket.asUploadBucket(),
-      key,
-      target: { kind: "workspace" },
-    });
-    expect(retry.replayed).toBe(true);
-    expect(bucket.putCalls).toBe(1);
-    expect(claims.claims.size).toBe(0);
-    expect(retrySession.commands.at(-1)).toContain(
-      "/usr/bin/flock --exclusive --wait 30 9",
-    );
-  });
-
-  test("re-addresses a workspace/native pair and resumes after a partial copy", async () => {
-    const workspaceBytes = encoder.encode("source workspace squashfs");
-    const nativeBytes = encoder.encode("source native squashfs");
-    const bucket = new FakeArchiveBucket();
-    const sourceWorkspace = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(workspaceBytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key: archiveKey("workspace", "a"),
-      target: { kind: "workspace" },
-    });
-    const sourceNative = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(nativeBytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key: archiveKey("native", "a"),
-      target: { kind: "native" },
-    });
-    const destinationWorkspaceKey = archiveKey("workspace", "c", "9", "8");
-    const destinationNativeKey = archiveKey("native", "c", "9", "8");
-    const mismatchedNativeKey = archiveKey("native", "d", "9", "8");
-    await expect(
-      copyTurnStateArchivePair({
-        bucket: bucket as unknown as Pick<R2Bucket, "get" | "head" | "put">,
-        workspace: {
-          source: sourceWorkspace.archive,
-          destinationKey: destinationWorkspaceKey,
-          target: { kind: "workspace" },
-        },
-        native: {
-          source: sourceNative.archive,
-          destinationKey: mismatchedNativeKey,
-          target: { kind: "native" },
-        },
-      }),
-    ).rejects.toThrow("copy pair addresses do not match");
-    expect(bucket.putCalls).toBe(2);
-    expect(bucket.objects.has(destinationWorkspaceKey)).toBe(false);
-    expect(bucket.objects.has(mismatchedNativeKey)).toBe(false);
-
-    bucket.failBeforeStoreKeys.add(destinationNativeKey);
-    const pair = {
-      bucket: bucket as unknown as Pick<R2Bucket, "get" | "head" | "put">,
-      workspace: {
-        source: sourceWorkspace.archive,
-        destinationKey: destinationWorkspaceKey,
-        target: { kind: "workspace" },
-      },
-      native: {
-        source: sourceNative.archive,
-        destinationKey: destinationNativeKey,
-        target: { kind: "native" as const },
-      },
-    };
-
-    await expect(copyTurnStateArchivePair(pair)).rejects.toThrow(
-      "simulated put failure before storage",
-    );
-    expect(bucket.objects.has(destinationWorkspaceKey)).toBe(true);
-    expect(bucket.objects.has(destinationNativeKey)).toBe(false);
-    expect(bucket.objects.has(sourceWorkspace.archive.key)).toBe(true);
-    expect(bucket.objects.has(sourceNative.archive.key)).toBe(true);
-
-    const resumed = await copyTurnStateArchivePair(pair);
-    expect(resumed.workspace.replayed).toBe(true);
-    expect(resumed.native?.replayed).toBe(false);
-    expect(resumed.workspace.archive.key).toBe(destinationWorkspaceKey);
-    expect(resumed.native?.archive.key).toBe(destinationNativeKey);
-    expect(bucket.objects.get(destinationWorkspaceKey)?.customMetadata).toEqual(
-      {
-        stellaSchemaVersion: "1",
-        stellaKind: "workspace",
-        stellaFormat: "squashfs-zstd-v1",
-        stellaKey: destinationWorkspaceKey,
-        stellaDirectory: "/workspace/world",
-        stellaSizeBytes: String(workspaceBytes.byteLength),
-        stellaSha256: await sha256BytesHex(workspaceBytes),
-        stellaComplete: "true",
-      },
-    );
-    expect(
-      hex(
-        bucket.objects.get(destinationNativeKey)!.checksums
-          .sha256 as ArrayBuffer,
-      ),
-    ).toBe(await sha256BytesHex(nativeBytes));
-  });
-
-  test("recovers an exact re-addressed object after a lost copy response", async () => {
-    const bytes = encoder.encode("lost-response source squashfs");
-    const bucket = new FakeArchiveBucket();
-    const source = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(bytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key: archiveKey("workspace", "4"),
-      target: { kind: "workspace" },
-    });
-    bucket.failAfterStoreOnce = true;
-    const destinationKey = archiveKey("workspace", "5", "6", "7");
-    const copied = await copyTurnStateArchivePair({
-      bucket: bucket as unknown as Pick<R2Bucket, "get" | "head" | "put">,
-      workspace: {
-        source: source.archive,
-        destinationKey,
-        target: { kind: "workspace" },
-      },
-    });
-
-    expect(copied.workspace.replayed).toBe(true);
-    expect(copied.workspace.archive.key).toBe(destinationKey);
-    expect(bucket.objects.has(source.archive.key)).toBe(true);
-  });
-
   test("re-addresses a native archive independently of workspace head", async () => {
     const bytes = encoder.encode("per-thread native squashfs");
     const bucket = new FakeArchiveBucket();
@@ -865,12 +463,12 @@ describe("turn state archive", () => {
   test("fails closed when a reserved key already contains conflicting metadata", async () => {
     const bytes = encoder.encode("workspace squashfs");
     const bucket = new FakeArchiveBucket();
-    const key = archiveKey("workspace");
+    const key = archiveKey("native");
     await uploadTurnStateArchive({
       session: new FakeArchiveSession(bytes).asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace" },
+      target: { kind: "native" },
     });
     bucket.corruptMetadata(key);
 
@@ -879,7 +477,7 @@ describe("turn state archive", () => {
         session: new FakeArchiveSession(bytes).asSession(),
         bucket: bucket.asUploadBucket(),
         key,
-        target: { kind: "workspace" },
+        target: { kind: "native" },
       }),
     ).rejects.toThrow("conflicts with its reservation");
     expect(bucket.putCalls).toBe(1);
@@ -1043,8 +641,8 @@ describe("turn state archive", () => {
     const first = uploadTurnStateArchive({
       session: firstSession.asSession(),
       bucket: bucket.asUploadBucket(),
-      key: archiveKey("workspace", "e"),
-      target: { kind: "workspace" },
+      key: archiveKey("native", "e"),
+      target: { kind: "native" },
     });
     await readStarted;
 
@@ -1052,8 +650,8 @@ describe("turn state archive", () => {
       uploadTurnStateArchive({
         session: secondSession.asSession(),
         bucket: bucket.asUploadBucket(),
-        key: archiveKey("workspace", "e"),
-        target: { kind: "workspace" },
+        key: archiveKey("native", "e"),
+        target: { kind: "native" },
       }),
     ).rejects.toThrow("archive creation failed");
 
@@ -1070,65 +668,19 @@ describe("turn state archive", () => {
     expect(firstBuild).toContain("exec 9<>");
     expect(firstBuild).toContain("/usr/bin/flock --exclusive --nonblock 9");
     expect(firstBuild).toContain(
-      "/home/stella-host-state/turn-state-archive/lock-workspace-world",
+      "/home/stella-host-state/turn-state-archive/lock-native",
     );
     expect(firstBuild).toContain("set -C; : >");
     expect(firstBuild).not.toContain(
-      "/dev/null /home/stella-host-state/turn-state-archive/lock-workspace-world",
+      "/dev/null /home/stella-host-state/turn-state-archive/lock-native",
     );
     const scratchPath = (command: string | undefined): string | undefined =>
-      /\/home\/stella-host-state\/turn-state-archive\/workspace-world-([0-9a-f]{64})\.sqsh/u.exec(
+      /\/home\/stella-host-state\/turn-state-archive\/native-([0-9a-f]{64})\.sqsh/u.exec(
         command ?? "",
       )?.[0];
     expect(scratchPath(firstBuild)).toBeDefined();
     expect(scratchPath(secondBuild)).toBeDefined();
     expect(scratchPath(firstBuild)).not.toBe(scratchPath(secondBuild));
-  });
-
-  test("keeps an old tree recoverable across every target-swap failure", async () => {
-    const bytes = encoder.encode("rollback-aware squashfs");
-    const bucket = new FakeArchiveBucket();
-    const uploaded = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(bytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key: archiveKey("workspace"),
-      target: { kind: "workspace" },
-    });
-    const boundaries: SwapFailureBoundary[] = [
-      "source-to-prior",
-      "stage-to-source",
-      "prior-to-retired",
-      "retired-delete",
-    ];
-    for (const boundary of boundaries) {
-      const restoreSession = new SwapStateArchiveSession(bytes, boundary);
-      await expect(
-        restoreTurnStateArchive({
-          session: restoreSession.asSession(),
-          bucket: bucket.asRestoreBucket(),
-          archive: uploaded.archive,
-          target: { kind: "workspace" },
-        }),
-      ).rejects.toThrow("target swap failed");
-      expect(
-        [
-          restoreSession.source,
-          restoreSession.prior,
-          restoreSession.retired,
-        ].filter(Boolean).length,
-      ).toBeGreaterThan(0);
-
-      await restoreTurnStateArchive({
-        session: restoreSession.asSession(),
-        bucket: bucket.asRestoreBucket(),
-        archive: uploaded.archive,
-        target: { kind: "workspace" },
-      });
-      expect(restoreSession.source).toBe("new");
-      expect(restoreSession.prior).toBeUndefined();
-      expect(restoreSession.retired).toBeUndefined();
-      expect(restoreSession.stages.size).toBe(0);
-    }
   });
 
   test("rejects malformed keys, arbitrary roots, and objects above R2's single-part boundary", async () => {
@@ -1143,7 +695,7 @@ describe("turn state archive", () => {
         session: malformedSession.asSession(),
         bucket: bucket.asUploadBucket(),
         key: `${TURN_STATE_OBJECT_PREFIX}/workspace.sqsh`,
-        target: { kind: "workspace" },
+        target: { kind: "native" },
       }),
     ).rejects.toThrow("was not pre-registered");
     expect(malformedSession.commands).toEqual([]);
@@ -1154,8 +706,8 @@ describe("turn state archive", () => {
         uploadTurnStateArchive({
           session: controlSession.asSession(),
           bucket: bucket.asUploadBucket(),
-          key: `${archiveKey("workspace")}${suffix}`,
-          target: { kind: "workspace" },
+          key: `${archiveKey("native")}${suffix}`,
+          target: { kind: "native" },
         }),
       ).rejects.toThrow("was not pre-registered");
       expect(controlSession.commands).toEqual([]);
@@ -1167,37 +719,14 @@ describe("turn state archive", () => {
       uploadTurnStateArchive({
         session: oversizedSession.asSession(),
         bucket: bucket.asUploadBucket(),
-        key: archiveKey("workspace"),
-        target: { kind: "workspace" },
+        key: archiveKey("native"),
+        target: { kind: "native" },
       }),
     ).rejects.toThrow("exceeds its bounded object contract");
     expect(bucket.putCalls).toBe(0);
     expect(oversizedSession.commands.at(-1)).toContain("rm -f --");
   });
 
-  test("rejects restore kind mismatches before touching sandbox or R2", async () => {
-    const session = new FakeArchiveSession(encoder.encode("unused"));
-    const bucket = new FakeArchiveBucket();
-    const archive: TurnStateArchive = {
-      schemaVersion: 1,
-      kind: "workspace",
-      format: "squashfs-zstd-v1",
-      key: archiveKey("workspace"),
-      sizeBytes: 1,
-      sha256: "a".repeat(64),
-      etag: "etag",
-      complete: true,
-    };
-    await expect(
-      restoreTurnStateArchive({
-        session: session.asSession(),
-        bucket: bucket.asRestoreBucket(),
-        archive,
-        target: { kind: "native" },
-      }),
-    ).rejects.toThrow("target kind does not match");
-    expect(session.commands).toEqual([]);
-  });
 });
 
 describe("archive scripts never leak shell state into the session", () => {
@@ -1208,21 +737,21 @@ describe("archive scripts never leak shell state into the session", () => {
     // non-zero command and the daemon with it, which is exactly what every
     // follow-up turn (the only turn that restores a checkpoint) hit.
     const bytes = encoder.encode("subshell-archive-bytes");
-    const key = archiveKey("workspace");
+    const key = archiveKey("native");
     const bucket = new FakeArchiveBucket();
     const uploadSession = new FakeArchiveSession(bytes);
     const uploaded = await uploadTurnStateArchive({
       session: uploadSession.asSession(),
       bucket: bucket.asUploadBucket(),
       key,
-      target: { kind: "workspace" },
+      target: { kind: "native" },
     });
     const restoreSession = new FakeArchiveSession(bytes);
     await restoreTurnStateArchive({
       session: restoreSession.asSession(),
       bucket: bucket.asRestoreBucket(),
       archive: uploaded.archive,
-      target: { kind: "workspace" },
+      target: { kind: "native" },
     });
 
     const commands = [...uploadSession.commands, ...restoreSession.commands];

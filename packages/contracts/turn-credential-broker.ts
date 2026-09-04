@@ -98,18 +98,7 @@ export type TurnBrokerTurnStateCheckpointRequest = {
 };
 
 export type TurnBrokerTurnStateCheckpointReceipt = {
-  schemaVersion: 1;
   operationId: string;
   historyCursor: string;
-  workspaceSha256: string;
-  nativeSha256?: string;
-  receipt: string;
-  replayed: boolean;
+  manifestId: string;
 };
-
-/** @deprecated Compatibility alias for pre-atomic callers. */
-export type TurnBrokerNativeStateCheckpointRequest =
-  TurnBrokerTurnStateCheckpointRequest;
-/** @deprecated Compatibility alias for pre-atomic callers. */
-export type TurnBrokerNativeStateCheckpointReceipt =
-  TurnBrokerTurnStateCheckpointReceipt;

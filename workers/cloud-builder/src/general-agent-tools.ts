@@ -36,10 +36,20 @@ import {
   CODE_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/code-def.js";
 import {
+  EDIT_TOOL_DESCRIPTION,
+  EDIT_TOOL_NAME,
+  EDIT_TOOL_PARAMETERS,
+} from "@stella/runtime/kernel/tools/defs/edit-def.js";
+import {
   EXEC_COMMAND_TOOL_DESCRIPTION,
   EXEC_COMMAND_TOOL_NAME,
   EXEC_COMMAND_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/exec-command-def.js";
+import {
+  GREP_TOOL_DESCRIPTION,
+  GREP_TOOL_NAME,
+  GREP_TOOL_PARAMETERS,
+} from "@stella/runtime/kernel/tools/defs/grep-def.js";
 import {
   READ_TOOL_DESCRIPTION,
   READ_TOOL_NAME,
@@ -50,6 +60,11 @@ import {
   WRITE_STDIN_TOOL_NAME,
   WRITE_STDIN_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/write-stdin-def.js";
+import {
+  WRITE_TOOL_DESCRIPTION,
+  WRITE_TOOL_NAME,
+  WRITE_TOOL_PARAMETERS,
+} from "@stella/runtime/kernel/tools/defs/write-def.js";
 import {
   WEB_TOOL_DESCRIPTION,
   WEB_TOOL_NAME,
@@ -69,11 +84,6 @@ export type GeneralAgentToolCompute = "container" | "do_local" | "js_sandbox";
 
 export const PUBLISH_STELLA_INTERIOR_TOOL_NAME = "publish_stella_interior";
 
-/** The legacy image-read name. It has no runtime definition and no descriptor,
- * so it never reaches the model, but a replayed historical transcript can
- * still name it and must route rather than look unknown. */
-export const LEGACY_VIEW_IMAGE_TOOL_NAME = "view_image";
-
 /**
  * `code` runs in the JS sandbox, exactly as the cloud orchestrator's `code`
  * does: the same Dynamic Worker executor, the same read-only nested-tool
@@ -87,11 +97,13 @@ export const LEGACY_VIEW_IMAGE_TOOL_NAME = "view_image";
 const GENERAL_AGENT_TOOL_COMPUTE = {
   [EXEC_COMMAND_TOOL_NAME]: "container",
   [WRITE_STDIN_TOOL_NAME]: "container",
-  [READ_TOOL_NAME]: "container",
-  [APPLY_PATCH_TOOL_NAME]: "container",
-  [LEGACY_VIEW_IMAGE_TOOL_NAME]: "container",
-  [CODE_TOOL_NAME]: "js_sandbox",
+  [APPLY_PATCH_TOOL_NAME]: "do_local",
   [WEB_TOOL_NAME]: "do_local",
+  [READ_TOOL_NAME]: "do_local",
+  [WRITE_TOOL_NAME]: "do_local",
+  [EDIT_TOOL_NAME]: "do_local",
+  [GREP_TOOL_NAME]: "do_local",
+  [CODE_TOOL_NAME]: "js_sandbox",
   spawn_agent: "do_local",
   send_input: "do_local",
   pause_agent: "do_local",
@@ -204,6 +216,24 @@ export const GENERAL_AGENT_TOOL_DESCRIPTORS: readonly GeneralAgentToolDescriptor
       parameters: READ_TOOL_PARAMETERS,
     },
     {
+      name: WRITE_TOOL_NAME,
+      label: WRITE_TOOL_NAME,
+      description: WRITE_TOOL_DESCRIPTION,
+      parameters: WRITE_TOOL_PARAMETERS,
+    },
+    {
+      name: EDIT_TOOL_NAME,
+      label: EDIT_TOOL_NAME,
+      description: EDIT_TOOL_DESCRIPTION,
+      parameters: EDIT_TOOL_PARAMETERS,
+    },
+    {
+      name: GREP_TOOL_NAME,
+      label: GREP_TOOL_NAME,
+      description: GREP_TOOL_DESCRIPTION,
+      parameters: GREP_TOOL_PARAMETERS,
+    },
+    {
       name: CODE_TOOL_NAME,
       label: CODE_TOOL_NAME,
       description: CODE_TOOL_DESCRIPTION,
@@ -285,8 +315,6 @@ export type GeneralAgentComputeBridge = Readonly<{
 const BRIDGED_TOOL_NAMES: ReadonlySet<string> = new Set([
   EXEC_COMMAND_TOOL_NAME,
   WRITE_STDIN_TOOL_NAME,
-  READ_TOOL_NAME,
-  APPLY_PATCH_TOOL_NAME,
 ]);
 
 const bridgedTool = (

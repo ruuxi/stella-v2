@@ -14,7 +14,7 @@ const MAX_CANDIDATES = 8;
  */
 export const WORLD_REGISTRY_SEGMENT = "world";
 
-export type TurnStateObjectKind = "workspace" | "native";
+export type TurnStateObjectKind = "native";
 
 export type TurnStateArchive = {
   schemaVersion: typeof TURN_STATE_SCHEMA_VERSION;
@@ -53,7 +53,7 @@ export type TurnStateCandidate = {
   operationId: string;
   requestFingerprint: string;
   historyCursor: string;
-  workspace: TurnStateArchive;
+  workspace: { historyCursor: string; manifestId: string };
   native?: TurnStateArchive;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   receipt: string;
@@ -67,8 +67,8 @@ export type TurnStateWorkspaceHead = {
   revision: number;
   originThreadHash: string;
   originHistoryCursor: string;
-  archive: TurnStateArchive;
-  receipt: string;
+  historyCursor: string;
+  manifestId: string;
   createdAt: number;
 };
 
@@ -94,9 +94,10 @@ type OperationRecord = {
   operationId: string;
   requestFingerprint: string;
   historyCursor: string;
+  manifestId: string;
   baseWorkspaceRevision: number;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
-  objectKeys: { workspace: string; native?: string };
+  objectKeys: { native?: string };
   state: "prepared" | "committed";
   receipt?: string;
   createdAt: number;
@@ -235,10 +236,8 @@ export type PreparedTurnStateOperation = {
   workspaceHash: string;
   threadHash: string;
   baseWorkspaceRevision: number;
-  objectKeys: {
-    workspace: string;
-    native?: string;
-  };
+  manifestId: string;
+  objectKeys: { native?: string };
   replayed: boolean;
 };
 
@@ -248,6 +247,7 @@ export const prepareTurnStateOperation = async (
     identity: TurnStateIdentity;
     requestFingerprint: string;
     historyCursor: string;
+    manifestId: string;
     baseWorkspaceRevision: number;
     nativeCheckpoint?: TurnStateNativeCheckpoint;
     createdAt: number;
@@ -256,6 +256,7 @@ export const prepareTurnStateOperation = async (
   if (
     !/^[0-9a-f]{64}$/u.test(args.requestFingerprint) ||
     !exactText(args.historyCursor, 1_024) ||
+    !/^[0-9a-f]{64}$/u.test(args.manifestId) ||
     !Number.isSafeInteger(args.baseWorkspaceRevision) ||
     args.baseWorkspaceRevision < 0 ||
     !Number.isSafeInteger(args.createdAt) ||
@@ -274,14 +275,12 @@ export const prepareTurnStateOperation = async (
       args.identity.attemptGeneration,
       args.requestFingerprint,
       args.historyCursor,
+      args.manifestId,
       args.baseWorkspaceRevision,
     ]),
   );
   const base = `${TURN_STATE_OBJECT_PREFIX}/${hashes.ownerHash}/${hashes.workspaceHash}/${hashes.threadHash}/${hashes.turnHash}/${args.identity.attemptGeneration}-${operationId}`;
-  const objectKeys = {
-    workspace: `${base}/workspace.sqsh`,
-    ...(args.nativeCheckpoint ? { native: `${base}/native.sqsh` } : {}),
-  };
+  const objectKeys = args.nativeCheckpoint ? { native: `${base}/native.sqsh` } : {};
   const operation: OperationRecord = {
     schemaVersion: TURN_STATE_SCHEMA_VERSION,
     identity: args.identity,
@@ -289,6 +288,7 @@ export const prepareTurnStateOperation = async (
     operationId,
     requestFingerprint: args.requestFingerprint,
     historyCursor: args.historyCursor,
+    manifestId: args.manifestId,
     baseWorkspaceRevision: args.baseWorkspaceRevision,
     ...(args.nativeCheckpoint
       ? { nativeCheckpoint: args.nativeCheckpoint }
@@ -311,6 +311,7 @@ export const prepareTurnStateOperation = async (
       if (
         existing.requestFingerprint !== args.requestFingerprint ||
         existing.historyCursor !== args.historyCursor ||
+        existing.manifestId !== args.manifestId ||
         existing.baseWorkspaceRevision !== args.baseWorkspaceRevision ||
         !sameJson(existing.identity, args.identity) ||
         !sameJson(existing.nativeCheckpoint, args.nativeCheckpoint) ||
@@ -355,7 +356,7 @@ export const prepareTurnStateOperation = async (
       } satisfies WorkspaceRecord);
     }
     await tx.put(key, operation);
-    for (const kind of ["workspace", "native"] as const) {
+    for (const kind of ["native"] as const) {
       const objectKey = objectKeys[kind];
       if (!objectKey) continue;
       const record: ObjectRecord = {
@@ -379,6 +380,7 @@ export const prepareTurnStateOperation = async (
     workspaceHash: hashes.workspaceHash,
     threadHash: hashes.threadHash,
     baseWorkspaceRevision: args.baseWorkspaceRevision,
+    manifestId: args.manifestId,
     objectKeys,
     replayed,
   };
@@ -386,7 +388,7 @@ export const prepareTurnStateOperation = async (
 
 const validArchive = (archive: TurnStateArchive): boolean =>
   archive.schemaVersion === TURN_STATE_SCHEMA_VERSION &&
-  (archive.kind === "workspace" || archive.kind === "native") &&
+  archive.kind === "native" &&
   archive.format === TURN_STATE_OBJECT_FORMAT &&
   archive.key.startsWith(`${TURN_STATE_OBJECT_PREFIX}/`) &&
   Number.isSafeInteger(archive.sizeBytes) &&
@@ -500,7 +502,7 @@ export const commitTurnStateOperation = async (
         !existing ||
         existing.receipt !== operation.receipt ||
         !existingWorkspaceHead ||
-        existingWorkspaceHead.archive.key !== operation.objectKeys.workspace
+        existingWorkspaceHead.manifestId !== operation.manifestId
       ) {
         throw new Error("Turn state committed receipt is inconsistent.");
       }
@@ -510,17 +512,12 @@ export const commitTurnStateOperation = async (
         replayed: true,
       };
     }
-    const workspaceObject = await tx.get<ObjectRecord>(
-      objectRecordKey(operation.objectKeys.workspace),
-    );
     const nativeRecord = operation.objectKeys.native
       ? await tx.get<ObjectRecord>(objectRecordKey(operation.objectKeys.native))
       : undefined;
     if (
-      workspaceObject?.state !== "uploaded" ||
-      !workspaceObject.descriptor ||
-      (operation.objectKeys.native &&
-        (nativeRecord?.state !== "uploaded" || !nativeRecord.descriptor))
+      operation.objectKeys.native &&
+      (nativeRecord?.state !== "uploaded" || !nativeRecord.descriptor)
     ) {
       throw new Error("Turn state operation has incomplete archive uploads.");
     }
@@ -548,7 +545,7 @@ export const commitTurnStateOperation = async (
         operation.operationId,
         operation.requestFingerprint,
         operation.historyCursor,
-        workspaceObject.descriptor,
+        operation.manifestId,
         nativeRecord?.descriptor ?? null,
         operation.nativeCheckpoint ?? null,
       ]),
@@ -558,7 +555,10 @@ export const commitTurnStateOperation = async (
       operationId: operation.operationId,
       requestFingerprint: operation.requestFingerprint,
       historyCursor: operation.historyCursor,
-      workspace: workspaceObject.descriptor,
+      workspace: {
+        historyCursor: operation.historyCursor,
+        manifestId: operation.manifestId,
+      },
       ...(nativeRecord?.descriptor ? { native: nativeRecord.descriptor } : {}),
       ...(operation.nativeCheckpoint
         ? { nativeCheckpoint: operation.nativeCheckpoint }
@@ -574,19 +574,8 @@ export const commitTurnStateOperation = async (
       revision: workspaceRevision,
       originThreadHash: operation.threadHash,
       originHistoryCursor: operation.historyCursor,
-      archive: workspaceObject.descriptor,
-      receipt: await sha256Hex(
-        JSON.stringify([
-          TURN_STATE_SCHEMA_VERSION,
-          operation.ownerHash,
-          operation.identity.ownerGeneration,
-          operation.workspaceHash,
-          workspaceRevision,
-          operation.operationId,
-          operation.requestFingerprint,
-          workspaceObject.descriptor,
-        ]),
-      ),
+      historyCursor: operation.historyCursor,
+      manifestId: operation.manifestId,
       createdAt: operation.createdAt,
     };
     await tx.put(threadKey, {
@@ -597,7 +586,7 @@ export const commitTurnStateOperation = async (
       ...workspaceState,
       candidate: workspaceHead,
     } satisfies WorkspaceRecord);
-    for (const record of [workspaceObject, nativeRecord]) {
+    for (const record of [nativeRecord]) {
       if (!record) continue;
       await tx.put(objectRecordKey(record.key), {
         ...record,
@@ -668,18 +657,13 @@ const retireWorkspaceHeads = async (
   threadHash: string,
   now: number,
 ): Promise<void> => {
-  for (const head of heads) {
-    await retireOperationObjects(
-      tx,
-      head.operationId,
-      [head.archive.key],
-      ownerHash,
-      ownerGeneration,
-      workspaceHash,
-      threadHash,
-      now,
-    );
-  }
+  void tx;
+  void heads;
+  void ownerHash;
+  void ownerGeneration;
+  void workspaceHash;
+  void threadHash;
+  void now;
 };
 
 const retireThreadCandidates = async (
@@ -712,8 +696,8 @@ export type PublishedTurnStateWorkspace = {
 };
 
 /**
- * Publish a workspace archive only after the exact origin thread's transcript
- * cursor is canonical. Commit alone merely pre-registers durable bytes; this
+ * Publish a world manifest only after the exact origin thread's transcript
+ * cursor is canonical. Commit alone merely records a candidate manifest; this
  * second fence prevents another thread from observing tool mutations whose
  * transcript append never became authoritative.
  */

@@ -22,7 +22,7 @@ export const openSqlStorageFake = (): SqlStorageFake => {
     },
     exec<T>(statement: string, ...bindings: unknown[]) {
       const query = statement.trim();
-      const rows = /^(SELECT|PRAGMA|WITH)\b/iu.test(query)
+      const rows = /^(SELECT|PRAGMA|WITH)\b/iu.test(query) || /\bRETURNING\b/iu.test(query)
         ? (database.query(query).all(...bindings) as T[])
         : (database.run(query, bindings), []);
       return {

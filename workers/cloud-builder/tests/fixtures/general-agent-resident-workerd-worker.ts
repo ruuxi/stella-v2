@@ -162,6 +162,11 @@ const doLocalTool = (name: string): AgentTool => ({
 const DO_LOCAL = new Map([
   ["web", doLocalTool("web")],
   ["publish_stella_interior", doLocalTool("publish_stella_interior")],
+  ["Read", doLocalTool("Read")],
+  ["apply_patch", doLocalTool("apply_patch")],
+  ["Write", doLocalTool("Write")],
+  ["Edit", doLocalTool("Edit")],
+  ["Grep", doLocalTool("Grep")],
   ["spawn_agent", doLocalTool("spawn_agent")],
   ["send_input", doLocalTool("send_input")],
   ["pause_agent", doLocalTool("pause_agent")],

@@ -383,24 +383,14 @@ const parseCheckpointReceipt = (
   }
   const candidate = value as Record<string, unknown>;
   const keys = Object.keys(candidate).sort();
-  const expectedKeys = request.nativeCheckpoint
-    ? "historyCursor,nativeSha256,operationId,receipt,replayed,schemaVersion,workspaceSha256"
-    : "historyCursor,operationId,receipt,replayed,schemaVersion,workspaceSha256";
+  const expectedKeys = "historyCursor,manifestId,operationId";
   if (
     keys.join(",") !== expectedKeys ||
-    candidate.schemaVersion !== 1 ||
     typeof candidate.operationId !== "string" ||
     !/^[0-9a-f]{64}$/.test(candidate.operationId) ||
     candidate.historyCursor !== request.historyCursor ||
-    typeof candidate.workspaceSha256 !== "string" ||
-    !/^[0-9a-f]{64}$/.test(candidate.workspaceSha256) ||
-    (request.nativeCheckpoint
-      ? typeof candidate.nativeSha256 !== "string" ||
-        !/^[0-9a-f]{64}$/.test(candidate.nativeSha256)
-      : candidate.nativeSha256 !== undefined) ||
-    typeof candidate.receipt !== "string" ||
-    !/^[0-9a-f]{64}$/.test(candidate.receipt) ||
-    typeof candidate.replayed !== "boolean"
+    typeof candidate.manifestId !== "string" ||
+    !/^[0-9a-f]{64}$/.test(candidate.manifestId)
   ) {
     throw new Error("Native state checkpoint receipt is invalid.");
   }

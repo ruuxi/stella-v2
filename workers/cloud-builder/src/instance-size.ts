@@ -50,22 +50,8 @@ const HEAVY_STACK_PATTERN =
  * it is checkpointed the turn is ordinary work again and is sized by what it
  * was asked to do, escalating only if it actually runs out of memory.
  */
-export const initialInstanceSize = (args: {
-  prompt: string;
-  /** A checkpoint exists, so this turn restores instead of building cold. */
-  restored?: boolean;
-}): InstanceSize => {
-  if (!args.restored) return "large";
-  return HEAVY_STACK_PATTERN.test(args.prompt) ? "large" : "small";
-};
-
-/** A remembered size from KV or Convex; anything else means "not learned yet". */
-export const asInstanceSize = (
-  value: string | null | undefined,
-): InstanceSize | undefined => {
-  const size = value?.trim();
-  return size === "small" || size === "large" ? size : undefined;
-};
+export const initialInstanceSize = (args: { prompt: string }): InstanceSize =>
+  HEAVY_STACK_PATTERN.test(args.prompt) ? "large" : "small";
 
 // 137 = 128 + SIGKILL, which is what the kernel OOM killer leaves behind;
 // the rest are the messages bun, node, and the container runtime print on

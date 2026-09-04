@@ -151,9 +151,10 @@ export type TurnDurability =
       transcript: CanonicalTranscriptReceipt;
     }>
   | Readonly<{
-      kind: "workspace_checkpoint";
+      kind: "workspace_manifest";
       transcript: CanonicalTranscriptReceipt;
-      checkpoint: TurnBrokerTurnStateCheckpointReceipt;
+      historyCursor: string;
+      manifestId: string;
     }>;
 
 export type TurnComputeUse =
@@ -670,7 +671,7 @@ export const runGeneralAgentTurn = async (args: {
   }
   const result = await args.resident(args.plan);
   if (
-    result.durability.kind === "workspace_checkpoint" &&
+    result.durability.kind === "workspace_manifest" &&
     result.compute.kind !== "sandbox"
   ) {
     throw new GeneralAgentPlacementError(
@@ -737,9 +738,9 @@ export type ResidentStellaLoopInput = Readonly<{
   /**
    * How the sealed transcript becomes durable.
    *
-   * D6 requires an attached turn to commit its workspace archive *before* the
-   * transcript, so a canonical cursor can never name a workspace revision that
-   * was never uploaded. The loop cannot know whether a container attached
+   * D6 requires an attached turn to checkpoint its world manifest *before* the
+   * transcript, so a canonical cursor can never name a world revision that
+   * was never sealed. The loop cannot know whether a container attached
    * during it, so the caller sequences the commit. Absent, the resident-only
    * `transcript_only` commit below is what runs.
    */

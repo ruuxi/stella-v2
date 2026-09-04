@@ -163,7 +163,12 @@ const noopDoLocalTool = (name: string): AgentTool => ({
 
 const RESIDENT_TOOLS = createResidentGeneralAgentTools(
   new Map([
+    ["apply_patch", noopDoLocalTool("apply_patch")],
     ["web", noopDoLocalTool("web")],
+    ["Read", noopDoLocalTool("Read")],
+    ["Write", noopDoLocalTool("Write")],
+    ["Edit", noopDoLocalTool("Edit")],
+    ["Grep", noopDoLocalTool("Grep")],
     ["spawn_agent", noopDoLocalTool("spawn_agent")],
     ["send_input", noopDoLocalTool("send_input")],
     ["pause_agent", noopDoLocalTool("pause_agent")],
@@ -298,6 +303,9 @@ describe("resident Stella loop", () => {
       "apply_patch",
       "web",
       "Read",
+      "Write",
+      "Edit",
+      "Grep",
       "code",
       "spawn_agent",
       "send_input",

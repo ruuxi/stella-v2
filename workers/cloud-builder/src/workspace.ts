@@ -25,20 +25,13 @@ export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
  */
 export const APP_BUILD_ROOT = "/workspace/app";
 
-/**
- * KV key for an owner's world checkpoint descriptor. Owner-scoped: two users
- * never share a checkpoint, and one user never has two.
- */
+/** Stable owner-scoped workspace key used as the second world-name domain. */
 export const checkpointKey = async (ownerId: string): Promise<string> =>
   `ws:${await sha256Hex(ownerId)}`;
 
-/**
- * KV key for the instance size the world has been observed to need. Derived
- * from the checkpoint key so the two are purged together, and so the learning
- * is owner-scoped exactly like the checkpoint it belongs to.
- */
-export const instanceSizeKey = (workspaceKey: string): string =>
-  `${workspaceKey}:size`;
+/** Durable Object name for an owner's one shared cloud filesystem. */
+export const worldName = async (ownerId: string): Promise<string> =>
+  `${await sha256Hex(ownerId)}:${await sha256Hex(await checkpointKey(ownerId))}`;
 
 /** Backup name derived from the checkpoint key; stable across turns. */
 export const checkpointBackupName = (key: string): string =>

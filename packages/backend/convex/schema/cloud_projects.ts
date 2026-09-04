@@ -28,7 +28,6 @@ export const cloudProjectsSchema = {
     defaultBranch: v.string(),
     // Setup state the builder infers on a first run and replays afterwards.
     setupScript: v.optional(v.string()),
-    instanceSize: v.optional(v.string()),
     lastCheckpointAt: v.optional(v.number()),
     // "active" | "archived" | builder-reported states ("ready", "error").
     status: v.string(),

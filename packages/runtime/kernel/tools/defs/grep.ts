@@ -4,26 +4,17 @@
 
 import { handleGrep } from "../search.js";
 import type { ToolDefinition } from "../types.js";
+import {
+  GREP_TOOL_DESCRIPTION,
+  GREP_TOOL_NAME,
+  GREP_TOOL_PARAMETERS,
+} from "./grep-def.js";
+
+export { GREP_TOOL_PARAMETERS } from "./grep-def.js";
 
 export const grepTool: ToolDefinition = {
-  name: "Grep",
-  description: "Search file contents using ripgrep (internal).",
-  parameters: {
-    type: "object",
-    properties: {
-      pattern: { type: "string" },
-      path: { type: "string" },
-      glob: { type: "string" },
-      type: { type: "string" },
-      output_mode: {
-        type: "string",
-        enum: ["content", "files_with_matches", "count"],
-      },
-      case_insensitive: { type: "boolean" },
-      context_lines: { type: "number" },
-      max_results: { type: "number" },
-    },
-    required: ["pattern"],
-  },
+  name: GREP_TOOL_NAME,
+  description: GREP_TOOL_DESCRIPTION,
+  parameters: GREP_TOOL_PARAMETERS,
   execute: (args, context) => handleGrep(args, context),
 };

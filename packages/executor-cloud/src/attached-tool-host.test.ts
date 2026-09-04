@@ -232,6 +232,11 @@ describe("attached tool host input", () => {
     prompt: "hi",
     workspaceRestored: true,
     turnBroker: { credentialsPath: "/workspace/broker.json" },
+    world: {
+      origin: "https://builder.example",
+      name: `${"a".repeat(64)}:${"b".repeat(64)}`,
+      capability: "wc1.payload.signature",
+    },
     ...overrides,
   });
 

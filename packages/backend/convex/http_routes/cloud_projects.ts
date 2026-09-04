@@ -27,7 +27,6 @@ type ProjectRow = {
   installationId?: string;
   defaultBranch: string;
   setupScript?: string;
-  instanceSize?: string;
   lastCheckpointAt?: number;
   status: string;
 };
@@ -101,7 +100,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
         provider: project.provider,
         defaultBranch: project.defaultBranch,
         setupScript: project.setupScript,
-        instanceSize: project.instanceSize,
         lastCheckpointAt: project.lastCheckpointAt,
       };
       if (project.provider !== "github" || !project.remoteUrl) {
@@ -166,7 +164,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
         projectId?: string;
         slug?: string;
         setupScript?: string;
-        instanceSize?: string;
         checkpointedAt?: number;
         status?: string;
       };
@@ -190,10 +187,6 @@ export function registerCloudProjectRoutes(http: HttpRouter) {
           projectId: project.projectId,
           setupScript:
             typeof body.setupScript === "string" ? body.setupScript : undefined,
-          instanceSize:
-            typeof body.instanceSize === "string"
-              ? body.instanceSize
-              : undefined,
           lastCheckpointAt:
             typeof body.checkpointedAt === "number"
               ? body.checkpointedAt

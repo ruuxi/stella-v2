@@ -96,6 +96,10 @@
       "binding": "CONVERSATION_ARCHIVE",
       "bucket_name": "stella-v2-conversation-archive-dev",
     },
+    {
+      "binding": "WORLDS_BUCKET",
+      "bucket_name": "stella-v2-worlds-dev",
+    },
   ],
   "kv_namespaces": [
     {
@@ -172,6 +176,10 @@
         "name": "OWNER_GATES",
         "class_name": "OwnerGate",
       },
+      {
+        "name": "WORLDS",
+        "class_name": "WorldStore",
+      },
     ],
   },
   "migrations": [
@@ -208,6 +216,10 @@
       // holding presence, offers, and claims together.
       "tag": "v8",
       "deleted_classes": ["DevicePresence"],
+    },
+    {
+      "tag": "v9",
+      "new_sqlite_classes": ["WorldStore"],
     },
   ],
   "queues": {
@@ -293,6 +305,10 @@
           "binding": "CONVERSATION_ARCHIVE",
           "bucket_name": "stella-v2-conversation-archive-basic-nightingale-118",
         },
+        {
+          "binding": "WORLDS_BUCKET",
+          "bucket_name": "stella-v2-worlds-basic-nightingale-118",
+        },
       ],
       "kv_namespaces": [
         {
@@ -357,6 +373,10 @@
             "name": "OWNER_GATES",
             "class_name": "OwnerGate",
           },
+          {
+            "name": "WORLDS",
+            "class_name": "WorldStore",
+          },
         ],
       },
       "migrations": [
@@ -391,6 +411,10 @@
         {
           "tag": "v8",
           "deleted_classes": ["DevicePresence"],
+        },
+        {
+          "tag": "v9",
+          "new_sqlite_classes": ["WorldStore"],
         },
       ],
       "queues": {
@@ -473,6 +497,10 @@
           "binding": "CONVERSATION_ARCHIVE",
           "bucket_name": "stella-v2-conversation-archive-prod",
         },
+        {
+          "binding": "WORLDS_BUCKET",
+          "bucket_name": "stella-v2-worlds-prod",
+        },
       ],
       "kv_namespaces": [
         {
@@ -539,6 +567,10 @@
             "name": "OWNER_GATES",
             "class_name": "OwnerGate",
           },
+          {
+            "name": "WORLDS",
+            "class_name": "WorldStore",
+          },
         ],
       },
       "migrations": [
@@ -573,6 +605,10 @@
         {
           "tag": "v8",
           "deleted_classes": ["DevicePresence"],
+        },
+        {
+          "tag": "v9",
+          "new_sqlite_classes": ["WorldStore"],
         },
       ],
       "queues": {

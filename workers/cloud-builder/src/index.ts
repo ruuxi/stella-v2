@@ -99,11 +99,10 @@ import {
   WORLD_STELLA_ROOT,
   checkpointBackupName,
   checkpointKey,
-  instanceSizeKey,
+  worldName,
 } from "./workspace.js";
 import {
   INSTANCE_TIERS,
-  asInstanceSize,
   initialInstanceSize,
   isOutOfMemoryFailure,
   type InstanceSize,
@@ -343,6 +342,12 @@ import {
   verifyPreviewAccessRouteCapability,
 } from "./vite-preview-access.js";
 import {
+  issueWorldCapability,
+  verifyWorldCapability,
+  worldCapabilityFromRequest,
+} from "./world-capability.js";
+import type { WorldListingEntry } from "./world/types.js";
+import {
   CLOUD_BUILDER_BODY_LIMITS,
   boundedBodyStatus,
   bufferBoundedJsonRequest,
@@ -402,6 +407,7 @@ export { ContainerProxy };
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };
 export { OwnerGate };
+export { WorldStore } from "./world-store.js";
 
 /** Existing large general-agent namespace, retained migration-compatibly. */
 export class Sandbox extends GeneralAgentSandbox<Env> {}
@@ -2132,52 +2138,20 @@ const turnStateBaseWorkspaceRevisionKey = (
   turnId: string,
   attemptGeneration: number,
 ): string => `turnStateBaseWorkspaceRevision:${turnId}:${attemptGeneration}`;
-const parseLegacyWorkspaceBackup = (
-  value: unknown,
-  expectedDirectory: string,
-): DirectoryBackup | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).sort().join(",") !== "dir,id,localBucket" ||
-    typeof record.id !== "string" ||
-    !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(record.id) ||
-    record.dir !== expectedDirectory ||
-    record.localBucket !== true
-  ) {
-    return null;
-  }
-  return record as unknown as DirectoryBackup;
-};
 const validTurnStateCheckpointReceipt = (
   value: unknown,
 ): value is TurnBrokerTurnStateCheckpointReceipt => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const receipt = value as Record<string, unknown>;
-  const allowed = new Set([
-    "schemaVersion",
-    "operationId",
-    "historyCursor",
-    "workspaceSha256",
-    "nativeSha256",
-    "receipt",
-    "replayed",
-  ]);
+  const allowed = new Set(["operationId", "historyCursor", "manifestId"]);
   return (
     Object.keys(receipt).every((key) => allowed.has(key)) &&
-    receipt.schemaVersion === 1 &&
     typeof receipt.operationId === "string" &&
     /^[0-9a-f]{64}$/u.test(receipt.operationId) &&
     typeof receipt.historyCursor === "string" &&
     /^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(receipt.historyCursor) &&
-    typeof receipt.workspaceSha256 === "string" &&
-    /^[0-9a-f]{64}$/u.test(receipt.workspaceSha256) &&
-    (receipt.nativeSha256 === undefined ||
-      (typeof receipt.nativeSha256 === "string" &&
-        /^[0-9a-f]{64}$/u.test(receipt.nativeSha256))) &&
-    typeof receipt.receipt === "string" &&
-    /^[0-9a-f]{64}$/u.test(receipt.receipt) &&
-    typeof receipt.replayed === "boolean"
+    typeof receipt.manifestId === "string" &&
+    /^[0-9a-f]{64}$/u.test(receipt.manifestId)
   );
 };
 
@@ -2581,7 +2555,6 @@ type WorkspaceCheckpointImport = {
   backupIds: string[];
   /** Finds pre-cleanup-debt backups during eventual account/workspace purge. */
   historicalBackupName: string;
-  instanceSize?: string;
 };
 type WorkspaceCheckpointImports = {
   schemaVersion: 1;
@@ -3234,11 +3207,11 @@ export class BuildSession extends DurableObject<Env> {
         !/^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(
           workspaceHead.originHistoryCursor,
         ) ||
-        !/^[0-9a-f]{64}$/u.test(workspaceHead.receipt) ||
+        !/^[0-9a-f]{64}$/u.test(workspaceHead.manifestId) ||
+        !/^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(workspaceHead.historyCursor) ||
         !Number.isSafeInteger(workspaceHead.revision) ||
         workspaceHead.revision <= 0 ||
         workspaceHead.revision !== resolved.baseWorkspaceRevision ||
-        workspaceHead.archive.kind !== "workspace" ||
         !Number.isSafeInteger(workspaceHead.createdAt) ||
         workspaceHead.createdAt < 0)
     ) {
@@ -3309,10 +3282,9 @@ export class BuildSession extends DurableObject<Env> {
       head.operationId !== operationId ||
       head.originHistoryCursor !== canonicalHistoryCursor ||
       !/^[0-9a-f]{64}$/u.test(head.originThreadHash) ||
-      !/^[0-9a-f]{64}$/u.test(head.receipt) ||
+      !/^[0-9a-f]{64}$/u.test(head.manifestId) ||
       !Number.isSafeInteger(head.revision) ||
       head.revision <= 0 ||
-      head.archive.kind !== "workspace" ||
       typeof published.publicationReceipt !== "string" ||
       !/^[0-9a-f]{64}$/u.test(published.publicationReceipt) ||
       typeof published.replayed !== "boolean"
@@ -3358,7 +3330,7 @@ export class BuildSession extends DurableObject<Env> {
           (!workspaceHead ||
             confirmed?.workspace?.restore?.operationId !==
               workspaceHead.operationId ||
-            confirmed.workspace.restore.receipt !== workspaceHead.receipt ||
+            confirmed.workspace.restore.manifestId !== workspaceHead.manifestId ||
             typeof confirmed.workspace.promoted !== "boolean" ||
             typeof confirmed.workspace.replayed !== "boolean")) ||
         (threadConfirmationRequired &&
@@ -4709,9 +4681,6 @@ export class BuildSession extends DurableObject<Env> {
     if (!turn.ownerPurgeLeaseId) return;
     const hasTransientWrites =
       Boolean(
-        await this.ctx.storage.get<string>(`transientBackup:${turn.turnId}`),
-      ) ||
-      Boolean(
         await this.ctx.storage.get<string>(`transientBuild:${turn.turnId}`),
       ) ||
       Boolean(
@@ -4858,28 +4827,6 @@ export class BuildSession extends DurableObject<Env> {
     return true;
   }
 
-  private async appendWorkspaceBackupDebt(
-    workspaceKey: string,
-    backupId: string,
-  ): Promise<void> {
-    if (!BACKUP_ID_PATTERN.test(backupId)) {
-      throw new Error("Invalid transient workspace backup id.");
-    }
-    const debtKey = backupDebtKey(workspaceKey);
-    const existing = (await this.env.APP_ROUTES.get<WorkspaceBackupDebt>(
-      debtKey,
-      "json",
-    )) ?? { backupIds: [] };
-    const backupIds = [...new Set([...existing.backupIds, backupId])];
-    if (backupIds.length > 100) {
-      throw new Error("Workspace backup cleanup debt is too large.");
-    }
-    await this.env.APP_ROUTES.put(
-      debtKey,
-      JSON.stringify({ backupIds } satisfies WorkspaceBackupDebt),
-    );
-  }
-
   private async appendNativeBackupDebt(
     workspaceKey: string,
     backupId: string,
@@ -4966,43 +4913,6 @@ export class BuildSession extends DurableObject<Env> {
     }
   }
 
-  /**
-   * Move the only random identifier for an unswept attempt backup out of DO
-   * storage before terminal deleteAll(). The workspace debt is durable and is
-   * retried by the normal checkpoint/purge sweep paths.
-   */
-  private async settleWorkspaceTransientBackup(
-    turn: TurnRequest,
-  ): Promise<boolean> {
-    const backupKey = `transientBackup:${turn.turnId}`;
-    const workspaceKeyKey = `transientBackupWorkspace:${turn.turnId}`;
-    const backupId = await this.ctx.storage.get<string>(backupKey);
-    if (!backupId) {
-      await this.ctx.storage.delete(workspaceKeyKey);
-      return true;
-    }
-    const workspaceKey = await this.ctx.storage.get<string>(workspaceKeyKey);
-    if (!workspaceKey) {
-      log("error", "transient_backup_debt_workspace_missing", {
-        turnId: turn.turnId,
-        backupId,
-      });
-      return false;
-    }
-    try {
-      await this.appendWorkspaceBackupDebt(workspaceKey, backupId);
-      await this.ctx.storage.delete([backupKey, workspaceKeyKey]);
-      return true;
-    } catch (error) {
-      log("error", "transient_backup_debt_persist_failed", {
-        turnId: turn.turnId,
-        backupId,
-        message: errorMessage(error),
-      });
-      return false;
-    }
-  }
-
   private async settleNativeTransientBackup(
     turn: TurnRequest,
   ): Promise<boolean> {
@@ -5049,30 +4959,15 @@ export class BuildSession extends DurableObject<Env> {
   private async settleAgentTransientBackup(
     turn: TurnRequest,
   ): Promise<boolean> {
-    if (!(await this.settleWorkspaceTransientBackup(turn))) return false;
     return await this.settleNativeTransientBackup(turn);
   }
 
   private async cleanupTransientWrites(turn: TurnRequest): Promise<void> {
-    const backupKey = `transientBackup:${turn.turnId}`;
     const buildKey = `transientBuild:${turn.turnId}`;
-    const backupId = await this.ctx.storage.get<string>(backupKey);
     const nativeMarker = await this.ctx.storage.get<NativeTransientBackup>(
       nativeTransientBackupKey(turn.turnId),
     );
     const buildPrefix = await this.ctx.storage.get<string>(buildKey);
-    if (backupId) {
-      const swept = await sweepR2Prefix(
-        this.env.BACKUP_BUCKET,
-        `backups/${backupId}/`,
-      );
-      if (!swept.done)
-        throw new Error("Transient backup cleanup was truncated.");
-      await this.ctx.storage.delete([
-        backupKey,
-        `transientBackupWorkspace:${turn.turnId}`,
-      ]);
-    }
     if (nativeMarker) {
       if (!BACKUP_ID_PATTERN.test(nativeMarker.backupId)) {
         throw new Error("Transient native backup descriptor is invalid.");
@@ -7858,9 +7753,7 @@ export class BuildSession extends DurableObject<Env> {
         try {
           // The joined executor can no longer produce a checkpoint. Reuse the
           // normal terminal-alarm retirement path immediately so its durable
-          // execution marker and original workspace run lease do not survive
-          // until the old watchdog. That otherwise rejects every fresh thread
-          // for this workspace as `workspace_busy` after Stop already ACKed.
+          // execution marker does not survive until the old watchdog.
           await this.runAlarmWithLease({ ...cleanupTurn });
         } catch (error) {
           log("error", "cancel_terminal_cleanup_deferred", {
@@ -7914,6 +7807,9 @@ export class BuildSession extends DurableObject<Env> {
     const { turn, operationKey, operation } = args;
     await this.assertTurnWritable(turn);
     this.assertAgentTurnIdentity(turn);
+    const worldCheckpoint = await this.env.WORLDS
+      .getByName(await worldName(turn.ownerId))
+      .checkpoint({ historyCursor: operation.payload.historyCursor });
 
     const prepared = await this.callOwnerTurnState<PreparedTurnStateOperation>(
       turn,
@@ -7923,6 +7819,7 @@ export class BuildSession extends DurableObject<Env> {
         attemptGeneration: turn.attemptGeneration,
         requestFingerprint: operation.requestFingerprint,
         historyCursor: operation.payload.historyCursor,
+        manifestId: worldCheckpoint.manifestId,
         baseWorkspaceRevision: operation.baseWorkspaceRevision,
         createdAt: operation.createdAt,
         ...(operation.payload.nativeCheckpoint
@@ -7933,8 +7830,8 @@ export class BuildSession extends DurableObject<Env> {
     if (
       !prepared ||
       !/^[0-9a-f]{64}$/u.test(prepared.operationId) ||
+      prepared.manifestId !== worldCheckpoint.manifestId ||
       prepared.baseWorkspaceRevision !== operation.baseWorkspaceRevision ||
-      typeof prepared.objectKeys?.workspace !== "string" ||
       (operation.payload.nativeCheckpoint
         ? typeof prepared.objectKeys.native !== "string"
         : prepared.objectKeys.native !== undefined)
@@ -7982,19 +7879,6 @@ export class BuildSession extends DurableObject<Env> {
       commandTimeoutMs: Number(this.env.TURN_TIMEOUT_MS),
     });
     try {
-      const workspaceUpload = await uploadTurnStateArchive({
-        session,
-        bucket: this.env.BACKUP_BUCKET,
-        key: prepared.objectKeys.workspace,
-        target: { kind: "workspace" },
-      });
-      await this.assertTurnWritable(turn);
-      this.assertAgentTurnIdentity(turn);
-      await this.callOwnerTurnState(turn, "mark-uploaded", {
-        operationId: prepared.operationId,
-        archive: workspaceUpload.archive,
-      });
-
       let nativeUpload:
         | Awaited<ReturnType<typeof uploadTurnStateArchive>>
         | undefined;
@@ -8031,17 +7915,16 @@ export class BuildSession extends DurableObject<Env> {
         candidate.historyCursor !== operation.payload.historyCursor ||
         candidate.createdAt !== operation.createdAt ||
         !/^[0-9a-f]{64}$/u.test(candidate.receipt) ||
-        JSON.stringify(candidate.workspace) !==
-          JSON.stringify(workspaceUpload.archive) ||
+        candidate.workspace.historyCursor !== operation.payload.historyCursor ||
+        candidate.workspace.manifestId !== worldCheckpoint.manifestId ||
         JSON.stringify(candidate.native) !==
           JSON.stringify(nativeUpload?.archive) ||
         JSON.stringify(candidate.nativeCheckpoint) !==
           JSON.stringify(operation.payload.nativeCheckpoint) ||
         workspaceHead.operationId !== prepared.operationId ||
         workspaceHead.revision !== operation.baseWorkspaceRevision + 1 ||
-        JSON.stringify(workspaceHead.archive) !==
-          JSON.stringify(workspaceUpload.archive) ||
-        !/^[0-9a-f]{64}$/u.test(workspaceHead.receipt)
+        workspaceHead.historyCursor !== operation.payload.historyCursor ||
+        workspaceHead.manifestId !== worldCheckpoint.manifestId
       ) {
         throw new Error("Turn state commit receipt was invalid.");
       }
@@ -8610,10 +8493,9 @@ export class BuildSession extends DurableObject<Env> {
     if (admission.kind === "replay") {
       const operation = admission.operation;
       if (operation?.state === "succeeded") {
-        return Response.json(
-          { ...operation.receipt, replayed: true },
-          { headers: { "cache-control": "no-store" } },
-        );
+        return Response.json(operation.receipt, {
+          headers: { "cache-control": "no-store" },
+        });
       }
       if (operation?.state === "failed") {
         return this.brokerFailure(operation.status);
@@ -8701,10 +8583,9 @@ export class BuildSession extends DurableObject<Env> {
     }
     try {
       const receipt = await run;
-      return Response.json(
-        admission.kind === "replay" ? { ...receipt, replayed: true } : receipt,
-        { headers: { "cache-control": "no-store" } },
-      );
+      return Response.json(receipt, {
+        headers: { "cache-control": "no-store" },
+      });
     } catch (error) {
       const status =
         error instanceof TurnStateOwnerCallError && error.status < 500
@@ -9859,7 +9740,6 @@ export class BuildSession extends DurableObject<Env> {
     turnStateWorkspaceRestoreConfirmationRequired: boolean;
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
-    descriptor: DirectoryBackup | null;
   }> {
     const canonicalHistoryCursor = await nativeHistoryCursorFromRows(history);
     let resolved = await this.resolveAgentTurnState(
@@ -9898,21 +9778,6 @@ export class BuildSession extends DurableObject<Env> {
       resolved.baseWorkspaceRevision,
     );
     execution.assertActive();
-    let descriptor: DirectoryBackup | null = null;
-    if (!resolved.workspace) {
-      const raw = await this.env.APP_ROUTES.get<unknown>(
-        await checkpointKey(turn.ownerId),
-        "json",
-      );
-      if (raw) {
-        descriptor = parseLegacyWorkspaceBackup(raw, WORLD_ROOT);
-        if (!descriptor) {
-          throw new AgentTurnError(
-            "Stella couldn't validate this workspace's legacy checkpoint. Try again.",
-          );
-        }
-      }
-    }
     return {
       ...(resolved.workspace
         ? { turnStateWorkspaceRestore: resolved.workspace }
@@ -9921,7 +9786,6 @@ export class BuildSession extends DurableObject<Env> {
         resolved.workspaceConfirmationRequired,
       ...(resolved.restore ? { turnStateThreadRestore: resolved.restore } : {}),
       turnStateThreadRestoreConfirmationRequired: resolved.confirmationRequired,
-      descriptor,
     };
   }
 
@@ -9943,6 +9807,7 @@ export class BuildSession extends DurableObject<Env> {
     prompt: string;
     workspaceRestored: boolean;
     turnBroker: { credentialsPath: string };
+    world: { origin: string; name: string; capability: string };
   }> {
     const { turn } = args;
     if (!turn.turnBrokerRoute || !turn.threadId) {
@@ -9979,6 +9844,15 @@ export class BuildSession extends DurableObject<Env> {
     if (!protectedHandoff.success) {
       throw new Error("Turn broker handoff could not be protected.");
     }
+    const name = await worldName(turn.ownerId);
+    const worldCapability = await issueWorldCapability({
+      secret: this.env.BUILDER_SERVICE_SECRET,
+      worldName: name,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      now: Date.now(),
+      ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
+    });
     return {
       turnId: turn.turnId,
       attemptGeneration: turn.attemptGeneration!,
@@ -9986,6 +9860,11 @@ export class BuildSession extends DurableObject<Env> {
       prompt: turn.prompt,
       workspaceRestored: args.workspaceRestored,
       turnBroker: { credentialsPath },
+      world: {
+        origin: this.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),
+        name,
+        capability: worldCapability,
+      },
     };
   }
 
@@ -10034,15 +9913,9 @@ export class BuildSession extends DurableObject<Env> {
     // The same name the container path would have minted, so every teardown,
     // archive and recovery path keyed on it works without a second scheme.
     const sandboxId = await exactTurnSandboxId("agent", turn);
-    const workspaceKey = await checkpointKey(turn.ownerId);
-    const remembered = asInstanceSize(
-      await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
-    );
-    execution.assertActive();
     const instanceSize: InstanceSize = !this.env.SANDBOX_SMALL
       ? "large"
-      : (remembered ??
-        initialInstanceSize({ prompt: turn.prompt, restored: true }));
+      : initialInstanceSize({ prompt: turn.prompt });
     let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
     let residentHistory: AgentHistoryRow[] = [];
     let residentSandbox: ReturnType<BuildSession["sandbox"]> | undefined;
@@ -10069,7 +9942,6 @@ export class BuildSession extends DurableObject<Env> {
           execution,
           sandbox: residentSandbox,
           size,
-          nativeDescriptor: null,
           history: residentHistory,
           commandTimeoutMs,
           ...restore,
@@ -10178,6 +10050,7 @@ export class BuildSession extends DurableObject<Env> {
     const doLocal = createGeneralAgentDoLocalTools({
       control,
       agentControl,
+      world: this.env.WORLDS.getByName(await worldName(turn.ownerId)),
       requestInteriorBuild: () => ladder.requestInteriorBuild(),
       now: () => Date.now(),
       signal: execution.signal,
@@ -10371,7 +10244,12 @@ export class BuildSession extends DurableObject<Env> {
     });
     const transcript = await control.appendAndVerifyTranscript(sealed);
     await this.publishResidentTurnWorkspace(turn, execution, checkpoint);
-    return { kind: "workspace_checkpoint", transcript, checkpoint };
+    return {
+      kind: "workspace_manifest",
+      transcript,
+      historyCursor: checkpoint.historyCursor,
+      manifestId: checkpoint.manifestId,
+    };
   }
 
   /** What a lazy resident attach restores against: the thread before this turn. */
@@ -10560,8 +10438,6 @@ export class BuildSession extends DurableObject<Env> {
     });
     try {
       await this.assertAgentExecutionActive(turn, execution);
-      const workspaceKey = await checkpointKey(turn.ownerId);
-      execution.assertActive();
       await this.event(
         turn,
         "auto",
@@ -10634,71 +10510,6 @@ export class BuildSession extends DurableObject<Env> {
       );
       execution.assertActive();
 
-      // Migration-only compatibility seed. New checkpoints never write this
-      // KV/SDK format; registry state always wins. Once the deterministic
-      // strong workspace seed is committed, this fallback is retired.
-      let legacyWorkspaceDescriptor: DirectoryBackup | null = null;
-      let legacyNativeDescriptor: DirectoryBackup | null = null;
-      let legacyNativeKey: string | undefined;
-      if (!turnStateWorkspaceRestore) {
-        const rawLegacyWorkspace = await this.env.APP_ROUTES.get<unknown>(
-          workspaceKey,
-          "json",
-        );
-        if (rawLegacyWorkspace) {
-          legacyWorkspaceDescriptor = parseLegacyWorkspaceBackup(
-            rawLegacyWorkspace,
-            WORLD_ROOT,
-          );
-          if (!legacyWorkspaceDescriptor) {
-            throw new AgentTurnError(
-              "Stella couldn't validate this workspace's legacy checkpoint. Try again.",
-            );
-          }
-        }
-      }
-      if (
-        !turnStateThreadRestore &&
-        !resolvedTurnState.threadRegistryPresent &&
-        turn.execution?.engine === "anthropic" &&
-        turn.threadId
-      ) {
-        legacyNativeKey = await nativeStateCheckpointKey(
-          workspaceKey,
-          turn.threadId,
-        );
-        const rawNativeRecord = await this.env.APP_ROUTES.get<unknown>(
-          legacyNativeKey,
-          "json",
-        );
-        if (rawNativeRecord) {
-          const record = parseNativeStateCheckpointRecord(rawNativeRecord);
-          if (!record) {
-            throw new AgentTurnError(
-              "Stella couldn't validate this agent's saved native session. Try again.",
-            );
-          }
-          const legacy = resolveNativeStateCheckpoint(
-            record,
-            canonicalHistoryCursor,
-          );
-          legacyNativeDescriptor = legacy.restore?.descriptor ?? null;
-          if (
-            canonicalHistoryCursor !== EMPTY_NATIVE_HISTORY_CURSOR &&
-            !legacyNativeDescriptor
-          ) {
-            throw new AgentTurnError(
-              "This agent's saved native session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
-            );
-          }
-        } else if (canonicalHistoryCursor !== EMPTY_NATIVE_HISTORY_CURSOR) {
-          throw new AgentTurnError(
-            "This agent's native session is missing for its existing cloud conversation. Start a new agent thread to continue safely.",
-          );
-        }
-        execution.assertActive();
-      }
-
       // The mirror snapshot is pinned once for the logical turn, before either
       // sandbox attempt. An OOM retry therefore cannot silently pick up a
       // device-side skill edit that landed halfway through the turn.
@@ -10719,26 +10530,11 @@ export class BuildSession extends DurableObject<Env> {
         : undefined;
       execution.assertActive();
 
-      // Read once here rather than per attempt: it decides the starting rung
-      // (a cold repository has to clone and install) and an escalation retry
-      // restores the same checkpoint the first attempt did.
-      const descriptor = legacyWorkspaceDescriptor;
       // Without the small class bound there is only one rung, so start (and
-      // stay) on the large one rather than pretending to size anything. A
-      // workspace that has already been seen to need more memory overrides the
-      // heuristic — that memory is what stops the OOM-escalate cycle from
-      // repeating on every turn.
-      const remembered = asInstanceSize(
-        await this.env.APP_ROUTES.get(instanceSizeKey(workspaceKey)),
-      );
-      execution.assertActive();
+      // stay) on the large one rather than pretending to size anything.
       let size: InstanceSize = !this.env.SANDBOX_SMALL
         ? "large"
-        : (remembered ??
-          initialInstanceSize({
-            prompt: turn.prompt,
-            restored: Boolean(turnStateWorkspaceRestore || descriptor),
-          }));
+        : initialInstanceSize({ prompt: turn.prompt });
       await this.ctx.storage.put("sandboxSize", size);
       execution.assertActive();
       sandbox = this.sandbox(sandboxId, size, "agent");
@@ -10748,8 +10544,6 @@ export class BuildSession extends DurableObject<Env> {
         execution,
         sandbox,
         size,
-        descriptor,
-        nativeDescriptor: legacyNativeDescriptor,
         turnStateWorkspaceRestore,
         turnStateWorkspaceRestoreConfirmationRequired:
           resolvedTurnState.workspaceConfirmationRequired,
@@ -10789,20 +10583,7 @@ export class BuildSession extends DurableObject<Env> {
           sandboxSize: size,
         });
         execution.assertActive();
-        // What this turn just learned, written before the retry so it survives
-        // however the retry ends: this world does not fit on the small rung.
-        // The TTL lets a world that has since become light drift back down.
         await this.assertAgentExecutionActive(turn, execution);
-        const sizeKey = instanceSizeKey(workspaceKey);
-        await this.env.APP_ROUTES.put(sizeKey, size, {
-          expirationTtl: 30 * 86_400,
-        }).catch(() => undefined);
-        try {
-          await this.assertAgentExecutionActive(turn, execution);
-        } catch (error) {
-          await this.env.APP_ROUTES.delete(sizeKey).catch(() => undefined);
-          throw error;
-        }
         // The watchdog budget was spent on the attempt that died; without a
         // fresh one the retry is guaranteed to be cut off mid-run and the
         // escalation buys nothing.
@@ -10839,8 +10620,6 @@ export class BuildSession extends DurableObject<Env> {
           execution,
           sandbox,
           size,
-          descriptor,
-          nativeDescriptor: legacyNativeDescriptor,
           turnStateWorkspaceRestore,
           turnStateWorkspaceRestoreConfirmationRequired:
             resolvedTurnState.workspaceConfirmationRequired,
@@ -10973,13 +10752,6 @@ export class BuildSession extends DurableObject<Env> {
         if (!validTurnStateCheckpointReceipt(checkpoint)) {
           checkpointError =
             "The executor did not return a valid turn-state receipt.";
-        } else if (
-          !builderFallbackUsed &&
-          (turn.execution?.engine === "anthropic") !==
-            Boolean(checkpoint.nativeSha256)
-        ) {
-          checkpointError =
-            "The turn-state receipt did not match the execution engine.";
         } else {
           try {
             await this.assertAgentExecutionActive(turn, execution);
@@ -11012,10 +10784,8 @@ export class BuildSession extends DurableObject<Env> {
               !published.workspace ||
               !published.restore ||
               published.workspace.operationId !== checkpoint.operationId ||
-              published.workspace.archive.sha256 !==
-                checkpoint.workspaceSha256 ||
-              published.restore.receipt !== checkpoint.receipt ||
-              published.restore.native?.sha256 !== checkpoint.nativeSha256
+              published.workspace.manifestId !== checkpoint.manifestId ||
+              published.restore.workspace.manifestId !== checkpoint.manifestId
             ) {
               throw new Error(
                 "The canonical turn state did not match its checkpoint receipt.",
@@ -11433,8 +11203,6 @@ export class BuildSession extends DurableObject<Env> {
     execution: TurnExecutionContext;
     sandbox: ReturnType<BuildSession["sandbox"]>;
     size: InstanceSize;
-    descriptor: DirectoryBackup | null;
-    nativeDescriptor: DirectoryBackup | null;
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
     turnStateWorkspaceRestoreConfirmationRequired: boolean;
     turnStateThreadRestore?: TurnStateCandidate;
@@ -11446,7 +11214,7 @@ export class BuildSession extends DurableObject<Env> {
     coldContainerStartMs: number;
     restoreMs: number;
   }> {
-    const { turn, execution: turnExecution, sandbox, descriptor } = args;
+    const { turn, execution: turnExecution, sandbox } = args;
     const coldStarted = performance.now();
     await this.assertAgentExecutionActive(turn, turnExecution);
     const session = await sandbox.createSession({
@@ -11458,29 +11226,28 @@ export class BuildSession extends DurableObject<Env> {
     turnExecution.assertActive();
     const coldContainerStartMs = Math.round(performance.now() - coldStarted);
 
-    // Sandbox disk is a cache: restore the workspace's last checkpoint, or
-    // start it empty on first use.
+    // Sandbox disk is a projection of the world object, never its owner.
     let restoreMs = 0;
-    if (args.turnStateWorkspaceRestore) {
-      const restoreStarted = performance.now();
-      turnExecution.assertActive();
-      await restoreTurnStateArchive({
-        session,
-        bucket: this.env.BACKUP_BUCKET,
-        archive: args.turnStateWorkspaceRestore.archive,
-        target: { kind: "workspace" },
-      });
-      turnExecution.assertActive();
-      restoreMs = Math.round(performance.now() - restoreStarted);
-    } else if (descriptor) {
-      const restoreStarted = performance.now();
-      turnExecution.assertActive();
-      await sandbox.restoreBackup(descriptor);
-      turnExecution.assertActive();
-      restoreMs = Math.round(performance.now() - restoreStarted);
-    }
     await normalizeToolWorkspaceRoot(session, WORLD_ROOT);
     turnExecution.assertActive();
+    const restoreStarted = performance.now();
+    const name = await worldName(turn.ownerId);
+    const capability = await issueWorldCapability({
+      secret: this.env.BUILDER_SERVICE_SECRET,
+      worldName: name,
+      turnId: turn.turnId,
+      attemptGeneration: turn.attemptGeneration!,
+      now: Date.now(),
+      ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
+    });
+    const origin = this.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
+    const materialized = await session.exec(
+      `find ${WORLD_ROOT} -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && curl --fail --silent --show-error -H 'Authorization: Bearer ${capability}' '${origin}/internal/worlds/${name}/export' | tar -x -f - -C ${WORLD_ROOT}`,
+      { origin: "internal", timeout: args.commandTimeoutMs },
+    );
+    if (!materialized.success) throw new AgentTurnError("Stella could not materialize this world.");
+    turnExecution.assertActive();
+    restoreMs = Math.round(performance.now() - restoreStarted);
 
     // `world/stella` is a real, buildable renderer checkout from the immutable
     // image, never an empty directory the model has to invent. Once it exists
@@ -11529,12 +11296,6 @@ export class BuildSession extends DurableObject<Env> {
       });
       turnExecution.assertActive();
       restoreMs += Math.round(performance.now() - nativeRestoreStarted);
-    } else if (args.nativeDescriptor) {
-      const nativeRestoreStarted = performance.now();
-      turnExecution.assertActive();
-      await sandbox.restoreBackup(args.nativeDescriptor);
-      turnExecution.assertActive();
-      restoreMs += Math.round(performance.now() - nativeRestoreStarted);
     }
     turnExecution.assertActive();
     if (args.turnStateWorkspaceRestore || args.turnStateThreadRestore) {
@@ -11562,11 +11323,7 @@ export class BuildSession extends DurableObject<Env> {
     execution: TurnExecutionContext;
     sandbox: ReturnType<BuildSession["sandbox"]>;
     size: InstanceSize;
-    /** The world's last checkpoint, or null on its first turn. */
-    descriptor: DirectoryBackup | null;
-    /** Root-private Claude state selected by the canonical transcript. */
-    nativeDescriptor: DirectoryBackup | null;
-    /** Latest canonical owner world archive, shared across all threads. */
+    /** Latest canonical owner world manifest, shared across all threads. */
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
     turnStateWorkspaceRestoreConfirmationRequired: boolean;
     /** Canonical transcript/native state for this exact thread only. */
@@ -11582,7 +11339,7 @@ export class BuildSession extends DurableObject<Env> {
     coldContainerStartMs: number;
     restoreMs: number;
   }> {
-    const { turn, execution: turnExecution, sandbox, descriptor } = args;
+    const { turn, execution: turnExecution, sandbox } = args;
     const world = await this.attachAgentWorld(args);
     const { session, coldContainerStartMs, restoreMs } = world;
     await this.event(
@@ -11592,7 +11349,7 @@ export class BuildSession extends DurableObject<Env> {
       {
         coldContainerStartMs,
         restoreMs,
-        restored: Boolean(args.turnStateWorkspaceRestore || descriptor),
+        restored: Boolean(args.turnStateWorkspaceRestore),
         instanceType: INSTANCE_TIERS[args.size].instanceType,
       },
       false,
@@ -11691,11 +11448,21 @@ export class BuildSession extends DurableObject<Env> {
           turnId: turn.turnId,
           attemptGeneration: turn.attemptGeneration,
           prompt: turn.prompt,
-          workspaceRestored: Boolean(
-            args.turnStateWorkspaceRestore || descriptor,
-          ),
+          workspaceRestored: Boolean(args.turnStateWorkspaceRestore),
           nativeStateIntegrityKey,
           turnBroker: { credentialsPath: brokerCredentialsPath },
+          world: {
+            origin: this.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, ""),
+            name: await worldName(turn.ownerId),
+            capability: await issueWorldCapability({
+              secret: this.env.BUILDER_SERVICE_SECRET,
+              worldName: await worldName(turn.ownerId),
+              turnId: turn.turnId,
+              attemptGeneration: turn.attemptGeneration!,
+              now: Date.now(),
+              ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
+            }),
+          },
           modelGateway: {
             origin: modelGateway.origin,
             capability: modelGateway.capability,
@@ -13468,7 +13235,6 @@ const moveWorldCheckpoint = async (
   type CheckpointState = {
     descriptor?: DirectoryBackup;
     debt: WorkspaceBackupDebt;
-    size: string | null;
   };
   const readState = async (key: string): Promise<CheckpointState> => ({
     descriptor:
@@ -13477,17 +13243,14 @@ const moveWorldCheckpoint = async (
       backupDebtKey(key),
       "json",
     )) ?? { backupIds: [] },
-    size: await env.APP_ROUTES.get(instanceSizeKey(key)),
   });
   const stateMarker = async (state: CheckpointState): Promise<string> =>
     !state.descriptor &&
-    state.debt.backupIds.length === 0 &&
-    state.size === null
+    state.debt.backupIds.length === 0
       ? "absent"
       : await stableValueMarker({
           descriptor: state.descriptor ?? null,
           backupIds: [...state.debt.backupIds].sort(),
-          size: state.size,
         });
   const [sourceState, destinationState] = await Promise.all([
     readState(fromKey),
@@ -13495,7 +13258,6 @@ const moveWorldCheckpoint = async (
   ]);
   const fromDescriptor = sourceState.descriptor;
   const fromDebt = sourceState.debt;
-  const sourceSize = sourceState.size;
   const sourceIds = new Set<string>();
   if (fromDescriptor?.id) sourceIds.add(fromDescriptor.id);
   for (const id of fromDebt.backupIds) sourceIds.add(id);
@@ -13505,7 +13267,7 @@ const moveWorldCheckpoint = async (
     }
   }
   const hasSourceState =
-    Boolean(fromDescriptor) || sourceIds.size > 0 || sourceSize !== null;
+    Boolean(fromDescriptor) || sourceIds.size > 0;
   let sourceTurnStatePresent = Boolean(existingPlan?.turnState);
   let sourceTurnStateFingerprint: string | null =
     existingPlan?.turnState?.manifest.fingerprint ?? null;
@@ -13577,7 +13339,6 @@ const moveWorldCheckpoint = async (
           ...new Set([...destination.debt.backupIds, ...transferredDebt]),
         ],
       },
-      size: destination.size ?? sourceSize,
     };
   };
   const expectedDestinationState = await expectedState(toKey, destinationState);
@@ -13692,12 +13453,6 @@ const moveWorldCheckpoint = async (
         JSON.stringify(resolvedExpectedState.debt),
       );
     }
-    if (resolvedExpectedState.size !== null) {
-      await env.APP_ROUTES.put(
-        instanceSizeKey(resolvedKey),
-        resolvedExpectedState.size,
-      );
-    }
     const writtenMarker = await stateMarker(await readState(resolvedKey));
     if (writtenMarker !== durablePlan.expectedResolvedDestinationMarker) {
       throw new OwnerProductTransferConflictError(
@@ -13771,7 +13526,6 @@ const moveWorldCheckpoint = async (
   await purgeNativeStateForWorkspace(env, fromKey);
   await env.APP_ROUTES.delete(fromKey);
   await env.APP_ROUTES.delete(backupDebtKey(fromKey));
-  await env.APP_ROUTES.delete(instanceSizeKey(fromKey));
   const retired = await callTransferCoordinator(
     coordinator,
     "/workspace/retired",
@@ -14031,9 +13785,6 @@ const purgeOwnerStorage = async (
       await env.APP_ROUTES.delete(debtKey);
       await env.APP_ROUTES.delete(importsKey);
       await env.APP_ROUTES.delete(workspaceTransferReceiptsKey(key));
-      // The learned instance size describes the deleted world's work, not
-      // whatever the account builds next.
-      await env.APP_ROUTES.delete(instanceSizeKey(key));
       // Counted only when there was something to delete: `deleted` is read off
       // the log to see how much an account actually held, and a fixed number
       // of unconditional KV deletes would drown that.
@@ -14115,6 +13866,88 @@ const boundedIngressRequest = async (
   }
 };
 
+const parseWorldPushListing = (value: unknown): WorldListingEntry[] | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = (value as Record<string, unknown>).entries;
+  if (!Array.isArray(entries) || entries.length > 200_000) return null;
+  const parsed: WorldListingEntry[] = [];
+  for (const value of entries) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const row = value as Record<string, unknown>;
+    if (
+      typeof row.path !== "string" ||
+      (row.kind !== "file" && row.kind !== "dir" && row.kind !== "symlink") ||
+      !Number.isSafeInteger(row.mode) ||
+      !Number.isSafeInteger(row.mtime) ||
+      !Number.isSafeInteger(row.size) ||
+      Number(row.size) < 0 ||
+      (row.kind === "file" &&
+        (typeof row.sha256 !== "string" || !/^[0-9a-f]{64}$/u.test(row.sha256))) ||
+      (row.kind === "symlink" && typeof row.target !== "string")
+    ) return null;
+    parsed.push({
+      path: row.path,
+      kind: row.kind,
+      mode: Number(row.mode),
+      mtime: Number(row.mtime),
+      size: Number(row.size),
+      ...(typeof row.sha256 === "string" ? { sha256: row.sha256 } : {}),
+      ...(typeof row.target === "string" ? { target: row.target } : {}),
+    });
+  }
+  return parsed;
+};
+
+const handleWorldRoute = async (
+  request: Request,
+  env: Env,
+  world: string,
+  action: "export" | "push",
+): Promise<Response> => {
+  const authorization = await verifyWorldCapability({
+    secret: env.BUILDER_SERVICE_SECRET,
+    capability: worldCapabilityFromRequest(request),
+    worldName: world,
+    now: Date.now(),
+  }).catch(() => ({ ok: false as const }));
+  if (!authorization.ok) return json({ error: "World capability was rejected." }, 403);
+  const stub = env.WORLDS.getByName(world);
+  if (action === "export") {
+    if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+    return new Response(await stub.exportTar(), {
+      headers: { "content-type": "application/x-tar", "cache-control": "private, no-store" },
+    });
+  }
+  if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  const blobSha = request.headers.get("x-stella-world-blob-sha256");
+  if (blobSha) {
+    if (!/^[0-9a-f]{64}$/u.test(blobSha) || !request.body) return json({ error: "Malformed world blob upload." }, 400);
+    const upload = await stub.beginBlob();
+    const reader = request.body.getReader();
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      for (let offset = 0; offset < part.value.byteLength; offset += 8 * 1024 * 1024) {
+        await stub.appendBlob(
+          upload.uploadId,
+          part.value.subarray(offset, offset + 8 * 1024 * 1024),
+        );
+      }
+    }
+    await stub.finishBlob(upload.uploadId, { sha256: blobSha });
+    return json({ ok: true });
+  }
+  const listing = parseWorldPushListing(await request.json().catch(() => null));
+  if (!listing) return json({ error: "Malformed world listing." }, 400);
+  const delta = await stub.diff(listing);
+  const changed = new Set(delta.changed);
+  const pushed = await stub.pushDiff({
+    entries: listing.filter((entry) => changed.has(entry.path)),
+    deleted: delta.deleted,
+  });
+  return json({ ok: pushed.missingBlobs.length === 0, ...pushed });
+};
+
 export default {
   async fetch(
     request: Request,
@@ -14143,6 +13976,16 @@ export default {
           },
         },
         readiness.ready ? 200 : 503,
+      );
+    }
+
+    const worldRoute = /^\/internal\/worlds\/([0-9a-f]{64}:[0-9a-f]{64})\/(export|push)$/u.exec(url.pathname);
+    if (worldRoute) {
+      return await handleWorldRoute(
+        request,
+        env,
+        worldRoute[1]!,
+        worldRoute[2] === "export" ? "export" : "push",
       );
     }
 

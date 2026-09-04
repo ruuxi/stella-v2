@@ -148,19 +148,14 @@ describe("the placement dispatch is the only engine branch", () => {
         resident: async () =>
           residentResult({
             durability: {
-              kind: "workspace_checkpoint",
+              kind: "workspace_manifest",
               transcript: {
                 kind: "canonical_transcript",
                 historyCursor: "cursor",
                 rowCount: 2,
               },
-              checkpoint: {
-                schemaVersion: 1,
-                receipt: "r",
-                operationId: "o",
-                historyCursor: "cursor",
-                workspaceSha256: "w",
-              },
+              historyCursor: "cursor",
+              manifestId: "w".repeat(64),
             } as GeneralAgentTurnResult["durability"],
           }),
         native: async () => undefined,

@@ -1,0 +1,17 @@
+{
+  "name": "world-store-workerd-fixture",
+  "main": "./world-store-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "r2_buckets": [
+    { "binding": "WORLDS_BUCKET", "bucket_name": "world-store-fixture" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORLDS", "class_name": "WorldStore" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WorldStore"] }
+  ]
+}
+

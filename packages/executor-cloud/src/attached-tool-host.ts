@@ -73,6 +73,7 @@ import {
   WORLD_ROOT,
   toolStateDir,
 } from "./workspace-paths.js";
+import { pushWorldProjection } from "./world-sync.js";
 
 export type AttachedToolHostInput = Readonly<{
   turnId: string;
@@ -81,6 +82,7 @@ export type AttachedToolHostInput = Readonly<{
   prompt: string;
   workspaceRestored: boolean;
   turnBroker: TurnBrokerInput;
+  world: Readonly<{ origin: string; name: string; capability: string }>;
 }>;
 
 const asError = (error: unknown): Error =>
@@ -97,6 +99,9 @@ export const parseAttachedToolHostInput = (
   }
   const row = value as Record<string, unknown>;
   const broker = row.turnBroker as { credentialsPath?: unknown } | undefined;
+  const world = row.world as
+    | { origin?: unknown; name?: unknown; capability?: unknown }
+    | undefined;
   if (
     !boundedText(row.turnId, 256) ||
     !Number.isSafeInteger(row.attemptGeneration) ||
@@ -106,7 +111,12 @@ export const parseAttachedToolHostInput = (
     typeof row.workspaceRestored !== "boolean" ||
     !broker ||
     typeof broker !== "object" ||
-    !boundedText(broker.credentialsPath, 4096)
+    !boundedText(broker.credentialsPath, 4096) ||
+    !world ||
+    !boundedText(world.origin, 2_048) ||
+    typeof world.name !== "string" ||
+    !/^[0-9a-f]{64}:[0-9a-f]{64}$/u.test(world.name) ||
+    !boundedText(world.capability, 4_096)
   ) {
     throw new Error("Attached tool host input is invalid.");
   }
@@ -117,6 +127,11 @@ export const parseAttachedToolHostInput = (
     prompt: row.prompt,
     workspaceRestored: row.workspaceRestored,
     turnBroker: row.turnBroker as TurnBrokerInput,
+    world: {
+      origin: world.origin,
+      name: world.name,
+      capability: world.capability,
+    },
   };
 };
 
@@ -429,6 +444,7 @@ export const runAttachedToolHost = (
         linkedPaths: readonly string[],
       ): Promise<AttachedToolHostReport> => {
         await toolHost.shutdown();
+        await pushWorldProjection({ root: WORLD_ROOT, access: input.world });
         const collected = await collectProducedFiles({
           workspaceRoot: WORLD_DRIVE_ROOT,
           linked: linkedPaths,

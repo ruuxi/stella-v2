@@ -170,7 +170,6 @@ const digest = (value: string): string =>
 const identity = (turn: number): TurnStateIdentity => ({
   ownerId: "owner-1",
   ownerGeneration: "owner-generation-1",
-  workspace: "drive",
   threadId: "thread-1",
   turnId: `turn-${turn}`,
   attemptGeneration: 1,
@@ -208,6 +207,7 @@ const preparationArgs = (
     },
     requestFingerprint: digest(`request:${turn}`),
     historyCursor,
+    manifestId: digest(`manifest:${turn}:${historyCursor}`),
     baseWorkspaceRevision: options.baseWorkspaceRevision ?? 0,
     ...(options.native
       ? { nativeCheckpoint: nativeCheckpoint(historyCursor) }
@@ -238,7 +238,7 @@ const prepare = async (
 
 const archive = (
   prepared: PreparedTurnStateOperation,
-  kind: "workspace" | "native",
+  kind: "native",
 ): TurnStateArchive => {
   const key = prepared.objectKeys[kind];
   if (!key) throw new Error(`missing ${kind} object key`);
@@ -247,7 +247,7 @@ const archive = (
     kind,
     format: TURN_STATE_OBJECT_FORMAT,
     key,
-    sizeBytes: kind === "workspace" ? 1_024 : 512,
+    sizeBytes: 512,
     sha256: digest(`${kind}:${key}`),
     etag: `etag-${kind}-${prepared.operationId}`,
     complete: true,
@@ -258,7 +258,7 @@ const uploadAndMark = async (
   storage: StrongTurnStateStorage,
   r2: FakeR2,
   prepared: PreparedTurnStateOperation,
-  kind: "workspace" | "native",
+  kind: "native",
 ): Promise<TurnStateArchive> => {
   const descriptor = archive(prepared, kind);
   r2.putArchive(descriptor);
@@ -272,7 +272,6 @@ const uploadAndMark = async (
 const resolveIdentity = {
   ownerId: "owner-1",
   ownerGeneration: "owner-generation-1",
-  workspace: "drive",
   threadId: "thread-1",
 } as const;
 
@@ -302,16 +301,15 @@ describe("strong turn state registry", () => {
     const storage = new FakeStrongStorage();
     const r2 = new FakeR2(1);
 
-    const unmarked = (await prepare(storage, 1)).prepared;
-    const unmarkedArchive = archive(unmarked, "workspace");
+    const unmarked = (await prepare(storage, 1, { native: true })).prepared;
+    const unmarkedArchive = archive(unmarked, "native");
     r2.putArchive(unmarkedArchive);
 
-    const marked = (await prepare(storage, 2)).prepared;
-    const markedArchive = await uploadAndMark(storage, r2, marked, "workspace");
+    const marked = (await prepare(storage, 2, { native: true })).prepared;
+    const markedArchive = await uploadAndMark(storage, r2, marked, "native");
 
     const purged = await purgeTurnState(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
       ownerPurgeFence: "blocked",
     });
 
@@ -325,7 +323,7 @@ describe("strong turn state registry", () => {
       true,
     );
     expect([unmarkedArchive.key, markedArchive.key].sort()).toEqual(
-      [unmarked.objectKeys.workspace, marked.objectKeys.workspace].sort(),
+      [unmarked.objectKeys.native, marked.objectKeys.native].sort(),
     );
   });
 
@@ -337,7 +335,6 @@ describe("strong turn state registry", () => {
       historyCursor,
       native: true,
     });
-    const workspace = await uploadAndMark(storage, r2, prepared, "workspace");
     const native = await uploadAndMark(storage, r2, prepared, "native");
 
     const committed = await commitTurnStateOperation(storage, {
@@ -372,11 +369,17 @@ describe("strong turn state registry", () => {
     });
     expect(resolved.registryPresent).toBe(true);
     expect(resolved.workspaceConfirmationRequired).toBe(true);
-    expect(resolved.workspace?.archive).toEqual(workspace);
+    expect(resolved.workspace).toMatchObject({
+      historyCursor,
+      manifestId: prepared.manifestId,
+    });
     expect(resolved.baseWorkspaceRevision).toBe(1);
     expect(resolved.threadRegistryPresent).toBe(true);
     expect(resolved.confirmationRequired).toBe(true);
-    expect(resolved.restore?.workspace).toEqual(workspace);
+    expect(resolved.restore?.workspace).toEqual({
+      historyCursor,
+      manifestId: prepared.manifestId,
+    });
     expect(resolved.restore?.native).toEqual(native);
     expect(resolved.restore?.nativeCheckpoint?.cursor).toBe(historyCursor);
 
@@ -446,7 +449,7 @@ describe("strong turn state registry", () => {
         native: true,
       })
     ).prepared;
-    const workspaceA = await uploadAndMark(storage, r2, firstA, "workspace");
+    const workspaceA = { historyCursor: cursorA, manifestId: firstA.manifestId };
     const nativeA = await uploadAndMark(storage, r2, firstA, "native");
     await commitTurnStateOperation(storage, { operationId: firstA.operationId });
 
@@ -472,7 +475,7 @@ describe("strong turn state registry", () => {
       requireNative: false,
     });
     expect(firstBRestore.threadRegistryPresent).toBe(false);
-    expect(firstBRestore.workspace?.archive).toEqual(workspaceA);
+    expect(firstBRestore.workspace).toMatchObject(workspaceA);
     expect(firstBRestore.restore).toBeUndefined();
     await confirmTurnStateRestore(storage, {
       identity: identityB,
@@ -489,7 +492,7 @@ describe("strong turn state registry", () => {
         baseWorkspaceRevision: 1,
       })
     ).prepared;
-    const workspaceB = await uploadAndMark(storage, r2, firstB, "workspace");
+    const workspaceB = { historyCursor: cursorB, manifestId: firstB.manifestId };
     const nativeB = await uploadAndMark(storage, r2, firstB, "native");
     await commitTurnStateOperation(storage, { operationId: firstB.operationId });
     await publishTurnStateWorkspace(storage, {
@@ -503,7 +506,7 @@ describe("strong turn state registry", () => {
       canonicalHistoryCursor: cursorA,
       requireNative: true,
     });
-    expect(continuationA.workspace?.archive).toEqual(workspaceB);
+    expect(continuationA.workspace).toMatchObject(workspaceB);
     expect(continuationA.workspace?.operationId).toBe(firstB.operationId);
     expect(continuationA.restore?.native).toEqual(nativeA);
     expect(continuationA.restore?.workspace).toEqual(workspaceA);
@@ -516,20 +519,6 @@ describe("strong turn state registry", () => {
       now: 3_000,
     });
 
-    expect(
-      (
-        await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${workspaceA.key}`,
-        )
-      )?.state,
-    ).toBe("retiring");
-    expect(
-      (
-        await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${workspaceB.key}`,
-        )
-      )?.state,
-    ).toBe("referenced");
     expect(
       (
         await storage.get<Record<string, unknown>>(
@@ -556,8 +545,7 @@ describe("strong turn state registry", () => {
     const first = (
       await prepare(storage, 1, { historyCursor: firstCursor, native: true })
     ).prepared;
-    const firstWorkspace = await uploadAndMark(storage, r2, first, "workspace");
-    await uploadAndMark(storage, r2, first, "native");
+    const firstNative = await uploadAndMark(storage, r2, first, "native");
     await commitTurnStateOperation(storage, { operationId: first.operationId });
     await publishTurnStateWorkspace(storage, {
       identity: resolveIdentity,
@@ -584,7 +572,6 @@ describe("strong turn state registry", () => {
         baseWorkspaceRevision: 1,
       })
     ).prepared;
-    await uploadAndMark(storage, r2, second, "workspace");
     await uploadAndMark(storage, r2, second, "native");
     await commitTurnStateOperation(storage, {
       operationId: second.operationId,
@@ -613,7 +600,7 @@ describe("strong turn state registry", () => {
     expect(
       (
         await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${firstWorkspace.key}`,
+          `turn-state:v1:object:${firstNative.key}`,
         )
       )?.state,
     ).toBe("referenced");
@@ -631,30 +618,26 @@ describe("strong turn state registry", () => {
     const retirement = await storage.get<Record<string, unknown>>(
       `turn-state:v1:retirement:${first.operationId}`,
     );
-    expect(retirement?.objectKeys).toEqual([
-      first.objectKeys.workspace,
-      first.objectKeys.native,
-    ]);
+    expect(retirement?.objectKeys).toEqual([first.objectKeys.native]);
     expect(
       (
         await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${firstWorkspace.key}`,
+          `turn-state:v1:object:${firstNative.key}`,
         )
       )?.state,
     ).toBe("retiring");
     expect(
       (
         await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${second.objectKeys.workspace}`,
+          `turn-state:v1:object:${second.objectKeys.native}`,
         )
       )?.state,
     ).toBe("referenced");
 
-    r2.failNextDeletes(firstWorkspace.key);
+    r2.failNextDeletes(firstNative.key);
     const firstDrain = await drainTurnStateRetirements(storage, r2, {
       ownerId: "owner-1",
       ownerGeneration: "owner-generation-1",
-      workspace: "drive",
     });
     expect(firstDrain.pending).toBe(true);
     expect(
@@ -664,11 +647,9 @@ describe("strong turn state registry", () => {
     const retryDrain = await drainTurnStateRetirements(storage, r2, {
       ownerId: "owner-1",
       ownerGeneration: "owner-generation-1",
-      workspace: "drive",
     });
     expect(retryDrain.pending).toBe(false);
     expect(retryDrain.completed).toBe(1);
-    expect(r2.headCalls).toContain(first.objectKeys.workspace);
     expect(r2.headCalls).toContain(first.objectKeys.native!);
     expect(r2.keys().some((key) => key.includes(first.operationId))).toBe(
       false,
@@ -686,7 +667,6 @@ describe("strong turn state registry", () => {
       await drainTurnStateRetirements(storage, r2, {
         ownerId: "owner-1",
         ownerGeneration: "owner-generation-1",
-        workspace: "drive",
       }),
     ).toEqual({ pending: false, deleted: 0, completed: 0 });
   });
@@ -698,7 +678,6 @@ describe("strong turn state registry", () => {
     const first = (
       await prepare(storage, 1, { historyCursor: firstCursor })
     ).prepared;
-    await uploadAndMark(storage, r2, first, "workspace");
     await commitTurnStateOperation(storage, { operationId: first.operationId });
     await publishTurnStateWorkspace(storage, {
       identity: resolveIdentity,
@@ -747,7 +726,6 @@ describe("strong turn state registry", () => {
       baseWorkspaceRevision: 1,
     });
     const second = await prepareTurnStateOperation(storage, nextArgs);
-    await uploadAndMark(storage, r2, second, "workspace");
     const workspaceRecordKey = `turn-state:v1:workspace:${digest(WORLD_REGISTRY_SEGMENT)}`;
     storage.setRaw(workspaceRecordKey, {
       ...(await storage.get<Record<string, unknown>>(workspaceRecordKey)),
@@ -763,7 +741,6 @@ describe("strong turn state registry", () => {
     const r2 = new FakeR2();
     const historyCursor = "v1:history:workspace-only";
     const { prepared } = await prepare(storage, 1, { historyCursor });
-    await uploadAndMark(storage, r2, prepared, "workspace");
     await commitTurnStateOperation(storage, {
       operationId: prepared.operationId,
     });
@@ -782,13 +759,7 @@ describe("strong turn state registry", () => {
     ).rejects.toThrow("Canonical native turn state is missing");
 
     expect(storage.entries("turn-state:v1:retirement:").size).toBe(0);
-    expect(
-      (
-        await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${prepared.objectKeys.workspace}`,
-        )
-      )?.state,
-    ).toBe("referenced");
+    expect(prepared.objectKeys).toEqual({});
   });
 
   test("resolution distinguishes an unseeded registry from a canonical cursor mismatch without retiring recovery", async () => {
@@ -816,7 +787,6 @@ describe("strong turn state registry", () => {
         native: true,
       })
     ).prepared;
-    await uploadAndMark(storage, r2, committed, "workspace");
     await uploadAndMark(storage, r2, committed, "native");
     await commitTurnStateOperation(storage, { operationId: committed.operationId });
     await publishTurnStateWorkspace(storage, {
@@ -839,7 +809,6 @@ describe("strong turn state registry", () => {
         baseWorkspaceRevision: 1,
       })
     ).prepared;
-    await uploadAndMark(storage, r2, candidate, "workspace");
     await uploadAndMark(storage, r2, candidate, "native");
     await commitTurnStateOperation(storage, { operationId: candidate.operationId });
     await publishTurnStateWorkspace(storage, {
@@ -865,14 +834,14 @@ describe("strong turn state registry", () => {
     expect(
       (
         await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${committed.objectKeys.workspace}`,
+          `turn-state:v1:object:${committed.objectKeys.native}`,
         )
       )?.state,
     ).toBe("referenced");
     expect(
       (
         await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${candidate.objectKeys.workspace}`,
+          `turn-state:v1:object:${candidate.objectKeys.native}`,
         )
       )?.state,
     ).toBe("referenced");
@@ -881,16 +850,15 @@ describe("strong turn state registry", () => {
   test("purge failure remains pending and a retry completes bytes-first cleanup", async () => {
     const storage = new FakeStrongStorage();
     const r2 = new FakeR2();
-    const { prepared } = await prepare(storage, 1);
-    const workspace = await uploadAndMark(storage, r2, prepared, "workspace");
+    const { prepared } = await prepare(storage, 1, { native: true });
+    const native = await uploadAndMark(storage, r2, prepared, "native");
     await commitTurnStateOperation(storage, {
       operationId: prepared.operationId,
     });
-    r2.failNextDeletes(workspace.key);
+    r2.failNextDeletes(native.key);
 
     const first = await purgeTurnState(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
       ownerPurgeFence: "blocked",
     });
     expect(first).toEqual({
@@ -898,18 +866,17 @@ describe("strong turn state registry", () => {
       deleted: 0,
       prefix: first.prefix,
     });
-    expect(r2.keys(first.prefix)).toEqual([workspace.key]);
+    expect(r2.keys(first.prefix)).toEqual([native.key]);
     expect(
       (
         await storage.get<Record<string, unknown>>(
-          `turn-state:v1:object:${workspace.key}`,
+          `turn-state:v1:object:${native.key}`,
         )
       )?.state,
     ).toBe("retiring");
 
     const retry = await purgeTurnState(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
       ownerPurgeFence: "blocked",
     });
     expect(retry.pending).toBe(false);
@@ -922,18 +889,16 @@ describe("strong turn state registry", () => {
   test("transfer source proof requires both registry records and the full prefix to be empty", async () => {
     const storage = new FakeStrongStorage();
     const r2 = new FakeR2(1);
-    await prepare(storage, 1);
+    await prepare(storage, 1, { native: true });
 
     await expect(
       assertTurnStateTransferSourceEmpty(storage, r2, {
         ownerId: "owner-1",
-        workspace: "drive",
       }),
     ).rejects.toThrow("Turn state transfer source is not empty");
 
     const registryPurge = await purgeTurnState(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
       ownerPurgeFence: "blocked",
     });
     expect(registryPurge.pending).toBe(false);
@@ -943,13 +908,11 @@ describe("strong turn state registry", () => {
     await expect(
       assertTurnStateTransferSourceEmpty(storage, r2, {
         ownerId: "owner-1",
-        workspace: "drive",
       }),
     ).rejects.toThrow("bytes are not empty");
 
     const bytesPurge = await purgeTurnState(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
       ownerPurgeFence: "blocked",
     });
     expect(bytesPurge.pending).toBe(false);
@@ -957,7 +920,6 @@ describe("strong turn state registry", () => {
 
     const receipt = await assertTurnStateTransferSourceEmpty(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
     });
     expect(receipt).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -967,13 +929,12 @@ describe("strong turn state registry", () => {
     const r2 = new FakeR2(11);
     const count = 130;
     for (let turn = 1; turn <= count; turn += 1) {
-      const { prepared } = await prepare(storage, turn);
-      r2.putArchive(archive(prepared, "workspace"));
+      const { prepared } = await prepare(storage, turn, { native: true });
+      r2.putArchive(archive(prepared, "native"));
     }
 
     const purged = await purgeTurnState(storage, r2, {
       ownerId: "owner-1",
-      workspace: "drive",
       ownerPurgeFence: "blocked",
     });
 

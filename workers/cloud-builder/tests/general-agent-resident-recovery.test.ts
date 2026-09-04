@@ -418,12 +418,9 @@ describe("resident agent turn recovery", () => {
       return {};
     };
     const receipt = {
-      schemaVersion: 1 as const,
       operationId: "a".repeat(64),
       historyCursor: `v1:${"b".repeat(64)}`,
-      workspaceSha256: "c".repeat(64),
-      receipt: "d".repeat(64),
-      replayed: false,
+      manifestId: "c".repeat(64),
     };
     const publish = (
       harness.instance["publishResidentTurnWorkspace"] as (

@@ -85,23 +85,9 @@ const seedCheckpointedTurn = async (
     identity: { ...IDENTITY, turnId: "turn-0", attemptGeneration: 1 },
     requestFingerprint: digest("request:0"),
     historyCursor,
+    manifestId: digest("manifest:0"),
     baseWorkspaceRevision: 0,
     createdAt: 1_000,
-  });
-  const key = prepared.objectKeys.workspace;
-  if (!key) throw new Error("the prepared operation has no workspace object");
-  await markTurnStateObjectUploaded(storage, {
-    operationId: prepared.operationId,
-    archive: {
-      schemaVersion: TURN_STATE_SCHEMA_VERSION,
-      kind: "workspace",
-      format: TURN_STATE_OBJECT_FORMAT,
-      key,
-      sizeBytes: 1_024,
-      sha256: digest(`workspace:${key}`),
-      etag: `etag-${prepared.operationId}`,
-      complete: true,
-    },
   });
   await commitTurnStateOperation(storage, {
     operationId: prepared.operationId,

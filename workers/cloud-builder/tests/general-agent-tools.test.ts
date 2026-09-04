@@ -7,7 +7,6 @@ import type {
 import {
   GENERAL_AGENT_TOOL_DESCRIPTORS,
   GENERAL_AGENT_TOOL_NAMES,
-  LEGACY_VIEW_IMAGE_TOOL_NAME,
   NO_JS_SANDBOX_MESSAGE,
   NO_WORKSPACE_ATTACHED_MESSAGE,
   PUBLISH_STELLA_INTERIOR_TOOL_NAME,
@@ -39,15 +38,17 @@ describe("general-agent capability table", () => {
     expect([...generalAgentToolNamesFor("container")]).toEqual([
       "exec_command",
       "write_stdin",
-      "Read",
-      "apply_patch",
-      LEGACY_VIEW_IMAGE_TOOL_NAME,
     ]);
   });
 
   test("classifies the do-local half exactly as the design pins it", () => {
     expect([...generalAgentToolNamesFor("do_local")]).toEqual([
+      "apply_patch",
       "web",
+      "Read",
+      "Write",
+      "Edit",
+      "Grep",
       "spawn_agent",
       "send_input",
       "pause_agent",
@@ -75,24 +76,6 @@ describe("general-agent capability table", () => {
     expect(() => computeForTool("")).toThrow(UnknownGeneralAgentToolError);
   });
 
-  /**
-   * `view_image` routes but has no descriptor, because the container path has
-   * no runtime definition for it either. Classifying it keeps a replayed
-   * historical call from looking like an unknown tool; withholding the
-   * descriptor keeps the resident catalog from advertising a tool the
-   * container catalog does not have.
-   */
-  test("routes the legacy image name without advertising it", () => {
-    expect(computeForTool(LEGACY_VIEW_IMAGE_TOOL_NAME)).toBe("container");
-    expect(() => descriptorForTool(LEGACY_VIEW_IMAGE_TOOL_NAME)).toThrow(
-      UnknownGeneralAgentToolError,
-    );
-    expect(
-      GENERAL_AGENT_TOOL_DESCRIPTORS.some(
-        (descriptor) => descriptor.name === LEGACY_VIEW_IMAGE_TOOL_NAME,
-      ),
-    ).toBe(false);
-  });
 });
 
 describe("pinned resident catalog", () => {
@@ -169,7 +152,7 @@ describe("pinned resident catalog", () => {
       },
     });
 
-    for (const name of ["exec_command", "write_stdin", "Read", "apply_patch"]) {
+    for (const name of ["exec_command", "write_stdin"]) {
       const tool = catalog.find((entry) => entry.name === name);
       const result = await tool!.execute("call-1", {});
       expect(result.isError).toBeUndefined();
@@ -180,8 +163,6 @@ describe("pinned resident catalog", () => {
     expect(seen).toEqual([
       "exec_command:call-1",
       "write_stdin:call-1",
-      "Read:call-1",
-      "apply_patch:call-1",
     ]);
   });
 

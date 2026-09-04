@@ -231,8 +231,8 @@ const arrayBufferHex = (value: ArrayBuffer): string =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
 
-const archiveBytes = (kind: "workspace" | "native"): Uint8Array =>
-  new Uint8Array(12).fill(kind === "workspace" ? 0x77 : 0x6e);
+const archiveBytes = (_kind: "native"): Uint8Array =>
+  new Uint8Array(12).fill(0x6e);
 
 const hexBytes = (value: string): ArrayBuffer => {
   const bytes = new Uint8Array(32);
@@ -390,12 +390,9 @@ class FakeR2Bucket {
       ...(archive
         ? {
             httpMetadata: { contentType: "application/vnd.squashfs" },
-            customMetadata: turnStateArchiveMetadata(
-              archive,
-              archive.kind === "workspace"
-                ? { kind: "workspace" }
-                : { kind: "native" },
-            ),
+            customMetadata: turnStateArchiveMetadata(archive, {
+              kind: "native",
+            }),
           }
         : {}),
     });
@@ -597,6 +594,7 @@ const prepareBody = (
   baseWorkspaceRevision,
   requestFingerprint: digest(`request-${turn}`),
   historyCursor: `cursor-${turn}`,
+  manifestId: digest(`manifest-${turn}`),
   createdAt: 1_000 + turn,
 });
 
@@ -641,7 +639,7 @@ const callRoute = async (args: {
 
 const archive = (
   prepared: PreparedTurnStateOperation,
-  kind: "workspace" | "native" = "workspace",
+  kind: "native" = "native",
 ): TurnStateArchive => {
   const bytes = archiveBytes(kind);
   return {
@@ -690,20 +688,6 @@ const prepareAndCommit = async (
   expect(prepareResponse?.status).toBe(200);
   const prepared =
     await responseBody<PreparedTurnStateOperation>(prepareResponse);
-  const descriptor = archive(prepared);
-  r2.put(descriptor.key, descriptor.sizeBytes, descriptor.etag, descriptor);
-  const uploaded = await callRoute({
-    path: "turn-state/mark-uploaded",
-    body: {
-      ...common(turn),
-      operationId: prepared.operationId,
-      archive: descriptor,
-    },
-    storage,
-    r2,
-    fence,
-  });
-  expect(uploaded?.status).toBe(200);
   const nativeDescriptor = options.native
     ? archive(prepared, "native")
     : undefined;
@@ -735,7 +719,7 @@ const prepareAndCommit = async (
     fence,
   });
   expect(committed?.status).toBe(200);
-  return { prepared, descriptor, nativeDescriptor, fence };
+  return { prepared, descriptor: nativeDescriptor, nativeDescriptor, fence };
 };
 
 const publishPreparedWorkspace = async (
@@ -807,7 +791,7 @@ describe("turn-state owner routes", () => {
     expect(await r2.head(`${prefix}b`)).toEqual({ size: 2, etag: "etag-b" });
   });
 
-  test("accepts exact real workspace and native uploads after durable R2 HEAD proof", async () => {
+  test("accepts an exact native upload after durable R2 HEAD proof", async () => {
     const storage = new FakeDurableObjectStorage();
     const r2 = new FakeR2Bucket();
     const fence = openFence(1);
@@ -825,12 +809,6 @@ describe("turn-state owner routes", () => {
     const prepared =
       await responseBody<PreparedTurnStateOperation>(preparedResponse);
 
-    const workspaceUpload = await uploadTurnStateArchive({
-      session: new RouteArchiveSession(archiveBytes("workspace")).asSession(),
-      bucket: r2.asBucket(),
-      key: prepared.objectKeys.workspace,
-      target: { kind: "workspace" },
-    });
     const nativeUpload = await uploadTurnStateArchive({
       session: new RouteArchiveSession(archiveBytes("native")).asSession(),
       bucket: r2.asBucket(),
@@ -838,33 +816,28 @@ describe("turn-state owner routes", () => {
       target: { kind: "native" },
     });
 
-    expect(
-      await r2.asBucket().head(workspaceUpload.archive.key),
-    ).not.toBeNull();
     expect(await r2.asBucket().head(nativeUpload.archive.key)).not.toBeNull();
-    for (const uploaded of [workspaceUpload, nativeUpload]) {
-      const marked = await callRoute({
-        path: "turn-state/mark-uploaded",
-        body: {
-          ...common(1),
-          operationId: prepared.operationId,
-          archive: uploaded.archive,
-        },
-        storage,
-        r2,
-        fence,
-      });
-      expect(marked?.status).toBe(200);
-      expect(await responseBody<{ replayed: boolean }>(marked)).toEqual({
-        replayed: false,
-      });
-    }
+    const marked = await callRoute({
+      path: "turn-state/mark-uploaded",
+      body: {
+        ...common(1),
+        operationId: prepared.operationId,
+        archive: nativeUpload.archive,
+      },
+      storage,
+      r2,
+      fence,
+    });
+    expect(marked?.status).toBe(200);
+    expect(await responseBody<{ replayed: boolean }>(marked)).toEqual({
+      replayed: false,
+    });
   });
 
   test("fences prepare, upload, commit, resolve, and operation authorization to one exact lease", async () => {
     const storage = new FakeDurableObjectStorage();
     const r2 = new FakeR2Bucket();
-    const first = await prepareAndCommit(storage, r2, 1);
+    const first = await prepareAndCommit(storage, r2, 1, { native: true });
 
     const replay = await callRoute({
       path: "turn-state/commit",
@@ -884,7 +857,7 @@ describe("turn-state owner routes", () => {
       body: {
         ...common(2),
         operationId: first.prepared.operationId,
-        archive: first.descriptor,
+        archive: first.descriptor!,
       },
       storage,
       r2,
@@ -955,7 +928,7 @@ describe("turn-state owner routes", () => {
     });
   });
 
-  test("aborts only the exact unpublished candidate and durably retires its archive pair", async () => {
+  test("aborts only the exact unpublished candidate and durably retires its native archive", async () => {
     const storage = new FakeDurableObjectStorage();
     const r2 = new FakeR2Bucket();
     const first = await prepareAndCommit(storage, r2, 1, { native: true });
@@ -1002,7 +975,7 @@ describe("turn-state owner routes", () => {
       fence: recoveryFence,
     });
     expect(canonicalAbort?.status).toBe(409);
-    expect(r2.keys()).toContain(unpublished.descriptor.key);
+    expect(r2.keys()).toContain(unpublished.descriptor!.key);
     expect(r2.keys()).toContain(unpublished.nativeDescriptor!.key);
 
     const abortedResponse = await callRoute({
@@ -1043,15 +1016,9 @@ describe("turn-state owner routes", () => {
     );
     expect([...retirement.values()].at(0)).toMatchObject({
       operationId: unpublished.prepared.operationId,
-      objectKeys: [
-        unpublished.descriptor.key,
-        unpublished.nativeDescriptor!.key,
-      ],
+      objectKeys: [unpublished.nativeDescriptor!.key],
     });
-    for (const descriptor of [
-      unpublished.descriptor,
-      unpublished.nativeDescriptor!,
-    ]) {
+    for (const descriptor of [unpublished.nativeDescriptor!]) {
       expect(
         storage
           .entries(`turn-state:v1:object:${descriptor.key}`)
@@ -1099,7 +1066,7 @@ describe("turn-state owner routes", () => {
       });
     }
     expect(drained?.status).toBe(200);
-    expect(r2.keys()).not.toContain(unpublished.descriptor.key);
+    expect(r2.keys()).not.toContain(unpublished.descriptor!.key);
     expect(r2.keys()).not.toContain(unpublished.nativeDescriptor!.key);
     expect(
       storage.entries(
@@ -1133,80 +1100,6 @@ describe("turn-state owner routes", () => {
       fence: openFence(4),
     });
     expect(fallbackPrepare?.status).toBe(200);
-  });
-
-  test("adopts one deterministic legacy workspace seed across exact live leases and rejects source drift", async () => {
-    const storage = new FakeDurableObjectStorage();
-    const r2 = new FakeR2Bucket();
-    const requestFingerprint = digest("exact-legacy-directory-descriptor");
-    const seedBody = (turn: number, fingerprint = requestFingerprint) => ({
-      ...common(turn),
-      requestFingerprint: fingerprint,
-      createdAt: 777,
-    });
-    const firstFence = openFence(1);
-    const firstResponse = await callRoute({
-      path: "turn-state/legacy-seed-prepare",
-      body: seedBody(1),
-      storage,
-      r2,
-      fence: firstFence,
-    });
-    expect(firstResponse?.status).toBe(200);
-    const first = await responseBody<PreparedTurnStateOperation>(firstResponse);
-
-    const secondFence = openFence(2);
-    const secondResponse = await callRoute({
-      path: "turn-state/legacy-seed-prepare",
-      body: seedBody(2),
-      storage,
-      r2,
-      fence: secondFence,
-    });
-    expect(secondResponse?.status).toBe(200);
-    const second =
-      await responseBody<PreparedTurnStateOperation>(secondResponse);
-    expect(second.operationId).toBe(first.operationId);
-    expect(second.replayed).toBe(true);
-
-    const descriptor = archive(second);
-    r2.put(descriptor.key, descriptor.sizeBytes, descriptor.etag, descriptor);
-    const staleLease = await callRoute({
-      path: "turn-state/mark-uploaded",
-      body: {
-        ...common(1),
-        operationId: first.operationId,
-        archive: descriptor,
-      },
-      storage,
-      r2,
-      fence: firstFence,
-    });
-    expect(staleLease?.status).toBe(409);
-    const adoptedLease = await callRoute({
-      path: "turn-state/mark-uploaded",
-      body: {
-        ...common(2),
-        operationId: second.operationId,
-        archive: descriptor,
-      },
-      storage,
-      r2,
-      fence: secondFence,
-    });
-    expect(adoptedLease?.status).toBe(200);
-
-    const changed = await callRoute({
-      path: "turn-state/legacy-seed-prepare",
-      body: seedBody(3, digest("different-legacy-directory-descriptor")),
-      storage,
-      r2,
-      fence: openFence(3),
-    });
-    expect(changed?.status).toBe(409);
-    expect(await responseBody<{ code: string }>(changed)).toMatchObject({
-      code: "legacy_seed_conflict",
-    });
   });
 
   test("binds transfer authority to the reservation generation across a later purge begin", async () => {
@@ -1289,15 +1182,15 @@ describe("turn-state owner routes", () => {
     });
     await publishAndConfirm(second, 2, secondThreadId);
 
-    // The global workspace advanced in thread 2. Its predecessor is retired,
-    // while thread 1 must retain only its still-canonical native continuation.
+    // The global workspace advanced in thread 2 without creating workspace R2
+    // retirement work; thread 1 retains its canonical native continuation.
     const drained = await drainTurnStateRetirements(
       createDurableObjectTurnStateStorage(sourceStorage.asStorage()),
       createR2TurnStateObjectStore(r2.asBucket()),
       { ownerId, ownerGeneration },
     );
-    expect(drained.completed).toBe(1);
-    expect(r2.keys()).not.toContain(first.descriptor.key);
+    expect(drained.completed).toBe(0);
+    expect(r2.keys()).toContain(first.descriptor!.key);
     expect(r2.keys()).toContain(first.nativeDescriptor!.key);
 
     // A third checkpoint is durable but not transcript-published/promoted.
@@ -1499,11 +1392,6 @@ describe("turn-state owner routes", () => {
       workspacePublication: { operationId: string; publishable: boolean };
       restore: { native: TurnStateArchive };
     }>(abortProbeResponse);
-    const transferredWorkspaceRecord = [
-      ...abortDestinationStorage
-        .entries(`turn-state:v1:workspace:${destinationWorkspaceHash}`)
-        .values(),
-    ][0] as { candidate: { archive: TurnStateArchive } };
     expect(
       abortDestinationStorage.entries(
         `turn-state:v1:operation:${abortProbe.workspacePublication.operationId}`,
@@ -1530,17 +1418,14 @@ describe("turn-state owner routes", () => {
     );
     expect(transferredRetirement.size).toBe(1);
     expect([...transferredRetirement.values()][0]).toMatchObject({
-      objectKeys: [
-        transferredWorkspaceRecord.candidate.archive.key,
-        abortProbe.restore.native.key,
-      ],
+      objectKeys: [abortProbe.restore.native.key],
     });
 
     const sourcePrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(ownerId)}/${digest(worldSegment)}/`;
     const destinationPrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(destinationOwnerId)}/${digest(worldSegment)}/`;
     const sourceOwnerPrefix = `${TURN_STATE_OBJECT_PREFIX}/${digest(ownerId)}/`;
-    expect(r2.keys(sourcePrefix)).toHaveLength(5);
-    expect(r2.keys(destinationPrefix)).toHaveLength(5);
+    expect(r2.keys(sourcePrefix)).toHaveLength(3);
+    expect(r2.keys(destinationPrefix)).toHaveLength(3);
 
     const destinationRunFence = openFenceFor(
       destinationOwnerId,
@@ -1572,7 +1457,7 @@ describe("turn-state owner routes", () => {
       expect(response?.status).toBe(200);
       return await responseBody<{
         baseWorkspaceRevision: number;
-        workspace?: { operationId: string; archive: TurnStateArchive };
+        workspace?: { operationId: string; historyCursor: string; manifestId: string };
         workspacePublication?: { operationId: string; publishable: boolean };
         restore?: {
           operationId: string;
@@ -1757,7 +1642,7 @@ describe("turn-state owner routes", () => {
     expect(retired.pending).toBe(false);
     expect(retired.emptyReceipt).toMatch(/^[0-9a-f]{64}$/u);
     expect(r2.keys(sourcePrefix)).toEqual([]);
-    expect(r2.keys(destinationPrefix)).toHaveLength(5);
+    expect(r2.keys(destinationPrefix)).toHaveLength(3);
     expect(await retire()).toMatchObject({
       pending: false,
       emptyReceipt: retired.emptyReceipt,
@@ -1770,7 +1655,10 @@ describe("turn-state owner routes", () => {
     const fence = openFence(1);
     const preparedResponse = await callRoute({
       path: "turn-state/prepare",
-      body: prepareBody(1),
+      body: {
+        ...prepareBody(1),
+        nativeCheckpoint: signedNativeCheckpoint(1),
+      },
       storage,
       r2,
       fence,
@@ -1805,7 +1693,10 @@ describe("turn-state owner routes", () => {
     const prepared = await responseBody<PreparedTurnStateOperation>(
       await callRoute({
         path: "turn-state/prepare",
-        body: prepareBody(1),
+        body: {
+          ...prepareBody(1),
+          nativeCheckpoint: signedNativeCheckpoint(1),
+        },
         storage,
         r2,
         fence: staleSnapshot,
@@ -1845,7 +1736,7 @@ describe("turn-state owner routes", () => {
   test("drain removes leaked route authorization on retry after registry cleanup response loss", async () => {
     const storage = new FakeDurableObjectStorage();
     const r2 = new FakeR2Bucket();
-    const first = await prepareAndCommit(storage, r2, 1);
+    const first = await prepareAndCommit(storage, r2, 1, { native: true });
     const firstProbe = await callRoute({
       path: "turn-state/resolve",
       body: {
@@ -1881,6 +1772,7 @@ describe("turn-state owner routes", () => {
     });
     expect(firstConfirmed?.status).toBe(200);
     const second = await prepareAndCommit(storage, r2, 2, {
+      native: true,
       baseWorkspaceRevision: 1,
     });
 
@@ -1954,8 +1846,8 @@ describe("turn-state owner routes", () => {
         `${authorizationPrefix}${second.prepared.operationId}`,
       ),
     ).toBe(true);
-    expect(r2.keys()).not.toContain(first.descriptor.key);
-    expect(r2.keys()).toContain(second.descriptor.key);
+    expect(r2.keys()).not.toContain(first.descriptor!.key);
+    expect(r2.keys()).toContain(second.descriptor!.key);
   });
 
   test("requires the exact drained blocked generation and purges full scoped registry and R2 prefixes", async () => {
@@ -1964,7 +1856,7 @@ describe("turn-state owner routes", () => {
     const ownerHash = digest(ownerId);
     const workspaceHash = digest(worldSegment);
     const prefix = `stella-checkpoints/v1/${ownerHash}/`;
-    const orphan = `${prefix}${workspaceHash}/orphan/workspace.sqsh`;
+    const orphan = `${prefix}${workspaceHash}/orphan/native.sqsh`;
     r2.put(orphan, 3, "orphan-etag");
     storage.set("turn-state:v1:route-operation:metadata-only", {
       ownerHash,
@@ -2052,7 +1944,7 @@ describe("turn-state owner routes", () => {
     const ownerHash = digest(ownerId);
     const workspaceHash = digest(worldSegment);
     const prefix = `stella-checkpoints/v1/${ownerHash}/`;
-    r2.put(`${prefix}${workspaceHash}/orphan/workspace.sqsh`, 3, "orphan-etag");
+    r2.put(`${prefix}${workspaceHash}/orphan/native.sqsh`, 3, "orphan-etag");
     storage.set("turn-state:v1:route-operation:workspace-purge", {
       ownerHash,
       ownerGeneration,

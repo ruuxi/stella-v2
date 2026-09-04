@@ -38,7 +38,6 @@ const PROJECT_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const GITHUB_REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,99}$/;
-const INSTANCE_SIZE_PATTERN = /^[a-z0-9-]{1,24}$/;
 const INSTALLATION_ID_PATTERN = /^[0-9]{1,20}$/;
 
 const MAX_PROJECTS_PER_OWNER = 25;
@@ -71,7 +70,6 @@ export type CloudProjectRow = {
   installationId?: string;
   defaultBranch: string;
   setupScript?: string;
-  instanceSize?: string;
   lastCheckpointAt?: number;
   status: string;
 };
@@ -88,7 +86,6 @@ const cloudProjectRowValidator = v.object({
   installationId: v.optional(v.string()),
   defaultBranch: v.string(),
   setupScript: v.optional(v.string()),
-  instanceSize: v.optional(v.string()),
   lastCheckpointAt: v.optional(v.number()),
   status: v.string(),
   createdAt: v.number(),
@@ -103,7 +100,6 @@ const publicProjectValidator = v.object({
   remoteUrl: v.optional(v.string()),
   githubConnected: v.boolean(),
   defaultBranch: v.string(),
-  instanceSize: v.optional(v.string()),
   hasSetupScript: v.boolean(),
   lastCheckpointAt: v.optional(v.number()),
   status: v.string(),
@@ -869,7 +865,6 @@ const publicProject = (project: {
   remoteUrl?: string;
   installationId?: string;
   defaultBranch: string;
-  instanceSize?: string;
   setupScript?: string;
   lastCheckpointAt?: number;
   status: string;
@@ -883,7 +878,6 @@ const publicProject = (project: {
   remoteUrl: project.remoteUrl,
   githubConnected: Boolean(project.installationId),
   defaultBranch: project.defaultBranch,
-  instanceSize: project.instanceSize,
   hasSetupScript: Boolean(project.setupScript),
   lastCheckpointAt: project.lastCheckpointAt,
   status: project.status,
@@ -1546,7 +1540,6 @@ export const recordProjectSetupInternal = internalMutation({
     ownerGeneration: v.string(),
     projectId: v.string(),
     setupScript: v.optional(v.string()),
-    instanceSize: v.optional(v.string()),
     lastCheckpointAt: v.optional(v.number()),
     status: v.optional(v.string()),
     now: v.number(),
@@ -1568,17 +1561,11 @@ export const recordProjectSetupInternal = internalMutation({
     const patch: {
       updatedAt: number;
       setupScript?: string;
-      instanceSize?: string;
       lastCheckpointAt?: number;
       status?: string;
     } = { updatedAt: args.now };
     if (args.setupScript !== undefined) {
       patch.setupScript = args.setupScript.slice(0, MAX_SETUP_SCRIPT_CHARS);
-    }
-    if (args.instanceSize !== undefined) {
-      const size = args.instanceSize.trim().toLowerCase();
-      if (!INSTANCE_SIZE_PATTERN.test(size)) return { ok: false };
-      patch.instanceSize = size;
     }
     if (args.lastCheckpointAt !== undefined) {
       patch.lastCheckpointAt = args.lastCheckpointAt;

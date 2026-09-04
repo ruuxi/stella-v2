@@ -49,22 +49,20 @@ const nativePlan = (
 };
 
 const CHECKPOINT = {
-  schemaVersion: 1,
   operationId: "1".repeat(64),
   historyCursor: `v1:${"2".repeat(64)}`,
-  workspaceSha256: "3".repeat(64),
-  receipt: "5".repeat(64),
-  replayed: false,
+  manifestId: "3".repeat(64),
 } as const;
 
 const checkpointDurability: TurnDurability = {
-  kind: "workspace_checkpoint",
+  kind: "workspace_manifest",
   transcript: {
     kind: "canonical_transcript",
     historyCursor: CHECKPOINT.historyCursor,
     rowCount: 4,
   },
-  checkpoint: CHECKPOINT,
+  historyCursor: CHECKPOINT.historyCursor,
+  manifestId: CHECKPOINT.manifestId,
 };
 
 /**

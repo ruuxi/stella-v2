@@ -16,12 +16,9 @@ mock.restore();
 
 const hex = (character: string): string => character.repeat(64);
 const receipt = {
-  schemaVersion: 1,
   operationId: hex("a"),
   historyCursor: `v1:${hex("b")}`,
-  workspaceSha256: hex("c"),
-  receipt: hex("d"),
-  replayed: false,
+  manifestId: hex("c"),
 };
 const messages = [
   {

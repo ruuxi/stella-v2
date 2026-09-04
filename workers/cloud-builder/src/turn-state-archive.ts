@@ -15,11 +15,10 @@ import {
   type TurnStateArchive,
   type TurnStateObjectKind,
 } from "./turn-state-registry.js";
-import { WORLD_ROOT } from "./workspace.js";
 
 export { TURN_STATE_MAX_ARCHIVE_BYTES };
 
-export type TurnStateArchiveTarget = { kind: "workspace" } | { kind: "native" };
+export type TurnStateArchiveTarget = { kind: "native" };
 
 export type TurnStateArchiveSession = Pick<
   ExecutionSession,
@@ -44,7 +43,7 @@ const HEX_SHA256 = /^[0-9a-f]{64}$/u;
 const ARCHIVE_KEY = new RegExp(
   `^${TURN_STATE_OBJECT_PREFIX.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}/` +
     "([0-9a-f]{64})/([0-9a-f]{64})/[0-9a-f]{64}/[0-9a-f]{64}/" +
-    "[1-9][0-9]*-([0-9a-f]{64})/(workspace|native)\\.sqsh$",
+    "[1-9][0-9]*-([0-9a-f]{64})/(native)\\.sqsh$",
   "u",
 );
 
@@ -56,17 +55,13 @@ type ArchiveKeyParts = {
   kind: TurnStateObjectKind;
 };
 
-const targetSource = (target: TurnStateArchiveTarget): string =>
-  target.kind === "workspace" ? WORLD_ROOT : NATIVE_STATE_DIRECTORY;
+const targetSource = (_target: TurnStateArchiveTarget): string => NATIVE_STATE_DIRECTORY;
 
-const targetParent = (target: TurnStateArchiveTarget): string =>
-  target.kind === "workspace" ? "/workspace" : "/home/stella-native-state";
+const targetParent = (_target: TurnStateArchiveTarget): string => "/home/stella-native-state";
 
-const targetOwnerMode = (target: TurnStateArchiveTarget): string =>
-  target.kind === "workspace" ? "42424:42424:750" : "0:0:700";
+const targetOwnerMode = (_target: TurnStateArchiveTarget): string => "0:0:700";
 
-const targetPathSlug = (target: TurnStateArchiveTarget): string =>
-  target.kind === "workspace" ? "workspace-world" : "native";
+const targetPathSlug = (_target: TurnStateArchiveTarget): string => "native";
 
 const newScratchId = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
@@ -161,8 +156,7 @@ const claimTargetScratchCommand = (
   }
   const claimPath = targetClaimPath(target);
   const parent = targetParent(target);
-  const parentOwnerMode =
-    target.kind === "workspace" ? "0:42424:750" : "0:0:700";
+  const parentOwnerMode = "0:0:700";
   return [
     `test -d ${parent}`,
     `test ! -L ${parent}`,
@@ -379,8 +373,7 @@ const prepareScratchCommand = (
 ): string => {
   const { archivePath, restorePath } = scratchPaths(target, scratchId);
   const parent = targetParent(target);
-  const parentOwnerMode =
-    target.kind === "workspace" ? "0:42424:750" : "0:0:700";
+  const parentOwnerMode = "0:0:700";
   return [
     "set -eu",
     "umask 077",
@@ -409,8 +402,7 @@ const cleanupScratchCommand = (
   const { archivePath, restorePath } = scratchPaths(target, scratchId);
   const claimPath = targetClaimPath(target);
   const parent = targetParent(target);
-  const parentOwnerMode =
-    target.kind === "workspace" ? "0:42424:750" : "0:0:700";
+  const parentOwnerMode = "0:0:700";
   return [
     "set -eu",
     `test -d ${ARCHIVE_SCRATCH_ROOT}`,
@@ -487,8 +479,7 @@ const extractArchiveCommand = (
 ): string => {
   const parent = targetParent(target);
   const { archivePath, restorePath } = scratchPaths(target, scratchId);
-  const parentOwnerMode =
-    target.kind === "workspace" ? "0:42424:750" : "0:0:700";
+  const parentOwnerMode = "0:0:700";
   return [
     "set -eu",
     "umask 077",
@@ -516,8 +507,7 @@ const swapRestoredTargetCommand = (
     target,
     scratchId,
   );
-  const parentOwnerMode =
-    target.kind === "workspace" ? "0:42424:750" : "0:0:700";
+  const parentOwnerMode = "0:0:700";
   return [
     "set -eu",
     "umask 077",
@@ -599,7 +589,7 @@ type ArchiveExpectation = Pick<
  * Canonical custom metadata for a durable turn-state archive object.
  *
  * Both the uploader and owner route use this constructor so a successfully
- * uploaded workspace/native object is judged against one exact metadata
+ * uploaded native object is judged against one exact metadata
  * contract when it is marked durable.
  */
 export const turnStateArchiveMetadata = (
@@ -909,11 +899,6 @@ export type TurnStateArchiveCopy = {
   target: TurnStateArchiveTarget;
 };
 
-export type CopyTurnStateArchivePairResult = {
-  workspace: UploadTurnStateArchiveResult;
-  native?: UploadTurnStateArchiveResult;
-};
-
 const validateTurnStateArchiveCopy = (
   copy: TurnStateArchiveCopy,
 ): { source: ArchiveKeyParts; destination: ArchiveKeyParts } => {
@@ -1017,56 +1002,7 @@ export const copyTurnStateArchive = async (args: {
   return { archive: verified, replayed: putResult === null };
 };
 
-/**
- * Re-address a canonical workspace/native pair without retiring the source.
- *
- * Destination keys must already be reserved by the strong destination
- * registry. Workspace is copied first; if native copy fails, an exact retry
- * reuses that workspace object and resumes the pair without overwriting either
- * source or destination. Source purge remains a separate, later authority.
- */
-export const copyTurnStateArchivePair = async (args: {
-  bucket: Pick<R2Bucket, "get" | "head" | "put">;
-  workspace: TurnStateArchiveCopy;
-  native?: TurnStateArchiveCopy;
-}): Promise<CopyTurnStateArchivePairResult> => {
-  if (
-    args.workspace.source.kind !== "workspace" ||
-    args.workspace.target.kind !== "workspace" ||
-    (args.native &&
-      (args.native.source.kind !== "native" ||
-        args.native.target.kind !== "native"))
-  ) {
-    throw new Error("Turn state archive copy pair is invalid.");
-  }
-  const workspaceParts = validateTurnStateArchiveCopy(args.workspace);
-  if (args.native) {
-    const nativeParts = validateTurnStateArchiveCopy(args.native);
-    if (
-      workspaceParts.source.pairAddress !== nativeParts.source.pairAddress ||
-      workspaceParts.destination.pairAddress !==
-        nativeParts.destination.pairAddress
-    ) {
-      throw new Error("Turn state archive copy pair addresses do not match.");
-    }
-  }
-  const workspace = await copyTurnStateArchive({
-    bucket: args.bucket,
-    ...args.workspace,
-  });
-  const native = args.native
-    ? await copyTurnStateArchive({
-        bucket: args.bucket,
-        ...args.native,
-      })
-    : undefined;
-  return {
-    workspace,
-    ...(native ? { native } : {}),
-  };
-};
-
-/** Restore one exact registered object into its fixed workspace/native root. */
+/** Restore one exact registered native object. */
 export const restoreTurnStateArchive = async (args: {
   session: TurnStateArchiveSession;
   bucket: Pick<R2Bucket, "head" | "get">;

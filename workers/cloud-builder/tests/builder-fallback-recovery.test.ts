@@ -103,12 +103,9 @@ const marker = {
 };
 
 const receipt = (historyCursor: string, operationId = "a".repeat(64)) => ({
-  schemaVersion: 1 as const,
   operationId,
   historyCursor,
-  workspaceSha256: "b".repeat(64),
-  receipt: "c".repeat(64),
-  replayed: false,
+  manifestId: "b".repeat(64),
 });
 
 const harness = () => {

@@ -1,9 +1,18 @@
 import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { ExecutionSession } from "@cloudflare/sandbox";
 import type { CloudTurnSource } from "@stella/contracts/turn-plane/turn-start";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/outbox";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";
 import { sha256Hex } from "../../hash.js";
+import { inSubshell } from "../../shell-subshell.js";
+import { sandboxLifecycleId } from "../../sandbox-lifecycle.js";
+import {
+  APP_BUILD_ROOT,
+  WORLD_DRIVE_ROOT,
+  WORLD_ROOT,
+} from "../../workspace.js";
 import type { OwnerGateRefusalCode } from "../../owner-gate.js";
 import type { Env } from "./env.js";
 import type { TurnRequest } from "./types.js";
@@ -308,3 +317,115 @@ export const checkpointImportsKey = (workspaceKey: string): string =>
 /** Legacy eventual-KV receipt key, retained only so purge removes old rows. */
 export const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
   `${workspaceKey}:owner-transfer-receipts`;
+
+/** Digest shape every artifact and gateway observation must present. */
+export const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/**
+ * App-build turns are dispatched without a pinned execution — the art
+ * director's model is Convex's own choice, resolved through `/api/cloud/model`
+ * — but a turn capability's binding is not optional. This placeholder is what
+ * the lane's control-plane capability carries. It is never minted for the
+ * model-gateway audience, so it can never pin a model call.
+ */
+export const APP_BUILD_CONTROL_PLANE_EXECUTION = {
+  engine: "stella",
+  provider: "stella",
+  model: "app-build",
+  reasoningEffort: "default",
+} as CloudExecutionSelection;
+
+/** Header the outer Worker forwards a signed preview capability on. */
+export const HEADER_PREVIEW_CAPABILITY = "x-stella-preview-capability";
+
+export const exactTurnSandboxId = async (
+  prefix: "app",
+  turn: TurnRequest,
+): Promise<string> =>
+  await sandboxLifecycleId(prefix, {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    turnId: turn.turnId,
+    attemptGeneration:
+      turn.kind === "agent" ? (turn.attemptGeneration ?? 0) : 1,
+  });
+
+/**
+ * The two directories a model-shaped process may own. `world` is the owner's
+ * checkpointed tree; `app` is the throwaway build root of the legacy app-build
+ * turn, which is never checkpointed.
+ */
+const TOOL_WORKSPACE_ROOTS = new Set([WORLD_ROOT, APP_BUILD_ROOT]);
+
+/** Establish the post-mount fixed boundary before any model-shaped process. */
+export const normalizeToolWorkspaceRoot = async (
+  session: Pick<ExecutionSession, "exec">,
+  workspaceRoot: string,
+): Promise<void> => {
+  if (!TOOL_WORKSPACE_ROOTS.has(workspaceRoot)) {
+    throw new Error("Invalid cloud workspace mount path.");
+  }
+  const command = [
+    "set -eu",
+    "test ! -L /workspace",
+    'test "$(readlink -f /workspace)" = /workspace',
+    "test \"$(stat -c '%u:%g:%a' /workspace)\" = 0:42424:750",
+    `if [ -e '${workspaceRoot}' ] || [ -L '${workspaceRoot}' ]; then test -d '${workspaceRoot}' && test ! -L '${workspaceRoot}'; else mkdir '${workspaceRoot}'; fi`,
+    `chown 42424:42424 '${workspaceRoot}'`,
+    `chmod 0750 '${workspaceRoot}'`,
+    `test "$(readlink -f '${workspaceRoot}')" = '${workspaceRoot}'`,
+    `test "$(stat -c '%u:%g:%a' '${workspaceRoot}')" = 42424:42424:750`,
+    ...(workspaceRoot === WORLD_ROOT
+      ? [
+          `if [ -e '${WORLD_DRIVE_ROOT}' ] || [ -L '${WORLD_DRIVE_ROOT}' ]; then test -d '${WORLD_DRIVE_ROOT}' && test ! -L '${WORLD_DRIVE_ROOT}'; else mkdir -m 0750 '${WORLD_DRIVE_ROOT}' && chown 42424:42424 '${WORLD_DRIVE_ROOT}'; fi`,
+          `test "$(readlink -f '${WORLD_DRIVE_ROOT}')" = '${WORLD_DRIVE_ROOT}'`,
+          `test "$(stat -c '%u:%g:%a' '${WORLD_DRIVE_ROOT}')" = 42424:42424:750`,
+        ]
+      : []),
+    "if [ -e /workspace/.stella-tool-home ] || [ -L /workspace/.stella-tool-home ]; then test -d /workspace/.stella-tool-home && test ! -L /workspace/.stella-tool-home && test \"$(stat -c '%u:%g:%a' /workspace/.stella-tool-home)\" = 42424:42424:700; else mkdir /workspace/.stella-tool-home && chown 42424:42424 /workspace/.stella-tool-home && chmod 0700 /workspace/.stella-tool-home; fi",
+    "test ! -L /home/stella-native-state",
+    'test "$(readlink -f /home/stella-native-state)" = /home/stella-native-state',
+    "test \"$(stat -c '%u:%g:%a' /home/stella-native-state)\" = 0:0:700",
+    "test ! -L /home/stella-host-state",
+    'test "$(readlink -f /home/stella-host-state)" = /home/stella-host-state',
+    "test \"$(stat -c '%u:%g:%a' /home/stella-host-state)\" = 0:0:700",
+  ].join("; ");
+  // The session shell is persistent, so `set -eu` must stay inside a
+  // subshell: leaked into the session it turns the next non-zero exit (for
+  // one, the attached tool-host readiness probe) into a dead shell.
+  const result = await session.exec(inSubshell(command));
+  if (!result.success) {
+    throw new Error("Cloud workspace mount boundary validation failed.");
+  }
+};
+
+/** Pages of 1000 keys per bucket prefix. 10M objects is not a real owner. */
+export const R2_SWEEP_MAX_PAGES = 10_000;
+/**
+ * Delete every object under `prefix`. Bounded: `list` is cursor-paged at 1000
+ * and each page is deleted before the next is fetched, so neither memory nor
+ * the delete batch grows with the owner's history. `done: false` means the
+ * sweep ran out of pages and the caller must ask again.
+ */
+export const sweepR2Prefix = async (
+  bucket: R2Bucket,
+  prefix: string,
+): Promise<{ deleted: number; done: boolean }> => {
+  let deleted = 0;
+  let cursor: string | undefined;
+  for (let page = 0; page < R2_SWEEP_MAX_PAGES; page += 1) {
+    const listing = await bucket.list({
+      prefix,
+      limit: 1000,
+      ...(cursor ? { cursor } : {}),
+    });
+    const keys = listing.objects.map((object) => object.key);
+    if (keys.length > 0) {
+      await bucket.delete(keys);
+      deleted += keys.length;
+    }
+    if (!listing.truncated) return { deleted, done: true };
+    cursor = listing.cursor;
+  }
+  return { deleted, done: false };
+};

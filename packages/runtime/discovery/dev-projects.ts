@@ -5,17 +5,8 @@
  * to enumerate every repo on disk; it is to rank the projects the user is most
  * likely to mean when they say "open my project".
  *
- * Sources:
- * 1. macOS Spotlight (mdfind) — broad git repo discovery when indexed
- * 2. GitHub Desktop repositories.json — repos the user has cloned/opened
- * 3. JetBrains recent projects — WebStorm, IntelliJ, PyCharm, etc.
- * 4. VS Code / Cursor recent workspaces and repository tracker
- * 5. Shell history `cd` targets
- * 6. Shallow scan of common development roots
- *
- * Candidates are resolved to git repository roots, scored, and filtered by
- * confidence. Recent authored commits help, but are not required: editor and
- * shell activity are often better onboarding signals than commit authorship.
+ * Uses editor and assistant metadata plus shallow repository discovery.
+ * Only directory names, paths, and activity timestamps leave this collector.
  */
 
 import { promises as fs } from "fs";
@@ -23,7 +14,7 @@ import path from "path";
 import os from "os";
 import { exec, execFile } from "child_process";
 import { pathToFileURL } from "node:url";
-import { z } from "zod";
+import { collectAssistantProjects } from "./assistant-projects.js";
 import { Effect } from "effect";
 import {
   runDiscovery,
@@ -39,15 +30,15 @@ const log = (...args: unknown[]) => console.error("[dev-projects]", ...args);
 // Configuration
 // ---------------------------------------------------------------------------
 
-const RECENCY_DAYS = 30;
+const RECENCY_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_CANDIDATE_PATHS = 240;
+const MAX_CANDIDATE_PATHS = 120;
 const MAX_VALIDATION_BATCH_SIZE = 8;
-const MAX_RESULTS = 30;
-const MIN_PROJECT_SCORE = 18;
+const MAX_RESULTS = 8;
 
 const COMMON_DEV_ROOT_NAMES = [
   "projects",
+  "Projects",
   "Developer",
   "dev",
   "src",
@@ -57,50 +48,21 @@ const COMMON_DEV_ROOT_NAMES = [
 ];
 
 const DEV_ROOT_SCAN_MAX_DEPTH = 2;
-const DEV_ROOT_SCAN_MAX_DIRS = 500;
+const DEV_ROOT_SCAN_MAX_DIRS = 200;
 const DEV_ROOT_SCAN_MAX_REPOS = 100;
-
-const PROJECT_MANIFESTS = [
-  "package.json",
-  "bun.lock",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "pyproject.toml",
-  "requirements.txt",
-  "Cargo.toml",
-  "go.mod",
-  "Package.swift",
-  "Gemfile",
-  "composer.json",
-  "pom.xml",
-  "build.gradle",
-  "docker-compose.yml",
-  "Dockerfile",
-  "convex.json",
-  "next.config.js",
-  "vite.config.ts",
-  "src-tauri",
-];
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type GitIdentity = {
-  name?: string;
-  email?: string;
-};
 
 type ProjectCandidate = {
   path: string;
   sources: Map<string, number>;
   editorLastAccessed?: number;
+  recentSessionCount?: number;
 };
 
 type ResolvedProjectCandidate = {
   path: string;
   sources: Map<string, number>;
   editorLastAccessed?: number;
+  recentSessionCount?: number;
 };
 
 type ScoredProject = DevProject & {
@@ -146,7 +108,7 @@ const normalizeCandidatePath = (candidatePath: string): string | null => {
   }
 
   normalized = normalized.replace(/[\\/]+$/, "");
-  if (!normalized) return null;
+  if (!normalized || normalized.length > 4096 || /[\r\n\0]/.test(normalized)) return null;
   if (normalized.includes(`${path.sep}.vscode${path.sep}extensions`)) {
     return null;
   }
@@ -156,14 +118,14 @@ const normalizeCandidatePath = (candidatePath: string): string | null => {
 };
 
 const candidateKey = (candidatePath: string): string =>
-  candidatePath.toLowerCase().replace(/[\\/]+$/, "");
+  (process.platform === "win32" ? candidatePath.toLowerCase() : candidatePath).replace(/[\\/]+$/, "");
 
 const addCandidate = (
   candidates: Map<string, ProjectCandidate>,
   candidatePath: string | null | undefined,
   source: string,
   weight: number,
-  metadata?: { editorLastAccessed?: number },
+  metadata?: { editorLastAccessed?: number; recentSessionCount?: number },
 ): void => {
   if (!candidatePath) return;
   const normalized = normalizeCandidatePath(candidatePath);
@@ -184,6 +146,7 @@ const addCandidate = (
     existing.editorLastAccessed = metadata.editorLastAccessed;
   }
 
+  existing.recentSessionCount = (existing.recentSessionCount ?? 0) + (metadata?.recentSessionCount ?? 0);
   candidates.set(key, existing);
 };
 
@@ -251,74 +214,7 @@ const sourceList = (sources: Map<string, number>): string[] =>
   Array.from(sources.keys()).sort();
 
 // ---------------------------------------------------------------------------
-// Git Identity
-// ---------------------------------------------------------------------------
-
-const parseGitIdentity = (content: string): GitIdentity => {
-  const identity: GitIdentity = {};
-  let inUserSection = false;
-
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (/^\[user\]$/i.test(trimmed)) {
-      inUserSection = true;
-      continue;
-    }
-    if (trimmed.startsWith("[")) {
-      inUserSection = false;
-      continue;
-    }
-    if (!inUserSection) continue;
-
-    const kv = trimmed.match(/^(\w+)\s*=\s*(.*)$/);
-    if (kv) {
-      if (kv[1] === "name") identity.name = kv[2].trim();
-      if (kv[1] === "email") identity.email = kv[2].trim();
-    }
-  }
-
-  return identity;
-};
-
-const readGlobalGitIdentity = async (): Promise<GitIdentity> => {
-  const gitConfigPath = path.join(os.homedir(), ".gitconfig");
-  try {
-    return parseGitIdentity(await fs.readFile(gitConfigPath, "utf-8"));
-  } catch {
-    return {};
-  }
-};
-
-const readRepoGitIdentity = async (repoPath: string): Promise<GitIdentity> => {
-  const identity: GitIdentity = {};
-
-  try {
-    const email = await execFileAsync(
-      "git",
-      ["-C", repoPath, "config", "--get", "user.email"],
-      1500,
-    );
-    if (email) identity.email = email;
-  } catch {
-    // Missing local config is fine.
-  }
-
-  try {
-    const name = await execFileAsync(
-      "git",
-      ["-C", repoPath, "config", "--get", "user.name"],
-      1500,
-    );
-    if (name) identity.name = name;
-  } catch {
-    // Missing local config is fine.
-  }
-
-  return identity;
-};
-
-// ---------------------------------------------------------------------------
-// Git Repo Validation
+// Repository activity
 // ---------------------------------------------------------------------------
 
 const resolveGitRoot = async (
@@ -337,7 +233,16 @@ const resolveGitRoot = async (
 };
 
 const getGitRepoActivity = async (repoPath: string): Promise<number | null> => {
-  const gitDir = path.join(repoPath, ".git");
+  let gitDir = path.join(repoPath, ".git");
+  const gitEntry = await statIfExists(gitDir);
+  if (!gitEntry) return (await statIfExists(repoPath))?.mtimeMs ?? null;
+  // Worktrees store a pointer file instead of a .git directory.
+  if (gitEntry.isFile()) {
+    if (gitEntry.size > 4096) return null;
+    const pointer = await fs.readFile(gitDir, "utf8").catch(() => "");
+    if (!pointer.startsWith("gitdir: ")) return null;
+    gitDir = path.resolve(repoPath, pointer.slice(8).trim());
+  }
   const filesToCheck = [
     path.join(gitDir, "index"),
     path.join(gitDir, "HEAD"),
@@ -371,53 +276,6 @@ const getGitRepoActivity = async (repoPath: string): Promise<number | null> => {
   } catch {
     return null;
   }
-};
-
-const hasRecentAuthoredCommit = async (
-  repoPath: string,
-  globalIdentity: GitIdentity,
-): Promise<boolean | null> => {
-  const localIdentity = await readRepoGitIdentity(repoPath);
-  const identities = [localIdentity, globalIdentity].filter(
-    (identity) => identity.email || identity.name,
-  );
-
-  if (identities.length === 0) return null;
-
-  for (const identity of identities) {
-    const author = identity.email || identity.name;
-    if (!author) continue;
-
-    try {
-      const output = await execFileAsync(
-        "git",
-        [
-          "-C",
-          repoPath,
-          "log",
-          `--author=${author}`,
-          "--oneline",
-          "-1",
-          `--since=${RECENCY_DAYS}.days.ago`,
-        ],
-        3000,
-      );
-      if (output.length > 0) return true;
-    } catch {
-      // Try the next available identity.
-    }
-  }
-
-  return false;
-};
-
-const countProjectManifests = async (repoPath: string): Promise<number> => {
-  const hits = await Promise.all(
-    PROJECT_MANIFESTS.map((manifest) =>
-      fileExists(path.join(repoPath, manifest)),
-    ),
-  );
-  return hits.filter(Boolean).length;
 };
 
 // ---------------------------------------------------------------------------
@@ -740,105 +598,7 @@ const collectFromEditorsEffect = (
   });
 
 // ---------------------------------------------------------------------------
-// Source 5: Shell history
-// ---------------------------------------------------------------------------
-
-const getHistoryPaths = (): string[] => {
-  const home = os.homedir();
-  const platform = process.platform;
-
-  if (platform === "win32") {
-    const appData =
-      process.env.APPDATA || path.join(home, "AppData", "Roaming");
-    return [
-      path.join(
-        appData,
-        "Microsoft/Windows/PowerShell/PSReadLine/ConsoleHost_history.txt",
-      ),
-      path.join(home, ".bash_history"),
-    ];
-  }
-
-  return [path.join(home, ".zsh_history"), path.join(home, ".bash_history")];
-};
-
-const SENSITIVE_COMMAND_PATTERNS = [
-  /password/i,
-  /secret/i,
-  /token/i,
-  /api[_-]?key/i,
-  /credential/i,
-  /cat\s+.*\.env\b/i,
-  /source\s+.*\.env\b/i,
-  /curl.*-H.*Authorization/i,
-  /\w+:\/\/[^/\s]*:[^/\s]*@/i,
-];
-
-const parseZshLine = (line: string): string | null => {
-  if (line.startsWith(": ")) {
-    const semicolonIdx = line.indexOf(";");
-    if (semicolonIdx !== -1) {
-      return line.slice(semicolonIdx + 1).trim();
-    }
-  }
-  return line.trim();
-};
-
-const extractCdPath = (line: string): string | null => {
-  const cdMatch = line.match(/^\s*cd\s+(.+)$/);
-  if (!cdMatch) return null;
-
-  const cdPathMatch = cdMatch[1]
-    .trim()
-    .match(/^(?:"([^"]+)"|'([^']+)'|([^\s&|;><]+))/);
-  const cdPath = (
-    cdPathMatch?.[1] ||
-    cdPathMatch?.[2] ||
-    cdPathMatch?.[3] ||
-    ""
-  ).trim();
-
-  if (!cdPath || cdPath === "-" || cdPath === "." || cdPath === "..") {
-    return null;
-  }
-
-  const expanded = cdPath.startsWith("~")
-    ? path.join(os.homedir(), cdPath.slice(1))
-    : cdPath;
-
-  return path.isAbsolute(expanded) ? expanded : null;
-};
-
-const collectFromShellHistory = async (
-  candidates: Map<string, ProjectCandidate>,
-): Promise<number> => {
-  let count = 0;
-
-  for (const historyPath of getHistoryPaths()) {
-    try {
-      const content = await fs.readFile(historyPath, "utf-8");
-      for (const rawLine of content.split("\n")) {
-        const line = parseZshLine(rawLine);
-        if (!line) continue;
-        if (SENSITIVE_COMMAND_PATTERNS.some((pattern) => pattern.test(line))) {
-          continue;
-        }
-
-        const cdPath = extractCdPath(line);
-        if (!cdPath) continue;
-        addCandidate(candidates, cdPath, "shell-cd", 1);
-        count += 1;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return count;
-};
-
-// ---------------------------------------------------------------------------
-// Source 6: Common dev roots
+// Shallow project roots
 // ---------------------------------------------------------------------------
 
 const shouldSkipScanDir = (name: string): boolean =>
@@ -916,8 +676,12 @@ const resolveCandidates = async (
     const batch = candidates.slice(i, i + MAX_VALIDATION_BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(async (candidate) => {
-        const root = await resolveGitRoot(candidate.path);
-        return root ? { candidate, root } : null;
+        const directory = await statIfExists(candidate.path);
+        if (!directory?.isDirectory() || candidate.path === os.homedir() || !path.isAbsolute(candidate.path)) return null;
+        const root = await resolveGitRoot(candidate.path) ?? await fs.realpath(candidate.path).catch(() => null);
+        const canonical = root ? await fs.realpath(root).catch(() => null) : null;
+        return canonical && canonical !== os.homedir() && canonical !== path.parse(canonical).root
+          ? { candidate, root: canonical } : null;
       }),
     );
 
@@ -944,6 +708,7 @@ const resolveCandidates = async (
         existing.editorLastAccessed = result.candidate.editorLastAccessed;
       }
 
+      existing.recentSessionCount = (existing.recentSessionCount ?? 0) + (result.candidate.recentSessionCount ?? 0);
       resolved.set(key, existing);
     }
   }
@@ -953,232 +718,20 @@ const resolveCandidates = async (
 
 const scoreProject = async (
   project: ResolvedProjectCandidate,
-  globalIdentity: GitIdentity,
 ): Promise<ScoredProject | null> => {
-  const lastActivity = await getGitRepoActivity(project.path);
-  if (!lastActivity) return null;
-
-  const authored = await hasRecentAuthoredCommit(project.path, globalIdentity);
-  const manifestCount = await countProjectManifests(project.path);
-  const age = daysAgo(lastActivity);
-  const editorAge = project.editorLastAccessed
-    ? daysAgo(project.editorLastAccessed)
-    : null;
-
-  let score = 0;
-  for (const weight of project.sources.values()) score += weight;
-
-  if (age <= 3) score += 8;
-  else if (age <= 14) score += 5;
-  else if (age <= RECENCY_DAYS) score += 3;
-
-  if (editorAge !== null) {
-    if (editorAge <= 7) score += 4;
-    else if (editorAge <= RECENCY_DAYS) score += 2;
-  }
-
-  if (authored === true) score += 6;
-  else if (authored === false) score -= 2;
-
-  if (manifestCount > 0) {
-    score += Math.min(4, manifestCount);
-  }
-
-  if (score < MIN_PROJECT_SCORE) return null;
-
+  const lastActivity = Math.max(
+    (await getGitRepoActivity(project.path)) ?? 0,
+    project.editorLastAccessed ?? 0,
+  );
+  if (lastActivity < Date.now() - RECENCY_DAYS * DAY_MS || lastActivity > Date.now()) return null;
+  // Session counts are capped so one prolific tool cannot dominate forever.
+  let score = Math.min(20, project.recentSessionCount ?? 0) * 4;
+  for (const weight of project.sources.values()) score += Math.min(20, weight);
   return {
-    name: path.basename(project.path),
-    path: project.path,
-    lastActivity,
-    score,
-    sourceSummary: sourceList(project.sources),
+    name: path.basename(project.path), path: project.path, lastActivity,
+    score, sourceSummary: sourceList(project.sources),
   };
 };
-
-// ---------------------------------------------------------------------------
-// Tech Detection (languages + frameworks per project)
-// ---------------------------------------------------------------------------
-
-// Framework labels keyed by their npm dependency name. Ordered so the most
-// specific match wins when several are present (Next.js before React, etc.).
-const PACKAGE_FRAMEWORKS: { dep: string; label: string }[] = [
-  { dep: "next", label: "Next.js" },
-  { dep: "react-native", label: "React Native" },
-  { dep: "expo", label: "Expo" },
-  { dep: "@remix-run/react", label: "Remix" },
-  { dep: "@sveltejs/kit", label: "SvelteKit" },
-  { dep: "nuxt", label: "Nuxt" },
-  { dep: "astro", label: "Astro" },
-  { dep: "@angular/core", label: "Angular" },
-  { dep: "svelte", label: "Svelte" },
-  { dep: "vue", label: "Vue" },
-  { dep: "solid-js", label: "Solid" },
-  { dep: "react", label: "React" },
-  { dep: "electron", label: "Electron" },
-  { dep: "@tauri-apps/api", label: "Tauri" },
-  { dep: "convex", label: "Convex" },
-  { dep: "@nestjs/core", label: "NestJS" },
-  { dep: "fastify", label: "Fastify" },
-  { dep: "express", label: "Express" },
-  { dep: "vite", label: "Vite" },
-];
-
-const PYTHON_FRAMEWORKS: { needle: string; label: string }[] = [
-  { needle: "django", label: "Django" },
-  { needle: "flask", label: "Flask" },
-  { needle: "fastapi", label: "FastAPI" },
-];
-
-const packageDepsSchema = z.looseObject({
-  dependencies: z.record(z.string(), z.unknown()).optional(),
-  devDependencies: z.record(z.string(), z.unknown()).optional(),
-});
-
-const readJsonSafe = async (
-  filePath: string,
-): Promise<Record<string, unknown> | null> => {
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    if (raw.length > 512 * 1024) return null;
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-};
-
-// Child dirs that never hold the "real" project manifest when scanning a
-// monorepo/app-in-subdir layout.
-const TECH_SCAN_SKIP_DIRS = new Set([
-  "node_modules",
-  ".git",
-  ".github",
-  "dist",
-  "build",
-  "out",
-  "target",
-  ".next",
-  "vendor",
-  "app-store-screenshots",
-]);
-
-/** Detect languages/frameworks from the manifests directly inside `dir`. */
-const detectTechAtDir = async (
-  dir: string,
-  entries: string[],
-): Promise<Set<string>> => {
-  const has = (name: string) => entries.includes(name);
-  const tech = new Set<string>();
-
-  if (has("package.json")) {
-    const pkg = packageDepsSchema.safeParse(
-      await readJsonSafe(path.join(dir, "package.json")),
-    );
-    const depNames = new Set(
-      pkg.success
-        ? [
-            ...Object.keys(pkg.data.dependencies ?? {}),
-            ...Object.keys(pkg.data.devDependencies ?? {}),
-          ]
-        : [],
-    );
-    tech.add(
-      has("tsconfig.json") || depNames.has("typescript")
-        ? "TypeScript"
-        : "JavaScript",
-    );
-    for (const { dep, label } of PACKAGE_FRAMEWORKS) {
-      if (depNames.has(dep)) tech.add(label);
-    }
-  }
-
-  if (has("Cargo.toml")) tech.add("Rust");
-  if (has("src-tauri")) tech.add("Tauri");
-  if (has("go.mod")) tech.add("Go");
-
-  if (has("pyproject.toml") || has("requirements.txt")) {
-    tech.add("Python");
-    if (has("requirements.txt")) {
-      try {
-        const reqs = (
-          await fs.readFile(path.join(dir, "requirements.txt"), "utf-8")
-        ).toLowerCase();
-        for (const { needle, label } of PYTHON_FRAMEWORKS) {
-          if (reqs.includes(needle)) tech.add(label);
-        }
-      } catch {
-        // requirements unreadable — language is still recorded.
-      }
-    }
-  }
-
-  if (
-    has("Package.swift") ||
-    entries.some((e) => e.endsWith(".xcodeproj") || e.endsWith(".xcworkspace"))
-  ) {
-    tech.add("Swift");
-  }
-
-  if (has("Gemfile")) {
-    tech.add("Ruby");
-    try {
-      const gemfile = (
-        await fs.readFile(path.join(dir, "Gemfile"), "utf-8")
-      ).toLowerCase();
-      if (gemfile.includes("rails")) tech.add("Rails");
-    } catch {
-      // Gemfile unreadable — language is still recorded.
-    }
-  }
-
-  if (has("composer.json")) tech.add("PHP");
-  if (has("build.gradle.kts")) tech.add("Kotlin");
-  else if (has("pom.xml") || has("build.gradle")) tech.add("Java");
-
-  return tech;
-};
-
-/**
- * Detect a project's languages + frameworks from its manifest files. Bounded
- * and cheap (a readdir + a few small file reads), cross-platform. Reads
- * manifests rather than scanning every source file. When the repo root has no
- * manifest (monorepo / app-in-subdir like `mobile/`), falls back to a bounded
- * one-level scan of immediate child directories.
- */
-const detectProjectTech = async (projectPath: string): Promise<string[]> => {
-  let entries: string[] = [];
-  try {
-    entries = await fs.readdir(projectPath);
-  } catch {
-    return [];
-  }
-
-  const tech = await detectTechAtDir(projectPath, entries);
-  if (tech.size > 0) return Array.from(tech);
-
-  const childDirs = entries
-    .filter((e) => !e.startsWith(".") && !TECH_SCAN_SKIP_DIRS.has(e))
-    .slice(0, 12);
-  for (const child of childDirs) {
-    const childPath = path.join(projectPath, child);
-    try {
-      const childStat = await fs.stat(childPath);
-      if (!childStat.isDirectory()) continue;
-      const childEntries = await fs.readdir(childPath);
-      for (const t of await detectTechAtDir(childPath, childEntries)) {
-        tech.add(t);
-      }
-    } catch {
-      continue;
-    }
-    if (tech.size >= 6) break;
-  }
-
-  return Array.from(tech);
-};
-
-// ---------------------------------------------------------------------------
-// Main Collection
-// ---------------------------------------------------------------------------
 
 const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
   Effect.gen(function* () {
@@ -1187,16 +740,14 @@ const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
     const candidates = new Map<string, ProjectCandidate>();
 
     const [
-      identity,
       spotlightPaths,
       ghDesktopPaths,
       jetbrainsPaths,
       editorCount,
-      shellCount,
+      assistantProjects,
       devRootCount,
     ] = yield* Effect.all(
       [
-        tryDiscovery(() => readGlobalGitIdentity()),
         tryDiscovery(() => collectFromSpotlight()),
         tryDiscovery(() => collectFromGitHubDesktop()),
         tryDiscovery(() => collectFromJetBrains()),
@@ -1208,12 +759,7 @@ const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
             }),
           ),
         ),
-        tryDiscovery(() =>
-          collectFromShellHistory(candidates).catch((error) => {
-            log("Shell history project collection failed:", error);
-            return 0;
-          }),
-        ),
+        tryDiscovery(() => collectAssistantProjects()),
         tryDiscovery(() =>
           collectFromCommonDevRoots(candidates).catch((error) => {
             log("Dev root scan failed:", error);
@@ -1224,6 +770,10 @@ const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
       { concurrency: "unbounded" },
     );
 
+  for (const project of assistantProjects) {
+    addCandidate(candidates, project.path, project.source, project.activityCount,
+      { editorLastAccessed: project.lastActivity, recentSessionCount: project.lastActivity ? project.activityCount : 0 });
+  }
   for (const projectPath of spotlightPaths) {
     addCandidate(candidates, projectPath, "spotlight", 2);
   }
@@ -1240,41 +790,36 @@ const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
       `github-desktop=${ghDesktopPaths.length}`,
       `jetbrains=${jetbrainsPaths.length}`,
       `editor=${editorCount}`,
-      `shell-cd=${shellCount}`,
+      `assistant=${assistantProjects.length}`,
       `dev-root=${devRootCount}`,
     ].join(", "),
   );
-  if (identity.name || identity.email) {
-    log(`Git identity: ${identity.name || "?"} <${identity.email || "?"}>`);
-  }
-
-  // Cap by confidence, not Map insertion order: high-weight sources
-  // (spotlight/github-desktop/jetbrains) are added after the unbounded
-  // shell-history/editor sources, so slicing raw insertion order would drop
-  // the most trustworthy candidates first. Sum each candidate's source
-  // weights (the same signal the scorer folds in) and keep the heaviest.
   const candidateWeight = (candidate: ProjectCandidate): number => {
-    let total = 0;
-    for (const weight of candidate.sources.values()) total += weight;
+    let total = Math.min(20, candidate.recentSessionCount ?? 0) * 4;
+    for (const weight of candidate.sources.values()) total += Math.min(20, weight);
     return total;
   };
   const candidatePaths = Array.from(candidates.values())
     .sort(
       (a, b) =>
-        candidateWeight(b) - candidateWeight(a) || a.path.localeCompare(b.path),
+        Number((b.editorLastAccessed ?? 0) >= Date.now() - RECENCY_DAYS * DAY_MS) -
+          Number((a.editorLastAccessed ?? 0) >= Date.now() - RECENCY_DAYS * DAY_MS) ||
+        candidateWeight(b) - candidateWeight(a) ||
+        (b.editorLastAccessed ?? 0) - (a.editorLastAccessed ?? 0) ||
+        a.path.localeCompare(b.path),
     )
     .slice(0, MAX_CANDIDATE_PATHS);
   log(`${candidatePaths.length} unique candidate paths`);
 
   const resolved = yield* tryDiscovery(() => resolveCandidates(candidatePaths));
-  log(`${resolved.length} git repos resolved from candidates`);
+  log(`${resolved.length} project directories resolved from candidates`);
 
   const scored: ScoredProject[] = [];
   for (let i = 0; i < resolved.length; i += MAX_VALIDATION_BATCH_SIZE) {
     const batch = resolved.slice(i, i + MAX_VALIDATION_BATCH_SIZE);
     const batchResults = yield* Effect.forEach(
       batch,
-      (project) => tryDiscovery(() => scoreProject(project, identity)),
+      (project) => tryDiscovery(() => scoreProject(project)),
       { concurrency: "unbounded" },
     );
     for (const result of batchResults) {
@@ -1289,21 +834,10 @@ const collectDevProjectsEffect: Effect.Effect<DevProject[], unknown> =
       a.path.localeCompare(b.path),
   );
 
-  const limited = yield* Effect.forEach(
-    scored.slice(0, MAX_RESULTS),
-    (project) =>
-      tryDiscovery(async () => ({
-        name: project.name,
-        path: project.path,
-        lastActivity: project.lastActivity,
-        tech: await detectProjectTech(project.path),
-      })),
-    { concurrency: "unbounded" },
-  );
-
-  log(
-    `Found ${limited.length} active projects above score ${MIN_PROJECT_SCORE}`,
-  );
+  const limited = scored.slice(0, MAX_RESULTS).map(({ name, path, lastActivity }) => ({
+    name, path, lastActivity,
+  }));
+  log(`Found ${limited.length} projects active in the last ${RECENCY_DAYS} days`);
   if (scored.length > 0) {
     log(
       "Top projects:",
@@ -1337,21 +871,21 @@ export const collectDevProjects = async (): Promise<DevProject[]> =>
 export const formatDevProjectsForSynthesis = (
   projects: DevProject[],
 ): string => {
-  if (projects.length === 0) return "";
+  const recent = projects.filter((project) =>
+    project.lastActivity >= Date.now() - RECENCY_DAYS * DAY_MS && project.lastActivity <= Date.now());
+  if (recent.length === 0) return "";
 
   const sections: string[] = ["## Active Projects"];
 
   sections.push(
     "\n" +
-      projects
-        .slice(0, 8)
+      recent
+        .slice(0, MAX_RESULTS)
         .map((p) => {
           const age = daysAgo(p.lastActivity);
           const recency =
             age === 0 ? "today" : age === 1 ? "yesterday" : `${age}d ago`;
-          const tech =
-            p.tech && p.tech.length > 0 ? ` — ${p.tech.join(", ")}` : "";
-          return `- ${p.name} (${p.path}) (${recency})${tech}`;
+          return `- ${p.name} (${p.path}) (${recency})`;
         })
         .join("\n"),
   );

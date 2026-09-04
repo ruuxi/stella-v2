@@ -30,7 +30,7 @@ const walk = async (directory) => {
 
 const files = (
   await Promise.all(
-    ["host", "kernel", "worker"].map((directory) =>
+    ["host", "kernel", "worker", "discovery"].map((directory) =>
       walk(path.join(runtimeRoot, directory)),
     ),
   )

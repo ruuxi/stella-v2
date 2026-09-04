@@ -10,9 +10,9 @@
  *   `concurrency: 1`, no timeout — so collection completeness and timing are
  *   unchanged unless a caller opts into different budgets.
  * - Per-collector failure isolation is byte-identical: the same `.catch`
- *   fallbacks guard the same collectors (bookmarks/firefox/safari/devEnv/
+ *   fallbacks guard the same collectors (bookmarks/firefox/safari/
  *   system/steam/music/messagesNotes degrade to the same partial shapes),
- *   and the unguarded collectors (browser/devProjects/shell) still fail the
+ *   and the unguarded collectors (browser/devProjects) still fail the
  *   sweep, which `collectAllSignals` converts to the same `{ data: null,
  *   error }` result.
  *
@@ -32,10 +32,6 @@ import {
   formatDevProjectsForSynthesis,
 } from "./dev-projects.js";
 import {
-  analyzeShellHistory,
-  formatShellAnalysisForSynthesis,
-} from "./shell-history.js";
-import {
   collectBrowserBookmarks,
   formatBrowserBookmarksForSynthesis,
 } from "./browser-bookmarks.js";
@@ -47,10 +43,6 @@ import {
   filterLowSignalDomains,
   tierFormattedSignals,
 } from "./signal-processing.js";
-import {
-  collectDevEnvironment,
-  formatDevEnvironmentForSynthesis,
-} from "./dev-environment.js";
 import {
   collectSystemSignals,
   formatSystemSignalsForSynthesis,
@@ -244,18 +236,6 @@ const collectAllUserSignalsEffect = (
 
     if (categories.includes("dev_environment")) {
       tasks.devProjects = () => collectDevProjects();
-      tasks.shell = () => analyzeShellHistory();
-      tasks.devEnv = () =>
-        collectDevEnvironment().catch((e) => {
-          log("Dev environment collection failed:", e);
-          return {
-            gitConfig: null,
-            dotfiles: [],
-            runtimes: [],
-            packageManagers: [],
-            wslDetected: false,
-          };
-        });
     }
 
     if (categories.includes("apps_system")) {
@@ -326,7 +306,7 @@ const collectAllUserSignalsEffect = (
         domainDetails: {},
       },
       devProjects: (results.devProjects as AllUserSignals["devProjects"]) ?? [],
-      shell: (results.shell as AllUserSignals["shell"]) ?? {
+      shell: {
         topCommands: [],
         projectPaths: [],
         toolsUsed: [],
@@ -335,7 +315,6 @@ const collectAllUserSignalsEffect = (
       bookmarks: results.bookmarks as BrowserBookmarks | null | undefined,
       safari: results.safari as SafariData | null | undefined,
       firefox: results.firefox as FirefoxSignals | null | undefined,
-      devEnvironment: results.devEnv as DevEnvironmentSignals | undefined,
       systemSignals: results.system as SystemSignals | undefined,
       messagesNotes: results.messagesNotes as MessagesNotesSignals | undefined,
       steamLibrary: results.steam as SteamLibrarySignals | null | undefined,
@@ -394,16 +373,6 @@ const formatSignalsForSynthesisWithSections = async (
 
     const projectsSection = formatDevProjectsForSynthesis(data.devProjects);
     if (projectsSection) categorySections.push(projectsSection);
-
-    const shellSection = formatShellAnalysisForSynthesis(data.shell);
-    if (shellSection) categorySections.push(shellSection);
-
-    if (data.devEnvironment) {
-      const devEnvSection = formatDevEnvironmentForSynthesis(
-        data.devEnvironment,
-      );
-      if (devEnvSection) categorySections.push(devEnvSection);
-    }
 
     const categoryFormatted = joinSections(categorySections);
     if (categoryFormatted) {

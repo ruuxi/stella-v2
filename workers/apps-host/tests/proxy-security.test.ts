@@ -54,13 +54,11 @@ describe("bounded Stella fetch proxy", () => {
       proxyRequest({ input: "https://api.example.com/data" }),
       createEnv({
         APP_AUTH: {
-          mintInteriorBootstrap: async () => ({
-            bootstrap: "test-interior-bootstrap",
+          mintAppBootstrap: async () => ({
+            bootstrap: "test",
             expiresAt: Date.now() + 60_000,
           }),
-          mintAppBootstrap: async () => ({ bootstrap: "test", expiresAt: Date.now() + 60_000 }),
           mintAnonymousSession: async () => ({}),
-          getInteriorRoute: async () => null,
           verifyFetchCapability: async () => ({ ok: false }),
         },
       }),

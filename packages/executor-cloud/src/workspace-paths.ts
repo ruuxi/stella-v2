@@ -16,7 +16,6 @@ export const worldRootForFork = (fork?: string): string =>
   !fork || fork === "shared" ? WORLD_ROOT : `/workspace/forks/${fork}/world`;
 
 /** Stella's own editable renderer source, a plain directory in the world. */
-export const WORLD_STELLA_ROOT = `${WORLD_ROOT}/stella`;
 
 /**
  * Where the user's drive is hydrated and where deliverables are collected

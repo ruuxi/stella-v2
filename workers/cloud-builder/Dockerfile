@@ -35,7 +35,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
 
 COPY .image/package.json ./
 COPY .image/packages ./packages
-COPY .image/interior-seed.json ./interior-seed.json
 COPY .image/bun.lock ./bun.lock
 COPY .image/image-build.json ./image-build.json
 RUN node --input-type=commonjs -e \

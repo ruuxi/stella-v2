@@ -233,28 +233,6 @@ export type AgentExecutorResult = {
   };
 };
 
-export type InteriorBuildOutput = {
-  schemaVersion: 1;
-  sourceRevision: string;
-  baseRevision?: string;
-  upstreamSeedRevision: string;
-  outputRoot: string;
-  entries: {
-    full: "index.html";
-    mini: "mini.html";
-    overlay: "overlay.html";
-    pet: "pet.html";
-  };
-  files: Array<{
-    path: string;
-    size: number;
-    sha256: string;
-    contentType: string;
-  }>;
-  artifactSha256: string;
-  size: number;
-};
-
 /**
  * A terminal state that has been decided but may not have reached Convex yet.
  *
@@ -404,15 +382,11 @@ export type WorkspaceCheckpointImports = {
  *  ------------------|--------------------------|--------------------------------
  *  agent-home        | R2 AGENT_HOME            | `agent-home/<sha256(owner)>/`
  *  conversations     | R2 CONVERSATION_ARCHIVE  | `conversations/<sha256(owner)>/`
- *  interiors         | R2 APP_BUILDS            | `interiors/<sha256(owner)>/`
- *                    |                          | (also catches orphan uploads)
  *  backups           | R2 BACKUP_BUCKET         | `backups/<backupId>/` — the id
  *                    |                          | is only in the KV descriptor
  *  builds            | R2 APP_BUILDS            | app
  *                    |                          | `builds/<ownerHash>/<buildId>/`
  *                    |                          | (legacy exact `builds/<buildId>/`)
- *                    |                          | or interior
- *                    |                          | `interiors/<ownerHash>/<buildId>/`
  *  checkpoints       | KV APP_ROUTES            | `ws:<sha256(owner:workspace)>`
  *                    |                          | and `…:size`
  *  native-checkpoints| KV + R2 BACKUP_BUCKET    | `ws:<hash>:native-state:<threadHash>`
@@ -445,7 +419,7 @@ export type OwnerPurgeRequest = {
   purgeGeneration?: string;
   /** App slugs whose hosted route row must go. */
   appSlugs?: string[];
-  /** App/interior build artifactPrefix values in APP_BUILDS. */
+  /** App build artifactPrefix values in APP_BUILDS. */
   buildPrefixes?: string[];
   /** Private browser profiles that must be confirmed gone before row drain. */
   browserProfiles?: string[];

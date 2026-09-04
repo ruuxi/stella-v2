@@ -128,7 +128,6 @@ import {
   cloudHomeLeaseRunner,
   createTransferCoordinatorContext,
   handleWorldRoute,
-  INTERIOR_BUILD_PREFIX_PATTERN,
   LEGACY_BUILD_PREFIX_PATTERN,
   parseTransferReservationEnvelope,
   purgeOwnerStorage,
@@ -1545,14 +1544,12 @@ export const worker = {
         toOwnerId: transfer.toOwnerId,
         operationScope: `product:${await stableValueMarker({
           agentHome: transfer.agentHome,
-          interiors: transfer.interiors,
           world: transfer.world,
           appSlugs: transfer.appSlugs,
         })}`,
         plan: {
           kind: "product",
           agentHome: transfer.agentHome,
-          interiors: transfer.interiors,
           world: transfer.world,
           appSlugs: transfer.appSlugs,
         },
@@ -1949,7 +1946,7 @@ export const worker = {
     //   - It never reports success it did not achieve: anything it could not
     //     finish comes back in `pending`, and the caller keeps the Convex rows
     //     that name those bytes until a later pass returns `pending: []`.
-    //   - The named stores (`appSlugs` and legacy/interior
+    //   - The named stores (`appSlugs` and legacy
     //     `buildPrefixes`) cannot all be derived from the owner id, so Convex
     //     reads them off the rows and sends them here BEFORE deleting those
     //     rows. New app builds are additionally swept by their owner-hash root
@@ -1975,9 +1972,7 @@ export const worker = {
       if (
         !(
           LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
-          isOwnerAppBuildPrefix(prefix, ownerHash) ||
-          (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
-            prefix.startsWith(`interiors/${ownerHash}/`))
+          isOwnerAppBuildPrefix(prefix, ownerHash)
         )
       ) {
         return json({ error: "artifactPrefix does not belong to owner." }, 403);

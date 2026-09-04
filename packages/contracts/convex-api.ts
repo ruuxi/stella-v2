@@ -98,14 +98,6 @@ export type PublicApiType = {
     "forkMyConversation": FunctionReference<'action', 'public', { requestId: string; sourceConversationId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; }, any, string | undefined>;
     "rewindMyConversation": FunctionReference<'action', 'public', { conversationId: string; requestId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; activeTurnPolicy: 'conflict' | 'cancel'; }, any, string | undefined>;
   };
-  "cloud_deployments": {
-    "getMyActiveInteriorManifest": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "listMyInteriorBuilds": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
-    "ensureMyInteriorStableRoute": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
-    "rotateMyInteriorStableRoute": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
-    "promoteMyInteriorBuild": FunctionReference<'mutation', 'public', { buildId: string; expectedRouteRevision: number; }, any, string | undefined>;
-    "rollbackMyInteriorBuild": FunctionReference<'mutation', 'public', { expectedRouteRevision: number; }, any, string | undefined>;
-  };
   "cloud_drive": {
     "prepareDriveUpload": FunctionReference<'action', 'public', { contentType?: string | undefined; sizeBytes: number; path: string; }, any, string | undefined>;
     "finalizeDriveUpload": FunctionReference<'action', 'public', { source?: string | undefined; contentType?: string | undefined; path: string; uploadId: string; }, any, string | undefined>;

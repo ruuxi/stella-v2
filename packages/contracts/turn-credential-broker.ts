@@ -7,8 +7,6 @@ export const TURN_BROKER_TURN_STATE_CHECKPOINT_PATH =
 /** @deprecated Use the world + native turn-state checkpoint path. */
 export const TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH =
   TURN_BROKER_TURN_STATE_CHECKPOINT_PATH;
-export const TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH =
-  "/internal/stella/turn/interior-build-request";
 
 export const TURN_BROKER_HEADERS = {
   ownerId: "x-stella-broker-owner-id",
@@ -49,21 +47,6 @@ export type TurnBrokerHandoff = TurnBrokerIdentity & {
 /** The turn input carries only this non-secret pointer. */
 export type TurnBrokerInput = {
   credentialsPath: string;
-};
-
-/**
- * A Stella-interior turn asking Builder to run the production interior build
- * after it finishes. Builder records the request; nothing about the artifact
- * or its activation is decided here.
- */
-export type TurnBrokerInteriorBuildRequest = {
-  schemaVersion: 1;
-  note?: string;
-};
-
-export type TurnBrokerInteriorBuildRequestReceipt = {
-  schemaVersion: 1;
-  requested: true;
 };
 
 export type TurnBrokerNativeStateCheckpoint = {

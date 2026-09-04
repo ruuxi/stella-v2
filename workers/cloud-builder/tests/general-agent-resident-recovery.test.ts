@@ -34,10 +34,12 @@ mock.module("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
 }));
 const { BuildSession } = await import("../src/index.js");
-const { commitResidentTurnDurability } =
-  await import("../src/build-session/resident-turn.js");
-const { TurnStateRegistryBookkeepingError } =
-  await import("../src/build-session/shared/errors.js");
+const { commitResidentTurnDurability } = await import(
+  "../src/build-session/resident-turn.js"
+);
+const { TurnStateRegistryBookkeepingError } = await import(
+  "../src/build-session/shared/errors.js"
+);
 mock.restore();
 
 const STELLA = {
@@ -466,9 +468,6 @@ describe("resident agent turn recovery", () => {
     Object.assign(harness.instance, {
       turnStateCheckpointRuns: new Map(),
       currentSandbox: async () => ({}),
-      publishRequestedInteriorCandidate: async () => ({
-        outcome: "not_requested",
-      }),
       executeTurnStateCheckpoint: async () => {
         worldCheckpointed = true;
         throw new TurnStateRegistryBookkeepingError(
@@ -486,7 +485,6 @@ describe("resident agent turn recovery", () => {
       turn,
       execution: { assertActive: () => undefined },
       ladder: {
-        attachForInteriorBuild: async () => undefined,
         attached: () => true,
         quiesce: async () => undefined,
       },

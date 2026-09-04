@@ -1,6 +1,5 @@
 import { CloudEnginesCard } from "./CloudEnginesCard";
 import { CloudProjectsCard } from "./CloudProjectsCard";
-import { StellaInteriorCard } from "./StellaInteriorCard";
 import { CloudBrowserDataCard } from "./CloudBrowserDataCard";
 import { CloudBoundary } from "./CloudBoundary";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
@@ -24,9 +23,6 @@ function AccountScopedCloudCards() {
       </CloudBoundary>
       <CloudBoundary fallback={unavailable("Cloud projects")}>
         <CloudProjectsCard />
-      </CloudBoundary>
-      <CloudBoundary fallback={unavailable("Stella interior")}>
-        <StellaInteriorCard />
       </CloudBoundary>
       <CloudBoundary fallback={unavailable("Cloud browser data")}>
         <CloudBrowserDataCard />

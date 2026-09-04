@@ -649,19 +649,6 @@ describe("build projections", () => {
         { kind: "build.recorded", key: "build:foreign", reason: "invalid" },
       ],
     });
-    const interior = event("interior-build.recorded", {
-      buildId: "interior-bad",
-      payload: { buildId: "interior-bad" },
-    });
-    expect(await ingest(t, [interior])).toMatchObject({
-      rejected: [
-        {
-          kind: "interior-build.recorded",
-          key: interior.key,
-          reason: "invalid",
-        },
-      ],
-    });
     await t.run(async (ctx) => {
       const builds = await ctx.db.query("cloud_app_builds").collect();
       expect(builds).toHaveLength(1);

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   APP_BUILD_ROOT,
   WORLD_ROOT,
-  WORLD_STELLA_ROOT,
   checkpointBackupName,
   checkpointKey,
   worldName,
@@ -25,9 +24,8 @@ describe("world checkpoint identity", () => {
     expect(checkpointBackupName(key)).toBe(`stella-${key.slice(3, 27)}`);
   });
 
-  test("keeps the interior source inside the world and app builds outside it", () => {
+  test("keeps the world and app build sandboxes separate", () => {
     expect(WORLD_ROOT).toBe("/workspace/world");
-    expect(WORLD_STELLA_ROOT.startsWith(`${WORLD_ROOT}/`)).toBe(true);
     expect(APP_BUILD_ROOT.startsWith(`${WORLD_ROOT}/`)).toBe(false);
   });
 });

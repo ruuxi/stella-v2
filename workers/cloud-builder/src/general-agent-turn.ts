@@ -161,11 +161,7 @@ export type TurnComputeUse =
   | Readonly<{ kind: "resident" }>
   | Readonly<{
       kind: "sandbox";
-      reason:
-        | "native_engine"
-        | "process_tool"
-        | "filesystem_tool"
-        | "interior_build";
+      reason: "native_engine" | "process_tool" | "filesystem_tool";
       instanceSize: "small" | "large";
       coldStartMs: number;
       restoreMs: number;

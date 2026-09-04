@@ -9,7 +9,6 @@ import {
   GENERAL_AGENT_TOOL_NAMES,
   NO_JS_SANDBOX_MESSAGE,
   NO_WORKSPACE_ATTACHED_MESSAGE,
-  PUBLISH_STELLA_INTERIOR_TOOL_NAME,
   UnknownGeneralAgentToolError,
   computeForTool,
   createResidentGeneralAgentTools,
@@ -54,7 +53,6 @@ describe("general-agent capability table", () => {
       "pause_agent",
       "agent_status",
       "merge_workspace",
-      PUBLISH_STELLA_INTERIOR_TOOL_NAME,
     ]);
   });
 
@@ -135,9 +133,9 @@ describe("pinned resident catalog", () => {
 
   test("refuses to build a catalog missing a do-local implementation", () => {
     const partial = new Map(doLocalStubs());
-    partial.delete(PUBLISH_STELLA_INTERIOR_TOOL_NAME);
+    partial.delete("web");
     expect(() => createResidentGeneralAgentTools(partial)).toThrow(
-      /missing its publish_stella_interior implementation/u,
+      /missing its web implementation/u,
     );
   });
 

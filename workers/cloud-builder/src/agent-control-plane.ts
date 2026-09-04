@@ -22,12 +22,7 @@ import {
   containsSecretLikeToken,
   sanitizeToolVisibleText,
 } from "@stella/runtime/kernel/tools/safety.js";
-import type { TurnBrokerInteriorBuildRequest } from "@stella/contracts/turn-credential-broker";
 import type { SealedTurnTranscript } from "./agent-turn-journal.js";
-import {
-  interiorBuildRequestKey,
-  interiorBuildRequestRecord,
-} from "./interior-build-request.js";
 import { nativeHistoryCursorFromRows } from "./native-state-checkpoint.js";
 
 const CALLBACK_TIMEOUT_MS = 30_000;
@@ -78,10 +73,6 @@ export interface GeneralAgentControlPlane {
     request: WebToolRequest,
     signal?: AbortSignal,
   ): Promise<AgentToolResult<WebToolDetails>>;
-  recordInteriorBuildRequest(
-    request: TurnBrokerInteriorBuildRequest,
-    now: number,
-  ): Promise<void>;
 }
 
 export class AgentControlPlaneError extends Error {
@@ -282,20 +273,6 @@ export const createAgentControlPlane = (deps: {
         content: [{ type: "text", text: text || "No results found." }],
         details: { mode: "search", query, text },
       };
-    },
-    recordInteriorBuildRequest: async (request, now) => {
-      await deps.storage.put(
-        interiorBuildRequestKey(
-          deps.identity.turnId,
-          deps.identity.attemptGeneration,
-        ),
-        interiorBuildRequestRecord({
-          request,
-          turnId: deps.identity.turnId,
-          attemptGeneration: deps.identity.attemptGeneration,
-          now,
-        }),
-      );
     },
   };
 };

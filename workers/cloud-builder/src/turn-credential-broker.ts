@@ -1,7 +1,6 @@
 import {
   TURN_BROKER_AUTH_SCHEME,
   TURN_BROKER_HEADERS,
-  TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   TURN_BROKER_RESPONSE_HEADERS,
   TURN_BROKER_VERSION,
@@ -75,7 +74,6 @@ export type TurnBrokerTarget = {
     | "browser-gateway"
     | "builder-callback"
     | "callback"
-    | "interior-build-request"
     | "turn-event"
     | "thread-messages";
   method: "POST";
@@ -373,14 +371,6 @@ export const validateTurnBrokerTarget = (
       method: "POST",
       path: parsed.pathname,
       maxBodyBytes: MAX_TURN_STATE_CHECKPOINT_BODY_BYTES,
-    };
-  }
-  if (parsed.pathname === TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH) {
-    return {
-      kind: "interior-build-request",
-      method: "POST",
-      path: parsed.pathname,
-      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
     };
   }
   if (parsed.pathname === "/api/cloud/browser/command") {
@@ -692,7 +682,9 @@ export const turnBrokerSandboxResponseHeaders = (
   return headers;
 };
 
-const finiteTurnBrokerUpstreamErrorResponse = (upstream: Response): Response => {
+const finiteTurnBrokerUpstreamErrorResponse = (
+  upstream: Response,
+): Response => {
   const headers = turnBrokerSandboxResponseHeaders(upstream.headers);
   headers.delete("content-encoding");
   headers.delete("content-length");

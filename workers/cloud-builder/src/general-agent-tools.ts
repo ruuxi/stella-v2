@@ -82,8 +82,6 @@ import {
  */
 export type GeneralAgentToolCompute = "container" | "do_local" | "js_sandbox";
 
-export const PUBLISH_STELLA_INTERIOR_TOOL_NAME = "publish_stella_interior";
-
 /**
  * `code` runs in the JS sandbox, exactly as the cloud orchestrator's `code`
  * does: the same Dynamic Worker executor, the same read-only nested-tool
@@ -109,7 +107,6 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
   pause_agent: "do_local",
   agent_status: "do_local",
   merge_workspace: "do_local",
-  [PUBLISH_STELLA_INTERIOR_TOOL_NAME]: "do_local",
 } as const satisfies Record<string, GeneralAgentToolCompute>;
 
 export type GeneralAgentToolName = keyof typeof GENERAL_AGENT_TOOL_COMPUTE;
@@ -153,31 +150,6 @@ export type GeneralAgentToolDescriptor = Readonly<{
   description: string;
   parameters: Record<string, unknown>;
 }>;
-
-/**
- * The one pinned tool with no tool-host handler behind it. The container path
- * answers it by posting a turn-broker command; the resident path records the
- * request in the DO directly.
- */
-const PUBLISH_STELLA_INTERIOR_DESCRIPTOR: GeneralAgentToolDescriptor = {
-  name: PUBLISH_STELLA_INTERIOR_TOOL_NAME,
-  label: "Publish interior build",
-  workingText: "Requesting the interior build",
-  description:
-    "Ask Stella to run the immutable production build of this Stella interior workspace after this turn finishes, and record the result as a candidate the user can select in Settings. Call it once, only when your source changes are complete and you would stand behind them. It publishes nothing on its own: the user chooses whether to switch to the candidate.",
-  parameters: {
-    type: "object",
-    properties: {
-      note: {
-        type: "string",
-        maxLength: 512,
-        description:
-          "Optional one-line summary of what changed, for the build record.",
-      },
-    },
-    additionalProperties: false,
-  },
-};
 
 /**
  * Every model-visible entry, in the order the container executor emits it.
@@ -244,7 +216,6 @@ export const GENERAL_AGENT_TOOL_DESCRIPTORS: readonly GeneralAgentToolDescriptor
       ...descriptor,
       label: descriptor.name,
     })),
-    PUBLISH_STELLA_INTERIOR_DESCRIPTOR,
   ];
 
 export const descriptorForTool = (

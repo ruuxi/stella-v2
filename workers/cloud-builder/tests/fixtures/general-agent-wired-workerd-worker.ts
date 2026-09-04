@@ -120,7 +120,6 @@ const doLocalTool = (name: string): AgentTool => ({
 const TOOLS = createResidentGeneralAgentTools(
   new Map([
     ["web", doLocalTool("web")],
-    ["publish_stella_interior", doLocalTool("publish_stella_interior")],
     ["Read", doLocalTool("Read")],
     ["apply_patch", doLocalTool("apply_patch")],
     ["Write", doLocalTool("Write")],
@@ -230,7 +229,6 @@ export class WiredTurnHarness extends DurableObject {
               content: [{ type: "text", text: "ok" }],
               details: { mode: "search", query: "", text: "" },
             }),
-            recordInteriorBuildRequest: async () => {},
           },
           modelGateway: MODEL_GATEWAY,
           sql: this.ctx.storage.sql,

@@ -176,7 +176,6 @@ const RESIDENT_TOOLS = createResidentGeneralAgentTools(
     ["pause_agent", noopDoLocalTool("pause_agent")],
     ["agent_status", noopDoLocalTool("agent_status")],
     ["merge_workspace", noopDoLocalTool("merge_workspace")],
-    ["publish_stella_interior", noopDoLocalTool("publish_stella_interior")],
   ]),
 );
 
@@ -225,7 +224,6 @@ const harness = (args: {
           content: [{ type: "text", text: "ok" }],
           details: { mode: "search", query: "", text: "" },
         }),
-        recordInteriorBuildRequest: async () => {},
       },
       modelGateway: MODEL_GATEWAY,
       sql: fake.sql,
@@ -315,7 +313,6 @@ describe("resident Stella loop", () => {
       "pause_agent",
       "agent_status",
       "merge_workspace",
-      "publish_stella_interior",
     ]);
   });
 

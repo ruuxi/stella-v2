@@ -131,12 +131,6 @@ export type BuildRecordedEvent = OutboxBase & {
   payload: unknown;
 };
 
-export type InteriorBuildRecordedEvent = OutboxBase & {
-  kind: "interior-build.recorded";
-  buildId: string;
-  payload: unknown;
-};
-
 /**
  * Placement projection for the activity UI. Emitted by the owner gate on
  * every dispatch transition; `key` is `${dispatchId}:${revision}` and Convex
@@ -157,8 +151,7 @@ export type OutboxEvent =
   | TurnEventEvent
   | ThreadSpawnedEvent
   | ThreadCompletedEvent
-  | BuildRecordedEvent
-  | InteriorBuildRecordedEvent;
+  | BuildRecordedEvent;
 
 export type OutboxEventKind = OutboxEvent["kind"];
 

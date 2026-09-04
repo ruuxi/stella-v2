@@ -356,7 +356,7 @@ describe("tunnel and artifact quotas", () => {
     ).toBe(true);
   });
 
-  it("counts recorded mini-app and interior bytes against the plan quota", async () => {
+  it("counts recorded mini-app bytes against the plan quota", async () => {
     process.env.STELLA_APP_ARTIFACT_QUOTA_MB_FREE = "1";
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
@@ -369,25 +369,10 @@ describe("tunnel and artifact quotas", () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      await ctx.db.insert("cloud_interior_builds", {
-        buildId: "interior-build",
-        deployableId: "stella-interior:artifact-owner",
-        ownerId: "artifact-owner",
-        turnId: "turn",
-        threadId: "thread",
-        artifactPrefix: "interiors/owner/build",
-        artifactManifestJson: "{}",
-        manifestSha256: "sha256",
-        artifactDigest: "sha256",
-        artifactSizeBytes: 300_000,
-        bridgeAbi: 1,
-        minShellVersion: "1.0.0",
-        createdAt: 1,
-      });
       await expect(
         assertOwnerArtifactQuota(ctx, {
           ownerId: "artifact-owner",
-          additionalBytes: 60_000,
+          additionalBytes: 400_000,
         }),
       ).rejects.toSatisfy(
         (error: unknown) => convexErrorCode(error) === "ARTIFACT_QUOTA",

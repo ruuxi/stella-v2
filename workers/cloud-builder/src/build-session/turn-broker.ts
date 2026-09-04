@@ -16,11 +16,6 @@ import {
 } from "../general-agent-turn.js";
 import { sha256BytesHex } from "../hash.js";
 import {
-  interiorBuildRequestKey,
-  interiorBuildRequestRecord,
-  parseInteriorBuildRequest,
-} from "../interior-build-request.js";
-import {
   nativeHistoryCursorFromRows,
   validNativeStateCheckpointMac,
 } from "../native-state-checkpoint.js";
@@ -88,7 +83,6 @@ import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { TURN_BROKER_RESPONSE_HEADERS } from "@stella/contracts/turn-credential-broker";
 import type {
-  TurnBrokerInteriorBuildRequestReceipt,
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
@@ -565,7 +559,8 @@ export const executeTurnStateCheckpoint = async (
   });
   try {
     let nativeUpload:
-      Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
+      | Awaited<ReturnType<typeof uploadTurnStateArchive>>
+      | undefined;
     if (prepared.objectKeys.native) {
       nativeUpload = await uploadTurnStateArchive({
         session,
@@ -869,7 +864,6 @@ export const handleTurnBroker = async (
     decoded = undefined;
   }
   const payload = parseTurnStateCheckpointRequest(decoded);
-  const interiorRequest = parseInteriorBuildRequest(decoded);
 
   const admission = await host.ctx.blockConcurrencyWhile(async () => {
     const [
@@ -937,20 +931,6 @@ export const handleTurnBroker = async (
       bodySha256: requestFingerprint,
     });
     if (!claimed.ok) return { kind: "denied" as const, claimed };
-    if (claimed.target.kind === "interior-build-request") {
-      if (!interiorRequest) return { kind: "malformed" as const };
-      await host.ctx.storage.put({
-        [recordKey]: claimed.record,
-        [interiorBuildRequestKey(turn.turnId, turn.attemptGeneration!)]:
-          interiorBuildRequestRecord({
-            request: interiorRequest,
-            turnId: turn.turnId,
-            attemptGeneration: turn.attemptGeneration!,
-            now: Date.now(),
-          }),
-      });
-      return { kind: "interior-build-request" as const };
-    }
     if (claimed.disposition === "replay") {
       if (claimed.target.kind === "browser-gateway") {
         return {
@@ -1013,7 +993,6 @@ export const handleTurnBroker = async (
   if (admission.kind === "denied") {
     return turnBrokerDenialResponse(admission.claimed);
   }
-  if (admission.kind === "malformed") return brokerFailure(400);
   if (admission.kind === "local") {
     return await handleBrokerLocalRequest(
       host,
@@ -1021,15 +1000,6 @@ export const handleTurnBroker = async (
       admission.target,
       decoded,
       admission.signal,
-    );
-  }
-  if (admission.kind === "interior-build-request") {
-    return Response.json(
-      {
-        schemaVersion: 1,
-        requested: true,
-      } satisfies TurnBrokerInteriorBuildRequestReceipt,
-      { headers: { "cache-control": "no-store" } },
     );
   }
   if (admission.kind === "forward") {

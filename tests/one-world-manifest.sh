@@ -17,7 +17,7 @@ for sym in CLOUD_WORKSPACE_PATTERN checkWorkspaceProvisioned executionSubjectFor
   resolveWorkspace COMPUTER_AGENT_WORKSPACE WorkspaceKind MOUNT_PATHS WORKSPACE_ROOTS \
   normalizeExecutionWorkspace deriveServerExecutionSubject assertExecutionWorkspaceAuthority \
   driveWritePrefixForWorkspace getTurnWorkspaceInternal turnHydratesDrive drivePrefixFor \
-  toolStateDirFor workspaceKind seedFirstStellaToolWorkspace TOOL_WORKSPACE_ROOTS \
+  toolStateDirFor workspaceKind TOOL_WORKSPACE_ROOTS \
   TURN_STATE_WORKSPACE_ROOTS spawnIntentFingerprint; do
   report "$sym" "\\b$sym\\b"
 done

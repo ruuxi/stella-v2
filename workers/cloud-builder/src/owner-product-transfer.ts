@@ -13,7 +13,6 @@ export type OwnerProductTransferRequest = OwnerTransferControl & {
   fromOwnerId: string;
   toOwnerId: string;
   agentHome: boolean;
-  interiors: boolean;
   /** Move the source owner's world onto the destination owner. */
   world: boolean;
   appSlugs: string[];
@@ -49,7 +48,6 @@ export const parseOwnerProductTransferRequest = (
   }
   if (
     typeof value.agentHome !== "boolean" ||
-    typeof value.interiors !== "boolean" ||
     typeof value.world !== "boolean" ||
     !Array.isArray(value.appSlugs) ||
     value.appSlugs.length > 4
@@ -66,7 +64,6 @@ export const parseOwnerProductTransferRequest = (
     fromOwnerId,
     toOwnerId,
     agentHome: value.agentHome,
-    interiors: value.interiors,
     world: value.world,
     appSlugs,
   };
@@ -144,7 +141,7 @@ export const replaceOwnerPrefix = (
     : null;
 
 const OWNER_NAMESPACE_PREFIX =
-  /^(agent-home|interiors)\/([0-9a-f]{64})\/(?:__stella_imported__\/([0-9a-f]{64})\/)?$/;
+  /^agent-home\/([0-9a-f]{64})\/(?:__stella_imported__\/([0-9a-f]{64})\/)?$/;
 const OWNER_BUILD_PREFIX = /^builds\/([0-9a-f]{64})\/$/;
 const BACKUP_PREFIX =
   /^backups\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/$/i;
@@ -160,19 +157,16 @@ export const isValidOwnerTransferPrefixPair = (
     return Boolean(
       sourceNamespace &&
         destinationNamespace &&
-        sourceNamespace[1] === destinationNamespace[1] &&
-        sourceNamespace[3] === undefined &&
-        destinationNamespace[2] !== sourceNamespace[2] &&
-        destinationNamespace[3] === sourceNamespace[2],
+        sourceNamespace[2] === undefined &&
+        destinationNamespace[1] !== sourceNamespace[1] &&
+        destinationNamespace[2] === sourceNamespace[1],
     );
   }
   const sourceBuild = sourcePrefix.match(OWNER_BUILD_PREFIX);
   const destinationBuild = destinationPrefix.match(OWNER_BUILD_PREFIX);
   if (sourceBuild || destinationBuild) {
     return Boolean(
-      sourceBuild &&
-        destinationBuild &&
-        sourceBuild[1] !== destinationBuild[1],
+      sourceBuild && destinationBuild && sourceBuild[1] !== destinationBuild[1],
     );
   }
   const sourceBackup = sourcePrefix.match(BACKUP_PREFIX);
@@ -182,89 +176,6 @@ export const isValidOwnerTransferPrefixPair = (
       destinationBackup &&
       sourceBackup[1]!.toLowerCase() !== destinationBackup[1]!.toLowerCase(),
   );
-};
-
-type InteriorArtifactManifest = {
-  schemaVersion: 1;
-  buildId: string;
-  version: string;
-  artifactPrefix: string;
-  files: Array<{ path: string; url: string; [key: string]: unknown }>;
-  [key: string]: unknown;
-};
-
-/**
- * Rewrites the typed interior manifest fields only. A global string replace can
- * mutate unrelated user-controlled strings and does not prove the old prefix
- * was structurally where the manifest contract requires it.
- */
-export const rewriteInteriorArtifactManifest = async (args: {
-  manifestJson: string;
-  sourcePrefix: string;
-  destinationPrefix: string;
-  appsHostOrigin: string;
-}): Promise<{ manifestJson: string; manifestSha256: string }> => {
-  if (!isValidOwnerTransferPrefixPair(args.sourcePrefix, args.destinationPrefix)) {
-    throw new Error("Invalid interior ownership-transfer prefixes.");
-  }
-  const parsed = JSON.parse(args.manifestJson) as Partial<InteriorArtifactManifest>;
-  if (
-    parsed.schemaVersion !== 1 ||
-    typeof parsed.buildId !== "string" ||
-    parsed.version !== parsed.buildId ||
-    typeof parsed.artifactPrefix !== "string" ||
-    !Array.isArray(parsed.files)
-  ) {
-    throw new Error("Invalid interior artifact manifest.");
-  }
-  const artifactPrefix = replaceOwnerPrefix(
-    `${parsed.artifactPrefix}/`,
-    args.sourcePrefix,
-    args.destinationPrefix,
-  )?.replace(/\/$/, "");
-  if (
-    !artifactPrefix ||
-    !parsed.artifactPrefix.endsWith(`/${parsed.buildId}`)
-  ) {
-    throw new Error("Interior artifact prefix does not match its build id.");
-  }
-  const sourcePath = `/interior-builds/${parsed.artifactPrefix.slice(
-    "interiors/".length,
-  )}/`;
-  const destinationPath = `/interior-builds/${artifactPrefix.slice(
-    "interiors/".length,
-  )}/`;
-  const files = parsed.files.map((file) => {
-    if (
-      !file ||
-      typeof file.path !== "string" ||
-      typeof file.url !== "string"
-    ) {
-      throw new Error("Invalid interior artifact file entry.");
-    }
-    const url = new URL(file.url);
-    if (
-      url.origin !== args.appsHostOrigin ||
-      !url.pathname.startsWith(sourcePath) ||
-      decodeURIComponent(url.pathname.slice(sourcePath.length)) !== file.path
-    ) {
-      throw new Error("Interior artifact URL does not match its file path.");
-    }
-    url.pathname = `${destinationPath}${file.path
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`;
-    return { ...file, url: url.toString() };
-  });
-  const manifestJson = JSON.stringify({
-    ...parsed,
-    artifactPrefix,
-    files,
-  });
-  return {
-    manifestJson,
-    manifestSha256: `sha256:${await sha256Hex(manifestJson)}`,
-  };
 };
 
 type TransferLeaseIdentity = {

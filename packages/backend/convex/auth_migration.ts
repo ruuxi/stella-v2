@@ -60,7 +60,6 @@ import {
   importedAgentHomeDocumentName,
   importedAgentHomePrefix,
   importedDrivePath,
-  importedInteriorPrefix,
   importedOwnerScopedKey,
   importedProjectSlug,
   importedSkillSlug,
@@ -3886,7 +3885,6 @@ export const listCloudConversationTransferBatch = internalQuery({
 const cloudProductStageValidator = v.union(
   v.literal("owner-namespaces"),
   v.literal("apps"),
-  v.literal("interior"),
   v.literal("projects"),
   v.literal("core"),
   v.literal("complete"),
@@ -3894,7 +3892,6 @@ const cloudProductStageValidator = v.union(
 type CloudProductStage =
   | "owner-namespaces"
   | "apps"
-  | "interior"
   | "projects"
   | "core"
   | "complete";
@@ -3988,7 +3985,6 @@ const cloudProductWorkReturn = v.union(
     appId: v.string(),
     slug: v.string(),
   }),
-  v.object({ kind: v.literal("interior") }),
   v.object({
     kind: v.literal("project"),
     projectId: v.string(),
@@ -4037,29 +4033,8 @@ export const getCloudProductTransferWork = internalQuery({
       return {
         kind: "advance",
         stage,
-        nextStage: "interior",
+        nextStage: "projects",
       } as const;
-    }
-    if (stage === "interior") {
-      const deployment = await ctx.db
-        .query("cloud_interior_deployables")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-        .unique();
-      const build = (
-        await ctx.db
-          .query("cloud_interior_builds")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", args.fromOwnerId),
-          )
-          .take(1)
-      )[0];
-      return deployment || build
-        ? ({ kind: "interior" } as const)
-        : ({
-            kind: "advance",
-            stage,
-            nextStage: "projects",
-          } as const);
     }
     if (stage === "projects") {
       const project = (
@@ -6010,141 +5985,6 @@ const transferCloudAppStorageRow = async (
   await ctx.db.patch(row._id, { ownerId, userId });
 };
 
-const sameExactKeys = (value: Record<string, unknown>, expected: string[]) =>
-  Object.keys(value).length === expected.length &&
-  expected.every((key) => Object.prototype.hasOwnProperty.call(value, key));
-
-const rewriteOwnedArtifactManifest = async (
-  build: Pick<
-    Doc<"cloud_interior_builds">,
-    | "buildId"
-    | "artifactPrefix"
-    | "artifactManifestJson"
-    | "manifestSha256"
-    | "artifactDigest"
-    | "artifactSizeBytes"
-    | "bridgeAbi"
-    | "minShellVersion"
-  >,
-  sourceOwnerPrefix: string,
-  destinationOwnerPrefix: string,
-): Promise<{ artifactManifestJson: string; manifestSha256: string }> => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(build.artifactManifestJson) as unknown;
-  } catch {
-    return blockOwnershipMigration(
-      "An interior artifact manifest is not valid JSON.",
-    );
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return blockOwnershipMigration("An interior artifact manifest is invalid.");
-  }
-  const manifest = parsed as Record<string, unknown>;
-  const manifestKeys = [
-    "schemaVersion",
-    "buildId",
-    "version",
-    "artifactPrefix",
-    "entries",
-    "files",
-    "artifactSha256",
-    "size",
-    "bridgeAbi",
-    "minShellVersion",
-  ];
-  const expectedSourcePrefix = `${sourceOwnerPrefix}${build.buildId}`;
-  const destinationPrefix = `${destinationOwnerPrefix}${build.buildId}`;
-  if (
-    !sameExactKeys(manifest, manifestKeys) ||
-    manifest.schemaVersion !== 1 ||
-    manifest.buildId !== build.buildId ||
-    manifest.version !== build.buildId ||
-    manifest.artifactPrefix !== expectedSourcePrefix ||
-    build.artifactPrefix !== expectedSourcePrefix ||
-    manifest.size !== build.artifactSizeBytes ||
-    manifest.bridgeAbi !== build.bridgeAbi ||
-    manifest.minShellVersion !== build.minShellVersion ||
-    manifest.artifactSha256 !== build.artifactDigest.replace(/^sha256:/, "") ||
-    !manifest.entries ||
-    typeof manifest.entries !== "object" ||
-    Array.isArray(manifest.entries) ||
-    !Array.isArray(manifest.files) ||
-    manifest.files.length === 0
-  ) {
-    return blockOwnershipMigration(
-      "An interior artifact manifest contradicts its immutable build.",
-    );
-  }
-  const existingManifestSha256 = `sha256:${await hashSha256Hex(
-    build.artifactManifestJson,
-  )}`;
-  if (build.manifestSha256 !== existingManifestSha256) {
-    return blockOwnershipMigration(
-      "An interior artifact manifest digest does not match its bytes.",
-    );
-  }
-
-  const sourceUrlPath = `/interior-builds/${expectedSourcePrefix.slice(
-    "interiors/".length,
-  )}/`;
-  const destinationUrlPath = `/interior-builds/${destinationPrefix.slice(
-    "interiors/".length,
-  )}/`;
-  let expectedOrigin: string | null = null;
-  const files = manifest.files.map((rawFile) => {
-    if (!rawFile || typeof rawFile !== "object" || Array.isArray(rawFile)) {
-      return blockOwnershipMigration("An interior artifact file is invalid.");
-    }
-    const file = rawFile as Record<string, unknown>;
-    if (
-      !sameExactKeys(file, ["path", "url", "size", "sha256", "contentType"]) ||
-      typeof file.path !== "string" ||
-      typeof file.url !== "string"
-    ) {
-      return blockOwnershipMigration("An interior artifact file is invalid.");
-    }
-    let url: URL;
-    try {
-      url = new URL(file.url);
-      const relativePath = decodeURIComponent(
-        url.pathname.slice(sourceUrlPath.length),
-      );
-      if (
-        (url.protocol !== "https:" && url.protocol !== "http:") ||
-        url.username !== "" ||
-        url.password !== "" ||
-        url.search !== "" ||
-        url.hash !== "" ||
-        !url.pathname.startsWith(sourceUrlPath) ||
-        relativePath !== file.path ||
-        (expectedOrigin !== null && url.origin !== expectedOrigin)
-      ) {
-        return blockOwnershipMigration(
-          "An interior artifact URL does not match its file path.",
-        );
-      }
-    } catch {
-      return blockOwnershipMigration("An interior artifact URL is invalid.");
-    }
-    expectedOrigin ??= url.origin;
-    url.pathname = `${destinationUrlPath}${file.path
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`;
-    return { ...file, url: url.toString() };
-  });
-  const artifactManifestJson = JSON.stringify({
-    ...manifest,
-    artifactPrefix: destinationPrefix,
-    files,
-  });
-  return {
-    artifactManifestJson,
-    manifestSha256: `sha256:${await hashSha256Hex(artifactManifestJson)}`,
-  };
-};
-
 export const commitOwnerNamespaceTransfer = internalMutation({
   args: {
     ...leasedOwnerArgs,
@@ -6667,97 +6507,6 @@ export const commitCloudAppTransferBatch = internalMutation({
       return await finish({ hasMore: true, progressed: true });
     }
     await ctx.db.patch(app._id, { ownerId: args.toOwnerId });
-    return await finish({ hasMore: false, progressed: true });
-  },
-});
-
-export const commitCloudInteriorTransferBatch = internalMutation({
-  args: {
-    ...leasedOwnerArgs,
-    fromOwnerHash: v.string(),
-    toOwnerHash: v.string(),
-    ...externalTransferReceiptArgs,
-  },
-  returns: cloudProductBatchReturn,
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    if ((migration.cloudProductStage ?? "owner-namespaces") !== "interior") {
-      throw new ConvexError({
-        code: "STALE_OWNERSHIP_MIGRATION_STAGE",
-        message:
-          "Cloud interior acknowledgement does not match the active stage.",
-      });
-    }
-    const finish = async (result: {
-      hasMore: boolean;
-      progressed: boolean;
-    }) => {
-      await storeExternalTransferAck(
-        ctx,
-        migration,
-        args,
-        args,
-        !result.hasMore,
-      );
-      return result;
-    };
-    const sourceBuild = (
-      await ctx.db
-        .query("cloud_interior_builds")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    const sourceDeployment = await ctx.db
-      .query("cloud_interior_deployables")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique();
-    const destinationDeployment = await ctx.db
-      .query("cloud_interior_deployables")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-      .unique();
-    if (sourceBuild) {
-      const sourcePrefix = `interiors/${args.fromOwnerHash}/`;
-      const destinationPrefix = importedInteriorPrefix(
-        args.fromOwnerHash,
-        args.toOwnerHash,
-      );
-      if (!sourceBuild.artifactPrefix.startsWith(sourcePrefix)) {
-        blockOwnershipMigration(
-          "An interior build points outside the anonymous owner namespace.",
-        );
-      }
-      const rewrittenManifest = await rewriteOwnedArtifactManifest(
-        sourceBuild,
-        sourcePrefix,
-        destinationPrefix,
-      );
-      await ctx.db.patch(sourceBuild._id, {
-        ownerId: args.toOwnerId,
-        ...(destinationDeployment
-          ? { deployableId: destinationDeployment.deployableId }
-          : {}),
-        artifactPrefix: sourceBuild.artifactPrefix.replace(
-          sourcePrefix,
-          destinationPrefix,
-        ),
-        artifactManifestJson: rewrittenManifest.artifactManifestJson,
-        manifestSha256: rewrittenManifest.manifestSha256,
-      });
-      return await finish({ hasMore: true, progressed: true });
-    }
-    if (!sourceDeployment) {
-      return await finish({ hasMore: false, progressed: false });
-    }
-    if (destinationDeployment) {
-      await ctx.db.delete(sourceDeployment._id);
-    } else {
-      await ctx.db.patch(sourceDeployment._id, {
-        ownerId: args.toOwnerId,
-        ownerHash: args.toOwnerHash,
-      });
-    }
     return await finish({ hasMore: false, progressed: true });
   },
 });
@@ -8525,22 +8274,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "cloud_interior_builds",
-        await ctx.db
-          .query("cloud_interior_builds")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_interior_deployables",
-        await ctx.db
-          .query("cloud_interior_deployables")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
         "agent_turns",
         await ctx.db
           .query("agent_turns")
@@ -8950,7 +8683,6 @@ type CloudProductTransferPayload = {
   stage: string;
   planRevision: number;
   agentHome: boolean;
-  interiors: boolean;
   world: boolean;
   appSlugs: string[];
 };
@@ -9763,7 +9495,6 @@ export const migrateOwnership = internalAction({
             stage: work.kind,
             planRevision,
             agentHome: work.kind === "owner-namespaces",
-            interiors: work.kind === "interior",
             world: work.kind === "owner-namespaces",
             appSlugs: work.kind === "app" ? [work.slug] : [],
           };
@@ -9835,19 +9566,6 @@ export const migrateOwnership = internalAction({
                   {
                     ...leaseForCommit(),
                     appId: work.appId,
-                    fromOwnerHash: verdict.fromOwnerHash,
-                    toOwnerHash: verdict.toOwnerHash,
-                    transferOperationId: verdict.transferOperationId,
-                    transferPlanFingerprint: verdict.transferPlanFingerprint,
-                    transferStage: work.kind,
-                  },
-                );
-                retryAfterMs = 1_000;
-              } else if (work.kind === "interior") {
-                await ctx.runMutation(
-                  internal.auth_migration.commitCloudInteriorTransferBatch,
-                  {
-                    ...leaseForCommit(),
                     fromOwnerHash: verdict.fromOwnerHash,
                     toOwnerHash: verdict.toOwnerHash,
                     transferOperationId: verdict.transferOperationId,

@@ -1,11 +1,4 @@
 type AppsAuthRpc = {
-  mintInteriorBootstrap(args: {
-    stableRouteId: string;
-    routeBuild:
-      | { mode: "default"; buildId: string }
-      | { mode: "custom"; buildId: string };
-    origin: string;
-  }): Promise<{ bootstrap: string; expiresAt: number }>;
   mintAppBootstrap(args: {
     appId: string;
     slug: string;
@@ -32,9 +25,6 @@ type AppsAuthRpc = {
     viewerNamespace?: string;
     expiresAt?: number;
   }>;
-  getInteriorRoute(args: {
-    stableRouteId: string;
-  }): Promise<Record<string, unknown> | null>;
 };
 
 export type AppsHostUntrustedEnv = Omit<
@@ -102,8 +92,7 @@ export const ACCEPTANCE_CLOUD_BUILDER_ORIGIN =
 export const ACCEPTANCE_CLOUD_BUILDER_WEBSOCKET_ORIGIN =
   "wss://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev" as const;
 
-export const PRODUCTION_DEPLOYMENT_IDENTITY =
-  "prod:intent-jackal-330" as const;
+export const PRODUCTION_DEPLOYMENT_IDENTITY = "prod:intent-jackal-330" as const;
 export const PRODUCTION_CONVEX_SITE_ORIGIN =
   "https://intent-jackal-330.convex.site" as const;
 export const PRODUCTION_CONVEX_CLOUD_ORIGIN =
@@ -201,14 +190,10 @@ const isAppAuthBinding = (
       (typeof value === "object" || typeof value === "function") &&
       typeof (value as { mintAnonymousSession?: unknown })
         .mintAnonymousSession === "function" &&
-      typeof (value as { mintInteriorBootstrap?: unknown })
-        .mintInteriorBootstrap === "function" &&
       typeof (value as { mintAppBootstrap?: unknown }).mintAppBootstrap ===
         "function" &&
       typeof (value as { verifyFetchCapability?: unknown })
-        .verifyFetchCapability === "function" &&
-      typeof (value as { getInteriorRoute?: unknown }).getInteriorRoute ===
-        "function",
+        .verifyFetchCapability === "function",
   );
 
 const isFetchGateBinding = (

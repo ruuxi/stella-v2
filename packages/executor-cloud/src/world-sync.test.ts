@@ -39,14 +39,20 @@ const fixture = async (revision = 0): Promise<string> => {
   const base = await mkdtemp(path.join(tmpdir(), "stella-world-sync-"));
   roots.push(base);
   const root = path.join(base, "world");
-  await mkdir(path.join(root, "stella"), { recursive: true });
+  await mkdir(path.join(root, "projects", "example"), { recursive: true });
   await mkdir(path.join(root, ".stella"));
   await writeFile(
     path.join(root, ".stella", "world-manifest"),
     `${JSON.stringify({ manifestId: "live:fixture", revision })}\n`,
   );
-  await writeFile(path.join(root, "stella", "source.txt"), "hello");
-  await symlink("source.txt", path.join(root, "stella", "node_modules"));
+  await writeFile(
+    path.join(root, "projects", "example", "source.txt"),
+    "hello",
+  );
+  await symlink(
+    "source.txt",
+    path.join(root, "projects", "example", "source-link"),
+  );
   return root;
 };
 
@@ -54,23 +60,26 @@ const sha256 = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
 
 describe("world projection sync", () => {
-  test("hashes regular files and records node_modules as a symlink", async () => {
+  test("hashes regular files and records symlinks", async () => {
     const projection = await listWorldProjection(await fixture());
     const entries = projection.entries.filter((entry) =>
-      entry.path.startsWith("stella"),
+      entry.path.startsWith("projects"),
     );
     expect(
       entries.map(({ path: entryPath, kind }) => [entryPath, kind]),
     ).toEqual([
-      ["stella", "dir"],
-      ["stella/node_modules", "symlink"],
-      ["stella/source.txt", "file"],
+      ["projects", "dir"],
+      ["projects/example", "dir"],
+      ["projects/example/source-link", "symlink"],
+      ["projects/example/source.txt", "file"],
     ]);
     expect(
-      entries.find((entry) => entry.path === "stella/node_modules")?.target,
+      entries.find((entry) => entry.path === "projects/example/source-link")
+        ?.target,
     ).toBe("source.txt");
     expect(
-      entries.find((entry) => entry.path === "stella/source.txt")?.sha256,
+      entries.find((entry) => entry.path === "projects/example/source.txt")
+        ?.sha256,
     ).toBe("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
   });
 
@@ -146,7 +155,10 @@ describe("world projection sync", () => {
     hashed.length = 0;
     await pushWorldProjection({ root, access, hashFile });
     expect(hashed).toEqual([]);
-    await writeFile(path.join(root, "stella", "source.txt"), "changed");
+    await writeFile(
+      path.join(root, "projects", "example", "source.txt"),
+      "changed",
+    );
     await pushWorldProjection({ root, access, hashFile });
     expect(hashed.map((file) => path.basename(file))).toEqual(["source.txt"]);
   });
@@ -184,7 +196,7 @@ describe("world projection sync", () => {
 
   test("pull applies upserts and deletions without following symlinks", async () => {
     const root = await fixture(1);
-    await writeFile(path.join(root, "stella", "gone.txt"), "gone");
+    await writeFile(path.join(root, "projects", "example", "gone.txt"), "gone");
     const bytes = new TextEncoder().encode("from world");
     const digest = sha256(bytes);
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -209,7 +221,7 @@ describe("world projection sync", () => {
               sha256: digest,
             },
             {
-              path: "stella/latest",
+              path: "projects/example/latest",
               kind: "symlink",
               mode: 0o777,
               mtime: 2_000,
@@ -217,7 +229,7 @@ describe("world projection sync", () => {
               target: "source.txt",
             },
           ],
-          deleted: ["stella/gone.txt"],
+          deleted: ["projects/example/gone.txt"],
           resync: false,
         });
       }
@@ -239,11 +251,13 @@ describe("world projection sync", () => {
       await readFile(path.join(root, "generated", "result.txt"), "utf8"),
     ).toBe("from world");
     expect(
-      await lstat(path.join(root, "stella", "gone.txt")).catch(() => null),
+      await lstat(path.join(root, "projects", "example", "gone.txt")).catch(
+        () => null,
+      ),
     ).toBeNull();
-    expect(await readlink(path.join(root, "stella", "latest"))).toBe(
-      "source.txt",
-    );
+    expect(
+      await readlink(path.join(root, "projects", "example", "latest")),
+    ).toBe("source.txt");
     expect((await readWorldMarker(root)).revision).toBe(2);
   });
 

@@ -82,11 +82,6 @@ describe("parseOutboxEvent", () => {
         completedAt: 1,
       },
       { kind: "build.recorded", buildId: "b", payload: { buildId: "b" } },
-      {
-        kind: "interior-build.recorded",
-        buildId: "b",
-        payload: { buildId: "b" },
-      },
     ];
     for (const raw of cases) {
       const parsed = parseOutboxEvent({ ...base, ...raw });

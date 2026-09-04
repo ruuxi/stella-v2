@@ -2,11 +2,7 @@
  * The general-agent tools a resident turn executes itself.
  *
  * `web` is fetch-and-search, which the Durable Object can already do. Deploy
- * is a request rather than an action in both placements: the container path
- * posts a turn-broker command, and here the same record is written straight to
- * DO storage. The ladder is told too, because a resident turn that asked for
- * the build has to attach after the loop or the tool would be a no-op the
- * model believes worked.
+ * runs against worker-side capabilities the Durable Object already holds.
  */
 
 import type { TSchema } from "@sinclair/typebox";
@@ -15,9 +11,7 @@ import type {
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import { AGENT_ORCHESTRATION_TOOL_DESCRIPTORS } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
-import {
-  APPLY_PATCH_TOOL_NAME,
-} from "@stella/runtime/kernel/tools/defs/apply-patch-def.js";
+import { APPLY_PATCH_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/apply-patch-def.js";
 import { EDIT_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/edit-def.js";
 import { GREP_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/grep-def.js";
 import { READ_TOOL_NAME } from "@stella/runtime/kernel/tools/defs/read-def.js";
@@ -28,11 +22,7 @@ import {
   WEB_TOOL_PARAMETERS,
 } from "@stella/runtime/kernel/tools/defs/web-def.js";
 import type { GeneralAgentControlPlane } from "./agent-control-plane.js";
-import {
-  descriptorForTool,
-  PUBLISH_STELLA_INTERIOR_TOOL_NAME,
-} from "./general-agent-tools.js";
-import { parseInteriorBuildRequest } from "./interior-build-request.js";
+import { descriptorForTool } from "./general-agent-tools.js";
 
 const errorResult = (message: string): AgentToolResult<unknown> => ({
   content: [{ type: "text", text: message }],
@@ -51,8 +41,6 @@ export type GeneralAgentAgentControl = Readonly<{
 
 export const createGeneralAgentDoLocalTools = (deps: {
   control: GeneralAgentControlPlane;
-  requestInteriorBuild: () => void;
-  now: () => number;
   agentControl: GeneralAgentAgentControl;
   world: {
     tool(call: {
@@ -62,7 +50,6 @@ export const createGeneralAgentDoLocalTools = (deps: {
   };
   signal?: AbortSignal;
 }): ReadonlyMap<string, AgentTool> => {
-  const interior = descriptorForTool(PUBLISH_STELLA_INTERIOR_TOOL_NAME);
   const orchestration = AGENT_ORCHESTRATION_TOOL_DESCRIPTORS.map(
     (descriptor): readonly [string, AgentTool] => [
       descriptor.name,
@@ -91,23 +78,26 @@ export const createGeneralAgentDoLocalTools = (deps: {
   return new Map<string, AgentTool>([
     ...worldTools.map((name): readonly [string, AgentTool] => {
       const descriptor = descriptorForTool(name);
-      return [name, {
+      return [
         name,
-        label: descriptor.label,
-        description: descriptor.description,
-        parameters: descriptor.parameters as unknown as TSchema,
-        execute: async (_toolCallId, params) => {
-          const result = await deps.world.tool({
-            name,
-            arguments: (params ?? {}) as Record<string, unknown>,
-          });
-          return {
-            content: [{ type: "text", text: result.output || "(no output)" }],
-            details: null,
-            ...(result.ok ? {} : { isError: true }),
-          };
+        {
+          name,
+          label: descriptor.label,
+          description: descriptor.description,
+          parameters: descriptor.parameters as unknown as TSchema,
+          execute: async (_toolCallId, params) => {
+            const result = await deps.world.tool({
+              name,
+              arguments: (params ?? {}) as Record<string, unknown>,
+            });
+            return {
+              content: [{ type: "text", text: result.output || "(no output)" }],
+              details: null,
+              ...(result.ok ? {} : { isError: true }),
+            };
+          },
         },
-      }];
+      ];
     }),
     [
       WEB_TOOL_NAME,
@@ -131,43 +121,5 @@ export const createGeneralAgentDoLocalTools = (deps: {
       },
     ],
     ...orchestration,
-    [
-      PUBLISH_STELLA_INTERIOR_TOOL_NAME,
-      {
-        name: interior.name,
-        label: interior.label,
-        ...(interior.workingText ? { workingText: interior.workingText } : {}),
-        description: interior.description,
-        parameters: interior.parameters as unknown as TSchema,
-        execute: async (_toolCallId, params) => {
-          const request = parseInteriorBuildRequest({
-            schemaVersion: 1,
-            ...((params ?? {}) as Record<string, unknown>),
-          });
-          if (!request) {
-            return errorResult(
-              "That build note could not be recorded. Keep it to one short line of plain text.",
-            );
-          }
-          try {
-            await deps.control.recordInteriorBuildRequest(request, deps.now());
-          } catch {
-            return errorResult(
-              "Stella could not record the build request. Try again.",
-            );
-          }
-          deps.requestInteriorBuild();
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Recorded. Stella will run the immutable interior build after this turn finishes and record the result as a candidate the user can select in Settings.",
-              },
-            ],
-            details: null,
-          };
-        },
-      },
-    ],
   ]);
 };

@@ -69,40 +69,27 @@ export const assertOwnerArtifactQuota = async (
   ctx: ArtifactQuotaCtx,
   args: { ownerId: string; additionalBytes: number },
 ): Promise<void> => {
-  const [appBuilds, interiorBuilds, quotaBytes] = await Promise.all([
+  const [appBuilds, quotaBytes] = await Promise.all([
     ctx.db
       .query("cloud_app_builds")
       .withIndex("by_ownerId_and_appId_and_createdAt", (q) =>
         q.eq("ownerId", args.ownerId),
       )
       .take(MAX_RECORDED_BUILDS),
-    ctx.db
-      .query("cloud_interior_builds")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(MAX_RECORDED_BUILDS),
     resolveOwnerArtifactQuotaBytes(ctx, args.ownerId),
   ]);
-  if (
-    appBuilds.length === MAX_RECORDED_BUILDS ||
-    interiorBuilds.length === MAX_RECORDED_BUILDS
-  ) {
+  if (appBuilds.length === MAX_RECORDED_BUILDS) {
     throw new ConvexError({
       code: "ARTIFACT_QUOTA",
       message: "The app artifact quota is full.",
     });
   }
-  const usedBytes =
-    appBuilds.reduce(
-      (total, build) =>
-        total +
-        (build.metricsJson
-          ? artifactBytesFromMetricsJson(build.metricsJson)
-          : 0),
-      0,
-    ) +
-    interiorBuilds.reduce((total, build) => total + build.artifactSizeBytes, 0);
+  const usedBytes = appBuilds.reduce(
+    (total, build) =>
+      total +
+      (build.metricsJson ? artifactBytesFromMetricsJson(build.metricsJson) : 0),
+    0,
+  );
   if (usedBytes + args.additionalBytes > quotaBytes) {
     throw new ConvexError({
       code: "ARTIFACT_QUOTA",

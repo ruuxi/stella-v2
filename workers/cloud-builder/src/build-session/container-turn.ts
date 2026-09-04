@@ -49,8 +49,6 @@ import type {
 } from "../turn-state-registry.js";
 import {
   agentTurnSessionId,
-  stellaRootForWorld,
-  WORLD_ROOT,
   worldRootForFork,
   worldName,
 } from "../workspace.js";
@@ -129,7 +127,6 @@ export type ContainerTurnHost = Pick<
   | "mutateExactTurn"
   | "ownsExactTurn"
   | "publishAgentTurnWorkspace"
-  | "publishRequestedInteriorCandidate"
   | "quiesceCurrentAgentSession"
   | "reconcileAgentCheckpointAfterQuiescence"
   | "recoverObservedBrowserSuspension"
@@ -145,60 +142,6 @@ export type ContainerTurnHost = Pick<
   | "unregisterTurn"
 >;
 
-/**
- * Seed `world/stella` on first use, then re-establish the directory boundary.
- *
- * GNU `cp -a source/. destination/` preserves the source directory's mode on
- * the existing destination. The immutable renderer source is 0755, while a
- * cloud workspace root must remain 0750, so the copy can otherwise make the
- * executor and its fallback checkpoint reject the freshly seeded world.
- */
-export const seedFirstStellaToolWorkspace = async (
-  session: Pick<ExecutionSession, "exec">,
-  worldRoot: string = WORLD_ROOT,
-): Promise<void> => {
-  const stellaRoot = stellaRootForWorld(worldRoot);
-  const seeded = await strictSessionExec(session, [
-    "/bin/sh",
-    "-lc",
-    `set -eu; test ! -e '${stellaRoot}'; mkdir '${stellaRoot}'; cp -a /opt/stella/packages/desktop-ui/. '${stellaRoot}/'; ln -s /opt/stella/node_modules '${stellaRoot}/node_modules'; mkdir '${stellaRoot}/.stella'; cp /opt/stella/interior-seed.json '${stellaRoot}/.stella/interior-source.json'; chown -R 42424:42424 '${stellaRoot}'; chmod 0750 '${stellaRoot}'`,
-  ]);
-  if (!seeded.success) {
-    throw new Error("The Stella interior source seed could not be created.");
-  }
-  await normalizeToolWorkspaceRoot(session, worldRoot);
-};
-
-/**
- * Probe the optional Stella checkout without letting an expected absence
- * surface as a non-zero command result. Sandbox RPC treats any such result as
- * a terminated session, so every filesystem state is reported on stdout and
- * invalid existing entries are rejected here.
- */
-export const stellaToolWorkspaceExists = async (
-  session: Pick<ExecutionSession, "exec">,
-  worldRoot: string = WORLD_ROOT,
-): Promise<boolean> => {
-  const stellaRoot = stellaRootForWorld(worldRoot);
-  const result = await session.exec(
-    `if [ -e '${stellaRoot}' ] || [ -L '${stellaRoot}' ]; then if [ -d '${stellaRoot}' ] && [ ! -L '${stellaRoot}' ]; then printf '%s\\n' present; else printf '%s\\n' invalid; fi; else printf '%s\\n' absent; fi`,
-  );
-  if (!result.success) {
-    throw new Error("The Stella interior source could not be inspected.");
-  }
-  switch (result.stdout.trim()) {
-    case "present":
-      return true;
-    case "absent":
-      return false;
-    case "invalid":
-      throw new Error(
-        "The Stella interior source path is not a safe directory.",
-      );
-    default:
-      throw new Error("The Stella interior source returned an invalid state.");
-  }
-};
 export const parseAgentExecutorResult = (
   value: unknown,
 ): AgentExecutorResult | null => {
@@ -711,10 +654,6 @@ export const runContainerAgentTurn = async (
     const { coldContainerStartMs, restoreMs } = attempt;
     let result = attempt.result;
     let builderFallbackUsed = false;
-    let interiorCandidate:
-      | Awaited<ReturnType<BuildSessionInternals["publishInteriorCandidate"]>>
-      | undefined;
-
     // A stale turn (alarm fired, or a successor continuation took over
     // this thread's DO) must not checkpoint over the successor's restore
     // or report on the shared thread.
@@ -827,33 +766,6 @@ export const runContainerAgentTurn = async (
           await host.setExactTurnAlarm(turn, Date.now() + 1_000);
           return;
         }
-      }
-    }
-
-    if (result.ok) {
-      const interior = await host.publishRequestedInteriorCandidate({
-        turn,
-        sandbox,
-        commandTimeoutMs,
-        turnExecution: execution,
-      });
-      if (interior.outcome === "abandoned") {
-        await host
-          .releaseAgentSessionResources({
-            sandboxId,
-            size,
-            workload: "world",
-            sessionId,
-            daemonDirectory,
-          })
-          .catch(() => undefined);
-        return;
-      }
-      if (interior.outcome === "published") {
-        interiorCandidate = interior.candidate;
-      }
-      if (interior.outcome === "failed") {
-        result = { ...result, ok: false, error: interior.error };
       }
     }
 
@@ -1105,7 +1017,6 @@ export const runContainerAgentTurn = async (
           checkpointMs,
           wallClockMs,
           instanceType: INSTANCE_TIERS[size].instanceType,
-          ...(interiorCandidate ? { interiorCandidate } : {}),
         },
       };
     } else {
@@ -1340,7 +1251,6 @@ export const attachAgentWorld = async (
 }> => {
   const { turn, execution: turnExecution, sandbox } = args;
   const worldRoot = worldRootForFork(turn.workspaceForkId);
-  const stellaRoot = stellaRootForWorld(worldRoot);
   const coldStarted = performance.now();
   await host.assertAgentExecutionActive(turn, turnExecution);
   const session = await sandbox.createSession({
@@ -1391,42 +1301,6 @@ export const attachAgentWorld = async (
   turnExecution.assertActive();
   restoreMs = Math.round(performance.now() - restoreStarted);
 
-  // `world/stella` is a real, buildable renderer checkout from the immutable
-  // image, never an empty directory the model has to invent. Once it exists
-  // its recorded seed has to still match the image, or a self-update would
-  // be built on top of a renderer Stella no longer ships.
-  const stellaPresent = await stellaToolWorkspaceExists(session, worldRoot);
-  turnExecution.assertActive();
-  if (!stellaPresent) {
-    await seedFirstStellaToolWorkspace(session, worldRoot);
-    turnExecution.assertActive();
-  } else {
-    const readJson = async (filePath: string) => {
-      const read = await session.readFile(filePath, { encoding: "base64" });
-      turnExecution.assertActive();
-      return JSON.parse(atob(read.content)) as Record<string, unknown>;
-    };
-    const [interiorState, imageSeed] = await Promise.all([
-      readJson(`${stellaRoot}/.stella/interior-source.json`),
-      readJson("/opt/stella/interior-seed.json"),
-    ]);
-    const interiorSeedRevision =
-      typeof interiorState.upstreamSeedRevision === "string"
-        ? interiorState.upstreamSeedRevision
-        : interiorState.buildId === undefined &&
-            typeof interiorState.sourceRevision === "string"
-          ? interiorState.sourceRevision
-          : null;
-    if (
-      !interiorSeedRevision ||
-      typeof imageSeed.sourceRevision !== "string" ||
-      interiorSeedRevision !== imageSeed.sourceRevision
-    ) {
-      throw new AgentTurnError(
-        "Stella's packaged renderer changed since this world was created. Its existing customizations need an upstream migration before another self-update can be built.",
-      );
-    }
-  }
   if (args.turnStateThreadRestore?.native) {
     const nativeRestoreStarted = performance.now();
     turnExecution.assertActive();
@@ -1499,8 +1373,8 @@ export const runAgentAttempt = async (
     turnExecution.signal,
   );
   let cloudSkills:
-    Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
-    undefined;
+    | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
+    | undefined = undefined;
   if (args.cloudSkillHome && args.cloudSkillCatalog) {
     turnExecution.assertActive();
     cloudSkills = await materializeCloudSkillSnapshot({

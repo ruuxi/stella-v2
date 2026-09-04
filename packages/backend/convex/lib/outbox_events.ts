@@ -24,7 +24,6 @@ export const OUTBOX_EVENT_KINDS: readonly OutboxEventKind[] = [
   "thread.spawned",
   "thread.completed",
   "build.recorded",
-  "interior-build.recorded",
   "dispatch.updated",
 ];
 
@@ -40,7 +39,6 @@ const KIND_PRIORITY: Record<OutboxEventKind, number> = {
   "conversation.index": 3,
   "turn.event": 4,
   "build.recorded": 5,
-  "interior-build.recorded": 5,
   "thread.completed": 6,
   "conversation.deleted": 7,
   // Placement projection: keyed by dispatchId and revision-fenced, so it has
@@ -617,8 +615,7 @@ export const parseOutboxEvent = (raw: unknown): ParsedOutboxEvent => {
           },
         };
       }
-      case "build.recorded":
-      case "interior-build.recorded": {
+      case "build.recorded": {
         if (!isId(record.buildId) || !isRecord(record.payload)) return reject();
         return {
           ok: true,

@@ -5,13 +5,10 @@ import {
   type AppsHostTrustedEnv,
 } from "./config";
 import { readBoundedBytes } from "./http-security";
-import type { InteriorRouteBuildIdentity } from "./interior-shell-policy";
 
 const APP_FETCH_AUDIENCE = "stella-app-fetch-v1";
 const APP_BOOTSTRAP_AUDIENCE = "stella-app-bootstrap-v1";
-const INTERIOR_BOOTSTRAP_AUDIENCE = "stella-interior-bootstrap-v1";
 const APP_BOOTSTRAP_TTL_MS = 2 * 60_000;
-const INTERIOR_BOOTSTRAP_TTL_MS = 2 * 60_000;
 const MAX_SESSION_RESPONSE_BYTES = 32 * 1024;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
@@ -90,26 +87,6 @@ const isBounded = (value: unknown, maximum = 4_096): value is string =>
   value.length <= maximum &&
   !/[\u0000-\u001f\u007f]/u.test(value);
 
-const STABLE_ROUTE_ID =
-  /^sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const INTERIOR_BUILD_ID = /^interior-[0-9a-f]{48}$/;
-const DEFAULT_INTERIOR_BUILD = /^interior\/[A-Za-z0-9._-]{1,128}$/;
-
-const validInteriorRouteBuild = (
-  value: unknown,
-): value is InteriorRouteBuildIdentity => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    (candidate.mode === "custom" &&
-      typeof candidate.buildId === "string" &&
-      INTERIOR_BUILD_ID.test(candidate.buildId)) ||
-    (candidate.mode === "default" &&
-      typeof candidate.buildId === "string" &&
-      DEFAULT_INTERIOR_BUILD.test(candidate.buildId))
-  );
-};
-
 const trustedConfig = (env: AppsHostTrustedEnv): AppsHostConfig => {
   const config = readAppsHostConfig(env);
   if (
@@ -154,82 +131,7 @@ export const verifyAppBootstrap = async (
   return { appId: payload.appId, slug: payload.slug };
 };
 
-export const verifyInteriorBootstrap = async (
-  config: AppsHostConfig,
-  args: { bootstrap: string; origin: string; now?: number },
-): Promise<{
-  stableRouteId: string;
-  routeBuild: InteriorRouteBuildIdentity;
-}> => {
-  if (!config.appTokenSigningKey) {
-    throw new Error("Interior token signing is unavailable.");
-  }
-  const payload = await decryptCapability(
-    args.bootstrap,
-    config.appTokenSigningKey,
-  );
-  const now = args.now ?? Date.now();
-  if (
-    payload.version !== 1 ||
-    payload.audience !== INTERIOR_BOOTSTRAP_AUDIENCE ||
-    payload.issuer !== config.deploymentIdentity ||
-    !isBounded(payload.tokenId, 128) ||
-    typeof payload.stableRouteId !== "string" ||
-    !STABLE_ROUTE_ID.test(payload.stableRouteId) ||
-    !validInteriorRouteBuild(payload.routeBuild) ||
-    payload.origin !== args.origin ||
-    typeof payload.issuedAt !== "number" ||
-    typeof payload.exp !== "number" ||
-    !Number.isSafeInteger(payload.issuedAt) ||
-    !Number.isSafeInteger(payload.exp) ||
-    payload.issuedAt > now + 30_000 ||
-    payload.exp <= now ||
-    payload.exp <= payload.issuedAt ||
-    payload.exp - payload.issuedAt > INTERIOR_BOOTSTRAP_TTL_MS
-  ) {
-    throw new Error("The interior bootstrap is invalid or expired.");
-  }
-  return {
-    stableRouteId: payload.stableRouteId,
-    routeBuild: payload.routeBuild,
-  };
-};
-
 export class AppsAuthService extends WorkerEntrypoint<AppsHostTrustedEnv> {
-  async mintInteriorBootstrap(args: {
-    stableRouteId: string;
-    routeBuild: InteriorRouteBuildIdentity;
-    origin: string;
-  }): Promise<{ bootstrap: string; expiresAt: number }> {
-    const config = trustedConfig(this.env);
-    if (
-      !STABLE_ROUTE_ID.test(args.stableRouteId) ||
-      !validInteriorRouteBuild(args.routeBuild) ||
-      args.origin !== config.appsHostOrigin
-    ) {
-      throw new Error("The interior bootstrap request is invalid.");
-    }
-    const now = Date.now();
-    const expiresAt = now + INTERIOR_BOOTSTRAP_TTL_MS;
-    return {
-      bootstrap: await encryptPayload(
-        {
-          version: 1,
-          audience: INTERIOR_BOOTSTRAP_AUDIENCE,
-          issuer: config.deploymentIdentity,
-          tokenId: crypto.randomUUID(),
-          stableRouteId: args.stableRouteId,
-          routeBuild: args.routeBuild,
-          origin: args.origin,
-          issuedAt: now,
-          exp: expiresAt,
-        },
-        config.appTokenSigningKey!,
-      ),
-      expiresAt,
-    };
-  }
-
   async mintAppBootstrap(args: {
     appId: string;
     slug: string;
@@ -262,39 +164,6 @@ export class AppsAuthService extends WorkerEntrypoint<AppsHostTrustedEnv> {
       ),
       expiresAt,
     };
-  }
-
-  async getInteriorRoute(args: {
-    stableRouteId: string;
-  }): Promise<Record<string, unknown> | null> {
-    const config = trustedConfig(this.env);
-    if (
-      !/^sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-        args.stableRouteId,
-      )
-    ) {
-      return null;
-    }
-    const url = new URL(
-      "/api/cloud/interior-active-route",
-      config.convexSiteOrigin,
-    );
-    url.searchParams.set("stableRouteId", args.stableRouteId);
-    const response = await fetch(url, {
-      headers: { authorization: `Bearer ${config.builderServiceSecret}` },
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new Error("The active interior route is unavailable.");
-    }
-    const bytes = await readBoundedBytes(response.body, 16 * 1024);
-    const parsed: unknown = JSON.parse(decoder.decode(bytes));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
   }
 
   async mintAnonymousSession(args: {

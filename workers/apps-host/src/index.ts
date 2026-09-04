@@ -5,36 +5,16 @@ import {
   type AppsHostEnv,
 } from "./config";
 import {
-  BROWSER_AUTH_HANDOFF_SCRIPT_PATH,
-  RETIRED_BROWSER_AUTH_STORAGE_KEYS,
-  browserAuthHandoffResponse,
-  browserAuthHandoffScriptResponse,
-} from "./auth-handoff";
-import {
   handleProxyPreflight,
   hostedContentSecurityHeaders,
   isSafeArtifactPrefix,
   MAX_APP_ASSET_BYTES,
-  MAX_INTERIOR_ASSET_BYTES,
   parseAssetPath,
   pathHasExtension,
   proxyFetch,
   readBoundedBytes,
 } from "./http-security";
 import { verifyAppBootstrap } from "./app-auth-service";
-import {
-  INTERIOR_WRAPPER_SCRIPT_PATH,
-  interiorWrapperResponse,
-  interiorWrapperScript,
-} from "./interior-shell-wrapper";
-import type { InteriorRouteBuildIdentity } from "./interior-shell-policy";
-import {
-  handleInteriorConversationSocket,
-  handleInteriorConvexSocket,
-  handleInteriorDictationSocket,
-  handleInteriorService,
-  handleInteriorSession,
-} from "./interior-shell-gateway";
 
 export { AppsAuthService } from "./app-auth-service";
 export { AppFetchGate } from "./app-fetch-gate";
@@ -51,17 +31,17 @@ type RouteLookup =
   | { kind: "invalid" }
   | { kind: "route"; route: RouteRecord };
 
-const ACTIVE_ROUTE_MAX_BYTES = 16 * 1024;
-const ACTIVE_ROUTE_TIMEOUT_MS = 10_000;
-const ACTIVE_ROUTE_ID =
-  /^sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const INTERIOR_BUILD_ID = /^interior-[0-9a-f]{48}$/;
-const OWNER_HASH = /^[0-9a-f]{64}$/;
 const APP_BUILD_PREFIX = /^builds\/[0-9a-f]{64}\/[A-Za-z0-9_-]{1,64}$/;
 const APP_SLUG = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const DEFAULT_INTERIOR_PREFIX = /^interior\/[A-Za-z0-9._-]{1,128}$/;
 const APP_WRAPPER_SCRIPT_PATH = "/_stella/app-wrapper.js";
 const AUTH_EXCHANGE_PATH = "/_stella/auth/exchange";
+const ACCOUNT_AUTH_STORAGE_KEYS = [
+  "better-auth_session_token",
+  "better-auth_cookie",
+  "better-auth_session_data",
+  "stella_auth_identity_intent",
+  "stella_auth_cached_session",
+] as const;
 
 const log = (
   level: "info" | "error",
@@ -93,8 +73,7 @@ const unavailable = (): Response =>
 const readRoute = async (
   config: AppsHostConfig,
   key: string,
-  expectedKind: "app" | "default-interior",
-  expectedSlug?: string,
+  expectedSlug: string,
 ): Promise<RouteLookup> => {
   if (!config.appRoutes) return { kind: "invalid" };
   const value = await config.appRoutes.get<unknown>(key, "json");
@@ -106,20 +85,16 @@ const readRoute = async (
   if (
     typeof candidate.artifactPrefix !== "string" ||
     !isSafeArtifactPrefix(candidate.artifactPrefix) ||
-    (expectedKind === "app" &&
-      !APP_BUILD_PREFIX.test(candidate.artifactPrefix)) ||
-    (expectedKind === "default-interior" &&
-      !DEFAULT_INTERIOR_PREFIX.test(candidate.artifactPrefix)) ||
+    !APP_BUILD_PREFIX.test(candidate.artifactPrefix) ||
     typeof candidate.suspended !== "boolean"
   ) {
     return { kind: "invalid" };
   }
   if (
-    expectedKind === "app" &&
-    (typeof candidate.appId !== "string" ||
-      candidate.appId.length < 1 ||
-      candidate.appId.length > 256 ||
-      candidate.slug !== expectedSlug)
+    typeof candidate.appId !== "string" ||
+    candidate.appId.length < 1 ||
+    candidate.appId.length > 256 ||
+    candidate.slug !== expectedSlug
   ) {
     return { kind: "invalid" };
   }
@@ -228,168 +203,6 @@ const loadHostedAsset = async (args: {
     await object.body.cancel().catch(() => undefined);
   }
   return new Response(args.headOnly ? null : object.body, { headers });
-};
-
-const immutableInteriorAsset = async (
-  config: AppsHostConfig,
-  requestId: string,
-  ownerHash: string,
-  buildId: string,
-  rawAssetPath: string | undefined,
-  headOnly: boolean,
-): Promise<Response> =>
-  loadHostedAsset({
-    config,
-    requestId,
-    artifactPrefix: `interiors/${ownerHash}/${buildId}`,
-    rawAssetPath,
-    headOnly,
-    immutable: true,
-    maxBytes: MAX_INTERIOR_ASSET_BYTES,
-    logContext: { ownerHash, buildId },
-  });
-
-const publishedDefaultInteriorAsset = async (
-  config: AppsHostConfig,
-  requestId: string,
-  rawAssetPath: string | undefined,
-  headOnly: boolean,
-): Promise<Response> => {
-  const lookup = await readRoute(
-    config,
-    "app:stella-interior",
-    "default-interior",
-  );
-  if (lookup.kind !== "route" || lookup.route.suspended) {
-    log("error", "default_interior_unavailable", {
-      requestId,
-      routeState: lookup.kind,
-    });
-    return new Response("The packaged Stella interior is unavailable.", {
-      status: 503,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  const response = await loadHostedAsset({
-    config,
-    requestId,
-    artifactPrefix: lookup.route.artifactPrefix,
-    rawAssetPath,
-    headOnly,
-    immutable: false,
-    maxBytes: MAX_INTERIOR_ASSET_BYTES,
-    logContext: { route: "default-interior" },
-  });
-  if (response.ok) response.headers.set("cache-control", "no-store");
-  return response;
-};
-
-const readActiveRoute = async (
-  config: AppsHostConfig,
-  stableRouteId: string,
-): Promise<Response> => {
-  if (!config.appAuth) {
-    return new Response("The active Stella route is unavailable.", {
-      status: 503,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  try {
-    const route = await config.appAuth.getInteriorRoute({ stableRouteId });
-    return route
-      ? Response.json(route)
-      : Response.json(
-          { error: "Stella interior route not found." },
-          { status: 404 },
-        );
-  } catch {
-    return Response.json(
-      { error: "The active Stella route is unavailable." },
-      { status: 503 },
-    );
-  }
-};
-
-const readActiveRoutePayload = async (
-  config: AppsHostConfig,
-  stableRouteId: string,
-): Promise<Record<string, unknown> | Response> => {
-  const response = await readActiveRoute(config, stableRouteId);
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    return new Response(
-      response.status === 404
-        ? "Stella interior route not found."
-        : "The active Stella route is unavailable.",
-      {
-        status: response.status === 404 ? 404 : 503,
-        headers: { "cache-control": "no-store" },
-      },
-    );
-  }
-  const declaredLength = response.headers.get("content-length");
-  if (
-    declaredLength &&
-    (!/^\d+$/.test(declaredLength) ||
-      Number(declaredLength) > ACTIVE_ROUTE_MAX_BYTES)
-  ) {
-    await response.body?.cancel().catch(() => undefined);
-    return new Response("The active Stella route is invalid.", {
-      status: 502,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  try {
-    const bytes = await readBoundedBytes(response.body, ACTIVE_ROUTE_MAX_BYTES);
-    const parsed: unknown = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes),
-    );
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("invalid route payload");
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return new Response("The active Stella route is invalid.", {
-      status: 502,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-};
-
-const resolveInteriorRouteBuild = async (
-  config: AppsHostConfig,
-  stableRouteId: string,
-): Promise<InteriorRouteBuildIdentity | Response> => {
-  const route = await readActiveRoutePayload(config, stableRouteId);
-  if (route instanceof Response) return route;
-  if (route.mode === "default") {
-    const lookup = await readRoute(
-      config,
-      "app:stella-interior",
-      "default-interior",
-    );
-    if (lookup.kind !== "route" || lookup.route.suspended) {
-      return new Response("The packaged Stella interior is unavailable.", {
-        status: 503,
-        headers: { "cache-control": "no-store" },
-      });
-    }
-    return { mode: "default", buildId: lookup.route.artifactPrefix };
-  }
-  const ownerHash = typeof route.ownerHash === "string" ? route.ownerHash : "";
-  const buildId = typeof route.buildId === "string" ? route.buildId : "";
-  if (
-    route.mode !== "custom" ||
-    !OWNER_HASH.test(ownerHash) ||
-    !INTERIOR_BUILD_ID.test(buildId) ||
-    route.artifactPrefix !== `interiors/${ownerHash}/${buildId}`
-  ) {
-    return new Response("The active Stella route is invalid.", {
-      status: 502,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  return { mode: "custom", buildId };
 };
 
 const ANONYMOUS_VIEWER_COOKIE = "__Host-stella_app_viewer";
@@ -686,8 +499,8 @@ export const appWrapperScript = (): string => `(() => {
   const convexSiteUrl = root.dataset.convexSiteUrl;
   const trustedAuthOrigin = root.dataset.trustedAuthOrigin;
   const innerNonce = crypto.randomUUID();
-  const retiredAuthKeys = ${JSON.stringify(RETIRED_BROWSER_AUTH_STORAGE_KEYS)};
-  for (const key of retiredAuthKeys) {
+  const accountAuthKeys = ${JSON.stringify(ACCOUNT_AUTH_STORAGE_KEYS)};
+  for (const key of accountAuthKeys) {
     try { localStorage.removeItem(key); } catch {}
     try { sessionStorage.removeItem(key); } catch {}
   }
@@ -862,7 +675,7 @@ const appWrapper = async (
     return methodNotAllowed("GET, HEAD");
   }
   if (!config.appAuth) return unavailable();
-  const lookup = await readRoute(config, `app:${slug}`, "app", slug);
+  const lookup = await readRoute(config, `app:${slug}`, slug);
   if (
     lookup.kind !== "route" ||
     lookup.route.suspended ||
@@ -940,7 +753,7 @@ const refreshAppBootstrap = async (
     }
   }
   if (!config.appAuth) return unavailable();
-  const lookup = await readRoute(config, `app:${slug}`, "app", slug);
+  const lookup = await readRoute(config, `app:${slug}`, slug);
   if (
     lookup.kind !== "route" ||
     lookup.route.suspended ||
@@ -971,94 +784,6 @@ const refreshAppBootstrap = async (
   }
 };
 
-const activeInteriorAsset = async (
-  config: AppsHostConfig,
-  requestId: string,
-  stableRouteId: string,
-  rawAssetPath: string | undefined,
-  headOnly: boolean,
-): Promise<Response> => {
-  let routeOrResponse: Record<string, unknown> | Response;
-  try {
-    routeOrResponse = await readActiveRoutePayload(config, stableRouteId);
-  } catch {
-    return new Response("The active Stella route is unavailable.", {
-      status: 503,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  if (routeOrResponse instanceof Response) return routeOrResponse;
-  const route = routeOrResponse;
-  if (route.mode === "default") {
-    return publishedDefaultInteriorAsset(
-      config,
-      requestId,
-      rawAssetPath,
-      headOnly,
-    );
-  }
-  const ownerHash = typeof route.ownerHash === "string" ? route.ownerHash : "";
-  const buildId = typeof route.buildId === "string" ? route.buildId : "";
-  if (
-    route.mode !== "custom" ||
-    !OWNER_HASH.test(ownerHash) ||
-    !INTERIOR_BUILD_ID.test(buildId) ||
-    route.artifactPrefix !== `interiors/${ownerHash}/${buildId}`
-  ) {
-    return new Response("The active Stella route is invalid.", {
-      status: 502,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  const assetResponse = await immutableInteriorAsset(
-    config,
-    requestId,
-    ownerHash,
-    buildId,
-    rawAssetPath,
-    headOnly,
-  );
-  if (assetResponse.ok) assetResponse.headers.set("cache-control", "no-store");
-  return assetResponse;
-};
-
-const interiorManifest = async (
-  request: Request,
-  config: AppsHostConfig,
-  requestId: string,
-): Promise<Response> => {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return methodNotAllowed("GET, HEAD");
-  }
-  const lookup = await readRoute(
-    config,
-    "app:stella-interior",
-    "default-interior",
-  );
-  if (lookup.kind !== "route" || lookup.route.suspended) {
-    log("error", "interior_manifest_unavailable", {
-      requestId,
-      routeState: lookup.kind,
-    });
-    return Response.json(
-      { error: "The Stella interior is not available." },
-      { status: 503, headers: { "cache-control": "no-store" } },
-    );
-  }
-  const origin = new URL(request.url).origin;
-  const body = JSON.stringify({
-    version: lookup.route.artifactPrefix,
-    bundleUrl: `${origin}/apps/stella-interior/bundle.zip`,
-    remoteUrl: `${origin}/apps/stella-interior/`,
-  });
-  return new Response(request.method === "HEAD" ? null : body, {
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-};
-
 const appAsset = async (
   request: Request,
   config: AppsHostConfig,
@@ -1078,13 +803,7 @@ const appAsset = async (
       503,
     );
   }
-  const isPackagedInterior = slug === "stella-interior";
-  const lookup = await readRoute(
-    config,
-    `app:${slug}`,
-    isPackagedInterior ? "default-interior" : "app",
-    isPackagedInterior ? undefined : slug,
-  );
+  const lookup = await readRoute(config, `app:${slug}`, slug);
   if (lookup.kind === "missing") {
     return notice(
       config,
@@ -1118,9 +837,7 @@ const appAsset = async (
     rawAssetPath,
     headOnly: request.method === "HEAD",
     immutable: false,
-    maxBytes: isPackagedInterior
-      ? MAX_INTERIOR_ASSET_BYTES
-      : MAX_APP_ASSET_BYTES,
+    maxBytes: MAX_APP_ASSET_BYTES,
     logContext: { slug },
   });
 };
@@ -1159,12 +876,6 @@ const handleRequest = async (
       },
     );
   }
-  if (
-    config.hostRole === "trusted" &&
-    url.pathname === BROWSER_AUTH_HANDOFF_SCRIPT_PATH
-  ) {
-    return browserAuthHandoffScriptResponse(request, config);
-  }
   if (url.pathname === AUTH_EXCHANGE_PATH) {
     if (config.hostRole !== "trusted")
       return new Response("Not found", { status: 404 });
@@ -1183,36 +894,6 @@ const handleRequest = async (
       return unavailable();
     }
   }
-  if (url.pathname === "/api/interior/session") {
-    if (config.hostRole !== "trusted") {
-      return new Response("Not found", { status: 404 });
-    }
-    try {
-      return await handleInteriorSession(request, config);
-    } catch {
-      return unavailable();
-    }
-  }
-  if (config.hostRole === "trusted") {
-    try {
-      const convexSocket = await handleInteriorConvexSocket(request, config);
-      if (convexSocket) return convexSocket;
-      const conversationSocket = await handleInteriorConversationSocket(
-        request,
-        config,
-      );
-      if (conversationSocket) return conversationSocket;
-      const dictationSocket = await handleInteriorDictationSocket(
-        request,
-        config,
-      );
-      if (dictationSocket) return dictationSocket;
-      const service = await handleInteriorService(request, config);
-      if (service) return service;
-    } catch {
-      return unavailable();
-    }
-  }
   if (url.pathname === APP_WRAPPER_SCRIPT_PATH) {
     if (config.hostRole !== "untrusted")
       return new Response("Not found", { status: 404 });
@@ -1227,31 +908,6 @@ const handleRequest = async (
       },
     });
   }
-  if (url.pathname === INTERIOR_WRAPPER_SCRIPT_PATH) {
-    if (config.hostRole !== "untrusted") {
-      return new Response("Not found", { status: 404 });
-    }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return methodNotAllowed("GET, HEAD");
-    }
-    return new Response(
-      request.method === "HEAD" ? null : interiorWrapperScript(),
-      {
-        headers: {
-          "content-type": "text/javascript; charset=utf-8",
-          "cache-control": "public, max-age=300",
-          "cross-origin-resource-policy": "same-origin",
-          "x-content-type-options": "nosniff",
-        },
-      },
-    );
-  }
-  if (
-    config.hostRole === "untrusted" &&
-    url.pathname === "/api/interior/manifest"
-  ) {
-    return interiorManifest(request, config, requestId);
-  }
   if (url.pathname === "/api/apps/fetch") {
     if (config.hostRole !== "untrusted")
       return new Response("Not found", { status: 404 });
@@ -1264,89 +920,6 @@ const handleRequest = async (
     if (config.hostRole !== "untrusted")
       return new Response("Not found", { status: 404 });
     return anonymousAppSession(request, config);
-  }
-
-  const interiorBuild = url.pathname.match(
-    /^\/interior-builds\/([0-9a-f]{64})\/(interior-[0-9a-f]{48})(\/.*)?$/,
-  );
-  if (interiorBuild) {
-    if (config.hostRole !== "untrusted")
-      return new Response("Not found", { status: 404 });
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return methodNotAllowed("GET, HEAD");
-    }
-    return immutableInteriorAsset(
-      config,
-      requestId,
-      interiorBuild[1],
-      interiorBuild[2],
-      interiorBuild[3],
-      request.method === "HEAD",
-    );
-  }
-
-  const activeInterior = url.pathname.match(
-    /^\/stella\/(sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(\/.*)?$/,
-  );
-  if (activeInterior && ACTIVE_ROUTE_ID.test(activeInterior[1])) {
-    if (
-      config.hostRole === "trusted" &&
-      (activeInterior[2] === "/auth" || activeInterior[2] === "/auth/")
-    ) {
-      return browserAuthHandoffResponse(request, config);
-    }
-    if (config.hostRole !== "untrusted")
-      return new Response("Not found", { status: 404 });
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return methodNotAllowed("GET, HEAD");
-    }
-    if (!config.appAuth) return unavailable();
-    const routeBuild = await resolveInteriorRouteBuild(
-      config,
-      activeInterior[1],
-    );
-    if (routeBuild instanceof Response) return routeBuild;
-    let minted: { bootstrap: string; expiresAt: number };
-    try {
-      minted = await config.appAuth.mintInteriorBootstrap({
-        stableRouteId: activeInterior[1],
-        routeBuild,
-        origin: config.appsHostOrigin,
-      });
-    } catch {
-      return unavailable();
-    }
-    return interiorWrapperResponse({
-      request,
-      config,
-      stableRouteId: activeInterior[1],
-      bootstrap: minted.bootstrap,
-      rawUrl: `/_stella/interior-assets/${activeInterior[1]}${activeInterior[2] ?? "/"}`,
-    });
-  }
-
-  const rawInterior = url.pathname.match(
-    /^\/_stella\/interior-assets\/(sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(\/.*)?$/,
-  );
-  if (rawInterior && ACTIVE_ROUTE_ID.test(rawInterior[1])) {
-    if (config.hostRole !== "untrusted") {
-      return new Response("Not found", { status: 404 });
-    }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return methodNotAllowed("GET, HEAD");
-    }
-    const response = await activeInteriorAsset(
-      config,
-      requestId,
-      rawInterior[1],
-      rawInterior[2],
-      request.method === "HEAD",
-    );
-    response.headers.set(
-      "content-security-policy",
-      `${response.headers.get("content-security-policy") ?? "default-src 'self'"}; sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads`,
-    );
-    return response;
   }
 
   const app = url.pathname.match(/^\/apps\/([^/]+)(\/.*)?$/);
@@ -1380,9 +953,6 @@ const handleRequest = async (
       status: 404,
       headers: { "cache-control": "no-store" },
     });
-  }
-  if (app[1] === "stella-interior") {
-    return appAsset(request, config, requestId, app[1], app[2]);
   }
   if (app[2] === "/_bootstrap" || app[2] === "/_bootstrap/") {
     return refreshAppBootstrap(request, config, app[1]);

@@ -1143,28 +1143,19 @@ const appsHostWorkerdObservation = () => ({
   bundleBytes: 42_000,
   routeSetSha256: digest("2"),
   appAssetSha256: digest("3"),
-  interiorManifestSha256: digest("4"),
-  interiorAssetsSha256: digest("5"),
-  authHandoffSha256: digest("6"),
   blockedProxyResponseSha256: digest("7"),
   receiptChainSha256: digest("8"),
   healthStatus: 200,
   appAssetStatus: 200,
   appHeadStatus: 200,
-  interiorManifestStatus: 200,
-  interiorAssetStatus: 200,
-  interiorBundleStatus: 200,
-  authHandoffStatus: 200,
-  blockedProxyStatus: 400,
+  blockedProxyStatus: 401,
   invalidConfigStatus: 503,
   productionBundleBuilt: true,
   workerdRuntimeStarted: true,
   realKvBindingUsed: true,
   realR2BindingUsed: true,
-  sameOriginInteriorManifest: true,
   strictHostedContentSecurityPolicy: true,
-  authHandoffNoStore: true,
-  privateProxyTargetBlockedBeforeFetch: true,
+  unauthenticatedProxyBlockedBeforeFetch: true,
   invalidConfigurationFailedClosed: true,
   runtimeDisposed: true,
   isolatedStateRemoved: true,
@@ -2329,10 +2320,10 @@ describe("cloud canonical evidence validators", () => {
     ).toThrow('runtimeEngine must be "workerd"');
 
     const unsafeProxy = appsHostWorkerdObservation();
-    unsafeProxy.privateProxyTargetBlockedBeforeFetch = false;
+    unsafeProxy.unauthenticatedProxyBlockedBeforeFetch = false;
     expect(() =>
       validateObservation("apps_host_workerd_runtime", unsafeProxy),
-    ).toThrow("privateProxyTargetBlockedBeforeFetch must be true");
+    ).toThrow("unauthenticatedProxyBlockedBeforeFetch must be true");
 
     const invalidAuthorityServed = appsHostWorkerdObservation();
     invalidAuthorityServed.invalidConfigStatus = 200;

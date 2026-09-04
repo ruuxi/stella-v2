@@ -174,64 +174,6 @@ export const cloudAppsSchema = {
       "createdAt",
     ]),
 
-  // Stella's web interior is a per-owner deployable. Build rows below are
-  // immutable candidates; this small row is the only mutable routing state.
-  // `routeRevision` is a compare-and-swap fence used by every promotion and
-  // rollback so two clients can never silently overwrite each other.
-  cloud_interior_deployables: defineTable({
-    deployableId: v.string(),
-    ownerId: v.string(),
-    /**
-     * Migration-only artifact namespace from the first routing design. It is
-     * deliberately never returned to clients or accepted as a route key.
-     */
-    ownerHash: v.optional(v.string()),
-    /**
-     * Opaque capability for the owner's stable web URL. Optional while rows
-     * created by the pre-capability schema are lazily backfilled.
-     */
-    stableRouteId: v.optional(v.string()),
-    kind: v.literal("stella-interior"),
-    activeBuildId: v.optional(v.string()),
-    previousBuildId: v.optional(v.string()),
-    routeRevision: v.number(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_deployableId", ["deployableId"])
-    .index("by_ownerId", ["ownerId"])
-    .index("by_stableRouteId", ["stableRouteId"]),
-
-  // Immutable build candidates for an owner's Stella interior. Activation is
-  // represented exclusively by `cloud_interior_deployables`; a candidate is
-  // never patched after insertion, even when it becomes active or previous.
-  cloud_interior_builds: defineTable({
-    buildId: v.string(),
-    deployableId: v.string(),
-    ownerId: v.string(),
-    turnId: v.string(),
-    threadId: v.string(),
-    // Source revisions can be absent for the initial unversioned seed.
-    sourceRevision: v.optional(v.string()),
-    baseRevision: v.optional(v.string()),
-    artifactPrefix: v.string(),
-    artifactManifestJson: v.string(),
-    // SHA-256 of the exact UTF-8 manifest JSON, independently recomputed by
-    // Convex when the candidate is recorded.
-    manifestSha256: v.string(),
-    artifactDigest: v.string(),
-    artifactSizeBytes: v.number(),
-    bridgeAbi: v.number(),
-    minShellVersion: v.string(),
-    createdAt: v.number(),
-  })
-    .index("by_buildId", ["buildId"])
-    .index("by_deployableId_and_createdAt", ["deployableId", "createdAt"])
-    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
-    .index("by_ownerId_and_sourceRevision", ["ownerId", "sourceRevision"])
-    .index("by_turnId", ["turnId"])
-    .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
-
   agent_turns: defineTable({
     turnId: v.string(),
     sessionId: v.string(),

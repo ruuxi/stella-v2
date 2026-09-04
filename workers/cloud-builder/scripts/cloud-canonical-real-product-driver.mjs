@@ -9008,7 +9008,7 @@ const stepMobileUnreachableCloudRouting = async ({
     kind: "chat",
     workspace: "computer",
     requiredCapabilities: ["chat"],
-    prompt: `Use spawn_agent exactly once with workspace cloud and description ${marker}. Tell it to run exec_command to print ${marker}, read /opt/stella/interior-seed.json, and report both results. Wait for [Agent completed] before replying.`,
+    prompt: `Use spawn_agent exactly once with workspace cloud and description ${marker}. Tell it to run exec_command to print ${marker}, read /opt/stella/package.json, and report both results. Wait for [Agent completed] before replying.`,
   });
   const dispatch = await submitMobileExecution(
     context,
@@ -11549,7 +11549,7 @@ const stepBrowserCloudRouting = async ({
   const owner = await recoverOwnerIdentity(context, secrets, state, rawLog);
   const browser = currentRenderedBrowser(state);
   const marker = `BROWSER-SANDBOX-${context.runId}`;
-  const prompt = `Use spawn_agent exactly once with workspace cloud and description ${marker}. Tell it to run exec_command that prints ${marker}, read /opt/stella/interior-seed.json, and report the sourceRevision. Wait for the [Agent completed] event before replying.`;
+  const prompt = `Use spawn_agent exactly once with workspace cloud and description ${marker}. Tell it to run exec_command that prints ${marker}, read /opt/stella/package.json, and report the package name. Wait for the [Agent completed] event before replying.`;
   const client = await connectBrowserRenderedClient(browser);
   let rendered;
   try {
@@ -14504,7 +14504,7 @@ const stepAppsHostWorkerdRuntime = async ({
     "Apps Host Workerd observations",
   );
   assert(
-    Array.isArray(result.receipts) && result.receipts.length >= 12,
+    Array.isArray(result.receipts) && result.receipts.length >= 11,
     "Apps Host Workerd acceptance omitted required raw runtime receipts.",
   );
   for (const entry of result.receipts) {
@@ -14528,9 +14528,6 @@ const stepAppsHostWorkerdRuntime = async ({
     "bundleSha256",
     "routeSetSha256",
     "appAssetSha256",
-    "interiorManifestSha256",
-    "interiorAssetsSha256",
-    "authHandoffSha256",
     "blockedProxyResponseSha256",
     "receiptChainSha256",
   ]) {
@@ -14541,11 +14538,7 @@ const stepAppsHostWorkerdRuntime = async ({
     ["healthStatus", 200],
     ["appAssetStatus", 200],
     ["appHeadStatus", 200],
-    ["interiorManifestStatus", 200],
-    ["interiorAssetStatus", 200],
-    ["interiorBundleStatus", 200],
-    ["authHandoffStatus", 200],
-    ["blockedProxyStatus", 400],
+    ["blockedProxyStatus", 401],
     ["invalidConfigStatus", 503],
   ]) {
     assert(
@@ -14558,10 +14551,8 @@ const stepAppsHostWorkerdRuntime = async ({
     "workerdRuntimeStarted",
     "realKvBindingUsed",
     "realR2BindingUsed",
-    "sameOriginInteriorManifest",
     "strictHostedContentSecurityPolicy",
-    "authHandoffNoStore",
-    "privateProxyTargetBlockedBeforeFetch",
+    "unauthenticatedProxyBlockedBeforeFetch",
     "invalidConfigurationFailedClosed",
     "runtimeDisposed",
     "isolatedStateRemoved",

@@ -18,10 +18,6 @@ export const TEST_SERVICE_SECRET = "s".repeat(48);
 export const TEST_APP_TOKEN_SIGNING_KEY = "t".repeat(48);
 
 const appAuth = {
-  mintInteriorBootstrap: async () => ({
-    bootstrap: "test-interior-bootstrap",
-    expiresAt: Date.now() + 60_000,
-  }),
   mintAppBootstrap: async () => ({
     bootstrap: "test-bootstrap",
     expiresAt: Date.now() + 60_000,
@@ -34,7 +30,6 @@ const appAuth = {
     viewerNamespace: "viewer-test",
     expiresAt: Date.now() + 60_000,
   }),
-  getInteriorRoute: async () => null,
 };
 const appFetchGate = {
   getByName: () => ({ consume: async () => ({ ok: true }) }),

@@ -6,7 +6,6 @@ export const MAX_PROXY_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const MAX_PROXY_TARGET_LENGTH = 2_048;
 export const MAX_ASSET_PATH_LENGTH = 1_024;
 export const MAX_APP_ASSET_BYTES = 25 * 1024 * 1024;
-export const MAX_INTERIOR_ASSET_BYTES = 100 * 1024 * 1024;
 
 const MAX_PROXY_REDIRECTS = 3;
 const PROXY_TIMEOUT_MS = 15_000;
@@ -430,11 +429,7 @@ export const proxyFetch = async (
     ?.replace(/^Bearer\s+/i, "")
     .trim();
   if (!capability || !config.appAuth || !config.appFetchGate) {
-    return proxyJson(
-      origin,
-      { error: "A fetch capability is required." },
-      401,
-    );
+    return proxyJson(origin, { error: "A fetch capability is required." }, 401);
   }
   const envelope = await readProxyEnvelope(request, origin);
   if (envelope instanceof Response) return envelope;
@@ -672,7 +667,8 @@ export const hostedContentSecurityHeaders = (
 export const authHandoffSecurityHeaders = (
   config: AppsHostConfig,
 ): Record<string, string> => ({
-  "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+  "content-security-policy":
+    "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
   "cross-origin-opener-policy": "same-origin",
   "cross-origin-resource-policy": "same-origin",
   "permissions-policy":

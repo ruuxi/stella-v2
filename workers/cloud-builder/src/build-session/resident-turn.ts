@@ -105,7 +105,6 @@ export type ResidentTurnHost = Pick<
   | "ownsExactTurn"
   | "persistAgentExecutionMarker"
   | "publishAgentTurnWorkspace"
-  | "publishRequestedInteriorCandidate"
   | "publishResidentTurnWorkspace"
   | "releaseAgentSessionResources"
   | "repairedResidentJournal"
@@ -559,8 +558,6 @@ export const runResidentAgentTurn = async (
           ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
         }),
     },
-    requestInteriorBuild: () => ladder.requestInteriorBuild(),
-    now: () => Date.now(),
     signal: execution.signal,
   });
   // `code` runs in a Dynamic Worker the DO loads on demand, the same
@@ -703,8 +700,7 @@ export const releaseResidentCompute = async (
  * D6, sequenced by the code that owns `turn-state-archive`.
  *
  * A turn that never attached commits its transcript and nothing else. One
- * that did — including a resident turn that asked for the interior build and
- * so attaches after the loop — commits the archive first, because a
+ * that did commits the archive first, because a
  * canonical cursor must never name a world checkpoint that was never created.
  */
 export const commitResidentTurnDurability = async (
@@ -721,24 +717,11 @@ export const commitResidentTurnDurability = async (
   },
 ): Promise<Exclude<TurnDurability, { kind: "none" }>> => {
   const { turn, execution, ladder, sealed, control } = args;
-  await ladder.attachForInteriorBuild();
-  execution.assertActive();
   if (!ladder.attached()) {
     return {
       kind: "transcript_only",
       transcript: await control.appendAndVerifyTranscript(sealed),
     };
-  }
-  const sandbox = await host.currentSandbox();
-  if (!sandbox) throw new AgentTurnAuthorityLostError();
-  const interior = await host.publishRequestedInteriorCandidate({
-    turn,
-    sandbox,
-    commandTimeoutMs: args.commandTimeoutMs,
-    turnExecution: execution,
-  });
-  if (interior.outcome === "failed") {
-    throw new AgentTurnError(interior.error);
   }
   await ladder.quiesce(extractLocalFileLinkPaths(args.finalText));
   execution.assertActive();

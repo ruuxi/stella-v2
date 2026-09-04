@@ -28,8 +28,8 @@ What master already has on the cloud side (all in `workers/cloud-builder`):
   a request file, a one-shot client, and a bounded result file.
 - The closed capability table (`general-agent-tools.ts`) is the whole ladder:
   `exec_command`, `write_stdin`, `Read`, `apply_patch` are `container`;
-  `code` is `js_sandbox` (a Dynamic Worker); `web` and
-  `publish_stella_interior` are `do_local`. `Grep`, `Write`, `Edit` do not
+  `code` is `js_sandbox` (a Dynamic Worker); `web` is `do_local`.
+  `Grep`, `Write`, `Edit` do not
   exist in the cloud.
 - The world filesystem lives only in the container and survives as squashfs
   archives in R2 (`turn-state-archive.ts`), restored on every attach.

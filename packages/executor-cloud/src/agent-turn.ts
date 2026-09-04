@@ -104,9 +104,7 @@ import {
   type AgentHistoryRow,
 } from "./agent-history.js";
 import {
-  TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
   type TurnBrokerInput,
-  type TurnBrokerInteriorBuildRequest,
   type TurnBrokerTurnStateCheckpointRequest,
   type TurnBrokerTurnStateCheckpointReceipt,
 } from "@stella/contracts/turn-credential-broker";
@@ -393,75 +391,11 @@ export const cloudGeneralToolNames = (
 ): readonly string[] =>
   engine === "stella" ? CLOUD_STELLA_TOOLS : CLOUD_GENERAL_TOOLS;
 
-export const PUBLISH_STELLA_INTERIOR_TOOL = "publish_stella_interior";
-
-/**
- * The one pinned tool with no ToolHost handler behind it. `executeCloudTool`
- * answers it by posting a turn-broker command, which keeps the name identical
- * in the Stella agent loop and in Claude's MCP catalog.
- */
-const PUBLISH_STELLA_INTERIOR_METADATA: ToolMetadata = {
-  name: PUBLISH_STELLA_INTERIOR_TOOL,
-  label: "Publish interior build",
-  workingText: "Requesting the interior build",
-  description:
-    "Ask Stella to run the immutable production build of this Stella interior workspace after this turn finishes, and record the result as a candidate the user can select in Settings. Call it once, only when your source changes are complete and you would stand behind them. It publishes nothing on its own: the user chooses whether to switch to the candidate.",
-  parameters: {
-    type: "object",
-    properties: {
-      note: {
-        type: "string",
-        maxLength: 512,
-        description:
-          "Optional one-line summary of what changed, for the build record.",
-      },
-    },
-    additionalProperties: false,
-  },
-};
-
 /** Only Claude Code owns a native CLI loop; Codex uses Stella's Agent loop. */
 export const usesNativeCloudRuntime = (
   execution: CloudExecutionSelection,
 ): execution is Extract<CloudExecutionSelection, { engine: "anthropic" }> =>
   execution.engine === "anthropic";
-
-/**
- * Every cloud agent turn can reach the interior source at `world/stella`, so
- * the request tool is always in the catalog.
- */
-export const cloudPinnedWorkspaceTools = (): readonly ToolMetadata[] => [
-  PUBLISH_STELLA_INTERIOR_METADATA,
-];
-
-export const requestStellaInteriorBuild = async (args: {
-  post: (route: string, body: unknown) => Promise<Response>;
-  params: Record<string, unknown>;
-}): Promise<ToolResult> => {
-  const note = args.params.note;
-  if (note !== undefined && (typeof note !== "string" || note.length > 512)) {
-    return { error: "note must be a string of at most 512 characters." };
-  }
-  const request: TurnBrokerInteriorBuildRequest = {
-    schemaVersion: 1,
-    ...(note ? { note } : {}),
-  };
-  const response = await args.post(
-    TURN_BROKER_INTERIOR_BUILD_REQUEST_PATH,
-    request,
-  );
-  await response.body?.cancel().catch(() => undefined);
-  if (!response.ok) {
-    return {
-      error:
-        "Stella could not accept the interior build request for this turn.",
-    };
-  }
-  return {
-    result:
-      "Interior build will run when the turn completes successfully. It produces a candidate; the user selects it in Settings.",
-  };
-};
 
 export const checkpointCloudBrowserTurnBeforeTeardown = async (args: {
   codeToolCallIds: readonly string[];
@@ -628,8 +562,8 @@ const resolveOfficeBinPath = (): string | undefined => {
 /**
  * The container path's prompt: the world is on disk and the drive was
  * synchronized before the model ran, so it renders the materialized variant.
- * Kept as a named export because both prompt tests and the interior-build
- * suite assert on the sentences a given `DriveSyncResult` produces.
+ * Kept as a named export because prompt tests assert on the sentences a given
+ * `DriveSyncResult` produces.
  */
 export const CLOUD_GENERAL_PROMPT = (options: {
   office: boolean;
@@ -895,7 +829,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
         ...cloudGeneralToolNames(input.execution.engine)
           .map((name) => byName.get(name))
           .filter((tool): tool is ToolMetadata => Boolean(tool)),
-        ...cloudPinnedWorkspaceTools(),
       ];
       const executeCloudTool = async (
         toolCallId: string,
@@ -906,12 +839,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       ): Promise<ToolResult> => {
         if (name === "code" && !cloudCodeToolCallIds.includes(toolCallId)) {
           cloudCodeToolCallIds.push(toolCallId);
-        }
-        if (name === PUBLISH_STELLA_INTERIOR_TOOL) {
-          return await requestStellaInteriorBuild({
-            post: postJson,
-            params,
-          });
         }
         const result = await toolHost.executeTool(
           name,

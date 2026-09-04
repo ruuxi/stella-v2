@@ -188,16 +188,6 @@ sandbox — do not plan around them.`
     : `PDFs: \`pdftotext\`, \`pdfinfo\`, \`pdftoppm\`, \`pdfimages\`. Audio and \
 video: \`mediainfo\`. There is no LibreOffice, ffmpeg or Python in this \
 sandbox — do not plan around them.`;
-  const stellaLines = `\n\n${workspaceRoot}/stella is the editable source tree for \
-the user's Stella web interior. Change the existing renderer source in place; \
-do not replace it with a new app, do not edit generated build output, and do \
-not attempt to deploy it yourself. Nothing is built or published unless you ask \
-for it. Only when the user asked you to change their interior, and your changes \
-are complete and you would stand behind them, call \`publish_stella_interior\` \
-once; Stella then runs the immutable production builder after this turn and \
-records a candidate. The user still selects that candidate in Settings, so it \
-never switches their interior on its own. A build failure prevents a candidate \
-but does not discard the source changes.`;
   const skillLines = skillSection(options.skills);
   const isolationLines =
     workspaceRoot === WORLD_ROOT
@@ -215,13 +205,12 @@ ${workspaceRoot} is the user's whole world and your current working directory. \
 Everything you write inside it is checkpointed and persists across turns; \
 anything outside it is discarded when the sandbox stops.${isolationLines} It holds \`drive/\` \
 (the user's files), \`projects/<slug>/\` (repository checkouts), \`apps/<slug>/\` \
-(hosted app sources), and \`stella/\` (the user's Stella interior source). Put \
-new work where it belongs among those; deliverables the user should receive go \
+(hosted app sources). Put new work where it belongs among those; deliverables the user should receive go \
 in \`drive/\` under the name they should see — up to 25 of them per turn, so \
 bundle a larger set into one archive. You have bun, node, and git available via \
 exec_command.
 
 ${documents}
 
-You cannot spawn other agents and you cannot reach the user directly.${workspaceLines}${stellaLines}${skillLines}`;
+You cannot spawn other agents and you cannot reach the user directly.${workspaceLines}${skillLines}`;
 };

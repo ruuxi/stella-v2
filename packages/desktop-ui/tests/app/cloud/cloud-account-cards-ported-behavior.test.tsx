@@ -13,11 +13,6 @@ const API = vi.hoisted(() => ({
     setMyCloudExecution: "cloud:setMyCloudExecution",
     activateImportedCredential: "cloud:activateImportedCredential",
     activateImportedEngineSettings: "cloud:activateImportedEngineSettings",
-    listMyInteriorBuilds: "cloud:listMyInteriorBuilds",
-    ensureMyInteriorStableRoute: "cloud:ensureMyInteriorStableRoute",
-    rotateMyInteriorStableRoute: "cloud:rotateMyInteriorStableRoute",
-    promoteMyInteriorBuild: "cloud:promoteMyInteriorBuild",
-    rollbackMyInteriorBuild: "cloud:rollbackMyInteriorBuild",
   },
   projects: {
     listMyProjects: "projects:listMyProjects",
@@ -94,50 +89,6 @@ const engineConnections = () => ({
   importedSettings: [],
 });
 
-const interiorDeployment = () => ({
-  deployableId: "stella",
-  stableRouteId: "route-one",
-  activeBuildId: "build-active",
-  previousBuildId: "build-previous",
-  routeRevision: 7,
-  builds: [
-    {
-      buildId: "build-active",
-      deployableId: "stella",
-      turnId: "turn-active",
-      threadId: "thread-active",
-      sourceRevision: "sha256:active",
-      baseRevision: null,
-      artifactPrefix: "active",
-      manifestSha256: "manifest-active",
-      artifactDigest: "digest-active",
-      artifactSizeBytes: 1_048_576,
-      bridgeAbi: 1,
-      minShellVersion: "0.1.0",
-      createdAt: 1,
-      isActive: true,
-      isPrevious: false,
-    },
-    {
-      buildId: "build-candidate",
-      deployableId: "stella",
-      turnId: "turn-candidate",
-      threadId: "thread-candidate",
-      sourceRevision: "sha256:candidate",
-      baseRevision: "sha256:active",
-      artifactPrefix: "candidate",
-      manifestSha256: "manifest-candidate",
-      artifactDigest: "digest-candidate",
-      artifactSizeBytes: 2_097_152,
-      bridgeAbi: 1,
-      minShellVersion: "0.1.0",
-      createdAt: 2,
-      isActive: false,
-      isPrevious: false,
-    },
-  ],
-});
-
 describe("ported cloud account cards", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -206,32 +157,6 @@ describe("ported cloud account cards", () => {
       vi.fn().mockResolvedValue({ activated: true }),
     );
     mocks.mutations.set(
-      API.cloud.ensureMyInteriorStableRoute,
-      vi.fn().mockResolvedValue({ stableRouteId: "route-new" }),
-    );
-    mocks.mutations.set(
-      API.cloud.rotateMyInteriorStableRoute,
-      vi.fn().mockResolvedValue({ stableRouteId: "route-two" }),
-    );
-    mocks.mutations.set(
-      API.cloud.promoteMyInteriorBuild,
-      vi.fn().mockResolvedValue({
-        deployableId: "stella",
-        activeBuildId: "build-candidate",
-        previousBuildId: "build-active",
-        routeRevision: 8,
-      }),
-    );
-    mocks.mutations.set(
-      API.cloud.rollbackMyInteriorBuild,
-      vi.fn().mockResolvedValue({
-        deployableId: "stella",
-        activeBuildId: "build-previous",
-        previousBuildId: "build-active",
-        routeRevision: 8,
-      }),
-    );
-    mocks.mutations.set(
       API.projects.createMyProject,
       vi.fn().mockResolvedValue({ projectId: "project-1" }),
     );
@@ -263,14 +188,11 @@ describe("ported cloud account cards", () => {
     expect(mocks.queryCalls).toEqual([]);
   });
 
-  it("keeps the cards' loading surfaces and disables provider connects", async () => {
+  it("keeps loading surfaces and disables provider connects", async () => {
     await render();
 
     expect(card("Cloud engines")).toBeTruthy();
     expect(card("Cloud projects")).toBeTruthy();
-    expect(card("Stella interior").textContent).toContain(
-      "Loading deployments…",
-    );
     const engineConnects = Array.from(
       card("Cloud engines").querySelectorAll<HTMLButtonElement>("button"),
     ).filter((button) => button.textContent?.trim() === "Connect");
@@ -297,30 +219,6 @@ describe("ported cloud account cards", () => {
       mocks.mutations.get(API.cloud.setMyCloudExecution),
     ).toHaveBeenCalledWith({ execution: expected });
     expect(mocks.publishExecution).toHaveBeenCalledWith(expected);
-  });
-
-  it("fences select and rollback with the route revision shown to the user", async () => {
-    mocks.queries.set(API.cloud.listMyInteriorBuilds, interiorDeployment());
-    await render();
-
-    await act(async () => {
-      findButton("Select", card("Stella interior"))?.click();
-      await Promise.resolve();
-    });
-    expect(
-      mocks.mutations.get(API.cloud.promoteMyInteriorBuild),
-    ).toHaveBeenCalledWith({
-      buildId: "build-candidate",
-      expectedRouteRevision: 7,
-    });
-
-    await act(async () => {
-      findButton("Rollback", card("Stella interior"))?.click();
-      await Promise.resolve();
-    });
-    expect(
-      mocks.mutations.get(API.cloud.rollbackMyInteriorBuild),
-    ).toHaveBeenCalledWith({ expectedRouteRevision: 7 });
   });
 
   it("requires the explicit GitHub connect-code step and names the account", async () => {

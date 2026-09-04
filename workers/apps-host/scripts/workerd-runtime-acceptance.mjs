@@ -10,7 +10,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { realpathSync } from "node:fs";
 import {
@@ -41,10 +41,8 @@ const WRANGLER = path.join(
 const CONFIG = path.join(WORKER_ROOT, "wrangler.jsonc");
 const WRANGLER_ENV = "bn118";
 const EXPECTED_DEPLOYMENT = "preview:basic-nightingale-118";
-const EXPECTED_WORKER_NAME =
-  "stella-v2-apps-host-basic-nightingale-118";
-const EXPECTED_CONVEX_SITE_ORIGIN =
-  "https://basic-nightingale-118.convex.site";
+const EXPECTED_WORKER_NAME = "stella-v2-apps-host-basic-nightingale-118";
+const EXPECTED_CONVEX_SITE_ORIGIN = "https://basic-nightingale-118.convex.site";
 const APP_BUILDS_BUCKET = "stella-v2-app-builds-basic-nightingale-118";
 const MAX_COMMAND_OUTPUT_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -192,7 +190,6 @@ const startWorkerd = async ({ persistenceDirectory, extraVars = [] }) => {
   const port = await availablePort();
   const origin = `http://127.0.0.1:${port}`;
   const startedAt = Date.now();
-  const ephemeralServiceSecret = `acceptance-${sha256(randomUUID())}`;
   const child = spawn(
     WRANGLER,
     [
@@ -211,8 +208,6 @@ const startWorkerd = async ({ persistenceDirectory, extraVars = [] }) => {
       "--inspector-port",
       "0",
       "--show-interactive-dev-session=false",
-      "--var",
-      `BUILDER_SERVICE_SECRET:${ephemeralServiceSecret}`,
       ...extraVars.flatMap(([key, value]) => ["--var", `${key}:${value}`]),
     ],
     {
@@ -372,17 +367,9 @@ export const runAppsHostWorkerdAcceptance = async ({
     const identityHash = sha256(`apps-host-workerd\n${runId}`);
     const slug = `acceptance-${identityHash.slice(0, 24)}`;
     const appPrefix = `builds/${identityHash}/run-${identityHash.slice(0, 20)}`;
-    const interiorPrefix = `interior/run-${identityHash.slice(0, 20)}`;
-    const routeId = "sr_12345678-1234-4123-8123-123456789abc";
     const appBody = `<!doctype html><meta charset="utf-8"><title>Apps Host acceptance</title><p>${runId}</p>`;
-    const interiorBody = `<!doctype html><meta charset="utf-8"><title>Interior acceptance</title>`;
-    const bundleBody = Buffer.from(`PK\u0003\u0004${identityHash}`, "utf8");
     const appFile = path.join(fixtureDirectory, "app-index.html");
-    const interiorFile = path.join(fixtureDirectory, "interior-index.html");
-    const bundleFile = path.join(fixtureDirectory, "bundle.zip");
     await writeFile(appFile, appBody, { mode: 0o600, flag: "wx" });
-    await writeFile(interiorFile, interiorBody, { mode: 0o600, flag: "wx" });
-    await writeFile(bundleFile, bundleBody, { mode: 0o600, flag: "wx" });
 
     const build = await runCommand([
       "deploy",
@@ -412,38 +399,32 @@ export const runAppsHostWorkerdAcceptance = async ({
     );
 
     const kvSeedStartedAt = Date.now();
-    for (const [key, value] of [
-      [
-        `app:${slug}`,
-        JSON.stringify({ artifactPrefix: appPrefix, suspended: false }),
-      ],
-      [
-        "app:stella-interior",
-        JSON.stringify({ artifactPrefix: interiorPrefix, suspended: false }),
-      ],
-    ]) {
-      await runCommand([
-        "kv",
-        "key",
-        "put",
-        key,
-        value,
-        "--binding",
-        "APP_ROUTES",
-        "--local",
-        "--persist-to",
-        persistenceDirectory,
-        "--config",
-        CONFIG,
-        "--env",
-        WRANGLER_ENV,
-      ]);
-    }
+    await runCommand([
+      "kv",
+      "key",
+      "put",
+      `app:${slug}`,
+      JSON.stringify({
+        artifactPrefix: appPrefix,
+        appId: `app-${identityHash.slice(0, 24)}`,
+        slug,
+        suspended: false,
+      }),
+      "--binding",
+      "APP_ROUTES",
+      "--local",
+      "--persist-to",
+      persistenceDirectory,
+      "--config",
+      CONFIG,
+      "--env",
+      WRANGLER_ENV,
+    ]);
     receipts.push(
       receipt("apps-host.binding.kv.seed", {
         outcome: "written",
-        resourceIdSha256: sha256(`${slug}\n${appPrefix}\n${interiorPrefix}`),
-        count: 2,
+        resourceIdSha256: sha256(`${slug}\n${appPrefix}`),
+        count: 1,
         durationMs: Date.now() - kvSeedStartedAt,
       }),
     );
@@ -451,12 +432,6 @@ export const runAppsHostWorkerdAcceptance = async ({
     const r2SeedStartedAt = Date.now();
     for (const [key, file, contentType] of [
       [`${appPrefix}/index.html`, appFile, "text/html; charset=utf-8"],
-      [
-        `${interiorPrefix}/index.html`,
-        interiorFile,
-        "text/html; charset=utf-8",
-      ],
-      [`${interiorPrefix}/bundle.zip`, bundleFile, "application/zip"],
     ]) {
       await runCommand([
         "r2",
@@ -479,12 +454,9 @@ export const runAppsHostWorkerdAcceptance = async ({
     receipts.push(
       receipt("apps-host.binding.r2.seed", {
         outcome: "written",
-        objectKeySha256: sha256(`${appPrefix}\n${interiorPrefix}`),
-        bytes:
-          Buffer.byteLength(appBody) +
-          Buffer.byteLength(interiorBody) +
-          bundleBody.byteLength,
-        count: 3,
+        objectKeySha256: sha256(appPrefix),
+        bytes: Buffer.byteLength(appBody),
+        count: 1,
         durationMs: Date.now() - r2SeedStartedAt,
       }),
     );
@@ -517,9 +489,13 @@ export const runAppsHostWorkerdAcceptance = async ({
       }),
     );
 
-    const asset = await readResponse(workerd.origin, `/apps/${slug}/`);
+    const assetPath = `/_stella/apps-assets/${slug}/`;
+    const asset = await readResponse(workerd.origin, assetPath);
     const csp = asset.headers["content-security-policy"] ?? "";
-    assert(asset.status === 200, "Apps Host workerd app asset request failed.");
+    assert(
+      asset.status === 200,
+      `Apps Host workerd app asset request failed with ${asset.status}: ${asset.bytes.toString("utf8").slice(0, 512)}`,
+    );
     assert(
       asset.bytes.toString("utf8") === appBody,
       "Apps Host asset bytes drifted.",
@@ -549,7 +525,7 @@ export const runAppsHostWorkerdAcceptance = async ({
     receipts.push(
       receipt("apps-host.http.app-asset", {
         status: asset.status,
-        requestIdSha256: sha256(`GET /apps/${slug}/`),
+        requestIdSha256: sha256(`GET ${assetPath}`),
         resourceIdSha256: sha256(appPrefix),
         responseSha256: asset.responseSha256,
         bytes: asset.bytes.byteLength,
@@ -557,7 +533,7 @@ export const runAppsHostWorkerdAcceptance = async ({
       }),
     );
 
-    const head = await readResponse(workerd.origin, `/apps/${slug}/`, {
+    const head = await readResponse(workerd.origin, assetPath, {
       method: "HEAD",
     });
     assert(
@@ -571,117 +547,10 @@ export const runAppsHostWorkerdAcceptance = async ({
     receipts.push(
       receipt("apps-host.http.app-head", {
         status: head.status,
-        requestIdSha256: sha256(`HEAD /apps/${slug}/`),
+        requestIdSha256: sha256(`HEAD ${assetPath}`),
         responseSha256: head.responseSha256,
         bytes: head.bytes.byteLength,
         durationMs: head.durationMs,
-      }),
-    );
-
-    const manifest = await readResponse(
-      workerd.origin,
-      "/api/interior/manifest",
-    );
-    const manifestBody = JSON.parse(manifest.bytes.toString("utf8"));
-    assert(manifest.status === 200, "Apps Host interior manifest failed.");
-    assert(
-      manifestBody?.version === interiorPrefix &&
-        manifestBody?.bundleUrl ===
-          `${workerd.origin}/apps/stella-interior/bundle.zip` &&
-        manifestBody?.remoteUrl === `${workerd.origin}/apps/stella-interior/`,
-      "Apps Host same-origin interior manifest drifted.",
-    );
-    receipts.push(
-      receipt("apps-host.http.interior-manifest", {
-        status: manifest.status,
-        requestIdSha256: sha256("GET /api/interior/manifest"),
-        resourceIdSha256: sha256(interiorPrefix),
-        responseSha256: manifest.responseSha256,
-        bytes: manifest.bytes.byteLength,
-        durationMs: manifest.durationMs,
-      }),
-    );
-
-    const interior = await readResponse(
-      workerd.origin,
-      "/apps/stella-interior/",
-    );
-    const interiorBundle = await readResponse(
-      workerd.origin,
-      "/apps/stella-interior/bundle.zip",
-    );
-    assert(
-      interior.status === 200 &&
-        interior.bytes.toString("utf8") === interiorBody,
-      "Apps Host interior asset bytes drifted.",
-    );
-    assert(
-      interiorBundle.status === 200 &&
-        interiorBundle.responseSha256 === sha256(bundleBody),
-      "Apps Host interior bundle bytes drifted.",
-    );
-    assert(
-      interiorBundle.headers["content-type"] === "application/zip",
-      "Apps Host interior bundle type drifted.",
-    );
-    receipts.push(
-      receipt("apps-host.http.interior-assets", {
-        status: interior.status,
-        requestIdSha256: sha256("GET /apps/stella-interior/*"),
-        resourceIdSha256: sha256(interiorPrefix),
-        responseSha256: sha256(
-          `${interior.responseSha256}\n${interiorBundle.responseSha256}`,
-        ),
-        bytes: interior.bytes.byteLength + interiorBundle.bytes.byteLength,
-        count: 2,
-        durationMs: interior.durationMs + interiorBundle.durationMs,
-      }),
-    );
-
-    const handoff = await readResponse(
-      workerd.origin,
-      `/stella/${routeId}/auth`,
-    );
-    const handoffScript = await readResponse(
-      workerd.origin,
-      "/_stella/browser-auth-handoff.js",
-    );
-    const handoffHtml = handoff.bytes.toString("utf8");
-    const handoffJs = handoffScript.bytes.toString("utf8");
-    assert(
-      handoff.status === 200 && handoffScript.status === 200,
-      "Apps Host auth handoff route failed.",
-    );
-    assert(
-      handoffHtml.includes("/_stella/browser-auth-handoff.js"),
-      "Auth handoff omitted its reviewed script.",
-    );
-    assert(
-      handoffJs.includes("/api/auth/one-time-token/verify"),
-      "Auth handoff omitted one-time verification.",
-    );
-    assert(
-      handoffJs.includes("set-auth-token"),
-      "Auth handoff omitted bearer token capture.",
-    );
-    assert(
-      handoff.headers["cache-control"] === "no-store",
-      "Auth handoff must not be cached.",
-    );
-    assert(
-      handoff.headers["referrer-policy"] === "no-referrer",
-      "Auth handoff must suppress referrers.",
-    );
-    receipts.push(
-      receipt("apps-host.http.auth-handoff", {
-        status: handoff.status,
-        requestIdSha256: sha256(`GET /stella/${routeId}/auth`),
-        responseSha256: sha256(
-          `${handoff.responseSha256}\n${handoffScript.responseSha256}`,
-        ),
-        bytes: handoff.bytes.byteLength + handoffScript.bytes.byteLength,
-        count: 2,
-        durationMs: handoff.durationMs + handoffScript.durationMs,
       }),
     );
 
@@ -691,13 +560,13 @@ export const runAppsHostWorkerdAcceptance = async ({
       body: JSON.stringify({ input: "https://127.0.0.1/private" }),
     });
     assert(
-      blockedProxy.status === 400,
-      "Apps Host did not reject a private proxy target.",
+      blockedProxy.status === 401,
+      "Apps Host did not reject an unauthenticated proxy request.",
     );
     receipts.push(
-      receipt("apps-host.http.proxy-private-target", {
+      receipt("apps-host.http.proxy-unauthenticated", {
         status: blockedProxy.status,
-        requestIdSha256: sha256("POST /api/apps/fetch private-target"),
+        requestIdSha256: sha256("POST /api/apps/fetch unauthenticated"),
         responseSha256: blockedProxy.responseSha256,
         bytes: blockedProxy.bytes.byteLength,
         durationMs: blockedProxy.durationMs,
@@ -744,33 +613,20 @@ export const runAppsHostWorkerdAcceptance = async ({
       wranglerVersion: "4.127.1",
       bundleSha256,
       bundleBytes: bundleBytes.byteLength,
-      routeSetSha256: sha256(`${slug}\n${appPrefix}\n${interiorPrefix}`),
+      routeSetSha256: sha256(`${slug}\n${appPrefix}`),
       appAssetSha256: asset.responseSha256,
-      interiorManifestSha256: manifest.responseSha256,
-      interiorAssetsSha256: sha256(
-        `${interior.responseSha256}\n${interiorBundle.responseSha256}`,
-      ),
-      authHandoffSha256: sha256(
-        `${handoff.responseSha256}\n${handoffScript.responseSha256}`,
-      ),
       blockedProxyResponseSha256: blockedProxy.responseSha256,
       healthStatus: health.status,
       appAssetStatus: asset.status,
       appHeadStatus: head.status,
-      interiorManifestStatus: manifest.status,
-      interiorAssetStatus: interior.status,
-      interiorBundleStatus: interiorBundle.status,
-      authHandoffStatus: handoff.status,
       blockedProxyStatus: blockedProxy.status,
       invalidConfigStatus: rejected.status,
       productionBundleBuilt: true,
       workerdRuntimeStarted: true,
       realKvBindingUsed: true,
       realR2BindingUsed: true,
-      sameOriginInteriorManifest: true,
       strictHostedContentSecurityPolicy: true,
-      authHandoffNoStore: true,
-      privateProxyTargetBlockedBeforeFetch: true,
+      unauthenticatedProxyBlockedBeforeFetch: true,
       invalidConfigurationFailedClosed: true,
       runtimeDisposed: true,
     };

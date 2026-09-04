@@ -61,33 +61,6 @@ export type CloudEngineConnections = {
   }>;
 };
 
-export type StellaInteriorBuild = {
-  buildId: string;
-  deployableId: string;
-  turnId: string;
-  threadId: string;
-  sourceRevision: string | null;
-  baseRevision: string | null;
-  artifactPrefix: string;
-  manifestSha256: string;
-  artifactDigest: string;
-  artifactSizeBytes: number;
-  bridgeAbi: number;
-  minShellVersion: string;
-  createdAt: number;
-  isActive: boolean;
-  isPrevious: boolean;
-};
-
-export type StellaInteriorDeployment = {
-  deployableId: string | null;
-  stableRouteId: string | null;
-  activeBuildId: string | null;
-  previousBuildId: string | null;
-  routeRevision: number;
-  builds: StellaInteriorBuild[];
-};
-
 /** One spawned cloud agent. Mirrors the `cloud_agent_threads` row. */
 export type CloudAgentThread = {
   threadId: string;
@@ -366,47 +339,12 @@ export const cloudApi = {
     { limit?: number },
     CloudAgentThread[]
   >("cloud_apps:listMyRecentAgentThreads"),
-  listMyInteriorBuilds: makeFunctionReference<
-    "query",
-    { limit?: number },
-    StellaInteriorDeployment
-  >("cloud_deployments:listMyInteriorBuilds"),
-  ensureMyInteriorStableRoute: makeFunctionReference<
-    "mutation",
-    Record<string, never>,
-    { stableRouteId: string }
-  >("cloud_deployments:ensureMyInteriorStableRoute"),
-  rotateMyInteriorStableRoute: makeFunctionReference<
-    "mutation",
-    Record<string, never>,
-    { stableRouteId: string }
-  >("cloud_deployments:rotateMyInteriorStableRoute"),
-  promoteMyInteriorBuild: makeFunctionReference<
-    "mutation",
-    { buildId: string; expectedRouteRevision: number },
-    {
-      deployableId: string;
-      activeBuildId: string | null;
-      previousBuildId: string | null;
-      routeRevision: number;
-    }
-  >("cloud_deployments:promoteMyInteriorBuild"),
-  rollbackMyInteriorBuild: makeFunctionReference<
-    "mutation",
-    { expectedRouteRevision: number },
-    {
-      deployableId: string;
-      activeBuildId: string | null;
-      previousBuildId: string | null;
-      routeRevision: number;
-    }
-  >("cloud_deployments:rollbackMyInteriorBuild"),
 };
 
 /**
  * Drive (W2) and projects (W3) live in their own Convex modules. They are
- * referenced by name here for the same reason `cloudApi` is: the interior
- * never imports the Convex `api` object.
+ * referenced by name here for the same reason `cloudApi` is: this client never
+ * imports the Convex `api` object.
  */
 export const driveApi = {
   listMyDriveFiles: makeFunctionReference<

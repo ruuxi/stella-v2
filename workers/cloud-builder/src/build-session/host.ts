@@ -326,36 +326,6 @@ export interface BuildSessionInternals {
     sessionId: string;
     daemonDirectory: string;
   }): Promise<void>;
-  publishInteriorCandidate(
-    turn: TurnRequest,
-    sandbox: ReturnType<BuildSessionInternals["sandbox"]>,
-    commandTimeoutMs: number,
-    turnExecution: TurnExecutionContext,
-  ): Promise<{
-    buildId: string;
-    artifactPrefix: string;
-    previewUrl: string;
-    digest: string;
-    size: number;
-    sourceRevision: string;
-    baseRevision?: string;
-  }>;
-  publishRequestedInteriorCandidate(args: {
-    turn: TurnRequest;
-    sandbox: ReturnType<BuildSessionInternals["sandbox"]>;
-    commandTimeoutMs: number;
-    turnExecution: TurnExecutionContext;
-  }): Promise<
-    | { outcome: "not_requested" }
-    | { outcome: "abandoned" }
-    | { outcome: "failed"; error: string }
-    | {
-        outcome: "published";
-        candidate: Awaited<
-          ReturnType<BuildSessionInternals["publishInteriorCandidate"]>
-        >;
-      }
-  >;
   scheduleAppBuildPublicationRetry(
     turn: TurnRequest,
     error: unknown,

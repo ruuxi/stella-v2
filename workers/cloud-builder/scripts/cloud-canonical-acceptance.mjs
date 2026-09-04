@@ -201,7 +201,7 @@ const requiredStepDescriptions = Object.freeze({
   owner_reset_memory_reimport:
     "The signed-in product performs a memory-only wipe with explicit reimport, then a full owner reset rotates generation, removes reset-owned core data and old-generation objects, preserves the audited connected integration for a second read-only call, and reimports only retained local memory.",
   apps_host_workerd_runtime:
-    "The production Apps Host bundle serves real KV/R2-backed app, interior, and auth routes inside Workerd and fails closed on unsafe proxy and authority inputs.",
+    "The production Apps Host bundle serves real KV/R2-backed app routes inside Workerd and fails closed on unsafe proxy and authority inputs.",
   cleanup:
     "Disposable conversations, R2 objects, and isolated profiles are removed; live state is untouched.",
 });
@@ -4699,18 +4699,6 @@ const validators = {
       bundleBytes: finiteInteger(observation.bundleBytes, "bundleBytes", 1),
       routeSetSha256: sha256Value(observation.routeSetSha256, "routeSetSha256"),
       appAssetSha256: sha256Value(observation.appAssetSha256, "appAssetSha256"),
-      interiorManifestSha256: sha256Value(
-        observation.interiorManifestSha256,
-        "interiorManifestSha256",
-      ),
-      interiorAssetsSha256: sha256Value(
-        observation.interiorAssetsSha256,
-        "interiorAssetsSha256",
-      ),
-      authHandoffSha256: sha256Value(
-        observation.authHandoffSha256,
-        "authHandoffSha256",
-      ),
       blockedProxyResponseSha256: sha256Value(
         observation.blockedProxyResponseSha256,
         "blockedProxyResponseSha256",
@@ -4722,11 +4710,7 @@ const validators = {
       healthStatus: exactStatus("healthStatus", 200),
       appAssetStatus: exactStatus("appAssetStatus", 200),
       appHeadStatus: exactStatus("appHeadStatus", 200),
-      interiorManifestStatus: exactStatus("interiorManifestStatus", 200),
-      interiorAssetStatus: exactStatus("interiorAssetStatus", 200),
-      interiorBundleStatus: exactStatus("interiorBundleStatus", 200),
-      authHandoffStatus: exactStatus("authHandoffStatus", 200),
-      blockedProxyStatus: exactStatus("blockedProxyStatus", 400),
+      blockedProxyStatus: exactStatus("blockedProxyStatus", 401),
       invalidConfigStatus: exactStatus("invalidConfigStatus", 503),
     };
     for (const field of [
@@ -4734,10 +4718,8 @@ const validators = {
       "workerdRuntimeStarted",
       "realKvBindingUsed",
       "realR2BindingUsed",
-      "sameOriginInteriorManifest",
       "strictHostedContentSecurityPolicy",
-      "authHandoffNoStore",
-      "privateProxyTargetBlockedBeforeFetch",
+      "unauthenticatedProxyBlockedBeforeFetch",
       "invalidConfigurationFailedClosed",
       "runtimeDisposed",
       "isolatedStateRemoved",

@@ -6,7 +6,6 @@ import type {
   DispatchUpdatedEvent,
   ConversationDeletedEvent,
   ConversationIndexEvent,
-  InteriorBuildRecordedEvent,
   BuildRecordedEvent,
   OutboxEvent,
   OutboxRejectReason,
@@ -26,10 +25,8 @@ import {
   tombstoneConversation,
   upsertConversationIndex,
 } from "./cloud_apps";
-import { recordInteriorBuild } from "./cloud_deployments";
 import { parseCloudBuildCallback } from "./lib/cloud_build_callback";
 import { cloudAgentSandboxLeaseExpiresAt } from "./lib/computer_agent_thread";
-import { parseInteriorBuildCandidate } from "./lib/interior_build_candidate";
 import { parseOutboxEvent } from "./lib/outbox_events";
 import { assertOwnerDataWriteAllowed } from "./owner_lifecycle";
 
@@ -391,26 +388,6 @@ const applyBuildRecorded = async (
   return (await recordBuild(ctx, { ...callback, now })) ? applied : duplicate;
 };
 
-const applyInteriorBuildRecorded = async (
-  ctx: MutationCtx,
-  event: InteriorBuildRecordedEvent,
-  now: number,
-): Promise<OutboxApplyResult> => {
-  let candidate: ReturnType<typeof parseInteriorBuildCandidate>;
-  try {
-    candidate = parseInteriorBuildCandidate(event.payload);
-  } catch {
-    return rejected("invalid");
-  }
-  if (candidate.buildId !== event.buildId) return rejected("invalid");
-  if (candidate.ownerId !== event.ownerId) return rejected("owner_mismatch");
-  if (candidate.ownerGeneration !== event.ownerGeneration) {
-    return rejected("generation_stale");
-  }
-  const result = await recordInteriorBuild(ctx, { ...candidate, now });
-  return result.created ? applied : duplicate;
-};
-
 /**
  * Placement projection. The owner gate is the authority; this row exists so
  * the activity UI can list what ran where. Delivery reorders, so the stored
@@ -491,8 +468,6 @@ const applyEvent = async (
       return await applyThreadCompleted(ctx, event);
     case "build.recorded":
       return await applyBuildRecorded(ctx, event, options.now);
-    case "interior-build.recorded":
-      return await applyInteriorBuildRecorded(ctx, event, options.now);
     case "dispatch.updated":
       return await applyDispatchUpdated(ctx, event);
   }

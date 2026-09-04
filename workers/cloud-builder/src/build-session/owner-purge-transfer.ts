@@ -366,14 +366,10 @@ export const beginOwnerPurge = async (
 export const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**
  * A caller-supplied R2 prefix is a bucket-wipe primitive, so it is matched
- * against the two shapes this worker writes rather than merely checked for
- * non-emptiness. The interior form embeds a one-way owner hash and a
- * content-derived build id, so another owner's prefix cannot be smuggled in
- * through a path segment.
+ * against the shapes this worker writes rather than merely checked for
+ * non-emptiness.
  */
 export const LEGACY_BUILD_PREFIX_PATTERN = /^builds\/[A-Za-z0-9_-]{1,64}$/;
-export const INTERIOR_BUILD_PREFIX_PATTERN =
-  /^interiors\/[0-9a-f]{64}\/interior-[0-9a-f]{48}$/;
 
 /**
  * Backfill for checkpoints written before cleanup debt existed. The sandbox
@@ -1194,18 +1190,6 @@ export const transferOwnerProductStorage = async (
     );
     if (!complete) return { complete: false };
   }
-  if (request.interiors) {
-    // Build manifests are rewritten to this deterministic imported namespace
-    // by Convex after the object copy. Keeping the entire source tree separate
-    // avoids per-object collision fallbacks that no build row can address.
-    const complete = await moveR2PrefixPreservingDestination(
-      env.APP_BUILDS,
-      `interiors/${fromOwnerHash}/`,
-      `interiors/${toOwnerHash}/__stella_imported__/${fromOwnerHash}/`,
-      budget,
-    );
-    if (!complete) return { complete: false };
-  }
   // Build rows can outlive their app route, so the canonical owner root is
   // always transferred. `appSlugs` only scopes the globally keyed route
   // records that Convex proved belong to this migration.
@@ -1292,14 +1276,6 @@ export const purgeOwnerStorage = async (
       store: "conversations",
       bucket: env.CONVERSATION_ARCHIVE,
       prefix: `conversations/${ownerHash}/`,
-    },
-    {
-      // Every interior prefix is owner-addressable. Sweep the whole namespace
-      // so uploads stranded before an idempotent candidate callback cannot
-      // survive account deletion merely because no Convex row named them.
-      store: "interiors",
-      bucket: env.APP_BUILDS,
-      prefix: `interiors/${ownerHash}/`,
     },
     {
       // New mini-app builds are owner-addressable before the callback exists,
@@ -1423,15 +1399,12 @@ export const purgeOwnerStorage = async (
 
   // Build artifacts: the owner's app code and assets, still served by the
   // apps host until they are gone.
-  const interiorOwnerPrefix = `interiors/${ownerHash}/`;
   for (const prefix of request.buildPrefixes ?? []) {
     if (
       typeof prefix !== "string" ||
       !(
         LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
-        isOwnerAppBuildPrefix(prefix, ownerHash) ||
-        (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
-          prefix.startsWith(interiorOwnerPrefix))
+        isOwnerAppBuildPrefix(prefix, ownerHash)
       )
     ) {
       pending.push("build:unparseable");

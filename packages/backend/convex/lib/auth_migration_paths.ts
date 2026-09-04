@@ -133,11 +133,6 @@ export const importedAgentHomePrefix = (
   toOwnerHash: string,
 ): string => `agent-home/${toOwnerHash}/__stella_imported__/${fromOwnerHash}/`;
 
-export const importedInteriorPrefix = (
-  fromOwnerHash: string,
-  toOwnerHash: string,
-): string => `interiors/${toOwnerHash}/__stella_imported__/${fromOwnerHash}/`;
-
 export type OwnershipMigrationTransientState =
   | "cloud_drive_upload"
   | "cloud_engine_connect"

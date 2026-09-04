@@ -331,18 +331,6 @@ describe("agent compute ladder", () => {
     ).toEqual(["control:quiesce"]);
   });
 
-  test("a resident turn that asked for the interior build attaches after the loop", async () => {
-    const { ladder, journal, events } = harness();
-
-    ladder.requestInteriorBuild();
-    expect(ladder.attached()).toBe(false);
-    await ladder.attachForInteriorBuild();
-
-    expect(ladder.attached()).toBe(true);
-    expect(journal.calls[0]).toBe(`boot:${SANDBOX_ID}:small`);
-    expect(events[0]?.payload).toMatchObject({ reason: "interior_build" });
-  });
-
   test("a stop landing mid-boot releases the reserved session", async () => {
     let release: (() => void) | null = null;
     let entered: (() => void) | null = null;

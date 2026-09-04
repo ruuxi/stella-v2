@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { MAX_APP_ASSET_BYTES } from "../src/http-security";
 import worker from "../src/index";
-import { createUntrustedEnv as createEnv, routeId } from "./fixtures";
+import { createUntrustedEnv as createEnv } from "./fixtures";
 
 const originalFetch = globalThis.fetch;
 
@@ -29,7 +29,7 @@ describe("hosted asset boundary", () => {
         get: async (key: string) =>
           key === "app:orbit-demo"
             ? {
-              artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
+                artifactPrefix: `builds/${"a".repeat(64)}/build-123`,
                 appId: "app-orbit",
                 slug: "orbit-demo",
                 suspended: false,
@@ -67,9 +67,7 @@ describe("hosted asset boundary", () => {
     expect(csp).toContain("frame-src 'self'");
     expect(csp).toContain("https://outgoing-bulldog-865.convex.site");
     const raw = await worker.fetch(
-      new Request(
-        "https://apps.example.com/_stella/apps-assets/orbit-demo/",
-      ),
+      new Request("https://apps.example.com/_stella/apps-assets/orbit-demo/"),
       env,
     );
     expect(raw.status).toBe(200);
@@ -92,10 +90,6 @@ describe("hosted asset boundary", () => {
         getByName: () => ({ consume: async () => ({ ok: true }) }),
       },
       APP_AUTH: {
-        mintInteriorBootstrap: async () => ({
-          bootstrap: "interior",
-          expiresAt: Date.now() + 60_000,
-        }),
         mintAppBootstrap: async (args) => {
           minted.push(args);
           return {
@@ -105,7 +99,6 @@ describe("hosted asset boundary", () => {
         },
         mintAnonymousSession: async () => ({}),
         verifyFetchCapability: async () => ({ ok: false }),
-        getInteriorRoute: async () => null,
       },
       APP_ROUTES: {
         get: async (key: string) =>
@@ -125,8 +118,7 @@ describe("hosted asset boundary", () => {
       new Request(endpoint, {
         method: "POST",
         headers: {
-          origin:
-            "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+          origin: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
           "sec-fetch-site": "same-origin",
           "sec-fetch-mode": "cors",
         },
@@ -141,8 +133,7 @@ describe("hosted asset boundary", () => {
       {
         appId: "server-resolved-app",
         slug: "orbit-demo",
-        origin:
-          "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+        origin: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
       },
     ]);
 
@@ -158,8 +149,7 @@ describe("hosted asset boundary", () => {
       new Request(endpoint, {
         method: "POST",
         headers: {
-          origin:
-            "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+          origin: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
           "sec-fetch-site": "same-origin",
           "sec-fetch-mode": "cors",
           "content-type": "application/json",
@@ -290,83 +280,6 @@ describe("hosted asset boundary", () => {
     expect(r2Reads).toBe(0);
   });
 
-  test("serves the packaged-interior manifest from the same host", async () => {
-    const requested: string[] = [];
-    const env = createEnv({
-      APP_ROUTES: {
-        get: async (key: string) =>
-          key === "app:stella-interior"
-            ? {
-                artifactPrefix: "interior/e2e-build",
-                suspended: false,
-              }
-            : null,
-      } as unknown as KVNamespace,
-      APP_BUILDS: {
-        get: async (key: string) => {
-          requested.push(key);
-          if (key === "interior/e2e-build/index.html") {
-            return r2Object("<!doctype html><h1>Stella</h1>");
-          }
-          if (key === "interior/e2e-build/bundle.zip") {
-            return r2Object("zip", "application/zip");
-          }
-          return null;
-        },
-      } as unknown as R2Bucket,
-    });
-    const response = await worker.fetch(
-      new Request("https://apps.example.com/api/interior/manifest"),
-      env,
-    );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      version: "interior/e2e-build",
-      bundleUrl: "https://apps.example.com/apps/stella-interior/bundle.zip",
-      remoteUrl: "https://apps.example.com/apps/stella-interior/",
-    });
-
-    const remote = await worker.fetch(
-      new Request("https://apps.example.com/apps/stella-interior/"),
-      env,
-    );
-    const bundle = await worker.fetch(
-      new Request("https://apps.example.com/apps/stella-interior/bundle.zip"),
-      env,
-    );
-    expect(remote.status).toBe(200);
-    expect(bundle.status).toBe(200);
-    expect(bundle.headers.get("content-type")).toBe("application/zip");
-    expect(requested).toEqual([
-      "interior/e2e-build/index.html",
-      "interior/e2e-build/bundle.zip",
-    ]);
-  });
-
-  test("rejects a packaged-interior route outside its live prefix", async () => {
-    let r2Reads = 0;
-    const env = createEnv({
-      APP_ROUTES: {
-        get: async () => ({
-          artifactPrefix: "backups/private",
-          suspended: false,
-        }),
-      } as unknown as KVNamespace,
-      APP_BUILDS: {
-        get: async () => {
-          r2Reads += 1;
-          return null;
-        },
-      } as unknown as R2Bucket,
-    });
-    const response = await worker.fetch(
-      new Request("https://apps.example.com/apps/stella-interior/"),
-      env,
-    );
-    expect(response.status).toBe(503);
-    expect(r2Reads).toBe(0);
-  });
-
   test("rejects an app asset above the host bound", async () => {
     const oversized = r2Object("");
     Object.defineProperty(oversized, "size", {
@@ -392,71 +305,5 @@ describe("hosted asset boundary", () => {
       env,
     );
     expect(response.status).toBe(503);
-  });
-
-  test("resolves active interiors only through the pinned authenticated endpoint", async () => {
-    const ownerHash = "b".repeat(64);
-    const buildId = `interior-${"c".repeat(48)}`;
-    let requestedRouteId = "";
-    const env = createEnv({
-      APP_AUTH: {
-        mintInteriorBootstrap: async () => ({
-          bootstrap: "test-interior-bootstrap",
-          expiresAt: Date.now() + 60_000,
-        }),
-        mintAppBootstrap: async () => ({ bootstrap: "test", expiresAt: Date.now() + 60_000 }),
-        mintAnonymousSession: async () => ({}),
-        verifyFetchCapability: async () => ({ ok: false }),
-        getInteriorRoute: async ({ stableRouteId }) => {
-          requestedRouteId = stableRouteId;
-          return {
-            mode: "custom",
-            ownerHash,
-            buildId,
-            artifactPrefix: `interiors/${ownerHash}/${buildId}`,
-          };
-        },
-      },
-      APP_BUILDS: {
-        get: async (key: string) =>
-          key === `interiors/${ownerHash}/${buildId}/index.html`
-            ? r2Object("<!doctype html><h1>Interior</h1>")
-            : null,
-      } as unknown as R2Bucket,
-    });
-    const response = await worker.fetch(
-      new Request(`https://apps.example.com/stella/${routeId}/`),
-      env,
-    );
-    expect(response.status).toBe(200);
-    expect(requestedRouteId).toBe(routeId);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    const wrapperHtml = await response.text();
-    expect(wrapperHtml).toContain("test-interior-bootstrap");
-    expect(wrapperHtml).not.toContain("Interior</h1>");
-  });
-
-  test("does not expose an interior route when the control plane rejects it", async () => {
-    const response = await worker.fetch(
-      new Request(`https://apps.example.com/stella/${routeId}/`),
-      createEnv({
-        APP_AUTH: {
-          mintInteriorBootstrap: async () => ({
-            bootstrap: "test-interior-bootstrap",
-            expiresAt: Date.now() + 60_000,
-          }),
-          mintAppBootstrap: async () => ({ bootstrap: "test", expiresAt: Date.now() + 60_000 }),
-          mintAnonymousSession: async () => ({}),
-          verifyFetchCapability: async () => ({ ok: false }),
-          getInteriorRoute: async () => {
-            throw new Error("rejected");
-          },
-        },
-      }),
-    );
-    expect(response.status).toBe(503);
-    expect(await response.text()).toBe(
-      "The active Stella route is unavailable.",
-    );
   });
 });

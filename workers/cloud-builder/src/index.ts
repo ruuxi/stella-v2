@@ -36,8 +36,6 @@ import {
 import {
   advanceAppBuildPublication,
   proxyVitePreview,
-  publishInteriorCandidate,
-  publishRequestedInteriorCandidate,
   runEcho,
   runTurn,
 } from "./build-session/app-build.js";
@@ -222,8 +220,6 @@ export { purgeNativeStateForWorkspace } from "./build-session/owner-purge-transf
 export { bindObservedBrowserSuspensionToCanonicalCodeCall };
 export {
   parseAgentExecutorResult,
-  seedFirstStellaToolWorkspace,
-  stellaToolWorkspaceExists,
   waitForCloudAgentTurnResultText,
 } from "./build-session/container-turn.js";
 
@@ -853,32 +849,6 @@ export class BuildSession extends DurableObject<Env> {
     daemonDirectory: string;
   }): Promise<void> {
     return releaseAgentSessionResources(this.self, target);
-  }
-
-  /** @see src/build-session/app-build.ts */
-  private publishInteriorCandidate(
-    turn: TurnRequest,
-    sandbox: ReturnType<BuildSession["sandbox"]>,
-    commandTimeoutMs: number,
-    turnExecution: TurnExecutionContext,
-  ): ReturnType<BuildSessionInternals["publishInteriorCandidate"]> {
-    return publishInteriorCandidate(
-      this.self,
-      turn,
-      sandbox,
-      commandTimeoutMs,
-      turnExecution,
-    );
-  }
-
-  /** @see src/build-session/app-build.ts */
-  private publishRequestedInteriorCandidate(args: {
-    turn: TurnRequest;
-    sandbox: ReturnType<BuildSession["sandbox"]>;
-    commandTimeoutMs: number;
-    turnExecution: TurnExecutionContext;
-  }): ReturnType<BuildSessionInternals["publishRequestedInteriorCandidate"]> {
-    return publishRequestedInteriorCandidate(this.self, args);
   }
 
   /** @see src/build-session/app-build.ts */

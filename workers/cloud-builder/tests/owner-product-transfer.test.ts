@@ -11,7 +11,6 @@ import {
   ownerTransferLeaseConflicts,
   parseOwnerProductTransferRequest,
   replaceOwnerPrefix,
-  rewriteInteriorArtifactManifest,
   takeOwnerTransferBatch,
   transferredBackupId,
 } from "../src/owner-product-transfer.js";
@@ -34,7 +33,6 @@ describe("owner product transfer", () => {
         fromOwnerId: " anonymous-owner ",
         toOwnerId: "connected-owner",
         agentHome: true,
-        interiors: false,
         world: true,
         appSlugs: ["notes"],
       }),
@@ -43,7 +41,6 @@ describe("owner product transfer", () => {
       fromOwnerId: "anonymous-owner",
       toOwnerId: "connected-owner",
       agentHome: true,
-      interiors: false,
       world: true,
       appSlugs: ["notes"],
     });
@@ -56,7 +53,6 @@ describe("owner product transfer", () => {
         fromOwnerId: "anonymous-owner",
         toOwnerId: "connected-owner",
         agentHome: false,
-        interiors: false,
         appSlugs: [],
       }),
     ).toBeNull();
@@ -66,7 +62,6 @@ describe("owner product transfer", () => {
         fromOwnerId: "anonymous-owner",
         toOwnerId: "connected-owner",
         agentHome: false,
-        interiors: false,
         world: false,
         appSlugs: ["a", "b", "c", "d", "e"],
       }),
@@ -260,10 +255,7 @@ describe("owner product transfer", () => {
     const from = "a".repeat(64);
     const to = "b".repeat(64);
     expect(
-      isValidOwnerTransferPrefixPair(
-        `builds/${from}/`,
-        `builds/${to}/`,
-      ),
+      isValidOwnerTransferPrefixPair(`builds/${from}/`, `builds/${to}/`),
     ).toBe(true);
     expect(
       isValidOwnerTransferPrefixPair(
@@ -271,47 +263,5 @@ describe("owner product transfer", () => {
         `builds/${to}/app/`,
       ),
     ).toBe(false);
-    expect(
-      isValidOwnerTransferPrefixPair(
-        `interiors/${from}/`,
-        `interiors/${to}/__stella_imported__/${from}/`,
-      ),
-    ).toBe(true);
-  });
-
-  test("structurally rewrites an interior manifest and its exact URLs", async () => {
-    const from = "a".repeat(64);
-    const to = "b".repeat(64);
-    const buildId = `interior-${"c".repeat(48)}`;
-    const sourcePrefix = `interiors/${from}/`;
-    const destinationPrefix =
-      `interiors/${to}/__stella_imported__/${from}/`;
-    const input = {
-      schemaVersion: 1,
-      buildId,
-      version: buildId,
-      artifactPrefix: `${sourcePrefix}${buildId}`,
-      note: `${sourcePrefix}must-not-be-globally-replaced`,
-      files: [
-        {
-          path: "assets/main.js",
-          url: `https://apps.example.com/interior-builds/${from}/${buildId}/assets/main.js`,
-          size: 1,
-        },
-      ],
-    };
-    const rewritten = await rewriteInteriorArtifactManifest({
-      manifestJson: JSON.stringify(input),
-      sourcePrefix,
-      destinationPrefix,
-      appsHostOrigin: "https://apps.example.com",
-    });
-    const parsed = JSON.parse(rewritten.manifestJson);
-    expect(parsed.artifactPrefix).toBe(`${destinationPrefix}${buildId}`);
-    expect(parsed.files[0].url).toBe(
-      `https://apps.example.com/interior-builds/${to}/__stella_imported__/${from}/${buildId}/assets/main.js`,
-    );
-    expect(parsed.note).toBe(input.note);
-    expect(rewritten.manifestSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 });

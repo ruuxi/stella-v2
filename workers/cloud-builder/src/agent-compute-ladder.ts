@@ -30,10 +30,12 @@ import type { TurnComputeUse } from "./general-agent-turn.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 
 export type AgentComputePhase =
-  "resident" | "attaching" | "attached" | "quiesced";
+  | "resident"
+  | "attaching"
+  | "attached"
+  | "quiesced";
 
-export type AttachReason =
-  "process_tool" | "filesystem_tool" | "interior_build";
+export type AttachReason = "process_tool" | "filesystem_tool";
 
 /**
  * The durable fact about where this turn's work is happening.
@@ -194,9 +196,6 @@ const BOOT_REPORT_PREFIX = "\n\n";
 export type AgentComputeLadder = Readonly<{
   /** Run one bridged tool, attaching first if this is the call that needs it. */
   execute(call: LadderToolCall): Promise<SerializedAgentToolResult>;
-  /** The turn recorded a request for the post-loop interior build. */
-  requestInteriorBuild(): void;
-  interiorBuildRequested(): boolean;
   attached(): boolean;
   /**
    * Join the daemon and deliver what the reply linked. Idempotent.
@@ -206,13 +205,6 @@ export type AgentComputeLadder = Readonly<{
   quiesce(
     linkedPaths?: readonly string[],
   ): Promise<Readonly<{ deliveredFiles: readonly string[] }>>;
-  /**
-   * Attach after the loop for a resident turn that asked for the interior
-   * build. Constraint 3: the build is squashfs work inside the container, so a
-   * resident turn that recorded the request has to attach or the deploy tool
-   * would be silently useless.
-   */
-  attachForInteriorBuild(): Promise<void>;
   /** Release the exact turn session. A no-op for a turn that never attached. */
   teardown(): Promise<void>;
   compute(): TurnComputeUse;
@@ -240,7 +232,6 @@ export const createAgentComputeLadder = (
   };
   let attaching: Promise<void> | null = null;
   let bootNoticePending: string | null = null;
-  let interiorBuild = false;
   let admitted = false;
   let released = false;
   let quiesceResult: Awaited<ReturnType<AgentComputeLadder["quiesce"]>> | null =
@@ -429,14 +420,6 @@ export const createAgentComputeLadder = (
       }
     },
 
-    requestInteriorBuild() {
-      interiorBuild = true;
-    },
-
-    interiorBuildRequested() {
-      return interiorBuild;
-    },
-
     attached() {
       return record.phase === "attached";
     },
@@ -459,11 +442,6 @@ export const createAgentComputeLadder = (
           ? { deliveredFiles: response.deliveredFiles }
           : { deliveredFiles: [] };
       return quiesceResult;
-    },
-
-    async attachForInteriorBuild() {
-      if (!interiorBuild) return;
-      await ensureAttached("interior_build");
     },
 
     async teardown() {

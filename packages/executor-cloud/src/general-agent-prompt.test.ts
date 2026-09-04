@@ -47,15 +47,12 @@ describe("general agent prompt", () => {
       workspace: "materialized",
       office: true,
     });
-    const [lazyHead, lazyTail] = lazy.split("\n\nNothing is on disk yet.") as [
-      string,
-      string,
-    ];
-    const marker = "\n\n/workspace/world/stella is the editable source tree";
-    expect(lazyTail.slice(lazyTail.indexOf(marker))).toBe(
-      materialized.slice(materialized.indexOf(marker)),
-    );
-    expect(lazyHead).toBe(materialized.slice(0, materialized.indexOf(marker)));
+    expect(
+      lazy.replace(
+        /\n\nNothing is on disk yet\.[\s\S]*?what a path contains\./u,
+        "",
+      ),
+    ).toBe(materialized);
   });
 
   test("lazy still carries the skill catalog and its bounds", () => {
@@ -95,9 +92,7 @@ describe("general agent prompt", () => {
       });
       expect(prompt).toContain(root);
       expect(prompt).toContain(`${root}/drive`);
-      expect(prompt).toContain(`${root}/stella`);
       expect(prompt).toContain("This is an isolated workspace.");
-      expect(prompt).not.toContain("/workspace/world/stella");
     }
   });
 

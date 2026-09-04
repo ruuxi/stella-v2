@@ -51,33 +51,6 @@ const serviceAuthorized = (request: Request): boolean => {
 };
 
 export function registerCloudAppRoutes(http: HttpRouter) {
-  http.route({
-    path: "/api/cloud/interior-active-route",
-    method: "GET",
-    handler: httpAction(async (ctx, request) => {
-      if (!serviceAuthorized(request))
-        return json({ error: "Unauthorized" }, 401);
-      const stableRouteId = new URL(request.url).searchParams
-        .get("stableRouteId")
-        ?.trim();
-      if (
-        !stableRouteId ||
-        !/^sr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-          stableRouteId,
-        )
-      ) {
-        return json({ error: "stableRouteId required" }, 400);
-      }
-      const route = await ctx.runQuery(
-        internal.cloud_deployments.getInteriorRouteByStableRouteIdInternal,
-        { stableRouteId },
-      );
-      return route
-        ? json(route)
-        : json({ error: "Stella interior route not found." }, 404);
-    }),
-  });
-
   // Web search for cloud executors (orchestrator DO + sandbox agents, via the
   // DO's broker). The turn capability attributes the search to its owner for
   // rate limiting and binds it to one turn.

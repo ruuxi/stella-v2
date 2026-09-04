@@ -146,11 +146,6 @@ const OWNER_STORES = {
   cloud_app_builds: "external-ref",
   cloud_app_operations: "simple",
   cloud_app_op_invocations: "simple",
-  // Per-owner Stella interior routing plus immutable candidates. Both name
-  // R2 build prefixes, and the deployable also implies the owner's `stella`
-  // sandbox checkpoint. External bytes go before either row.
-  cloud_interior_deployables: "external-ref",
-  cloud_interior_builds: "external-ref",
   // Recurring and one-shot turns. Stopped before anything else is touched.
   cloud_scheduled_turns: "stopped",
   // Same-transaction replay receipts for Schedule mutations. These are owner
@@ -943,93 +938,6 @@ export const deleteOwnerAppBatch = internalMutation({
   },
 });
 
-// ─── Stella interior deployments ────────────────────────────────────────────
-
-/**
- * The exact external state named by one owner's interior deployment. Build
- * prefixes are read from their immutable rows. The owner-level purge later in
- * this action independently removes the owner's world checkpoint, which holds
- * the interior source.
- */
-export const listOwnerInteriorPurgeManifestInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.object({
-    hasRows: v.boolean(),
-    buildPrefixes: v.array(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    const deployment = await ctx.db
-      .query("cloud_interior_deployables")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
-    const builds = await ctx.db
-      .query("cloud_interior_builds")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(BATCH);
-    const hasRows = Boolean(deployment) || builds.length > 0;
-    return {
-      hasRows,
-      buildPrefixes: [...new Set(builds.map((build) => build.artifactPrefix))],
-    };
-  },
-});
-
-/**
- * Deletes only candidates whose artifact prefixes the builder just confirmed
- * gone. A candidate inserted after the manifest read is held for the next
- * pass, preserving the same row-last fencing used by mini-app builds.
- */
-export const deleteOwnerInteriorDeploymentBatch = internalMutation({
-  args: {
-    ...purgeOperationArgs,
-    purgedPrefixes: v.array(v.string()),
-  },
-  returns: v.object({ hasMore: v.boolean(), deleted: v.number() }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const purged = new Set(args.purgedPrefixes);
-    const builds = await ctx.db
-      .query("cloud_interior_builds")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(BATCH);
-    let deleted = 0;
-    let heldBack = 0;
-    for (const build of builds) {
-      if (!purged.has(build.artifactPrefix)) {
-        heldBack += 1;
-        continue;
-      }
-      await ctx.db.delete(build._id);
-      deleted += 1;
-    }
-    if (builds.length === BATCH || heldBack > 0) {
-      return { hasMore: true, deleted };
-    }
-    const remainingBuild = await ctx.db
-      .query("cloud_interior_builds")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(1);
-    if (remainingBuild.length > 0) {
-      return { hasMore: true, deleted };
-    }
-    const deployment = await ctx.db
-      .query("cloud_interior_deployables")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
-    if (deployment) {
-      await ctx.db.delete(deployment._id);
-      deleted += 1;
-    }
-    return { hasMore: false, deleted };
-  },
-});
-
 // ─── Projects ────────────────────────────────────────────────────────────────
 
 /**
@@ -1597,24 +1505,6 @@ export const remainingOwnerStoresInternal = internalQuery({
             ctx.db
               .query("cloud_app_op_invocations")
               .withIndex("by_ownerId_and_appId_and_createdAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_interior_deployables":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_interior_deployables")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_interior_builds":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_interior_builds")
-              .withIndex("by_ownerId_and_createdAt", (q) =>
                 q.eq("ownerId", ownerId),
               )
               .take(1),
@@ -2368,45 +2258,7 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 3. Stella interior builds. Their immutable rows are the only names of
-      //    their R2 prefixes, so the worker confirms each prefix gone first.
-      let barrenInteriorPasses = 0;
-      for (let interiorPass = 0; interiorPass < MAX_PASSES; interiorPass += 1) {
-        const manifest: { hasRows: boolean; buildPrefixes: string[] } =
-          await ctx.runQuery(
-            internal.cloud_purge.listOwnerInteriorPurgeManifestInternal,
-            { ownerId },
-          );
-        if (!manifest.hasRows) break;
-        const external =
-          manifest.buildPrefixes.length === 0
-            ? { pending: [] }
-            : await purgeExternalStoresFenced({
-                buildPrefixes: manifest.buildPrefixes,
-              });
-        if (external.pending.length > 0) {
-          pending.push("cloud_interior_deployables");
-          break;
-        }
-        const drained: { hasMore: boolean; deleted: number } =
-          await ctx.runMutation(
-            internal.cloud_purge.deleteOwnerInteriorDeploymentBatch,
-            {
-              ...fence,
-              purgedPrefixes: manifest.buildPrefixes,
-            },
-          );
-        if (!drained.hasMore) break;
-        barrenInteriorPasses =
-          drained.deleted === 0 ? barrenInteriorPasses + 1 : 0;
-        if (barrenInteriorPasses >= 2) {
-          pending.push("cloud_interior_deployables");
-          logPurge("owner_interior_drain_stalled", { ownerId });
-          break;
-        }
-      }
-
-      // 4. GitHub App grants. Deletion debt is committed before the remote call;
+      // 3. GitHub App grants. Deletion debt is committed before the remote call;
       //    every locator row remains on any non-terminal GitHub response.
       for (let githubPass = 0; githubPass < MAX_PASSES; githubPass += 1) {
         const manifest: { hasRows: boolean; installationIds: string[] } =

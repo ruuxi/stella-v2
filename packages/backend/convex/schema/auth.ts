@@ -187,7 +187,6 @@ export const authSchema = {
       v.union(
         v.literal("owner-namespaces"),
         v.literal("apps"),
-        v.literal("interior"),
         v.literal("projects"),
         v.literal("core"),
         v.literal("complete"),

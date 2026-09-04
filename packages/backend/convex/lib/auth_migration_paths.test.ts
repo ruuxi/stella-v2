@@ -6,7 +6,6 @@ import {
   importedAgentHomeDocumentName,
   importedAgentHomePrefix,
   importedDrivePath,
-  importedInteriorPrefix,
   importedOwnerScopedKey,
   importedProjectSlug,
   importedSkillSlug,
@@ -54,7 +53,7 @@ describe("anonymous owner collision paths", () => {
     assert.equal("r2Key" in patch, false);
   });
 
-  test("gives imported agent-home and interior bytes stable owner-scoped namespaces", () => {
+  test("gives imported agent-home bytes a stable owner-scoped namespace", () => {
     assert.equal(
       importedAgentHomeDocumentName(
         "MEMORY.md",
@@ -65,10 +64,6 @@ describe("anonymous owner collision paths", () => {
     assert.equal(
       importedAgentHomePrefix("anonymoushash", "connectedhash"),
       "agent-home/connectedhash/__stella_imported__/anonymoushash/",
-    );
-    assert.equal(
-      importedInteriorPrefix("anonymoushash", "connectedhash"),
-      "interiors/connectedhash/__stella_imported__/anonymoushash/",
     );
   });
 

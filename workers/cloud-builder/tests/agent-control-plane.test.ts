@@ -6,7 +6,6 @@ import {
   type AgentControlPlaneTransport,
 } from "../src/agent-control-plane.js";
 import type { SealedTurnTranscript } from "../src/agent-turn-journal.js";
-import { interiorBuildRequestKey } from "../src/interior-build-request.js";
 import { nativeHistoryCursorFromRows } from "../src/native-state-checkpoint.js";
 import {
   appendThreadMessages,
@@ -93,7 +92,11 @@ const fakeTransport = () => {
     appends,
     transport,
     seed: (
-      rows: ReadonlyArray<{ ordinal: number; role: string; payloadJson: string }>,
+      rows: ReadonlyArray<{
+        ordinal: number;
+        role: string;
+        payloadJson: string;
+      }>,
       turnId = "turn-earlier",
     ) =>
       appendThreadMessages(sql, {
@@ -274,7 +277,12 @@ describe("turn events and Convex-answerable calls", () => {
 
     expect(captures).toHaveLength(0);
     expect(transport.events).toEqual([
-      { seq: 4, kind: "assistant_delta", payload: { text: "hi" }, terminal: false },
+      {
+        seq: 4,
+        kind: "assistant_delta",
+        payload: { text: "hi" },
+        terminal: false,
+      },
     ]);
     transport.close();
   });
@@ -346,32 +354,6 @@ describe("turn events and Convex-answerable calls", () => {
     await expect(
       control.web({ query: "a", url: "https://example.com" }),
     ).rejects.toThrow(/not both/u);
-    transport.close();
-  });
-});
-
-describe("interior build request", () => {
-  test("records the request under the exact attempt's key", async () => {
-    const { values, control, transport } = harness(() =>
-      Response.json({ ok: true }),
-    );
-
-    await control.recordInteriorBuildRequest(
-      { schemaVersion: 1, note: "ship the interior" },
-      1_800_000_000_000,
-    );
-
-    expect(
-      values.get(
-        interiorBuildRequestKey(IDENTITY.turnId, IDENTITY.attemptGeneration),
-      ),
-    ).toEqual({
-      schemaVersion: 1,
-      turnId: IDENTITY.turnId,
-      attemptGeneration: IDENTITY.attemptGeneration,
-      requestedAt: 1_800_000_000_000,
-      note: "ship the interior",
-    });
     transport.close();
   });
 });

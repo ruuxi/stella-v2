@@ -186,7 +186,6 @@ describe("resident general-agent turn in workerd", () => {
       "pause_agent",
       "agent_status",
       "merge_workspace",
-      "publish_stella_interior",
     ]);
   }, 90_000);
 

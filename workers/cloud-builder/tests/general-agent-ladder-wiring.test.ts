@@ -197,6 +197,7 @@ const fakeSession = (options: {
   const processes: string[] = [];
   const processOptions: unknown[] = [];
   let socketProbes = 0;
+  let statusCalls = 0;
   const resultText = () => `${JSON.stringify(options.resultFrame ?? {})}\n`;
   const exec = async (
     command: string,
@@ -245,6 +246,9 @@ const fakeSession = (options: {
     execOptions,
     processes,
     processOptions,
+    get statusCalls() {
+      return statusCalls;
+    },
     session: {
       exec,
       writeFile: async (path: string, contents: string) => {
@@ -262,7 +266,10 @@ const fakeSession = (options: {
         processes.push(command);
         processOptions.push(opts ?? null);
         return {
-          getStatus: async () => options.daemonStatus ?? "running",
+          getStatus: async () => {
+            statusCalls += 1;
+            return options.daemonStatus ?? "running";
+          },
           getLogs: async () => ({
             stdout: "",
             stderr: options.daemonStderr ?? "",
@@ -360,8 +367,10 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     ).rejects.toThrow(
       /exited before it could listen \(failed\): error: Module not found/u,
     );
-    // Fast: the readiness window is not waited out for a process that is gone.
+    // Fast: the readiness window is not waited out for a process that is gone,
+    // and formatting the failure reuses the terminal status already observed.
     expect(fake.execs.filter((c) => c.includes("test -S"))).toHaveLength(1);
+    expect(fake.statusCalls).toBe(1);
   });
 
   test("the one-shot client runs from the executor root as well", async () => {

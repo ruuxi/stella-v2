@@ -108,10 +108,18 @@ const describeDaemon = async (
   daemon: Process | undefined,
   daemonStderrPath: string | undefined,
   session?: ExecutionSession,
+  knownStatus?: string,
 ): Promise<{ status: string; stderr: string }> => {
   if (!daemon) return { status: "unknown", stderr: "" };
-  const status = await bounded(daemon.getStatus?.(), "unknown");
-  const logs = await bounded(daemon.getLogs?.(), null);
+  // Status and logs are independent SDK reads. Run them together, and reuse a
+  // terminal status already observed by the readiness loop rather than polling
+  // the dead process a second time solely to format the same failure.
+  const [status, logs] = await Promise.all([
+    knownStatus
+      ? Promise.resolve(knownStatus)
+      : bounded(daemon.getStatus?.(), "unknown"),
+    bounded(daemon.getLogs?.(), null),
+  ]);
   let stderr = (logs?.stderr ?? "").replace(/\s+/gu, " ").trim();
   if (!stderr && session && daemonStderrPath) {
     const persisted = await session
@@ -434,6 +442,7 @@ export const createAgentSandboxAttachment = (
   const daemonFailure = async (
     daemon: Process | undefined,
     reason: string,
+    knownStatus?: string,
   ): Promise<AttachedToolHostUnavailableError> => {
     const described = await describeDaemon(
       daemon,
@@ -441,6 +450,7 @@ export const createAgentSandboxAttachment = (
         ? attachedToolPathsForDirectory(daemonDirectory).daemonStderr
         : undefined,
       attached,
+      knownStatus,
     );
     deps.emitEvent?.("attached_daemon_failed", {
       reason,
@@ -475,6 +485,7 @@ export const createAgentSandboxAttachment = (
         throw await daemonFailure(
           daemon,
           "The workspace bridge exited before it could listen",
+          status,
         );
       }
       await deps.context.cancellation.sleep(READINESS_POLL_MS);

@@ -1251,8 +1251,18 @@ export const attachAgentWorld = async (
 }> => {
   const { turn, execution: turnExecution, sandbox } = args;
   const worldRoot = worldRootForFork(turn.workspaceForkId);
+  const attachStarted = performance.now();
+  const phaseMs = (started: number): number =>
+    Math.min(60 * 60_000, Math.max(0, Math.round(performance.now() - started)));
   const coldStarted = performance.now();
   await host.assertAgentExecutionActive(turn, turnExecution);
+  // Owner hashing is local and immutable, unlike world.head(). It is safe to
+  // overlap with provisioning as long as its rejection is always observed.
+  const worldNameStarted = performance.now();
+  const worldNamePreparation = worldName(turn.ownerId).then(
+    (name) => ({ ok: true as const, name }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
   const sessionOptions = {
     id: args.sessionId,
     cwd: "/opt/stella",
@@ -1261,27 +1271,47 @@ export const attachAgentWorld = async (
   };
   // A failed attach leaves its session behind in the shared container; the
   // retry owns the same id, so an existing session is replaced, never reused.
-  const session = await sandbox.createSession(sessionOptions).catch(
-    async (error: unknown) => {
+  const session = await sandbox
+    .createSession(sessionOptions)
+    .catch(async (error: unknown) => {
       if (!/already exists/iu.test(errorMessage(error))) throw error;
       await sandbox.deleteSession(args.sessionId).catch(() => undefined);
       return await sandbox.createSession(sessionOptions);
-    },
-  );
+    });
   turnExecution.assertActive();
-  const coldContainerStartMs = Math.round(performance.now() - coldStarted);
+  const coldContainerStartMs = phaseMs(coldStarted);
 
   // Sandbox disk is a projection of the world object, never its owner.
   let restoreMs = 0;
+  const initialNormalizeStarted = performance.now();
   await normalizeToolWorkspaceRoot(session, worldRoot);
+  const initialNormalizeMs = phaseMs(initialNormalizeStarted);
   turnExecution.assertActive();
   const restoreStarted = performance.now();
-  const name = await worldName(turn.ownerId);
-  const world = host.env.WORLDS.getByName(name);
-  const forkOptions = turn.workspaceForkId
-    ? { fork: turn.workspaceForkId }
-    : {};
-  const head = await world.head(forkOptions);
+  const worldMetadataStarted = performance.now();
+  const preparedName = await worldNamePreparation;
+  if (!preparedName.ok) {
+    await sandbox.deleteSession(args.sessionId).catch(() => undefined);
+    throw preparedName.error;
+  }
+  const worldNameMs = phaseMs(worldNameStarted);
+  const { name } = preparedName;
+  let head: { manifestId: string; revision: number };
+  try {
+    const world = host.env.WORLDS.getByName(name);
+    const forkOptions = turn.workspaceForkId
+      ? { fork: turn.workspaceForkId }
+      : {};
+    // Keep this read immediately before export. The current WorldStore API does
+    // not transactionally bind a live head's contents to its revision; moving
+    // it ahead of provisioning widens a checkpoint+write data-loss race.
+    head = await world.head(forkOptions);
+  } catch (error) {
+    await sandbox.deleteSession(args.sessionId).catch(() => undefined);
+    throw error;
+  }
+  const worldMetadataMs = phaseMs(worldMetadataStarted);
+  const capabilityStarted = performance.now();
   const capability = await issueWorldCapability({
     secret: host.env.BUILDER_SERVICE_SECRET,
     worldName: name,
@@ -1290,12 +1320,14 @@ export const attachAgentWorld = async (
     now: Date.now(),
     ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
   });
+  const capabilityMs = phaseMs(capabilityStarted);
   const origin = host.env.CLOUD_BUILDER_PUBLIC_URL.replace(/\/+$/u, "");
   const exportUrl = new URL(`${origin}/internal/worlds/${name}/export`);
   exportUrl.searchParams.set("manifest", head.manifestId);
   if (turn.workspaceForkId) {
     exportUrl.searchParams.set("fork", turn.workspaceForkId);
   }
+  const materializationStarted = performance.now();
   const materialized = await session.exec(
     worldMaterializationCommand({
       worldRoot,
@@ -1311,8 +1343,10 @@ export const attachAgentWorld = async (
   // drive directory the daemon expects, so the boundary is normalized again.
   await normalizeToolWorkspaceRoot(session, worldRoot);
   turnExecution.assertActive();
-  restoreMs = Math.round(performance.now() - restoreStarted);
+  const materializationMs = phaseMs(materializationStarted);
+  restoreMs = phaseMs(restoreStarted);
 
+  let nativeRestoreMs = 0;
   if (args.turnStateThreadRestore?.native) {
     const nativeRestoreStarted = performance.now();
     turnExecution.assertActive();
@@ -1323,9 +1357,11 @@ export const attachAgentWorld = async (
       target: { kind: "native" },
     });
     turnExecution.assertActive();
-    restoreMs += Math.round(performance.now() - nativeRestoreStarted);
+    nativeRestoreMs = phaseMs(nativeRestoreStarted);
+    restoreMs = Math.min(60 * 60_000, restoreMs + nativeRestoreMs);
   }
   turnExecution.assertActive();
+  const confirmationStarted = performance.now();
   if (args.turnStateThreadRestore) {
     await host.confirmAgentTurnStateRestore(
       turn,
@@ -1335,6 +1371,22 @@ export const attachAgentWorld = async (
     );
     turnExecution.assertActive();
   }
+  // One bounded summary instead of a log/event per remote operation. It is
+  // identifier-only and contains neither the capability nor signed URLs.
+  log("info", "agent_world_attached", {
+    turnId: turn.turnId,
+    threadId: turn.threadId,
+    coldContainerStartMs,
+    worldNameMs,
+    worldMetadataMs,
+    initialNormalizeMs,
+    capabilityMs,
+    materializationMs,
+    nativeRestoreMs,
+    restoreConfirmationMs: phaseMs(confirmationStarted),
+    totalAttachMs: phaseMs(attachStarted),
+    observedHeadRevision: head.revision,
+  });
   return { session, coldContainerStartMs, restoreMs };
 };
 
@@ -1385,8 +1437,8 @@ export const runAgentAttempt = async (
     turnExecution.signal,
   );
   let cloudSkills:
-    | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-    | undefined = undefined;
+    Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+    undefined;
   if (args.cloudSkillHome && args.cloudSkillCatalog) {
     turnExecution.assertActive();
     cloudSkills = await materializeCloudSkillSnapshot({

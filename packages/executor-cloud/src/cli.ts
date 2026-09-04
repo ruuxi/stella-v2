@@ -12,6 +12,7 @@ import { attachedToolPathsForDirectory } from "./attached-tool-protocol.js";
 import {
   parseAttachedToolHostInput,
   runAttachedToolHost,
+  writeAttachedToolDaemonIdentity,
 } from "./attached-tool-host.js";
 import {
   attachedToolClientPaths,
@@ -49,6 +50,7 @@ if (process.argv.includes("--attached-tool-host")) {
     directoryFlag >= 0 ? process.argv[directoryFlag + 1] : undefined;
   if (!directory) throw new Error("Attached tool host requires --dir.");
   const paths = attachedToolPathsForDirectory(directory);
+  await writeAttachedToolDaemonIdentity(paths);
   const raw = await readFile(paths.hostInput, "utf8");
   await rm(paths.hostInput, { force: true });
   let report: unknown;

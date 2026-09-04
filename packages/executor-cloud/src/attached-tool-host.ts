@@ -20,7 +20,7 @@
  */
 
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { Deferred, Effect } from "effect";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type {
@@ -93,6 +93,22 @@ const asError = (error: unknown): Error =>
 
 const boundedText = (value: unknown, max: number): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= max;
+
+export const writeAttachedToolDaemonIdentity = async (
+  paths: AttachedToolPaths,
+): Promise<void> => {
+  const stat = await readFile("/proc/self/stat", "utf8");
+  const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/u);
+  const pgid = Number(fields[2]);
+  if (!Number.isSafeInteger(pgid) || pgid < 2) {
+    throw new Error("Attached tool daemon process group is invalid.");
+  }
+  await writeFile(
+    paths.daemonPid,
+    `${JSON.stringify({ pid: process.pid, pgid })}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+};
 
 /** Remove only an abandoned Unix socket; never steal a live daemon's path. */
 export const removeStaleAttachedToolSocket = async (

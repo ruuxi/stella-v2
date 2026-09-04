@@ -8,12 +8,17 @@ import {
 import { executeWorldTool, type WorldToolFileApi } from "./tools.js";
 import { IncrementalSha256 } from "./sha256.js";
 import {
+  WORLD_BLOB_BATCH_MAX_BYTES,
+  WORLD_BLOB_BATCH_MAX_COUNT,
+  WORLD_BLOB_BATCH_MAX_WIRE_BYTES,
+  WORLD_BLOB_FRAME_HEADER_BYTES,
   WORLD_CHUNK_BYTES,
   WORLD_CHANGE_LOG_MAX_ROWS,
   WORLD_FILE_LIMIT_BYTES,
   WORLD_QUOTA_BYTES,
   WORLD_R2_THRESHOLD_BYTES,
   WORLD_READ_LIMIT_BYTES,
+  type WorldBlobPutOutcome,
   type WorldEntry,
   type WorldChanges,
   type WorldForkKind,
@@ -38,7 +43,6 @@ type NodeRow = {
 type EntryRow = NodeRow & { path: string };
 type BlobRow = { sha256: string; size: number; storage: "sqlite" | "r2" };
 type ChunkRow = { bytes: ArrayBuffer };
-type UploadPartRow = { ordinal: number; bytes: ArrayBuffer };
 type MetaRow = { value: string };
 type ManifestRow = {
   manifest_id: string;
@@ -62,6 +66,70 @@ type PendingChanges = { forkId: string; paths: Map<string, ChangeKind> };
 
 const encoder = new TextEncoder();
 
+class WorldBlobStreamReader {
+  private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+  private current: Uint8Array<ArrayBufferLike> = new Uint8Array();
+  private offset = 0;
+  private consumed = 0;
+
+  constructor(
+    stream: ReadableStream<Uint8Array>,
+    private readonly maxBytes: number,
+  ) {
+    this.reader = stream.getReader();
+  }
+
+  private async next(): Promise<boolean> {
+    const part = await this.reader.read();
+    if (part.done) return false;
+    this.current = part.value;
+    this.offset = 0;
+    return true;
+  }
+
+  async readExact(
+    size: number,
+    options: { allowEnd?: boolean } = {},
+  ): Promise<Uint8Array | null> {
+    const output = new Uint8Array(size);
+    let written = 0;
+    while (written < size) {
+      if (this.offset === this.current.byteLength && !(await this.next())) {
+        if (written === 0 && options.allowEnd) return null;
+        throw new Error("Truncated world blob frame.");
+      }
+      const available = this.current.byteLength - this.offset;
+      const length = Math.min(available, size - written);
+      output.set(
+        this.current.subarray(this.offset, this.offset + length),
+        written,
+      );
+      this.offset += length;
+      written += length;
+      this.consumed += length;
+      if (this.consumed > this.maxBytes) {
+        throw new Error("World blob batch exceeds the 32 MiB request limit.");
+      }
+    }
+    return output;
+  }
+}
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const frameLength = (header: Uint8Array): number => {
+  const value = new DataView(
+    header.buffer,
+    header.byteOffset + 32,
+    8,
+  ).getBigUint64(0, false);
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("World blob frame length is invalid.");
+  }
+  return Number(value);
+};
+
 export const WORLD_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS world_chunks(sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL, bytes BLOB NOT NULL)",
   "CREATE TABLE IF NOT EXISTS world_blobs(sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL, storage TEXT NOT NULL CHECK(storage IN ('sqlite','r2')))",
@@ -73,7 +141,6 @@ export const WORLD_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS world_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS world_forks(fork_id TEXT PRIMARY KEY, kind TEXT CHECK(kind IN ('shared','fork','new')), head_manifest_id TEXT NOT NULL, base_manifest_id TEXT, revision INTEGER NOT NULL, created_by_thread_id TEXT, created_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS world_changes(fork_id TEXT NOT NULL, revision INTEGER NOT NULL, path TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('upsert','delete')), PRIMARY KEY(fork_id, revision, path))",
-  "CREATE TABLE IF NOT EXISTS world_uploads(upload_id TEXT PRIMARY KEY, size INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS world_upload_parts(upload_id TEXT NOT NULL, ordinal INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(upload_id, ordinal))",
   "CREATE TABLE IF NOT EXISTS world_blob_pins(sha256 TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS world_dirents_manifest ON world_dirents(manifest_id)",
@@ -275,7 +342,10 @@ export class WorldSqlStore implements WorldToolFileApi {
       const count = this.sql
         .exec<{
           count: number;
-        }>("SELECT COUNT(*) AS count FROM world_changes WHERE fork_id = ?", forkId)
+        }>(
+          "SELECT COUNT(*) AS count FROM world_changes WHERE fork_id = ?",
+          forkId,
+        )
         .one().count;
       if (count > WORLD_CHANGE_LOG_MAX_ROWS) {
         this.sql.exec("DELETE FROM world_changes WHERE fork_id = ?", forkId);
@@ -627,7 +697,7 @@ export class WorldSqlStore implements WorldToolFileApi {
       const path = normalizeWorldPath(input);
       if (bytes.byteLength > WORLD_READ_LIMIT_BYTES)
         throw new Error(
-          "writeFile bytes exceed 8 MiB; use beginBlob/appendBlob/finishBlob.",
+          "writeFile bytes exceed 8 MiB; use a streamed blob upload.",
         );
       const manifest = this.liveManifest(forkId);
       const prior = this.entryRow(path, manifest);
@@ -796,193 +866,214 @@ export class WorldSqlStore implements WorldToolFileApi {
     return { revision: mutation.revision };
   }
 
-  async beginBlob(): Promise<{ uploadId: string }> {
-    const uploadId = crypto.randomUUID();
+  private pinBlob(sha256: string): void {
     this.sql.exec(
-      "INSERT INTO world_uploads(upload_id, size) VALUES (?, 0)",
-      uploadId,
+      "INSERT INTO world_blob_pins(sha256, expires_at) VALUES (?, ?) ON CONFLICT(sha256) DO UPDATE SET expires_at = excluded.expires_at",
+      sha256,
+      this.now() + 10 * 60_000,
     );
-    return { uploadId };
   }
 
-  async appendBlob(uploadId: string, bytes: Uint8Array): Promise<void> {
-    if (bytes.byteLength > WORLD_READ_LIMIT_BYTES)
-      throw new Error("appendBlob bytes exceed 8 MiB.");
-    const upload = this.sql
-      .exec<{
-        size: number;
-      }>("SELECT size FROM world_uploads WHERE upload_id = ?", uploadId)
-      .toArray()[0];
-    if (!upload) throw new Error("Unknown blob upload.");
-    if (upload.size + bytes.byteLength > WORLD_FILE_LIMIT_BYTES)
-      throw new Error("File exceeds the 256 MiB world file limit.");
-    const ordinalStart = this.sql
-      .exec<{
-        next_ordinal: number;
-      }>(
-        "SELECT COALESCE(MAX(ordinal) + 1, 0) AS next_ordinal FROM world_upload_parts WHERE upload_id = ?",
-        uploadId,
-      )
-      .one().next_ordinal;
-    let ordinal = ordinalStart;
-    for (
-      let offset = 0;
-      offset < bytes.byteLength;
-      offset += WORLD_CHUNK_BYTES
+  private async storeIncomingBlob(
+    reader: WorldBlobStreamReader,
+    expectedSha256: string,
+    size: number,
+  ): Promise<WorldBlobPutOutcome> {
+    if (
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      size > WORLD_FILE_LIMIT_BYTES
     ) {
-      this.sql.exec(
-        "INSERT INTO world_upload_parts(upload_id, ordinal, bytes) VALUES (?, ?, ?)",
-        uploadId,
-        ordinal,
-        bytes.slice(offset, offset + WORLD_CHUNK_BYTES),
-      );
-      ordinal += 1;
+      throw new Error("World blob frame length is invalid.");
     }
-    this.sql.exec(
-      "UPDATE world_uploads SET size = size + ? WHERE upload_id = ?",
-      bytes.byteLength,
-      uploadId,
-    );
-  }
-
-  async finishBlob(
-    uploadId: string,
-    options: {
-      path?: string;
-      sha256?: string;
-      mode?: number;
-      mtime?: number;
-      fork?: string;
-    },
-  ): Promise<WorldEntry & { revision: number }> {
-    const upload = this.sql
-      .exec<{
-        size: number;
-      }>("SELECT size FROM world_uploads WHERE upload_id = ?", uploadId)
-      .toArray()[0];
-    if (!upload) throw new Error("Unknown blob upload.");
-    const parts = this.sql
-      .exec<UploadPartRow>(
-        "SELECT ordinal, bytes FROM world_upload_parts WHERE upload_id = ? ORDER BY ordinal",
-        uploadId,
-      )
-      .toArray();
+    const existing = this.blobRow(expectedSha256);
+    const uploadId = crypto.randomUUID();
+    const stageInSqlite = !existing;
+    const streamToR2 = !existing && size > WORLD_R2_THRESHOLD_BYTES;
+    let r2UploadStarted = false;
     const hasher = new IncrementalSha256();
-    for (const part of parts) hasher.update(byteView(part.bytes));
-    const sha256 = hasher.digestHex();
-    if (options.sha256 && options.sha256 !== sha256) {
-      this.sql.exec(
-        "DELETE FROM world_upload_parts WHERE upload_id = ?",
-        uploadId,
-      );
-      this.sql.exec("DELETE FROM world_uploads WHERE upload_id = ?", uploadId);
-      throw new Error(
-        `Blob sha256 mismatch: expected ${options.sha256}, received ${sha256}.`,
-      );
-    }
-    const path = options.path ? normalizeWorldPath(options.path) : undefined;
-    const forkId = this.forkRow(options.fork).fork_id;
-    const manifest = this.liveManifest(forkId);
-    const prior = path ? this.entryRow(path, manifest) : null;
-    if (prior && prior.kind !== "file")
-      throw new Error(`Path is not a file: ${path}`);
-    if (path) {
-      const projectedSize = (await this.allEntries("", forkId))
-        .filter((entry) => entry.kind === "file" && entry.path !== path)
-        .reduce((total, entry) => total + entry.size, upload.size);
-      if (projectedSize > WORLD_QUOTA_BYTES)
-        throw new Error("world_quota_exceeded");
-    }
-    if (!this.blobRow(sha256)) {
-      if (upload.size > WORLD_R2_THRESHOLD_BYTES) {
-        const stream = new FixedLengthStream(upload.size);
-        const writer = stream.writable.getWriter();
-        const uploadPromise = this.bucket.put(
-          `blobs/${sha256}`,
-          stream.readable,
+    let ordinal = 0;
+    try {
+      for (let remaining = size; remaining > 0; ordinal += 1) {
+        const length = Math.min(remaining, WORLD_CHUNK_BYTES);
+        const chunk = await reader.readExact(length);
+        if (!chunk) throw new Error("Truncated world blob frame.");
+        hasher.update(chunk);
+        if (stageInSqlite) {
+          this.sql.exec(
+            "INSERT INTO world_upload_parts(upload_id, ordinal, bytes) VALUES (?, ?, ?)",
+            uploadId,
+            ordinal,
+            chunk,
+          );
+        }
+        remaining -= length;
+      }
+      const receivedSha256 = hasher.digestHex();
+      if (receivedSha256 !== expectedSha256) {
+        this.sql.exec(
+          "DELETE FROM world_upload_parts WHERE upload_id = ?",
+          uploadId,
         );
-        for (const part of parts) await writer.write(byteView(part.bytes));
-        await writer.close();
-        await uploadPromise;
+        return {
+          sha256: expectedSha256,
+          accepted: false,
+          error: `sha256 mismatch: received ${receivedSha256}`,
+        };
+      }
+      const stored = this.blobRow(expectedSha256);
+      if (stored) {
+        if (stored.size !== size) {
+          this.sql.exec(
+            "DELETE FROM world_upload_parts WHERE upload_id = ?",
+            uploadId,
+          );
+          return {
+            sha256: expectedSha256,
+            accepted: false,
+            error: "stored blob size does not match the frame",
+          };
+        }
+      } else if (streamToR2) {
+        const r2Stream = new FixedLengthStream(size);
+        const chunkCount = Math.ceil(size / WORLD_CHUNK_BYTES);
+        let part = 0;
+        const staged = new ReadableStream<Uint8Array>({
+          pull: (controller) => {
+            if (part >= chunkCount) {
+              controller.close();
+              return;
+            }
+            const row = this.sql
+              .exec<{
+                bytes: ArrayBuffer;
+              }>("SELECT bytes FROM world_upload_parts WHERE upload_id = ? AND ordinal = ?", uploadId, part)
+              .one();
+            part += 1;
+            controller.enqueue(byteView(row.bytes));
+          },
+        });
+        r2UploadStarted = true;
+        await Promise.all([
+          staged.pipeTo(r2Stream.writable),
+          this.bucket.put(`blobs/${expectedSha256}`, r2Stream.readable),
+        ]);
         this.sql.exec(
           "INSERT OR IGNORE INTO world_blobs(sha256, size, storage) VALUES (?, ?, 'r2')",
-          sha256,
-          upload.size,
+          expectedSha256,
+          size,
         );
       } else {
-        for (const part of parts) {
-          const chunk = byteView(part.bytes);
-          const chunkSha = await sha256BytesHex(chunk);
+        const chunkCount = Math.ceil(size / WORLD_CHUNK_BYTES);
+        for (let part = 0; part < chunkCount; part += 1) {
+          const row = this.sql
+            .exec<{
+              bytes: ArrayBuffer;
+            }>("SELECT bytes FROM world_upload_parts WHERE upload_id = ? AND ordinal = ?", uploadId, part)
+            .one();
+          const chunk = byteView(row.bytes);
+          const chunkHasher = new IncrementalSha256();
+          chunkHasher.update(chunk);
+          const chunkSha256 = chunkHasher.digestHex();
           this.sql.exec(
             "INSERT OR IGNORE INTO world_chunks(sha256, size, bytes) VALUES (?, ?, ?)",
-            chunkSha,
+            chunkSha256,
             chunk.byteLength,
             chunk,
           );
           this.sql.exec(
             "INSERT INTO world_blob_chunks(blob_sha256, ordinal, chunk_sha256) VALUES (?, ?, ?)",
-            sha256,
-            part.ordinal,
-            chunkSha,
+            expectedSha256,
+            part,
+            chunkSha256,
           );
         }
-        if (parts.length === 0) {
+        if (size === 0) {
           const empty = new Uint8Array();
-          const chunkSha = await sha256BytesHex(empty);
+          const emptyHasher = new IncrementalSha256();
+          emptyHasher.update(empty);
+          const chunkSha256 = emptyHasher.digestHex();
           this.sql.exec(
             "INSERT OR IGNORE INTO world_chunks(sha256, size, bytes) VALUES (?, 0, ?)",
-            chunkSha,
+            chunkSha256,
             empty,
           );
           this.sql.exec(
             "INSERT INTO world_blob_chunks(blob_sha256, ordinal, chunk_sha256) VALUES (?, 0, ?)",
-            sha256,
-            chunkSha,
+            expectedSha256,
+            chunkSha256,
           );
         }
         this.sql.exec(
           "INSERT INTO world_blobs(sha256, size, storage) VALUES (?, ?, 'sqlite')",
-          sha256,
-          upload.size,
+          expectedSha256,
+          size,
         );
       }
-    }
-    this.sql.exec(
-      "DELETE FROM world_upload_parts WHERE upload_id = ?",
-      uploadId,
-    );
-    this.sql.exec("DELETE FROM world_uploads WHERE upload_id = ?", uploadId);
-    if (!path) {
       this.sql.exec(
-        "INSERT INTO world_blob_pins(sha256, expires_at) VALUES (?, ?) ON CONFLICT(sha256) DO UPDATE SET expires_at = excluded.expires_at",
-        sha256,
-        this.now() + 10 * 60_000,
+        "DELETE FROM world_upload_parts WHERE upload_id = ?",
+        uploadId,
       );
-      return {
-        path: "",
-        kind: "file",
-        mode: options.mode ?? 0o644,
-        mtime: options.mtime ?? this.now(),
-        size: upload.size,
-        sha256,
-        revision: this.revision(forkId),
-      };
+      this.pinBlob(expectedSha256);
+      return { sha256: expectedSha256, accepted: true };
+    } catch (error) {
+      this.sql.exec(
+        "DELETE FROM world_upload_parts WHERE upload_id = ?",
+        uploadId,
+      );
+      if (r2UploadStarted) {
+        await this.bucket
+          .delete(`blobs/${expectedSha256}`)
+          .catch(() => undefined);
+      }
+      throw error;
     }
-    const mutation = await this.mutate(forkId, () =>
-      this.putNode(
-        {
-          path,
-          kind: "file",
-          mode: options.mode ?? prior?.mode ?? 0o644,
-          mtime: options.mtime ?? this.now(),
-          size: upload.size,
-          sha256,
-        },
-        manifest,
-        forkId,
-      ),
+  }
+
+  async putBlobs(
+    stream: ReadableStream<Uint8Array>,
+  ): Promise<WorldBlobPutOutcome[]> {
+    const reader = new WorldBlobStreamReader(
+      stream,
+      WORLD_BLOB_BATCH_MAX_WIRE_BYTES,
     );
-    return { ...mutation.value, revision: mutation.revision };
+    const outcomes: WorldBlobPutOutcome[] = [];
+    let declaredBytes = 0;
+    for (;;) {
+      const header = await reader.readExact(WORLD_BLOB_FRAME_HEADER_BYTES, {
+        allowEnd: true,
+      });
+      if (!header) return outcomes;
+      if (outcomes.length >= WORLD_BLOB_BATCH_MAX_COUNT) {
+        throw new Error("World blob batch exceeds the 512 blob limit.");
+      }
+      const sha256 = bytesToHex(header.subarray(0, 32));
+      const size = frameLength(header);
+      declaredBytes += size;
+      if (declaredBytes > WORLD_BLOB_BATCH_MAX_BYTES) {
+        throw new Error("World blob batch exceeds the 32 MiB request limit.");
+      }
+      outcomes.push(await this.storeIncomingBlob(reader, sha256, size));
+    }
+  }
+
+  async putBlob(
+    stream: ReadableStream<Uint8Array>,
+    input: { sha256: string; size: number },
+  ): Promise<WorldBlobPutOutcome> {
+    if (!/^[0-9a-f]{64}$/u.test(input.sha256)) {
+      throw new Error("World blob sha256 is invalid.");
+    }
+    const reader = new WorldBlobStreamReader(stream, input.size);
+    const outcome = await this.storeIncomingBlob(
+      reader,
+      input.sha256,
+      input.size,
+    );
+    if (await reader.readExact(1, { allowEnd: true })) {
+      throw new Error("World blob body exceeds its declared length.");
+    }
+    return outcome;
   }
 
   async tool(call: WorldToolCall): Promise<WorldToolResult> {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
@@ -59,6 +59,56 @@ describe("attached tool daemon socket ownership", () => {
     );
     await removeStaleAttachedToolSocket(socketPath);
     await expect(Bun.file(socketPath).exists()).resolves.toBe(false);
+  });
+});
+
+describe("attached tool daemon process group", () => {
+  test("records its pid and pgid and gives spawned children the same group", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "stella-pgid-"));
+    temporaryDirectories.push(directory);
+    const paths = {
+      daemonPid: path.join(directory, "daemon.pid"),
+      directory,
+    };
+    const fixture = new URL(
+      "./test-fixtures/daemon-process-group.ts",
+      import.meta.url,
+    ).pathname;
+    const daemon = Bun.spawn(
+      ["setsid", "--fork", "--wait", "bun", fixture, directory],
+      { stdout: "ignore", stderr: "ignore" },
+    );
+    try {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (
+          (await Bun.file(paths.daemonPid).exists()) &&
+          (await Bun.file(`${directory}/child.pid`).exists())
+        ) {
+          break;
+        }
+        await Bun.sleep(10);
+      }
+      const identity = JSON.parse(await readFile(paths.daemonPid, "utf8")) as {
+        pid: number;
+        pgid: number;
+      };
+      const childPid = Number(
+        (await readFile(`${directory}/child.pid`, "utf8")).trim(),
+      );
+      const pgidOf = (pid: number): number =>
+        Number(
+          Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(pid)])
+            .stdout.toString()
+            .trim(),
+        );
+      expect(identity.pid).toBe(identity.pgid);
+      expect(pgidOf(identity.pid)).toBe(identity.pgid);
+      expect(pgidOf(childPid)).toBe(identity.pgid);
+      Bun.spawnSync(["kill", "-TERM", "--", `-${identity.pgid}`]);
+      await daemon.exited;
+    } finally {
+      daemon.kill("SIGKILL");
+    }
   });
 });
 

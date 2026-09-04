@@ -57,7 +57,12 @@ import {
   verifyWorldCapability,
   worldCapabilityFromRequest,
 } from "../world-capability.js";
-import type { WorldListingEntry } from "../world/types.js";
+import {
+  WORLD_BLOB_BATCH_MAX_BYTES,
+  WORLD_BLOB_BATCH_MAX_WIRE_BYTES,
+  WORLD_FILE_LIMIT_BYTES,
+  type WorldListingEntry,
+} from "../world/types.js";
 import {
   boundedBodyStatus,
   bufferBoundedJsonRequest,
@@ -1544,29 +1549,51 @@ export const handleWorldRoute = async (
     return json({ error: "Method not allowed." }, 405);
   const blobSha = request.headers.get("x-stella-world-blob-sha256");
   if (blobSha) {
-    if (!/^[0-9a-f]{64}$/u.test(blobSha) || !request.body)
+    const size = Number(request.headers.get("content-length"));
+    if (
+      !/^[0-9a-f]{64}$/u.test(blobSha) ||
+      !request.body ||
+      !Number.isSafeInteger(size) ||
+      size <= WORLD_BLOB_BATCH_MAX_BYTES ||
+      size > WORLD_FILE_LIMIT_BYTES
+    ) {
       return json({ error: "Malformed world blob upload." }, 400);
-    const upload = await stub.beginBlob();
-    const reader = request.body.getReader();
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) break;
-      for (
-        let offset = 0;
-        offset < part.value.byteLength;
-        offset += 8 * 1024 * 1024
-      ) {
-        await stub.appendBlob(
-          upload.uploadId,
-          part.value.subarray(offset, offset + 8 * 1024 * 1024),
-        );
-      }
     }
-    await stub.finishBlob(upload.uploadId, {
-      sha256: blobSha,
-      ...(fork ? { fork } : {}),
-    });
-    return json({ ok: true });
+    try {
+      const outcome = await stub.putBlob(request.body, {
+        sha256: blobSha,
+        size,
+      });
+      return json({ outcomes: [outcome] }, outcome.accepted ? 200 : 422);
+    } catch (error) {
+      return json({ error: errorMessage(error) }, 400);
+    }
+  }
+  const requestType = request.headers.get("content-type")?.split(";", 1)[0];
+  if (requestType === "application/vnd.stella.world-blobs") {
+    if (!request.body) return json({ error: "Missing world blob batch." }, 400);
+    const contentLength = Number(request.headers.get("content-length"));
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength > WORLD_BLOB_BATCH_MAX_WIRE_BYTES
+    ) {
+      return json({ error: "World blob batch exceeds 32 MiB." }, 413);
+    }
+    try {
+      const outcomes = await stub.putBlobs(request.body);
+      return json(
+        { outcomes },
+        outcomes.every((outcome) => outcome.accepted) ? 200 : 422,
+      );
+    } catch (error) {
+      const message = errorMessage(error);
+      return json(
+        { error: message },
+        /exceeds the (?:32 MiB request|512 blob) limit/u.test(message)
+          ? 413
+          : 400,
+      );
+    }
   }
   const listing = parseWorldPushListing(await request.json().catch(() => null));
   if (!listing) return json({ error: "Malformed world listing." }, 400);

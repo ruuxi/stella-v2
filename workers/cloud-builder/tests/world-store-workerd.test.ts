@@ -5,6 +5,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
+import { createHash } from "node:crypto";
+
+const FRAME_HEADER_BYTES = 40;
+const frame = (sha256: string, bytes: Uint8Array): Uint8Array => {
+  const output = new Uint8Array(FRAME_HEADER_BYTES + bytes.byteLength);
+  for (let index = 0; index < 32; index += 1) {
+    output[index] = Number.parseInt(sha256.slice(index * 2, index * 2 + 2), 16);
+  }
+  new DataView(output.buffer).setBigUint64(32, BigInt(bytes.byteLength), false);
+  output.set(bytes, FRAME_HEADER_BYTES);
+  return output;
+};
 
 const port = 20_000 + Math.floor(Math.random() * 1_000);
 const origin = `http://127.0.0.1:${port}`;
@@ -88,6 +100,80 @@ describe("WorldStore in real Workerd", () => {
       tarContent: "pushed",
     });
   });
+
+  test("streams putBlobs frames, rejects bad sha, spills to R2, and enforces the byte cap", async () => {
+    const response = await fetch(`${origin}/put-blobs-cases`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      split: [
+        { accepted: true, sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) },
+        { accepted: true, sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) },
+      ],
+      mismatch: [
+        {
+          accepted: false,
+          error: expect.stringContaining("sha256 mismatch"),
+        },
+      ],
+      mismatchRecorded: false,
+      spilled: [{ accepted: true }],
+      r2Bytes: 4 * 1024 * 1024 + 17,
+      refused: expect.stringContaining("exceeds the 32 MiB request limit"),
+    });
+  }, 30_000);
+
+  test("pushes three hundred small files through one framed route request", async () => {
+    const encoder = new TextEncoder();
+    const files = Array.from({ length: 300 }, (_, index) => {
+      const bytes = encoder.encode(`small file ${index}`);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      return { index, bytes, sha256 };
+    });
+    const entries = files.map((file) => ({
+      path: `small/${file.index}.txt`,
+      kind: "file",
+      mode: 0o644,
+      mtime: file.index,
+      size: file.bytes.byteLength,
+      sha256: file.sha256,
+    }));
+    const listing = async () =>
+      await fetch(`${origin}/route-push`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ entries }),
+      });
+    const missing = (await (await listing()).json()) as {
+      missingBlobs: string[];
+    };
+    expect(missing.missingBlobs).toHaveLength(300);
+    const frames = files.map((file) => frame(file.sha256, file.bytes));
+    const wireBytes = frames.reduce((sum, value) => sum + value.byteLength, 0);
+    const body = new Uint8Array(wireBytes);
+    let offset = 0;
+    for (const value of frames) {
+      body.set(value, offset);
+      offset += value.byteLength;
+    }
+    let uploadRequests = 0;
+    uploadRequests += 1;
+    const uploaded = await fetch(`${origin}/route-push`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/vnd.stella.world-blobs",
+        "content-length": String(body.byteLength),
+      },
+      body,
+    });
+    expect(uploaded.status).toBe(200);
+    expect(
+      ((await uploaded.json()) as { outcomes: unknown[] }).outcomes,
+    ).toHaveLength(300);
+    expect(await (await listing()).json()).toMatchObject({
+      missingBlobs: [],
+    });
+    expect(uploadRequests).toBe(1);
+  }, 30_000);
 
   test("compacts an oversized change batch into resync", async () => {
     const response = await fetch(`${origin}/compaction`);

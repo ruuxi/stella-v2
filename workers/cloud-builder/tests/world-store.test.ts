@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 import { WorldSqlStore } from "../src/world/store.js";
-import { WORLD_CHANGE_LOG_MAX_ROWS } from "../src/world/types.js";
+import {
+  WORLD_BLOB_BATCH_MAX_BYTES,
+  WORLD_BLOB_FRAME_HEADER_BYTES,
+  WORLD_CHANGE_LOG_MAX_ROWS,
+} from "../src/world/types.js";
 import { sha256BytesHex } from "../src/hash.js";
 import { handleEdit, handleRead } from "@stella/runtime/kernel/tools/file.js";
 import { handleGrep } from "@stella/runtime/kernel/tools/search.js";
@@ -12,6 +16,31 @@ import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+const blobFrame = (sha256: string, bytes: Uint8Array): Uint8Array => {
+  const frame = new Uint8Array(
+    WORLD_BLOB_FRAME_HEADER_BYTES + bytes.byteLength,
+  );
+  for (let index = 0; index < 32; index += 1) {
+    frame[index] = Number.parseInt(sha256.slice(index * 2, index * 2 + 2), 16);
+  }
+  new DataView(frame.buffer).setBigUint64(32, BigInt(bytes.byteLength), false);
+  frame.set(bytes, WORLD_BLOB_FRAME_HEADER_BYTES);
+  return frame;
+};
+
+const fragmentedStream = (
+  bytes: Uint8Array,
+  fragmentBytes = bytes.byteLength,
+): ReadableStream<Uint8Array> =>
+  new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < bytes.byteLength; offset += fragmentBytes) {
+        controller.enqueue(bytes.slice(offset, offset + fragmentBytes));
+      }
+      controller.close();
+    },
+  });
 
 if (!("FixedLengthStream" in globalThis)) {
   Object.defineProperty(globalThis, "FixedLengthStream", {
@@ -169,13 +198,66 @@ describe("WorldSqlStore", () => {
     expect(
       await world.pushDiff({ entries: listing, deleted: ["old.txt"] }),
     ).toEqual({ missingBlobs: [sha256], revision: 1 });
-    const { uploadId } = await world.beginBlob();
-    await world.appendBlob(uploadId, bytes);
-    await world.finishBlob(uploadId, { sha256 });
+    expect(
+      await world.putBlobs(fragmentedStream(blobFrame(sha256, bytes))),
+    ).toEqual([{ sha256, accepted: true }]);
     expect(
       await world.pushDiff({ entries: listing, deleted: ["old.txt"] }),
     ).toEqual({ missingBlobs: [], revision: 2 });
     expect(decoder.decode(await world.readFile("new.txt"))).toBe("new");
+  });
+
+  test("putBlobs parses many frames split across arbitrary stream chunks", async () => {
+    const world = createWorld();
+    const first = encoder.encode("first");
+    const second = encoder.encode("second");
+    const firstSha = await sha256BytesHex(first);
+    const secondSha = await sha256BytesHex(second);
+    const firstFrame = blobFrame(firstSha, first);
+    const secondFrame = blobFrame(secondSha, second);
+    const body = new Uint8Array(firstFrame.byteLength + secondFrame.byteLength);
+    body.set(firstFrame);
+    body.set(secondFrame, firstFrame.byteLength);
+
+    expect(await world.putBlobs(fragmentedStream(body, 3))).toEqual([
+      { sha256: firstSha, accepted: true },
+      { sha256: secondSha, accepted: true },
+    ]);
+    expect((await world.exportBlob(firstSha))?.size).toBe(first.byteLength);
+    expect((await world.exportBlob(secondSha))?.size).toBe(second.byteLength);
+  });
+
+  test("putBlobs rejects a sha mismatch without recording either digest", async () => {
+    const world = createWorld();
+    const expectedSha = await sha256BytesHex(encoder.encode("expected"));
+    const actual = encoder.encode("corrupted");
+    const actualSha = await sha256BytesHex(actual);
+
+    expect(
+      await world.putBlobs(fragmentedStream(blobFrame(expectedSha, actual), 1)),
+    ).toEqual([
+      {
+        sha256: expectedSha,
+        accepted: false,
+        error: `sha256 mismatch: received ${actualSha}`,
+      },
+    ]);
+    expect(await world.exportBlob(expectedSha)).toBeNull();
+    expect(await world.exportBlob(actualSha)).toBeNull();
+  });
+
+  test("putBlobs refuses a declared request above the 32 MiB byte cap", async () => {
+    const world = createWorld();
+    const header = new Uint8Array(WORLD_BLOB_FRAME_HEADER_BYTES);
+    new DataView(header.buffer).setBigUint64(
+      32,
+      BigInt(WORLD_BLOB_BATCH_MAX_BYTES + 1),
+      false,
+    );
+
+    await expect(world.putBlobs(fragmentedStream(header, 7))).rejects.toThrow(
+      "exceeds the 32 MiB request limit",
+    );
   });
 
   test("pages changes by revision and reports tool-write revisions", async () => {
@@ -250,9 +332,7 @@ describe("WorldSqlStore", () => {
     const push = async (text: string, mtime: number) => {
       const bytes = encoder.encode(text);
       const sha256 = await sha256BytesHex(bytes);
-      const upload = await world.beginBlob();
-      await world.appendBlob(upload.uploadId, bytes);
-      await world.finishBlob(upload.uploadId, { sha256 });
+      await world.putBlobs(fragmentedStream(blobFrame(sha256, bytes)));
       return await world.pushDiff({
         entries: [
           {
@@ -397,10 +477,19 @@ describe("WorldSqlStore", () => {
     world.initialize();
     const bytes = new Uint8Array(4 * 1024 * 1024 + 17).fill(0x61);
     const sha256 = await sha256BytesHex(bytes);
-    const { uploadId } = await world.beginBlob();
-    await world.appendBlob(uploadId, bytes.subarray(0, 3 * 1024 * 1024));
-    await world.appendBlob(uploadId, bytes.subarray(3 * 1024 * 1024));
-    await world.finishBlob(uploadId, { path: "large.bin", sha256 });
+    await world.putBlobs(fragmentedStream(blobFrame(sha256, bytes), 127_003));
+    await world.pushDiff({
+      entries: [
+        {
+          path: "large.bin",
+          kind: "file",
+          mode: 0o644,
+          size: bytes.byteLength,
+          sha256,
+        },
+      ],
+      deleted: [],
+    });
     expect(bucket.objects.get(`blobs/${sha256}`)?.byteLength).toBe(
       bytes.byteLength,
     );

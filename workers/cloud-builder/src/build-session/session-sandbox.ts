@@ -5,7 +5,11 @@
  * @see src/build-session/host.ts for why every call out takes `host`.
  */
 import { getSandbox } from "@cloudflare/sandbox";
-import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
+import { Effect } from "effect";
+import {
+  attachedToolPaths,
+  attachedToolPathsForDirectory,
+} from "@stella/executor-cloud/attached-tool-protocol";
 import {
   agentComputeKey,
   parsePersistedAgentCompute,
@@ -441,11 +445,59 @@ export const releaseAgentSessionResources = async (
 ): Promise<void> => {
   const sandbox = host.sandbox(target.sandboxId, target.size, target.workload);
   if (!(await host.sandboxContainerRunning(sandbox))) return;
-  // Never `killAllProcesses` here: the SDK ignores its session argument and
-  // kills every process in the container, and the container is shared by
-  // every agent of the owner world (observed 2026-09-04: a child's turn end
-  // killed its parent's daemon). Only this turn's own daemon is killed; its
-  // session shell and the shell's children end with `deleteSession`.
+  const paths = attachedToolPathsForDirectory(target.daemonDirectory);
+  const session = await sandbox
+    .getSession(target.sessionId)
+    .catch(() => undefined);
+  const teardownExec = async (command: string) => {
+    if (session) {
+      try {
+        const result = await session.exec(command, { origin: "internal" });
+        if (result.success) return result;
+      } catch {
+        // The persistent session shell can already be gone after quiesce.
+      }
+    }
+    return await sandbox.exec(command, { origin: "internal" });
+  };
+  const identity = await withInfrastructureDeadline(
+    teardownExec(`cat -- '${paths.daemonPid.replace(/'/gu, `'"'"'`)}'`),
+    5_000,
+    "Attached daemon identity read did not settle.",
+  )
+    .then((result) => {
+      if (!result.success) return undefined;
+      const value: unknown = JSON.parse(result.stdout);
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+      }
+      const pid = "pid" in value ? value.pid : undefined;
+      const pgid = "pgid" in value ? value.pgid : undefined;
+      return Number.isSafeInteger(pid) && pid === pgid && Number(pid) > 1
+        ? Number(pgid)
+        : undefined;
+    })
+    .catch(() => undefined);
+  if (identity !== undefined) {
+    await withInfrastructureDeadline(
+      teardownExec(`kill -TERM -- -${identity}`),
+      5_000,
+      "Attached daemon group SIGTERM did not settle.",
+    ).catch(() => undefined);
+    await withInfrastructureDeadline(
+      Effect.runPromise(Effect.sleep(500)),
+      1_000,
+      "Attached daemon group grace period did not settle.",
+    ).catch(() => undefined);
+    await withInfrastructureDeadline(
+      teardownExec(`kill -KILL -- -${identity}`),
+      5_000,
+      "Attached daemon group SIGKILL did not settle.",
+    ).catch(() => undefined);
+  }
+  // Never `killAllProcesses`: it ignores the session argument and kills every
+  // agent in this owner's shared container. The SDK id is only a fallback for
+  // the `setsid --wait` wrapper after this turn's private group was signalled.
   await withInfrastructureDeadline(
     sandbox.killProcess(
       `attached-daemon-${target.sessionId}`.slice(0, 64),
@@ -454,13 +506,12 @@ export const releaseAgentSessionResources = async (
     10_000,
     "Attached daemon teardown did not settle.",
   ).catch(() => undefined);
-  const session = await sandbox
-    .getSession(target.sessionId)
-    .catch(() => undefined);
-  await session
-    ?.exec(`rm -rf -- '${target.daemonDirectory.replace(/'/gu, `'"'"'`)}'`, {
-      origin: "internal",
-    })
-    .catch(() => undefined);
+  await withInfrastructureDeadline(
+    teardownExec(
+      `rm -rf -- '${target.daemonDirectory.replace(/'/gu, `'"'"'`)}'`,
+    ),
+    5_000,
+    "Attached daemon directory removal did not settle.",
+  ).catch(() => undefined);
   await sandbox.deleteSession(target.sessionId).catch(() => undefined);
 };

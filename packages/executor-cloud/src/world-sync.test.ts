@@ -13,11 +13,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  batchWorldBlobUploads,
   listWorldProjection,
   pullWorldProjection,
   pushWorldProjection,
   readWorldMarker,
   withWorldSyncLock,
+  WORLD_BLOB_BATCH_MAX_BYTES,
+  WORLD_BLOB_BATCH_MAX_COUNT,
 } from "./world-sync.js";
 
 const roots: string[] = [];
@@ -88,7 +91,7 @@ describe("world projection sync", () => {
     const calls: Array<{
       contentType: string;
       authorization: string;
-      sha256: string | null;
+      contentLength: string | null;
     }> = [];
     let listingCalls = 0;
     globalThis.fetch = (async (
@@ -99,7 +102,7 @@ describe("world projection sync", () => {
       calls.push({
         contentType: requestHeaders.get("content-type") ?? "",
         authorization: requestHeaders.get("authorization") ?? "",
-        sha256: requestHeaders.get("x-stella-world-blob-sha256"),
+        contentLength: requestHeaders.get("content-length"),
       });
       if (requestHeaders.get("content-type") === "application/json") {
         listingCalls += 1;
@@ -114,26 +117,151 @@ describe("world projection sync", () => {
           revision: listingCalls,
         });
       }
-      for await (const _chunk of init?.body as unknown as AsyncIterable<Uint8Array>) {
-        // Drain the file stream so cleanup can remove the fixture.
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of init?.body as unknown as AsyncIterable<Uint8Array>) {
+        chunks.push(chunk);
       }
-      return Response.json({ ok: true });
+      const bytes = Buffer.concat(chunks);
+      const digest = bytes.subarray(0, 32).toString("hex");
+      const size = Number(
+        new DataView(bytes.buffer, bytes.byteOffset + 32, 8).getBigUint64(0),
+      );
+      expect(size).toBe(5);
+      expect(bytes.subarray(40)).toEqual(Buffer.from("hello"));
+      return Response.json({ outcomes: [{ sha256: digest, accepted: true }] });
     }) as typeof fetch;
 
     await pushWorldProjection({ root, access });
 
     expect(calls.map((call) => call.contentType)).toEqual([
       "application/json",
-      "application/octet-stream",
+      "application/vnd.stella.world-blobs",
       "application/json",
     ]);
     expect(calls.every((call) => call.authorization === "Bearer secret")).toBe(
       true,
     );
-    expect(calls[1]?.sha256).toBe(
-      "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-    );
+    expect(calls[1]?.contentLength).toBe("45");
     expect((await readWorldMarker(root)).revision).toBe(2);
+  });
+
+  test("fills batches by bytes and count and sends oversized blobs alone", () => {
+    const upload = (name: string, size: number) => ({
+      sha256: name.padStart(64, "0"),
+      filePath: `/tmp/${name}`,
+      size,
+    });
+    const batches = batchWorldBlobUploads([
+      upload("1", WORLD_BLOB_BATCH_MAX_BYTES - 10),
+      upload("2", 10),
+      upload("3", 1),
+      upload("4", WORLD_BLOB_BATCH_MAX_BYTES + 1),
+      ...Array.from({ length: WORLD_BLOB_BATCH_MAX_COUNT + 1 }, (_, index) =>
+        upload((index + 10).toString(16), 0),
+      ),
+    ]);
+
+    expect(batches[0]).toMatchObject({
+      kind: "batch",
+      bytes: WORLD_BLOB_BATCH_MAX_BYTES,
+      blobs: expect.any(Array),
+    });
+    expect(batches[1]).toMatchObject({ kind: "batch", bytes: 1 });
+    expect(batches[2]).toMatchObject({
+      kind: "oversize",
+      blob: { size: WORLD_BLOB_BATCH_MAX_BYTES + 1 },
+    });
+    expect(batches[3]).toMatchObject({
+      kind: "batch",
+    });
+    if (batches[3]?.kind !== "batch") throw new Error("expected batch");
+    expect(batches[3].blobs).toHaveLength(WORLD_BLOB_BATCH_MAX_COUNT);
+    if (batches[4]?.kind !== "batch") throw new Error("expected batch");
+    expect(batches[4].blobs).toHaveLength(1);
+  });
+
+  test("retries one failed batch once before advancing the marker", async () => {
+    const root = await fixture();
+    let listingCalls = 0;
+    let uploadCalls = 0;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const requestHeaders = new Headers(init?.headers);
+      if (requestHeaders.get("content-type") === "application/json") {
+        listingCalls += 1;
+        return Response.json({
+          missingBlobs:
+            listingCalls === 1
+              ? [
+                  "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                ]
+              : [],
+          revision: listingCalls,
+        });
+      }
+      uploadCalls += 1;
+      for await (const _chunk of init?.body as unknown as AsyncIterable<Uint8Array>) {
+        // Drain each fresh retry stream.
+      }
+      if (uploadCalls === 1) return new Response("failed", { status: 503 });
+      return Response.json({
+        outcomes: [
+          {
+            sha256:
+              "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            accepted: true,
+          },
+        ],
+      });
+    }) as typeof fetch;
+
+    expect((await pushWorldProjection({ root, access })).revision).toBe(2);
+    expect(uploadCalls).toBe(2);
+    expect((await readWorldMarker(root)).revision).toBe(2);
+  });
+
+  test("does not advance its index or marker unless every blob is accepted", async () => {
+    const root = await fixture();
+    let uploadCalls = 0;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const requestHeaders = new Headers(init?.headers);
+      if (requestHeaders.get("content-type") === "application/json") {
+        return Response.json({
+          missingBlobs: [
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+          ],
+          revision: 7,
+        });
+      }
+      uploadCalls += 1;
+      for await (const _chunk of init?.body as unknown as AsyncIterable<Uint8Array>) {
+        // Drain each fresh retry stream.
+      }
+      return Response.json(
+        {
+          outcomes: [
+            {
+              sha256:
+                "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+              accepted: false,
+              error: "sha256 mismatch",
+            },
+          ],
+        },
+        { status: 422 },
+      );
+    }) as typeof fetch;
+
+    await expect(pushWorldProjection({ root, access })).rejects.toThrow(
+      "World blob upload failed with HTTP 422",
+    );
+    expect(uploadCalls).toBe(2);
+    expect((await readWorldMarker(root)).revision).toBe(0);
   });
 
   test("reuses indexed hashes until size or mtime changes", async () => {

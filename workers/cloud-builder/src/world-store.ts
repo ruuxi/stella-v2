@@ -42,29 +42,15 @@ export class WorldStore extends DurableObject<Env> {
     );
   }
 
-  beginBlob() {
-    return this.world.beginBlob();
+  putBlobs(stream: ReadableStream<Uint8Array>) {
+    return this.world.putBlobs(stream);
   }
 
-  appendBlob(uploadId: string, bytes: Uint8Array) {
-    return this.ctx.blockConcurrencyWhile(() =>
-      this.world.appendBlob(uploadId, bytes),
-    );
-  }
-
-  finishBlob(
-    uploadId: string,
-    options: {
-      path?: string;
-      sha256?: string;
-      mode?: number;
-      mtime?: number;
-      fork?: string;
-    },
+  putBlob(
+    stream: ReadableStream<Uint8Array>,
+    input: { sha256: string; size: number },
   ) {
-    return this.ctx.blockConcurrencyWhile(() =>
-      this.world.finishBlob(uploadId, options),
-    );
+    return this.world.putBlob(stream, input);
   }
 
   mkdir(path: string, options: { mode?: number; fork?: string } = {}) {

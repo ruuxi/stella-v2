@@ -391,7 +391,7 @@ describe("the sandbox attachment is the container side of the ladder", () => {
     // stderr is also persisted: the SDK keeps nothing for a daemon that died
     // abruptly, and that file is what the attachment reads back.
     expect(fake.processes).toEqual([
-      "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' '--dir' '/workspace/attached/turn-1-1' 2>>'/workspace/attached/turn-1-1/daemon.stderr'",
+      "exec setsid --fork --wait 'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' '--dir' '/workspace/attached/turn-1-1' 2>>'/workspace/attached/turn-1-1/daemon.stderr'",
     ]);
     // The SDK gives a background process no session working directory, and
     // the argv is relative to the image's executor root.
@@ -644,7 +644,7 @@ describe("the daemon outlives the session shell", () => {
     expect(started).toEqual([
       {
         command:
-          "'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' '--dir' '/workspace/attached/turn-1-1' 2>>'/workspace/attached/turn-1-1/daemon.stderr'",
+          "exec setsid --fork --wait 'bun' 'packages/executor-cloud/src/cli.ts' '--attached-tool-host' '--dir' '/workspace/attached/turn-1-1' 2>>'/workspace/attached/turn-1-1/daemon.stderr'",
         options: {
           cwd: "/opt/stella",
           processId: "attached-daemon-agent-run-turn-1",

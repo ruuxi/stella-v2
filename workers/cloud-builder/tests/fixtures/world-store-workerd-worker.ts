@@ -1,21 +1,120 @@
 import { WorldStore } from "../../src/world-store.js";
 import { sha256BytesHex } from "../../src/hash.js";
-import { WORLD_CHANGE_LOG_MAX_ROWS } from "../../src/world/types.js";
+import {
+  WORLD_BLOB_BATCH_MAX_BYTES,
+  WORLD_BLOB_FRAME_HEADER_BYTES,
+  WORLD_CHANGE_LOG_MAX_ROWS,
+} from "../../src/world/types.js";
+import { handleWorldRoute } from "../../src/build-session/owner-purge-transfer.js";
+import { issueWorldCapability } from "../../src/world-capability.js";
 
 export { WorldStore };
 
-type Env = { WORLDS: DurableObjectNamespace<WorldStore> };
+type Env = Parameters<typeof handleWorldRoute>[1];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const routeWorld = `${"1".repeat(64)}:${"2".repeat(64)}`;
+
+const blobFrame = (sha256: string, bytes: Uint8Array): Uint8Array => {
+  const frame = new Uint8Array(
+    WORLD_BLOB_FRAME_HEADER_BYTES + bytes.byteLength,
+  );
+  for (let index = 0; index < 32; index += 1) {
+    frame[index] = Number.parseInt(sha256.slice(index * 2, index * 2 + 2), 16);
+  }
+  new DataView(frame.buffer).setBigUint64(32, BigInt(bytes.byteLength), false);
+  frame.set(bytes, WORLD_BLOB_FRAME_HEADER_BYTES);
+  return frame;
+};
+
+const fragment = (
+  bytes: Uint8Array,
+  size: number,
+): ReadableStream<Uint8Array> =>
+  new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < bytes.byteLength; offset += size) {
+        controller.enqueue(bytes.slice(offset, offset + size));
+      }
+      controller.close();
+    },
+  });
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (new URL(request.url).pathname === "/health") return new Response("ok");
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/health") return new Response("ok");
+    if (pathname === "/route-push") {
+      const capability = await issueWorldCapability({
+        secret: env.BUILDER_SERVICE_SECRET,
+        worldName: routeWorld,
+        turnId: "workerd-route-test",
+        attemptGeneration: 1,
+        now: Date.now(),
+        ttlMs: 60_000,
+      });
+      const headers = new Headers(request.headers);
+      headers.set("authorization", `Bearer ${capability}`);
+      return await handleWorldRoute(
+        new Request(`https://builder.test/internal/worlds/${routeWorld}/push`, {
+          method: "POST",
+          headers,
+          body: request.body,
+        }),
+        env,
+        routeWorld,
+        { kind: "push" },
+      );
+    }
+    if (pathname === "/put-blobs-cases") {
+      const world = env.WORLDS.getByName("put-blobs-cases");
+      const first = encoder.encode("first");
+      const second = encoder.encode("second");
+      const firstSha = await sha256BytesHex(first);
+      const secondSha = await sha256BytesHex(second);
+      const frames = new Uint8Array(
+        blobFrame(firstSha, first).byteLength +
+          blobFrame(secondSha, second).byteLength,
+      );
+      const firstFrame = blobFrame(firstSha, first);
+      frames.set(firstFrame);
+      frames.set(blobFrame(secondSha, second), firstFrame.byteLength);
+      const split = await world.putBlobs(fragment(frames, 3));
+      const expectedSha = await sha256BytesHex(encoder.encode("expected"));
+      const mismatch = await world.putBlobs(
+        fragment(blobFrame(expectedSha, encoder.encode("wrong")), 2),
+      );
+      const oversized = new Uint8Array(4 * 1024 * 1024 + 17).fill(0x61);
+      const oversizedSha = await sha256BytesHex(oversized);
+      const spilled = await world.putBlobs(
+        fragment(blobFrame(oversizedSha, oversized), 127_003),
+      );
+      const tooLarge = new Uint8Array(WORLD_BLOB_FRAME_HEADER_BYTES);
+      new DataView(tooLarge.buffer).setBigUint64(
+        32,
+        BigInt(WORLD_BLOB_BATCH_MAX_BYTES + 1),
+        false,
+      );
+      let refused = "";
+      try {
+        await world.putBlobs(fragment(tooLarge, 5));
+      } catch (error) {
+        refused = error instanceof Error ? error.message : String(error);
+      }
+      return Response.json({
+        split,
+        mismatch,
+        mismatchRecorded: Boolean(await world.exportBlob(expectedSha)),
+        spilled,
+        r2Bytes: (await env.WORLDS_BUCKET.get(`blobs/${oversizedSha}`))?.size,
+        refused,
+      });
+    }
     const world = env.WORLDS.getByName("fixture-world");
-    if (new URL(request.url).pathname === "/entries") {
+    if (pathname === "/entries") {
       return Response.json(await world.list("", {}));
     }
-    if (new URL(request.url).pathname === "/compaction") {
+    if (pathname === "/compaction") {
       const compacted = env.WORLDS.getByName("fixture-compaction");
       const entries = Array.from(
         { length: WORLD_CHANGE_LOG_MAX_ROWS + 1 },
@@ -33,7 +132,7 @@ export default {
         changes: await compacted.changesSince(0),
       });
     }
-    if (new URL(request.url).pathname === "/fork") {
+    if (pathname === "/fork") {
       const forkWorld = env.WORLDS.getByName("fixture-fork");
       await forkWorld.writeFile("base.txt", encoder.encode("shared"), {});
       const isolated = await forkWorld.fork({
@@ -114,9 +213,7 @@ export default {
       entries: listing,
       deleted: delta.deleted,
     });
-    const upload = await world.beginBlob();
-    await world.appendBlob(upload.uploadId, newBytes);
-    await world.finishBlob(upload.uploadId, { sha256 });
+    await world.putBlobs(fragment(blobFrame(sha256, newBytes), 2));
     const pushed = await world.pushDiff({
       entries: listing,
       deleted: delta.deleted,

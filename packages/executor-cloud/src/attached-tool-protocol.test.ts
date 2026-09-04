@@ -47,6 +47,7 @@ describe("attached tool protocol", () => {
       request: "/workspace/attached/turn-a-1/request.json",
       result: "/workspace/attached/turn-a-1/result.json",
       daemonStderr: "/workspace/attached/turn-a-1/daemon.stderr",
+      daemonPid: "/workspace/attached/turn-a-1/daemon.pid",
     });
     expect(second.directory).not.toBe(first.directory);
     expect(second.socket).not.toBe(first.socket);

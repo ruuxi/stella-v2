@@ -19,6 +19,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 
 export type WorldSyncAccess = Readonly<{
   origin: string;
@@ -59,6 +60,10 @@ type WorldChanges = {
 
 const WORLD_PATH_LIMIT_BYTES = 1_024;
 const WORLD_FILE_LIMIT_BYTES = 256 * 1024 * 1024;
+export const WORLD_BLOB_FRAME_HEADER_BYTES = 40;
+export const WORLD_BLOB_BATCH_MAX_BYTES = 32 * 1024 * 1024;
+export const WORLD_BLOB_BATCH_MAX_COUNT = 512;
+export const WORLD_BLOB_UPLOAD_CONCURRENCY = 3;
 const WORLD_ENTRY_LIMIT = 200_000;
 const WORLD_UID = 42_424;
 const WORLD_GID = 42_424;
@@ -680,25 +685,173 @@ const postListing = async (
   };
 };
 
-const uploadBlob = async (
+export type WorldBlobUpload = Readonly<{
+  sha256: string;
+  filePath: string;
+  size: number;
+}>;
+
+export type WorldBlobUploadBatch =
+  | Readonly<{
+      kind: "batch";
+      blobs: readonly WorldBlobUpload[];
+      bytes: number;
+    }>
+  | Readonly<{ kind: "oversize"; blob: WorldBlobUpload }>;
+
+export const batchWorldBlobUploads = (
+  blobs: readonly WorldBlobUpload[],
+): WorldBlobUploadBatch[] => {
+  const batches: WorldBlobUploadBatch[] = [];
+  let current: WorldBlobUpload[] = [];
+  let currentBytes = 0;
+  const flush = (): void => {
+    if (current.length === 0) return;
+    batches.push({ kind: "batch", blobs: current, bytes: currentBytes });
+    current = [];
+    currentBytes = 0;
+  };
+  for (const blob of blobs) {
+    if (blob.size > WORLD_BLOB_BATCH_MAX_BYTES) {
+      flush();
+      batches.push({ kind: "oversize", blob });
+      continue;
+    }
+    if (
+      current.length >= WORLD_BLOB_BATCH_MAX_COUNT ||
+      currentBytes + blob.size > WORLD_BLOB_BATCH_MAX_BYTES
+    ) {
+      flush();
+    }
+    current.push(blob);
+    currentBytes += blob.size;
+  }
+  flush();
+  return batches;
+};
+
+const hexBytes = (sha256: string): Uint8Array => {
+  if (!/^[0-9a-f]{64}$/u.test(sha256)) {
+    throw new Error("World blob sha256 is invalid.");
+  }
+  return Uint8Array.from({ length: 32 }, (_, index) =>
+    Number.parseInt(sha256.slice(index * 2, index * 2 + 2), 16),
+  );
+};
+
+const blobFrameHeader = (blob: WorldBlobUpload): Uint8Array => {
+  const header = new Uint8Array(WORLD_BLOB_FRAME_HEADER_BYTES);
+  header.set(hexBytes(blob.sha256));
+  new DataView(header.buffer).setBigUint64(32, BigInt(blob.size), false);
+  return header;
+};
+
+const batchBody = (blobs: readonly WorldBlobUpload[]): Readable =>
+  Readable.from(
+    (async function* () {
+      for (const blob of blobs) {
+        yield blobFrameHeader(blob);
+        for await (const chunk of createReadStream(blob.filePath)) yield chunk;
+      }
+    })(),
+  );
+
+const parseBlobOutcomes = async (
+  response: Response,
+  expected: readonly WorldBlobUpload[],
+): Promise<void> => {
+  const value = (await response.json().catch(() => null)) as {
+    outcomes?: unknown;
+  } | null;
+  const outcomes = value?.outcomes;
+  if (!response.ok || !Array.isArray(outcomes)) {
+    throw new Error(`World blob upload failed with HTTP ${response.status}.`);
+  }
+  const accepted = new Set<string>();
+  for (const raw of outcomes) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("World blob upload returned malformed outcomes.");
+    }
+    const sha256 = "sha256" in raw ? raw.sha256 : undefined;
+    const acceptedValue = "accepted" in raw ? raw.accepted : undefined;
+    if (
+      typeof sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/u.test(sha256) ||
+      acceptedValue !== true
+    ) {
+      throw new Error("World blob upload rejected a blob.");
+    }
+    accepted.add(sha256);
+  }
+  if (
+    accepted.size !== expected.length ||
+    expected.some((blob) => !accepted.has(blob.sha256))
+  ) {
+    throw new Error("World blob upload did not accept every requested blob.");
+  }
+};
+
+const uploadBlobBatch = async (
   access: WorldSyncAccess,
-  sha256: string,
-  filePath: string,
+  batch: WorldBlobUploadBatch,
 ): Promise<void> => {
   const requestHeaders = headers(access);
-  requestHeaders.set("content-type", "application/octet-stream");
-  requestHeaders.set("x-stella-world-blob-sha256", sha256);
+  const blobs = batch.kind === "batch" ? batch.blobs : [batch.blob];
+  let body: Readable;
+  if (batch.kind === "batch") {
+    requestHeaders.set("content-type", "application/vnd.stella.world-blobs");
+    requestHeaders.set(
+      "content-length",
+      String(batch.bytes + batch.blobs.length * WORLD_BLOB_FRAME_HEADER_BYTES),
+    );
+    body = batchBody(batch.blobs);
+  } else {
+    requestHeaders.set("content-type", "application/octet-stream");
+    requestHeaders.set("x-stella-world-blob-sha256", batch.blob.sha256);
+    requestHeaders.set("content-length", String(batch.blob.size));
+    body = createReadStream(batch.blob.filePath);
+  }
   const init: RequestInit & { duplex: "half" } = {
     method: "POST",
     headers: requestHeaders,
-    body: createReadStream(filePath) as never,
+    body: body as never,
     duplex: "half",
   };
   const response = await fetch(routeUrl(access, "push"), init);
-  if (!response.ok) {
-    throw new Error(`World blob upload failed with HTTP ${response.status}.`);
+  await parseBlobOutcomes(response, blobs);
+};
+
+const uploadWithRetry = async (
+  access: WorldSyncAccess,
+  batch: WorldBlobUploadBatch,
+): Promise<void> => {
+  try {
+    await uploadBlobBatch(access, batch);
+  } catch {
+    await uploadBlobBatch(access, batch);
   }
-  await response.body?.cancel();
+};
+
+const uploadBatches = async (
+  access: WorldSyncAccess,
+  batches: readonly WorldBlobUploadBatch[],
+): Promise<void> => {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      const batch = batches[index];
+      if (!batch) return;
+      await uploadWithRetry(access, batch);
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(WORLD_BLOB_UPLOAD_CONCURRENCY, batches.length) },
+      () => worker(),
+    ),
+  );
 };
 
 export const pushWorldProjection = async (args: {
@@ -725,17 +878,22 @@ export const pushWorldProjection = async (args: {
         )
         .map((entry) => [
           entry.sha256,
-          absoluteWorldPath(args.root, entry.path),
+          {
+            sha256: entry.sha256,
+            filePath: absoluteWorldPath(args.root, entry.path),
+            size: entry.size,
+          },
         ]),
     );
     let pushed = await postListing(args.access, projection.entries);
     while (pushed.missingBlobs.length > 0) {
-      for (const sha256 of pushed.missingBlobs) {
-        const filePath = files.get(sha256);
-        if (!filePath)
+      const uploads = pushed.missingBlobs.map((sha256) => {
+        const upload = files.get(sha256);
+        if (!upload)
           throw new Error(`World requested an unknown blob ${sha256}.`);
-        await uploadBlob(args.access, sha256, filePath);
-      }
+        return upload;
+      });
+      await uploadBatches(args.access, batchWorldBlobUploads(uploads));
       pushed = await postListing(args.access, projection.entries);
     }
     const nextMarker = { ...marker, revision: pushed.revision };

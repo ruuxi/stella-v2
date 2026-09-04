@@ -70,6 +70,7 @@ export type AttachedToolPaths = Readonly<{
   request: string;
   result: string;
   daemonStderr: string;
+  daemonPid: string;
 }>;
 
 const ATTACHED_TOOL_DIRECTORY =
@@ -104,6 +105,7 @@ export const attachedToolPathsForDirectory = (
     request: `${directory}/request.json`,
     result: `${directory}/result.json`,
     daemonStderr: `${directory}/daemon.stderr`,
+    daemonPid: `${directory}/daemon.pid`,
   };
 };
 

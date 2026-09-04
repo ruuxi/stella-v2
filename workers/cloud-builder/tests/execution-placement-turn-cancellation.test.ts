@@ -603,9 +603,7 @@ describe("BuildSession sandbox termination", () => {
 
     await terminateCurrentAgentSession(harness.instance, finished);
 
-    expect(calls).toEqual([
-      `delete:agent-run-${finished.turnId}`,
-    ]);
+    expect(calls).toEqual([`delete:agent-run-${finished.turnId}`]);
   });
 
   test("a missing predecessor session does not break follow-up cleanup", async () => {
@@ -4557,6 +4555,7 @@ const residentStopHarness = (turnId: string) => {
   const destroyed: SandboxCall[] = [];
   const killed: string[] = [];
   const daemonKills: string[] = [];
+  const groupCommands: string[] = [];
   let sandboxCalls = 0;
   harness.instance["sandbox"] = (sandboxId: string, size: string) => {
     sandboxCalls += 1;
@@ -4568,7 +4567,21 @@ const residentStopHarness = (turnId: string) => {
       killProcess: async (processId: string) => {
         daemonKills.push(processId);
       },
-      getSession: async () => ({ exec: async () => ({ success: true }) }),
+      getSession: async () => ({
+        exec: async (command: string) => {
+          groupCommands.push(command);
+          return {
+            success: true,
+            stdout: command.startsWith("cat --")
+              ? `${JSON.stringify({ pid: 43_210, pgid: 43_210 })}\n`
+              : "",
+          };
+        },
+      }),
+      exec: async (command: string) => {
+        groupCommands.push(command);
+        return { success: true, stdout: "" };
+      },
       deleteSession: async () => undefined,
       destroy: async () => {
         destroyed.push({ sandboxId, size });
@@ -4608,6 +4621,7 @@ const residentStopHarness = (turnId: string) => {
     destroyed,
     killed,
     daemonKills,
+    groupCommands,
     running,
     sandboxCalls: () => sandboxCalls,
   };
@@ -4727,7 +4741,7 @@ describe("resident placement exact Stop", () => {
         settled = true;
         return response;
       });
-    while (driven.daemonKills.length === 0) await Promise.resolve();
+    while (driven.daemonKills.length === 0) await Bun.sleep(1);
     expect(settled).toBe(false);
     expect(driven.harness.values.get("pendingTerminal")).toMatchObject({
       turnId: driven.current.turnId,
@@ -4742,8 +4756,19 @@ describe("resident placement exact Stop", () => {
     // Two sweeps, each killing only this turn's daemon; the shared
     // container's process table is never swept.
     expect(driven.killed).toEqual([]);
-    const daemonId = `attached-daemon-agent-run-${driven.current.turnId}`.slice(0, 64);
+    const daemonId = `attached-daemon-agent-run-${driven.current.turnId}`.slice(
+      0,
+      64,
+    );
     expect(driven.daemonKills).toEqual([daemonId, daemonId]);
+    expect(
+      driven.groupCommands.filter((command) => command.startsWith("kill")),
+    ).toEqual([
+      "kill -TERM -- -43210",
+      "kill -KILL -- -43210",
+      "kill -TERM -- -43210",
+      "kill -KILL -- -43210",
+    ]);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       canceled: true,
@@ -4831,6 +4856,50 @@ describe("BuildSession teardown never revives the container it retires", () => {
       console.error = previousError;
     }
     expect(processKills).toBe(0);
+  });
+
+  test("uses the recorded turn group through the sessionless facade when its shell is gone", async () => {
+    const { harness } = admitted("agent-gone-session-shell");
+    const calls: string[] = [];
+    harness.instance["sandbox"] = () => ({
+      getState: async () => ({ status: "running" }),
+      getSession: async () => {
+        throw new Error("session shell is gone");
+      },
+      exec: async (command: string) => {
+        calls.push(`exec:${command}`);
+        return {
+          success: true,
+          stdout: command.startsWith("cat --")
+            ? `${JSON.stringify({ pid: 54_321, pgid: 54_321 })}\n`
+            : "",
+        };
+      },
+      killProcess: async (processId: string, signal: string) => {
+        calls.push(`process:${processId}:${signal}`);
+      },
+      deleteSession: async (sessionId: string) => {
+        calls.push(`delete:${sessionId}`);
+      },
+    });
+
+    await harness.instance["releaseAgentSessionResources"]({
+      sandboxId: "world-owner",
+      size: "large",
+      workload: "world",
+      sessionId: "agent-run-agent-gone-session-shell",
+      daemonDirectory: "/workspace/attached/agent-gone-session-shell-1",
+    });
+
+    expect(calls).toEqual([
+      "exec:cat -- '/workspace/attached/agent-gone-session-shell-1/daemon.pid'",
+      "exec:kill -TERM -- -54321",
+      "exec:kill -KILL -- -54321",
+      "process:attached-daemon-agent-run-agent-gone-session-shell:SIGKILL",
+      "exec:rm -rf -- '/workspace/attached/agent-gone-session-shell-1'",
+      "delete:agent-run-agent-gone-session-shell",
+    ]);
+    expect(calls.some((call) => call.includes("killAllProcesses"))).toBe(false);
   });
 });
 

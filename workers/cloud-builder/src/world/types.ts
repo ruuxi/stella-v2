@@ -43,7 +43,17 @@ export type WorldMergeResult = {
   conflicts: string[];
 };
 
+export type WorldBlobPutOutcome =
+  | { sha256: string; accepted: true }
+  | { sha256: string; accepted: false; error: string };
+
 export const WORLD_CHUNK_BYTES = 512 * 1024;
+export const WORLD_BLOB_FRAME_HEADER_BYTES = 40;
+export const WORLD_BLOB_BATCH_MAX_BYTES = 32 * 1024 * 1024;
+export const WORLD_BLOB_BATCH_MAX_COUNT = 512;
+export const WORLD_BLOB_BATCH_MAX_WIRE_BYTES =
+  WORLD_BLOB_BATCH_MAX_BYTES +
+  WORLD_BLOB_BATCH_MAX_COUNT * WORLD_BLOB_FRAME_HEADER_BYTES;
 export const WORLD_R2_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const WORLD_FILE_LIMIT_BYTES = 256 * 1024 * 1024;
 export const WORLD_READ_LIMIT_BYTES = 8 * 1024 * 1024;

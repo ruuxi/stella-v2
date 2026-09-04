@@ -522,7 +522,7 @@ export const createAgentSandboxAttachment = (
       // Started outside the session shell when the caller can: a session
       // process is a child of that persistent shell, and the shell has just
       // run the restore scripts and will run every bridged call next.
-      const daemonCommand = `${quoted([
+      const daemonCommand = `exec setsid --fork --wait ${quoted([
         ...DAEMON_ARGV,
         "--dir",
         paths.directory,

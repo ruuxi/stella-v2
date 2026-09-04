@@ -241,7 +241,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             if (attemptId !== startAttemptRef.current) {
                 return false;
             }
-            const { requestId } = await window.electronAPI.agent.startChat({
+            const { requestId, userMessageId } = await window.electronAPI.agent.startChat({
                 conversationId: activeConversationId,
                 userPrompt: args.userPrompt,
                 ...(typeof args.selectedText !== "undefined"
@@ -271,6 +271,11 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 executionTarget: getExecutionTargetSnapshot(),
             });
             pendingRequestIdsRef.current.add(requestId);
+            if (userMessageId && args.userMessageEventId) {
+                args.onUserMessageAccepted?.(userMessageId);
+                setPendingUserMessageId(current =>
+                    current === args.userMessageEventId ? userMessageId : current);
+            }
             return true;
         }
         catch (error) {

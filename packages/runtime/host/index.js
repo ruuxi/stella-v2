@@ -1872,7 +1872,9 @@ export class StellaRuntimeHost {
         };
         placed.subscription = bridge.watchDispatch(dispatch.dispatchId, onStatus);
         onStatus(dispatch);
-        return { runId };
+        // Cloud admission journals the placement dispatch id, rather than the
+        // desktop's optimistic id. Return that identity to the sending renderer.
+        return { runId, userMessageId: target.mode === "cloud" ? dispatch.dispatchId : userMessageId };
     }
     async healthCheck() {
         const health = await this.getWorkerHealth({ ensureWorker: false });

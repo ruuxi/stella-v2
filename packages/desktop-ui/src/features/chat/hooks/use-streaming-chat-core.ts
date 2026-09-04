@@ -170,6 +170,18 @@ export function useStreamingChatCore({
     optimisticEvents,
   });
 
+  const reconcileAcceptedUserMessage = useCallback(
+    (optimisticId: string, acceptedId: string) => {
+      if (optimisticId === acceptedId) return;
+      setOptimisticEvents((current) =>
+        current.map((event) =>
+          event._id === optimisticId ? { ...event, _id: acceptedId } : event,
+        ),
+      );
+    },
+    [],
+  );
+
   const removeQueuedUserMessage = useCallback((messageId: string) => {
     queuedStreamPayloadsRef.current = queuedStreamPayloadsRef.current.filter(
       (message) => message.id !== messageId,
@@ -340,6 +352,8 @@ export function useStreamingChatCore({
         : {}),
       attachments: combined.attachments,
       userMessageEventId: combined.id,
+      onUserMessageAccepted: (acceptedId: string) =>
+        reconcileAcceptedUserMessage(combined.id, acceptedId),
       userMessageTimestamp: optimisticEvent.timestamp,
       onStartFailed: () => {
         if (drainingQueuedMessageIdRef.current === combined.id) {
@@ -381,6 +395,7 @@ export function useStreamingChatCore({
     issueDequeueTimestamp,
     setPendingUserMessageId,
     startStream,
+    reconcileAcceptedUserMessage,
   ]);
 
   useEffect(() => {
@@ -422,7 +437,7 @@ export function useStreamingChatCore({
       const next = current.filter((event) => !persistedIds.has(event._id));
       return next.length === current.length ? current : next;
     });
-  }, [optimisticEvents.length, persistedMessages]);
+  }, [optimisticEvents, persistedMessages]);
 
   useEffect(() => {
     const persistedIds = new Set(
@@ -519,6 +534,8 @@ export function useStreamingChatCore({
           ...(messageMetadata ? { messageMetadata } : {}),
           attachments,
           userMessageEventId: optimisticUserMessageId,
+          onUserMessageAccepted: (acceptedId: string) =>
+            reconcileAcceptedUserMessage(optimisticUserMessageId, acceptedId),
           userMessageTimestamp: messageTimestamp,
         });
         if (!accepted) {
@@ -558,6 +575,7 @@ export function useStreamingChatCore({
       clearOptimisticMessage,
       notifyTierRestrictedModel,
       startStream,
+      reconcileAcceptedUserMessage,
       locale,
       setPendingUserMessageId,
     ],

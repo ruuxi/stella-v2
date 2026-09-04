@@ -747,11 +747,12 @@ export const registerAgentHandlers = (options) => {
             throw error;
         });
         const localChatStart = await localChatStartPromise;
+        const acceptedUserMessageId = localChatStart?.userMessageId || stableUserMessageId;
         return {
             requestId,
             ...(localChatStart?.runId ? { runId: localChatStart.runId } : {}),
-            ...(stableUserMessageId
-                ? { userMessageId: stableUserMessageId, accepted: true }
+            ...(acceptedUserMessageId
+                ? { userMessageId: acceptedUserMessageId, accepted: true }
                 : {}),
         };
     });

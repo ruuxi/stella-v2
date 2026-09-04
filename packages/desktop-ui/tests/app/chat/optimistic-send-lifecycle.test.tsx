@@ -170,4 +170,50 @@ describe("optimistic send lifecycle", () => {
     expect(chat.optimisticEvents).toHaveLength(0);
     expect(persistedMessages).toHaveLength(1);
   });
+  it.each([true, false])("reconciles a cloud dispatch id when the journal arrives first: %s", async canonicalFirst => {
+    let send: Promise<boolean>;
+    await act(async () => {
+      send = chat.sendMessage({
+        text: "same text", selectedText: null, chatContext: null, onClear: vi.fn(),
+      });
+      await Promise.resolve();
+    });
+    const args = stream.start.mock.calls[0]?.[0];
+    const canonical: MessageRecord = {
+      _id: "dsp:accepted", type: "user_message", timestamp: 1,
+      payload: { text: "same text" }, toolEvents: [],
+    };
+    if (canonicalFirst) {
+      persistedMessages = [canonical];
+      await act(async () => root.render(<Probe />));
+    }
+    await act(async () => {
+      args.onUserMessageAccepted("dsp:accepted");
+      stream.accept(true);
+      await send!;
+    });
+    if (!canonicalFirst) {
+      expect(chat.optimisticEvents[0]?._id).toBe("dsp:accepted");
+      persistedMessages = [canonical];
+      await act(async () => root.render(<Probe />));
+    }
+    expect(chat.optimisticEvents).toHaveLength(0);
+
+    // Matching text is a legitimate second send, not evidence of duplication.
+    await act(async () => {
+      send = chat.sendMessage({
+        text: "same text", selectedText: null, chatContext: null, onClear: vi.fn(),
+      });
+      await Promise.resolve();
+    });
+    expect(chat.optimisticEvents).toHaveLength(1);
+    await act(async () => {
+      stream.start.mock.calls[1]?.[0].onUserMessageAccepted("dsp:second");
+      stream.accept(true);
+      await send!;
+    });
+    expect(chat.optimisticEvents[0]?._id).toBe("dsp:second");
+    expect(persistedMessages[0]?._id).toBe("dsp:accepted");
+  });
+
 });

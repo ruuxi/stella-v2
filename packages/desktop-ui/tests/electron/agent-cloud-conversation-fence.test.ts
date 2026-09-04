@@ -62,6 +62,20 @@ describe("agent IPC cloud conversation fence", () => {
     return { runner, uiState };
   };
 
+  it("returns the canonical admitted user id instead of echoing the optimistic id", async () => {
+    const { runner } = register();
+    runner.handleLocalChat.mockResolvedValue({
+      runId: "placed:dsp:accepted",
+      userMessageId: "dsp:accepted",
+    });
+    const result = await electron.handles.get("agent:startChat")?.(event, {
+      conversationId: "cloud-current",
+      userPrompt: "hello",
+      userMessageEventId: "local-optimistic",
+    });
+    expect(result).toMatchObject({ userMessageId: "dsp:accepted", accepted: true });
+  });
+
   it("rejects a stale send-input id before calling the runtime", async () => {
     const { runner } = register();
     const handler = electron.handles.get("agent:sendInput");

@@ -20,9 +20,11 @@ test("cloud hand-off balances the desktop start and ignores later dispatch updat
       },
     },
   };
-  await StellaRuntimeHost.prototype.startPlacedChat.call(host, {
+  const accepted = await StellaRuntimeHost.prototype.startPlacedChat.call(host, {
     conversationId: "conversation-1", userPrompt: "Hello", requestId: "request-1",
+    userMessageEventId: "local-optimistic",
   }, { mode: "cloud" });
+  expect(accepted).toEqual({ runId: "placed:dispatch-1", userMessageId: "dispatch-1" });
   expect(events.map(event => event.type)).toEqual(["run-started"]);
   onStatus({ dispatchId: "dispatch-1", placement: "cloud", cloudTurnId: "turn-1" });
   expect(events.map(event => event.type)).toEqual(["run-started", "run-finished"]);

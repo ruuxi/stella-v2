@@ -375,7 +375,6 @@ export const LEGACY_BUILD_PREFIX_PATTERN = /^builds\/[A-Za-z0-9_-]{1,64}$/;
 export const INTERIOR_BUILD_PREFIX_PATTERN =
   /^interiors\/[0-9a-f]{64}\/interior-[0-9a-f]{48}$/;
 
-
 /**
  * Backfill for checkpoints written before cleanup debt existed. The sandbox
  * SDK stores `{name}` in `backups/<uuid>/meta.json`; our name is derived from

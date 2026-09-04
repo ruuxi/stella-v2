@@ -229,12 +229,14 @@ export const registerBuildOwnerFenceLease = async (
     committed = true;
   });
   if (!committed) {
-    await host.callOwnerFence(receipt.ownerId, "unregister", {
-      leaseId: receipt.leaseId,
-      sessionId: host.ctx.id.toString(),
-      turnId: receipt.turnId,
-      ownerGeneration: receipt.ownerGeneration,
-    }).catch(() => undefined);
+    await host
+      .callOwnerFence(receipt.ownerId, "unregister", {
+        leaseId: receipt.leaseId,
+        sessionId: host.ctx.id.toString(),
+        turnId: receipt.turnId,
+        ownerGeneration: receipt.ownerGeneration,
+      })
+      .catch(() => undefined);
     throw new OwnerPurgeFenceError();
   }
   if (args.mutateTurn) {

@@ -9,15 +9,9 @@
  * @see src/index.ts for `export default worker`.
  */
 
-import {
-  GATEWAY_NETWORK_POLICY,
-} from "@stella/contracts/gateway/api";
-import {
-  TURN_BROKER_HEADERS,
-} from "@stella/contracts/turn-credential-broker";
-import {
-  BUILDER_OWNER_SNAPSHOT_CHANGED_PATH,
-} from "@stella/contracts/turn-plane/owner-snapshot";
+import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
+import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
+import { BUILDER_OWNER_SNAPSHOT_CHANGED_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import type {
   OwnerSnapshot,
   OwnerSnapshotChangedRequest,
@@ -35,9 +29,7 @@ import {
   DISPATCH_SUBMIT_PATH,
   PLACEMENT_PROTOCOL,
 } from "@stella/contracts/turn-plane/placement";
-import type {
-  DispatchSubmitRequest,
-} from "@stella/contracts/turn-plane/placement";
+import type { DispatchSubmitRequest } from "@stella/contracts/turn-plane/placement";
 import {
   CONVERSATION_ID_PATTERN,
   TURN_OWNER_GENERATION_HEADER,
@@ -47,20 +39,14 @@ import {
   isOwnerAppBuildPrefix,
   ownerAppBuildPrefix,
 } from "../app-build-artifacts.js";
-import {
-  verifyConvexToken,
-} from "../auth-jwt.js";
+import { verifyConvexToken } from "../auth-jwt.js";
 import {
   BoundedBodyError,
   readBoundedRequestText,
   readBoundedResponseBytes,
 } from "../bounded-body.js";
-import {
-  handleUserCloudHomeRoute,
-} from "../cloud-home-routes.js";
-import {
-  parseConversationEditRequest,
-} from "../conversation-edit-protocol.js";
+import { handleUserCloudHomeRoute } from "../cloud-home-routes.js";
+import { parseConversationEditRequest } from "../conversation-edit-protocol.js";
 import {
   conversationEditErrorResponse,
   runConversationEdit,
@@ -82,69 +68,44 @@ import {
   CLOSE_INTERNAL,
   CLOSE_UNAUTHENTICATED,
 } from "../conversation-types.js";
-import {
-  devAcceptanceProbesEnabled,
-} from "../dev-acceptance-probes.js";
+import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import {
   dispatchErrorResponse,
   parseDispatchSubmitRequest,
 } from "../dispatch-policy.js";
-import {
-  sha256Hex,
-} from "../hash.js";
+import { sha256Hex } from "../hash.js";
 import {
   MEMORY_WIPE_PROTOCOL_VERSION,
   MEMORY_WIPE_TARGET_COUNT,
   sweepMemoryWipePage,
 } from "../memory-wipe.js";
-import {
-  handleMuseTranscribeSocket,
-} from "../muse-transcribe-socket.js";
-import {
-  classifyNetwork,
-} from "../network-class.js";
-import {
-  deliverOutboxBatch,
-} from "../outbox.js";
-import type {
-  OwnerPurgeFence,
-  OwnerPurgeMode,
-} from "../owner-fence-do.js";
+import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
+import { classifyNetwork } from "../network-class.js";
+import { deliverOutboxBatch } from "../outbox.js";
+import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
   HEADER_PRESENCE_DEVICE_ID,
   OwnerGate,
   parseOwnerSnapshot,
 } from "../owner-gate.js";
-import {
-  normalizeOwnerGeneration,
-} from "../owner-generation.js";
-import {
-  parseOwnerProductTransferRequest,
-} from "../owner-product-transfer.js";
+import { normalizeOwnerGeneration } from "../owner-generation.js";
+import { parseOwnerProductTransferRequest } from "../owner-product-transfer.js";
 import {
   createCoordinatorAttempt,
   OWNER_TRANSFER_OPERATION_ID_PATTERN,
   parseOwnerTransferControl,
   stableValueMarker,
 } from "../owner-transfer-coordinator.js";
-import {
-  parseOwnerTransferRequest,
-} from "../owner-transfer.js";
-import {
-  evaluateCloudBuilderReadiness,
-} from "../readiness.js";
+import { parseOwnerTransferRequest } from "../owner-transfer.js";
+import { evaluateCloudBuilderReadiness } from "../readiness.js";
 import {
   boundedBodyStatus,
   CLOUD_BUILDER_BODY_LIMITS,
   publicJsonBodyLimit,
   serviceJsonBodyLimit,
 } from "../request-ingress.js";
-import {
-  verifyServiceBearerRequest,
-} from "../service-bearer.js";
-import {
-  validateTurnBrokerTarget,
-} from "../turn-credential-broker.js";
+import { verifyServiceBearerRequest } from "../service-bearer.js";
+import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import {
   HEADER_TURN_AUTH_KIND,
   parseCloudAgentTurnStartRequest,
@@ -152,9 +113,7 @@ import {
   serviceOnlyTurnFields,
   turnStartErrorResponse,
 } from "../turn-start-request.js";
-import type {
-  TurnAuthKind,
-} from "../turn-start-request.js";
+import type { TurnAuthKind } from "../turn-start-request.js";
 import {
   previewSafeRequestLogPath,
   verifyPreviewAccessRouteCapability,
@@ -178,12 +137,8 @@ import {
   withOwnerActivityLease,
   yieldTransferCoordinator,
 } from "./owner-purge-transfer.js";
-import {
-  retireSandboxInstance,
-} from "./session-sandbox.js";
-import type {
-  Env,
-} from "./shared/env.js";
+import { retireSandboxInstance } from "./session-sandbox.js";
+import type { Env } from "./shared/env.js";
 import {
   OwnerProductTransferConfigurationError,
   OwnerProductTransferConflictError,

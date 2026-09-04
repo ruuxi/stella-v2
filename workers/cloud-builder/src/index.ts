@@ -1,446 +1,76 @@
-import { DurableObject } from "cloudflare:workers";
-import { Effect } from "effect";
-import { emitCloudTurnTelemetry } from "./telemetry.js";
-import {
-  runToolEffect,
-  sleepWithAbort,
-} from "@stella/runtime/kernel/tools/effect-runtime.js";
-import {
-  type ExecutionSession,
-  type Sandbox as SandboxType,
-} from "@cloudflare/sandbox";
-import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
-import {
-  AppBuildSandbox as AppBuildSandboxBase,
-  ContainerProxy,
-  GeneralAgentSandbox,
-} from "./sandbox-egress-classes.js";
-import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
-import { inSubshell } from "./shell-subshell.js";
-import { worldMaterializationCommand } from "./world-materialization.js";
-import { OrchestratorSession } from "./orchestrator-session.js";
-import { deliverOutboxBatch, enqueueOutbox } from "./outbox.js";
-import {
-  HEADER_GATE_ADMITTED,
-  HEADER_TURN_AUTH_KIND,
-  parseCloudAgentTurnStartRequest,
-  parseCloudTurnStartRequest,
-  serviceOnlyTurnFields,
-  turnStartErrorResponse,
-  type TurnAuthKind,
-} from "./turn-start-request.js";
-import {
-  CONVERSATION_ID_PATTERN,
-  TURN_OWNER_GENERATION_HEADER,
-  TURN_OWNER_ID_HEADER,
-  TURN_PLANE_PROTOCOL,
-  TURN_PROMPT_MAX_CHARS,
-  type CloudAgentTurnStartRequest,
-  type CloudTurnStartRequest,
-} from "@stella/contracts/turn-plane/turn-start";
-import {
-  OUTBOX_EVENT_VERSION,
-  type BuildRecordedEvent,
-  type InteriorBuildRecordedEvent,
-  type OutboxEvent,
-  type ThreadCompletedEvent,
-  type TurnEventEvent,
-} from "@stella/contracts/turn-plane/outbox";
-import {
-  HEADER_PRESENCE_DEVICE_ID,
-  OwnerGate,
-  parseOwnerSnapshot,
-  type OwnerGateRefusalCode,
-} from "./owner-gate.js";
-import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
-import {
-  ThreadTranscriptError,
-  appendThreadMessages,
-  ensureThreadTranscriptSchema,
-  nextTurnEventSeq,
-  purgeThreadTranscript,
-  reserveTurnEventSeq,
-  readThreadHistory,
-  type ThreadMessageInput,
-} from "./thread-transcript.js";
-import {
-  BUILDER_OWNER_SNAPSHOT_CHANGED_PATH,
-  type OwnerSnapshotChangedRequest,
-} from "@stella/contracts/turn-plane/owner-snapshot";
-import {
-  DEVICES_PATH,
-  DISPATCH_SUBMIT_PATH,
-  PLACEMENT_PROTOCOL,
-  type DispatchSubmitRequest,
-} from "@stella/contracts/turn-plane/placement";
-import {
-  buildMobilePairingChallenge,
-  hasMobilePairingProofHeaders,
-  readMobilePairingProofHeaders,
-  sha256Hex as pairingSha256Hex,
-  canonicalDispatchPayloadJson,
-  verifyMobilePairingProof,
-} from "@stella/contracts/turn-plane/pairing-proof";
-import {
-  dispatchErrorResponse,
-  parseDispatchSubmitRequest,
-} from "./dispatch-policy.js";
-import { sha256BytesHex, sha256Hex } from "./hash.js";
-import {
-  APP_BUILD_ROOT,
-  WORLD_DRIVE_ROOT,
-  WORLD_ROOT,
-  WORLD_STELLA_ROOT,
-  agentTurnSessionId,
-  worldSandboxId,
-  worldName,
-} from "./workspace.js";
-import {
-  INSTANCE_TIERS,
-  initialInstanceSize,
-  isOutOfMemoryFailure,
-  type InstanceSize,
-} from "./instance-size.js";
-// Side-effect import: this is what registers the socket implementation with
-// the conversation DO. Without it the DO falls back to NullConversationHub and
-// every non-socket behaviour keeps working — which is the intended revert.
-import "./conversation-hub.js";
-import {
-  HEADER_ISSUER,
-  HEADER_OWNER,
-  HEADER_SESSION,
-  HEADER_SUBJECT,
-  HEADER_TOKEN_EXP,
-  SUBPROTOCOL,
-  isWebSocketUpgrade,
-  refuseUpgrade,
-  stripStellaHeaders,
-  tokenFromSubprotocol,
-} from "./conversation-hub.js";
-import {
-  CLOSE_BAD_REQUEST,
-  CLOSE_INTERNAL,
-  CLOSE_UNAUTHENTICATED,
-} from "./conversation-types.js";
-import { verifyConvexToken } from "./auth-jwt.js";
-import { handleMuseTranscribeSocket } from "./muse-transcribe-socket.js";
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
-import {
-  CONTROL_PLANE_CAPABILITY_AUDIENCE,
-  isManagedModelAudience,
-  type ManagedModelAudience,
-} from "@stella/contracts/gateway/capability";
-import { mintTurnCapability } from "./capability-signer.js";
-import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
-import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
-import {
-  isCloudBrowserResumeReceipt,
-  isCloudBrowserSuspension,
-  type CloudBrowserResumeReceipt,
-  type CloudBrowserSuspension,
-} from "@stella/contracts/cloud-browser";
-import { parseOwnerTransferRequest } from "./owner-transfer.js";
-import { OwnerTransferArchiveConflictError } from "./owner-transfer.js";
-import { parseOwnerProductTransferRequest } from "./owner-product-transfer.js";
-import {
-  OWNER_TRANSFER_OPERATION_ID_PATTERN,
-  createCoordinatorAttempt,
-  parseOwnerTransferControl,
-  stableValueMarker,
-  type OwnerTransferCoordinatorAttempt,
-} from "./owner-transfer-coordinator.js";
-import { OwnerTransferCoordinator } from "./owner-transfer-coordinator-do.js";
-import {
-  isOwnerAppBuildPrefix,
-  ownerAppBuildPrefix,
-  retireTransientAppBuild,
-} from "./app-build-artifacts.js";
-import {
-  HEADER_OWNER_FENCE_ID,
-  type OwnerPurgeFence,
-  type OwnerPurgeMode,
-} from "./owner-fence-do.js";
-import { normalizeOwnerGeneration } from "./owner-generation.js";
-import { parseConversationEditRequest } from "./conversation-edit-protocol.js";
-import {
-  conversationEditErrorResponse,
-  runConversationEdit,
-} from "./conversation-edit-runner.js";
-import { handleUserCloudHomeRoute } from "./cloud-home-routes.js";
-import {
-  CloudHomeStore,
-  type CloudSkillCatalogSnapshot,
-} from "./cloud-home-store.js";
-import { materializeCloudSkillSnapshot } from "./cloud-skill-materializer.js";
-import {
-  MEMORY_WIPE_PROTOCOL_VERSION,
-  MEMORY_WIPE_TARGET_COUNT,
-  sweepMemoryWipePage,
-} from "./memory-wipe.js";
-import {
-  EXACT_TURN_CANCELLATIONS_KEY,
-  ExactTurnCancellationLedger,
-  parseExactTurnCancellationRequest,
-  type ExactTurnCancellation,
-  type ExactTurnCancellationRequest,
-} from "./execution-placement-turn-cancellation.js";
-import { devAcceptanceProbesEnabled } from "./dev-acceptance-probes.js";
-import { classifyAgentFailureDiagnostic } from "./agent-failure-diagnostic.js";
-import { classifyNetwork } from "./network-class.js";
-import { executorSessionEnvironment } from "./executor-session-env.js";
-import { cloudModelRequestId } from "./cloud-model-request.js";
-import {
-  APP_BUILD_SESSION_ENV,
-  CapturedSessionAbandonedError,
-  capturedSessionExec,
-  startStrictSessionProcess,
-  strictSessionExec,
-} from "./strict-session-process.js";
-import {
-  createTurnRetryCancellation,
-  type TurnExecution,
-  type TurnExecutionContext,
-  type TurnRetryCancellation,
-} from "./turn-cancellation.js";
-import {
-  TURN_BROKER_HEADERS,
-  TURN_BROKER_RESPONSE_HEADERS,
-} from "@stella/contracts/turn-credential-broker";
-import {
-  TURN_BROKER_MAX_TTL_MS,
-  TurnBrokerBodyTooLargeError,
-  claimTurnBrokerRequest,
-  forwardTurnBrokerRequest,
-  issueTurnBrokerCredential,
-  preflightTurnBrokerRequest,
-  readTurnBrokerRequestBody,
-  revokeTurnBrokerCredential,
-  turnBrokerDenialResponse,
-  turnBrokerSandboxResponseHeaders,
-  turnBrokerStorageKey,
-  turnBrokerTargetMatchesEngine,
-  validateTurnBrokerTarget,
-  type TurnBrokerLiveFence,
-  type TurnBrokerRecord,
-  type TurnBrokerTarget,
-} from "./turn-credential-broker.js";
-import { type TurnStateTransferManifest } from "./turn-state-owner-routes.js";
-import {
-  restoreTurnStateArchive,
-  uploadTurnStateArchive,
-} from "./turn-state-archive.js";
-import {
-  parseTurnStateCheckpointRequest,
-  publicTurnStateCheckpointReceipt,
-  replaceTurnStateArchiveSession,
-} from "./turn-state-checkpoint.js";
+import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
+import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
-  PreparedTurnStateOperation,
-  ResolvedTurnState,
-  TurnStateArchive,
-  TurnStateCandidate,
-  TurnStateWorkspaceHead,
-} from "./turn-state-registry.js";
-import type {
-  TurnBrokerInteriorBuildRequestReceipt,
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
-import {
-  exactInteriorBuildRequested,
-  interiorBuildRequestKey,
-  interiorBuildRequestRecord,
-  parseInteriorBuildRequest,
-  type InteriorBuildRequestRecord,
-} from "./interior-build-request.js";
-import {
-  parseTurnComputePlan,
-  requiresExactThreadCandidate,
-  turnComputePlanKey,
-  type GeneralAgentTurnPlan,
-  type GeneralAgentTurnResult,
-} from "./general-agent-turn.js";
-import {
-  agentComputeKey,
-  createAgentComputeLadder,
-  parsePersistedAgentCompute,
-  type PersistedAgentCompute,
-} from "./agent-compute-ladder.js";
-import {
-  isSandboxDestroyDebtKey,
-  sandboxLifecycleId,
-  type SandboxTarget,
-  type SandboxWorkload,
-} from "./sandbox-lifecycle.js";
-import {
-  PREVIEW_ACCESS_MAX_TTL_MS,
-  issuePreviewAccessCapability,
-  previewSafeRequestLogPath,
-  resolvePreviewTunnelRequest,
-  verifyPreviewAccessCapability,
-  verifyPreviewAccessRouteCapability,
-} from "./vite-preview-access.js";
-import { issueWorldCapability } from "./world-capability.js";
-import {
-  CLOUD_BUILDER_BODY_LIMITS,
-  boundedBodyStatus,
-  publicJsonBodyLimit,
-  serviceJsonBodyLimit,
-} from "./request-ingress.js";
-import {
-  BoundedBodyError,
-  readBoundedRequestText,
-  readBoundedResponseBytes,
-} from "./bounded-body.js";
-import { verifyServiceBearerRequest } from "./service-bearer.js";
-import { evaluateCloudBuilderReadiness } from "./readiness.js";
-import type { SealedTurnTranscript } from "./agent-turn-journal.js";
+import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { CloudAgentTurnStartRequest } from "@stella/contracts/turn-plane/turn-start";
+import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
+import { DurableObject } from "cloudflare:workers";
+import { createAgentComputeLadder } from "./agent-compute-ladder.js";
 import { createAgentControlPlane } from "./agent-control-plane.js";
+import type { SealedTurnTranscript } from "./agent-turn-journal.js";
 import {
-  rememberCloudAgentControlReceipt,
-  steerCloudAgent,
-  type CloudAgentDispatchDependencies,
-} from "./cloud-agent-dispatch.js";
+  acceptAgentTurn,
+  admitAgentTurnThroughOwnerGate,
+  admittedResidentPlacement,
+  agentTurnAccepted,
+  runAgentTurn,
+  startAgentTurn,
+  startAppTurn,
+} from "./build-session/admission.js";
 import {
-  EMPTY_NATIVE_HISTORY_CURSOR,
-  NATIVE_STATE_DIRECTORY,
-  emptyNativeStateCheckpointRecord,
-  nativeHistoryCursorFromRows,
-  nativeStateCheckpointKey,
-  nativeStateCheckpointPrefix,
-  nativeStateCheckpointReceipt,
-  parseNativeStateCheckpointPayload,
-  parseNativeStateCheckpointRecord,
-  publicNativeStateCheckpointReceipt,
-  resolveNativeStateCheckpoint,
-  stageNativeStateCheckpoint,
-  type NativeStateCheckpointRecord,
-  type NativeStateCheckpointReceipt,
-  type NativeStateCheckpointVersion,
-} from "./native-state-checkpoint.js";
-
-import type { BuildSessionInternals } from "./build-session/host.js";
-import type { Env } from "./build-session/shared/env.js";
-import type {
-  AgentComputeRecoveryClaim,
-  AgentExecutionMarker,
-  AgentExecutorResult,
-  AppTurnAdmissionClaim,
-  BuildOwnerFenceLeaseReceipt,
-  BuilderFallbackInput,
-  BuilderFallbackTranscript,
-  ConversationCaller,
-  DispatchCaller,
-  Execution,
-  ExecutorResult,
-  InteriorBuildOutput,
-  NativeTransientBackup,
-  ObservedBrowserSuspension,
-  OwnerPurgeReport,
-  OwnerPurgeRequest,
-  PendingAppBuildPublication,
-  PendingBrowserSuspension,
-  PendingTerminal,
-  TurnRequest,
-  TurnStateCheckpointOperation,
-  WorkspaceBackupDebt,
-} from "./build-session/shared/types.js";
+  advanceBuilderFallback,
+  ensureBuilderFallbackTranscript,
+  reconcileAgentCheckpointAfterQuiescence,
+  recoverAgentTurnAfterExecutorLoss,
+  recoverObservedBrowserSuspension,
+  retainPendingBrowserSuspension,
+  runAlarm,
+  runAlarmWithLease,
+  runScheduledTurnAlarm,
+} from "./build-session/alarms-recovery.js";
 import {
-  AgentTurnAuthorityLostError,
-  AgentTurnError,
-  AppTurnAuthorityLostError,
-  BrowserGatewayResponseTooLargeError,
-  OwnerProductTransferConfigurationError,
-  OwnerProductTransferConflictError,
-  OwnerPurgeFenceError,
-  TurnStateOwnerCallError,
-} from "./build-session/shared/errors.js";
+  advanceAppBuildPublication,
+  proxyVitePreview,
+  publishInteriorCandidate,
+  publishRequestedInteriorCandidate,
+  runEcho,
+  runTurn,
+} from "./build-session/app-build.js";
 import {
-  BACKUP_ID_PATTERN,
-  R2_SWEEP_MAX_PAGES,
-  sweepR2Prefix,
-  AGENT_RECOVERY_PENDING_KEY,
-  AGENT_TURN_HEARTBEAT_MS,
-  AGENT_WATCHDOG_DEADLINE_KEY,
-  APP_BUILD_CONTROL_PLANE_EXECUTION,
-  APP_TURN_ADMISSION_CLAIM_KEY,
-  HEADER_BUILD_SESSION_NAME,
-  HEADER_CONVERSATION_ID,
-  HEADER_PREVIEW_BASE_URL,
-  HEADER_TURN_BROKER_ENDPOINT,
-  HEADER_PREVIEW_CAPABILITY,
-  OBSERVED_BROWSER_SUSPENSION_KEY,
-  ORCHESTRATOR_INTERNAL_ORIGIN,
-  OUTBOX_DEBT_KEY,
-  OUTBOX_DEBT_MAX,
-  OUTBOX_DEBT_RETRY_MS,
-  OWNER_PURGE_STALE_LEASE_GRACE_MS,
-  PENDING_BROWSER_SUSPENSION_KEY,
-  SHA256_HEX,
-  TERMINAL_EVENT_STATUS,
-  agentComputeRecoveryClaimKey,
-  agentExecutionMarkerKey,
-  agentRecoveryIdentity,
-  bindObservedBrowserSuspensionToCanonicalCodeCall,
-  builderFallbackTranscriptKey,
-  cloudBrowserSuspensionMarker,
-  contentType,
-  conversationName,
-  errorMessage,
-  exactTurnIdentityMatches,
-  exactTurnSandboxId,
-  executionFailureFields,
-  isBuildOwnerFenceDurabilityKey,
-  json,
-  log,
-  nativeBackupDebtKey,
-  nativeStateIntegrityKeyFor,
-  nativeTransientBackupKey,
-  normalizeToolWorkspaceRoot,
-  sessionName,
-  turnDispatchIdentity,
-  turnStateBaseWorkspaceRevisionKey,
-  turnStateCheckpointOperationKey,
-  validBuilderFallbackMessages,
-  validTurnStateCheckpointReceipt,
-  withInfrastructureDeadline,
-} from "./build-session/shared/keys.js";
+  attachAgentWorld,
+  clearUnattachedAgentSandboxTuple,
+  exactAgentExecutionMarker,
+  interruptAgentForBuilderFallback,
+  persistAgentExecutionMarker,
+  quiesceCurrentAgentSession,
+  runAgentAttempt,
+  runContainerAgentTurn,
+} from "./build-session/container-turn.js";
 import {
-  APP_SLUG_PATTERN,
-  INTERIOR_BUILD_PREFIX_PATTERN,
-  LEGACY_BUILD_PREFIX_PATTERN,
-  abortTransferCoordinator,
-  beginOwnerPurge,
-  boundedIngressRequest,
-  callOwnerFence,
-  callTransferCoordinator,
-  cloudHomeLeaseRunner,
-  createTransferCoordinatorContext,
-  handleWorldRoute,
-  parseTransferReservationEnvelope,
-  purgeOwnerStorage,
-  transferControl,
-  transferOwnerProductStorage,
-  withOwnerActivityLease,
-  yieldTransferCoordinator,
-} from "./build-session/owner-purge-transfer.js";
+  armOwnerFenceLeaseReconciliationAlarm,
+  hasOwnerFenceLeaseRetirementDebt,
+  ownerFenceLeaseSlotKey,
+  ownerFenceReceiptMatches,
+  registerBuildOwnerFenceLease,
+  retireBuildOwnerFenceLease,
+  retryOwnerFenceLeaseRetirements,
+} from "./build-session/owner-fence-leases.js";
 import {
-  acknowledgeExactAgentTurnCancellation,
-  acknowledgeExactCancellationFromAlarm,
-  cancelExactAgentTurn,
-  cancelForOwnerPurge,
-  claimTerminalDecision,
-  deliverBrowserSuspension,
-  deliverExecutorLossTerminal,
-  deliverTerminal,
-  expireCurrentAgentTurn,
-  handleSteer,
-  wakeParentAgentOrConversation,
-  wakeParentConversation,
-} from "./build-session/terminal-delivery.js";
+  deliverResidentTerminal,
+  finishResidentAgentTurn,
+  publishResidentTurnWorkspace,
+  recoverResidentAgentTurn,
+  repairedResidentJournal,
+  residentAttachHistory,
+  runResidentAgentTurn,
+} from "./build-session/resident-turn.js";
 import {
-  callOwnerFence as callOwnerFenceCore,
   agentControlPlane,
   appendThreadTranscript,
   assertAgentExecutionActive,
@@ -448,6 +78,7 @@ import {
   assertAppExecutionActive,
   assertAppTurnIdentity,
   assertTurnWritable,
+  callOwnerFence as callOwnerFenceCore,
   callOwnerTurnState,
   childAgentDispatchDependencies,
   cleanupOwnerPurgedTurnStorage,
@@ -459,7 +90,6 @@ import {
   enqueueOutboxDurable,
   event,
   fetchCanonicalAgentHistory,
-  mintAgentTurnModelGateway,
   mutateExactTurn,
   outboxBase,
   ownerGateFor,
@@ -478,67 +108,6 @@ import {
   unregisterTurn,
   unregisterTurnLease,
 } from "./build-session/session-core.js";
-
-export type { ObservedBrowserSuspension } from "./build-session/shared/types.js";
-export { purgeNativeStateForWorkspace } from "./build-session/owner-purge-transfer.js";
-import {
-  abortUnpublishedTurnStateOperation,
-  confirmAgentTurnStateRestore,
-  exactTurnStateCheckpointOperations,
-  executeTurnStateCheckpoint,
-  handleTurnBroker,
-  publishAgentTurnWorkspace,
-  resolveAgentTurnState,
-  turnBrokerCredentialsPath,
-} from "./build-session/turn-broker.js";
-
-export { bindObservedBrowserSuspensionToCanonicalCodeCall };
-import {
-  advanceAppBuildPublication,
-  proxyVitePreview,
-  publishInteriorCandidate,
-  publishRequestedInteriorCandidate,
-  runEcho,
-  runTurn,
-} from "./build-session/app-build.js";
-import {
-  armOwnerFenceLeaseReconciliationAlarm,
-  hasOwnerFenceLeaseRetirementDebt,
-  ownerFenceLeaseSlotKey,
-  ownerFenceReceiptMatches,
-  registerBuildOwnerFenceLease,
-  retireBuildOwnerFenceLease,
-  retryOwnerFenceLeaseRetirements,
-} from "./build-session/owner-fence-leases.js";
-import {
-  acceptAgentTurn,
-  admitAgentTurnThroughOwnerGate,
-  admittedResidentPlacement,
-  agentTurnAccepted,
-  runAgentTurn,
-  startAgentTurn,
-  startAppTurn,
-} from "./build-session/admission.js";
-import {
-  deliverResidentTerminal,
-  finishResidentAgentTurn,
-  publishResidentTurnWorkspace,
-  recoverResidentAgentTurn,
-  repairedResidentJournal,
-  residentAttachHistory,
-  runResidentAgentTurn,
-} from "./build-session/resident-turn.js";
-import {
-  advanceBuilderFallback,
-  ensureBuilderFallbackTranscript,
-  reconcileAgentCheckpointAfterQuiescence,
-  recoverAgentTurnAfterExecutorLoss,
-  recoverObservedBrowserSuspension,
-  retainPendingBrowserSuspension,
-  runAlarm,
-  runAlarmWithLease,
-  runScheduledTurnAlarm,
-} from "./build-session/alarms-recovery.js";
 import {
   currentSandbox,
   currentSandboxTarget,
@@ -550,17 +119,108 @@ import {
   scheduleSandboxDestroyDebtAlarm,
   terminateCurrentAgentSession,
 } from "./build-session/session-sandbox.js";
+import type { Env } from "./build-session/shared/env.js";
 import {
-  attachAgentWorld,
-  clearUnattachedAgentSandboxTuple,
-  exactAgentExecutionMarker,
-  interruptAgentForBuilderFallback,
-  persistAgentExecutionMarker,
-  quiesceCurrentAgentSession,
-  runAgentAttempt,
-  runContainerAgentTurn,
-} from "./build-session/container-turn.js";
+  AgentTurnAuthorityLostError,
+  AppTurnAuthorityLostError,
+  OwnerPurgeFenceError,
+} from "./build-session/shared/errors.js";
+import {
+  bindObservedBrowserSuspensionToCanonicalCodeCall,
+  builderFallbackTranscriptKey,
+  HEADER_BUILD_SESSION_NAME,
+  HEADER_PREVIEW_BASE_URL,
+  HEADER_TURN_BROKER_ENDPOINT,
+  json,
+  turnDispatchIdentity,
+} from "./build-session/shared/keys.js";
+import type {
+  AgentExecutionMarker,
+  BuilderFallbackInput,
+  BuilderFallbackTranscript,
+  BuildOwnerFenceLeaseReceipt,
+  PendingAppBuildPublication,
+  PendingBrowserSuspension,
+  PendingTerminal,
+  TurnRequest,
+  TurnStateCheckpointOperation,
+} from "./build-session/shared/types.js";
+import {
+  acknowledgeExactAgentTurnCancellation,
+  acknowledgeExactCancellationFromAlarm,
+  cancelExactAgentTurn,
+  cancelForOwnerPurge,
+  claimTerminalDecision,
+  deliverBrowserSuspension,
+  deliverExecutorLossTerminal,
+  deliverTerminal,
+  expireCurrentAgentTurn,
+  handleSteer,
+  wakeParentAgentOrConversation,
+  wakeParentConversation,
+} from "./build-session/terminal-delivery.js";
+import {
+  abortUnpublishedTurnStateOperation,
+  confirmAgentTurnStateRestore,
+  exactTurnStateCheckpointOperations,
+  executeTurnStateCheckpoint,
+  handleTurnBroker,
+  publishAgentTurnWorkspace,
+  resolveAgentTurnState,
+} from "./build-session/turn-broker.js";
 import { worker } from "./build-session/worker-router.js";
+import type { CloudAgentDispatchDependencies } from "./cloud-agent-dispatch.js";
+import {
+  ExactTurnCancellationLedger,
+  parseExactTurnCancellationRequest,
+} from "./execution-placement-turn-cancellation.js";
+import type {
+  ExactTurnCancellation,
+  ExactTurnCancellationRequest,
+} from "./execution-placement-turn-cancellation.js";
+import type {
+  GeneralAgentTurnPlan,
+  GeneralAgentTurnResult,
+} from "./general-agent-turn.js";
+import type { InstanceSize } from "./instance-size.js";
+import { OrchestratorSession } from "./orchestrator-session.js";
+import { OwnerGate } from "./owner-gate.js";
+import { normalizeOwnerGeneration } from "./owner-generation.js";
+import { OwnerTransferCoordinator } from "./owner-transfer-coordinator-do.js";
+import { stableValueMarker } from "./owner-transfer-coordinator.js";
+import {
+  AppBuildSandbox as AppBuildSandboxBase,
+  ContainerProxy,
+  GeneralAgentSandbox,
+} from "./sandbox-egress-classes.js";
+import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
+import type { SandboxTarget, SandboxWorkload } from "./sandbox-lifecycle.js";
+import { inSubshell } from "./shell-subshell.js";
+import type { ThreadMessageInput } from "./thread-transcript.js";
+import type {
+  TurnExecution,
+  TurnExecutionContext,
+} from "./turn-cancellation.js";
+import {
+  HEADER_GATE_ADMITTED,
+  parseCloudAgentTurnStartRequest,
+} from "./turn-start-request.js";
+import type {
+  ResolvedTurnState,
+  TurnStateCandidate,
+  TurnStateWorkspaceHead,
+} from "./turn-state-registry.js";
+// Side-effect import: this is what registers the socket implementation with
+// the conversation DO. Without it the DO falls back to NullConversationHub and
+// every non-socket behaviour keeps working — which is the intended revert.
+import "./conversation-hub.js";
+
+import type { BuildSessionInternals } from "./build-session/host.js";
+
+export type { ObservedBrowserSuspension } from "./build-session/shared/types.js";
+export { purgeNativeStateForWorkspace } from "./build-session/owner-purge-transfer.js";
+
+export { bindObservedBrowserSuspensionToCanonicalCodeCall };
 export {
   parseAgentExecutorResult,
   seedFirstStellaToolWorkspace,
@@ -592,7 +252,6 @@ SandboxSmall.outbound = generalAgentEgress;
 /** Permanently offline app-build namespace with baked dependencies. */
 export class AppBuildSandbox extends AppBuildSandboxBase<Env> {}
 AppBuildSandbox.outbound = appBuildEgress;
-
 
 /**
  * Run a strict (`set -eu`) script without leaving those options behind in
@@ -1909,6 +1568,5 @@ export class BuildSession extends DurableObject<Env> {
     return runTurn(this.self, turn, turnExecution);
   }
 }
-
 
 export default worker;

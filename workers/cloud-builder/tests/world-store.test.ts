@@ -588,6 +588,187 @@ describe("WorldSqlStore", () => {
     ).toEqual(bytes.subarray(bytes.byteLength - 17));
   });
 
+  test("reads late ranges and overwrites files above the edit limit without loading them whole", async () => {
+    const world = createWorld();
+    const large = "line-data\n".repeat(130_000);
+    expect(encoder.encode(large).byteLength).toBeGreaterThan(1_000_000);
+    await world.writeFile("large.txt", encoder.encode(large));
+
+    const read = await world.tool({
+      name: "Read",
+      arguments: {
+        file_path: "/workspace/world/large.txt",
+        offset: 120_001,
+        limit: 2,
+      },
+    });
+    expect(read.ok).toBe(true);
+    expect(read.output).toContain("Showing 120001-120002");
+    expect(read.output).toContain("120001#");
+    expect(read.output).toContain("continue with offset=120003");
+
+    const write = await world.tool({
+      name: "Write",
+      arguments: {
+        file_path: "/workspace/world/large.txt",
+        content: "tiny\n",
+      },
+    });
+    expect(write.ok).toBe(true);
+    expect(decoder.decode((await world.readFile("large.txt"))!)).toBe("tiny\n");
+  });
+
+  test("caps line count for newline-only large reads with an unbounded requested limit", async () => {
+    const world = createWorld();
+    await world.writeFile(
+      "newlines.txt",
+      encoder.encode("\n".repeat(1_100_000)),
+    );
+    const read = await world.tool({
+      name: "Read",
+      arguments: {
+        file_path: "/workspace/world/newlines.txt",
+        limit: Number.MAX_SAFE_INTEGER,
+      },
+    });
+    expect(read.ok).toBe(true);
+    expect(read.output).toContain("Showing 1-5000");
+    expect(read.output).toContain("continue with offset=5001");
+    expect(read.output).toContain("Read limited to 5000 lines per call");
+    expect(encoder.encode(read.output).byteLength).toBeLessThan(100_000);
+  });
+
+  test("rejects unsafe regexes and explicitly reports oversized grep subjects", async () => {
+    const world = createWorld();
+    await world.writeFile(
+      "regex.txt",
+      encoder.encode(`${"a".repeat(70_000)}needle\n`),
+    );
+
+    const unsafe = await world.tool({
+      name: "Grep",
+      arguments: {
+        path: "/workspace/world/regex.txt",
+        pattern: "(a+)+$",
+        output_mode: "content",
+      },
+    });
+    expect(unsafe.ok).toBe(false);
+    expect(unsafe.output).toContain("quantified groups are unsupported");
+    const quadratic = await world.tool({
+      name: "Grep",
+      arguments: {
+        path: "/workspace/world/regex.txt",
+        pattern: "a+X",
+        output_mode: "content",
+      },
+    });
+    expect(quadratic.ok).toBe(false);
+    expect(quadratic.output).toContain(
+      "patterns containing quantifiers must start with ^",
+    );
+
+    const oversized = await world.tool({
+      name: "Grep",
+      arguments: {
+        path: "/workspace/world/regex.txt",
+        pattern: "needle",
+        output_mode: "content",
+      },
+    });
+    expect(oversized.ok).toBe(true);
+    expect(oversized.output).toContain("Search incomplete");
+    expect(oversized.output).toContain(
+      "1 line(s) exceeded the 65536-character regex subject limit",
+    );
+  });
+
+  test("bounds grep work beyond eight MiB and preserves unicode split across read chunks", async () => {
+    const world = createWorld();
+    const farMatch = `${`${"x".repeat(99)}\n`.repeat(85_000)}TAIL_MATCH\n`;
+    expect(encoder.encode(farMatch).byteLength).toBeGreaterThan(
+      8 * 1024 * 1024,
+    );
+    const farBytes = encoder.encode(farMatch);
+    const farSha = await sha256BytesHex(farBytes);
+    await world.putBlobs(
+      fragmentedStream(blobFrame(farSha, farBytes), 131_071),
+    );
+    await world.pushDiff({
+      entries: [
+        {
+          path: "far.txt",
+          kind: "file",
+          mode: 0o644,
+          size: farBytes.byteLength,
+          sha256: farSha,
+        },
+      ],
+      deleted: [],
+    });
+    const far = await world.tool({
+      name: "Grep",
+      arguments: {
+        path: "/workspace/world/far.txt",
+        pattern: "TAIL_MATCH",
+        output_mode: "content",
+      },
+    });
+    expect(far.ok).toBe(true);
+    expect(far.output).toContain("Search incomplete");
+    expect(far.output).toContain("aggregate regex budget was reached");
+    expect(far.output).not.toContain("85001:TAIL_MATCH");
+
+    // The four-byte character begins one byte before the 256 KiB tool read boundary.
+    const splitUnicode = `${"a".repeat(256 * 1024 - 2)}\n🦄needle\n`;
+    await world.writeFile("unicode.txt", encoder.encode(splitUnicode));
+    const unicode = await world.tool({
+      name: "Grep",
+      arguments: {
+        path: "/workspace/world/unicode.txt",
+        pattern: "🦄needle",
+        output_mode: "content",
+      },
+    });
+    expect(unicode.ok).toBe(true);
+    expect(unicode.output).toContain("2:🦄needle");
+  });
+
+  test("bounds glob results and returns a usable continuation cursor", async () => {
+    const world = createWorld();
+    for (let index = 0; index < 30; index += 1)
+      await world.writeFile(
+        `glob/${String(index).padStart(2, "0")}-é.txt`,
+        encoder.encode("ok"),
+      );
+    const first = await world.tool({
+      name: "Glob",
+      arguments: {
+        path: "/workspace/world/glob",
+        pattern: "*.txt",
+        max_results: 5,
+      },
+    });
+    expect(first.ok).toBe(true);
+    expect(first.output).toContain("Glob results truncated at 5 matches");
+    expect(first.output).toContain("é.txt");
+    const cursor = /Continue with cursor=("(?:[^"\\]|\\.)*")/u.exec(
+      first.output,
+    )?.[1];
+    expect(cursor).toBeTruthy();
+    const second = await world.tool({
+      name: "Glob",
+      arguments: {
+        path: "/workspace/world/glob",
+        pattern: "*.txt",
+        max_results: 5,
+        cursor: JSON.parse(cursor!),
+      },
+    });
+    expect(second.ok).toBe(true);
+    expect(second.output).not.toContain("/00-é.txt");
+  });
+
   test("matches the Node host for Read, Edit, Grep, and apply_patch", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "stella-world-parity-"));
     try {

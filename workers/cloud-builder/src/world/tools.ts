@@ -14,6 +14,13 @@ import { sanitizeToolVisibleText } from "@stella/runtime/kernel/tools/safety.js"
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const TOOL_FILE_LIMIT_BYTES = 1_000_000;
+const TOOL_READ_CHUNK_BYTES = 256 * 1024;
+const TOOL_READ_MAX_LINES = 5_000;
+const TOOL_OUTPUT_LIMIT_BYTES = 100_000;
+const TOOL_GREP_PATTERN_MAX_CHARACTERS = 512;
+const TOOL_GREP_SUBJECT_MAX_CHARACTERS = 64 * 1024;
+const TOOL_GREP_AGGREGATE_SUBJECT_MAX_CHARACTERS = 8 * 1024 * 1024;
+const TOOL_GLOB_DEFAULT_RESULTS = 1_000;
 
 export type WorldToolFileApi = {
   stat(path: string): Promise<WorldEntry | null>;
@@ -37,19 +44,18 @@ export type WorldToolFileApi = {
   rename(from: string, to: string): Promise<{ revision: number }>;
 };
 
-const listAll = async (
+const pagedEntries = async function* (
   api: WorldToolFileApi,
   prefix: string,
-): Promise<WorldEntry[]> => {
-  const entries: WorldEntry[] = [];
+): AsyncGenerator<WorldEntry> {
   let cursor: string | undefined;
   for (;;) {
     const page = await api.list(prefix, {
       ...(cursor ? { cursor } : {}),
-      limit: 10_000,
+      limit: 250,
     });
-    entries.push(...page.entries);
-    if (!page.cursor) return entries;
+    for (const entry of page.entries) yield entry;
+    if (!page.cursor) return;
     cursor = page.cursor;
   }
 };
@@ -104,6 +110,119 @@ const readText = async (
   return decoder.decode(bytes);
 };
 
+const streamedTextLines = async function* (
+  api: WorldToolFileApi,
+  path: string,
+  size: number,
+): AsyncGenerator<{ number: number; text: string }> {
+  const streamDecoder = new TextDecoder();
+  let pending = "";
+  let lineNumber = 1;
+  let skipLf = false;
+  const consume = function* (
+    text: string,
+  ): Generator<{ number: number; text: string }> {
+    for (const character of text) {
+      if (skipLf) {
+        skipLf = false;
+        if (character === "\n") continue;
+      }
+      if (character === "\n" || character === "\r") {
+        yield { number: lineNumber, text: pending };
+        lineNumber += 1;
+        pending = "";
+        skipLf = character === "\r";
+      } else {
+        pending += character;
+        if (pending.length > TOOL_FILE_LIMIT_BYTES)
+          throw new Error(
+            `Line ${lineNumber} exceeds the ${TOOL_FILE_LIMIT_BYTES}-character file-tool limit.`,
+          );
+      }
+    }
+  };
+  for (let offset = 0; offset < size; offset += TOOL_READ_CHUNK_BYTES) {
+    const bytes = await api.readFile(path, {
+      offset,
+      length: Math.min(TOOL_READ_CHUNK_BYTES, size - offset),
+    });
+    if (!bytes) throw new Error(`File disappeared while reading: ${path}`);
+    if (bytes.includes(0))
+      throw new Error(`Binary files are not supported: ${path}`);
+    yield* consume(streamDecoder.decode(bytes, { stream: true }));
+  }
+  yield* consume(streamDecoder.decode());
+  // Match String.prototype.split: a file ending in a newline has a final empty line.
+  yield { number: lineNumber, text: pending };
+};
+
+const assertBoundedRegex = (pattern: string): void => {
+  if (pattern.length > TOOL_GREP_PATTERN_MAX_CHARACTERS)
+    throw new Error(
+      `Grep pattern exceeds the ${TOOL_GREP_PATTERN_MAX_CHARACTERS}-character safety limit.`,
+    );
+  if (/\\(?:[1-9]|k<)/u.test(pattern) || pattern.includes("(?"))
+    throw new Error(
+      "Grep pattern uses backreferences or special groups, which are unsupported by the bounded regex engine.",
+    );
+
+  let inClass = false;
+  let escaped = false;
+  let quantifiers = 0;
+  let quantifierIndex = -1;
+  let previousSignificant = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index] ?? "";
+    if (escaped) {
+      escaped = false;
+      previousSignificant = "literal";
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === "[") {
+      inClass = true;
+      previousSignificant = "class";
+      continue;
+    }
+    if (character === "]" && inClass) {
+      inClass = false;
+      continue;
+    }
+    if (inClass) continue;
+    if (character === "{" || character === "}")
+      throw new Error(
+        "Grep counted quantifiers are unsupported by the bounded regex engine.",
+      );
+    if (character === "*" || character === "+" || character === "?") {
+      if (previousSignificant === "group")
+        throw new Error(
+          "Grep quantified groups are unsupported by the bounded regex engine.",
+        );
+      quantifiers += 1;
+      quantifierIndex = index;
+      if (quantifiers > 1)
+        throw new Error(
+          "Grep patterns with multiple quantifiers are rejected to prevent unsafe regex backtracking.",
+        );
+      previousSignificant = "quantifier";
+      continue;
+    }
+    if (character === ")") previousSignificant = "group";
+    else previousSignificant = "literal";
+  }
+  if (inClass || escaped)
+    throw new Error(
+      "Grep pattern has an unterminated escape or character class.",
+    );
+  if (quantifierIndex >= 0 && !pattern.startsWith("^"))
+    throw new Error(
+      "Grep patterns containing quantifiers must start with ^ to prevent unsafe regex backtracking.",
+    );
+};
+
 const handleRead = async (
   api: WorldToolFileApi,
   args: Record<string, unknown>,
@@ -116,17 +235,69 @@ const handleRead = async (
         `Binary files are not supported: ${absoluteWorldPath(path, root)}`,
       );
     }
-    const content = await readText(api, path, root);
+    const entry = await api.stat(path);
+    if (!entry)
+      throw new Error(`File not found: ${absoluteWorldPath(path, root)}`);
+    if (entry.kind !== "file")
+      throw new Error(`Path is not a file: ${absoluteWorldPath(path, root)}`);
     const offsetValue = Number(args.offset ?? 1);
     const limitValue = Number(args.limit ?? 2000);
-    const offset = Number.isFinite(offsetValue) ? offsetValue : 1;
-    const limit = Number.isFinite(limitValue) ? Math.max(0, limitValue) : 2000;
-    const lines = normalizeLf(content).split("\n");
-    const displayLines = normalizeLf(
-      sanitizeToolVisibleText(content, { codeFile: true }),
+    const offset = Number.isFinite(offsetValue)
+      ? Math.max(1, Math.trunc(offsetValue))
+      : 1;
+    const requestedLimit = Number.isFinite(limitValue)
+      ? Math.max(0, Math.trunc(limitValue))
+      : 2000;
+    const limit = Math.min(TOOL_READ_MAX_LINES, requestedLimit);
+    const limitNotice =
+      requestedLimit > TOOL_READ_MAX_LINES
+        ? `\n\n[Read limited to ${TOOL_READ_MAX_LINES} lines per call; continue with offset.]`
+        : "";
+    if (entry.size <= TOOL_FILE_LIMIT_BYTES) {
+      const content = await readText(api, path, root);
+      const lines = normalizeLf(content).split("\n");
+      const displayLines = normalizeLf(
+        sanitizeToolVisibleText(content, { codeFile: true }),
+      ).split("\n");
+      const formatted = formatWithHashLines(lines, displayLines, offset, limit);
+      return `File: ${absoluteWorldPath(path, root)}\n${formatted.header}\n\n${formatted.body}${limitNotice}`;
+    }
+    const selected: string[] = [];
+    let selectedCharacters = 0;
+    let hasMore = false;
+    for await (const line of streamedTextLines(api, path, entry.size)) {
+      if (line.number < offset) continue;
+      if (
+        selected.length >= limit ||
+        selectedCharacters + line.text.length > TOOL_FILE_LIMIT_BYTES
+      ) {
+        hasMore = true;
+        break;
+      }
+      selected.push(line.text);
+      selectedCharacters += line.text.length;
+    }
+    const display = normalizeLf(
+      sanitizeToolVisibleText(selected.join("\n"), { codeFile: true }),
     ).split("\n");
-    const formatted = formatWithHashLines(lines, displayLines, offset, limit);
-    return `File: ${absoluteWorldPath(path, root)}\n${formatted.header}\n\n${formatted.body}`;
+    const formatted = formatWithHashLines(
+      selected,
+      display,
+      1,
+      selected.length,
+    );
+    const rows = formatted.body
+      .split("\n")
+      .map((row, index) =>
+        row.replace(/^\s*\d+#/u, `${String(offset + index).padStart(6, " ")}#`),
+      )
+      .join("\n");
+    const end =
+      selected.length === 0 ? offset - 1 : offset + selected.length - 1;
+    const continuation = hasMore
+      ? ` More lines remain; continue with offset=${end + 1}.`
+      : " Reached end of file.";
+    return `File: ${absoluteWorldPath(path, root)}\nLarge file (${entry.size} bytes). Showing ${offset}-${end}.${continuation} Edit/apply_patch remain unsupported above ${TOOL_FILE_LIMIT_BYTES} bytes because they require an atomic full-file rewrite.\n\n${rows}${limitNotice}`;
   } catch (error) {
     throw new Error(`Error reading file: ${asError(error)}`);
   }
@@ -145,8 +316,16 @@ const handleWrite = async (
       throw new Error("File content contains a NUL byte.");
     let final = content;
     if (previous?.kind === "file") {
-      const current = await readText(api, path, root);
-      final = restoreLineEnding(normalizeLf(content), lineEnding(current));
+      const sample = await api.readFile(path, {
+        offset: 0,
+        length: Math.min(previous.size, 64 * 1024),
+      });
+      if (!sample)
+        throw new Error(`File not found: ${absoluteWorldPath(path, root)}`);
+      final = restoreLineEnding(
+        normalizeLf(content),
+        lineEnding(decoder.decode(sample)),
+      );
     }
     await api.writeFile(path, encoder.encode(final), {});
     return previous
@@ -179,7 +358,7 @@ const exactEdit = (
     return { content, replacements: 0, noChange: true };
   }
   const locations: number[] = [];
-  for (let cursor = 0; cursor <= normalized.length - oldValue.length; ) {
+  for (let cursor = 0; cursor <= normalized.length - oldValue.length;) {
     const index = normalized.indexOf(oldValue, cursor);
     if (index < 0) break;
     locations.push(index);
@@ -346,6 +525,11 @@ const handleGrep = async (
   root: string,
 ): Promise<string> => {
   const pattern = String(args.pattern ?? "");
+  if (pattern.includes("\n") || pattern.includes("\r"))
+    throw new Error(
+      "Grep is line-oriented; regular expressions spanning line boundaries are not supported.",
+    );
+  assertBoundedRegex(pattern);
   const prefix =
     args.path === undefined ? "" : worldRelativeToolPath(args.path, root);
   const base = await api.stat(prefix);
@@ -365,16 +549,40 @@ const handleGrep = async (
     );
   }
   const outputMode = String(args.output_mode ?? "files_with_matches");
-  const contextLines = Math.max(0, Number(args.context_lines ?? 0));
-  const maxResults = Math.max(
-    1,
-    Math.min(10_000, Number(args.max_results ?? 100)),
-  );
+  const contextValue = Number(args.context_lines ?? 0);
+  const contextLines = Number.isFinite(contextValue)
+    ? Math.max(0, Math.min(100, Math.trunc(contextValue)))
+    : 0;
+  const maxValue = Number(args.max_results ?? 100);
+  const maxResults = Number.isFinite(maxValue)
+    ? Math.max(1, Math.min(10_000, Math.trunc(maxValue)))
+    : 100;
   const matchGlob = args.glob ? globRegex(String(args.glob)) : null;
   const extensions = args.type ? typeExtensions[String(args.type)] : undefined;
-  const listed = base?.kind === "file" ? [base] : await listAll(api, prefix);
+  const entries: AsyncIterable<WorldEntry> =
+    base?.kind === "file"
+      ? (async function* () {
+          yield base;
+        })()
+      : pagedEntries(api, prefix);
   const output: string[] = [];
-  for (const entry of listed) {
+  let outputBytes = 0;
+  let resultCount = 0;
+  let incomplete = false;
+  let oversizedSubjectsSkipped = 0;
+  let subjectCharactersTested = 0;
+  let aggregateSubjectLimitReached = false;
+  const append = (line: string): boolean => {
+    const bytes = encoder.encode(`${line}\n`).byteLength;
+    if (outputBytes + bytes > TOOL_OUTPUT_LIMIT_BYTES) {
+      incomplete = true;
+      return false;
+    }
+    output.push(line);
+    outputBytes += bytes;
+    return true;
+  };
+  outer: for await (const entry of entries) {
     if (entry.kind !== "file" || !pathWithin(entry.path, prefix)) continue;
     const relative =
       prefix === "" ? entry.path : entry.path.slice(prefix.length + 1);
@@ -384,39 +592,123 @@ const handleGrep = async (
       !extensions.includes(entry.path.split(".").pop()?.toLowerCase() ?? "")
     )
       continue;
-    const bytes = await api.readFile(entry.path, {});
-    if (!bytes || bytes.includes(0)) continue;
-    const lines = decoder.decode(bytes).split("\n");
-    const matching: number[] = [];
-    for (let index = 0; index < lines.length; index += 1) {
-      expression.lastIndex = 0;
-      if (expression.test(lines[index] ?? "")) matching.push(index);
-      if (matching.length >= maxResults) break;
-    }
-    if (matching.length === 0) continue;
     const absolute = absoluteWorldPath(entry.path, root);
-    if (outputMode === "files_with_matches") output.push(absolute);
-    else if (outputMode === "count")
-      output.push(`${absolute}:${matching.length}`);
-    else {
-      const included = new Set<number>();
-      for (const index of matching)
-        for (
-          let line = Math.max(0, index - contextLines);
-          line <= Math.min(lines.length - 1, index + contextLines);
-          line += 1
-        )
-          included.add(line);
-      for (const index of [...included].sort((left, right) => left - right)) {
-        output.push(
-          `${base?.kind === "file" ? "" : `${absolute}:`}${index + 1}:${lines[index] ?? ""}`,
-        );
+    let matching = 0;
+    let lastEmitted = 0;
+    let afterUntil = 0;
+    const previous: Array<{ number: number; text: string }> = [];
+    let previousCharacters = 0;
+    let droppedThrough = 0;
+    try {
+      for await (const line of streamedTextLines(api, entry.path, entry.size)) {
+        if (line.text.length > TOOL_GREP_SUBJECT_MAX_CHARACTERS) {
+          oversizedSubjectsSkipped += 1;
+          incomplete = true;
+          continue;
+        }
+        const subjectCost = Math.max(1, line.text.length);
+        if (
+          subjectCharactersTested + subjectCost >
+          TOOL_GREP_AGGREGATE_SUBJECT_MAX_CHARACTERS
+        ) {
+          aggregateSubjectLimitReached = true;
+          incomplete = true;
+          break outer;
+        }
+        subjectCharactersTested += subjectCost;
+        expression.lastIndex = 0;
+        const matches = expression.test(line.text);
+        if (matches) {
+          matching += 1;
+          if (
+            droppedThrough > 0 &&
+            droppedThrough >= line.number - contextLines
+          )
+            incomplete = true;
+          resultCount += 1;
+          if (outputMode === "files_with_matches") {
+            if (!append(absolute)) break outer;
+            if (resultCount >= maxResults) {
+              incomplete = true;
+              break outer;
+            }
+            break;
+          }
+          if (outputMode === "content") {
+            for (const context of previous) {
+              if (
+                context.number > lastEmitted &&
+                !append(
+                  `${base?.kind === "file" ? "" : `${absolute}:`}${context.number}:${context.text}`,
+                )
+              )
+                break outer;
+              lastEmitted = Math.max(lastEmitted, context.number);
+            }
+            if (
+              line.number > lastEmitted &&
+              !append(
+                `${base?.kind === "file" ? "" : `${absolute}:`}${line.number}:${line.text}`,
+              )
+            )
+              break outer;
+            lastEmitted = line.number;
+            afterUntil = line.number + contextLines;
+          }
+          if (resultCount >= maxResults) {
+            incomplete = true;
+            if (outputMode === "count")
+              append(`${absolute}:at least ${matching}`);
+            break outer;
+          }
+        } else if (outputMode === "content" && line.number <= afterUntil) {
+          if (
+            !append(
+              `${base?.kind === "file" ? "" : `${absolute}:`}${line.number}:${line.text}`,
+            )
+          )
+            break outer;
+          lastEmitted = line.number;
+        }
+        if (contextLines > 0) {
+          previous.push(line);
+          previousCharacters += line.text.length;
+          while (
+            previous.length > contextLines ||
+            previousCharacters > TOOL_OUTPUT_LIMIT_BYTES
+          ) {
+            const dropped = previous.shift();
+            if (!dropped) break;
+            previousCharacters -= dropped.text.length;
+            droppedThrough = dropped.number;
+          }
+        }
+      }
+    } catch (error) {
+      // A binary file or an over-limit single line is skipped, but this must be visible.
+      incomplete = true;
+      if (!append(`[Skipped ${absolute}: ${asError(error)}]`)) break;
+    }
+    if (outputMode === "count" && matching > 0) {
+      if (!append(`${absolute}:${matching}`)) break;
+      if (output.length >= maxResults) {
+        incomplete = true;
+        break;
       }
     }
-    if (output.length >= maxResults) break;
   }
-  if (output.length === 0) return `No matches found for pattern: ${pattern}`;
-  return `Found matches:\n\n${output.slice(0, maxResults).join("\n").slice(0, 100_000)}\n`;
+  if (output.length === 0) {
+    if (!incomplete) return `No matches found for pattern: ${pattern}`;
+    return (
+      `Search incomplete for pattern: ${pattern}\n` +
+      `No matches were found in bounded content. ${oversizedSubjectsSkipped} line(s) exceeded the ${TOOL_GREP_SUBJECT_MAX_CHARACTERS}-character regex subject limit; ` +
+      `${aggregateSubjectLimitReached ? `the ${TOOL_GREP_AGGREGATE_SUBJECT_MAX_CHARACTERS}-character aggregate regex budget was reached; ` : ""}other unsupported files may also have been skipped.`
+    );
+  }
+  const status = incomplete
+    ? `\n[Results incomplete: a result/output bound was reached, context was omitted, an unsupported file was skipped, ${oversizedSubjectsSkipped} oversized line(s) exceeded the regex subject limit${aggregateSubjectLimitReached ? `, or the ${TOOL_GREP_AGGREGATE_SUBJECT_MAX_CHARACTERS}-character aggregate regex budget was reached` : ""}. Narrow the path/pattern to continue.]\n`
+    : "\n";
+  return `Found matches:\n\n${output.join("\n")}${status}`;
 };
 
 type PatchOp =
@@ -677,9 +969,9 @@ const handlePatch = async (
     let content: string;
     try {
       content = await readText(api, op.path, root);
-    } catch {
+    } catch (error) {
       throw new Error(
-        `apply_patch: file not found for Update: ${absoluteWorldPath(op.path, root)}`,
+        `apply_patch: cannot update ${absoluteWorldPath(op.path, root)}: ${asError(error)}`,
       );
     }
     const trailing = content.endsWith("\n");
@@ -783,15 +1075,42 @@ const handleGlob = async (
   const prefix =
     args.path === undefined ? "" : worldRelativeToolPath(args.path, root);
   const expression = globRegex(pattern);
-  const listing = await listAll(api, prefix);
-  return listing
-    .filter((entry) =>
-      expression.test(
-        prefix === "" ? entry.path : entry.path.slice(prefix.length + 1),
-      ),
-    )
-    .map((entry) => absoluteWorldPath(entry.path, root))
-    .join("\n");
+  const requested = Number(args.max_results ?? TOOL_GLOB_DEFAULT_RESULTS);
+  const maxResults = Number.isFinite(requested)
+    ? Math.max(1, Math.min(10_000, Math.trunc(requested)))
+    : TOOL_GLOB_DEFAULT_RESULTS;
+  let cursor =
+    typeof args.cursor === "string" && args.cursor ? args.cursor : undefined;
+  const output: string[] = [];
+  let outputBytes = 0;
+  for (;;) {
+    const pageCursor = cursor;
+    const page = await api.list(prefix, {
+      ...(cursor ? { cursor } : {}),
+      limit: Math.max(1, Math.min(25, maxResults - output.length)),
+    });
+    const matches = page.entries
+      .filter((entry) =>
+        expression.test(
+          prefix === "" ? entry.path : entry.path.slice(prefix.length + 1),
+        ),
+      )
+      .map((entry) => absoluteWorldPath(entry.path, root));
+    const pageBytes = matches.reduce(
+      (total, value) => total + encoder.encode(`${value}\n`).byteLength,
+      0,
+    );
+    if (outputBytes + pageBytes > TOOL_OUTPUT_LIMIT_BYTES) {
+      const continuation = pageCursor ?? "<start>";
+      return `${output.join("\n")}${output.length ? "\n" : ""}[Glob results truncated before a complete listing page. Continue with cursor=${JSON.stringify(continuation)}, or narrow the path/pattern.]`;
+    }
+    output.push(...matches);
+    outputBytes += pageBytes;
+    if (!page.cursor) return output.join("\n");
+    if (output.length >= maxResults)
+      return `${output.join("\n")}\n[Glob results truncated at ${output.length} matches. Continue with cursor=${JSON.stringify(page.cursor)}.]`;
+    cursor = page.cursor;
+  }
 };
 
 export const executeWorldTool = async (

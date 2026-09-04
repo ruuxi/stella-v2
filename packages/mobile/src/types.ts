@@ -1,3 +1,4 @@
+import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { ToolStep } from "./lib/tool-activity";
 
 export type MobileDisplayFileArtifactKind =
@@ -215,6 +216,8 @@ export type ComposerQuote = {
 };
 
 export type ChatMessage = {
+  /** Durable reply relationships; UI hides adjacent context. */
+  replyRefs?: ReplyRef[];
   id: string;
   /**
    * Desktop-local message id this row reconciled to. Mobile keeps `id` stable

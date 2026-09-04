@@ -1,5 +1,6 @@
+import { projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
-import { splitReplyRefs } from "@stella/contracts/reply-refs";
+import { splitReplyRefs, toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
 import type { ToolStep } from "./tool-activity";
 import {
   hasToolCalls,
@@ -75,6 +76,7 @@ export const projectCloudConversationMessages = (args: {
   hasOlder?: boolean;
 }): ChatMessage[] => {
   const records = completeWindow(args.records, args.hasOlder === true);
+  const recordsBySeq = new Map(args.records.map(record => [record.seq, record]));
   const byTurn = new Map<string, JournalRecord[]>();
   for (const record of records) {
     const turn = byTurn.get(record.turnId);
@@ -132,14 +134,31 @@ export const projectCloudConversationMessages = (args: {
         ];
       });
       // The trailing `refs` fence is model-facing (see `reply-refs`); it
-      // never renders. Mobile shows the plain text only.
-      const value = splitReplyRefs(messageText(record.payload)).text;
+      // never renders. Preserve its relationships for contextual navigation.
+      const split = splitReplyRefs(messageText(record.payload));
+      const value = split.text;
+      const rawReplyRefs: ReplyRef[] = split.refs.flatMap((ref): ReplyRef[] => {
+        if (ref.kind === "agent") return [{ ...ref, title: "" }];
+        const target = recordsBySeq.get(ref.sequence);
+        if (!target || target.kind !== "message" || target.hidden || (target.role !== "user" && target.role !== "assistant")) return [];
+        return [{ kind: "message", sequence: ref.sequence,
+          id: target.clientMsgId ?? `cloud:${target.turnId}:message:${target.seq}`,
+          role: target.role, preview: toReplyPreview(splitReplyRefs(messageText(target.payload)).text) }];
+      });
+      const storedRefs = resolvedMobileReplyRefs(record.payload);
+      const replyRefs = storedRefs.length ? storedRefs : rawReplyRefs;
+      if (!replyRefs.length) {
+        const wake = turn.find(r => r.kind === "message" && r.role === "user" && r.hidden);
+        const threadId = wake?.kind === "message" ? /\(thread ([^)]+)\)/u.exec(messageText(wake.payload))?.[1] : undefined;
+        if (threadId) replyRefs.push({ kind: "agent", threadId, title: "" });
+      }
       if (!value && !tools.length) continue;
       messages.push({
         id: `cloud:${turnId}:message:${record.seq}`,
         requestId: userMessageId,
         role: "assistant",
         text: value,
+        ...(replyRefs.length ? { replyRefs } : {}),
         createdAt,
         canonicalCreatedAt: record.createdAtMs,
         sequence: record.seq,
@@ -246,7 +265,7 @@ export const projectCloudConversationMessages = (args: {
     }
   }
 
-  return messages;
+  return projectMobileLifecycle(messages, args.records, args.conversationId ?? "");
 };
 
 export const activeCloudTurnId = (

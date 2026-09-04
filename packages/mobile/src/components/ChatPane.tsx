@@ -1,3 +1,6 @@
+import type { ReplyRef } from "@stella/contracts/reply-refs";
+import { ReplyFocus, replyTitle } from "./ReplyFocus";
+import { mobileReplyContexts } from "../lib/mobile-reply-context";
 import {
   type ReactNode,
   memo,
@@ -1445,6 +1448,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenMessageMenu,
   onEndSelecting,
   onOpenAgentActivity,
+  contextRef,
+  onOpenReply,
   desktopAccess,
 }: {
   item: ChatMessage;
@@ -1464,6 +1469,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onEndSelecting: () => void;
   /** Opens the activity hub — the tap-through target for agent rows. */
   onOpenAgentActivity?: () => void;
+  contextRef?: ReplyRef;
+  onOpenReply?: (ref: ReplyRef) => void;
   desktopAccess?: StoredPhoneAccess | null;
 }) {
   // The user bubble lifts (scales up + rises) while its long-press menu is open,
@@ -1721,6 +1728,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
   };
   return (
     <View style={styles.assistantRow}>
+      {contextRef && onOpenReply && <Pressable accessibilityRole="button" accessibilityLabel={`Open ${replyTitle(contextRef)} conversation`} onPress={() => onOpenReply(contextRef)} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, alignSelf: "flex-start", maxWidth: "100%" }}>
+        <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 12, flexShrink: 1 }}>{replyTitle(contextRef)}</Text>
+        <Icon name="chevron-right" size={12} color={colors.textMuted} />
+      </Pressable>}
       {hasText ? (
         <AssistantBubble styles={styles} animate={mountedEmptyRef.current}>
           {renderAssistantMarkdown(item.text)}
@@ -1759,9 +1770,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 key={`${artifact.id}:completion`}
                 sections={completionSections}
                 colors={colors}
-                {...(onOpenAgentActivity
-                  ? { onPress: onOpenAgentActivity }
-                  : {})}
+                {...((onOpenReply && artifact.payload.agentIds?.[0])
+                  ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
+                  : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
                 {...(onOpenArtifact ? { onOpenArtifact } : {})}
               />
             ) : (
@@ -1769,9 +1780,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 key={artifact.id}
                 payload={artifact.payload}
                 colors={colors}
-                {...(onOpenAgentActivity
-                  ? { onPress: onOpenAgentActivity }
-                  : {})}
+                {...((onOpenReply && artifact.payload.agentIds?.[0])
+                  ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
+                  : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
               />
             );
           })}
@@ -3025,6 +3036,10 @@ export function ChatPane({
     () => visibleChatMessages(messages),
     [messages],
   );
+  const [replyFocus, setReplyFocus] = useState<ReplyRef | null>(null);
+  const replyContexts = useMemo(() => mobileReplyContexts(visibleMessages), [visibleMessages]);
+  const closeReplyFocus = useCallback(() => setReplyFocus(null), []);
+  useEffect(() => setReplyFocus(null), [conversationId]);
   const lastMessage = visibleMessages[visibleMessages.length - 1];
   const scroll = useChatScroll(
     listTrailingSlackPx,
@@ -3898,12 +3913,15 @@ export function ChatPane({
             onOpenMessageMenu={setMessageMenu}
             onEndSelecting={stopSelectingMessage}
             onOpenAgentActivity={onOpenActivity}
+            onOpenReply={setReplyFocus}
+            contextRef={replyContexts.get(item.id)}
             desktopAccess={realtimeVoiceDesktopAccess}
           />
         </FadeInMessage>
       );
     },
     [
+      replyContexts,
       styles,
       colors,
       onOpenArtifact,
@@ -4129,6 +4147,9 @@ export function ChatPane({
           <>
             <LegendList<ChatMessage>
               ref={scroll.listRef}
+              pointerEvents={replyFocus ? "none" : "auto"}
+              accessibilityElementsHidden={Boolean(replyFocus)}
+              importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
               style={styles.messageList}
               contentContainerStyle={listContentContainerStyle}
               data={visibleMessages}
@@ -4232,6 +4253,16 @@ export function ChatPane({
             </MaskedView>
           </>
         )}
+        {replyFocus && <ReplyFocus
+          key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
+          root={replyFocus} messages={visibleMessages} conversationId={conversationId ?? ""}
+          colors={colors} onClose={closeReplyFocus} hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
+          renderMessage={item => <ChatMessageRow item={item} styles={styles} colors={colors}
+            menuActive={false} isSelecting={false} anySelecting={false}
+            onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
+            onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
+            desktopAccess={realtimeVoiceDesktopAccess} />}
+        />}
         {/* Floating glass controls (scroll-to-bottom FAB + computer-options
             button) sit in a pass-through absolute overlay. This MUST be a plain
             View, not a GlassGroup/GlassContainer: the native glass container is

@@ -20,6 +20,10 @@ import {
 } from "./chat-account-metadata-queue";
 import { parseChatArtifacts } from "./mobile-artifacts";
 import {
+  diffTranscriptSnapshot,
+  type TranscriptSnapshotRow,
+} from "./transcript-snapshot";
+import {
   clearAsyncTranscriptRows,
   findAsyncTranscriptCursor,
   loadNewerAsyncTranscriptRows,
@@ -27,6 +31,7 @@ import {
   loadOlderAsyncTranscriptRows,
   loadRecentAsyncTranscriptRows,
   saveAsyncTranscriptRows,
+  synchronizeAsyncTranscriptRows,
   type AsyncTranscriptPage,
 } from "./async-transcript-fallback";
 
@@ -123,6 +128,18 @@ let transcriptWriteQueue: Promise<unknown> = Promise.resolve();
 const orderKeysByThread = new Map<ChatThreadId, Map<string, number>>();
 const serializedByThread = new Map<ChatThreadId, Map<string, string>>();
 const transcriptGenerationByThread = new Map<ChatThreadId, number>();
+const canonicalSnapshotByThread = new Map<
+  ChatThreadId,
+  TranscriptSnapshotRow[]
+>();
+const canonicalSnapshotRevisionByThread = new Map<ChatThreadId, number>();
+const invalidateCanonicalSnapshot = (thread: ChatThreadId): void => {
+  canonicalSnapshotByThread.delete(thread);
+  canonicalSnapshotRevisionByThread.set(
+    thread,
+    (canonicalSnapshotRevisionByThread.get(thread) ?? 0) + 1,
+  );
+};
 let transcriptCleanupInProgress = false;
 let transcriptCleanupRecoveryRequired = false;
 let transcriptCleanupMarkerCheck: Promise<boolean> | null = null;
@@ -157,6 +174,7 @@ const transcriptGeneration = (thread: ChatThreadId): number =>
   transcriptGenerationByThread.get(thread) ?? 0;
 
 const invalidateTranscriptWrites = (thread: ChatThreadId): void => {
+  invalidateCanonicalSnapshot(thread);
   transcriptGenerationByThread.set(thread, transcriptGeneration(thread) + 1);
 };
 
@@ -605,6 +623,7 @@ async function migrateLegacyTranscript(
     ) {
       return false;
     }
+    invalidateCanonicalSnapshot(thread);
     await db.withTransactionAsync(async () => {
       for (let index = 0; index < legacy.length; index += 1) {
         const message = legacy[index];
@@ -1165,6 +1184,7 @@ export async function saveChatMessages(
   messages: ChatMessage[],
 ): Promise<void> {
   if (transcriptCleanupInProgress) return;
+  invalidateCanonicalSnapshot(thread);
   const generation = transcriptGeneration(thread);
   const db = await getTranscriptDb();
   if (!db) {
@@ -1180,6 +1200,7 @@ export async function saveChatMessages(
   await migrateLegacyTranscript(db, thread);
   await enqueueTranscriptWrite(async () => {
     if (generation !== transcriptGeneration(thread)) return;
+    invalidateCanonicalSnapshot(thread);
     const orderKeys = await assignOrderKeys(db, thread, messages);
     const priorSerialized =
       serializedByThread.get(thread) ?? new Map<string, string>();
@@ -1239,6 +1260,121 @@ export async function saveChatMessages(
       touchCacheValue(priorSerialized, message.id, payload);
     }
     trimThreadCaches(thread);
+  });
+}
+
+/**
+ * Reconcile a complete canonical window. The caller invalidates cache metadata
+ * first and publishes it only after this operation succeeds. SQLite changes
+ * commit together; interrupted fallback writes remain behind that same fence.
+ */
+export async function synchronizeChatMessages(
+  thread: ChatThreadId,
+  messages: ChatMessage[],
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
+  if (transcriptCleanupInProgress) return;
+  const previousSnapshot = canonicalSnapshotByThread.get(thread);
+  // A complete authoritative window supersedes pending legacy/delta writers,
+  // just as the previous clear-and-rebuild path did.
+  invalidateTranscriptWrites(thread);
+  const revision = canonicalSnapshotRevisionByThread.get(thread);
+  const generation = transcriptGeneration(thread);
+  const db = await getTranscriptDb();
+  const current = () =>
+    isCurrent() &&
+    !transcriptCleanupInProgress &&
+    generation === transcriptGeneration(thread);
+  await enqueueTranscriptWrite(async () => {
+    if (!current()) return;
+    const incoming = messages.map((message) => ({
+      id: message.id,
+      messageJson: JSON.stringify(message),
+    }));
+    if (!db) {
+      await synchronizeAsyncTranscriptRows(thread, incoming, current);
+    } else {
+      // Reuse only a successfully committed, bounded snapshot. Other write
+      // APIs advance the revision even when queued, so no captured cache can
+      // hide changes made while this reconciliation waited for its turn.
+      const existing =
+        previousSnapshot &&
+        revision === canonicalSnapshotRevisionByThread.get(thread)
+          ? previousSnapshot
+          : (
+              await db.getAllAsync<StoredMessageRow>(
+                "SELECT message_id, order_key, payload_json FROM mobile_chat_messages WHERE thread_id = ?",
+                thread,
+              )
+            ).map((row) => ({
+              id: row.message_id,
+              orderKey: row.order_key,
+              messageJson: row.payload_json,
+            }));
+      const { changed, removed } = diffTranscriptSnapshot(existing, incoming);
+      if (!current()) return;
+      const stale = new Error("Canonical snapshot superseded");
+      try {
+        if (changed.length || removed.length)
+          await db.withTransactionAsync(async () => {
+            for (const row of removed) {
+              if (!current()) throw stale;
+              await db.runAsync(
+                "DELETE FROM mobile_chat_messages WHERE thread_id = ? AND message_id = ?",
+                thread,
+                row.id,
+              );
+            }
+            const byId = new Map(
+              messages.map((message) => [message.id, message]),
+            );
+            for (const row of changed) {
+              if (!current()) throw stale;
+              const message = byId.get(row.id)!;
+              await db.runAsync(
+                `INSERT INTO mobile_chat_messages(thread_id, message_id, order_key, canonical_id, canonical_created_at, sequence, payload_json, updated_at)
+               VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(thread_id, message_id) DO UPDATE SET order_key = excluded.order_key,
+                 canonical_id = excluded.canonical_id, canonical_created_at = excluded.canonical_created_at,
+                 sequence = excluded.sequence, payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
+                thread,
+                row.id,
+                row.orderKey,
+                message.canonicalId ?? null,
+                message.canonicalCreatedAt ?? null,
+                message.sequence ?? null,
+                row.messageJson,
+                Date.now(),
+              );
+            }
+            if (!current()) throw stale;
+          });
+      } catch (error) {
+        if (error === stale) return;
+        throw error;
+      }
+      // At most 3,000 rows and roughly 16 MiB of UTF-16 payload. Oversized
+      // snapshots remain correct and simply use the durable comparison path.
+      if (
+        current() &&
+        revision === canonicalSnapshotRevisionByThread.get(thread) &&
+        incoming.length <= 3_000 &&
+        incoming.reduce((sum, row) => sum + row.messageJson.length, 0) <=
+          8 * 1024 * 1024
+      ) {
+        const next = new Map(existing.map((row) => [row.id, row]));
+        for (const row of removed) next.delete(row.id);
+        for (const row of changed) next.set(row.id, row);
+        canonicalSnapshotByThread.set(thread, [...next.values()]);
+      }
+    }
+    if (!current()) return;
+    await AsyncStorage.removeItem(MESSAGES_KEY[thread]);
+    fallbackMigrations.delete(thread);
+    // The ordinary append writer's bounded caches must not retain deleted or
+    // reordered identities. This path compares against durable rows directly.
+    orderKeysByThread.delete(thread);
+    serializedByThread.delete(thread);
   });
 }
 

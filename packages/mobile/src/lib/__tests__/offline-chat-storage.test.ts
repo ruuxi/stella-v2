@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
+import {
+  rebuildMobileCloudConversationCache,
+  readMobileCloudConversationCache,
+} from "../cloud-conversation-cache";
 
 // AsyncStorage's non-native fallback talks to `window.localStorage`; give the
 // bun test runtime an in-memory one before the storage module is exercised.
@@ -66,6 +70,7 @@ import {
   loadRecentChatMessages,
   saveChatMessages,
   saveChatSyncState,
+  synchronizeChatMessages,
   subscribeChatStorageCleanup,
 } from "../offline-chat-storage";
 
@@ -99,6 +104,233 @@ const sqliteAdapter = (database: Database) => ({
       throw error;
     }
   },
+});
+
+describe("canonical snapshot reconciliation", () => {
+  test("native cache preserves authority fences and never publishes a failed snapshot", async () => {
+    const database = new Database(":memory:");
+    try {
+      await __setTranscriptDatabaseForTests(sqliteAdapter(database));
+      const metadata = {
+        version: 1 as const,
+        accountScope: "account-a",
+        ownerGeneration: "owner-1",
+        socketOrigin: "wss://test.local",
+        conversationId: "conversation-a",
+        epoch: 1,
+        headSeq: 1,
+        floorSeq: 0,
+      };
+      const previous: ChatMessage[] = [
+        { id: "previous", role: "assistant", text: "previous account" },
+      ];
+      await rebuildMobileCloudConversationCache({
+        metadata,
+        messages: previous,
+      });
+      expect(await readMobileCloudConversationCache(metadata)).toEqual(
+        previous,
+      );
+      const nextMetadata = {
+        ...metadata,
+        accountScope: "account-b",
+        ownerGeneration: "owner-2",
+        epoch: 2,
+      };
+      const next: ChatMessage[] = [
+        { id: "next", role: "assistant", text: "next account" },
+      ];
+      await rebuildMobileCloudConversationCache({
+        metadata: nextMetadata,
+        messages: next,
+      });
+      expect(await readMobileCloudConversationCache(metadata)).toBeNull();
+      expect(await readMobileCloudConversationCache(nextMetadata)).toEqual(
+        next,
+      );
+      database.exec(
+        "CREATE TRIGGER fail_cache BEFORE INSERT ON mobile_chat_messages BEGIN SELECT RAISE(ABORT, 'write failed'); END;",
+      );
+      await expect(
+        rebuildMobileCloudConversationCache({
+          metadata: { ...nextMetadata, headSeq: 2 },
+          messages: [{ ...next[0]!, text: "changed" }],
+        }),
+      ).rejects.toThrow("write failed");
+      expect(await readMobileCloudConversationCache(nextMetadata)).toBeNull();
+      expect((await loadRecentChatMessages("cloud")).messages).toEqual(next);
+      database.exec("DROP TRIGGER fail_cache");
+      await rebuildMobileCloudConversationCache({
+        metadata: nextMetadata,
+        messages: next,
+      });
+      expect(await readMobileCloudConversationCache(nextMetadata)).toEqual(
+        next,
+      );
+    } finally {
+      await __setTranscriptDatabaseForTests(null);
+      database.close();
+    }
+  });
+
+  test("real SQLite changes only modified rows and preserves rolling-window order", async () => {
+    const database = new Database(":memory:");
+    const adapter = sqliteAdapter(database);
+    let snapshotReads = 0;
+    try {
+      await __setTranscriptDatabaseForTests({
+        ...adapter,
+        getAllAsync: async <T>(sql: string, ...params: unknown[]) => {
+          if (
+            sql ===
+            "SELECT message_id, order_key, payload_json FROM mobile_chat_messages WHERE thread_id = ?"
+          )
+            snapshotReads += 1;
+          return adapter.getAllAsync<T>(sql, ...params);
+        },
+      });
+      database.exec(`CREATE TABLE writes(operation TEXT);
+        CREATE TRIGGER count_insert AFTER INSERT ON mobile_chat_messages BEGIN INSERT INTO writes VALUES('insert'); END;
+        CREATE TRIGGER count_update AFTER UPDATE ON mobile_chat_messages BEGIN INSERT INTO writes VALUES('update'); END;
+        CREATE TRIGGER count_delete AFTER DELETE ON mobile_chat_messages BEGIN INSERT INTO writes VALUES('delete'); END;`);
+      const messages: ChatMessage[] = Array.from({ length: 1500 }, (_, i) => ({
+        id: `snapshot-${i}`,
+        role: "assistant",
+        text: "x".repeat(4096),
+      }));
+      await synchronizeChatMessages("cloud", messages);
+      database.exec("DELETE FROM writes");
+      await synchronizeChatMessages(
+        "cloud",
+        messages.map((message) => ({ ...message })),
+      );
+      expect(database.query("SELECT * FROM writes").all()).toEqual([]);
+      expect(snapshotReads).toBe(1);
+      const next: ChatMessage[] = [
+        ...messages.slice(1),
+        { id: "snapshot-new", role: "assistant", text: "new" },
+      ];
+      next[10] = { ...next[10]!, text: "changed" };
+      await synchronizeChatMessages("cloud", next);
+      expect(
+        database
+          .query(
+            "SELECT operation, count(*) AS n FROM writes GROUP BY operation ORDER BY operation",
+          )
+          .all(),
+      ).toEqual([
+        { operation: "delete", n: 1 },
+        { operation: "insert", n: 1 },
+        { operation: "update", n: 1 },
+      ]);
+      expect(snapshotReads).toBe(1);
+      expect(
+        database
+          .query(
+            "SELECT message_id FROM mobile_chat_messages ORDER BY order_key, message_id",
+          )
+          .all(),
+      ).toEqual(next.map((message) => ({ message_id: message.id })));
+      await saveChatMessages("cloud", [{ ...next[0]!, text: "external edit" }]);
+      await synchronizeChatMessages("cloud", next);
+      expect(snapshotReads).toBe(2);
+      expect(
+        (
+          database
+            .query(
+              "SELECT payload_json FROM mobile_chat_messages WHERE message_id = ?",
+            )
+            .get(next[0]!.id) as { payload_json: string }
+        ).payload_json,
+      ).toBe(JSON.stringify(next[0]));
+      await saveChatMessages("carplay", [
+        { id: "other", role: "user", text: "preserved" },
+      ]);
+      await synchronizeChatMessages("cloud", []);
+      expect((await loadRecentChatMessages("cloud")).messages).toEqual([]);
+      expect((await loadRecentChatMessages("carplay")).messages[0]?.id).toBe(
+        "other",
+      );
+    } finally {
+      await __setTranscriptDatabaseForTests(null);
+      database.close();
+    }
+  });
+
+  test("real SQLite rolls back a superseded or failed snapshot", async () => {
+    const database = new Database(":memory:");
+    let current = true;
+    let invalidateDuringWrite = false;
+    const adapter = sqliteAdapter(database);
+    try {
+      await __setTranscriptDatabaseForTests({
+        ...adapter,
+        runAsync: async (sql: string, ...params: unknown[]) => {
+          const result = await adapter.runAsync(sql, ...params);
+          if (
+            invalidateDuringWrite &&
+            sql.startsWith("DELETE FROM mobile_chat_messages")
+          )
+            current = false;
+          return result;
+        },
+      });
+      const previous: ChatMessage[] = [
+        { id: "old", role: "user", text: "old" },
+      ];
+      await synchronizeChatMessages("cloud", previous);
+      invalidateDuringWrite = true;
+      await synchronizeChatMessages(
+        "cloud",
+        [{ id: "new", role: "user", text: "new" }],
+        () => current,
+      );
+      expect((await loadRecentChatMessages("cloud")).messages).toEqual(
+        previous,
+      );
+      invalidateDuringWrite = false;
+      database.exec(
+        "CREATE TRIGGER fail_insert BEFORE INSERT ON mobile_chat_messages BEGIN SELECT RAISE(ABORT, 'disk failure'); END;",
+      );
+      await expect(
+        synchronizeChatMessages("cloud", [
+          { id: "new", role: "user", text: "new" },
+        ]),
+      ).rejects.toThrow("disk failure");
+      expect((await loadRecentChatMessages("cloud")).messages).toEqual(
+        previous,
+      );
+    } finally {
+      await __setTranscriptDatabaseForTests(null);
+      database.close();
+    }
+  });
+
+  test("fallback preserves unchanged pages and removes rows outside the snapshot", async () => {
+    await __setTranscriptDatabaseForTests(null);
+    const messages: ChatMessage[] = Array.from({ length: 300 }, (_, i) => ({
+      id: `fallback-${i}`,
+      role: "user",
+      text: `row ${i}`,
+    }));
+    await synchronizeChatMessages("cloud", messages);
+    const pageEntries = () =>
+      [...memoryStore].filter(
+        ([key]) => key.includes(":page:") || key.includes(":meta"),
+      );
+    const before = pageEntries();
+    await synchronizeChatMessages(
+      "cloud",
+      messages.map((message) => ({ ...message })),
+    );
+    expect(pageEntries()).toEqual(before);
+    await synchronizeChatMessages("cloud", messages.slice(150));
+    expect((await loadRecentChatMessages("cloud")).messages).toEqual(
+      messages.slice(150),
+    );
+    await synchronizeChatMessages("cloud", []);
+    expect((await loadRecentChatMessages("cloud")).messages).toEqual([]);
+  });
 });
 
 class MigrationDatabase {

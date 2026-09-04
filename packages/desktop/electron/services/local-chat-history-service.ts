@@ -1,7 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { z } from "zod";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -21,10 +18,8 @@ import type {
   SqliteDatabase,
 } from "@stella/runtime/kernel/storage/shared";
 import type {
-  CloudConversationCacheAuthority,
   CloudConversationCacheLifecycleAuthority,
   CloudConversationCachePurgeResult,
-  CloudConversationCacheReplaceInput,
   CloudConversationCacheReplaceResult,
   CloudConversationCacheSnapshot,
 } from "@stella/contracts/cloud-conversation-cache";
@@ -49,7 +44,7 @@ import {
   type LocalChatMobileHistoryPage,
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
-import { CloudConversationCacheStore } from "./cloud-conversation-cache-store.js";
+import { CloudConversationCacheClient } from "./cloud-conversation-cache-client.js";
 
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
@@ -129,7 +124,7 @@ const mergeTaskContextMessages = (
 export class LocalChatHistoryService {
   private db: SqliteDatabase | null = null;
   private store: SessionStore | null = null;
-  private cloudConversationCacheStore: CloudConversationCacheStore | null =
+  private cloudConversationCacheStore: CloudConversationCacheClient | null =
     null;
   private readonly stellaAppDir: string;
   private readonly onUpdated?: (
@@ -164,7 +159,6 @@ export class LocalChatHistoryService {
     initializeDesktopDatabase(db);
     this.db = db;
     this.store = new SessionStore(db);
-    this.cloudConversationCacheStore = new CloudConversationCacheStore(db);
   }
 
   private getStore(): SessionStore {
@@ -180,14 +174,18 @@ export class LocalChatHistoryService {
     return this.store;
   }
 
-  private getCloudConversationCacheStore(): CloudConversationCacheStore {
-    if (this.resetInProgress) {
+  private getCloudConversationCacheStore(): CloudConversationCacheClient {
+    if (this.resetInProgress)
       throw new Error("Local cloud conversation cache is resetting.");
+    if (!this.db) this.open();
+    if (this.cloudConversationCacheStore?.hasFailed) {
+      const failed = this.cloudConversationCacheStore;
+      this.cloudConversationCacheStore = null;
+      void failed.close().catch(() => undefined);
     }
-    if (!this.cloudConversationCacheStore) this.open();
-    if (!this.cloudConversationCacheStore) {
-      throw new Error("Local cloud conversation cache is unavailable.");
-    }
+    this.cloudConversationCacheStore ??= new CloudConversationCacheClient(
+      getDesktopDatabasePath(this.stellaAppDir),
+    );
     return this.cloudConversationCacheStore;
   }
 
@@ -208,22 +206,24 @@ export class LocalChatHistoryService {
     );
   }
 
-  close(): void {
+  async close(): Promise<void> {
     const db = this.db;
     this.db = null;
     this.store = null;
+    const cache = this.cloudConversationCacheStore;
     this.cloudConversationCacheStore = null;
     db?.close();
+    await cache?.close();
   }
 
-  closeForReset(): void {
+  async closeForReset(): Promise<void> {
     this.resetInProgress = true;
-    this.close();
+    await this.close();
   }
 
-  reopen(): void {
+  async reopen(): Promise<void> {
     this.resetInProgress = true;
-    this.close();
+    await this.close();
     this.open();
     this.resetInProgress = false;
   }
@@ -774,38 +774,39 @@ export class LocalChatHistoryService {
   }
 
   retainCloudConversationCacheAccount(
-    accountScope: string,
-  ): CloudConversationCachePurgeResult {
-    return this.getCloudConversationCacheStore().retainAccountScope({
-      accountScope,
-    });
+    payload: unknown,
+  ): Promise<CloudConversationCachePurgeResult> {
+    return this.getCloudConversationCacheStore().request(
+      "retain",
+      typeof payload === "string" ? { accountScope: payload } : payload,
+    );
   }
 
   activateCloudConversationCacheAuthority(
-    authority: CloudConversationCacheLifecycleAuthority,
-  ): CloudConversationCachePurgeResult {
-    return this.getCloudConversationCacheStore().activateAuthority(authority);
+    payload: unknown,
+  ): Promise<CloudConversationCachePurgeResult> {
+    return this.getCloudConversationCacheStore().request("activate", payload);
   }
 
   getActiveCloudConversationCacheAuthority(): CloudConversationCacheLifecycleAuthority | null {
-    return this.getCloudConversationCacheStore().getActiveAuthority();
+    return this.cloudConversationCacheStore?.getActiveAuthority() ?? null;
   }
 
   readCloudConversationCache(
-    authority: CloudConversationCacheAuthority,
-  ): CloudConversationCacheSnapshot | null {
-    return this.getCloudConversationCacheStore().read(authority);
+    payload: unknown,
+  ): Promise<CloudConversationCacheSnapshot | null> {
+    return this.getCloudConversationCacheStore().request("read", payload);
   }
 
   replaceCloudConversationCache(
-    input: CloudConversationCacheReplaceInput,
-  ): CloudConversationCacheReplaceResult {
-    return this.getCloudConversationCacheStore().replace(input);
+    payload: unknown,
+  ): Promise<CloudConversationCacheReplaceResult> {
+    return this.getCloudConversationCacheStore().request("replace", payload);
   }
 
   purgeCloudConversationCacheConversation(
-    authority: CloudConversationCacheAuthority,
-  ): CloudConversationCachePurgeResult {
-    return this.getCloudConversationCacheStore().purgeConversation(authority);
+    payload: unknown,
+  ): Promise<CloudConversationCachePurgeResult> {
+    return this.getCloudConversationCacheStore().request("purge", payload);
   }
 }

@@ -20,12 +20,6 @@ import {
   IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
-import {
-  parseCloudConversationCacheAccountScope,
-  parseCloudConversationCacheAuthority,
-  parseCloudConversationCacheLifecycleAuthority,
-  parseCloudConversationCacheReplaceInput,
-} from "../services/cloud-conversation-cache-store.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
 
 const parseConversationFocusRoot = (
@@ -74,10 +68,7 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
-        (client) =>
-          client.retainCloudConversationCacheAccount(
-            parseCloudConversationCacheAccountScope(payload),
-          ),
+        (client) => client.retainCloudConversationCacheAccount(payload),
       ),
   );
 
@@ -88,10 +79,7 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
-        (client) =>
-          client.activateCloudConversationCacheAuthority(
-            parseCloudConversationCacheLifecycleAuthority(payload),
-          ),
+        (client) => client.activateCloudConversationCacheAuthority(payload),
       ),
   );
 
@@ -102,10 +90,7 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_CLOUD_CONVERSATION_CACHE_READ,
-        (client) =>
-          client.readCloudConversationCache(
-            parseCloudConversationCacheAuthority(payload),
-          ),
+        (client) => client.readCloudConversationCache(payload),
       ),
   );
 
@@ -116,11 +101,7 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
-        (client) => {
-          const { serializedRecords: _validatedBytes, ...input } =
-            parseCloudConversationCacheReplaceInput(payload);
-          return client.replaceCloudConversationCache(input);
-        },
+        (client) => client.replaceCloudConversationCache(payload),
       ),
   );
 
@@ -131,10 +112,7 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
-        (client) =>
-          client.purgeCloudConversationCacheConversation(
-            parseCloudConversationCacheAuthority(payload),
-          ),
+        (client) => client.purgeCloudConversationCacheConversation(payload),
       ),
   );
 
@@ -671,5 +649,4 @@ export const registerLocalChatHandlers = (
           }),
       ),
   );
-
 };

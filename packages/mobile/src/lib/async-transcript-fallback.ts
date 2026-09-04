@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { diffTranscriptSnapshot } from "./transcript-snapshot";
 
 const PAGE_SIZE = 128;
 const ORDER_STEP = 1_000_000;
@@ -573,6 +574,57 @@ export async function findAsyncTranscriptCursor(
     if (row) return { orderKey: row.orderKey, id: row.id };
   }
   return null;
+}
+
+/** Reconcile a complete cache window, rewriting only pages with changed rows. */
+export async function synchronizeAsyncTranscriptRows(
+  threadId: string,
+  incoming: readonly Omit<AsyncTranscriptRow, "orderKey">[],
+  isCurrent: () => boolean,
+): Promise<void> {
+  const meta = await readMeta(threadId);
+  const pages = new Map<number, AsyncTranscriptRow[]>();
+  for (const descriptor of meta.pages) {
+    pages.set(descriptor.id, await readPage(threadId, descriptor.id));
+  }
+  const { changed, removed } = diffTranscriptSnapshot(
+    [...pages.values()].flat(),
+    incoming,
+  );
+  if (!isCurrent() || (!changed.length && !removed.length)) return;
+  if (!meta.pages.length) {
+    const descriptor = {
+      id: meta.nextPageId++,
+      minOrderKey: 0,
+      maxOrderKey: 0,
+      count: 0,
+    };
+    meta.pages.push(descriptor);
+    pages.set(descriptor.id, []);
+  }
+  const replacedIds = new Set([...changed, ...removed].map((row) => row.id));
+  const dirtyPages = new Map<number, AsyncTranscriptRow[]>();
+  for (const [id, rows] of pages) {
+    const kept = rows.filter((row) => !replacedIds.has(row.id));
+    if (kept.length !== rows.length) dirtyPages.set(id, kept);
+  }
+  for (const row of changed) {
+    const destination =
+      descriptorForOrder(meta.pages, row.orderKey) ?? meta.pages[0]!;
+    let rows = dirtyPages.get(destination.id);
+    if (!rows) {
+      rows = [...pages.get(destination.id)!];
+      dirtyPages.set(destination.id, rows);
+    }
+    rows.push(row);
+  }
+  if (!isCurrent()) return;
+  await commitDirtyPages({
+    threadId,
+    meta,
+    dirtyPages,
+    removedIds: new Set(removed.map((row) => row.id)),
+  });
 }
 
 export async function clearAsyncTranscriptRows(

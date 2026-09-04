@@ -1,3 +1,4 @@
+import { cloudCacheDelta } from "./cloud-cache-delta";
 /**
  * The rendered state of one cloud conversation, reduced from the socket's
  * ordered record stream.
@@ -566,6 +567,7 @@ class ConversationStore {
   private cacheHydrationStarted = false;
   private cacheHydrated = false;
   private cacheVersion: CloudConversationCacheVersion | null = null;
+  private cachePersistedRecords: readonly JournalRecord[] = [];
   /** True only while rendered rows still contain unverified SQLite bytes. */
   private cacheContainsUnverifiedRecords = false;
   private cacheOperationGeneration = 0;
@@ -794,6 +796,8 @@ class ConversationStore {
     if (this.cacheWriteTimer) clearTimeout(this.cacheWriteTimer);
     this.cacheWriteTimer = null;
     this.cacheOperationGeneration += 1;
+    this.cachePersistedRecords = [];
+    this.cacheVersion = null;
     this.state = initialState(this.conversationId);
     this.emit();
   }
@@ -1193,7 +1197,9 @@ class ConversationStore {
         headSeq: snapshot.headSeq,
         floorSeq: snapshot.floorSeq,
         title: snapshot.title,
-        records,
+        ...(expected?.epoch === snapshot.epoch
+          ? cloudCacheDelta(this.cachePersistedRecords, records)
+          : { records }),
       });
       if (
         generation !== this.cacheOperationGeneration ||
@@ -1203,6 +1209,7 @@ class ConversationStore {
       }
       if (result.status === "applied") {
         this.cacheVersion = result.version;
+        this.cachePersistedRecords = records;
         return;
       }
       if (result.status === "inactive") {
@@ -1239,6 +1246,7 @@ class ConversationStore {
       // token would let a stale pre-reset epoch overwrite its successor.
       if (result.current !== null) return;
       this.cacheVersion = null;
+      this.cachePersistedRecords = [];
       expected = null;
     }
   }
@@ -1248,6 +1256,7 @@ class ConversationStore {
     if (this.cacheWriteTimer) clearTimeout(this.cacheWriteTimer);
     this.cacheWriteTimer = null;
     this.cacheVersion = null;
+    this.cachePersistedRecords = [];
     this.cacheContainsUnverifiedRecords = false;
     this.cacheHydrated = true;
     const authority = this.cacheAuthority;

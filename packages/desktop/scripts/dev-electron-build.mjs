@@ -87,6 +87,7 @@ const electronStaticAssetCopies = [
 ];
 const electronRuntimeEntryPoints = {
   "electron/main": "packages/desktop/electron/main.ts",
+  "electron/cloud-conversation-cache-worker": "packages/desktop/electron/services/cloud-conversation-cache-worker.ts",
   ...(includeLocalUpdateVerification
     ? {
         "electron/update-verification-main":

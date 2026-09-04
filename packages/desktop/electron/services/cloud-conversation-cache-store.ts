@@ -395,6 +395,7 @@ export const parseCloudConversationCacheReplaceInput = (
       "floorSeq",
       "title",
       "records",
+      "retainedRange",
     ])
   ) {
     throw new TypeError(
@@ -417,35 +418,79 @@ export const parseCloudConversationCacheReplaceInput = (
   if (value.records.length > MAX_CLOUD_CONVERSATION_CACHE_RECORDS) {
     throw new RangeError("Cloud conversation cache has too many records.");
   }
+  const expected =
+    value.expected === null ? null : parseVersion(value.expected, "expected");
+  let retainedRange: { fromSeq: number; toSeq: number } | undefined;
+  if (value.retainedRange !== undefined) {
+    if (
+      !isObject(value.retainedRange) ||
+      !hasOnlyKeys(value.retainedRange, ["fromSeq", "toSeq"])
+    ) {
+      throw new TypeError("Invalid retained cache range.");
+    }
+    const fromSeq = safeInteger(
+      value.retainedRange.fromSeq,
+      "retainedRange.fromSeq",
+      0,
+    );
+    const toSeq = safeInteger(
+      value.retainedRange.toSeq,
+      "retainedRange.toSeq",
+      fromSeq,
+    );
+    if (
+      !expected ||
+      expected.epoch !== epoch ||
+      fromSeq < floorSeq ||
+      toSeq > expected.headSeq
+    ) {
+      throw new TypeError(
+        "Retained cache range must belong to the expected epoch/window.",
+      );
+    }
+    retainedRange = { fromSeq, toSeq };
+  }
+  const retainedCount = retainedRange
+    ? retainedRange.toSeq - retainedRange.fromSeq + 1
+    : 0;
+  if (
+    value.records.length + retainedCount >
+    MAX_CLOUD_CONVERSATION_CACHE_RECORDS
+  ) {
+    throw new RangeError("Cloud conversation cache has too many records.");
+  }
   const serializedRecords = value.records.map(validateJournalRecord);
   let totalBytes = Buffer.byteLength(title, "utf8");
-  for (let index = 0; index < serializedRecords.length; index += 1) {
-    const record = serializedRecords[index]!;
-    totalBytes += record.bytes;
-    if (index > 0 && record.seq !== serializedRecords[index - 1]!.seq + 1) {
+  const first = Math.min(
+    serializedRecords[0]?.seq ?? Infinity,
+    retainedRange?.fromSeq ?? Infinity,
+  );
+  let nextSeq = first;
+  for (const record of serializedRecords) {
+    if (retainedRange && nextSeq === retainedRange.fromSeq)
+      nextSeq = retainedRange.toSeq + 1;
+    if (record.seq !== nextSeq)
       throw new TypeError("Cloud conversation cache records must be gapless.");
-    }
+    nextSeq += 1;
+    totalBytes += record.bytes;
   }
+  if (retainedRange && nextSeq === retainedRange.fromSeq)
+    nextSeq = retainedRange.toSeq + 1;
   if (totalBytes > MAX_CLOUD_CONVERSATION_CACHE_TOTAL_BYTES) {
     throw new RangeError("Cloud conversation cache window is too large.");
   }
-  if (serializedRecords.length === 0) {
-    if (headSeq !== -1) {
+  if (serializedRecords.length + retainedCount === 0) {
+    if (headSeq !== -1)
       throw new TypeError("A non-empty cloud journal head requires records.");
-    }
-  } else {
-    const first = serializedRecords[0]!.seq;
-    const last = serializedRecords.at(-1)!.seq;
-    if (first < floorSeq || last !== headSeq) {
-      throw new TypeError(
-        "Cloud conversation cache records must be a canonical suffix ending at headSeq.",
-      );
-    }
+  } else if (first < floorSeq || nextSeq - 1 !== headSeq) {
+    throw new TypeError(
+      "Cloud conversation cache records must be a canonical suffix ending at headSeq.",
+    );
   }
   return {
     ...authority,
-    expected:
-      value.expected === null ? null : parseVersion(value.expected, "expected"),
+    expected,
+    ...(retainedRange ? { retainedRange } : {}),
     epoch,
     headSeq,
     floorSeq,
@@ -703,9 +748,8 @@ export class CloudConversationCacheStore {
   }
 
   replace(value: unknown): CloudConversationCacheReplaceResult {
-    // Deliberately validate again even though the IPC handler already did. This
-    // class is also called directly by tests/services, so SQLite never trusts a
-    // higher layer to have enforced byte, JSON, or contiguity limits.
+    // Validate at the storage boundary, including direct service/test callers.
+    // Worker dispatch keeps this traversal and all SQLite work off main.
     const input = parseCloudConversationCacheReplaceInput(value);
     if (!this.isActive(input)) return { status: "inactive", current: null };
     return this.withImmediateTransaction(() => {
@@ -731,7 +775,69 @@ export class CloudConversationCacheStore {
       }
 
       const revision = (current?.revision ?? 0) + 1;
-      this.deleteExact(input);
+      let retainedCount = 0;
+      if (input.retainedRange) {
+        const { fromSeq, toSeq } = input.retainedRange;
+        const retained = this.db
+          .prepare(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(record_bytes), 0) AS bytes,
+            MIN(record_bytes) AS minBytes, MAX(record_bytes) AS maxBytes
+          FROM cloud_conversation_cache_records
+          WHERE account_scope = ? AND owner_generation = ? AND conversation_id = ?
+            AND epoch = ? AND seq BETWEEN ? AND ?`,
+          )
+          .get(
+            input.accountScope,
+            input.ownerGeneration,
+            input.conversationId,
+            input.epoch,
+            fromSeq,
+            toSeq,
+          ) as {
+          count: number;
+          bytes: number;
+          minBytes: number;
+          maxBytes: number;
+        };
+        retainedCount = toSeq - fromSeq + 1;
+        if (
+          retained.count !== retainedCount ||
+          retained.minBytes < 0 ||
+          retained.maxBytes > MAX_CLOUD_CONVERSATION_CACHE_RECORD_BYTES
+        ) {
+          this.deleteExact(input);
+          return { status: "conflict", current: null } as const;
+        }
+        const totalBytes =
+          retained.bytes +
+          Buffer.byteLength(input.title, "utf8") +
+          input.serializedRecords.reduce(
+            (sum, record) => sum + record.bytes,
+            0,
+          );
+        if (
+          !Number.isSafeInteger(totalBytes) ||
+          totalBytes > MAX_CLOUD_CONVERSATION_CACHE_TOTAL_BYTES
+        ) {
+          throw new RangeError("Cloud conversation cache window is too large.");
+        }
+        this.db
+          .prepare(
+            `DELETE FROM cloud_conversation_cache_records
+          WHERE account_scope = ? AND owner_generation = ? AND conversation_id = ?
+            AND (epoch != ? OR seq < ? OR seq > ?)`,
+          )
+          .run(
+            input.accountScope,
+            input.ownerGeneration,
+            input.conversationId,
+            input.epoch,
+            fromSeq,
+            toSeq,
+          );
+      } else {
+        this.deleteExact(input);
+      }
       const insert = this.db.prepare(
         `INSERT INTO cloud_conversation_cache_records (
            account_scope, owner_generation, conversation_id, epoch,
@@ -754,7 +860,11 @@ export class CloudConversationCacheStore {
           `INSERT INTO cloud_conversation_cache_meta (
              account_scope, owner_generation, conversation_id, epoch,
              head_seq, floor_seq, revision, title, cached_at_ms, record_count
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(account_scope, owner_generation, conversation_id) DO UPDATE SET
+             epoch = excluded.epoch, head_seq = excluded.head_seq, floor_seq = excluded.floor_seq,
+             revision = excluded.revision, title = excluded.title, cached_at_ms = excluded.cached_at_ms,
+             record_count = excluded.record_count`,
         )
         .run(
           input.accountScope,
@@ -766,7 +876,7 @@ export class CloudConversationCacheStore {
           revision,
           input.title,
           Date.now(),
-          input.serializedRecords.length,
+          input.serializedRecords.length + retainedCount,
         );
       this.pruneLeastRecent();
       return {

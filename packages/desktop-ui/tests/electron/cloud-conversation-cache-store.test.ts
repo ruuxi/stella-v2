@@ -346,4 +346,140 @@ describe("derived cloud conversation SQLite cache", () => {
     ).toEqual({ count: 0 });
     context.db.close();
   });
+  test("retains unchanged rows and atomically appends/prepends/trims a window", () => {
+    const { db, store } = createDatabase();
+    store.activateAuthority(lifecycle(A1));
+    const first = store.replace(replacement(A1, [message(1), message(2)]));
+    if (first.status !== "applied")
+      throw new Error("initial cache write failed");
+    const before = (
+      db.prepare("SELECT total_changes() AS count").get() as { count: number }
+    ).count;
+    const appended = store.replace(
+      replacement(A1, [message(3)], {
+        expected: first.version,
+        retainedRange: { fromSeq: 1, toSeq: 2 },
+      }),
+    );
+    if (appended.status !== "applied") throw new Error("append failed");
+    const after = (
+      db.prepare("SELECT total_changes() AS count").get() as { count: number }
+    ).count;
+    expect(after - before).toBe(2); // One insert and one metadata update, no rewrite.
+    expect(store.read(A1)?.records).toEqual([
+      message(1),
+      message(2),
+      message(3),
+    ]);
+    const prepended = store.replace(
+      replacement(A1, [message(0)], {
+        expected: appended.version,
+        headSeq: 3,
+        retainedRange: { fromSeq: 1, toSeq: 3 },
+      }),
+    );
+    if (prepended.status !== "applied") throw new Error("prepend failed");
+    expect(store.read(A1)?.records).toEqual([
+      message(0),
+      message(1),
+      message(2),
+      message(3),
+    ]);
+    const trimmed = store.replace(
+      replacement(A1, [], {
+        expected: prepended.version,
+        headSeq: 3,
+        floorSeq: 2,
+        retainedRange: { fromSeq: 2, toSeq: 3 },
+      }),
+    );
+    expect(trimmed.status).toBe("applied");
+    expect(store.read(A1)?.records).toEqual([message(2), message(3)]);
+    db.close();
+  });
+
+  test("rejects gaps, overlap, cross-epoch reuse, and stale delta CAS", () => {
+    const { db, store } = createDatabase();
+    store.activateAuthority(lifecycle(A1));
+    const first = store.replace(replacement(A1, [message(0), message(1)]));
+    if (first.status !== "applied")
+      throw new Error("initial cache write failed");
+    const base = {
+      expected: first.version,
+      retainedRange: { fromSeq: 0, toSeq: 1 },
+    };
+    expect(() => store.replace(replacement(A1, [message(3)], base))).toThrow(
+      /gapless/,
+    );
+    expect(() => store.replace(replacement(A1, [message(1)], base))).toThrow(
+      /gapless/,
+    );
+    expect(() =>
+      store.replace(replacement(A1, [message(2)], { ...base, epoch: 2 })),
+    ).toThrow(/epoch/);
+    const input = replacement(A1, [message(2)], base);
+    expect(store.replace(input).status).toBe("applied");
+    expect(store.replace(input).status).toBe("conflict");
+    expect(store.read(A1)?.records).toEqual([
+      message(0),
+      message(1),
+      message(2),
+    ]);
+    db.close();
+  });
+
+  test("includes retained bytes and rows in budgets without mutating valid data", () => {
+    const { db, store } = createDatabase();
+    store.activateAuthority(lifecycle(A1));
+    const records = Array.from({ length: 32 }, (_, seq) =>
+      message(seq, "x".repeat(500_000)),
+    );
+    const first = store.replace(replacement(A1, records));
+    if (first.status !== "applied")
+      throw new Error("initial cache write failed");
+    expect(() =>
+      store.replace(
+        replacement(
+          A1,
+          [message(32, "x".repeat(500_000)), message(33, "x".repeat(500_000))],
+          {
+            expected: first.version,
+            retainedRange: { fromSeq: 0, toSeq: 31 },
+          },
+        ),
+      ),
+    ).toThrow(/too large/);
+    expect(store.read(A1)?.headSeq).toBe(31);
+    expect(() =>
+      store.replace(
+        replacement(A1, [], {
+          expected: { ...first.version, headSeq: 3000 },
+          headSeq: 3000,
+          retainedRange: { fromSeq: 0, toSeq: 3000 },
+        }),
+      ),
+    ).toThrow(/too many records/);
+    db.close();
+  });
+
+  test("a missing retained row causes a null conflict for a full canonical rebuild", () => {
+    const { db, store } = createDatabase();
+    store.activateAuthority(lifecycle(A1));
+    const first = store.replace(replacement(A1, [message(0), message(1)]));
+    if (first.status !== "applied")
+      throw new Error("initial cache write failed");
+    db.prepare(
+      "DELETE FROM cloud_conversation_cache_records WHERE seq = 0",
+    ).run();
+    expect(
+      store.replace(
+        replacement(A1, [message(2)], {
+          expected: first.version,
+          retainedRange: { fromSeq: 0, toSeq: 1 },
+        }),
+      ),
+    ).toEqual({ status: "conflict", current: null });
+    expect(store.read(A1)).toBeNull();
+    db.close();
+  });
 });

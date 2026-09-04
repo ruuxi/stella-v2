@@ -1,9 +1,8 @@
 import type { ChatMessage } from "../types";
 import {
-  clearChatMessages,
   loadChatSyncState,
   loadRecentChatMessages,
-  saveChatMessages,
+  synchronizeChatMessages,
   saveChatSyncState,
 } from "./offline-chat-storage";
 
@@ -28,8 +27,10 @@ export type CloudConversationCacheReadPort = {
 
 export type CloudConversationCachePort = {
   clearMetadata(): Promise<void>;
-  clearMessages(): Promise<void>;
-  saveMessages(messages: ChatMessage[]): Promise<void>;
+  synchronizeMessages(
+    messages: ChatMessage[],
+    isCurrent: () => boolean,
+  ): Promise<void>;
   saveMetadata(metadata: CloudConversationCacheMetadata): Promise<void>;
 };
 
@@ -79,9 +80,7 @@ export const rebuildCloudConversationCache = async (args: {
   if (!current()) return;
   await args.port.clearMetadata();
   if (!current()) return;
-  await args.port.clearMessages();
-  if (!current()) return;
-  await args.port.saveMessages(args.messages);
+  await args.port.synchronizeMessages(args.messages, current);
   if (!current()) return;
   await args.port.saveMetadata(args.metadata);
 };
@@ -96,8 +95,8 @@ export const rebuildMobileCloudConversationCache = async (args: {
     port: {
       clearMetadata: () =>
         saveChatSyncState("cloud", { conversationId: null, cursor: null }),
-      clearMessages: () => clearChatMessages("cloud"),
-      saveMessages: (messages) => saveChatMessages("cloud", messages),
+      synchronizeMessages: (messages, current) =>
+        synchronizeChatMessages("cloud", messages, current),
       saveMetadata: (metadata) =>
         saveChatSyncState("cloud", {
           conversationId: metadata.conversationId,

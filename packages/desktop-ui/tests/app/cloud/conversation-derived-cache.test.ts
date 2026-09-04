@@ -439,4 +439,40 @@ describe("cloud conversation renderer derived cache", () => {
     expect(oldStore.getSnapshot().records).toEqual([]);
     expect(nextStore.getSnapshot().records).toEqual([]);
   });
+  test("sends only appended records after a successful cache write and rebuilds on cache loss", async () => {
+    const exact = authority(crypto.randomUUID());
+    const conversationId = `conversation-${crypto.randomUUID()}`;
+    const api = fakeApi(null);
+    setCloudConversationCacheApiForTests(api);
+    activateCloudConversationClientAuthority(exact);
+    const store = conversationStore(
+      conversationId,
+      exact.accountScope,
+      exact.ownerGeneration,
+    );
+    stores.add(store);
+    await vi.waitFor(() => expect(api.read).toHaveBeenCalled());
+    dispatch(store, ready(conversationId, 3, 1));
+    dispatch(store, { type: "records", records: [message(0), message(1)] });
+    await vi.waitFor(() => expect(api.replace).toHaveBeenCalledTimes(1));
+    dispatch(store, { type: "records", records: [message(2)] });
+    await vi.waitFor(() => expect(api.replace).toHaveBeenCalledTimes(2));
+    const replace = vi.mocked(api.replace);
+    expect(replace.mock.calls[1]![0]).toMatchObject({
+      retainedRange: { fromSeq: 0, toSeq: 1 },
+      records: [message(2)],
+      headSeq: 2,
+    });
+    replace.mockResolvedValueOnce({ status: "conflict", current: null });
+    dispatch(store, { type: "records", records: [message(3)] });
+    await vi.waitFor(() => expect(api.replace).toHaveBeenCalledTimes(4));
+    expect(replace.mock.calls[3]![0].retainedRange).toBeUndefined();
+    expect(replace.mock.calls[3]![0].records).toEqual([
+      message(0),
+      message(1),
+      message(2),
+      message(3),
+    ]);
+    expect(replace.mock.calls[3]![0].expected).toBeNull();
+  });
 });

@@ -901,7 +901,27 @@ const cmdLaunch = async (options) => {
       throw new Error(
         `Electron window came up but the shell did not: ${lastError}`,
       );
-    await withCdp(run, (ws) => runtimeEvaluate(ws, HOST_HEALTH_EXPRESSION));
+    // The shell can mount before the detached runtime host finishes starting.
+    // Wait for the same health contract used by doctor instead of treating its
+    // first null response as a failed launch and killing a healthy startup.
+    const hostDeadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
+    let hostReady = false;
+    let lastHostError = "runtime host not ready";
+    while (Date.now() < hostDeadline) {
+      try {
+        hostReady = Boolean(
+          await withCdp(run, (ws) => runtimeEvaluate(ws, HOST_HEALTH_EXPRESSION)),
+        );
+        if (hostReady) break;
+      } catch (error) {
+        lastHostError = error instanceof Error ? error.message : String(error);
+      }
+      if (!isAlive(run.electronPid)) break;
+      await delay(400);
+    }
+    if (!hostReady) {
+      throw new Error(`Electron shell is ready but the runtime host did not become ready: ${lastHostError}`);
+    }
   } catch (error) {
     await stopPid(run.electronPid);
     await stopPid(run.vitePid);

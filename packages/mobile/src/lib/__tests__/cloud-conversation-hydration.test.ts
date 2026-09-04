@@ -114,10 +114,7 @@ describe("mobile cloud canonical hydration", () => {
           clearMetadata: async () => {
             localMetadata = null;
           },
-          clearMessages: async () => {
-            localMessages = [];
-          },
-          saveMessages: async (messages) => {
+          synchronizeMessages: async (messages) => {
             localMessages = messages.map((message) => ({ ...message }));
           },
           saveMetadata: async (next) => {
@@ -154,12 +151,9 @@ describe("mobile cloud canonical hydration", () => {
         clearMetadata: async () => {
           calls.push("clear-metadata");
         },
-        clearMessages: async () => {
-          calls.push("clear-messages");
+        synchronizeMessages: async () => {
+          calls.push("synchronize-messages");
           current = false;
-        },
-        saveMessages: async () => {
-          calls.push("save-messages");
         },
         saveMetadata: async () => {
           calls.push("save-metadata");
@@ -167,7 +161,7 @@ describe("mobile cloud canonical hydration", () => {
       },
     });
 
-    expect(calls).toEqual(["clear-metadata", "clear-messages"]);
+    expect(calls).toEqual(["clear-metadata", "synchronize-messages"]);
   });
 
   test("canonical rebuild removes optimistic cache rows after local cache loss", async () => {
@@ -197,10 +191,7 @@ describe("mobile cloud canonical hydration", () => {
         clearMetadata: async () => {
           localMetadata = null;
         },
-        clearMessages: async () => {
-          localMessages = [];
-        },
-        saveMessages: async (messages) => {
+        synchronizeMessages: async (messages) => {
           localMessages = messages.map((message) => ({ ...message }));
         },
         saveMetadata: async (next) => {

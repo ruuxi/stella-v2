@@ -25,6 +25,8 @@ export type TranscriptSearchHit = {
 
 const escapeLike = (value: string): string => value.replace(/([\\%_])/g, "\\$1");
 
+const TRANSCRIPT_SEARCH_FTS_CANDIDATE_CAP = 200;
+
 export class SearchIndex {
   constructor(private readonly db: SqliteDatabase) {}
 
@@ -234,16 +236,27 @@ export class SearchIndex {
       .map((token) => `"${token.replace(/"/g, '""')}"`)
       .join(" OR ");
     const tokenClause = "entry.search_text LIKE ? ESCAPE '\\'";
+    // Bound content reads and literal-token reranking before applying the
+    // requested result limit. FTS selects candidates by BM25; the established
+    // token-count/newest-first ordering applies within that set. On broad
+    // queries, a newer or longer match outside the top 200 can be omitted.
+    // MATERIALIZED keeps SQLite from flattening the content join into the
+    // unbounded FTS match scan. FTS itself still visits matching postings.
     const rows = this.db
       .prepare(
-        `SELECT
+        `WITH candidates AS MATERIALIZED (
+           SELECT rowid FROM entry_fts
+           WHERE entry_fts MATCH ?
+           ORDER BY rank
+           LIMIT ${TRANSCRIPT_SEARCH_FTS_CANDIDATE_CAP}
+         )
+         SELECT
            entry.conversation_id AS conversationId,
            entry.role AS role,
            entry.created_at AS atMs,
            substr(entry.search_text, 1, ${TRANSCRIPT_SEARCH_TEXT_CAP}) AS text
-         FROM entry_fts
-         JOIN entry ON entry.rowid = entry_fts.rowid
-         WHERE entry_fts MATCH ?
+         FROM candidates
+         JOIN entry ON entry.rowid = candidates.rowid
          ORDER BY
            (${tokens.map(() => `CASE WHEN ${tokenClause} THEN 1 ELSE 0 END`).join(" + ")}) DESC,
            entry.created_at DESC

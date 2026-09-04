@@ -144,6 +144,53 @@ describe("searchTranscripts", () => {
     expect(store.searchTranscripts({ query: "zanzibar" })).toEqual([]);
   });
 
+  it("keeps an older rare multi-term match when a common term has hundreds of hits", () => {
+    const { store } = createTestContext();
+    store.withTransaction(() => {
+      appendChat(store, "older", "assistant_message", "emira saguaro route", 1);
+      for (let i = 0; i < 600; i += 1) {
+        appendChat(
+          store,
+          "newer",
+          "user_message",
+          `emira parking note ${i}`,
+          1000 + i,
+        );
+      }
+    });
+
+    const hits = store.searchTranscripts({ query: "emira saguaro", limit: 3 });
+    expect(hits).toHaveLength(3);
+    expect(hits[0]).toMatchObject({
+      conversationId: "older",
+      role: "assistant",
+      atMs: 1,
+      text: "emira saguaro route",
+    });
+  });
+
+  it("bounds content scoring even when almost the entire archive matches", () => {
+    const { store, db } = createTestContext();
+    store.withTransaction(() => {
+      for (let i = 0; i < 600; i += 1) {
+        appendChat(store, "conv-1", "user_message", `emira saguaro note ${i}`, i);
+      }
+    });
+
+    // Count actual SQLite LIKE evaluations, including rows discarded by LIMIT.
+    // These fixture terms contain no wildcard/escape characters, so substring
+    // matching preserves the query's literal LIKE behavior for this test.
+    let contentEvaluations = 0;
+    (db as unknown as DatabaseSync).function("like", (pattern, value, _escape) => {
+      contentEvaluations += 1;
+      return String(value).includes(String(pattern).slice(1, -1)) ? 1 : 0;
+    });
+    const hits = store.searchTranscripts({ query: "emira saguaro", limit: 1 });
+    expect(hits).toHaveLength(1);
+    expect(contentEvaluations).toBeGreaterThan(0);
+    expect(contentEvaluations).toBeLessThanOrEqual(400);
+  });
+
   it("treats LIKE wildcards as literals and returns nothing for empty queries", () => {
     const { store } = createTestContext();
     appendChat(store, "conv-1", "user_message", "reached 100% coverage", 1_000);

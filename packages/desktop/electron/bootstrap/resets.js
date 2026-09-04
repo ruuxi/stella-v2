@@ -34,7 +34,7 @@ export const createBootstrapResetFlows = (context, options) => ({
         services.credentialService.cancelAll();
         services.connectorCredentialService.cancelAll();
         await shutdownBootstrapRuntime(context, { stopScheduler: true });
-        services.localChatHistoryService.closeForReset();
+        await services.localChatHistoryService.closeForReset();
         services.authService.stopAuthRefreshLoop();
         state.appReady = false;
         services.uiStateService.state.isVoiceRtcActive = false;
@@ -55,7 +55,7 @@ export const createBootstrapResetFlows = (context, options) => ({
             })));
         }
         finally {
-            services.localChatHistoryService.reopen();
+            await services.localChatHistoryService.reopen();
         }
         if (hadRunner) {
             await options.initializeStellaHostRunner();
@@ -69,12 +69,12 @@ export const createBootstrapResetFlows = (context, options) => ({
             return { ok: true };
         }
         await shutdownBootstrapRuntime(context);
-        services.localChatHistoryService.closeForReset();
+        await services.localChatHistoryService.closeForReset();
         try {
             await resetMessageStorage(state.stellaDataDirPath);
         }
         finally {
-            services.localChatHistoryService.reopen();
+            await services.localChatHistoryService.reopen();
         }
         await options.initializeStellaHostRunner();
         broadcastLocalChatUpdated(context);

@@ -3,7 +3,7 @@ import { showToast } from "@/ui/toast";
 import { useResumeAgentRun } from "../hooks/use-resume-agent-run";
 import { attachmentsForStartChat, initialStoreState, streamStoreReducer, } from "./store";
 import { useReasoningBatcher } from "./use-reasoning-batcher";
-import { clearConversationTaskDecorations, getTaskDecorationsSnapshot, subscribeTaskDecorations, } from "./task-decoration-store";
+import { clearConversationTaskDecorations, getConversationTaskDecorationsSnapshot, subscribeConversationTaskDecorations, } from "./task-decoration-store";
 import { useAgentEventHandler } from "./use-agent-event-handler";
 import { useApplyResumeSnapshot } from "./use-resume-snapshot";
 import { reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
@@ -368,15 +368,11 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         window.electronAPI.agent.cancelChat(activeRunId);
     }, [activeRunId]);
 
-    // Ephemeral per-thread stream decoration (statusText ticks, tool
-    // activity, reasoning) for the active conversation, keyed by agentId.
-    // The authoritative task rows come from `useThreadActivity`; callers
-    // overlay these via `buildActivityTasks`. Backed by the module-level
-    // decoration store, which inline chat cards also subscribe to per-agent.
-    const decorationsSnapshot = useSyncExternalStore(subscribeTaskDecorations, getTaskDecorationsSnapshot);
-    const taskDecorations = useMemo(() => activeConversationId
-        ? Object.fromEntries(Object.entries(decorationsSnapshot).filter(([, decoration]) => decoration.conversationId === activeConversationId))
-        : {}, [activeConversationId, decorationsSnapshot]);
+    // Only lifecycle/status decoration for this conversation invalidates the
+    // shell task projection. Live reasoning remains in the per-agent store.
+    const subscribeDecorations = useCallback((listener) => subscribeConversationTaskDecorations(activeConversationId, listener), [activeConversationId]);
+    const getDecorations = useCallback(() => getConversationTaskDecorationsSnapshot(activeConversationId), [activeConversationId]);
+    const taskDecorations = useSyncExternalStore(subscribeDecorations, getDecorations);
     return {
         taskDecorations,
         runtimeStatusText,

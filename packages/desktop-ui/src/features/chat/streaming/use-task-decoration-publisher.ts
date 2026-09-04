@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import {
-  getTaskDecorationsSnapshot,
-  subscribeTaskDecorations,
+  getTaskActivityDecorationsSnapshot,
+  subscribeTaskActivityDecorations,
 } from '@/features/chat/streaming/task-decoration-store'
 
 /**
@@ -9,9 +9,8 @@ import {
  * main process so the desktop→mobile sync bridge can show the SAME mid-run
  * ticks the desktop tray shows. Progress events are never persisted, so this
  * snapshot push is the only way a phone learns what a running agent is doing
- * between its spawn and terminal rows. Publishes on every store change,
- * deduped against the last serialized snapshot — reasoning-chunk writes that
- * don't move any statusText stay off the IPC channel entirely.
+ * between its spawn and terminal rows. Subscribes only to activity changes;
+ * reasoning chunks do not scan/serialize status snapshots or cross IPC.
  *
  * In the mobile WebView the shim exposes no `publishTaskDecoration` (it is
  * not a bridge capability), so this hook is a no-op there — only the desktop
@@ -25,7 +24,7 @@ export function useTaskDecorationPublisher(): void {
       if (!api?.publishTaskDecoration) return
       const statusTextByAgentId: Record<string, string> = {}
       for (const [agentId, decoration] of Object.entries(
-        getTaskDecorationsSnapshot(),
+        getTaskActivityDecorationsSnapshot(),
       )) {
         if (
           decoration.status !== 'completed' &&
@@ -46,6 +45,6 @@ export function useTaskDecorationPublisher(): void {
       })
     }
     publish()
-    return subscribeTaskDecorations(publish)
+    return subscribeTaskActivityDecorations(publish)
   }, [])
 }

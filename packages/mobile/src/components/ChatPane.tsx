@@ -13,9 +13,11 @@ import {
   Animated,
   Dimensions,
   Easing,
+  FlatList,
   Keyboard,
   LayoutChangeEvent,
   LayoutAnimation,
+  type ListRenderItemInfo,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -2650,26 +2652,33 @@ function buildSearchSnippet(
   return { before, match, after };
 }
 
+type ChatSearchResult = { message: ChatMessage; index: number };
+
+const searchResultKey = (result: ChatSearchResult) => result.message.id;
+
 const SearchResultRow = memo(function SearchResultRow({
   message,
+  index,
   query,
   styles,
   colors,
   onPress,
 }: {
   message: ChatMessage;
+  index: number;
   query: string;
   styles: ChatStyles;
   colors: Colors;
-  onPress: () => void;
+  onPress: (index: number) => void;
 }) {
+  const handlePress = useCallback(() => onPress(index), [index, onPress]);
   const snippet = useMemo(
     () => buildSearchSnippet(message.text, query),
     [message.text, query],
   );
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       accessibilityRole="button"
       accessibilityLabel={`Jump to message: ${message.text.slice(0, 80)}`}
       style={({ pressed }) => [
@@ -3964,12 +3973,12 @@ export function ChatPane({
     }));
   }, [searchOpen, visibleMessages]);
   const searchResults = useMemo(() => {
-    if (!searchActive) return [] as { message: ChatMessage; index: number }[];
+    if (!searchActive) return [] as ChatSearchResult[];
     const terms = foldQueryTerms(searchQuery);
     if (terms.length === 0) {
-      return [] as { message: ChatMessage; index: number }[];
+      return [] as ChatSearchResult[];
     }
-    const out: { message: ChatMessage; index: number }[] = [];
+    const out: ChatSearchResult[] = [];
     // Newest first; a message matches when every term appears somewhere in it.
     for (let i = foldedMessages.length - 1; i >= 0; i -= 1) {
       const entry = foldedMessages[i];
@@ -3989,6 +3998,20 @@ export function ChatPane({
       }, 60);
     },
     [search, scroll.listRef],
+  );
+
+  const renderSearchResult = useCallback(
+    ({ item }: ListRenderItemInfo<ChatSearchResult>) => (
+      <SearchResultRow
+        message={item.message}
+        index={item.index}
+        query={searchQuery}
+        styles={styles}
+        colors={colors}
+        onPress={jumpToMessage}
+      />
+    ),
+    [searchQuery, styles, colors, jumpToMessage],
   );
 
   const empty = visibleMessages.length === 0;
@@ -4288,23 +4311,20 @@ export function ChatPane({
                 No messages match “{searchQuery}”
               </Text>
             ) : (
-              <ScrollView
+              <FlatList<ChatSearchResult>
+                data={searchResults}
+                renderItem={renderSearchResult}
+                keyExtractor={searchResultKey}
+                extraData={searchQuery}
+                initialNumToRender={8}
+                maxToRenderPerBatch={8}
+                windowSize={3}
+                style={styles.searchDropdownList}
                 contentContainerStyle={styles.searchDropdownContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
-              >
-                {searchResults.map((result) => (
-                  <SearchResultRow
-                    key={result.message.id}
-                    message={result.message}
-                    query={searchQuery}
-                    styles={styles}
-                    colors={colors}
-                    onPress={() => jumpToMessage(result.index)}
-                  />
-                ))}
-              </ScrollView>
+              />
             )}
           </View>
         ) : null}
@@ -4810,6 +4830,9 @@ const makeStyles = (colors: Colors) =>
       shadowOpacity: 0.08,
       shadowRadius: 12,
       top: 6,
+    },
+    searchDropdownList: {
+      flexGrow: 0,
     },
     searchDropdownContent: {
       paddingVertical: 4,

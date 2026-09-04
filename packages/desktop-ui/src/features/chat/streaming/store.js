@@ -221,6 +221,10 @@ export function streamStoreReducer(state, action) {
                 return state;
             }
             const hasActiveTool = Object.keys(current.activeToolCalls ?? {}).length > 0;
+            const statusText = hasActiveTool ? current.statusText : null;
+            if (current.hasToolActivity && current.statusText === statusText) {
+                return state;
+            }
             return {
                 ...state,
                 runsById: {
@@ -228,7 +232,7 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
-                        statusText: hasActiveTool ? current.statusText : null,
+                        statusText,
                     },
                 },
             };

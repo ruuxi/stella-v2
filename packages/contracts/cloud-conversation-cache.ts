@@ -46,7 +46,10 @@ export type CloudConversationCacheReplaceInput =
     headSeq: number;
     floorSeq: number;
     title: string;
-    /** Must be an ascending, gapless suffix ending exactly at `headSeq`. */
+    /** Reuse this immutable span from `expected` (same epoch). Omit for a full
+     * replacement. `records` then contains only the prefix/suffix outside it. */
+    retainedRange?: { fromSeq: number; toSeq: number };
+    /** Combined with retainedRange, an ascending gapless suffix at headSeq. */
     records: unknown[];
   };
 

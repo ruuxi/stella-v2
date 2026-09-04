@@ -8,11 +8,9 @@
  * row catches up or a newer attempt replaces it, which closes the brief
  * completed-row/follow-up race without making stream data authoritative.
  *
- * Lives outside the React tree so BOTH kinds of consumer can read it:
- * the conversation-level task list (`useFullShellChat` merges the whole
- * snapshot via `buildActivityTasks`) and individual inline chat cards
- * (`BackgroundWorkCard` subscribes to just its own thread, so a
- * reasoning tick re-renders one card, not every activity surface).
+ * Lives outside React. The shell reads a conversation-scoped activity
+ * snapshot; per-agent subscribers can read live reasoning without invalidating
+ * that activity projection.
  */
 import type { TaskLiveDecoration } from '@/features/chat/lib/event-transforms'
 import { normalizeDisplayStatusText } from '@/features/chat/status-utils'
@@ -37,8 +35,56 @@ let snapshot: Record<string, TaskDecoration> = {}
 const globalListeners = new Set<() => void>()
 const agentListeners = new Map<string, Set<() => void>>()
 
-const notify = (agentIds: Iterable<string>) => {
+// Activity consumers need lifecycle/status changes, not every reasoning chunk.
+// Keep immutable, conversation-scoped snapshots so unrelated conversations and
+// reasoning-only writes cannot invalidate the shell's task projection.
+type TaskActivityDecoration = Omit<TaskDecoration, 'reasoningText'>
+const EMPTY_ACTIVITY_SNAPSHOT: Record<string, TaskActivityDecoration> = {}
+let activitySnapshot: Record<string, TaskActivityDecoration> = {}
+const activitySnapshotsByConversation = new Map<
+  string,
+  Record<string, TaskActivityDecoration>
+>()
+const activityListeners = new Set<() => void>()
+const conversationActivityListeners = new Map<string, Set<() => void>>()
+
+const notifyActivity = (agentIds: Iterable<string>) => {
+  const affectedConversations = new Set<string>()
+  const next = { ...activitySnapshot }
+  for (const agentId of agentIds) {
+    const previous = next[agentId]
+    if (previous) affectedConversations.add(previous.conversationId)
+    const decoration = decorations.get(agentId)
+    if (decoration) {
+      const { reasoningText: _reasoningText, ...activity } = decoration
+      next[agentId] = activity
+      affectedConversations.add(activity.conversationId)
+    } else {
+      delete next[agentId]
+    }
+  }
+  activitySnapshot = next
+  for (const conversationId of affectedConversations) {
+    const entries = Object.entries(next).filter(
+      ([, value]) => value.conversationId === conversationId,
+    )
+    if (entries.length) {
+      activitySnapshotsByConversation.set(conversationId, Object.fromEntries(entries))
+    } else {
+      activitySnapshotsByConversation.delete(conversationId)
+    }
+  }
+  for (const listener of activityListeners) listener()
+  for (const conversationId of affectedConversations) {
+    for (const listener of conversationActivityListeners.get(conversationId) ?? []) {
+      listener()
+    }
+  }
+}
+
+const notify = (agentIds: string[], activityChanged = true) => {
   snapshot = Object.fromEntries(decorations)
+  if (activityChanged) notifyActivity(agentIds)
   for (const listener of globalListeners) listener()
   for (const agentId of agentIds) {
     const listeners = agentListeners.get(agentId)
@@ -47,7 +93,7 @@ const notify = (agentIds: Iterable<string>) => {
   }
 }
 
-const setDecoration = (next: TaskDecoration) => {
+const setDecoration = (next: TaskDecoration, activityChanged = true) => {
   const isNew = !decorations.has(next.agentId)
   decorations.set(next.agentId, next)
   // Updates can't grow the map — only a genuinely new key pays the
@@ -67,7 +113,7 @@ const setDecoration = (next: TaskDecoration) => {
       return
     }
   }
-  notify([next.agentId])
+  notify([next.agentId], activityChanged)
 }
 
 type DecorationLifecycleSignal = {
@@ -160,6 +206,13 @@ export const appendTaskReasoning = (input: {
   if (existing && isOlderLifecycleSignal(existing, input)) return
   const now = Date.now()
   const nextReasoningText = `${existing?.reasoningText ?? ''}${input.chunk}`
+  // Reasoning can be the first observation of a newer attempt. Publish that
+  // transition, but keep subsequent prose/sequence/receipt-time ticks local.
+  const activityChanged = !existing ||
+    existing.conversationId !== input.conversationId ||
+    existing.runId !== (input.runId ?? existing.runId) ||
+    existing.attemptGeneration !== (input.attemptGeneration ?? existing.attemptGeneration) ||
+    existing.status !== 'running'
   setDecoration({
     agentId: input.agentId,
     conversationId: input.conversationId,
@@ -177,7 +230,7 @@ export const appendTaskReasoning = (input: {
         ? nextReasoningText.slice(-MAX_AGENT_REASONING_CHARS)
         : nextReasoningText,
     lastUpdatedAtMs: now,
-  })
+  }, activityChanged)
 }
 
 export const settleTaskDecoration = (input: {
@@ -229,6 +282,40 @@ export const clearConversationTaskDecorations = (
   if (removed.length > 0) notify(removed)
 }
 
+export const getTaskActivityDecorationsSnapshot = () => activitySnapshot
+
+export const subscribeTaskActivityDecorations = (
+  listener: () => void,
+): (() => void) => {
+  activityListeners.add(listener)
+  return () => {
+    activityListeners.delete(listener)
+  }
+}
+
+export const getConversationTaskDecorationsSnapshot = (
+  conversationId: string | null,
+) =>
+  (conversationId ? activitySnapshotsByConversation.get(conversationId) : undefined) ??
+  EMPTY_ACTIVITY_SNAPSHOT
+
+export const subscribeConversationTaskDecorations = (
+  conversationId: string | null,
+  listener: () => void,
+): (() => void) => {
+  if (!conversationId) return () => {}
+  let listeners = conversationActivityListeners.get(conversationId)
+  if (!listeners) {
+    listeners = new Set()
+    conversationActivityListeners.set(conversationId, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) conversationActivityListeners.delete(conversationId)
+  }
+}
+
 export const getTaskDecorationsSnapshot = (): Record<string, TaskDecoration> =>
   snapshot
 
@@ -265,6 +352,10 @@ export const __privateTaskDecorationStore = {
   resetForTests() {
     decorations.clear()
     snapshot = {}
+    activitySnapshot = {}
+    activitySnapshotsByConversation.clear()
+    activityListeners.clear()
+    conversationActivityListeners.clear()
     globalListeners.clear()
     agentListeners.clear()
   },

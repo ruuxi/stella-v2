@@ -97,8 +97,8 @@ export const registerBootstrapLifecycle = (context) => {
     context.state.processRuntime.registerCleanup("will-quit", "global-shortcuts", () => {
         globalShortcut.unregisterAll();
     });
-    context.state.processRuntime.registerCleanup("will-quit", "local-chat-history-service", () => {
-        context.services.localChatHistoryService.close();
+    context.state.processRuntime.registerCleanup("will-quit", "local-chat-history-service", async () => {
+        await context.services.localChatHistoryService.close();
     });
     context.state.processRuntime.registerCleanup("will-quit", "bootstrap-runtime", async () => {
         await shutdownBootstrapRuntime(context, { stopScheduler: true });

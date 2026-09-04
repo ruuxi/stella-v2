@@ -4,19 +4,19 @@ export const SPAWN_AGENT_MODEL_DESCRIPTION =
 export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
   name: "spawn_agent",
   description:
-    "Spawn an agent for a specific, well-scoped background task. Give it all relevant context and instructions. For multi-part or decomposable work, tell that agent it may spawn its own subagents as appropriate, or direct it when parallel pieces warrant it. Most tasks stay with one agent. The immediate tool result means the agent has started, not finished; its completed result arrives in [Agent completed].",
+    "Start a background agent for work that needs its own owner. Continue related work with an existing agent through send_input, even when it is busy. Agents can delegate independent parts to subagents. The immediate result means work has started; completion arrives in [Agent completed].",
   parameters: {
     type: "object",
     properties: {
       description: {
         type: "string",
         description:
-          "A concise 2–3 word domain name. It becomes the thread's name — put distinguishing words first.",
+          "A short name for the project or area of work. It becomes the thread's name; put distinguishing words first.",
       },
       prompt: {
         type: "string",
         description:
-          "Detailed instructions for the sub-agent. This is the agent's only context.",
+          "The request and any necessary context the agent does not have. Keep simple requests short; preserve explicit constraints and leave the approach to the agent.",
       },
       model: {
         type: "string",
@@ -36,7 +36,7 @@ export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
 export const SEND_INPUT_TOOL_DESCRIPTOR = {
   name: "send_input",
   description:
-    "Steer, update, continue, or add work that benefits from an existing agent's context. A successful tool result means the agent has started or resumed working, not finished; its completed result arrives in [Agent completed].",
+    "Send new or changed instructions to an existing agent, including while it is busy. Preserves the thread's context. A successful result means the input was accepted, not that the work finished; completion arrives in [Agent completed].",
   parameters: {
     type: "object",
     properties: {
@@ -56,14 +56,13 @@ export const SEND_INPUT_TOOL_DESCRIPTOR = {
 export const PAUSE_AGENT_TOOL_DESCRIPTOR = {
   name: "pause_agent",
   description:
-    "Pause a running sub-agent, or a whole group of related agents at once by passing a grp-… group id. The same thread can be resumed later by calling send_input with its thread_id.",
+    "Pause a running agent by thread_id. Resume the same thread later with send_input.",
   parameters: {
     type: "object",
     properties: {
       thread_id: {
         type: "string",
-        description:
-          "Durable thread id to pause, or a grp-… group id to pause every agent in that group.",
+        description: "Durable thread id of the agent to pause.",
       },
       reason: {
         type: "string",
@@ -77,7 +76,7 @@ export const PAUSE_AGENT_TOOL_DESCRIPTOR = {
 export const AGENT_STATUS_TOOL_DESCRIPTOR = {
   name: "agent_status",
   description:
-    "READ-ONLY status snapshot of a sub-agent thread: its live status (active = executing a turn right now, paused = idle but resumable), its last few assistant messages, and its most recent tool call, each timestamped alongside the current time. It NEVER interrupts, messages, or resumes the agent — use it to check on a running or paused thread; never use send_input just to ask for status.",
+    "Read an agent's status, recent assistant messages, latest tool call, and timestamps. Active means executing a turn; paused means idle and resumable. Does not interrupt or send input to the agent.",
   parameters: {
     type: "object",
     properties: {

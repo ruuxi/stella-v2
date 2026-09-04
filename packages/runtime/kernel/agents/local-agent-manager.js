@@ -519,7 +519,7 @@ export class LocalAgentManager {
         }
         const updateBlock = updates.map((text, index) => `${index + 1}. ${text}`).join("\n");
         const updateInstruction =
-            "Apply each update per its intent: answer a question or status request and stop; apply new or changed instructions and continue the task. Newer updates override earlier ones.";
+            "Apply each update per its intent. Preserve unfinished work unless the update replaces or cancels it; a question or status request does not cancel it. Newer instructions take precedence where they conflict.";
         if (task.turnCount === 0) {
             return [task.prompt, "Task updates:", updateBlock, updateInstruction].join("\n\n");
         }

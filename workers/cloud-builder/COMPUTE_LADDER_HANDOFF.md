@@ -206,6 +206,28 @@ Between 3 and 4, `src/index.ts` was split into `src/build-session/*`
 `~/Documents/stella-build-session-split-plan.md`). New BuildSession behavior
 goes in the matching module; index.ts holds class shells and delegators.
 
+First dev run of the five steps (2026-09-04, version `2b3f99ed` and later):
+
+- Cell 1 (write, Read, follow-up) passed on the first try; the follow-up
+  attached in 7 s and finished in 17 s.
+- Cell 2 (parent spawns a child, both edit `shared.txt`, the child's
+  completion steers the parent) found two bugs, both fixed and pushed:
+  `ad48df23a` (a turn's teardown swept the shared container's process table
+  because the SDK's `killAllProcesses` ignores its session argument; the
+  child's turn end killed the parent's daemon) and `dd3cb9ef2` (the
+  turn-state registry still fenced workspace publication on a base
+  revision, so the second concurrent agent failed its commit with a 409).
+- The seeded `stella/` checkout cost about five minutes of DO time per new
+  owner world on the first shell command (about 1,340 blobs pushed one
+  request at a time). The user chose to delete the seed and the whole
+  interior publish feature (`cb9c58659`); a new world starts empty.
+- Still worth doing: batch the push protocol (many blobs per request) so a
+  large tree is bounded by bytes rather than file count; kill the daemon's
+  process group at turn end rather than only the daemon.
+
+Deploy status: dev runs the five steps plus these fixes; staging and
+production still need `stella-v2-worlds-basic-nightingale-118` and
+`stella-v2-worlds-prod` created before their first deploy. (Earlier note:
 Not yet deployed: dev still runs the section 2b fix (`86400928`). Before the
 first deploy of this work: create `stella-v2-worlds-basic-nightingale-118`
 and `stella-v2-worlds-prod` (dev bucket exists), expect migration v9 to add

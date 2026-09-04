@@ -21,7 +21,8 @@ import {
  * keyword-matched against the connector catalog index (catalog-derived
  * names + a loose synonym layer — "mail" → gmail/outlook, "calendar" →
  * google calendar, …). On a hit, a hidden `<system-reminder>` is
- * attached to that user message:
+ * attached to that user message. Matches are capability hints, not
+ * confirmed intent or instructions to use a connector:
  *
  *  - connected  → notes it's connected (agents use the code
  *    `connect` client); nothing else
@@ -56,20 +57,20 @@ export const MCP_HINT_REMINDER_KEY = "connector-mcp-hint";
 const MCP_KEYWORD_RE = /\bmcp\b/iu;
 
 export const MCP_HINT_REMINDER_TEXT =
-  'The user mentioned MCP. Agents can register an MCP server through the code connect client — await connect.addMcp({ id, transport: { url: "…" } }) for hosted servers or transport: { command, args } for stdio — and connect.remove(id) uninstalls one (connect.documentation() has details).';
+  'Keyword hint: MCP was mentioned, possibly incidentally. If the user wants to manage an MCP connection, agents can use connect.addMcp(…) or connect.remove(id) through the code connect client; connect.documentation() has details.';
 
 export const buildConnectedReminderText = (
   entry: NativeConnectorCatalogEntry,
 ): string =>
-  `${entry.name} is connected (integration id \`${entry.id}\`). Agents can use it directly for this request via the code connect client (await connect.call("${entry.id}", …)) — no setup needed.`;
+  `Keyword hint: ${entry.name} may be relevant. It is connected (integration id \`${entry.id}\`). If it fits the user's intent, agents can use it via the code connect client (await connect.call("${entry.id}", …)). The keyword match alone does not imply it should be used.`;
 
 export const buildOfferReminderText = (
   entry: NativeConnectorCatalogEntry,
 ): string =>
   [
-    `This request may involve ${entry.name}. Stella has a ${entry.name} connector, but it is not connected yet.`,
-    `If using ${entry.name} would genuinely help, call the \`connector_status\` tool with connector "${entry.id}" (if it is not in your direct tool list, call it inside code as tools.connector_status({ connector: "${entry.id}" })). That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from the Store later, then proceed by other means (agents fall back to the browser).`,
-    `If ${entry.name} isn't actually relevant, ignore this note.`,
+    `Keyword hint: ${entry.name} may be relevant. Its connector is not connected.`,
+    `If it fits the user's intent and would help, \`connector_status\` can show an inline connect card (connector: "${entry.id}"; also available inside code as tools.connector_status({ connector: "${entry.id}" })).`,
+    `The keyword match alone does not imply a connection is needed.`,
   ].join(" ");
 
 export const createConnectorAvailabilityReminderHook = (options: {

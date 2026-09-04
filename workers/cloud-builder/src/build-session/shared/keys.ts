@@ -308,3 +308,38 @@ export const checkpointImportsKey = (workspaceKey: string): string =>
 /** Legacy eventual-KV receipt key, retained only so purge removes old rows. */
 export const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
   `${workspaceKey}:owner-transfer-receipts`;
+
+/** Pages of 1000 keys per bucket prefix. 10M objects is not a real owner. */
+export const R2_SWEEP_MAX_PAGES = 10_000;
+
+/** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
+export const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/**
+ * Delete every object under `prefix`. Bounded: `list` is cursor-paged at 1000
+ * and each page is deleted before the next is fetched, so neither memory nor
+ * the delete batch grows with the owner's history. `done: false` means the
+ * sweep ran out of pages and the caller must ask again.
+ */
+export const sweepR2Prefix = async (
+  bucket: R2Bucket,
+  prefix: string,
+): Promise<{ deleted: number; done: boolean }> => {
+  let deleted = 0;
+  let cursor: string | undefined;
+  for (let page = 0; page < R2_SWEEP_MAX_PAGES; page += 1) {
+    const listing = await bucket.list({
+      prefix,
+      limit: 1000,
+      ...(cursor ? { cursor } : {}),
+    });
+    const keys = listing.objects.map((object) => object.key);
+    if (keys.length > 0) {
+      await bucket.delete(keys);
+      deleted += keys.length;
+    }
+    if (!listing.truncated) return { deleted, done: true };
+    cursor = listing.cursor;
+  }
+  return { deleted, done: false };
+};

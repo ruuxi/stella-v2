@@ -447,6 +447,9 @@ import {
   TurnStateOwnerCallError,
 } from "./build-session/shared/errors.js";
 import {
+  BACKUP_ID_PATTERN,
+  R2_SWEEP_MAX_PAGES,
+  sweepR2Prefix,
   AGENT_RECOVERY_PENDING_KEY,
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
@@ -491,6 +494,45 @@ import {
   withInfrastructureDeadline,
   workspaceTransferReceiptsKey,
 } from "./build-session/shared/keys.js";
+import {
+  callOwnerFence as callOwnerFenceCore,
+  agentControlPlane,
+  appendThreadTranscript,
+  assertAgentExecutionActive,
+  assertAgentTurnIdentity,
+  assertAppExecutionActive,
+  assertAppTurnIdentity,
+  assertTurnWritable,
+  callOwnerTurnState,
+  childAgentDispatchDependencies,
+  cleanupOwnerPurgedTurnStorage,
+  cleanupTransientWrites,
+  controlPlaneCapability,
+  convexCall,
+  deleteTurnStoragePreservingExactCancellations,
+  emitTurnEvent,
+  enqueueOutboxDurable,
+  event,
+  fetchCanonicalAgentHistory,
+  mintAgentTurnModelGateway,
+  mutateExactTurn,
+  outboxBase,
+  ownerGateFor,
+  ownsExactTurn,
+  redeliverOrphan,
+  registerTurn,
+  releaseOwnerGate,
+  retireTerminalAppTurnStorage,
+  retryOutboxDebt,
+  scheduleDurabilityAlarm,
+  setExactTurnAlarm,
+  settleAgentTransientBackup,
+  settleTerminalTransientWrites,
+  sweepNativeBackupDebt,
+  trackTurn,
+  unregisterTurn,
+  unregisterTurnLease,
+} from "./build-session/session-core.js";
 
 export type { ObservedBrowserSuspension } from "./build-session/shared/types.js";
 
@@ -638,51 +680,6 @@ const retireSandboxInstance = async (
  */
 const turnBrokerCredentialsPath = (): string =>
   `/workspace/.turn-broker-${crypto.randomUUID()}.json`;
-
-/**
- * App-build turns are dispatched without a pinned execution — the art
- * director's model is Convex's own choice, resolved through `/api/cloud/model`
- * — but a turn capability's binding is not optional. This placeholder is what
- * the lane's control-plane capability carries. It is never minted for the
- * model-gateway audience, so it can never pin a model call.
- */
-const APP_BUILD_CONTROL_PLANE_EXECUTION = {
-  engine: "stella",
-  provider: "stella",
-  model: "app-build",
-  reasoningEffort: "default",
-} as CloudExecutionSelection;
-
-/**
- * Mint the model-gateway capability for one admitted agent turn. It is the
- * only credential the sandbox or resident loop presents for model calls:
- * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
- * meaningless anywhere but the gateway. The reusable Convex turn token never
- * accompanies model traffic.
- */
-const mintAgentTurnModelGateway = async (
-  env: Pick<
-    Env,
-    "MODEL_GATEWAY_URL" | "CAPABILITY_SIGNING_KEY" | "CAPABILITY_SIGNING_KID"
-  >,
-  turn: TurnRequest,
-  execution: CloudExecutionSelection,
-): Promise<{ origin: string; capability: string; expiresAt: number }> => {
-  const origin = env.MODEL_GATEWAY_URL?.trim() ?? "";
-  if (!origin) throw new Error("Model gateway is not configured.");
-  if (!turn.conversationId) throw new AgentTurnAuthorityLostError();
-  const minted = await mintTurnCapability(env, {
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    turnId: turn.turnId,
-    conversationId: turn.conversationId,
-    execution,
-    audience: turn.audience,
-    budgetMicroCents: turn.budgetMicroCents,
-    agentTypes: ["general"],
-  });
-  return { origin, capability: minted.token, expiresAt: minted.expiresAt };
-};
 
 const INTERIOR_BRIDGE_ABI = 1;
 const INTERIOR_MIN_SHELL_VERSION = "0.0.0";
@@ -1960,67 +1957,16 @@ export class BuildSession extends DurableObject<Env> {
     return this as unknown as BuildSessionInternals;
   }
 
-  /**
-   * Normal turn cleanup must retain exact cancellation receipts. The key list
-   * is captured while input is gated and the deletion is one transaction, so
-   * a crash or concurrent Stop cannot open a tombstone-loss window. Sandbox
-   * destroy debt is retained too: terminal delivery is never authority to
-   * forget a container whose teardown has not been confirmed.
-   */
-  private async deleteTurnStoragePreservingExactCancellations(
+  /** @see src/build-session/session-core.ts */
+  private deleteTurnStoragePreservingExactCancellations(
     expectedTurn?: TurnRequest,
     deleteAlarm = false,
   ): Promise<boolean> {
-    const deleted = await this.ctx.blockConcurrencyWhile(async () => {
-      if (
-        expectedTurn &&
-        !exactTurnIdentityMatches(
-          await this.ctx.storage.get<TurnRequest>("turn"),
-          expectedTurn,
-        )
-      ) {
-        return false;
-      }
-      const listed = [...(await this.ctx.storage.list<unknown>()).keys()];
-      const hasDestroyDebt = listed.some(isSandboxDestroyDebtKey);
-      const hasOwnerFenceDebt = listed.some(isBuildOwnerFenceDurabilityKey);
-      // Projections a queue outage deferred outlive the turn that produced
-      // them: Convex has no other way to learn a terminal state, and the
-      // alarm that retries them must survive with the debt.
-      const hasOutboxDebt = listed.includes(OUTBOX_DEBT_KEY);
-      const keys = listed.filter(
-        (key) =>
-          key !== EXACT_TURN_CANCELLATIONS_KEY &&
-          key !== OUTBOX_DEBT_KEY &&
-          !isSandboxDestroyDebtKey(key) &&
-          !isBuildOwnerFenceDurabilityKey(key),
-      );
-      let deleted = false;
-      await this.ctx.storage.transaction(async (txn) => {
-        if (
-          expectedTurn &&
-          !exactTurnIdentityMatches(
-            await txn.get<TurnRequest>("turn"),
-            expectedTurn,
-          )
-        ) {
-          return;
-        }
-        if (keys.length > 0) await txn.delete(keys);
-        if (
-          deleteAlarm &&
-          !hasDestroyDebt &&
-          !hasOwnerFenceDebt &&
-          !hasOutboxDebt
-        ) {
-          await txn.deleteAlarm();
-        }
-        deleted = true;
-      });
-      return deleted;
-    });
-    if (deleted) await this.scheduleDurabilityAlarm();
-    return deleted;
+    return deleteTurnStoragePreservingExactCancellations(
+      this.self,
+      expectedTurn,
+      deleteAlarm,
+    );
   }
 
   // ── The turn plane: owner gate, capabilities, outbox, transcript ───────
@@ -2031,236 +1977,62 @@ export class BuildSession extends DurableObject<Env> {
   // every projection Convex needs leaves through the outbox queue instead of
   // an HTTP callback with its own retry ladder.
 
+  /** @see src/build-session/session-core.ts */
   private ownerGateFor(ownerId: string) {
-    return this.env.OWNER_GATES.getByName(ownerId);
+    return ownerGateFor(this.self, ownerId);
   }
 
-  /** Shared dispatch dependencies used when this agent spawns a child. */
+  /** @see src/build-session/session-core.ts */
   private childAgentDispatchDependencies(): CloudAgentDispatchDependencies {
-    return {
-      env: this.env,
-      ownerGateAdmit: async (input) =>
-        await this.ownerGateFor(input.ownerId).admit({
-          lane: "agent",
-          turnId: input.turnId,
-          conversationId: input.conversationId,
-          expectedGeneration: input.expectedGeneration,
-        }),
-      releaseOwnerGate: async (input) => {
-        await this.ownerGateFor(input.ownerId).release({
-          turnId: input.turnId,
-        });
-      },
-      enqueueOutbox: async (events) =>
-        await this.enqueueOutboxDurable([...events]),
-    };
+    return childAgentDispatchDependencies(this.self);
   }
 
-  /**
-   * Give this turn's slot back to the owner gate. Idempotent by construction
-   * (the gate deletes a row it may not have), and never fatal: a release that
-   * cannot be delivered is bounded by the gate's own running-row expiry, so
-   * failing the turn over it would trade a recoverable lag for a lost result.
-   */
-  private async releaseOwnerGate(turn: TurnRequest): Promise<void> {
-    if (turn.kind !== "agent" || !turn.ownerId) return;
-    try {
-      await this.ownerGateFor(turn.ownerId).release({ turnId: turn.turnId });
-    } catch (error) {
-      log("error", "owner_gate_release_failed", {
-        turnId: turn.turnId,
-        message: errorMessage(error),
-      });
-    }
+  /** @see src/build-session/session-core.ts */
+  private releaseOwnerGate(turn: TurnRequest): Promise<void> {
+    return releaseOwnerGate(this.self, turn);
   }
 
-  /**
-   * The control-plane capability for this exact attempt.
-   *
-   * Minted here rather than stored: a bearer token that outlives the isolate
-   * would have to be written to durable storage and rotated there, and the
-   * signature costs less than the storage round trip would. Cached per
-   * isolate until a minute before expiry so a long turn re-signs at most a
-   * handful of times.
-   *
-   * It is the model-gateway capability's twin — same owner, generation, turn
-   * binding, audience and budget — and differs only in `aud`, which is why it
-   * must never leave this Durable Object.
-   */
-  private async controlPlaneCapability(turn: TurnRequest): Promise<string> {
-    const attemptGeneration = turn.attemptGeneration ?? 1;
-    const key = `${turn.turnId}:${attemptGeneration}`;
-    const now = Date.now();
-    const cached = this.controlPlaneCapabilities.get(key);
-    if (cached && cached.expiresAt - 60_000 > now) return cached.token;
-    const conversationId = turn.conversationId?.trim() ?? "";
-    if (!conversationId) {
-      throw turn.kind === "agent"
-        ? new AgentTurnAuthorityLostError()
-        : new AppTurnAuthorityLostError();
-    }
-    const minted = await mintTurnCapability(this.env, {
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      turnId: turn.turnId,
-      conversationId,
-      execution:
-        turn.execution ??
-        (turn.kind === "agent"
-          ? undefined
-          : APP_BUILD_CONTROL_PLANE_EXECUTION)!,
-      audience: turn.audience,
-      budgetMicroCents: turn.budgetMicroCents,
-      agentTypes: ["general"],
-      aud: CONTROL_PLANE_CAPABILITY_AUDIENCE,
-    });
-    this.controlPlaneCapabilities.set(key, {
-      token: minted.token,
-      expiresAt: minted.expiresAt,
-    });
-    return minted.token;
+  /** @see src/build-session/session-core.ts */
+  private controlPlaneCapability(turn: TurnRequest): Promise<string> {
+    return controlPlaneCapability(this.self, turn);
   }
 
-  /**
-   * The remaining synchronous Convex reads a turn still needs — the ones that
-   * answer a question only the control plane can answer (web search, drive,
-   * the app-build art director). Authority is this turn's control-plane
-   * capability; the worker's shared secret is no longer sent from a turn path,
-   * so a compromised turn cannot act as the worker.
-   */
-  private async convexCall(
+  /** @see src/build-session/session-core.ts */
+  private convexCall(
     turn: TurnRequest,
     path: string,
     body: unknown,
     options: { signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<Response> {
-    const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
-      .trim()
-      .replace(/\/+$/, "");
-    if (!base) throw new Error("Convex site URL is not configured.");
-    const capability = await this.controlPlaneCapability(turn);
-    const timeout = AbortSignal.timeout(options.timeoutMs ?? 30_000);
-    return await fetch(`${base}${path}`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${capability}`,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: options.signal
-        ? AbortSignal.any([options.signal, timeout])
-        : timeout,
-    });
+    return convexCall(this.self, turn, path, body, options);
   }
 
-  /**
-   * The resident loop's control plane, wired to this object's own transcript
-   * table and outbox. The capability is resolved lazily so a long turn does
-   * not hold an expiring token captured at construction.
-   */
+  /** @see src/build-session/session-core.ts */
   private agentControlPlane(
     turn: TurnRequest,
     attemptGeneration: number,
     sessionId: string,
   ): ReturnType<typeof createAgentControlPlane> {
-    return createAgentControlPlane({
-      convexSiteUrl: this.env.STELLA_CONVEX_SITE_URL,
-      capability: () => this.controlPlaneCapability(turn),
-      identity: {
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        threadId: turn.threadId!,
-        turnId: turn.turnId,
-        attemptGeneration,
-        sessionId,
-      },
-      storage: this.ctx.storage,
-      transport: {
-        readHistory: (options) =>
-          this.fetchCanonicalAgentHistory(turn, {
-            excludeCurrentTurn: options.excludeCurrentTurn,
-          }),
-        appendMessages: (messages) =>
-          this.appendThreadTranscript(turn, messages),
-        emitEvent: async (args) => {
-          await this.emitTurnEvent(turn, args.kind, args.payload, {
-            terminal: args.terminal,
-            ...(args.seq === "auto" ? {} : { eventSeq: args.seq }),
-            ...(args.signal ? { signal: args.signal } : {}),
-          });
-        },
-      },
-    });
+    return agentControlPlane(this.self, turn, attemptGeneration, sessionId);
   }
 
+  /** @see src/build-session/session-core.ts */
   private outboxBase(turn: TurnRequest, key: string) {
-    return {
-      v: OUTBOX_EVENT_VERSION,
-      key,
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      emittedAt: Date.now(),
-    } as const;
+    return outboxBase(this.self, turn, key);
   }
 
-  /**
-   * Append to the outbox, or remember the debt and let the alarm retry it.
-   * A queue outage must not lose a projection Convex has no other way to
-   * learn: the UI's thread rows, the turn's terminal state, a recorded build.
-   */
-  private async enqueueOutboxDurable(events: OutboxEvent[]): Promise<void> {
-    if (events.length === 0) return;
-    try {
-      await enqueueOutbox(this.env, events);
-      return;
-    } catch (error) {
-      log("error", "outbox_enqueue_deferred", {
-        events: events.map((event) => `${event.kind}:${event.key}`),
-        message: errorMessage(error),
-      });
-    }
-    await this.ctx.blockConcurrencyWhile(async () => {
-      const debt =
-        (await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY)) ?? [];
-      await this.ctx.storage.put(
-        OUTBOX_DEBT_KEY,
-        [...debt, ...events].slice(-OUTBOX_DEBT_MAX),
-      );
-      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > retryAt) {
-        await this.ctx.storage.setAlarm(retryAt);
-      }
-    });
+  /** @see src/build-session/session-core.ts */
+  private enqueueOutboxDurable(events: OutboxEvent[]): Promise<void> {
+    return enqueueOutboxDurable(this.self, events);
   }
 
-  private async retryOutboxDebt(): Promise<void> {
-    const debt = await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
-    if (!debt || debt.length === 0) return;
-    try {
-      await enqueueOutbox(this.env, debt);
-      await this.ctx.storage.delete(OUTBOX_DEBT_KEY);
-    } catch (error) {
-      log("error", "outbox_debt_retry_failed", {
-        events: debt.length,
-        message: errorMessage(error),
-      });
-      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > retryAt) {
-        await this.ctx.storage.setAlarm(retryAt);
-      }
-    }
+  /** @see src/build-session/session-core.ts */
+  private retryOutboxDebt(): Promise<void> {
+    return retryOutboxDebt(this.self);
   }
 
-  /**
-   * One `turn.event`. The ordinal is assigned here — Convex used to do it —
-   * and persisted in this object's SQLite, so a restarted isolate continues
-   * the sequence instead of colliding with events already projected. Callers
-   * that own an idempotent retry pass their own `eventSeq` back in.
-   */
-  private async emitTurnEvent(
+  /** @see src/build-session/session-core.ts */
+  private emitTurnEvent(
     turn: TurnRequest,
     eventKind: string,
     payload: unknown,
@@ -2272,82 +2044,20 @@ export class BuildSession extends DurableObject<Env> {
       signal?: AbortSignal;
     } = {},
   ): Promise<number> {
-    options.signal?.throwIfAborted();
-    await this.assertTurnWritable(turn);
-    options.signal?.throwIfAborted();
-    const attemptGeneration = turn.attemptGeneration ?? 1;
-    let eventSeq: number;
-    if (options.eventSeq === undefined) {
-      eventSeq = nextTurnEventSeq(
-        this.ctx.storage.sql,
-        turn.turnId,
-        attemptGeneration,
-      );
-    } else {
-      eventSeq = options.eventSeq;
-      reserveTurnEventSeq(
-        this.ctx.storage.sql,
-        turn.turnId,
-        attemptGeneration,
-        eventSeq,
-      );
-    }
-    const terminal = options.terminal === true;
-    const event: TurnEventEvent = {
-      ...this.outboxBase(
-        turn,
-        `${turn.turnId}:${attemptGeneration}:${eventSeq}`,
-      ),
-      kind: "turn.event",
-      turnId: turn.turnId,
-      ...(turn.kind === "agent" ? { attemptGeneration } : {}),
-      sessionId: turn.threadId ?? turn.sessionId ?? this.ctx.id.toString(),
-      eventSeq,
-      eventKind,
-      payload,
-      terminal,
-      ...(terminal
-        ? { terminalStatus: TERMINAL_EVENT_STATUS[eventKind] ?? "failed" }
-        : {}),
-      ...(options.errorMessage ? { errorMessage: options.errorMessage } : {}),
-      ...(options.resultJson ? { resultJson: options.resultJson } : {}),
-      createdAt: Date.now(),
-    };
-    await this.enqueueOutboxDurable([event]);
-    return eventSeq;
+    return emitTurnEvent(this.self, turn, eventKind, payload, options);
   }
 
-  /**
-   * Commit transcript rows to this thread's own table. A continuation reads
-   * them back from SQLite, and re-appending the same ordinals is a no-op.
-   */
-  private async appendThreadTranscript(
+  /** @see src/build-session/session-core.ts */
+  private appendThreadTranscript(
     turn: TurnRequest,
     messages: readonly ThreadMessageInput[],
   ): Promise<void> {
-    if (turn.kind !== "agent" || !turn.threadId) {
-      throw new AgentTurnAuthorityLostError();
-    }
-    const attemptGeneration = turn.attemptGeneration ?? 1;
-    appendThreadMessages(this.ctx.storage.sql, {
-      turnId: turn.turnId,
-      attemptGeneration,
-      messages,
-      now: Date.now(),
-    });
+    return appendThreadTranscript(this.self, turn, messages);
   }
 
+  /** @see src/build-session/session-core.ts */
   private trackTurn<T>(turnId: string, work: Promise<T>): Promise<T> {
-    const active = this.runningTurns.get(turnId) ?? new Set<Promise<unknown>>();
-    const tracked = work.finally(() => {
-      active.delete(tracked);
-      if (active.size === 0) {
-        this.runningTurns.delete(turnId);
-      }
-    });
-    active.add(tracked);
-    this.runningTurns.set(turnId, active);
-    return tracked;
+    return trackTurn(this.self, turnId, work);
   }
 
   private startAgentTurn(
@@ -2433,56 +2143,17 @@ export class BuildSession extends DurableObject<Env> {
     return tracked;
   }
 
-  private ownerFence(ownerId: string) {
-    return this.env.OWNER_GATES.getByName(ownerId);
-  }
-
-  private async callOwnerFence(
+  /** @see src/build-session/session-core.ts */
+  private callOwnerFence(
     ownerId: string,
     path: string,
     body: Record<string, unknown>,
   ): Promise<Response> {
-    return this.ownerFence(ownerId).fetch(
-      `https://owner-gate/owner-fence/${path}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [HEADER_OWNER_FENCE_ID]: ownerId,
-        },
-        body: JSON.stringify({ ...body, ownerId }),
-      },
-    );
+    return callOwnerFenceCore(this.self, ownerId, path, body);
   }
 
-  private ownerTurnStateEnvelope(turn: TurnRequest): {
-    schemaVersion: 1;
-    ownerId: string;
-    ownerGeneration: string;
-    generation: string;
-    leaseId: string;
-    sessionId: string;
-    turnId: string;
-  } {
-    if (
-      !turn.ownerPurgeGeneration ||
-      !turn.ownerPurgeLeaseId ||
-      !turn.ownerGeneration
-    ) {
-      throw new OwnerPurgeFenceError();
-    }
-    return {
-      schemaVersion: 1,
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      generation: turn.ownerPurgeGeneration,
-      leaseId: turn.ownerPurgeLeaseId,
-      sessionId: this.ctx.id.toString(),
-      turnId: turn.turnId,
-    };
-  }
-
-  private async callOwnerTurnState<T>(
+  /** @see src/build-session/session-core.ts */
+  private callOwnerTurnState<T>(
     turn: TurnRequest,
     path:
       | "prepare"
@@ -2495,23 +2166,7 @@ export class BuildSession extends DurableObject<Env> {
       | "drain",
     body: Record<string, unknown>,
   ): Promise<T> {
-    const response = await this.callOwnerFence(
-      turn.ownerId,
-      `turn-state/${path}`,
-      { ...body, ...this.ownerTurnStateEnvelope(turn) },
-    );
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > 256 * 1024) {
-      throw new Error("Turn state owner response exceeded its bound.");
-    }
-    if (!response.ok) throw new TurnStateOwnerCallError(response.status);
-    try {
-      return JSON.parse(text) as T;
-    } catch (error) {
-      throw new Error("Turn state owner response was invalid.", {
-        cause: error,
-      });
-    }
+    return callOwnerTurnState(this.self, turn, path, body);
   }
 
   private async resolveAgentTurnState(
@@ -3810,20 +3465,9 @@ export class BuildSession extends DurableObject<Env> {
     return receipt;
   }
 
-  private async registerTurn(
-    turn: TurnRequest,
-    freshLease = false,
-  ): Promise<string> {
-    const kind = freshLease ? "aux" : "run";
-    const slotKey = await this.ownerFenceLeaseSlotKey(turn, kind);
-    const grant = await this.registerBuildOwnerFenceLease({
-      turn,
-      kind,
-      slotKey,
-      role: kind,
-      mutateTurn: true,
-    });
-    return grant.generation;
+  /** @see src/build-session/session-core.ts */
+  private registerTurn(turn: TurnRequest, freshLease = false): Promise<string> {
+    return registerTurn(this.self, turn, freshLease);
   }
 
   private ownerFenceReceiptMatches(
@@ -4040,86 +3684,18 @@ export class BuildSession extends DurableObject<Env> {
     };
   }
 
-  private async unregisterTurn(turn: TurnRequest): Promise<void> {
-    if (!turn.ownerPurgeLeaseId) return;
-    const hasTransientWrites =
-      Boolean(
-        await this.ctx.storage.get<string>(`transientBuild:${turn.turnId}`),
-      ) ||
-      Boolean(
-        await this.ctx.storage.get<NativeTransientBackup>(
-          nativeTransientBackupKey(turn.turnId),
-        ),
-      ) ||
-      (turn.kind === "agent" &&
-        (Boolean(
-          await this.ctx.storage.get<AgentExecutionMarker>(
-            agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
-          ),
-        ) ||
-          Boolean(
-            await this.ctx.storage.get<BuilderFallbackTranscript>(
-              builderFallbackTranscriptKey(
-                turn.turnId,
-                turn.attemptGeneration!,
-              ),
-            ),
-          )));
-    if (hasTransientWrites) {
-      try {
-        // A callback whose response was lost may already have committed the
-        // row that names a build. Preserve it during ordinary operation. Once
-        // purge changes the generation, the turn's lease stays active until
-        // these otherwise-unnameable bytes are verifiably gone.
-        await this.assertTurnWritable(turn);
-        return;
-      } catch (error) {
-        if (!(error instanceof OwnerPurgeFenceError)) return;
-        try {
-          await this.cleanupTransientWrites(turn);
-        } catch (cleanupError) {
-          log("error", "owner_purge_transient_cleanup_failed", {
-            turnId: turn.turnId,
-            message: errorMessage(cleanupError),
-          });
-          return;
-        }
-      }
-    }
-    await this.unregisterTurnLease(
-      turn,
-      turn.ownerPurgeLeaseId,
-      turn.ownerPurgeGeneration,
-    );
+  /** @see src/build-session/session-core.ts */
+  private unregisterTurn(turn: TurnRequest): Promise<void> {
+    return unregisterTurn(this.self, turn);
   }
 
-  private async unregisterTurnLease(
+  /** @see src/build-session/session-core.ts */
+  private unregisterTurnLease(
     turn: TurnRequest,
     leaseId: string,
     generation?: string,
   ): Promise<boolean> {
-    const key = buildOwnerFenceLeaseReceiptKey(leaseId);
-    let receipt = await this.ctx.storage.get<BuildOwnerFenceLeaseReceipt>(key);
-    if (receipt && !this.ownerFenceReceiptMatches(receipt, turn, leaseId)) {
-      throw new OwnerPurgeFenceError();
-    }
-    if (!receipt) {
-      const now = Date.now();
-      receipt = {
-        schemaVersion: 1,
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        turnId: turn.turnId,
-        leaseId,
-        kind: "run",
-        phase: "unregister_pending",
-        ...(generation ? { registrationGeneration: generation } : {}),
-        createdAt: now,
-        updatedAt: now,
-      };
-      await this.ctx.storage.put(key, receipt);
-    }
-    return await this.retireBuildOwnerFenceLease(receipt, generation);
+    return unregisterTurnLease(this.self, turn, leaseId, generation);
   }
 
   private async retireBuildOwnerFenceLease(
@@ -4190,213 +3766,34 @@ export class BuildSession extends DurableObject<Env> {
     return true;
   }
 
-  private async appendNativeBackupDebt(
-    workspaceKey: string,
-    backupId: string,
-  ): Promise<void> {
-    if (!BACKUP_ID_PATTERN.test(backupId)) {
-      throw new Error("Invalid transient native backup id.");
-    }
-    const debtKey = nativeBackupDebtKey(workspaceKey);
-    const existing = (await this.env.APP_ROUTES.get<WorkspaceBackupDebt>(
-      debtKey,
-      "json",
-    )) ?? { backupIds: [] };
-    const backupIds = [...new Set([...existing.backupIds, backupId])];
-    if (backupIds.length > 100) {
-      throw new Error("Native backup cleanup debt is too large.");
-    }
-    await this.env.APP_ROUTES.put(
-      debtKey,
-      JSON.stringify({ backupIds } satisfies WorkspaceBackupDebt),
-    );
+  /** @see src/build-session/session-core.ts */
+  private sweepNativeBackupDebt(workspaceKey: string): Promise<void> {
+    return sweepNativeBackupDebt(this.self, workspaceKey);
   }
 
-  private async sweepNativeBackupDebt(workspaceKey: string): Promise<void> {
-    const debtKey = nativeBackupDebtKey(workspaceKey);
-    const debt = await this.env.APP_ROUTES.get<WorkspaceBackupDebt>(
-      debtKey,
-      "json",
-    );
-    if (!debt?.backupIds.length) return;
-    const referenced = new Set<string>();
-    let cursor: string | undefined;
-    let listingComplete = false;
-    for (let page = 0; page < R2_SWEEP_MAX_PAGES; page += 1) {
-      const listing = await this.env.APP_ROUTES.list({
-        prefix: nativeStateCheckpointPrefix(workspaceKey),
-        limit: 1_000,
-        ...(cursor ? { cursor } : {}),
-      });
-      for (const entry of listing.keys) {
-        const raw = await this.env.APP_ROUTES.get<unknown>(entry.name, "json");
-        const record = raw ? parseNativeStateCheckpointRecord(raw) : null;
-        if (!record) continue;
-        for (const version of [
-          ...(record.committed ? [record.committed] : []),
-          ...record.candidates,
-        ]) {
-          referenced.add(version.descriptor.id);
-        }
-      }
-      if (listing.list_complete) {
-        listingComplete = true;
-        break;
-      }
-      cursor = listing.cursor;
-      if (!cursor) break;
-    }
-    if (!listingComplete) {
-      throw new Error("Native checkpoint reference listing was truncated.");
-    }
-
-    const remaining: string[] = [];
-    for (const backupId of debt.backupIds) {
-      if (!BACKUP_ID_PATTERN.test(backupId) || referenced.has(backupId)) {
-        remaining.push(backupId);
-        continue;
-      }
-      try {
-        const swept = await sweepR2Prefix(
-          this.env.BACKUP_BUCKET,
-          `backups/${backupId}/`,
-        );
-        if (!swept.done) remaining.push(backupId);
-      } catch {
-        remaining.push(backupId);
-      }
-    }
-    if (remaining.length > 0) {
-      await this.env.APP_ROUTES.put(
-        debtKey,
-        JSON.stringify({ backupIds: remaining } satisfies WorkspaceBackupDebt),
-      );
-    } else {
-      await this.env.APP_ROUTES.delete(debtKey);
-    }
+  /** @see src/build-session/session-core.ts */
+  private settleAgentTransientBackup(turn: TurnRequest): Promise<boolean> {
+    return settleAgentTransientBackup(this.self, turn);
   }
 
-  private async settleNativeTransientBackup(
-    turn: TurnRequest,
-  ): Promise<boolean> {
-    const markerKey = nativeTransientBackupKey(turn.turnId);
-    const marker = await this.ctx.storage.get<NativeTransientBackup>(markerKey);
-    if (!marker) return true;
-    if (
-      !BACKUP_ID_PATTERN.test(marker.backupId) ||
-      !marker.checkpointKey.startsWith(
-        nativeStateCheckpointPrefix(marker.workspaceKey),
-      )
-    ) {
-      log("error", "native_transient_backup_marker_invalid", {
-        turnId: turn.turnId,
-      });
-      return false;
-    }
-    const raw = await this.env.APP_ROUTES.get<unknown>(
-      marker.checkpointKey,
-      "json",
-    );
-    const record = raw ? parseNativeStateCheckpointRecord(raw) : null;
-    const referenced = record
-      ? [
-          ...(record.committed ? [record.committed] : []),
-          ...record.candidates,
-        ].some((version) => version.descriptor.id === marker.backupId)
-      : false;
-    try {
-      if (!referenced) {
-        await this.appendNativeBackupDebt(marker.workspaceKey, marker.backupId);
-      }
-      await this.ctx.storage.delete(markerKey);
-      return true;
-    } catch (error) {
-      log("error", "native_transient_backup_settlement_failed", {
-        turnId: turn.turnId,
-        message: errorMessage(error),
-      });
-      return false;
-    }
+  /** @see src/build-session/session-core.ts */
+  private cleanupTransientWrites(turn: TurnRequest): Promise<void> {
+    return cleanupTransientWrites(this.self, turn);
   }
 
-  private async settleAgentTransientBackup(
-    turn: TurnRequest,
-  ): Promise<boolean> {
-    return await this.settleNativeTransientBackup(turn);
+  /** @see src/build-session/session-core.ts */
+  private cleanupOwnerPurgedTurnStorage(turn: TurnRequest): Promise<boolean> {
+    return cleanupOwnerPurgedTurnStorage(this.self, turn);
   }
 
-  private async cleanupTransientWrites(turn: TurnRequest): Promise<void> {
-    const buildKey = `transientBuild:${turn.turnId}`;
-    const nativeMarker = await this.ctx.storage.get<NativeTransientBackup>(
-      nativeTransientBackupKey(turn.turnId),
-    );
-    const buildPrefix = await this.ctx.storage.get<string>(buildKey);
-    if (nativeMarker) {
-      if (!BACKUP_ID_PATTERN.test(nativeMarker.backupId)) {
-        throw new Error("Transient native backup descriptor is invalid.");
-      }
-      const swept = await sweepR2Prefix(
-        this.env.BACKUP_BUCKET,
-        `backups/${nativeMarker.backupId}/`,
-      );
-      if (!swept.done) {
-        throw new Error("Transient native backup cleanup was truncated.");
-      }
-      await this.ctx.storage.delete(nativeTransientBackupKey(turn.turnId));
-    }
-    if (buildPrefix) {
-      const retired = await retireTransientAppBuild({
-        sweep: async () =>
-          await sweepR2Prefix(this.env.APP_BUILDS, `${buildPrefix}/`),
-        clearRecovery: async () => {
-          await this.ctx.storage.delete(buildKey);
-        },
-      });
-      if (!retired) throw new Error("Transient build cleanup was truncated.");
-    }
+  /** @see src/build-session/session-core.ts */
+  private settleTerminalTransientWrites(turn: TurnRequest): Promise<boolean> {
+    return settleTerminalTransientWrites(this.self, turn);
   }
 
-  /** Shared by alarm and live-unwind owner-fence loss paths. */
-  private async cleanupOwnerPurgedTurnStorage(
-    turn: TurnRequest,
-  ): Promise<boolean> {
-    await this.cleanupTransientWrites(turn);
-    if (!(await this.ownsExactTurn(turn))) return false;
-    return await this.deleteTurnStoragePreservingExactCancellations(turn, true);
-  }
-
-  private async settleTerminalTransientWrites(
-    turn: TurnRequest,
-  ): Promise<boolean> {
-    if (turn.kind === "agent") {
-      return await this.settleAgentTransientBackup(turn);
-    }
-    try {
-      await this.cleanupTransientWrites(turn);
-      return true;
-    } catch (error) {
-      log("error", "terminal_transient_cleanup_failed", {
-        turnId: turn.turnId,
-        message: errorMessage(error),
-      });
-      return false;
-    }
-  }
-
-  /**
-   * Durable app-turn state is the only name for transient backup/build bytes.
-   * Never erase it until every named prefix is empty; an alarm retains the
-   * owner lease and retries cleanup after a partial R2 failure.
-   */
-  private async retireTerminalAppTurnStorage(turn: TurnRequest): Promise<void> {
-    if (!(await this.ownsExactTurn(turn))) return;
-    if (await this.settleTerminalTransientWrites(turn)) {
-      await this.deleteTurnStoragePreservingExactCancellations(turn, true);
-      return;
-    }
-    if (await this.ownsExactTurn(turn)) {
-      await this.ctx.storage.setAlarm(Date.now() + 30_000);
-    }
+  /** @see src/build-session/session-core.ts */
+  private retireTerminalAppTurnStorage(turn: TurnRequest): Promise<void> {
+    return retireTerminalAppTurnStorage(this.self, turn);
   }
 
   private async cancelForOwnerPurge(request: Request): Promise<Response> {
@@ -4541,129 +3938,51 @@ export class BuildSession extends DurableObject<Env> {
       : json({ error: "Owner lease retirement is pending." }, 409);
   }
 
-  private async redeliverOrphan(
+  /** @see src/build-session/session-core.ts */
+  private redeliverOrphan(
     turn: TurnRequest,
     pending: PendingTerminal,
   ): Promise<void> {
-    try {
-      turn.ownerPurgeGeneration = await this.registerTurn(turn, true);
-      await this.assertTurnWritable(turn);
-      await this.deliverTerminal(turn, pending);
-    } catch (error) {
-      if (!(error instanceof OwnerPurgeFenceError)) throw error;
-    } finally {
-      await this.unregisterTurn(turn);
-    }
+    return redeliverOrphan(this.self, turn, pending);
   }
 
-  private async assertTurnWritable(turn: TurnRequest): Promise<void> {
-    if (
-      !turn.ownerGeneration ||
-      !turn.ownerPurgeGeneration ||
-      !turn.ownerPurgeLeaseId
-    ) {
-      throw new OwnerPurgeFenceError();
-    }
-    const response = await this.callOwnerFence(turn.ownerId, "assert", {
-      ownerGeneration: turn.ownerGeneration,
-      generation: turn.ownerPurgeGeneration,
-      leaseId: turn.ownerPurgeLeaseId,
-    });
-    if (!response.ok) throw new OwnerPurgeFenceError();
+  /** @see src/build-session/session-core.ts */
+  private assertTurnWritable(turn: TurnRequest): Promise<void> {
+    return assertTurnWritable(this.self, turn);
   }
 
-  private async assertAgentTurnActive(turn: TurnRequest): Promise<void> {
-    await this.assertTurnWritable(turn);
-    if (
-      !(await this.ownsExactTurn(turn)) ||
-      (await this.ctx.storage.get<boolean>("terminal"))
-    ) {
-      throw new Error("The agent turn is no longer active.");
-    }
-  }
-
-  /**
-   * The turn's own identity, which is now the only authority there is.
-   *
-   * Convex used to be asked, on every side effect, whether this attempt was
-   * still the live one (`/api/cloud/agent-turn-authority`, resolved against a
-   * reusable turn token). That question is answered locally now: the owner
-   * gate admitted the attempt, this object holds the attempt, and its
-   * capability is signed and bound to it. What remains is the structural
-   * check — a record that cannot name a thread and an attempt is not a turn.
-   */
+  /** @see src/build-session/session-core.ts */
   private assertAgentTurnIdentity(turn: TurnRequest): void {
-    if (
-      turn.kind !== "agent" ||
-      !turn.threadId ||
-      !turn.conversationId ||
-      !Number.isSafeInteger(turn.attemptGeneration) ||
-      turn.attemptGeneration! < 1
-    ) {
-      throw new AgentTurnAuthorityLostError();
-    }
+    return assertAgentTurnIdentity(this.self, turn);
   }
 
-  /** The app-build lane's equivalent of `assertAgentTurnIdentity`. */
+  /** @see src/build-session/session-core.ts */
   private assertAppTurnIdentity(turn: TurnRequest): void {
-    if (
-      turn.kind === "agent" ||
-      !turn.appId ||
-      !turn.conversationId ||
-      !turn.sessionId
-    ) {
-      throw new AppTurnAuthorityLostError();
-    }
+    return assertAppTurnIdentity(this.self, turn);
   }
 
-  /**
-   * This thread's transcript, from this object's own SQLite.
-   *
-   * It used to be a `GET /api/cloud/context` on the continuation's critical
-   * path, which made Convex the authority for rows only this object ever
-   * writes and put a control-plane round trip in front of every send_input.
-   */
+  /** @see src/build-session/session-core.ts */
   private fetchCanonicalAgentHistory(
     turn: TurnRequest,
     options: { excludeCurrentTurn: boolean; signal?: AbortSignal },
   ): AgentHistoryRow[] {
-    options.signal?.throwIfAborted();
-    if (!turn.threadId) return [];
-    return readThreadHistory(this.ctx.storage.sql, {
-      ...(options.excludeCurrentTurn ? { excludeTurnId: turn.turnId } : {}),
-    });
+    return fetchCanonicalAgentHistory(this.self, turn, options);
   }
 
-  private async assertAgentExecutionActive(
+  /** @see src/build-session/session-core.ts */
+  private assertAgentExecutionActive(
     turn: TurnRequest,
     execution: TurnExecutionContext,
   ): Promise<void> {
-    execution.assertActive();
-    await this.assertAgentTurnActive(turn);
-    this.assertAgentTurnIdentity(turn);
-    // Stop can land while the durable owner/turn checks await remote storage.
-    // Repeat the local fiber latch immediately before the caller's side effect.
-    execution.assertActive();
+    return assertAgentExecutionActive(this.self, turn, execution);
   }
 
-  private async assertAppTurnActive(turn: TurnRequest): Promise<void> {
-    await this.assertTurnWritable(turn);
-    if (
-      !(await this.ownsExactTurn(turn)) ||
-      (await this.ctx.storage.get<boolean>("terminal"))
-    ) {
-      throw new Error("The app-build turn is no longer active.");
-    }
-  }
-
-  private async assertAppExecutionActive(
+  /** @see src/build-session/session-core.ts */
+  private assertAppExecutionActive(
     turn: TurnRequest,
     execution: TurnExecutionContext,
   ): Promise<void> {
-    execution.assertActive();
-    await this.assertAppTurnActive(turn);
-    // Owner purge can land while the durable fence read is in flight.
-    execution.assertActive();
+    return assertAppExecutionActive(this.self, turn, execution);
   }
 
   private sandbox(
@@ -4858,23 +4177,9 @@ export class BuildSession extends DurableObject<Env> {
     );
   }
 
-  /** Keep the one DO alarm at the earliest lease, teardown, or receipt debt. */
-  private async scheduleDurabilityAlarm(): Promise<void> {
-    await this.scheduleSandboxDestroyDebtAlarm();
-    if (await this.hasOwnerFenceLeaseRetirementDebt()) {
-      await this.armOwnerFenceLeaseReconciliationAlarm();
-    }
-    // Deferred projections are durability debt like any other: without a wake
-    // a queue outage would strand a terminal state Convex never hears about.
-    const outboxDebt =
-      await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
-    if (outboxDebt && outboxDebt.length > 0) {
-      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > retryAt) {
-        await this.ctx.storage.setAlarm(retryAt);
-      }
-    }
+  /** @see src/build-session/session-core.ts */
+  private scheduleDurabilityAlarm(): Promise<void> {
+    return scheduleDurabilityAlarm(this.self);
   }
 
   /**
@@ -5629,43 +4934,28 @@ export class BuildSession extends DurableObject<Env> {
     return "completed";
   }
 
-  // The detached agent-turn promise and the alarm share this DO's storage;
-  // a stale turn (superseded by a send_input continuation on the same
-  // thread) must never mutate the successor's state or complete its thread.
-  private async ownsExactTurn(turn: TurnRequest): Promise<boolean> {
-    return exactTurnIdentityMatches(
-      await this.ctx.storage.get<TurnRequest>("turn"),
-      turn,
-    );
+  /** @see src/build-session/session-core.ts */
+  private ownsExactTurn(turn: TurnRequest): Promise<boolean> {
+    return ownsExactTurn(this.self, turn);
   }
 
-  private async mutateExactTurn(
+  /** @see src/build-session/session-core.ts */
+  private mutateExactTurn(
     turn: TurnRequest,
     operation: (txn: DurableObjectTransaction) => Promise<void>,
   ): Promise<boolean> {
-    return await this.ctx.storage.transaction(async (txn) => {
-      if (!exactTurnIdentityMatches(await txn.get<TurnRequest>("turn"), turn)) {
-        return false;
-      }
-      await operation(txn);
-      return true;
-    });
+    return mutateExactTurn(this.self, turn, operation);
   }
 
-  private async setExactTurnAlarm(
+  /** @see src/build-session/session-core.ts */
+  private setExactTurnAlarm(
     turn: TurnRequest,
     scheduledTime: number,
   ): Promise<boolean> {
-    return await this.mutateExactTurn(turn, async (txn) => {
-      await txn.setAlarm(scheduledTime);
-    });
+    return setExactTurnAlarm(this.self, turn, scheduledTime);
   }
 
-  /**
-   * The positional shape every call site in this file already uses. `"auto"`
-   * takes the next DO-assigned ordinal; an explicit number is an idempotent
-   * retry of an ordinal this turn already reserved.
-   */
+  /** @see src/build-session/session-core.ts */
   private event(
     turn: TurnRequest,
     seq: number | "auto",
@@ -5674,11 +4964,15 @@ export class BuildSession extends DurableObject<Env> {
     terminal = false,
     executionSignal?: AbortSignal,
   ): Promise<number> {
-    return this.emitTurnEvent(turn, kind, payload, {
+    return event(
+      this.self,
+      turn,
+      seq,
+      kind,
+      payload,
       terminal,
-      ...(seq === "auto" ? {} : { eventSeq: seq }),
-      ...(executionSignal ? { signal: executionSignal } : {}),
-    });
+      executionSignal,
+    );
   }
 
   /**
@@ -11995,10 +11289,6 @@ const beginOwnerPurge = async (
   throw new Error("Owner cloud turns did not quiesce before purge.");
 };
 
-/** Pages of 1000 keys per bucket prefix. 10M objects is not a real owner. */
-const R2_SWEEP_MAX_PAGES = 10_000;
-/** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
-const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 /** The slug a hosted app route is keyed by. */
 const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**
@@ -12011,35 +11301,6 @@ const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const LEGACY_BUILD_PREFIX_PATTERN = /^builds\/[A-Za-z0-9_-]{1,64}$/;
 const INTERIOR_BUILD_PREFIX_PATTERN =
   /^interiors\/[0-9a-f]{64}\/interior-[0-9a-f]{48}$/;
-
-/**
- * Delete every object under `prefix`. Bounded: `list` is cursor-paged at 1000
- * and each page is deleted before the next is fetched, so neither memory nor
- * the delete batch grows with the owner's history. `done: false` means the
- * sweep ran out of pages and the caller must ask again.
- */
-const sweepR2Prefix = async (
-  bucket: R2Bucket,
-  prefix: string,
-): Promise<{ deleted: number; done: boolean }> => {
-  let deleted = 0;
-  let cursor: string | undefined;
-  for (let page = 0; page < R2_SWEEP_MAX_PAGES; page += 1) {
-    const listing = await bucket.list({
-      prefix,
-      limit: 1000,
-      ...(cursor ? { cursor } : {}),
-    });
-    const keys = listing.objects.map((object) => object.key);
-    if (keys.length > 0) {
-      await bucket.delete(keys);
-      deleted += keys.length;
-    }
-    if (!listing.truncated) return { deleted, done: true };
-    cursor = listing.cursor;
-  }
-  return { deleted, done: false };
-};
 
 /**
  * Backfill for checkpoints written before cleanup debt existed. The sandbox

@@ -143,21 +143,11 @@ export interface BuildSessionInternals {
   ): Promise<void>;
   abortResidentAgent(turn: TurnRequest): void;
   startAppTurn(turn: TurnRequest): Promise<Response>;
-  ownerFence(ownerId: string): DurableObjectStub<OwnerGate>;
   callOwnerFence(
     ownerId: string,
     path: string,
     body: Record<string, unknown>,
   ): Promise<Response>;
-  ownerTurnStateEnvelope(turn: TurnRequest): {
-    schemaVersion: 1;
-    ownerId: string;
-    ownerGeneration: string;
-    generation: string;
-    leaseId: string;
-    sessionId: string;
-    turnId: string;
-  };
   callOwnerTurnState<T>(
     turn: TurnRequest,
     path:
@@ -288,9 +278,7 @@ export interface BuildSessionInternals {
     receipt: BuildOwnerFenceLeaseReceipt,
     generation?: string | undefined,
   ): Promise<boolean>;
-  appendNativeBackupDebt(workspaceKey: string, backupId: string): Promise<void>;
   sweepNativeBackupDebt(workspaceKey: string): Promise<void>;
-  settleNativeTransientBackup(turn: TurnRequest): Promise<boolean>;
   settleAgentTransientBackup(turn: TurnRequest): Promise<boolean>;
   cleanupTransientWrites(turn: TurnRequest): Promise<void>;
   cleanupOwnerPurgedTurnStorage(turn: TurnRequest): Promise<boolean>;
@@ -299,7 +287,6 @@ export interface BuildSessionInternals {
   cancelForOwnerPurge(request: Request): Promise<Response>;
   redeliverOrphan(turn: TurnRequest, pending: PendingTerminal): Promise<void>;
   assertTurnWritable(turn: TurnRequest): Promise<void>;
-  assertAgentTurnActive(turn: TurnRequest): Promise<void>;
   assertAgentTurnIdentity(turn: TurnRequest): void;
   assertAppTurnIdentity(turn: TurnRequest): void;
   fetchCanonicalAgentHistory(
@@ -310,7 +297,6 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     execution: TurnExecutionContext,
   ): Promise<void>;
-  assertAppTurnActive(turn: TurnRequest): Promise<void>;
   assertAppExecutionActive(
     turn: TurnRequest,
     execution: TurnExecutionContext,

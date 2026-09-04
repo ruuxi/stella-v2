@@ -15,6 +15,13 @@ export const GENERAL_AGENT_EGRESS_ALLOWED_PORTS = [80, 443, 22] as const;
 const EGRESS_RATE_WINDOW_MS = 60_000;
 const EGRESS_STATE_RETENTION_MS = 60 * 60_000;
 
+/**
+ * This outbound fetch handler only observes HTTP(S) requests routed to it by
+ * the Sandbox SDK. It is not a firewall for non-HTTP traffic: port 22 remains
+ * enabled for legitimate Git SSH traffic and is outside this byte/rate meter.
+ * Quota state is isolate-local and intentionally not described as durable.
+ */
+
 type EgressRefusalReason = NonNullable<EgressDestinationTelemetry["reason"]>;
 type EgressDecision =
   | { decision: "allow"; reason?: never }
@@ -38,8 +45,11 @@ type GeneralAgentEgressDeps = {
 
 type ContainerEgressState = {
   responseBytes: number;
+  reservedResponseBytes: number;
   requestTimes: number[];
   lastSeenAt: number;
+  inFlightRequests: number;
+  activeResponses: number;
 };
 
 /**
@@ -109,42 +119,101 @@ const boundedContentLength = (response: Response): number | null => {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 };
 
+const cancelBestEffort = (cancel: () => Promise<void>): void => {
+  try {
+    // Refusal must not wait for a broken upstream cancellation handshake.
+    // Attach a rejection handler so fire-and-forget cancellation stays quiet.
+    void cancel().catch(() => undefined);
+  } catch {
+    // Some implementations can throw synchronously (for example if locked).
+  }
+};
+
 const meteredResponse = (args: {
   request: Request;
   response: Response;
   state: ContainerEgressState;
   budgetBytes: number;
+  reservedBytes: number;
+  now: () => number;
 }): Response => {
   if (!args.response.body) return args.response;
   const reader = args.response.body.getReader();
-  let budgetTelemetrySent = false;
+  let remainingReservation = args.reservedBytes;
+  let finished = false;
+  args.state.activeResponses += 1;
+
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    args.state.reservedResponseBytes -= remainingReservation;
+    remainingReservation = 0;
+    args.state.activeResponses -= 1;
+    args.state.lastSeenAt = args.now();
+  };
+  const refuseChunk = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): void => {
+    // Saturate accounting at the cap. A transport may already have received
+    // this one chunk, but none of the chunk is exposed to the sandbox.
+    const available = Math.max(
+      0,
+      args.budgetBytes -
+        args.state.responseBytes -
+        args.state.reservedResponseBytes,
+    );
+    args.state.responseBytes += available;
+    emitDestinationTelemetry(args.request, {
+      workload: "agent",
+      phase: "broad",
+      decision: "deny",
+      reason: "egress_budget",
+    });
+    finish();
+    cancelBestEffort(() => reader.cancel("isolate_local_egress_budget"));
+    controller.error(
+      new Error(
+        "This worker isolate's tracked download budget for the container is exhausted; it resets after one hour without egress activity.",
+      ),
+    );
+  };
+
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const part = await reader.read();
+        args.state.lastSeenAt = args.now();
         if (part.done) {
+          finish();
           controller.close();
           return;
         }
-        args.state.responseBytes += part.value.byteLength;
-        if (
-          args.state.responseBytes > args.budgetBytes &&
-          !budgetTelemetrySent
-        ) {
-          budgetTelemetrySent = true;
-          emitDestinationTelemetry(args.request, {
-            workload: "agent",
-            phase: "broad",
-            decision: "deny",
-            reason: "egress_budget",
-          });
+
+        const coveredByReservation = Math.min(
+          remainingReservation,
+          part.value.byteLength,
+        );
+        remainingReservation -= coveredByReservation;
+        args.state.reservedResponseBytes -= coveredByReservation;
+        const available = Math.max(
+          0,
+          args.budgetBytes -
+            args.state.responseBytes -
+            args.state.reservedResponseBytes,
+        );
+        if (part.value.byteLength > available) {
+          refuseChunk(controller);
+          return;
         }
+        args.state.responseBytes += part.value.byteLength;
         controller.enqueue(part.value);
       } catch (error) {
+        finish();
         controller.error(error);
       }
     },
     async cancel(reason) {
+      finish();
       await reader.cancel(reason);
     },
   });
@@ -156,8 +225,10 @@ const meteredResponse = (args: {
 };
 
 /**
- * Stateful policy factory. Production keys state by `ctx.containerId`, which
- * is Stella's owner-world sandbox id. Tests inject small limits and a clock.
+ * Stateful policy factory. Production keys an isolate-local Map by
+ * `ctx.containerId`, Stella's owner-world sandbox id. Idle entries reset after
+ * one hour when a later request sweeps them; this is not a durable quota.
+ * Tests inject small limits and a clock.
  */
 export const createGeneralAgentEgress = (
   overrides: Partial<GeneralAgentEgressDeps> = {},
@@ -180,13 +251,25 @@ export const createGeneralAgentEgress = (
   return async (request, _env, context): Promise<Response> => {
     const now = deps.now();
     for (const [id, state] of containers) {
-      if (state.lastSeenAt < now - EGRESS_STATE_RETENTION_MS)
+      if (
+        state.inFlightRequests === 0 &&
+        state.activeResponses === 0 &&
+        state.lastSeenAt <= now - EGRESS_STATE_RETENTION_MS
+      ) {
         containers.delete(id);
+      }
     }
     const containerId = context?.containerId.trim() || "unscoped";
     let state = containers.get(containerId);
     if (!state) {
-      state = { responseBytes: 0, requestTimes: [], lastSeenAt: now };
+      state = {
+        responseBytes: 0,
+        reservedResponseBytes: 0,
+        requestTimes: [],
+        lastSeenAt: now,
+        inFlightRequests: 0,
+        activeResponses: 0,
+      };
       containers.set(containerId, state);
     }
     state.lastSeenAt = now;
@@ -203,12 +286,15 @@ export const createGeneralAgentEgress = (
         "That destination port is not allowed.",
       );
     }
-    if (state.responseBytes >= deps.limits.budgetBytes) {
+    if (
+      state.responseBytes + state.reservedResponseBytes >=
+      deps.limits.budgetBytes
+    ) {
       return refusal(
         request,
         403,
         "egress_budget",
-        "This container's network download budget is used up.",
+        "This worker isolate's tracked download budget for the container is used up; it resets after one hour without egress activity.",
       );
     }
 
@@ -220,7 +306,7 @@ export const createGeneralAgentEgress = (
         request,
         429,
         "connection_rate",
-        "This turn is opening network connections too quickly.",
+        "This container has reached this worker isolate's rolling one-minute HTTP request limit.",
       );
     }
     state.requestTimes.push(now);
@@ -231,25 +317,43 @@ export const createGeneralAgentEgress = (
       decision: "allow",
     });
     // Preserve streaming request bodies and Cloudflare's native fetch semantics.
-    const response = await deps.fetch(request);
+    // An attempted fetch consumes a rate slot even if the upstream later fails.
+    // This prevents retry storms from bypassing the connection-rate guard.
+    state.inFlightRequests += 1;
+    let response: Response;
+    try {
+      response = await deps.fetch(request);
+    } finally {
+      state.inFlightRequests -= 1;
+      state.lastSeenAt = deps.now();
+    }
+    if (!response.body) return response;
+
     const declaredBytes = boundedContentLength(response);
     if (
       declaredBytes !== null &&
-      state.responseBytes + declaredBytes > deps.limits.budgetBytes
+      state.responseBytes + state.reservedResponseBytes + declaredBytes >
+        deps.limits.budgetBytes
     ) {
-      await response.body?.cancel("egress_budget");
+      cancelBestEffort(() =>
+        response.body!.cancel("isolate_local_egress_budget"),
+      );
       return refusal(
         request,
         403,
         "egress_budget",
-        "This response would exceed the turn's network download budget.",
+        "This response would exceed this worker isolate's tracked download budget for the container; it resets after one hour without egress activity.",
       );
     }
+    const reservedBytes = declaredBytes ?? 0;
+    state.reservedResponseBytes += reservedBytes;
     return meteredResponse({
       request,
       response,
       state,
       budgetBytes: deps.limits.budgetBytes,
+      reservedBytes,
+      now: deps.now,
     });
   };
 };

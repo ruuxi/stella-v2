@@ -123,68 +123,238 @@ describe("sandbox egress policy", () => {
     expect(fetchCalls).toBe(3);
   });
 
-  test("connection rate is capped per container and rolls after one minute", async () => {
+  test("connection rate is reserved before concurrent fetches and uses a rolling minute", async () => {
     let now = 10_000;
+    let releaseFetches!: () => void;
+    const fetchGate = new Promise<void>((resolve) => {
+      releaseFetches = resolve;
+    });
     let fetchCalls = 0;
     const policy = createGeneralAgentEgress({
       fetch: async () => {
         fetchCalls += 1;
+        await fetchGate;
         return new Response(null, { status: 204 });
       },
       now: () => now,
       limits: { budgetBytes: 1_000, requestsPerMinute: 2 },
     });
     const request = () => new Request("https://example.com/rate");
+    const context = { containerId: "world-a" };
 
-    expect(
-      (await policy(request(), undefined, { containerId: "world-a" })).status,
-    ).toBe(204);
-    expect(
-      (await policy(request(), undefined, { containerId: "world-a" })).status,
-    ).toBe(204);
-    expect(
-      (await policy(request(), undefined, { containerId: "world-a" })).status,
-    ).toBe(429);
-    expect(
-      (await policy(request(), undefined, { containerId: "world-b" })).status,
-    ).toBe(204);
+    const first = policy(request(), undefined, context);
+    const second = policy(request(), undefined, context);
+    const refused = await policy(request(), undefined, context);
+    expect(refused.status).toBe(429);
+    expect(await refused.text()).toContain(
+      "worker isolate's rolling one-minute",
+    );
+    expect(fetchCalls).toBe(2);
 
-    now += 60_001;
-    expect(
-      (await policy(request(), undefined, { containerId: "world-a" })).status,
-    ).toBe(204);
-    expect(fetchCalls).toBe(4);
+    releaseFetches();
+    expect((await first).status).toBe(204);
+    expect((await second).status).toBe(204);
+    now += 60_000;
+    expect((await policy(request(), undefined, context)).status).toBe(204);
+    expect(fetchCalls).toBe(3);
   });
 
-  test("response bytes exhaust a per-container budget and emit egress_budget telemetry", async () => {
-    const events: string[] = [];
-    console.log = (value?: unknown) => events.push(String(value));
+  test("known-length refusal does not wait for never-settling cancellation", async () => {
+    const cancellations: unknown[] = [];
     const policy = createGeneralAgentEgress({
-      fetch: async () => new Response("abc"),
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.enqueue(new Uint8Array(4));
+              controller.close();
+            },
+            cancel(reason) {
+              cancellations.push(reason);
+              return new Promise<void>(() => {});
+            },
+          }),
+          { headers: { "content-length": "4" } },
+        ),
+      limits: { budgetBytes: 6, requestsPerMinute: 120 },
+    });
+    const request = () => new Request("https://example.com/known");
+    const context = { containerId: "world-a" };
+
+    const [first, second] = await Promise.all([
+      policy(request(), undefined, context),
+      policy(request(), undefined, context),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([200, 403]);
+    expect(cancellations).toEqual(["isolate_local_egress_budget"]);
+    const allowed = first.status === 200 ? first : second;
+    expect((await allowed.arrayBuffer()).byteLength).toBe(4);
+  });
+
+  test("chunked refusal errors immediately when cancellation never settles", async () => {
+    const events: string[] = [];
+    const cancellations: unknown[] = [];
+    console.log = (value?: unknown) => events.push(String(value));
+    let chunk = 0;
+    let now = 20_000;
+    const policy = createGeneralAgentEgress({
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(chunk++ === 0 ? "abc" : "def"),
+              );
+            },
+            cancel(reason) {
+              cancellations.push(reason);
+              return new Promise<void>(() => {});
+            },
+          }),
+        ),
+      now: () => now,
       limits: { budgetBytes: 5, requestsPerMinute: 120 },
     });
-    const request = () => new Request("https://example.com/download");
+    const response = await policy(
+      new Request("https://example.com/chunked"),
+      undefined,
+      { containerId: "world-a" },
+    );
+    const reader = response.body!.getReader();
 
-    const first = await policy(request(), undefined, {
-      containerId: "world-a",
-    });
-    expect(await first.text()).toBe("abc");
-    const second = await policy(request(), undefined, {
-      containerId: "world-a",
-    });
-    expect(await second.text()).toBe("abc");
-    const refused = await policy(request(), undefined, {
-      containerId: "world-a",
-    });
-    expect(refused.status).toBe(403);
-
-    const otherContainer = await policy(request(), undefined, {
-      containerId: "world-b",
-    });
-    expect(await otherContainer.text()).toBe("abc");
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("abc");
+    await expect(reader.read()).rejects.toThrow(
+      "worker isolate's tracked download budget",
+    );
+    expect(cancellations).toEqual(["isolate_local_egress_budget"]);
     expect(
       events.some((event) => event.includes('"reason":"egress_budget"')),
     ).toBe(true);
+
+    const refused = await policy(
+      new Request("https://example.com/after-cap"),
+      undefined,
+      { containerId: "world-a" },
+    );
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).not.toContain("turn");
+
+    now += 60 * 60_000;
+    const afterRetention = await policy(
+      new Request("https://example.com/after-cancel-retention"),
+      undefined,
+      { containerId: "world-a" },
+    );
+    expect(afterRetention.status).toBe(200);
+  });
+
+  test("unknown-length concurrent streams atomically share the byte cap", async () => {
+    const cancellations: unknown[] = [];
+    const policy = createGeneralAgentEgress({
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.enqueue(new Uint8Array(3));
+            },
+            cancel(reason) {
+              cancellations.push(reason);
+            },
+          }),
+        ),
+      limits: { budgetBytes: 5, requestsPerMinute: 120 },
+    });
+    const context = { containerId: "world-a" };
+    const [a, b] = await Promise.all([
+      policy(new Request("https://example.com/a"), undefined, context),
+      policy(new Request("https://example.com/b"), undefined, context),
+    ]);
+    const results = await Promise.allSettled([
+      a.body!.getReader().read(),
+      b.body!.getReader().read(),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    // Both wrappers may pull concurrently before either consumer read. The one
+    // buffered allowed chunk is readable; both upstream streams are stopped.
+    expect(cancellations).toEqual([
+      "isolate_local_egress_budget",
+      "isolate_local_egress_budget",
+    ]);
+  });
+
+  test("stream errors release known-length reservations", async () => {
+    let call = 0;
+    const policy = createGeneralAgentEgress({
+      fetch: async () => {
+        call += 1;
+        if (call === 1) {
+          return new Response(
+            new ReadableStream({
+              pull(controller) {
+                controller.error(new Error("upstream failed"));
+              },
+            }),
+            { headers: { "content-length": "5" } },
+          );
+        }
+        return new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.enqueue(new Uint8Array(5));
+              controller.close();
+            },
+          }),
+          { headers: { "content-length": "5" } },
+        );
+      },
+      limits: { budgetBytes: 5, requestsPerMinute: 120 },
+    });
+    const context = { containerId: "world-a" };
+    const failed = await policy(
+      new Request("https://example.com/fail"),
+      undefined,
+      context,
+    );
+    await expect(failed.text()).rejects.toThrow("upstream failed");
+
+    const replacement = await policy(
+      new Request("https://example.com/replacement"),
+      undefined,
+      context,
+    );
+    expect(replacement.status).toBe(200);
+    expect((await replacement.arrayBuffer()).byteLength).toBe(5);
+  });
+
+  test("isolate-local byte state resets after one hour without activity", async () => {
+    let now = 50_000;
+    const policy = createGeneralAgentEgress({
+      fetch: async () => new Response("abc"),
+      now: () => now,
+      limits: { budgetBytes: 3, requestsPerMinute: 120 },
+    });
+    const context = { containerId: "world-a" };
+    const first = await policy(
+      new Request("https://example.com/first"),
+      undefined,
+      context,
+    );
+    expect(await first.text()).toBe("abc");
+
+    now += 60 * 60_000;
+    const afterRetention = await policy(
+      new Request("https://example.com/after-retention"),
+      undefined,
+      context,
+    );
+    expect(afterRetention.status).toBe(200);
+    expect(await afterRetention.text()).toBe("abc");
   });
 
   test("app builds fail closed without invoking upstream fetch", async () => {

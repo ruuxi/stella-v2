@@ -55,8 +55,8 @@ const convexFunction = (
   switch (name) {
     case "cloud_apps:getCloudRealtimeConfig":
       return {
-        httpOrigin: "https://convex.example",
-        socketOrigin: BUILDER_ORIGIN,
+        httpOrigin: BUILDER_ORIGIN,
+        socketOrigin: BUILDER_ORIGIN.replace(/^http/, "ws"),
         protocol: 1,
       };
     case "cloud_apps:getMyCloudConversationIdentity":

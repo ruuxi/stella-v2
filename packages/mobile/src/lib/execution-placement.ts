@@ -75,7 +75,7 @@ export type AutomaticExecutionDispatch = {
 
 export type SubmitAutomaticExecutionInput = AutomaticExecutionAdmissionInput & {
   access?: StoredPhoneAccess;
-  /** Overrides the cached `getCloudRealtimeConfig().socketOrigin`. */
+  /** Overrides the cached `getCloudRealtimeConfig().httpOrigin`. */
   builderOrigin?: string | null;
 };
 
@@ -110,7 +110,7 @@ const conversationIdentityRef = makeFunctionReference<
 const realtimeConfigRef = makeFunctionReference<
   "query",
   Record<string, never>,
-  { socketOrigin?: string | null }
+  { httpOrigin?: string | null; socketOrigin?: string | null }
 >("cloud_apps:getCloudRealtimeConfig");
 
 /**
@@ -158,8 +158,8 @@ export const resolveExecutionBuilderOrigin = async (
   if (cachedBuilderOrigin) return cachedBuilderOrigin;
   const config = await getConvexClient().query(realtimeConfigRef, {});
   const origin =
-    typeof config?.socketOrigin === "string"
-      ? config.socketOrigin.trim().replace(/\/+$/, "")
+    typeof config?.httpOrigin === "string"
+      ? config.httpOrigin.trim().replace(/\/+$/, "")
       : "";
   if (!/^https?:\/\//.test(origin)) {
     throw new Error("Stella's cloud isn't reachable yet. Try again shortly.");

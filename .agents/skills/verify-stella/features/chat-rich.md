@@ -31,7 +31,7 @@ Preconditions:
 - **Model/runtime.** Open the visible selector, choose an option, then read it back from the closed control and `chat state`.
 - **Keyboard.** Use `drive press --key Shift+Enter` for a newline and chord syntax for shortcuts. Assert the composer value before any send.
 - **Messages/artifacts.** After a suitable turn exists, open actions or an artifact with `drive click`; require the copied-state feedback, retry state, or resulting display tab.
-- **Replies/focus.** Send a request that Stella delegates, wait for the completion reply, and require `[data-testid="reply-preview"]` above it naming the task. Click the preview (or a Tasks row, or a "N replies" badge) and require `[data-testid="conversation-focus"]` with only the lineage rows; press Escape and require it gone with the timeline scroll position unchanged. The agent preview's **Report** toggle must expand the agent's full result inline.
+- **Replies/focus.** Send a request that Stella delegates, wait for the completion reply, and require `[data-testid="reply-preview"]` above it naming the task. Click the preview (or a Tasks row, or a "N replies" badge) and require `[data-testid="conversation-focus"]` with only the lineage rows; press Escape and require it gone with the timeline scroll position unchanged. The agent preview's **Report** button must open the agent's full result as Markdown in a floating panel (`[data-testid="reply-preview-report"]`); clicking outside it, Escape, or its close button must dismiss it without moving the timeline.
 - **Proof.** Capture before and after snapshots plus screenshots. Use bounded `diagnostics console` or `diagnostics network-summary` for failures.
 
 ## Gotchas

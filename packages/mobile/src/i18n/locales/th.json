@@ -1272,8 +1272,8 @@
         "jumpToLatest": "ไปที่คำตอบล่าสุด"
       },
       "replyPreview": {
+        "closeReport": "Close report",
         "emptyMessage": "(empty message)",
-        "hideReport": "Hide report",
         "more": "+{count} more",
         "openMessage": "Show this message and its replies",
         "openTask": "Show this task and its updates",

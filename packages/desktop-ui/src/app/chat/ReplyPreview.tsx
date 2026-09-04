@@ -5,16 +5,19 @@
  * what Stella is replying to — the cited message, or the task (title and
  * live status) for an agent — joined to the reply by a thin connector.
  * Clicking a preview opens focus on that target. An agent preview also
- * carries a "Report" toggle that expands the agent's full result inline;
- * the report is fetched on hover intent so the click feels immediate, and
- * cached per thread for the life of the window.
+ * carries a "Report" button that opens the agent's full result, rendered as
+ * Markdown, in a floating panel anchored to the bubble (a portal, so the
+ * timeline never reflows); clicking outside, Escape, or the close button
+ * dismisses it. The report is fetched on hover intent so the click feels
+ * immediate, and cached per thread for the life of the window.
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { LocalChatAgentReport } from "@stella/contracts/local-chat";
 import { Markdown } from "@/app/chat/Markdown";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
-import { ChevronDown } from "@/ui/icons";
+import { X } from "@/ui/icons";
+import { Popover } from "@/ui/popover";
 import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
@@ -186,10 +189,14 @@ function AgentReplyPreview({
     });
   }, [conversationId, reference.threadId, title]);
 
-  const toggleReport = useCallback(() => {
-    prefetch();
-    setReportOpen((current) => !current);
-  }, [prefetch]);
+  const onReportOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) prefetch();
+      setReportOpen(open);
+    },
+    [prefetch],
+  );
+  const closeReport = useCallback(() => setReportOpen(false), []);
 
   const statusLabel =
     status === "running"
@@ -210,7 +217,7 @@ function AgentReplyPreview({
 
   return (
     <div
-      className={`reply-preview__bubble reply-preview__bubble--agent${reportOpen ? " reply-preview__bubble--expanded" : ""}`}
+      className="reply-preview__bubble reply-preview__bubble--agent"
       data-reply-ref-thread-id={reference.threadId}
       onMouseEnter={prefetch}
       onFocus={prefetch}
@@ -227,34 +234,50 @@ function AgentReplyPreview({
         <span className="reply-preview__agent-title">{title}</span>
         <span className="reply-preview__agent-status">{statusLabel}</span>
       </button>
-      <button
-        type="button"
-        className="reply-preview__report-toggle"
-        aria-expanded={reportOpen}
-        onClick={toggleReport}
-      >
-        <ChevronDown size={12} strokeWidth={2.25} aria-hidden="true" />
-        {reportOpen
-          ? t("app.chat.replyPreview.hideReport")
-          : t("app.chat.replyPreview.showReport")}
-      </button>
-      {reportOpen ? (
-        <div
-          className="reply-preview__report"
-          data-testid="reply-preview-report"
+      <Popover open={reportOpen} onOpenChange={onReportOpenChange}>
+        <Popover.Trigger asChild>
+          <button type="button" className="reply-preview__report-toggle">
+            {t("app.chat.replyPreview.showReport")}
+          </button>
+        </Popover.Trigger>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          collisionPadding={16}
+          className="reply-preview-report-popover"
         >
-          {reportBody === null ? (
-            <span className="reply-preview__report-loading">
-              {t("app.chat.replyPreview.reportLoading")}
-            </span>
-          ) : (
-            <Markdown
-              text={reportBody}
-              cacheKey={`reply-preview-report:${reference.threadId}`}
-            />
-          )}
-        </div>
-      ) : null}
+          <div
+            className="reply-preview-report"
+            data-testid="reply-preview-report"
+          >
+            <div className="reply-preview-report__head">
+              <span className="reply-preview-report__title">{title}</span>
+              <button
+                type="button"
+                className="reply-preview-report__close"
+                onClick={closeReport}
+                aria-label={t("app.chat.replyPreview.closeReport")}
+                title={t("app.chat.replyPreview.closeReport")}
+              >
+                <X size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="reply-preview-report__body">
+              {reportBody === null ? (
+                <span className="reply-preview__report-loading">
+                  {t("app.chat.replyPreview.reportLoading")}
+                </span>
+              ) : (
+                <Markdown
+                  text={reportBody}
+                  cacheKey={`reply-preview-report:${reference.threadId}`}
+                />
+              )}
+            </div>
+          </div>
+        </Popover.Content>
+      </Popover>
     </div>
   );
 }

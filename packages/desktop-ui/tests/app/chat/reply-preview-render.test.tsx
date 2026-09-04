@@ -3,12 +3,19 @@
  * Rendered-output contract for the iMessage-style reply preview:
  *   - one muted bubble per reference, message previews quote the text;
  *   - an agent preview shows the task title and live status, and its
- *     "Report" toggle fetches the full report on hover intent and expands it
- *     inline;
+ *     "Report" button fetches the full report on hover intent and opens it
+ *     in a floating panel that its close button dismisses;
  *   - clicking a preview opens focus on that target.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act } from "react";
+import {
+  act,
+  cloneElement,
+  createContext,
+  useContext,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
 
@@ -24,6 +31,43 @@ const activityRecords = new Map<
 vi.mock("@/features/chat/hooks/use-thread-activity-records", () => ({
   useThreadActivityRecords: () => activityRecords,
 }));
+
+// The report panel is a Radix popover in the app; here a minimal stand-in
+// keeps the open/close contract (trigger toggles, content renders only while
+// open) without popper positioning in jsdom.
+vi.mock("@/ui/popover", () => {
+  const Ctx = createContext<{
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+  }>({ open: false, onOpenChange: () => {} });
+  const Root = ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    children: ReactNode;
+  }) => <Ctx.Provider value={{ open, onOpenChange }}>{children}</Ctx.Provider>;
+  const Trigger = ({ children }: { children: ReactElement }) => {
+    const ctx = useContext(Ctx);
+    return cloneElement(children as ReactElement<Record<string, unknown>>, {
+      onClick: () => ctx.onOpenChange(!ctx.open),
+      "data-state": ctx.open ? "open" : "closed",
+    });
+  };
+  const Content = ({
+    children,
+    className,
+  }: {
+    children: ReactNode;
+    className?: string;
+  }) => {
+    const ctx = useContext(Ctx);
+    return ctx.open ? <div className={className}>{children}</div> : null;
+  };
+  return { Popover: Object.assign(Root, { Trigger, Content }) };
+});
 
 vi.mock("@/app/chat/Markdown", () => ({
   Markdown: ({ text }: { text: string }) => (
@@ -93,7 +137,7 @@ describe("ReplyPreview rendering", () => {
     });
   });
 
-  it("shows an agent's live title and status, and expands its full report", async () => {
+  it("shows an agent's live title and status, and opens its full report in a panel", async () => {
     activityRecords.set("pricing-research", {
       status: "completed",
       description: "Pricing research (live)",
@@ -147,7 +191,16 @@ describe("ReplyPreview rendering", () => {
       '[data-testid="reply-preview-report"]',
     );
     expect(report).not.toBeNull();
+    expect(report!.textContent).toContain("Pricing research (live)");
     expect(report!.textContent).toContain("Three vendors publish rates");
+
+    const close = report!.querySelector<HTMLButtonElement>(
+      ".reply-preview-report__close",
+    );
+    act(() => close!.click());
+    expect(
+      container.querySelector('[data-testid="reply-preview-report"]'),
+    ).toBeNull();
 
     const head = bubble!.querySelector<HTMLButtonElement>(
       ".reply-preview__agent-head",

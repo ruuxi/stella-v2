@@ -661,13 +661,21 @@ const handleDispatchSubmitRoute = async (
   } else if (
     caller.kind === "user" &&
     submitted.ingress !== "desktop" &&
-    submitted.ingress !== "browser"
+    submitted.ingress !== "browser" &&
+    submitted.ingress !== "mobile"
   ) {
     return dispatchErrorResponse(
       "forbidden",
       `${submitted.ingress} ingress requires service authentication or a paired phone credential.`,
       false,
     );
+  }
+
+  if (caller.kind === "user" && submitted.ingress === "mobile") {
+    // A user JWT authorizes cloud chat. Only a verified pairing proof may
+    // supply the phone identity used to offer work to a computer.
+    const { requestingDeviceId: _unverifiedDeviceId, ...unpaired } = submitted;
+    submitted = unpaired;
   }
 
   let result: Awaited<ReturnType<OwnerGate["submit"]>>;

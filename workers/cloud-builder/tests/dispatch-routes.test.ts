@@ -287,9 +287,23 @@ describe("POST /owners/me/dispatches", () => {
     expect(submits[0]!.input).not.toHaveProperty("pairGrantDeviceId");
   });
 
+  test("an unpaired mobile user may submit without gaining a desktop grant", async () => {
+    const { env, submits } = await environment();
+    const response = await worker.fetch(
+      post("/owners/me/dispatches", body({ ingress: "mobile", subject: "portable", requestingDeviceId: "forged-phone" }), {
+        authorization: `Bearer ${await userJwt()}`,
+      }), env, {} as ExecutionContext,
+    );
+    expect(response.status).toBe(201);
+    expect(submits).toHaveLength(1);
+    expect(submits[0]!.input.request.ingress).toBe("mobile");
+    expect(submits[0]!.input.request).not.toHaveProperty("requestingDeviceId");
+    expect(submits[0]!.input).not.toHaveProperty("pairGrantDeviceId");
+  });
+
   test("a signed-in user cannot claim a service ingress", async () => {
     const { env, submits } = await environment();
-    for (const ingress of ["mobile", "cloud", "schedule"] as const) {
+    for (const ingress of ["cloud", "schedule"] as const) {
       const response = await worker.fetch(
         post("/owners/me/dispatches", body({ ingress, subject: "cloud" }), {
           authorization: `Bearer ${await userJwt()}`,

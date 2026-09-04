@@ -14,13 +14,13 @@ const { BuildSession } = await import("../src/index.js");
 mock.restore();
 
 const source = await Bun.file(
-  new URL("../src/index.ts", import.meta.url),
+  new URL("../src/build-session/app-build.ts", import.meta.url),
 ).text();
 
-/** The body of one private BuildSession method, by brace depth. */
+/** The body of one app-build lane function, by brace depth. */
 const methodBody = (name: string): string => {
-  const start = source.indexOf(`  private async ${name}(`);
-  if (start === -1) throw new Error(`Missing BuildSession method: ${name}`);
+  const start = source.indexOf(`export const ${name} = async (`);
+  if (start === -1) throw new Error(`Missing app-build function: ${name}`);
   let parens = 0;
   let cursor = source.indexOf("(", start);
   for (; cursor < source.length; cursor += 1) {

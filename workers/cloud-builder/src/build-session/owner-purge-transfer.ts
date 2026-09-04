@@ -94,6 +94,8 @@ import {
   log,
   nativeBackupDebtKey,
   workspaceTransferReceiptsKey,
+  R2_SWEEP_MAX_PAGES,
+  sweepR2Prefix,
 } from "./shared/keys.js";
 
 const ownerFenceStub = (env: Env, ownerId: string) =>
@@ -359,8 +361,6 @@ export const beginOwnerPurge = async (
   throw new Error("Owner cloud turns did not quiesce before purge.");
 };
 
-/** Pages of 1000 keys per bucket prefix. 10M objects is not a real owner. */
-export const R2_SWEEP_MAX_PAGES = 10_000;
 /** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
 export const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 /** The slug a hosted app route is keyed by. */
@@ -376,34 +376,6 @@ export const LEGACY_BUILD_PREFIX_PATTERN = /^builds\/[A-Za-z0-9_-]{1,64}$/;
 export const INTERIOR_BUILD_PREFIX_PATTERN =
   /^interiors\/[0-9a-f]{64}\/interior-[0-9a-f]{48}$/;
 
-/**
- * Delete every object under `prefix`. Bounded: `list` is cursor-paged at 1000
- * and each page is deleted before the next is fetched, so neither memory nor
- * the delete batch grows with the owner's history. `done: false` means the
- * sweep ran out of pages and the caller must ask again.
- */
-export const sweepR2Prefix = async (
-  bucket: R2Bucket,
-  prefix: string,
-): Promise<{ deleted: number; done: boolean }> => {
-  let deleted = 0;
-  let cursor: string | undefined;
-  for (let page = 0; page < R2_SWEEP_MAX_PAGES; page += 1) {
-    const listing = await bucket.list({
-      prefix,
-      limit: 1000,
-      ...(cursor ? { cursor } : {}),
-    });
-    const keys = listing.objects.map((object) => object.key);
-    if (keys.length > 0) {
-      await bucket.delete(keys);
-      deleted += keys.length;
-    }
-    if (!listing.truncated) return { deleted, done: true };
-    cursor = listing.cursor;
-  }
-  return { deleted, done: false };
-};
 
 /**
  * Backfill for checkpoints written before cleanup debt existed. The sandbox

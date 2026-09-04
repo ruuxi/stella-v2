@@ -208,7 +208,7 @@ export const automaticExecutionCancellationCommand = (
 /** A rejected/stale grant is a pre-admission eligibility miss, not an outage. */
 export const isAutomaticExecutionPairCredentialRejection = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  return /not paired|paired phone|pair proof|pairing credential|desktop grant/i.test(
+  return /not paired|paired phone|pair proof|pairing credential|phone credential|desktop grant/i.test(
     message,
   );
 };

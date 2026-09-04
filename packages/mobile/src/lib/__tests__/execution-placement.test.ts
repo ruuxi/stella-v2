@@ -301,6 +301,12 @@ describe("automatic mobile execution admission", () => {
     ).toThrow("different dispatch identity");
   });
 
+  test("recognizes the server invalid-phone-credential refusal for automatic cloud fallback", () => {
+    expect(isAutomaticExecutionPairCredentialRejection(new Error("This phone credential is invalid."))).toBe(true);
+    expect(isAutomaticExecutionPairCredentialRejection(new Error("This phone credential is incomplete."))).toBe(true);
+    expect(isAutomaticExecutionPairCredentialRejection(new Error("Request timed out."))).toBe(false);
+  });
+
   test("treats a revoked pair as a pre-admission miss without changing work subject", () => {
     expect(
       isAutomaticExecutionPairCredentialRejection(

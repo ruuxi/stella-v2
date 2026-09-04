@@ -122,6 +122,42 @@ describe("dispatch submission", () => {
     expect(harness.forwarded).toHaveLength(0);
   });
 
+  test("cloud completion survives early delivery, replay, and generation fencing", async () => {
+    const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
+    const snapshot = snapshotWith([]);
+    await harness.instance.recordCloudDispatchTerminal({
+      ownerGeneration: snapshot.ownerGeneration, turnId: "turn-conversation-1",
+      outcome: "completed", resultJson: JSON.stringify({ finalText: "Hello!" }),
+    });
+    const admitted = await withNow(NOW, () => harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW,
+    }));
+    const id = admitted.response.dispatch.dispatchId;
+    const completed = await harness.instance.dispatchStatus(id);
+    expect(completed.response.dispatch).toMatchObject({
+      state: "completed", resultJson: JSON.stringify({ finalText: "Hello!" }),
+    });
+    await harness.instance.recordCloudDispatchTerminal({
+      ownerGeneration: snapshot.ownerGeneration, turnId: "turn-conversation-1",
+      outcome: "failed", errorMessage: "late duplicate",
+    });
+    const replay = await harness.instance.dispatchStatus(id);
+    expect(replay.response.dispatch).toEqual(completed.response.dispatch);
+  });
+
+  test("a terminal from another owner generation cannot settle cloud work", async () => {
+    const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
+    const admitted = await withNow(NOW, () => harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW,
+    }));
+    await harness.instance.recordCloudDispatchTerminal({
+      ownerGeneration: "retired-generation", turnId: "turn-conversation-1",
+      outcome: "completed", resultJson: "{}",
+    });
+    const status = await harness.instance.dispatchStatus(admitted.response.dispatch.dispatchId);
+    expect(status.response.dispatch.state).toBe("cloud_running");
+  });
+
   test("an unpaired phone goes straight to cloud without changing its subject", async () => {
     const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
     const result = await withNow(NOW, () =>

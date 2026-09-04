@@ -81,7 +81,7 @@ import {
 } from "../memory-wipe.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
 import { classifyNetwork } from "../network-class.js";
-import { deliverOutboxBatch } from "../outbox.js";
+import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
 import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
   HEADER_PRESENCE_DEVICE_ID,
@@ -2402,6 +2402,23 @@ export const worker = {
    * `max_retries` the queue parks the batch on the dead-letter queue.
    */
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    // Persist terminal receipts before acknowledging queue delivery. Mobile
+    // polls the owner gate, while transcript events are projected to Convex.
+    try {
+      for (const { body } of batch.messages) {
+        if (!isOutboxEvent(body) || body.kind !== "turn.event" || !body.terminal) continue;
+        const outcome = body.terminalStatus;
+        if (outcome !== "completed" && outcome !== "failed" && outcome !== "canceled") continue;
+        await env.OWNER_GATES.getByName(body.ownerId).recordCloudDispatchTerminal({
+          ownerGeneration: body.ownerGeneration, turnId: body.turnId, outcome,
+          ...(body.resultJson ? { resultJson: body.resultJson } : {}),
+          ...(body.errorMessage ? { errorMessage: body.errorMessage } : {}),
+        });
+      }
+    } catch {
+      batch.retryAll();
+      return;
+    }
     const delivery = await deliverOutboxBatch(batch, env);
     log(delivery.disposition === "retried" ? "error" : "info", "outbox_batch", {
       queue: batch.queue,

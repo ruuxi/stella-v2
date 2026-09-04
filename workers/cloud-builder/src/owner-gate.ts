@@ -276,6 +276,11 @@ const DDL = [
      created_at                   INTEGER NOT NULL,
      updated_at                   INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS cloud_dispatch_terminals (
+     turn_id TEXT NOT NULL, owner_generation TEXT NOT NULL,
+     outcome TEXT NOT NULL, result_json TEXT, error_message TEXT,
+     created_at INTEGER NOT NULL, PRIMARY KEY (turn_id, owner_generation)
+   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS dispatches_idempotency
      ON dispatches(idempotency_key)`,
   `CREATE INDEX IF NOT EXISTS dispatches_state ON dispatches(state)`,
@@ -2732,15 +2737,60 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     };
   }
 
+  /** Queue delivery may race the admission response. Retain the exact turn
+   * receipt so the next status read can reconcile either delivery order. */
+  async recordCloudDispatchTerminal(input: {
+    ownerGeneration: string; turnId: string;
+    outcome: "completed" | "failed" | "canceled";
+    resultJson?: string; errorMessage?: string;
+  }): Promise<void> {
+    this.ensureSchema();
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO cloud_dispatch_terminals
+       (turn_id, owner_generation, outcome, result_json, error_message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      input.turnId, input.ownerGeneration, input.outcome,
+      input.resultJson ?? null, input.errorMessage ?? null, Date.now(),
+    );
+    const dispatch = this.ctx.storage.sql.exec<{ dispatch_id: string }>(
+      `SELECT dispatch_id FROM dispatches
+       WHERE cloud_turn_id = ? AND owner_generation = ? AND placement = 'cloud'`,
+      input.turnId, input.ownerGeneration,
+    ).toArray()[0];
+    if (dispatch) await this.dispatchStatus(dispatch.dispatch_id);
+  }
+
   async dispatchStatus(dispatchId: string): Promise<OwnerGateStatusResult> {
     this.ensureSchema();
-    const row = this.dispatchRow(dispatchId.trim());
+    let row = this.dispatchRow(dispatchId.trim());
     if (!row) return fail("not_found", "Dispatch not found.", false);
+    const receipt = row.placement === "cloud" && row.cloud_turn_id
+      ? this.ctx.storage.sql.exec<{
+          outcome: "completed" | "failed" | "canceled";
+          result_json: string | null; error_message: string | null;
+        }>(
+          `SELECT outcome, result_json, error_message FROM cloud_dispatch_terminals
+           WHERE turn_id = ? AND owner_generation = ?`,
+          row.cloud_turn_id, row.owner_generation,
+        ).toArray()[0]
+      : undefined;
+    if (receipt && !isTerminalDispatchState(row.state as DispatchState)) {
+      row = await this.patchDispatch(row, {
+        state: receipt.outcome,
+        error_message: receipt.error_message,
+        payload_json: null, payload_expires_at: null, lease_expires_at: null,
+      }, Date.now());
+      await this.releaseGate(row);
+      await this.scheduleAlarm(Date.now());
+    }
     return {
       ok: true,
       response: {
         protocol: PLACEMENT_PROTOCOL,
-        dispatch: dispatchSummary(row),
+        dispatch: {
+          ...dispatchSummary(row),
+          ...(receipt?.result_json ? { resultJson: receipt.result_json } : {}),
+        },
       },
     };
   }

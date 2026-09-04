@@ -186,6 +186,7 @@ export type DispatchSummary = {
   /** Cloud placement: the admitted turn (chat) or thread turn (agent). */
   cloudTurnId?: string;
   cloudThreadId?: string;
+  resultJson?: string;
   createdAt: number;
   updatedAt: number;
 };

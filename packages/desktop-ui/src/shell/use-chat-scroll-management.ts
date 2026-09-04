@@ -27,11 +27,9 @@
  *     user-message reveal blends with any concurrent stream-follow
  *     motion rather than fighting it.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
-import {
-  subscribeChatContentGrowth,
-} from "@/shell/chat-scroll-follow";
+import { subscribeChatContentGrowth } from "@/shell/chat-scroll-follow";
 import {
   AT_BOTTOM_TOLERANCE_PX,
   CHAT_VIEWPORT_BOTTOM_FADE_PX,
@@ -200,7 +198,21 @@ export function useChatScrollManagement({
   const followRearmThreshold = followRearmThresholdPx(trailingRegionMinPx);
   const responseSpacerBottomInsetPx =
     surface === "full" ? CHAT_VIEWPORT_BOTTOM_FADE_PX : 0;
-  const listRef = useRef<LegendListRef | null>(null);
+  const onListRefChange = useRef<(() => void) | null>(null);
+  // Keep the object-ref API used by scroll consumers, but notify on Legend's
+  // mount/unmount commits instead of polling its DOM node while idle.
+  const listRef = useMemo(() => {
+    let value: LegendListRef | null = null;
+    return {
+      get current() {
+        return value;
+      },
+      set current(next: LegendListRef | null) {
+        value = next;
+        onListRefChange.current?.();
+      },
+    };
+  }, []);
   const attachedScrollNodeRef = useRef<HTMLElement | null>(null);
   const mountedRef = useRef(false);
   const responseSpacerHeightRef = useRef<number>(trailingRegionMinPx);
@@ -438,7 +450,13 @@ export function useChatScrollManagement({
         setFollow(true);
       }
     });
-  }, [followRearmThreshold, setFollow, trailingRegionMinPx, updateThumb]);
+  }, [
+    listRef,
+    followRearmThreshold,
+    setFollow,
+    trailingRegionMinPx,
+    updateThumb,
+  ]);
 
   const scrollToBottom = useCallback(
     (behavior: "instant" | "smooth" = "smooth") => {
@@ -482,7 +500,7 @@ export function useChatScrollManagement({
       }
       void listRef.current?.scrollToEnd({ animated: behavior !== "instant" });
     },
-    [setFollow],
+    [listRef, setFollow],
   );
 
   /**
@@ -516,7 +534,7 @@ export function useChatScrollManagement({
       ),
       isFollowingLatest: followRef.current,
     });
-  }, [trailingRegionMinPx]);
+  }, [listRef, trailingRegionMinPx]);
 
   /**
    * Snapshot whether the user is effectively at the bottom — the freshest turn
@@ -539,7 +557,7 @@ export function useChatScrollManagement({
       responseSpacerHeightRef.current - trailingRegionMinPx,
     );
     return distanceFromBottomPx - spacerOveragePx <= AT_BOTTOM_TOLERANCE_PX;
-  }, [trailingRegionMinPx]);
+  }, [listRef, trailingRegionMinPx]);
 
   // Clear observers and animation work owned outside the attach lifecycle.
   useEffect(() => {
@@ -706,6 +724,7 @@ export function useChatScrollManagement({
       prependRestoreRafRef.current = requestAnimationFrame(restore);
     });
   }, [
+    listRef,
     hasNewerEvents,
     hasOlderEvents,
     isLoadingNewer,
@@ -815,11 +834,15 @@ export function useChatScrollManagement({
     let frame = 0;
 
     const tryAttach = (): boolean => {
-      const node = listRef.current?.getScrollableNode() as
+      const node = listRef.current?.getScrollableNode?.() as
         | HTMLElement
         | undefined
         | null;
-      if (!node || node === attached) return Boolean(attached);
+      if (!node) {
+        cleanup();
+        return false;
+      }
+      if (node === attached) return true;
       const previousNode = attached;
       cleanup();
       attached = node;
@@ -1575,33 +1598,23 @@ export function useChatScrollManagement({
       return true;
     };
 
-    // Persistent attach watcher. `tryAttach` cleans up and re-binds
-    // whenever the live scroll node differs from the one we're attached
-    // to, so this loop handles two cases with the same code path:
-    //   1. Initial mount — the scroll node may not exist for a few frames
-    //      after the list mounts; poll every frame until it appears.
-    //   2. Remount — navigating to home content unmounts the LegendList
-    //      and returning remounts it with a *new* scroll DOM node. Without
-    //      re-attaching, `followApi`/the wheel listeners stay bound to the
-    //      old detached node and every `scrollTop` write (send-nudge and
-    //      stream auto-follow) silently no-ops. Once attached we only need
-    //      to notice the swap, so throttle the check to keep this cheap.
-    const ATTACH_CHECK_INTERVAL_MS = 120;
-    let lastAttachCheck = 0;
-    const watch = (now: number) => {
-      if (!attached || now - lastAttachCheck >= ATTACH_CHECK_INTERVAL_MS) {
-        lastAttachCheck = now;
+    const scheduleAttach = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
         tryAttach();
-      }
-      frame = requestAnimationFrame(watch);
+      });
     };
-    frame = requestAnimationFrame(watch);
+    onListRefChange.current = scheduleAttach;
+    scheduleAttach();
 
     return () => {
+      onListRefChange.current = null;
       cancelAnimationFrame(frame);
       cleanup();
     };
   }, [
+    listRef,
     noteManualScroll,
     responseSpacerBottomInsetPx,
     scheduleScrollStateUpdate,

@@ -231,4 +231,58 @@ describe("useChatScrollManagement pagination wiring", () => {
     });
     expect(onLoadOlder).toHaveBeenCalledTimes(1);
   });
+  it("rebinds after a list remount without a persistent animation loop", async () => {
+    const onLoadOlder = vi.fn(() => false);
+    await render({
+      hasOlderEvents: true,
+      hasNewerEvents: false,
+      isLoadingOlder: false,
+      onLoadOlder,
+    });
+    const flushFrames = () => {
+      const pending = [...animationFrameCallbacks.values()];
+      animationFrameCallbacks.clear();
+      act(() => pending.forEach((callback) => callback(0)));
+    };
+    flushFrames();
+    expect(animationFrameCallbacks.size).toBe(0);
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    container.append(first, second);
+    const handle = (node: HTMLElement) => ({
+      getScrollableNode: () => node,
+      getState: () => ({
+        scroll: 50,
+        scrollLength: 100,
+        contentLength: 1000,
+        isAtEnd: false,
+      }),
+    });
+    act(() => {
+      latest!.listRef.current = handle(first) as never;
+    });
+    flushFrames();
+    expect(animationFrameCallbacks.size).toBe(0);
+    act(() => {
+      latest!.listRef.current = null;
+    });
+    flushFrames();
+    act(() => {
+      first.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(onLoadOlder).not.toHaveBeenCalled();
+    act(() => {
+      latest!.listRef.current = handle(second) as never;
+    });
+    flushFrames();
+    expect(animationFrameCallbacks.size).toBe(0);
+    act(() => {
+      second.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
 });

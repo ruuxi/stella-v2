@@ -1210,3 +1210,36 @@
   line-height: 1.55;
   white-space: pre-wrap;
 }
+
+/* Fixed preview geometry is shared with the virtual row window. */
+.display-file-preview__table--virtual {
+  table-layout: fixed;
+}
+.display-file-preview__table--virtual th,
+.display-file-preview__table--virtual td {
+  box-sizing: border-box;
+  height: 32px;
+  line-height: 17px;
+}
+.display-diff-viewer__files--virtual {
+  flex: none;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+.display-diff-viewer__files--virtual .display-diff-line,
+.display-diff-viewer__files--virtual .display-diff-file__header {
+  box-sizing: border-box;
+  height: 24px;
+  line-height: 24px;
+}
+.display-diff-viewer__files--virtual .display-diff-file__header {
+  position: static;
+  padding: 0 10px;
+}
+.display-preview-limit {
+  padding: 8px 10px;
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+}

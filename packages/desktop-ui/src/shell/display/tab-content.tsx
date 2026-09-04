@@ -18,17 +18,16 @@ import { useT } from "@/shared/i18n";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
-import {
-  DELIMITED_PREVIEW_MAX_BYTES,
-  DELIMITED_PREVIEW_MAX_ROWS,
-  parseDelimitedRows,
-  rowsForDelimitedPreview,
-} from "@/shell/display/parse-delimited-rows";
+import { DELIMITED_PREVIEW_MAX_BYTES } from "@/shell/display/parse-delimited-rows";
 import {
   sourceDiffBatches,
   useSourceDiffBatches,
   type SourceDiffBatch,
 } from "@/features/workspace-display/source-diff-batches";
+
+import { DIFF_PREVIEW_MAX_BYTES, type PreviewResult } from "./preview-parser";
+import { usePreviewParser } from "./use-preview-parser";
+import { usePreviewWindow } from "./use-preview-window";
 
 // Heavy, payload-specific renderers are lazy-loaded so they stay out of the
 // always-eager shell's first-paint module graph (dev server transforms every
@@ -200,6 +199,12 @@ export const OfficeFileTabContent = ({
 
 const textDecoder = new TextDecoder("utf-8");
 
+const PreviewLimitNotice = () => (
+  <div className="display-preview-limit" role="status">
+    Preview limited. Save or open the original file to view all content.
+  </div>
+);
+
 export const DelimitedTableTabContent = ({
   filePath,
   title,
@@ -215,18 +220,24 @@ export const DelimitedTableTabContent = ({
     undefined,
     DELIMITED_PREVIEW_MAX_BYTES,
   );
-  const delimiter = filePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
-  const rows = useMemo(() => {
-    if (!bytes) return [];
-    return rowsForDelimitedPreview(
-      parseDelimitedRows(
-        textDecoder.decode(bytes),
-        delimiter,
-        DELIMITED_PREVIEW_MAX_ROWS,
-      ),
-      truncated,
-    );
-  }, [bytes, delimiter, truncated]);
+  const delimiter: "," | "\t" = filePath.toLowerCase().endsWith(".tsv")
+    ? "\t"
+    : ",";
+  const request = useMemo(
+    () =>
+      bytes
+        ? {
+            kind: "table" as const,
+            bytes,
+            delimiter,
+            truncated,
+          }
+        : null,
+    [bytes, delimiter, truncated],
+  );
+  const parsed = usePreviewParser(request);
+  const rows = parsed?.result?.rows ?? [];
+  const windowed = usePreviewWindow(Math.max(0, rows.length - 1), 32);
   const columnCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
   const header = rows[0] ?? [];
   const body = rows.slice(1);
@@ -259,17 +270,37 @@ export const DelimitedTableTabContent = ({
             {actionStatus && <span>{actionStatus}</span>}
           </div>
         </header>
-        {error ? (
-          <div className="display-file-preview__error">{error}</div>
-        ) : loading ? (
-          <div className="display-file-preview__empty">{t("common.loading")}</div>
+        {error || parsed?.error ? (
+          <div className="display-file-preview__error">
+            {error || parsed?.error}
+          </div>
+        ) : loading || (request && !parsed) ? (
+          <div className="display-file-preview__empty">
+            {t("common.loading")}
+          </div>
         ) : rows.length === 0 ? (
           <div className="display-file-preview__empty">
             {t("shell.display.spreadsheet.noRows")}
           </div>
         ) : (
-          <div className="display-file-preview__table-wrap">
-            <table className="display-file-preview__table">
+          <div
+            className="display-file-preview__table-wrap"
+            onScroll={windowed.onScroll}
+            style={{
+              height: Math.min(480, (body.length + 1) * 32),
+              flex: "0 1 auto",
+            }}
+          >
+            <table
+              className="display-file-preview__table display-file-preview__table--virtual"
+              aria-rowcount={rows.length}
+              style={{ width: columnCount * 160 }}
+            >
+              <colgroup>
+                {Array.from({ length: columnCount }, (_, index) => (
+                  <col key={index} style={{ width: 160 }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
                   {Array.from({ length: columnCount }, (_, index) => (
@@ -283,17 +314,39 @@ export const DelimitedTableTabContent = ({
                 </tr>
               </thead>
               <tbody>
-                {body.map((row, rowIndex) => (
-                  <tr key={rowIndex}>
-                    {Array.from({ length: columnCount }, (_, colIndex) => (
-                      <td key={colIndex}>{row[colIndex] ?? ""}</td>
-                    ))}
+                {windowed.top > 0 && (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={columnCount}
+                      style={{ height: windowed.top, padding: 0, border: 0 }}
+                    />
                   </tr>
-                ))}
+                )}
+                {body
+                  .slice(windowed.start, windowed.end)
+                  .map((row, rowIndex) => (
+                    <tr
+                      key={windowed.start + rowIndex}
+                      aria-rowindex={windowed.start + rowIndex + 2}
+                    >
+                      {Array.from({ length: columnCount }, (_, colIndex) => (
+                        <td key={colIndex}>{row[colIndex] ?? ""}</td>
+                      ))}
+                    </tr>
+                  ))}
+                {windowed.bottom > 0 && (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={columnCount}
+                      style={{ height: windowed.bottom, padding: 0, border: 0 }}
+                    />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         )}
+        {parsed?.result?.limited && <PreviewLimitNotice />}
       </section>
     </div>
   );
@@ -381,87 +434,27 @@ export const MarkdownTabContent = ({
   );
 };
 
-type DiffLine = {
-  kind: "add" | "delete" | "context" | "meta";
-  text: string;
-};
-
-type DiffSection = {
-  title: string;
-  lines: DiffLine[];
-};
-
-const parseApplyPatchPreview = (patch: string): DiffSection[] => {
-  const sections: DiffSection[] = [];
-  let current: DiffSection | null = null;
-  const ensure = (title: string) => {
-    if (!current || current.title !== title) {
-      current = { title, lines: [] };
-      sections.push(current);
-    }
-    return current;
-  };
-
-  for (const rawLine of patch.replace(/\r\n/g, "\n").split("\n")) {
-    if (rawLine.startsWith("*** Add File: ")) {
-      ensure(rawLine.slice("*** Add File: ".length));
-      continue;
-    }
-    if (rawLine.startsWith("*** Update File: ")) {
-      ensure(rawLine.slice("*** Update File: ".length));
-      continue;
-    }
-    if (rawLine.startsWith("*** Delete File: ")) {
-      ensure(rawLine.slice("*** Delete File: ".length));
-      continue;
-    }
-    if (!current) continue;
-    const section: DiffSection = current;
-    if (rawLine.startsWith("@@") || rawLine.startsWith("*** Move to: ")) {
-      section.lines.push({ kind: "meta", text: rawLine });
-      continue;
-    }
-    if (rawLine.startsWith("+")) {
-      section.lines.push({ kind: "add", text: rawLine.slice(1) });
-      continue;
-    }
-    if (rawLine.startsWith("-")) {
-      section.lines.push({ kind: "delete", text: rawLine.slice(1) });
-      continue;
-    }
-    if (rawLine.startsWith(" ")) {
-      section.lines.push({ kind: "context", text: rawLine.slice(1) });
-    }
-  }
-  return sections.filter((section) => section.lines.length > 0);
-};
-
-const buildGeneratedFilePreview = (
-  filePath: string,
-  text: string,
-): DiffSection[] => [
-  {
-    title: filePath,
-    lines: text
-      .split("\n")
-      .map((line): DiffLine => ({ kind: "add", text: line })),
-  },
-];
-
-const DiffRows = ({ sections }: { sections: DiffSection[] }) => (
-  <div className="display-diff-viewer__files">
-    {sections.map((section, sectionIndex) => (
-      <section
-        key={`${section.title}:${sectionIndex}`}
-        className="display-diff-file"
+const DiffRows = ({ preview }: { preview: PreviewResult }) => {
+  const windowed = usePreviewWindow(preview.lines.length, 24);
+  return (
+    <>
+      <div
+        className="display-diff-viewer__files display-diff-viewer__files--virtual"
+        onScroll={windowed.onScroll}
+        style={{ height: windowed.height }}
       >
-        <header className="display-diff-file__header" title={section.title}>
-          {section.title}
-        </header>
-        <div className="display-diff-file__body">
-          {section.lines.map((line, lineIndex) => (
+        <div style={{ height: windowed.top }} aria-hidden="true" />
+        {preview.lines.slice(windowed.start, windowed.end).map((line, index) =>
+          line.kind === "header" ? (
+            <header
+              key={windowed.start + index}
+              className="display-diff-file__header"
+            >
+              {line.text}
+            </header>
+          ) : (
             <div
-              key={`${lineIndex}:${line.kind}:${line.text}`}
+              key={windowed.start + index}
               className={`display-diff-line display-diff-line--${line.kind}`}
             >
               <span className="display-diff-line__marker">
@@ -475,69 +468,71 @@ const DiffRows = ({ sections }: { sections: DiffSection[] }) => (
               </span>
               <code>{line.text || " "}</code>
             </div>
-          ))}
-        </div>
-      </section>
-    ))}
-  </div>
-);
+          ),
+        )}
+        <div style={{ height: windowed.bottom }} aria-hidden="true" />
+      </div>
+      {preview.limited && <PreviewLimitNotice />}
+    </>
+  );
+};
 
 type SourceDiffPayload = Extract<DisplayPayload, { kind: "source-diff" }>;
 
-/**
- * Block variant that has a `patch` body — no file IO required.
- * Splitting the patch / file paths avoids firing N redundant
- * `useDisplayFileBytes` reads for an N-file `apply_patch` batch where
- * the patch text already contains every section.
- */
-const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
+const ParsedDiff = ({
+  parsed,
+}: {
+  parsed: ReturnType<typeof usePreviewParser>;
+}) => {
   const t = useT();
-  const parsedPatchSections = useMemo(() => {
-    const parsed = parseApplyPatchPreview(patch);
-    return parsed.length > 0 ? parsed : null;
-  }, [patch]);
-
-  if (!parsedPatchSections)
-    return (
-      <div className="display-file-preview__empty">
-        {t("shell.display.diff.noChanges")}
-      </div>
-    );
-  return <DiffRows sections={parsedPatchSections} />;
-};
-
-/**
- * Block variant for file artifacts without a unified diff body
- * (write/edit-style tools). Reads the current bytes and renders them
- * as added lines — matches the existing "generated file" preview
- * semantics.
- */
-const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
-  const t = useT();
-  const { bytes, error, loading } = useDisplayFileBytes(
-    filePath,
-    t("shell.display.diff.desktopRequired"),
-  );
-  const fileText = useMemo(() => decodeTextBytes(bytes), [bytes]);
-  const sections = useMemo(() => {
-    if (!bytes) return [];
-    return buildGeneratedFilePreview(filePath, fileText);
-  }, [bytes, filePath, fileText]);
-
-  if (error) return <div className="display-file-preview__error">{error}</div>;
-  if (loading)
+  if (parsed?.error)
+    return <div className="display-file-preview__error">{parsed.error}</div>;
+  if (!parsed?.result)
     return (
       <div className="display-file-preview__empty">
         {t("shell.display.filePreview.loading")}
       </div>
     );
-  if (sections.length === 0)
+  if (!parsed.result.lines.length && !parsed.result.limited)
     return (
       <div className="display-file-preview__empty">
         {t("shell.display.diff.noChanges")}
       </div>
     );
-  return <DiffRows sections={sections} />;
+  return <DiffRows preview={parsed.result} />;
+};
+
+const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
+  // Cap before structured cloning to avoid sending an enormous patch to the worker.
+  const request = useMemo(
+    () => ({
+      kind: "diff" as const,
+      patch: patch.slice(0, DIFF_PREVIEW_MAX_BYTES),
+      filePath: "",
+      truncated: patch.length > DIFF_PREVIEW_MAX_BYTES,
+    }),
+    [patch],
+  );
+  return <ParsedDiff parsed={usePreviewParser(request)} />;
+};
+
+const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
+  const t = useT();
+  const { bytes, error, truncated } = useDisplayFileBytes(
+    filePath,
+    t("shell.display.diff.desktopRequired"),
+    undefined,
+    undefined,
+    DIFF_PREVIEW_MAX_BYTES,
+  );
+  const request = useMemo(
+    () =>
+      bytes ? { kind: "diff" as const, bytes, filePath, truncated } : null,
+    [bytes, filePath, truncated],
+  );
+  const parsed = usePreviewParser(request);
+  if (error) return <div className="display-file-preview__error">{error}</div>;
+  return <ParsedDiff parsed={parsed} />;
 };
 
 const SourceDiffFileBlock = ({ payload }: { payload: SourceDiffPayload }) => {
@@ -627,9 +622,9 @@ export const SourceDiffTabContent = () => {
   const headerLabel = activeBatch
     ? activeBatch.payloads.length === 1
       ? activeBatch.payloads[0]!.kind === "source-diff"
-        ? (activeBatch.payloads[0] as SourceDiffPayload).filePath
+        ? ((activeBatch.payloads[0] as SourceDiffPayload).filePath
             .split(/[\\/]/)
-            .pop() ?? t("shell.display.diff.changes")
+            .pop() ?? t("shell.display.diff.changes"))
         : t("shell.display.diff.changes")
       : `${activeBatch.payloads.length} files changed`
     : t("shell.display.diff.codeChanges");

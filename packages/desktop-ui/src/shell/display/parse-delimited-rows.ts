@@ -5,6 +5,7 @@
  * byte read and the row parse are capped: a several-hundred-MB export must not
  * be decoded and split into cells on the UI thread just to show its head.
  */
+export const DELIMITED_PREVIEW_MAX_COLUMNS = 100;
 export const DELIMITED_PREVIEW_MAX_ROWS = 1_000;
 export const DELIMITED_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -12,6 +13,7 @@ export type DelimitedParseResult = {
   rows: string[][];
   /** True when `maxRows` stopped the parse before the text ran out. */
   hitLimit: boolean;
+  columnsTruncated?: boolean;
 };
 
 export const parseDelimitedRows = (
@@ -27,6 +29,16 @@ export const parseDelimitedRows = (
   let row: string[] = [];
   let cell = "";
   let quoted = false;
+  let columnsTruncated = false;
+  const append = (value: string) => {
+    if (row.length < DELIMITED_PREVIEW_MAX_COLUMNS) cell += value;
+    else columnsTruncated = true;
+  };
+  const commitCell = () => {
+    if (row.length < DELIMITED_PREVIEW_MAX_COLUMNS) row.push(cell);
+    else columnsTruncated = true;
+    cell = "";
+  };
 
   const commitRow = (): boolean => {
     rows.push(row);
@@ -40,38 +52,37 @@ export const parseDelimitedRows = (
     const next = text[index + 1];
     if (quoted) {
       if (char === '"' && next === '"') {
-        cell += '"';
+        append('"');
         index += 1;
       } else if (char === '"') {
         quoted = false;
       } else {
-        cell += char;
+        append(char);
       }
       continue;
     }
     if (char === '"') {
       quoted = true;
     } else if (char === delimiter) {
-      row.push(cell);
-      cell = "";
+      commitCell();
     } else if (char === "\n") {
-      row.push(cell);
+      commitCell();
       if (commitRow()) {
-        return { rows, hitLimit: true };
+        return { rows, hitLimit: true, columnsTruncated };
       }
     } else if (char !== "\r") {
-      cell += char;
+      append(char);
     }
   }
 
   if (cell.length > 0 || row.length > 0) {
-    row.push(cell);
+    commitCell();
     if (commitRow()) {
-      return { rows, hitLimit: true };
+      return { rows, hitLimit: true, columnsTruncated };
     }
   }
 
-  return { rows, hitLimit: false };
+  return { rows, hitLimit: false, columnsTruncated };
 };
 
 /** Drop the last row when a byte cap may have torn it mid-line. */

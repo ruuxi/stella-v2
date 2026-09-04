@@ -66,6 +66,20 @@ export default {
         { kind: "push" },
       );
     }
+    if (pathname === "/pax-export") {
+      const paxWorld = env.WORLDS.getByName("fixture-pax-export");
+      const longParent = Array.from({ length: 8 }, () =>
+        "目录".repeat(20),
+      ).join("/");
+      const longPath = `${longParent}/文件-${"x".repeat(41)}😀.txt`;
+      const longTarget = `${"目标/".repeat(30)}终点-🌟`;
+      await paxWorld.writeFile(longPath, encoder.encode("roundtrip ✓"), {});
+      await paxWorld.symlink(`${longParent}/链接`, longTarget, {});
+      const exported = await paxWorld.exportTar();
+      return new Response(exported.body, {
+        headers: { "content-type": "application/x-tar" },
+      });
+    }
     if (pathname === "/put-blobs-cases") {
       const world = env.WORLDS.getByName("put-blobs-cases");
       const first = encoder.encode("first");

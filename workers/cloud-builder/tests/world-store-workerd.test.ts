@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
@@ -99,6 +106,38 @@ describe("WorldStore in real Workerd", () => {
       tarName: "pushed.txt",
       tarContent: "pushed",
     });
+  });
+
+  test("roundtrips PAX paths and symlink targets at the world limits, including unicode", async () => {
+    const response = await fetch(`${origin}/pax-export`);
+    expect(response.status).toBe(200);
+    const extraction = await mkdtemp(join(tmpdir(), "stella-world-pax-"));
+    const archive = join(extraction, "world.tar");
+    const destination = join(extraction, "restored");
+    try {
+      await mkdir(destination);
+      await writeFile(archive, new Uint8Array(await response.arrayBuffer()));
+      const tar = spawn("/usr/bin/tar", ["-xf", archive, "-C", destination], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const [exitCode] = (await once(tar, "exit")) as [number | null];
+      expect(exitCode).toBe(0);
+
+      const longParent = Array.from({ length: 8 }, () =>
+        "目录".repeat(20),
+      ).join("/");
+      expect(
+        await readFile(
+          join(destination, longParent, `文件-${"x".repeat(41)}😀.txt`),
+          "utf8",
+        ),
+      ).toBe("roundtrip ✓");
+      expect(await readlink(join(destination, longParent, "链接"))).toBe(
+        `${"目标/".repeat(30)}终点-🌟`,
+      );
+    } finally {
+      await rm(extraction, { recursive: true, force: true });
+    }
   });
 
   test("streams putBlobs frames, rejects bad sha, spills to R2, and enforces the byte cap", async () => {

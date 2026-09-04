@@ -48,6 +48,7 @@ type ManifestRow = {
   manifest_id: string;
   parent_manifest_id: string | null;
   fork_id: string;
+  revision: number | null;
   sealed: number;
 };
 type ForkRow = {
@@ -136,7 +137,7 @@ export const WORLD_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS world_blob_chunks(blob_sha256 TEXT NOT NULL, ordinal INTEGER NOT NULL, chunk_sha256 TEXT NOT NULL, PRIMARY KEY(blob_sha256, ordinal))",
   "CREATE TABLE IF NOT EXISTS world_nodes(node_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('file','dir','symlink')), mode INTEGER NOT NULL, mtime INTEGER NOT NULL, size INTEGER NOT NULL, blob_sha256 TEXT, target TEXT)",
   "CREATE TABLE IF NOT EXISTS world_dirents(manifest_id TEXT NOT NULL, parent_path TEXT NOT NULL, name TEXT NOT NULL, node_id INTEGER NOT NULL, PRIMARY KEY(manifest_id, parent_path, name))",
-  "CREATE TABLE IF NOT EXISTS world_manifests(manifest_id TEXT PRIMARY KEY, parent_manifest_id TEXT, fork_id TEXT NOT NULL, history_cursor TEXT, created_at INTEGER NOT NULL, sealed INTEGER NOT NULL DEFAULT 0)",
+  "CREATE TABLE IF NOT EXISTS world_manifests(manifest_id TEXT PRIMARY KEY, parent_manifest_id TEXT, fork_id TEXT NOT NULL, history_cursor TEXT, created_at INTEGER NOT NULL, revision INTEGER, sealed INTEGER NOT NULL DEFAULT 0)",
   "CREATE TABLE IF NOT EXISTS world_tombstones(manifest_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(manifest_id, path))",
   "CREATE TABLE IF NOT EXISTS world_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)",
   "CREATE TABLE IF NOT EXISTS world_forks(fork_id TEXT PRIMARY KEY, kind TEXT CHECK(kind IN ('shared','fork','new')), head_manifest_id TEXT NOT NULL, base_manifest_id TEXT, revision INTEGER NOT NULL, created_by_thread_id TEXT, created_at INTEGER NOT NULL)",
@@ -177,53 +178,106 @@ const tarString = (value: string, length: number): Uint8Array => {
   return output;
 };
 
-const tarHeader = (entry: WorldEntry): Uint8Array => {
+const splitUstarPath = (
+  value: string,
+): { name: string; prefix: string } | null => {
+  if (encoder.encode(value).byteLength <= 100) {
+    return { name: value, prefix: "" };
+  }
+  const split = [...value.matchAll(/\//gu)]
+    .map((match) => match.index)
+    .filter(
+      (index): index is number =>
+        index > 0 &&
+        encoder.encode(value.slice(0, index)).byteLength <= 155 &&
+        encoder.encode(value.slice(index + 1)).byteLength <= 100,
+    )
+    .at(-1);
+  return split === undefined
+    ? null
+    : { name: value.slice(split + 1), prefix: value.slice(0, split) };
+};
+
+type TarHeaderOptions = {
+  archivePath?: string;
+  linkTarget?: string;
+  size?: number;
+  typeFlag?: number;
+};
+
+const tarHeader = (
+  entry: WorldEntry,
+  options: TarHeaderOptions = {},
+): Uint8Array => {
   const header = new Uint8Array(512);
-  let name = entry.kind === "dir" ? `${entry.path}/` : entry.path;
-  let prefix = "";
-  if (encoder.encode(name).byteLength > 100) {
-    const split = [...name.matchAll(/\//gu)]
-      .map((match) => match.index)
-      .filter(
-        (index): index is number =>
-          index > 0 &&
-          encoder.encode(name.slice(0, index)).byteLength <= 155 &&
-          encoder.encode(name.slice(index + 1)).byteLength <= 100,
-      )
-      .at(-1);
-    if (split === undefined) {
-      throw new Error(`Path is too long for ustar export: ${entry.path}`);
-    }
-    prefix = name.slice(0, split);
-    name = name.slice(split + 1);
-  }
-  if (
-    entry.kind === "symlink" &&
-    encoder.encode(entry.target ?? "").byteLength > 100
-  ) {
-    throw new Error(
-      `Symlink target is too long for ustar export: ${entry.path}`,
-    );
-  }
-  header.set(tarString(name, 100), 0);
+  const archivePath =
+    options.archivePath ??
+    (entry.kind === "dir" ? `${entry.path}/` : entry.path);
+  // A PAX record carries the real value when it cannot fit in the legacy
+  // ustar fields. The fallback is intentionally harmless and bounded.
+  const pathParts = splitUstarPath(archivePath) ?? {
+    name: "PaxFiles/stella",
+    prefix: "",
+  };
+  const linkTarget = options.linkTarget ?? entry.target ?? "";
+  header.set(tarString(pathParts.name, 100), 0);
   header.set(tarOctal(entry.mode & 0o7777, 8), 100);
   header.set(tarOctal(0, 8), 108);
   header.set(tarOctal(0, 8), 116);
-  header.set(tarOctal(entry.kind === "file" ? entry.size : 0, 12), 124);
+  header.set(
+    tarOctal(options.size ?? (entry.kind === "file" ? entry.size : 0), 12),
+    124,
+  );
   header.set(tarOctal(Math.floor(entry.mtime / 1000), 12), 136);
   header.fill(0x20, 148, 156);
   header[156] =
-    entry.kind === "file" ? 0x30 : entry.kind === "dir" ? 0x35 : 0x32;
-  if (entry.target) header.set(tarString(entry.target, 100), 157);
+    options.typeFlag ??
+    (entry.kind === "file" ? 0x30 : entry.kind === "dir" ? 0x35 : 0x32);
+  if (encoder.encode(linkTarget).byteLength <= 100) {
+    header.set(tarString(linkTarget, 100), 157);
+  }
   header.set(encoder.encode("ustar\0"), 257);
   header.set(encoder.encode("00"), 263);
-  header.set(tarString(prefix, 155), 345);
+  header.set(tarString(pathParts.prefix, 155), 345);
   const checksum = header.reduce((sum, byte) => sum + byte, 0);
   header.set(
     encoder.encode(checksum.toString(8).padStart(6, "0") + "\0 "),
     148,
   );
   return header;
+};
+
+const paxRecord = (key: "path" | "linkpath", value: string): Uint8Array => {
+  const body = `${key}=${value}\n`;
+  let length = encoder.encode(`0 ${body}`).byteLength;
+  for (;;) {
+    const record = encoder.encode(`${length} ${body}`);
+    if (record.byteLength === length) return record;
+    length = record.byteLength;
+  }
+};
+
+const paxPayload = (entry: WorldEntry): Uint8Array | null => {
+  const records: Uint8Array[] = [];
+  const archivePath = entry.kind === "dir" ? `${entry.path}/` : entry.path;
+  if (!splitUstarPath(archivePath))
+    records.push(paxRecord("path", archivePath));
+  if (
+    entry.kind === "symlink" &&
+    encoder.encode(entry.target ?? "").byteLength > 100
+  ) {
+    records.push(paxRecord("linkpath", entry.target ?? ""));
+  }
+  if (records.length === 0) return null;
+  const payload = new Uint8Array(
+    records.reduce((total, record) => total + record.byteLength, 0),
+  );
+  let offset = 0;
+  for (const record of records) {
+    payload.set(record, offset);
+    offset += record.byteLength;
+  }
+  return payload;
 };
 
 export class WorldSqlStore implements WorldToolFileApi {
@@ -237,13 +291,25 @@ export class WorldSqlStore implements WorldToolFileApi {
 
   initialize(): void {
     for (const statement of WORLD_SCHEMA) this.sql.exec(statement);
+    const manifestColumns = this.sql
+      .exec<{ name: string }>("PRAGMA table_info(world_manifests)")
+      .toArray();
+    if (!manifestColumns.some((column) => column.name === "revision")) {
+      this.sql.exec("ALTER TABLE world_manifests ADD COLUMN revision INTEGER");
+    }
+    this.sql.exec(
+      `UPDATE world_manifests
+          SET revision = (SELECT f.revision FROM world_forks f WHERE f.head_manifest_id = world_manifests.manifest_id)
+        WHERE revision IS NULL
+          AND EXISTS (SELECT 1 FROM world_forks f WHERE f.head_manifest_id = world_manifests.manifest_id)`,
+    );
     const shared = this.sql
       .exec<ForkRow>("SELECT * FROM world_forks WHERE fork_id = 'shared'")
       .toArray()[0];
     if (shared) return;
     const live = `live:${crypto.randomUUID()}`;
     this.sql.exec(
-      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, sealed) VALUES (?, NULL, 'shared', NULL, ?, 0)",
+      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, revision, sealed) VALUES (?, NULL, 'shared', NULL, ?, 0, 0)",
       live,
       this.now(),
     );
@@ -329,6 +395,11 @@ export class WorldSqlStore implements WorldToolFileApi {
         "UPDATE world_forks SET revision = ? WHERE fork_id = ?",
         revision,
         forkId,
+      );
+      this.sql.exec(
+        "UPDATE world_manifests SET revision = ? WHERE manifest_id = ?",
+        revision,
+        this.liveManifest(forkId),
       );
       for (const [path, kind] of changes) {
         this.sql.exec(
@@ -947,7 +1018,11 @@ export class WorldSqlStore implements WorldToolFileApi {
             const row = this.sql
               .exec<{
                 bytes: ArrayBuffer;
-              }>("SELECT bytes FROM world_upload_parts WHERE upload_id = ? AND ordinal = ?", uploadId, part)
+              }>(
+                "SELECT bytes FROM world_upload_parts WHERE upload_id = ? AND ordinal = ?",
+                uploadId,
+                part,
+              )
               .one();
             part += 1;
             controller.enqueue(byteView(row.bytes));
@@ -969,7 +1044,11 @@ export class WorldSqlStore implements WorldToolFileApi {
           const row = this.sql
             .exec<{
               bytes: ArrayBuffer;
-            }>("SELECT bytes FROM world_upload_parts WHERE upload_id = ? AND ordinal = ?", uploadId, part)
+            }>(
+              "SELECT bytes FROM world_upload_parts WHERE upload_id = ? AND ordinal = ?",
+              uploadId,
+              part,
+            )
             .one();
           const chunk = byteView(row.bytes);
           const chunkHasher = new IncrementalSha256();
@@ -1173,7 +1252,20 @@ export class WorldSqlStore implements WorldToolFileApi {
       )
       .toArray()[0];
     if (!manifest) throw new Error(`World manifest not found: ${manifestId}`);
+    if (manifest.fork_id !== forkId) {
+      throw new Error("World manifest does not belong to the requested fork.");
+    }
     if (manifest.sealed === 1) return manifestId;
+    if (this.pendingChanges) {
+      throw new Error(
+        "World live manifest cannot be sealed during a mutation.",
+      );
+    }
+    const fork = this.forkRow(forkId);
+    if (fork.head_manifest_id !== manifestId) {
+      throw new Error("Only the current live world manifest can be sealed.");
+    }
+    const revision = fork.revision;
     const entries = [...this.manifestMap(manifestId).values()];
     const snapshotId = await sha256Hex(
       JSON.stringify([
@@ -1189,12 +1281,35 @@ export class WorldSqlStore implements WorldToolFileApi {
         ]),
       ]),
     );
+    const currentFork = this.forkRow(forkId);
+    const currentManifest = this.sql
+      .exec<ManifestRow>(
+        "SELECT * FROM world_manifests WHERE manifest_id = ?",
+        manifestId,
+      )
+      .toArray()[0];
+    if (
+      this.pendingChanges ||
+      currentFork.head_manifest_id !== manifestId ||
+      currentFork.revision !== revision ||
+      !currentManifest ||
+      currentManifest.sealed === 1 ||
+      currentManifest.revision !== revision
+    ) {
+      throw new Error("World changed while sealing its live manifest.");
+    }
     this.sql.exec(
-      "INSERT OR IGNORE INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, sealed) VALUES (?, ?, ?, NULL, ?, 1)",
+      "INSERT OR IGNORE INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, revision, sealed) VALUES (?, ?, ?, NULL, ?, ?, 1)",
       snapshotId,
       manifest.parent_manifest_id,
       forkId,
       this.now(),
+      revision,
+    );
+    this.sql.exec(
+      "UPDATE world_manifests SET revision = COALESCE(revision, ?) WHERE manifest_id = ?",
+      revision,
+      snapshotId,
     );
     this.sql.exec(
       "INSERT OR IGNORE INTO world_dirents(manifest_id, parent_path, name, node_id) SELECT ?, parent_path, name, node_id FROM world_dirents WHERE manifest_id = ?",
@@ -1264,7 +1379,7 @@ export class WorldSqlStore implements WorldToolFileApi {
     const forkId = `fork-${crypto.randomUUID()}`;
     const headManifestId = `live:${crypto.randomUUID()}`;
     this.sql.exec(
-      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, sealed) VALUES (?, ?, ?, NULL, ?, 0)",
+      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, revision, sealed) VALUES (?, ?, ?, NULL, ?, 0, 0)",
       headManifestId,
       baseManifestId,
       forkId,
@@ -1380,8 +1495,10 @@ export class WorldSqlStore implements WorldToolFileApi {
     historyCursor: string;
     fork?: string;
   }): Promise<{ manifestId: string; forkId: string }> {
-    const forkId = this.forkRow(options.fork).fork_id;
-    const live = this.liveManifest(forkId);
+    const fork = this.forkRow(options.fork);
+    const forkId = fork.fork_id;
+    const revision = fork.revision;
+    const live = fork.head_manifest_id;
     const entries: WorldEntry[] = [];
     let cursor = "";
     for (;;) {
@@ -1412,16 +1529,18 @@ export class WorldSqlStore implements WorldToolFileApi {
       this.sql.exec("DELETE FROM world_tombstones WHERE manifest_id = ?", live);
       this.sql.exec("DELETE FROM world_manifests WHERE manifest_id = ?", live);
       this.sql.exec(
-        "UPDATE world_manifests SET history_cursor = ?, fork_id = ? WHERE manifest_id = ?",
+        "UPDATE world_manifests SET history_cursor = ?, fork_id = ?, revision = COALESCE(revision, ?) WHERE manifest_id = ?",
         options.historyCursor,
         forkId,
+        revision,
         manifestId,
       );
     } else {
       this.sql.exec(
-        "UPDATE world_manifests SET manifest_id = ?, history_cursor = ?, sealed = 1 WHERE manifest_id = ?",
+        "UPDATE world_manifests SET manifest_id = ?, history_cursor = ?, revision = ?, sealed = 1 WHERE manifest_id = ?",
         manifestId,
         options.historyCursor,
+        revision,
         live,
       );
       this.sql.exec(
@@ -1437,11 +1556,12 @@ export class WorldSqlStore implements WorldToolFileApi {
     }
     const next = `live:${crypto.randomUUID()}`;
     this.sql.exec(
-      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, sealed) VALUES (?, ?, ?, NULL, ?, 0)",
+      "INSERT INTO world_manifests(manifest_id, parent_manifest_id, fork_id, history_cursor, created_at, revision, sealed) VALUES (?, ?, ?, NULL, ?, ?, 0)",
       next,
       manifestId,
       forkId,
       this.now(),
+      revision,
     );
     this.sql.exec(
       "INSERT INTO world_dirents(manifest_id, parent_path, name, node_id) SELECT ?, parent_path, name, node_id FROM world_dirents WHERE manifest_id = ?",
@@ -1708,39 +1828,113 @@ export class WorldSqlStore implements WorldToolFileApi {
     revision: number;
     body: ReadableStream<Uint8Array>;
   } {
-    const forkId = this.forkRow(options.fork).fork_id;
-    const exportedManifestId = manifestId ?? this.liveManifest(forkId);
+    if (this.pendingChanges) {
+      throw new Error("World cannot be exported during a mutation.");
+    }
+    const fork = this.forkRow(options.fork);
+    const forkId = fork.fork_id;
+    const exportedManifestId = manifestId ?? fork.head_manifest_id;
+    const manifest = this.sql
+      .exec<ManifestRow>(
+        "SELECT * FROM world_manifests WHERE manifest_id = ?",
+        exportedManifestId,
+      )
+      .toArray()[0];
+    if (!manifest) {
+      throw new Error(`World manifest not found: ${exportedManifestId}`);
+    }
+    if (manifest.fork_id !== forkId) {
+      throw new Error("World manifest does not belong to the requested fork.");
+    }
+    if (manifest.revision === null) {
+      throw new Error("World manifest has no recorded revision.");
+    }
+    const live = manifest.sealed !== 1;
+    const revision = manifest.revision;
+    if (
+      live &&
+      (fork.head_manifest_id !== exportedManifestId ||
+        fork.revision !== revision)
+    ) {
+      throw new Error("World live manifest changed before export.");
+    }
     const store = this;
+    const assertLiveUnchanged = (): void => {
+      if (!live) return;
+      if (store.pendingChanges) {
+        throw new Error("World changed while exporting its live manifest.");
+      }
+      const currentFork = store.forkRow(forkId);
+      const currentManifest = store.sql
+        .exec<ManifestRow>(
+          "SELECT * FROM world_manifests WHERE manifest_id = ?",
+          exportedManifestId,
+        )
+        .toArray()[0];
+      if (
+        currentFork.head_manifest_id !== exportedManifestId ||
+        currentFork.revision !== revision ||
+        !currentManifest ||
+        currentManifest.sealed === 1 ||
+        currentManifest.revision !== revision
+      ) {
+        throw new Error("World changed while exporting its live manifest.");
+      }
+    };
     async function* generate(): AsyncGenerator<Uint8Array> {
       let cursor = "";
       while (true) {
+        assertLiveUnchanged();
         const rows = store.manifestEntries(exportedManifestId, cursor, 256);
         if (rows.length === 0) break;
         for (const row of rows) {
+          assertLiveUnchanged();
           const entry = rowEntry(row);
+          const pax = paxPayload(entry);
+          if (pax) {
+            yield tarHeader(entry, {
+              archivePath: "PaxHeaders/stella",
+              linkTarget: "",
+              size: pax.byteLength,
+              typeFlag: 0x78,
+            });
+            assertLiveUnchanged();
+            yield pax;
+            assertLiveUnchanged();
+            const paxPadding = (512 - (pax.byteLength % 512)) % 512;
+            if (paxPadding) yield new Uint8Array(paxPadding);
+          }
+          assertLiveUnchanged();
           yield tarHeader(entry);
           if (entry.kind === "file" && entry.sha256) {
             for (
               let offset = 0;
               offset < entry.size;
               offset += WORLD_READ_LIMIT_BYTES
-            )
-              yield await store.blobBytes(
+            ) {
+              assertLiveUnchanged();
+              const bytes = await store.blobBytes(
                 entry.sha256,
                 offset,
                 Math.min(WORLD_READ_LIMIT_BYTES, entry.size - offset),
               );
+              assertLiveUnchanged();
+              yield bytes;
+            }
+            assertLiveUnchanged();
             const padding = (512 - (entry.size % 512)) % 512;
             if (padding) yield new Uint8Array(padding);
           }
         }
         cursor = rows.at(-1)?.path ?? cursor;
       }
+      assertLiveUnchanged();
       yield new Uint8Array(1024);
+      assertLiveUnchanged();
     }
     const iterator = generate();
     return {
-      revision: this.revision(forkId),
+      revision,
       body: new ReadableStream<Uint8Array>({
         async pull(controller) {
           const next = await iterator.next();

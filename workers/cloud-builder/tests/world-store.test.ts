@@ -465,6 +465,93 @@ describe("WorldSqlStore", () => {
     expect(decoder.decode(tar.slice(512, 517))).toBe("hello");
   });
 
+  test("binds a sealed checkpoint export to its own revision after later writes", async () => {
+    const world = createWorld();
+    await world.writeFile("before.txt", encoder.encode("revision one"));
+    const checkpoint = await world.checkpoint({
+      historyCursor: `v1:${"c".repeat(64)}`,
+    });
+    await world.writeFile("after.txt", encoder.encode("revision two"));
+
+    const exported = world.exportTar(checkpoint.manifestId);
+    expect(exported.revision).toBe(1);
+    const tar = decoder.decode(
+      new Uint8Array(await new Response(exported.body).arrayBuffer()),
+    );
+    expect(tar).toContain("before.txt");
+    expect(tar).toContain("revision one");
+    expect(tar).not.toContain("after.txt");
+    expect((await world.head()).revision).toBe(2);
+  });
+
+  test("refuses to export a manifest through a different fork", async () => {
+    const world = createWorld();
+    await world.writeFile("shared.txt", encoder.encode("shared"));
+    const checkpoint = await world.checkpoint({
+      historyCursor: `v1:${"d".repeat(64)}`,
+    });
+    const isolated = await world.fork({
+      kind: "new",
+      threadId: "wrong-export-fork",
+    });
+
+    expect(() =>
+      world.exportTar(checkpoint.manifestId, { fork: isolated.forkId }),
+    ).toThrow("does not belong to the requested fork");
+  });
+
+  test("aborts a lazy live export before emitting a complete stale archive", async () => {
+    const world = createWorld();
+    await world.writeFile("before.txt", encoder.encode("revision one"));
+    const exported = world.exportTar();
+    expect(exported.revision).toBe(1);
+    const reader = exported.body.getReader();
+    expect((await reader.read()).done).toBe(false);
+
+    await world.writeFile("concurrent.txt", encoder.encode("revision two"));
+
+    const drain = async (): Promise<void> => {
+      while (!(await reader.read()).done) {
+        // Drain any chunk queued before the revision changed.
+      }
+    };
+    await expect(drain()).rejects.toThrow(
+      "World changed while exporting its live manifest",
+    );
+    expect((await world.head()).revision).toBe(2);
+  });
+
+  test("refuses live export while rename has partially changed SQL at the old revision", async () => {
+    const world = createWorld();
+    await world.writeFile("source/file.txt", encoder.encode("content"));
+    let enteredRemove!: () => void;
+    const removeEntered = new Promise<void>((resolve) => {
+      enteredRemove = resolve;
+    });
+    let releaseRemove!: () => void;
+    const removeGate = new Promise<void>((resolve) => {
+      releaseRemove = resolve;
+    });
+    const originalRemove = world.remove.bind(world);
+    world.remove = async (input, options = {}) => {
+      enteredRemove();
+      await removeGate;
+      return await originalRemove(input, options);
+    };
+
+    const rename = world.rename("source", "destination");
+    await removeEntered;
+    expect(() => world.exportTar()).toThrow(
+      "World cannot be exported during a mutation",
+    );
+    await expect(
+      world.fork({ kind: "fork", threadId: "mutation-racing-fork" }),
+    ).rejects.toThrow("cannot be sealed during a mutation");
+    releaseRemove();
+    await rename;
+    expect(await world.stat("destination/file.txt")).not.toBeNull();
+  });
+
   test("streams blobs above four MiB to R2 and reads bounded ranges", async () => {
     const fake = openSqlStorageFake();
     stores.push(fake);

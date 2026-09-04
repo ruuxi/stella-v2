@@ -778,7 +778,7 @@ export class CompanionWindowController {
   };
 
   private handleToggleExpanded = (event: IpcMainEvent) => {
-    if (this.kindOf(event.sender) !== "mark") return;
+    if (!this.isSender(event.sender)) return;
     this.sendToPanel(IPC_COMPANION_SET_EXPANDED, {
       expanded: !this.panelStatus.expanded,
     });
@@ -788,7 +788,7 @@ export class CompanionWindowController {
     event: IpcMainEvent,
     cursor: CompanionDragMove,
   ) => {
-    if (this.kindOf(event.sender) !== "mark") return;
+    if (!this.isSender(event.sender)) return;
     if (
       !cursor ||
       typeof cursor.screenX !== "number" ||
@@ -806,7 +806,7 @@ export class CompanionWindowController {
   };
 
   private handleDragMove = (event: IpcMainEvent, cursor: CompanionDragMove) => {
-    if (this.kindOf(event.sender) !== "mark" || !this.drag) return;
+    if (!this.isSender(event.sender) || !this.drag) return;
     if (
       !cursor ||
       typeof cursor.screenX !== "number" ||
@@ -821,7 +821,7 @@ export class CompanionWindowController {
   };
 
   private handleDragEnd = (event: IpcMainEvent) => {
-    if (this.kindOf(event.sender) !== "mark") return;
+    if (!this.isSender(event.sender)) return;
     this.drag = null;
     const dir = this.options.getStellaDataDir();
     if (dir && this.anchor) setCompanionAnchor(dir, this.anchor);

@@ -7,13 +7,7 @@
  * It never resizes and never takes keyboard focus; everything it learns
  * about the panel (expanded, recording) arrives from main as activity.
  */
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useMemo, useRef } from "react";
 import { COMPANION_MARK_SIZE } from "@stella/contracts/desktop/companion";
 import { useUiState } from "@/context/ui-state";
 import { useT } from "@/shared/i18n";
@@ -27,10 +21,8 @@ import {
   useVoiceSpeakingState,
 } from "./use-companion-state";
 import { useCompanionWindow, useDocumentVisible } from "./use-companion-window";
+import { useMarkPress } from "./use-mark-press";
 import "./companion.css";
-
-/** Pointer travel before a press becomes a drag instead of a click. */
-const DRAG_THRESHOLD_PX = 5;
 
 export function CompanionMarkRoot() {
   const t = useT();
@@ -41,77 +33,11 @@ export function CompanionMarkRoot() {
   const voiceActive = Boolean(uiState.isVoiceRtcActive);
   const voice = useVoiceSpeakingState(voiceActive);
   const documentVisible = useDocumentVisible();
-  const [dragging, setDragging] = useState(false);
   const markHandleRef = useRef<StellaMarkHandle | null>(null);
 
-  // ── Click / drag ─────────────────────────────────────────────────────
-  const pressRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    moved: boolean;
-    lastX: number;
-    lastY: number;
-    frame: number | null;
-  } | null>(null);
-
-  const flushDragMove = useCallback(() => {
-    const press = pressRef.current;
-    if (!press) return;
-    press.frame = null;
-    api?.dragMove({ screenX: press.lastX, screenY: press.lastY });
-  }, [api]);
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pressRef.current = {
-      pointerId: event.pointerId,
-      startX: event.screenX,
-      startY: event.screenY,
-      lastX: event.screenX,
-      lastY: event.screenY,
-      moved: false,
-      frame: null,
-    };
-  };
-
-  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const press = pressRef.current;
-    if (!press || press.pointerId !== event.pointerId) return;
-    press.lastX = event.screenX;
-    press.lastY = event.screenY;
-    if (!press.moved) {
-      const dx = press.lastX - press.startX;
-      const dy = press.lastY - press.startY;
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-      press.moved = true;
-      setDragging(true);
-      api?.dragStart({ screenX: press.startX, screenY: press.startY });
-    }
-    if (press.frame === null) {
-      press.frame = requestAnimationFrame(flushDragMove);
-    }
-  };
-
-  const endPress = (
-    event: ReactPointerEvent<HTMLButtonElement>,
-    cancelled: boolean,
-  ) => {
-    const press = pressRef.current;
-    if (!press || press.pointerId !== event.pointerId) return;
-    pressRef.current = null;
-    if (press.frame !== null) cancelAnimationFrame(press.frame);
-    if (press.moved) {
-      api?.dragMove({ screenX: press.lastX, screenY: press.lastY });
-      api?.dragEnd();
-      setDragging(false);
-      return;
-    }
-    if (cancelled) return;
-    markHandleRef.current?.sparkle();
-    api?.toggleExpanded();
-  };
+  const { dragging, handlers: pressHandlers } = useMarkPress(() =>
+    markHandleRef.current?.sparkle(),
+  );
 
   // ── Mood ─────────────────────────────────────────────────────────────
   const markState = useMemo<StellaCharacterState>(() => {
@@ -157,14 +83,7 @@ export function CompanionMarkRoot() {
           expanded ? "companion.mark.close" : "companion.mark.open",
         )}
         aria-expanded={expanded}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={(event) => endPress(event, false)}
-        onPointerCancel={(event) => endPress(event, true)}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          api?.showContextMenu();
-        }}
+        {...pressHandlers}
       >
         <StellaCharacter
           size={COMPANION_MARK_SIZE}

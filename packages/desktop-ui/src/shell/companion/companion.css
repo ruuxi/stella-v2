@@ -120,6 +120,34 @@
   pointer-events: none;
 }
 
+/* Panel-side twin of the mark's hit target (see use-mark-press). Invisible,
+   sits exactly where the mark window draws, above the arc. */
+.companion-mark-hit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--companion-mark-size);
+  height: var(--companion-mark-size);
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 2;
+  -webkit-app-region: no-drag;
+}
+
+.companion-mark-hit:focus {
+  outline: none;
+}
+
+.companion-root[data-dragging] .companion-mark-hit {
+  cursor: grabbing;
+}
+
 /* Running-agent count, tucked onto the mark's top-right shoulder. */
 .companion-badge {
   position: absolute;

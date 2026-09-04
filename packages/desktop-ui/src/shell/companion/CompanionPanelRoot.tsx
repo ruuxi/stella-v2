@@ -41,6 +41,7 @@ import { CompanionComposer } from "./CompanionComposer";
 import { useCompanionBubbles } from "./use-companion-bubbles";
 import { useCompanionState, useReadAloudEnabled } from "./use-companion-state";
 import { useCompanionWindow } from "./use-companion-window";
+import { useMarkPress } from "./use-mark-press";
 import "./companion.css";
 
 /** Arc geometry, in px around the mark's center. The arc opens toward the
@@ -220,6 +221,11 @@ export function CompanionPanelRoot() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [collapse]);
 
+  // The panel may end up stacked above the mark window (compositors differ),
+  // so it carries its own hit area at the mark's spot with the same
+  // click-or-drag behaviour; whichever window is on top responds.
+  const { dragging, handlers: markPressHandlers } = useMarkPress();
+
   // ── Arc actions ──────────────────────────────────────────────────────
   const arcVisible = hovered || expanded;
   const showVoice = platformCapabilities.realtimeVoice;
@@ -238,6 +244,7 @@ export function CompanionPanelRoot() {
       className="companion-root"
       data-hovered={hovered || undefined}
       data-expanded={expanded || undefined}
+      data-dragging={dragging || undefined}
       data-edge-h={edgeH}
       data-edge-v={edgeV}
       style={anchorVars(edgeH, edgeV)}
@@ -365,6 +372,16 @@ export function CompanionPanelRoot() {
             </button>
           ) : null}
         </div>
+        <button
+          type="button"
+          className="companion-mark-hit"
+          aria-label={t(
+            expanded ? "companion.mark.close" : "companion.mark.open",
+          )}
+          aria-expanded={expanded}
+          tabIndex={-1}
+          {...markPressHandlers}
+        />
       </div>
     </div>
   );

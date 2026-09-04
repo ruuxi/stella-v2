@@ -308,3 +308,6 @@ export const checkpointImportsKey = (workspaceKey: string): string =>
 /** Legacy eventual-KV receipt key, retained only so purge removes old rows. */
 export const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
   `${workspaceKey}:owner-transfer-receipts`;
+
+export const ORCHESTRATOR_INTERNAL_ORIGIN = "https://orchestrator-session";
+export const HEADER_CONVERSATION_ID = "x-stella-conversation-id";

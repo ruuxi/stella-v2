@@ -356,6 +356,22 @@
   flex: 0 0 auto;
 }
 
+/* Same footprint as the main composer's send / stop buttons. */
+.companion-composer__icon {
+  width: 34px;
+  height: 34px;
+}
+
+.companion-composer__stop {
+  border: 1px solid color-mix(in oklch, var(--foreground) 16%, transparent);
+  color: var(--text-strong);
+}
+
+.companion-composer__icon:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 @keyframes companion-pop-in {
   from {
     opacity: 0;

@@ -11947,6 +11947,10 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     REPO_ROOT,
     "workers/cloud-builder/src/build-session/session-core.ts",
   );
+  const containerTurnPath = path.join(
+    REPO_ROOT,
+    "workers/cloud-builder/src/build-session/container-turn.ts",
+  );
   const orchestrationDescriptorPath = path.join(
     REPO_ROOT,
     "packages/runtime/kernel/tools/defs/agent-orchestration-def.ts",
@@ -11955,11 +11959,13 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     orchestratorSource,
     buildSessionSource,
     sessionCoreSource,
+    containerTurnSource,
     orchestrationDescriptorSource,
   ] = await Promise.all([
     readFile(orchestratorPath, "utf8"),
     readFile(buildSessionPath, "utf8"),
     readFile(sessionCorePath, "utf8"),
+    readFile(containerTurnPath, "utf8"),
     readFile(orchestrationDescriptorPath, "utf8"),
   ]);
   const orchestratorAnchors = [
@@ -11980,19 +11986,22 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     ),
     "Reviewed cloud orchestration descriptor no longer keeps child task context explicit.",
   );
-  // `runAgentTurn` dispatches placement from the extracted admission module;
-  // the class keeps a delegator, and the child-context boundary below still
-  // lives in the span between it and `runAgentAttempt`.
-  const agentTurnStart = buildSessionSource.indexOf("  private runAgentTurn(");
-  const agentAttemptStart = buildSessionSource.indexOf(
-    "  private async runAgentAttempt(",
+  // `runAgentTurn` dispatches placement from the extracted admission module
+  // and the container lane now lives in the extracted container-turn module;
+  // the class keeps delegators, so the child-context boundary is read from the
+  // span between `runContainerAgentTurn` and `runAgentAttempt` in that module.
+  const agentTurnStart = containerTurnSource.indexOf(
+    "export const runContainerAgentTurn = async (",
+  );
+  const agentAttemptStart = containerTurnSource.indexOf(
+    "export const runAgentAttempt = async (",
     agentTurnStart + 1,
   );
   assert(
     agentTurnStart >= 0 && agentAttemptStart > agentTurnStart,
     "Reviewed cloud child-agent boundary could not be isolated.",
   );
-  const agentTurnSource = buildSessionSource.slice(
+  const agentTurnSource = containerTurnSource.slice(
     agentTurnStart,
     agentAttemptStart,
   );
@@ -12021,14 +12030,14 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     ) &&
       historyLoaderSource.includes("excludeTurnId: turn.turnId") &&
       agentTurnSource.includes(
-        "const history = this.fetchCanonicalAgentHistory(turn, {",
+        "const history = host.fetchCanonicalAgentHistory(turn, {",
       ) &&
       agentTurnSource.includes('cloudSkillHome.loadSkillCatalog("general")') &&
       !agentTurnSource.includes("readDocuments(") &&
       !agentTurnSource.includes("readPersonality("),
     "Cloud child agents must receive explicit thread context and pinned skills without an implicit memory/personality dump.",
   );
-  const agentAttemptSource = buildSessionSource.slice(agentAttemptStart);
+  const agentAttemptSource = containerTurnSource.slice(agentAttemptStart);
   assert(
     agentAttemptSource.includes("prompt: turn.prompt") &&
       agentAttemptSource.includes("history: args.history") &&
@@ -12042,6 +12051,7 @@ export const reviewedMemoryArchitectureBoundary = async () => {
       orchestratorSourceSha256: sha256(orchestratorSource),
       buildSessionSourceSha256: sha256(buildSessionSource),
       sessionCoreSourceSha256: sha256(sessionCoreSource),
+      containerTurnSourceSha256: sha256(containerTurnSource),
       orchestrationDescriptorSourceSha256: sha256(
         orchestrationDescriptorSource,
       ),
@@ -13510,8 +13520,8 @@ const stepOwnerResetMemoryReimport = async ({
   });
   const preResetSandboxTerminalVerified = Boolean(
     sandboxProbe.turnId === sandbox.turnId &&
-    (sandboxProbe.status === "completed" ||
-      sandboxProbe.turnStatus === "completed"),
+      (sandboxProbe.status === "completed" ||
+        sandboxProbe.turnStatus === "completed"),
   );
   assert(
     preResetSandboxTerminalVerified,
@@ -15026,7 +15036,7 @@ const stepCleanup = async ({
     sandboxTerminalBeforePurge = Boolean(
       (exact &&
         (exact.status === "completed" || exact.turnStatus === "completed")) ||
-      (!exact && state.ownerReset?.preResetSandboxTerminalVerified === true),
+        (!exact && state.ownerReset?.preResetSandboxTerminalVerified === true),
     );
     if (!sandboxTerminalBeforePurge) {
       failures.push({

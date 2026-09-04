@@ -168,7 +168,6 @@ import {
 } from "./app-build-artifacts.js";
 import {
   HEADER_OWNER_FENCE_ID,
-  OWNER_FENCE_LEASE_TTL_MS,
   type OwnerPurgeFence,
   type OwnerPurgeMode,
 } from "./owner-fence-do.js";
@@ -369,7 +368,6 @@ import type {
   AgentExecutorResult,
   AppTurnAdmissionClaim,
   BuildOwnerFenceLeaseReceipt,
-  BuildOwnerFenceLeaseSlot,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
   ConversationCaller,
@@ -408,8 +406,6 @@ import {
   APP_BUILD_CONTROL_PLANE_EXECUTION,
   APP_TURN_ADMISSION_CLAIM_KEY,
   BUILDER_FALLBACK_MAX_RETRIES,
-  BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
-  BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX,
   CLOUD_TURN_SOURCES,
   HEADER_CONVERSATION_ID,
   HEADER_PREVIEW_CAPABILITY,
@@ -418,7 +414,6 @@ import {
   OUTBOX_DEBT_KEY,
   OUTBOX_DEBT_MAX,
   OUTBOX_DEBT_RETRY_MS,
-  OWNER_FENCE_LEASE_RETRY_MS,
   OWNER_GATE_REFUSAL_STATUS,
   OWNER_PURGE_STALE_LEASE_GRACE_MS,
   PENDING_BROWSER_SUSPENSION_KEY,
@@ -427,7 +422,6 @@ import {
   agentComputeRecoveryClaimKey,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
-  buildOwnerFenceLeaseReceiptKey,
   builderFallbackRetryKey,
   builderFallbackTranscriptKey,
   contentType,
@@ -549,6 +543,15 @@ import {
   runEcho,
   runTurn,
 } from "./build-session/app-build.js";
+import {
+  armOwnerFenceLeaseReconciliationAlarm,
+  hasOwnerFenceLeaseRetirementDebt,
+  ownerFenceLeaseSlotKey,
+  ownerFenceReceiptMatches,
+  registerBuildOwnerFenceLease,
+  retireBuildOwnerFenceLease,
+  retryOwnerFenceLeaseRetirements,
+} from "./build-session/owner-fence-leases.js";
 
 export { normalizeToolWorkspaceRoot } from "./build-session/shared/keys.js";
 
@@ -2935,69 +2938,40 @@ export class BuildSession extends DurableObject<Env> {
     return registerTurn(this.self, turn, freshLease);
   }
 
+  /** @see src/build-session/owner-fence-leases.ts */
   private ownerFenceReceiptMatches(
     receipt: BuildOwnerFenceLeaseReceipt,
     target: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "turnId">,
     leaseId: string,
   ): boolean {
-    return (
-      receipt.schemaVersion === 1 &&
-      receipt.ownerId === target.ownerId &&
-      receipt.ownerGeneration === target.ownerGeneration &&
-      receipt.turnId === target.turnId &&
-      receipt.leaseId === leaseId
-    );
+    return ownerFenceReceiptMatches(this.self, receipt, target, leaseId);
   }
 
-  private async ownerFenceLeaseSlotKey(
+  /** @see src/build-session/owner-fence-leases.ts */
+  private ownerFenceLeaseSlotKey(
     turn: TurnRequest,
     kind: BuildOwnerFenceLeaseReceipt["kind"],
   ): Promise<string> {
-    const identity = await sha256Hex(
-      JSON.stringify({
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        turnId: turn.turnId,
-        attemptGeneration: turn.attemptGeneration ?? 1,
-        kind,
-      }),
-    );
-    return `${BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX}${identity}`;
+    return ownerFenceLeaseSlotKey(this.self, turn, kind);
   }
 
-  private async armOwnerFenceLeaseReconciliationAlarm(): Promise<void> {
-    const retryAt = Date.now() + OWNER_FENCE_LEASE_RETRY_MS;
-    await this.ctx.storage.transaction(async (txn) => {
-      const current = await txn.getAlarm();
-      if (current === null || current > retryAt) await txn.setAlarm(retryAt);
-    });
+  /** @see src/build-session/owner-fence-leases.ts */
+  private armOwnerFenceLeaseReconciliationAlarm(): Promise<void> {
+    return armOwnerFenceLeaseReconciliationAlarm(this.self);
   }
 
-  private async hasOwnerFenceLeaseRetirementDebt(): Promise<boolean> {
-    const receipts = await this.ctx.storage.list<BuildOwnerFenceLeaseReceipt>({
-      prefix: BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
-      limit: 512,
-    });
-    return [...receipts.values()].some(
-      (receipt) => receipt.phase === "unregister_pending",
-    );
+  /** @see src/build-session/owner-fence-leases.ts */
+  private hasOwnerFenceLeaseRetirementDebt(): Promise<boolean> {
+    return hasOwnerFenceLeaseRetirementDebt(this.self);
   }
 
-  private async retryOwnerFenceLeaseRetirements(): Promise<void> {
-    const receipts = await this.ctx.storage.list<BuildOwnerFenceLeaseReceipt>({
-      prefix: BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX,
-      limit: 512,
-    });
-    for (const receipt of receipts.values()) {
-      if (receipt.phase !== "unregister_pending") continue;
-      await this.retireBuildOwnerFenceLease(receipt);
-    }
-    if (await this.hasOwnerFenceLeaseRetirementDebt()) {
-      await this.armOwnerFenceLeaseReconciliationAlarm();
-    }
+  /** @see src/build-session/owner-fence-leases.ts */
+  private retryOwnerFenceLeaseRetirements(): Promise<void> {
+    return retryOwnerFenceLeaseRetirements(this.self);
   }
 
-  private async registerBuildOwnerFenceLease(args: {
+  /** @see src/build-session/owner-fence-leases.ts */
+  private registerBuildOwnerFenceLease(args: {
     turn: TurnRequest;
     kind: BuildOwnerFenceLeaseReceipt["kind"];
     role: "run" | "aux";
@@ -3005,148 +2979,7 @@ export class BuildSession extends DurableObject<Env> {
     leaseId?: string;
     mutateTurn?: boolean;
   }): Promise<{ generation: string; expiresAt: number; leaseId: string }> {
-    let receipt!: BuildOwnerFenceLeaseReceipt;
-    await this.ctx.storage.transaction(async (txn) => {
-      const slot = args.slotKey
-        ? await txn.get<BuildOwnerFenceLeaseSlot>(args.slotKey)
-        : undefined;
-      if (
-        slot &&
-        (slot.schemaVersion !== 1 ||
-          slot.ownerId !== args.turn.ownerId ||
-          slot.ownerGeneration !== args.turn.ownerGeneration ||
-          slot.turnId !== args.turn.turnId ||
-          slot.kind !== args.kind)
-      ) {
-        throw new OwnerPurgeFenceError();
-      }
-      const leaseId =
-        args.leaseId ??
-        (args.mutateTurn ? args.turn.ownerPurgeLeaseId : undefined) ??
-        slot?.leaseId ??
-        crypto.randomUUID();
-      if (slot && slot.leaseId !== leaseId) throw new OwnerPurgeFenceError();
-      const key = buildOwnerFenceLeaseReceiptKey(leaseId);
-      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
-      if (
-        current &&
-        (!this.ownerFenceReceiptMatches(current, args.turn, leaseId) ||
-          current.kind !== args.kind)
-      ) {
-        throw new OwnerPurgeFenceError();
-      }
-      const now = Date.now();
-      receipt = current ?? {
-        schemaVersion: 1,
-        ownerId: args.turn.ownerId,
-        ownerGeneration: args.turn.ownerGeneration,
-        turnId: args.turn.turnId,
-        leaseId,
-        kind: args.kind,
-        phase: "registering",
-        ...(args.slotKey ? { slotKey: args.slotKey } : {}),
-        createdAt: now,
-        updatedAt: now,
-      };
-      if (receipt.phase === "unregister_pending") {
-        throw new OwnerPurgeFenceError();
-      }
-      const writes: Record<string, unknown> = { [key]: receipt };
-      if (args.slotKey) {
-        writes[args.slotKey] = {
-          schemaVersion: 1,
-          ownerId: args.turn.ownerId,
-          ownerGeneration: args.turn.ownerGeneration,
-          turnId: args.turn.turnId,
-          leaseId,
-          kind: args.kind,
-        } satisfies BuildOwnerFenceLeaseSlot;
-      }
-      await txn.put(writes);
-      if (args.mutateTurn) args.turn.ownerPurgeLeaseId = leaseId;
-    });
-
-    let response: Response;
-    const expiresAt = Date.now() + OWNER_FENCE_LEASE_TTL_MS;
-    try {
-      response = await this.callOwnerFence(args.turn.ownerId, "register", {
-        leaseId: receipt.leaseId,
-        sessionId: this.ctx.id.toString(),
-        turnId: args.turn.turnId,
-        ownerGeneration: args.turn.ownerGeneration,
-        role: args.role,
-        expiresAt,
-        ...(receipt.registrationGeneration
-          ? { generation: receipt.registrationGeneration }
-          : {}),
-      });
-    } catch (error) {
-      log("error", "owner_fence_register_response_lost", {
-        turnId: receipt.turnId,
-        leaseId: receipt.leaseId,
-        kind: receipt.kind,
-        message: errorMessage(error),
-      });
-      throw new OwnerPurgeFenceError();
-    }
-    const body = (await response.json().catch(() => null)) as {
-      generation?: string;
-      expiresAt?: number;
-      code?: unknown;
-    } | null;
-    if (!response.ok || !body?.generation) {
-      const rawCode = typeof body?.code === "string" ? body.code : "";
-      log("info", "agent_turn_owner_fence_registration_rejected", {
-        turnId: args.turn.turnId,
-        threadId: args.turn.threadId,
-        attemptGeneration: args.turn.attemptGeneration,
-        status: response.status,
-        code: rawCode || "unknown",
-        kind: args.kind,
-      });
-      throw new OwnerPurgeFenceError();
-    }
-    let committed = false;
-    await this.ctx.storage.transaction(async (txn) => {
-      const key = buildOwnerFenceLeaseReceiptKey(receipt.leaseId);
-      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
-      if (
-        !current ||
-        current.phase === "unregister_pending" ||
-        !this.ownerFenceReceiptMatches(current, receipt, receipt.leaseId)
-      ) {
-        return;
-      }
-      receipt = {
-        ...current,
-        phase: "registered",
-        registrationGeneration: body.generation,
-        updatedAt: Date.now(),
-      };
-      await txn.put(key, receipt);
-      committed = true;
-    });
-    if (!committed) {
-      await this.callOwnerFence(receipt.ownerId, "unregister", {
-        leaseId: receipt.leaseId,
-        sessionId: this.ctx.id.toString(),
-        turnId: receipt.turnId,
-        ownerGeneration: receipt.ownerGeneration,
-      }).catch(() => undefined);
-      throw new OwnerPurgeFenceError();
-    }
-    if (args.mutateTurn) {
-      args.turn.ownerPurgeLeaseId = receipt.leaseId;
-      args.turn.ownerPurgeGeneration = body.generation;
-    }
-    return {
-      generation: body.generation,
-      expiresAt:
-        typeof body.expiresAt === "number" && Number.isFinite(body.expiresAt)
-          ? body.expiresAt
-          : expiresAt,
-      leaseId: receipt.leaseId,
-    };
+    return registerBuildOwnerFenceLease(this.self, args);
   }
 
   /** @see src/build-session/session-core.ts */
@@ -3163,72 +2996,12 @@ export class BuildSession extends DurableObject<Env> {
     return unregisterTurnLease(this.self, turn, leaseId, generation);
   }
 
-  private async retireBuildOwnerFenceLease(
+  /** @see src/build-session/owner-fence-leases.ts */
+  private retireBuildOwnerFenceLease(
     receipt: BuildOwnerFenceLeaseReceipt,
     generation = receipt.registrationGeneration,
   ): Promise<boolean> {
-    const key = buildOwnerFenceLeaseReceiptKey(receipt.leaseId);
-    let pending = receipt;
-    await this.ctx.storage.transaction(async (txn) => {
-      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
-      if (
-        current &&
-        !this.ownerFenceReceiptMatches(current, receipt, receipt.leaseId)
-      ) {
-        throw new OwnerPurgeFenceError();
-      }
-      pending = {
-        ...(current ?? receipt),
-        phase: "unregister_pending",
-        updatedAt: Date.now(),
-      };
-      await txn.put(key, pending);
-    });
-    let response: Response;
-    try {
-      response = await this.callOwnerFence(pending.ownerId, "unregister", {
-        leaseId: pending.leaseId,
-        sessionId: this.ctx.id.toString(),
-        turnId: pending.turnId,
-        ownerGeneration: pending.ownerGeneration,
-        ...(generation ? { generation } : {}),
-      });
-    } catch (error) {
-      log("error", "owner_fence_unregister_deferred", {
-        turnId: pending.turnId,
-        leaseId: pending.leaseId,
-        kind: pending.kind,
-        message: errorMessage(error),
-      });
-      await this.armOwnerFenceLeaseReconciliationAlarm();
-      return false;
-    }
-    if (!response.ok) {
-      log("error", "owner_fence_unregister_deferred", {
-        turnId: pending.turnId,
-        leaseId: pending.leaseId,
-        kind: pending.kind,
-        status: response.status,
-      });
-      await this.armOwnerFenceLeaseReconciliationAlarm();
-      return false;
-    }
-    await this.ctx.storage.transaction(async (txn) => {
-      const current = await txn.get<BuildOwnerFenceLeaseReceipt>(key);
-      if (
-        current &&
-        this.ownerFenceReceiptMatches(current, pending, pending.leaseId)
-      ) {
-        await txn.delete(key);
-      }
-      if (pending.slotKey) {
-        const slot = await txn.get<BuildOwnerFenceLeaseSlot>(pending.slotKey);
-        if (slot?.leaseId === pending.leaseId) {
-          await txn.delete(pending.slotKey);
-        }
-      }
-    });
-    return true;
+    return retireBuildOwnerFenceLease(this.self, receipt, generation);
   }
 
   /** @see src/build-session/session-core.ts */

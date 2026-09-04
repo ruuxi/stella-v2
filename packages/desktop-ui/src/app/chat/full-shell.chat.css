@@ -894,3 +894,20 @@ button.event-context-chip--overflow:focus-visible {
   cursor: grabbing;
   background: color-mix(in srgb, var(--foreground) 35%, transparent);
 }
+
+/* The message keeps its final layout throughout the handoff. */
+.assistant-message-text { position: relative; }
+.assistant-bubble-morph-surface { display: none; }
+.assistant-message-text[data-morphing] { background: transparent; }
+.assistant-message-text[data-morphing] > .assistant-bubble-morph-surface {
+  display: block;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--chat-assistant-bubble-fill);
+  transform-origin: left top;
+}
+.event-row--assistant--just-arrived .event-item.assistant.assistant-morphing {
+  animation: none;
+}

@@ -182,10 +182,8 @@
   overflow: hidden;
 }
 
-/* Handoff exit: the reply is about to occupy this row, so the indicator
- * dissolves in place at full height instead of collapsing. Duration matches
- * `WORKING_INDICATOR_HANDOFF_MS`, which is also how long the reply is held —
- * the two are one motion, not two. */
+/* Fallback when no text bubble consumes the indicator (for example an
+ * artifact-only answer). Match the bubble morph duration. */
 .inline-working-indicator--leaving.inline-working-indicator--handoff {
   animation: inline-indicator-handoff-out 240ms cubic-bezier(0.4, 0, 0.7, 1)
     both;

@@ -749,18 +749,10 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
                   replyRefs?: unknown;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
-                  heldForHandoff?: boolean;
                 };
               }
             | undefined
         )?.runtime;
-        // The reply is complete but the indicator is still playing its exit.
-        // Skipping the row keeps it out of the timeline until the hold
-        // releases, so the answer lands where the indicator was instead of
-        // appearing below it.
-        if (runtimeMetadata?.heldForHandoff === true) {
-          continue;
-        }
         const responseTarget = runtimeMetadata?.responseTarget;
         const replyRefs = parseReplyRefs(runtimeMetadata?.replyRefs);
         // Unified key for both in-memory overlays (synthetic

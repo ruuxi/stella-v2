@@ -39,6 +39,7 @@ import type {
   Attachment,
   ChannelEnvelope,
 } from "@/features/chat/lib/event-transforms";
+import { AssistantBubble } from "./BubbleMorph";
 import { Markdown } from "@/app/chat/Markdown";
 import {
   EndResourceCard,
@@ -651,9 +652,9 @@ export const AssistantMessageRow = memo(
             <ReplyPreview refs={row.replyRefs} conversationId={conversationId} />
           ) : null}
           {hasText && (
-            <div className="assistant-message-text chat-bubble-text">
+            <AssistantBubble animate={Boolean(row.justArrived)}>
               <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules />
-            </div>
+            </AssistantBubble>
           )}
           {hasBackgroundWork && row.backgroundWork ? (
             <BackgroundWorkCard

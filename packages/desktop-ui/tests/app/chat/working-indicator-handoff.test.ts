@@ -100,10 +100,8 @@ describe("working indicator handoff", () => {
     expect(props.handoff).toBeUndefined();
   });
 
-  // The CSS exit, the indicator's unmount delay, and the reply's hold are three
-  // separate clocks that must agree, or the answer either flashes in behind the
-  // indicator or leaves a gap. They all read this constant.
-  it("pins the hold duration to the indicator exit duration", () => {
+  // The bubble morph and fallback indicator exit share one duration.
+  it("pins the morph duration to the indicator exit duration", () => {
     expect(WORKING_INDICATOR_HANDOFF_MS).toBe(240);
   });
 });

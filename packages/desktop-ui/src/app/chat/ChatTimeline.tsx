@@ -54,6 +54,7 @@ import {
   type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
+import { BubbleMorphProvider } from "./BubbleMorph";
 import { AssistantMessageRow, UserMessageRow } from "@/app/chat/MessageRow";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 import {
@@ -470,31 +471,33 @@ export const ChatTimeline = memo(function ChatTimeline({
   }
 
   return (
-    <LegendList<TimelineListItem>
-      ref={listRef}
-      data={listItems}
-      keyExtractor={keyExtractor}
-      renderItem={renderItem}
-      estimatedItemSize={estimatedItemSize}
-      drawDistance={drawDistance}
-      recycleItems={recycleItems}
-      data-rendered-row-count={renderedMessageRowCount}
-      alignItemsAtEnd={alignItemsAtEnd}
-      maintainVisibleContentPosition
-      initialScrollAtEnd
-      // Scroll UI state is driven by useChatScrollManagement's passive native
-      // listener. Legend's web `onScroll` adapter synchronously reads full
-      // content geometry on every frame, forcing layout for no useful data.
-      // Do not use Legend's `onStartReached`: it deliberately re-enters on a
-      // data change while the threshold is visible, so each prepend can load
-      // the next page without another user action. The same passive native
-      // listener owns the intent-gated two-viewport threshold instead.
-      ListHeaderComponent={ListHeader ?? undefined}
-      ListFooterComponent={ListFooter}
-      ItemSeparatorComponent={ItemSeparator}
-      className={className}
-      contentContainerStyle={contentContainerStyle}
-      style={{ height: "100%", width: "100%" }}
-    />
+    <BubbleMorphProvider key={conversationId}>
+      <LegendList<TimelineListItem>
+        ref={listRef}
+        data={listItems}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        estimatedItemSize={estimatedItemSize}
+        drawDistance={drawDistance}
+        recycleItems={recycleItems}
+        data-rendered-row-count={renderedMessageRowCount}
+        alignItemsAtEnd={alignItemsAtEnd}
+        maintainVisibleContentPosition
+        initialScrollAtEnd
+        // Scroll UI state is driven by useChatScrollManagement's passive native
+        // listener. Legend's web `onScroll` adapter synchronously reads full
+        // content geometry on every frame, forcing layout for no useful data.
+        // Do not use Legend's `onStartReached`: it deliberately re-enters on a
+        // data change while the threshold is visible, so each prepend can load
+        // the next page without another user action. The same passive native
+        // listener owns the intent-gated two-viewport threshold instead.
+        ListHeaderComponent={ListHeader ?? undefined}
+        ListFooterComponent={ListFooter}
+        ItemSeparatorComponent={ItemSeparator}
+        className={className}
+        contentContainerStyle={contentContainerStyle}
+        style={{ height: "100%", width: "100%" }}
+      />
+    </BubbleMorphProvider>
   );
 });

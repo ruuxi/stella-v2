@@ -5,10 +5,8 @@ import { computeStatus, normalizeDisplayStatusText } from "./status-utils";
 export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
 
 /**
- * How long the answer row is held back after it lands, and how long the
- * indicator's handoff exit runs. The two share one constant because the
- * reply is meant to appear exactly as the indicator finishes clearing the
- * row it occupied.
+ * Duration of the indicator-to-reply morph and the fallback indicator exit.
+ * Replies are published immediately; the rendered bubble owns the transition.
  */
 export const WORKING_INDICATOR_HANDOFF_MS = 240;
 
@@ -34,9 +32,8 @@ export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
    * terminal without producing an answer, e.g. a user cancel. */
   exitImmediately?: boolean;
   /**
-   * The run's final answer landed. The indicator plays the handoff exit
-   * instead of the ordinary grow-out: it keeps the row's height while it
-   * clears, so the reply drops into the same line the indicator held.
+   * The final answer landed. Its bubble consumes the visible indicator.
+   * If no text bubble takes over, use the short fallback exit.
    */
   handoff?: boolean;
 };

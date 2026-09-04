@@ -1,3 +1,4 @@
+import { BubbleMorphProvider, MorphingAssistantBubble } from "./BubbleMorph";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import { ReplyFocus, replyTitle } from "./ReplyFocus";
 import { mobileReplyContexts } from "../lib/mobile-reply-context";
@@ -56,7 +57,6 @@ import { useT } from "../i18n";
 import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
-  useReducedMotion,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, type IconName } from "./Icon";
@@ -248,9 +248,6 @@ const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
  * layout churn (e.g. a "Show more" tap) yank the scroll position around.
  */
 const POST_SEND_REANCHOR_WINDOW_MS = 1500;
-
-/** One-shot landing entrance for a just-arrived assistant message bubble. */
-const ASSISTANT_BUBBLE_ENTRANCE_MS = 300;
 
 const EDGE_FADE = 48;
 const MESSAGE_LIST_GAP = 20;
@@ -1368,78 +1365,11 @@ const generatedImageStyles = StyleSheet.create({
   tile: { borderRadius: 14, maxWidth: 320, overflow: "hidden", width: "100%" },
 });
 
-/**
- * Left-aligned surface the assistant's message text sits on — the mirror of the
- * user bubble, with the tightened corner on the bottom LEFT so the two read as
- * one conversation grammar. Only message TEXT lives inside: artifacts, agent
- * cards, tool traces and the row's actions stay outside at full width.
- *
- * `animate` runs a one-shot landing entrance (opacity + rise) — the assistant
- * counterpart of the user bubble's send affordance. It is passed only when this
- * row was still empty when it mounted, i.e. the message just arrived; hydrated
- * history renders settled. Reduced motion parks it fully visible.
- */
-function AssistantBubble({
-  children,
-  styles,
-  animate,
-}: {
-  children: ReactNode;
-  styles: ChatStyles;
-  animate: boolean;
-}) {
-  const reduceMotion = useReducedMotion();
-  const shouldAnimate = animate && !reduceMotion;
-  const entrance = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
-
-  useEffect(() => {
-    if (!shouldAnimate) return;
-    Animated.timing(entrance, {
-      toValue: 1,
-      duration: ASSISTANT_BUBBLE_ENTRANCE_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [entrance, shouldAnimate]);
-
-  const entranceStyle = useMemo(
-    () => ({
-      opacity: entrance,
-      transform: [
-        {
-          translateY: entrance.interpolate({
-            inputRange: [0, 1],
-            outputRange: [6, 0],
-          }),
-        },
-      ],
-    }),
-    [entrance],
-  );
-
-  // Desktop parity: the assistant bubble is the composer's translucent
-  // top→bottom panel material (`--chat-assistant-bubble-fill`), borderless.
-  const bubbleColors = useColors();
-
-  return (
-    <Animated.View style={[styles.assistantBubble, entranceStyle]}>
-      <LinearGradient
-        pointerEvents="none"
-        colors={[
-          bubbleColors.assistantBubbleFillTop,
-          bubbleColors.assistantBubbleFillBottom,
-        ]}
-        style={StyleSheet.absoluteFill}
-      />
-      {children}
-    </Animated.View>
-  );
-}
-
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   styles,
   colors,
+  animate,
   menuActive,
   isSelecting,
   anySelecting,
@@ -1455,6 +1385,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   item: ChatMessage;
   styles: ChatStyles;
   colors: Colors;
+  animate: boolean;
   /** True while this row's long-press menu is open — drives the focus lift. */
   menuActive: boolean;
   /** True while this row is in native text-selection mode. */
@@ -1733,9 +1664,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <Icon name="chevron-right" size={12} color={colors.textMuted} />
       </Pressable>}
       {hasText ? (
-        <AssistantBubble styles={styles} animate={mountedEmptyRef.current}>
+        <MorphingAssistantBubble style={styles.assistantBubble} animate={animate || mountedEmptyRef.current}>
           {renderAssistantMarkdown(item.text)}
-        </AssistantBubble>
+        </MorphingAssistantBubble>
       ) : null}
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
@@ -3892,7 +3823,7 @@ export function ChatPane({
       return (
         <FadeInMessage
           key={item.id}
-          animate={animate}
+          animate={animate && item.role !== "assistant"}
           onLayout={
             isActiveAssistant
               ? scroll.onActiveAssistantLayout
@@ -3903,6 +3834,7 @@ export function ChatPane({
         >
           <ChatMessageRow
             item={item}
+            animate={animate && item.id === lastMessage?.id && !historyLoading}
             styles={styles}
             colors={colors}
             menuActive={item.id === activeMenuMessageId}
@@ -3922,6 +3854,8 @@ export function ChatPane({
     },
     [
       replyContexts,
+      lastMessage?.id,
+      historyLoading,
       styles,
       colors,
       onOpenArtifact,
@@ -4145,82 +4079,84 @@ export function ChatPane({
           </Pressable>
         ) : (
           <>
-            <LegendList<ChatMessage>
-              ref={scroll.listRef}
-              pointerEvents={replyFocus ? "none" : "auto"}
-              accessibilityElementsHidden={Boolean(replyFocus)}
-              importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
-              style={styles.messageList}
-              contentContainerStyle={listContentContainerStyle}
-              data={visibleMessages}
-              extraData={listExtraData}
-              renderItem={renderItem}
-              keyExtractor={keyExtractor}
-              getItemType={getItemType}
-              ItemSeparatorComponent={renderSeparator}
-              ListFooterComponent={listFooter}
-              onStartReached={() => {
-                if (hasOlderHistory && !historyPageLoading) {
-                  void onLoadOlderHistory?.();
+            <BubbleMorphProvider key={conversationId}>
+              <LegendList<ChatMessage>
+                ref={scroll.listRef}
+                pointerEvents={replyFocus ? "none" : "auto"}
+                accessibilityElementsHidden={Boolean(replyFocus)}
+                importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
+                style={styles.messageList}
+                contentContainerStyle={listContentContainerStyle}
+                data={visibleMessages}
+                extraData={listExtraData}
+                renderItem={renderItem}
+                keyExtractor={keyExtractor}
+                getItemType={getItemType}
+                ItemSeparatorComponent={renderSeparator}
+                ListFooterComponent={listFooter}
+                onStartReached={() => {
+                  if (hasOlderHistory && !historyPageLoading) {
+                    void onLoadOlderHistory?.();
+                  }
+                }}
+                onStartReachedThreshold={0.35}
+                onEndReached={() => {
+                  if (hasNewerHistory && !historyPageLoading) {
+                    void onLoadNewerHistory?.();
+                  }
+                }}
+                onEndReachedThreshold={0.35}
+                onScroll={handleListScroll}
+                onScrollBeginDrag={() => {
+                  // Scrolling the transcript exits any active text selection
+                  // before the drag runs (inline so it adds no new deps warning).
+                  if (selectingMessageId != null) stopSelectingMessage();
+                  scroll.onScrollBeginDrag();
+                }}
+                onScrollEndDrag={handleListScrollSettle}
+                onMomentumScrollEnd={handleListScrollSettle}
+                onContentSizeChange={handleListContentSizeChange}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                keyboardDismissMode="on-drag"
+                fadingEdgeLength={EDGE_FADE}
+                // Open at the latest message every time the tab mounts, instead
+                // of landing at the top of history. Short conversations that
+                // don't fill the viewport read top-down (no `alignItemsAtEnd`)
+                // so the first message sits at the top rather than the bottom.
+                initialScrollAtEnd
+                // Keep the visible message anchored when the data array changes
+                // (e.g. messages syncing in from the desktop) so the list never
+                // snaps back to the top.
+                maintainVisibleContentPosition={maintainVisibleContentPosition}
+                // Pin to the tail only when new/synced messages arrive while the
+                // user is already near the bottom. Scoped to data changes so it
+                // doesn't fight the custom streaming-follow target updates,
+                // which own item-layout/size growth.
+                //
+                // While streaming, every token mutates the data array, so a
+                // dataChange-pinned tail would fire `scrollToEnd` on each token —
+                // overriding the custom "freeze once the message reaches the top"
+                // target and snapping the user back down whenever they try to
+                // scroll up. The custom follow loop already keeps the tail in view
+                // during streaming, so disable the built-in pin for that window.
+                // Position ownership is exclusive: history anchoring wins while
+                // follow is released, the custom loop owns streams/post-send
+                // placement, and this pin owns only ordinary live-tail appends.
+                maintainScrollAtEnd={
+                  dataChangeScrollOwner === "legend-tail"
+                    ? {
+                        animated: false,
+                        on: {
+                          dataChange: true,
+                          itemLayout: false,
+                          layout: false,
+                        },
+                      }
+                    : false
                 }
-              }}
-              onStartReachedThreshold={0.35}
-              onEndReached={() => {
-                if (hasNewerHistory && !historyPageLoading) {
-                  void onLoadNewerHistory?.();
-                }
-              }}
-              onEndReachedThreshold={0.35}
-              onScroll={handleListScroll}
-              onScrollBeginDrag={() => {
-                // Scrolling the transcript exits any active text selection
-                // before the drag runs (inline so it adds no new deps warning).
-                if (selectingMessageId != null) stopSelectingMessage();
-                scroll.onScrollBeginDrag();
-              }}
-              onScrollEndDrag={handleListScrollSettle}
-              onMomentumScrollEnd={handleListScrollSettle}
-              onContentSizeChange={handleListContentSizeChange}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={false}
-              keyboardDismissMode="on-drag"
-              fadingEdgeLength={EDGE_FADE}
-              // Open at the latest message every time the tab mounts, instead
-              // of landing at the top of history. Short conversations that
-              // don't fill the viewport read top-down (no `alignItemsAtEnd`)
-              // so the first message sits at the top rather than the bottom.
-              initialScrollAtEnd
-              // Keep the visible message anchored when the data array changes
-              // (e.g. messages syncing in from the desktop) so the list never
-              // snaps back to the top.
-              maintainVisibleContentPosition={maintainVisibleContentPosition}
-              // Pin to the tail only when new/synced messages arrive while the
-              // user is already near the bottom. Scoped to data changes so it
-              // doesn't fight the custom streaming-follow target updates,
-              // which own item-layout/size growth.
-              //
-              // While streaming, every token mutates the data array, so a
-              // dataChange-pinned tail would fire `scrollToEnd` on each token —
-              // overriding the custom "freeze once the message reaches the top"
-              // target and snapping the user back down whenever they try to
-              // scroll up. The custom follow loop already keeps the tail in view
-              // during streaming, so disable the built-in pin for that window.
-              // Position ownership is exclusive: history anchoring wins while
-              // follow is released, the custom loop owns streams/post-send
-              // placement, and this pin owns only ordinary live-tail appends.
-              maintainScrollAtEnd={
-                dataChangeScrollOwner === "legend-tail"
-                  ? {
-                      animated: false,
-                      on: {
-                        dataChange: true,
-                        itemLayout: false,
-                        layout: false,
-                      },
-                    }
-                  : false
-              }
-            />
+              />
+            </BubbleMorphProvider>
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of
                 hard-cutting. Cross-platform (RN `fadingEdgeLength` is
@@ -4257,7 +4193,7 @@ export function ChatPane({
           key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
           root={replyFocus} messages={visibleMessages} conversationId={conversationId ?? ""}
           colors={colors} onClose={closeReplyFocus} hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
-          renderMessage={item => <ChatMessageRow item={item} styles={styles} colors={colors}
+          renderMessage={item => <ChatMessageRow item={item} animate={false} styles={styles} colors={colors}
             menuActive={false} isSelecting={false} anySelecting={false}
             onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}

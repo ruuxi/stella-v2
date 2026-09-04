@@ -1,3 +1,4 @@
+import { useBubbleMorphSource } from "./BubbleMorph";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
@@ -192,6 +193,13 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   toolCallId,
   exitImmediately = false,
 }: WorkingIndicatorProps) {
+  const morph = useBubbleMorphSource();
+  const [consumed, setConsumed] = useState(false);
+  useEffect(() => {
+    if (!consumed || !active) return;
+    const timer = setTimeout(() => setConsumed(false), 240);
+    return () => clearTimeout(timer);
+  }, [active, consumed]);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Per-activation seed so the no-tool reasoning/idle label varies across
@@ -236,6 +244,9 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       : display.characterState
     : "thinking";
   const [renderShell, setRenderShell] = useState(false);
+  useEffect(() => {
+    if (!renderShell) setConsumed(false);
+  }, [renderShell]);
   const shellProgress = useRef(new Animated.Value(0)).current;
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -304,6 +315,13 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     return clearTimers;
   }, [active, exitImmediately, renderShell, shellProgress]);
 
+  useEffect(() => {
+    if (!renderShell || consumed) {
+      if (morph) morph.source = null;
+    }
+    return () => { if (morph) morph.source = null; };
+  }, [morph, renderShell, consumed]);
+
   const shellStyle = useMemo(
     () => ({ opacity: shellProgress }),
     [shellProgress],
@@ -311,12 +329,17 @@ export const WorkingIndicator = memo(function WorkingIndicator({
 
   return (
     <View
-      style={[styles.slot, !renderShell && styles.slotCollapsed]}
+      style={[styles.slot, (!renderShell || consumed) && styles.slotCollapsed]}
       pointerEvents="none"
     >
-      {renderShell ? (
+      {renderShell && !consumed ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}>
+          <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}
+            onLayout={({ nativeEvent: { layout } }) => {
+              if (morph) morph.source = {
+                width: layout.width, height: layout.height, hide: () => setConsumed(true),
+              };
+            }}>
             <View style={styles.markBox}>
               {
                 // Kept active for as long as the shell is mounted: dropping it

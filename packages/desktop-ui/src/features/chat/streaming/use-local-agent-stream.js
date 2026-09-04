@@ -8,7 +8,6 @@ import { useAgentEventHandler } from "./use-agent-event-handler";
 import { useApplyResumeSnapshot } from "./use-resume-snapshot";
 import { reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
-import { WORKING_INDICATOR_HANDOFF_MS } from "@/features/chat/working-indicator-state";
 import { resolveAgentNotReadyToast } from "./agent-stream-errors";
 import { getExecutionTargetSnapshot } from "@/features/execution-placement/execution-target-store";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
@@ -74,43 +73,8 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         }
     }, []);
 
-    /**
-     * Per-slot timers for replies being withheld during the indicator's
-     * handoff exit. Keyed by slot so overlapping runs can't cancel each
-     * other's hold, and drained on unmount and on conversation switch.
-     */
-    const handoffTimersRef = useRef(new Map());
-
-    /** Publish a withheld reply into the timeline. */
-    const releaseHandoffHold = useCallback((slotId) => {
-        const timer = handoffTimersRef.current.get(slotId);
-        if (timer !== undefined) {
-            window.clearTimeout(timer);
-            handoffTimersRef.current.delete(slotId);
-        }
-        commitStreamingAssistants((current) => {
-            if (!current.some((slot) => slot._id === slotId && slot.heldForHandoff)) {
-                return current;
-            }
-            return current.map((slot) => {
-                if (slot._id !== slotId)
-                    return slot;
-                const { heldForHandoff: _held, ...rest } = slot;
-                return rest;
-            });
-        });
-        notifyChatContentGrowth();
-    }, [commitStreamingAssistants]);
-
-    /**
-     * An assistant message arrived whole. Claim the turn's next slot for it,
-     * advance the index for whatever follows, and — unless it is a preamble —
-     * withhold it for the length of the indicator's handoff exit so the reply
-     * lands as the indicator finishes clearing the row it was holding.
-     *
-     * Reduced-motion skips the hold: there is no exit to wait for, and delaying
-     * the answer would just read as lag.
-     */
+    // Publish whole replies immediately so their measured bubble can take over
+    // the working indicator's surface without a second, sequential entrance.
     const finalizeMessageBoundary = useCallback((args) => {
         if (!args.userMessageId)
             return;
@@ -119,10 +83,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         nextSlotIndexByUserMessageIdRef.current.set(userMessageId, indexInTurn + 1);
         const slotId = streamingAssistantOverlayId(userMessageId, indexInTurn);
         const canonicalText = args.canonicalText ?? "";
-        const holdForHandoff = args.followedByToolCall !== true &&
-            typeof window !== "undefined" &&
-            typeof window.matchMedia === "function" &&
-            !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         commitStreamingAssistants((current) => {
             if (current.some((slot) => slot._id === slotId)) {
                 return reconcileStreamingAssistantCanonicalMessage(current, {
@@ -154,20 +114,11 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                         ? { canonicalMessageId: args.canonicalMessageId }
                         : {}),
                     locked: true,
-                    ...(holdForHandoff ? { heldForHandoff: true } : {}),
                 },
             ];
         });
-        if (holdForHandoff) {
-            const timer = window.setTimeout(() => {
-                releaseHandoffHold(slotId);
-            }, WORKING_INDICATOR_HANDOFF_MS);
-            handoffTimersRef.current.set(slotId, timer);
-        }
-        else {
-            notifyChatContentGrowth();
-        }
-    }, [commitStreamingAssistants, releaseHandoffHold]);
+        notifyChatContentGrowth();
+    }, [commitStreamingAssistants]);
 
     /**
      * RUN_FINISHED needs no slot work: every message already arrived whole and
@@ -187,17 +138,9 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             agentStreamCleanupRef.current();
             agentStreamCleanupRef.current = null;
         }
-        for (const timer of handoffTimersRef.current.values()) {
-            window.clearTimeout(timer);
-        }
-        handoffTimersRef.current.clear();
     }, []);
     const resetStreamingState = useCallback(() => {
         setPendingUserMessageId(null);
-        for (const timer of handoffTimersRef.current.values()) {
-            window.clearTimeout(timer);
-        }
-        handoffTimersRef.current.clear();
         commitStreamingAssistants([]);
         nextSlotIndexByUserMessageIdRef.current.clear();
 

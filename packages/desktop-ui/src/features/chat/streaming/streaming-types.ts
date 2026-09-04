@@ -49,12 +49,6 @@ export type StreamingAssistantOverlay = {
   canonicalMessageId?: string;
   /** This slot carries the message's full upstream text. */
   locked?: boolean;
-  /**
-   * Withheld from the timeline while the indicator plays its handoff exit, so
-   * the reply lands as the indicator finishes clearing the row rather than
-   * appearing beside it.
-   */
-  heldForHandoff?: boolean;
 };
 
 /** Adopt the provider's finalized text and persisted id for a slot. */

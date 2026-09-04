@@ -80,7 +80,7 @@ import {
   sweepMemoryWipePage,
 } from "../memory-wipe.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
-import { classifyNetwork } from "../network-class.js";
+import { classifyNetwork } from "../../../shared/network-class.js";
 import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
 import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {

@@ -10,7 +10,6 @@ import {
   DEFAULT_CLAUDE_CODE_MODEL,
   DEFAULT_CODEX_MODEL,
   getDesktopModelPrefs,
-  openDesktopBridge,
   runtimeSelectedEffort,
   setDesktopModelPrefs,
   STELLA_DEFAULT_MODEL,
@@ -23,6 +22,7 @@ import {
   type ReasoningEffort,
   type StellaCatalog,
 } from "./desktop-model-prefs";
+import { resolveDesktopBridge } from "./desktop-bridge-chat";
 import type { StoredPhoneAccess } from "./phone-access";
 import { notifyError } from "./haptics";
 import { userFacingError } from "./user-facing-error";
@@ -176,7 +176,7 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     if (!access || loading) return;
     setLoading(true);
     try {
-      const bridge = await openDesktopBridge(access);
+      const bridge = await resolveDesktopBridge(access);
       syncFromSnapshot(await getDesktopModelPrefs(bridge));
     } finally {
       setLoading(false);
@@ -196,7 +196,7 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
       if (!access || saving) return;
       setSaving(true);
       try {
-        const bridge = await openDesktopBridge(access);
+        const bridge = await resolveDesktopBridge(access);
         syncFromSnapshot(await setDesktopModelPrefs(bridge, patch));
       } catch (error) {
         notifyError();

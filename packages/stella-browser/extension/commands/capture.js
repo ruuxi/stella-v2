@@ -17,12 +17,8 @@ function buildElementExpression(selector, ownerId, tabId, onFoundSource) {
   return `(() => { const el = ${finder.trim()}; ${onFoundSource} })()`;
 }
 
-async function evaluateExpression(tabId, expression, options) {
-  return evaluateRuntime(tabId, expression, options);
-}
-
 async function getSelectorClip(tabId, selector, ownerId) {
-  const clip = await evaluateExpression(
+  const clip = await evaluateRuntime(
     tabId,
     buildElementExpression(
       selector,
@@ -166,7 +162,7 @@ export async function handleContent(command) {
 
   if (command.selector) {
     html =
-      (await evaluateExpression(
+      (await evaluateRuntime(
         tab.id,
         buildElementExpression(
           command.selector,
@@ -177,7 +173,7 @@ export async function handleContent(command) {
       )) || "";
   } else {
     html =
-      (await evaluateExpression(
+      (await evaluateRuntime(
         tab.id,
         'document.documentElement ? document.documentElement.outerHTML : ""',
       )) || "";
@@ -196,7 +192,7 @@ export async function handleEvaluate(command) {
 
   if (!expression) throw new Error("Expression is required for evaluate");
 
-  const value = await evaluateExpression(tab.id, expression, {
+  const value = await evaluateRuntime(tab.id, expression, {
     timeoutMs: Math.min(command.timeout ?? 30_000, 30_000),
   });
   return {
@@ -221,7 +217,7 @@ export async function handleGetText(command) {
   return {
     id: command.id,
     success: true,
-    data: { text: (await evaluateExpression(tab.id, script)) ?? "" },
+    data: { text: (await evaluateRuntime(tab.id, script)) ?? "" },
   };
 }
 
@@ -242,7 +238,7 @@ export async function handleGetAttribute(command) {
   return {
     id: command.id,
     success: true,
-    data: { value: await evaluateExpression(tab.id, script) },
+    data: { value: await evaluateRuntime(tab.id, script) },
   };
 }
 

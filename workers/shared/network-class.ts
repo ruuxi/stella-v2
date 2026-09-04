@@ -1,4 +1,4 @@
-import type { NetworkClass } from "@stella/contracts/gateway/api";
+import type { NetworkClass } from "../../packages/contracts/gateway/api.js";
 
 const HOSTING_ASNS = new Set([
   8_075, 8_560, 8_987, 9_009, 12_876, 14_061, 14_618, 15_169, 16_276,

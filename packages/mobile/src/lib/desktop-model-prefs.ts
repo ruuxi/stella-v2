@@ -12,10 +12,8 @@
 import { getJson } from "./http";
 import {
   invokeDesktopBridge,
-  resolveDesktopBridge,
   type DesktopBridgeConnection,
 } from "./desktop-bridge-chat";
-import type { StoredPhoneAccess } from "./phone-access";
 
 /* ── engine / reasoning ───────────────────────────────────────── */
 
@@ -176,12 +174,6 @@ const LIST_CODEX = "preferences:listCodexModels";
 const LIST_CLAUDE = "preferences:listClaudeCodeModels";
 const CREDENTIALS_LIST = "llmCredentials:list";
 const CREDENTIALS_LIST_OAUTH = "llmCredentials:listOAuth";
-
-export async function openDesktopBridge(
-  access: StoredPhoneAccess,
-): Promise<DesktopBridgeConnection> {
-  return resolveDesktopBridge(access);
-}
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)

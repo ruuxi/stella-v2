@@ -14,10 +14,8 @@
  * (`BackgroundWorkCard` subscribes to just its own thread, so a
  * reasoning tick re-renders one card, not every activity surface).
  */
-import {
-  normalizeTaskDisplayStatusText,
-  type TaskLiveDecoration,
-} from '@/features/chat/lib/event-transforms'
+import type { TaskLiveDecoration } from '@/features/chat/lib/event-transforms'
+import { normalizeDisplayStatusText } from '@/features/chat/status-utils'
 
 export type TaskDecoration = TaskLiveDecoration & {
   agentId: string
@@ -142,7 +140,7 @@ export const decorateTask = (input: {
     observedAtMs: now,
     anchorTurnId: input.anchorTurnId ?? retained?.anchorTurnId,
     statusText:
-      normalizeTaskDisplayStatusText(input.statusText) ?? retained?.statusText,
+      normalizeDisplayStatusText(input.statusText) ?? retained?.statusText,
     toolActivity: input.toolActivity ?? retained?.toolActivity,
     reasoningText: retained?.reasoningText,
     lastUpdatedAtMs: now,

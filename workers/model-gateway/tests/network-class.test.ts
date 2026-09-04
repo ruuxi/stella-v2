@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyNetwork } from "../src/network-class.js";
+import { classifyNetwork } from "../../shared/network-class.js";
 
 const requestWithNetwork = (
   asn?: number,

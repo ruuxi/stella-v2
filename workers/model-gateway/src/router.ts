@@ -29,7 +29,7 @@ import {
   toGatewayError,
 } from "./errors.js";
 import { handleManagedRelay } from "./managed-lane.js";
-import { classifyNetwork } from "./network-class.js";
+import { classifyNetwork } from "../../shared/network-class.js";
 import { handleNativeRelay } from "./native-lane.js";
 import {
   handleOwnerEnforcement,

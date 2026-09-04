@@ -248,7 +248,7 @@ export function buildActivityTasks(
         anchorTurnId: decoration?.anchorTurnId,
         parentAgentId: record.parentAgentId,
         statusText: running
-          ? (normalizeTaskDisplayStatusText(decoration?.statusText) ??
+          ? (normalizeDisplayStatusText(decoration?.statusText) ??
             (isGenericTaskDescription(record.description)
               ? undefined
               : record.description))
@@ -346,14 +346,8 @@ export function isManagedActivityTask(task: Pick<TaskItem, 'source'>): boolean {
 export function isStandaloneTaskStatusText(
   statusText: string | undefined,
 ): boolean {
-  const normalized = normalizeTaskDisplayStatusText(statusText)
+  const normalized = normalizeDisplayStatusText(statusText)
   return Boolean(normalized && STANDALONE_STATUS_TEXT.has(normalized))
-}
-
-export function normalizeTaskDisplayStatusText(
-  statusText: string | undefined,
-): string | undefined {
-  return normalizeDisplayStatusText(statusText)
 }
 
 export function getTaskDisplayText(task: TaskItem): string {
@@ -362,7 +356,7 @@ export function getTaskDisplayText(task: TaskItem): string {
     : task.description
 
   if (task.status === 'running') {
-    const statusText = normalizeTaskDisplayStatusText(task.statusText)
+    const statusText = normalizeDisplayStatusText(task.statusText)
     if (statusText && !isStandaloneTaskStatusText(statusText)) {
       return statusText
     }
@@ -372,7 +366,7 @@ export function getTaskDisplayText(task: TaskItem): string {
 }
 
 export function getTaskWorkingIndicatorText(task: TaskItem): string {
-  const statusText = normalizeTaskDisplayStatusText(task.statusText)
+  const statusText = normalizeDisplayStatusText(task.statusText)
   if (
     task.status === 'running' &&
     statusText &&

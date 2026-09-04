@@ -59,7 +59,7 @@ import {
   upstreamErrorBody,
 } from "./errors.js";
 import type { LedgerSettleArgs } from "./ledger.js";
-import { classifyNetwork } from "./network-class.js";
+import { classifyNetwork } from "../../shared/network-class.js";
 import { ownerEnforcementAdmission } from "./owner-enforcement.js";
 import {
   agentTypeFrom,

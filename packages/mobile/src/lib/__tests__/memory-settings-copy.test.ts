@@ -46,9 +46,9 @@ const stringLeaves = (
 
 describe("mobile memory settings copy", () => {
   test("English pins the cloud-authority disclosure", () => {
-    expect(
-      catalogs.get(DEFAULT_LOCALE)?.settings?.memory?.description,
-    ).toBe(CLOUD_AUTHORITY_MEMORY_DESCRIPTION);
+    expect(catalogs.get(DEFAULT_LOCALE)?.settings?.memory?.description).toBe(
+      CLOUD_AUTHORITY_MEMORY_DESCRIPTION,
+    );
   });
 
   const englishCloudHome = stringLeaves(
@@ -74,15 +74,20 @@ describe("mobile memory settings copy", () => {
       expect(typeof description).toBe("string");
       expect(description === CLOUD_AUTHORITY_MEMORY_DESCRIPTION).toBe(false);
       expect((description as string).trim().length).toBeGreaterThan(40);
-      expect(englishCloudHome.size).toBe(53);
+      expect([...translatedCloudHome.keys()].sort()).toEqual(
+        [...englishCloudHome.keys()].sort(),
+      );
+      for (const [path, value] of translatedCloudHome) {
+        expect(
+          value.trim().length,
+          `${locale}: ${path} is empty`,
+        ).toBeGreaterThan(0);
+      }
       if (exactEnglishMatches.length > MAX_CLOUD_HOME_ENGLISH_MATCHES) {
         throw new Error(
           `English Cloud Home filler remains in ${locale}:\n${exactEnglishMatches.join("\n")}`,
         );
       }
-      expect(exactEnglishMatches.length).toBeLessThanOrEqual(
-        MAX_CLOUD_HOME_ENGLISH_MATCHES,
-      );
     });
   }
 });

@@ -1,3 +1,4 @@
+import { resolveDesktopBridge } from "../lib/desktop-bridge-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -33,7 +34,6 @@ import {
   getDesktopModelPrefs,
   listDesktopConnectedProviders,
   listDesktopRuntimeModels,
-  openDesktopBridge,
   runtimeSelectedEffort,
   runtimeSelectedModelId,
   setDesktopModelPrefs,
@@ -144,7 +144,7 @@ export function ComputerSettingsSheet({
     });
     void (async () => {
       try {
-        const bridge = await openDesktopBridge(access);
+        const bridge = await resolveDesktopBridge(access);
         if (cancelled) return;
         bridgeRef.current = bridge;
         const next = await getDesktopModelPrefs(bridge);

@@ -229,9 +229,12 @@ First dev run of the five steps (2026-09-04, version `2b3f99ed` and later):
 - Final run on version `49a00c9b`: cell 1 attach 12 s / done 21 s, follow-up
   attach 5 s / done 13 s; cell 2 (parent, child, steer) done in 77 s with
   the parent reporting `parent child`, the child's report and thread id.
-- Still worth doing: batch the push protocol (many blobs per request) so a
-  large tree is bounded by bytes rather than file count; kill the daemon's
-  process group at turn end rather than only the daemon.
+- Done in `5db86ff20`: pushes are batched (framed body, 32 MiB / 512 blobs
+  per request, three in flight, one `putBlobs` RPC per request) and turn end
+  kills the daemon's process group (setsid, pid+pgid in the daemon dir,
+  SIGTERM, 500 ms, SIGKILL, SDK kill fallback). Staging and production
+  worlds buckets exist. Dev is at version `34ae99c7`; the two-agent cell
+  passes in about 80 s.
 
 Deploy status: dev runs the five steps plus these fixes; staging and
 production still need `stella-v2-worlds-basic-nightingale-118` and

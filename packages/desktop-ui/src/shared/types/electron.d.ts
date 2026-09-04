@@ -6,6 +6,14 @@
  * the preload bridge (electron/preload.ts) and handler (electron/ipc/*.ts)
  * using that constant — never raw strings.
  */
+import type {
+  CompanionDragMove,
+  CompanionLayout,
+  CompanionLayoutMode,
+  CompanionSendRequest,
+  CompanionState,
+  CompanionVisibility,
+} from "@stella/contracts/desktop/companion";
 import type { UiState } from "./ui";
 import type { Theme } from "@stella/theme";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
@@ -310,10 +318,6 @@ export type ElectronOverlayApi = {
       } | null,
     ) => void,
   ) => () => void;
-  onShowDictation: (
-    callback: (data: { x: number; y: number }) => void,
-  ) => () => void;
-  onHideDictation: (callback: () => void) => () => void;
   onShowScreenGuide: (
     callback: (data: {
       annotations: Array<{
@@ -433,15 +437,17 @@ export type ElectronVoiceApi = {
 
 export type ElectronDictationApi = {
   /**
-   * Subscribe to global Cmd/Ctrl+Shift+M presses (or any other registered
-   * dictation shortcut). The renderer dispatches the in-window event the
-   * `useDictation` hook listens to so the active composer toggles its
-   * speech-to-text session.
+   * Subscribe to presses of the global dictation shortcut routed to this
+   * window. The renderer dispatches the in-window event the `useDictation`
+   * hook listens to so the active composer toggles its speech-to-text
+   * session. `source: "companion"` marks a press that summoned the floating
+   * companion; its composer sends the transcript when the shortcut stops it.
    */
   onToggle: (
     callback: (data: {
       startId?: string;
-      action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
+      action?: "toggle" | "start" | "stop" | "cancel";
+      source?: "companion";
     }) => void,
   ) => () => void;
   /** Returns the currently registered global shortcut accelerator. */
@@ -455,22 +461,39 @@ export type ElectronDictationApi = {
   getSoundEffectsEnabled: () => Promise<boolean>;
   /** Enable or disable dictation start/stop sound effects. */
   setSoundEffectsEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
-  onOverlayStart: (
-    callback: (data: { sessionId: string }) => void,
-  ) => () => void;
-  onOverlayStop: (
-    callback: (data: { sessionId: string }) => void,
-  ) => () => void;
-  onOverlayCancel: (
-    callback: (data: { sessionId: string }) => void,
-  ) => () => void;
-  overlayCompleted: (payload: { sessionId: string; text: string }) => void;
-  overlayFailed: (payload: { sessionId: string; error?: string }) => void;
-  inAppStarted: (payload: { startId?: string }) => void;
   activeChanged: (payload: { active: boolean }) => void;
   playSound: (payload: {
     sound: "startRecording" | "stopRecording" | "cancel";
   }) => void;
+};
+
+/**
+ * Floating desktop companion. The companion window is a thin view; the full
+ * shell publishes `CompanionState` and executes the sends it relays.
+ */
+export type ElectronCompanionApi = {
+  setLayout: (mode: CompanionLayoutMode) => void;
+  onLayout: (callback: (layout: CompanionLayout) => void) => () => void;
+  dragStart: (cursor: CompanionDragMove) => void;
+  dragMove: (cursor: CompanionDragMove) => void;
+  dragEnd: () => void;
+  focus: () => void;
+  openMain: () => void;
+  showContextMenu: () => void;
+  send: (payload: CompanionSendRequest) => void;
+  stop: () => void;
+  getState: () => Promise<CompanionState | null>;
+  onState: (callback: (state: CompanionState) => void) => () => void;
+  publishState: (state: CompanionState) => void;
+  onSendRequested: (
+    callback: (payload: CompanionSendRequest) => void,
+  ) => () => void;
+  onStopRequested: (callback: () => void) => () => void;
+  getVisible: () => Promise<CompanionVisibility>;
+  setVisible: (visible: boolean) => Promise<CompanionVisibility>;
+  onVisibleChanged: (
+    callback: (payload: CompanionVisibility) => void,
+  ) => () => void;
 };
 
 export type ElectronAgentApi = {
@@ -1676,6 +1699,7 @@ export type ElectronApi = {
   uiState: ElectronUiStateKvApi;
   voice: ElectronVoiceApi;
   dictation: ElectronDictationApi;
+  companion: ElectronCompanionApi;
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
   updates: ElectronUpdatesApi;

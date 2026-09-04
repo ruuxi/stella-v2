@@ -200,7 +200,7 @@
         "voice": "Stemmeagent"
       },
       "dictation": {
-        "description": "Hold inne Option for å diktere til Stella eller appen du bruker."
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
       },
       "voiceAgent": {
         "description": "Starter eller stopper Stellas direkte stemmeagent."
@@ -611,6 +611,11 @@
       "title": "Onboarding",
       "action": "Replay",
       "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
+    },
+    "companion": {
+      "title": "Desktop companion",
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion."
     }
   },
   "onboarding": {
@@ -2162,6 +2167,35 @@
       "clearLabel": "Tøm diagnostikken",
       "empty": "Ingen CarPlay-diagnostikk er registrert ennå. Koble til CarPlay én gang, og kom tilbake hit.",
       "clipboardEmpty": "(ingen CarPlay-diagnostikk registrert)"
+    }
+  },
+  "companion": {
+    "menu": {
+      "openStella": "Open Stella",
+      "hide": "Hide companion",
+      "quit": "Quit Stella"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "arc": {
+      "readAloudOn": "Read replies aloud: on",
+      "readAloudOff": "Read replies aloud: off",
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "mark": {
+      "open": "Ask Stella",
+      "close": "Close the prompt"
+    },
+    "badge": {
+      "running": "{count} agents working"
     }
   }
 }

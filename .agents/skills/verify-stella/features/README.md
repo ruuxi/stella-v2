@@ -38,6 +38,7 @@ This is the maintained map of Stella's user-visible desktop and iOS surfaces. Re
 - [Browser and takeover](./browser-and-takeover.md) covers browser tabs and cloud-browser user intervention.
 - [Apps](./apps.md) covers empty, loading, populated, runtime, error, and cloud app states.
 - [Settings](./settings.md) covers entry points, tabs, global search, and dismissal.
+- [Desktop companion](./companion.md) covers the floating mark: toggle, hover arc, mini composer, bubbles, drag, and shortcut dictation.
 - [Account, models, and billing](./account-models-billing.md) covers account menus, execution target, model selection, usage, and billing entry points.
 
 ## iOS features

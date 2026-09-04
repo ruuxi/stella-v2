@@ -1,5 +1,6 @@
 import { getMainLogger } from "../observability/main-logger.js";
 import { getTotalSystemMemoryMb, isLowMemoryWindowsDevice, } from "../resource-profile.js";
+import { getCompanionEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 const OVERLAY_STARTUP_WARM_DELAY_MS = 5_000;
 const runDeferredStartupTask = async (context, task) => {
     if (task.delayMs) {
@@ -66,6 +67,22 @@ const createDeferredStartupTasks = (context) => {
             label: "overlay-warmup-schedule",
             run: () => {
                 scheduleOverlayWarmup(context);
+            },
+        },
+        {
+            // Bring the floating companion back if the user left it on. Runs
+            // after first paint so its renderer never contends with the shell's.
+            label: "companion-restore",
+            run: () => {
+                const stellaDataDir = state.stellaDataDirPath ?? config.stellaDataDirPath;
+                if (!stellaDataDir || !getCompanionEnabled(stellaDataDir)) {
+                    return;
+                }
+                void state.companionController
+                    ?.show({ focus: false, persist: false })
+                    .catch((error) => {
+                    console.debug("[startup] Companion restore failed:", error instanceof Error ? error.message : String(error));
+                });
             },
         },
     ];

@@ -3,22 +3,27 @@ import { areGlobalShortcutsSuspended } from '../ipc/global-shortcuts.js';
 const LEFT_ALT = 56;
 const RIGHT_ALT = 3640;
 const ALT_KEYCODES = new Set([LEFT_ALT, RIGHT_ALT]);
-const DICTATION_PUSH_TO_TALK_TRIGGER_DELAY_MS = 150;
 /**
- * Owns the low-level keyboard hook required for bare-Option push-to-talk
- * dictation while keeping unrelated global input off the main-process hot
- * path.
+ * Longest press that still counts as a tap. Anything held longer is treated as
+ * the user reaching for a chord they never completed, not as a request.
+ */
+const ALT_TAP_MAX_MS = 400;
+/**
+ * Owns the low-level keyboard hook that turns a bare Option tap into the
+ * dictation toggle (Electron's globalShortcut cannot register a lone
+ * modifier). Only the tap gesture is recognised: Option pressed and released
+ * on its own within `ALT_TAP_MAX_MS`. Any chord, ordinary key, or click while
+ * Option is down cancels the gesture so normal keyboard use is untouched.
  */
 export class MouseHookManager {
     started = false;
     uiohookListenersAttached = false;
     uiohookStarted = false;
     pressedKeycodes = new Set();
-    dictationKeyDownAt = null;
-    dictationStartTimer = null;
-    dictationStarted = false;
+    /** Timestamp of the bare Option press being tracked, or null. */
+    altDownAt = null;
     handlers = null;
-    setDictationPushToTalkHandlers(handlers) {
+    setDictationTapHandlers(handlers) {
         this.handlers = handlers;
     }
     start() {
@@ -40,7 +45,7 @@ export class MouseHookManager {
         if (!this.started)
             return;
         this.started = false;
-        this.cancelActiveDictation();
+        this.altDownAt = null;
         this.pressedKeycodes.clear();
         if (this.uiohookStarted) {
             try {
@@ -72,91 +77,51 @@ export class MouseHookManager {
         uIOhook.off('keyup', this.handleKeyup);
         uIOhook.off('mousedown', this.handleMousedown);
     }
-    clearPendingDictationStart() {
-        if (this.dictationStartTimer) {
-            clearTimeout(this.dictationStartTimer);
-            this.dictationStartTimer = null;
-        }
-        this.dictationKeyDownAt = null;
-    }
-    cancelActiveDictation() {
-        const wasActive = this.dictationKeyDownAt !== null || this.dictationStarted;
-        const hadStarted = this.dictationStarted;
-        this.clearPendingDictationStart();
-        this.dictationStarted = false;
-        if (!wasActive)
-            return;
-        if (hadStarted) {
-            this.handlers?.cancel();
-        }
-        else {
-            this.handlers?.discard();
-        }
-    }
     handleKeydown = (event) => {
         if (!this.started)
             return;
         if (areGlobalShortcutsSuspended()) {
-            this.cancelActiveDictation();
+            this.altDownAt = null;
             this.pressedKeycodes.clear();
             return;
         }
         const wasAlreadyDown = this.pressedKeycodes.has(event.keycode);
         const otherKeyHeld = [...this.pressedKeycodes].some((keycode) => !ALT_KEYCODES.has(keycode));
         this.pressedKeycodes.add(event.keycode);
-        const isAlt = ALT_KEYCODES.has(event.keycode);
-        if (!isAlt) {
-            // Bare Option is the dictation gesture. Any chord or ordinary keypress
-            // means the user intended a normal keyboard command instead.
-            if (this.dictationKeyDownAt !== null || this.dictationStarted) {
-                this.cancelActiveDictation();
-            }
+        if (!ALT_KEYCODES.has(event.keycode)) {
+            // Option + anything is a chord, never a dictation tap.
+            this.altDownAt = null;
             return;
         }
         if (this.handlers?.isEnabled() !== true ||
-            this.dictationKeyDownAt !== null ||
+            this.altDownAt !== null ||
             wasAlreadyDown ||
             otherKeyHeld) {
             return;
         }
-        this.dictationKeyDownAt = Date.now();
-        this.dictationStarted = true;
-        this.handlers.start();
-        this.dictationStartTimer = setTimeout(() => {
-            this.dictationStartTimer = null;
-            if (this.dictationKeyDownAt === null || !this.dictationStarted)
-                return;
-            this.handlers?.reveal();
-        }, DICTATION_PUSH_TO_TALK_TRIGGER_DELAY_MS);
+        this.altDownAt = Date.now();
     };
     handleKeyup = (event) => {
         if (!this.started)
             return;
         if (areGlobalShortcutsSuspended()) {
-            this.cancelActiveDictation();
+            this.altDownAt = null;
             this.pressedKeycodes.clear();
             return;
         }
         this.pressedKeycodes.delete(event.keycode);
-        if (!ALT_KEYCODES.has(event.keycode) || this.dictationKeyDownAt === null) {
+        if (!ALT_KEYCODES.has(event.keycode) || this.altDownAt === null) {
             return;
         }
-        const durationMs = Date.now() - this.dictationKeyDownAt;
-        const hadStarted = this.dictationStarted;
-        this.clearPendingDictationStart();
-        this.dictationStarted = false;
-        if (hadStarted) {
-            this.handlers?.stop(durationMs);
-        }
-        else {
-            this.handlers?.discard();
+        const durationMs = Date.now() - this.altDownAt;
+        this.altDownAt = null;
+        if (durationMs <= ALT_TAP_MAX_MS) {
+            this.handlers?.toggle();
         }
     };
     handleMousedown = () => {
         if (!this.started)
             return;
-        if (this.dictationKeyDownAt !== null || this.dictationStarted) {
-            this.cancelActiveDictation();
-        }
+        this.altDownAt = null;
     };
 }

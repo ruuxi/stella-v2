@@ -200,7 +200,7 @@
         "voice": "वॉइस एजेंट"
       },
       "dictation": {
-        "description": "Stella या आप जिस ऐप का उपयोग कर रहे हैं उसमें बोलकर लिखने के लिए Option दबाए रखें।"
+        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
       },
       "voiceAgent": {
         "description": "Stella के लाइव वॉइस एजेंट को शुरू या बंद करता है।"
@@ -611,6 +611,11 @@
       "title": "Onboarding",
       "action": "Replay",
       "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched."
+    },
+    "companion": {
+      "title": "Desktop companion",
+      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "error": "Couldn't update the desktop companion."
     }
   },
   "onboarding": {
@@ -2161,6 +2166,35 @@
       "clearLabel": "डायग्नोस्टिक्स साफ़ करें",
       "empty": "अभी तक कोई CarPlay डायग्नोस्टिक्स दर्ज नहीं हुआ। एक बार CarPlay से कनेक्ट करें, फिर यहाँ वापस आएँ।",
       "clipboardEmpty": "(कोई CarPlay डायग्नोस्टिक्स दर्ज नहीं है)"
+    }
+  },
+  "companion": {
+    "menu": {
+      "openStella": "Open Stella",
+      "hide": "Hide companion",
+      "quit": "Quit Stella"
+    },
+    "composer": {
+      "placeholder": "Ask Stella…"
+    },
+    "bubble": {
+      "openStella": "Open in Stella",
+      "typing": "Stella is replying"
+    },
+    "arc": {
+      "readAloudOn": "Read replies aloud: on",
+      "readAloudOff": "Read replies aloud: off",
+      "dictate": "Dictate a message",
+      "dictateStop": "Stop dictating and send",
+      "voice": "Start voice conversation",
+      "voiceStop": "End voice conversation"
+    },
+    "mark": {
+      "open": "Ask Stella",
+      "close": "Close the prompt"
+    },
+    "badge": {
+      "running": "{count} agents working"
     }
   }
 }

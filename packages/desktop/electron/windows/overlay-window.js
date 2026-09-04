@@ -123,7 +123,7 @@ class OverlayWindow {
         this.window.setTitle(STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES[0]);
         this.window.setAlwaysOnTop(true, 'screen-saver');
         // The overlay is a transparent, screen-spanning utility layer (region
-        // capture, dictation, and window highlights). It
+        // capture, screen guide, and window highlights). It
         // must never show up in Stella's own screen captures — otherwise a capture
         // taken while the overlay is up records the overlay window itself. On
         // Windows the region-capture suspend (`fadeOut`) races DWM compositing, so
@@ -393,7 +393,6 @@ export class OverlayWindowController {
     destroyed = false;
     // Active component tracking — overlay stays visible when any component is active.
     activeRegionCapture = false;
-    activeDictation = false;
     activeScreenGuide = false;
     activeWindowHighlight = false;
     windowHighlightRequestId = 0;
@@ -461,12 +460,6 @@ export class OverlayWindowController {
     create() {
         return this.overlayWindow.create();
     }
-    ensureReadyForDictation(timeoutMs) {
-        // Dictation can start recording before the pill is revealed (push-to-talk
-        // delay), so callers need a ready renderer without forcing the overlay
-        // visible yet.
-        return this.ensureReady(timeoutMs);
-    }
     async warmForStartup(timeoutMs) {
         const warmed = await this.ensureReady(timeoutMs);
         // The warm-only create presents the window on Windows/Linux (see the
@@ -511,7 +504,6 @@ export class OverlayWindowController {
     }
     get isAnyActive() {
         return (this.activeRegionCapture ||
-            this.activeDictation ||
             this.activeScreenGuide ||
             this.activeWindowHighlight);
     }
@@ -638,27 +630,6 @@ export class OverlayWindowController {
     }
     send(channel, ...args) {
         this.overlayWindow.send(channel, ...args);
-    }
-    // ─── Dictation ─────────────────────────────────────────────────────────
-    async showDictation(screenX, screenY) {
-        this.activeDictation = true;
-        // Perf: self-create on demand so dictation still summons after an idle
-        // reclaim (or before the overlay's first build).
-        if (!(await this.ensureReady()))
-            return false;
-        this.overlayWindow.show({ inactive: true });
-        this.overlayWindow.refreshOverlayOriginFromContentBounds();
-        const origin = this.overlayWindow.getOverlayOrigin();
-        this.overlayWindow.send('overlay:showDictation', {
-            x: screenX - origin.x,
-            y: screenY - origin.y,
-        });
-        return true;
-    }
-    hideDictation() {
-        this.activeDictation = false;
-        this.overlayWindow.send('overlay:hideDictation');
-        this.hideOverlayIfIdle();
     }
     // ─── Screen Guide ────────────────────────────────────────────────────
     async showScreenGuide(annotations) {

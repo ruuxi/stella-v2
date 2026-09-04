@@ -447,3 +447,29 @@ export const IPC_USER_APPS_LIST = "userApps:list" as const;
 export const IPC_USER_APPS_START = "userApps:start" as const;
 export const IPC_USER_APPS_STOP = "userApps:stop" as const;
 export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;
+
+// ── Companion (floating desktop Stella) ────────────────────────────────────
+
+/** Renderer → main: window plumbing from the companion renderer. */
+export const IPC_COMPANION_SET_LAYOUT = "companion:setLayout" as const;
+export const IPC_COMPANION_LAYOUT = "companion:layout" as const;
+export const IPC_COMPANION_DRAG_START = "companion:dragStart" as const;
+export const IPC_COMPANION_DRAG_MOVE = "companion:dragMove" as const;
+export const IPC_COMPANION_DRAG_END = "companion:dragEnd" as const;
+export const IPC_COMPANION_FOCUS = "companion:focus" as const;
+export const IPC_COMPANION_OPEN_MAIN = "companion:openMain" as const;
+export const IPC_COMPANION_SHOW_CONTEXT_MENU =
+  "companion:showContextMenu" as const;
+/** Companion renderer → main → full shell: chat actions. */
+export const IPC_COMPANION_SEND = "companion:send" as const;
+export const IPC_COMPANION_STOP = "companion:stop" as const;
+export const IPC_COMPANION_SEND_REQUESTED = "companion:sendRequested" as const;
+export const IPC_COMPANION_STOP_REQUESTED = "companion:stopRequested" as const;
+/** Full shell → main → companion renderer: the chat snapshot. */
+export const IPC_COMPANION_PUBLISH_STATE = "companion:publishState" as const;
+export const IPC_COMPANION_GET_STATE = "companion:getState" as const;
+export const IPC_COMPANION_STATE = "companion:state" as const;
+/** Any renderer: show/hide the companion window (persisted). */
+export const IPC_COMPANION_GET_VISIBLE = "companion:getVisible" as const;
+export const IPC_COMPANION_SET_VISIBLE = "companion:setVisible" as const;
+export const IPC_COMPANION_VISIBLE_CHANGED = "companion:visibleChanged" as const;

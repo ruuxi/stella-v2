@@ -10,6 +10,7 @@ import { useCloudMemoryPreference } from "@/features/cloud/use-cloud-memory-pref
 import { useT } from "@/shared/i18n";
 import { platformCapabilities } from "@/platform/capabilities";
 import { SettingsToggleCard } from "./settings-toggle-card";
+import { CompanionSettingsCard } from "./CompanionSettingsCard";
 
 const NativeDesktopGeneralSettings = lazy(() =>
   import("./NativeGeneralSettings").then((module) => ({
@@ -55,6 +56,7 @@ export function GeneralTab() {
         }
         retryLabel={t("common.tryAgain")}
       />
+      {platformCapabilities.nativeSettings ? <CompanionSettingsCard /> : null}
       {platformCapabilities.nativeSettings ? (
         <Suspense fallback={null}>
           <NativePermissionSettings />

@@ -431,7 +431,10 @@ html:has(.window-shell) .app {
 /* Floating overlay surfaces paint their own transparent window shapes. */
 html[data-stella-window="overlay"],
 html[data-stella-window="overlay"] body,
-html[data-stella-window="overlay"] #root {
+html[data-stella-window="overlay"] #root,
+html[data-stella-window="companion"],
+html[data-stella-window="companion"] body,
+html[data-stella-window="companion"] #root {
   background: transparent !important;
   min-height: 100vh;
 }

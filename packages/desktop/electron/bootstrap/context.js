@@ -62,6 +62,7 @@ export const createBootstrapContext = (config) => {
         localChatUpdateUnsubscribe: null,
         threadActivityUpdateUnsubscribe: null,
         overlayController: null,
+        companionController: null,
         meetingCaptureController: null,
         processRuntime,
         scheduleUpdateUnsubscribe: null,

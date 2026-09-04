@@ -144,6 +144,18 @@ export type LocalPreferences = {
    */
   readAloudEnabled: boolean;
   /**
+   * Floating desktop companion — the always-on-top Stella mark that carries a
+   * mini composer, dictation, and the latest reply. Off until the user turns
+   * it on; the setting survives restarts so the companion comes back.
+   */
+  companionEnabled: boolean;
+  /**
+   * Screen-space anchor (center-bottom of the mark) the user dragged the
+   * companion to. `null` until the first drag; main falls back to the
+   * bottom-right of the primary display's work area.
+   */
+  companionAnchor: { x: number; y: number } | null;
+  /**
    * Live Memory (Chronicle screen capture/OCR) is opt-in. Onboarding may
    * stage an enable while waiting for sign-in, then promote it after auth.
    */
@@ -223,6 +235,8 @@ const DEFAULT_PREFERENCES: LocalPreferences = {
   onboardingCompleted: false,
   wakeWordThreshold: 0.6,
   readAloudEnabled: false,
+  companionEnabled: false,
+  companionAnchor: null,
   chronicleEnabled: false,
   chroniclePendingEnable: false,
   promptPresetSelections: {},
@@ -337,6 +351,8 @@ const normalizeStoredPreferences = (
       ? parsed.wakeWordThreshold
       : DEFAULT_PREFERENCES.wakeWordThreshold,
   readAloudEnabled: parsed.readAloudEnabled === true,
+  companionEnabled: parsed.companionEnabled === true,
+  companionAnchor: normalizeCompanionAnchor(parsed.companionAnchor),
   chronicleEnabled: parsed.chronicleEnabled === true,
   chroniclePendingEnable:
     parsed.chronicleEnabled !== true && parsed.chroniclePendingEnable === true,
@@ -679,6 +695,50 @@ export const getDictationSoundEffectsEnabled = (
   stellaDataDir: string,
 ): boolean => {
   return loadLocalPreferences(stellaDataDir).dictationSoundEffectsEnabled;
+};
+
+const normalizeCompanionAnchor = (
+  value: unknown,
+): { x: number; y: number } | null => {
+  if (!value || typeof value !== "object") return null;
+  const { x, y } = value as { x?: unknown; y?: unknown };
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y)
+  ) {
+    return null;
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+};
+
+export const getCompanionEnabled = (stellaDataDir: string): boolean =>
+  loadLocalPreferences(stellaDataDir).companionEnabled;
+
+export const setCompanionEnabled = (
+  stellaDataDir: string,
+  enabled: boolean,
+): void => {
+  const prefs = loadLocalPreferences(stellaDataDir);
+  if (prefs.companionEnabled === enabled) return;
+  saveLocalPreferences(stellaDataDir, { ...prefs, companionEnabled: enabled });
+};
+
+export const getCompanionAnchor = (
+  stellaDataDir: string,
+): { x: number; y: number } | null =>
+  loadLocalPreferences(stellaDataDir).companionAnchor;
+
+export const setCompanionAnchor = (
+  stellaDataDir: string,
+  anchor: { x: number; y: number } | null,
+): void => {
+  const prefs = loadLocalPreferences(stellaDataDir);
+  saveLocalPreferences(stellaDataDir, {
+    ...prefs,
+    companionAnchor: normalizeCompanionAnchor(anchor),
+  });
 };
 
 export const getReadAloudEnabled = (stellaDataDir: string): boolean => {

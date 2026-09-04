@@ -286,7 +286,7 @@ export default defineConfig({
     // Cover every window's HTML entry in the cold dep scan (not just index.html),
     // so the overlay/mini spines don't trigger a separate re-optimize when
     // first opened.
-    entries: ["index.html", "overlay.html"],
+    entries: ["index.html", "overlay.html", "companion.html"],
     rolldownOptions: {
       transform: {
         target: "esnext",
@@ -308,6 +308,7 @@ export default defineConfig({
         : {
             main: path.resolve(__dirname, "index.html"),
             overlay: path.resolve(__dirname, "overlay.html"),
+            companion: path.resolve(__dirname, "companion.html"),
           },
       output: {
         manualChunks(id: string) {
@@ -353,6 +354,7 @@ export default defineConfig({
         // their entries during the post-paint idle window means they open
         // instantly instead of cold-transforming on creation.
         "./src/overlay-entry.tsx",
+        "./src/companion-entry.tsx",
       ],
     },
     // Defaults to the standard Stella loopback URL; an override lets an

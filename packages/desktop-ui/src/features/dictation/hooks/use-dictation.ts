@@ -5,15 +5,16 @@
  *   - First toggle: start recording. The composer swaps in a recording
  *     bar (waveform + timer + cancel/confirm) driven by the `levels`,
  *     `elapsedMs`, and `cancel` values returned here.
- *   - Confirm (or Cmd/Ctrl+Shift+M): stop. The service finalizes the cumulative
+ *   - Confirm (or the shortcut again): stop. The service finalizes the cumulative
  *     transcript it has built while the user speaks, then we append it to
  *     whatever the composer text was at the
  *     moment we started recording.
  *   - Cancel (X): tear down the stream without appending anything.
  *
- * The global Cmd/Ctrl+Shift+M keybind dispatches a window event the
- * hook listens for, so any composer with `useDictation` mounted toggles
- * itself when the user is on its window.
+ * The global dictation shortcut dispatches a window event the hook listens
+ * for, so any composer with `useDictation` mounted toggles itself when the
+ * user is on its window. Every trigger is a toggle — press to start, press
+ * again to stop.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -37,7 +38,8 @@ export const DICTATION_TOGGLE_EVENT = "stella:dictation-toggle";
 
 type DictationToggleEventDetail = {
   startId?: string;
-  action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
+  action?: "toggle" | "start" | "stop" | "cancel";
+  source?: "companion";
 };
 
 /** How many waveform bars we retain. The session emits ~12.5 ticks/sec, so
@@ -59,6 +61,12 @@ interface UseDictationOptions {
    * via ref so it always sees the post-transcript value.
    */
   onCommit?: () => void;
+  /**
+   * When the global shortcut stops a recording, submit the transcript (fire
+   * `onCommit`) instead of leaving it in the composer. The companion uses
+   * this so "press to talk, press again" sends without another tap.
+   */
+  commitOnShortcutStop?: boolean;
 }
 
 interface UseDictationResult {
@@ -100,6 +108,7 @@ export const useDictation = ({
   onError,
   onTranscriptCommitted,
   onCommit,
+  commitOnShortcutStop = false,
 }: UseDictationOptions): UseDictationResult => {
   const t = useT();
   const [state, setState] = useState<DictationSessionState>("idle");
@@ -121,6 +130,7 @@ export const useDictation = ({
   const onErrorRef = useRef(onError);
   const onTranscriptCommittedRef = useRef(onTranscriptCommitted);
   const onCommitRef = useRef(onCommit);
+  const commitOnShortcutStopRef = useRef(commitOnShortcutStop);
   const stateRef = useRef<DictationSessionState>("idle");
   /**
    * When true, the next time we land on idle (whether after a successful
@@ -136,6 +146,7 @@ export const useDictation = ({
   onErrorRef.current = onError;
   onTranscriptCommittedRef.current = onTranscriptCommitted;
   onCommitRef.current = onCommit;
+  commitOnShortcutStopRef.current = commitOnShortcutStop;
 
   const fireCommitIfPending = useCallback(() => {
     if (!sendAfterCommitRef.current) return;
@@ -206,8 +217,11 @@ export const useDictation = ({
       setError(null);
       setLevels([]);
       setElapsedMs(0);
+      // The shortcut path stays quiet (no cancel/confirm buttons — the
+      // shortcut itself commits), but the bar is always shown so a keyboard
+      // start is never invisible.
       setShowControls(source === "button");
-      setShowRecordingBar(source === "button");
+      setShowRecordingBar(true);
       transcriptPreview.reset();
 
       try {
@@ -332,22 +346,16 @@ export const useDictation = ({
       const canHandle =
         !disabled || current === "listening" || current === "transcribing";
       if (!canHandle) return;
-      window.electronAPI?.dictation?.inAppStarted({ startId });
+      void startId;
       if (action === "start") {
         if (current !== "listening" && current !== "transcribing") {
           void start("shortcut");
         }
         return;
       }
-      if (action === "reveal") {
-        if (current === "listening") {
-          setShowRecordingBar(true);
-        }
-        return;
-      }
       if (action === "stop") {
         if (current === "listening") {
-          sendAfterCommitRef.current = false;
+          sendAfterCommitRef.current = commitOnShortcutStopRef.current;
           void stop();
         }
         return;
@@ -359,9 +367,13 @@ export const useDictation = ({
         return;
       }
       if (current === "listening") {
-        sendAfterCommitRef.current = false;
+        sendAfterCommitRef.current = commitOnShortcutStopRef.current;
         void stop();
-      } else if (current !== "transcribing") {
+      } else if (current === "transcribing") {
+        // Upload in flight: a second press while the composer would auto-send
+        // just confirms that intent.
+        if (commitOnShortcutStopRef.current) sendAfterCommitRef.current = true;
+      } else {
         sendAfterCommitRef.current = false;
         void start("shortcut");
       }

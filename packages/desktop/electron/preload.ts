@@ -14,6 +14,14 @@ import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type {
+  CompanionDragMove,
+  CompanionLayout,
+  CompanionLayoutMode,
+  CompanionSendRequest,
+  CompanionState,
+  CompanionVisibility,
+} from "@stella/contracts/desktop/companion";
+import type {
   CloudHomeImportOwnership,
   LocalCloudHomeScan,
 } from "@stella/contracts/cloud-home-sync";
@@ -40,6 +48,24 @@ import {
   IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_SCAN_LOCAL,
+  IPC_COMPANION_DRAG_END,
+  IPC_COMPANION_DRAG_MOVE,
+  IPC_COMPANION_DRAG_START,
+  IPC_COMPANION_FOCUS,
+  IPC_COMPANION_GET_STATE,
+  IPC_COMPANION_GET_VISIBLE,
+  IPC_COMPANION_LAYOUT,
+  IPC_COMPANION_OPEN_MAIN,
+  IPC_COMPANION_PUBLISH_STATE,
+  IPC_COMPANION_SEND,
+  IPC_COMPANION_SEND_REQUESTED,
+  IPC_COMPANION_SET_LAYOUT,
+  IPC_COMPANION_SET_VISIBLE,
+  IPC_COMPANION_SHOW_CONTEXT_MENU,
+  IPC_COMPANION_STATE,
+  IPC_COMPANION_STOP,
+  IPC_COMPANION_STOP_REQUESTED,
+  IPC_COMPANION_VISIBLE_CHANGED,
   IPC_DISCOVERY_COLLECT_ALL_SIGNALS,
   IPC_HOME_CAPTURE_APP_WINDOW,
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
@@ -593,8 +619,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       height: number;
       tone?: "default" | "subtle";
     } | null>("overlay:windowHighlight"),
-    onShowDictation: onIpc<{ x: number; y: number }>("overlay:showDictation"),
-    onHideDictation: onIpcSignal("overlay:hideDictation"),
     onShowScreenGuide: onIpc<{
       annotations: Array<{
         id: string;
@@ -755,7 +779,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   dictation: {
     onToggle: onIpc<{
       startId?: string;
-      action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
+      action?: "toggle" | "start" | "stop" | "cancel";
+      /** Set when the global shortcut was routed to the companion window. */
+      source?: "companion";
     }>("dictation:toggle"),
     getShortcut: () =>
       ipcRenderer.invoke("dictation:getShortcut") as Promise<string>,
@@ -775,20 +801,44 @@ contextBridge.exposeInMainWorld("electronAPI", {
         "dictation:setSoundEffectsEnabled",
         enabled,
       ) as Promise<{ enabled: boolean }>,
-    onOverlayStart: onIpc<{ sessionId: string }>("dictation:overlayStart"),
-    onOverlayStop: onIpc<{ sessionId: string }>("dictation:overlayStop"),
-    onOverlayCancel: onIpc<{ sessionId: string }>("dictation:overlayCancel"),
-    overlayCompleted: (payload: { sessionId: string; text: string }) =>
-      ipcRenderer.send("dictation:overlayCompleted", payload),
-    overlayFailed: (payload: { sessionId: string; error?: string }) =>
-      ipcRenderer.send("dictation:overlayFailed", payload),
-    inAppStarted: (payload: { startId?: string }) =>
-      ipcRenderer.send("dictation:inAppStarted", payload),
     activeChanged: (payload: { active: boolean }) =>
       ipcRenderer.send("dictation:activeChanged", payload),
     playSound: (payload: {
       sound: "startRecording" | "stopRecording" | "cancel";
     }) => ipcRenderer.send("dictation:playSound", payload),
+  },
+
+  companion: {
+    // Window plumbing (companion renderer → main).
+    setLayout: (mode: CompanionLayoutMode) =>
+      ipcRenderer.send(IPC_COMPANION_SET_LAYOUT, mode),
+    onLayout: onIpc<CompanionLayout>(IPC_COMPANION_LAYOUT),
+    dragStart: (cursor: CompanionDragMove) =>
+      ipcRenderer.send(IPC_COMPANION_DRAG_START, cursor),
+    dragMove: (cursor: CompanionDragMove) =>
+      ipcRenderer.send(IPC_COMPANION_DRAG_MOVE, cursor),
+    dragEnd: () => ipcRenderer.send(IPC_COMPANION_DRAG_END),
+    focus: () => ipcRenderer.send(IPC_COMPANION_FOCUS),
+    openMain: () => ipcRenderer.send(IPC_COMPANION_OPEN_MAIN),
+    showContextMenu: () => ipcRenderer.send(IPC_COMPANION_SHOW_CONTEXT_MENU),
+    // Chat relay (companion → main → full shell).
+    send: (payload: CompanionSendRequest) =>
+      ipcRenderer.send(IPC_COMPANION_SEND, payload),
+    stop: () => ipcRenderer.send(IPC_COMPANION_STOP),
+    getState: () =>
+      ipcRenderer.invoke(IPC_COMPANION_GET_STATE) as Promise<CompanionState | null>,
+    onState: onIpc<CompanionState>(IPC_COMPANION_STATE),
+    // Brain side (full shell → main → companion).
+    publishState: (state: CompanionState) =>
+      ipcRenderer.send(IPC_COMPANION_PUBLISH_STATE, state),
+    onSendRequested: onIpc<CompanionSendRequest>(IPC_COMPANION_SEND_REQUESTED),
+    onStopRequested: onIpcSignal(IPC_COMPANION_STOP_REQUESTED),
+    // Visibility (any window; drives the settings toggle).
+    getVisible: () =>
+      ipcRenderer.invoke(IPC_COMPANION_GET_VISIBLE) as Promise<CompanionVisibility>,
+    setVisible: (visible: boolean) =>
+      ipcRenderer.invoke(IPC_COMPANION_SET_VISIBLE, visible) as Promise<CompanionVisibility>,
+    onVisibleChanged: onIpc<CompanionVisibility>(IPC_COMPANION_VISIBLE_CHANGED),
   },
 
   agent: {

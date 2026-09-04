@@ -80,12 +80,16 @@ describe("M4 desktop release contracts", () => {
     const appShell = read(
       "packages/desktop/electron/bootstrap/app-shell.js",
     );
+    // Window manager, overlay, and companion each defer to the quit flag.
     expect(appShell.match(/isQuitting: \(\) => state\.isQuitting/g)).toHaveLength(
-      2,
+      3,
     );
 
     expect(
       read("packages/desktop/electron/windows/overlay-window.js"),
     ).toContain("if (this.options.isQuitting?.())");
+    expect(
+      read("packages/desktop/electron/windows/companion-window.ts"),
+    ).toContain("if (this.options.isQuitting()) return;");
   });
 });

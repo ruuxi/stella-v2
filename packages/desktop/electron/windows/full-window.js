@@ -39,7 +39,7 @@ export class FullWindowController {
         this.options = options;
         this.controller = new ShellWindowController(options, {
             mode: 'full',
-            createWindow: () => {
+            createWindow: (createOptions) => {
                 const isMac = process.platform === 'darwin';
                 const useNativeVibrancy = isMac;
                 const windowIcon = !isMac ? resolveAppIconPath(this.options.electronDir) : undefined;
@@ -66,6 +66,9 @@ export class FullWindowController {
                     titleBarStyle: isMac ? 'hiddenInset' : undefined,
                     trafficLightPosition: isMac ? { x: 16, y: 13 } : undefined,
                     icon: windowIcon,
+                    // The companion can need the shell as a hidden "brain" (it owns
+                    // the chat runtime) after the user closed the window.
+                    show: createOptions?.hidden ? false : true,
                     webPreferences: createSharedWebPreferences({
                         preloadPath: this.options.preloadPath,
                         sessionPartition: this.options.sessionPartition,
@@ -77,8 +80,8 @@ export class FullWindowController {
     getWindow() {
         return this.controller.getWindow();
     }
-    create() {
-        return this.controller.create();
+    create(createOptions) {
+        return this.controller.create(createOptions);
     }
     loadRecoveryPage() {
         this.controller.loadRecoveryPage();

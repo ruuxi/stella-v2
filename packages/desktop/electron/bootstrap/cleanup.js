@@ -39,6 +39,9 @@ export const registerBootstrapProcessCleanups = (context) => {
     processRuntime.registerCleanup("before-quit", "overlay-window", () => {
         context.state.overlayController?.destroy();
     });
+    processRuntime.registerCleanup("before-quit", "companion-window", () => {
+        context.state.companionController?.destroy();
+    });
     processRuntime.registerCleanup("before-quit", "tray", () => {
         context.state.trayController?.destroy();
         context.state.trayController = null;

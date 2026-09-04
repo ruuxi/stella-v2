@@ -112,6 +112,7 @@ import { ModelCatalogUpdatedAtProvider } from "@/global/settings/hooks/model-cat
 import { useRestrictedStellaModelReset } from "@/global/settings/hooks/use-restricted-stella-model-reset";
 import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivityNotificationsBridge";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
+import { useCompanionBridge } from "@/shell/companion/use-companion-bridge";
 import { useDisplayPayloadRouting } from "@/shell/root-chrome/use-display-payload-routing";
 import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-restore";
 import { usePersistLastLocation } from "@/shell/root-chrome/use-persist-last-location";
@@ -945,6 +946,7 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
   });
 
   useDictationToggleBridge();
+  useCompanionBridge(conversationId);
 
   useWorkspacePanelEvents({
     rightSidebarRef,

@@ -11,7 +11,7 @@ export class ShellWindowController {
     getWindow() {
         return this.window;
     }
-    create() {
+    create(createOptions) {
         if (this.window && !this.window.isDestroyed()) {
             return this.window;
         }
@@ -20,7 +20,7 @@ export class ShellWindowController {
             electronDir: this.options.electronDir,
             isDev: this.options.isDev,
             getDevServerUrl: this.options.getDevServerUrl,
-            createWindow: this.config.createWindow,
+            createWindow: () => this.config.createWindow(createOptions),
             setupExternalLinkHandlers: this.options.setupExternalLinkHandlers,
             onDidStartLoading: this.options.onDidStartLoading,
             onDidFinishLoad: this.options.onDidFinishLoad,

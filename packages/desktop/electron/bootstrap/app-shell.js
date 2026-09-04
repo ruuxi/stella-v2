@@ -4,6 +4,8 @@ import path from "path";
 import { resolveStellaDataDir } from "@stella/runtime/kernel/home/stella-home";
 import { getDevServerUrl } from "../renderer-location.js";
 import { OverlayWindowController } from "../windows/overlay-window.js";
+import { CompanionWindowController } from "../windows/companion-window.js";
+import { broadcastCompanionVisibility } from "../ipc/companion-handlers.js";
 import { WindowManager } from "../windows/window-manager.js";
 import { TrayController } from "../windows/tray-controller.js";
 import { configureNotificationActivationHandling } from "../services/notification-service.js";
@@ -48,6 +50,25 @@ const initializeWindowShell = (context) => {
         isQuitting: () => state.isQuitting,
         onMinimizeFullToTray: () => state.trayController?.notifyMinimizedToTray(),
     }));
+    state.companionController = new CompanionWindowController({
+        preloadPath,
+        sessionPartition: config.sessionPartition,
+        electronDir: config.electronDir,
+        isDev: config.useDevServer,
+        getDevServerUrl,
+        isQuitting: () => state.isQuitting,
+        getStellaDataDir: () => state.stellaDataDirPath,
+        onOpenMain: () => state.windowManager?.showWindow(),
+        hasMainWindow: () => {
+            const full = state.windowManager?.getFullWindow();
+            return Boolean(full && !full.isDestroyed());
+        },
+        onQuit: () => {
+            state.isQuitting = true;
+            app.quit();
+        },
+        onVisibleChanged: (visible) => broadcastCompanionVisibility(visible),
+    });
     // Windows keeps Stella alive in the system tray after the user closes the
     // main window. macOS already keeps the app running via the dock, so the
     // tray is Windows-only.

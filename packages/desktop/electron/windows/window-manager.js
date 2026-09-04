@@ -139,10 +139,18 @@ export class WindowManager {
         clearTimeout(this.unresponsiveTimer);
         this.unresponsiveTimer = null;
     }
-    createFullWindow() {
-        const window = this.fullWindowController.create();
+    createFullWindow(createOptions) {
+        const window = this.fullWindowController.create(createOptions);
         this.observeFullWindow(window);
         return window;
+    }
+    /**
+     * Return the full shell window, creating it (optionally hidden) when the
+     * user closed it. Used by the companion, whose sends run in the shell's
+     * renderer.
+     */
+    ensureFullWindow(options) {
+        return this.createFullWindow(options);
     }
     createInitialWindows() {
         this.createFullWindow();

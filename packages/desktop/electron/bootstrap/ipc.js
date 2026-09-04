@@ -29,6 +29,7 @@ import { registerUiStateKvHandlers } from "../ipc/ui-state-handlers.js";
 import { registerUpdatesHandlers } from "../ipc/updates-handlers.js";
 import { registerVoiceHandlers } from "../ipc/voice-handlers.js";
 import { registerDictationHandlers } from "../ipc/dictation-handlers.js";
+import { registerCompanionHandlers } from "../ipc/companion-handlers.js";
 import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startMobileBridge, startStellaBrowserBridge, stopMobileBridge, } from "./aux-runtime.js";
@@ -399,18 +400,21 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         stellaAppDir: state.stellaAppDir,
         stellaDataDirPath: state.stellaDataDirPath,
     });
-    const dictationPushToTalk = registerDictationHandlers({
+    const dictationTap = registerDictationHandlers({
         windowManager: state.windowManager,
-        getOverlayController: () => state.overlayController ?? null,
+        getCompanionController: () => state.companionController ?? null,
         getStellaDataDir: lifecycle.getStellaDataDir,
-        getStellaInstallDir: lifecycle.getStellaAppDir,
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
         onDictationActiveChanged: (active) => {
             wakewordPausedForDictation = active;
             syncWakewordPause();
         },
     });
-    services.globalInputHook.setDictationPushToTalkHandlers(dictationPushToTalk);
+    services.globalInputHook.setDictationTapHandlers(dictationTap);
+    registerCompanionHandlers({
+        getCompanionController: () => state.companionController ?? null,
+        windowManager: state.windowManager,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    });
     // ── Wake-word listener ──────────────────────────────────────────────
     // Spawns the native `wakeword_listener` helper. On a "Hey Stella"
     // detection it activates the realtime voice agent. Mic buttons stay dictation-only — voice is

@@ -94,6 +94,7 @@ import {
   log,
   nativeBackupDebtKey,
   workspaceTransferReceiptsKey,
+  BACKUP_ID_PATTERN,
   R2_SWEEP_MAX_PAGES,
   sweepR2Prefix,
 } from "./shared/keys.js";
@@ -361,8 +362,6 @@ export const beginOwnerPurge = async (
   throw new Error("Owner cloud turns did not quiesce before purge.");
 };
 
-/** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
-export const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 /** The slug a hosted app route is keyed by. */
 export const APP_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /**

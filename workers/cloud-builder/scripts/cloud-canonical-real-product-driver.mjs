@@ -11943,6 +11943,10 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     REPO_ROOT,
     "workers/cloud-builder/src/index.ts",
   );
+  const sessionCorePath = path.join(
+    REPO_ROOT,
+    "workers/cloud-builder/src/build-session/session-core.ts",
+  );
   const orchestrationDescriptorPath = path.join(
     REPO_ROOT,
     "packages/runtime/kernel/tools/defs/agent-orchestration-def.ts",
@@ -11950,10 +11954,12 @@ export const reviewedMemoryArchitectureBoundary = async () => {
   const [
     orchestratorSource,
     buildSessionSource,
+    sessionCoreSource,
     orchestrationDescriptorSource,
   ] = await Promise.all([
     readFile(orchestratorPath, "utf8"),
     readFile(buildSessionPath, "utf8"),
+    readFile(sessionCorePath, "utf8"),
     readFile(orchestrationDescriptorPath, "utf8"),
   ]);
   const orchestratorAnchors = [
@@ -11989,18 +11995,20 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     agentTurnStart,
     agentAttemptStart,
   );
-  const historyLoaderStart = buildSessionSource.indexOf(
-    "  private fetchCanonicalAgentHistory(",
+  // The loader body lives in the extracted session-core module; the class
+  // keeps only a delegator, so the boundary is read from its new home.
+  const historyLoaderStart = sessionCoreSource.indexOf(
+    "export const fetchCanonicalAgentHistory = (",
   );
-  const historyLoaderEnd = buildSessionSource.indexOf(
-    "  private async assertAgentExecutionActive(",
+  const historyLoaderEnd = sessionCoreSource.indexOf(
+    "export const assertAgentExecutionActive = async (",
     historyLoaderStart + 1,
   );
   assert(
     historyLoaderStart >= 0 && historyLoaderEnd > historyLoaderStart,
     "Reviewed cloud child-agent history boundary could not be isolated.",
   );
-  const historyLoaderSource = buildSessionSource.slice(
+  const historyLoaderSource = sessionCoreSource.slice(
     historyLoaderStart,
     historyLoaderEnd,
   );
@@ -12008,7 +12016,7 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     // The thread transcript is the BuildSession's own table now; the child
     // still receives exactly that thread's rows and nothing wider.
     historyLoaderSource.includes(
-      "return readThreadHistory(this.ctx.storage.sql, {",
+      "return readThreadHistory(host.ctx.storage.sql, {",
     ) &&
       historyLoaderSource.includes("excludeTurnId: turn.turnId") &&
       agentTurnSource.includes(
@@ -12032,6 +12040,7 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     canonicalJson({
       orchestratorSourceSha256: sha256(orchestratorSource),
       buildSessionSourceSha256: sha256(buildSessionSource),
+      sessionCoreSourceSha256: sha256(sessionCoreSource),
       orchestrationDescriptorSourceSha256: sha256(
         orchestrationDescriptorSource,
       ),

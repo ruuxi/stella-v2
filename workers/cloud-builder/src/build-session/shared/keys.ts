@@ -403,6 +403,9 @@ export const normalizeToolWorkspaceRoot = async (
 
 /** Pages of 1000 keys per bucket prefix. 10M objects is not a real owner. */
 export const R2_SWEEP_MAX_PAGES = 10_000;
+
+/** `crypto.randomUUID()` in the sandbox SDK; anything else is not a backup. */
+export const BACKUP_ID_PATTERN = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 /**
  * Delete every object under `prefix`. Bounded: `list` is cursor-paged at 1000
  * and each page is deleted before the next is fetched, so neither memory nor

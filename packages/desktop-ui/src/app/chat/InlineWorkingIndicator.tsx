@@ -49,6 +49,7 @@ export type {
  */
 const EXIT_ANIMATION_MS = 240;
 const ENTER_ANIMATION_MS = 320;
+const ENTER_DELAY_MS = 200;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
 
 function newReasoningSeed(): string {
@@ -83,12 +84,12 @@ export function InlineWorkingIndicator({
 
   // Stay mounted until the exit animation finishes. If `active` flips back
   // to true mid-animation, cancel the exit and resume live updates.
-  const [renderShell, setRenderShell] = useState(active);
-  const [entering, setEntering] = useState(active);
+  const [renderShell, setRenderShell] = useState(false);
+  const [entering, setEntering] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const exitTimerRef = useRef<number | null>(null);
-  const activatedAtRef = useRef<number | null>(active ? Date.now() : null);
-  const wasActiveRef = useRef(active);
+  const activatedAtRef = useRef<number | null>(null);
+  const wasActiveRef = useRef(false);
   const showingThinking = active && !runningTool;
   const wasShowingThinkingRef = useRef(showingThinking);
   // Seeds the reasoning label ("Thinking" / "Mulling it over" / …). It rerolls
@@ -124,16 +125,20 @@ export function InlineWorkingIndicator({
 
     if (active) {
       clearTimer();
+      if (!renderShell) {
+        // Cancel this pending entrance if work ends before the delay elapses.
+        exitTimerRef.current = window.setTimeout(() => {
+          exitTimerRef.current = null;
+          setEntering(true);
+          setRenderShell(true);
+        }, ENTER_DELAY_MS);
+        return clearTimer;
+      }
       const isReactivation = !wasActiveRef.current;
       if (isReactivation) {
         activatedAtRef.current = Date.now();
       }
       wasActiveRef.current = true;
-      if (!renderShell) {
-        setEntering(true);
-      } else if (isReactivation) {
-        setEntering(false);
-      }
       setLeaving(false);
       setRenderShell(true);
       return;

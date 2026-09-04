@@ -13,6 +13,7 @@ import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 
 const ENTER_DURATION_MS = 320;
+const ENTER_DELAY_MS = 200;
 const EXIT_HOLD_MS = 300;
 const EXIT_ANIMATION_MS = 480;
 /** The assistant's message has already landed above the indicator, so the
@@ -197,7 +198,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   // turns instead of always reading "Thinking" (mirrors the desktop's
   // `reasoningSeed`). Refreshed on each rising edge of `active` below.
   const [reasoningSeed, setReasoningSeed] = useState(() => String(Date.now()));
-  const wasActiveRef = useRef(active);
+  const wasActiveRef = useRef(false);
   const liveDisplay = useMemo(
     () => ({
       status: computeWorkingIndicatorStatus({
@@ -234,8 +235,8 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       ? "working"
       : display.characterState
     : "thinking";
-  const [renderShell, setRenderShell] = useState(active);
-  const shellProgress = useRef(new Animated.Value(active ? 1 : 0)).current;
+  const [renderShell, setRenderShell] = useState(false);
+  const shellProgress = useRef(new Animated.Value(0)).current;
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -253,6 +254,14 @@ export const WorkingIndicator = memo(function WorkingIndicator({
 
     if (active) {
       clearTimers();
+      if (!renderShell) {
+        // A short run or cancellation clears this timer without showing dots.
+        holdTimerRef.current = setTimeout(() => {
+          holdTimerRef.current = null;
+          setRenderShell(true);
+        }, ENTER_DELAY_MS);
+        return clearTimers;
+      }
       if (!wasActiveRef.current) setReasoningSeed(String(Date.now()));
       wasActiveRef.current = true;
       setRenderShell(true);

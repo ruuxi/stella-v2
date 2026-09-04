@@ -11980,9 +11980,10 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     ),
     "Reviewed cloud orchestration descriptor no longer keeps child task context explicit.",
   );
-  const agentTurnStart = buildSessionSource.indexOf(
-    "  private async runAgentTurn(",
-  );
+  // `runAgentTurn` dispatches placement from the extracted admission module;
+  // the class keeps a delegator, and the child-context boundary below still
+  // lives in the span between it and `runAgentAttempt`.
+  const agentTurnStart = buildSessionSource.indexOf("  private runAgentTurn(");
   const agentAttemptStart = buildSessionSource.indexOf(
     "  private async runAgentAttempt(",
     agentTurnStart + 1,

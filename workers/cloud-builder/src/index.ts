@@ -38,8 +38,6 @@ import {
   TURN_PLANE_PROTOCOL,
   TURN_PROMPT_MAX_CHARS,
   type CloudAgentTurnStartRequest,
-  type CloudAgentTurnStartResponse,
-  type CloudTurnSource,
   type CloudTurnStartRequest,
 } from "@stella/contracts/turn-plane/turn-start";
 import {
@@ -48,15 +46,12 @@ import {
   type InteriorBuildRecordedEvent,
   type OutboxEvent,
   type ThreadCompletedEvent,
-  type ThreadSpawnedEvent,
   type TurnEventEvent,
-  type TurnStartedEvent,
 } from "@stella/contracts/turn-plane/outbox";
 import {
   HEADER_PRESENCE_DEVICE_ID,
   OwnerGate,
   parseOwnerSnapshot,
-  snapshotAllowsExecutionEngine,
   type OwnerGateRefusalCode,
 } from "./owner-gate.js";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
@@ -139,7 +134,6 @@ import {
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
 import {
-  mintTurnCapabilities,
   mintTurnCapability,
 } from "./capability-signer.js";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
@@ -209,7 +203,6 @@ import {
 } from "./strict-session-process.js";
 import {
   createTurnRetryCancellation,
-  startTurnExecution,
   type TurnExecution,
   type TurnExecutionContext,
   type TurnRetryCancellation,
@@ -268,13 +261,10 @@ import {
 import {
   parseTurnComputePlan,
   requiresExactThreadCandidate,
-  runGeneralAgentTurn,
   runResidentStellaLoop,
-  turnComputePlan,
   turnComputePlanKey,
   type GeneralAgentTurnPlan,
   type GeneralAgentTurnResult,
-  type TurnComputePlan,
   type TurnDurability,
 } from "./general-agent-turn.js";
 import {
@@ -406,7 +396,6 @@ import {
   APP_BUILD_CONTROL_PLANE_EXECUTION,
   APP_TURN_ADMISSION_CLAIM_KEY,
   BUILDER_FALLBACK_MAX_RETRIES,
-  CLOUD_TURN_SOURCES,
   HEADER_CONVERSATION_ID,
   HEADER_PREVIEW_CAPABILITY,
   OBSERVED_BROWSER_SUSPENSION_KEY,
@@ -414,7 +403,6 @@ import {
   OUTBOX_DEBT_KEY,
   OUTBOX_DEBT_MAX,
   OUTBOX_DEBT_RETRY_MS,
-  OWNER_GATE_REFUSAL_STATUS,
   OWNER_PURGE_STALE_LEASE_GRACE_MS,
   PENDING_BROWSER_SUSPENSION_KEY,
   SHA256_HEX,
@@ -552,6 +540,15 @@ import {
   retireBuildOwnerFenceLease,
   retryOwnerFenceLeaseRetirements,
 } from "./build-session/owner-fence-leases.js";
+import {
+  acceptAgentTurn,
+  admitAgentTurnThroughOwnerGate,
+  admittedResidentPlacement,
+  agentTurnAccepted,
+  runAgentTurn,
+  startAgentTurn,
+  startAppTurn,
+} from "./build-session/admission.js";
 
 export { normalizeToolWorkspaceRoot } from "./build-session/shared/keys.js";
 
@@ -1768,87 +1765,17 @@ export class BuildSession extends DurableObject<Env> {
     return trackTurn(this.self, turnId, work);
   }
 
+  /** @see src/build-session/admission.ts */
   private startAgentTurn(
     turn: TurnRequest,
     sandboxId: string | undefined,
   ): Promise<void> {
-    const existing = this.agentTurnExecutions.get(turn.turnId);
-    if (existing) return existing.settled;
-    const execution = startTurnExecution({
-      work: (context) => this.runAgentTurn(turn, sandboxId, context),
-      // Cleanup is part of fiber interruption and is bounded by the Effect
-      // facade. A Stop ACK therefore means the exact command session and
-      // container teardown completed (or the cancellation failed visibly).
-      //
-      // The resident loop is aborted first, the way `OrchestratorSession`
-      // stops its own: the sweeps below cannot make an in-flight provider call
-      // or tool return, and leaving the Agent running would let it start
-      // container work behind a teardown that already ran.
-      onInterrupt: () => {
-        this.abortResidentAgent(turn);
-        return this.builderFallbackRecoveries.has(turn.turnId)
-          ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSession(turn);
-      },
-      // createSession() may ignore AbortSignal and resolve after the immediate
-      // destroy. Sweep again after the underlying turn promise has unwound so
-      // Stop can never ACK while that late session/container remains live.
-      afterInterrupt: () => {
-        this.abortResidentAgent(turn);
-        return this.builderFallbackRecoveries.has(turn.turnId)
-          ? this.quiesceCurrentAgentSession(turn)
-          : this.terminateCurrentAgentSession(turn);
-      },
-    });
-    this.agentTurnExecutions.set(turn.turnId, execution);
-    const tracked = this.trackTurn(turn.turnId, execution.settled);
-    const clear = () => {
-      if (this.agentTurnExecutions.get(turn.turnId) === execution) {
-        this.agentTurnExecutions.delete(turn.turnId);
-      }
-    };
-    void tracked.then(clear, clear);
-    return tracked;
+    return startAgentTurn(this.self, turn, sandboxId);
   }
 
-  /**
-   * Stop the resident loop before either sweep runs. A turn with no resident
-   * loop registered has nothing here, which is what makes this safe to call
-   * unconditionally from both interrupt hooks.
-   */
-  private abortResidentAgent(turn: TurnRequest): void {
-    const abort = this.residentAgentAborts.get(turn.turnId);
-    if (!abort) return;
-    try {
-      abort();
-    } catch (error) {
-      log("error", "resident_agent_abort_failed", {
-        turnId: turn.turnId,
-        message: errorMessage(error),
-      });
-    }
-  }
-
+  /** @see src/build-session/admission.ts */
   private startAppTurn(turn: TurnRequest): Promise<Response> {
-    const existing = this.appTurnExecutions.get(turn.turnId);
-    if (existing) return existing.settled;
-    const execution = startTurnExecution({
-      work: (context) => this.runTurn(turn, context),
-      // A pending platform createSession may materialize after the first
-      // destroy. Interrupt closes the local admission latch; the second sweep
-      // runs only after the underlying app-turn promise has unwound.
-      onInterrupt: () => this.terminateCurrentAgentSession(turn),
-      afterInterrupt: () => this.terminateCurrentAgentSession(turn),
-    });
-    this.appTurnExecutions.set(turn.turnId, execution);
-    const tracked = this.trackTurn(turn.turnId, execution.settled);
-    const clear = () => {
-      if (this.appTurnExecutions.get(turn.turnId) === execution) {
-        this.appTurnExecutions.delete(turn.turnId);
-      }
-    };
-    void tracked.then(clear, clear);
-    return tracked;
+    return startAppTurn(this.self, turn);
   }
 
   /** @see src/build-session/session-core.ts */
@@ -2382,25 +2309,9 @@ export class BuildSession extends DurableObject<Env> {
   }
 
   /** Whether this exact attempt was admitted to the resident arm. */
-  private async admittedResidentPlacement(turn: TurnRequest): Promise<boolean> {
-    if (
-      turn.kind !== "agent" ||
-      !Number.isSafeInteger(turn.attemptGeneration) ||
-      turn.attemptGeneration! < 1
-    ) {
-      return false;
-    }
-    const identity = {
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-    };
-    const admitted = parseTurnComputePlan(
-      await this.ctx.storage.get(
-        turnComputePlanKey(identity.turnId, identity.attemptGeneration),
-      ),
-      identity,
-    );
-    return admitted?.plan.kind === "resident_stella";
+  /** @see src/build-session/admission.ts */
+  private admittedResidentPlacement(turn: TurnRequest): Promise<boolean> {
+    return admittedResidentPlacement(this.self, turn);
   }
 
   /**
@@ -4539,506 +4450,27 @@ export class BuildSession extends DurableObject<Env> {
    * it. A turn dispatched without an engine selection has nothing to place, so
    * it records nothing and keeps the container path it has always had.
    */
-  private admittedComputePlan(turn: TurnRequest): TurnComputePlan | undefined {
-    if (!turn.execution || !Number.isSafeInteger(turn.attemptGeneration)) {
-      return undefined;
-    }
-    return turnComputePlan({
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-      execution: turn.execution,
-      browserResume: turn.browserResume !== undefined,
-      // D1: resident is the default for Stella. An operator turns the ladder
-      // off by setting this to "0", which demotes every Stella turn to the
-      // eager container path without touching the loop.
-      residentDisabled: this.env.RESIDENT_GENERAL_AGENT_TURNS === "0",
-      now: Date.now(),
-    });
-  }
-
-  /**
-   * Owner-gate admission for one agent attempt, and the authority the
-   * attempt runs under.
-   *
-   * Two callers reach `/turn`. The OrchestratorSession admitted the gate
-   * itself before dispatching (it owns the release if the dispatch fails) and
-   * says so on a trusted internal header; it only needs the snapshot. The
-   * public `/sessions/:id/turns` route — Convex's desktop dispatch, execution
-   * placement's agent branch, a hosted-browser resume — did not, so admission
-   * happens here.
-   *
-   * Either way the snapshot, not the request, decides what the turn may
-   * spend: `audience` and `budgetMicroCents` in the body are the dispatcher's
-   * hints, and a dispatcher that lagged a plan change must not be able to
-   * mint a capability richer than the owner's current allowance.
-   */
-  private async admitAgentTurnThroughOwnerGate(
+  /** @see src/build-session/admission.ts */
+  private admitAgentTurnThroughOwnerGate(
     turn: TurnRequest,
   ): Promise<
     { ok: true; snapshot: OwnerSnapshot } | { ok: false; response: Response }
   > {
-    const gate = this.ownerGateFor(turn.ownerId);
-    let snapshot: OwnerSnapshot;
-    if (turn.gateAdmittedByCaller) {
-      try {
-        snapshot = await gate.snapshot();
-      } catch (error) {
-        log("error", "agent_turn_snapshot_unavailable", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-          message: errorMessage(error),
-        });
-        return {
-          ok: false,
-          response: json(
-            {
-              error:
-                "Stella can't check your plan right now. Try again shortly.",
-            },
-            503,
-          ),
-        };
-      }
-      if (snapshot.ownerGeneration !== turn.ownerGeneration) {
-        return {
-          ok: false,
-          response: json(
-            { error: "This cloud owner generation is no longer current." },
-            409,
-          ),
-        };
-      }
-      if (snapshot.enforcement?.status === "suspended") {
-        return {
-          ok: false,
-          response: Response.json(
-            {
-              error: "This account can't use Stella's cloud right now.",
-              code: "owner_suspended",
-              retryable: false,
-            },
-            { status: 403, headers: { "cache-control": "no-store" } },
-          ),
-        };
-      }
-      if (!snapshot.writable) {
-        return {
-          ok: false,
-          response: json(
-            { error: "This account's cloud data is no longer available." },
-            410,
-          ),
-        };
-      }
-      if (snapshot.isAnonymous) {
-        return {
-          ok: false,
-          response: Response.json(
-            {
-              error: "Sign in to Stella to use cloud agents.",
-              code: "sign_in_required",
-              retryable: false,
-            },
-            { status: 403, headers: { "cache-control": "no-store" } },
-          ),
-        };
-      }
-    } else {
-      const admission = await gate.admit({
-        lane: "agent",
-        turnId: turn.turnId,
-        conversationId: turn.conversationId ?? "",
-        expectedGeneration: turn.ownerGeneration,
-      });
-      if (!admission.ok) {
-        return {
-          ok: false,
-          response: Response.json(
-            {
-              error: admission.message,
-              code: admission.code,
-              retryable: admission.retryable,
-              ...(admission.retryAfterMs !== undefined
-                ? { retryAfterMs: admission.retryAfterMs }
-                : {}),
-            },
-            {
-              status: OWNER_GATE_REFUSAL_STATUS[admission.code],
-              headers: { "cache-control": "no-store" },
-            },
-          ),
-        };
-      }
-      snapshot = admission.snapshot;
-    }
-    if (
-      turn.execution &&
-      !snapshotAllowsExecutionEngine(snapshot, turn.execution.engine)
-    ) {
-      if (!turn.gateAdmittedByCaller) await this.releaseOwnerGate(turn);
-      return {
-        ok: false,
-        response: json(
-          {
-            error:
-              turn.execution.engine === "anthropic"
-                ? "Connect Claude before using that cloud execution route."
-                : "Connect ChatGPT before using that cloud execution route.",
-          },
-          409,
-        ),
-      };
-    }
-    // The snapshot is the authority for both, overriding the dispatcher.
-    turn.audience = snapshot.allowance.audience;
-    turn.budgetMicroCents = snapshot.allowance.budgetMicroCents;
-    try {
-      // Both capabilities for this attempt, from the same admitted facts. The
-      // control-plane half is cached here because it never leaves the object;
-      // the model half is re-minted when the attempt actually starts, so its
-      // 30-minute lifetime covers the run rather than the wait before it.
-      const minted = await mintTurnCapabilities(this.env, {
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        turnId: turn.turnId,
-        conversationId: turn.conversationId ?? "",
-        execution: turn.execution!,
-        audience: turn.audience,
-        budgetMicroCents: turn.budgetMicroCents,
-        agentTypes: ["general"],
-      });
-      this.controlPlaneCapabilities.set(
-        `${turn.turnId}:${turn.attemptGeneration ?? 1}`,
-        {
-          token: minted.controlPlane.token,
-          expiresAt: minted.controlPlane.expiresAt,
-        },
-      );
-    } catch (error) {
-      if (!turn.gateAdmittedByCaller) await this.releaseOwnerGate(turn);
-      log("error", "agent_turn_capability_mint_failed", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        message: errorMessage(error),
-      });
-      return {
-        ok: false,
-        response: json(
-          { error: "Stella can't authorize this agent right now. Try again." },
-          503,
-        ),
-      };
-    }
-    return { ok: true, snapshot };
+    return admitAgentTurnThroughOwnerGate(this.self, turn);
   }
 
-  /** The 202 body every accepted agent attempt answers with. */
+  /** @see src/build-session/admission.ts */
   private agentTurnAccepted(
     turn: TurnRequest,
     replayed: boolean,
     extra: Record<string, unknown> = {},
   ): Response {
-    const body: CloudAgentTurnStartResponse = {
-      protocol: TURN_PLANE_PROTOCOL,
-      threadId: turn.threadId ?? "",
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration ?? 1,
-      accepted: true,
-      replayed,
-    };
-    return json({ ...body, ...extra }, 202);
+    return agentTurnAccepted(this.self, turn, replayed, extra);
   }
 
-  /**
-   * What Convex learns when an agent attempt is admitted. `thread.spawned`
-   * projects the thread row for a first attempt — but only when this object
-   * admitted the spawn: the orchestrator emits its own for the spawns it
-   * dispatches, and two would race for the same key.
-   */
-  private async projectAgentTurnStart(turn: TurnRequest): Promise<void> {
-    const attemptGeneration = turn.attemptGeneration ?? 1;
-    const createdAt = Date.now();
-    const source = CLOUD_TURN_SOURCES.includes(turn.source as CloudTurnSource)
-      ? (turn.source as CloudTurnSource)
-      : undefined;
-    const events: OutboxEvent[] = [
-      {
-        ...this.outboxBase(turn, turn.turnId),
-        kind: "turn.started",
-        turnId: turn.turnId,
-        turnKind: "agent",
-        conversationId: turn.conversationId ?? "",
-        sessionId: turn.threadId ?? "",
-        lane: "agent",
-        ...(source ? { source } : {}),
-        ...(turn.clientMsgId ? { clientMsgId: turn.clientMsgId } : {}),
-        threadId: turn.threadId ?? "",
-        attemptGeneration,
-        agentType: "general",
-        execution: turn.execution!,
-        prompt: turn.prompt,
-        createdAt,
-      } satisfies TurnStartedEvent,
-    ];
-    if (attemptGeneration === 1 && !turn.gateAdmittedByCaller) {
-      events.push({
-        ...this.outboxBase(turn, `${turn.threadId}:${attemptGeneration}`),
-        kind: "thread.spawned",
-        threadId: turn.threadId ?? "",
-        conversationId: turn.conversationId ?? "",
-        parentTurnId: turn.parentTurnId ?? turn.turnId,
-        ...(turn.parentThreadId ? { parentThreadId: turn.parentThreadId } : {}),
-        agentDepth: turn.agentDepth,
-        attemptGeneration,
-        description: turn.description ?? "",
-        prompt: turn.prompt,
-        execution: turn.execution!,
-        placement: "cloud",
-        ...(turn.originDeviceId ? { originDeviceId: turn.originDeviceId } : {}),
-        ...(turn.originConversationId
-          ? { originConversationId: turn.originConversationId }
-          : {}),
-        createdAt,
-      } satisfies ThreadSpawnedEvent);
-    }
-    await this.enqueueOutboxDurable(events);
-  }
-
-  private async acceptAgentTurn(turn: TurnRequest): Promise<Response> {
-    type Admission =
-      | { response: Response }
-      | {
-          kind: "pre_canceled";
-          cancellation: ExactTurnCancellation;
-          ownsStorage: boolean;
-        }
-      | {
-          kind: "start";
-          sandboxId?: string;
-          orphan?: PendingTerminal;
-          orphanTurn?: TurnRequest;
-        };
-    const sharedWorldSandboxId = await worldSandboxId(turn.ownerId);
-    const admission = await this.ctx.blockConcurrencyWhile(
-      async (): Promise<Admission> => {
-        const current = await this.ctx.storage.get<TurnRequest>("turn");
-        if (current?.kind === "agent") {
-          const exactReplay = exactTurnIdentityMatches(current, turn);
-          if (current.turnId !== turn.turnId) {
-            const currentCancellation =
-              await this.exactTurnCancellations.matching({
-                turnId: current.turnId,
-                ownerId: current.ownerId,
-                ownerGeneration: current.ownerGeneration,
-                attemptGeneration: current.attemptGeneration,
-              });
-            if (currentCancellation?.state === "pending") {
-              return {
-                response: json(
-                  {
-                    accepted: false,
-                    reason: "cancellation_join_pending",
-                    currentTurnId: current.turnId,
-                  },
-                  409,
-                ),
-              };
-            }
-          }
-          const currentAttempt = current.attemptGeneration;
-          const [executionMarker, fallbackJournal, observedSuspension] =
-            Number.isSafeInteger(currentAttempt)
-              ? await Promise.all([
-                  this.ctx.storage.get<AgentExecutionMarker>(
-                    agentExecutionMarkerKey(current.turnId, currentAttempt!),
-                  ),
-                  this.ctx.storage.get<BuilderFallbackTranscript>(
-                    builderFallbackTranscriptKey(
-                      current.turnId,
-                      currentAttempt!,
-                    ),
-                  ),
-                  this.ctx.storage.get<ObservedBrowserSuspension>(
-                    OBSERVED_BROWSER_SUSPENSION_KEY,
-                  ),
-                ])
-              : [undefined, undefined, undefined];
-          const pendingBrowserSuspension =
-            await this.ctx.storage.get<PendingBrowserSuspension>(
-              PENDING_BROWSER_SUSPENSION_KEY,
-            );
-          const locallyRunning = this.agentTurnExecutions.has(current.turnId);
-          if (
-            locallyRunning ||
-            executionMarker ||
-            fallbackJournal ||
-            observedSuspension ||
-            pendingBrowserSuspension
-          ) {
-            if (!locallyRunning) {
-              await this.ctx.storage.setAlarm(Date.now() + 1_000);
-            }
-            return {
-              response: exactReplay
-                ? this.agentTurnAccepted(turn, true, {
-                    recovering: !locallyRunning,
-                  })
-                : json(
-                    {
-                      accepted: false,
-                      reason: "previous_turn_recovering",
-                      currentTurnId: current.turnId,
-                    },
-                    409,
-                  ),
-            };
-          }
-        }
-        const cancellation = await this.exactTurnCancellations.matching({
-          turnId: turn.turnId,
-          ownerId: turn.ownerId,
-          ownerGeneration: turn.ownerGeneration,
-          attemptGeneration: turn.attemptGeneration,
-        });
-        if (cancellation) {
-          const ownsStorage = !current || current.turnId === turn.turnId;
-          if (ownsStorage && cancellation.state === "pending") {
-            await this.ctx.storage.put({
-              turn,
-              turnId: turn.turnId,
-              terminal: false,
-              terminalDelivered: false,
-              alarmAttempts: 0,
-              alarmReconcile: false,
-            });
-          }
-          return {
-            kind: "pre_canceled",
-            cancellation,
-            ownsStorage,
-          };
-        }
-        const computePlan = this.admittedComputePlan(turn);
-        const resident = computePlan?.plan.kind === "resident_stella";
-        // A resident turn still starts without compute. If it attaches, it
-        // uses the same owner-world container as the eager path.
-        const sandboxId = resident ? undefined : sharedWorldSandboxId;
-        // A predecessor whose terminal state never reached Convex left it
-        // here. Taking over the DO takes the alarm with it, so this is its last
-        // chance; the stale delivery below cannot mutate this successor.
-        const orphan =
-          await this.ctx.storage.get<PendingTerminal>("pendingTerminal");
-        const orphanTurn = orphan
-          ? await this.ctx.storage.get<TurnRequest>("turn")
-          : undefined;
-        await this.ctx.storage.put({
-          ...(sandboxId ? { sandboxId } : {}),
-          ...(computePlan
-            ? {
-                [turnComputePlanKey(turn.turnId, turn.attemptGeneration!)]:
-                  computePlan,
-              }
-            : {}),
-          turn,
-          turnId: turn.turnId,
-          terminal: false,
-          terminalDelivered: false,
-          alarmAttempts: 0,
-          alarmReconcile: false,
-        });
-        await this.ctx.storage.delete([
-          "pendingTerminal",
-          PENDING_BROWSER_SUSPENSION_KEY,
-          OBSERVED_BROWSER_SUSPENSION_KEY,
-          AGENT_RECOVERY_PENDING_KEY,
-        ]);
-        return {
-          kind: "start",
-          ...(sandboxId ? { sandboxId } : {}),
-          orphan,
-          orphanTurn,
-        };
-      },
-    );
-    if ("response" in admission) {
-      await this.unregisterTurn(turn);
-      // A refusal gives the slot straight back; an accepted replay keeps it,
-      // because the attempt it names is still the one running.
-      if (!admission.response.ok) await this.releaseOwnerGate(turn);
-      return admission.response;
-    }
-    if (admission.kind === "pre_canceled") {
-      if (admission.cancellation.state === "pending") {
-        const delivered = await this.deliverTerminal(turn, {
-          turnId: turn.turnId,
-          attemptGeneration: turn.attemptGeneration!,
-          kind: "canceled",
-          payload: { message: "Stopped. Nothing was changed." },
-          threadError: "The agent was stopped.",
-        });
-        if (delivered) {
-          if (
-            !(await this.acknowledgeExactAgentTurnCancellation(
-              admission.cancellation,
-            ))
-          ) {
-            await this.unregisterTurn(turn);
-            return json(
-              {
-                accepted: false,
-                canceled: true,
-                reason: "cancellation_acknowledgement_lost",
-              },
-              503,
-            );
-          }
-          if (admission.ownsStorage && (await this.ownsExactTurn(turn))) {
-            await this.deleteTurnStoragePreservingExactCancellations(
-              turn,
-              true,
-            );
-          }
-        }
-      }
-      await this.unregisterTurn(turn);
-      await this.releaseOwnerGate(turn);
-      return this.agentTurnAccepted(turn, false, {
-        canceled: true,
-        preAdmission: true,
-        durable: true,
-      });
-    }
-    const { orphan, orphanTurn } = admission;
-    const { sandboxId } = admission;
-    if (
-      orphan &&
-      orphanTurn &&
-      orphan.turnId === orphanTurn.turnId &&
-      orphan.turnId !== turn.turnId
-    ) {
-      this.ctx.waitUntil(
-        this.trackTurn(
-          orphanTurn.turnId,
-          this.redeliverOrphan(orphanTurn, orphan),
-        ).catch(() => undefined),
-      );
-    }
-    const watchdogDeadlineAt =
-      Date.now() + Math.max(1_000, turn.watchdogMs ?? 15 * 60_000);
-    await this.mutateExactTurn(turn, async (txn) => {
-      await txn.put(AGENT_WATCHDOG_DEADLINE_KEY, watchdogDeadlineAt);
-      await txn.setAlarm(
-        Math.min(watchdogDeadlineAt, Date.now() + AGENT_TURN_HEARTBEAT_MS),
-      );
-    });
-    // Projected before the run starts: Convex has to know the attempt exists
-    // even if this isolate dies in the next millisecond, and the outbox is
-    // ordered behind a durable debt if the queue refuses.
-    await this.projectAgentTurnStart(turn);
-    this.ctx.waitUntil(
-      this.startAgentTurn(turn, sandboxId).catch(() => undefined),
-    );
-    return this.agentTurnAccepted(turn, false);
+  /** @see src/build-session/admission.ts */
+  private acceptAgentTurn(turn: TurnRequest): Promise<Response> {
+    return acceptAgentTurn(this.self, turn);
   }
 
   /** @see src/build-session/app-build.ts */
@@ -5051,52 +4483,13 @@ export class BuildSession extends DurableObject<Env> {
     return proxyVitePreview(this.self, request);
   }
 
-  // A spawned general agent's turn: restore its workspace, run the real
-  // runtime headless in the sandbox, checkpoint, report. The executor
-  // streams its own progress events with the turn token; this method owns
-  // workspace persistence and the terminal event. Runs detached from the
-  // dispatch request (see acceptAgentTurn).
-  /**
-   * The one place a turn's admitted placement is acted on.
-   *
-   * The plan is read back rather than re-derived: a config flip between
-   * admission and here would otherwise re-place a turn whose container was
-   * (or was not) already reserved, and both cancellation sweeps destroy by
-   * that reservation.
-   */
-  private async runAgentTurn(
+  /** @see src/build-session/admission.ts */
+  private runAgentTurn(
     turn: TurnRequest,
     sandboxId: string | undefined,
     execution: TurnExecutionContext,
   ): Promise<void> {
-    const identity = {
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration ?? 0,
-    };
-    const admitted = parseTurnComputePlan(
-      await this.ctx.storage.get(
-        turnComputePlanKey(identity.turnId, identity.attemptGeneration),
-      ),
-      identity,
-    );
-    await runGeneralAgentTurn({
-      plan:
-        admitted?.plan ??
-        ({
-          kind: "native_sandbox",
-          ...(turn.execution ? { execution: turn.execution } : {}),
-          reason: "unplaced",
-        } as const),
-      context: execution,
-      resident: (plan) => this.runResidentAgentTurn(turn, plan, execution),
-      native: async () => {
-        // Admission mints the id for every plan that keeps the container
-        // path, so an absent one here means this isolate is running a turn
-        // whose reservation another attempt owns.
-        if (!sandboxId) throw new AgentTurnAuthorityLostError();
-        await this.runContainerAgentTurn(turn, sandboxId, execution);
-      },
-    });
+    return runAgentTurn(this.self, turn, sandboxId, execution);
   }
 
   /**
@@ -6785,8 +6178,8 @@ export class BuildSession extends DurableObject<Env> {
       turnExecution.signal,
     );
     let cloudSkills:
-      | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-      | undefined = undefined;
+      Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+      undefined;
     if (args.cloudSkillHome && args.cloudSkillCatalog) {
       turnExecution.assertActive();
       cloudSkills = await materializeCloudSkillSnapshot({
@@ -8361,14 +7754,12 @@ export default {
         return json({ error: "ownerId and artifactPrefix required." }, 400);
       }
       const ownerHash = await sha256Hex(ownerId);
-      if (
-        !(
-          LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
-          isOwnerAppBuildPrefix(prefix, ownerHash) ||
-          (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
-            prefix.startsWith(`interiors/${ownerHash}/`))
-        )
-      ) {
+      if (!(
+        LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
+        isOwnerAppBuildPrefix(prefix, ownerHash) ||
+        (INTERIOR_BUILD_PREFIX_PATTERN.test(prefix) &&
+          prefix.startsWith(`interiors/${ownerHash}/`))
+      )) {
         return json({ error: "artifactPrefix does not belong to owner." }, 403);
       }
       try {

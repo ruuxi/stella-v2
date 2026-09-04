@@ -56,13 +56,15 @@ import type { BuildSessionInternals } from "./host.js";
 import {
   AgentTurnAuthorityLostError,
   AgentTurnError,
+  OwnerPurgeFenceError,
+  TurnStateRegistryBookkeepingError,
+  isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
   errorMessage,
   log,
   mintAgentTurnModelGateway,
   turnBrokerCredentialsPath,
-  turnStateBaseWorkspaceRevisionKey,
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
 import type {
@@ -230,7 +232,6 @@ export const resolveAgentWorldRestore = async (
   history: AgentHistoryRow[],
 ): Promise<{
   turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
-  turnStateWorkspaceRestoreConfirmationRequired: boolean;
   turnStateThreadRestore?: TurnStateCandidate;
   turnStateThreadRestoreConfirmationRequired: boolean;
 }> => {
@@ -258,22 +259,11 @@ export const resolveAgentWorldRestore = async (
       );
     }
   }
-  if (resolved.registryPresent && !resolved.workspace) {
-    throw new AgentTurnError(
-      "This workspace's saved state is incomplete. Try again after Stella finishes recovering it.",
-    );
-  }
-  await host.ctx.storage.put(
-    turnStateBaseWorkspaceRevisionKey(turn.turnId, turn.attemptGeneration!),
-    resolved.baseWorkspaceRevision,
-  );
   execution.assertActive();
   return {
     ...(resolved.workspace
       ? { turnStateWorkspaceRestore: resolved.workspace }
       : {}),
-    turnStateWorkspaceRestoreConfirmationRequired:
-      resolved.workspaceConfirmationRequired,
     ...(resolved.restore ? { turnStateThreadRestore: resolved.restore } : {}),
     turnStateThreadRestoreConfirmationRequired: resolved.confirmationRequired,
   };
@@ -715,8 +705,7 @@ export const releaseResidentCompute = async (
  * A turn that never attached commits its transcript and nothing else. One
  * that did — including a resident turn that asked for the interior build and
  * so attaches after the loop — commits the archive first, because a
- * canonical cursor must never name a workspace revision that was never
- * uploaded.
+ * canonical cursor must never name a world checkpoint that was never created.
  */
 export const commitResidentTurnDurability = async (
   host: ResidentTurnHost,
@@ -753,12 +742,46 @@ export const commitResidentTurnDurability = async (
   }
   await ladder.quiesce(extractLocalFileLinkPaths(args.finalText));
   execution.assertActive();
-  const checkpoint = await runResidentTurnStateCheckpoint(host, {
-    turn,
-    historyCursor: sealed.historyCursor,
-  });
+  let checkpoint: TurnBrokerTurnStateCheckpointReceipt;
+  try {
+    checkpoint = await runResidentTurnStateCheckpoint(host, {
+      turn,
+      historyCursor: sealed.historyCursor,
+    });
+  } catch (error) {
+    if (!(error instanceof TurnStateRegistryBookkeepingError)) throw error;
+    const transcript = await control.appendAndVerifyTranscript(sealed);
+    log("error", "turn_state_publish_failed", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      phase: "checkpoint_registry",
+      historyCursor: error.historyCursor,
+      manifestId: error.manifestId,
+      message: errorMessage(error.cause),
+    });
+    return { kind: "transcript_only", transcript };
+  }
   const transcript = await control.appendAndVerifyTranscript(sealed);
-  await host.publishResidentTurnWorkspace(turn, execution, checkpoint);
+  try {
+    await host.publishResidentTurnWorkspace(turn, execution, checkpoint);
+  } catch (error) {
+    if (
+      error instanceof AgentTurnAuthorityLostError ||
+      error instanceof OwnerPurgeFenceError ||
+      isTurnStateAuthorityError(error)
+    ) {
+      throw error;
+    }
+    log("error", "turn_state_publish_failed", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      phase: "workspace_publish",
+      historyCursor: checkpoint.historyCursor,
+      manifestId: checkpoint.manifestId,
+      message: errorMessage(error),
+    });
+    return { kind: "transcript_only", transcript };
+  }
   return {
     kind: "workspace_manifest",
     transcript,
@@ -825,14 +848,6 @@ export const runResidentTurnStateCheckpoint = async (
     `resident-turn-state:${turn.turnId}:${attemptGeneration}`,
   );
   const operationKey = turnStateCheckpointOperationKey(requestId);
-  const baseWorkspaceRevision = await host.ctx.storage.get<number>(
-    turnStateBaseWorkspaceRevisionKey(turn.turnId, attemptGeneration),
-  );
-  if (!Number.isSafeInteger(baseWorkspaceRevision)) {
-    throw new AgentTurnError(
-      "Stella could not establish this workspace's revision for the turn. Try again.",
-    );
-  }
   const existing =
     await host.ctx.storage.get<TurnStateCheckpointOperation>(operationKey);
   if (existing?.state === "succeeded") return existing.receipt;
@@ -850,7 +865,6 @@ export const runResidentTurnStateCheckpoint = async (
     requestId,
     requestFingerprint: await sha256Hex(JSON.stringify(payload)),
     createdAt: existing?.createdAt ?? Date.now(),
-    baseWorkspaceRevision: baseWorkspaceRevision!,
     payload,
   };
   await host.ctx.storage.put(operationKey, operation);

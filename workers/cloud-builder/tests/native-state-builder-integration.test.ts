@@ -248,7 +248,6 @@ const builderHarness = async (
         requestId: string;
         requestFingerprint: string;
         createdAt: number;
-        baseWorkspaceRevision: number;
         payload: { historyCursor: string; nativeCheckpoint?: unknown };
       };
     }) => {

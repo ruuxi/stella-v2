@@ -479,8 +479,6 @@ export class BuildSession extends DurableObject<Env> {
   private confirmAgentTurnStateRestore(
     turn: TurnRequest,
     canonicalHistoryCursor: string,
-    workspaceHead: TurnStateWorkspaceHead | undefined,
-    workspaceConfirmationRequired: boolean,
     threadCandidate: TurnStateCandidate | undefined,
     threadConfirmationRequired: boolean,
   ): Promise<void> {
@@ -488,8 +486,6 @@ export class BuildSession extends DurableObject<Env> {
       this.self,
       turn,
       canonicalHistoryCursor,
-      workspaceHead,
-      workspaceConfirmationRequired,
       threadCandidate,
       threadConfirmationRequired,
     );

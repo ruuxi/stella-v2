@@ -80,7 +80,6 @@ type RouteOperationAuthorization = {
   turnId: string;
   threadId: string;
   attemptGeneration: number;
-  baseWorkspaceRevision: number;
   requestFingerprint: string;
   createdAt: number;
   objectKeys: { native?: string };
@@ -105,6 +104,7 @@ export type TurnStateTransferThreadCandidate = {
   sourceOperationId: string;
   requestFingerprint: string;
   historyCursor: string;
+  workspace: { historyCursor: string; manifestId: string };
   native?: TurnStateArchive;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   createdAt: number;
@@ -114,8 +114,7 @@ export type TurnStateTransferEntry =
   | {
       schemaVersion: typeof TURN_STATE_SCHEMA_VERSION;
       entryKind: "workspace";
-      disposition: "committed" | "published" | "candidate";
-      originThreadId: string;
+      disposition: "head";
       entryFingerprint: string;
       head: TurnStateWorkspaceHead;
     }
@@ -223,9 +222,7 @@ type RegistryWorkspaceRecord = {
   ownerHash: string;
   ownerGeneration: string;
   workspaceHash: string;
-  committed?: TurnStateWorkspaceHead;
-  published?: TurnStateWorkspaceHead;
-  candidate?: TurnStateWorkspaceHead;
+  head?: TurnStateWorkspaceHead;
 };
 
 type RegistryObjectRecord = {
@@ -251,11 +248,11 @@ type RegistryOperationRecord = {
   requestFingerprint: string;
   historyCursor: string;
   manifestId: string;
-  baseWorkspaceRevision: number;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   objectKeys: { native?: string };
   state: "prepared" | "committed";
   receipt?: string;
+  publicationReceipt?: string;
   createdAt: number;
 };
 
@@ -278,13 +275,11 @@ type AbortUnpublishedRecord = {
   threadHash: string;
   threadId: string;
   operationId: string;
-  baseWorkspaceRevision: number;
   candidateHistoryCursor: string;
   canonicalHistoryCursor: string;
   objectKeys: string[];
   abortReceipt: string;
 };
-
 
 class TurnStateOwnerRouteError extends Error {
   constructor(
@@ -1223,12 +1218,20 @@ const parseTransferCandidate = (value: unknown): TurnStateCandidate => {
     );
   }
   const historyCursor = requiredText(row, "historyCursor", 1_024);
-  const workspaceRow = exactObject(row.workspace, ["historyCursor", "manifestId"]);
+  const workspaceRow = exactObject(row.workspace, [
+    "historyCursor",
+    "manifestId",
+  ]);
   const workspace = {
     historyCursor: requiredText(workspaceRow, "historyCursor", 1_024),
     manifestId: requiredHex(workspaceRow, "manifestId"),
   };
-  if (workspace.historyCursor !== historyCursor) throw new TurnStateOwnerRouteError("Turn state transfer workspace manifest is invalid.", 400, "invalid_request");
+  if (workspace.historyCursor !== historyCursor)
+    throw new TurnStateOwnerRouteError(
+      "Turn state transfer workspace manifest is invalid.",
+      400,
+      "invalid_request",
+    );
   const hasNative = Object.hasOwn(row, "native");
   const hasNativeCheckpoint = Object.hasOwn(row, "nativeCheckpoint");
   if (hasNative !== hasNativeCheckpoint) {
@@ -1291,44 +1294,11 @@ const assertCandidateReceipt = async (
 };
 
 const parseTransferWorkspaceHead = (value: unknown): TurnStateWorkspaceHead => {
-  const row = exactObject(value, [
-    "schemaVersion",
-    "operationId",
-    "requestFingerprint",
-    "revision",
-    "originThreadHash",
-    "originHistoryCursor",
-    "historyCursor",
-    "manifestId",
-    "createdAt",
-  ]);
-  if (row.schemaVersion !== TURN_STATE_SCHEMA_VERSION) {
-    throw new TurnStateOwnerRouteError(
-      "Turn state transfer workspace head is invalid.",
-      400,
-      "invalid_request",
-    );
-  }
+  const row = exactObject(value, ["historyCursor", "manifestId"]);
   return {
-    schemaVersion: TURN_STATE_SCHEMA_VERSION,
-    operationId: requiredHex(row, "operationId"),
-    requestFingerprint: requiredHex(row, "requestFingerprint"),
-    revision: requiredSafeInteger(row, "revision", 1),
-    originThreadHash: requiredHex(row, "originThreadHash"),
-    originHistoryCursor: requiredText(row, "originHistoryCursor", 1_024),
     historyCursor: requiredText(row, "historyCursor", 1_024),
     manifestId: requiredHex(row, "manifestId"),
-    createdAt: requiredSafeInteger(row, "createdAt", 0),
   };
-};
-
-const assertWorkspaceHeadReceipt = async (
-  _head: TurnStateWorkspaceHead,
-  _ownerHash: string,
-  _ownerGeneration: string,
-  _workspaceHash: string,
-): Promise<void> => {
-  return;
 };
 
 const parseTransferThreadCandidate = (
@@ -1341,6 +1311,7 @@ const parseTransferThreadCandidate = (
       "sourceOperationId",
       "requestFingerprint",
       "historyCursor",
+      "workspace",
       "createdAt",
     ],
     ["native", "nativeCheckpoint"],
@@ -1353,6 +1324,7 @@ const parseTransferThreadCandidate = (
     );
   }
   const historyCursor = requiredText(row, "historyCursor", 1_024);
+  const workspace = exactObject(row.workspace, ["historyCursor", "manifestId"]);
   const hasNative = Object.hasOwn(row, "native");
   const hasNativeCheckpoint = Object.hasOwn(row, "nativeCheckpoint");
   if (hasNative !== hasNativeCheckpoint) {
@@ -1378,6 +1350,10 @@ const parseTransferThreadCandidate = (
     sourceOperationId: requiredHex(row, "sourceOperationId"),
     requestFingerprint: requiredHex(row, "requestFingerprint"),
     historyCursor,
+    workspace: {
+      historyCursor: requiredText(workspace, "historyCursor", 1_024),
+      manifestId: requiredHex(workspace, "manifestId"),
+    },
     ...(native ? { native } : {}),
     ...(nativeCheckpoint ? { nativeCheckpoint } : {}),
     createdAt: requiredSafeInteger(row, "createdAt", 0),
@@ -1391,13 +1367,7 @@ const transferEntryFingerprint = async (
 
 const transferEntryKey = (entry: TurnStateTransferEntry): string => {
   if (entry.entryKind === "workspace") {
-    const rank =
-      entry.disposition === "committed"
-        ? 0
-        : entry.disposition === "published"
-          ? 1
-          : 2;
-    return `0:workspace:${rank}`;
+    return "0:workspace";
   }
   return `1:thread:${entry.threadHash}:${entry.disposition === "committed" ? 0 : 1}:${entry.candidateOrdinal ?? -1}`;
 };
@@ -1521,9 +1491,7 @@ const assertCandidateArchiveScope = (
   threadHash: string,
 ): void => {
   const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/${workspaceHash}/${threadHash}/`;
-  if (
-    candidate.native && !candidate.native.key.startsWith(prefix)
-  ) {
+  if (candidate.native && !candidate.native.key.startsWith(prefix)) {
     throw new TurnStateOwnerRouteError(
       "Turn state transfer archive escaped its source scope.",
       409,
@@ -1544,14 +1512,6 @@ const collectSourceTransferEntries = async (
   const threadPrefix = `turn-state:v1:thread:${hashes.sourceWorkspaceHash}:`;
   const rows = await listAllStrongRecords(storage);
   const entries: TurnStateTransferEntry[] = [];
-  const threadIds = new Map<string, string>();
-  const threadCandidates = new Map<
-    string,
-    Array<{
-      disposition: "committed" | "candidate";
-      candidate: TurnStateCandidate;
-    }>
-  >();
 
   for (const [key, value] of rows) {
     if (!key.startsWith(threadPrefix)) continue;
@@ -1581,7 +1541,6 @@ const collectSourceTransferEntries = async (
         "turn_state_transfer_conflict",
       );
     }
-    threadIds.set(threadHash, thread.threadId);
     const slots: Array<{
       disposition: "committed" | "candidate";
       candidateOrdinal?: number;
@@ -1596,10 +1555,6 @@ const collectSourceTransferEntries = async (
         value: candidate,
       })),
     ];
-    const exactCandidates: Array<{
-      disposition: "committed" | "candidate";
-      candidate: TurnStateCandidate;
-    }> = [];
     for (const slot of slots) {
       const candidate = parseTransferCandidate(slot.value);
       await assertCandidateReceipt(candidate);
@@ -1615,15 +1570,12 @@ const collectSourceTransferEntries = async (
         hashes.sourceWorkspaceHash,
         threadHash,
       );
-      exactCandidates.push({
-        disposition: slot.disposition,
-        candidate,
-      });
       const transferCandidate: TurnStateTransferThreadCandidate = {
         schemaVersion: TURN_STATE_SCHEMA_VERSION,
         sourceOperationId: candidate.operationId,
         requestFingerprint: candidate.requestFingerprint,
         historyCursor: candidate.historyCursor,
+        workspace: candidate.workspace,
         ...(candidate.native ? { native: candidate.native } : {}),
         ...(candidate.nativeCheckpoint
           ? { nativeCheckpoint: candidate.nativeCheckpoint }
@@ -1646,7 +1598,6 @@ const collectSourceTransferEntries = async (
         entryFingerprint: await transferEntryFingerprint(unsignedEntry),
       });
     }
-    threadCandidates.set(threadHash, exactCandidates);
   }
 
   const workspaceKey = `turn-state:v1:workspace:${hashes.sourceWorkspaceHash}`;
@@ -1672,81 +1623,14 @@ const collectSourceTransferEntries = async (
         "turn_state_transfer_conflict",
       );
     }
-    if (workspaceState.candidate && workspaceState.published) {
-      throw new TurnStateOwnerRouteError(
-        "Turn state transfer workspace publication topology is invalid.",
-        409,
-        "turn_state_transfer_conflict",
-      );
-    }
-    const workspaceSlots: Array<{
-      disposition: "committed" | "published" | "candidate";
-      value: unknown;
-    }> = [
-      ...(workspaceState.committed
-        ? [
-            {
-              disposition: "committed" as const,
-              value: workspaceState.committed,
-            },
-          ]
-        : []),
-      ...(workspaceState.published
-        ? [
-            {
-              disposition: "published" as const,
-              value: workspaceState.published,
-            },
-          ]
-        : []),
-      ...(workspaceState.candidate
-        ? [
-            {
-              disposition: "candidate" as const,
-              value: workspaceState.candidate,
-            },
-          ]
-        : []),
-    ];
-    const exactHeads: TurnStateWorkspaceHead[] = [];
+    const workspaceSlots = workspaceState.head
+      ? [{ disposition: "head" as const, value: workspaceState.head }]
+      : [];
     for (const slot of workspaceSlots) {
       const head = parseTransferWorkspaceHead(slot.value);
-      const originThreadId = threadIds.get(head.originThreadHash);
-      const matchingThreadState = threadCandidates
-        .get(head.originThreadHash)
-        ?.find(
-          ({ candidate }) =>
-            candidate.operationId === head.operationId &&
-            candidate.historyCursor === head.originHistoryCursor &&
-            candidate.requestFingerprint === head.requestFingerprint,
-        );
-      const archivePrefix = `${TURN_STATE_OBJECT_PREFIX}/${hashes.sourceOwnerHash}/${hashes.sourceWorkspaceHash}/${head.originThreadHash}/`;
-      if (
-        !originThreadId ||
-        !matchingThreadState ||
-        (slot.disposition === "candidate" &&
-          matchingThreadState.disposition !== "candidate") ||
-        matchingThreadState.candidate.createdAt !== head.createdAt ||
-        matchingThreadState.candidate.workspace.manifestId !== head.manifestId ||
-        matchingThreadState.candidate.workspace.historyCursor !== head.historyCursor
-      ) {
-        throw new TurnStateOwnerRouteError(
-          "Turn state transfer workspace origin is invalid.",
-          409,
-          "turn_state_transfer_conflict",
-        );
-      }
-      await assertWorkspaceHeadReceipt(
-        head,
-        hashes.sourceOwnerHash,
-        identity.fromOwnerGeneration,
-        hashes.sourceWorkspaceHash,
-      );
-      exactHeads.push(head);
       const unsignedEntry: UnsignedTurnStateTransferEntry = {
         entryKind: "workspace",
         disposition: slot.disposition,
-        originThreadId,
         head,
       };
       entries.push({
@@ -1754,25 +1638,6 @@ const collectSourceTransferEntries = async (
         ...unsignedEntry,
         entryFingerprint: await transferEntryFingerprint(unsignedEntry),
       });
-    }
-    const committedRevision = workspaceState.committed?.revision ?? 0;
-    const pending = workspaceState.published ?? workspaceState.candidate;
-    if (pending && pending.revision !== committedRevision + 1) {
-      throw new TurnStateOwnerRouteError(
-        "Turn state transfer workspace revision topology is invalid.",
-        409,
-        "turn_state_transfer_conflict",
-      );
-    }
-    if (
-      new Set(exactHeads.map((head) => head.operationId)).size !==
-      exactHeads.length
-    ) {
-      throw new TurnStateOwnerRouteError(
-        "Turn state transfer workspace operations are duplicated.",
-        409,
-        "turn_state_transfer_conflict",
-      );
     }
   } else if (entries.some((entry) => entry.entryKind === "thread")) {
     throw new TurnStateOwnerRouteError(
@@ -1834,16 +1699,13 @@ const parseTransferEntry = async (
       "schemaVersion",
       "entryKind",
       "disposition",
-      "originThreadId",
       "entryFingerprint",
       "head",
     ]);
     if (
       row.schemaVersion !== TURN_STATE_SCHEMA_VERSION ||
       row.entryKind !== "workspace" ||
-      (row.disposition !== "committed" &&
-        row.disposition !== "published" &&
-        row.disposition !== "candidate")
+      row.disposition !== "head"
     ) {
       throw new TurnStateOwnerRouteError(
         "Turn state transfer workspace entry is invalid.",
@@ -1852,27 +1714,9 @@ const parseTransferEntry = async (
       );
     }
     const head = parseTransferWorkspaceHead(row.head);
-    const originThreadId = requiredText(row, "originThreadId");
-    if (
-      (await sha256Hex(originThreadId)) !== head.originThreadHash ||
-      head.historyCursor !== head.originHistoryCursor
-    ) {
-      throw new TurnStateOwnerRouteError(
-        "Turn state transfer workspace origin is invalid.",
-        409,
-        "turn_state_transfer_conflict",
-      );
-    }
-    await assertWorkspaceHeadReceipt(
-      head,
-      manifest.sourceOwnerHash,
-      manifest.sourceOwnerGeneration,
-      manifest.sourceWorkspaceHash,
-    );
     unsignedEntry = {
       entryKind: "workspace",
       disposition: row.disposition,
-      originThreadId,
       head,
     };
   } else {
@@ -2007,15 +1851,24 @@ const destinationTransferEntryPlan = async (
 }> => {
   const threadHash =
     entry.entryKind === "workspace"
-      ? entry.head.originThreadHash
+      ? await canonicalDigest([
+          "stella-turn-state-transfer-workspace-head-v2",
+          manifest.sourceWorkspaceHash,
+        ])
       : entry.threadHash;
   const sourceRequestFingerprint =
     entry.entryKind === "workspace"
-      ? entry.head.requestFingerprint
+      ? await canonicalDigest([
+          "stella-turn-state-transfer-workspace-request-v2",
+          entry.head,
+        ])
       : entry.candidate.requestFingerprint;
   const sourceOperationId =
     entry.entryKind === "workspace"
-      ? entry.head.operationId
+      ? await canonicalDigest([
+          "stella-turn-state-transfer-workspace-operation-v2",
+          entry.head,
+        ])
       : entry.candidate.sourceOperationId;
   const operationId = await canonicalDigest([
     "stella-turn-state-transfer-operation-v2",
@@ -2050,7 +1903,9 @@ const destinationTransferEntryPlan = async (
   };
 };
 
-const archiveTarget = (_kind: TurnStateArchive["kind"]): TurnStateArchiveTarget => ({ kind: "native" });
+const archiveTarget = (
+  _kind: TurnStateArchive["kind"],
+): TurnStateArchiveTarget => ({ kind: "native" });
 
 const sha256ArrayBufferHex = (
   value: ArrayBuffer | undefined,
@@ -2091,7 +1946,6 @@ const abortUnpublishedTurnState = async (
     ownerGeneration: string;
     threadId: string;
     operationId: string;
-    baseWorkspaceRevision: number;
     candidateHistoryCursor: string;
     canonicalHistoryCursor: string;
   },
@@ -2116,7 +1970,6 @@ const abortUnpublishedTurnState = async (
       existing.threadHash !== threadHash ||
       existing.threadId !== args.threadId ||
       existing.operationId !== args.operationId ||
-      existing.baseWorkspaceRevision !== args.baseWorkspaceRevision ||
       existing.candidateHistoryCursor !== args.candidateHistoryCursor ||
       existing.canonicalHistoryCursor !== args.canonicalHistoryCursor
     ) {
@@ -2133,37 +1986,17 @@ const abortUnpublishedTurnState = async (
     };
   }
 
-  const workspaceKey = registryWorkspaceKey(workspaceHash);
   const threadKey = registryThreadKey(workspaceHash, threadHash);
   const operationKey = `turn-state:v1:operation:${args.operationId}`;
-  const [workspaceState, thread, operation] = await Promise.all([
-    storage.get<RegistryWorkspaceRecord>(workspaceKey),
+  const [thread, operation] = await Promise.all([
     storage.get<RegistryThreadRecord>(threadKey),
     storage.get<RegistryOperationRecord>(operationKey),
   ]);
-  const candidate = workspaceState?.candidate;
   const threadMatches = thread?.candidates.filter(
     (value) => value.operationId === args.operationId,
   );
   const threadCandidate = threadMatches?.[0];
-  const visibleRevision =
-    workspaceState?.published?.revision ??
-    workspaceState?.committed?.revision ??
-    0;
   if (
-    !workspaceState ||
-    workspaceState.schemaVersion !== TURN_STATE_SCHEMA_VERSION ||
-    workspaceState.ownerHash !== ownerHash ||
-    workspaceState.ownerGeneration !== args.ownerGeneration ||
-    workspaceState.workspaceHash !== workspaceHash ||
-    !candidate ||
-    candidate.operationId !== args.operationId ||
-    candidate.originThreadHash !== threadHash ||
-    candidate.originHistoryCursor !== args.candidateHistoryCursor ||
-    candidate.revision !== args.baseWorkspaceRevision + 1 ||
-    visibleRevision !== args.baseWorkspaceRevision ||
-    workspaceState.published?.operationId === args.operationId ||
-    workspaceState.committed?.operationId === args.operationId ||
     !thread ||
     thread.schemaVersion !== TURN_STATE_SCHEMA_VERSION ||
     thread.ownerHash !== ownerHash ||
@@ -2185,18 +2018,16 @@ const abortUnpublishedTurnState = async (
     operation.threadHash !== threadHash ||
     operation.operationId !== args.operationId ||
     operation.historyCursor !== args.candidateHistoryCursor ||
-    operation.baseWorkspaceRevision !== args.baseWorkspaceRevision ||
     operation.state !== "committed" ||
-    candidate.requestFingerprint !== operation.requestFingerprint ||
+    operation.publicationReceipt !== undefined ||
     threadCandidate.requestFingerprint !== operation.requestFingerprint ||
-    candidate.createdAt !== operation.createdAt ||
     threadCandidate.createdAt !== operation.createdAt ||
     !sameJson(operation.nativeCheckpoint, threadCandidate.nativeCheckpoint) ||
     operation.receipt !== threadCandidate.receipt ||
     !sameJson(operation.objectKeys, {
       ...(threadCandidate.native ? { native: threadCandidate.native.key } : {}),
     }) ||
-    candidate.manifestId !== threadCandidate.workspace.manifestId
+    operation.manifestId !== threadCandidate.workspace.manifestId
   ) {
     throw new TurnStateOwnerRouteError(
       "Turn state unpublished candidate is no longer abortable.",
@@ -2205,12 +2036,6 @@ const abortUnpublishedTurnState = async (
     );
   }
   await assertCandidateReceipt(threadCandidate);
-  await assertWorkspaceHeadReceipt(
-    candidate,
-    ownerHash,
-    args.ownerGeneration,
-    workspaceHash,
-  );
 
   const descriptors = [threadCandidate.native].filter(
     (value): value is TurnStateArchive => Boolean(value),
@@ -2257,15 +2082,10 @@ const abortUnpublishedTurnState = async (
     workspaceHash,
     threadHash,
     args.operationId,
-    args.baseWorkspaceRevision,
     args.candidateHistoryCursor,
     args.canonicalHistoryCursor,
     objectKeys,
   ]);
-  await storage.put(workspaceKey, {
-    ...workspaceState,
-    candidate: undefined,
-  } satisfies RegistryWorkspaceRecord);
   await storage.put(threadKey, {
     ...thread,
     candidates: thread.candidates.filter(
@@ -2298,7 +2118,6 @@ const abortUnpublishedTurnState = async (
     threadHash,
     threadId: args.threadId,
     operationId: args.operationId,
-    baseWorkspaceRevision: args.baseWorkspaceRevision,
     candidateHistoryCursor: args.candidateHistoryCursor,
     canonicalHistoryCursor: args.canonicalHistoryCursor,
     objectKeys,
@@ -2331,10 +2150,7 @@ const authorizePreparedOperation = async (
     }
     const key = routeAuthorizationKey(authorization.operationId);
     const existing = await transaction.get<RouteOperationAuthorization>(key);
-    if (
-      existing &&
-      !sameJson(existing, authorization)
-    ) {
+    if (existing && !sameJson(existing, authorization)) {
       throw new TurnStateOwnerRouteError(
         "Turn state operation belongs to another exact lease.",
         409,
@@ -2604,22 +2420,20 @@ const exactRegistryObjectIdentity = (
 ): boolean =>
   Boolean(
     value &&
-      value.schemaVersion === expected.schemaVersion &&
-      value.ownerHash === expected.ownerHash &&
-      value.ownerGeneration === expected.ownerGeneration &&
-      value.workspaceHash === expected.workspaceHash &&
-      value.threadHash === expected.threadHash &&
-      value.operationId === expected.operationId &&
-      value.kind === expected.kind &&
-      value.key === expected.key,
+    value.schemaVersion === expected.schemaVersion &&
+    value.ownerHash === expected.ownerHash &&
+    value.ownerGeneration === expected.ownerGeneration &&
+    value.workspaceHash === expected.workspaceHash &&
+    value.threadHash === expected.threadHash &&
+    value.operationId === expected.operationId &&
+    value.kind === expected.kind &&
+    value.key === expected.key,
   );
 
 const stageObjectKind = (
   entry: TurnStateTransferEntry,
 ): TurnStateArchive["kind"] | undefined =>
-  entry.entryKind === "thread" && entry.candidate.native
-      ? "native"
-      : undefined;
+  entry.entryKind === "thread" && entry.candidate.native ? "native" : undefined;
 
 const assertDestinationTransferScope = async (
   storage: StrongTurnStateStorage,
@@ -2994,12 +2808,8 @@ const completeTransferStage = async (
 
 const destinationWorkspaceHead = async (
   stage: TransferStageRecord,
-  manifest: TurnStateTransferManifest,
-  identity: TransferRouteIdentity,
 ): Promise<TurnStateWorkspaceHead> => {
-  if (
-    stage.entry.entryKind !== "workspace"
-  ) {
+  if (stage.entry.entryKind !== "workspace") {
     throw new TurnStateOwnerRouteError(
       "Turn state transfer workspace stage is incomplete.",
       409,
@@ -3007,21 +2817,13 @@ const destinationWorkspaceHead = async (
     );
   }
   return {
-    schemaVersion: TURN_STATE_SCHEMA_VERSION,
-    operationId: stage.destinationOperationId,
-    requestFingerprint: stage.destinationRequestFingerprint,
-    revision: stage.entry.head.revision,
-    originThreadHash: stage.entry.head.originThreadHash,
-    originHistoryCursor: stage.entry.head.originHistoryCursor,
     historyCursor: stage.entry.head.historyCursor,
     manifestId: stage.entry.head.manifestId,
-    createdAt: stage.entry.head.createdAt,
   };
 };
 
 const destinationThreadCandidate = async (
   stage: TransferStageRecord,
-  workspace: { historyCursor: string; manifestId: string },
 ): Promise<TurnStateCandidate> => {
   if (stage.entry.entryKind !== "thread") {
     throw new TurnStateOwnerRouteError(
@@ -3047,7 +2849,7 @@ const destinationThreadCandidate = async (
     operationId: stage.destinationOperationId,
     requestFingerprint: stage.destinationRequestFingerprint,
     historyCursor: source.historyCursor,
-    workspace,
+    workspace: source.workspace,
     ...(stage.archive ? { native: stage.archive } : {}),
     ...(stage.nativeCheckpoint
       ? { nativeCheckpoint: stage.nativeCheckpoint }
@@ -3096,9 +2898,7 @@ const activateTransfer = async (
     }
 
     const fingerprints: Array<[string, string]> = [];
-    const workspaceStages: Partial<
-      Record<"committed" | "published" | "candidate", TransferStageRecord>
-    > = {};
+    let workspaceStage: TransferStageRecord | undefined;
     const threadGroups = new Map<
       string,
       {
@@ -3157,14 +2957,14 @@ const activateTransfer = async (
         stage.entryFingerprint,
       ]);
       if (stage.entry.entryKind === "workspace") {
-        if (workspaceStages[stage.entry.disposition]) {
+        if (workspaceStage) {
           throw new TurnStateOwnerRouteError(
-            "Turn state transfer workspace disposition is duplicated.",
+            "Turn state transfer workspace head is duplicated.",
             409,
             "turn_state_transfer_conflict",
           );
         }
-        workspaceStages[stage.entry.disposition] = stage;
+        workspaceStage = stage;
         continue;
       }
       await assertDestinationNativeCheckpoint(
@@ -3217,13 +3017,6 @@ const activateTransfer = async (
         }
       }
     }
-    if (workspaceStages.published && workspaceStages.candidate) {
-      throw new TurnStateOwnerRouteError(
-        "Turn state transfer workspace publication topology is invalid.",
-        409,
-        "turn_state_transfer_conflict",
-      );
-    }
     const unsignedManifest = { ...manifest };
     delete (unsignedManifest as Partial<TurnStateTransferManifest>).fingerprint;
     if (
@@ -3239,39 +3032,9 @@ const activateTransfer = async (
       );
     }
 
-    const committedHead = workspaceStages.committed
-      ? await destinationWorkspaceHead(
-          workspaceStages.committed,
-          manifest,
-          identity,
-        )
+    const workspace = workspaceStage
+      ? await destinationWorkspaceHead(workspaceStage)
       : undefined;
-    const publishedHead = workspaceStages.published
-      ? await destinationWorkspaceHead(
-          workspaceStages.published,
-          manifest,
-          identity,
-        )
-      : undefined;
-    const candidateHead = workspaceStages.candidate
-      ? await destinationWorkspaceHead(
-          workspaceStages.candidate,
-          manifest,
-          identity,
-        )
-      : undefined;
-    const pendingHead = publishedHead ?? candidateHead;
-    if (
-      pendingHead &&
-      pendingHead.revision !== (committedHead?.revision ?? 0) + 1
-    ) {
-      throw new TurnStateOwnerRouteError(
-        "Turn state transfer workspace revision topology is invalid.",
-        409,
-        "turn_state_transfer_conflict",
-      );
-    }
-    const workspace = publishedHead ?? committedHead ?? candidateHead;
     if (threadGroups.size > 0 && !workspace) {
       throw new TurnStateOwnerRouteError(
         "Turn state transfer thread state has no workspace head.",
@@ -3279,105 +3042,23 @@ const activateTransfer = async (
         "turn_state_transfer_incomplete",
       );
     }
-    const workspaceByOperation = new Map<string, { historyCursor: string; manifestId: string }>();
-    const exactWorkspaceOriginStage = (
-      workspaceStage: TransferStageRecord,
-    ): TransferStageRecord => {
-      if (workspaceStage.entry.entryKind !== "workspace") {
-        throw new TurnStateOwnerRouteError(
-          "Turn state transfer workspace origin is invalid.",
-          409,
-          "turn_state_transfer_conflict",
-        );
-      }
-      const head = workspaceStage.entry.head;
-      const originThreadId = workspaceStage.entry.originThreadId;
-      const group = threadGroups.get(head.originThreadHash);
-      const matches = [
-        ...(group?.committed ? [group.committed] : []),
-        ...(group?.candidates.filter((stage): stage is TransferStageRecord =>
-          Boolean(stage),
-        ) ?? []),
-      ].filter(
-        (stage) =>
-          stage.entry.entryKind === "thread" &&
-          stage.entry.threadId === originThreadId &&
-          stage.entry.candidate.sourceOperationId === head.operationId &&
-          stage.entry.candidate.requestFingerprint ===
-            head.requestFingerprint &&
-          stage.entry.candidate.historyCursor === head.originHistoryCursor &&
-          stage.entry.candidate.createdAt === head.createdAt &&
-          stage.destinationOperationId ===
-            workspaceStage.destinationOperationId &&
-          stage.destinationRequestFingerprint ===
-            workspaceStage.destinationRequestFingerprint,
-      );
-      if (
-        matches.length !== 1 ||
-        (workspaceStage.entry.disposition === "candidate" &&
-          matches[0]?.entry.entryKind === "thread" &&
-          matches[0].entry.disposition !== "candidate")
-      ) {
-        throw new TurnStateOwnerRouteError(
-          "Turn state transfer workspace origin is invalid.",
-          409,
-          "turn_state_transfer_conflict",
-        );
-      }
-      return matches[0]!;
-    };
-    for (const workspaceStage of Object.values(workspaceStages)) {
-      if (!workspaceStage || workspaceStage.entry.entryKind !== "workspace") continue;
-      if (
-        workspaceByOperation.has(workspaceStage.destinationOperationId)
-      ) {
-        throw new TurnStateOwnerRouteError(
-          "Turn state transfer workspace operations are duplicated.",
-          409,
-          "turn_state_transfer_conflict",
-        );
-      }
-      exactWorkspaceOriginStage(workspaceStage);
-      workspaceByOperation.set(
-        workspaceStage.destinationOperationId,
-        {
-          historyCursor: workspaceStage.entry.head.historyCursor,
-          manifestId: workspaceStage.entry.head.manifestId,
-        },
-      );
-    }
-    const workspaceRecord: RegistryWorkspaceRecord | undefined =
-      committedHead || publishedHead || candidateHead
-        ? {
-            schemaVersion: TURN_STATE_SCHEMA_VERSION,
-            ownerHash: manifest.destinationOwnerHash,
-            ownerGeneration: identity.toOwnerGeneration,
-            workspaceHash: manifest.destinationWorkspaceHash,
-            ...(committedHead ? { committed: committedHead } : {}),
-            ...(publishedHead ? { published: publishedHead } : {}),
-            ...(candidateHead ? { candidate: candidateHead } : {}),
-          }
-        : undefined;
+    const workspaceRecord: RegistryWorkspaceRecord | undefined = workspace
+      ? {
+          schemaVersion: TURN_STATE_SCHEMA_VERSION,
+          ownerHash: manifest.destinationOwnerHash,
+          ownerGeneration: identity.toOwnerGeneration,
+          workspaceHash: manifest.destinationWorkspaceHash,
+          head: workspace,
+        }
+      : undefined;
     const threadRecords = new Map<string, RegistryThreadRecord>();
     for (const [threadHash, group] of threadGroups) {
       const committed = group.committed
-        ? await destinationThreadCandidate(
-            group.committed,
-            workspaceByOperation.get(
-              group.committed.destinationOperationId,
-            ) ?? { historyCursor: workspace!.historyCursor, manifestId: workspace!.manifestId },
-          )
+        ? await destinationThreadCandidate(group.committed)
         : undefined;
       const candidates: TurnStateCandidate[] = [];
       for (const candidateStage of group.candidates) {
-        candidates.push(
-          await destinationThreadCandidate(
-            candidateStage!,
-            workspaceByOperation.get(
-              candidateStage!.destinationOperationId,
-            ) ?? { historyCursor: workspace!.historyCursor, manifestId: workspace!.manifestId },
-          ),
-        );
+        candidates.push(await destinationThreadCandidate(candidateStage!));
       }
       threadRecords.set(threadHash, {
         schemaVersion: TURN_STATE_SCHEMA_VERSION,
@@ -3390,72 +3071,40 @@ const activateTransfer = async (
         candidates,
       });
     }
-    let candidateOperation: RegistryOperationRecord | undefined;
-    if (candidateHead && workspaceStages.candidate) {
-      const originStage = exactWorkspaceOriginStage(workspaceStages.candidate);
-      if (originStage.entry.entryKind !== "thread") {
-        throw new TurnStateOwnerRouteError(
-          "Turn state transfer candidate origin is invalid.",
-          409,
-          "turn_state_transfer_conflict",
-        );
-      }
-      const destinationThread = threadRecords.get(
-        candidateHead.originThreadHash,
-      );
-      const destinationCandidates = destinationThread?.candidates.filter(
-        (candidate) => candidate.operationId === candidateHead.operationId,
-      );
-      const destinationCandidate = destinationCandidates?.[0];
-      if (
-        destinationCandidates?.length !== 1 ||
-        !destinationCandidate ||
-        destinationCandidate.historyCursor !==
-          candidateHead.originHistoryCursor ||
-        destinationCandidate.requestFingerprint !==
-          candidateHead.requestFingerprint ||
-        destinationCandidate.createdAt !== candidateHead.createdAt ||
-        destinationCandidate.workspace.manifestId !== candidateHead.manifestId ||
-        !sameJson(
-          destinationCandidate.nativeCheckpoint,
-          originStage.nativeCheckpoint,
-        )
-      ) {
-        throw new TurnStateOwnerRouteError(
-          "Turn state transfer candidate operation is invalid.",
-          409,
-          "turn_state_transfer_conflict",
-        );
-      }
-      candidateOperation = {
-        schemaVersion: TURN_STATE_SCHEMA_VERSION,
-        identity: {
-          ownerId: identity.toOwnerId,
-          ownerGeneration: identity.toOwnerGeneration,
-          threadId: originStage.entry.threadId,
-          turnId: identity.turnId,
-          attemptGeneration: 1,
-        },
-        ownerHash: manifest.destinationOwnerHash,
-        workspaceHash: manifest.destinationWorkspaceHash,
-        threadHash: candidateHead.originThreadHash,
-        operationId: candidateHead.operationId,
-        requestFingerprint: candidateHead.requestFingerprint,
-        historyCursor: candidateHead.originHistoryCursor,
-        manifestId: candidateHead.manifestId,
-        baseWorkspaceRevision: candidateHead.revision - 1,
-        ...(destinationCandidate.nativeCheckpoint
-          ? { nativeCheckpoint: destinationCandidate.nativeCheckpoint }
-          : {}),
-        objectKeys: {
-          ...(destinationCandidate.native
-            ? { native: destinationCandidate.native.key }
+    const candidateOperations: RegistryOperationRecord[] = [];
+    for (const group of threadGroups.values()) {
+      for (const stage of group.candidates) {
+        if (!stage || stage.entry.entryKind !== "thread") continue;
+        const destinationCandidate = await destinationThreadCandidate(stage);
+        candidateOperations.push({
+          schemaVersion: TURN_STATE_SCHEMA_VERSION,
+          identity: {
+            ownerId: identity.toOwnerId,
+            ownerGeneration: identity.toOwnerGeneration,
+            threadId: stage.entry.threadId,
+            turnId: identity.turnId,
+            attemptGeneration: 1,
+          },
+          ownerHash: manifest.destinationOwnerHash,
+          workspaceHash: manifest.destinationWorkspaceHash,
+          threadHash: stage.entry.threadHash,
+          operationId: destinationCandidate.operationId,
+          requestFingerprint: destinationCandidate.requestFingerprint,
+          historyCursor: destinationCandidate.historyCursor,
+          manifestId: destinationCandidate.workspace.manifestId,
+          ...(destinationCandidate.nativeCheckpoint
+            ? { nativeCheckpoint: destinationCandidate.nativeCheckpoint }
             : {}),
-        },
-        state: "committed",
-        receipt: destinationCandidate.receipt,
-        createdAt: candidateHead.createdAt,
-      };
+          objectKeys: {
+            ...(destinationCandidate.native
+              ? { native: destinationCandidate.native.key }
+              : {}),
+          },
+          state: "committed",
+          receipt: destinationCandidate.receipt,
+          createdAt: destinationCandidate.createdAt,
+        });
+      }
     }
 
     const activationReceipt = await transferActivationReceipt(manifest);
@@ -3546,14 +3195,13 @@ const activateTransfer = async (
               record,
             ] as [string, unknown],
         ),
-        ...(candidateOperation
-          ? [
-              [
-                `turn-state:v1:operation:${candidateOperation.operationId}`,
-                candidateOperation,
-              ] as [string, unknown],
-            ]
-          : []),
+        ...candidateOperations.map(
+          (operation) =>
+            [`turn-state:v1:operation:${operation.operationId}`, operation] as [
+              string,
+              unknown,
+            ],
+        ),
       ]);
       await assertDestinationTransferScope(storage, identity, manifest, {
         objectState: "activated",
@@ -3649,7 +3297,7 @@ const activateTransfer = async (
         record,
       );
     }
-    if (candidateOperation) {
+    for (const candidateOperation of candidateOperations) {
       await storage.put(
         `turn-state:v1:operation:${candidateOperation.operationId}`,
         candidateOperation,
@@ -3872,7 +3520,6 @@ export const handleTurnStateOwnerRoute = async (args: {
           ...COMMON_LEASE_KEYS,
           "threadId",
           "attemptGeneration",
-          "baseWorkspaceRevision",
           "requestFingerprint",
           "historyCursor",
           "manifestId",
@@ -3895,11 +3542,6 @@ export const handleTurnStateOwnerRoute = async (args: {
         ? parseNativeCheckpoint(row.nativeCheckpoint, historyCursor)
         : undefined;
       const requestFingerprint = requiredHex(row, "requestFingerprint");
-      const baseWorkspaceRevision = requiredSafeInteger(
-        row,
-        "baseWorkspaceRevision",
-        0,
-      );
       const createdAt = requiredSafeInteger(row, "createdAt", 0);
       const prepared = await withCurrentOpenLeaseTransaction(
         args,
@@ -3910,7 +3552,6 @@ export const handleTurnStateOwnerRoute = async (args: {
             requestFingerprint,
             historyCursor,
             manifestId: requiredHex(row, "manifestId"),
-            baseWorkspaceRevision,
             ...(nativeCheckpoint ? { nativeCheckpoint } : {}),
             createdAt,
           });
@@ -3929,7 +3570,6 @@ export const handleTurnStateOwnerRoute = async (args: {
             turnId: lease.turnId,
             threadId: identity.threadId,
             attemptGeneration: identity.attemptGeneration,
-            baseWorkspaceRevision,
             requestFingerprint,
             createdAt,
             objectKeys: result.objectKeys,
@@ -4051,7 +3691,6 @@ export const handleTurnStateOwnerRoute = async (args: {
         ...COMMON_LEASE_KEYS,
         "threadId",
         "operationId",
-        "baseWorkspaceRevision",
         "candidateHistoryCursor",
         "canonicalHistoryCursor",
       ]);
@@ -4084,11 +3723,6 @@ export const handleTurnStateOwnerRoute = async (args: {
             ownerGeneration: lease.ownerGeneration,
             threadId: requiredText(row, "threadId"),
             operationId: requiredHex(row, "operationId"),
-            baseWorkspaceRevision: requiredSafeInteger(
-              row,
-              "baseWorkspaceRevision",
-              0,
-            ),
             candidateHistoryCursor,
             canonicalHistoryCursor,
           }),
@@ -4139,18 +3773,15 @@ export const handleTurnStateOwnerRoute = async (args: {
       const row = exactObject(
         raw,
         [...COMMON_LEASE_KEYS, "threadId", "canonicalHistoryCursor"],
-        ["workspaceOperationId", "threadOperationId"],
+        ["threadOperationId"],
       );
       validateSchemaVersion(row);
       const lease = parseCommonLease(row);
       assertOpenLease(args.scopedOwnerId, args.fence, lease);
-      const workspaceOperationId = Object.hasOwn(row, "workspaceOperationId")
-        ? requiredHex(row, "workspaceOperationId")
-        : undefined;
       const threadOperationId = Object.hasOwn(row, "threadOperationId")
         ? requiredHex(row, "threadOperationId")
         : undefined;
-      if (!workspaceOperationId && !threadOperationId) {
+      if (!threadOperationId) {
         throw new TurnStateOwnerRouteError(
           "At least one restore operation id is required.",
           400,
@@ -4176,8 +3807,7 @@ export const handleTurnStateOwnerRoute = async (args: {
               "canonicalHistoryCursor",
               1_024,
             ),
-            ...(workspaceOperationId ? { workspaceOperationId } : {}),
-            ...(threadOperationId ? { threadOperationId } : {}),
+            threadOperationId,
             now,
           }),
       ).catch(routeConflict);
@@ -4320,7 +3950,8 @@ export const handleTurnStateOwnerRoute = async (args: {
         entry,
         plan,
       ).catch(routeConflict);
-      const sourceArchive = entry.entryKind === "thread" ? entry.candidate.native : undefined;
+      const sourceArchive =
+        entry.entryKind === "thread" ? entry.candidate.native : undefined;
       const copied =
         sourceArchive && plan.objectKey
           ? await copyTurnStateArchive({
@@ -4457,10 +4088,7 @@ export const handleTurnStateOwnerRoute = async (args: {
           args,
           identity,
           async (storage) =>
-            await assertFullWorldRegistryEmpty(
-              storage,
-              identity.fromOwnerId,
-            ),
+            await assertFullWorldRegistryEmpty(storage, identity.fromOwnerId),
         ).catch(routeConflict);
         const scannedEmptyReceipt = await assertTurnStateTransferSourceEmpty(
           guardedStorage,
@@ -4475,10 +4103,7 @@ export const handleTurnStateOwnerRoute = async (args: {
           args,
           identity,
           async (storage) =>
-            await assertFullWorldRegistryEmpty(
-              storage,
-              identity.fromOwnerId,
-            ),
+            await assertFullWorldRegistryEmpty(storage, identity.fromOwnerId),
         ).catch(routeConflict);
         emptyReceipt = scannedEmptyReceipt;
       }

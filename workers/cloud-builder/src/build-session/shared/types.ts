@@ -154,7 +154,6 @@ export type TurnStateCheckpointOperation =
       requestId: string;
       requestFingerprint: string;
       createdAt: number;
-      baseWorkspaceRevision: number;
       /** Persisted immediately after owner prepare, before either R2 upload. */
       operationId?: string;
       payload?: TurnBrokerTurnStateCheckpointRequest;
@@ -166,7 +165,6 @@ export type TurnStateCheckpointOperation =
       requestId: string;
       requestFingerprint: string;
       createdAt: number;
-      baseWorkspaceRevision: number;
       payload: TurnBrokerTurnStateCheckpointRequest;
       operationId: string;
       receipt: TurnBrokerTurnStateCheckpointReceipt;
@@ -178,7 +176,6 @@ export type TurnStateCheckpointOperation =
       requestId: string;
       requestFingerprint: string;
       createdAt: number;
-      baseWorkspaceRevision: number;
       operationId?: string;
       payload?: TurnBrokerTurnStateCheckpointRequest;
       status: number;

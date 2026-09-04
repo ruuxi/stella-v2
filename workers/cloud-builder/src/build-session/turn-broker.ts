@@ -62,6 +62,8 @@ import {
   BrowserGatewayResponseTooLargeError,
   OwnerPurgeFenceError,
   TurnStateOwnerCallError,
+  TurnStateRegistryBookkeepingError,
+  isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
   OBSERVED_BROWSER_SUSPENSION_KEY,
@@ -73,7 +75,6 @@ import {
   log,
   nativeStateIntegrityKeyFor,
   sessionName,
-  turnStateBaseWorkspaceRevisionKey,
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
 import type {
@@ -116,6 +117,29 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 export { turnBrokerCredentialsPath } from "./shared/keys.js";
 
 const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 64 * 1024;
+
+const registryBookkeepingAfterCheckpoint = async <T>(
+  historyCursor: string,
+  manifestId: string,
+  operation: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (
+      error instanceof AgentTurnAuthorityLostError ||
+      error instanceof OwnerPurgeFenceError ||
+      isTurnStateAuthorityError(error)
+    ) {
+      throw error;
+    }
+    throw new TurnStateRegistryBookkeepingError(
+      historyCursor,
+      manifestId,
+      error,
+    );
+  }
+};
 
 /** Bound a service-binding response even when Content-Length is absent. */
 const readBrowserGatewayResponseBody = async (
@@ -182,19 +206,13 @@ export const resolveAgentTurnState = async (
     !resolved ||
     typeof resolved !== "object" ||
     typeof resolved.registryPresent !== "boolean" ||
-    typeof resolved.workspaceConfirmationRequired !== "boolean" ||
-    !Number.isSafeInteger(resolved.baseWorkspaceRevision) ||
-    resolved.baseWorkspaceRevision < 0 ||
     typeof resolved.threadRegistryPresent !== "boolean" ||
     typeof resolved.confirmationRequired !== "boolean" ||
     (!resolved.registryPresent &&
       (resolved.workspace !== undefined ||
         resolved.restore !== undefined ||
-        resolved.workspaceConfirmationRequired ||
         resolved.threadRegistryPresent ||
-        resolved.confirmationRequired ||
-        resolved.baseWorkspaceRevision !== 0)) ||
-    (resolved.workspaceConfirmationRequired && !resolved.workspace) ||
+        resolved.confirmationRequired)) ||
     (resolved.workspacePublication !== undefined &&
       (!resolved.registryPresent ||
         typeof resolved.workspacePublication !== "object" ||
@@ -207,21 +225,8 @@ export const resolveAgentTurnState = async (
   const workspaceHead = resolved.workspace;
   if (
     workspaceHead &&
-    (workspaceHead.schemaVersion !== 1 ||
-      !/^[0-9a-f]{64}$/u.test(workspaceHead.operationId) ||
-      !/^[0-9a-f]{64}$/u.test(workspaceHead.requestFingerprint) ||
-      !/^[0-9a-f]{64}$/u.test(workspaceHead.originThreadHash) ||
-      typeof workspaceHead.originHistoryCursor !== "string" ||
-      !/^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(
-        workspaceHead.originHistoryCursor,
-      ) ||
-      !/^[0-9a-f]{64}$/u.test(workspaceHead.manifestId) ||
-      !/^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(workspaceHead.historyCursor) ||
-      !Number.isSafeInteger(workspaceHead.revision) ||
-      workspaceHead.revision <= 0 ||
-      workspaceHead.revision !== resolved.baseWorkspaceRevision ||
-      !Number.isSafeInteger(workspaceHead.createdAt) ||
-      workspaceHead.createdAt < 0)
+    (!/^[0-9a-f]{64}$/u.test(workspaceHead.manifestId) ||
+      !/^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(workspaceHead.historyCursor))
   ) {
     throw new Error("Canonical workspace head was invalid.");
   }
@@ -287,13 +292,8 @@ export const publishAgentTurnWorkspace = async (
   const head = published?.workspaceHead;
   if (
     !head ||
-    head.schemaVersion !== 1 ||
-    head.operationId !== operationId ||
-    head.originHistoryCursor !== canonicalHistoryCursor ||
-    !/^[0-9a-f]{64}$/u.test(head.originThreadHash) ||
+    head.historyCursor !== canonicalHistoryCursor ||
     !/^[0-9a-f]{64}$/u.test(head.manifestId) ||
-    !Number.isSafeInteger(head.revision) ||
-    head.revision <= 0 ||
     typeof published.publicationReceipt !== "string" ||
     !/^[0-9a-f]{64}$/u.test(published.publicationReceipt) ||
     typeof published.replayed !== "boolean"
@@ -307,18 +307,11 @@ export const confirmAgentTurnStateRestore = async (
   host: TurnBrokerHost,
   turn: TurnRequest,
   canonicalHistoryCursor: string,
-  workspaceHead: TurnStateWorkspaceHead | undefined,
-  workspaceConfirmationRequired: boolean,
   threadCandidate: TurnStateCandidate | undefined,
   threadConfirmationRequired: boolean,
 ): Promise<void> => {
-  if (workspaceConfirmationRequired || threadConfirmationRequired) {
+  if (threadConfirmationRequired) {
     const confirmed = await host.callOwnerTurnState<{
-      workspace?: {
-        restore?: TurnStateWorkspaceHead;
-        promoted?: unknown;
-        replayed?: unknown;
-      };
       thread?: {
         restore?: TurnStateCandidate;
         promoted?: unknown;
@@ -328,21 +321,11 @@ export const confirmAgentTurnStateRestore = async (
     }>(turn, "confirm-restore", {
       threadId: turn.threadId,
       canonicalHistoryCursor,
-      ...(workspaceConfirmationRequired && workspaceHead
-        ? { workspaceOperationId: workspaceHead.operationId }
-        : {}),
       ...(threadConfirmationRequired && threadCandidate
         ? { threadOperationId: threadCandidate.operationId }
         : {}),
     });
     if (
-      (workspaceConfirmationRequired &&
-        (!workspaceHead ||
-          confirmed?.workspace?.restore?.operationId !==
-            workspaceHead.operationId ||
-          confirmed.workspace.restore.manifestId !== workspaceHead.manifestId ||
-          typeof confirmed.workspace.promoted !== "boolean" ||
-          typeof confirmed.workspace.replayed !== "boolean")) ||
       (threadConfirmationRequired &&
         (!threadCandidate ||
           confirmed?.thread?.restore?.operationId !==
@@ -413,18 +396,13 @@ export const abortUnpublishedTurnStateOperation = async (
         attemptGeneration: turn.attemptGeneration,
         requestFingerprint: operation.requestFingerprint,
         historyCursor: operation.payload.historyCursor,
-        baseWorkspaceRevision: operation.baseWorkspaceRevision,
         createdAt: operation.createdAt,
         ...(operation.payload.nativeCheckpoint
           ? { nativeCheckpoint: operation.payload.nativeCheckpoint }
           : {}),
       },
     );
-    if (
-      !prepared ||
-      !/^[0-9a-f]{64}$/u.test(prepared.operationId) ||
-      prepared.baseWorkspaceRevision !== operation.baseWorkspaceRevision
-    ) {
+    if (!prepared || !/^[0-9a-f]{64}$/u.test(prepared.operationId)) {
       throw new Error("Turn state abort preparation receipt was invalid.");
     }
     operationId = prepared.operationId;
@@ -456,7 +434,6 @@ export const abortUnpublishedTurnStateOperation = async (
   }>(turn, "abort-unpublished", {
     threadId: turn.threadId,
     operationId,
-    baseWorkspaceRevision: operation.baseWorkspaceRevision,
     candidateHistoryCursor: operation.payload.historyCursor,
     canonicalHistoryCursor,
   });
@@ -513,32 +490,39 @@ export const executeTurnStateCheckpoint = async (
     await worldName(turn.ownerId),
   ).checkpoint({ historyCursor: operation.payload.historyCursor });
 
-  const prepared = await host.callOwnerTurnState<PreparedTurnStateOperation>(
-    turn,
-    "prepare",
-    {
-      threadId: turn.threadId,
-      attemptGeneration: turn.attemptGeneration,
-      requestFingerprint: operation.requestFingerprint,
-      historyCursor: operation.payload.historyCursor,
-      manifestId: worldCheckpoint.manifestId,
-      baseWorkspaceRevision: operation.baseWorkspaceRevision,
-      createdAt: operation.createdAt,
-      ...(operation.payload.nativeCheckpoint
-        ? { nativeCheckpoint: operation.payload.nativeCheckpoint }
-        : {}),
-    },
+  const prepared = await registryBookkeepingAfterCheckpoint(
+    operation.payload.historyCursor,
+    worldCheckpoint.manifestId,
+    async () =>
+      await host.callOwnerTurnState<PreparedTurnStateOperation>(
+        turn,
+        "prepare",
+        {
+          threadId: turn.threadId,
+          attemptGeneration: turn.attemptGeneration,
+          requestFingerprint: operation.requestFingerprint,
+          historyCursor: operation.payload.historyCursor,
+          manifestId: worldCheckpoint.manifestId,
+          createdAt: operation.createdAt,
+          ...(operation.payload.nativeCheckpoint
+            ? { nativeCheckpoint: operation.payload.nativeCheckpoint }
+            : {}),
+        },
+      ),
   );
   if (
     !prepared ||
     !/^[0-9a-f]{64}$/u.test(prepared.operationId) ||
     prepared.manifestId !== worldCheckpoint.manifestId ||
-    prepared.baseWorkspaceRevision !== operation.baseWorkspaceRevision ||
     (operation.payload.nativeCheckpoint
       ? typeof prepared.objectKeys.native !== "string"
       : prepared.objectKeys.native !== undefined)
   ) {
-    throw new Error("Turn state preparation receipt was invalid.");
+    throw new TurnStateRegistryBookkeepingError(
+      operation.payload.historyCursor,
+      worldCheckpoint.manifestId,
+      new Error("Turn state preparation receipt was invalid."),
+    );
   }
   await host.ctx.storage.transaction(async (transaction) => {
     const current =
@@ -551,7 +535,6 @@ export const executeTurnStateCheckpoint = async (
       current.requestId !== operation.requestId ||
       current.requestFingerprint !== operation.requestFingerprint ||
       current.createdAt !== operation.createdAt ||
-      current.baseWorkspaceRevision !== operation.baseWorkspaceRevision ||
       (current.operationId !== undefined &&
         current.operationId !== prepared.operationId)
     ) {
@@ -582,8 +565,7 @@ export const executeTurnStateCheckpoint = async (
   });
   try {
     let nativeUpload:
-      | Awaited<ReturnType<typeof uploadTurnStateArchive>>
-      | undefined;
+      Awaited<ReturnType<typeof uploadTurnStateArchive>> | undefined;
     if (prepared.objectKeys.native) {
       nativeUpload = await uploadTurnStateArchive({
         session,
@@ -593,19 +575,30 @@ export const executeTurnStateCheckpoint = async (
       });
       await host.assertTurnWritable(turn);
       host.assertAgentTurnIdentity(turn);
-      await host.callOwnerTurnState(turn, "mark-uploaded", {
-        operationId: prepared.operationId,
-        archive: nativeUpload.archive,
-      });
+      const archive = nativeUpload.archive;
+      await registryBookkeepingAfterCheckpoint(
+        operation.payload.historyCursor,
+        worldCheckpoint.manifestId,
+        async () =>
+          await host.callOwnerTurnState(turn, "mark-uploaded", {
+            operationId: prepared.operationId,
+            archive,
+          }),
+      );
     }
 
     await host.assertTurnWritable(turn);
     host.assertAgentTurnIdentity(turn);
-    const committed = await host.callOwnerTurnState<{
-      candidate: TurnStateCandidate;
-      workspaceHead: TurnStateWorkspaceHead;
-      replayed: boolean;
-    }>(turn, "commit", { operationId: prepared.operationId });
+    const committed = await registryBookkeepingAfterCheckpoint(
+      operation.payload.historyCursor,
+      worldCheckpoint.manifestId,
+      async () =>
+        await host.callOwnerTurnState<{
+          candidate: TurnStateCandidate;
+          workspaceHead: TurnStateWorkspaceHead;
+          replayed: boolean;
+        }>(turn, "commit", { operationId: prepared.operationId }),
+    );
     const candidate = committed?.candidate;
     const workspaceHead = committed?.workspaceHead;
     if (
@@ -623,12 +616,14 @@ export const executeTurnStateCheckpoint = async (
         JSON.stringify(nativeUpload?.archive) ||
       JSON.stringify(candidate.nativeCheckpoint) !==
         JSON.stringify(operation.payload.nativeCheckpoint) ||
-      workspaceHead.operationId !== prepared.operationId ||
-      workspaceHead.revision !== operation.baseWorkspaceRevision + 1 ||
       workspaceHead.historyCursor !== operation.payload.historyCursor ||
       workspaceHead.manifestId !== worldCheckpoint.manifestId
     ) {
-      throw new Error("Turn state commit receipt was invalid.");
+      throw new TurnStateRegistryBookkeepingError(
+        operation.payload.historyCursor,
+        worldCheckpoint.manifestId,
+        new Error("Turn state commit receipt was invalid."),
+      );
     }
 
     const receipt = publicTurnStateCheckpointReceipt(candidate, false);
@@ -643,7 +638,6 @@ export const executeTurnStateCheckpoint = async (
         current.requestId !== operation.requestId ||
         current.requestFingerprint !== operation.requestFingerprint ||
         current.createdAt !== operation.createdAt ||
-        current.baseWorkspaceRevision !== operation.baseWorkspaceRevision ||
         current.operationId !== prepared.operationId ||
         JSON.stringify(current.payload) !== JSON.stringify(operation.payload)
       ) {
@@ -886,7 +880,6 @@ export const handleTurnBroker = async (
       sandboxId,
       computePlan,
       computeRecord,
-      baseWorkspaceRevision,
     ] = await Promise.all([
       host.ctx.storage.get<TurnRequest>("turn"),
       host.ctx.storage.get<TurnBrokerRecord>(recordKey),
@@ -904,17 +897,8 @@ export const handleTurnBroker = async (
       host.ctx.storage.get(
         agentComputeKey(turn.turnId, turn.attemptGeneration!),
       ),
-      host.ctx.storage.get<number>(
-        turnStateBaseWorkspaceRevisionKey(turn.turnId, turn.attemptGeneration!),
-      ),
     ]);
     if (!storedRecord) return { kind: "missing" as const };
-    if (
-      !Number.isSafeInteger(baseWorkspaceRevision) ||
-      baseWorkspaceRevision! < 0
-    ) {
-      return { kind: "missing-base" as const };
-    }
     const running = host.agentTurnExecutions.get(turn.turnId);
     const identity = {
       turnId: turn.turnId,
@@ -1016,7 +1000,6 @@ export const handleTurnBroker = async (
       requestId: preflight.requestId,
       requestFingerprint,
       createdAt: Date.now(),
-      baseWorkspaceRevision: baseWorkspaceRevision!,
       ...(payload ? { payload } : {}),
     };
     await host.ctx.storage.put({
@@ -1027,7 +1010,6 @@ export const handleTurnBroker = async (
   });
 
   if (admission.kind === "missing") return brokerFailure(401);
-  if (admission.kind === "missing-base") return brokerFailure(409);
   if (admission.kind === "denied") {
     return turnBrokerDenialResponse(admission.claimed);
   }
@@ -1220,8 +1202,7 @@ export const handleTurnBroker = async (
         current.attemptGeneration === pendingOperation.attemptGeneration &&
         current.requestId === pendingOperation.requestId &&
         current.requestFingerprint === pendingOperation.requestFingerprint &&
-        current.createdAt === pendingOperation.createdAt &&
-        current.baseWorkspaceRevision === pendingOperation.baseWorkspaceRevision
+        current.createdAt === pendingOperation.createdAt
       ) {
         await transaction.put(operationKey, {
           ...current,

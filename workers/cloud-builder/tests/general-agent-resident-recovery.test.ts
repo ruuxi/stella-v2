@@ -34,6 +34,10 @@ mock.module("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
 }));
 const { BuildSession } = await import("../src/index.js");
+const { commitResidentTurnDurability } =
+  await import("../src/build-session/resident-turn.js");
+const { TurnStateRegistryBookkeepingError } =
+  await import("../src/build-session/shared/errors.js");
 mock.restore();
 
 const STELLA = {
@@ -447,6 +451,63 @@ describe("resident agent turn recovery", () => {
       ),
     ).rejects.toThrow("turn canceled");
     expect(published).toHaveLength(1);
+  });
+
+  test("a resident turn completes transcript-only when registry bookkeeping fails after the world checkpoint", async () => {
+    const harness = recoveryHarness();
+    const turn = residentTurn();
+    const journal = seedResidentTurn(harness, turn);
+    const sealed = await journal.repairInterruptedTail({
+      resolveInterruptedCall: async () => "interrupted",
+      terminalMessage: "Finished with world changes.",
+    });
+    let worldCheckpointed = false;
+    let transcriptCommitted = false;
+    Object.assign(harness.instance, {
+      turnStateCheckpointRuns: new Map(),
+      currentSandbox: async () => ({}),
+      publishRequestedInteriorCandidate: async () => ({
+        outcome: "not_requested",
+      }),
+      executeTurnStateCheckpoint: async () => {
+        worldCheckpointed = true;
+        throw new TurnStateRegistryBookkeepingError(
+          sealed.historyCursor,
+          "c".repeat(64),
+          new Error("registry unavailable"),
+        );
+      },
+    });
+    const commit = commitResidentTurnDurability as unknown as (
+      host: unknown,
+      args: Record<string, unknown>,
+    ) => Promise<{ kind: string }>;
+    const durability = await commit(harness.instance["self"], {
+      turn,
+      execution: { assertActive: () => undefined },
+      ladder: {
+        attachForInteriorBuild: async () => undefined,
+        attached: () => true,
+        quiesce: async () => undefined,
+      },
+      sealed,
+      finalText: "Finished with world changes.",
+      control: {
+        appendAndVerifyTranscript: async () => {
+          transcriptCommitted = true;
+          return {
+            kind: "canonical_transcript",
+            historyCursor: sealed.historyCursor,
+            rowCount: sealed.rows.length,
+          };
+        },
+      },
+      commandTimeoutMs: 30_000,
+    });
+
+    expect(worldCheckpointed).toBe(true);
+    expect(transcriptCommitted).toBe(true);
+    expect(durability.kind).toBe("transcript_only");
   });
 
   test("malformed admitted compute fails closed instead of entering resident recovery", async () => {

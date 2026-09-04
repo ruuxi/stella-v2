@@ -61,7 +61,8 @@ import {
   AgentTurnAuthorityLostError,
   AgentTurnError,
   OwnerPurgeFenceError,
-  TurnStateOwnerCallError,
+  TurnStateRegistryBookkeepingError,
+  isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
   AGENT_RECOVERY_PENDING_KEY,
@@ -80,7 +81,6 @@ import {
   normalizeToolWorkspaceRoot,
   sessionName,
   turnBrokerCredentialsPath,
-  turnStateBaseWorkspaceRevisionKey,
   validBuilderFallbackMessages,
   validTurnStateCheckpointReceipt,
   withInfrastructureDeadline,
@@ -111,6 +111,7 @@ export type ContainerTurnHost = Pick<
   | "env"
   | "agentTurnExecutions"
   | "builderFallbackRecoveries"
+  | "appendThreadTranscript"
   | "assertAgentExecutionActive"
   | "assertAgentTurnIdentity"
   | "attachAgentWorld"
@@ -405,9 +406,7 @@ export const quiesceCurrentAgentSession = async (
   // own executor process is killed before its session is deleted.
   await sandbox
     .killProcess(
-      sessionName(
-        `agent-executor-${turn.turnId}-${turn.attemptGeneration}`,
-      ),
+      sessionName(`agent-executor-${turn.turnId}-${turn.attemptGeneration}`),
       "SIGKILL",
     )
     .catch(() => undefined);
@@ -574,11 +573,6 @@ export const runContainerAgentTurn = async (
     }
     const turnStateWorkspaceRestore = resolvedTurnState.workspace;
     const turnStateThreadRestore = resolvedTurnState.restore;
-    if (resolvedTurnState.registryPresent && !turnStateWorkspaceRestore) {
-      throw new AgentTurnError(
-        "This workspace's saved state is incomplete. Try again after Stella finishes recovering it.",
-      );
-    }
     if (
       resolvedTurnState.threadRegistryPresent &&
       !turnStateThreadRestore &&
@@ -588,10 +582,6 @@ export const runContainerAgentTurn = async (
         "This agent's saved session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
       );
     }
-    await host.ctx.storage.put(
-      turnStateBaseWorkspaceRevisionKey(turn.turnId, turn.attemptGeneration!),
-      resolvedTurnState.baseWorkspaceRevision,
-    );
     execution.assertActive();
 
     // The mirror snapshot is pinned once for the logical turn, before either
@@ -630,8 +620,6 @@ export const runContainerAgentTurn = async (
       sandbox,
       size,
       turnStateWorkspaceRestore,
-      turnStateWorkspaceRestoreConfirmationRequired:
-        resolvedTurnState.workspaceConfirmationRequired,
       turnStateThreadRestore,
       turnStateThreadRestoreConfirmationRequired:
         resolvedTurnState.confirmationRequired,
@@ -709,8 +697,6 @@ export const runContainerAgentTurn = async (
         sandbox,
         size,
         turnStateWorkspaceRestore,
-        turnStateWorkspaceRestoreConfirmationRequired:
-          resolvedTurnState.workspaceConfirmationRequired,
         turnStateThreadRestore,
         turnStateThreadRestoreConfirmationRequired:
           resolvedTurnState.confirmationRequired,
@@ -796,16 +782,51 @@ export const runContainerAgentTurn = async (
           };
         }
       } catch (error) {
-        // The journal and sandbox disk are retained. Alarm replay resumes
-        // the same operation/request ids; it never manufactures a second
-        // archive after a lost checkpoint/transcript/publication response.
-        log("error", "agent_builder_fallback_deferred", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-          message: errorMessage(error),
-        });
-        await host.setExactTurnAlarm(turn, Date.now() + 1_000);
-        return;
+        if (
+          error instanceof TurnStateRegistryBookkeepingError &&
+          result.builderFallback
+        ) {
+          await host.appendThreadTranscript(
+            turn,
+            result.builderFallback.messages,
+          );
+          const canonicalRows = host.fetchCanonicalAgentHistory(turn, {
+            excludeCurrentTurn: false,
+            signal: execution.signal,
+          });
+          if (
+            (await nativeHistoryCursorFromRows(canonicalRows)) !==
+            result.builderFallback.historyCursor
+          ) {
+            throw new Error(
+              "Builder fallback transcript was not canonical after registry bookkeeping failed.",
+            );
+          }
+          log("error", "turn_state_publish_failed", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            phase: "checkpoint_registry",
+            historyCursor: error.historyCursor,
+            manifestId: error.manifestId,
+            message: errorMessage(error.cause),
+          });
+          result = {
+            ...result,
+            checkpointPolicy: "preserve_prior",
+            builderFallback: undefined,
+          };
+        } else {
+          // The journal and sandbox disk are retained. Alarm replay resumes
+          // the same operation/request ids; it never manufactures a second
+          // archive after a lost checkpoint/transcript/publication response.
+          log("error", "agent_builder_fallback_deferred", {
+            turnId: turn.turnId,
+            threadId: turn.threadId,
+            message: errorMessage(error),
+          });
+          await host.setExactTurnAlarm(turn, Date.now() + 1_000);
+          return;
+        }
       }
     }
 
@@ -836,9 +857,9 @@ export const runContainerAgentTurn = async (
       }
     }
 
-    // The executor's broker receipt proves that the deterministic workspace
-    // (and optional native) archive pair committed before the transcript was
-    // accepted. There is deliberately no second SDK backup here: that would
+    // The executor's broker receipt proves that the world checkpoint and
+    // optional native archive committed before the transcript was accepted.
+    // There is deliberately no second SDK backup here: that would
     // reintroduce random-address orphan bytes and split the atomic boundary.
     const checkpointMs =
       Number.isSafeInteger(result.checkpointMs) && result.checkpointMs! >= 0
@@ -881,8 +902,6 @@ export const runContainerAgentTurn = async (
             published.workspacePublication ||
             !published.workspace ||
             !published.restore ||
-            published.workspace.operationId !== checkpoint.operationId ||
-            published.workspace.manifestId !== checkpoint.manifestId ||
             published.restore.workspace.manifestId !== checkpoint.manifestId
           ) {
             throw new Error(
@@ -890,21 +909,17 @@ export const runContainerAgentTurn = async (
             );
           }
         } catch (error) {
-          // Transcript acceptance already makes this cursor canonical. A
-          // response lost during promotion is restart-safe: the next turn's
-          // registry-first resolve performs the same exact promotion. Keep
-          // the committed receipt visible, but do not manufacture a second
-          // archive or fall back to a legacy pointer.
-          if (error instanceof TurnStateOwnerCallError && error.status >= 500) {
-            log("error", "turn_state_promotion_deferred", {
+          // WorldStore already owns the bytes. Registry publication is
+          // bookkeeping, and the next turn can retry an unpublished native
+          // candidate after this transcript becomes canonical.
+          if (!isTurnStateAuthorityError(error)) {
+            log("error", "turn_state_publish_failed", {
               turnId: turn.turnId,
+              threadId: turn.threadId,
+              historyCursor: checkpoint.historyCursor,
+              manifestId: checkpoint.manifestId,
               message: errorMessage(error),
             });
-            // Do not terminalize or destroy the only sandbox while the
-            // canonical transcript points at an unpublished workspace.
-            // The durable checkpoint operation + execution marker let the
-            // alarm replay this exact publication after response loss.
-            throw error;
           } else {
             checkpointError = errorMessage(error);
           }
@@ -1312,7 +1327,6 @@ export const attachAgentWorld = async (
     sandbox: ReturnType<BuildSessionInternals["sandbox"]>;
     size: InstanceSize;
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
-    turnStateWorkspaceRestoreConfirmationRequired: boolean;
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
     history: AgentHistoryRow[];
@@ -1426,12 +1440,10 @@ export const attachAgentWorld = async (
     restoreMs += Math.round(performance.now() - nativeRestoreStarted);
   }
   turnExecution.assertActive();
-  if (args.turnStateWorkspaceRestore || args.turnStateThreadRestore) {
+  if (args.turnStateThreadRestore) {
     await host.confirmAgentTurnStateRestore(
       turn,
       await nativeHistoryCursorFromRows(args.history),
-      args.turnStateWorkspaceRestore,
-      args.turnStateWorkspaceRestoreConfirmationRequired,
       args.turnStateThreadRestore,
       args.turnStateThreadRestoreConfirmationRequired,
     );
@@ -1455,7 +1467,6 @@ export const runAgentAttempt = async (
     size: InstanceSize;
     /** Latest canonical owner world manifest, shared across all threads. */
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
-    turnStateWorkspaceRestoreConfirmationRequired: boolean;
     /** Canonical transcript/native state for this exact thread only. */
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
@@ -1488,8 +1499,8 @@ export const runAgentAttempt = async (
     turnExecution.signal,
   );
   let cloudSkills:
-    | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
-    | undefined = undefined;
+    Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
+    undefined;
   if (args.cloudSkillHome && args.cloudSkillCatalog) {
     turnExecution.assertActive();
     cloudSkills = await materializeCloudSkillSnapshot({

@@ -86,7 +86,6 @@ const seedCheckpointedTurn = async (
     requestFingerprint: digest("request:0"),
     historyCursor,
     manifestId: digest("manifest:0"),
-    baseWorkspaceRevision: 0,
     createdAt: 1_000,
   });
   await commitTurnStateOperation(storage, {

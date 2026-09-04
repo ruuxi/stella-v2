@@ -256,11 +256,6 @@ export const agentExecutionMarkerKey = (
   attemptGeneration: number,
 ): string => `agentExecutionMarker:${turnId}:${attemptGeneration}`;
 
-export const turnStateBaseWorkspaceRevisionKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `turnStateBaseWorkspaceRevision:${turnId}:${attemptGeneration}`;
-
 export const nativeTransientBackupKey = (turnId: string): string =>
   `nativeTransientBackup:${turnId}`;
 

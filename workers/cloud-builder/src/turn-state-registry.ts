@@ -61,15 +61,8 @@ export type TurnStateCandidate = {
 };
 
 export type TurnStateWorkspaceHead = {
-  schemaVersion: typeof TURN_STATE_SCHEMA_VERSION;
-  operationId: string;
-  requestFingerprint: string;
-  revision: number;
-  originThreadHash: string;
-  originHistoryCursor: string;
   historyCursor: string;
   manifestId: string;
-  createdAt: number;
 };
 
 type ObjectRecord = {
@@ -95,11 +88,11 @@ type OperationRecord = {
   requestFingerprint: string;
   historyCursor: string;
   manifestId: string;
-  baseWorkspaceRevision: number;
   nativeCheckpoint?: TurnStateNativeCheckpoint;
   objectKeys: { native?: string };
   state: "prepared" | "committed";
   receipt?: string;
+  publicationReceipt?: string;
   createdAt: number;
 };
 
@@ -119,9 +112,7 @@ type WorkspaceRecord = {
   ownerHash: string;
   ownerGeneration: string;
   workspaceHash: string;
-  committed?: TurnStateWorkspaceHead;
-  published?: TurnStateWorkspaceHead;
-  candidate?: TurnStateWorkspaceHead;
+  head?: TurnStateWorkspaceHead;
 };
 
 type RetirementRecord = {
@@ -164,8 +155,7 @@ const validIdentity = (identity: TurnStateIdentity): boolean =>
   Number.isSafeInteger(identity.attemptGeneration) &&
   identity.attemptGeneration > 0;
 
-const objectRecordKey = (key: string): string =>
-  `turn-state:v1:object:${key}`;
+const objectRecordKey = (key: string): string => `turn-state:v1:object:${key}`;
 const operationRecordKey = (operationId: string): string =>
   `turn-state:v1:operation:${operationId}`;
 const threadRecordKey = (workspaceHash: string, threadHash: string): string =>
@@ -199,7 +189,8 @@ const listAll = async <T>(
 };
 
 const derivedIdentity = async (identity: TurnStateIdentity) => {
-  if (!validIdentity(identity)) throw new Error("Turn state identity is invalid.");
+  if (!validIdentity(identity))
+    throw new Error("Turn state identity is invalid.");
   const [ownerHash, workspaceHash, threadHash, turnHash] = await Promise.all([
     sha256Hex(identity.ownerId),
     sha256Hex(WORLD_REGISTRY_SEGMENT),
@@ -235,7 +226,6 @@ export type PreparedTurnStateOperation = {
   ownerHash: string;
   workspaceHash: string;
   threadHash: string;
-  baseWorkspaceRevision: number;
   manifestId: string;
   objectKeys: { native?: string };
   replayed: boolean;
@@ -248,7 +238,6 @@ export const prepareTurnStateOperation = async (
     requestFingerprint: string;
     historyCursor: string;
     manifestId: string;
-    baseWorkspaceRevision: number;
     nativeCheckpoint?: TurnStateNativeCheckpoint;
     createdAt: number;
   },
@@ -257,8 +246,6 @@ export const prepareTurnStateOperation = async (
     !/^[0-9a-f]{64}$/u.test(args.requestFingerprint) ||
     !exactText(args.historyCursor, 1_024) ||
     !/^[0-9a-f]{64}$/u.test(args.manifestId) ||
-    !Number.isSafeInteger(args.baseWorkspaceRevision) ||
-    args.baseWorkspaceRevision < 0 ||
     !Number.isSafeInteger(args.createdAt) ||
     args.createdAt < 0
   ) {
@@ -276,11 +263,12 @@ export const prepareTurnStateOperation = async (
       args.requestFingerprint,
       args.historyCursor,
       args.manifestId,
-      args.baseWorkspaceRevision,
     ]),
   );
   const base = `${TURN_STATE_OBJECT_PREFIX}/${hashes.ownerHash}/${hashes.workspaceHash}/${hashes.threadHash}/${hashes.turnHash}/${args.identity.attemptGeneration}-${operationId}`;
-  const objectKeys = args.nativeCheckpoint ? { native: `${base}/native.sqsh` } : {};
+  const objectKeys = args.nativeCheckpoint
+    ? { native: `${base}/native.sqsh` }
+    : {};
   const operation: OperationRecord = {
     schemaVersion: TURN_STATE_SCHEMA_VERSION,
     identity: args.identity,
@@ -289,7 +277,6 @@ export const prepareTurnStateOperation = async (
     requestFingerprint: args.requestFingerprint,
     historyCursor: args.historyCursor,
     manifestId: args.manifestId,
-    baseWorkspaceRevision: args.baseWorkspaceRevision,
     ...(args.nativeCheckpoint
       ? { nativeCheckpoint: args.nativeCheckpoint }
       : {}),
@@ -306,18 +293,21 @@ export const prepareTurnStateOperation = async (
     const existing = await tx.get<OperationRecord>(key);
     if (existing) {
       if (!sameJson(existing, operation) && existing.state !== "committed") {
-        throw new Error("Turn state operation conflicts with its durable replay.");
+        throw new Error(
+          "Turn state operation conflicts with its durable replay.",
+        );
       }
       if (
         existing.requestFingerprint !== args.requestFingerprint ||
         existing.historyCursor !== args.historyCursor ||
         existing.manifestId !== args.manifestId ||
-        existing.baseWorkspaceRevision !== args.baseWorkspaceRevision ||
         !sameJson(existing.identity, args.identity) ||
         !sameJson(existing.nativeCheckpoint, args.nativeCheckpoint) ||
         !sameJson(existing.objectKeys, objectKeys)
       ) {
-        throw new Error("Turn state operation conflicts with its durable replay.");
+        throw new Error(
+          "Turn state operation conflicts with its durable replay.",
+        );
       }
       return true;
     }
@@ -330,18 +320,6 @@ export const prepareTurnStateOperation = async (
         workspaceState.ownerGeneration !== args.identity.ownerGeneration)
     ) {
       throw new Error("Turn state workspace owner generation is stale.");
-    }
-    const currentWorkspaceRevision =
-      workspaceState?.candidate?.revision ??
-      workspaceState?.published?.revision ??
-      workspaceState?.committed?.revision ??
-      0;
-    if (
-      currentWorkspaceRevision !== args.baseWorkspaceRevision ||
-      workspaceState?.candidate ||
-      workspaceState?.published
-    ) {
-      throw new Error("Turn state workspace base revision is stale.");
     }
     await tx.put(ownerMarkerKey, {
       schemaVersion: TURN_STATE_SCHEMA_VERSION,
@@ -379,7 +357,6 @@ export const prepareTurnStateOperation = async (
     ownerHash: hashes.ownerHash,
     workspaceHash: hashes.workspaceHash,
     threadHash: hashes.threadHash,
-    baseWorkspaceRevision: args.baseWorkspaceRevision,
     manifestId: args.manifestId,
     objectKeys,
     replayed,
@@ -402,7 +379,10 @@ export const markTurnStateObjectUploaded = async (
   storage: StrongTurnStateStorage,
   args: { operationId: string; archive: TurnStateArchive },
 ): Promise<{ replayed: boolean }> => {
-  if (!/^[0-9a-f]{64}$/u.test(args.operationId) || !validArchive(args.archive)) {
+  if (
+    !/^[0-9a-f]{64}$/u.test(args.operationId) ||
+    !validArchive(args.archive)
+  ) {
     throw new Error("Turn state archive descriptor is invalid.");
   }
   return await storage.transaction(async (tx) => {
@@ -420,7 +400,9 @@ export const markTurnStateObjectUploaded = async (
     }
     if (existing.descriptor) {
       if (!sameJson(existing.descriptor, args.archive)) {
-        throw new Error("Turn state archive replay conflicts with durable bytes.");
+        throw new Error(
+          "Turn state archive replay conflicts with durable bytes.",
+        );
       }
       return { replayed: true };
     }
@@ -470,16 +452,11 @@ export const commitTurnStateOperation = async (
     ) {
       throw new Error("Turn state thread owner generation is stale.");
     }
-    const workspaceKey = workspaceRecordKey(operation.workspaceHash);
-    const workspaceState =
-      (await tx.get<WorkspaceRecord>(workspaceKey)) ??
-      ({
-        schemaVersion: TURN_STATE_SCHEMA_VERSION,
-        ownerHash: operation.ownerHash,
-        ownerGeneration: operation.identity.ownerGeneration,
-        workspaceHash: operation.workspaceHash,
-      } satisfies WorkspaceRecord);
+    const workspaceState = await tx.get<WorkspaceRecord>(
+      workspaceRecordKey(operation.workspaceHash),
+    );
     if (
+      !workspaceState ||
       workspaceState.ownerHash !== operation.ownerHash ||
       workspaceState.ownerGeneration !== operation.identity.ownerGeneration
     ) {
@@ -489,26 +466,17 @@ export const commitTurnStateOperation = async (
       ...(thread.committed ? [thread.committed] : []),
       ...thread.candidates,
     ].find((candidate) => candidate.operationId === args.operationId);
-    const existingWorkspaceHead =
-      workspaceState.candidate?.operationId === args.operationId
-        ? workspaceState.candidate
-        : workspaceState.published?.operationId === args.operationId
-          ? workspaceState.published
-          : workspaceState.committed?.operationId === args.operationId
-            ? workspaceState.committed
-            : undefined;
+    const workspaceHead: TurnStateWorkspaceHead = {
+      historyCursor: operation.historyCursor,
+      manifestId: operation.manifestId,
+    };
     if (operation.state === "committed") {
-      if (
-        !existing ||
-        existing.receipt !== operation.receipt ||
-        !existingWorkspaceHead ||
-        existingWorkspaceHead.manifestId !== operation.manifestId
-      ) {
+      if (!existing || existing.receipt !== operation.receipt) {
         throw new Error("Turn state committed receipt is inconsistent.");
       }
       return {
         candidate: existing,
-        workspaceHead: existingWorkspaceHead,
+        workspaceHead,
         replayed: true,
       };
     }
@@ -521,23 +489,17 @@ export const commitTurnStateOperation = async (
     ) {
       throw new Error("Turn state operation has incomplete archive uploads.");
     }
-    if (thread.candidates.some((candidate) => candidate.historyCursor === operation.historyCursor)) {
-      throw new Error("Turn state history cursor already has another candidate.");
+    if (
+      thread.candidates.some(
+        (candidate) => candidate.historyCursor === operation.historyCursor,
+      )
+    ) {
+      throw new Error(
+        "Turn state history cursor already has another candidate.",
+      );
     }
     if (thread.candidates.length >= MAX_CANDIDATES) {
       throw new Error("Turn state candidate capacity is exhausted.");
-    }
-    const currentWorkspaceRevision =
-      workspaceState.candidate?.revision ??
-      workspaceState.published?.revision ??
-      workspaceState.committed?.revision ??
-      0;
-    if (
-      workspaceState.candidate ||
-      workspaceState.published ||
-      currentWorkspaceRevision !== operation.baseWorkspaceRevision
-    ) {
-      throw new Error("Turn state workspace base revision is stale.");
     }
     const receipt = await sha256Hex(
       JSON.stringify([
@@ -566,26 +528,10 @@ export const commitTurnStateOperation = async (
       receipt,
       createdAt: operation.createdAt,
     };
-    const workspaceRevision = operation.baseWorkspaceRevision + 1;
-    const workspaceHead: TurnStateWorkspaceHead = {
-      schemaVersion: TURN_STATE_SCHEMA_VERSION,
-      operationId: operation.operationId,
-      requestFingerprint: operation.requestFingerprint,
-      revision: workspaceRevision,
-      originThreadHash: operation.threadHash,
-      originHistoryCursor: operation.historyCursor,
-      historyCursor: operation.historyCursor,
-      manifestId: operation.manifestId,
-      createdAt: operation.createdAt,
-    };
     await tx.put(threadKey, {
       ...thread,
       candidates: [...thread.candidates, candidate],
     } satisfies ThreadRecord);
-    await tx.put(workspaceKey, {
-      ...workspaceState,
-      candidate: workspaceHead,
-    } satisfies WorkspaceRecord);
     for (const record of [nativeRecord]) {
       if (!record) continue;
       await tx.put(objectRecordKey(record.key), {
@@ -648,24 +594,6 @@ const retireOperationObjects = async (
   }
 };
 
-const retireWorkspaceHeads = async (
-  tx: StrongTurnStateStorage,
-  heads: TurnStateWorkspaceHead[],
-  ownerHash: string,
-  ownerGeneration: string,
-  workspaceHash: string,
-  threadHash: string,
-  now: number,
-): Promise<void> => {
-  void tx;
-  void heads;
-  void ownerHash;
-  void ownerGeneration;
-  void workspaceHash;
-  void threadHash;
-  void now;
-};
-
 const retireThreadCandidates = async (
   tx: StrongTurnStateStorage,
   candidates: TurnStateCandidate[],
@@ -696,10 +624,9 @@ export type PublishedTurnStateWorkspace = {
 };
 
 /**
- * Publish a world manifest only after the exact origin thread's transcript
- * cursor is canonical. Commit alone merely records a candidate manifest; this
- * second fence prevents another thread from observing tool mutations whose
- * transcript append never became authoritative.
+ * Publish the bookkeeping head only after the exact origin thread's
+ * transcript cursor is canonical. WorldStore already owns and exposes the
+ * bytes; this records which manifest most recently completed publication.
  */
 export const publishTurnStateWorkspace = async (
   storage: StrongTurnStateStorage,
@@ -725,13 +652,11 @@ export const publishTurnStateWorkspace = async (
   });
   return await storage.transaction(async (tx) => {
     const workspaceKey = workspaceRecordKey(hashes.workspaceHash);
-    const threadKey = threadRecordKey(
-      hashes.workspaceHash,
-      hashes.threadHash,
-    );
-    const [workspaceState, thread] = await Promise.all([
+    const threadKey = threadRecordKey(hashes.workspaceHash, hashes.threadHash);
+    const [workspaceState, thread, operation] = await Promise.all([
       tx.get<WorkspaceRecord>(workspaceKey),
       tx.get<ThreadRecord>(threadKey),
+      tx.get<OperationRecord>(operationRecordKey(args.operationId)),
     ]);
     if (
       !workspaceState ||
@@ -748,10 +673,16 @@ export const publishTurnStateWorkspace = async (
     ) {
       throw new Error("Turn state workspace origin thread is missing.");
     }
-    const exactHead = (head: TurnStateWorkspaceHead | undefined) =>
-      head?.operationId === args.operationId &&
-      head.originThreadHash === hashes.threadHash &&
-      head.originHistoryCursor === args.canonicalHistoryCursor;
+    if (
+      !operation ||
+      operation.state !== "committed" ||
+      operation.ownerHash !== hashes.ownerHash ||
+      operation.identity.ownerGeneration !== args.identity.ownerGeneration ||
+      operation.threadHash !== hashes.threadHash ||
+      operation.historyCursor !== args.canonicalHistoryCursor
+    ) {
+      throw new Error("Turn state workspace operation is missing.");
+    }
     const matchingThreadState = [
       ...(thread.committed ? [thread.committed] : []),
       ...thread.candidates,
@@ -763,35 +694,35 @@ export const publishTurnStateWorkspace = async (
     if (!matchingThreadState) {
       throw new Error("Turn state workspace transcript authority is missing.");
     }
-    const publicationReceipt = await sha256Hex(
-      JSON.stringify([
-        TURN_STATE_SCHEMA_VERSION,
-        hashes.ownerHash,
-        args.identity.ownerGeneration,
-        hashes.workspaceHash,
-        hashes.threadHash,
-        args.operationId,
-        args.canonicalHistoryCursor,
-        "workspace-published",
-      ]),
-    );
-    const replay = exactHead(workspaceState.published)
-      ? workspaceState.published
-      : exactHead(workspaceState.committed)
-        ? workspaceState.committed
-        : undefined;
-    if (replay) {
-      return { workspaceHead: replay, publicationReceipt, replayed: true };
+    const publicationReceipt =
+      operation.publicationReceipt ??
+      (await sha256Hex(
+        JSON.stringify([
+          TURN_STATE_SCHEMA_VERSION,
+          hashes.ownerHash,
+          args.identity.ownerGeneration,
+          hashes.workspaceHash,
+          hashes.threadHash,
+          args.operationId,
+          args.canonicalHistoryCursor,
+          "workspace-published",
+        ]),
+      ));
+    const workspaceHead: TurnStateWorkspaceHead = {
+      historyCursor: operation.historyCursor,
+      manifestId: operation.manifestId,
+    };
+    if (operation.publicationReceipt) {
+      return { workspaceHead, publicationReceipt, replayed: true };
     }
-    if (!exactHead(workspaceState.candidate)) {
-      throw new Error("Turn state workspace candidate is no longer current.");
-    }
-    const workspaceHead = workspaceState.candidate!;
     await tx.put(workspaceKey, {
       ...workspaceState,
-      candidate: undefined,
-      published: workspaceHead,
+      head: workspaceHead,
     } satisfies WorkspaceRecord);
+    await tx.put(operationRecordKey(args.operationId), {
+      ...operation,
+      publicationReceipt,
+    } satisfies OperationRecord);
     return { workspaceHead, publicationReceipt, replayed: false };
   });
 };
@@ -799,12 +730,10 @@ export const publishTurnStateWorkspace = async (
 export type ResolvedTurnState = {
   registryPresent: boolean;
   workspace?: TurnStateWorkspaceHead;
-  workspaceConfirmationRequired: boolean;
   workspacePublication?: {
     operationId: string;
     publishable: boolean;
   };
-  baseWorkspaceRevision: number;
   threadRegistryPresent: boolean;
   restore?: TurnStateCandidate;
   confirmationRequired: boolean;
@@ -852,16 +781,7 @@ export const resolveTurnState = async (
     ) {
       throw new Error("Turn state thread owner mismatch.");
     }
-    const workspace = workspaceState?.published ?? workspaceState?.committed;
-    const workspacePublication = workspaceState?.candidate
-      ? {
-          operationId: workspaceState.candidate.operationId,
-          publishable:
-            workspaceState.candidate.originThreadHash === hashes.threadHash &&
-            workspaceState.candidate.originHistoryCursor ===
-              args.canonicalHistoryCursor,
-        }
-      : undefined;
+    const workspace = workspaceState?.head;
     const matchingCommitted =
       thread?.committed?.historyCursor === args.canonicalHistoryCursor
         ? thread.committed
@@ -869,6 +789,20 @@ export const resolveTurnState = async (
     const matchingCandidate = thread?.candidates.find(
       (candidate) => candidate.historyCursor === args.canonicalHistoryCursor,
     );
+    const matchingOperation = matchingCandidate
+      ? await tx.get<OperationRecord>(
+          operationRecordKey(matchingCandidate.operationId),
+        )
+      : undefined;
+    const workspacePublication =
+      matchingCandidate &&
+      matchingOperation?.state === "committed" &&
+      !matchingOperation.publicationReceipt
+        ? {
+            operationId: matchingCandidate.operationId,
+            publishable: true,
+          }
+        : undefined;
     const restore = matchingCommitted ?? matchingCandidate;
     if (
       restore &&
@@ -882,11 +816,7 @@ export const resolveTurnState = async (
     return {
       registryPresent: Boolean(workspaceState || thread),
       ...(workspace ? { workspace } : {}),
-      workspaceConfirmationRequired: Boolean(
-        workspaceState?.published && workspace === workspaceState.published,
-      ),
       ...(workspacePublication ? { workspacePublication } : {}),
-      baseWorkspaceRevision: workspace?.revision ?? 0,
       threadRegistryPresent: Boolean(thread),
       ...(restore ? { restore } : {}),
       confirmationRequired: Boolean(
@@ -897,11 +827,6 @@ export const resolveTurnState = async (
 };
 
 export type ConfirmedTurnStateRestore = {
-  workspace?: {
-    restore: TurnStateWorkspaceHead;
-    promoted: boolean;
-    replayed: boolean;
-  };
   thread?: {
     restore: TurnStateCandidate;
     promoted: boolean;
@@ -911,10 +836,10 @@ export type ConfirmedTurnStateRestore = {
 };
 
 /**
- * Promote only after the caller has restored and verified the exact archive
- * pair returned by resolveTurnState. Keeping probe and confirmation separate
- * prevents a corrupt/missing candidate from retiring the last recoverable
- * committed pair before its bytes have actually been consumed.
+ * Promote only after the caller has restored and verified the exact
+ * thread-native state returned by resolveTurnState. Keeping probe and
+ * confirmation separate prevents a corrupt/missing candidate from retiring
+ * the last recoverable committed state before its bytes have been consumed.
  */
 export const confirmTurnStateRestore = async (
   storage: StrongTurnStateStorage,
@@ -924,16 +849,13 @@ export const confirmTurnStateRestore = async (
       "ownerId" | "ownerGeneration" | "threadId"
     >;
     canonicalHistoryCursor: string;
-    workspaceOperationId?: string;
     threadOperationId?: string;
     now: number;
   },
 ): Promise<ConfirmedTurnStateRestore> => {
   if (
     !exactText(args.canonicalHistoryCursor, 1_024) ||
-    (!args.workspaceOperationId && !args.threadOperationId) ||
-    (args.workspaceOperationId !== undefined &&
-      !/^[0-9a-f]{64}$/u.test(args.workspaceOperationId)) ||
+    !args.threadOperationId ||
     (args.threadOperationId !== undefined &&
       !/^[0-9a-f]{64}$/u.test(args.threadOperationId)) ||
     !Number.isSafeInteger(args.now) ||
@@ -947,22 +869,8 @@ export const confirmTurnStateRestore = async (
     attemptGeneration: 1,
   });
   return await storage.transaction(async (tx) => {
-    const workspaceKey = workspaceRecordKey(hashes.workspaceHash);
-    const threadKey = threadRecordKey(
-      hashes.workspaceHash,
-      hashes.threadHash,
-    );
-    const [workspaceState, thread] = await Promise.all([
-      tx.get<WorkspaceRecord>(workspaceKey),
-      tx.get<ThreadRecord>(threadKey),
-    ]);
-    if (
-      workspaceState &&
-      (workspaceState.ownerHash !== hashes.ownerHash ||
-        workspaceState.ownerGeneration !== args.identity.ownerGeneration)
-    ) {
-      throw new Error("Turn state workspace owner mismatch.");
-    }
+    const threadKey = threadRecordKey(hashes.workspaceHash, hashes.threadHash);
+    const thread = await tx.get<ThreadRecord>(threadKey);
     if (
       thread &&
       (thread.ownerHash !== hashes.ownerHash ||
@@ -976,8 +884,8 @@ export const confirmTurnStateRestore = async (
     ): candidate is TurnStateCandidate =>
       Boolean(
         candidate &&
-          candidate.operationId === args.threadOperationId &&
-          candidate.historyCursor === args.canonicalHistoryCursor,
+        candidate.operationId === args.threadOperationId &&
+        candidate.historyCursor === args.canonicalHistoryCursor,
       );
     const confirmationReceipt = await sha256Hex(
       JSON.stringify([
@@ -986,52 +894,11 @@ export const confirmTurnStateRestore = async (
         args.identity.ownerGeneration,
         hashes.workspaceHash,
         hashes.threadHash,
-        args.workspaceOperationId ?? null,
         args.threadOperationId ?? null,
         args.canonicalHistoryCursor,
         "restore-confirmed",
       ]),
     );
-    let workspaceConfirmation: ConfirmedTurnStateRestore["workspace"];
-    if (args.workspaceOperationId) {
-      if (!workspaceState) {
-        throw new Error("Turn state workspace restore is missing.");
-      }
-      if (workspaceState.committed?.operationId === args.workspaceOperationId) {
-        workspaceConfirmation = {
-          restore: workspaceState.committed,
-          promoted: false,
-          replayed: true,
-        };
-      } else if (
-        workspaceState.published?.operationId === args.workspaceOperationId
-      ) {
-        const restore = workspaceState.published;
-        if (workspaceState.committed) {
-          await retireWorkspaceHeads(
-            tx,
-            [workspaceState.committed],
-            workspaceState.ownerHash,
-            workspaceState.ownerGeneration,
-            workspaceState.workspaceHash,
-            restore.originThreadHash,
-            args.now,
-          );
-        }
-        await tx.put(workspaceKey, {
-          ...workspaceState,
-          committed: restore,
-          published: undefined,
-        } satisfies WorkspaceRecord);
-        workspaceConfirmation = {
-          restore,
-          promoted: true,
-          replayed: false,
-        };
-      } else {
-        throw new Error("Turn state workspace restore is no longer current.");
-      }
-    }
     let threadConfirmation: ConfirmedTurnStateRestore["thread"];
     if (args.threadOperationId) {
       if (!thread) throw new Error("Turn state restore thread is missing.");
@@ -1074,7 +941,6 @@ export const confirmTurnStateRestore = async (
       }
     }
     return {
-      ...(workspaceConfirmation ? { workspace: workspaceConfirmation } : {}),
       ...(threadConfirmation ? { thread: threadConfirmation } : {}),
       confirmationReceipt,
     };
@@ -1082,7 +948,10 @@ export const confirmTurnStateRestore = async (
 };
 
 export type TurnStateObjectStore = {
-  list(prefix: string, cursor?: string): Promise<{
+  list(
+    prefix: string,
+    cursor?: string,
+  ): Promise<{
     keys: string[];
     cursor?: string;
     complete: boolean;
@@ -1115,10 +984,9 @@ export const drainTurnStateRetirements = async (
   const ownerHash = await sha256Hex(args.ownerId);
   const prefix = `${TURN_STATE_OBJECT_PREFIX}/${ownerHash}/`;
   const retirements = [
-    ...(await listAll<RetirementRecord>(
-      storage,
-      "turn-state:v1:retirement:",
-    )).entries(),
+    ...(
+      await listAll<RetirementRecord>(storage, "turn-state:v1:retirement:")
+    ).entries(),
   ]
     .filter(
       ([, record]) =>
@@ -1176,10 +1044,9 @@ export const drainTurnStateRetirements = async (
     if (cleared) completed += 1;
   }
   const remaining = [
-    ...(await listAll<RetirementRecord>(
-      storage,
-      "turn-state:v1:retirement:",
-    )).values(),
+    ...(
+      await listAll<RetirementRecord>(storage, "turn-state:v1:retirement:")
+    ).values(),
   ].some(
     (record) =>
       record.ownerHash === ownerHash &&

@@ -46,7 +46,6 @@ import {
   log,
   nativeStateIntegrityKeyFor,
   pendingAppBuildPublicationKey,
-  turnStateBaseWorkspaceRevisionKey,
   turnStateCheckpointOperationKey,
   validBuilderFallbackMessages,
 } from "./shared/keys.js";
@@ -905,7 +904,6 @@ export const reconcileAgentCheckpointAfterQuiescence = async (
           requestId: current.requestId,
           requestFingerprint: current.requestFingerprint,
           createdAt: current.createdAt,
-          baseWorkspaceRevision: current.baseWorkspaceRevision,
           operationId: current.operationId,
           payload: current.payload,
         };
@@ -960,9 +958,8 @@ export const reconcileAgentCheckpointAfterQuiescence = async (
   }
 
   // A checkpoint whose transcript never became canonical must remain
-  // invisible. Retire its pre-registered objects first so prepare can CAS a
-  // fresh synthetic cursor over the same base revision without a permanent
-  // pending-candidate wedge.
+  // invisible. Retire its pre-registered native objects before preparing a
+  // fresh synthetic cursor.
   for (const operation of operations) {
     await host.abortUnpublishedTurnStateOperation(
       turn,
@@ -1037,15 +1034,6 @@ export const ensureBuilderFallbackTranscript = async (
   if (existing) {
     return validateExisting(existing);
   }
-  const baseWorkspaceRevision = await host.ctx.storage.get<number>(
-    turnStateBaseWorkspaceRevisionKey(turn.turnId, turn.attemptGeneration!),
-  );
-  if (
-    !Number.isSafeInteger(baseWorkspaceRevision) ||
-    baseWorkspaceRevision! < 0
-  ) {
-    throw new Error("Builder fallback workspace base is missing.");
-  }
   const createdAt = Date.now();
   const messages = input?.messages
     ? structuredClone(input.messages)
@@ -1092,7 +1080,6 @@ export const ensureBuilderFallbackTranscript = async (
       turn.ownerGeneration,
       turn.turnId,
       turn.attemptGeneration,
-      baseWorkspaceRevision,
       payload,
       messages,
     ]),
@@ -1117,7 +1104,6 @@ export const ensureBuilderFallbackTranscript = async (
       requestId,
       requestFingerprint,
       createdAt,
-      baseWorkspaceRevision: baseWorkspaceRevision!,
       payload,
     };
   return await host.ctx.storage.transaction(async (transaction) => {

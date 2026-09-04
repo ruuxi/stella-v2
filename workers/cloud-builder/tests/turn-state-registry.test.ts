@@ -195,7 +195,6 @@ const preparationArgs = (
   options: {
     historyCursor?: string;
     native?: boolean;
-    baseWorkspaceRevision?: number;
     threadId?: string;
   } = {},
 ) => {
@@ -208,7 +207,6 @@ const preparationArgs = (
     requestFingerprint: digest(`request:${turn}`),
     historyCursor,
     manifestId: digest(`manifest:${turn}:${historyCursor}`),
-    baseWorkspaceRevision: options.baseWorkspaceRevision ?? 0,
     ...(options.native
       ? { nativeCheckpoint: nativeCheckpoint(historyCursor) }
       : {}),
@@ -222,7 +220,6 @@ const prepare = async (
   options: {
     historyCursor?: string;
     native?: boolean;
-    baseWorkspaceRevision?: number;
     threadId?: string;
   } = {},
 ): Promise<{
@@ -368,12 +365,10 @@ describe("strong turn state registry", () => {
       requireNative: true,
     });
     expect(resolved.registryPresent).toBe(true);
-    expect(resolved.workspaceConfirmationRequired).toBe(true);
     expect(resolved.workspace).toMatchObject({
       historyCursor,
       manifestId: prepared.manifestId,
     });
-    expect(resolved.baseWorkspaceRevision).toBe(1);
     expect(resolved.threadRegistryPresent).toBe(true);
     expect(resolved.confirmationRequired).toBe(true);
     expect(resolved.restore?.workspace).toEqual({
@@ -386,12 +381,9 @@ describe("strong turn state registry", () => {
     const promoted = await confirmTurnStateRestore(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: historyCursor,
-      workspaceOperationId: prepared.operationId,
       threadOperationId: prepared.operationId,
       now: 2_000,
     });
-    expect(promoted.workspace?.promoted).toBe(true);
-    expect(promoted.workspace?.replayed).toBe(false);
     expect(promoted.thread?.promoted).toBe(true);
     expect(promoted.thread?.replayed).toBe(false);
     expect(promoted.confirmationReceipt).toMatch(/^[0-9a-f]{64}$/u);
@@ -403,9 +395,7 @@ describe("strong turn state registry", () => {
     });
     expect(resolveRetry).toEqual({
       registryPresent: true,
-      workspace: promoted.workspace?.restore,
-      workspaceConfirmationRequired: false,
-      baseWorkspaceRevision: 1,
+      workspace: published.workspaceHead,
       threadRegistryPresent: true,
       restore: promoted.thread?.restore,
       confirmationRequired: false,
@@ -413,17 +403,11 @@ describe("strong turn state registry", () => {
     const confirmRetry = await confirmTurnStateRestore(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: historyCursor,
-      workspaceOperationId: prepared.operationId,
       threadOperationId: prepared.operationId,
       now: 2_001,
     });
     expect(confirmRetry).toEqual({
       ...promoted,
-      workspace: {
-        ...promoted.workspace!,
-        promoted: false,
-        replayed: true,
-      },
       thread: {
         ...promoted.thread!,
         promoted: false,
@@ -432,7 +416,7 @@ describe("strong turn state registry", () => {
     });
   });
 
-  test("one workspace head crosses threads while native continuation remains thread-scoped", async () => {
+  test("two threads publish independently and the later publish becomes the workspace head", async () => {
     const storage = new FakeStrongStorage();
     const r2 = new FakeR2();
     const threadA = "thread-a";
@@ -449,73 +433,49 @@ describe("strong turn state registry", () => {
         native: true,
       })
     ).prepared;
-    const workspaceA = { historyCursor: cursorA, manifestId: firstA.manifestId };
     const nativeA = await uploadAndMark(storage, r2, firstA, "native");
-    await commitTurnStateOperation(storage, { operationId: firstA.operationId });
-
-    const blockedBRestore = await resolveTurnState(storage, {
-      identity: identityB,
-      canonicalHistoryCursor: "v1:empty",
-      requireNative: false,
-    });
-    expect(blockedBRestore.workspace).toBeUndefined();
-    expect(blockedBRestore.workspacePublication).toEqual({
-      operationId: firstA.operationId,
-      publishable: false,
-    });
-    await publishTurnStateWorkspace(storage, {
-      identity: identityA,
-      canonicalHistoryCursor: cursorA,
-      operationId: firstA.operationId,
-    });
-
-    const firstBRestore = await resolveTurnState(storage, {
-      identity: identityB,
-      canonicalHistoryCursor: "v1:empty",
-      requireNative: false,
-    });
-    expect(firstBRestore.threadRegistryPresent).toBe(false);
-    expect(firstBRestore.workspace).toMatchObject(workspaceA);
-    expect(firstBRestore.restore).toBeUndefined();
-    await confirmTurnStateRestore(storage, {
-      identity: identityB,
-      canonicalHistoryCursor: "v1:empty",
-      workspaceOperationId: firstA.operationId,
-      now: 2_000,
-    });
-
     const firstB = (
       await prepare(storage, 2, {
         threadId: threadB,
         historyCursor: cursorB,
         native: true,
-        baseWorkspaceRevision: 1,
       })
     ).prepared;
-    const workspaceB = { historyCursor: cursorB, manifestId: firstB.manifestId };
     const nativeB = await uploadAndMark(storage, r2, firstB, "native");
-    await commitTurnStateOperation(storage, { operationId: firstB.operationId });
-    await publishTurnStateWorkspace(storage, {
+
+    const committedA = await commitTurnStateOperation(storage, {
+      operationId: firstA.operationId,
+    });
+    const committedB = await commitTurnStateOperation(storage, {
+      operationId: firstB.operationId,
+    });
+    expect(committedA.workspaceHead.manifestId).toBe(firstA.manifestId);
+    expect(committedB.workspaceHead.manifestId).toBe(firstB.manifestId);
+    const publishedB = await publishTurnStateWorkspace(storage, {
       identity: identityB,
       canonicalHistoryCursor: cursorB,
       operationId: firstB.operationId,
     });
-
-    const continuationA = await resolveTurnState(storage, {
+    expect(publishedB.workspaceHead.manifestId).toBe(firstB.manifestId);
+    const publishedA = await publishTurnStateWorkspace(storage, {
       identity: identityA,
       canonicalHistoryCursor: cursorA,
+      operationId: firstA.operationId,
+    });
+    expect(publishedA.workspaceHead).toEqual(committedA.workspaceHead);
+
+    const continuationB = await resolveTurnState(storage, {
+      identity: identityB,
+      canonicalHistoryCursor: cursorB,
       requireNative: true,
     });
-    expect(continuationA.workspace).toMatchObject(workspaceB);
-    expect(continuationA.workspace?.operationId).toBe(firstB.operationId);
-    expect(continuationA.restore?.native).toEqual(nativeA);
-    expect(continuationA.restore?.workspace).toEqual(workspaceA);
-    expect(continuationA.restore?.native).not.toEqual(nativeB);
+    expect(continuationB.workspace).toEqual(publishedA.workspaceHead);
+    expect(continuationB.restore?.native).toEqual(nativeB);
+    expect(continuationB.restore?.native).not.toEqual(nativeA);
     await confirmTurnStateRestore(storage, {
-      identity: identityA,
-      canonicalHistoryCursor: cursorA,
-      workspaceOperationId: firstB.operationId,
-      threadOperationId: firstA.operationId,
+      identity: identityB,
+      canonicalHistoryCursor: cursorB,
+      threadOperationId: firstB.operationId,
       now: 3_000,
     });
 
@@ -526,14 +486,6 @@ describe("strong turn state registry", () => {
         )
       )?.state,
     ).toBe("referenced");
-
-    await expect(
-      prepare(storage, 3, {
-        threadId: threadA,
-        historyCursor: "v1:history:stale-base",
-        baseWorkspaceRevision: 1,
-      }),
-    ).rejects.toThrow("workspace base revision is stale");
   });
 
   test("a new canonical cursor promotes its pair and retires the mismatched committed pair", async () => {
@@ -560,7 +512,6 @@ describe("strong turn state registry", () => {
     await confirmTurnStateRestore(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: firstCursor,
-      workspaceOperationId: first.operationId,
       threadOperationId: first.operationId,
       now: 2_000,
     });
@@ -569,7 +520,6 @@ describe("strong turn state registry", () => {
       await prepare(storage, 2, {
         historyCursor: secondCursor,
         native: true,
-        baseWorkspaceRevision: 1,
       })
     ).prepared;
     await uploadAndMark(storage, r2, second, "native");
@@ -588,8 +538,10 @@ describe("strong turn state registry", () => {
       requireNative: true,
     });
     expect(resolved.registryPresent).toBe(true);
-    expect(resolved.workspaceConfirmationRequired).toBe(true);
-    expect(resolved.workspace?.operationId).toBe(second.operationId);
+    expect(resolved.workspace).toEqual({
+      historyCursor: secondCursor,
+      manifestId: second.manifestId,
+    });
     expect(resolved.confirmationRequired).toBe(true);
     expect(resolved.restore?.operationId).toBe(second.operationId);
 
@@ -608,11 +560,9 @@ describe("strong turn state registry", () => {
     const confirmed = await confirmTurnStateRestore(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: secondCursor,
-      workspaceOperationId: second.operationId,
       threadOperationId: second.operationId,
       now: 3_000,
     });
-    expect(confirmed.workspace?.promoted).toBe(true);
     expect(confirmed.thread?.promoted).toBe(true);
 
     const retirement = await storage.get<Record<string, unknown>>(
@@ -640,9 +590,7 @@ describe("strong turn state registry", () => {
       ownerGeneration: "owner-generation-1",
     });
     expect(firstDrain.pending).toBe(true);
-    expect(
-      storage.entries("turn-state:v1:retirement:").size,
-    ).toBe(1);
+    expect(storage.entries("turn-state:v1:retirement:").size).toBe(1);
 
     const retryDrain = await drainTurnStateRetirements(storage, r2, {
       ownerId: "owner-1",
@@ -656,9 +604,9 @@ describe("strong turn state registry", () => {
     );
     expect(storage.entries("turn-state:v1:retirement:").size).toBe(0);
     expect(
-      storage.entries("turn-state:v1:operation:").has(
-        `turn-state:v1:operation:${first.operationId}`,
-      ),
+      storage
+        .entries("turn-state:v1:operation:")
+        .has(`turn-state:v1:operation:${first.operationId}`),
     ).toBe(false);
 
     // If the successful drain response is lost, an exact retry observes both
@@ -675,9 +623,8 @@ describe("strong turn state registry", () => {
     const storage = new FakeStrongStorage();
     const r2 = new FakeR2();
     const firstCursor = "v1:history:generation-one";
-    const first = (
-      await prepare(storage, 1, { historyCursor: firstCursor })
-    ).prepared;
+    const first = (await prepare(storage, 1, { historyCursor: firstCursor }))
+      .prepared;
     await commitTurnStateOperation(storage, { operationId: first.operationId });
     await publishTurnStateWorkspace(storage, {
       identity: resolveIdentity,
@@ -692,7 +639,6 @@ describe("strong turn state registry", () => {
     await confirmTurnStateRestore(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: firstCursor,
-      workspaceOperationId: first.operationId,
       threadOperationId: first.operationId,
       now: 2_000,
     });
@@ -715,7 +661,6 @@ describe("strong turn state registry", () => {
           ownerGeneration: "owner-generation-2",
         },
         canonicalHistoryCursor: firstCursor,
-        workspaceOperationId: first.operationId,
         threadOperationId: first.operationId,
         now: 2_001,
       }),
@@ -723,7 +668,6 @@ describe("strong turn state registry", () => {
 
     const nextArgs = preparationArgs(2, {
       historyCursor: "v1:history:generation-two",
-      baseWorkspaceRevision: 1,
     });
     const second = await prepareTurnStateOperation(storage, nextArgs);
     const workspaceRecordKey = `turn-state:v1:workspace:${digest(WORLD_REGISTRY_SEGMENT)}`;
@@ -772,8 +716,6 @@ describe("strong turn state registry", () => {
       }),
     ).toEqual({
       registryPresent: false,
-      workspaceConfirmationRequired: false,
-      baseWorkspaceRevision: 0,
       threadRegistryPresent: false,
       confirmationRequired: false,
     });
@@ -788,7 +730,9 @@ describe("strong turn state registry", () => {
       })
     ).prepared;
     await uploadAndMark(storage, r2, committed, "native");
-    await commitTurnStateOperation(storage, { operationId: committed.operationId });
+    await commitTurnStateOperation(storage, {
+      operationId: committed.operationId,
+    });
     await publishTurnStateWorkspace(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: committedCursor,
@@ -797,7 +741,6 @@ describe("strong turn state registry", () => {
     await confirmTurnStateRestore(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: committedCursor,
-      workspaceOperationId: committed.operationId,
       threadOperationId: committed.operationId,
       now: 2_000,
     });
@@ -806,11 +749,12 @@ describe("strong turn state registry", () => {
       await prepare(storage, 2, {
         historyCursor: "v1:history:candidate",
         native: true,
-        baseWorkspaceRevision: 1,
       })
     ).prepared;
     await uploadAndMark(storage, r2, candidate, "native");
-    await commitTurnStateOperation(storage, { operationId: candidate.operationId });
+    await commitTurnStateOperation(storage, {
+      operationId: candidate.operationId,
+    });
     await publishTurnStateWorkspace(storage, {
       identity: resolveIdentity,
       canonicalHistoryCursor: "v1:history:candidate",
@@ -825,8 +769,6 @@ describe("strong turn state registry", () => {
       }),
     ).toMatchObject({
       registryPresent: true,
-      workspaceConfirmationRequired: true,
-      baseWorkspaceRevision: 2,
       threadRegistryPresent: true,
       confirmationRequired: false,
     });

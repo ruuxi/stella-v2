@@ -174,8 +174,6 @@ export interface BuildSessionInternals {
   confirmAgentTurnStateRestore(
     turn: TurnRequest,
     canonicalHistoryCursor: string,
-    workspaceHead: TurnStateWorkspaceHead | undefined,
-    workspaceConfirmationRequired: boolean,
     threadCandidate: TurnStateCandidate | undefined,
     threadConfirmationRequired: boolean,
   ): Promise<void>;
@@ -489,7 +487,6 @@ export interface BuildSessionInternals {
     history: AgentHistoryRow[],
   ): Promise<{
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
-    turnStateWorkspaceRestoreConfirmationRequired: boolean;
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
   }>;
@@ -566,7 +563,6 @@ export interface BuildSessionInternals {
     sandbox: ReturnType<BuildSessionInternals["sandbox"]>;
     size: InstanceSize;
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
-    turnStateWorkspaceRestoreConfirmationRequired: boolean;
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;
     history: AgentHistoryRow[];
@@ -584,7 +580,6 @@ export interface BuildSessionInternals {
     size: InstanceSize;
     /** Latest canonical owner world manifest, shared across all threads. */
     turnStateWorkspaceRestore?: TurnStateWorkspaceHead;
-    turnStateWorkspaceRestoreConfirmationRequired: boolean;
     /** Canonical transcript/native state for this exact thread only. */
     turnStateThreadRestore?: TurnStateCandidate;
     turnStateThreadRestoreConfirmationRequired: boolean;

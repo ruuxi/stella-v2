@@ -600,7 +600,24 @@ export const callOwnerTurnState = async <T>(
   if (new TextEncoder().encode(text).byteLength > 256 * 1024) {
     throw new Error("Turn state owner response exceeded its bound.");
   }
-  if (!response.ok) throw new TurnStateOwnerCallError(response.status);
+  if (!response.ok) {
+    let code: string | undefined;
+    try {
+      const body: unknown = JSON.parse(text);
+      if (
+        body &&
+        typeof body === "object" &&
+        !Array.isArray(body) &&
+        "code" in body &&
+        typeof body.code === "string"
+      ) {
+        code = body.code;
+      }
+    } catch {
+      code = undefined;
+    }
+    throw new TurnStateOwnerCallError(response.status, code);
+  }
   try {
     return JSON.parse(text) as T;
   } catch (error) {

@@ -30,9 +30,41 @@ export class OwnerPurgeFenceError extends Error {
 }
 
 export class TurnStateOwnerCallError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly code?: string,
+  ) {
     super(`Turn state owner operation failed (${status}).`);
     this.name = "TurnStateOwnerCallError";
+  }
+}
+
+const TURN_STATE_AUTHORITY_ERROR_CODES = new Set([
+  "archive_not_durable",
+  "operation_scope_mismatch",
+  "owner_fence_changed",
+  "owner_scope_mismatch",
+  "turn_state_abort_conflict",
+]);
+
+export const isTurnStateAuthorityError = (error: unknown): boolean =>
+  error instanceof TurnStateOwnerCallError &&
+  error.code !== undefined &&
+  TURN_STATE_AUTHORITY_ERROR_CODES.has(error.code);
+
+export class TurnStateRegistryBookkeepingError extends Error {
+  constructor(
+    readonly historyCursor: string,
+    readonly manifestId: string,
+    cause: unknown,
+  ) {
+    super(
+      "Turn state registry bookkeeping failed after the world checkpoint.",
+      {
+        cause,
+      },
+    );
+    this.name = "TurnStateRegistryBookkeepingError";
   }
 }
 

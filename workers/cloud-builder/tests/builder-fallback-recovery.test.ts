@@ -256,7 +256,6 @@ describe("Builder fallback recovery", () => {
       requestId: "req-1",
       requestFingerprint: "d".repeat(64),
       createdAt: 1,
-      baseWorkspaceRevision: 0,
       payload: { schemaVersion: 1, historyCursor: cursor },
       operationId: accepted.operationId,
       receipt: accepted,
@@ -304,7 +303,6 @@ describe("Builder fallback recovery", () => {
       requestId: "req-browser",
       requestFingerprint: "8".repeat(64),
       createdAt: 1,
-      baseWorkspaceRevision: 0,
       payload: {
         schemaVersion: 1,
         historyCursor: cursor,
@@ -370,7 +368,6 @@ describe("Builder fallback recovery", () => {
       requestId: "req-pending",
       requestFingerprint: "f".repeat(64),
       createdAt: 1,
-      baseWorkspaceRevision: 0,
       operationId: "1".repeat(64),
       payload: { schemaVersion: 1 as const, historyCursor: candidateCursor },
     };
@@ -513,7 +510,6 @@ describe("Builder fallback recovery", () => {
       requestId: fallback.requestId,
       requestFingerprint: fallback.requestFingerprint,
       createdAt: 1,
-      baseWorkspaceRevision: 0,
       payload: fallback.payload,
       operationId: checkpointReceipt.operationId,
       receipt: checkpointReceipt,

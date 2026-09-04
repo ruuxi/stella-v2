@@ -583,15 +583,10 @@ const transferBody = (
   };
 };
 
-const prepareBody = (
-  turn: number,
-  baseWorkspaceRevision = 0,
-  scopedThreadId = threadId,
-) => ({
+const prepareBody = (turn: number, scopedThreadId = threadId) => ({
   ...common(turn),
   threadId: scopedThreadId,
   attemptGeneration: 1,
-  baseWorkspaceRevision,
   requestFingerprint: digest(`request-${turn}`),
   historyCursor: `cursor-${turn}`,
   manifestId: digest(`manifest-${turn}`),
@@ -660,7 +655,6 @@ const prepareAndCommit = async (
   turn: number,
   options: {
     native?: boolean;
-    baseWorkspaceRevision?: number;
     threadId?: string;
   } = {},
 ) => {
@@ -669,7 +663,7 @@ const prepareAndCommit = async (
   const prepareResponse = await callRoute({
     path: "turn-state/prepare",
     body: {
-      ...prepareBody(turn, options.baseWorkspaceRevision ?? 0, scopedThreadId),
+      ...prepareBody(turn, scopedThreadId),
       ...(options.native
         ? {
             nativeCheckpoint: signedNativeCheckpoint(
@@ -744,7 +738,7 @@ const publishPreparedWorkspace = async (
   });
   expect(response?.status).toBe(200);
   return await responseBody<{
-    workspaceHead: { operationId: string };
+    workspaceHead: { historyCursor: string; manifestId: string };
     publicationReceipt: string;
     replayed: boolean;
   }>(response);
@@ -909,7 +903,6 @@ describe("turn-state owner routes", () => {
         ...common(1),
         threadId,
         canonicalHistoryCursor: "cursor-1",
-        workspaceOperationId: first.prepared.operationId,
         threadOperationId: first.prepared.operationId,
       },
       storage,
@@ -919,11 +912,9 @@ describe("turn-state owner routes", () => {
     expect(confirmed?.status).toBe(200);
     expect(
       await responseBody<{
-        workspace: { promoted: boolean; replayed: boolean };
         thread: { promoted: boolean; replayed: boolean };
       }>(confirmed),
     ).toMatchObject({
-      workspace: { promoted: true, replayed: false },
       thread: { promoted: true, replayed: false },
     });
   });
@@ -945,7 +936,6 @@ describe("turn-state owner routes", () => {
         ...common(1),
         threadId,
         canonicalHistoryCursor: "cursor-1",
-        workspaceOperationId: first.prepared.operationId,
         threadOperationId: first.prepared.operationId,
       },
       storage,
@@ -956,14 +946,12 @@ describe("turn-state owner routes", () => {
 
     const unpublished = await prepareAndCommit(storage, r2, 2, {
       native: true,
-      baseWorkspaceRevision: 1,
     });
     const recoveryFence = openFence(3);
     const abortBody = {
       ...common(3),
       threadId,
       operationId: unpublished.prepared.operationId,
-      baseWorkspaceRevision: 1,
       candidateHistoryCursor: "cursor-2",
       canonicalHistoryCursor: "cursor-1",
     };
@@ -1040,8 +1028,10 @@ describe("turn-state owner routes", () => {
     });
     expect(restored?.status).toBe(200);
     expect(await responseBody(restored)).toMatchObject({
-      baseWorkspaceRevision: 1,
-      workspace: { operationId: first.prepared.operationId },
+      workspace: {
+        historyCursor: "cursor-1",
+        manifestId: first.prepared.manifestId,
+      },
       restore: { operationId: first.prepared.operationId },
     });
 
@@ -1090,11 +1080,11 @@ describe("turn-state owner routes", () => {
       replayed: true,
     });
 
-    // Removing the candidate unwedges the exact base revision for a fallback
-    // checkpoint; neither the prior committed head nor native state moved.
+    // Removing the unpublished native candidate leaves the published head and
+    // prior native state intact, and a fallback can prepare independently.
     const fallbackPrepare = await callRoute({
       path: "turn-state/prepare",
-      body: prepareBody(4, 1),
+      body: prepareBody(4),
       storage,
       r2,
       fence: openFence(4),
@@ -1160,7 +1150,6 @@ describe("turn-state owner routes", () => {
           ...common(turn),
           threadId: scopedThreadId,
           canonicalHistoryCursor: `cursor-${turn}`,
-          workspaceOperationId: checkpoint.prepared.operationId,
           threadOperationId: checkpoint.prepared.operationId,
         },
         storage: sourceStorage,
@@ -1177,7 +1166,6 @@ describe("turn-state owner routes", () => {
 
     const second = await prepareAndCommit(sourceStorage, r2, 2, {
       native: true,
-      baseWorkspaceRevision: 1,
       threadId: secondThreadId,
     });
     await publishAndConfirm(second, 2, secondThreadId);
@@ -1197,7 +1185,6 @@ describe("turn-state owner routes", () => {
     // Transfer must carry it as a candidate without making it globally visible.
     const third = await prepareAndCommit(sourceStorage, r2, 3, {
       native: true,
-      baseWorkspaceRevision: 2,
       threadId,
     });
 
@@ -1217,7 +1204,7 @@ describe("turn-state owner routes", () => {
     expect(exportedResponse?.status).toBe(200);
     const exported =
       await responseBody<TurnStateTransferExportResponse>(exportedResponse);
-    expect(exported.manifest.count).toBe(5);
+    expect(exported.manifest.count).toBe(4);
     expect(
       exported.entries.map((entry) =>
         entry.entryKind === "workspace"
@@ -1225,8 +1212,7 @@ describe("turn-state owner routes", () => {
           : `thread:${entry.threadId}:${entry.disposition}`,
       ),
     ).toEqual([
-      "workspace:committed",
-      "workspace:candidate",
+      "workspace:head",
       "thread:thread-1:committed",
       "thread:thread-1:candidate",
       "thread:thread-2:committed",
@@ -1346,7 +1332,7 @@ describe("turn-state owner routes", () => {
       return await responseBody<TurnStateTransferActivationResponse>(response);
     };
     const activated = await activate();
-    expect(activated).toMatchObject({ count: 5, replayed: false });
+    expect(activated).toMatchObject({ count: 4, replayed: false });
     expect(await destinationStatus(destinationStorage)).toEqual({
       state: "activated",
       activationReceipt: activated.activationReceipt,
@@ -1388,7 +1374,6 @@ describe("turn-state owner routes", () => {
     });
     expect(abortProbeResponse?.status).toBe(200);
     const abortProbe = await responseBody<{
-      baseWorkspaceRevision: number;
       workspacePublication: { operationId: string; publishable: boolean };
       restore: { native: TurnStateArchive };
     }>(abortProbeResponse);
@@ -1403,7 +1388,6 @@ describe("turn-state owner routes", () => {
         ...abortCommon,
         threadId,
         operationId: abortProbe.workspacePublication.operationId,
-        baseWorkspaceRevision: abortProbe.baseWorkspaceRevision,
         candidateHistoryCursor: "cursor-3",
         canonicalHistoryCursor: "cursor-2",
       },
@@ -1456,12 +1440,15 @@ describe("turn-state owner routes", () => {
       });
       expect(response?.status).toBe(200);
       return await responseBody<{
-        baseWorkspaceRevision: number;
-        workspace?: { operationId: string; historyCursor: string; manifestId: string };
+        workspace?: {
+          historyCursor: string;
+          manifestId: string;
+        };
         workspacePublication?: { operationId: string; publishable: boolean };
         restore?: {
           operationId: string;
           historyCursor: string;
+          workspace: { historyCursor: string; manifestId: string };
           native?: TurnStateArchive;
           nativeCheckpoint?: TurnStateNativeCheckpoint;
         };
@@ -1470,12 +1457,11 @@ describe("turn-state owner routes", () => {
 
     const pending = await resolveDestination(threadId, "cursor-3");
     expect(pending).toMatchObject({
-      baseWorkspaceRevision: 2,
       workspacePublication: { publishable: true },
       restore: { historyCursor: "cursor-3" },
     });
-    expect(pending.workspace?.operationId).not.toBe(
-      pending.workspacePublication?.operationId,
+    expect(pending.workspace?.historyCursor).not.toBe(
+      pending.restore?.historyCursor,
     );
     expect(
       await validNativeStateCheckpointMac({
@@ -1504,9 +1490,7 @@ describe("turn-state owner routes", () => {
     });
     expect(publishDestination?.status).toBe(200);
     const published = await resolveDestination(threadId, "cursor-3");
-    expect(published.workspace?.operationId).toBe(
-      published.restore?.operationId,
-    );
+    expect(published.workspace).toEqual(published.restore?.workspace);
 
     const destinationConfirmed = await callRoute({
       path: "turn-state/confirm-restore",
@@ -1514,7 +1498,6 @@ describe("turn-state owner routes", () => {
         ...destinationCommon,
         threadId,
         canonicalHistoryCursor: "cursor-3",
-        workspaceOperationId: published.workspace!.operationId,
         threadOperationId: published.restore!.operationId,
       },
       storage: destinationStorage,
@@ -1529,8 +1512,7 @@ describe("turn-state owner routes", () => {
       "cursor-2",
     );
     expect(secondThreadRestore).toMatchObject({
-      baseWorkspaceRevision: 3,
-      workspace: { operationId: published.workspace!.operationId },
+      workspace: published.workspace,
       restore: { historyCursor: "cursor-2" },
     });
     expect(
@@ -1763,7 +1745,6 @@ describe("turn-state owner routes", () => {
         ...common(1),
         threadId,
         canonicalHistoryCursor: "cursor-1",
-        workspaceOperationId: first.prepared.operationId,
         threadOperationId: first.prepared.operationId,
       },
       storage,
@@ -1773,7 +1754,6 @@ describe("turn-state owner routes", () => {
     expect(firstConfirmed?.status).toBe(200);
     const second = await prepareAndCommit(storage, r2, 2, {
       native: true,
-      baseWorkspaceRevision: 1,
     });
 
     const resolved = await callRoute({
@@ -1802,7 +1782,6 @@ describe("turn-state owner routes", () => {
         ...common(2),
         threadId,
         canonicalHistoryCursor: "cursor-2",
-        workspaceOperationId: second.prepared.operationId,
         threadOperationId: second.prepared.operationId,
       },
       storage,

@@ -173,7 +173,13 @@ describe("searchTranscripts", () => {
     const { store, db } = createTestContext();
     store.withTransaction(() => {
       for (let i = 0; i < 600; i += 1) {
-        appendChat(store, "conv-1", "user_message", `emira saguaro note ${i}`, i);
+        appendChat(
+          store,
+          "conv-1",
+          "user_message",
+          `emira saguaro note ${i}`,
+          i,
+        );
       }
     });
 
@@ -181,14 +187,17 @@ describe("searchTranscripts", () => {
     // These fixture terms contain no wildcard/escape characters, so substring
     // matching preserves the query's literal LIKE behavior for this test.
     let contentEvaluations = 0;
-    (db as unknown as DatabaseSync).function("like", (pattern, value, _escape) => {
-      contentEvaluations += 1;
-      return String(value).includes(String(pattern).slice(1, -1)) ? 1 : 0;
-    });
+    (db as unknown as DatabaseSync).function(
+      "like",
+      (pattern, value, _escape) => {
+        contentEvaluations += 1;
+        return String(value).includes(String(pattern).slice(1, -1)) ? 1 : 0;
+      },
+    );
     const hits = store.searchTranscripts({ query: "emira saguaro", limit: 1 });
     expect(hits).toHaveLength(1);
-    expect(contentEvaluations).toBeGreaterThan(0);
-    expect(contentEvaluations).toBeLessThanOrEqual(400);
+    // BM25 ordering needs no literal-content rescoring.
+    expect(contentEvaluations).toBe(0);
   });
 
   it("treats LIKE wildcards as literals and returns nothing for empty queries", () => {
@@ -375,4 +384,47 @@ describe("transcript FTS index", () => {
 
     expect(store.searchTranscripts({ query: "%%%" })).toEqual([]);
   });
+});
+
+it("retrieves deep matches and round-trips scoped message references", async () => {
+  const { store } = createTestContext();
+  const { recallReference } = await import("@stella/contracts/recall");
+  const { formatTranscriptSearchResults } = await import(
+    "@stella/runtime/kernel/agent-runtime/context-lookup"
+  );
+  appendChat(
+    store,
+    "conv-deep",
+    "assistant_message",
+    "x".repeat(10000) + " NEEDLE " + "y".repeat(5000),
+    1000,
+  );
+  appendChat(
+    store,
+    "conv-deep",
+    "user_message",
+    "Correction: keep the existing behavior.",
+    1000,
+  );
+  const hits = store.searchTranscripts({ query: "NEEDLE" });
+  expect(hits[0]?.id).toBeTruthy();
+  const ref = recallReference("conv-deep", hits[0]!.id!);
+  expect(store.searchTranscripts({ query: ref })[0]).toMatchObject({
+    id: hits[0]!.id,
+    text: hits[0]!.text,
+  });
+  expect(
+    store.searchTranscripts({
+      query: recallReference("wrong-conversation", hits[0]!.id!),
+    }),
+  ).toEqual([]);
+  const output = formatTranscriptSearchResults(store, "conv-deep", "NEEDLE");
+  expect(output).toContain("NEEDLE");
+  expect(output).toContain("Correction: keep the existing behavior.");
+  expect(output).toContain("messageRef=" + ref);
+  const next = output.match(/next: (recall:\S+)/)?.[1];
+  expect(next).toBeTruthy();
+  const continuation = formatTranscriptSearchResults(store, "conv-deep", next);
+  expect(continuation).toContain("y".repeat(100));
+  expect(continuation).not.toContain("NEEDLE");
 });

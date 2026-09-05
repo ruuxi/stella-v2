@@ -82,7 +82,8 @@ const makeStore = (options?: {
     ),
     searchTranscripts: vi.fn(() => {
       if (options?.transcriptFailure) throw options.transcriptFailure;
-      return transcripts.map((hit) => ({
+      return transcripts.map((hit, index) => ({
+        id: `message-${index}`,
         conversationId: hit.conversationId ?? "conv-old",
         role: hit.role ?? "user",
         text: hit.text,
@@ -265,7 +266,7 @@ describe("unified Recall retrieval", () => {
     expect(store.searchTranscripts).toHaveBeenCalledTimes(1);
     expect(brief).toContain("Project Zephyr approved telemetry");
     expect(brief).toContain("Project Zephyr rejected telemetry");
-    expect(brief.indexOf("zephyr-implementation")).toBeLessThan(
+    expect(brief.indexOf("zephyr-implementation")).toBeGreaterThan(
       brief.indexOf("Project Zephyr rejected telemetry"),
     );
   });
@@ -307,8 +308,8 @@ describe("unified Recall retrieval", () => {
     expect(brief.match(/Project Opal shipped the parser fix\./g)).toHaveLength(
       1,
     );
-    expect(brief).toContain("overlap deduplicated");
-    expect(brief).toContain("corroborated by episodic");
+    expect(brief).toContain("See original transcript above");
+    expect(metadata?.sources).toContainEqual({ kind: "transcript" });
     expect(metadata?.sources).toContainEqual({
       kind: "thread",
       summaryId: 17,
@@ -477,15 +478,15 @@ describe("unified Recall retrieval", () => {
     expect(store.searchTranscripts).toHaveBeenCalledTimes(1);
   });
 
-  it("does not read or route through retired resident memory artifacts", async () => {
+  it("does not search background profile or memory documents already in context", async () => {
     const root = await createRoot();
     await Promise.all([
       writeFile(
-        path.join(root, "memories", "memory_map.md"),
+        path.join(root, "memories", "profile.md"),
         "# Memory map\n- MAP_ONLY_SENTINEL should never be recalled",
       ),
       writeFile(
-        path.join(root, "memories", "MEMORY.md"),
+        path.join(root, "core-memory.md"),
         "# MEMORY\n- LEDGER_ONLY_SENTINEL should never be recalled",
       ),
     ]);
@@ -508,4 +509,29 @@ describe("unified Recall retrieval", () => {
     expect(store.searchThreads).toHaveBeenCalledTimes(1);
     expect(store.searchTranscripts).toHaveBeenCalledTimes(1);
   });
+});
+
+it("reads references directly and classifies failed reads as retrieval errors", async () => {
+  const root = await createRoot();
+  const ref = "recall:conv-old:message-0:1500";
+  const store = makeStore({
+    transcripts: [{ text: "a".repeat(1500) + "continued original" }],
+  });
+  const brief = await runRecall(
+    await recallArgs(root, store, "Read more", [ref]),
+  );
+  expect(brief).toContain("continued original");
+  expect(brief).not.toContain("a".repeat(100));
+  expect(store.searchThreads).not.toHaveBeenCalled();
+  expect(store.searchTranscripts).toHaveBeenCalledWith({
+    query: ref,
+    terms: [ref],
+    limit: 1,
+  });
+  const broken = makeStore({
+    transcriptFailure: new Error("database offline"),
+  });
+  await expect(
+    runRecall(await recallArgs(root, broken, "Read more", [ref])),
+  ).rejects.toBeInstanceOf(RecallRetrievalError);
 });

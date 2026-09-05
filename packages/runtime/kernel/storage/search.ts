@@ -1,3 +1,10 @@
+import {
+  parseRecallReference,
+  recallMatchedTerms,
+  recallLimit,
+  recallSearchPlan,
+  shouldBroadenRecall,
+} from "@stella/contracts/recall";
 /**
  * Recall search over the writer-populated `search_text` columns, indexed by
  * the external-content FTS tables `entry_fts` and `thread_fts`.
@@ -18,14 +25,16 @@ import {
 
 export type TranscriptSearchHit = {
   conversationId: string;
+  id: string;
+  sequence?: number;
   role: "user" | "assistant";
   atMs: number;
   text: string;
+  matchTerms?: string[];
 };
 
-const escapeLike = (value: string): string => value.replace(/([\\%_])/g, "\\$1");
-
-const TRANSCRIPT_SEARCH_FTS_CANDIDATE_CAP = 200;
+const escapeLike = (value: string): string =>
+  value.replace(/([\\%_])/g, "\\$1");
 
 export class SearchIndex {
   constructor(private readonly db: SqliteDatabase) {}
@@ -138,7 +147,11 @@ export class SearchIndex {
     const orderBy = `(thread.conversation_id = ?) DESC,
       (${tokens.map(() => `CASE WHEN ${tokenClause} THEN 1 ELSE 0 END`).join(" + ")}) DESC,
       thread.last_used_at DESC`;
-    const params: unknown[] = [conversationId, ...candidateKeys, conversationId];
+    const params: unknown[] = [
+      conversationId,
+      ...candidateKeys,
+      conversationId,
+    ];
     for (const token of tokens) {
       const pattern = `%${escapeLike(token)}%`;
       params.push(pattern, pattern, pattern, pattern);
@@ -205,10 +218,22 @@ export class SearchIndex {
 
   searchTranscripts(args: {
     query: string;
+    terms?: readonly string[];
     limit?: number;
     degradedMode?: "like";
   }): TranscriptSearchHit[] {
-    const limit = Math.max(1, Math.min(25, Math.floor(args.limit ?? 12)));
+    const reference = parseRecallReference(args.query);
+    if (reference) {
+      const rows = this.db
+        .prepare(
+          `SELECT id, seq AS sequence, conversation_id AS conversationId,
+        role, created_at AS atMs, search_text AS text FROM entry
+        WHERE id = ? AND conversation_id = ? AND visible = 1 AND role IN ('user', 'assistant')`,
+        )
+        .all(reference.id, reference.scope) as Array<Record<string, unknown>>;
+      return this.deserializeTranscriptHits(rows);
+    }
+    const limit = recallLimit(args.limit);
     const tokens = tokenizeSearchQuery(args.query);
     if (tokens.length === 0) return [];
     if (args.degradedMode === "like") {
@@ -222,51 +247,36 @@ export class SearchIndex {
       return throwFtsSearchUnavailable("transcripts", "index table is missing");
     }
     try {
-      return this.searchTranscriptsFts(tokens, limit);
+      const plan = recallSearchPlan(args.terms ?? [args.query]);
+      if (!plan) return [];
+      const hits = this.searchTranscriptsFts(plan.phrase, limit);
+      return shouldBroadenRecall(hits.length, limit) &&
+        plan.broad !== plan.phrase
+        ? this.searchTranscriptsFts(plan.broad, limit)
+        : hits;
     } catch (error) {
-      return throwFtsSearchUnavailable("transcripts", "MATCH query failed", error);
+      return throwFtsSearchUnavailable(
+        "transcripts",
+        "MATCH query failed",
+        error,
+      );
     }
   }
 
   private searchTranscriptsFts(
-    tokens: string[],
+    matchQuery: string,
     limit: number,
   ): TranscriptSearchHit[] {
-    const matchQuery = tokens
-      .map((token) => `"${token.replace(/"/g, '""')}"`)
-      .join(" OR ");
-    const tokenClause = "entry.search_text LIKE ? ESCAPE '\\'";
-    // Bound content reads and literal-token reranking before applying the
-    // requested result limit. FTS selects candidates by BM25; the established
-    // token-count/newest-first ordering applies within that set. On broad
-    // queries, a newer or longer match outside the top 200 can be omitted.
-    // MATERIALIZED keeps SQLite from flattening the content join into the
-    // unbounded FTS match scan. FTS itself still visits matching postings.
     const rows = this.db
       .prepare(
-        `WITH candidates AS MATERIALIZED (
-           SELECT rowid FROM entry_fts
-           WHERE entry_fts MATCH ?
-           ORDER BY rank
-           LIMIT ${TRANSCRIPT_SEARCH_FTS_CANDIDATE_CAP}
-         )
-         SELECT
-           entry.conversation_id AS conversationId,
-           entry.role AS role,
-           entry.created_at AS atMs,
-           substr(entry.search_text, 1, ${TRANSCRIPT_SEARCH_TEXT_CAP}) AS text
-         FROM candidates
-         JOIN entry ON entry.rowid = candidates.rowid
-         ORDER BY
-           (${tokens.map(() => `CASE WHEN ${tokenClause} THEN 1 ELSE 0 END`).join(" + ")}) DESC,
-           entry.created_at DESC
-         LIMIT ?`,
+        `SELECT entry.id, entry.seq AS sequence,
+           entry.conversation_id AS conversationId, entry.role, entry.created_at AS atMs,
+      entry.search_text AS text, snippet(entry_fts, 0, char(1), char(2), '…', 24) AS matches
+      FROM entry_fts JOIN entry ON entry.rowid = entry_fts.rowid
+      WHERE entry_fts MATCH ? AND entry.visible = 1 AND entry.role IN ('user', 'assistant')
+      ORDER BY bm25(entry_fts), entry.rowid DESC LIMIT ?`,
       )
-      .all(
-        matchQuery,
-        ...tokens.map((token) => `%${escapeLike(token)}%`),
-        limit,
-      ) as Array<Record<string, unknown>>;
+      .all(matchQuery, limit) as Array<Record<string, unknown>>;
     return this.deserializeTranscriptHits(rows);
   }
 
@@ -278,6 +288,7 @@ export class SearchIndex {
     const rows = this.db
       .prepare(
         `SELECT
+           entry.id, entry.seq AS sequence,
            entry.conversation_id AS conversationId,
            entry.role AS role,
            entry.created_at AS atMs,
@@ -302,14 +313,24 @@ export class SearchIndex {
     rows: Array<Record<string, unknown>>,
   ): TranscriptSearchHit[] {
     return rows.flatMap((row) => {
-      const text = typeof row.text === "string" ? row.text.trim() : "";
-      if (!text) return [];
+      const text = typeof row.text === "string" ? row.text : "";
+      if (!text.trim()) return [];
       return [
         {
           conversationId: row.conversationId as string,
-          role: row.role === "assistant" ? ("assistant" as const) : ("user" as const),
+          id: row.id as string,
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
+          role:
+            row.role === "assistant"
+              ? ("assistant" as const)
+              : ("user" as const),
           atMs: row.atMs as number,
           text,
+          ...(typeof row.matches === "string"
+            ? { matchTerms: recallMatchedTerms(row.matches) }
+            : {}),
         },
       ];
     });
@@ -318,16 +339,34 @@ export class SearchIndex {
   listTranscriptNeighbors(args: {
     conversationId: string;
     atMs: number;
+    sequence?: number;
     before?: number;
     after?: number;
     windowMs?: number;
   }): TranscriptSearchHit[] {
     const before = Math.max(0, Math.min(8, Math.floor(args.before ?? 2)));
     const after = Math.max(0, Math.min(10, Math.floor(args.after ?? 2)));
+    if (args.sequence !== undefined) {
+      const select = `SELECT id, seq AS sequence, conversation_id AS conversationId,
+        role, created_at AS atMs, search_text AS text FROM entry
+        WHERE conversation_id = ? AND visible = 1 AND role IN ('user', 'assistant') AND search_text IS NOT NULL`;
+      const rows = [
+        ...this.db
+          .prepare(`${select} AND seq < ? ORDER BY seq DESC LIMIT ?`)
+          .all(args.conversationId, args.sequence, before),
+        ...this.db
+          .prepare(`${select} AND seq > ? ORDER BY seq ASC LIMIT ?`)
+          .all(args.conversationId, args.sequence, after),
+      ] as Array<Record<string, unknown>>;
+      return this.deserializeTranscriptHits(rows).sort(
+        (a, b) => a.sequence! - b.sequence!,
+      );
+    }
     const windowMs = Math.max(60_000, args.windowMs ?? 2 * 60 * 60 * 1000);
     const base = `
       SELECT
-        entry.conversation_id AS conversationId,
+        entry.id, entry.seq AS sequence,
+           entry.conversation_id AS conversationId,
         entry.role AS role,
         entry.created_at AS atMs,
         substr(entry.search_text, 1, ${TRANSCRIPT_SEARCH_TEXT_CAP}) AS text

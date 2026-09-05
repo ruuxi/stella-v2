@@ -901,6 +901,7 @@ export const createRunnerContext = ({
             const brief = await runRecall({
               conversationId: payload.conversationId,
               lookupPrompt: payload.prompt,
+              limit: payload.limit,
               ...(payload.memorySearchTerms?.length
                 ? { memorySearchTerms: payload.memorySearchTerms }
                 : {}),
@@ -947,6 +948,7 @@ export const createRunnerContext = ({
             };
           }
         },
+        payload.limit,
       );
     },
     agentApi: {

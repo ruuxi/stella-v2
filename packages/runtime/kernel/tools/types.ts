@@ -506,6 +506,7 @@ export type ToolHostOptions = {
     runId?: string;
     prompt: string;
     memorySearchTerms?: string[];
+    limit?: number;
     agentType?: string;
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     signal?: AbortSignal;

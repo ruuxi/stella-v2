@@ -1,8 +1,17 @@
+import {
+  RECALL_DESCRIPTION,
+  RECALL_PARAMETERS,
+  RECALL_CONTEXT_MESSAGES,
+  recallRequest,
+  renderRecallExchanges,
+  type RecallExchange,
+  type RecallMessage,
+} from "@stella/contracts/recall";
+
 /**
  * The orchestrator's memory and scheduling tools.
  *
- * `Remember` and the document half of `Recall` talk straight to the R2 agent
- * home. The transcript half of `Recall` reads through the canonical journal in
+ * `Remember` writes the R2 agent home. `Recall` reads the canonical journal in
  * this conversation's Durable Object. Schedules remain in Convex so owner-wide
  * listing, billing, deletion, and dispatch share one control-plane authority.
  *
@@ -14,7 +23,6 @@ import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import type { TSchema } from "@sinclair/typebox";
 import {
   AgentHomeUnavailableError,
-  buildStartupDocBlock,
   type AgentHome,
   type ProfileAction,
 } from "./agent-home.js";
@@ -58,20 +66,13 @@ export type OrchestratorToolContext = {
  */
 const MIN_EVERY_MINUTES = 15;
 
-const RECALL_DOCUMENT_BUDGET = 6_000;
-const RECALL_DEFAULT_LIMIT = 12;
-const RECALL_MAX_LIMIT = 30;
-const RECALL_TRANSCRIPT_BUDGET = 12_000;
-const RECALL_MESSAGE_MAX_CHARS = 1_500;
-const RECALL_WINDOW_BEFORE = 2;
-const RECALL_WINDOW_AFTER = 2;
-
 export type RecallHit = Readonly<{
   seq: number;
   turnId: string;
   role: string;
   createdAt: number;
   snippet: string;
+  matchTerms?: string[];
   rank: number;
 }>;
 
@@ -79,15 +80,6 @@ type HydratedRecallHit = Readonly<{
   hit: RecallHit;
   records: JournalRecord[];
 }>;
-
-const isoTime = (createdAt: number): string => {
-  if (!Number.isFinite(createdAt)) return "unknown time";
-  try {
-    return new Date(createdAt).toISOString().replace(".000Z", "Z");
-  } catch {
-    return "unknown time";
-  }
-};
 
 const readJson = async (
   response: Response,
@@ -99,37 +91,34 @@ const readJson = async (
   }
 };
 
-const renderHydratedHits = (hydrated: readonly HydratedRecallHit[]): string => {
-  let budget = RECALL_TRANSCRIPT_BUDGET;
-  const blocks: string[] = [];
-  const seen = new Set<number>();
-  for (const { hit, records } of [...hydrated].sort(
-    (left, right) => left.hit.seq - right.hit.seq,
-  )) {
-    const lines = [`[${isoTime(hit.createdAt)}] ${hit.role} #${hit.seq}`];
-    for (const record of [...records].sort(
-      (left, right) => left.seq - right.seq,
-    )) {
-      if (record.kind !== "message" || seen.has(record.seq)) continue;
-      seen.add(record.seq);
-      const text = extractMessageText(record.payload)
-        .replace(/\s+/gu, " ")
-        .trim()
-        .slice(0, RECALL_MESSAGE_MAX_CHARS);
-      if (text) lines.push(`#${record.seq} ${record.role}: ${text}`);
-    }
-    const block = lines.join("\n");
-    const separatorChars = blocks.length > 0 ? 2 : 0;
-    if (block.length + separatorChars <= budget) {
-      blocks.push(block);
-      budget -= block.length + separatorChars;
-      continue;
-    }
-    const remaining = budget - separatorChars;
-    if (remaining > 0) blocks.push(block.slice(0, remaining));
-    break;
-  }
-  return blocks.join("\n\n");
+const renderHydratedHits = (
+  hydrated: readonly HydratedRecallHit[],
+  scope: string,
+  terms: readonly string[],
+): string => {
+  const exchanges: RecallExchange[] = hydrated.map(({ hit, records }) => ({
+    matchedIds: [`${hit.seq}/${hit.turnId}`],
+    messages: records.flatMap((record): RecallMessage[] => {
+      if (
+        record.kind !== "message" ||
+        record.hidden ||
+        (record.role !== "user" && record.role !== "assistant")
+      )
+        return [];
+      return [
+        {
+          scope,
+          id: `${record.seq}/${record.turnId}`,
+          order: record.seq,
+          atMs: record.createdAtMs,
+          role: record.role,
+          text: extractMessageText(record.payload),
+          ...(record.seq === hit.seq ? { matchTerms: hit.matchTerms } : {}),
+        },
+      ];
+    }),
+  }));
+  return renderRecallExchanges(exchanges, terms);
 };
 
 export const createMemoryTools = (
@@ -138,71 +127,12 @@ export const createMemoryTools = (
   {
     name: "Recall",
     label: "Recall",
-    description:
-      "Look up memory and past work that isn't currently in your context. Reads the user's memory documents and searches this conversation's full history for the terms you give. " +
-      'Use it when the user references something from before ("yesterday", "that", "the thing I was doing"), asks about prior work, or the request is ambiguous and earlier context could change the answer. ' +
-      "You do NOT need it for the user's name, location, or stable preferences — those are already in your context from their profile. The result carries a status: found, no_match, or retrieval_error. Do not blindly retry the same lookup after no_match.",
-    parameters: {
-      type: "object",
-      properties: {
-        prompt: {
-          type: "string",
-          description:
-            'What you are trying to find or resolve, in your own words. e.g. "what was the user working on yesterday afternoon".',
-        },
-        memorySearchTerms: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "2-8 concrete search terms from the user's wording: names, project or app names, feature names, dates, file names, error text. These are matched against past conversation text.",
-        },
-        limit: {
-          type: "number",
-          description: `Maximum transcript hits to hydrate. Defaults to ${RECALL_DEFAULT_LIMIT}; capped at ${RECALL_MAX_LIMIT}.`,
-        },
-      },
-      required: ["prompt", "memorySearchTerms"],
-    } as unknown as TSchema,
+    description: RECALL_DESCRIPTION,
+    parameters: RECALL_PARAMETERS as unknown as TSchema,
     codeEligibility: "read_only",
     execute: async (_id, params, signal) => {
       signal?.throwIfAborted();
-      const args = params as {
-        prompt?: string;
-        memorySearchTerms?: unknown;
-        limit?: unknown;
-      };
-      const prompt = args.prompt?.trim() ?? "";
-      if (!prompt) throw new Error("Recall needs a prompt.");
-      const terms = Array.isArray(args.memorySearchTerms)
-        ? args.memorySearchTerms
-            .filter((term): term is string => typeof term === "string")
-            .map((term) => term.trim())
-            .filter(Boolean)
-            .slice(0, 8)
-        : [];
-      if (terms.length === 0) {
-        throw new Error(
-          "memorySearchTerms is required: pass 2-8 concrete terms (names, project names, dates, file names, error text) so the search has something to match.",
-        );
-      }
-      const requestedLimit =
-        typeof args.limit === "number" && Number.isFinite(args.limit)
-          ? Math.trunc(args.limit)
-          : RECALL_DEFAULT_LIMIT;
-      const limit = Math.min(RECALL_MAX_LIMIT, Math.max(1, requestedLimit));
-
-      const documents = await context.agentHome.readDocuments();
-      signal?.throwIfAborted();
-      let documentBudget = RECALL_DOCUMENT_BUDGET;
-      const renderedDocuments: string[] = [];
-      for (const document of documents) {
-        if (document.content.length > documentBudget) continue;
-        documentBudget -= document.content.length;
-        renderedDocuments.push(
-          buildStartupDocBlock(document.displayPath, document.content),
-        );
-      }
-
+      const { terms, limit } = recallRequest(params);
       let hits: RecallHit[] = [];
       let hydrated: HydratedRecallHit[] = [];
       let status: "found" | "no_match" | "retrieval_error" = "no_match";
@@ -210,13 +140,42 @@ export const createMemoryTools = (
       try {
         hits = context.recall.search(terms, limit).slice(0, limit);
         for (const hit of hits) {
-          const records = await context.recall.hydrate(
-            hit.seq,
-            RECALL_WINDOW_BEFORE,
-            RECALL_WINDOW_AFTER,
-          );
+          const records = await context.recall.hydrate(hit.seq, 32, 32);
           signal?.throwIfAborted();
-          hydrated.push({ hit, records });
+          if (
+            !records.some(
+              (record) =>
+                record.seq === hit.seq &&
+                record.turnId === hit.turnId &&
+                record.kind === "message" &&
+                !record.hidden,
+            )
+          ) {
+            throw new Error(
+              "A matching message could not be loaded from the transcript.",
+            );
+          }
+          const visible = records
+            .filter(
+              (record) =>
+                record.kind === "message" &&
+                !record.hidden &&
+                (record.role === "user" || record.role === "assistant") &&
+                extractMessageText(record.payload).trim(),
+            )
+            .sort((a, b) => a.seq - b.seq);
+          hydrated.push({
+            hit,
+            records: [
+              ...visible
+                .filter((record) => record.seq < hit.seq)
+                .slice(-RECALL_CONTEXT_MESSAGES),
+              ...visible.filter((record) => record.seq === hit.seq),
+              ...visible
+                .filter((record) => record.seq > hit.seq)
+                .slice(0, RECALL_CONTEXT_MESSAGES),
+            ],
+          });
         }
         status = hits.length > 0 ? "found" : "no_match";
       } catch (error) {
@@ -230,16 +189,13 @@ export const createMemoryTools = (
             ? `Searching this conversation failed: ${error.message}`
             : "Searching this conversation failed.";
       }
-      if (status === "no_match" && renderedDocuments.length > 0) {
-        status = "found";
-      }
-
       const sections: string[] = [`status: ${status}`];
-      if (renderedDocuments.length > 0) {
-        sections.push(`Memory documents:\n${renderedDocuments.join("\n\n")}`);
-      }
       if (hydrated.length > 0) {
-        const renderedTranscript = renderHydratedHits(hydrated);
+        const renderedTranscript = renderHydratedHits(
+          hydrated,
+          context.conversationId,
+          terms,
+        );
         if (renderedTranscript) {
           sections.push(
             `Conversation transcript matches (${hits.length}):\n${renderedTranscript}`,
@@ -256,7 +212,7 @@ export const createMemoryTools = (
         content: [{ type: "text", text: sections.join("\n\n") }],
         details: {
           status,
-          documentCount: renderedDocuments.length,
+          documentCount: 0,
           matchCount: hits.length,
         },
       };

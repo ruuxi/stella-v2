@@ -101,7 +101,8 @@ describe("TranscriptSearchIndex", () => {
     index.index(searchRow(2, "assistant", "red gap blue cobalt"));
 
     const phrase = index.search(["red blue"], 10);
-    expect(phrase.map((hit) => hit.seq)).toEqual([1]);
+    expect(phrase.map((hit) => hit.seq)).toEqual([1, 2]);
+    expect(index.search(["red blue"], 1).map((hit) => hit.seq)).toEqual([1]);
 
     const fallback = index.search(["red absentword"], 10);
     expect(fallback.map((hit) => hit.seq).sort()).toEqual([1, 2]);
@@ -247,4 +248,17 @@ describe("journal transcript search integration", () => {
         .one().count,
     ).toBe(0);
   });
+});
+
+test("references are scoped and reject replaced or deleted messages", () => {
+  const { index } = openIndex();
+  index.index(searchRow(1, "user", "original"));
+  expect(index.readReference("recall:conv:1%2Fturn-1:0", "other")).toEqual([]);
+  expect(
+    index.readReference("recall:conv:1%2Fturn-1:1500", "conv"),
+  ).toHaveLength(1);
+  index.index(searchRow(1, "user", "replacement", { turnId: "new-turn" }));
+  expect(index.readReference("recall:conv:1%2Fturn-1:0", "conv")).toEqual([]);
+  index.remove(1);
+  expect(index.readReference("recall:conv:1%2Fnew-turn:0", "conv")).toEqual([]);
 });

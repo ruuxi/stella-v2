@@ -1,12 +1,18 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import {
+  parseRecallReference,
+  recallSearchPlan,
+  recallTerms as normalizeMemorySearchTerms,
+  recallLimit,
+  RECALL_CONTEXT_MESSAGES,
+  renderRecallExchanges,
+  type RecallMessage,
+} from "@stella/contracts/recall";
 import { performance } from "node:perf_hooks";
 
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { HostAppBrowserContextSnapshot } from "@stella/contracts/protocol";
 import type { LocalContextEvent } from "../storage/shared.js";
-import { readOptionalTextFile } from "../shared/read-optional-text-file.js";
 import {
   sanitizePromptContext,
   sanitizeToolVisibleText,
@@ -26,7 +32,6 @@ import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
-import { loadLocalPreferences } from "../preferences/local-preferences.js";
 import {
   RecallTelemetryCollector,
   type RecallTelemetryRecord,
@@ -71,11 +76,6 @@ export const resolveRecallSynthesisApiKey = async (
 /** Hard ceiling for assembled Recall evidence, including headings. */
 const RECALL_SEED_MAX_CHARS = 12_000;
 const SEED_TRUNCATION_MARKER = "\n...[seed section truncated]";
-const MAX_MEMORY_SEARCH_TERMS = 12;
-const MAX_MEMORY_SEARCH_TERM_CHARS = 120;
-const MAX_MEMORY_SEARCH_MATCHES = 40;
-const MAX_MEMORY_SEARCH_CONTEXT_LINES = 1;
-const MAX_MEMORY_SEARCH_RESULTS_CHARS = 16_000;
 
 /**
  * Hard cap on rendered thread-search results. The candidate pool is EVERY
@@ -225,13 +225,6 @@ const renderCappedRecallSeed = (
     .join("\n\n");
 };
 
-const escapeAttribute = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
 const asObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -309,54 +302,6 @@ const formatLiveAppBrowserContext = (
     : "No live app or browser-tab snapshot is available.";
 };
 
-const normalizeMemorySearchTerms = (terms?: readonly string[]): string[] => {
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const term of terms ?? []) {
-    const trimmed = term.trim().replace(/\s+/g, " ");
-    if (!trimmed) continue;
-    const capped = trimmed.slice(0, MAX_MEMORY_SEARCH_TERM_CHARS);
-    const key = capped.toLocaleLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    normalized.push(capped);
-    if (normalized.length >= MAX_MEMORY_SEARCH_TERMS) break;
-  }
-  return normalized;
-};
-
-type MemoryFileSource = {
-  displayPath: string;
-  paths: string[];
-  includeByDefault: boolean;
-};
-
-const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
-  {
-    displayPath: "~/.stella/memories/profile.md",
-    paths: [path.join(stellaDataDir, "memories", "profile.md")],
-    includeByDefault: true,
-  },
-  {
-    displayPath: "~/.stella/core-memory.md",
-    paths: [
-      path.join(stellaDataDir, "core-memory.md"),
-      path.join(stellaDataDir, "CORE_MEMORY.MD"),
-    ],
-    includeByDefault: true,
-  },
-];
-
-const readMemorySource = async (
-  source: MemoryFileSource,
-): Promise<string | null> => {
-  for (const candidate of source.paths) {
-    const content = await readOptionalTextFile(candidate);
-    if (content) return content;
-  }
-  return null;
-};
-
 const RECALL_ANCHOR_CONTINUATION_RE = /[\p{L}\p{N}_./-]/u;
 const RECALL_ANCHOR_WORD_RE = /[\p{L}\p{N}_]/u;
 
@@ -412,92 +357,6 @@ const hasRecallBoundaryMatch = (value: string, anchor: string): boolean => {
     fromIndex = index + 1;
   }
   return false;
-};
-
-const lineMatchesTerms = (
-  line: string,
-  normalizedTerms: string[],
-): string[] => {
-  return normalizedTerms.filter((term) => hasRecallBoundaryMatch(line, term));
-};
-
-const formatLineRange = (start: number, end: number): string =>
-  start === end ? String(start) : `${start}-${end}`;
-
-const readMemorySearchResults = async (
-  stellaDataDir: string,
-  searchTerms?: readonly string[],
-): Promise<string> => {
-  const terms = normalizeMemorySearchTerms(searchTerms);
-  if (terms.length === 0) {
-    return "No memory search terms provided.";
-  }
-
-  const blocks: string[] = [
-    `<memory_search terms="${escapeAttribute(terms.join(", "))}">`,
-  ];
-  let matchCount = 0;
-  let truncated = false;
-
-  for (const file of MEMORY_FILE_SOURCES(stellaDataDir)) {
-    const content = await readMemorySource(file);
-    if (!content) continue;
-    const lines = content.split(/\r?\n/);
-    const usedRanges: Array<{ start: number; end: number }> = [];
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const matchedTerms = lineMatchesTerms(lines[index] ?? "", terms);
-      if (matchedTerms.length === 0) continue;
-
-      const start = Math.max(0, index - MAX_MEMORY_SEARCH_CONTEXT_LINES);
-      const end = Math.min(
-        lines.length - 1,
-        index + MAX_MEMORY_SEARCH_CONTEXT_LINES,
-      );
-      const previous = usedRanges[usedRanges.length - 1];
-      if (previous && start <= previous.end) {
-        previous.end = Math.max(previous.end, end);
-        continue;
-      }
-      usedRanges.push({ start, end });
-    }
-
-    for (const range of usedRanges) {
-      if (matchCount >= MAX_MEMORY_SEARCH_MATCHES) {
-        truncated = true;
-        break;
-      }
-      const numbered = lines
-        .slice(range.start, range.end + 1)
-        .map((line, offset) => `${range.start + offset + 1}: ${line}`)
-        .join("\n");
-      const rangeText = formatLineRange(range.start + 1, range.end + 1);
-      blocks.push(
-        [
-          `<match path="${escapeAttribute(file.displayPath)}" lines="${rangeText}">`,
-          sanitizeToolVisibleText(numbered),
-          "</match>",
-        ].join("\n"),
-      );
-      matchCount += 1;
-      if (blocks.join("\n\n").length > MAX_MEMORY_SEARCH_RESULTS_CHARS) {
-        truncated = true;
-        break;
-      }
-    }
-    if (truncated) break;
-  }
-
-  if (matchCount === 0) {
-    blocks.push("No matching memory lines found.");
-  }
-  if (truncated) {
-    blocks.push(
-      `[truncated after ${matchCount} matches; narrow or change the search terms for more precise recall]`,
-    );
-  }
-  blocks.push("</memory_search>");
-  return blocks.join("\n\n");
 };
 
 const formatClockTime = (timestamp: number): string =>
@@ -677,62 +536,7 @@ const formatDurableThreadSummaryResults = (
   ].join("\n");
 };
 
-const MESSAGE_SNIPPET_CHAR_BUDGET = 360;
-
-const formatSnippetDate = (atMs: number): string =>
-  new Date(atMs).toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-
-/** Window a matched transcript text around its first matching token. */
-const buildMessageSnippet = (text: string, tokens: string[]): string => {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= MESSAGE_SNIPPET_CHAR_BUDGET) return collapsed;
-  const lower = collapsed.toLocaleLowerCase();
-  let matchIndex = -1;
-  for (const token of tokens) {
-    const index = lower.indexOf(token.toLocaleLowerCase());
-    if (index !== -1 && (matchIndex === -1 || index < matchIndex)) {
-      matchIndex = index;
-    }
-  }
-  const center = matchIndex === -1 ? 0 : matchIndex;
-  const start = Math.max(
-    0,
-    center - Math.floor(MESSAGE_SNIPPET_CHAR_BUDGET / 2),
-  );
-  const end = Math.min(collapsed.length, start + MESSAGE_SNIPPET_CHAR_BUDGET);
-  return `${start > 0 ? "…" : ""}${collapsed.slice(start, end)}${
-    end < collapsed.length ? "…" : ""
-  }`;
-};
-
-/**
- * How many distinct EPISODES get surrounding-context lines (episode dedupe
- * below keeps same-hour repeat hits from burning slots, so in practice this
- * covers nearly every distinct episode in a 12-result page).
- */
-const MESSAGE_CONTEXT_TOP_HITS = 8;
-const MESSAGE_CONTEXT_LINE_CHAR_BUDGET = 170;
-// The follow-through usually comes AFTER the matched message (ask for
-// directions → go → react, sometimes an hour later), so the exchange
-// window leans hard forward; the store also time-boxes it to the episode.
-const MESSAGE_CONTEXT_BEFORE = 2;
-const MESSAGE_CONTEXT_AFTER = 8;
-// Two hits this close together in one conversation are the same episode —
-// one exchange covers both, so the second hit's slot goes to a new episode.
-const MESSAGE_EPISODE_WINDOW_MS = 45 * 60 * 1000;
-
-/**
- * Search what the user and Stella actually said across all conversations.
- * Relevance decides which hits receive surrounding context; the bounded page
- * renders oldest to newest so episodic evidence remains a readable timeline.
- */
+/** Hydrate and render original exchanges using the policy shared by all Recall adapters. */
 export const formatTranscriptSearchResults = (
   store: Pick<
     ContextLookupStore,
@@ -742,105 +546,58 @@ export const formatTranscriptSearchResults = (
   query: string | undefined,
   limit?: number,
   listNeighborsBatch?: (
-    targets: readonly { conversationId: string; atMs: number }[],
+    targets: readonly {
+      conversationId: string;
+      atMs: number;
+      sequence?: number;
+    }[],
     options?: { before?: number; after?: number; windowMs?: number },
   ) => TranscriptSearchHit[][],
+  searchTerms?: readonly string[],
 ): string => {
-  const cappedLimit = Math.max(1, Math.min(25, Math.floor(limit ?? 12)));
-  const tokens = tokenizeSearchQuery(query ?? "");
-  if (tokens.length === 0) {
-    return "No usable search terms — pass concrete nouns (names, places, file paths, slugs, error text).";
-  }
+  const terms = searchTerms ?? [query ?? ""];
+  if (!parseRecallReference(query ?? "") && !recallSearchPlan(terms))
+    return "No usable search terms — pass concrete names or keywords.";
   const hits = store.searchTranscripts({
     query: query ?? "",
-    limit: cappedLimit,
+    terms,
+    limit: recallLimit(limit),
   });
-  if (hits.length === 0) {
+  if (!hits.length)
     return "Nothing matched in past conversation transcripts. Try fewer/different concrete words.";
-  }
-
-  // Hits arrive relevance-ranked; relevance decides WHICH hits get their
-  // surrounding exchange, but hits inside an already-expanded episode don't
-  // burn a second slot.
-  const expandable = new Set<TranscriptSearchHit>();
-  for (const hit of hits) {
-    if (expandable.size >= MESSAGE_CONTEXT_TOP_HITS) break;
-    const withinExpandedEpisode = [...expandable].some(
-      (other) =>
-        other.conversationId === hit.conversationId &&
-        Math.abs(other.atMs - hit.atMs) <= MESSAGE_EPISODE_WINDOW_MS,
-    );
-    if (withinExpandedEpisode) continue;
-    expandable.add(hit);
-  }
-
-  const expandableHits = [...expandable];
-  let batchedNeighbors: TranscriptSearchHit[][] | undefined;
-  if (listNeighborsBatch && expandableHits.length > 0) {
-    try {
-      batchedNeighbors = listNeighborsBatch(
-        expandableHits.map((hit) => ({
-          conversationId: hit.conversationId,
-          atMs: hit.atMs,
-        })),
-        { before: MESSAGE_CONTEXT_BEFORE, after: MESSAGE_CONTEXT_AFTER },
-      );
-    } catch {
-      batchedNeighbors = undefined;
-    }
-  }
-  const expandableIndex = new Map(
-    expandableHits.map((hit, index) => [hit, index] as const),
+  const message = (hit: TranscriptSearchHit): RecallMessage => ({
+    scope: hit.conversationId,
+    id: hit.id,
+    role: hit.role,
+    atMs: hit.atMs,
+    text: hit.text,
+    order: hit.sequence,
+    matchTerms: hit.matchTerms,
+  });
+  const batched = listNeighborsBatch?.(
+    hits.map((hit) => ({
+      conversationId: hit.conversationId,
+      atMs: hit.atMs,
+      sequence: hit.sequence,
+    })),
+    { before: RECALL_CONTEXT_MESSAGES, after: RECALL_CONTEXT_MESSAGES },
   );
-
-  // Expand a message hit with the surrounding exchange: the matched message
-  // names the thing, but the neighbors are usually the event itself.
-  const renderHit = (hit: TranscriptSearchHit): string => {
-    const sameConversation = hit.conversationId === conversationId;
-    // A short conversation tag (instead of a bare "another conversation")
-    // lets the model tell that several hits came from the SAME earlier
-    // conversation — that co-location is often the story ("that evening").
-    const scope = sameConversation
-      ? "this conversation"
-      : `conversation …${hit.conversationId.slice(-6)}`;
-    const rendered = `- [${formatSnippetDate(hit.atMs)}] ${
-      hit.role === "user" ? "User" : "Stella"
-    } (${scope}): ${sanitizeToolVisibleText(buildMessageSnippet(hit.text, tokens))}`;
-    if (!expandable.has(hit)) return rendered;
-    let neighbors: ReturnType<ContextLookupStore["listTranscriptNeighbors"]>;
-    try {
-      const batchIndex = expandableIndex.get(hit);
-      neighbors =
-        batchIndex !== undefined && batchedNeighbors
-          ? (batchedNeighbors[batchIndex] ?? [])
-          : store.listTranscriptNeighbors({
-              conversationId: hit.conversationId,
-              atMs: hit.atMs,
-              before: MESSAGE_CONTEXT_BEFORE,
-              after: MESSAGE_CONTEXT_AFTER,
-            });
-    } catch {
-      return rendered;
-    }
-    if (neighbors.length === 0) return rendered;
-    const contextLines = neighbors.map((neighbor) => {
-      const collapsed = neighbor.text.replace(/\s+/g, " ").trim();
-      const clipped =
-        collapsed.length <= MESSAGE_CONTEXT_LINE_CHAR_BUDGET
-          ? collapsed
-          : `${collapsed.slice(0, MESSAGE_CONTEXT_LINE_CHAR_BUDGET)}…`;
-      return `    [${formatSnippetDate(neighbor.atMs)}] ${
-        neighbor.role === "user" ? "User" : "Stella"
-      }: ${sanitizeToolVisibleText(clipped)}`;
-    });
-    return [rendered, "  surrounding exchange:", ...contextLines].join("\n");
-  };
-
-  const ordered = [...hits].sort((a, b) => a.atMs - b.atMs);
-  return [
-    "[oldest → newest — read as a timeline]",
-    ...ordered.map(renderHit),
-  ].join("\n");
+  const exchanges = hits.map((hit, index) => {
+    const neighbors =
+      batched?.[index] ??
+      store.listTranscriptNeighbors({
+        conversationId: hit.conversationId,
+        atMs: hit.atMs,
+        sequence: hit.sequence,
+        before: RECALL_CONTEXT_MESSAGES,
+        after: RECALL_CONTEXT_MESSAGES,
+      });
+    return {
+      matchedIds: [message(hit).id],
+      messages: [...neighbors, hit].map(message),
+    };
+  });
+  return renderRecallExchanges(exchanges, terms);
 };
 
 type RecallSourceReference = {
@@ -858,7 +615,11 @@ type RecallReadQueries = {
     reason?: string;
   };
   listTranscriptNeighborsBatch: (
-    targets: readonly { conversationId: string; atMs: number }[],
+    targets: readonly {
+      conversationId: string;
+      atMs: number;
+      sequence?: number;
+    }[],
     options?: { before?: number; after?: number; windowMs?: number },
   ) => TranscriptSearchHit[][];
 };
@@ -1121,6 +882,7 @@ const runArchitecturalRecall = async (args: {
   conversationId: string;
   lookupPrompt: string;
   seedTerms: readonly string[];
+  limit?: number;
   stellaAppDir: string;
   stellaDataDir: string;
   store: RuntimeStore;
@@ -1128,7 +890,6 @@ const runArchitecturalRecall = async (args: {
   appBrowserContext?: HostAppBrowserContextSnapshot;
   resolveRecallRoute: () => Promise<RecallModelRoute>;
   recallReadQueries?: RecallReadQueries;
-  memoryEnabled: boolean;
   telemetry: RecallTelemetryCollector;
   emitTelemetry: (outcome: string) => void;
   onResultMetadata?: (metadata: {
@@ -1139,6 +900,32 @@ const runArchitecturalRecall = async (args: {
   signal?: AbortSignal;
 }): Promise<string> => {
   const intent: RecallIntent = "multi_source";
+  if (args.seedTerms.length === 1 && parseRecallReference(args.seedTerms[0]!)) {
+    args.signal?.throwIfAborted();
+    let result: string;
+    try {
+      result = formatTranscriptSearchResults(
+        args.store,
+        args.conversationId,
+        args.seedTerms[0],
+        1,
+      );
+    } catch (error) {
+      args.signal?.throwIfAborted();
+      throw new RecallRetrievalError(
+        `Reading the transcript reference failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    args.telemetry.setIntent(intent, true);
+    const found = result.startsWith("# Exchange ");
+    args.onResultMetadata?.({
+      intent,
+      fastPath: true,
+      sources: found ? [{ kind: "transcript" }] : [],
+    });
+    args.emitTelemetry(found ? "fast-path" : "no-match");
+    return found ? result : RECALL_NO_MATCH_TEXT;
+  }
   const exactPhrases = extractExactRecallPhrases(args.lookupPrompt);
   args.telemetry.setIntent(intent, false);
 
@@ -1208,25 +995,12 @@ const runArchitecturalRecall = async (args: {
           args.store,
           args.conversationId,
           query,
-          undefined,
+          args.limit,
           args.recallReadQueries?.listTranscriptNeighborsBatch,
+          args.seedTerms,
         ),
       ),
     },
-    ...(args.memoryEnabled
-      ? [
-          {
-            kind: "durable_memory" as const,
-            label: "durable_memory",
-            promise: retrieveSource(
-              "durable_memory",
-              "durableMemory",
-              "file",
-              () => readMemorySearchResults(args.stellaDataDir, args.seedTerms),
-            ),
-          },
-        ]
-      : []),
     {
       kind: "live_context",
       label: "live_context",
@@ -1263,13 +1037,19 @@ const runArchitecturalRecall = async (args: {
     }
   });
 
+  args.signal?.throwIfAborted();
   const assemblyStartedAt = performance.now();
+  const transcripts =
+    evidence.find(
+      (item) =>
+        item.kind === "episodic" && item.value.startsWith("# Exchange "),
+    )?.value ?? "";
   const candidates = mergeAndRankRecallEvidence(
-    evidence,
+    evidence.filter((item) => item.kind !== "episodic"),
     args.seedTerms,
     exactPhrases,
   );
-  if (candidates.length === 0 && failures.length > 0) {
+  if (!transcripts && candidates.length === 0 && failures.length > 0) {
     throw new RecallRetrievalError(
       `Recall retrieval incomplete with no valid evidence: ${failures
         .map(({ label, message }) => `${label}: ${message}`)
@@ -1343,6 +1123,48 @@ const runArchitecturalRecall = async (args: {
       // Resumable metadata is best-effort enrichment. Its failure must not
       // erase ranked evidence already returned by an independent corpus.
     }
+  }
+
+  if (transcripts) {
+    sources.unshift({ kind: "transcript" });
+    args.telemetry.setIntent(intent, true);
+    args.telemetry.setSeedChars(transcripts.length);
+    args.onResultMetadata?.({ intent, fastPath: true, sources });
+    args.emitTelemetry(failures.length ? "partial-fast-path" : "fast-path");
+    // Keep transcript wording and BM25 exchange order intact. Existing task
+    // lookup results are supplemental, never a rewrite of the conversation.
+    const transcriptLines = new Set(
+      transcripts
+        .split("\n")
+        .map((line) =>
+          line
+            .replace(
+              /^- \[[^\]]+\] (?:User|Stella) \(messageRef=[^)]*\):\s*/u,
+              "",
+            )
+            .trim(),
+        ),
+    );
+    const supplemental = candidates.length
+      ? evidenceText
+          .split("\n")
+          .map((line) => {
+            const detail = line.match(
+              /^\s*(?:description|summary|result|error):\s*(.+)$/u,
+            );
+            return detail && transcriptLines.has(detail[1]!)
+              ? "  [See original transcript above.]"
+              : line;
+          })
+          .join("\n")
+      : failureNotice;
+    const remaining = Math.max(
+      0,
+      UNIFIED_RECALL_EVIDENCE_MAX_CHARS - transcripts.length - 2,
+    );
+    return [transcripts, supplemental.slice(0, remaining)]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   if (candidates.length === 0) {
@@ -1473,6 +1295,7 @@ export const runRecall = async (args: {
   conversationId: string;
   lookupPrompt: string;
   memorySearchTerms?: readonly string[];
+  limit?: number;
   stellaAppDir: string;
   stellaDataDir: string;
   store: RuntimeStore;
@@ -1489,8 +1312,6 @@ export const runRecall = async (args: {
   }) => void;
   signal?: AbortSignal;
 }): Promise<string> => {
-  const memoryEnabled =
-    loadLocalPreferences(args.stellaDataDir).memoryEnabled !== false;
   const telemetry = new RecallTelemetryCollector(args.telemetry);
   let telemetryEmitted = false;
   const emitTelemetry = (outcome: string): void => {
@@ -1506,16 +1327,15 @@ export const runRecall = async (args: {
   };
   // The Recall tool requires search terms; for callers that still omit
   // them, tokenizing the lookup prompt keeps deterministic retrieval useful.
-  const seedTerms = normalizeMemorySearchTerms(
-    args.memorySearchTerms?.length
-      ? args.memorySearchTerms
-      : tokenizeSearchQuery(args.lookupPrompt),
-  );
+  const seedTerms = args.memorySearchTerms?.length
+    ? args.memorySearchTerms
+    : tokenizeSearchQuery(args.lookupPrompt);
   try {
     return await runArchitecturalRecall({
       conversationId: args.conversationId,
       lookupPrompt: args.lookupPrompt,
       seedTerms,
+      limit: args.limit,
       stellaAppDir: args.stellaAppDir,
       stellaDataDir: args.stellaDataDir,
       store: args.store,
@@ -1529,7 +1349,6 @@ export const runRecall = async (args: {
         : {}),
       telemetry,
       emitTelemetry,
-      memoryEnabled,
       ...(args.onResultMetadata
         ? { onResultMetadata: args.onResultMetadata }
         : {}),

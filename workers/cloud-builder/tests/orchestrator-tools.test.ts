@@ -277,13 +277,13 @@ describe("orchestrator tools", () => {
             return hits;
           },
           hydrate: async (seq) => {
-            const recordSeq = seq <= 11 ? 9 : seq;
-            const marker = seq <= 11 ? "shared" : String(seq);
+            const recordSeq = seq;
+            const marker = String(seq);
             return [
               {
                 seq: recordSeq,
                 kind: "message" as const,
-                turnId: `turn-${seq}`,
+                turnId: `turn-${seq - 10}`,
                 createdAtMs: Date.UTC(2026, 0, 1),
                 role: "assistant" as const,
                 hidden: false,
@@ -311,11 +311,59 @@ describe("orchestrator tools", () => {
       result.content[0]?.type === "text" ? result.content[0].text : "";
 
     expect(limits).toEqual([12]);
-    expect(text).toContain("[2026-01-01T00:00:00Z] assistant #10");
-    expect(text).toContain("hydrated detail shared");
-    expect(text.match(/hydrated detail shared/gu)).toHaveLength(1);
+    expect(text).toContain(
+      "[2026-01-01T00:00:00.000Z] Stella (messageRef=recall:conversation-1:10%2Fturn-0:0)",
+    );
+    expect(text).toContain("hydrated detail 10");
+    expect(text.match(/hydrated detail 10/gu)).toHaveLength(1);
     expect(text).not.toContain("digest-only snippet");
     expect(text.length).toBeLessThanOrEqual(12_100);
     expect(result.details).toMatchObject({ status: "found", matchCount: 12 });
   });
+});
+
+test("Recall never reads profile documents or counts them as transcript matches", async () => {
+  const recall = createMemoryTools(
+    context({
+      agentHome: {
+        async readDocuments() {
+          throw new Error("Recall must not read documents already in context");
+        },
+      } as unknown as AgentHome,
+    }),
+  ).find((tool) => tool.name === "Recall")!;
+  const result = await recall.execute("empty", {
+    prompt: "old choice",
+    memorySearchTerms: ["choice"],
+  });
+  expect(result.details).toMatchObject({
+    status: "no_match",
+    documentCount: 0,
+    matchCount: 0,
+  });
+});
+
+test("Recall reports missing canonical messages as retrieval errors", async () => {
+  const recall = createMemoryTools(
+    context({
+      recall: {
+        search: () => [
+          {
+            seq: 1,
+            turnId: "missing",
+            role: "user",
+            createdAt: 1000,
+            snippet: "stale",
+            rank: -1,
+          },
+        ],
+        hydrate: async () => [],
+      },
+    }),
+  ).find((tool) => tool.name === "Recall")!;
+  const result = await recall.execute("missing", {
+    prompt: "old choice",
+    memorySearchTerms: ["choice"],
+  });
+  expect(result.details).toMatchObject({ status: "retrieval_error" });
 });

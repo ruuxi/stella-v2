@@ -1,3 +1,4 @@
+import { parseRecallReference, recallLimit } from "@stella/contracts/recall";
 export type RecallLookupStatus =
   | "found"
   | "no_match"
@@ -25,11 +26,22 @@ const normalizeLookupPart = (value: string): string =>
 export const buildRecallLookupCacheKey = (
   prompt: string,
   memorySearchTerms: readonly string[] | undefined,
+  limit?: number,
 ): string => {
-  const terms = [...new Set((memorySearchTerms ?? []).map(normalizeLookupPart))]
+  const terms = [
+    ...new Set(
+      (memorySearchTerms ?? []).map((term) =>
+        parseRecallReference(term) ? term.trim() : normalizeLookupPart(term),
+      ),
+    ),
+  ]
     .filter(Boolean)
     .sort();
-  return JSON.stringify([normalizeLookupPart(prompt), terms]);
+  return JSON.stringify([
+    normalizeLookupPart(prompt),
+    terms,
+    recallLimit(limit),
+  ]);
 };
 
 const isRecallLookupError = (result: RecallLookupResult): boolean =>
@@ -51,6 +63,7 @@ export class RecallRunCache {
     prompt: string,
     memorySearchTerms: readonly string[] | undefined,
     create: () => Promise<RecallLookupResult>,
+    limit?: number,
   ): Promise<RecallLookupResult> {
     let entries = this.#runs.get(runId);
     if (!entries) {
@@ -64,7 +77,7 @@ export class RecallRunCache {
         this.#runs.delete(oldestRunId);
       }
     }
-    const key = buildRecallLookupCacheKey(prompt, memorySearchTerms);
+    const key = buildRecallLookupCacheKey(prompt, memorySearchTerms, limit);
     const existing = entries.get(key);
     if (existing) {
       return { ...(await existing), cached: true };

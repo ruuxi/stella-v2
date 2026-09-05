@@ -50,7 +50,8 @@ export const readRecallFtsHealth = (db: SqliteDatabase): RecallFtsHealth => {
       : undefined;
     const transcriptReady =
       tables.has("entry_fts") && indexed && !transcriptProbeError;
-    const threadsReady = tables.has("thread_fts") && indexed && !threadProbeError;
+    const threadsReady =
+      tables.has("thread_fts") && indexed && !threadProbeError;
     return {
       healthy: transcriptReady && threadsReady,
       transcriptReady,
@@ -89,6 +90,7 @@ export const readRecallFtsHealth = (db: SqliteDatabase): RecallFtsHealth => {
 export type TranscriptNeighborTarget = {
   conversationId: string;
   atMs: number;
+  sequence?: number;
 };
 
 /** Expand every selected transcript hit with one SQL statement. */
@@ -100,6 +102,31 @@ export const listTranscriptNeighborsBatch = (
   if (targets.length === 0) return [];
   const before = Math.max(0, Math.min(8, Math.floor(options?.before ?? 2)));
   const after = Math.max(0, Math.min(10, Math.floor(options?.after ?? 2)));
+  if (targets.every((target) => target.sequence !== undefined)) {
+    const params: unknown[] = [];
+    const selects = targets.flatMap((target, index) =>
+      [
+        { op: "<", order: "DESC", count: before },
+        { op: ">", order: "ASC", count: after },
+      ].map((side) => {
+        params.push(target.conversationId, target.sequence, side.count);
+        return `SELECT ${index} AS targetIndex, * FROM (SELECT id, seq AS sequence,
+        conversation_id AS conversationId, role, created_at AS atMs, search_text AS text
+        FROM entry WHERE conversation_id = ? AND visible = 1
+          AND role IN ('user', 'assistant') AND search_text IS NOT NULL AND seq ${side.op} ?
+        ORDER BY seq ${side.order} LIMIT ?)`;
+      }),
+    );
+    const rows = db
+      .prepare(selects.join(" UNION ALL "))
+      .all(...params) as Array<TranscriptSearchHit & { targetIndex: number }>;
+    return targets.map((_, index) =>
+      rows
+        .filter((row) => row.targetIndex === index)
+        .map(({ targetIndex: _, ...hit }) => hit)
+        .sort((a, b) => a.sequence! - b.sequence!),
+    );
+  }
   const windowMs = Math.max(60_000, options?.windowMs ?? 2 * 60 * 60 * 1000);
   const values = targets.map(() => "(?, ?, ?)").join(", ");
   const params = targets.flatMap((target, index) => [
@@ -110,6 +137,8 @@ export const listTranscriptNeighborsBatch = (
   type Row = {
     targetIndex: number;
     conversationId: string;
+    id: string;
+    sequence: number;
     role: string;
     atMs: number;
     text: unknown;
@@ -121,6 +150,7 @@ export const listTranscriptNeighborsBatch = (
        ), ranked AS (
          SELECT
            targets.target_index AS targetIndex,
+           entry.id, entry.seq AS sequence,
            entry.conversation_id AS conversationId,
            entry.role AS role,
            entry.created_at AS atMs,
@@ -137,7 +167,7 @@ export const listTranscriptNeighborsBatch = (
            AND entry.created_at != targets.target_ms
            AND entry.created_at BETWEEN targets.target_ms - ? AND targets.target_ms + ?
        )
-       SELECT targetIndex, conversationId, role, atMs, text
+       SELECT targetIndex, id, sequence, conversationId, role, atMs, text
        FROM ranked
        WHERE (side = 'before' AND distanceRank <= ?)
           OR (side = 'after' AND distanceRank <= ?)
@@ -150,6 +180,8 @@ export const listTranscriptNeighborsBatch = (
     if (!text || !grouped[row.targetIndex]) continue;
     grouped[row.targetIndex]!.push({
       conversationId: row.conversationId,
+      id: row.id,
+      sequence: row.sequence,
       role: row.role === "assistant" ? "assistant" : "user",
       atMs: row.atMs,
       text,

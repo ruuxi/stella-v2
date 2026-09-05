@@ -2002,6 +2002,9 @@ export class Journal {
     terms: readonly string[],
     limit: number,
   ): TranscriptSearchHit[] {
+    if (terms.length === 1 && terms[0]?.startsWith("recall:")) {
+      return this.transcriptSearch.readReference(terms[0], this.meta().conversation_id ?? "");
+    }
     return this.transcriptSearch.search(terms, limit);
   }
 

@@ -1,3 +1,11 @@
+import {
+  parseRecallReference,
+  recallMatchedTerms,
+  recallLimit,
+  recallSearchPlan,
+  shouldBroadenRecall,
+} from "@stella/contracts/recall";
+
 /**
  * Full-text search for a transcript stored in the same Durable Object SQLite.
  *
@@ -9,10 +17,6 @@
 export const DEFAULT_TRANSCRIPT_SEARCH_TABLE = "journal_fts";
 
 const INDEXED_TEXT_MAX_BYTES = 64 * 1024;
-const SEARCH_LIMIT_MAX = 30;
-const SEARCH_TERM_MAX_CHARS = 512;
-const SEARCH_TERM_MAX_COUNT = 30;
-
 export type TranscriptSearchRow = Readonly<{
   seq: number;
   turnId: string;
@@ -29,6 +33,7 @@ export type TranscriptSearchHit = Readonly<{
   role: string;
   createdAt: number;
   snippet: string;
+  matchTerms?: string[];
   rank: number;
 }>;
 
@@ -86,23 +91,6 @@ const capUtf8 = (value: string, maxBytes: number): string => {
     .replace(/\uFFFD$/u, "");
 };
 
-const sanitizedTerms = (terms: readonly string[]): string[] =>
-  terms
-    .filter((term): term is string => typeof term === "string")
-    .map((term) =>
-      collapseWhitespace(term.replace(/[\u0000-\u001F\u007F]/gu, " ")).slice(
-        0,
-        SEARCH_TERM_MAX_CHARS,
-      ),
-    )
-    .filter(Boolean)
-    .slice(0, SEARCH_TERM_MAX_COUNT);
-
-const quotedPhrase = (term: string): string => `"${term.replace(/"/gu, '""')}"`;
-
-const matchExpression = (terms: readonly string[]): string =>
-  terms.map(quotedPhrase).join(" OR ");
-
 export class TranscriptSearchIndex {
   private readonly table: string;
 
@@ -147,22 +135,47 @@ export class TranscriptSearchIndex {
   }
 
   search(terms: readonly string[], limit: number): TranscriptSearchHit[] {
-    const phrases = sanitizedTerms(terms);
-    if (phrases.length === 0) return [];
-    const cappedLimit = Math.min(
-      SEARCH_LIMIT_MAX,
-      Math.max(1, Number.isFinite(limit) ? Math.trunc(limit) : 1),
-    );
-    const phraseHits = this.runSearch(matchExpression(phrases), cappedLimit);
-    if (phraseHits.length > 0) return phraseHits;
-    const words = [
-      ...new Set(
-        phrases.flatMap((phrase) => phrase.match(/[\p{L}\p{N}_]+/gu) ?? []),
-      ),
-    ];
-    return words.length > 0
-      ? this.runSearch(matchExpression(words), cappedLimit)
-      : [];
+    const plan = recallSearchPlan(terms);
+    if (!plan) return [];
+    const cappedLimit = recallLimit(limit);
+    const phraseHits = this.runSearch(plan.phrase, cappedLimit);
+    return plan.broad !== plan.phrase &&
+      shouldBroadenRecall(phraseHits.length, cappedLimit)
+      ? this.runSearch(plan.broad, cappedLimit)
+      : phraseHits;
+  }
+
+  /** Only indexed, visible messages can resolve a reference. */
+  readReference(value: string, scope: string): TranscriptSearchHit[] {
+    const ref = parseRecallReference(value);
+    if (!ref || ref.scope !== scope) return [];
+    const slash = ref.id.indexOf("/");
+    const seq = Number(ref.id.slice(0, slash));
+    const turnId = ref.id.slice(slash + 1);
+    if (slash < 1 || !Number.isSafeInteger(seq) || seq < 0 || !turnId)
+      return [];
+    return this.sql
+      .exec<{
+        seq: number;
+        turn_id: string;
+        role: string;
+        created_at: number;
+        snippet: string;
+      }>(
+        `SELECT rowid AS seq, turn_id, role, created_at, substr(text, 1, 200) AS snippet
+       FROM ${this.table} WHERE rowid = ? AND turn_id = ?`,
+        seq,
+        turnId,
+      )
+      .toArray()
+      .map((row) => ({
+        seq: row.seq,
+        turnId: row.turn_id,
+        role: row.role,
+        createdAt: row.created_at,
+        snippet: row.snippet,
+        rank: 0,
+      }));
   }
 
   count(): number {
@@ -182,7 +195,7 @@ export class TranscriptSearchIndex {
         rank: number;
       }>(
         `SELECT rowid AS seq, turn_id, role, created_at,
-                snippet(${this.table}, 0, '', '', '…', 24) AS snippet,
+                snippet(${this.table}, 0, char(1), char(2), '…', 24) AS snippet,
                 bm25(${this.table}) AS rank
            FROM ${this.table}
           WHERE ${this.table} MATCH ?
@@ -197,7 +210,8 @@ export class TranscriptSearchIndex {
         turnId: row.turn_id,
         role: row.role,
         createdAt: row.created_at,
-        snippet: row.snippet,
+        snippet: row.snippet.replace(/[\u0001\u0002]/gu, ""),
+        matchTerms: recallMatchedTerms(row.snippet),
         rank: row.rank,
       }));
   }

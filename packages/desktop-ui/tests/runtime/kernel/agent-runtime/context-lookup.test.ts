@@ -132,11 +132,19 @@ describe("formatThreadSearchResults", () => {
 describe("formatTranscriptSearchResults", () => {
   const makeStore = (messageHits: unknown[], neighbors: unknown[] = []) =>
     ({
-      searchTranscripts: () => messageHits,
-      listTranscriptNeighbors: () => neighbors,
+      searchTranscripts: () =>
+        messageHits.map((hit, index) => ({
+          ...(hit as object),
+          id: `hit-${index}`,
+        })),
+      listTranscriptNeighbors: () =>
+        neighbors.map((hit, index) => ({
+          ...(hit as object),
+          id: `neighbor-${index}`,
+        })),
     }) as unknown as Parameters<typeof formatTranscriptSearchResults>[0];
 
-  it("renders dated snippets with conversation scope, oldest → newest", () => {
+  it("keeps exchanges in relevance order with dated, scoped message references", () => {
     const now = Date.now();
     const out = formatTranscriptSearchResults(
       makeStore([
@@ -157,14 +165,14 @@ describe("formatTranscriptSearchResults", () => {
       "conv-1",
       "emira saguaro",
     );
-    expect(out).toContain("[oldest → newest — read as a timeline]");
-    // Older message renders FIRST even though the newer one ranked higher.
-    expect(out.indexOf("emira day")).toBeLessThan(
+    expect(out).toContain("# Exchange 1 (messages oldest to newest)");
+    // Distinct exchanges retain BM25 order. Messages within each exchange are chronological.
+    expect(out.indexOf("emira day")).toBeGreaterThan(
       out.indexOf("took the Emira out to Saguaro Lake"),
     );
-    expect(out).toMatch(/User \(this conversation\): emira day/);
+    expect(out).toMatch(/User \(messageRef=recall:conv-1:hit-1:0\): emira day/);
     expect(out).toMatch(
-      /Stella \(conversation …nv-old\): took the Emira out to Saguaro Lake/,
+      /Stella \(messageRef=recall:conv-old:hit-0:0\): took the Emira out to Saguaro Lake/,
     );
   });
 
@@ -198,9 +206,13 @@ describe("formatTranscriptSearchResults", () => {
       "conv-1",
       "saguaro marina",
     );
-    expect(out).toContain("surrounding exchange:");
-    expect(out).toMatch(/\[[^\]]+\] User: Give me address so I can tap/);
-    expect(out).toMatch(/\[[^\]]+\] User: damn i love the car/);
+    expect(out).toContain("# Exchange 1");
+    expect(out).toMatch(
+      /\[[^\]]+\] User \(messageRef=[^)]+\): Give me address so I can tap/,
+    );
+    expect(out).toMatch(
+      /\[[^\]]+\] User \(messageRef=[^)]+\): damn i love the car/,
+    );
   });
 
   it("windows long message texts around the first matching token", () => {
@@ -220,7 +232,8 @@ describe("formatTranscriptSearchResults", () => {
     expect(out).toContain("emira felt amazing");
     expect(out).toContain("…");
     // Snippet stays bounded instead of dumping the whole message.
-    expect(out.length).toBeLessThan(800);
+    expect(out.length).toBeLessThan(1800);
+    expect(out).toContain("next: recall:");
   });
 
   it("explains empty results and unusable queries", () => {

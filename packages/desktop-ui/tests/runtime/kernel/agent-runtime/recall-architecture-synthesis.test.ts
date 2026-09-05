@@ -45,10 +45,12 @@ afterEach(async () => {
   );
 });
 
-const makeStore = (transcripts: unknown[]) =>
+const makeStore = (transcripts: Record<string, unknown>[]) =>
   ({
     searchThreads: vi.fn(() => []),
-    searchTranscripts: vi.fn(() => transcripts),
+    searchTranscripts: vi.fn(() =>
+      transcripts.map((hit, index) => ({ ...hit, id: `message-${index}` })),
+    ),
     listTranscriptNeighbors: vi.fn(() => []),
     listAgentAssistantMessages: vi.fn(() => []),
     listThreadResultExcerpts: vi.fn(() => new Map()),
@@ -83,8 +85,8 @@ const credentiallessRoute = () =>
     },
   }) as never;
 
-describe("architectural Recall synthesis returns a model brief", () => {
-  it("reaches the model on a credentialless local route and returns the synthesized brief", async () => {
+describe("Recall preserves original transcript evidence", () => {
+  it("returns original exchanges without requiring a credentialless model", async () => {
     const root = await createRoot();
     streamMock.completeSimple.mockResolvedValue({ stopReason: "stop" });
 
@@ -123,28 +125,12 @@ describe("architectural Recall synthesis returns a model brief", () => {
       },
     });
 
-    // The synthesized brief was returned — Recall genuinely produced an answer.
     expect(brief).toContain("blue Lotus");
-    expect(streamMock.completeSimple).toHaveBeenCalledTimes(1);
-
-    // Credentialless route: no apiKey sent, and reasoning omitted (off/none)
-    // because the local model does not support a reasoning/effort setting.
-    // Recall also sends NEITHER temperature NOR a max-tokens cap — provider
-    // defaults govern both (Codex's responses API rejects `temperature`).
-    const options = streamMock.completeSimple.mock.calls[0]?.[2] as Record<
-      string,
-      unknown
-    >;
-    expect(options.apiKey).toBeUndefined();
-    expect(options.reasoning).toBeUndefined();
-    expect(options.temperature).toBeUndefined();
-    expect(options.maxTokens).toBeUndefined();
-    // Explicit omission mode so the serialized provider request carries no
-    // max-tokens field at all (no model-derived default downstream).
-    expect(options.omitMaxTokens).toBe(true);
+    expect(brief).toContain("messageRef=recall:");
+    expect(streamMock.completeSimple).not.toHaveBeenCalled();
   });
 
-  it("sends LOW reasoning and the key for a keyed model that supports effort", async () => {
+  it("does not rewrite transcript results through a keyed model", async () => {
     const root = await createRoot();
     streamMock.completeSimple.mockResolvedValue({ stopReason: "stop" });
 
@@ -204,11 +190,7 @@ describe("architectural Recall synthesis returns a model brief", () => {
     });
 
     expect(brief).toContain("blue Lotus");
-    const options = streamMock.completeSimple.mock.calls[0]?.[2] as Record<
-      string,
-      unknown
-    >;
-    expect(options.apiKey).toBe("sk-or-key");
-    expect(options.reasoning).toBe("low");
+    expect(brief).toContain("messageRef=recall:");
+    expect(streamMock.completeSimple).not.toHaveBeenCalled();
   });
 });

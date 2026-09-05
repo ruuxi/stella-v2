@@ -100,6 +100,7 @@ export const createConvexClient = (
     method: "GET" | "POST",
     payload?: unknown,
   ): Promise<ConvexResult<T>> => {
+    const startedAt = performance.now();
     let response: Response;
     try {
       response = await fetchImpl(`${origin}${path}`, {
@@ -123,8 +124,10 @@ export const createConvexClient = (
         code: null,
       };
     }
+    const headersMs = performance.now() - startedAt;
     let body: unknown = null;
     const text = await response.text();
+    const bodyMs = performance.now() - startedAt - headersMs;
     if (text) {
       try {
         body = JSON.parse(text) as unknown;
@@ -132,6 +135,8 @@ export const createConvexClient = (
         body = text;
       }
     }
+    if (path === CONVEX_GATEWAY_CONFIG_PATH) console.info(JSON.stringify({ event: "gateway_config_transport_timing",
+      status: response.status, headersMs, bodyMs, parseMs: performance.now() - startedAt - headersMs - bodyMs }));
     if (response.ok) {
       return { ok: true, status: response.status, body: body as T };
     }

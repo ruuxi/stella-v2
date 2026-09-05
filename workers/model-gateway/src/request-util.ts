@@ -12,7 +12,7 @@ export type GatewayDeps = {
   waitUntil: (promise: Promise<unknown>) => void;
 };
 
-export const defaultDeps = (ctx: ExecutionContext): GatewayDeps => ({
+export const defaultDeps = (ctx: Pick<ExecutionContext, "waitUntil">): GatewayDeps => ({
   fetch: globalThis.fetch.bind(globalThis),
   now: Date.now,
   waitUntil: (promise) => ctx.waitUntil(promise),

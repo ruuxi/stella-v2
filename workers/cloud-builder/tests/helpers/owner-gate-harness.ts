@@ -18,6 +18,9 @@ import type {
   DevicePresenceServerFrame,
 } from "@stella/contracts/turn-plane/placement";
 import { DEVICE_PRESENCE_PROOF_PREFIX } from "@stella/contracts/turn-plane/placement";
+import type { AdmittedCloudChat, CloudChatPreparation } from "../../src/cloud-chat-admission.js";
+import type { CloudTurnStartRequest } from "@stella/contracts/turn-plane/turn-start";
+import { OwnerFenceStore } from "../../src/owner-fence-store.js";
 
 export type FakeSocket = {
   sent: DevicePresenceServerFrame[];
@@ -99,6 +102,7 @@ export const generateDeviceKey = async (
 };
 
 export type ForwardedCall = {
+  authority?: AdmittedCloudChat;
   namespace: "orchestrator" | "build";
   name: string;
   url: string;
@@ -107,6 +111,8 @@ export type ForwardedCall = {
 };
 
 export type GateHarness = {
+  values: Map<string, unknown>;
+  activeLeaseIds(): string[];
   instance: Record<string, unknown> & {
     admit: (input: unknown) => Promise<unknown>;
     release: (input: { turnId: string }) => Promise<void>;
@@ -153,7 +159,7 @@ export const createGateHarness = (
   options: {
     ownerId?: string;
     snapshot?: OwnerSnapshot;
-    respond?: (call: ForwardedCall) => Response;
+    respond?: (call: ForwardedCall) => Response | Promise<Response>;
     enqueue?: (events: OutboxEvent[]) => Promise<void>;
   } = {},
 ): GateHarness => {
@@ -174,7 +180,7 @@ export const createGateHarness = (
           ? {
               protocol: 1,
               conversationId: call.name,
-              turnId: `turn-${call.name}`,
+              turnId: call.authority?.turnId ?? `turn-${call.name}`,
               accepted: true,
               replayed: false,
               createdConversation: false,
@@ -191,7 +197,15 @@ export const createGateHarness = (
       ));
 
   const namespace = (kind: "orchestrator" | "build") => ({
+    idFromName: (name: string) => ({ toString: () => name }),
     getByName: (name: string) => ({
+      startAdmittedChat: async (body: CloudTurnStartRequest, authority: AdmittedCloudChat, _preparation: CloudChatPreparation) => {
+        const call: ForwardedCall = { namespace: kind, name, url: "https://orchestrator-session/turn",
+          headers: { "content-type": "application/json", "x-stella-owner": authority.ownerId,
+            "x-stella-turn-auth": "service", "x-stella-conversation-id": name, "x-stella-owner-generation": authority.ownerGeneration }, body, authority };
+        forwarded.push(call);
+        return respond(call);
+      },
       fetch: async (input: string | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.url;
         const headers: Record<string, string> = {};
@@ -227,13 +241,15 @@ export const createGateHarness = (
       alarms.length = 0;
     },
   };
+  const transactionalStorage = { ...storage, transaction: async <T>(work: (transaction: typeof storage) => Promise<T>) => work(storage) };
 
   const instance = Object.create(
     (OwnerGate as unknown as { prototype: object }).prototype,
   ) as GateHarness["instance"];
   Object.assign(instance, {
     ctx: {
-      storage,
+      storage: transactionalStorage,
+      blockConcurrencyWhile: async <T>(work: () => Promise<T>) => work(),
       id: { name: ownerId, toString: () => ownerId },
       acceptWebSocket: (socket: FakeSocket, tags: string[] = []) => {
         tagged.push({ socket, tags });
@@ -274,6 +290,8 @@ export const createGateHarness = (
 
   return {
     instance,
+    values,
+    activeLeaseIds: () => { const store = new OwnerFenceStore(sqlFake.sql); store.initialize(); return store.activeLeases().map(lease => lease.leaseId); },
     get sockets() {
       return tagged.map((entry) => entry.socket);
     },

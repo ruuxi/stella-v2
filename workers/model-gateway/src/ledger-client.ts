@@ -1,4 +1,7 @@
 import type { GatewayCapabilityClaims } from "@stella/contracts/gateway/capability";
+import type { OwnerRelayGate } from "./gates/owner-relay-gate.js";
+
+export type OwnerRelayAccounting = Pick<OwnerRelayGate, "admitRelay" | "admitAndReserve" | "settleCapability" | "releaseRelay">;
 import type {
   LedgerReserveArgs,
   LedgerReserveResult,
@@ -15,9 +18,10 @@ export type CapabilityLedgerClient = {
 export const capabilityLedgerClient = (
   env: Env,
   claims: GatewayCapabilityClaims,
+  localOwner?: OwnerRelayAccounting,
 ): CapabilityLedgerClient => {
   if (claims.ledgerScope === "owner-relay-v2") {
-    const gate = env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(claims.sub));
+    const gate = localOwner ?? env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(claims.sub));
     return {
       reserve: async () => { throw new Error("owner-relay-v2 requires atomic admission and reservation"); },
       settle: async (args) => await gate.settleCapability({ ...args, jti: claims.jti, generation: claims.gen }),

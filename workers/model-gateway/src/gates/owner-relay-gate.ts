@@ -1,4 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
+import { handleRequest } from "../router.js";
+import { getGatewayConfig } from "../config-cache.js";
+import { createConvexClient } from "../convex-client.js";
 import {
   GATEWAY_OWNER_RELAY_LIMITS,
   GATEWAY_THROTTLED_LIMIT_SHARE,
@@ -70,6 +73,17 @@ export class OwnerRelayGate extends DurableObject<Env> {
     void ctx.blockConcurrencyWhile(async () => {
       for (const statement of SCHEMA) this.ctx.storage.sql.exec(statement);
     });
+  }
+
+  override fetch(request: Request): Promise<Response> {
+    return handleRequest(request, this.env, this.ctx, undefined, {
+      matchesOwner: ownerId => this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() === this.ctx.id.toString(),
+      accounting: this,
+    });
+  }
+
+  async prepare(): Promise<void> {
+    await getGatewayConfig(createConvexClient(this.env), work => this.ctx.waitUntil(work));
   }
 
   async admitRelay(args: {

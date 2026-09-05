@@ -100,7 +100,7 @@ describe("dispatch submission", () => {
         return Response.json({
           protocol: 1,
           conversationId: call.name,
-          turnId: "turn-1",
+          turnId: call.authority!.turnId,
           accepted: true,
           replayed: false,
           createdConversation: false,
@@ -175,20 +175,20 @@ describe("dispatch submission", () => {
   test("cloud completion survives early delivery, replay, and generation fencing", async () => {
     const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
     const snapshot = snapshotWith([]);
-    await harness.instance.recordCloudDispatchTerminal({
-      ownerGeneration: snapshot.ownerGeneration, turnId: "turn-conversation-1",
-      outcome: "completed", resultJson: JSON.stringify({ finalText: "Hello!" }),
-    });
     const admitted = await withNow(NOW, () => harness.instance.submit({
       request: submitBody({ requestingDeviceId: undefined }), now: NOW,
     }));
+    await harness.instance.recordCloudDispatchTerminal({
+      ownerGeneration: snapshot.ownerGeneration, turnId: harness.forwarded[0]!.authority!.turnId,
+      outcome: "completed", resultJson: JSON.stringify({ finalText: "Hello!" }),
+    });
     const id = admitted.response.dispatch.dispatchId;
     const completed = await harness.instance.dispatchStatus(id);
     expect(completed.response.dispatch).toMatchObject({
       state: "completed", resultJson: JSON.stringify({ finalText: "Hello!" }),
     });
     await harness.instance.recordCloudDispatchTerminal({
-      ownerGeneration: snapshot.ownerGeneration, turnId: "turn-conversation-1",
+      ownerGeneration: snapshot.ownerGeneration, turnId: harness.forwarded[0]!.authority!.turnId,
       outcome: "failed", errorMessage: "late duplicate",
     });
     const replay = await harness.instance.dispatchStatus(id);
@@ -201,7 +201,7 @@ describe("dispatch submission", () => {
       request: submitBody({ requestingDeviceId: undefined }), now: NOW,
     }));
     await harness.instance.recordCloudDispatchTerminal({
-      ownerGeneration: "retired-generation", turnId: "turn-conversation-1",
+      ownerGeneration: "retired-generation", turnId: harness.forwarded[0]!.authority!.turnId,
       outcome: "completed", resultJson: "{}",
     });
     const status = await harness.instance.dispatchStatus(admitted.response.dispatch.dispatchId);
@@ -222,7 +222,7 @@ describe("dispatch submission", () => {
       placement: "cloud",
       subject: "portable",
       fallbackReason: "no-eligible-paired-computer",
-      cloudTurnId: "turn-conversation-1",
+      cloudTurnId: harness.forwarded[0]!.authority!.turnId,
     });
   });
 
@@ -370,7 +370,7 @@ describe("dispatch submission", () => {
     expect((await harness.instance.status(NOW)).running).toHaveLength(1);
   });
 
-  test("a chat dispatch takes no admission here: the conversation object owns it", async () => {
+  test("a cloud chat dispatch admits each exact turn once in the owner gate", async () => {
     const harness = open(OwnerGate);
     for (let index = 0; index < 3; index += 1) {
       const result = await withNow(NOW, () =>
@@ -387,7 +387,7 @@ describe("dispatch submission", () => {
     }
     expect(harness.forwarded).toHaveLength(3);
     const status = await harness.instance.status(NOW);
-    expect(status.running).toHaveLength(0);
+    expect(status.running).toHaveLength(3);
   });
 
   test("a chat run placed on the owner's own computer costs the cloud windows nothing", async () => {
@@ -644,7 +644,7 @@ describe("claim, ack, and completion", () => {
     expect(status.response.dispatch).toMatchObject({
       state: "cloud_running",
       placement: "cloud",
-      cloudTurnId: "turn-conversation-1",
+      cloudTurnId: harness.forwarded[0]!.authority!.turnId,
     });
     expect(status.response.dispatch.fallbackReason).toContain(
       "computer-claim-released:busy",
@@ -730,7 +730,7 @@ describe("the cloud branch", () => {
     expect(status.response.dispatch).toMatchObject({
       state: "cloud_running",
       placement: "cloud",
-      cloudTurnId: "turn-conversation-1",
+      cloudTurnId: harness.forwarded[0]!.authority!.turnId,
       fallbackReason: "computer-offer-expired-unaccepted",
     });
   });
@@ -835,7 +835,7 @@ describe("the cloud branch", () => {
     expect((await harness.instance.status(NOW)).running).toHaveLength(0);
   });
 
-  test("the chat start carries no gate-admitted marker: it is admitted there", async () => {
+  test("the chat start carries a bound authority rather than a boolean bypass", async () => {
     const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
     await withNow(NOW, () =>
       harness.instance.submit({
@@ -942,7 +942,7 @@ describe("the cloud branch", () => {
               {
                 protocol: 1,
                 conversationId: call.name,
-                turnId: "turn-retried",
+                turnId: call.authority!.turnId,
                 accepted: true,
                 replayed: false,
                 createdConversation: false,
@@ -971,7 +971,7 @@ describe("the cloud branch", () => {
     ).response.dispatch;
     expect(dispatch).toMatchObject({
       state: "cloud_running",
-      cloudTurnId: "turn-retried",
+      cloudTurnId: harness.forwarded[0]!.authority!.turnId,
     });
     expect(dispatch.errorCode).toBeUndefined();
   });
@@ -1124,7 +1124,7 @@ describe("cancellation", () => {
     const call = harness.forwarded.at(-1)!;
     expect(call.url).toBe("https://orchestrator-session/cancel");
     expect(call.body).toEqual({
-      turnId: "turn-conversation-1",
+      turnId: harness.forwarded[0]!.authority!.turnId,
       cancelRequestId: "cancel-1",
       ownerId: "owner-1",
       ownerGeneration: "generation-1",
@@ -1317,5 +1317,62 @@ describe("leases and projections", () => {
       (await harness.instance.dispatchStatus(dispatchId)).response.dispatch
         .state,
     ).toBe("computer_running");
+  });
+});
+
+describe("cloud chat handoff races", () => {
+  test("Stop during owner preparation retires the lease without forwarding a turn", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const preparing = new Promise<void>(resolve => { entered = resolve; });
+    const h = open(OwnerGate, { snapshot: snapshotWith([]) });
+    h.instance.homeContext = async () => { entered(); await pending; throw new Error("context unavailable"); };
+    const submission = h.instance.submit({ request: submitBody({ ingress: "browser", subject: "cloud" }) });
+    await preparing;
+    const mapping = [...h.values.entries()].find(([key]) => key.startsWith("cloudChatHandoffTurn:"));
+    expect(mapping).toBeDefined();
+    const dispatchId = String(mapping![1]);
+    await h.instance.cancelDispatch({ dispatchId, cancelRequestId: "stop-preparation" });
+    release();
+    const result = await submission;
+    expect(result.response.dispatch.state).toBe("canceled");
+    expect(h.forwarded).toHaveLength(0);
+    expect(h.activeLeaseIds()).toHaveLength(0);
+    expect((await h.instance.status(Date.now())).running).toHaveLength(0);
+  });
+
+  test("Stop during conversation handoff targets the preallocated turn and cannot be overwritten by acceptance", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const entering = new Promise<void>(resolve => { entered = resolve; });
+    const h = open(OwnerGate, { snapshot: snapshotWith([]), respond: async call => {
+      if (!call.authority) return Response.json({ canceled: true });
+      entered(); await pending;
+      return Response.json({ turnId: call.authority.turnId, accepted: true }, { status: 202 });
+    } });
+    const submission = h.instance.submit({ request: submitBody({ ingress: "browser", subject: "cloud" }) });
+    await entering;
+    const authority = h.forwarded[0]!.authority!;
+    await h.instance.cancelDispatch({ dispatchId: authority.clientMsgId, cancelRequestId: "stop-handoff" });
+    expect(h.forwarded.at(-1)!.body).toMatchObject({ turnId: authority.turnId, cancelRequestId: "stop-handoff" });
+    release();
+    expect((await submission).response.dispatch.state).toBe("cancel_pending");
+  });
+
+  test("exact conversation lease retirement releases the owner admission and retires its handoff", async () => {
+    const h = open(OwnerGate, { snapshot: snapshotWith([]) });
+    await h.instance.submit({ request: submitBody({ ingress: "browser", subject: "cloud" }) });
+    const a = h.forwarded[0]!.authority!;
+    const result = await h.instance.fetch(new Request("https://owner-gate/owner-fence/unregister", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ownerId: a.ownerId, ownerGeneration: a.ownerGeneration, turnId: a.turnId,
+        leaseId: a.leaseId, sessionId: a.conversationId, generation: a.fenceGeneration }),
+    }));
+    expect(result.ok).toBe(true);
+    expect(h.activeLeaseIds()).toHaveLength(0);
+    expect((await h.instance.status(Date.now())).running).toHaveLength(0);
+    expect(h.values.get(`cloudChatHandoff:${a.clientMsgId}`)).toMatchObject({ phase: "retired", leaseId: a.leaseId });
   });
 });

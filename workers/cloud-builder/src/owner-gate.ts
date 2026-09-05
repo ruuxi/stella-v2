@@ -1,5 +1,7 @@
 import { CloudHomeStore } from "./cloud-home-store.js";
 import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
+import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
+import { turnStartErrorResponse } from "./turn-start-request.js";
 /**
  * The owner gate: one Durable Object per owner, named by ownerId, that
  * answers "may this owner start a turn right now?" without a synchronous
@@ -1522,10 +1524,24 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         if (registration && typeof registration === "object" && "role" in registration &&
             registration.role === "transfer") await this.memoryPolicy().invalidate();
       }
-      return await createOwnerFenceHost({
+      const unregister: unknown = url.pathname === "/owner-fence/unregister" ? await request.clone().json() : undefined;
+      const response = await createOwnerFenceHost({
         ctx: this.ctx,
         env: this.env,
       }).fetch(url.pathname.slice("/owner-fence/".length), request);
+      if (response.ok && unregister && typeof unregister === "object" &&
+          "turnId" in unregister && typeof unregister.turnId === "string" &&
+          "leaseId" in unregister && typeof unregister.leaseId === "string") {
+        const dispatchId = await this.ctx.storage.get<string>(cloudChatTurnKey(unregister.turnId));
+        const handoff = dispatchId ? await this.ctx.storage.get<CloudChatHandoff>(cloudChatHandoffKey(dispatchId)) : undefined;
+        const identity = handoff?.phase === "registered" ? handoff.authority : handoff;
+        if (dispatchId && identity?.turnId === unregister.turnId && identity.leaseId === unregister.leaseId) {
+          await this.ctx.storage.put(cloudChatHandoffKey(dispatchId), { phase: "retired", turnId: identity.turnId, leaseId: identity.leaseId } satisfies CloudChatHandoff);
+          await this.release({ turnId: identity.turnId });
+          this.ctx.storage.sql.exec("UPDATE dispatches SET gate_held = 0 WHERE dispatch_id = ?", dispatchId);
+        }
+      }
+      return response;
     }
     if (url.pathname !== "/presence") {
       return Response.json({ error: "Not found." }, { status: 404 });
@@ -2160,7 +2176,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   private async releaseGate(row: DispatchRow): Promise<void> {
     if (row.gate_held !== 1) return;
-    await this.release({ turnId: row.dispatch_id });
+    const handoff = await this.ctx.storage.get<CloudChatHandoff>(cloudChatHandoffKey(row.dispatch_id));
+    await this.release({ turnId: handoff?.phase === "registered" ? handoff.authority.turnId : handoff?.turnId ?? row.dispatch_id });
     this.ctx.storage.sql.exec(
       `UPDATE dispatches SET gate_held = 0 WHERE dispatch_id = ?`,
       row.dispatch_id,
@@ -2388,11 +2405,71 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
       ...(payload.execution ? { execution: payload.execution } : {}),
     };
-    // No gate-admitted header, deliberately: the conversation object's own
-    // admission is the only one a chat turn ever takes, so burst, daily, and
-    // concurrency are applied there and a refusal comes back as this
-    // dispatch's terminal error.
-    const response = await sessions
+    const handoffKey = cloudChatHandoffKey(row.dispatch_id);
+    let handoff = await this.ctx.storage.get<CloudChatHandoff>(handoffKey);
+    // Old unresolved dispatches may already have a conversation-created turn.
+    // Only a new dispatch starts the owner-created identity protocol.
+    if (!handoff && row.cloud_attempts === 1) {
+      const allocating: CloudChatHandoff = { phase: "allocating", turnId: crypto.randomUUID(), leaseId: crypto.randomUUID() };
+      await this.ctx.storage.transaction(async txn => {
+        await txn.put(handoffKey, allocating);
+        await txn.put(cloudChatTurnKey(allocating.turnId), row.dispatch_id);
+      });
+      handoff = allocating;
+    }
+    let preparation: CloudChatPreparation = {};
+    if (handoff?.phase === "retired") return this.cloudRefusal(row,
+      turnStartErrorResponse("owner_purged", "This cloud admission was retired.", false), now);
+    if (handoff?.phase === "allocating") {
+      const startedAt = performance.now();
+      const result = await this.admitWithFenceLease({
+        admission: { lane: "chat", turnId: handoff.turnId, conversationId: row.conversation_id, expectedGeneration: row.owner_generation },
+        lease: { leaseId: handoff.leaseId, turnId: handoff.turnId, ownerGeneration: row.owner_generation,
+          sessionId: sessions.idFromName(row.conversation_id).toString(), namespace: "orchestrator", role: "orchestrator" },
+        includeHomeContext: true,
+      });
+      if (!result.admission.ok) return this.cloudRefusal(row, turnStartErrorResponse(
+        result.admission.code, result.admission.message, result.admission.retryable, result.admission.retryAfterMs,
+      ), now);
+      this.ctx.storage.sql.exec("UPDATE dispatches SET gate_held = 1 WHERE dispatch_id = ?", row.dispatch_id);
+      row.gate_held = 1;
+      if (result.lease.status !== "registered") return this.cloudRefusal(row,
+        turnStartErrorResponse("owner_purged", "This account's cloud admission is unavailable.", false), now);
+      const authority: AdmittedCloudChat = {
+        version: 1, ownerId: this.ownerId(), ownerGeneration: row.owner_generation,
+        conversationId: row.conversation_id, clientMsgId: request.clientMsgId,
+        turnId: handoff.turnId, leaseId: handoff.leaseId, fenceGeneration: result.lease.generation,
+        admittedAt: Date.now(), snapshot: result.admission.snapshot,
+        fingerprint: await sha256Hex(chatTurnFingerprintSource(this.ownerId(), row.conversation_id, request)),
+      };
+      handoff = { phase: "registered", authority };
+      const latest = await this.ctx.storage.get<CloudChatHandoff>(handoffKey);
+      if (latest?.phase === "retired") {
+        await this.release({ turnId: authority.turnId });
+        return this.cloudRefusal(row, turnStartErrorResponse("owner_purged", "This cloud admission was retired.", false), now);
+      }
+      await this.ctx.storage.put(handoffKey, handoff);
+      preparation = {
+        ...("homeContext" in result ? { homeContext: result.homeContext } : {}),
+        ...("destinations" in result ? { destinations: result.destinations } : {}),
+      };
+      log("info", "owner_chat_admission_timing", { dispatchId: row.dispatch_id, turnId: authority.turnId,
+        totalMs: Math.round(performance.now() - startedAt) });
+    }
+    if (handoff?.phase === "registered") {
+      const current = this.dispatchRow(row.dispatch_id);
+      if (!current || current.state !== "cloud_committed") {
+        await this.retireCloudChatHandoff(handoff.authority);
+        await this.releaseGate(this.dispatchRow(row.dispatch_id) ?? row);
+        return this.dispatchRow(row.dispatch_id) ?? row;
+      }
+      // Stop can target the exact turn even while its admission RPC is in
+      // flight, including before the conversation has imported the handoff.
+      this.ctx.storage.sql.exec("UPDATE dispatches SET cloud_turn_id = ? WHERE dispatch_id = ?", handoff.authority.turnId, row.dispatch_id);
+    }
+    const response = handoff?.phase === "registered"
+      ? await sessions.getByName(row.conversation_id).startAdmittedChat(request, handoff.authority, preparation)
+      : await sessions
       .getByName(row.conversation_id)
       .fetch("https://orchestrator-session/turn", {
         method: "POST",
@@ -2405,8 +2482,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         },
         body: JSON.stringify(request),
       });
-    if (!response.ok) return await this.cloudRefusal(row, response, now);
+    if (!response.ok) {
+      // A definite refusal cannot own an executing turn. An uncertain 5xx
+      // keeps the same registered identity for retry or purge reconciliation.
+      if (handoff?.phase === "registered" && response.status >= 400 && response.status < 500) {
+        await this.retireCloudChatHandoff(handoff.authority);
+      }
+      return await this.cloudRefusal(row, response, now);
+    }
     const started = (await response.json()) as CloudTurnStartResponse;
+    if (handoff?.phase === "registered" && started.turnId !== handoff.authority.turnId) throw new Error("Cloud admission response identity changed.");
+    const current = this.dispatchRow(row.dispatch_id);
+    if (current && current.state !== "cloud_committed") return current;
     return await this.patchDispatch(
       row,
       {
@@ -2423,6 +2510,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       },
       now,
     );
+  }
+
+  private async retireCloudChatHandoff(a: AdmittedCloudChat): Promise<void> {
+    const sessions = this.env.ORCHESTRATOR_SESSIONS;
+    if (!sessions) throw new Error("Orchestrator sessions unavailable.");
+    const retired = await createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch("unregister", new Request("https://owner-gate/owner-fence/unregister", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ownerId: a.ownerId, ownerGeneration: a.ownerGeneration, leaseId: a.leaseId,
+        turnId: a.turnId, sessionId: sessions.idFromName(a.conversationId).toString(), generation: a.fenceGeneration }),
+    }));
+    if (!retired.ok) throw new Error("Cloud admission retirement is pending.");
+    await this.ctx.storage.put(cloudChatHandoffKey(a.clientMsgId), { phase: "retired", turnId: a.turnId, leaseId: a.leaseId } satisfies CloudChatHandoff);
   }
 
   private async startCloudAgent(

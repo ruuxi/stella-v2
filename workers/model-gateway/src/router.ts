@@ -1,4 +1,11 @@
 import { RelayTiming } from "./relay-timing.js";
+import { getGatewayConfig } from "./config-cache.js";
+import type { OwnerRelayAccounting } from "./ledger-client.js";
+
+export type LocalOwnerRelay = {
+  matchesOwner(ownerId: string): boolean;
+  accounting: OwnerRelayAccounting;
+};
 import {
   GATEWAY_NETWORK_POLICY,
   GATEWAY_HEALTH_PATH,
@@ -296,13 +303,22 @@ const handleResolve = async (
   request: Request,
   env: Env,
   deps: GatewayDeps,
+  convex: ConvexClient,
   traceId: string,
 ): Promise<Response> => {
+  const startedAt = performance.now();
   const auth = await authenticateCapability(request, env, {
     now: deps.now(),
     allowProbe: true,
   });
+  const authenticationMs = performance.now() - startedAt;
   await verifySessionDpop({ request, auth, now: deps.now() });
+  // Resolution precedes inference. Start the cold pricing read here so the
+  // control-plane request overlaps the caller's remaining prompt preparation.
+  const preparation = auth.claims.ledgerScope === "owner-relay-v2" && !auth.probe
+    ? env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub)).prepare()
+    : getGatewayConfig(convex, deps.waitUntil, deps.now);
+  deps.waitUntil(preparation.catch(() => undefined));
   const body = (await readJsonObject(
     request,
   )) as Partial<GatewayResolveRequest>;
@@ -326,6 +342,9 @@ const handleResolve = async (
     agentType,
     requestedModel,
   });
+  console.info(JSON.stringify({ event: "gateway_resolve_timing", traceId,
+    turnId: auth.claims.turn?.turnId, conversationId: auth.claims.turn?.conversationId,
+    authenticationMs, totalMs: performance.now() - startedAt }));
   return jsonResponse(200, resolutionFor(route), traceId);
 };
 
@@ -335,17 +354,19 @@ const handleRelay = async (
   deps: GatewayDeps,
   convex: ConvexClient,
   traceId: string,
+  localOwner?: LocalOwnerRelay,
 ): Promise<Response> => {
   const timing = new RelayTiming();
   let status: number | undefined;
   let lane = "unknown";
+  let forwarded = false;
   let ledgerScope: "owner-v1" | "owner-relay-v2" | "capability" | undefined;
   let turn: { turnId: string; conversationId: string } | undefined;
   try {
-    const auth = await authenticateCapability(request, env, {
+    const auth = await timing.measure("authenticationMs", () => authenticateCapability(request, env, {
       now: deps.now(),
       allowProbe: true,
-    });
+    }));
     timing.mark("authenticated");
     ledgerScope = auth.claims.ledgerScope ?? "capability";
     if (auth.claims.turn) {
@@ -355,6 +376,19 @@ const handleRelay = async (
       };
     }
     lane = auth.claims.credential ? "native" : "managed";
+    if (localOwner && (!localOwner.matchesOwner(auth.claims.sub) || auth.probe ||
+        auth.claims.credential || auth.claims.ledgerScope !== "owner-relay-v2")) {
+      throw new GatewayError(403, "capability_invalid", "This request does not belong to this owner executor.");
+    }
+    if (!localOwner && !auth.probe && !auth.claims.credential && auth.claims.ledgerScope === "owner-relay-v2") {
+      await verifySessionDpop({ request, auth, now: deps.now() });
+      forwarded = true;
+      // Inference and its exact accounting live in the same owner object.
+      // The original request is reauthenticated there; no header bypass exists.
+      const response = await env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub)).fetch(request);
+      status = response.status;
+      return response;
+    }
     if (auth.claims.credential) {
       const response = await handleNativeRelay({
         request,
@@ -380,6 +414,7 @@ const handleRelay = async (
       auth,
       protocol,
       timing,
+      ownerAccounting: localOwner?.accounting,
     });
     status = response.status;
     return response;
@@ -389,7 +424,8 @@ const handleRelay = async (
   } finally {
     console.info(
       JSON.stringify({
-        event: "gateway_relay_timing",
+        event: forwarded ? "gateway_relay_route_timing" : "gateway_relay_timing",
+        execution: localOwner ? "owner" : "worker",
         traceId,
         lane,
         ledgerScope,
@@ -404,13 +440,17 @@ const handleRelay = async (
 export const handleRequest = async (
   request: Request,
   env: Env,
-  ctx: ExecutionContext,
+  ctx: Pick<ExecutionContext, "waitUntil">,
   deps: GatewayDeps = defaultDeps(ctx),
+  localOwner?: LocalOwnerRelay,
 ): Promise<Response> => {
   const traceId = crypto.randomUUID();
   const url = new URL(request.url);
   const convex = createConvexClient(env, deps.fetch);
   try {
+    if (localOwner && !url.pathname.startsWith(GATEWAY_RELAY_PREFIX + "/")) {
+      throw new GatewayError(404, "bad_request", "Owner executors accept model requests only.");
+    }
     if (url.pathname === GATEWAY_HEALTH_PATH) {
       if (request.method !== "GET" && request.method !== "HEAD") {
         throw new GatewayError(405, "bad_request", "Method not allowed.");
@@ -430,7 +470,7 @@ export const handleRequest = async (
     if (url.pathname === GATEWAY_RESOLVE_PATH) {
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleResolve(request, env, deps, traceId);
+      return await handleResolve(request, env, deps, convex, traceId);
     }
     if (
       url.pathname === GATEWAY_RELAY_PREFIX ||
@@ -438,7 +478,7 @@ export const handleRequest = async (
     ) {
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleRelay(request, env, deps, convex, traceId);
+      return await handleRelay(request, env, deps, convex, traceId, localOwner);
     }
     throw new GatewayError(404, "bad_request", "Not found.");
   } catch (error) {

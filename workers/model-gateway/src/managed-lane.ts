@@ -393,6 +393,7 @@ export const handleManagedRelay = async (args: {
   auth: AuthenticatedCapability;
   protocol: GatewayProtocol;
   timing?: RelayTiming;
+  ownerAccounting?: import("./ledger-client.js").OwnerRelayAccounting;
 }): Promise<Response> => {
   const { request, env, deps, convex, traceId, protocol } = args;
   const timing = args.timing ?? new RelayTiming();
@@ -486,7 +487,7 @@ export const handleManagedRelay = async (args: {
     }
   }
 
-  const ownerGate = env.OWNER_RELAY_GATE.get(
+  const ownerGate = args.ownerAccounting ?? env.OWNER_RELAY_GATE.get(
     env.OWNER_RELAY_GATE.idFromName(claims.sub),
   );
   const combinedAccounting = !probe && claims.ledgerScope === "owner-relay-v2";
@@ -688,7 +689,7 @@ export const handleManagedRelay = async (args: {
       };
     }
 
-    ledger = probe ? null : capabilityLedgerClient(env, claims);
+    ledger = probe ? null : capabilityLedgerClient(env, claims, args.ownerAccounting);
     let capabilityHardLimitMicroCents: number | null = null;
     if (ledger) {
       const capabilityLedger = ledger;

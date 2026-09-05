@@ -9,6 +9,8 @@ import {
   TURN_PLANE_PROTOCOL,
 } from "@stella/contracts/turn-plane/turn-start";
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
+import { chatTurnFingerprintSource, type AdmittedCloudChat } from "../src/cloud-chat-admission.js";
+import { sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import { HEADER_TURN_AUTH_KIND } from "../src/turn-start-request.js";
 import {
   fakeOutbox,
@@ -992,5 +994,50 @@ describe("combined warm admission", () => {
     expect(h.values.get(`queued:${accepted.turnId}`)).toMatchObject({
       ownerPurgeLeaseId: attemptedLease,
     });
+  });
+});
+
+describe("owner-created chat admission", () => {
+  const setup = async () => {
+    const h = harness();
+    delete h.instance.registerOwnerTurn;
+    const body = start();
+    const authority: AdmittedCloudChat = {
+      version: 1, ownerId: "owner-1", ownerGeneration: "generation-1", conversationId: "conversation-1",
+      clientMsgId: body.clientMsgId, fingerprint: await sha256Hex(chatTurnFingerprintSource("owner-1", "conversation-1", body)),
+      turnId: "admitted-turn", leaseId: "admitted-lease", fenceGeneration: "fence-1", admittedAt: Date.now(),
+      snapshot: sampleOwnerSnapshot(),
+    };
+    return { h, body, authority };
+  };
+  test("imports exact durable authority without a return admission RPC, then replays after restart", async () => {
+    const { h, body, authority } = await setup();
+    const accepted = await h.instance.startAdmittedChat(body, authority, {});
+    expect(accepted.status).toBe(202);
+    expect(h.gates.admits).toHaveLength(0);
+    expect(h.gates.fenceLeases).toHaveLength(0);
+    expect(h.values.get("queued:admitted-turn")).toMatchObject({ turnId: "admitted-turn", ownerPurgeLeaseId: "admitted-lease", ownerPurgeGeneration: "fence-1" });
+    const restarted = harness({ values: h.values, journal: h.journal });
+    const replay = await restarted.instance.startAdmittedChat(body, authority, {});
+    expect(await replay.json()).toMatchObject({ turnId: "admitted-turn", replayed: true });
+    expect(restarted.enqueues()).toBe(0);
+  });
+  test("rejects changed message bytes, owner, conversation, generation, or lease identity", async () => {
+    const { h, body, authority } = await setup();
+    for (const changed of [{ ...authority, ownerId: "owner-2" }, { ...authority, conversationId: "conversation-2" },
+      { ...authority, ownerGeneration: "generation-2" }, { ...authority, fingerprint: "wrong" }]) {
+      expect((await h.instance.startAdmittedChat(body, changed, {})).status).not.toBe(202);
+    }
+    expect((await h.instance.startAdmittedChat(body, authority, {})).status).toBe(202);
+    expect((await h.instance.startAdmittedChat(body, { ...authority, leaseId: "other-lease" }, {})).status).not.toBe(202);
+    expect(h.enqueues()).toBe(1);
+  });
+  test("a purge received before the handoff permanently rejects its delayed lease", async () => {
+    const { h, body, authority } = await setup();
+    h.values.set("ownerPurgeImportedLease:admitted-lease", { ownerId: authority.ownerId, ownerGeneration: authority.ownerGeneration, turnId: authority.turnId });
+    const response = await h.instance.startAdmittedChat(body, authority, {});
+    expect(response.status).not.toBe(202);
+    expect(h.enqueues()).toBe(0);
+    expect(h.gates.admits).toHaveLength(0);
   });
 });

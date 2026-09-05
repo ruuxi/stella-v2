@@ -100,7 +100,10 @@ const refresh = (
 ): Promise<GatewayConfig> => {
   if (inflight) return inflight;
   inflight = (async () => {
+    const startedAt = performance.now();
+    const cold = cached === null;
     const result = await client.config();
+    const fetchMs = performance.now() - startedAt;
     if (!result.ok || !isSnapshot(result.body)) {
       throw new GatewayError(
         503,
@@ -112,6 +115,9 @@ const refresh = (
       );
     }
     cached = indexPrices(result.body, now());
+    console.info(JSON.stringify({ event: "gateway_config_load_timing", cold,
+      fetchMs, indexingMs: performance.now() - startedAt - fetchMs,
+      totalMs: performance.now() - startedAt }));
     return cached;
   })().finally(() => {
     inflight = null;

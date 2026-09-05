@@ -83,6 +83,56 @@ const lastFrame = (socket: { sent: Array<{ type: string }> }, type: string) =>
   [...socket.sent].reverse().find((frame) => frame.type === type);
 
 describe("dispatch submission", () => {
+  test("starts cloud admission while the initial activity projection is pending", async () => {
+    const projection = Promise.withResolvers<void>();
+    const forwarded = Promise.withResolvers<void>();
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([]),
+      enqueue: async (events) => {
+        if (events.some((event) =>
+          event.kind === "dispatch.updated" && event.dispatch.revision === 1,
+        )) {
+          await projection.promise;
+        }
+      },
+      respond: (call) => {
+        forwarded.resolve();
+        return Response.json({
+          protocol: 1,
+          conversationId: call.name,
+          turnId: "turn-1",
+          accepted: true,
+          replayed: false,
+          createdConversation: false,
+        }, { status: 202 });
+      },
+    });
+    let settled = false;
+    const submission = harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    try {
+      await Promise.race([
+        forwarded.promise,
+        Bun.sleep(1_000).then(() => {
+          throw new Error("Cloud admission waited for the projection");
+        }),
+      ]);
+      expect(settled).toBe(false);
+      expect(harness.forwarded).toHaveLength(1);
+    } finally {
+      projection.resolve();
+      await submission;
+    }
+    expect((await submission).response.dispatch.state).toBe("cloud_running");
+    expect(harness.outbox.filter((event) =>
+      event.kind === "dispatch.updated",
+    )).toHaveLength(2);
+  });
+
   test("offers mobile work to the paired desktop with the payload and its hash", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, {

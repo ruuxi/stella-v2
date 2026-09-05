@@ -2753,7 +2753,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       now,
     );
     let row = this.dispatchRow(dispatchId)!;
-    await this.emitDispatchUpdated(row);
+    // The dispatch row is already durable before outgoing I/O passes the
+    // storage output gate. Its activity projection is independent of routing;
+    // don't put the queue service's acknowledgement before turn admission.
+    const projectionWork = this.emitDispatchUpdated(row);
     if (terminal) {
       if (gateHeld) await this.release({ turnId: dispatchId });
     } else if (state === "computer_accepted" && executorDeviceId) {
@@ -2767,6 +2770,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     } else if (state === "cloud_committed") {
       row = await this.runCloudBranch(row, now);
     }
+    await projectionWork;
     await this.scheduleAlarm(now);
     return {
       ok: true,

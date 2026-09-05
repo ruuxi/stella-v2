@@ -154,6 +154,7 @@ export const createGateHarness = (
     ownerId?: string;
     snapshot?: OwnerSnapshot;
     respond?: (call: ForwardedCall) => Response;
+    enqueue?: (events: OutboxEvent[]) => Promise<void>;
   } = {},
 ): GateHarness => {
   installWebSocketPair();
@@ -253,7 +254,9 @@ export const createGateHarness = (
       BUILD_SESSIONS: namespace("build"),
       TURN_OUTBOX: {
         sendBatch: async (messages: Iterable<{ body: OutboxEvent }>) => {
-          for (const message of messages) {
+          const batch = [...messages];
+          await options.enqueue?.(batch.map((message) => message.body));
+          for (const message of batch) {
             outbox.push(structuredClone(message.body));
           }
         },

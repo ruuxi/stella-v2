@@ -1798,9 +1798,12 @@ export class OrchestratorSession extends DurableObject<Env> {
     // Failures surface through the turn's own terminal event; the queue
     // must survive them.
     const preceding = this.queue;
+    const enqueuedAt = performance.now();
     const execution = startTurnExecution({
       work: ({ cancellation, signal }) =>
-        preceding.then(() => this.runTurn(turn, cancellation, signal)),
+        preceding.then(() =>
+          this.runTurn(turn, cancellation, signal, enqueuedAt),
+        ),
       onInterrupt: () => {
         // Agent.abort() is idempotent. Once prompt() has synchronously entered
         // its loop this reaches the provider/tool AbortController; before that
@@ -3487,6 +3490,8 @@ export class OrchestratorSession extends DurableObject<Env> {
         );
       }
 
+      const admissionCommitMs = Math.round(performance.now() - commitStarted);
+      const projectionStarted = performance.now();
       // Projections, after the durable commit and before the 202: the queue
       // is durable, so once these are enqueued (or debted) Convex will learn
       // of the conversation and the turn no matter what this isolate does next.
@@ -3534,6 +3539,8 @@ export class OrchestratorSession extends DurableObject<Env> {
         admissionTransport: combinedGeneration ? "combined" : "separate",
         ownerGateMs,
         registrationMs,
+        admissionCommitMs,
+        projectionMs: Math.round(performance.now() - projectionStarted),
         commitMs: Math.round(performance.now() - commitStarted),
         totalMs: Math.round(performance.now() - admittedAt),
       });
@@ -3923,7 +3930,12 @@ export class OrchestratorSession extends DurableObject<Env> {
     turn: ChatTurnRequest,
     turnCancellation: TurnRetryCancellation,
     executionSignal: AbortSignal,
+    enqueuedAt = performance.now(),
   ): Promise<Response> {
+    const enteredAt = performance.now();
+    const startupTimings: Record<string, number> = {
+      queueWaitMs: Math.round(enteredAt - enqueuedAt),
+    };
     const localLease =
       await this.getTurnState<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) {
@@ -3949,8 +3961,16 @@ export class OrchestratorSession extends DurableObject<Env> {
     // the journal; a blocked owner drops the queued turn without callbacks,
     // because the reset/account purge is about to delete its Convex row too.
     try {
+      const registrationAt = performance.now();
       turn.ownerPurgeGeneration = await this.registerOwnerTurn(turn);
+      startupTimings.registrationMs = Math.round(
+        performance.now() - registrationAt,
+      );
+      const assertionAt = performance.now();
       await this.assertOwnerTurn(turn);
+      startupTimings.ownerAssertionMs = Math.round(
+        performance.now() - assertionAt,
+      );
       if (turn.agentThreadControl) {
         await this.rememberCloudAgentControlReceipt(turn.agentThreadControl);
       }
@@ -4024,6 +4044,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     const watchdogAt =
       Date.now() + Math.max(1_000, turn.watchdogMs ?? CHAT_WATCHDOG_MS);
     let preCanceled: ExactTurnCancellation | null = null;
+    const claimAt = performance.now();
     await this.ctx.blockConcurrencyWhile(async () => {
       // This check and the queued -> current swap share the same critical
       // section as `/cancel`'s durable tombstone. Either Stop wins and this turn
@@ -4053,6 +4074,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     if (preCanceled) {
       return await this.finishPreCanceledTurn(turn, preCanceled);
     }
+    startupTimings.claimMs = Math.round(performance.now() - claimAt);
     this.ownerGeneration = turn.ownerGeneration;
     this.journal.upsertTurn({
       turnId: turn.turnId,
@@ -4081,6 +4103,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       turnId: turn.turnId,
       conversationId: turn.conversationId,
       sessionId: turn.sessionId,
+      startupMs: Math.round(performance.now() - enteredAt),
+      startupTimings,
     });
     // Claimed inside the try so the matching `finally` always releases it: a
     // turn id stuck here would stop the watchdog from ever finalizing a turn.

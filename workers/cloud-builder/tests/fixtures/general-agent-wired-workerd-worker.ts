@@ -29,7 +29,7 @@ import {
   turnComputePlanKey,
 } from "../../src/general-agent-turn.js";
 import { createResidentGeneralAgentTools } from "../../src/general-agent-tools.js";
-import { BuildSession } from "../../src/index.js";
+import { BuildSessionObject as BuildSession } from "../../src/build-session/object.js";
 
 type FixtureEnv = {
   WIRED_TURNS: DurableObjectNamespace<WiredTurnHarness>;

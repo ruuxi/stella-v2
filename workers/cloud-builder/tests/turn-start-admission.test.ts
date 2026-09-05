@@ -9,7 +9,10 @@ import {
   TURN_PLANE_PROTOCOL,
 } from "@stella/contracts/turn-plane/turn-start";
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
-import { chatTurnFingerprintSource, type AdmittedCloudChat } from "../src/cloud-chat-admission.js";
+import {
+  chatTurnFingerprintSource,
+  type AdmittedCloudChat,
+} from "../src/cloud-chat-admission.js";
 import { sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import { HEADER_TURN_AUTH_KIND } from "../src/turn-start-request.js";
 import {
@@ -28,7 +31,8 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { OrchestratorSession } = await import("../src/orchestrator-session.js");
+const { OrchestratorSessionObject: OrchestratorSession } =
+  await import("../src/orchestrator-session-object.js");
 mock.restore();
 
 /**
@@ -417,9 +421,15 @@ describe("OrchestratorSession turn admission", () => {
     const h = harness();
     const accepted = await h.dispatch(start(), USER);
     const original = await accepted.json();
-    const replay = await h.dispatch(start({ originUserMessageId: "local-original-echo" }), USER);
+    const replay = await h.dispatch(
+      start({ originUserMessageId: "local-original-echo" }),
+      USER,
+    );
     expect(replay.status).toBe(202);
-    expect(await replay.json()).toMatchObject({ turnId: original.turnId, replayed: true });
+    expect(await replay.json()).toMatchObject({
+      turnId: original.turnId,
+      replayed: true,
+    });
   });
 
   test("replays the same clientMsgId with the same turn id and conflicts on a different message", async () => {
@@ -794,20 +804,39 @@ describe("turn.event ordinals", () => {
     outbox.failNext(1);
     const first = harness({ values, outbox });
     const emit = first.instance["emitTurnEvent"] as Emit;
-    await emit.call(first.instance, turn("old-turn"), "completed", { text: "done" }, {
-      terminal: true, eventSeq: 7, resultJson: '{"finalText":"done"}',
-    });
-    expect([...values.keys()].some((key) => key.startsWith("outboxBatch:"))).toBe(true);
+    await emit.call(
+      first.instance,
+      turn("old-turn"),
+      "completed",
+      { text: "done" },
+      {
+        terminal: true,
+        eventSeq: 7,
+        resultJson: '{"finalText":"done"}',
+      },
+    );
+    expect(
+      [...values.keys()].some((key) => key.startsWith("outboxBatch:")),
+    ).toBe(true);
     expect(first.alarm()).not.toBeNull();
     values.set("turn", turn("new-turn"));
     values.set("terminalOwed", null);
     const restarted = harness({ values, outbox });
-    await (restarted.instance["retryOutboxDebt"] as () => Promise<void>).call(restarted.instance);
-    expect(outbox.events).toContainEqual(expect.objectContaining({
-      kind: "turn.event", turnId: "old-turn", eventSeq: 7, terminal: true,
-    }));
+    await (restarted.instance["retryOutboxDebt"] as () => Promise<void>).call(
+      restarted.instance,
+    );
+    expect(outbox.events).toContainEqual(
+      expect.objectContaining({
+        kind: "turn.event",
+        turnId: "old-turn",
+        eventSeq: 7,
+        terminal: true,
+      }),
+    );
     expect(values.get("turn")).toEqual(turn("new-turn"));
-    expect([...values.keys()].some((key) => key.startsWith("outboxBatch:"))).toBe(false);
+    expect(
+      [...values.keys()].some((key) => key.startsWith("outboxBatch:")),
+    ).toBe(false);
   });
 
   test("are monotonic per turn, survive an isolate restart, and a retried terminal reuses its ordinal", async () => {
@@ -1003,9 +1032,18 @@ describe("owner-created chat admission", () => {
     delete h.instance.registerOwnerTurn;
     const body = start();
     const authority: AdmittedCloudChat = {
-      version: 1, ownerId: "owner-1", ownerGeneration: "generation-1", conversationId: "conversation-1",
-      clientMsgId: body.clientMsgId, fingerprint: await sha256Hex(chatTurnFingerprintSource("owner-1", "conversation-1", body)),
-      turnId: "admitted-turn", leaseId: "admitted-lease", fenceGeneration: "fence-1", admittedAt: Date.now(),
+      version: 1,
+      ownerId: "owner-1",
+      ownerGeneration: "generation-1",
+      conversationId: "conversation-1",
+      clientMsgId: body.clientMsgId,
+      fingerprint: await sha256Hex(
+        chatTurnFingerprintSource("owner-1", "conversation-1", body),
+      ),
+      turnId: "admitted-turn",
+      leaseId: "admitted-lease",
+      fenceGeneration: "fence-1",
+      admittedAt: Date.now(),
       snapshot: sampleOwnerSnapshot(),
     };
     return { h, body, authority };
@@ -1016,25 +1054,56 @@ describe("owner-created chat admission", () => {
     expect(accepted.status).toBe(202);
     expect(h.gates.admits).toHaveLength(0);
     expect(h.gates.fenceLeases).toHaveLength(0);
-    expect(h.values.get("queued:admitted-turn")).toMatchObject({ turnId: "admitted-turn", ownerPurgeLeaseId: "admitted-lease", ownerPurgeGeneration: "fence-1" });
+    expect(h.values.get("queued:admitted-turn")).toMatchObject({
+      turnId: "admitted-turn",
+      ownerPurgeLeaseId: "admitted-lease",
+      ownerPurgeGeneration: "fence-1",
+    });
     const restarted = harness({ values: h.values, journal: h.journal });
-    const replay = await restarted.instance.startAdmittedChat(body, authority, {});
-    expect(await replay.json()).toMatchObject({ turnId: "admitted-turn", replayed: true });
+    const replay = await restarted.instance.startAdmittedChat(
+      body,
+      authority,
+      {},
+    );
+    expect(await replay.json()).toMatchObject({
+      turnId: "admitted-turn",
+      replayed: true,
+    });
     expect(restarted.enqueues()).toBe(0);
   });
   test("rejects changed message bytes, owner, conversation, generation, or lease identity", async () => {
     const { h, body, authority } = await setup();
-    for (const changed of [{ ...authority, ownerId: "owner-2" }, { ...authority, conversationId: "conversation-2" },
-      { ...authority, ownerGeneration: "generation-2" }, { ...authority, fingerprint: "wrong" }]) {
-      expect((await h.instance.startAdmittedChat(body, changed, {})).status).not.toBe(202);
+    for (const changed of [
+      { ...authority, ownerId: "owner-2" },
+      { ...authority, conversationId: "conversation-2" },
+      { ...authority, ownerGeneration: "generation-2" },
+      { ...authority, fingerprint: "wrong" },
+    ]) {
+      expect(
+        (await h.instance.startAdmittedChat(body, changed, {})).status,
+      ).not.toBe(202);
     }
-    expect((await h.instance.startAdmittedChat(body, authority, {})).status).toBe(202);
-    expect((await h.instance.startAdmittedChat(body, { ...authority, leaseId: "other-lease" }, {})).status).not.toBe(202);
+    expect(
+      (await h.instance.startAdmittedChat(body, authority, {})).status,
+    ).toBe(202);
+    expect(
+      (
+        await h.instance.startAdmittedChat(
+          body,
+          { ...authority, leaseId: "other-lease" },
+          {},
+        )
+      ).status,
+    ).not.toBe(202);
     expect(h.enqueues()).toBe(1);
   });
   test("a purge received before the handoff permanently rejects its delayed lease", async () => {
     const { h, body, authority } = await setup();
-    h.values.set("ownerPurgeImportedLease:admitted-lease", { ownerId: authority.ownerId, ownerGeneration: authority.ownerGeneration, turnId: authority.turnId });
+    h.values.set("ownerPurgeImportedLease:admitted-lease", {
+      ownerId: authority.ownerId,
+      ownerGeneration: authority.ownerGeneration,
+      turnId: authority.turnId,
+    });
     const response = await h.instance.startAdmittedChat(body, authority, {});
     expect(response.status).not.toBe(202);
     expect(h.enqueues()).toBe(0);

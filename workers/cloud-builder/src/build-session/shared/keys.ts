@@ -486,54 +486,14 @@ export const mintAgentTurnModelGateway = async (
 
 export const AGENT_HISTORY_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
 
-export const validBuilderFallbackMessages = (
-  value: unknown,
-): value is Array<{ ordinal: number; role: string; payloadJson: string }> => {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 1_024) {
-    return false;
-  }
-  let bytes = 0;
-  return value.every((entry, index) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return false;
-    }
-    const row = entry as Record<string, unknown>;
-    if (
-      Object.keys(row).sort().join(",") !== "ordinal,payloadJson,role" ||
-      row.ordinal !== index ||
-      typeof row.role !== "string" ||
-      !["user", "assistant", "toolResult"].includes(row.role) ||
-      typeof row.payloadJson !== "string"
-    ) {
-      return false;
-    }
-    bytes += new TextEncoder().encode(row.payloadJson).byteLength;
-    if (bytes > AGENT_HISTORY_RESPONSE_MAX_BYTES) return false;
-    try {
-      const payload = JSON.parse(row.payloadJson) as { role?: unknown };
-      return payload?.role === row.role;
-    } catch {
-      return false;
-    }
-  });
-};
-
-export const validTurnStateCheckpointReceipt = (
-  value: unknown,
-): value is TurnBrokerTurnStateCheckpointReceipt => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const receipt = value as Record<string, unknown>;
-  const allowed = new Set(["operationId", "historyCursor", "manifestId"]);
-  return (
-    Object.keys(receipt).every((key) => allowed.has(key)) &&
-    typeof receipt.operationId === "string" &&
-    /^[0-9a-f]{64}$/u.test(receipt.operationId) &&
-    typeof receipt.historyCursor === "string" &&
-    /^(?:v1:empty|v1:[0-9a-f]{64})$/u.test(receipt.historyCursor) &&
-    typeof receipt.manifestId === "string" &&
-    /^[0-9a-f]{64}$/u.test(receipt.manifestId)
-  );
-};
+export {
+  validBuilderFallbackMessages,
+  validTurnStateCheckpointReceipt,
+} from "../public-helpers.js";
+import {
+  validBuilderFallbackMessages,
+  validTurnStateCheckpointReceipt,
+} from "../public-helpers.js";
 
 export const cloudBrowserSuspensionMarker = (
   suspension: CloudBrowserSuspension,

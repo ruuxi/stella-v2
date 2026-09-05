@@ -72,6 +72,7 @@ import {
 } from "../conversation-types.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import {
+  decideDispatchPlacement,
   dispatchErrorResponse,
   parseDispatchSubmitRequest,
 } from "../dispatch-policy.js";
@@ -491,6 +492,7 @@ const handleDispatchSubmitRoute = async (
   request: Request,
   env: Env,
   requestId: string,
+  ctx: ExecutionContext,
 ): Promise<Response> => {
   const receivedAt = Date.now();
   const startedAt = performance.now();
@@ -681,6 +683,30 @@ const handleDispatchSubmitRoute = async (
     // supply the phone identity used to offer work to a computer.
     const { requestingDeviceId: _unverifiedDeviceId, ...unpaired } = submitted;
     submitted = unpaired;
+  }
+
+  const placement = decideDispatchPlacement(submitted);
+  if (
+    submitted.kind === "chat" &&
+    placement.kind === "commit" &&
+    placement.placement === "cloud" &&
+    env.ORCHESTRATOR_SESSIONS
+  ) {
+    // Wake the conversation while owner admission runs. Waiting until the
+    // owner forwards this hint puts its durable output gate before cold wake.
+    // This RPC receives no prompt and grants no authority; normal submission
+    // below still decides ownership, policy, replay, and exact turn identity.
+    ctx.waitUntil(
+      Promise.resolve().then(() =>
+        env.ORCHESTRATOR_SESSIONS.getByName(submitted.conversationId)
+          .prepareCloudChatReader(),
+      ).catch((error: unknown) => {
+        log("info", "dispatch_conversation_preparation_failed", {
+          requestId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }),
+    );
   }
 
   const gateAt = Date.now();
@@ -1016,7 +1042,7 @@ export const worker = {
     // it sits here with the other self-authenticating routes rather than
     // behind the shared-secret gate below.
     if (request.method === "POST" && url.pathname === DISPATCH_SUBMIT_PATH) {
-      return await handleDispatchSubmitRoute(request, env, requestId);
+      return await handleDispatchSubmitRoute(request, env, requestId, ctx);
     }
     // Dispatch ids carry a colon (`dsp:<uuid>`), and every client builds this
     // path with `encodeURIComponent`, so the segment arrives as `dsp%3A…`.

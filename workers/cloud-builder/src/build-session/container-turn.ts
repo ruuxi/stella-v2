@@ -55,6 +55,7 @@ import {
 import { issueWorldCapability } from "../world-capability.js";
 import { worldMaterializationCommand } from "../world-materialization.js";
 import type { BuildSessionInternals } from "./host.js";
+import { parseAgentExecutorResult } from "./public-helpers.js";
 import {
   AgentTurnAuthorityLostError,
   AgentTurnError,
@@ -142,103 +143,7 @@ export type ContainerTurnHost = Pick<
   | "unregisterTurn"
 >;
 
-export const parseAgentExecutorResult = (
-  value: unknown,
-): AgentExecutorResult | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const result = value as Record<string, unknown>;
-  const allowed = new Set([
-    "outcome",
-    "ok",
-    "finalText",
-    "error",
-    "usage",
-    "checkpointPolicy",
-    "checkpointMs",
-    "turnStateCheckpoint",
-    "suspension",
-    "builderFallback",
-  ]);
-  const boundedOutput = (candidate: unknown): candidate is string =>
-    typeof candidate === "string" &&
-    new TextEncoder().encode(candidate).byteLength <= 4 * 1024 * 1024;
-  if (
-    !Object.keys(result).every((key) => allowed.has(key)) ||
-    (result.outcome !== undefined &&
-      result.outcome !== "completed" &&
-      result.outcome !== "suspended") ||
-    typeof result.ok !== "boolean" ||
-    (result.finalText !== undefined && !boundedOutput(result.finalText)) ||
-    (result.error !== undefined && !boundedOutput(result.error)) ||
-    (result.usage !== undefined &&
-      (!result.usage ||
-        typeof result.usage !== "object" ||
-        Array.isArray(result.usage))) ||
-    (result.checkpointMs !== undefined &&
-      (!Number.isSafeInteger(result.checkpointMs) ||
-        Number(result.checkpointMs) < 0)) ||
-    (result.checkpointPolicy !== undefined &&
-      result.checkpointPolicy !== "preserve_prior" &&
-      result.checkpointPolicy !== "builder_fallback")
-  ) {
-    return null;
-  }
-
-  if (result.outcome === "suspended") {
-    if (
-      result.ok !== false ||
-      result.finalText !== "" ||
-      result.error !== undefined ||
-      !isCloudBrowserSuspension(result.suspension) ||
-      result.checkpointPolicy !== undefined ||
-      result.builderFallback !== undefined
-    ) {
-      return null;
-    }
-  } else if (result.suspension !== undefined) {
-    return null;
-  }
-
-  if (result.checkpointPolicy === "builder_fallback") {
-    if (
-      !result.builderFallback ||
-      typeof result.builderFallback !== "object" ||
-      Array.isArray(result.builderFallback)
-    ) {
-      return null;
-    }
-    const fallback = result.builderFallback as Record<string, unknown>;
-    if (
-      !Object.keys(fallback).every((key) =>
-        ["historyCursor", "messages", "nativeCheckpoint"].includes(key),
-      ) ||
-      typeof fallback.historyCursor !== "string" ||
-      !validBuilderFallbackMessages(fallback.messages) ||
-      !parseTurnStateCheckpointRequest({
-        schemaVersion: 1,
-        historyCursor: fallback.historyCursor,
-        ...(fallback.nativeCheckpoint !== undefined
-          ? { nativeCheckpoint: fallback.nativeCheckpoint }
-          : {}),
-      }) ||
-      result.turnStateCheckpoint !== undefined
-    ) {
-      return null;
-    }
-  } else if (result.builderFallback !== undefined) {
-    return null;
-  }
-
-  if (result.checkpointPolicy === "preserve_prior") {
-    if (result.turnStateCheckpoint !== undefined) return null;
-  } else if (
-    result.checkpointPolicy !== "builder_fallback" &&
-    !validTurnStateCheckpointReceipt(result.turnStateCheckpoint)
-  ) {
-    return null;
-  }
-  return result as AgentExecutorResult;
-};
+export { parseAgentExecutorResult } from "./public-helpers.js";
 
 const readCloudAgentTurnResultText = async (
   session: Pick<ExecutionSession, "readFile">,
@@ -1437,8 +1342,8 @@ export const runAgentAttempt = async (
     turnExecution.signal,
   );
   let cloudSkills:
-    Awaited<ReturnType<typeof materializeCloudSkillSnapshot>> | undefined =
-    undefined;
+    | Awaited<ReturnType<typeof materializeCloudSkillSnapshot>>
+    | undefined = undefined;
   if (args.cloudSkillHome && args.cloudSkillCatalog) {
     turnExecution.assertActive();
     cloudSkills = await materializeCloudSkillSnapshot({

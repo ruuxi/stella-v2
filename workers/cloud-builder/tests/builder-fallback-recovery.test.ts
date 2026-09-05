@@ -13,8 +13,12 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { BuildSession, bindObservedBrowserSuspensionToCanonicalCodeCall } =
-  await import("../src/index.js");
+const { BuildSessionObject: BuildSession } = await import(
+  "../src/build-session/object.js"
+);
+const { bindObservedBrowserSuspensionToCanonicalCodeCall } = await import(
+  "../src/index.js"
+);
 mock.restore();
 
 const mapStorage = (values = new Map<string, unknown>()) => {

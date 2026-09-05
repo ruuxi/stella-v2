@@ -1,4 +1,5 @@
-import { BuildSession, OrchestratorSession } from "../../src/index.js";
+import { OrchestratorSessionObject as OrchestratorSession } from "../../src/orchestrator-session-object.js";
+import { BuildSessionObject as BuildSession } from "../../src/build-session/object.js";
 import { OwnerFenceStore } from "../../src/owner-fence-store.js";
 import {
   OwnerGate,

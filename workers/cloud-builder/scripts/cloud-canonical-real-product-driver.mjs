@@ -11937,7 +11937,7 @@ const exactR2Object = async (secrets, bucket, key, rawLog) => {
 export const reviewedMemoryArchitectureBoundary = async () => {
   const orchestratorPath = path.join(
     REPO_ROOT,
-    "workers/cloud-builder/src/orchestrator-session.ts",
+    "workers/cloud-builder/src/orchestrator-session-object.ts",
   );
   const buildSessionPath = path.join(
     REPO_ROOT,

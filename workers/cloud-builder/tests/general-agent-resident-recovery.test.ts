@@ -33,7 +33,9 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { BuildSession } = await import("../src/index.js");
+const { BuildSessionObject: BuildSession } = await import(
+  "../src/build-session/object.js"
+);
 const { commitResidentTurnDurability } = await import(
   "../src/build-session/resident-turn.js"
 );

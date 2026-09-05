@@ -32,7 +32,10 @@ mock.module("@cloudflare/sandbox", () => ({
   ContainerProxy: class {},
 }));
 const indexModule = await import("../src/index.js");
-const { BuildSession, purgeNativeStateForWorkspace } = indexModule;
+const { purgeNativeStateForWorkspace } = indexModule;
+const { BuildSessionObject: BuildSession } = await import(
+  "../src/build-session/object.js"
+);
 const worker = indexModule.default;
 mock.restore();
 

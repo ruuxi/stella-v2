@@ -15,7 +15,8 @@ mock.module("cloudflare:workers", () => ({
   RpcTarget: class {},
   WorkerEntrypoint: class {},
 }));
-const { OrchestratorSession } = await import("../src/orchestrator-session.js");
+const { OrchestratorSessionObject: OrchestratorSession } =
+  await import("../src/orchestrator-session-object.js");
 mock.restore();
 
 const runId = "00000000-0000-4000-8000-000000000001";

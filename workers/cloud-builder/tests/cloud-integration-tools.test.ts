@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createCloudIntegrationTools } from "../src/cloud-integration-tools.js";
+import { CLOUD_INTEGRATION_TOOL_SPECS } from "../src/cloud-integration-tool-specs.js";
 
 type RpcRequest = {
   jsonrpc?: unknown;
@@ -81,6 +82,17 @@ const parseText = (
   JSON.parse(result.content[index]!.text ?? "null") as Record<string, any>;
 
 describe("cloud integration tools", () => {
+  test("keeps static descriptors in sync with the executable tools", () => {
+    const tools = createCloudIntegrationTools({
+      post: async () => {
+        throw new Error("descriptor construction must not call integrations");
+      },
+    });
+    expect(
+      tools.map(({ execute: _execute, ...descriptor }) => descriptor),
+    ).toEqual([...CLOUD_INTEGRATION_TOOL_SPECS]);
+  });
+
   test("preserves search/describe/call and derives distinct RPC ids", async () => {
     const requests: RpcRequest[] = [];
     const controller = new AbortController();

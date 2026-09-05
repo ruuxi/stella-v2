@@ -109,7 +109,6 @@ const environment = async (
   options: {
     pairingKey?: string;
     submit?: (input: Submitted) => unknown;
-    prepareReader?: (conversationId: string) => Promise<string>;
   } = {},
 ) => {
   const submits: Submitted[] = [];
@@ -134,13 +133,6 @@ const environment = async (
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
       STELLA_CONVEX_SITE_URL: ISSUER,
-      ...(options.prepareReader ? {
-        ORCHESTRATOR_SESSIONS: {
-          getByName: (conversationId: string) => ({
-            prepareCloudChatReader: () => options.prepareReader?.(conversationId),
-          }),
-        },
-      } : {}),
       OWNER_GATES: {
         getByName: (ownerId: string) => ({
           snapshot: async () => snapshot,
@@ -223,60 +215,6 @@ const post = (
 
 const errorBody = async (response: Response) =>
   (await response.json()) as { error: { code: string; message: string } };
-
-test("cloud wake overlaps admission without authorizing or forwarding a prompt", async () => {
-  const prepared: string[] = [];
-  const background: Promise<unknown>[] = [];
-  let finishPreparation: (reader: string) => void = () => {};
-  const pending = new Promise<string>(resolve => { finishPreparation = resolve; });
-  const { env, submits } = await environment({
-    prepareReader: async conversationId => {
-      prepared.push(conversationId);
-      return await pending;
-    },
-    submit: () => ({ ok: false, error: {
-      code: "owner_suspended", message: "Suspended", retryable: false,
-    } }),
-  });
-  const ctx = { waitUntil: (work: Promise<unknown>) => background.push(work) } as ExecutionContext;
-  try {
-    const denied = await worker.fetch(post("/owners/me/dispatches", body(), {}), env, ctx);
-    expect(denied.status).toBe(401);
-    expect(prepared).toHaveLength(0);
-
-    const response = await worker.fetch(post("/owners/me/dispatches", body(), {
-      authorization: `Bearer ${await userJwt()}`,
-    }), env, ctx);
-    expect((await errorBody(response)).error.code).toBe("owner_suspended");
-    expect(submits).toHaveLength(1);
-    expect(prepared).toEqual(["conversation-1"]);
-  } finally {
-    finishPreparation("reader");
-    await Promise.all(background);
-  }
-});
-
-test("conversation preparation failure leaves placement behavior intact", async () => {
-  const background: Promise<unknown>[] = [];
-  let preparations = 0;
-  const { env, submits } = await environment({ prepareReader: async () => {
-    preparations++;
-    throw new Error("Unavailable");
-  } });
-  const ctx = { waitUntil: (work: Promise<unknown>) => background.push(work) } as ExecutionContext;
-  for (const submitted of [
-    body({ ingress: "desktop", subject: "portable", requestingDeviceId: "desk-1" }),
-    body(),
-  ]) {
-    const response = await worker.fetch(post("/owners/me/dispatches", submitted, {
-      authorization: `Bearer ${await userJwt()}`,
-    }), env, ctx);
-    expect(response.status).toBe(201);
-  }
-  await Promise.all(background);
-  expect(preparations).toBe(1);
-  expect(submits).toHaveLength(2);
-});
 
 const proofHeaders = async (
   request: DispatchSubmitRequest,

@@ -184,6 +184,7 @@ export const createLedgerNamespace = (envRef: () => unknown) => {
 
 export const createOwnerRelayGateNamespace = (envRef: () => unknown) => {
   const objects = new Map<string, OwnerRelayGateInstance>();
+  const states = new Map<string, ReturnType<typeof createDurableObjectState>>();
   let relayFetch: ((request: Request, owner: string, object: OwnerRelayGateInstance) => Promise<Response>) | undefined;
   const namespace = {
     idFromName: (name: string) => ({ name, toString: () => name }),
@@ -191,7 +192,11 @@ export const createOwnerRelayGateNamespace = (envRef: () => unknown) => {
       let object = objects.get(id.name);
       if (!object) {
         object = new OwnerRelayGate(
-          createDurableObjectState(id.name) as never,
+          (() => {
+            const state = createDurableObjectState(id.name);
+            states.set(id.name, state);
+            return state;
+          })() as never,
           envRef() as never,
         );
         const target = object;
@@ -202,7 +207,7 @@ export const createOwnerRelayGateNamespace = (envRef: () => unknown) => {
       return object;
     },
   };
-  return { namespace, objects, setFetch: (fetch: NonNullable<typeof relayFetch>) => { relayFetch = fetch; } };
+  return { namespace, objects, states, setFetch: (fetch: NonNullable<typeof relayFetch>) => { relayFetch = fetch; } };
 };
 
 export const createNetworkGateNamespace = (envRef: () => unknown) => {

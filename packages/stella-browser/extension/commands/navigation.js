@@ -10,13 +10,20 @@ import {
 } from "./cancellation.js";
 
 /**
- * Wait for a tab to finish loading.
- * @param {number} tabId
- * @param {number} [timeout=30000]
- * @returns {Promise<void>}
+ * Subscribe before dispatching navigation, including cached loads that can
+ * finish before chrome.tabs.update/reload resolves.
  */
-function waitForLoad(tabId, timeout = 30000, signal) {
-  return new Promise((resolve, reject) => {
+async function navigateAndWaitForLoad(command, tabId, navigate, waitUntil = "load") {
+  throwIfCommandAborted(command);
+  if (waitUntil === "none") {
+    markCommandMutationDispatched(command);
+    await navigate();
+    return;
+  }
+  const timeout = command.timeout || 30000;
+  const signal = command.signal;
+  let dispose = () => {};
+  const loaded = new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason || new Error("Navigation aborted"));
       return;
@@ -27,9 +34,11 @@ function waitForLoad(tabId, timeout = 30000, signal) {
       settled = true;
       clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
+      chrome.webNavigation.onDOMContentLoaded.removeListener(onDOMContentLoaded);
       signal?.removeEventListener("abort", onAbort);
       callback();
     };
+    dispose = () => finish(resolve);
     const timer = setTimeout(() => {
       finish(() =>
         reject(new Error("Navigation timeout after " + timeout + "ms")),
@@ -47,9 +56,27 @@ function waitForLoad(tabId, timeout = 30000, signal) {
       }
     }
 
+    function onDOMContentLoaded(details) {
+      if (details.tabId === tabId && details.frameId === 0) finish(resolve);
+    }
+
     chrome.tabs.onUpdated.addListener(listener);
+    if (waitUntil === "domcontentloaded") {
+      chrome.webNavigation.onDOMContentLoaded.addListener(onDOMContentLoaded);
+    }
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+  try {
+    await Promise.all([
+      loaded,
+      Promise.resolve().then(() => {
+        markCommandMutationDispatched(command);
+        return navigate();
+      }),
+    ]);
+  } finally {
+    dispose();
+  }
 }
 
 export async function handleNavigate(command) {
@@ -59,14 +86,12 @@ export async function handleNavigate(command) {
 
   if (!url) throw new Error("URL is required for navigate");
 
-  // Start navigation
-  markCommandMutationDispatched(command);
-  await chrome.tabs.update(tab.id, { url });
-
-  // Wait for load unless explicitly told not to
-  if (command.waitUntil !== "none") {
-    await waitForLoad(tab.id, command.timeout || 30000, command.signal);
-  }
+  await navigateAndWaitForLoad(
+    command,
+    tab.id,
+    () => chrome.tabs.update(tab.id, { url }),
+    command.waitUntil,
+  );
 
   throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
@@ -134,9 +159,7 @@ export async function handleForward(command) {
 export async function handleReload(command) {
   throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
-  markCommandMutationDispatched(command);
-  await chrome.tabs.reload(tab.id);
-  await waitForLoad(tab.id, command.timeout || 30000, command.signal);
+  await navigateAndWaitForLoad(command, tab.id, () => chrome.tabs.reload(tab.id));
   throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
   markCommandMutationOutcomeKnown(command);

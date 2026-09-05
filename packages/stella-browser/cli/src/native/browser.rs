@@ -728,6 +728,44 @@ impl BrowserManager {
         poll_network_idle(session_id, rx, timeout).await
     }
 
+    pub async fn navigate_history(&self, delta: i32) -> Result<String, String> {
+        let session_id = self.active_session_id()?;
+        let frame_tree = self
+            .client
+            .send_command_no_params("Page.getFrameTree", Some(session_id))
+            .await?;
+        let main_frame_id = frame_tree
+            .pointer("/frameTree/frame/id")
+            .and_then(Value::as_str)
+            .ok_or("Browser did not return its main frame")?;
+        // Subscribe before dispatch: cached and same-document history moves
+        // can commit before Runtime.evaluate returns.
+        let mut events = self.client.subscribe();
+        self.evaluate(&format!("history.go({delta})"), None).await?;
+        // Preserve the former grace period when no navigation is reported,
+        // including a history boundary. A subframe event cannot end this wait.
+        let _ = tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                match events.recv().await {
+                    Ok(event) if event.session_id.as_deref() == Some(session_id) => {
+                        let frame_id = match event.method.as_str() {
+                            "Page.frameNavigated" => event.params.pointer("/frame/id"),
+                            "Page.navigatedWithinDocument" => event.params.get("frameId"),
+                            _ => None,
+                        };
+                        if frame_id.and_then(Value::as_str) == Some(main_frame_id) {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                    _ => continue,
+                }
+            }
+        })
+        .await;
+        self.get_url().await
+    }
+
     pub async fn get_url(&self) -> Result<String, String> {
         let result = self.evaluate_simple("location.href").await?;
         Ok(result.as_str().unwrap_or("").to_string())

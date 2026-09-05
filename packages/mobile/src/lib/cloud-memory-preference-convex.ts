@@ -13,7 +13,7 @@ const getMyMemoryPreferenceRef = makeFunctionReference<
 >("cloud_memory:getMyMemoryPreference");
 
 const setMyMemoryEnabledRef = makeFunctionReference<
-  "mutation",
+  "action",
   MobileCloudMemoryPreferenceMutationInput,
   MobileCloudMemoryPreference & { subject: string }
 >("cloud_memory:setMyMemoryEnabled");
@@ -24,5 +24,5 @@ export const mobileCloudMemoryPreferenceClient =
     getMyMemoryPreference: (input) =>
       getConvexClient().query(getMyMemoryPreferenceRef, input),
     setMyMemoryEnabled: (input) =>
-      getConvexClient().mutation(setMyMemoryEnabledRef, input),
+      getConvexClient().action(setMyMemoryEnabledRef, input),
   });

@@ -72,6 +72,7 @@ export type PublicApiType = {
     "continueMyCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; description: string; prompt: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; expectedTerminalUpdatedAt: number; controlRequestId: string; }, any, string | undefined>;
     "getMyCloudAgentThreadControl": FunctionReference<'query', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; originConversationId: string; }, any, string | undefined>;
     "cancelMyCloudAgentThread": FunctionReference<'action', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; controlRequestId: string; expectedThreadUpdatedAt: number; }, any, string | undefined>;
+    "getMyAgentThread": FunctionReference<'query', 'public', { conversationId: string; threadId: string; }, any, string | undefined>;
     "listMyAgentThreads": FunctionReference<'query', 'public', { conversationId: string; }, any, string | undefined>;
     "listMyAgentThreadsPage": FunctionReference<'query', 'public', { conversationId: string; identityRevision: number; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
     "listMyRunningAgentThreads": FunctionReference<'query', 'public', { conversationId: string; identityRevision: number; }, any, string | undefined>;
@@ -118,13 +119,13 @@ export type PublicApiType = {
   };
   "cloud_memory": {
     "getMyMemoryPreference": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
-    "setMyMemoryEnabled": FunctionReference<'mutation', 'public', { requestId: string; memoryEnabled: boolean; expectedSubject: string; expectedOwnerGeneration: string; expectedRevision: number; }, any, string | undefined>;
+    "setMyMemoryEnabled": FunctionReference<'action', 'public', { requestId: string; memoryEnabled: boolean; expectedSubject: string; expectedOwnerGeneration: string; expectedRevision: number; }, any, string | undefined>;
     "listMyMemoryDocuments": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
     "getMyMemoryDocument": FunctionReference<'query', 'public', { kind: 'profile' | 'memory' | 'memory_map' | 'core_memory' | 'personality' | 'imported_markdown' | 'user_markdown' | 'archive'; name: string; }, any, string | undefined>;
   };
   "cloud_memory_lifecycle": {
     "getMyMemoryWipeStatus": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
-    "startMyMemoryWipe": FunctionReference<'mutation', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
+    "startMyMemoryWipe": FunctionReference<'action', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
     "authorizeMyMemoryReimport": FunctionReference<'mutation', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
   };
   "cloud_projects": {

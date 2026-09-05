@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   reactiveResult: undefined as unknown,
   convex: {
     query: vi.fn(),
-    mutation: vi.fn(),
+    action: vi.fn(),
   },
   mirror: vi.fn(),
 }));
@@ -109,7 +109,7 @@ describe("useCloudMemoryPreference", () => {
     };
     mocks.reactiveResult = undefined;
     mocks.convex.query.mockReset();
-    mocks.convex.mutation.mockReset();
+    mocks.convex.action.mockReset();
     mocks.mirror.mockReset().mockResolvedValue(true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -141,21 +141,21 @@ describe("useCloudMemoryPreference", () => {
 
   it("forces the revision-zero default to become an explicit CAS write", async () => {
     mocks.reactiveResult = envelope({ revision: 0, updatedAt: 0 });
-    mocks.convex.mutation.mockResolvedValue(
+    mocks.convex.action.mockResolvedValue(
       envelope({ revision: 1, updatedAt: 1_001 }),
     );
     await render();
 
     await expect(latest!.setMemoryEnabled(true)).resolves.toBe(true);
-    expect(mocks.convex.mutation).not.toHaveBeenCalled();
+    expect(mocks.convex.action).not.toHaveBeenCalled();
 
     let committed = false;
     await act(async () => {
       committed = await latest!.setMemoryEnabled(true, { force: true });
     });
     expect(committed).toBe(true);
-    expect(mocks.convex.mutation).toHaveBeenCalledTimes(1);
-    expect(mocks.convex.mutation.mock.calls[0]?.[1]).toMatchObject({
+    expect(mocks.convex.action).toHaveBeenCalledTimes(1);
+    expect(mocks.convex.action.mock.calls[0]?.[1]).toMatchObject({
       expectedSubject: subjectA,
       memoryEnabled: true,
       expectedOwnerGeneration: "generation-a:1",
@@ -166,7 +166,7 @@ describe("useCloudMemoryPreference", () => {
 
   it("replays the exact CAS payload after an ambiguous transport failure", async () => {
     mocks.reactiveResult = envelope();
-    mocks.convex.mutation
+    mocks.convex.action
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce(
         envelope({ memoryEnabled: false, revision: 8, updatedAt: 1_001 }),
@@ -185,9 +185,9 @@ describe("useCloudMemoryPreference", () => {
       retryResult = await latest!.retry();
     });
     expect(retryResult).toBe(true);
-    expect(mocks.convex.mutation).toHaveBeenCalledTimes(2);
-    expect(mocks.convex.mutation.mock.calls[1]?.[1]).toEqual(
-      mocks.convex.mutation.mock.calls[0]?.[1],
+    expect(mocks.convex.action).toHaveBeenCalledTimes(2);
+    expect(mocks.convex.action.mock.calls[1]?.[1]).toEqual(
+      mocks.convex.action.mock.calls[0]?.[1],
     );
   });
 
@@ -198,7 +198,7 @@ describe("useCloudMemoryPreference", () => {
       events.push(`local:${enabled}`);
       return true;
     });
-    mocks.convex.mutation.mockImplementation(async (_reference, input) => {
+    mocks.convex.action.mockImplementation(async (_reference, input) => {
       events.push(`cloud:${String(input.memoryEnabled)}`);
       return envelope({ memoryEnabled: false, revision: 8 });
     });
@@ -212,7 +212,7 @@ describe("useCloudMemoryPreference", () => {
     events.length = 0;
     mocks.reactiveResult = envelope({ memoryEnabled: false, revision: 8 });
     await rerender();
-    mocks.convex.mutation.mockImplementation(async (_reference, input) => {
+    mocks.convex.action.mockImplementation(async (_reference, input) => {
       events.push(`cloud:${String(input.memoryEnabled)}`);
       return envelope({ memoryEnabled: true, revision: 9 });
     });
@@ -225,7 +225,7 @@ describe("useCloudMemoryPreference", () => {
   it("drops a late owner-A write after the account session changes to owner B", async () => {
     const ownerAWrite = deferred<ReturnType<typeof envelope>>();
     mocks.reactiveResult = envelope();
-    mocks.convex.mutation.mockReturnValue(ownerAWrite.promise);
+    mocks.convex.action.mockReturnValue(ownerAWrite.promise);
     await render();
 
     let pending!: Promise<boolean>;
@@ -261,7 +261,7 @@ describe("useCloudMemoryPreference", () => {
   it("cancels an old-generation write when the subscription advances", async () => {
     const oldGenerationWrite = deferred<ReturnType<typeof envelope>>();
     mocks.reactiveResult = envelope();
-    mocks.convex.mutation.mockReturnValue(oldGenerationWrite.promise);
+    mocks.convex.action.mockReturnValue(oldGenerationWrite.promise);
     await render();
 
     let pending!: Promise<boolean>;
@@ -294,7 +294,7 @@ describe("useCloudMemoryPreference", () => {
       revision: 7,
       updatedAt: 1_000,
     });
-    mocks.convex.mutation.mockResolvedValue(
+    mocks.convex.action.mockResolvedValue(
       envelope({ memoryEnabled: true, revision: 8, updatedAt: 1_100 }),
     );
     mocks.mirror.mockImplementation((enabled: boolean) =>

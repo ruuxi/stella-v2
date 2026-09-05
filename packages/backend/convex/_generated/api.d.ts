@@ -180,6 +180,7 @@ import type * as lib_managed_gateway from "../lib/managed_gateway.js";
 import type * as lib_managed_usage from "../lib/managed_usage.js";
 import type * as lib_managed_usage_reservation from "../lib/managed_usage_reservation.js";
 import type * as lib_media_provider_dispatch from "../lib/media_provider_dispatch.js";
+import type * as lib_memory_policy_change from "../lib/memory_policy_change.js";
 import type * as lib_mobile_auth_link from "../lib/mobile_auth_link.js";
 import type * as lib_models_dev from "../lib/models_dev.js";
 import type * as lib_native_integration_limits from "../lib/native_integration_limits.js";
@@ -497,6 +498,7 @@ declare const fullApi: ApiFromModules<{
   "lib/managed_usage": typeof lib_managed_usage;
   "lib/managed_usage_reservation": typeof lib_managed_usage_reservation;
   "lib/media_provider_dispatch": typeof lib_media_provider_dispatch;
+  "lib/memory_policy_change": typeof lib_memory_policy_change;
   "lib/mobile_auth_link": typeof lib_mobile_auth_link;
   "lib/models_dev": typeof lib_models_dev;
   "lib/native_integration_limits": typeof lib_native_integration_limits;

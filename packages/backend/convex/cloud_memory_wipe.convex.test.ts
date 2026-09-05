@@ -6,9 +6,29 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
-const createTest = () => convexTest(schema, modules);
+const createTest = () => {
+  vi.useFakeTimers();
+  const t = convexTest(schema, modules);
+  vi.stubEnv("CLOUD_BUILDER_URL", "https://builder.test");
+  vi.stubEnv("BUILDER_SERVICE_SECRET", "memory-policy-test-secret");
+  // Exercise the real service callback and private mutations. The owner gate's
+  // serialization, durable recovery and acknowledgement are tested in its suite.
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    if (request.url !== "https://builder.test/internal/owners/memory-policy/change") {
+      throw new Error(`Unexpected test fetch: ${request.url}`);
+    }
+    const applied = await t.fetch("/api/cloud/home/memory/policy/apply", {
+      method: "POST", headers: request.headers, body: await request.text(),
+    });
+    if (applied.ok) return Response.json({ ok: true });
+    const body = await applied.json();
+    return Response.json({ error: body.code ?? "MEMORY_POLICY_CHANGE_REFUSED" }, { status: applied.status });
+  });
+  return t;
+};
 
-const startWipe = makeFunctionReference<"mutation", any, any>(
+const startWipe = makeFunctionReference<"action", any, any>(
   "cloud_memory_lifecycle:startMyMemoryWipe",
 );
 const wipeStatus = makeFunctionReference<"query", any, any>(
@@ -44,7 +64,7 @@ const commitWrite = makeFunctionReference<"mutation", any, any>(
 const listDocuments = makeFunctionReference<"query", any, any>(
   "cloud_memory:listMyMemoryDocuments",
 );
-const setPreference = makeFunctionReference<"mutation", any, any>(
+const setPreference = makeFunctionReference<"action", any, any>(
   "cloud_memory:setMyMemoryEnabled",
 );
 const OWNER_ID = "https://issuer.test|memory-wipe-owner";
@@ -71,6 +91,8 @@ const openOwner = async (t: ReturnType<typeof createTest>) => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const prepare = async (
@@ -122,7 +144,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
     const stored = await prepare(t, "memories/profile.md", "wipe-stored");
     await commit(t, stored);
     const stale = await prepare(t, "MEMORY.md", "wipe-stale-intent");
-    await asOwner(t).mutation(setPreference, {
+    await asOwner(t).action(setPreference, {
       expectedSubject: OWNER_ID,
       memoryEnabled: false,
       expectedOwnerGeneration: GENERATION,
@@ -173,7 +195,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
       });
     });
 
-    const started = await asOwner(t).mutation(startWipe, {
+    const started = await asOwner(t).action(startWipe, {
       expectedSubject: OWNER_ID,
       expectedOwnerGeneration: GENERATION,
       expectedMemoryEpoch: "legacy",
@@ -187,7 +209,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
       job: { stage: "sweeping", attempts: 0 },
     });
     expect(
-      await asOwner(t).mutation(startWipe, {
+      await asOwner(t).action(startWipe, {
         expectedSubject: OWNER_ID,
         expectedOwnerGeneration: GENERATION,
         expectedMemoryEpoch: "legacy",
@@ -322,7 +344,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
     });
     expect(completed.memoryEpoch).not.toBe("legacy");
     expect(
-      await asOwner(t).mutation(startWipe, {
+      await asOwner(t).action(startWipe, {
         expectedSubject: OWNER_ID,
         expectedOwnerGeneration: GENERATION,
         expectedMemoryEpoch: "legacy",
@@ -394,7 +416,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
       lastWipedEpoch: "legacy",
     });
 
-    await asOwner(t).mutation(setPreference, {
+    await asOwner(t).action(setPreference, {
       expectedSubject: OWNER_ID,
       memoryEnabled: true,
       expectedOwnerGeneration: GENERATION,
@@ -416,7 +438,7 @@ describe("dedicated cloud memory wipe lifecycle", () => {
     vi.useFakeTimers();
     const t = createTest();
     await openOwner(t);
-    const started = await asOwner(t).mutation(startWipe, {
+    const started = await asOwner(t).action(startWipe, {
       expectedSubject: OWNER_ID,
       expectedOwnerGeneration: GENERATION,
       expectedMemoryEpoch: "legacy",
@@ -525,13 +547,13 @@ describe("dedicated cloud memory wipe lifecycle", () => {
         });
       });
       await expect(
-        asOwner(t).mutation(startWipe, {
+        asOwner(t).action(startWipe, {
           expectedSubject: OWNER_ID,
           expectedOwnerGeneration: GENERATION,
           expectedMemoryEpoch: "legacy",
           requestId: `wipe-migration-${role}`,
         }),
-      ).rejects.toThrow("linked to an account");
+      ).rejects.toThrow("OWNERSHIP_MIGRATED");
       expect(
         await t.run(
           async (ctx) => await ctx.db.query("cloud_memory_wipe_jobs").collect(),

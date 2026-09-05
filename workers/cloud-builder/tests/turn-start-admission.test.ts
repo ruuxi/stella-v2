@@ -411,6 +411,15 @@ describe("OrchestratorSession turn admission", () => {
     expect(h.outbox.events).toHaveLength(0);
   });
 
+  test("replays pre-echo admission receipts when a retried placement carries its original renderer id", async () => {
+    const h = harness();
+    const accepted = await h.dispatch(start(), USER);
+    const original = await accepted.json();
+    const replay = await h.dispatch(start({ originUserMessageId: "local-original-echo" }), USER);
+    expect(replay.status).toBe(202);
+    expect(await replay.json()).toMatchObject({ turnId: original.turnId, replayed: true });
+  });
+
   test("replays the same clientMsgId with the same turn id and conflicts on a different message", async () => {
     const values = new Map<string, unknown>();
     const journal = journalFake();
@@ -776,6 +785,28 @@ describe("turn.event ordinals", () => {
       resultJson?: string;
     },
   ) => Promise<number>;
+
+  test("terminal delivery survives a new turn and restart while the queue is unavailable", async () => {
+    const values = new Map<string, unknown>();
+    const outbox = fakeOutbox();
+    outbox.failNext(1);
+    const first = harness({ values, outbox });
+    const emit = first.instance["emitTurnEvent"] as Emit;
+    await emit.call(first.instance, turn("old-turn"), "completed", { text: "done" }, {
+      terminal: true, eventSeq: 7, resultJson: '{"finalText":"done"}',
+    });
+    expect([...values.keys()].some((key) => key.startsWith("outboxBatch:"))).toBe(true);
+    expect(first.alarm()).not.toBeNull();
+    values.set("turn", turn("new-turn"));
+    values.set("terminalOwed", null);
+    const restarted = harness({ values, outbox });
+    await (restarted.instance["retryOutboxDebt"] as () => Promise<void>).call(restarted.instance);
+    expect(outbox.events).toContainEqual(expect.objectContaining({
+      kind: "turn.event", turnId: "old-turn", eventSeq: 7, terminal: true,
+    }));
+    expect(values.get("turn")).toEqual(turn("new-turn"));
+    expect([...values.keys()].some((key) => key.startsWith("outboxBatch:"))).toBe(false);
+  });
 
   test("are monotonic per turn, survive an isolate restart, and a retried terminal reuses its ordinal", async () => {
     const values = new Map<string, unknown>();

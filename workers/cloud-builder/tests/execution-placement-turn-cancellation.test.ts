@@ -4500,8 +4500,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       first.instance["runAlarm"] as (target: typeof owed) => Promise<void>
     )(owed);
     expect(outbox.events).toHaveLength(0);
-    expect(values.get("terminalDelivered")).toBe(false);
-    expect(values.get("alarmAttempts")).toBe(1);
+    expect(values.get("terminalDelivered")).toBe(true);
+    expect([...values.keys()].some((key) => key.startsWith("outboxBatch:"))).toBe(true);
+    expect(values.get("alarmAttempts")).toBe(0);
     expect(await first.storage.getAlarm()).not.toBeNull();
     // The gate is released regardless: the loop that would have done so is
     // gone with the isolate.
@@ -4511,8 +4512,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
 
     const restarted = sessionHarness(values, { gates, outbox });
     await (
-      restarted.instance["runAlarm"] as (target: typeof owed) => Promise<void>
-    )(owed);
+      restarted.instance["retryOutboxDebt"] as () => Promise<void>
+    )();
     expect(values.get("terminalDelivered")).toBe(true);
     expect(outbox.events).toHaveLength(1);
     expect(outbox.events[0]).toMatchObject({

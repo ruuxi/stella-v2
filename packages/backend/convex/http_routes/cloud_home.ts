@@ -1,6 +1,9 @@
 import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
+import { MEMORY_POLICY_APPLY_PATH, parseMemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
+import { synchronizeMemoryPolicyChange } from "../lib/memory_policy_change";
+import { internal } from "../_generated/api";
 import {
   authenticateControlPlaneRequest,
   authorizeControlPlaneRequest,
@@ -153,6 +156,34 @@ const ROUTES: CloudHomeRoute[] = [
  */
 export function registerCloudHomeRoutes(http: HttpRouter) {
   http.route({
+    path: MEMORY_POLICY_APPLY_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      if (!serviceAuthorized(request)) return json({ error: "Unauthorized" }, 401);
+      const change = parseMemoryPolicyChange(await request.json().catch(() => null));
+      if (!change) return json({ error: "Invalid memory policy change." }, 400);
+      try {
+        if (change.kind === "preference") {
+          await ctx.runMutation(internal.cloud_memory.setOwnerMemoryEnabledInternal, {
+            ownerId: change.ownerId, expectedOwnerGeneration: change.expectedOwnerGeneration,
+            requestId: change.requestId, expectedRevision: change.expectedRevision,
+            memoryEnabled: change.memoryEnabled,
+          });
+        } else {
+          await ctx.runMutation(internal.cloud_memory_lifecycle.startMemoryWipeInternal, {
+            ownerId: change.ownerId, ownerGeneration: change.expectedOwnerGeneration,
+            expectedMemoryEpoch: change.expectedMemoryEpoch, requestId: change.requestId,
+          });
+        }
+        return json({ ok: true });
+      } catch (error) {
+        // Only a known application refusal is definitive. Infrastructure
+        // failure must leave the owner's durable intent available for retry.
+        return json(errorPayload(error), error instanceof ConvexError ? 400 : 503);
+      }
+    }),
+  });
+  http.route({
     path: "/api/cloud/home/access",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
@@ -208,6 +239,14 @@ export function registerCloudHomeRoutes(http: HttpRouter) {
           return json({ error: "ownerId and ownerGeneration required" }, 400);
         }
         try {
+          if (route.path === "/api/cloud/home/memory/wipe/start") {
+            const change = parseMemoryPolicyChange({
+              ...body, ...owner, kind: "wipe", expectedOwnerGeneration: owner.ownerGeneration,
+            });
+            if (!change) return json({ error: "Invalid memory wipe request." }, 400);
+            await synchronizeMemoryPolicyChange(change);
+            return json(await ctx.runQuery(internal.cloud_memory_lifecycle.getMemoryWipeStatusInternal, owner));
+          }
           // Convex rejects undeclared arguments. Cloud Home mutations use an
           // explicit server timestamp, while the read-only query contracts do
           // not declare `now`; shape each call to its exact validator.

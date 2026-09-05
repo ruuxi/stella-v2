@@ -549,7 +549,7 @@ export class OrchestratorSession extends PiSessionCore {
     try {
       // Frozen-context drift notes (queued by createOrReuseAgent) ride as
       // hidden appends ahead of any caller-supplied prompt messages.
-      const contextDeltaMessages = this.takePendingContextDeltaMessages();
+      const contextDeltaMessages = await this.takePendingContextDeltaMessages(opts.userPrompt, opts.agentType);
       const combinedPromptMessages =
         contextDeltaMessages.length > 0
           ? [...contextDeltaMessages, ...(opts.promptMessages ?? [])]

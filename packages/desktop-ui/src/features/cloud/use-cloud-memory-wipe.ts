@@ -99,7 +99,7 @@ export function useCloudMemoryWipe(): CloudMemoryWipeView {
     () =>
       createCloudMemoryWipeClient({
         read: (args) => convex.query(cloudHomeApi.getMyMemoryWipeStatus, args),
-        start: (args) => convex.mutation(cloudHomeApi.startMyMemoryWipe, args),
+        start: (args) => convex.action(cloudHomeApi.startMyMemoryWipe, args),
       }),
     [convex],
   );

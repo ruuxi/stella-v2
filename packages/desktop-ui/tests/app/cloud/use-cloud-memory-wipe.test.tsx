@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   reactiveResult: undefined as unknown,
   convex: {
     query: vi.fn(),
-    mutation: vi.fn(),
+    action: vi.fn(),
   },
 }));
 
@@ -120,7 +120,7 @@ describe("useCloudMemoryWipe", () => {
     };
     mocks.reactiveResult = ready();
     mocks.convex.query.mockReset();
-    mocks.convex.mutation.mockReset();
+    mocks.convex.action.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -133,7 +133,7 @@ describe("useCloudMemoryWipe", () => {
   });
 
   it("reloads once after a nonretryable epoch error without replaying the stale attempt", async () => {
-    mocks.convex.mutation.mockRejectedValue({
+    mocks.convex.action.mockRejectedValue({
       data: { code: "CLOUD_MEMORY_EPOCH_STALE" },
     });
     mocks.convex.query.mockResolvedValue(
@@ -148,12 +148,12 @@ describe("useCloudMemoryWipe", () => {
     await act(async () => expect(latest!.retry()).resolves.toBe(true));
     expect(latest?.phase).toBe("ready");
     expect(latest?.status?.ownerGeneration).toBe("generation-2");
-    expect(mocks.convex.mutation).toHaveBeenCalledTimes(1);
+    expect(mocks.convex.action).toHaveBeenCalledTimes(1);
     expect(mocks.convex.query).toHaveBeenCalledTimes(1);
   });
 
   it("replays one exact idempotent attempt after ambiguous transport loss", async () => {
-    mocks.convex.mutation
+    mocks.convex.action
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce(active());
     await render();
@@ -162,16 +162,16 @@ describe("useCloudMemoryWipe", () => {
     await act(async () => expect(latest!.retry()).resolves.toBe(true));
 
     expect(latest?.phase).toBe("active");
-    expect(mocks.convex.mutation).toHaveBeenCalledTimes(2);
-    expect(mocks.convex.mutation.mock.calls[1]?.[1]).toEqual(
-      mocks.convex.mutation.mock.calls[0]?.[1],
+    expect(mocks.convex.action).toHaveBeenCalledTimes(2);
+    expect(mocks.convex.action.mock.calls[1]?.[1]).toEqual(
+      mocks.convex.action.mock.calls[0]?.[1],
     );
   });
 
   it("drops a late start result after the account identity changes", async () => {
     const ownerAStart = deferred<ReturnType<typeof active>>();
     const ownerBStart = deferred<ReturnType<typeof active>>();
-    mocks.convex.mutation
+    mocks.convex.action
       .mockReturnValueOnce(ownerAStart.promise)
       .mockReturnValueOnce(ownerBStart.promise);
     await render();

@@ -102,7 +102,7 @@ export function useCloudMemoryPreference(): CloudMemoryPreferenceView {
     () =>
       createCloudMemoryPreferenceClient({
         read: (args) => convex.query(cloudHomeApi.getMyMemoryPreference, args),
-        write: (args) => convex.mutation(cloudHomeApi.setMyMemoryEnabled, args),
+        write: (args) => convex.action(cloudHomeApi.setMyMemoryEnabled, args),
       }),
     [convex],
   );

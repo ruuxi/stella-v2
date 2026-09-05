@@ -1425,14 +1425,15 @@ export class Journal {
    * support in DO SQLite is unverified, and pass 1 already reads three small
    * columns. A micro-optimisation is not worth an unverified dependency.
    */
-  selectWindow(excludeTurnId: string, budgetTokens: number): WindowSelection {
+  selectWindow(excludeTurnId: string, budgetTokens: number, afterSeq = -1): WindowSelection {
     const meta = this.meta();
     const scan = this.sql
       .exec<{ seq: number; tokens: number; role: string | null }>(
         `SELECT seq, tokens, role FROM journal
-          WHERE kind = 'message' AND model_skip = 0 AND turn_id != ?
+          WHERE kind = 'message' AND model_skip = 0 AND turn_id != ? AND seq > ?
           ORDER BY seq DESC LIMIT ?`,
         excludeTurnId,
+        afterSeq,
         CONTEXT_SCAN_ROW_CAP,
       )
       .toArray();

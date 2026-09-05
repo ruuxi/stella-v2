@@ -1,9 +1,14 @@
+import { makeFunctionReference } from "convex/server";
+import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
+import { synchronizeMemoryPolicyChange } from "./lib/memory_policy_change";
 import { ConvexError, v } from "convex/values";
 import {
+  action,
   internalMutation,
   internalQuery,
   mutation,
   query,
+  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -106,7 +111,7 @@ const publicMemoryPreferenceValidator = v.object({
 });
 
 const requireExpectedMemorySubject = async (
-  ctx: QueryCtx | MutationCtx,
+  ctx: QueryCtx | MutationCtx | ActionCtx,
   expectedSubject: string,
 ) => {
   const identity = await requireUserIdentity(ctx);
@@ -261,21 +266,43 @@ export const getMyMemoryPreference = query({
   },
 });
 
-export const setMyMemoryEnabled = mutation({
+export const setMyMemoryEnabled = action({
+  args: {
+    memoryEnabled: v.boolean(), expectedSubject: v.string(),
+    expectedOwnerGeneration: v.string(), expectedRevision: v.number(), requestId: v.string(),
+  },
+  returns: publicMemoryPreferenceValidator,
+  handler: async (ctx, args) => {
+    const identity = await requireExpectedMemorySubject(ctx, args.expectedSubject);
+    await synchronizeMemoryPolicyChange({
+      kind: "preference", ownerId: identity.tokenIdentifier,
+      expectedOwnerGeneration: args.expectedOwnerGeneration,
+      expectedRevision: args.expectedRevision, memoryEnabled: args.memoryEnabled,
+      requestId: args.requestId,
+    });
+    const policy = await ctx.runQuery(makeFunctionReference<"query", {
+      ownerId: string; ownerGeneration: string;
+    }, MemoryPolicy>("cloud_memory:getOwnerMemoryPreferenceInternal"), {
+      ownerId: identity.tokenIdentifier, ownerGeneration: args.expectedOwnerGeneration,
+    });
+    return {
+      subject: identity.tokenIdentifier, ownerGeneration: policy.ownerGeneration,
+      memoryEnabled: policy.memoryEnabled, revision: policy.revision, updatedAt: policy.updatedAt,
+    };
+  },
+});
+
+export const setOwnerMemoryEnabledInternal = internalMutation({
   args: {
     memoryEnabled: v.boolean(),
-    expectedSubject: v.string(),
+    ownerId: v.string(),
     expectedOwnerGeneration: v.string(),
     expectedRevision: v.number(),
     requestId: v.string(),
   },
   returns: publicMemoryPreferenceValidator,
   handler: async (ctx, args) => {
-    const identity = await requireExpectedMemorySubject(
-      ctx,
-      args.expectedSubject,
-    );
-    const ownerId = identity.tokenIdentifier;
+    const ownerId = args.ownerId;
     const lifecycle = await assertOwnerMigrationWriteAllowed(
       ctx,
       ownerId,
@@ -309,7 +336,7 @@ export const setMyMemoryEnabled = mutation({
         });
       }
       return {
-        subject: identity.tokenIdentifier,
+        subject: ownerId,
         ownerGeneration: lifecycle.generation,
         memoryEnabled: existing.memoryEnabled,
         revision: existing.revision,
@@ -344,7 +371,7 @@ export const setMyMemoryEnabled = mutation({
         createdAt: now,
       });
     return {
-      subject: identity.tokenIdentifier,
+      subject: ownerId,
       ownerGeneration: lifecycle.generation,
       memoryEnabled: args.memoryEnabled,
       revision,

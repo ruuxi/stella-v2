@@ -98,6 +98,8 @@ import {
   type DeviceRegistration,
 } from "./dispatch-policy.js";
 import { enqueueOutbox } from "./outbox.js";
+import { OwnerMemoryPolicy, MemoryPolicyError, memoryPolicyTransport } from "./memory-policy.js";
+import type { MemoryPolicy, MemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
 import {
   HEADER_OWNER_FENCE_ID,
   createOwnerFenceHost,
@@ -847,6 +849,37 @@ const fail = (
 export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
   private snapshotInflight: Promise<OwnerSnapshot> | null = null;
+  private memoryPolicyState?: OwnerMemoryPolicy;
+
+  private memoryPolicy(): OwnerMemoryPolicy {
+    return this.memoryPolicyState ??= new OwnerMemoryPolicy(
+      this.ctx, this.ownerId(), memoryPolicyTransport(this.env, this.ownerId()),
+    );
+  }
+
+  async changeMemoryPolicy(change: MemoryPolicyChange): Promise<
+    { ok: true } | { ok: false; code: string; status: number }
+  > {
+    try {
+      await this.memoryPolicy().change(change);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false,
+        code: error instanceof MemoryPolicyError ? error.code : "MEMORY_POLICY_UNAVAILABLE",
+        status: error instanceof MemoryPolicyError ? error.status : 503 };
+    }
+  }
+
+  async assertMemoryPolicy(policy: MemoryPolicy, fenceGeneration: string, leaseId: string): Promise<void> {
+    const response = await createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch("assert", new Request(
+      "https://owner-gate/owner-fence/assert", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerId: this.ownerId(), ownerGeneration: policy.ownerGeneration, generation: fenceGeneration, leaseId }),
+      },
+    ));
+    if (!response.ok) throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
+    await this.memoryPolicy().assert(policy, fenceGeneration);
+  }
 
   /** The owner this object gates. The namespace is addressed by name only. */
   private ownerId(): string {
@@ -1446,6 +1479,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (url.pathname.startsWith("/owner-fence/")) {
       if (request.method !== "POST") {
         return Response.json({ error: "Method not allowed." }, { status: 405 });
+      }
+      if (url.pathname === "/owner-fence/register") {
+        const registration: unknown = await request.clone().json();
+        if (registration && typeof registration === "object" && "role" in registration &&
+            registration.role === "transfer") await this.memoryPolicy().invalidate();
       }
       return await createOwnerFenceHost({
         ctx: this.ctx,
@@ -2305,6 +2343,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const request: CloudTurnStartRequest = {
       protocol: TURN_PLANE_PROTOCOL,
       clientMsgId: row.dispatch_id,
+      ...(payload.userMessageEventId ? { originUserMessageId: payload.userMessageEventId } : {}),
       prompt: payload.prompt,
       lane: "chat",
       source: row.ingress === "schedule" ? "schedule" : "placement",
@@ -3296,6 +3335,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     } = {},
   ): Promise<void> {
     let next = options.fenceDeadline ?? Number.POSITIVE_INFINITY;
+    if (await this.memoryPolicy().pending()) next = Math.min(next, now + 5_000);
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
@@ -3353,6 +3393,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       fenceAlarmCompleted = true;
       await this.expirePresence(now);
       await this.expireDispatches(now);
+      await this.memoryPolicy().retry().catch((error: unknown) => {
+        log("error", "memory_policy_retry_pending", {
+          message: error instanceof Error ? error.message : "Memory policy retry failed.",
+        });
+      });
     } finally {
       if (!fenceAlarmCompleted) {
         fenceDeadline = await ownerFenceHost.nextDeadline();

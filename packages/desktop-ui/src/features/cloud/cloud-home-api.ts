@@ -81,7 +81,7 @@ export const cloudHomeApi = {
     CloudMemoryPreferenceForSubject
   >("cloud_memory:getMyMemoryPreference"),
   setMyMemoryEnabled: makeFunctionReference<
-    "mutation",
+    "action",
     SetCloudMemoryEnabledArgs,
     CloudMemoryPreferenceForSubject
   >("cloud_memory:setMyMemoryEnabled"),
@@ -91,7 +91,7 @@ export const cloudHomeApi = {
     CloudMemoryWipeStatus
   >("cloud_memory_lifecycle:getMyMemoryWipeStatus"),
   startMyMemoryWipe: makeFunctionReference<
-    "mutation",
+    "action",
     StartCloudMemoryWipeArgs,
     CloudMemoryWipeStatus
   >("cloud_memory_lifecycle:startMyMemoryWipe"),

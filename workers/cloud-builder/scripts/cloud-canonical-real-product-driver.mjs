@@ -11969,8 +11969,10 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     readFile(orchestrationDescriptorPath, "utf8"),
   ]);
   const orchestratorAnchors = [
-    'requireCloudContext(\n              "agent_home_memory",\n              agentHome.readDocuments(),',
-    'requireCloudContext(\n              "agent_home_personality",\n              agentHome.readPersonality(),',
+    'home.cloudStore().getMemoryContext()',
+    'home.readDocuments(context.documentHeads)',
+    'home.readPersonality(context.personalityHead)',
+    'context.preference.memoryEnabled',
     "residentSection: buildResidentMemorySection(memoryDocuments)",
     "personalityOverride ?? canonicalPrompts.personalityBody",
   ];
@@ -11982,7 +11984,7 @@ export const reviewedMemoryArchitectureBoundary = async () => {
   }
   assert(
     orchestrationDescriptorSource.includes(
-      '"Detailed instructions for the sub-agent. This is the agent\'s only context."',
+      '"The request and any necessary context the agent does not have. Keep simple requests short; preserve explicit constraints and leave the approach to the agent."',
     ),
     "Reviewed cloud orchestration descriptor no longer keeps child task context explicit.",
   );

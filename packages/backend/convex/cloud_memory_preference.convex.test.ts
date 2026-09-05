@@ -2,16 +2,35 @@
 
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
-const createTest = () => convexTest(schema, modules);
+const createTest = () => {
+  const t = convexTest(schema, modules);
+  vi.stubEnv("CLOUD_BUILDER_URL", "https://builder.test");
+  vi.stubEnv("BUILDER_SERVICE_SECRET", "memory-policy-test-secret");
+  // Exercise the real service callback and private mutations. The owner gate's
+  // serialization, durable recovery and acknowledgement are tested in its suite.
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    if (request.url !== "https://builder.test/internal/owners/memory-policy/change") {
+      throw new Error(`Unexpected test fetch: ${request.url}`);
+    }
+    const applied = await t.fetch("/api/cloud/home/memory/policy/apply", {
+      method: "POST", headers: request.headers, body: await request.text(),
+    });
+    if (applied.ok) return Response.json({ ok: true });
+    const body = await applied.json();
+    return Response.json({ error: body.code ?? "MEMORY_POLICY_CHANGE_REFUSED" }, { status: applied.status });
+  });
+  return t;
+};
 
 const getPreference = makeFunctionReference<"query", any, any>(
   "cloud_memory:getMyMemoryPreference",
 );
-const setPreference = makeFunctionReference<"mutation", any, any>(
+const setPreference = makeFunctionReference<"action", any, any>(
   "cloud_memory:setMyMemoryEnabled",
 );
 const listDocuments = makeFunctionReference<"query", any, any>(
@@ -51,7 +70,7 @@ const setEnabled = async (
   expectedRevision: number,
   requestId: string,
 ) =>
-  await asOwner(t).mutation(setPreference, {
+  await asOwner(t).action(setPreference, {
     expectedSubject: OWNER_ID,
     memoryEnabled,
     expectedOwnerGeneration: GENERATION,
@@ -117,7 +136,7 @@ describe("authoritative cloud memory preference", () => {
       }),
     ).rejects.toThrow("session changed");
     await expect(
-      asOwner(t).mutation(setPreference, {
+      asOwner(t).action(setPreference, {
         expectedSubject: "https://issuer.test|different-owner",
         memoryEnabled: false,
         expectedOwnerGeneration: GENERATION,
@@ -137,10 +156,10 @@ describe("authoritative cloud memory preference", () => {
     );
     await expect(
       setEnabled(t, true, 0, "memory-pref-disable-1"),
-    ).rejects.toThrow("different input");
+    ).rejects.toThrow("CLOUD_HOME_IDEMPOTENCY_CONFLICT");
     await expect(
       setEnabled(t, true, 0, "memory-pref-enable-stale"),
-    ).rejects.toThrow("changed before this request");
+    ).rejects.toThrow("CLOUD_HOME_REVISION_CONFLICT");
 
     await t.run(async (ctx) => {
       const lifecycle = await ctx.db
@@ -155,7 +174,7 @@ describe("authoritative cloud memory preference", () => {
     });
     await expect(
       setEnabled(t, true, 1, "memory-pref-enable-old-generation"),
-    ).rejects.toThrow("before the account data was reset");
+    ).rejects.toThrow("OWNER_DATA_GENERATION_STALE");
   });
 
   it("preserves existing heads while blocking Remember writes", async () => {
@@ -218,3 +237,5 @@ it("returns policy and memory heads together, withholding heads when disabled", 
   await expect(t.query(snapshot, { ...args, ownerGeneration: "stale-generation" })).rejects.toThrow();
   expect(await t.query(snapshot, { ownerId: OWNER_ID, ownerGeneration: GENERATION })).not.toHaveProperty("documentHeads");
 });
+
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });

@@ -121,6 +121,8 @@ const textPayload = (
   };
   return {
     text,
+    ...(record.role === "user" && typeof record.payload.originUserMessageId === "string"
+      ? { originUserMessageId: record.payload.originUserMessageId } : {}),
     ...(userMessageId ? { userMessageId } : {}),
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(typeof record.payload.source === "string"

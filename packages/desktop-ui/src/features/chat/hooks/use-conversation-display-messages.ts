@@ -400,7 +400,12 @@ export const mergeConversationDisplayMessageSources = (args: {
     persistedMessages,
     overlayMessagesInput,
   );
+  const acceptedEchoIds = new Set(persistedMessages.flatMap((message) => {
+    const origin = message.type === "user_message" ? message.payload?.originUserMessageId : undefined;
+    return typeof origin === "string" ? [origin] : [];
+  }));
   const overlayMessages = overlayMessagesInput.filter((message) =>
+    !(message.type === "user_message" && acceptedEchoIds.has(message._id)) &&
     assistantBelongsToLiveUser(message, liveUserIds),
   );
   const streamingAssistants = streamingAssistantsInput.filter((slot) =>

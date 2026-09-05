@@ -63,6 +63,8 @@ export type CloudAgentThreadControl = {
 export type CloudTurnStartRequest = {
   protocol: typeof TURN_PLANE_PROTOCOL;
   clientMsgId: string;
+  /** Original renderer echo identity when placement assigns a new canonical id. */
+  originUserMessageId?: string;
   prompt: string;
   /** Absent means the owner's default execution from the owner snapshot. */
   execution?: CloudExecutionSelection;

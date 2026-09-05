@@ -1,3 +1,4 @@
+import { runBeforeUserMessageHooks } from "../extensions/before-user-message.js";
 import { cleanupSessionResources } from "../../ai/session-resources.js";
 import type { Agent } from "../agent-core/agent.js";
 import type { AgentMessage } from "../agent-core/types.js";
@@ -238,7 +239,7 @@ const snapshotToolSchemas = (tools: RuntimeAgentTools | undefined) =>
       tool.name,
       {
         description: tool.description,
-        parameters: tool.parameters,
+        parameters: structuredClone(tool.parameters),
         parametersJson: safeSchemaJson(tool.parameters),
       },
     ]),
@@ -268,15 +269,14 @@ export class PiSessionCore {
    * change, connector-surface switch mutating node_repl's demoted-tool
    * catalog), so the prompt-cache prefix stays byte-identical. The
    * snapshot re-adopts fresh values only at legitimate cache boundaries:
-   * compaction/history refresh, the memory-preference toggle, or a
-   * structural tool-set change (different tool names, e.g. a model switch
-   * flipping the file-edit family).
+   * compaction/history refresh or the memory-preference toggle.
    */
   private frozenSystemPrompt: string | null = null;
   private frozenToolSchemas: FrozenToolSchemas | null = null;
   private adoptFreshContextSnapshot = false;
   /** Signature of the last announced frozen-tools drift (dedup). */
   private announcedToolDriftSignature: string | null = null;
+  private latestSystemPrompt: string | null = null;
   /**
    * Hidden `runtime.context_delta.*` messages queued by the freeze logic,
    * consumed into the next prompt build so the model hears about resident
@@ -1120,19 +1120,24 @@ export class PiSessionCore {
     tools: RuntimeAgentTools,
   ): void {
     this.frozenSystemPrompt = systemPrompt;
+    this.latestSystemPrompt = systemPrompt;
+    this.pendingContextDeltaMessages = [];
     this.frozenToolSchemas = snapshotToolSchemas(tools);
     this.announcedToolDriftSignature = null;
     this.adoptFreshContextSnapshot = false;
   }
 
   /** Drain the queued resident-context delta messages for this turn's prompt. */
-  protected takePendingContextDeltaMessages(): RuntimePromptMessage[] {
+  protected async takePendingContextDeltaMessages(userPrompt: string, agentType: string): Promise<RuntimePromptMessage[]> {
     if (this.pendingContextDeltaMessages.length === 0) {
       return [];
     }
     const messages = this.pendingContextDeltaMessages;
+    const results = await runBeforeUserMessageHooks([{
+      event: "before_user_message", handler: async () => ({ prependMessages: messages }),
+    }], { userPrompt, agentType });
     this.pendingContextDeltaMessages = [];
-    return messages;
+    return results.flatMap((result) => result?.prependMessages ?? []);
   }
 
   /**
@@ -1140,8 +1145,7 @@ export class PiSessionCore {
    * turn (they capture per-turn state like runId), but the provider-visible
    * bytes come from the frozen snapshot so the cached prefix survives:
    *
-   *   - boundary (compaction refresh / memory toggle / structural tool-set
-   *     change) → adopt fresh system prompt + tools and re-freeze;
+   *   - boundary (compaction refresh / memory toggle) → adopt fresh system prompt + tools and re-freeze;
    *   - otherwise → keep frozen bytes; when the freshly-computed bytes
    *     drifted (e.g. a desktop↔mobile surface switch changing
    *     node_repl's demoted-tool catalog), queue ONE hidden
@@ -1157,25 +1161,8 @@ export class PiSessionCore {
     if (!agent) return;
     const frozen = this.frozenToolSchemas;
     const frozenSystemPrompt = this.frozenSystemPrompt;
-    const structuralToolChange =
-      !frozenSystemPrompt ||
-      !frozen ||
-      frozen.size !== args.tools.length ||
-      args.tools.some((tool) => !frozen.has(tool.name));
-    const boundary = this.adoptFreshContextSnapshot || structuralToolChange;
+    const boundary = this.adoptFreshContextSnapshot || !frozen || !frozenSystemPrompt;
     if (boundary || !frozen || !frozenSystemPrompt) {
-      if (structuralToolChange && !this.adoptFreshContextSnapshot) {
-        // Accepted cache break: the available tool NAMES changed (model
-        // switch flipping the file-edit family, extension hot-reload).
-        // Frozen schemas for a tool that no longer exists would strand
-        // calls, so the swap applies immediately and knowingly.
-        this.logger.warn("frozen-context.structural-tool-change", {
-          threadKey: this.threadKey,
-          previousTools: frozen ? [...frozen.keys()] : [],
-          nextTools: args.tools.map((tool) => tool.name),
-          ...args.logContext,
-        });
-      }
       agent.state.systemPrompt = args.systemPrompt;
       agent.state.tools = args.tools;
       this.freezeContextSnapshot(args.systemPrompt, args.tools);
@@ -1191,35 +1178,29 @@ export class PiSessionCore {
     }
     agent.state.systemPrompt = frozenSystemPrompt;
     const driftedToolNames: string[] = [];
-    agent.state.tools = args.tools.map((tool): RuntimeAgentTool => {
-      const snapshot = frozen.get(tool.name);
-      if (!snapshot) {
-        return tool;
+    const liveTools = new Map(args.tools.map((tool) => [tool.name, tool]));
+    agent.state.tools = [...frozen].map(([name, snapshot]): RuntimeAgentTool => {
+      const tool = liveTools.get(name);
+      if (!tool) {
+        driftedToolNames.push(name);
+        return { name, label: name, description: snapshot.description, parameters: snapshot.parameters,
+          execute: async () => ({ content: [{ type: "text", text: "This tool is no longer available. Use another available tool." }], details: { unavailable: true } }),
+        };
       }
-      const descriptionMatches = tool.description === snapshot.description;
-      const parametersMatch =
-        tool.parameters === snapshot.parameters ||
-        safeSchemaJson(tool.parameters) === snapshot.parametersJson;
-      if (descriptionMatches && parametersMatch) {
-        return tool;
-      }
-      driftedToolNames.push(tool.name);
-      return {
-        ...tool,
-        description: snapshot.description,
-        parameters: snapshot.parameters,
-      };
+      if (tool.description !== snapshot.description || safeSchemaJson(tool.parameters) !== snapshot.parametersJson) driftedToolNames.push(name);
+      return { ...tool, description: snapshot.description, parameters: snapshot.parameters };
     });
-    if (args.systemPrompt !== frozenSystemPrompt) {
-      // Rare (locale / workspace-root / hook-append drift). Kept frozen;
-      // the fresh prompt applies at the next compaction boundary.
-      this.logger.debug("frozen-context.system-prompt-drift-held", {
-        threadKey: this.threadKey,
-        ...args.logContext,
+    for (const tool of args.tools) if (!frozen.has(tool.name)) driftedToolNames.push(tool.name);
+    if (args.systemPrompt !== this.latestSystemPrompt) {
+      this.latestSystemPrompt = args.systemPrompt;
+      this.pendingContextDeltaMessages.push({
+        text: `<system-reminder>Stella's current instructions or environment changed. Use this updated context for subsequent work:\n${args.systemPrompt}\n</system-reminder>`,
+        uiVisibility: "hidden", messageType: "message",
+        customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}system`,
       });
     }
     if (driftedToolNames.length > 0) {
-      const signature = driftedToolNames.sort().join(",");
+      const signature = safeSchemaJson([...snapshotToolSchemas(args.tools)]);
       if (this.announcedToolDriftSignature !== signature) {
         this.announcedToolDriftSignature = signature;
         this.pendingContextDeltaMessages.push({
@@ -1234,6 +1215,13 @@ export class PiSessionCore {
           ...args.logContext,
         });
       }
+    } else if (this.announcedToolDriftSignature !== null) {
+      this.announcedToolDriftSignature = null;
+      this.pendingContextDeltaMessages.push({
+        text: "<system-reminder>The available tools now match the visible tool definitions again.</system-reminder>",
+        uiVisibility: "hidden", messageType: "message",
+        customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}tools`,
+      });
     }
     checkPromptPrefixStability({
       threadKey: this.threadKey,

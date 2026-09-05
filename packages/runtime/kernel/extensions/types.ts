@@ -132,39 +132,9 @@ export type BeforeAgentStartHookResult = {
  * without the kernel passing an opaque agentContext blob through the
  * payload. They're undefined for subagent builds.
  */
-export type BeforeUserMessagePayload = HookRuntimeContext & {
-  agentType: string;
-  userPrompt: string;
-  staleUserReminderText?: string;
-  orchestratorReminderText?: string;
-  /**
-   * Pre-rendered hidden reminder text describing a change in the user's
-   * routing surface (desktop ⇄ connector / connector ⇄ different
-   * connector). Computed in `prepareOrchestratorRun`; undefined when
-   * the surface didn't change since the previous user message. Hooks
-   * inject it as a hidden system reminder so the orchestrator only sees
-   * the format guidance on the transition turn.
-   */
-  connectorTransitionReminderText?: string;
-  shouldInjectDynamicReminder?: boolean;
-};
-
-export type BeforeUserMessageHookResult = {
-  /**
-   * Messages prepended to the prompt-message array in registration
-   * order. Each hook's prepends land before any bundled startup
-   * messages and before the user's typed prompt. Use `display: false`
-   * (or `uiVisibility: "hidden"`) to keep the message out of the
-   * user-facing chat surface.
-   */
-  prependMessages?: RuntimePromptMessage[];
-  /**
-   * Messages appended just before the user's typed prompt. Useful for
-   * context that should land close to the user's text without sitting
-   * inside the bundled startup section.
-   */
-  appendMessages?: RuntimePromptMessage[];
-};
+export type BeforeUserMessagePayload = HookRuntimeContext & import("./before-user-message.js").BeforeUserMessagePayload;
+export type { BeforeUserMessageHookResult } from "./before-user-message.js";
+import type { BeforeUserMessageHookResult } from "./before-user-message.js";
 
 export type AgentStartPayload = HookRuntimeContext & {
   agentType: string;

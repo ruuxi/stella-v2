@@ -12,6 +12,8 @@
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
 import { BUILDER_OWNER_SNAPSHOT_CHANGED_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
+import { MEMORY_POLICY_CHANGE_PATH, parseMemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
+import { MemoryPolicyError } from "../memory-policy.js";
 import type {
   OwnerSnapshot,
   OwnerSnapshotChangedRequest,
@@ -1801,6 +1803,17 @@ export const worker = {
           body: text,
         },
       );
+    }
+    if (request.method === "POST" && url.pathname === MEMORY_POLICY_CHANGE_PATH) {
+      const change = parseMemoryPolicyChange(await request.json().catch(() => null));
+      if (!change) return json({ error: "Invalid memory policy change." }, 400);
+      try {
+        const result = await env.OWNER_GATES.getByName(change.ownerId).changeMemoryPolicy(change);
+        return result.ok ? json({ ok: true }) : json({ error: result.code }, result.status);
+      } catch (error) {
+        return json({ error: error instanceof MemoryPolicyError ? error.code : "MEMORY_POLICY_UNAVAILABLE" },
+          error instanceof MemoryPolicyError ? error.status : 503);
+      }
     }
     // Convex learned an owner's plan, generation, engines or pairing changed.
     // A complete push pre-warms the gate; a snapshot-less push marks it stale.

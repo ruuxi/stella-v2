@@ -1,6 +1,8 @@
+import { synchronizeMemoryPolicyChange } from "./lib/memory_policy_change";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import {
+  action,
   internalAction,
   internalMutation,
   internalQuery,
@@ -79,7 +81,7 @@ const validateEpoch = (value: string): string =>
   assertOpaqueCloudHomeId(value, "memory epoch");
 
 const requireExpectedSubject = async (
-  ctx: QueryCtx | MutationCtx,
+  ctx: QueryCtx | MutationCtx | ActionCtx,
   expectedSubject: string,
 ) => {
   const identity = await requireUserIdentity(ctx);
@@ -362,7 +364,7 @@ export const getMyMemoryWipeStatus = query({
   },
 });
 
-export const startMyMemoryWipe = mutation({
+export const startMyMemoryWipe = action({
   args: {
     expectedOwnerGeneration: v.string(),
     expectedMemoryEpoch: v.string(),
@@ -372,11 +374,17 @@ export const startMyMemoryWipe = mutation({
   returns: wipeStatusValidator,
   handler: async (ctx, args) => {
     const identity = await requireExpectedSubject(ctx, args.expectedSubject);
-    return await startMemoryWipeForOwner(ctx, {
+    await synchronizeMemoryPolicyChange({
+      kind: "wipe",
       ownerId: identity.tokenIdentifier,
       expectedOwnerGeneration: args.expectedOwnerGeneration,
       expectedMemoryEpoch: args.expectedMemoryEpoch,
       requestId: args.requestId,
+    });
+    return await ctx.runQuery(makeFunctionReference<"query", {
+      ownerId: string; ownerGeneration: string;
+    }, Awaited<ReturnType<typeof readMemoryWipeStatus>>>("cloud_memory_lifecycle:getMemoryWipeStatusInternal"), {
+      ownerId: identity.tokenIdentifier, ownerGeneration: args.expectedOwnerGeneration,
     });
   },
 });

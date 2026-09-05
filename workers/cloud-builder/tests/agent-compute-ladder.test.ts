@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   agentComputeKey,
   createAgentComputeLadder,
+  createLazySandboxAttachment,
   parsePersistedAgentCompute,
   SandboxOutOfMemoryError,
   type AgentComputeStore,
@@ -390,6 +391,42 @@ describe("agent compute ladder", () => {
       coldStartMs: 3_000,
       restoreMs: 400,
     });
+  });
+});
+
+describe("lazy sandbox attachment", () => {
+  test("loads once on first feature call and forwards subsequent calls", async () => {
+    const calls: string[] = [];
+    let loads = 0;
+    const attachment = createLazySandboxAttachment(async () => {
+      loads += 1;
+      return {
+        boot: async () => ({ coldStartMs: 1, restoreMs: 2 }),
+        callTool: async ({ request }) => {
+          calls.push(request.toolCallId);
+          return {
+            version: ATTACHED_TOOL_PROTOCOL_VERSION,
+            toolCallId: request.toolCallId,
+            result: OK,
+          };
+        },
+        control: async () => ({
+          version: ATTACHED_TOOL_PROTOCOL_VERSION,
+          status: "quiesced",
+          deliveredFiles: [],
+        }),
+        release: async () => {},
+        destroy: async () => {},
+      };
+    });
+
+    expect(loads).toBe(0);
+    await Promise.all([
+      attachment.callTool({ sandboxId: SANDBOX_ID, request: call("call-a") }),
+      attachment.callTool({ sandboxId: SANDBOX_ID, request: call("call-b") }),
+    ]);
+    expect(loads).toBe(1);
+    expect(calls).toEqual(["call-a", "call-b"]);
   });
 });
 

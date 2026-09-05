@@ -6,6 +6,7 @@ import {
   PLACEMENT_PROTOCOL,
   type DispatchSubmitRequest,
 } from "@stella/contracts/turn-plane/placement";
+import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import { sampleOwnerSnapshot } from "./helpers/turn-plane-fakes.js";
 import {
   createGateHarness,
@@ -33,6 +34,13 @@ mock.restore();
  */
 
 const NOW = 1_800_000_000_000;
+const readerGrantPolicy: MemoryPolicy = {
+  ownerGeneration: "generation-1",
+  memoryEpoch: "epoch-1",
+  memoryEnabled: true,
+  revision: 1,
+  updatedAt: NOW,
+};
 
 const harnesses: GateHarness[] = [];
 const open = (...args: Parameters<typeof createGateHarness>) => {
@@ -83,6 +91,89 @@ const lastFrame = (socket: { sent: Array<{ type: string }> }, type: string) =>
   [...socket.sent].reverse().find((frame) => frame.type === type);
 
 describe("dispatch submission", () => {
+  test("uses a prepared reader once, then keeps a restarted reader registration", async () => {
+    let readerCalls = 0;
+    const grantReaders: Array<string | undefined> = [];
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([]),
+      prepareCloudChatReader: async () => {
+        readerCalls += 1;
+        return "reader-old";
+      },
+      respond: call => {
+        expect(readerCalls).toBe(1);
+        grantReaders.push(call.authority?.ownerModelGrant?.readerId);
+        return Response.json({
+          protocol: 1,
+          conversationId: call.name,
+          turnId: call.authority!.turnId,
+          accepted: true,
+          replayed: false,
+          createdConversation: false,
+        }, { status: 202 });
+      },
+    });
+    const instance = harness.instance as unknown as {
+      admitWithFenceLease(input: unknown): Promise<any>;
+      registerConversationReader(args: {
+        ownerId: string; ownerGeneration: string; conversationId: string; readerId: string;
+      }): Promise<void>;
+    };
+    const admitWithFenceLease = instance.admitWithFenceLease.bind(instance);
+    instance.admitWithFenceLease = async input => {
+      const result = await admitWithFenceLease(input);
+      if (result.lease.status === "registered") {
+        harness.values.set("memoryPolicy:cache:v1", {
+          fenceGeneration: result.lease.generation,
+          policy: readerGrantPolicy,
+        });
+      }
+      return {
+        ...result,
+        homeContext: { memory: { preference: readerGrantPolicy } },
+      };
+    };
+
+    await harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW,
+    });
+    await instance.registerConversationReader({
+      ownerId: "owner-1", ownerGeneration: "generation-1", conversationId: "conversation-1",
+      readerId: "reader-new",
+    });
+    await harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW + 1,
+    });
+
+    expect(harness.preparedCloudChatReaders).toEqual(["conversation-1"]);
+    expect(readerCalls).toBe(1);
+    expect(grantReaders).toEqual(["reader-old", "reader-new"]);
+  });
+
+  test("does not block cloud admission when owner gateway preparation fails", async () => {
+    const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
+    const env = Reflect.get(harness.instance, "env") as Record<string, unknown>;
+    let preparations = 0;
+    env.MODEL_GATEWAY_CONTROL = {
+      prepareOwner: async ({ ownerId }: { ownerId: string }) => {
+        preparations += 1;
+        expect(ownerId).toBe("owner-1");
+        throw new Error("gateway unavailable");
+      },
+    };
+
+    const first = await harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW,
+    });
+    const second = await harness.instance.submit({
+      request: submitBody({ requestingDeviceId: undefined }), now: NOW + 1,
+    });
+
+    expect(first.response.dispatch.state).toBe("cloud_running");
+    expect(second.response.dispatch.state).toBe("cloud_running");
+    expect(preparations).toBe(1);
+  });
+
   test("starts cloud admission while the initial activity projection is pending", async () => {
     const projection = Promise.withResolvers<void>();
     const forwarded = Promise.withResolvers<void>();

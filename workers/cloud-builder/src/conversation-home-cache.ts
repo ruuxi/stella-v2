@@ -33,9 +33,10 @@ export class ConversationHomeCache {
       this.resident = cached;
       return cached.content;
     }
-    // Drop the previous generation/policy/content before any asynchronous read.
+    // Drop the resident copy before the asynchronous read. The durable copy is
+    // keyed, so a mismatch can never be returned; retaining it until a
+    // replacement succeeds avoids a delete/write pair on the next output gate.
     this.resident = undefined;
-    this.durable.clear();
     const content = await args.readContent();
     if (this.durable.purged()) throw new Error("Conversation was purged.");
     const snapshot = { key, content };

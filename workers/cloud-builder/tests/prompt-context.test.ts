@@ -4,6 +4,9 @@ import {
   preparePromptContext,
   beforeUserContext,
   materializeProviderContext,
+  promptContextCheckpointChanged,
+  promptContextHistoryStartAfterSeq,
+  reusablePromptContext,
 } from "../src/prompt-context.js";
 import { stampUserMessageSequences } from "../src/journal.js";
 import type {
@@ -66,8 +69,17 @@ describe("cloud prompt context", () => {
         tools: [tool("updated description", "turn-3")],
       }).deltas,
     ).toEqual([]);
+    const unchanged = preparePromptContext({
+      ...input,
+      previous: second.state,
+      systemPrompt: second.state.latestSystemPrompt,
+      tools: [tool("updated description", "turn-4")],
+    });
+    expect(unchanged.state).toBe(second.state);
+    expect(unchanged.boundary).toBe(false);
     const reverted = preparePromptContext({ ...input, previous: second.state });
     expect(reverted.deltas).toHaveLength(2);
+    expect(reverted.state).not.toBe(second.state);
   });
 
   test("holds added tools, disables removed ones, and adopts the new descriptors at a history boundary", async () => {
@@ -148,6 +160,47 @@ describe("cloud prompt context", () => {
         fresh.state.epoch,
       );
       expect(JSON.stringify(replay)).not.toContain("revoked memory");
+    }
+  });
+
+  test("invalidated context does not reuse an old checkpoint or filter history", () => {
+    const stored = preparePromptContext(input).state;
+    const storedCheckpoint = {
+      coveredThroughSeq: 42,
+      summary: "old summary from another owner or journal epoch",
+    };
+
+    for (const invalidated of [
+      {
+        storedContext: { ...stored, ownerGeneration: "owner-2" },
+        ownerGeneration: "owner-1",
+        journalEpoch: stored.journalEpoch,
+      },
+      {
+        storedContext: { ...stored, journalEpoch: stored.journalEpoch - 1 },
+        ownerGeneration: stored.ownerGeneration,
+        journalEpoch: stored.journalEpoch,
+      },
+    ]) {
+      const previousContext = reusablePromptContext(invalidated);
+      const previousCheckpoint = previousContext ? storedCheckpoint : undefined;
+
+      expect(previousContext).toBeUndefined();
+      expect(previousCheckpoint).toBeUndefined();
+      expect(
+        promptContextHistoryStartAfterSeq({
+          previousContext,
+          previousCheckpoint,
+        }),
+      ).toBe(-1);
+      expect(
+        promptContextCheckpointChanged({
+          storedContext: invalidated.storedContext,
+          previousContext,
+          storedCheckpoint,
+          nextCheckpoint: undefined,
+        }),
+      ).toBe(true);
     }
   });
 });

@@ -211,6 +211,35 @@ const DDL = [
 ];
 
 /**
+ * A current `meta` row is committed only after the complete DDL list (and a
+ * migration version only after its statements) has run. Probe those named
+ * objects in the same SQLite read so a previously interrupted bootstrap or a
+ * damaged store takes the existing repair path instead of silently trusting
+ * its version stamp.
+ */
+const CURRENT_SCHEMA_OBJECT_NAMES = [
+  "meta",
+  "journal",
+  "journal_writer_key",
+  "journal_turn",
+  "journal_context",
+  "journal_fts",
+  "turns",
+  "turns_state",
+  "inbox",
+  "segments",
+  "purge_queue",
+  "spills",
+  "owner_transfer_objects",
+  "append_window",
+  "append_receipts",
+  "retired_writers",
+  "retired_turns",
+  "conversation_edit_receipts",
+  "acceptance_context_fault",
+] as const;
+
+/**
  * What an existing database needs in order to reach the current
  * JOURNAL_SCHEMA_VERSION, keyed by the version it arrives at. `CREATE TABLE IF
  * NOT EXISTS` covers a brand-new object and does nothing for an old one, so a
@@ -561,6 +590,15 @@ export class Journal {
   // -------------------------------------------------------------------------
 
   async bootstrap(): Promise<void> {
+    const current = this.currentBootstrapMeta();
+    if (current) {
+      const witness =
+        (await this.ctx.storage.get<number>(EPOCH_WITNESS_KEY)) ?? 0;
+      if (current.epoch > witness) {
+        await this.ctx.storage.put(EPOCH_WITNESS_KEY, current.epoch);
+      }
+      return;
+    }
     // One `exec` per statement: the platform runs a single statement per call.
     for (const statement of DDL) this.sql.exec(statement);
     const existing = this.sql
@@ -598,6 +636,37 @@ export class Journal {
         `UPDATE meta SET schema_version = ? WHERE id = 0`,
         JOURNAL_SCHEMA_VERSION,
       );
+    }
+  }
+
+  /**
+   * The cold-path fast check is deliberately fail-open to the full bootstrap:
+   * missing metadata, an old version, a missing named schema object, or a SQL
+   * error all retain the historical DDL and migration repair behavior.
+   */
+  private currentBootstrapMeta(): { epoch: number } | null {
+    try {
+      const row = this.sql
+        .exec<{ schema_version: number; epoch: number; object_count: number }>(
+          `SELECT meta.schema_version, meta.epoch,
+             (SELECT COUNT(DISTINCT name) FROM sqlite_master
+               WHERE name IN (${CURRENT_SCHEMA_OBJECT_NAMES.map(() => "?").join(", ")})) AS object_count
+             FROM meta WHERE meta.id = 0`,
+          ...CURRENT_SCHEMA_OBJECT_NAMES,
+        )
+        .toArray()[0];
+      if (
+        !row ||
+        row.schema_version !== JOURNAL_SCHEMA_VERSION ||
+        !Number.isSafeInteger(row.epoch) ||
+        row.epoch < 1 ||
+        row.object_count !== CURRENT_SCHEMA_OBJECT_NAMES.length
+      ) {
+        return null;
+      }
+      return { epoch: row.epoch };
+    } catch {
+      return null;
     }
   }
 

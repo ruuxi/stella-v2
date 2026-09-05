@@ -7,10 +7,11 @@ export const guardedModelFetch = async (args: {
   request: Request;
   authorize: () => Promise<void>;
   fetch: (request: Request) => Promise<Response>;
+  mode?: "gate-body" | "authorize-before-fetch";
 }): Promise<Response> => {
   const { request, authorize } = args;
   request.signal.throwIfAborted();
-  if (!request.body) {
+  if (args.mode === "authorize-before-fetch" || !request.body) {
     await authorize();
     request.signal.throwIfAborted();
     return await args.fetch(request);

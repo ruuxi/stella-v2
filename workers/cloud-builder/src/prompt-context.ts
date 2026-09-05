@@ -24,6 +24,41 @@ export type PromptContext = {
   startSeq: number;
 };
 
+export type PromptContextCheckpoint = {
+  coveredThroughSeq: number;
+  summary: string;
+};
+
+export const reusablePromptContext = (args: {
+  storedContext?: PromptContext;
+  journalEpoch: number;
+  ownerGeneration: string;
+}): PromptContext | undefined =>
+  args.storedContext?.journalEpoch === args.journalEpoch &&
+  args.storedContext.ownerGeneration === args.ownerGeneration
+    ? args.storedContext
+    : undefined;
+
+export const promptContextHistoryStartAfterSeq = (args: {
+  previousContext?: PromptContext;
+  previousCheckpoint?: PromptContextCheckpoint;
+}): number =>
+  args.previousCheckpoint?.coveredThroughSeq ??
+  Math.max(-1, (args.previousContext?.startSeq ?? 0) - 1);
+
+export const promptContextCheckpointChanged = (args: {
+  storedContext?: PromptContext;
+  previousContext?: PromptContext;
+  storedCheckpoint?: PromptContextCheckpoint;
+  nextCheckpoint?: PromptContextCheckpoint;
+}): boolean =>
+  args.nextCheckpoint
+    ? args.storedCheckpoint?.coveredThroughSeq !==
+        args.nextCheckpoint.coveredThroughSeq ||
+      args.storedCheckpoint?.summary !== args.nextCheckpoint.summary
+    : Boolean(args.storedCheckpoint) ||
+      args.storedContext !== args.previousContext;
+
 const snapshotTools = (tools: AgentTool[]): ToolSnapshot[] =>
   tools.map(({ name, description, parameters }) => ({
     name,
@@ -52,25 +87,33 @@ export const preparePromptContext = (args: {
     previous.ownerGeneration !== policy.ownerGeneration ||
     previous.memoryEpoch !== policy.memoryEpoch ||
     previous.memoryEnabled !== policy.memoryEnabled;
-  const state: PromptContext = boundary
-    ? {
-        version: 1,
-        epoch: crypto.randomUUID(),
-        journalEpoch: args.journalEpoch,
-        ownerGeneration: policy.ownerGeneration,
-        memoryEpoch: policy.memoryEpoch,
-        memoryEnabled: policy.memoryEnabled,
-        systemPrompt: args.systemPrompt,
-        tools: liveDescriptors,
-        latestSystemPrompt: args.systemPrompt,
-        latestTools: signature,
-        startSeq: args.startSeq,
-      }
-    : {
-        ...previous,
-        latestSystemPrompt: args.systemPrompt,
-        latestTools: signature,
-      };
+  let state: PromptContext;
+  if (boundary) {
+    state = {
+      version: 1,
+      epoch: crypto.randomUUID(),
+      journalEpoch: args.journalEpoch,
+      ownerGeneration: policy.ownerGeneration,
+      memoryEpoch: policy.memoryEpoch,
+      memoryEnabled: policy.memoryEnabled,
+      systemPrompt: args.systemPrompt,
+      tools: liveDescriptors,
+      latestSystemPrompt: args.systemPrompt,
+      latestTools: signature,
+      startSeq: args.startSeq,
+    };
+  } else if (
+    previous.latestSystemPrompt === args.systemPrompt &&
+    previous.latestTools === signature
+  ) {
+    state = previous;
+  } else {
+    state = {
+      ...previous,
+      latestSystemPrompt: args.systemPrompt,
+      latestTools: signature,
+    };
+  }
   const deltas: string[] = [];
   if (!boundary && previous.latestSystemPrompt !== args.systemPrompt) {
     deltas.push(

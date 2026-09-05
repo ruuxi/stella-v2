@@ -15,7 +15,7 @@
  * exercised by tests; production still runs the container path.
  */
 
-import { Agent } from "@stella/runtime/kernel/agent-core/agent.js";
+import type { Agent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/agent.js";
 import type {
   AgentEvent,
   AgentMessage,
@@ -63,6 +63,9 @@ import type { SealedTurnTranscript } from "./agent-turn-journal.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 import { assertTurnExecutionActive } from "./turn-cancellation.js";
 import type { SteerMessage } from "./steer-mailbox.js";
+
+const loadRuntimeAgent = async () =>
+  (await import("@stella/runtime/kernel/agent-core/agent.js")).Agent;
 
 export type { CanonicalTranscriptReceipt } from "./agent-control-plane.js";
 
@@ -825,6 +828,10 @@ export const runResidentStellaLoop = async (
     timestamp: input.now(),
   };
   journal.append(promptMessage);
+  // Start evaluating the loop only after this attempt and its prompt are
+  // durably journaled. History validation and non-turn routes avoid the cost.
+  const agentRuntimeWork = loadRuntimeAgent();
+  void agentRuntimeWork.catch(() => undefined);
   let initialSteer: AgentMessage[];
   try {
     initialSteer = await drainSteer();
@@ -849,6 +856,7 @@ export const runResidentStellaLoop = async (
   // defaults still read the registry synchronously — so settle it here,
   // before the latch below, where an await is still allowed.
   await loadModelRegistry();
+  const Agent = await agentRuntimeWork;
   context.assertActive();
   // No await between this synchronous latch and constructing the Agent. The
   // next async admission boundary repeats the check.

@@ -111,6 +111,71 @@ describe("guarded model fetch", () => {
     expect(sourceCanceled).toBe(true);
   });
 
+
+  test("local authorization waits before transport and forwards the original request", async () => {
+    const source = new Request("https://gateway/model", {
+      method: "POST",
+      body: JSON.stringify({ messages: ["private memory"] }),
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer test-capability",
+      },
+    });
+    const authorize = Promise.withResolvers<void>();
+    let fetchStarted = false;
+    let forwarded: Request | undefined;
+    const work = guardedModelFetch({
+      request: source,
+      mode: "authorize-before-fetch",
+      authorize: () => authorize.promise,
+      fetch: async value => {
+        fetchStarted = true;
+        forwarded = value;
+        return new Response(await value.arrayBuffer(), { status: 202 });
+      },
+    });
+
+    await Promise.resolve();
+    expect(fetchStarted).toBe(false);
+    authorize.resolve();
+    const response = await work;
+
+    expect(response.status).toBe(202);
+    expect(forwarded).toBe(source);
+    expect(await response.json()).toEqual({ messages: ["private memory"] });
+  });
+
+  test("local authorization refusal sends zero requests and leaves the body untouched", async () => {
+    const source = request();
+    const refusal = new Error("MEMORY_POLICY_CHANGED");
+    let calls = 0;
+    await expect(guardedModelFetch({
+      request: source,
+      mode: "authorize-before-fetch",
+      authorize: async () => { throw refusal; },
+      fetch: async () => { calls++; return new Response("must not run"); },
+    })).rejects.toBe(refusal);
+
+    expect(calls).toBe(0);
+    expect(await source.json()).toEqual({ messages: ["private memory"] });
+  });
+
+  test("local authorization abort sends zero requests and leaves the body untouched", async () => {
+    const abort = new AbortController();
+    const source = request(abort.signal);
+    const reason = new Error("exact turn canceled");
+    let calls = 0;
+    await expect(guardedModelFetch({
+      request: source,
+      mode: "authorize-before-fetch",
+      authorize: async () => { abort.abort(reason); },
+      fetch: async () => { calls++; return new Response("must not run"); },
+    })).rejects.toBe(reason);
+
+    expect(calls).toBe(0);
+    expect(await source.json()).toEqual({ messages: ["private memory"] });
+  });
+
   test("does not retry a failed transport", async () => {
     const failure = new Error("gateway disconnected");
     let calls = 0;

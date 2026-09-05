@@ -65,6 +65,16 @@ export type OwnerFenceHost = {
   nextDeadline(): Promise<number | null>;
 };
 
+/**
+ * A local owner-gate barrier that must complete before the fence commits an
+ * authority-changing begin or transfer lease. It receives only parsed route
+ * data, never request headers or credentials.
+ */
+export type OwnerFenceAuthorityChangeHook = (args: {
+  path: "begin" | "register";
+  body: Readonly<Record<string, unknown>>;
+}) => Promise<void>;
+
 const json = (body: unknown, status = 200): Response =>
   Response.json(body, {
     status,
@@ -90,6 +100,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly env: OwnerFenceHostEnv,
+    private readonly beforeAuthorityChange?: OwnerFenceAuthorityChangeHook,
   ) {}
 
   async fetch(path: string, request: Request): Promise<Response> {
@@ -307,6 +318,12 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
           503,
         );
       }
+      if (role === "transfer") {
+        await this.beforeAuthorityChange?.({
+          path: "register",
+          body: body as Readonly<Record<string, unknown>>,
+        });
+      }
       let result!: ReturnType<OwnerFenceStore["registerLeaseExact"]>;
       await this.ctx.storage.transaction(async (txn) => {
         result = leaseStore.registerLeaseExact(registration, now);
@@ -514,6 +531,15 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       if (disposition.action === "reject") {
         return json({ error: "Owner purge generation cannot be joined." }, 409);
       }
+      if (
+        disposition.action === "start" ||
+        disposition.upgradeToPermanent
+      ) {
+        await this.beforeAuthorityChange?.({
+          path: "begin",
+          body: body as Readonly<Record<string, unknown>>,
+        });
+      }
       if (disposition.action === "start") {
         current.generation = crypto.randomUUID();
         current.beginRequestId = normalizeOwnerGeneration(body.requestId)!;
@@ -599,4 +625,9 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
 export const createOwnerFenceHost = (args: {
   ctx: DurableObjectState;
   env: OwnerFenceHostEnv;
-}): OwnerFenceHost => new DurableObjectOwnerFenceHost(args.ctx, args.env);
+  beforeAuthorityChange?: OwnerFenceAuthorityChangeHook;
+}): OwnerFenceHost => new DurableObjectOwnerFenceHost(
+  args.ctx,
+  args.env,
+  args.beforeAuthorityChange,
+);

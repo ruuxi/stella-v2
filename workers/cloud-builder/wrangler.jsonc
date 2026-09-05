@@ -91,6 +91,11 @@
       "binding": "MODEL_GATEWAY",
       "service": "stella-v2-model-gateway-dev",
     },
+    {
+      "binding": "MODEL_GATEWAY_CONTROL",
+      "service": "stella-v2-model-gateway-dev",
+      "entrypoint": "ModelGatewayControl",
+    },
   ],
   "r2_buckets": [
     {
@@ -191,6 +196,11 @@
         // One object per owner: plan snapshot and running-turn replay registry.
         "name": "OWNER_GATES",
         "class_name": "OwnerGate",
+      },
+      {
+        "name": "MODEL_GATEWAY_OWNERS",
+        "class_name": "OwnerRelayGate",
+        "script_name": "stella-v2-model-gateway-dev",
       },
       {
         "name": "WORLDS",
@@ -303,6 +313,11 @@
           "binding": "MODEL_GATEWAY",
           "service": "stella-v2-model-gateway-dev",
         },
+        {
+          "binding": "MODEL_GATEWAY_CONTROL",
+          "service": "stella-v2-model-gateway-dev",
+          "entrypoint": "ModelGatewayControl",
+        },
       ],
       "r2_buckets": [
         {
@@ -388,6 +403,11 @@
           {
             "name": "OWNER_GATES",
             "class_name": "OwnerGate",
+          },
+          {
+            "name": "MODEL_GATEWAY_OWNERS",
+            "class_name": "OwnerRelayGate",
+            "script_name": "stella-v2-model-gateway-dev",
           },
           {
             "name": "WORLDS",
@@ -495,6 +515,11 @@
           "binding": "MODEL_GATEWAY",
           "service": "stella-v2-model-gateway",
         },
+        {
+          "binding": "MODEL_GATEWAY_CONTROL",
+          "service": "stella-v2-model-gateway",
+          "entrypoint": "ModelGatewayControl",
+        },
       ],
       "r2_buckets": [
         {
@@ -582,6 +607,11 @@
           {
             "name": "OWNER_GATES",
             "class_name": "OwnerGate",
+          },
+          {
+            "name": "MODEL_GATEWAY_OWNERS",
+            "class_name": "OwnerRelayGate",
+            "script_name": "stella-v2-model-gateway",
           },
           {
             "name": "WORLDS",

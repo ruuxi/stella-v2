@@ -16,6 +16,17 @@ type PendingChange = {
   phase: "applying" | "wiping";
 };
 
+export type OwnerMemoryPolicyHooks = {
+  /** Closes grant-backed local assertions during owner fence/purge barriers. */
+  issuanceOpen?: () => Promise<boolean>;
+  /**
+   * Called while a policy change is durably pending and before the authoritative
+   * Convex mutation. It must durably freeze local reader grants or throw; a
+   * throw leaves the pending change closed for alarm retry.
+   */
+  revokeReaders?: (change: MemoryPolicyChange) => Promise<void>;
+};
+
 export class MemoryPolicyError extends Error {
   constructor(
     readonly code: string,
@@ -39,6 +50,7 @@ export class OwnerMemoryPolicy {
       read(ownerGeneration: string): Promise<MemoryPolicy>;
       apply(change: MemoryPolicyChange): Promise<void>;
     },
+    private readonly hooks: OwnerMemoryPolicyHooks = {},
   ) {}
 
   private async exclusive<T>(work: () => Promise<T>): Promise<T> {
@@ -87,37 +99,54 @@ export class OwnerMemoryPolicy {
     await this.remove(CACHE_KEY);
   }
 
+  private async assertCurrent(
+    expected: MemoryPolicy,
+    fenceGeneration: string,
+  ): Promise<void> {
+    const fence = await this.get<OwnerPurgeFence>("ownerPurgeFence");
+    if (fence?.state !== "open" || fence.generation !== fenceGeneration) {
+      throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
+    }
+    if (this.hooks.issuanceOpen && !(await this.hooks.issuanceOpen())) {
+      throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
+    }
+    const pending = await this.get<PendingChange>(CHANGE_KEY);
+    if (pending) {
+      if (pending.change.expectedOwnerGeneration === expected.ownerGeneration) {
+        throw new MemoryPolicyError("MEMORY_POLICY_CHANGING");
+      }
+      // The caller's live owner lease proves a new account generation.
+      // An old generation's pending operation cannot mutate the new one.
+      await this.remove(CHANGE_KEY);
+      await this.remove(CACHE_KEY);
+    }
+    let cached = await this.get<CachedPolicy>(CACHE_KEY);
+    if (
+      !cached ||
+      cached.fenceGeneration !== fenceGeneration ||
+      cached.policy.ownerGeneration !== expected.ownerGeneration
+    ) {
+      const policy = await this.transport.read(expected.ownerGeneration);
+      cached = { fenceGeneration, policy };
+      await this.put(CACHE_KEY, cached);
+    }
+    if (!memoryPoliciesMatch(cached.policy, expected)) {
+      throw new MemoryPolicyError("MEMORY_POLICY_CHANGED");
+    }
+  }
+
   async assert(expected: MemoryPolicy, fenceGeneration: string): Promise<void> {
-    await this.exclusive(async () => {
-      const fence = await this.get<OwnerPurgeFence>("ownerPurgeFence");
-      if (fence?.state !== "open" || fence.generation !== fenceGeneration) {
-        throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
-      }
-      const pending = await this.get<PendingChange>(CHANGE_KEY);
-      if (pending) {
-        if (
-          pending.change.expectedOwnerGeneration === expected.ownerGeneration
-        ) {
-          throw new MemoryPolicyError("MEMORY_POLICY_CHANGING");
-        }
-        // The caller's live owner lease proves a new account generation.
-        // An old generation's pending operation cannot mutate the new one.
-        await this.remove(CHANGE_KEY);
-        await this.remove(CACHE_KEY);
-      }
-      let cached = await this.get<CachedPolicy>(CACHE_KEY);
-      if (
-        !cached ||
-        cached.fenceGeneration !== fenceGeneration ||
-        cached.policy.ownerGeneration !== expected.ownerGeneration
-      ) {
-        const policy = await this.transport.read(expected.ownerGeneration);
-        cached = { fenceGeneration, policy };
-        await this.put(CACHE_KEY, cached);
-      }
-      if (!memoryPoliciesMatch(cached.policy, expected)) {
-        throw new MemoryPolicyError("MEMORY_POLICY_CHANGED");
-      }
+    await this.exclusive(() => this.assertCurrent(expected, fenceGeneration));
+  }
+
+  async authorizeGrant<T>(
+    expected: MemoryPolicy,
+    fenceGeneration: string,
+    issue: () => T | Promise<T>,
+  ): Promise<T> {
+    return await this.exclusive(async () => {
+      await this.assertCurrent(expected, fenceGeneration);
+      return await issue();
     });
   }
 
@@ -143,6 +172,7 @@ export class OwnerMemoryPolicy {
   private async finish(pending: PendingChange): Promise<void> {
     try {
       if (pending.phase === "applying") {
+        await this.hooks.revokeReaders?.(pending.change);
         await this.transport.apply(pending.change);
         if (pending.change.kind === "wipe") {
           await this.put(CHANGE_KEY, {

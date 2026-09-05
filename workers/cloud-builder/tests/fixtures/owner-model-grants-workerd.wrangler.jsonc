@@ -1,0 +1,24 @@
+{
+  "name": "stella-owner-model-grants-workerd-acceptance",
+  "main": "./owner-model-grants-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OWNER",
+        "class_name": "OwnerGrantProtocolOwner"
+      },
+      {
+        "name": "READER",
+        "class_name": "OwnerGrantProtocolReader"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["OwnerGrantProtocolOwner", "OwnerGrantProtocolReader"]
+    }
+  ]
+}

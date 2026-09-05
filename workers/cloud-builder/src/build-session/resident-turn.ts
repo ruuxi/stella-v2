@@ -11,10 +11,10 @@ import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol
 import {
   agentComputeKey,
   createAgentComputeLadder,
+  createLazySandboxAttachment,
   parsePersistedAgentCompute,
   type PersistedAgentCompute,
 } from "../agent-compute-ladder.js";
-import { createAgentSandboxAttachment } from "../agent-sandbox-attachment.js";
 import { AgentTurnJournal } from "../agent-turn-journal.js";
 import { createBuildSessionAgentControl } from "../build-session-agent-control.js";
 import { createCloudCodeAgentTool } from "../cloud-code-tool.js";
@@ -398,102 +398,107 @@ export const runResidentAgentTurn = async (
   let attachedWorkspaceRestore: TurnStateWorkspaceHead | undefined;
   let residentHistory: AgentHistoryRow[] = [];
   let residentSandbox: ReturnType<ResidentTurnHost["sandbox"]> | undefined;
-  const attachment = createAgentSandboxAttachment({
-    context: execution,
-    attachWorld: async ({
-      instanceSize: size,
-      sessionId: attachedSessionId,
-    }) => {
-      await host.ctx.storage.put({ sandboxId, sandboxSize: size });
-      residentSandbox = host.sandbox(sandboxId, size, "world");
-      // The thread before this turn — exactly what the container path
-      // resolves against. Read here rather than at admission so a
-      // chat-only resident turn never pays for it. Resolving against an
-      // empty history instead named the wrong cursor on every follow-up:
-      // the previous turn's checkpoint could never be published or
-      // restored, and each attach refused as "still recovering".
-      residentHistory = host.residentAttachHistory(turn, execution);
-      const restore = await resolveAgentWorldRestore(
-        host,
-        turn,
-        execution,
-        residentHistory,
-      );
-      attachedWorkspaceRestore = restore.turnStateWorkspaceRestore;
-      const attached = await host.attachAgentWorld({
-        turn,
-        execution,
-        sandbox: residentSandbox,
-        size,
-        history: residentHistory,
-        commandTimeoutMs,
+  const attachment = createLazySandboxAttachment(async () => {
+    const { createAgentSandboxAttachment } = await import(
+      "../agent-sandbox-attachment.js"
+    );
+    return createAgentSandboxAttachment({
+      context: execution,
+      attachWorld: async ({
+        instanceSize: size,
         sessionId: attachedSessionId,
-        ...restore,
-      });
-      // D9's fork. Only a confirmed world is worth archiving, so the marker
-      // lands after the restore: an eviction before this point releases the
-      // incomplete session, and one after it recovers by archiving the disk
-      // the way a lost container executor already does.
-      await host.persistAgentExecutionMarker(turn, {
-        schemaVersion: 1,
-        turnId: turn.turnId,
-        attemptGeneration,
-        sandboxId,
-        size,
-        startedAt: Date.now(),
-      });
-      return attached;
-    },
-    prepareBrokerHandoff: async ({ session }) =>
-      await prepareAgentBrokerHandoff(host, {
-        turn,
-        session,
-        commandTimeoutMs,
-        workspaceRestored: Boolean(attachedWorkspaceRestore),
-      }),
-    // The daemon runs on the sessionless facade, exactly as the eager
-    // container path runs its executor: a background process started
-    // through the `agent-run` session is a child of that session's
-    // persistent shell and dies with it, and that shell is also where the
-    // restore scripts, the readiness probe and every bridged call run.
-    startDaemon: async (command, options) => {
-      if (!residentSandbox) {
-        throw new Error("The resident sandbox has not been attached.");
-      }
-      return await residentSandbox.startProcess(command, {
-        cwd: options.cwd,
-        env: executorSessionEnvironment(),
-        processId: options.processId,
-      });
-    },
-    release: async (target) => {
-      await host.releaseAgentSessionResources({
-        sandboxId: target.sandboxId,
-        size: target.instanceSize,
-        sessionId: target.sessionId,
-        daemonDirectory: target.daemonDirectory,
-        workload: "world",
-      });
-    },
-    destroy: async (target) => {
-      await host.destroySandboxDurably(
-        {
+      }) => {
+        await host.ctx.storage.put({ sandboxId, sandboxSize: size });
+        residentSandbox = host.sandbox(sandboxId, size, "world");
+        // The thread before this turn — exactly what the container path
+        // resolves against. Read here rather than at admission so a
+        // chat-only resident turn never pays for it. Resolving against an
+        // empty history instead named the wrong cursor on every follow-up:
+        // the previous turn's checkpoint could never be published or
+        // restored, and each attach refused as "still recovering".
+        residentHistory = host.residentAttachHistory(turn, execution);
+        const restore = await resolveAgentWorldRestore(
+          host,
+          turn,
+          execution,
+          residentHistory,
+        );
+        attachedWorkspaceRestore = restore.turnStateWorkspaceRestore;
+        const attached = await host.attachAgentWorld({
+          turn,
+          execution,
+          sandbox: residentSandbox,
+          size,
+          history: residentHistory,
+          commandTimeoutMs,
+          sessionId: attachedSessionId,
+          ...restore,
+        });
+        // D9's fork. Only a confirmed world is worth archiving, so the marker
+        // lands after the restore: an eviction before this point releases the
+        // incomplete session, and one after it recovers by archiving the disk
+        // the way a lost container executor already does.
+        await host.persistAgentExecutionMarker(turn, {
+          schemaVersion: 1,
+          turnId: turn.turnId,
+          attemptGeneration,
+          sandboxId,
+          size,
+          startedAt: Date.now(),
+        });
+        return attached;
+      },
+      prepareBrokerHandoff: async ({ session }) =>
+        await prepareAgentBrokerHandoff(host, {
+          turn,
+          session,
+          commandTimeoutMs,
+          workspaceRestored: Boolean(attachedWorkspaceRestore),
+        }),
+      // The daemon runs on the sessionless facade, exactly as the eager
+      // container path runs its executor: a background process started
+      // through the `agent-run` session is a child of that session's
+      // persistent shell and dies with it, and that shell is also where the
+      // restore scripts, the readiness probe and every bridged call run.
+      startDaemon: async (command, options) => {
+        if (!residentSandbox) {
+          throw new Error("The resident sandbox has not been attached.");
+        }
+        return await residentSandbox.startProcess(command, {
+          cwd: options.cwd,
+          env: executorSessionEnvironment(),
+          processId: options.processId,
+        });
+      },
+      release: async (target) => {
+        await host.releaseAgentSessionResources({
           sandboxId: target.sandboxId,
           size: target.instanceSize,
+          sessionId: target.sessionId,
+          daemonDirectory: target.daemonDirectory,
           workload: "world",
-        },
-        "agent_oom_resize",
-      );
-    },
-    // Without this the attachment's own diagnostics (a daemon that exited
-    // before listening, or stopped answering mid-turn, with its stderr)
-    // were thrown away, and a dead workspace bridge looked like a bare
-    // "connection refused" to everyone downstream.
-    emitEvent: (kind, payload) => {
-      void host
-        .event(turn, "auto", kind, payload, false, execution.signal)
-        .catch(() => undefined);
-    },
+        });
+      },
+      destroy: async (target) => {
+        await host.destroySandboxDurably(
+          {
+            sandboxId: target.sandboxId,
+            size: target.instanceSize,
+            workload: "world",
+          },
+          "agent_oom_resize",
+        );
+      },
+      // Without this the attachment's own diagnostics (a daemon that exited
+      // before listening, or stopped answering mid-turn, with its stderr)
+      // were thrown away, and a dead workspace bridge looked like a bare
+      // "connection refused" to everyone downstream.
+      emitEvent: (kind, payload) => {
+        void host
+          .event(turn, "auto", kind, payload, false, execution.signal)
+          .catch(() => undefined);
+      },
+    });
   });
 
   const ladder = createAgentComputeLadder({

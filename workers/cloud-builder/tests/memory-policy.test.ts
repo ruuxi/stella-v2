@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { OwnerMemoryPolicy } from "../src/memory-policy.js";
+import {
+  OwnerMemoryPolicy,
+  type OwnerMemoryPolicyHooks,
+} from "../src/memory-policy.js";
 import type {
   MemoryPolicy,
   MemoryPolicyChange,
@@ -61,7 +64,8 @@ const fixture = () => {
   };
   return {
     values,
-    coordinator: () => new OwnerMemoryPolicy(ctx, "owner-1", transport),
+    coordinator: (hooks: OwnerMemoryPolicyHooks = {}) =>
+      new OwnerMemoryPolicy(ctx, "owner-1", transport, hooks),
     reads: () => reads,
     policy: () => policy,
     setPolicy: (next: MemoryPolicy) => {
@@ -159,6 +163,112 @@ describe("owner memory policy", () => {
     await expect(f.coordinator().assert(initial, "fence-1")).rejects.toThrow(
       "CHANGED",
     );
+    await f.coordinator().assert(f.policy(), "fence-1");
+  });
+
+  test("authorizeGrant runs under the same closed policy and fence check", async () => {
+    const f = fixture();
+    let issued = 0;
+    await expect(
+      f
+        .coordinator({ issuanceOpen: async () => false })
+        .authorizeGrant(initial, "fence-1", () => {
+          issued += 1;
+          return { ok: true };
+        }),
+    ).rejects.toThrow("OWNER_FENCE_CHANGED");
+    expect(issued).toBe(0);
+
+    const result = await f
+      .coordinator()
+      .authorizeGrant(initial, "fence-1", () => {
+        issued += 1;
+        return { ok: true };
+      });
+    expect(result).toEqual({ ok: true });
+    expect(issued).toBe(1);
+  });
+
+  test("revokes reader grants before applying a memory preference change", async () => {
+    const f = fixture();
+    const revokeStarted = Promise.withResolvers<void>();
+    const releaseRevoke = Promise.withResolvers<void>();
+    let applied = false;
+    f.setApply(async (input) => {
+      applied = true;
+      if (input.kind === "preference") {
+        f.setPolicy({
+          ...initial,
+          memoryEnabled: input.memoryEnabled,
+          revision: 1,
+        });
+      }
+    });
+
+    const pending = f
+      .coordinator({
+        revokeReaders: async (input) => {
+          expect(input).toEqual(change);
+          revokeStarted.resolve();
+          await releaseRevoke.promise;
+        },
+      })
+      .change(change);
+
+    await revokeStarted.promise;
+    expect(applied).toBe(false);
+    expect(f.values.get("memoryPolicy:change:v1")).toEqual({
+      change,
+      phase: "applying",
+    });
+    releaseRevoke.resolve();
+    await pending;
+    expect(applied).toBe(true);
+  });
+
+  test("lost grant freeze response leaves the pending change closed for retry before apply", async () => {
+    const f = fixture();
+    let revokeAttempts = 0;
+    let applyCalls = 0;
+    f.setApply(async (input) => {
+      applyCalls += 1;
+      if (input.kind === "preference") {
+        f.setPolicy({
+          ...initial,
+          memoryEnabled: input.memoryEnabled,
+          revision: 1,
+        });
+      }
+    });
+
+    await expect(
+      f
+        .coordinator({
+          revokeReaders: async () => {
+            revokeAttempts += 1;
+            throw new Error("lost freeze ack");
+          },
+        })
+        .change(change),
+    ).rejects.toThrow("lost freeze ack");
+
+    expect(revokeAttempts).toBe(1);
+    expect(applyCalls).toBe(0);
+    await expect(f.coordinator().assert(initial, "fence-1")).rejects.toThrow(
+      "MEMORY_POLICY_CHANGING",
+    );
+
+    await f
+      .coordinator({
+        revokeReaders: async (input) => {
+          revokeAttempts += 1;
+          expect(input).toEqual(change);
+        },
+      })
+      .retry();
+
+    expect(revokeAttempts).toBe(2);
+    expect(applyCalls).toBe(1);
     await f.coordinator().assert(f.policy(), "fence-1");
   });
 });

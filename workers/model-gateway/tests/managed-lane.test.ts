@@ -1615,6 +1615,30 @@ describe("owner-local model execution", () => {
     expect(ctx.harness.usageEvents).toHaveLength(0);
   });
 
+  test("direct owner binding still authenticates and preserves exact request replay", async () => {
+    const ctx = setup();
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const gate = ctx.harness.ownerGate.namespace.get({ name: OWNER_ID });
+    const request = (bearer?: string) => relayRequest("/v1/relay/responses", {
+      token: bearer, body: museBody(),
+      headers: agentHeaders({ "x-stella-request-id": "direct-owner-replay" }),
+    });
+    expect((await gate.fetch(request())).status).toBe(401);
+    const parts = token.split(".");
+    parts[2] = (parts[2]!.startsWith("A") ? "B" : "A") + parts[2]!.slice(1);
+    expect((await gate.fetch(request(parts.join(".")))).status).toBe(401);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+    const first = await gate.fetch(request(token));
+    expect(first.status).toBe(200);
+    const body = await first.text();
+    const replay = await gate.fetch(request(token));
+    expect(replay.status).toBe(200);
+    expect(await replay.text()).toBe(body);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(1);
+    await ctx.harness.flush();
+    expect(ctx.harness.usageEvents).toHaveLength(1);
+  });
+
   test("rejects legacy scope and non-relay endpoints at the owner executor", async () => {
     const ctx = setup();
     const { token } = await signTurn({ ledgerScope: "owner-v1" });

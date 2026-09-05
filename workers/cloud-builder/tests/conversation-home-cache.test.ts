@@ -11,15 +11,16 @@ function fixture() {
   let saved: ConversationHomeSnapshot | undefined;
   let purged = false;
   let reads = 0;
+  let clears = 0;
   const durable = { read: () => saved, write: (value: ConversationHomeSnapshot) => { saved = structuredClone(value); },
-    clear: () => { saved = undefined; }, purged: () => purged };
+    clear: () => { clears++; saved = undefined; }, purged: () => purged };
   const args = { ownerId: "owner1", metadata: metadata(), readContent: async (): Promise<PreparedHomeContent> => {
     reads++;
     return { memoryPreference: args.metadata.memory.preference,
       memoryDocuments: args.metadata.memory.preference.memoryEnabled ? [{ name: "profile.md", displayPath: "profile.md", content: "favorite color amber" }] : [],
       personalityOverride: null, skillCatalog: args.metadata.skills };
   } };
-  return { durable, args, saved: () => saved, reads: () => reads,
+  return { durable, args, saved: () => saved, reads: () => reads, clears: () => clears,
     purge: () => { purged = true; saved = undefined; } };
 }
 describe("conversation home content cache", () => {
@@ -41,13 +42,33 @@ describe("conversation home content cache", () => {
     f.args.ownerId = "owner2"; await c.load(f.args);
     expect(f.reads()).toBe(5);
   });
-  test("changed document versions invalidate the copy and failed reads cannot restore old content", async () => {
+  test("changed document versions retain a mismatched durable copy through a failed read", async () => {
     const f = fixture(); const c = new ConversationHomeCache(f.durable);
-    await c.load(f.args);
+    const first = await c.load(f.args);
     f.args.metadata.memory.personalityHead = { documentId: "personality", name: "personality.md", displayPath: "personality.md", kind: "personality", source: "test", ownerGeneration: "g1", memoryEpoch: "e1", revision: 2, r2Key: "g1/personality/2", sizeBytes: 1, updatedAt: 2 };
     await expect(c.load({ ...f.args, readContent: async () => { throw new Error("R2 unavailable"); } })).rejects.toThrow("R2 unavailable");
-    expect(f.saved()).toBeUndefined();
-    await c.load(f.args); expect(f.reads()).toBe(2);
+    expect(f.saved()?.content).toEqual(first);
+    expect(f.clears()).toBe(0);
+    await new ConversationHomeCache(f.durable).load(f.args);
+    expect(f.reads()).toBe(2);
+  });
+  test("a changed durable key never exposes old content while its replacement is loading", async () => {
+    const f = fixture();
+    await new ConversationHomeCache(f.durable).load(f.args);
+    f.args.metadata.memory.preference.memoryEpoch = "e2";
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const slow = new ConversationHomeCache(f.durable).load({
+      ...f.args,
+      readContent: async () => { await pending; return await f.args.readContent(); },
+    });
+    await Promise.resolve();
+    expect(f.saved()?.content.memoryPreference.memoryEpoch).toBe("e1");
+    const fresh = await new ConversationHomeCache(f.durable).load(f.args);
+    expect(fresh.memoryPreference.memoryEpoch).toBe("e2");
+    release?.();
+    await slow;
+    expect(f.clears()).toBe(0);
   });
   test("a purge during a storage read cannot resurrect durable or resident content", async () => {
     const f = fixture(); const c = new ConversationHomeCache(f.durable);

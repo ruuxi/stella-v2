@@ -1,3 +1,4 @@
+import type { OwnerModelGrant } from "./owner-model-grants.js";
 import type { CloudTurnStartRequest } from "@stella/contracts/turn-plane/turn-start";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
@@ -17,6 +18,7 @@ export type AdmittedCloudChat = {
   fenceGeneration: string;
   admittedAt: number;
   snapshot: OwnerSnapshot;
+  ownerModelGrant?: OwnerModelGrant;
 };
 export type CloudChatPreparation = {
   homeContext?: OwnerHomeContext;

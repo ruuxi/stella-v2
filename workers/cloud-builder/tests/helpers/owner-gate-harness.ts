@@ -132,6 +132,8 @@ export type GateHarness = {
   sockets: FakeSocket[];
   outbox: OutboxEvent[];
   forwarded: ForwardedCall[];
+  frozenModelGrants: unknown[];
+  preparedCloudChatReaders: string[];
   alarms: number[];
   snapshot: OwnerSnapshot;
   /** Open a presence socket and run challenge -> begin -> proof. */
@@ -161,6 +163,7 @@ export const createGateHarness = (
     snapshot?: OwnerSnapshot;
     respond?: (call: ForwardedCall) => Response | Promise<Response>;
     enqueue?: (events: OutboxEvent[]) => Promise<void>;
+    prepareCloudChatReader?: (conversationId: string) => Promise<string>;
   } = {},
 ): GateHarness => {
   installWebSocketPair();
@@ -171,6 +174,8 @@ export const createGateHarness = (
   const alarms: number[] = [];
   const outbox: OutboxEvent[] = [];
   const forwarded: ForwardedCall[] = [];
+  const frozenModelGrants: unknown[] = [];
+  const preparedCloudChatReaders: string[] = [];
   const tagged: Array<{ socket: FakeSocket; tags: string[] }> = [];
   const respond =
     options.respond ??
@@ -199,6 +204,14 @@ export const createGateHarness = (
   const namespace = (kind: "orchestrator" | "build") => ({
     idFromName: (name: string) => ({ toString: () => name }),
     getByName: (name: string) => ({
+      prepareCloudChatReader: async () => {
+        preparedCloudChatReaders.push(name);
+        return await (options.prepareCloudChatReader?.(name) ?? Promise.resolve(`reader:${name}`));
+      },
+      freezeOwnerModelGrants: async (request: unknown) => {
+        frozenModelGrants.push(structuredClone(request));
+        return { frozen: true };
+      },
       startAdmittedChat: async (body: CloudTurnStartRequest, authority: AdmittedCloudChat, _preparation: CloudChatPreparation) => {
         const call: ForwardedCall = { namespace: kind, name, url: "https://orchestrator-session/turn",
           headers: { "content-type": "application/json", "x-stella-owner": authority.ownerId,
@@ -268,6 +281,9 @@ export const createGateHarness = (
       STELLA_CONVEX_SITE_URL: "https://convex.example",
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: "900000",
+      MODEL_GATEWAY_CONTROL: {
+        prepareOwner: async (_args: { ownerId: string }) => {},
+      },
       ORCHESTRATOR_SESSIONS: namespace("orchestrator"),
       BUILD_SESSIONS: namespace("build"),
       TURN_OUTBOX: {
@@ -299,6 +315,8 @@ export const createGateHarness = (
     },
     outbox,
     forwarded,
+    frozenModelGrants,
+    preparedCloudChatReaders,
     alarms,
     snapshot,
     sendFrame,

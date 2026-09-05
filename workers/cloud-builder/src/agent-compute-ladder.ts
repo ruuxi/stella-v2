@@ -161,6 +161,21 @@ export type SandboxAttachment = Readonly<{
   }): Promise<void>;
 }>;
 
+/** Defers the concrete sandbox client until a turn first needs attachment work. */
+export const createLazySandboxAttachment = (
+  load: () => Promise<SandboxAttachment>,
+): SandboxAttachment => {
+  let attachmentWork: Promise<SandboxAttachment> | undefined;
+  const attachment = () => (attachmentWork ??= load());
+  return {
+    boot: async (args) => (await attachment()).boot(args),
+    callTool: async (args) => (await attachment()).callTool(args),
+    control: async (args) => (await attachment()).control(args),
+    release: async (args) => (await attachment()).release(args),
+    destroy: async (args) => (await attachment()).destroy(args),
+  };
+};
+
 export type AgentComputeLadderInput = Readonly<{
   turnId: string;
   attemptGeneration: number;

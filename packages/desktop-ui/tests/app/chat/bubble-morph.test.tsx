@@ -110,11 +110,13 @@ describe("indicator to reply morph", () => {
     expect(container.querySelector(".assistant-morphing")).not.toBeNull();
   });
 
-  it("does not invent a source for replies faster than 200ms", () => {
+  it("morphs the immediately visible source when a reply arrives quickly", () => {
     render(false);
+    expect(container.querySelector(".working-indicator")).not.toBeNull();
     act(() => vi.advanceTimersByTime(100));
     render(true);
-    expect(animate).not.toHaveBeenCalled();
+    expect(container.querySelector(".working-indicator")).toBeNull();
+    expect(animate).toHaveBeenCalledTimes(2);
   });
 
   it("does not morph hydrated history", () => {

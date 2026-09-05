@@ -24,7 +24,11 @@ import type { GatewayDeviceKeyProof } from "./dpop.js";
 
 export const GATEWAY_API_VERSION = 1 as const;
 
+/** Requires descriptor validation; older deployments reject this route before inference. */
+export const GATEWAY_VALIDATED_RELAY_PREFIX = "/v2/relay" as const;
 export const GATEWAY_RELAY_PREFIX = "/v1/relay" as const;
+/** Authenticated descriptor resolution that acknowledges owner preparation completion. */
+export const GATEWAY_PREPARE_PATH = "/v1/models/prepare" as const;
 export const GATEWAY_RESOLVE_PATH = "/v1/models/resolve" as const;
 export const GATEWAY_SESSION_CAPABILITY_PATH = "/v1/capabilities/session" as const;
 export const GATEWAY_HEALTH_PATH = "/healthz" as const;
@@ -38,6 +42,10 @@ export const GATEWAY_OWNER_ENFORCEMENT_PATH = "/internal/owners/enforcement" as 
 
 /** Caller-minted idempotency key. Same id + same body => cached result. */
 export const GATEWAY_REQUEST_ID_HEADER = "x-stella-request-id" as const;
+/** Full descriptor digest checked before reservation or provider dispatch. */
+export const GATEWAY_MODEL_REVISION_HEADER = "x-stella-model-revision" as const;
+/** Current descriptor supplied only with a pre-provider model_revision_mismatch. */
+export const GATEWAY_MODEL_RESOLUTION_HEADER = "x-stella-model-resolution" as const;
 export const GATEWAY_AGENT_TYPE_HEADER = "x-stella-agent-type" as const;
 /** Echoed on every response so logs on both sides can be joined. */
 export const GATEWAY_TRACE_HEADER = "x-stella-gateway-trace" as const;
@@ -101,6 +109,19 @@ export type GatewayModelResolution = {
   supportsImages: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
+};
+
+/** Versioned canonical metadata digest; routing authorization remains gateway-owned. */
+export const gatewayModelResolutionRevision = async (
+  resolution: GatewayModelResolution,
+): Promise<string> => {
+  const bytes = new TextEncoder().encode(JSON.stringify([
+    1, resolution.requestedModel, resolution.resolvedModel, resolution.provider,
+    resolution.protocol, resolution.reasoning, resolution.supportsImages,
+    resolution.contextWindow ?? null, resolution.maxOutputTokens ?? null,
+  ]));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `v1:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
 };
 
 /**
@@ -171,6 +192,7 @@ export type GatewayErrorCode =
   | "agent_type_forbidden"
   | "model_forbidden"
   | "execution_mismatch"
+  | "model_revision_mismatch"
   | "stream_unsupported"
   /** This capability's budget is spent. Clients exchange a fresh one once. */
   | "budget_exhausted"

@@ -1,3 +1,4 @@
+import { managedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
 import type {
   GatewayModelResolution,
   GatewayProtocol,
@@ -11,7 +12,6 @@ import {
 } from "@stella/model-catalog/managed-gateway";
 import type { ModelConfig } from "@stella/model-catalog/model";
 import {
-  managedModelSupportsImageInput,
   resolveRequestedStellaModel,
 } from "@stella/model-catalog/request-estimate";
 import {
@@ -125,20 +125,8 @@ export const resolveManagedRoute = (args: {
   };
 };
 
-export const resolutionFor = (route: ManagedRoute): GatewayModelResolution => ({
-  requestedModel: route.requestedModel,
-  resolvedModel: route.resolvedModel,
-  provider: route.provider,
-  protocol: route.protocol,
-  // The managed runtime treats every managed model as reasoning-capable and
-  // emits an explicit off form when a turn selects none; mirror that source
-  // of truth rather than guessing from the model id.
-  reasoning: true,
-  supportsImages: managedModelSupportsImageInput(route.resolvedModel),
-  ...(route.config.maxOutputTokens !== undefined
-    ? { maxOutputTokens: route.config.maxOutputTokens }
-    : {}),
-});
+export const resolutionFor = (route: ManagedRoute): GatewayModelResolution =>
+  managedModelDescriptor(route);
 
 export const upstreamBaseUrl = (provider: ManagedGatewayProvider): string =>
   getManagedGatewayConfig(provider).baseURL;

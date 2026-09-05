@@ -1,3 +1,11 @@
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
+import type { Context, AssistantMessageEvent } from "@stella/runtime/ai/types.js";
+import type { StreamFn } from "@stella/runtime/kernel/agent-core/types.js";
+import { streamSimple } from "@stella/runtime/ai/stream.js";
+import { AssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream.js";
+import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
+import { GATEWAY_VALIDATED_RELAY_PREFIX, GATEWAY_RELAY_PREFIX, GATEWAY_MODEL_REVISION_HEADER, GATEWAY_MODEL_RESOLUTION_HEADER,
+  gatewayModelResolutionRevision } from "@stella/contracts/gateway/api";
 import type {
   AgentModelReasoningEffort,
   CloudExecutionSelection,
@@ -512,4 +520,160 @@ export const resolveCloudThinkingLevel = (
   }
   const desired: ModelThinkingLevel = requested === "none" ? "off" : requested;
   return clampThinkingLevel(model, desired);
+};
+
+export type CloudRelayContextTransform = (
+  model: Model<Api>,
+  context: Context,
+  signal?: AbortSignal,
+) => Promise<Context>;
+
+/**
+ * A turn-local adapter. Every physical request validates its descriptor at the
+ * gateway; there is no TTL or remembered alias route. A deploy mismatch is
+ * retried once from the original context, before anything can reach a provider.
+ */
+export const createCloudRelaySession = async (
+  args: CloudRelayModelArgs & { audience: ManagedModelAudience },
+): Promise<{
+  readonly model: Model<Api>;
+  createStreamFn: (options: {
+    reasoningEffort: AgentModelReasoningEffort;
+    transformContext?: CloudRelayContextTransform;
+  }) => StreamFn;
+}> => {
+  const execution = validateCloudExecutionSelection(args.execution);
+  if (execution.engine !== "stella") {
+    const model = await createCloudRelayModel(args);
+    return { model, createStreamFn: (streamOptions) => async (_ignoredModel, context, options) => {
+      const signal = options?.signal && args.signal
+        ? AbortSignal.any([options.signal, args.signal]) : options?.signal ?? args.signal;
+      try {
+        signal?.throwIfAborted();
+        const prepared = streamOptions.transformContext
+          ? await streamOptions.transformContext(model, context, signal) : context;
+        signal?.throwIfAborted();
+        return streamSimple(model, prepared, { ...options, signal });
+      } catch (error) {
+        return relaySessionErrorStream(model, error, options?.signal?.aborted || args.signal?.aborted);
+      }
+    } };
+  }
+  const gatewayOrigin = args.gatewayOrigin.trim();
+  if (!/^https?:\/\//i.test(gatewayOrigin)) throw new Error("Cloud model gateway origin must be an HTTP(S) URL.");
+  if (!args.capability.trim()) throw new Error("Cloud model gateway capability is required.");
+  await loadModelRegistry();
+  args.signal?.throwIfAborted();
+  const transport: GatewayModelTransport = { ...args, gatewayOrigin };
+  let resolution: GatewayModelResolution;
+  try {
+    resolution = resolveManagedModelDescriptor({ agentType: args.agentType,
+      requestedModel: execution.model, audience: args.audience });
+    if (resolution.requestedModel !== execution.model) throw new Error("Unresolved model");
+  } catch {
+    // Open-ended explicit models and newer catalog entries retain the existing
+    // authoritative lookup/error behavior when this build cannot resolve them.
+    resolution = await resolveManagedRelayModel({ execution, transport, signal: args.signal });
+  }
+  let model = createResolvedManagedRelayModel({ execution, resolution, ...transport });
+  let revision = await gatewayModelResolutionRevision(resolution);
+  let validatedRoute = true;
+  return {
+    get model() { return model; },
+    createStreamFn: (streamOptions) => (_ignoredModel, rawContext, options) => {
+      const signal = options?.signal && args.signal
+        ? AbortSignal.any([options.signal, args.signal]) : options?.signal ?? args.signal;
+      const out = new AssistantMessageEventStream();
+      const run = async () => {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          options?.signal?.throwIfAborted();
+          args.signal?.throwIfAborted();
+          let mismatch: GatewayModelResolution | undefined;
+          let legacyGateway = false;
+          const attemptModel: Model<Api> = { ...model,
+            headers: { ...model.headers, ...(validatedRoute ? { [GATEWAY_MODEL_REVISION_HEADER]: revision } : {}) },
+            fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+              let request = input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
+              if (validatedRoute) {
+                const url = new URL(request.url);
+                url.pathname = url.pathname.replace(GATEWAY_RELAY_PREFIX, GATEWAY_VALIDATED_RELAY_PREFIX);
+                request = new Request(url.href, request);
+              }
+              const response = await (args.fetch ?? fetch)(request);
+              if (validatedRoute && response.status === 404) {
+                try {
+                  const body: unknown = await response.clone().json();
+                  legacyGateway = !!(body && typeof body === "object" && "error" in body &&
+                    body.error && typeof body.error === "object" && "code" in body.error &&
+                    body.error.code === "bad_request" && "message" in body.error && body.error.message === "Not found.");
+                } catch { /* Only the old router's explicit refusal allows fallback. */ }
+              }
+              if (response.status === 409) {
+                const encoded = response.headers.get(GATEWAY_MODEL_RESOLUTION_HEADER);
+                if (encoded && encoded.length <= 4096) {
+                  try {
+                    const body: unknown = await response.clone().json();
+                    const current = parseGatewayModelResolution(JSON.parse(decodeURIComponent(encoded)));
+                    if (body && typeof body === "object" && "error" in body &&
+                        body.error && typeof body.error === "object" && "code" in body.error &&
+                        body.error.code === "model_revision_mismatch" && current?.requestedModel === execution.model) {
+                      mismatch = current;
+                    }
+                  } catch { /* Invalid mismatch metadata is a normal request failure. */ }
+                }
+              }
+              return response;
+            }, args.fetch ?? fetch),
+          };
+          const context = streamOptions.transformContext
+            ? await streamOptions.transformContext(attemptModel, rawContext, signal)
+            : rawContext;
+          options?.signal?.throwIfAborted();
+          args.signal?.throwIfAborted();
+          const thinking = resolveCloudThinkingLevel(attemptModel, streamOptions.reasoningEffort);
+          const inner = streamSimple(attemptModel, context, { ...options, signal,
+            reasoning: thinking === "off" ? undefined : thinking,
+            disableReasoning: thinking === "off",
+          });
+          // Managed replies already arrive as one complete JSON response. Hold
+          // only this adapter attempt's events so a refused request never enters
+          // the journal as a spurious assistant error or duplicate start event.
+          const events: AssistantMessageEvent[] = [];
+          for await (const event of inner) events.push(event);
+          if ((mismatch || legacyGateway) && attempt === 0 && !options?.signal?.aborted && !args.signal?.aborted) {
+            if (legacyGateway) {
+              resolution = await resolveManagedRelayModel({ execution, transport,
+                signal: options?.signal && args.signal ? AbortSignal.any([options.signal, args.signal]) : options?.signal ?? args.signal });
+              validatedRoute = false;
+            } else if (mismatch) resolution = mismatch;
+            model = createResolvedManagedRelayModel({ execution, resolution, ...transport });
+            revision = await gatewayModelResolutionRevision(resolution);
+            continue;
+          }
+          for (const event of events) out.push(event);
+          out.end(await inner.result());
+          return;
+        }
+      };
+      void run().catch(async error => {
+        const aborted = options?.signal?.aborted || args.signal?.aborted;
+        for await (const event of relaySessionErrorStream(model, error, aborted)) out.push(event);
+        out.end();
+      });
+      return out;
+    },
+  };
+};
+
+const relaySessionErrorStream = (model: Model<Api>, error: unknown, aborted?: boolean): AssistantMessageEventStream => {
+  const out = new AssistantMessageEventStream();
+  out.push({ type: "error", reason: aborted ? "aborted" : "error", error: {
+    role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: aborted ? "aborted" : "error",
+    errorMessage: error instanceof Error ? error.message : String(error), timestamp: Date.now(),
+  } });
+  out.end();
+  return out;
 };

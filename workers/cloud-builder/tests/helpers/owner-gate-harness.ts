@@ -228,6 +228,7 @@ export const createGateHarness = (
 
   const storage = {
     sql: sqlFake.sql,
+    sync: async () => {},
     get: async <T>(key: string) => values.get(key) as T | undefined,
     put: async (key: string, value: unknown) => {
       values.set(key, structuredClone(value));
@@ -249,6 +250,7 @@ export const createGateHarness = (
   Object.assign(instance, {
     ctx: {
       storage: transactionalStorage,
+      waitUntil: (_promise: Promise<unknown>) => {},
       blockConcurrencyWhile: async <T>(work: () => Promise<T>) => work(),
       id: { name: ownerId, toString: () => ownerId },
       acceptWebSocket: (socket: FakeSocket, tags: string[] = []) => {

@@ -93,6 +93,7 @@
       "dependencies": {
         "@sinclair/typebox": "0.34.49",
         "@stella/contracts": "workspace:*",
+        "@stella/model-catalog": "workspace:*",
         "@stella/runtime": "workspace:*",
         "effect": "4.0.0-beta.83",
       },
@@ -100,6 +101,13 @@
         "@types/bun": "^1.3.14",
         "@types/node": "^25.9.1",
         "typescript": "^6.0.3",
+      },
+    },
+    "packages/model-catalog": {
+      "name": "@stella/model-catalog",
+      "version": "0.0.0",
+      "dependencies": {
+        "@stella/contracts": "workspace:*",
       },
     },
     "packages/runtime": {
@@ -540,6 +548,8 @@
     "@stella/contracts": ["@stella/contracts@workspace:packages/contracts"],
 
     "@stella/executor-cloud": ["@stella/executor-cloud@workspace:packages/executor-cloud"],
+
+    "@stella/model-catalog": ["@stella/model-catalog@workspace:packages/model-catalog"],
 
     "@stella/runtime": ["@stella/runtime@workspace:packages/runtime"],
 

@@ -70,7 +70,7 @@ try {
     "utf8",
   );
   const configuredEntry = configText.match(/"main"\s*:\s*"([^"]+)"/u)?.[1];
-  if (configuredEntry !== "src/index.ts") {
+  if (configuredEntry !== ".wrangler/worker-build/index.js") {
     throw new Error(
       `Production Worker entry changed unexpectedly: ${configuredEntry ?? "missing"}.`,
     );
@@ -91,10 +91,24 @@ try {
     throw new Error("Wrangler did not report a dry-run exit.");
   }
 
-  const bundlePath = path.join(outputDirectory, "index.js");
-  const bundle = await stat(bundlePath);
-  if (!bundle.isFile() || bundle.size === 0) {
-    throw new Error("Wrangler did not emit the production Worker bundle.");
+  const manifest = JSON.parse(await readFile(path.join(workerRoot, ".wrangler/worker-build/build-manifest.json"), "utf8"));
+  const moduleNames = new Set(manifest.modules.map(module => module.file));
+  if (!moduleNames.has("index.js") || manifest.modules.length < 2 || !manifest.modules.some(module => module.imports.some(dependency => dependency.dynamic))) {
+    throw new Error("Worker build lost its lazy module boundaries.");
+  }
+  let bundleBytes = 0;
+  for (const module of manifest.modules) {
+    const bundle = await stat(path.join(outputDirectory, module.file));
+    if (!bundle.isFile() || bundle.size !== module.bytes) {
+      throw new Error(`Wrangler did not emit the complete Worker module: ${module.file}.`);
+    }
+    bundleBytes += bundle.size;
+    for (const dependency of module.imports) {
+      if (!moduleNames.has(dependency.file)) throw new Error(`Worker module is missing: ${dependency.file}.`);
+    }
+    // Source maps remain beside every chunk for upload/debugging. They are
+    // build artifacts, not executable modules matched by Wrangler's rules.
+    await access(path.join(workerRoot, ".wrangler/worker-build", `${module.file}.map`));
   }
   process.stdout.write(
     `${JSON.stringify({
@@ -102,7 +116,9 @@ try {
       entry: configuredEntry,
       config: "wrangler.jsonc#production",
       deployed: false,
-      bundleBytes: bundle.size,
+      bundleBytes,
+      moduleCount: manifest.modules.length,
+      eagerBytes: manifest.eagerBytes,
     })}\n`,
   );
 } finally {

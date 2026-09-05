@@ -70,6 +70,7 @@ describe("Sandbox image preparation", () => {
         "packages/apps-sdk",
         "packages/contracts",
         "packages/executor-cloud",
+        "packages/model-catalog",
         "packages/runtime",
         "packages/stella-office",
       ]);

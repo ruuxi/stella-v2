@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
-import OpenAI from "openai";
+import type OpenAI from "openai";
+import { gatewayJsonHeaders, requestGatewayJson } from "./gateway-json-request.js";
 import type {
-  ChatCompletion,
   ChatCompletionAssistantMessageParam,
   ChatCompletionChunk,
   ChatCompletionContentPart,
@@ -197,8 +197,8 @@ export const streamOpenAICompletions: StreamFunction<
         params =
           nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
       }
-      // Gateway mode: the managed lane is request/response. The SDK is called
-      // with `stream: false`; the complete ChatCompletion is then replayed
+      // Gateway mode sends JSON with `stream: false` without loading the SDK.
+      // The complete ChatCompletion is then replayed
       // through the chunk accumulator below as a handful of synthetic chunks.
       const gatewayMode = isGatewayRelayBaseUrl(model.baseUrl);
       const requestOptions = (perAttemptHeaders?: Record<string, string>) => ({
@@ -213,8 +213,9 @@ export const streamOpenAICompletions: StreamFunction<
           : {}),
         ...(perAttemptHeaders ? { headers: perAttemptHeaders } : {}),
       });
-      const clientForKey = (requestApiKey: string) =>
-        createClient(
+      const clientForKey = async (requestApiKey: string) => {
+        const { default: OpenAIClient } = await import("openai");
+        return new OpenAIClient(createClientOptions(
           model,
           context,
           requestApiKey,
@@ -222,10 +223,11 @@ export const streamOpenAICompletions: StreamFunction<
           cacheSessionId,
           promptCacheKey,
           compat,
-        );
+        ));
+      };
       let openaiStream:
-        | AsyncIterable<ChatCompletionChunk>
-        | Iterable<ChatCompletionChunk>;
+        | AsyncIterable<CompletionChunk>
+        | Iterable<CompletionChunk>;
       let response: Response;
       if (gatewayMode) {
         const {
@@ -240,13 +242,18 @@ export const streamOpenAICompletions: StreamFunction<
         const completed = await requestWithAuthRefresh({
           apiKey,
           refreshApiKey: options?.refreshApiKey,
-          request: (requestApiKey) =>
-            clientForKey(requestApiKey)
-              .chat.completions.create(
-                nonStreamingParams,
-                requestOptions(gatewayRequestHeaders()),
-              )
-              .withResponse(),
+          request: async (requestApiKey) => {
+            const config = createClientOptions(model, context, requestApiKey,
+              options?.headers, cacheSessionId, promptCacheKey, compat);
+            const headers = gatewayJsonHeaders({ apiKey: config.apiKey,
+              defaults: config.defaultHeaders, perRequest: gatewayRequestHeaders(), timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS });
+            return await requestGatewayJson({
+              url: `${config.baseURL?.replace(/\/+$/, "")}/chat/completions`,
+              body: nonStreamingParams, headers, timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS,
+              maxRetries: options?.maxRetries, signal: options?.signal, fetch: model.fetch,
+              readResponse: response => response.json(),
+            });
+          },
         });
         response = completed.response;
         openaiStream = synthesizeChatCompletionChunks(completed.data);
@@ -254,8 +261,8 @@ export const streamOpenAICompletions: StreamFunction<
         const opened = await requestWithAuthRefresh({
           apiKey,
           refreshApiKey: options?.refreshApiKey,
-          request: (requestApiKey) =>
-            clientForKey(requestApiKey)
+          request: async (requestApiKey) =>
+            (await clientForKey(requestApiKey))
               .chat.completions.create(params, requestOptions())
               .withResponse(),
         });
@@ -588,7 +595,7 @@ export const streamSimpleOpenAICompletions: StreamFunction<
   } satisfies OpenAICompletionsOptions);
 };
 
-function createClient(
+function createClientOptions(
   model: Model<"openai-completions">,
   context: Context,
   apiKey?: string,
@@ -649,7 +656,7 @@ function createClient(
         }
       : headers;
 
-  return new OpenAI({
+  return {
     apiKey,
     baseURL: isCloudflareProvider(model.provider)
       ? resolveCloudflareBaseUrl(model)
@@ -657,7 +664,7 @@ function createClient(
     dangerouslyAllowBrowser: true,
     defaultHeaders,
     ...(model.fetch ? { fetch: model.fetch } : {}),
-  });
+  };
 }
 
 const COMPLETION_REASONING_FIELDS = [
@@ -665,6 +672,60 @@ const COMPLETION_REASONING_FIELDS = [
   "reasoning",
   "reasoning_text",
 ] as const;
+
+type CompletionUsage = Parameters<typeof parseChunkUsage>[0];
+type CompletionChunk = Omit<ChatCompletionChunk, "id" | "created" | "model" | "usage" | "choices" | "service_tier"> & {
+  id?: string;
+  created?: number;
+  model?: string;
+  service_tier?: string | null;
+  usage?: CompletionUsage | null;
+  choices: Array<Omit<ChatCompletionChunk.Choice, "finish_reason"> & { finish_reason: string | null }>;
+};
+type GatewayCompletion = Pick<CompletionChunk,
+  "id" | "created" | "model" | "service_tier" | "system_fingerprint" | "usage"> & {
+  choices: Array<{
+    index?: number;
+    finish_reason?: string | null;
+    message?: Record<string, unknown> & {
+      content?: string;
+      tool_calls?: Array<{ id?: string; type: "function"; function: { name?: string; arguments?: string } }>;
+    };
+  }>;
+};
+const completionRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? { ...value } : undefined;
+const optionalCompletionString = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
+const optionalCompletionNumber = (value: unknown): number | undefined => typeof value === "number" ? value : undefined;
+
+/** Validate what conversion consumes without requiring the SDK's metadata fields. */
+function parseGatewayChatCompletion(value: unknown): GatewayCompletion {
+  const completion = completionRecord(value);
+  if (!completion || !Array.isArray(completion.choices)) throw new Error("Invalid gateway chat completion response.");
+  const first = completionRecord(completion.choices[0]);
+  const message = completionRecord(first?.message);
+  const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+  const toolCalls: NonNullable<NonNullable<GatewayCompletion["choices"][number]["message"]>["tool_calls"]> = [];
+  for (const rawCall of calls) {
+    const call = completionRecord(rawCall);
+    if (call?.type !== "function") continue;
+    const fn = completionRecord(call.function);
+    toolCalls.push({ type: "function", id: optionalCompletionString(call.id),
+      function: { name: optionalCompletionString(fn?.name), arguments: optionalCompletionString(fn?.arguments) } });
+  }
+  return {
+    id: optionalCompletionString(completion.id),
+    created: optionalCompletionNumber(completion.created),
+    model: optionalCompletionString(completion.model),
+    service_tier: completion.service_tier === null ? null : optionalCompletionString(completion.service_tier),
+    system_fingerprint: optionalCompletionString(completion.system_fingerprint),
+    usage: completionRecord(completion.usage),
+    choices: first ? [{ index: optionalCompletionNumber(first.index),
+      finish_reason: first.finish_reason === null ? null : optionalCompletionString(first.finish_reason),
+      ...(message ? { message: { ...message, content: optionalCompletionString(message.content), tool_calls: toolCalls } } : {}),
+    }] : [],
+  };
+}
 
 /**
  * Gateway mode: replay one complete `ChatCompletion` through the streaming
@@ -676,12 +737,11 @@ const COMPLETION_REASONING_FIELDS = [
  * OpenRouter's opaque `reasoning_details` ride on the final chunk.
  */
 export function synthesizeChatCompletionChunks(
-  completion: ChatCompletion,
-): ChatCompletionChunk[] {
+  value: unknown,
+): CompletionChunk[] {
+  const completion = parseGatewayChatCompletion(value);
   const choice = completion.choices[0];
-  const message = choice?.message as
-    | (ChatCompletion.Choice["message"] & Record<string, unknown>)
-    | undefined;
+  const message = choice?.message;
   const base = {
     id: completion.id,
     created: completion.created,
@@ -697,7 +757,7 @@ export function synthesizeChatCompletionChunks(
   const chunk = (
     delta: ChatCompletionChunk.Choice.Delta & Record<string, unknown>,
     terminal = false,
-  ): ChatCompletionChunk => ({
+  ): CompletionChunk => ({
     ...base,
     choices: [
       {
@@ -710,7 +770,7 @@ export function synthesizeChatCompletionChunks(
     ...(terminal ? { usage: completion.usage ?? null } : {}),
   });
 
-  const chunks: ChatCompletionChunk[] = [];
+  const chunks: CompletionChunk[] = [];
   const reasoningField = message
     ? COMPLETION_REASONING_FIELDS.find(
         (field) =>

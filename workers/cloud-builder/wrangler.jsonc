@@ -1,7 +1,23 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "stella-v2-cloud-builder-dev",
-  "main": "src/index.ts",
+  "main": ".wrangler/worker-build/index.js",
+  // Preserve lazy SDK/tool modules instead of parsing them on every wake.
+  "no_bundle": true,
+  "find_additional_modules": true,
+  "base_dir": ".wrangler/worker-build",
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"], "fallthrough": true }],
+  "build": {
+    "command": "node scripts/build-worker.mjs",
+    "watch_dir": [
+      "src", "scripts/build-worker.mjs", "../../packages/contracts",
+      "../../packages/executor-cloud/src", "../../packages/executor-cloud/package.json",
+      "../../packages/model-catalog", "../../packages/runtime/package.json",
+      "../../packages/runtime/ai", "../../packages/runtime/kernel",
+      "../../packages/runtime/extensions", "../../packages/runtime/host",
+      "../../packages/runtime/worker", "../../packages/runtime/observability"
+    ]
+  },
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {

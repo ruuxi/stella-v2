@@ -1,3 +1,6 @@
+import { GATEWAY_MODEL_REVISION_HEADER, GATEWAY_MODEL_RESOLUTION_HEADER,
+  gatewayModelResolutionRevision } from "@stella/contracts/gateway/api";
+import { resolutionFor } from "./resolve.js";
 import {
   capabilityLedgerClient,
   type CapabilityLedgerClient,
@@ -414,9 +417,33 @@ export const handleManagedRelay = async (args: {
   const configWork = timing.measure("pricingConfigMs", () =>
     getGatewayConfig(convex, deps.waitUntil, deps.now, args.configStorage),
   ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
-  const enforcement = await timing.measure("ownerEnforcementMs", () =>
+  const enforcementWork = timing.measure("ownerEnforcementMs", () =>
     ownerEnforcementAdmission(env, claims.sub, deps.now()),
-  );
+  ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
+  // A speculative client may have an older catalog. Refuse it before any
+  // limiter, reservation or provider request, so it can rebuild the adapter
+  // and reapply context transforms to the original, unpruned messages.
+  let predictedRequestJson: Awaited<ReturnType<typeof readJsonObject>> | undefined;
+  const predictedRevision = request.headers.get(GATEWAY_MODEL_REVISION_HEADER);
+  if (predictedRevision !== null) {
+    predictedRequestJson = await readJsonObject(request);
+    const agentType = agentTypeFrom(request);
+    if (!agentType) throw new GatewayError(400, "bad_request", "The x-stella-agent-type header is required.");
+    assertAgentTypeAllowed(claims, agentType);
+    const requestedModel = protocol === "google-generative-ai"
+      ? requestedModelFromGooglePath(pathname) ?? undefined
+      : typeof predictedRequestJson.model === "string" ? predictedRequestJson.model : undefined;
+    const route = resolveManagedRoute({ claims, agentType, requestedModel });
+    const resolution = resolutionFor(route);
+    if (predictedRevision !== await gatewayModelResolutionRevision(resolution)) {
+      throw new GatewayError(409, "model_revision_mismatch", "The model configuration changed. Rebuild the request with the current descriptor.", {
+        headers: { "x-should-retry": "false", [GATEWAY_MODEL_RESOLUTION_HEADER]: encodeURIComponent(JSON.stringify(resolution)) },
+      });
+    }
+  }
+  const enforcementResult = await enforcementWork;
+  if (!enforcementResult.ok) throw enforcementResult.error;
+  const enforcement = enforcementResult.value;
   if (enforcement.suspended) {
     throw new GatewayError(
       403,
@@ -537,7 +564,7 @@ export const handleManagedRelay = async (args: {
     }
     assertAgentTypeAllowed(claims, agentType);
 
-    const requestJson = await readJsonObject(request);
+    const requestJson = predictedRequestJson ?? await readJsonObject(request);
     if (requestJson.stream === true) {
       throw new GatewayError(
         400,

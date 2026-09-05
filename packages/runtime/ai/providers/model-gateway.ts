@@ -2,7 +2,7 @@
  * Shared gateway-mode plumbing for the provider adapters.
  *
  * The Stella model gateway's managed lane is request/response: the adapter
- * calls its vendor SDK with `stream: false` and receives ONE complete
+ * sends `stream: false` and receives ONE complete
  * provider-native JSON object, which it then converts into the streaming
  * event protocol the agent loop consumes. Detection is purely by baseUrl
  * (`<gatewayOrigin>/v1/relay`), so a missing or renamed header can never

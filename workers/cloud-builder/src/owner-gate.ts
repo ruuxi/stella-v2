@@ -2466,6 +2466,20 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       // Stop can target the exact turn even while its admission RPC is in
       // flight, including before the conversation has imported the handoff.
       this.ctx.storage.sql.exec("UPDATE dispatches SET cloud_turn_id = ? WHERE dispatch_id = ?", handoff.authority.turnId, row.dispatch_id);
+      // Observe the durability wait already required by the RPC output gate.
+      // Do not await it separately: RPC serialization can still overlap the
+      // flush, and the platform continues to hold delivery until it succeeds.
+      const handoffStartedAt = Date.now();
+      const persistenceStarted = performance.now();
+      const turnId = handoff.authority.turnId;
+      this.ctx.waitUntil(this.ctx.storage.sync().then(() => {
+        log("info", "owner_chat_handoff_persisted", {
+          dispatchId: row.dispatch_id,
+          turnId,
+          handoffStartedAt,
+          persistMs: Math.round(performance.now() - persistenceStarted),
+        });
+      }));
     }
     const response = handoff?.phase === "registered"
       ? await sessions.getByName(row.conversation_id).startAdmittedChat(request, handoff.authority, preparation)

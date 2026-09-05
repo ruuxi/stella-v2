@@ -203,6 +203,7 @@
       "dependencies": {
         "@sinclair/typebox": "0.34.49",
         "@stella/contracts": "workspace:*",
+        "@stella/model-catalog": "workspace:*",
         "@stella/runtime": "workspace:*",
         "effect": "4.0.0-beta.83",
       },

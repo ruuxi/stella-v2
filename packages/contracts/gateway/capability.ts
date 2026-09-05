@@ -109,8 +109,12 @@ export const GATEWAY_TURN_CAPABILITY_TTL_MS = 30 * 60 * 1000;
 /** Clock skew tolerated when checking `exp`/`iat`. */
 export const GATEWAY_CAPABILITY_CLOCK_SKEW_S = 60;
 
+// Derive from the host's WebCrypto definitions: Node/Bun expose the JWK type
+// inside webcrypto rather than as the browser's global JsonWebKey name.
+type GatewayJsonWebKey = Exclude<Awaited<ReturnType<typeof crypto.subtle.exportKey>>, ArrayBuffer>;
+
 export type GatewayJwks = {
-  keys: Array<{ kid: string; jwk: JsonWebKey; issuer: GatewayCapabilityIssuer }>;
+  keys: Array<{ kid: string; jwk: GatewayJsonWebKey; issuer: GatewayCapabilityIssuer }>;
 };
 
 export const isManagedModelAudience = (

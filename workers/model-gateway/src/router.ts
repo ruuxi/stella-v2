@@ -1,3 +1,4 @@
+import { GATEWAY_PREPARE_PATH, GATEWAY_VALIDATED_RELAY_PREFIX, GATEWAY_MODEL_REVISION_HEADER } from "@stella/contracts/gateway/api";
 import { RelayTiming } from "./relay-timing.js";
 import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
 import type { OwnerRelayAccounting } from "./ledger-client.js";
@@ -307,6 +308,7 @@ const handleResolve = async (
   deps: GatewayDeps,
   convex: ConvexClient,
   traceId: string,
+  preparationMode: "background" | "await" = "background",
 ): Promise<Response> => {
   const startedAt = performance.now();
   const auth = await authenticateCapability(request, env, {
@@ -315,12 +317,6 @@ const handleResolve = async (
   });
   const authenticationMs = performance.now() - startedAt;
   await verifySessionDpop({ request, auth, now: deps.now() });
-  // Resolution precedes inference. Start the cold pricing read here so the
-  // control-plane request overlaps the caller's remaining prompt preparation.
-  const preparation = auth.claims.ledgerScope === "owner-relay-v2" && !auth.probe
-    ? env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub)).prepare(auth.claims.sub)
-    : getGatewayConfig(convex, deps.waitUntil, deps.now);
-  deps.waitUntil(preparation.catch(() => undefined));
   const body = (await readJsonObject(
     request,
   )) as Partial<GatewayResolveRequest>;
@@ -344,6 +340,28 @@ const handleResolve = async (
     agentType,
     requestedModel,
   });
+  // /prepare acknowledges actual completion. /resolve keeps its historical
+  // nonblocking behavior, with failures observed instead of silently discarded.
+  const preparationStartedAt = performance.now();
+  const preparation = (async () => {
+    const ownerScoped = auth.claims.ledgerScope === "owner-relay-v2" && !auth.probe;
+    try {
+      if (ownerScoped) await env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub))
+        .prepare(auth.claims.sub, traceId);
+      else await getGatewayConfig(convex, deps.waitUntil, deps.now);
+      console.info(JSON.stringify({ event: "gateway_preparation_timing", traceId,
+        mode: preparationMode, target: ownerScoped ? "owner" : "worker", status: "completed",
+        totalMs: performance.now() - preparationStartedAt }));
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "gateway_preparation_timing", traceId,
+        mode: preparationMode, target: ownerScoped ? "owner" : "worker", status: "failed",
+        code: isGatewayError(error) ? error.code : "internal",
+        totalMs: performance.now() - preparationStartedAt }));
+      throw error;
+    }
+  })();
+  if (preparationMode === "await") await preparation;
+  else deps.waitUntil(preparation.catch(() => undefined));
   console.info(JSON.stringify({ event: "gateway_resolve_timing", traceId,
     turnId: auth.claims.turn?.turnId, conversationId: auth.claims.turn?.conversationId,
     authenticationMs, totalMs: performance.now() - startedAt }));
@@ -378,6 +396,10 @@ const handleRelay = async (
       };
     }
     lane = auth.claims.credential ? "native" : "managed";
+    if (new URL(request.url).pathname.startsWith(GATEWAY_VALIDATED_RELAY_PREFIX + "/") &&
+        (auth.claims.credential || !request.headers.has(GATEWAY_MODEL_REVISION_HEADER))) {
+      throw new GatewayError(400, "bad_request", "This route requires a managed model descriptor revision.");
+    }
     if (localOwner && (!localOwner.matchesOwner(auth.claims.sub) || auth.probe ||
         auth.claims.credential || auth.claims.ledgerScope !== "owner-relay-v2")) {
       throw new GatewayError(403, "capability_invalid", "This request does not belong to this owner executor.");
@@ -452,7 +474,8 @@ export const handleRequest = async (
   const url = new URL(request.url);
   const convex = createConvexClient(env, deps.fetch);
   try {
-    if (localOwner && !url.pathname.startsWith(GATEWAY_RELAY_PREFIX + "/")) {
+    if (localOwner && !url.pathname.startsWith(GATEWAY_RELAY_PREFIX + "/") &&
+        !url.pathname.startsWith(GATEWAY_VALIDATED_RELAY_PREFIX + "/")) {
       throw new GatewayError(404, "bad_request", "Owner executors accept model requests only.");
     }
     if (url.pathname === GATEWAY_HEALTH_PATH) {
@@ -471,12 +494,15 @@ export const handleRequest = async (
         throw new GatewayError(405, "bad_request", "Method not allowed.");
       return await handleOwnerEnforcement({ request, env, deps, traceId });
     }
-    if (url.pathname === GATEWAY_RESOLVE_PATH) {
+    if (url.pathname === GATEWAY_RESOLVE_PATH || url.pathname === GATEWAY_PREPARE_PATH) {
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleResolve(request, env, deps, convex, traceId);
+      return await handleResolve(request, env, deps, convex, traceId,
+        url.pathname === GATEWAY_PREPARE_PATH ? "await" : "background");
     }
     if (
+      url.pathname === GATEWAY_VALIDATED_RELAY_PREFIX ||
+      url.pathname.startsWith(`${GATEWAY_VALIDATED_RELAY_PREFIX}/`) ||
       url.pathname === GATEWAY_RELAY_PREFIX ||
       url.pathname.startsWith(`${GATEWAY_RELAY_PREFIX}/`)
     ) {

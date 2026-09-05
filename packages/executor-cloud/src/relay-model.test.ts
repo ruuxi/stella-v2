@@ -1,3 +1,6 @@
+import { registerCloudApiProviders } from "@stella/runtime/ai/providers/register-cloud.js";
+registerCloudApiProviders();
+import { GATEWAY_MODEL_REVISION_HEADER, GATEWAY_MODEL_RESOLUTION_HEADER } from "@stella/contracts/gateway/api";
 import { describe, expect, test } from "bun:test";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { Api, Model } from "@stella/runtime/ai/types.js";
@@ -6,6 +9,7 @@ import type { GatewayModelResolution } from "@stella/contracts/gateway/api";
 import {
   CLOUD_LLM_CREDENTIAL_HEADER,
   createCloudRelayModel,
+  createCloudRelaySession,
   createResolvedManagedRelayModel,
   parseGatewayModelResolution,
   resolveCloudThinkingLevel,
@@ -507,4 +511,155 @@ describe("cloud relay model selection", () => {
     expect(resolveCloudThinkingLevel(noReasoning, "default")).toBe("off");
     expect(resolveCloudThinkingLevel(noReasoning, "high")).toBe("off");
   });
+});
+
+describe("turn-local validated relay sessions", () => {
+  test("skips resolution and sends the predicted descriptor revision on inference", async () => {
+    const calls: Request[] = [];
+    const session = await createCloudRelaySession({ gatewayOrigin: GATEWAY,
+      capability: CAPABILITY, agentType: "orchestrator", execution: managed(), audience: "pro",
+      fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        calls.push((input instanceof Request ? new Request(input, init) : new Request(input.toString(), init)));
+        return Response.json({ id: "resp_1", object: "response", status: "completed", model: "meta/muse-spark-1.3-contributor",
+          output: [{ type: "message", id: "msg_1", role: "assistant", status: "completed", content: [{ type: "output_text", text: "hello", annotations: [] }] }],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } });
+      }, fetch),
+    });
+    expect(calls).toHaveLength(0);
+    const stream = await session.createStreamFn({ reasoningEffort: "none" })(session.model,
+      { messages: [{ role: "user", content: "hello", timestamp: 1 }] }, { apiKey: CAPABILITY });
+    const result = await stream.result();
+    expect(result.errorMessage).toBeUndefined();
+    expect(result.stopReason).toBe("stop");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.headers.get(GATEWAY_MODEL_REVISION_HEADER)).toMatch(/^v1:[a-f0-9]{64}$/);
+    expect(calls[0]!.url).not.toContain("/resolve");
+  });
+
+  test("rebuilds protocol and context once from raw messages after a pre-provider mismatch", async () => {
+    const alias = "stella/crof/deepseek-v4-flash-0731";
+    const current = resolution({ requestedModel: alias, resolvedModel: "anthropic/claude-sonnet-4-6",
+      provider: "anthropic", protocol: "anthropic-messages", contextWindow: 123456, maxOutputTokens: 8192 });
+    const requests: Request[] = [];
+    const bodies: unknown[] = [];
+    const raw = { messages: [{ role: "user" as const, content: [
+      { type: "text" as const, text: "keep this original text" },
+      { type: "image" as const, data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC3sAAAAASUVORK5CYII=", mimeType: "image/png" },
+    ], timestamp: 1 }] };
+    const transformed: Array<{ contextWindow: number; input: string[] }> = [];
+    const session = await createCloudRelaySession({ gatewayOrigin: GATEWAY, capability: CAPABILITY,
+      agentType: "orchestrator", execution: managed(alias, "high"), audience: "pro",
+      fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const request = (input instanceof Request ? new Request(input, init) : new Request(input.toString(), init));
+        requests.push(request);
+        bodies.push(await request.json());
+        if (requests.length === 1) return Response.json({ error: { code: "model_revision_mismatch", message: "changed" } },
+          { status: 409, headers: { "x-should-retry": "false", [GATEWAY_MODEL_RESOLUTION_HEADER]: encodeURIComponent(JSON.stringify(current)) } });
+        return Response.json({ id: "msg_2", type: "message", role: "assistant", model: "claude-sonnet-4-6",
+          content: [{ type: "text", text: "hello" }], stop_reason: "end_turn", stop_sequence: null,
+          usage: { input_tokens: 1, output_tokens: 1 } });
+      }, fetch),
+    });
+    const stream = await session.createStreamFn({ reasoningEffort: "high", transformContext: async (model, context) => {
+      expect(context).toBe(raw);
+      transformed.push({ contextWindow: model.contextWindow, input: [...model.input] });
+      return model.api === "anthropic-messages" ? context
+        : { ...context, messages: [{ role: "user", content: "pruned first attempt", timestamp: 1 }] };
+    } })(session.model, raw, { apiKey: CAPABILITY });
+    const events = [];
+    for await (const event of stream) events.push(event);
+    const completed = await stream.result();
+    expect(completed.errorMessage).toBeUndefined();
+    expect(completed.stopReason).toBe("stop");
+    expect(requests).toHaveLength(2);
+    expect(requests[0]!.url).toContain("/chat/completions");
+    expect(requests[1]!.url).toContain("/messages");
+    expect(JSON.stringify(bodies[1])).toContain("keep this original text");
+    expect(JSON.stringify(bodies[1])).toContain("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC3sAAAAASUVORK5CYII=");
+    expect(JSON.stringify(bodies[1])).toContain('"thinking"');
+    expect(transformed[1]).toEqual({ contextWindow: 123456, input: ["text", "image"] });
+    expect(events.some(event => event.type === "error")).toBe(false);
+    expect(session.model.api).toBe("anthropic-messages");
+  });
+
+  test("limits repeated descriptor mismatches and does not retry cancellation", async () => {
+    for (const cancel of [false, true]) {
+      const controller = new AbortController();
+      let calls = 0;
+      const session = await createCloudRelaySession({ gatewayOrigin: GATEWAY, capability: CAPABILITY,
+        agentType: "orchestrator", execution: managed(), audience: "pro", signal: controller.signal,
+        fetch: Object.assign(async () => {
+          calls += 1;
+          if (cancel) controller.abort();
+          return Response.json({ error: { code: "model_revision_mismatch", message: "changed" } }, { status: 409,
+            headers: { "x-should-retry": "false", [GATEWAY_MODEL_RESOLUTION_HEADER]: encodeURIComponent(JSON.stringify(resolution())) } });
+        }, fetch),
+      });
+      const stream = await session.createStreamFn({ reasoningEffort: "none" })(session.model,
+        { messages: [{ role: "user", content: "hello", timestamp: 1 }] }, { apiKey: CAPABILITY });
+      expect((await stream.result()).stopReason).toBe(cancel ? "aborted" : "error");
+      expect(calls).toBe(cancel ? 1 : 2);
+    }
+  });
+});
+
+test("older gateways refuse the versioned route before resolution and legacy inference fallback", async () => {
+  const urls: string[] = [];
+  const session = await createCloudRelaySession({ gatewayOrigin: GATEWAY, capability: CAPABILITY,
+    agentType: "orchestrator", execution: managed(), audience: "pro",
+    fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const request = (input instanceof Request ? new Request(input, init) : new Request(input.toString(), init));
+      urls.push(request.url);
+      if (request.url.includes("/v2/relay/")) return Response.json({ error: { code: "bad_request", message: "Not found." } }, { status: 404 });
+      if (request.url.endsWith("/resolve")) return Response.json(resolution());
+      expect(request.headers.has(GATEWAY_MODEL_REVISION_HEADER)).toBe(false);
+      return Response.json({ id: "resp_1", object: "response", status: "completed", model: "meta/muse-spark-1.3-contributor",
+        output: [{ type: "message", id: "msg_1", role: "assistant", status: "completed", content: [{ type: "output_text", text: "hello", annotations: [] }] }],
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } });
+    }, fetch),
+  });
+  const stream = await session.createStreamFn({ reasoningEffort: "none" })(session.model,
+    { messages: [{ role: "user", content: "hello", timestamp: 1 }] }, { apiKey: CAPABILITY });
+  expect((await stream.result()).stopReason).toBe("stop");
+  expect(urls).toEqual([`${GATEWAY}/v2/relay/responses`, `${GATEWAY}/v1/models/resolve`, `${GATEWAY}/v1/relay/responses`]);
+});
+
+test("connected subscriptions keep their original adapter and context transformation", async () => {
+  let transformations = 0;
+  let sends = 0;
+  const session = await createCloudRelaySession({ gatewayOrigin: GATEWAY, capability: CAPABILITY,
+    agentType: "orchestrator", audience: "pro",
+    execution: { engine: "anthropic", provider: "anthropic", model: "claude-sonnet-4-6", reasoningEffort: "none" },
+    fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      sends += 1;
+      const request = (input instanceof Request ? new Request(input, init) : new Request(input.toString(), init));
+      expect(request.url).toContain("/v1/relay/");
+      expect(request.headers.has(GATEWAY_MODEL_REVISION_HEADER)).toBe(false);
+      expect(JSON.stringify(await request.json())).toContain("transformed native context");
+      return Response.json({ id: "msg_2", type: "message", role: "assistant", model: "claude-sonnet-4-6",
+        content: [{ type: "text", text: "hello" }], stop_reason: "end_turn", stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 } });
+    }, fetch),
+  });
+  const stream = await session.createStreamFn({ reasoningEffort: "none", transformContext: async (_model, context) => {
+    transformations += 1;
+    return { ...context, messages: [{ role: "user", content: "transformed native context", timestamp: 1 }] };
+  } })(session.model, { messages: [{ role: "user", content: "untransformed", timestamp: 1 }] }, { apiKey: CAPABILITY });
+  expect((await stream.result()).stopReason).toBe("stop");
+  expect(transformations).toBe(1);
+  expect(sends).toBe(1);
+});
+
+test("cancellation during a context transform prevents inference", async () => {
+  const controller = new AbortController();
+  let sends = 0;
+  const session = await createCloudRelaySession({ gatewayOrigin: GATEWAY, capability: CAPABILITY,
+    agentType: "orchestrator", execution: managed(), audience: "pro", signal: controller.signal,
+    fetch: Object.assign(async () => { sends += 1; return new Response(); }, fetch),
+  });
+  const stream = await session.createStreamFn({ reasoningEffort: "none", transformContext: async (_model, context) => {
+    controller.abort(); return context;
+  } })(session.model, { messages: [{ role: "user", content: "hello", timestamp: 1 }] }, { apiKey: CAPABILITY });
+  expect((await stream.result()).stopReason).toBe("aborted");
+  expect(sends).toBe(0);
 });

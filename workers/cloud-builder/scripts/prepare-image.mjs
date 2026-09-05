@@ -70,6 +70,7 @@ const imagePackages = [
   "contracts",
   "runtime",
   "executor-cloud",
+  "model-catalog",
   // Document CLI. Only the wrapper + download scripts are staged; the native
   // binary is fetched for the image's own platform during the Docker build.
   "stella-office",

@@ -1,3 +1,4 @@
+import { isGatewayError } from "../errors.js";
 import { DurableObject } from "cloudflare:workers";
 import { handleRequest } from "../router.js";
 import { getGatewayConfig, GATEWAY_CONFIG_STORAGE_KEY, type GatewayConfigStorage } from "../config-cache.js";
@@ -94,16 +95,41 @@ export class OwnerRelayGate extends DurableObject<Env> {
     };
   }
 
-  async prepare(ownerId?: string): Promise<void> {
-    if (ownerId && this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !== this.ctx.id.toString()) {
-      throw new Error("Owner preparation identity does not match.");
+  async prepare(ownerId?: string, traceId?: string): Promise<void> {
+    const startedAt = performance.now();
+    const invokedAt = Date.now();
+    const durations: { pricingMs?: number; enforcementMs?: number; configAgeMs?: number } = {};
+    console.info(JSON.stringify({ event: "gateway_owner_preparation_timing", traceId,
+      executorInstanceId: this.instanceId, invokedAt, status: "started" }));
+    try {
+      if (ownerId && this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !== this.ctx.id.toString()) {
+        throw new Error("Owner preparation identity does not match.");
+      }
+      await Promise.all([
+        (async () => {
+          const pricingStartedAt = performance.now();
+          try {
+            const config = await getGatewayConfig(createConvexClient(this.env), work => this.ctx.waitUntil(work), Date.now, this.configStorage);
+            durations.configAgeMs = Math.max(0, Date.now() - config.fetchedAt);
+          } finally { durations.pricingMs = performance.now() - pricingStartedAt; }
+        })(),
+        (async () => {
+          const enforcementStartedAt = performance.now();
+          try {
+            // Warm the existing 60-second KV cache. Inference still performs
+            // its normal read; no independent permission snapshot is kept.
+            if (ownerId) await ownerEnforcementAdmission(this.env, ownerId, Date.now());
+          } finally { durations.enforcementMs = performance.now() - enforcementStartedAt; }
+        })(),
+      ]);
+      console.info(JSON.stringify({ event: "gateway_owner_preparation_timing", traceId,
+        executorInstanceId: this.instanceId, invokedAt, status: "completed", totalMs: performance.now() - startedAt, ...durations }));
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "gateway_owner_preparation_timing", traceId,
+        executorInstanceId: this.instanceId, invokedAt, status: "failed", totalMs: performance.now() - startedAt,
+        code: isGatewayError(error) ? error.code : "internal", ...durations }));
+      throw error;
     }
-    await Promise.all([
-      getGatewayConfig(createConvexClient(this.env), work => this.ctx.waitUntil(work), Date.now, this.configStorage),
-      // Warm the existing 60-second KV cache. Inference still performs its
-      // normal enforcement read; no independent permission snapshot is kept.
-      ownerId ? ownerEnforcementAdmission(this.env, ownerId, Date.now()) : Promise.resolve(),
-    ]);
   }
 
   async admitRelay(args: {

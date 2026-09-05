@@ -1,6 +1,7 @@
 /** Monotonic, request-local durations. No prompt, token, URL or credential fields. */
 export class RelayTiming {
   private readonly started: number;
+  private readonly startedAt = Date.now();
   private readonly milestones: Record<string, number> = {};
   private readonly durations: Record<string, number> = {};
 
@@ -32,6 +33,7 @@ export class RelayTiming {
 
   snapshot() {
     return {
+      startedAt: this.startedAt,
       elapsedMs: this.now() - this.started,
       milestonesMs: { ...this.milestones },
       durationsMs: { ...this.durations },

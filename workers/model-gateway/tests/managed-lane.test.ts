@@ -1,3 +1,7 @@
+import { GatewayError } from "../src/errors.js";
+import { GATEWAY_PREPARE_PATH, GATEWAY_MODEL_REVISION_HEADER, GATEWAY_MODEL_RESOLUTION_HEADER,
+  gatewayModelResolutionRevision } from "@stella/contracts/gateway/api";
+import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
 import { beforeEach, describe, expect, test, spyOn } from "bun:test";
 import {
   GATEWAY_TRACE_HEADER,
@@ -1502,5 +1506,102 @@ describe("owner-local model execution", () => {
     // reject the eighth request for this owner's Pro concurrency limit.
     const gate = ctx.harness.ownerGate.namespace.get({ name: OWNER_ID });
     for (let i = 0; i < 8; i++) expect((await gate.admitRelay({ audience: "pro", requestId: `after-abort-${i}`, throttled: false })).ok).toBe(true);
+  });
+});
+
+describe("validated descriptor relay", () => {
+  test("rejects a changed descriptor before any accounting or provider request", async () => {
+    const ctx = setup();
+    const { token } = await signSession();
+    const response = await ctx.run(relayRequest("/v2/relay/responses", { token, body: museBody(),
+      headers: agentHeaders({ [GATEWAY_MODEL_REVISION_HEADER]: "v1:old" }) }));
+    expect(response.status).toBe(409);
+    expect((await readError(response)).error.code).toBe("model_revision_mismatch");
+    expect(response.headers.get("x-should-retry")).toBe("false");
+    const encoded = response.headers.get(GATEWAY_MODEL_RESOLUTION_HEADER);
+    expect(encoded).toBeTruthy();
+    const descriptor = JSON.parse(decodeURIComponent(encoded!));
+    expect(descriptor.requestedModel).toBe(MUSE_ALIAS);
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.harness.networkGate.objects.size).toBe(0);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+
+  test("versioned routes require a descriptor and valid descriptors retain normal relay behavior", async () => {
+    const ctx = setup();
+    const { token } = await signSession();
+    const missing = await ctx.run(relayRequest("/v2/relay/responses", { token, body: museBody(), headers: agentHeaders() }));
+    expect(missing.status).toBe(400);
+    const descriptor = resolveManagedModelDescriptor({ agentType: "orchestrator", requestedModel: MUSE_ALIAS, audience: "pro" });
+    const response = await ctx.run(relayRequest("/v2/relay/responses", { token, body: museBody(),
+      headers: agentHeaders({ [GATEWAY_MODEL_REVISION_HEADER]: await gatewayModelResolutionRevision(descriptor) }) }));
+    expect(response.status).toBe(200);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(1);
+  });
+});
+
+describe("acknowledged owner preparation", () => {
+  test("prepare waits for owner completion while resolve stays nonblocking, without accounting", async () => {
+    for (const path of [GATEWAY_PREPARE_PATH, "/v1/models/resolve"]) {
+      const ctx = setup();
+      const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+      const owner = ctx.harness.ownerGate.namespace.get(ctx.harness.ownerGate.namespace.idFromName(OWNER_ID));
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const prepare = spyOn(owner, "prepare").mockImplementation(async (ownerId, traceId) => {
+        expect(ownerId).toBe(OWNER_ID);
+        expect(traceId).toBeTruthy();
+        started.resolve();
+        await release.promise;
+      });
+      const admission = spyOn(owner, "admitRelay");
+      const reservation = spyOn(owner, "admitAndReserve");
+      let completed = false;
+      const pending = ctx.run(relayRequest(path, { token, body: { model: MUSE_ALIAS, agentType: "orchestrator" } }))
+        .then(response => { completed = true; return response; });
+      await started.promise;
+      if (path === GATEWAY_PREPARE_PATH) expect(completed).toBe(false);
+      else expect((await pending).status).toBe(200);
+      release.resolve();
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ requestedModel: MUSE_ALIAS });
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(admission).not.toHaveBeenCalled();
+      expect(reservation).not.toHaveBeenCalled();
+      expect(ctx.harness.networkGate.objects.size).toBe(0);
+      expect(ctx.harness.ledger.objects.size).toBe(0);
+      expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+      prepare.mockRestore(); admission.mockRestore(); reservation.mockRestore();
+    }
+  });
+
+  test("prepare reports preparation failure instead of acknowledging success", async () => {
+    const ctx = setup();
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const owner = ctx.harness.ownerGate.namespace.get(ctx.harness.ownerGate.namespace.idFromName(OWNER_ID));
+    const prepare = spyOn(owner, "prepare").mockRejectedValue(new GatewayError(503, "internal", "Model pricing is temporarily unavailable."));
+    try {
+      const response = await ctx.run(relayRequest(GATEWAY_PREPARE_PATH, { token, body: { model: MUSE_ALIAS, agentType: "orchestrator" } }));
+      expect(response.status).toBe(503);
+      expect((await readError(response)).error.code).toBe("internal");
+      expect(ctx.harness.ledger.objects.size).toBe(0);
+      expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+    } finally { prepare.mockRestore(); }
+  });
+
+  test("invalid admission or agent selection cannot trigger preparation", async () => {
+    const ctx = setup();
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const missing = await ctx.run(relayRequest(GATEWAY_PREPARE_PATH, { body: { model: MUSE_ALIAS, agentType: "orchestrator" } }));
+    expect(missing.status).toBe(401);
+    const mismatch = await ctx.run(relayRequest(GATEWAY_PREPARE_PATH, { token, body: { model: CROF_ALIAS, agentType: "orchestrator" } }));
+    expect(mismatch.status).toBe(403);
+    const forbidden = await ctx.run(relayRequest(GATEWAY_PREPARE_PATH, { token, body: { model: MUSE_ALIAS, agentType: "general" } }));
+    expect(forbidden.status).toBe(403);
+    expect(ctx.harness.ownerGate.objects.size).toBe(0);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
   });
 });

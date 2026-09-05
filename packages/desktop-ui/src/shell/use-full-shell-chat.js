@@ -574,6 +574,25 @@ export function useFullShellChat({
         if (activeConversationIdRef.current !== submittedConversationId) return;
         enterChatSurfaceForInteraction();
         resetIdleTimer();
+        // Frame the optimistic row before runtime acceptance. Waiting for
+        // sendMessage here makes the viewport lag behind the visible message.
+        if (isStreaming) {
+          // Queued follow-up — no new user row lands in the event list.
+          // The streaming assistant row's own auto-follow keeps the reply
+          // framed, but repeated queued chips live below that row in the
+          // virtualized tail and can drift under the viewport without their own
+          // target.
+          if (shouldKeepTailFramed) {
+            nudgeQueuedMessagesIntoView();
+          }
+        } else if (shouldNudgeAfterSend) {
+          // Places the newest user turn near the top of the readable area,
+          // above the (now settled) response spacer. The gentle loop keeps
+          // that reframe continuous with the assistant stream-follow.
+          nudgeAfterSend();
+        } else {
+          releaseFollow();
+        }
       },
       onRestore: () => {
         if (activeConversationIdRef.current !== submittedConversationId) {
@@ -611,23 +630,6 @@ export function useFullShellChat({
     }
     if (submittedFromHome) {
       setComposerFocusRequestId((id) => id + 1);
-    }
-    if (isStreaming) {
-      // Queued follow-up — no new user row lands in the event list.
-      // The streaming assistant row's own auto-follow keeps the reply
-      // framed, but repeated queued chips live below that row in the
-      // virtualized tail and can drift under the viewport without their own
-      // target.
-      if (shouldKeepTailFramed) {
-        nudgeQueuedMessagesIntoView();
-      }
-    } else if (shouldNudgeAfterSend) {
-      // Places the newest user turn near the top of the readable area,
-      // above the (now settled) response spacer. The gentle loop keeps
-      // that reframe continuous with the assistant stream-follow.
-      nudgeAfterSend();
-    } else {
-      releaseFollow();
     }
   }, [
     activeConversationId,

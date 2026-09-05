@@ -115,6 +115,7 @@ interface ChatPanelTabProps {
     text: string,
     chatContext?: ChatContext | null,
     selectedText?: string | null,
+    onOptimisticStart?: () => void,
   ) => boolean | Promise<boolean>;
   onStop?: () => void;
   /** When the display sidebar is expanded to full width. */
@@ -422,27 +423,33 @@ function AccountScopedChatPanelTab({
     // applying Codex's 300px near-bottom threshold, so a visually-bottomed
     // short reply still reframes while deliberate scrollback stays put.
     const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
-    const accepted = await onSend(trimmedMessage, chatContext, selectedText);
+    const accepted = await onSend(
+      trimmedMessage,
+      chatContext,
+      selectedText,
+      () => {
+        if (isStreaming) {
+          // Queued follow-up — no new user row lands in the event
+          // list, just a chip in the trailing region. Keep that footer
+          // stack framed without falling through to the prior turn's
+          // user bubble.
+          if (shouldNudgeAfterSend) {
+            sidebarScroll.nudgeQueuedMessagesIntoView();
+          }
+        } else if (shouldNudgeAfterSend) {
+          // Place the newest user turn above the viewport-derived response
+          // spacer, using the same gentle loop as stream-follow.
+          sidebarScroll.nudgeAfterSend();
+        } else {
+          sidebarScroll.releaseFollow();
+        }
+      },
+    );
     if (!accepted) return;
     setInputText("");
     setChatContext(null);
     setSelectedText(null);
     setSidebarExpanded(false);
-    if (isStreaming) {
-      // Queued follow-up — no new user row lands in the event
-      // list, just a chip in the trailing region. Keep that footer
-      // stack framed without falling through to the prior turn's
-      // user bubble.
-      if (shouldNudgeAfterSend) {
-        sidebarScroll.nudgeQueuedMessagesIntoView();
-      }
-    } else if (shouldNudgeAfterSend) {
-      // Place the newest user turn above the viewport-derived response
-      // spacer, using the same gentle loop as stream-follow.
-      sidebarScroll.nudgeAfterSend();
-    } else {
-      sidebarScroll.releaseFollow();
-    }
   }, [
     chatContext,
     inputTextRef,

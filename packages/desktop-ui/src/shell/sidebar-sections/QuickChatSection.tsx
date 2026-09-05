@@ -73,12 +73,14 @@ function QuickChatConversation({
       text: string,
       chatContext?: ChatContext | null,
       selectedText?: string | null,
+      onOptimisticStart?: () => void,
     ) => {
       return sendMessage({
         text,
         chatContext: chatContext ?? null,
         selectedText: selectedText ?? null,
         onClear: NO_OP,
+        onOptimisticStart,
       });
     },
     [sendMessage],

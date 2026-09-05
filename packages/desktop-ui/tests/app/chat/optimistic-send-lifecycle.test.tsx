@@ -65,12 +65,15 @@ vi.mock("@/features/chat/streaming/use-local-agent-stream", async () => {
 
 import { useStreamingChatCore } from "@/features/chat/hooks/use-streaming-chat-core";
 
+import { useAgentInputRouting } from "@/shell/use-agent-input-routing";
+
 type Chat = ReturnType<typeof useStreamingChatCore>;
 
 describe("optimistic send lifecycle", () => {
   let container: HTMLDivElement;
   let root: Root;
   let chat: Chat;
+  let routing: ReturnType<typeof useAgentInputRouting>;
   let persistedMessages: MessageRecord[];
 
   function Probe() {
@@ -78,6 +81,11 @@ describe("optimistic send lifecycle", () => {
       conversationId: "conversation-1",
       locale: "en",
       persistedMessages,
+    });
+    routing = useAgentInputRouting({
+      activeConversationId: "conversation-1",
+      sendMessage: chat.sendMessage,
+      enterChatSurfaceForInteraction: () => {},
     });
     return <span>{chat.optimisticEvents.length}</span>;
   }
@@ -142,6 +150,28 @@ describe("optimistic send lifecycle", () => {
     expect(container.textContent).toBe("0");
     expect(onRestore).toHaveBeenCalledOnce();
     expect(chat.isStreaming).toBe(false);
+  });
+
+  it("notifies the sidebar when its optimistic row appears, before acceptance", async () => {
+    const nudge = vi.fn();
+    let send: Promise<boolean>;
+    await act(async () => {
+      send = routing.sendMessageWithContext("sidebar send", null, null, nudge);
+    });
+    expect(container.textContent).toBe("1");
+    expect(nudge).toHaveBeenCalledOnce();
+    expect(stream.start).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      stream.accept(true);
+      await send!;
+    });
+    expect(nudge).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      expect(await routing.sendMessageWithContext("", null, null, nudge)).toBe(false);
+    });
+    expect(nudge).toHaveBeenCalledOnce();
   });
 
   it("reconciles the accepted optimistic row by its canonical id", async () => {

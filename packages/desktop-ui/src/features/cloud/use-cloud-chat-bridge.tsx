@@ -449,6 +449,7 @@ export function useCloudChatBridge({
       // retained on that same row with idempotent Retry/Discard controls.
       void conversation.send(prompt);
       args.onClear();
+      args.onOptimisticStart?.();
       return true;
     },
     [conversation, conversationId, enabled, webShell],

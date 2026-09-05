@@ -385,3 +385,26 @@ describe("CloudHomeStore", () => {
     ).rejects.toBeInstanceOf(CloudHomeProtocolError);
   });
 });
+
+test("loads a bounded memory context in one request and rejects stale or incomplete snapshots", async () => {
+  const r2 = fakeBucket();
+  let calls = 0;
+  let response: Record<string, unknown> = {
+    ownerGeneration, memoryEpoch: "legacy", memoryEnabled: false, revision: 1, updatedAt: 1,
+    documentHeads: [], personalityHead: null,
+  };
+  const store = new CloudHomeStore(r2.bucket, {
+    base: "https://convex.example", bearer: "test", ownerId, ownerGeneration,
+    fetch: async (_input, init) => {
+      calls += 1;
+      expect(JSON.parse(String(init?.body)).includeContext).toBe(true);
+      return Response.json(response);
+    },
+  });
+  expect(await store.getMemoryContext()).toMatchObject({ preference: { memoryEnabled: false }, documentHeads: [], personalityHead: null });
+  expect(calls).toBe(1);
+  response = { ...response, ownerGeneration: "stale" };
+  await expect(store.getMemoryContext()).rejects.toThrow("stale");
+  response = { ownerGeneration, memoryEpoch: "legacy", memoryEnabled: false, revision: 1, updatedAt: 1 };
+  await expect(store.getMemoryContext()).rejects.toThrow("incomplete");
+});

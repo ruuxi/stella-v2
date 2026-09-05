@@ -271,10 +271,12 @@ export class AgentHome {
    * memory, then durable profile facts, then the routing map. Missing or
    * empty documents are simply absent — a first-time owner has none.
    */
-  async readDocuments(): Promise<MemoryDocument[]> {
+  async readDocuments(
+    snapshotHeads?: readonly CloudMemoryHead[],
+  ): Promise<MemoryDocument[]> {
     if (!this.bucket) return [];
     if (this.cloud) {
-      const heads = await this.cloud.listMemoryHeads(100);
+      const heads = snapshotHeads ?? (await this.cloud.listMemoryHeads(100));
       const canonicalOrder = new Map([
         ["core-memory.md", 0],
         ["MEMORY.md", 1],
@@ -390,13 +392,15 @@ export class AgentHome {
    * import/sync may materialize it; when absent, the caller falls back to the
    * canonical default personality.
    */
-  async readPersonality(): Promise<string | null> {
+  async readPersonality(
+    snapshotHead?: CloudMemoryHead | null,
+  ): Promise<string | null> {
     if (!this.bucket) return null;
     if (this.cloud) {
-      const head = await this.cloud.getMemoryHead(
-        "PERSONALITY.md",
-        "personality",
-      );
+      const head =
+        snapshotHead !== undefined
+          ? snapshotHead
+          : await this.cloud.getMemoryHead("PERSONALITY.md", "personality");
       if (head) {
         const bytes = head.sha256
           ? await this.cloud.readMemoryHeadBytes(head)

@@ -750,6 +750,48 @@ export class CloudHomeStore {
     return preference;
   }
 
+  async getMemoryContext() {
+    const payload = asRecord(
+      await this.control("/api/cloud/home/memory/preference", {
+        includeContext: true,
+      }),
+      "Cloud memory context",
+    );
+    const preference = parseMemoryPreference(payload);
+    if (
+      !Array.isArray(payload.documentHeads) ||
+      payload.personalityHead === undefined
+    ) {
+      throw new CloudHomeProtocolError("Cloud memory context was incomplete.");
+    }
+    const documentHeads = payload.documentHeads.map(parseMemoryHead);
+    const personalityHead =
+      payload.personalityHead === null
+        ? null
+        : parseMemoryHead(payload.personalityHead);
+    const heads = [
+      ...documentHeads,
+      ...(personalityHead ? [personalityHead] : []),
+    ];
+    if (
+      preference.ownerGeneration !== this.endpoint.ownerGeneration ||
+      heads.some(
+        (head) =>
+          head.ownerGeneration !== preference.ownerGeneration ||
+          head.memoryEpoch !== preference.memoryEpoch,
+      )
+    ) {
+      throw new CloudHomeProtocolError("Cloud memory context is stale.");
+    }
+    if (!preference.memoryEnabled && heads.length > 0) {
+      throw new CloudHomeProtocolError(
+        "Disabled memory context contained documents.",
+      );
+    }
+    await Promise.all(heads.map((head) => this.assertOwnedKey(head.r2Key)));
+    return { preference, documentHeads, personalityHead };
+  }
+
   async getMemoryWipeStatus(): Promise<CloudMemoryWipeStatus> {
     const status = parseMemoryWipeStatus(
       await this.control("/api/cloud/home/memory/wipe/status", {}),

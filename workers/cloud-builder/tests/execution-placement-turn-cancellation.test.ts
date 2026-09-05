@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import {
   EXACT_TURN_CANCELLATIONS_KEY,
   ExactTurnCancellationLedger,
@@ -5178,4 +5178,29 @@ describe("POST /expire-agent-turn expires the current agent turn for an operator
       reason: "no_agent_turn",
     });
   });
+});
+
+test("reusing a registered owner lease does not add a durable write barrier", async () => {
+  const harness = sessionHarness();
+  enableDurableOwnerFenceLifecycle(harness.instance);
+  harness.instance["callOwnerFence"] = async () =>
+    Response.json({ generation: "fence-generation-1" });
+  const register = harness.instance["registerOwnerTurn"];
+  if (typeof register !== "function")
+    throw new Error("Owner lease registration unavailable");
+  const target = turn("turn-warm-lease");
+  await register.call(harness.instance, target);
+  const put = spyOn(harness.storage, "put");
+  try {
+    await register.call(harness.instance, target);
+    expect(put).not.toHaveBeenCalled();
+    // An incomplete durable receipt still repairs its missing run slot.
+    for (const key of harness.values.keys()) {
+      if (key.startsWith("ownerFenceRunSlot:")) harness.values.delete(key);
+    }
+    await register.call(harness.instance, target);
+    expect(put).toHaveBeenCalled();
+  } finally {
+    put.mockRestore();
+  }
 });

@@ -173,11 +173,7 @@ export const assertOwnerMemoryRuntimeEnabled = async (
   ownerId: string,
   expectedGeneration: string,
 ) => {
-  const memory = await assertMemoryEpochOpen(
-    ctx,
-    ownerId,
-    expectedGeneration,
-  );
+  const memory = await assertMemoryEpochOpen(ctx, ownerId, expectedGeneration);
   const preference = await getOwnerMemoryPreference(
     ctx,
     ownerId,
@@ -193,15 +189,23 @@ export const assertOwnerMemoryRuntimeEnabled = async (
 };
 
 export const getOwnerMemoryPreferenceInternal = internalQuery({
-  args: { ownerId: v.string(), ownerGeneration: v.string() },
-  returns: memoryPreferenceValidator,
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    includeContext: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    ...memoryPreferenceValidator.fields,
+    documentHeads: v.optional(v.array(memoryHeadInternalValidator)),
+    personalityHead: v.optional(v.union(v.null(), memoryHeadInternalValidator)),
+  }),
   handler: async (ctx, args) => {
     const memory = await assertMemoryEpochOpen(
       ctx,
       args.ownerId,
       args.ownerGeneration,
     );
-    return {
+    const preference = {
       ...(await getOwnerMemoryPreference(
         ctx,
         args.ownerId,
@@ -209,6 +213,36 @@ export const getOwnerMemoryPreferenceInternal = internalQuery({
       )),
       memoryEpoch: memory.memoryEpoch,
     };
+    if (!args.includeContext) return preference;
+    if (!preference.memoryEnabled)
+      return { ...preference, documentHeads: [], personalityHead: null };
+    // One query snapshot binds policy and heads to the same owner/epoch.
+    const [rows, personality] = await Promise.all([
+      ctx.db
+        .query("cloud_agent_home_docs")
+        .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
+          q.eq("ownerId", args.ownerId).eq("deletedAt", undefined),
+        )
+        .order("desc")
+        .take(Math.min(100, CLOUD_HOME_MAX_DOCUMENTS)),
+      findDocument(ctx, args.ownerId, "PERSONALITY.md"),
+    ]);
+    const documentHeads = await Promise.all(rows.map(toHead));
+    const personalityHead =
+      personality && personality.deletedAt === undefined
+        ? await toHead(personality)
+        : null;
+    if (
+      [...documentHeads, ...(personalityHead ? [personalityHead] : [])].some(
+        (head) => head.memoryEpoch !== memory.memoryEpoch,
+      )
+    ) {
+      throw new ConvexError({
+        code: "CLOUD_MEMORY_EPOCH_STALE",
+        message: "Cloud memory metadata belongs to an erased memory epoch.",
+      });
+    }
+    return { ...preference, documentHeads, personalityHead };
   },
 });
 
@@ -247,7 +281,10 @@ export const setMyMemoryEnabled = mutation({
       ownerId,
       args.expectedOwnerGeneration,
     );
-    if (!Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0) {
+    if (
+      !Number.isSafeInteger(args.expectedRevision) ||
+      args.expectedRevision < 0
+    ) {
       throw new ConvexError("expectedRevision must be a non-negative integer.");
     }
     const requestId = assertIdempotencyKey(args.requestId);
@@ -301,7 +338,11 @@ export const setMyMemoryEnabled = mutation({
       updatedAt: now,
     };
     if (existing) await ctx.db.patch(existing._id, values);
-    else await ctx.db.insert("cloud_agent_home_preferences", { ...values, createdAt: now });
+    else
+      await ctx.db.insert("cloud_agent_home_preferences", {
+        ...values,
+        createdAt: now,
+      });
     return {
       subject: identity.tokenIdentifier,
       ownerGeneration: lifecycle.generation,
@@ -876,11 +917,7 @@ export const listMyMemoryDocuments = query({
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
     const owner = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
-    const memory = await assertMemoryEpochOpen(
-      ctx,
-      ownerId,
-      owner.generation,
-    );
+    const memory = await assertMemoryEpochOpen(ctx, ownerId, owner.generation);
     const limit = Math.min(
       CLOUD_HOME_MAX_DOCUMENTS,
       Math.max(1, Math.floor(args.limit ?? CLOUD_HOME_MAX_DOCUMENTS)),
@@ -919,11 +956,7 @@ export const getMyMemoryDocument = query({
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
     const owner = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
-    const memory = await assertMemoryEpochOpen(
-      ctx,
-      ownerId,
-      owner.generation,
-    );
+    const memory = await assertMemoryEpochOpen(ctx, ownerId, owner.generation);
     const normalized = normalizeCloudMemoryDocument(args.name, args.kind);
     const row = await findDocument(ctx, ownerId, normalized.name);
     if (!row || row.deletedAt !== undefined) return null;

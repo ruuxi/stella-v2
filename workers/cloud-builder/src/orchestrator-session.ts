@@ -1112,6 +1112,18 @@ export class OrchestratorSession extends DurableObject<Env> {
       ) {
         throw new OwnerFenceLeaseConflictError();
       }
+      // Reusing a registered lease is a read. Rewriting its unchanged receipt
+      // and run slot adds a durable write barrier to every admitted turn.
+      if (
+        current?.phase === "registered" &&
+        current.registrationGeneration &&
+        (!operationFingerprint ||
+          current.operationFingerprint === operationFingerprint) &&
+        (!runSlotKey || slot?.leaseId === current.leaseId)
+      ) {
+        receipt = current;
+        return;
+      }
       const now = Date.now();
       receipt = current
         ? {
@@ -3694,6 +3706,18 @@ export class OrchestratorSession extends DurableObject<Env> {
       Date.now() + Math.max(1_000, turn.watchdogMs ?? CHAT_WATCHDOG_MS),
     );
     const started = performance.now();
+    const preparationTimings: Record<string, number> = {};
+    const measurePreparation = async <T>(
+      name: string,
+      work: () => Promise<T>,
+    ): Promise<T> => {
+      const start = performance.now();
+      try {
+        return await work();
+      } finally {
+        preparationTimings[name] = Math.round(performance.now() - start);
+      }
+    };
     log("info", "chat_turn_started", {
       turnId: turn.turnId,
       conversationId: turn.conversationId,
@@ -3736,16 +3760,25 @@ export class OrchestratorSession extends DurableObject<Env> {
       // is the bearer for every synchronous Convex route this turn touches
       // (agent home, attachments, search, recall, schedules, integrations),
       // the model one is the only credential the model gateway ever sees.
-      const capabilities = await mintTurnCapabilities(this.env, {
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        turnId: turn.turnId,
-        conversationId: turn.conversationId,
-        execution: turn.execution,
-        audience: turn.audience,
-        budgetMicroCents: turn.budgetMicroCents,
-        agentTypes: ["orchestrator"],
-      });
+      const [capabilities, destinations] = await Promise.all([
+        measurePreparation("capabilitiesMs", () =>
+          mintTurnCapabilities(this.env, {
+            ownerId: turn.ownerId,
+            ownerGeneration: turn.ownerGeneration,
+            turnId: turn.turnId,
+            conversationId: turn.conversationId,
+            execution: turn.execution,
+            audience: turn.audience,
+            budgetMicroCents: turn.budgetMicroCents,
+            agentTypes: ["orchestrator"],
+          }),
+        ),
+        measurePreparation("devicesMs", () =>
+          this.ownerGate(turn.ownerId)
+            .devices()
+            .catch(() => null),
+        ),
+      ]);
       await assertExactTurnActive();
 
       // Repair BEFORE the prompt row exists. An eviction, a cancel or a
@@ -3762,10 +3795,6 @@ export class OrchestratorSession extends DurableObject<Env> {
       // this clean boundary rather than splicing into a tool-call pair.
       this.drainInbox();
 
-      const destinations = await this.ownerGate(turn.ownerId)
-        .devices()
-        .catch(() => null);
-      await assertExactTurnActive();
       const executionContext = createExecutionContextSnapshot({
         devices: destinations?.devices ?? null,
         destination: { kind: "cloud" },
@@ -3865,50 +3894,89 @@ export class OrchestratorSession extends DurableObject<Env> {
       // content. Disabled means no resident-memory/personality read and no
       // memory tools; unavailable or corrupt authoritative context blocks the
       // turn instead of producing a normal-looking memoryless reply.
-      const memoryPreference = await requireCloudContext(
-        "agent_home_memory",
-        agentHome.getMemoryPreference(),
-      );
-      const memoryEnabled = memoryPreference.memoryEnabled;
+      const executionSelection = turn.execution;
+      const modelGatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+      const modelGateway = this.env.MODEL_GATEWAY;
+      if (!modelGatewayOrigin || !modelGateway) {
+        throw new Error("Model gateway is not configured.");
+      }
+      const turnCapability = capabilities.model;
+      const loadMemoryContext = async () => {
+        const memoryContext = await measurePreparation("memorySnapshotMs", () =>
+          requireCloudContext(
+            "agent_home_memory",
+            agentHome.cloudStore().getMemoryContext(),
+          ),
+        );
+        const memoryPreference = memoryContext.preference;
+        const [memoryDocuments, personalityOverride] = await Promise.all([
+          memoryPreference.memoryEnabled
+            ? measurePreparation("memoryDocumentsMs", () =>
+                requireCloudContext(
+                  "agent_home_memory",
+                  agentHome.readDocuments(memoryContext.documentHeads),
+                ),
+              )
+            : Promise.resolve([]),
+          memoryPreference.memoryEnabled
+            ? measurePreparation("personalityMs", () =>
+                requireCloudContext(
+                  "agent_home_personality",
+                  agentHome.readPersonality(memoryContext.personalityHead),
+                ),
+              )
+            : Promise.resolve(null),
+        ]);
+        return { memoryPreference, memoryDocuments, personalityOverride };
+      };
+      // Only memory reads depend on memory policy. Model resolution and other
+      // context can run alongside that chain; no provider call starts here.
       const [
-        memoryDocuments,
-        personalityOverride,
+        { memoryPreference, memoryDocuments, personalityOverride },
         canonicalPrompts,
         locale,
         attachmentImages,
         skillCatalog,
+        model,
       ] = await Promise.all([
-        // prettier-ignore
-        memoryEnabled
-          ? requireCloudContext(
-              "agent_home_memory",
-              agentHome.readDocuments(),
-            )
-          : Promise.resolve([]),
-        memoryEnabled
-          ? requireCloudContext(
-              "agent_home_personality",
-              agentHome.readPersonality(),
-            )
-          : Promise.resolve(null),
-        requireCloudContext(
-          "canonical_prompt",
-          this.loadCanonicalPromptsForTurn(base, executionSignal),
+        loadMemoryContext(),
+        measurePreparation("canonicalPromptsMs", () =>
+          requireCloudContext(
+            "canonical_prompt",
+            this.loadCanonicalPromptsForTurn(base, executionSignal),
+          ),
         ),
-        this.resolveTurnLocale(turn, () =>
-          assertTurnExecutionActive(turnCancellation, executionSignal),
+        measurePreparation("localeMs", () =>
+          this.resolveTurnLocale(turn, () =>
+            assertTurnExecutionActive(turnCancellation, executionSignal),
+          ),
         ),
-        this.loadChatAttachmentImages(
-          base,
-          turn,
-          capabilities.controlPlane,
-          executionSignal,
+        measurePreparation("attachmentsMs", () =>
+          this.loadChatAttachmentImages(
+            base,
+            turn,
+            capabilities.controlPlane,
+            executionSignal,
+          ),
         ),
-        requireCloudContext(
-          "skill_catalog",
-          agentHome.loadSkillCatalog("orchestrator"),
+        measurePreparation("skillCatalogMs", () =>
+          requireCloudContext(
+            "skill_catalog",
+            agentHome.loadSkillCatalog("orchestrator"),
+          ),
+        ),
+        measurePreparation("modelResolutionMs", () =>
+          createCloudRelayModel({
+            gatewayOrigin: modelGatewayOrigin,
+            capability: turnCapability.token,
+            agentType: "orchestrator",
+            execution: executionSelection,
+            signal: executionSignal,
+            fetch: (input, init) => modelGateway.fetch(input, init),
+          }),
         ),
       ]);
+      const memoryEnabled = memoryPreference.memoryEnabled;
       log("info", "cloud_memory_preference_loaded", {
         turnId: turn.turnId,
         ownerGeneration: memoryPreference.ownerGeneration,
@@ -3922,6 +3990,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         );
         if (
           current.ownerGeneration !== memoryPreference.ownerGeneration ||
+          current.memoryEpoch !== memoryPreference.memoryEpoch ||
           current.memoryEnabled !== memoryPreference.memoryEnabled ||
           current.revision !== memoryPreference.revision
         ) {
@@ -3931,10 +4000,9 @@ export class OrchestratorSession extends DurableObject<Env> {
           );
         }
       };
-      // Preference changes invalidate this turn before its policy-bearing
-      // system prompt can reach a provider. Retry starts a fresh turn with the
-      // new preference; later physical retry attempts recheck below as well.
-      await assertMemoryPreferenceUnchanged();
+      // Revalidate at the provider boundary below, including retries. Agent
+      // construction does not send context, so a second check here only adds
+      // a control-plane round trip before the same mandatory validation.
 
       // The watchdog (or /cancel) may have fired during the setup awaits
       // above, before currentAgent exists for abort() to reach — re-check so
@@ -3955,22 +4023,6 @@ export class OrchestratorSession extends DurableObject<Env> {
         throw error;
       }
 
-      const executionSelection = turn.execution;
-      await assertExactTurnActive();
-      const modelGatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
-      const modelGateway = this.env.MODEL_GATEWAY;
-      if (!modelGatewayOrigin || !modelGateway) {
-        throw new Error("Model gateway is not configured.");
-      }
-      const turnCapability = capabilities.model;
-      const model = await createCloudRelayModel({
-        gatewayOrigin: modelGatewayOrigin,
-        capability: turnCapability.token,
-        agentType: "orchestrator",
-        execution: executionSelection,
-        signal: executionSignal,
-        fetch: (input, init) => modelGateway.fetch(input, init),
-      });
       await assertExactTurnActive();
       // No await is allowed between this local latch and constructing the
       // Agent. The next async admission boundary repeats the same check.
@@ -4071,8 +4123,23 @@ export class OrchestratorSession extends DurableObject<Env> {
           sleep: (milliseconds) => turnCancellation.sleep(milliseconds),
           execute: async (resume) => {
             await assertExactTurnActive();
-            await assertMemoryPreferenceUnchanged();
+            await measurePreparation(
+              "memoryRevalidationMs",
+              assertMemoryPreferenceUnchanged,
+            );
             await assertExactTurnActive();
+            log("info", "chat_turn_prepared", {
+              turnId: turn.turnId,
+              conversationId: turn.conversationId,
+              admissionMs: turn.queuedAt
+                ? Math.round(
+                    Date.now() - turn.queuedAt - (performance.now() - started),
+                  )
+                : undefined,
+              totalPreparationMs: Math.round(performance.now() - started),
+              ...preparationTimings,
+            });
+
             // A conservative durable dispatch boundary: increment immediately
             // before entering the Agent/provider call. Context failures happen
             // above this line, so an unchanged counter proves zero dispatch.
@@ -4305,7 +4372,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   /**
    * The canonical prompt snapshot, cached in durable storage and refreshed
-   * by ETag at most every few minutes. A refresh failure may use only a
+   * by ETag on every turn. A refresh failure may use only a
    * revalidated last-known-good cache; a cold/corrupt cache throws before the
    * relay model is constructed.
    */

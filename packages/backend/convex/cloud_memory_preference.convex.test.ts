@@ -198,3 +198,23 @@ describe("authoritative cloud memory preference", () => {
     ]);
   });
 });
+
+it("returns policy and memory heads together, withholding heads when disabled", async () => {
+  const t = createTest();
+  await openOwner(t);
+  const prepared = await beginWrite(t, {
+    name: "memories/profile.md", kind: "profile", writer: "system_seed", idempotencyKey: "context-snapshot-profile",
+  });
+  await commitWrite(t, prepared);
+  const snapshot = makeFunctionReference<"query", { ownerId: string; ownerGeneration: string; includeContext?: boolean }, unknown>("cloud_memory:getOwnerMemoryPreferenceInternal");
+  const args = { ownerId: OWNER_ID, ownerGeneration: GENERATION, includeContext: true };
+  expect(await t.query(snapshot, args)).toMatchObject({
+    memoryEnabled: true,
+    documentHeads: [{ name: "memories/profile.md", revision: 1, ownerGeneration: GENERATION }],
+    personalityHead: null,
+  });
+  await setEnabled(t, false, 0, "context-snapshot-disable");
+  expect(await t.query(snapshot, args)).toMatchObject({ memoryEnabled: false, documentHeads: [], personalityHead: null });
+  await expect(t.query(snapshot, { ...args, ownerGeneration: "stale-generation" })).rejects.toThrow();
+  expect(await t.query(snapshot, { ownerId: OWNER_ID, ownerGeneration: GENERATION })).not.toHaveProperty("documentHeads");
+});

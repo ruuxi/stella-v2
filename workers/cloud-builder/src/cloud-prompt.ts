@@ -165,7 +165,9 @@ const exactDigest = (value: unknown): string => {
 const derivedRevision = async (digests: readonly PromptDigest[]) =>
   await sha256Hex(
     [...digests]
-      .sort((a, b) => a.id.localeCompare(b.id))
+      // These ids were validated against the fixed ASCII prompt catalog.
+      // Codepoint order preserves its published revision without loading ICU.
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
       .map((prompt) => `${prompt.id}:${prompt.sha256}`)
       .join("\n"),
   );

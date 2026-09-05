@@ -1,6 +1,7 @@
 import type { ModelRegistry } from "@stella/contracts/model-registry";
 import { modelRuntime } from "./model-runtime.js";
-import type { Api, Model, ModelThinkingLevel, Usage } from "./types.js";
+export { calculateCost } from "./cost.js";
+import type { Api, Model, ModelThinkingLevel } from "./types.js";
 
 type RegisteredProvider = keyof ModelRegistry;
 
@@ -66,22 +67,6 @@ export function registerModel(provider: string, model: Model<Api>): void {
  */
 export function unregisterModel(provider: string, modelId: string): void {
   modelRuntime.unregisterModel(provider, modelId);
-}
-
-export function calculateCost<TApi extends Api>(
-  model: Model<TApi>,
-  usage: Usage,
-): Usage["cost"] {
-  usage.cost.input = (model.cost.input / 1000000) * usage.input;
-  usage.cost.output = (model.cost.output / 1000000) * usage.output;
-  usage.cost.cacheRead = (model.cost.cacheRead / 1000000) * usage.cacheRead;
-  usage.cost.cacheWrite = (model.cost.cacheWrite / 1000000) * usage.cacheWrite;
-  usage.cost.total =
-    usage.cost.input +
-    usage.cost.output +
-    usage.cost.cacheRead +
-    usage.cost.cacheWrite;
-  return usage.cost;
 }
 
 const EXTENDED_THINKING_LEVELS: ModelThinkingLevel[] = [

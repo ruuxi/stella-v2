@@ -5,7 +5,7 @@ import {
 	type ThinkingConfig,
 	ThinkingLevel,
 } from "@google/genai";
-import { calculateCost } from "../models.js";
+import { calculateCost } from "../cost.js";
 import type {
 	Api,
 	AssistantMessage,

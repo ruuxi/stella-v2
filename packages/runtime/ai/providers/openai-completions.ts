@@ -13,7 +13,8 @@ import type {
   ChatCompletionToolMessageParam,
 } from "openai/resources/chat/completions.js";
 import { getEnvApiKey } from "../env-api-keys.js";
-import { calculateCost, clampThinkingLevel } from "../models.js";
+import { calculateCost } from "../cost.js";
+import { clampThinkingLevel } from "../models.js";
 import type {
   AssistantMessage,
   CacheRetention,

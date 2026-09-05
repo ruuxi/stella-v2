@@ -21,7 +21,7 @@ import {
 	ToolResultStatus,
 } from "@aws-sdk/client-bedrock-runtime";
 import type { DocumentType } from "@smithy/types";
-import { calculateCost } from "../models.js";
+import { calculateCost } from "../cost.js";
 import { supportsAdaptiveThinking as modelRequiresAdaptiveThinking } from "./anthropic.js";
 import type {
 	Api,

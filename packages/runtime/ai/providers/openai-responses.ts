@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import type {
   ResponseCreateParamsNonStreaming,
   ResponseCreateParamsStreaming,
@@ -33,6 +33,10 @@ import {
 } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
 import {
+  gatewayJsonHeaders,
+  requestGatewayJson,
+} from "./gateway-json-request.js";
+import {
   GATEWAY_REQUEST_TIMEOUT_MS,
   gatewayRequestHeaders,
   isGatewayRelayBaseUrl,
@@ -55,6 +59,27 @@ const OPENAI_TOOL_CALL_PROVIDERS = new Set([
 const newRequestNonce = (): string =>
   (globalThis as { crypto?: Crypto }).crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+const isGatewayResponsesResponse = (
+  value: unknown,
+): value is OpenAI.Responses.Response => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return (
+    typeof Reflect.get(value, "id") === "string" &&
+    Array.isArray(Reflect.get(value, "output"))
+  );
+};
+
+const parseGatewayResponsesResponse = (
+  value: unknown,
+): OpenAI.Responses.Response => {
+  if (!isGatewayResponsesResponse(value)) {
+    throw new Error("Invalid gateway Responses response.");
+  }
+  return value;
+};
 
 /**
  * Resolve cache retention preference.
@@ -205,17 +230,8 @@ export const streamOpenAIResponses: StreamFunction<
       };
 
       let activeApiKey = initialApiKey;
-      const clientForKey = (requestApiKey: string) =>
-        createClient(
-          model,
-          context,
-          requestApiKey,
-          options?.headers,
-          cacheSessionId,
-          promptCacheKey,
-        );
       const withActiveAuth = async <T>(
-        request: (client: OpenAI) => Promise<T>,
+        request: (requestApiKey: string) => Promise<T>,
       ): Promise<T> =>
         await requestWithAuthRefresh({
           apiKey: activeApiKey,
@@ -224,9 +240,18 @@ export const streamOpenAIResponses: StreamFunction<
             activeApiKey = requestApiKey;
             physicalAttempt += 1;
             await notifyRequestLifecycle("request-dispatched");
-            return await request(clientForKey(requestApiKey));
+            return await request(requestApiKey);
           },
         });
+      const clientForKey = async (requestApiKey: string): Promise<OpenAI> =>
+        await createClient(
+          model,
+          context,
+          requestApiKey,
+          options?.headers,
+          cacheSessionId,
+          promptCacheKey,
+        );
 
       let events:
         | AsyncIterable<ResponseStreamEvent>
@@ -237,16 +262,42 @@ export const streamOpenAIResponses: StreamFunction<
           ...params,
           stream: false,
         };
-        const completed = await withActiveAuth((client) =>
-          client.responses
-            .create(nonStreamingParams, requestOptions(gatewayRequestHeaders()))
-            .withResponse(),
-        );
+        const completed = await withActiveAuth(async (requestApiKey) => {
+          const config = createClientOptions(
+            model,
+            context,
+            requestApiKey,
+            options?.headers,
+            cacheSessionId,
+            promptCacheKey,
+          );
+          return await requestGatewayJson<OpenAI.Responses.Response>({
+            url: `${config.baseURL.replace(/\/+$/, "")}/responses`,
+            body: nonStreamingParams,
+            headers: gatewayJsonHeaders({
+              apiKey: config.apiKey,
+              defaults: config.defaultHeaders,
+              perRequest: {
+                "Idempotency-Key": idempotencyKey,
+                ...gatewayRequestHeaders(),
+              },
+              timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS,
+            }),
+            timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS,
+            maxRetries: 0,
+            ...(options?.signal ? { signal: options.signal } : {}),
+            ...(config.fetch ? { fetch: config.fetch } : {}),
+            readResponse: async (response) =>
+              parseGatewayResponsesResponse(await response.json()),
+          });
+        });
         response = completed.response;
         events = synthesizeResponsesStreamEvents(completed.data);
       } else {
-        const opened = await withActiveAuth((client) =>
-          client.responses.create(params, requestOptions()).withResponse(),
+        const opened = await withActiveAuth(async (requestApiKey) =>
+          (await clientForKey(requestApiKey))
+            .responses.create(params, requestOptions())
+            .withResponse(),
         );
         response = opened.response;
         events = opened.data;
@@ -335,7 +386,7 @@ export const streamSimpleOpenAIResponses: StreamFunction<
   } satisfies OpenAIResponsesOptions);
 };
 
-function createClient(
+function createClientOptions(
   model: Model<"openai-responses">,
   context: Context,
   apiKey?: string,
@@ -402,10 +453,10 @@ function createClient(
           ...headers,
           Authorization: headers.Authorization ?? null,
           "cf-aig-authorization": `Bearer ${apiKey}`,
-        }
+      }
       : headers;
 
-  return new OpenAI({
+  return {
     apiKey,
     baseURL: isCloudflareProvider(model.provider)
       ? resolveCloudflareBaseUrl(model)
@@ -413,7 +464,28 @@ function createClient(
     dangerouslyAllowBrowser: true,
     defaultHeaders,
     ...(model.fetch ? { fetch: model.fetch } : {}),
-  });
+  };
+}
+
+async function createClient(
+  model: Model<"openai-responses">,
+  context: Context,
+  apiKey?: string,
+  optionsHeaders?: Record<string, string>,
+  sessionId?: string,
+  promptCacheKey?: string,
+): Promise<OpenAI> {
+  const { default: OpenAIClient } = await import("openai");
+  return new OpenAIClient(
+    createClientOptions(
+      model,
+      context,
+      apiKey,
+      optionsHeaders,
+      sessionId,
+      promptCacheKey,
+    ),
+  );
 }
 
 function buildParams(

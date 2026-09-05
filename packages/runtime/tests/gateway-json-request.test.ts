@@ -35,6 +35,143 @@ const run = async (implementation: "sdk" | "gateway", statuses: number[], extraH
 };
 
 describe("gateway JSON transport parity with the installed OpenAI SDK", () => {
+  test("matches responses.create non-streaming request and withResponse result", async () => {
+    const params = {
+      model: "stella/test",
+      input: [{ role: "user" as const, content: "hello" }],
+      stream: false as const,
+    };
+    const payload = {
+      id: "resp-test",
+      object: "response",
+      created_at: 1,
+      model: "test",
+      output: [],
+      status: "completed",
+    };
+    const defaults = {
+      authorization: "Bearer capability",
+      "x-stella-request-id": "physical-id",
+      "x-stella-agent-type": "orchestrator",
+    };
+    const observations: Array<{
+      url: string;
+      body: unknown;
+      headers: Record<string, string>;
+    }> = [];
+    const transport = Object.assign(
+      async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const request = new Request(input, init);
+        const received = new Headers(request.headers);
+        for (const name of [
+          "x-stainless-lang",
+          "x-stainless-package-version",
+          "x-stainless-os",
+          "x-stainless-arch",
+          "x-stainless-runtime",
+          "x-stainless-runtime-version",
+        ])
+          received.delete(name);
+        observations.push({
+          url: request.url,
+          body: await request.json(),
+          headers: Object.fromEntries(received),
+        });
+        return Response.json(payload, {
+          headers: { "x-provider-request-id": "provider-1" },
+        });
+      },
+      fetch,
+    );
+
+    const sdk = await new OpenAI({
+      apiKey: "capability",
+      baseURL: "https://gateway/v1/relay",
+      fetch: transport,
+      defaultHeaders: defaults,
+    }).responses
+      .create(params, { maxRetries: 0, timeout: 600_000 })
+      .withResponse();
+    const thinHeaders = gatewayJsonHeaders({
+      apiKey: "capability",
+      defaults,
+      perRequest: {},
+      timeoutMs: 600_000,
+    });
+    const thin = await requestGatewayJson({
+      url: "https://gateway/v1/relay/responses",
+      body: params,
+      headers: thinHeaders,
+      timeoutMs: 600_000,
+      maxRetries: 0,
+      fetch: transport,
+      readResponse: (response) => response.json(),
+    });
+
+    expect(observations[1]).toEqual(observations[0]);
+    expect(thin.data).toEqual(payload);
+    expect(sdk.data).toMatchObject(payload);
+    expect(sdk.data.output_text).toBe("");
+    expect(thin.response.status).toBe(sdk.response.status);
+    expect(thin.response.headers.get("x-provider-request-id")).toBe(
+      sdk.response.headers.get("x-provider-request-id"),
+    );
+  });
+
+  test("thin responses request cancels without retry", async () => {
+    const abort = new AbortController();
+    const entered = Promise.withResolvers<void>();
+    let calls = 0;
+    let transportSignal: AbortSignal | undefined;
+    const transport = Object.assign(
+      async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        calls += 1;
+        const request = new Request(input, init);
+        transportSignal = request.signal;
+        entered.resolve();
+        return await new Promise<Response>((_resolve, reject) => {
+          abort.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+      fetch,
+    );
+    const params = {
+      model: "stella/test",
+      input: "hello",
+      stream: false as const,
+    };
+    const work = requestGatewayJson({
+      url: "https://gateway/v1/relay/responses",
+      body: params,
+      headers: gatewayJsonHeaders({
+        apiKey: "capability",
+        defaults: {},
+        perRequest: {},
+        timeoutMs: 1000,
+      }),
+      timeoutMs: 1000,
+      maxRetries: 0,
+      signal: abort.signal,
+      fetch: transport,
+      readResponse: (response) => response.json(),
+    });
+    await entered.promise;
+    abort.abort();
+    expect(transportSignal?.aborted).toBe(true);
+    await expect(work).rejects.toMatchObject({ message: "Request was aborted." });
+    expect(calls).toBe(1);
+  });
+
   test("retains pinned SDK Retry-After boundaries without an added sixty-second clamp", () => {
     // openai 6.39.0 retryRequest accepts parsed values verbatim. Only an
     // undefined delay uses exponential backoff, unlike older SDK releases.
@@ -103,9 +240,9 @@ describe("gateway JSON transport parity with the installed OpenAI SDK", () => {
     abort.abort();
     await failure;
   });
-  test("timeout preserves the SDK error without an unrequested retry", async () => {
+  test("thin responses timeout preserves the SDK error without retry", async () => {
     let calls = 0;
-    await expect(requestGatewayJson({ url: "https://gateway/model", body, headers: new Headers(headers),
+    await expect(requestGatewayJson({ url: "https://gateway/v1/relay/responses", body: { model: "stella/test", input: "hello", stream: false }, headers: new Headers(headers),
       timeoutMs: 1, maxRetries: 0,
       fetch: Object.assign(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         calls++;

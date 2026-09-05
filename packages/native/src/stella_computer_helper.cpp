@@ -1743,6 +1743,7 @@ struct TargetState {
     unsigned long long materializedRevision = 0;
     unsigned long long pendingBaselineRevision = 0;
     unsigned long long pendingBaselineEventCount = 0;
+    unsigned long long lastActionBaselineEventCount = 0;
     int pendingActionCount = 0;
     bool visualContextNeeded = false;
     bool handlersInstalled = false;
@@ -1911,7 +1912,14 @@ static AdaptiveSettle waitForTargetQuiet(
     unsigned long long deadline = start + adaptiveSettleTimeoutMs;
     unsigned long long nextLoadingCheck = start;
     bool loading = false;
-    Sleep(state.pendingActionCount > 0 ? 700 : 60);
+    const unsigned long long graceDeadline = start + (state.pendingActionCount > 0 ? 700 : 60);
+    while (GetTickCount64() < graceDeadline) {
+        // Require provider events after the latest action, not an earlier
+        // batched action or the synthetic invalidateForAction revision.
+        if (state.pendingActionCount > 0 && state.tracker &&
+            state.tracker->eventCount.load() > state.lastActionBaselineEventCount) break;
+        Sleep(5);
+    }
     while (true) {
         unsigned long long now = GetTickCount64();
         unsigned long long revision = state.tracker ? state.tracker->revision.load() : baselineRevision;
@@ -3664,6 +3672,7 @@ static std::string executeOperation(IUIAutomation* uia, const Json& operation) {
         targetState.pendingBaselineRevision = baselineRevision;
         targetState.pendingBaselineEventCount = baselineEventCount;
     }
+    targetState.lastActionBaselineEventCount = baselineEventCount;
     targetState.pendingActionCount += 1;
     targetState.visualContextNeeded = targetState.visualContextNeeded ||
         tool == "click" || tool == "scroll" || tool == "drag" ||

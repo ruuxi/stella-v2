@@ -4,7 +4,6 @@
 import { getActiveTab } from "./tabs.js";
 import { ensureDebugger } from "../lib/debugger.js";
 import {
-  abortableCommandDelay,
   markCommandMutationDispatched,
   markCommandMutationOutcomeKnown,
   throwIfCommandAborted,
@@ -85,37 +84,51 @@ export async function handleNavigate(command) {
   };
 }
 
-export async function handleBack(command) {
+async function navigateHistory(command, navigate) {
   throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
-  markCommandMutationDispatched(command);
-  await chrome.tabs.goBack(tab.id);
-  // Small delay for navigation to start
-  await abortableCommandDelay(command, 500);
-  throwIfCommandAborted(command);
-  const updated = await chrome.tabs.get(tab.id);
-  markCommandMutationOutcomeKnown(command);
-  return {
-    id: command.id,
-    success: true,
-    data: { url: updated.url, title: updated.title },
+  // Listen before dispatch so cached and same-document navigations cannot
+  // finish before we subscribe. Keep the old grace period for pages that emit
+  // no navigation event, but return as soon as the browser confirms a commit.
+  const events = [
+    chrome.webNavigation.onCommitted,
+    chrome.webNavigation.onHistoryStateUpdated,
+    chrome.webNavigation.onReferenceFragmentUpdated,
+  ];
+  let finish;
+  const committed = new Promise((resolve) => { finish = resolve; });
+  const listener = (details) => {
+    if (details.tabId === tab.id && details.frameId === 0) finish();
   };
+  for (const event of events) event.addListener(listener);
+  const timer = setTimeout(finish, 500);
+  command.signal?.addEventListener("abort", finish, { once: true });
+  try {
+    throwIfCommandAborted(command);
+    markCommandMutationDispatched(command);
+    await navigate(tab.id);
+    await committed;
+    throwIfCommandAborted(command);
+    const updated = await chrome.tabs.get(tab.id);
+    markCommandMutationOutcomeKnown(command);
+    return {
+      id: command.id,
+      success: true,
+      data: { url: updated.url, title: updated.title },
+    };
+  } finally {
+    clearTimeout(timer);
+    for (const event of events) event.removeListener(listener);
+    command.signal?.removeEventListener("abort", finish);
+  }
+}
+
+export async function handleBack(command) {
+  return navigateHistory(command, (tabId) => chrome.tabs.goBack(tabId));
 }
 
 export async function handleForward(command) {
-  throwIfCommandAborted(command);
-  const tab = await getActiveTab(command);
-  markCommandMutationDispatched(command);
-  await chrome.tabs.goForward(tab.id);
-  await abortableCommandDelay(command, 500);
-  throwIfCommandAborted(command);
-  const updated = await chrome.tabs.get(tab.id);
-  markCommandMutationOutcomeKnown(command);
-  return {
-    id: command.id,
-    success: true,
-    data: { url: updated.url, title: updated.title },
-  };
+  return navigateHistory(command, (tabId) => chrome.tabs.goForward(tabId));
 }
 
 export async function handleReload(command) {

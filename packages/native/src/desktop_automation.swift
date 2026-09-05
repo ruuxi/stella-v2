@@ -2484,6 +2484,7 @@ final class ObservedAutomationTarget {
     var dirtyElements: Set<Int>
     var dirtyScopes: Set<String>
     var pendingActionCount: Int
+    var lastActionBaselineEventCount: Int
 
     init(
         pid: Int32,
@@ -2504,6 +2505,7 @@ final class ObservedAutomationTarget {
         self.dirtyElements = []
         self.dirtyScopes = []
         self.pendingActionCount = 0
+        self.lastActionBaselineEventCount = 0
     }
 }
 
@@ -2608,6 +2610,7 @@ final class AutomationObserverManager {
     func markAction(pid: Int32, action: String) -> (UInt64, UInt64) {
         guard let observed = observedTargets[pid] else { return (0, 0) }
         let baseline = observed.revision
+        observed.lastActionBaselineEventCount = totalEventCount(observed)
         observed.revision &+= 1
         observed.pendingActionCount += 1
         observed.dirtyScopes.insert("action:\(action)")
@@ -2659,6 +2662,13 @@ final class AutomationObserverManager {
         let initialGraceSeconds = observed.pendingActionCount > 0 ? 0.70 : 0.06
         let initialPumpDeadline = start.addingTimeInterval(initialGraceSeconds)
         while Date() < initialPumpDeadline {
+            // A real notification after the latest action lets the quiet
+            // check take over. Earlier batched actions and synthetic
+            // invalidation cannot satisfy this action's grace period.
+            if observed.pendingActionCount > 0,
+               totalEventCount(observed) > observed.lastActionBaselineEventCount {
+                break
+            }
             _ = RunLoop.current.run(
                 mode: .default,
                 before: [initialPumpDeadline, Date(timeIntervalSinceNow: 0.005)].min() ?? initialPumpDeadline

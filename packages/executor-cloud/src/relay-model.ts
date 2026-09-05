@@ -391,11 +391,11 @@ const resolveTransportFailure = (error: unknown): Error => {
   return new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_loopback_connect);
 };
 
-const managedRelayModel = async (args: {
+const resolveManagedRelayModel = async (args: {
   execution: CloudExecutionSelection;
   transport: GatewayModelTransport;
   signal?: AbortSignal;
-}): Promise<Model<Api>> => {
+}): Promise<GatewayModelResolution> => {
   const timeoutSignal = AbortSignal.timeout(RESOLVE_TIMEOUT_MS);
   const request: GatewayResolveRequest = {
     model: args.execution.model,
@@ -437,15 +437,7 @@ const managedRelayModel = async (args: {
   if (!resolution || resolution.requestedModel !== args.execution.model) {
     throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
   }
-  try {
-    return createResolvedManagedRelayModel({
-      execution: args.execution,
-      resolution,
-      ...args.transport,
-    });
-  } catch {
-    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
-  }
+  return resolution;
 };
 
 export type CloudRelayModelArgs = {
@@ -488,14 +480,22 @@ export const createCloudRelayModel = async (
     agentType: args.agentType,
     ...(args.fetch ? { fetch: args.fetch } : {}),
   };
-  await loadModelRegistry();
-  return execution.engine === "stella"
-    ? await managedRelayModel({
-        execution,
-        transport,
-        ...(args.signal ? { signal: args.signal } : {}),
-      })
-    : subscriptionRelayModel({ execution, transport });
+  if (execution.engine !== "stella") {
+    await loadModelRegistry();
+    return subscriptionRelayModel({ execution, transport });
+  }
+  // Resolution has no dependency on the registry. In a cold isolate, start
+  // its network trip immediately while the local catalog module loads.
+  const [, resolution] = await Promise.all([
+    loadModelRegistry(),
+    resolveManagedRelayModel({ execution, transport, signal: args.signal }),
+  ]);
+  args.signal?.throwIfAborted();
+  try {
+    return createResolvedManagedRelayModel({ execution, resolution, ...transport });
+  } catch {
+    throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
+  }
 };
 
 /**

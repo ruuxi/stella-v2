@@ -1,10 +1,12 @@
 import { RelayTiming } from "./relay-timing.js";
-import { getGatewayConfig } from "./config-cache.js";
+import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
 import type { OwnerRelayAccounting } from "./ledger-client.js";
 
 export type LocalOwnerRelay = {
   matchesOwner(ownerId: string): boolean;
   accounting: OwnerRelayAccounting;
+  instanceId?: string;
+  configStorage?: GatewayConfigStorage;
 };
 import {
   GATEWAY_NETWORK_POLICY,
@@ -316,7 +318,7 @@ const handleResolve = async (
   // Resolution precedes inference. Start the cold pricing read here so the
   // control-plane request overlaps the caller's remaining prompt preparation.
   const preparation = auth.claims.ledgerScope === "owner-relay-v2" && !auth.probe
-    ? env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub)).prepare()
+    ? env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub)).prepare(auth.claims.sub)
     : getGatewayConfig(convex, deps.waitUntil, deps.now);
   deps.waitUntil(preparation.catch(() => undefined));
   const body = (await readJsonObject(
@@ -415,6 +417,7 @@ const handleRelay = async (
       protocol,
       timing,
       ownerAccounting: localOwner?.accounting,
+      configStorage: localOwner?.configStorage,
     });
     status = response.status;
     return response;
@@ -426,6 +429,7 @@ const handleRelay = async (
       JSON.stringify({
         event: forwarded ? "gateway_relay_route_timing" : "gateway_relay_timing",
         execution: localOwner ? "owner" : "worker",
+        executorInstanceId: localOwner?.instanceId,
         traceId,
         lane,
         ledgerScope,

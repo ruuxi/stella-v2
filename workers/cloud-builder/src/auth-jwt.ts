@@ -63,10 +63,58 @@ type JwksCacheEntry = {
   imported: Map<string, CryptoKey>;
 };
 
-// Module-global, so every request in this isolate shares one cache and one
-// in-flight fetch. A cold start just refetches.
+// Imported keys stay local to the isolate. Validated public key material also
+// survives isolate replacement in a named edge cache, with the original age.
 const jwksCache = new Map<string, JwksCacheEntry>();
 const jwksInflight = new Map<string, Promise<JwksCacheEntry>>();
+
+const publicJwksCache = async (): Promise<Cache | null> => {
+  try { return typeof caches === "undefined" ? null : await caches.open("stella-public-jwks-v1"); }
+  catch { return null; }
+};
+
+const parsePublicKeys = (body: unknown): JwkEntry[] => {
+  if (!body || typeof body !== "object" || !("keys" in body) || !Array.isArray(body.keys)) return [];
+  const keys: JwkEntry[] = [];
+  for (const raw of body.keys) {
+    if (!raw || typeof raw !== "object" || !("kid" in raw) || typeof raw.kid !== "string" ||
+        !("kty" in raw) || raw.kty !== "RSA" || !("n" in raw) || typeof raw.n !== "string" ||
+        !("e" in raw) || typeof raw.e !== "string") continue;
+    if (("alg" in raw && raw.alg !== "RS256") || ("use" in raw && raw.use !== "sig") ||
+        ("key_ops" in raw && (!Array.isArray(raw.key_ops) || !raw.key_ops.includes("verify")))) continue;
+    // Retain only public RSA verification material, never any private fields.
+    keys.push({ kid: raw.kid, jwk: { kty: "RSA", n: raw.n, e: raw.e } });
+  }
+  return keys;
+};
+
+const readSharedJwks = async (url: string): Promise<JwksCacheEntry | undefined> => {
+  try {
+    const response = await (await publicJwksCache())?.match(url);
+    if (!response) return;
+    const fetchedAtMs = Number(response.headers.get("x-stella-jwks-fetched-at"));
+    const age = Date.now() - fetchedAtMs;
+    if (!Number.isFinite(fetchedAtMs) || fetchedAtMs <= 0 || age < 0 || age >= JWKS_TTL_MS) return;
+    const keys = parsePublicKeys(await response.json());
+    if (!keys.length) return;
+    return { keys, fetchedAtMs, imported: new Map() };
+  } catch { return undefined; }
+};
+
+const writeSharedJwks = async (url: string, entry: JwksCacheEntry): Promise<void> => {
+  if (!entry.keys.length) return;
+  try {
+    await (await publicJwksCache())?.put(url, Response.json({ keys: entry.keys.map(({ kid, jwk }) => ({ kid, ...jwk })) }, {
+      headers: { "cache-control": `public, max-age=${JWKS_TTL_MS / 1000}`,
+        "x-stella-jwks-fetched-at": String(entry.fetchedAtMs) },
+    }));
+  } catch { /* Cache availability never determines whether a signature is valid. */ }
+};
+
+export const resetJwksCacheForTests = (): void => {
+  jwksCache.clear();
+  jwksInflight.clear();
+};
 
 const fetchJwks = async (url: string): Promise<JwksCacheEntry> => {
   const inflight = jwksInflight.get(url);
@@ -79,22 +127,14 @@ const fetchJwks = async (url: string): Promise<JwksCacheEntry> => {
     if (!response.ok) {
       throw new Error(`JWKS fetch failed with ${response.status}.`);
     }
-    const body = (await response.json()) as { keys?: unknown };
-    const keys: JwkEntry[] = [];
-    if (Array.isArray(body.keys)) {
-      for (const raw of body.keys) {
-        if (typeof raw !== "object" || raw === null) continue;
-        const jwk = raw as JsonWebKey & { kid?: unknown; kty?: unknown };
-        if (typeof jwk.kid !== "string" || jwk.kty !== "RSA") continue;
-        keys.push({ kid: jwk.kid, jwk });
-      }
-    }
+    const keys = parsePublicKeys(await response.json());
     const entry: JwksCacheEntry = {
       keys,
       fetchedAtMs: Date.now(),
       imported: new Map(),
     };
     jwksCache.set(url, entry);
+    await writeSharedJwks(url, entry);
     return entry;
   })().finally(() => {
     jwksInflight.delete(url);
@@ -112,7 +152,17 @@ const resolveJwks = async (
   url: string,
   wantedKid: string,
 ): Promise<JwksCacheEntry> => {
-  const cached = jwksCache.get(url);
+  const startedAt = performance.now();
+  let cached = jwksCache.get(url);
+  if (!cached) {
+    const shared = await readSharedJwks(url);
+    // A concurrent origin refresh may finish while the edge lookup is pending.
+    cached = jwksCache.get(url);
+    if (shared && (!cached || shared.fetchedAtMs > cached.fetchedAtMs)) cached = shared;
+    if (cached) jwksCache.set(url, cached);
+    console.info(JSON.stringify({ event: "conversation_jwks_cache", hit: !!cached,
+      elapsedMs: Math.round(performance.now() - startedAt) }));
+  }
   const now = Date.now();
   if (!cached) return await fetchJwks(url);
   const stale = now - cached.fetchedAtMs >= JWKS_TTL_MS;

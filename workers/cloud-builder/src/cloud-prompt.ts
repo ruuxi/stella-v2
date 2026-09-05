@@ -68,7 +68,8 @@ export type CanonicalPromptLoadResult = {
     | "fresh"
     | "cache_fresh"
     | "cache_not_modified"
-    | "cache_recovery";
+    | "cache_recovery"
+    | "cache_revalidating";
   refreshErrorCode?: string;
 };
 
@@ -359,6 +360,7 @@ export const refreshCanonicalPrompts = async (
   cachedValue: unknown,
   now: number,
   signal?: AbortSignal,
+  revalidateInBackground?: (refresh: () => Promise<CanonicalPromptLoadResult>) => void,
 ): Promise<CanonicalPromptLoadResult> => {
   signal?.throwIfAborted();
   const endpoint = convexSiteBase.replace(/\/+$/u, "");
@@ -372,6 +374,12 @@ export const refreshCanonicalPrompts = async (
     cached !== null && now - cached.fetchedAt <= PROMPT_LKG_MAX_AGE_MS;
   if (cached && now - cached.fetchedAt < PROMPT_FRESH_MAX_AGE_MS) {
     return { snapshot: cached, disposition: "cache_fresh" };
+  }
+  if (cached && cacheInsideHardAge && revalidateInBackground) {
+    // Keep the exact validated copy for this turn. A successful refresh can
+    // become an appended update on a later turn; it never mutates this prefix.
+    revalidateInBackground(() => refreshCanonicalPrompts(convexSiteBase, cached, now));
+    return { snapshot: cached, disposition: "cache_revalidating" };
   }
   // Expired publications revalidate by ETag. Cache hits never extend fetchedAt.
   try {

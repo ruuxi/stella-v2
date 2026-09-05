@@ -180,6 +180,7 @@ import {
   CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY,
   refreshCanonicalPrompts,
   type CanonicalPromptSnapshot,
+  type CanonicalPromptLoadResult,
 } from "./cloud-prompt.js";
 import { getResponseLanguageSystemPrompt } from "@stella/runtime/kernel/runner/locale-prompt.js";
 import { createMemoryTools, createScheduleTool } from "./orchestrator-tools.js";
@@ -736,6 +737,8 @@ const previewArgs = (args: unknown): string => {
 
 export class OrchestratorSession extends DurableObject<Env> {
   private firstChatInIsolate = true;
+  private readonly isolateId = crypto.randomUUID();
+  private modelRegistryLoadMs?: number;
   private wakeTiming?: { bootstrapMs: number; restoreMs: number; totalMs: number };
   // Serializes turns: Convex can dispatch a wake turn while a user turn is
   // still streaming; the second waits its turn instead of interleaving.
@@ -809,7 +812,10 @@ export class OrchestratorSession extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // A local module import only. Overlap first model setup with journal wake.
-    ctx.waitUntil(loadModelRegistry());
+    const registryStartedAt = performance.now();
+    ctx.waitUntil(loadModelRegistry().then(() => {
+      this.modelRegistryLoadMs = Math.round(performance.now() - registryStartedAt);
+    }));
     this.exactTurnCancellations = new ExactTurnCancellationLedger(ctx.storage);
     this.journal = new Journal(ctx, log);
     this.archive = new ConversationArchive(
@@ -4171,6 +4177,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       startupMs: Math.round(performance.now() - enteredAt),
       startupTimings,
       firstChatInIsolate: this.firstChatInIsolate,
+      isolateId: this.isolateId,
       ...(this.firstChatInIsolate ? { wakeTiming: this.wakeTiming } : {}),
     });
     this.firstChatInIsolate = false;
@@ -4314,7 +4321,9 @@ export class OrchestratorSession extends DurableObject<Env> {
             fetch: async (input, init) => {
               const request = new Request(input, init);
               // Resolution contains no prompt and can overlap home loading.
-              if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) return modelGateway.fetch(request);
+              if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
+                return measurePreparation("modelResolutionTransportMs", () => modelGateway.fetch(request));
+              }
               await assertExactTurnActive();
               const { memoryPreference } = await measuredHomePreparation;
               if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) throw new OwnerPurgeFenceError();
@@ -4614,6 +4623,7 @@ export class OrchestratorSession extends DurableObject<Env> {
                   )
                 : undefined,
               totalPreparationMs: Math.round(performance.now() - started),
+              modelRegistryLoadMs: this.modelRegistryLoadMs,
               ...preparationTimings,
             });
 
@@ -4849,12 +4859,21 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
   }
 
-  /**
-   * The canonical prompt snapshot, cached in durable storage and refreshed
-   * by ETag after at most 60 seconds. A refresh failure may use only a
-   * revalidated last-known-good cache; a cold/corrupt cache throws before the
-   * relay model is constructed.
-   */
+  private canonicalPromptRefresh?: Promise<void>;
+  private canonicalPromptSaved?: CanonicalPromptSnapshot;
+
+  private saveCanonicalPrompts(loaded: CanonicalPromptLoadResult): void {
+    if (this.purged() || (loaded.disposition !== "fresh" && loaded.disposition !== "cache_not_modified")) return;
+    const current = this.canonicalPromptSaved;
+    // A slower background fetch cannot overwrite a newer foreground result.
+    if (current && current.endpoint === loaded.snapshot.endpoint &&
+        (current.publishedAt > loaded.snapshot.publishedAt || current.fetchedAt > loaded.snapshot.fetchedAt)) return;
+    this.ctx.storage.kv.put(CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY, loaded.snapshot);
+    this.canonicalPromptSaved = loaded.snapshot;
+  }
+
+  /** Revalidate stale, integrity-checked prompts in the background. Missing,
+   * corrupt and hard-expired publications still require a successful load. */
   private async loadCanonicalPrompts(
     convexSiteBase: string,
     signal?: AbortSignal,
@@ -4871,18 +4890,20 @@ export class OrchestratorSession extends DurableObject<Env> {
       cached ?? null,
       Date.now(),
       signal,
+      refresh => {
+        if (this.canonicalPromptRefresh) return;
+        this.canonicalPromptRefresh = refresh().then(loaded => {
+          this.saveCanonicalPrompts(loaded);
+          log("info", "canonical_prompt_background_refresh", { disposition: loaded.disposition,
+            refreshErrorCode: loaded.refreshErrorCode });
+        }).catch((error: unknown) => {
+          log("error", "canonical_prompt_background_refresh_failed", { message: errorMessage(error) });
+        }).finally(() => { this.canonicalPromptRefresh = undefined; });
+        this.ctx.waitUntil(this.canonicalPromptRefresh);
+      },
     );
     signal?.throwIfAborted();
-    if (
-      loaded.disposition === "fresh" ||
-      loaded.disposition === "cache_not_modified"
-    ) {
-      await this.ctx.storage.put(
-        CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY,
-        loaded.snapshot,
-      );
-      signal?.throwIfAborted();
-    }
+    this.saveCanonicalPrompts(loaded);
     if (loaded.disposition === "cache_recovery") {
       log("error", "canonical_prompt_cache_recovery", {
         revision: loaded.snapshot.revision,

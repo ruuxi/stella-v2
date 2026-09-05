@@ -27,6 +27,19 @@ export type GatewayConfig = {
   priceFor(model: string): TokenPriceConfig | null;
 };
 
+export type GatewayConfigRecord = {
+  version: 1;
+  endpoint: string;
+  fetchedAt: number;
+  snapshot: GatewayConfigSnapshot;
+};
+export type GatewayConfigStorage = {
+  endpoint: string;
+  read(): unknown;
+  write(record: GatewayConfigRecord): void;
+};
+export const GATEWAY_CONFIG_STORAGE_KEY = "gatewayConfig:v1";
+
 let cached: GatewayConfig | null = null;
 let inflight: Promise<GatewayConfig> | null = null;
 
@@ -125,21 +138,52 @@ const refresh = (
   return inflight;
 };
 
+const restoreConfig = (storage: GatewayConfigStorage, now: number): GatewayConfig | null => {
+  const record = storage.read();
+  if (!record || typeof record !== "object" || !("version" in record) || record.version !== 1 ||
+      !("endpoint" in record) || record.endpoint !== storage.endpoint ||
+      !("fetchedAt" in record) || typeof record.fetchedAt !== "number" || !Number.isFinite(record.fetchedAt) ||
+      record.fetchedAt > now || now - record.fetchedAt >= CONFIG_TTL_MS ||
+      !("snapshot" in record) || !isSnapshot(record.snapshot)) return null;
+  return indexPrices(record.snapshot, record.fetchedAt);
+};
+
+const persistConfig = (config: GatewayConfig, storage?: GatewayConfigStorage): void => {
+  if (!storage) return;
+  const record = { version: 1, endpoint: storage.endpoint, fetchedAt: config.fetchedAt, snapshot: config.snapshot } satisfies GatewayConfigRecord;
+  const serialized = JSON.stringify(record);
+  if (JSON.stringify(storage.read()) === serialized) return;
+  // Configuration is bounded for SQLite KV; oversize snapshots still serve
+  // from memory. Persist the original fetch time, never extend freshness.
+  if (new TextEncoder().encode(serialized).byteLength < 100_000) storage.write(record);
+};
+
 export const getGatewayConfig = async (
   client: ConvexClient,
   waitUntil: (promise: Promise<unknown>) => void,
   now: () => number = Date.now,
+  storage?: GatewayConfigStorage,
 ): Promise<GatewayConfig> => {
+  if (!cached && storage) {
+    cached = restoreConfig(storage, now());
+    if (cached) console.info(JSON.stringify({ event: "gateway_config_restored", ageMs: now() - cached.fetchedAt }));
+  }
+  const refreshAndPersist = async (): Promise<GatewayConfig> => {
+    const config = await refresh(client, now);
+    persistConfig(config, storage);
+    return config;
+  };
   const current = cached;
-  if (!current) return await refresh(client, now);
+  if (!current) return await refreshAndPersist();
   if (now() - current.fetchedAt >= CONFIG_TTL_MS) {
     waitUntil(
-      refresh(client, now).catch((error: unknown) => {
+      refreshAndPersist().catch((error: unknown) => {
         console.warn(
           `[model-gateway] config refresh failed: ${error instanceof Error ? error.message : "unknown"}`,
         );
       }),
     );
   }
+  persistConfig(current, storage);
   return current;
 };

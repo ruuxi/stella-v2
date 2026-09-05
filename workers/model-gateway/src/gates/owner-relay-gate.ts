@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleRequest } from "../router.js";
-import { getGatewayConfig } from "../config-cache.js";
+import { getGatewayConfig, GATEWAY_CONFIG_STORAGE_KEY, type GatewayConfigStorage } from "../config-cache.js";
 import { createConvexClient } from "../convex-client.js";
+import { ownerEnforcementAdmission } from "../owner-enforcement.js";
 import {
   GATEWAY_OWNER_RELAY_LIMITS,
   GATEWAY_THROTTLED_LIMIT_SHARE,
@@ -66,6 +67,7 @@ const scaledLimit = (limit: number, throttled: boolean): number =>
 /** One SQLite Durable Object per capability owner (`sub`). */
 export class OwnerRelayGate extends DurableObject<Env> {
   private readonly ledger: OwnerLedgerStore;
+  private readonly instanceId = crypto.randomUUID();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -79,11 +81,29 @@ export class OwnerRelayGate extends DurableObject<Env> {
     return handleRequest(request, this.env, this.ctx, undefined, {
       matchesOwner: ownerId => this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() === this.ctx.id.toString(),
       accounting: this,
+      instanceId: this.instanceId,
+      configStorage: this.configStorage,
     });
   }
 
-  async prepare(): Promise<void> {
-    await getGatewayConfig(createConvexClient(this.env), work => this.ctx.waitUntil(work));
+  private get configStorage(): GatewayConfigStorage {
+    return {
+      endpoint: this.env.STELLA_CONVEX_SITE_URL,
+      read: () => this.ctx.storage.kv.get(GATEWAY_CONFIG_STORAGE_KEY),
+      write: record => this.ctx.storage.kv.put(GATEWAY_CONFIG_STORAGE_KEY, record),
+    };
+  }
+
+  async prepare(ownerId?: string): Promise<void> {
+    if (ownerId && this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !== this.ctx.id.toString()) {
+      throw new Error("Owner preparation identity does not match.");
+    }
+    await Promise.all([
+      getGatewayConfig(createConvexClient(this.env), work => this.ctx.waitUntil(work), Date.now, this.configStorage),
+      // Warm the existing 60-second KV cache. Inference still performs its
+      // normal enforcement read; no independent permission snapshot is kept.
+      ownerId ? ownerEnforcementAdmission(this.env, ownerId, Date.now()) : Promise.resolve(),
+    ]);
   }
 
   async admitRelay(args: {

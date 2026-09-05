@@ -394,6 +394,7 @@ export const handleManagedRelay = async (args: {
   protocol: GatewayProtocol;
   timing?: RelayTiming;
   ownerAccounting?: import("./ledger-client.js").OwnerRelayAccounting;
+  configStorage?: import("./config-cache.js").GatewayConfigStorage;
 }): Promise<Response> => {
   const { request, env, deps, convex, traceId, protocol } = args;
   const timing = args.timing ?? new RelayTiming();
@@ -411,7 +412,7 @@ export const handleManagedRelay = async (args: {
   // Start cold pricing reads during authorization. Capture rejection even if
   // the request is refused before pricing is needed.
   const configWork = timing.measure("pricingConfigMs", () =>
-    getGatewayConfig(convex, deps.waitUntil, deps.now),
+    getGatewayConfig(convex, deps.waitUntil, deps.now, args.configStorage),
   ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
   const enforcement = await timing.measure("ownerEnforcementMs", () =>
     ownerEnforcementAdmission(env, claims.sub, deps.now()),

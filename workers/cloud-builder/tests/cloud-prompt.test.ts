@@ -9,6 +9,7 @@ import {
   buildCloudSystemPrompt,
   refreshCanonicalPrompts,
   type CanonicalPromptSnapshot,
+  type CanonicalPromptLoadResult,
 } from "../src/cloud-prompt.js";
 import { sha256Hex } from "../src/hash.js";
 
@@ -215,6 +216,38 @@ describe("canonical cloud prompts", () => {
     );
     expect(refreshed.disposition).toBe("cache_not_modified");
     expect(requests).toBe(1);
+  });
+
+  test("a validated stale prompt returns before background revalidation finishes", async () => {
+    const { snapshot } = await load(10_000);
+    let finish: (response: Response) => void = () => { throw new Error("fetch has not started"); };
+    globalThis.fetch = (() => new Promise<Response>(resolve => { finish = resolve; })) as typeof fetch;
+    const background: Array<() => Promise<CanonicalPromptLoadResult>> = [];
+    const current = await refreshCanonicalPrompts("https://convex.example", snapshot, 70_000, undefined, work => { background.push(work); });
+    expect(current.disposition).toBe("cache_revalidating");
+    expect(current.snapshot.fetchedAt).toBe(10_000);
+    expect(background).toHaveLength(1);
+    const refreshed = background[0]!();
+    // Let digest validation finish and the pending network fetch start.
+    await new Promise(resolve => setTimeout(resolve, 1));
+    finish(new Response(null, { status: 304, headers: { etag: snapshot.etag } }));
+    expect((await refreshed).snapshot.fetchedAt).toBe(70_000);
+    expect(current.snapshot.fetchedAt).toBe(10_000);
+  });
+
+  test("background mode cannot use corrupt, wrong-endpoint, future or hard-expired prompts", async () => {
+    const { snapshot } = await load(10_000);
+    globalThis.fetch = (async () => { throw new Error("offline"); }) as typeof fetch;
+    let background = 0;
+    const cases = [
+      { value: { ...snapshot, personalityBody: "corrupt" }, now: 80_000 },
+      { value: { ...snapshot, endpoint: "https://wrong.example" }, now: 80_000 },
+      { value: { ...snapshot, fetchedAt: 90_000 }, now: 80_000 },
+      { value: snapshot, now: 10_000 + 24 * 60 * 60_000 + 1 },
+    ];
+    for (const item of cases) await expect(refreshCanonicalPrompts("https://convex.example", item.value, item.now,
+      undefined, () => { background++; })).rejects.toMatchObject({ code: "CLOUD_CONTEXT_UNAVAILABLE" });
+    expect(background).toBe(0);
   });
 
   test("revalidates a cached publication on exact 304", async () => {

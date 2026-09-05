@@ -122,7 +122,12 @@ const createSqlStorage = () => {
 export const createDurableObjectState = (name: string) => {
   let alarm: number | null = null;
   const sql = createSqlStorage();
+  const values = new Map<string, unknown>();
   const storage = {
+    kv: {
+      get: <T>(key: string) => structuredClone(values.get(key)) as T | undefined,
+      put: (key: string, value: unknown) => { values.set(key, structuredClone(value)); },
+    },
     sql,
     transactionSync: <T>(fn: () => T): T => {
       sql.exec("BEGIN");
@@ -138,6 +143,7 @@ export const createDurableObjectState = (name: string) => {
     },
     deleteAll: async () => {
       sql.reset();
+      values.clear();
       alarm = null;
     },
   };

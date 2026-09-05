@@ -1,3 +1,4 @@
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 import { makeFunctionReference } from "convex/server";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import { synchronizeMemoryPolicyChange } from "./lib/memory_policy_change";
@@ -370,6 +371,7 @@ export const setOwnerMemoryEnabledInternal = internalMutation({
         ...values,
         createdAt: now,
       });
+    await homeContextChanged(ctx, ownerId, lifecycle.generation);
     return {
       subject: ownerId,
       ownerGeneration: lifecycle.generation,
@@ -866,6 +868,7 @@ export const commitWriteInternal = internalMutation({
       status: "committed",
       updatedAt: args.now,
     });
+    await homeContextChanged(ctx, args.ownerId, args.ownerGeneration);
     return intentResult({
       ...intent,
       status: "committed",

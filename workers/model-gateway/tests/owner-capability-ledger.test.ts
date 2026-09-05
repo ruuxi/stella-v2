@@ -170,3 +170,38 @@ describe("OwnerCapabilityLedger", () => {
     }
   });
 });
+
+// The new scope uses the same SQL ledger implementation inside the owner gate.
+describe("colocated owner admission", () => {
+  test("owner-wide concurrency spans generations and capabilities, without reserving denied requests", async () => {
+    const { OwnerRelayGate } = await import("./helpers/env.js");
+    const state = createDurableObjectState("owner");
+    const gate = new OwnerRelayGate(state as never, {} as never);
+    const reserve = (i: number) => gate.admitAndReserve({
+      audience: "pro", requestId: "same-id", throttled: false,
+      generation: `generation-${i}`, reservation: args(`jti-${i}`, "same-id"),
+    });
+    const outcomes = await Promise.all(Array.from({ length: 9 }, (_, i) => reserve(i)));
+    expect(outcomes.filter(r => r.admission.ok)).toHaveLength(8);
+    expect(outcomes[8]).toMatchObject({ admission: { ok: false, refused: "concurrency_limit" } });
+    expect(state.storage.sql.exec("SELECT COUNT(*) AS count FROM ledger").one()).toEqual({ count: 8 });
+    expect((await reserve(0)).reservation).toEqual({ kind: "in_flight" });
+    const restarted = new OwnerRelayGate(state as never, {} as never);
+    expect((await restarted.admitAndReserve({ audience: "pro", requestId: "same-id", throttled: false,
+      generation: "generation-0", reservation: args("jti-0", "same-id") })).reservation).toEqual({ kind: "in_flight" });
+  });
+  test("budget denial releases only its own admission, and duplicate settlement charges once", async () => {
+    const { OwnerRelayGate } = await import("./helpers/env.js");
+    const state = createDurableObjectState("owner");
+    const gate = new OwnerRelayGate(state as never, {} as never);
+    const input = { audience: "pro" as const, requestId: "same-request-id", throttled: false, generation: "g", reservation: args("a") };
+    expect((await gate.admitAndReserve(input)).reservation?.kind).toBe("reserved");
+    expect((await gate.admitAndReserve({ ...input, requestId: "denied", reservation: { ...args("a", "denied"), estimatedMicroCents: 900 } })).reservation?.kind).toBe("budget_exhausted");
+    expect(state.storage.sql.exec("SELECT COUNT(*) AS count FROM in_flight").one()).toEqual({ count: 1 });
+    await Promise.all([gate.settleCapability({ ...settle("a"), generation: "g" }), gate.settleCapability({ ...settle("a"), generation: "g" })]);
+    expect(state.storage.sql.exec("SELECT spent, reserved, requests FROM ledger").one()).toEqual({ spent: 200, reserved: 0, requests: 1 });
+    await gate.releaseRelay(JSON.stringify(["g", "a", input.requestId]));
+    expect((await gate.admitAndReserve(input)).reservation).toEqual({ kind: "replay", status: 200, body: "a" });
+    expect(state.storage.sql.exec("SELECT COUNT(*) AS count FROM in_flight").one()).toEqual({ count: 0 });
+  });
+});

@@ -1765,17 +1765,22 @@ export class StellaRuntimeHost {
         return uploaded;
     }
     async startPlacedChat(payload, target) {
+        const enteredAt = Date.now();
+        const preparationAt = performance.now();
         const client = this.ensureHostConvexClient();
         if (!client) {
             throw new Error("Cross-device execution is not ready on this computer.");
         }
         await this.syncHostExecutionPlacement();
+        const placementReadyMs = Math.round(performance.now() - preparationAt);
         const bridge = this.hostExecutionPlacementBridge;
         if (!bridge?.isRunning) {
             throw new Error("Cross-device execution is not ready on this computer.");
         }
         const idempotencyKey = (payload.userMessageEventId?.trim() || payload.requestId?.trim() || `desktop:${crypto.randomUUID()}`).slice(0, 128);
+        const attachmentAt = performance.now();
         const attachments = await this.uploadPlacedAttachments(client, payload, idempotencyKey);
+        const attachmentsMs = Math.round(performance.now() - attachmentAt);
         const selectedText = typeof payload.selectedText === "string" ? payload.selectedText.trim() : "";
         const userPrompt = typeof payload.userPrompt === "string" ? payload.userPrompt.trim() : "";
         const prompt = selectedText ? `${userPrompt || "Please help with this context."}\n\nSelected text:\n${selectedText}` : userPrompt;
@@ -1791,6 +1796,11 @@ export class StellaRuntimeHost {
             ...(payload.locale ? { locale: payload.locale } : {}),
             ...(attachments.length ? { attachments } : {}),
         };
+        getFileLogger()?.process("chat.dispatch-prepared", {
+            requestId: payload.requestId, originUserMessageId: payload.userMessageEventId,
+            enteredAt, dispatchAt: Date.now(), placementReadyMs, attachmentsMs,
+            preparationMs: Math.round(performance.now() - preparationAt),
+        });
         const dispatch = await bridge.submitDesktopExecution({
             idempotencyKey,
             requestedTargetMode: target.mode,

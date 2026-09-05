@@ -1,3 +1,4 @@
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 import { synchronizeMemoryPolicyChange } from "./lib/memory_policy_change";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -818,6 +819,7 @@ export const completeMemoryWipeInternal = internalMutation({
       completedAt: args.now,
       updatedAt: args.now,
     });
+    await homeContextChanged(ctx, args.ownerId, lifecycle.ownerGeneration);
     return true;
   },
 });

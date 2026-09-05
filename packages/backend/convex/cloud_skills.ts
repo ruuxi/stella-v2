@@ -1,3 +1,4 @@
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 // A mirror of one device's canonical `~/.stella/skills/` root, not a catalog of
 // its own. Desktop sync uploads whatever that root holds; a cloud-executing
 // turn materializes those bytes into its sandbox. There is deliberately no
@@ -591,6 +592,7 @@ export const commitSkillWriteInternal = internalMutation({
       status: "committed",
       updatedAt: args.now,
     });
+    await homeContextChanged(ctx, args.ownerId, args.ownerGeneration);
     return intentResult({
       ...intent,
       status: "committed",
@@ -788,7 +790,7 @@ export const deleteMyMirroredSkill = mutation({
       throw new ConvexError("Cloud Home client scope was invalid.");
     }
     const ownerId = await requireUserId(ctx);
-    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    const lifecycle = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     if (
       !Number.isSafeInteger(args.expectedRevision) ||
       args.expectedRevision < 1
@@ -817,6 +819,7 @@ export const deleteMyMirroredSkill = mutation({
     }
     const now = Date.now();
     await ctx.db.patch(live._id, { deletedAt: now, updatedAt: now });
+    await homeContextChanged(ctx, ownerId, lifecycle.generation);
     return { skillId, status: "deleted" as const, revision: live.revision };
   },
 });

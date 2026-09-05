@@ -1,3 +1,5 @@
+import { CloudHomeStore } from "./cloud-home-store.js";
+import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
 /**
  * The owner gate: one Durable Object per owner, named by ownerId, that
  * answers "may this owner start a turn right now?" without a synchronous
@@ -116,6 +118,7 @@ export type OwnerGateEnv = Pick<
   Partial<
     Pick<
       Cloudflare.Env,
+      | "AGENT_HOME"
       | "TURN_TIMEOUT_MS"
       | "ORCHESTRATOR_SESSIONS"
       | "BUILD_SESSIONS"
@@ -163,6 +166,8 @@ export type OwnerGateAdmission =
 export type OwnerGateAdmissionWithLease =
   | {
       admission: Extract<OwnerGateAdmission, { ok: true }>;
+      homeContext?: OwnerHomeContext;
+      destinations?: DevicesResponse;
       lease: OwnerGateFenceLeaseOutcome;
     }
   | {
@@ -850,6 +855,27 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
   private snapshotInflight: Promise<OwnerSnapshot> | null = null;
   private memoryPolicyState?: OwnerMemoryPolicy;
+  private homeContextState?: OwnerHomeContextCache;
+  private homeContextCache() { return this.homeContextState ??= new OwnerHomeContextCache(this.ctx.storage); }
+  async homeContextChanged(ownerGeneration: string, revision: number): Promise<void> {
+    await this.homeContextCache().changed(ownerGeneration, revision);
+  }
+  async homeContext(ownerGeneration: string, fenceGeneration: string): Promise<OwnerHomeContext> {
+    return await this.homeContextCache().load({
+      ownerGeneration,
+      assertPolicy: policy => this.memoryPolicy().assert(policy, fenceGeneration),
+      fetch: async () => {
+        if (!this.env.AGENT_HOME) throw new Error("Cloud home bucket unavailable");
+        const store = new CloudHomeStore(this.env.AGENT_HOME, {
+          ownerId: this.ownerId(), ownerGeneration,
+          base: (this.env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, ""),
+          bearer: this.env.BUILDER_SERVICE_SECRET ?? "",
+        });
+        const [memory, skills] = await Promise.all([store.getMemoryContext(), store.loadSkillCatalog("orchestrator")]);
+        return { memory, skills };
+      },
+    });
+  }
 
   private memoryPolicy(): OwnerMemoryPolicy {
     return this.memoryPolicyState ??= new OwnerMemoryPolicy(
@@ -1089,6 +1115,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   async admitWithFenceLease(input: {
     admission: OwnerGateAdmitInput;
     lease: OwnerGateFenceLeaseRequest;
+    includeHomeContext?: boolean;
   }): Promise<OwnerGateAdmissionWithLease> {
     if (input.admission.turnId !== input.lease.turnId) {
       return {
@@ -1113,7 +1140,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         lease: { status: "skipped", reason: "generation_stale" },
       };
     }
-    return { admission, lease: await this.registerFenceLease(input.lease) };
+    const lease = await this.registerFenceLease(input.lease);
+    if (input.includeHomeContext && lease.status === "registered") {
+      // A context failure must not hide a successfully registered lease. The
+      // caller owns its receipt and may retry preparation through the normal path.
+      const [homeContext, destinations] = await Promise.all([
+        this.homeContext(input.lease.ownerGeneration, lease.generation).catch(() => undefined),
+        this.devices().catch(() => undefined),
+      ]);
+      return { admission, lease, ...(homeContext ? { homeContext } : {}), ...(destinations ? { destinations } : {}) };
+    }
+    return { admission, lease };
   }
 
   private async registerFenceLease(
@@ -2528,6 +2565,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * idempotency check down is decided here, from this object's own state.
    */
   async submit(input: OwnerGateSubmitInput): Promise<OwnerGateDispatchResult> {
+    const receivedAt = Date.now();
+    const startedAt = performance.now();
     this.ensureSchema();
     const now = input.now ?? Date.now();
     const request = input.request;
@@ -2807,6 +2846,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         this.pushOffer(row, candidate.deviceId, offerDeadlineAt);
       }
     } else if (state === "cloud_committed") {
+      log("info", "dispatch_cloud_route_timing", {
+        dispatchId, originUserMessageId: request.payload.userMessageEventId,
+        receivedAt, conversationDispatchAt: Date.now(),
+        preparationMs: Math.round(performance.now() - startedAt),
+      });
       row = await this.runCloudBranch(row, now);
     }
     await projectionWork;

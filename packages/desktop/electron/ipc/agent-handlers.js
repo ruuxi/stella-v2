@@ -1,3 +1,4 @@
+import { getFileLogger } from "@stella/runtime/observability/file-logger";
 import { ipcMain, webContents, } from "electron";
 import crypto from "node:crypto";
 import { promises as fs } from "fs";
@@ -503,6 +504,8 @@ export const registerAgentHandlers = (options) => {
         };
     });
     ipcMain.handle("agent:startChat", async (event, payload) => {
+        const receivedAt = Date.now();
+        const preparationAt = performance.now();
         if (!options.assertPrivilegedSender(event, "agent:startChat")) {
             throw new Error("Blocked untrusted request.");
         }
@@ -608,6 +611,11 @@ export const registerAgentHandlers = (options) => {
             }, senderWebContentsId);
             scheduleRunCleanup(args.runId, requestId);
         };
+        getFileLogger()?.process("chat.ipc-dispatch", {
+            requestId, originUserMessageId: payload.userMessageEventId,
+            receivedAt, hostDispatchAt: Date.now(),
+            preparationMs: Math.round(performance.now() - preparationAt),
+        });
         const localChatStartPromise = stellaHostRunner
             .handleLocalChat(withCloudConversationStorage({
             ...payload,

@@ -339,7 +339,7 @@ const handleRelay = async (
   const timing = new RelayTiming();
   let status: number | undefined;
   let lane = "unknown";
-  let ledgerScope: "owner-v1" | "capability" | undefined;
+  let ledgerScope: "owner-v1" | "owner-relay-v2" | "capability" | undefined;
   let turn: { turnId: string; conversationId: string } | undefined;
   try {
     const auth = await authenticateCapability(request, env, {

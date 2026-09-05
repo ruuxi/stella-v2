@@ -16,6 +16,13 @@ export const capabilityLedgerClient = (
   env: Env,
   claims: GatewayCapabilityClaims,
 ): CapabilityLedgerClient => {
+  if (claims.ledgerScope === "owner-relay-v2") {
+    const gate = env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(claims.sub));
+    return {
+      reserve: async () => { throw new Error("owner-relay-v2 requires atomic admission and reservation"); },
+      settle: async (args) => await gate.settleCapability({ ...args, jti: claims.jti, generation: claims.gen }),
+    };
+  }
   if (claims.ledgerScope === "owner-v1") {
     const ledger = env.OWNER_CAPABILITY_LEDGER.getByName(
       JSON.stringify([claims.sub, claims.gen]),

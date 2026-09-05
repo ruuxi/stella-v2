@@ -492,6 +492,8 @@ const handleDispatchSubmitRoute = async (
   env: Env,
   requestId: string,
 ): Promise<Response> => {
+  const receivedAt = Date.now();
+  const startedAt = performance.now();
   let caller: DispatchCaller;
   if (await verifyServiceBearerRequest(request, env.BUILDER_SERVICE_SECRET)) {
     const ownerId = request.headers.get(TURN_OWNER_ID_HEADER)?.trim() ?? "";
@@ -545,6 +547,7 @@ const handleDispatchSubmitRoute = async (
       false,
     );
   }
+  const authMs = Math.round(performance.now() - startedAt);
   let text: string;
   try {
     text = await readBoundedRequestText(
@@ -680,6 +683,8 @@ const handleDispatchSubmitRoute = async (
     submitted = unpaired;
   }
 
+  const gateAt = Date.now();
+  const preparationMs = Math.round(performance.now() - startedAt);
   let result: Awaited<ReturnType<OwnerGate["submit"]>>;
   try {
     result = await gate.submit({
@@ -710,6 +715,12 @@ const handleDispatchSubmitRoute = async (
       result.error.retryAfterMs,
     );
   }
+  log("info", "dispatch_ingress_timing", {
+    requestId, dispatchId: result.response.dispatch.dispatchId,
+    originUserMessageId: submitted.payload.userMessageEventId,
+    receivedAt, gateAt, authMs, preparationMs,
+    totalMs: Math.round(performance.now() - startedAt),
+  });
   log("info", "dispatch_submitted", {
     requestId,
     ingress: submitted.ingress,
@@ -1803,6 +1814,16 @@ export const worker = {
           body: text,
         },
       );
+    }
+    if (request.method === "POST" && url.pathname === "/internal/owners/home-context/changed") {
+      const body: unknown = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || !("ownerId" in body) || typeof body.ownerId !== "string" || !body.ownerId || body.ownerId.length > 512 ||
+          !("ownerGeneration" in body) || typeof body.ownerGeneration !== "string" || !body.ownerGeneration || body.ownerGeneration.length > 128 ||
+          !("revision" in body) || typeof body.revision !== "number" || !Number.isSafeInteger(body.revision) || body.revision < 1) {
+        return json({ error: "Invalid context revision." }, 400);
+      }
+      await env.OWNER_GATES.getByName(body.ownerId).homeContextChanged(body.ownerGeneration, body.revision);
+      return json({ ok: true });
     }
     if (request.method === "POST" && url.pathname === MEMORY_POLICY_CHANGE_PATH) {
       const change = parseMemoryPolicyChange(await request.json().catch(() => null));

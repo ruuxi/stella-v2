@@ -52,6 +52,7 @@ describe("capability jwt", () => {
     expect(result.claims.kind).toBe("session");
     expect(result.claims.jti).toBe(signed.claims.jti);
     expect(validateCapabilityClaims({ ...signed.claims, ledgerScope: "owner-v1" })).toBe(true);
+    expect(validateCapabilityClaims({ ...signed.claims, ledgerScope: "owner-relay-v2" })).toBe(true);
     expect(validateCapabilityClaims({ ...signed.claims, ledgerScope: "unsupported" })).toBe(false);
     expect(result.kid).toBe("convex-1");
   });

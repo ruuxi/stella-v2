@@ -101,7 +101,7 @@ export type GatewayCapabilityClaims = {
    */
   credential?: GatewayNativeCredentialProvider;
   /** Immutable signed routing marker. Absent capabilities retain their legacy ledger. */
-  ledgerScope?: "owner-v1";
+  ledgerScope?: "owner-v1" | "owner-relay-v2";
 };
 
 export const GATEWAY_SESSION_CAPABILITY_TTL_MS = 60 * 60 * 1000;

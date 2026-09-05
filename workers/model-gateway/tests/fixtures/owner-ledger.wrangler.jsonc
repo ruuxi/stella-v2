@@ -4,9 +4,9 @@
   "compatibility_date": "2026-08-30",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "LEDGERS", "class_name": "OwnerCapabilityLedger" }],
+    "bindings": [{ "name": "LEDGERS", "class_name": "OwnerCapabilityLedger" }, { "name": "GATES", "class_name": "OwnerRelayGate" }],
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["OwnerCapabilityLedger"] },
+    { "tag": "v1", "new_sqlite_classes": ["OwnerCapabilityLedger", "OwnerRelayGate"] },
   ],
 }

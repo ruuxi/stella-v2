@@ -1,3 +1,5 @@
+import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import type { OwnerHomeContext } from "./owner-home-context.js";
 import { CONTEXT_CHECKPOINT_KEY, compactCloudHistory, type ContextCheckpoint } from "./context-compaction.js";
 import { PROMPT_CONTEXT_KEY, preparePromptContext, beforeUserContext, materializeProviderContext, type PromptContext } from "./prompt-context.js";
 import {
@@ -1787,16 +1789,21 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
   }
 
-  private enqueue(turn: ChatTurnRequest): void {
+  private enqueue(turn: ChatTurnRequest, freshAdmission = false): void {
     if (this.turnExecutions.has(turn.turnId)) return;
     // Failures surface through the turn's own terminal event; the queue
     // must survive them.
     const preceding = this.queue;
     const enqueuedAt = performance.now();
+    // This permit exists only in the admitting isolate and only for an idle
+    // queue. Durable replays, alarms and queued work always revalidate remotely.
+    const admission = freshAdmission && this.turnExecutions.size === 0 && !this.activeTurnId
+      ? { leaseId: turn.ownerPurgeLeaseId, generation: turn.ownerPurgeGeneration, at: enqueuedAt }
+      : undefined;
     const execution = startTurnExecution({
       work: ({ cancellation, signal }) =>
         preceding.then(() =>
-          this.runTurn(turn, cancellation, signal, enqueuedAt),
+          this.runTurn(turn, cancellation, signal, enqueuedAt, admission),
         ),
       onInterrupt: () => {
         // Agent.abort() is idempotent. Once prompt() has synchronously entered
@@ -3143,6 +3150,14 @@ export class OrchestratorSession extends DurableObject<Env> {
       };
       let admission: OwnerGateAdmission | undefined;
       let combinedGeneration: string | undefined;
+      let admittedHomeContext: OwnerHomeContext | undefined;
+      let admittedDestinations: DevicesResponse | undefined;
+      // Global prompt configuration is read-only. A cold read can overlap
+      // owner admission; its result is still consumed through the turn hook.
+      const canonicalPreparation = this.cloudHomePreparations && this.ctx.storage.kv
+        ? this.loadCanonicalPrompts((this.env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, ""))
+        : undefined;
+      void canonicalPreparation?.catch(() => undefined);
       // Existing conversations know the generation needed to persist an exact
       // lease intent before the combined remote call. Cold starts and uncertain
       // receipt replays retain the discovery/reconciliation path below.
@@ -3182,8 +3197,11 @@ export class OrchestratorSession extends DurableObject<Env> {
               ).admitWithFenceLease({
                 admission: admissionInput,
                 lease,
+                includeHomeContext: !this.activeTurnId && this.turnExecutions.size === 0,
               });
               observed.result = result;
+              if (result.admission.ok && "homeContext" in result) admittedHomeContext = result.homeContext;
+              if (result.admission.ok && "destinations" in result) admittedDestinations = result.destinations;
               return result.lease.status === "registered"
                 ? { generation: result.lease.generation }
                 : null;
@@ -3369,17 +3387,20 @@ export class OrchestratorSession extends DurableObject<Env> {
             turn,
             (this.env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, ""),
             capabilities.controlPlane,
+            admittedHomeContext,
           ),
         );
         void work.catch(() => undefined);
         this.cloudHomePreparations.set(turnId, {
           home: work,
-          destinations: this.ownerGate(turn.ownerId)
+          canonicalPrompts: canonicalPreparation,
+          destinations: admittedDestinations ? Promise.resolve(admittedDestinations) : this.ownerGate(turn.ownerId)
             .devices()
             .catch(() => null),
         });
       }
       const registrationStarted = performance.now();
+      let freshAdmission = false;
       try {
         let registeredNow = combinedGeneration !== undefined;
         turn.ownerPurgeGeneration =
@@ -3402,6 +3423,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         // The admission commit below rechecks local lease retirement, and
         // runTurn always checks the live fence again before touching history.
         if (!registeredNow) await this.assertOwnerTurn(turn);
+        freshAdmission = registeredNow && admittedHomeContext !== undefined;
       } catch (error) {
         this.cloudHomePreparations?.delete(turnId);
         if (error instanceof OwnerFenceLeaseConflictError) {
@@ -3532,7 +3554,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       } satisfies TurnStartedEvent);
       await this.deferOutbox(projections);
 
-      if (!heldForLocalTurn) this.enqueue(turn);
+      if (!heldForLocalTurn) this.enqueue(turn, freshAdmission);
       else this.cloudHomePreparations?.delete(turnId);
       log("info", "chat_turn_admitted", {
         turnId,
@@ -3852,16 +3874,18 @@ export class OrchestratorSession extends DurableObject<Env> {
     string,
     {
       home: ReturnType<OrchestratorSession["prepareCloudHomeContext"]>;
-      destinations: Promise<Awaited<
-        ReturnType<ReturnType<OrchestratorSession["ownerGate"]>["devices"]>
-      > | null>;
+      canonicalPrompts?: Promise<CanonicalPromptSnapshot>;
+      destinations: Promise<DevicesResponse | null>;
     }
   >();
+
+  private residentHomeContext?: { key: string; result: Awaited<ReturnType<OrchestratorSession["readHomeContext"]>> };
 
   private async prepareCloudHomeContext(
     turn: ChatTurnRequest,
     base: string,
     controlPlane: Pick<MintedTurnCapability, "token">,
+    admittedContext?: OwnerHomeContext,
   ) {
     const timings: Record<string, number> = {};
     const measure = async <T>(
@@ -3885,12 +3909,36 @@ export class OrchestratorSession extends DurableObject<Env> {
         ownerGeneration: turn.ownerGeneration,
       },
     );
+    const metadata = admittedContext ?? await measure("homeMetadataMs", async () => {
+      if (!turn.ownerPurgeGeneration) {
+        // Initial separate registration has not finished yet. This bootstrap
+        // uses the original authoritative reads; warm admission carries metadata.
+        const [memory, skills] = await Promise.all([
+          home.cloudStore().getMemoryContext(), home.loadSkillCatalog("orchestrator"),
+        ]);
+        return { revision: 0, memory, skills };
+      }
+      return await this.ownerGate(turn.ownerId).homeContext(turn.ownerGeneration, turn.ownerPurgeGeneration);
+    });
+    timings.homeMetadataRevision = metadata.revision;
+    const key = JSON.stringify([metadata.memory, metadata.skills.entries]);
+    const cached = this.residentHomeContext;
+    if (cached?.key === key) return { ...cached.result, timings };
+    const result = await this.readHomeContext(home, metadata, measure);
+    this.residentHomeContext = { key, result };
+    return { ...result, timings };
+  }
+
+  private async readHomeContext(
+    home: AgentHome, metadata: OwnerHomeContext,
+    measure: <T>(name: string, work: () => Promise<T>) => Promise<T>,
+  ) {
     const [memory, skillCatalog] = await Promise.all([
       (async () => {
         const context = await measure("memorySnapshotMs", () =>
           requireCloudContext(
             "agent_home_memory",
-            home.cloudStore().getMemoryContext(),
+            Promise.resolve(metadata.memory),
           ),
         );
         const [memoryDocuments, personalityOverride] = await Promise.all([
@@ -3920,11 +3968,11 @@ export class OrchestratorSession extends DurableObject<Env> {
       measure("skillCatalogMs", () =>
         requireCloudContext(
           "skill_catalog",
-          home.loadSkillCatalog("orchestrator"),
+          Promise.resolve(metadata.skills),
         ),
       ),
     ]);
-    return { ...memory, skillCatalog, timings };
+    return { ...memory, skillCatalog };
   }
 
   private async runTurn(
@@ -3932,6 +3980,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     turnCancellation: TurnRetryCancellation,
     executionSignal: AbortSignal,
     enqueuedAt = performance.now(),
+    admission?: { leaseId: string | undefined; generation: string | undefined; at: number },
   ): Promise<Response> {
     const enteredAt = performance.now();
     const startupTimings: Record<string, number> = {
@@ -3968,7 +4017,19 @@ export class OrchestratorSession extends DurableObject<Env> {
         performance.now() - registrationAt,
       );
       const assertionAt = performance.now();
-      await this.assertOwnerTurn(turn);
+      if (admission?.leaseId && admission.generation &&
+          admission.leaseId === turn.ownerPurgeLeaseId &&
+          admission.generation === turn.ownerPurgeGeneration &&
+          performance.now() - admission.at < 1_000) {
+        assertTurnExecutionActive(turnCancellation, executionSignal);
+        // Retirement/purge can race admission even in this isolate. The exact
+        // durable receipt must still be live; provider dispatch also checks the
+        // remote fence together with the current memory permission.
+        await this.assertOwnerFenceLeaseReceiptActive(turn);
+        startupTimings.admissionReused = 1;
+      } else {
+        await this.assertOwnerTurn(turn);
+      }
       startupTimings.ownerAssertionMs = Math.round(
         performance.now() - assertionAt,
       );
@@ -4146,7 +4207,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         () =>
           requireCloudContext(
             "canonical_prompt",
-            this.loadCanonicalPromptsForTurn(base, executionSignal),
+            this.loadCanonicalPromptsForTurn(base, executionSignal, this.cloudHomePreparations?.get(turn.turnId)?.canonicalPrompts),
           ),
       );
       // This work can reject before the other preparation joins it. Preserve
@@ -6523,6 +6584,7 @@ export class OrchestratorSession extends DurableObject<Env> {
   private async loadCanonicalPromptsForTurn(
     convexSiteBase: string,
     signal?: AbortSignal,
+    prepared?: Promise<CanonicalPromptSnapshot>,
   ): Promise<CanonicalPromptSnapshot> {
     signal?.throwIfAborted();
     if (devAcceptanceProbesEnabled(this.env)) {
@@ -6545,7 +6607,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         );
       }
     }
-    return this.loadCanonicalPrompts(convexSiteBase, signal);
+    return prepared ?? this.loadCanonicalPrompts(convexSiteBase, signal);
   }
 
   private async observeDevAcceptanceContextFailure(

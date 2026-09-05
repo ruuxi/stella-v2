@@ -129,6 +129,14 @@ describe("owner capability ledger in real Workerd", () => {
     }
   }, 30_000);
 
+  test("atomic owner admission/reservation survives real object restart", async () => {
+    const results = await Promise.all([requestJson("/atomic?jti=atomic-a"), requestJson("/atomic?jti=atomic-a")]);
+    expect(results.map(r => r.body?.reservation)).toContainEqual({ kind: "in_flight" });
+    expect(results.map(r => r.body?.reservation)).toContainEqual({ kind: "reserved", remainingMicroCents: 600 });
+    await stopWorkerd(); await startWorkerd();
+    expect((await requestJson("/atomic?jti=atomic-a")).body?.reservation).toEqual({ kind: "in_flight" });
+  });
+
   test("concurrent capabilities and duplicates preserve isolated accounting through restart", async () => {
     const results = await Promise.all([
       requestJson("/reserve?jti=a"),

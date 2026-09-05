@@ -61,6 +61,9 @@ export const cloudSkillSourceValidator = v.union(
 );
 
 export const cloudAgentHomeSchema = {
+  cloud_home_context_updates: defineTable({
+    ownerId: v.string(), ownerGeneration: v.string(), revision: v.number(), deliveredRevision: v.number(), pending: v.boolean(), retryAt: v.number(),
+  }).index("by_ownerId", ["ownerId"]).index("by_ownerId_and_ownerGeneration", ["ownerId", "ownerGeneration"]).index("by_pending_and_retryAt", ["pending", "retryAt"]),
   /**
    * Memory-only destructive lifecycle. `epoch` is opaque and monotonically
    * replaced (never ordered) after an object-first wipe. Absence is the legacy

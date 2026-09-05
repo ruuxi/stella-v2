@@ -407,6 +407,11 @@ export const handleManagedRelay = async (args: {
       now: deps.now(),
     }),
   );
+  // Start cold pricing reads during authorization. Capture rejection even if
+  // the request is refused before pricing is needed.
+  const configWork = timing.measure("pricingConfigMs", () =>
+    getGatewayConfig(convex, deps.waitUntil, deps.now),
+  ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
   const enforcement = await timing.measure("ownerEnforcementMs", () =>
     ownerEnforcementAdmission(env, claims.sub, deps.now()),
   );
@@ -484,14 +489,15 @@ export const handleManagedRelay = async (args: {
   const ownerGate = env.OWNER_RELAY_GATE.get(
     env.OWNER_RELAY_GATE.idFromName(claims.sub),
   );
-  const ownerAdmission = await timing.measure("ownerAdmissionMs", () =>
+  const combinedAccounting = !probe && claims.ledgerScope === "owner-relay-v2";
+  const ownerAdmission = combinedAccounting ? { ok: true as const, duplicate: true } : await timing.measure("ownerAdmissionMs", () =>
     ownerGate.admitRelay({
       audience: claims.audience,
       requestId,
       throttled: enforcement.throttled,
     }),
   );
-  const ownerAdmitted = ownerAdmission.ok && !ownerAdmission.duplicate;
+  let ownerAdmitted = ownerAdmission.ok && !ownerAdmission.duplicate;
   if (!ownerAdmission.ok) {
     throw new GatewayError(
       429,
@@ -583,9 +589,9 @@ export const handleManagedRelay = async (args: {
       }
     }
 
-    const config = await timing.measure("pricingConfigMs", () =>
-      getGatewayConfig(convex, deps.waitUntil, deps.now),
-    );
+    const configResult = await configWork;
+    if (!configResult.ok) throw configResult.error;
+    const config = configResult.value;
     const price = config.priceFor(route.resolvedModel);
     if (!price) {
       throw new GatewayError(
@@ -643,7 +649,7 @@ export const handleManagedRelay = async (args: {
 
     const tierCeiling = config.tierCeilings.get(limitsAudience);
     if (
-      !probe &&
+      !combinedAccounting && !probe &&
       claims.budgetMicroCents !== GATEWAY_BUDGET_UNLIMITED &&
       tierCeiling &&
       (tierCeiling.hourlyMicroCents >= 0 || tierCeiling.dailyMicroCents >= 0)
@@ -686,16 +692,27 @@ export const handleManagedRelay = async (args: {
     let capabilityHardLimitMicroCents: number | null = null;
     if (ledger) {
       const capabilityLedger = ledger;
-      const reservation = await timing.measure("ledgerReservationMs", () =>
-        capabilityLedger.reserve({
-          jti: claims.jti,
-          budgetMicroCents: claims.budgetMicroCents,
-          maxRequests: claims.maxRequests,
-          expiresAt: claims.exp * 1000,
-          requestId,
-          estimatedMicroCents,
-        }),
-      );
+      const reservationArgs = {
+        jti: claims.jti, budgetMicroCents: claims.budgetMicroCents,
+        maxRequests: claims.maxRequests, expiresAt: claims.exp * 1000,
+        requestId, estimatedMicroCents,
+      };
+      const reservation = await timing.measure(combinedAccounting ? "ownerReservationMs" : "ledgerReservationMs", async () => {
+        if (!combinedAccounting) return await capabilityLedger.reserve(reservationArgs);
+        const result = await ownerGate.admitAndReserve({
+          audience: claims.audience, requestId, throttled: enforcement.throttled,
+          generation: claims.gen, reservation: reservationArgs,
+        });
+        const admission = result.admission;
+        if (!admission.ok) throw new GatewayError(429, admission.refused,
+          admission.refused === "concurrency_limit"
+            ? "This account has too many model requests in flight."
+            : "This account is sending model requests too quickly.",
+          quotaErrorOptions({ scope: "owner", now: deps.now(), resetAt: admission.resetAt }));
+        ownerAdmitted = !admission.duplicate && result.reservation?.kind === "reserved";
+        if (!result.reservation) throw new GatewayError(503, "internal", "Model admission did not return a reservation.");
+        return result.reservation;
+      });
       switch (reservation.kind) {
         case "replay":
           return new Response(reservation.body, {
@@ -736,6 +753,46 @@ export const handleManagedRelay = async (args: {
               : estimatedMicroCents + reservation.remainingMicroCents;
           break;
       }
+    }
+
+    if (
+      combinedAccounting && !probe &&
+      claims.budgetMicroCents !== GATEWAY_BUDGET_UNLIMITED &&
+      tierCeiling &&
+      (tierCeiling.hourlyMicroCents >= 0 || tierCeiling.dailyMicroCents >= 0)
+    ) {
+      tierGate = env.TIER_BUDGET.get(
+        env.TIER_BUDGET.idFromName(limitsAudience),
+      );
+      const gate = tierGate;
+      const reservation = await timing.measure("tierReservationMs", () =>
+        gate.reserve({
+          estimateMicroCents: estimatedMicroCents,
+          hourlyCeiling: tierCeiling.hourlyMicroCents,
+          dailyCeiling: tierCeiling.dailyMicroCents,
+          now: deps.now(),
+        }),
+      );
+      if (!reservation.ok) {
+        const anonymous = limitsAudience === "anonymous";
+        throw new GatewayError(
+          anonymous ? 403 : 429,
+          anonymous ? "sign_in_required" : "tier_paused",
+          anonymous
+            ? "Sign in to continue using managed models."
+            : "Managed model access is paused for this plan.",
+          quotaErrorOptions({
+            scope: "tier",
+            now: deps.now(),
+            resetAt: reservation.resetAt,
+            retryable: !anonymous,
+          }),
+        );
+      }
+      tierReservation = {
+        estimateMicroCents: estimatedMicroCents,
+        minute: reservation.minute,
+      };
     }
 
     const finish = async (
@@ -1217,7 +1274,7 @@ export const handleManagedRelay = async (args: {
     try {
       if (ownerAdmitted)
         await timing.measure("ownerReleaseMs", () =>
-          ownerGate.releaseRelay(requestId),
+          ownerGate.releaseRelay(combinedAccounting ? JSON.stringify([claims.gen, claims.jti, requestId]) : requestId),
         );
     } catch (error) {
       console.error(

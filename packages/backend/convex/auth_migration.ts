@@ -1,3 +1,4 @@
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 /**
  * Ownership migration for anonymous → real account linking.
  *
@@ -6038,6 +6039,15 @@ export const commitOwnerNamespaceTransfer = internalMutation({
     };
     const progressed = async () =>
       await finish({ hasMore: true, progressed: true });
+    // Notification receipts are operational debt, not imported product data.
+    // Destination heads below issue their own revision after each publication.
+    const contextNotifications = await ctx.db.query("cloud_home_context_updates")
+      .withIndex("by_ownerId", q => q.eq("ownerId", args.fromOwnerId)).take(20);
+    if (contextNotifications.length) {
+      await Promise.all(contextNotifications.map(row => ctx.db.delete(row._id)));
+      return await progressed();
+    }
+
 
     // A completed wipe job is an operational replay receipt, not product
     // state. Remove the source receipt instead of transferring it. An existing
@@ -6101,6 +6111,7 @@ export const commitOwnerNamespaceTransfer = internalMutation({
           ownerGeneration: destinationGeneration,
         });
       }
+      await homeContextChanged(ctx, args.toOwnerId, destinationGeneration);
       return await progressed();
     }
     const memoryVersions = await ctx.db
@@ -6159,7 +6170,10 @@ export const commitOwnerNamespaceTransfer = internalMutation({
         r2Key: importedObjectKey(document.r2Key, "An Agent Home document"),
       });
     }
-    if (documents.length > 0) return await progressed();
+    if (documents.length > 0) {
+      await homeContextChanged(ctx, args.toOwnerId, destinationGeneration);
+      return await progressed();
+    }
 
     // The worker has already copied the complete Agent Home namespace, and
     // every source Memory metadata row above has now moved or drained.
@@ -6289,6 +6303,7 @@ export const commitOwnerNamespaceTransfer = internalMutation({
           updatedAt: Date.now(),
         });
       }
+      await homeContextChanged(ctx, args.toOwnerId, destinationGeneration);
       return await progressed();
     }
 
@@ -7995,6 +8010,11 @@ export const auditOwnershipMigrationResidue = internalQuery({
             q.eq("ownerId", ownerId),
           )
           .take(1),
+      ],
+      [
+        "cloud_home_context_updates",
+        await ctx.db.query("cloud_home_context_updates")
+          .withIndex("by_ownerId", q => q.eq("ownerId", ownerId)).take(1),
       ],
       [
         "cloud_agent_home_docs",

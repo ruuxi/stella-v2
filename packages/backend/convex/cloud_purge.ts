@@ -128,6 +128,7 @@ const OWNER_STORES = {
   cloud_memory_wipe_jobs: "simple",
   cloud_agent_home_docs: "external-ref",
   cloud_agent_home_preferences: "simple",
+  cloud_home_context_updates: "simple",
   cloud_agent_home_doc_versions: "external-ref",
   cloud_agent_home_write_intents: "external-ref",
   cloud_skills: "external-ref",
@@ -206,6 +207,7 @@ const SIMPLE_TABLES = [
   "cloud_memory_lifecycles",
   "cloud_memory_wipe_jobs",
   "cloud_agent_home_preferences",
+  "cloud_home_context_updates",
   "cloud_app_storage",
   "cloud_app_operations",
   "cloud_app_op_invocations",
@@ -291,6 +293,14 @@ const drainOwnerIndexedTable = async (
     case "cloud_memory_wipe_jobs": {
       const rows = await ctx.db
         .query("cloud_memory_wipe_jobs")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .take(BATCH);
+      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
+      break;
+    }
+    case "cloud_home_context_updates": {
+      const rows = await ctx.db
+        .query("cloud_home_context_updates")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
@@ -1372,6 +1382,14 @@ export const remainingOwnerStoresInternal = internalQuery({
           await check(store, () =>
             ctx.db
               .query("cloud_memory_wipe_jobs")
+              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+              .take(1),
+          );
+          break;
+        case "cloud_home_context_updates":
+          await check(store, () =>
+            ctx.db
+              .query("cloud_home_context_updates")
               .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
               .take(1),
           );

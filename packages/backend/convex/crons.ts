@@ -2,6 +2,8 @@ import { cronJobs, makeFunctionReference } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
+crons.interval("retry cloud home context notifications", { minutes: 1 },
+  makeFunctionReference<"mutation", {}, null>("cloud_home_context:retryPending"), {});
 
 const maintainAgentEventOwnershipRef = makeFunctionReference<
   "action",

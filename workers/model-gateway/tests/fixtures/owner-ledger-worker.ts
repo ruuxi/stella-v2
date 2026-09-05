@@ -1,9 +1,11 @@
+import { OwnerRelayGate } from "../../src/gates/owner-relay-gate.js";
+export { OwnerRelayGate };
 import { OwnerCapabilityLedger } from "../../src/owner-capability-ledger.js";
 export { OwnerCapabilityLedger };
 export default {
   async fetch(
     request: Request,
-    env: { LEDGERS: DurableObjectNamespace<OwnerCapabilityLedger> },
+    env: { LEDGERS: DurableObjectNamespace<OwnerCapabilityLedger>; GATES: DurableObjectNamespace<OwnerRelayGate> },
   ) {
     const url = new URL(request.url);
     if (url.pathname === "/") return new Response("ready");
@@ -12,6 +14,10 @@ export default {
     );
     const jti = url.searchParams.get("jti") ?? "a";
     const requestId = url.searchParams.get("request") ?? "same";
+    if (url.pathname === "/atomic") return Response.json(await env.GATES.getByName("owner").admitAndReserve({
+      audience: "pro", requestId, throttled: false, generation: "gen-1",
+      reservation: { jti, requestId, budgetMicroCents: 1000, estimatedMicroCents: 400, expiresAt: Date.now() + 3600000 },
+    }));
     if (url.pathname === "/reserve")
       return Response.json(
         await ledger.reserve({

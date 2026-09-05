@@ -124,6 +124,11 @@ export const createDurableObjectState = (name: string) => {
   const sql = createSqlStorage();
   const storage = {
     sql,
+    transactionSync: <T>(fn: () => T): T => {
+      sql.exec("BEGIN");
+      try { const result = fn(); sql.exec("COMMIT"); return result; }
+      catch (error) { sql.exec("ROLLBACK"); throw error; }
+    },
     getAlarm: async () => alarm,
     setAlarm: async (at: number | Date) => {
       alarm = at instanceof Date ? at.getTime() : at;

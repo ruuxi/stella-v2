@@ -1436,3 +1436,21 @@ describe("owner ledger rollout", () => {
     expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
   });
 });
+
+
+describe("atomic owner relay accounting", () => {
+  test("new scope uses the existing owner gate and preserves capability/generation replay isolation", async () => {
+    const ctx = setup();
+    const first = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const second = await signTurn({ ledgerScope: "owner-relay-v2", gen: "next-generation" });
+    const send = (token: string) => ctx.run(relayRequest("/v1/relay/responses", {
+      token, body: museBody(), headers: agentHeaders({ "x-stella-request-id": "same-id" }),
+    }));
+    expect((await send(first.token)).status).toBe(200);
+    expect((await send(second.token)).status).toBe(200);
+    expect((await send(first.token)).headers.get(GATEWAY_REPLAY_HEADER)).toBe("1");
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(2);
+    expect(ctx.harness.ownerLedger.objects.size).toBe(0);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+  });
+});

@@ -1,3 +1,4 @@
+import { getFileLogger } from "../observability/file-logger.js";
 import { createHash, randomUUID } from "node:crypto";
 import { anyApi } from "convex/server";
 import WebSocket from "ws";
@@ -951,12 +952,19 @@ export class ExecutionPlacementBridge {
       requiredCapabilities,
       payload: args.payload,
     };
+    const requestAt = Date.now();
+    const requestStarted = performance.now();
     const response = await this.ownerGateRequest(DISPATCH_SUBMIT_PATH, {
       method: "POST",
       body,
     });
     if (!response.ok) await this.throwRouteError(response);
     const dispatch = parseDispatch(parseRecord(await response.json()).dispatch);
+    getFileLogger()?.process("chat.dispatch-response", {
+      originUserMessageId: args.payload.userMessageEventId,
+      dispatchId: dispatch.dispatchId, requestAt,
+      responseMs: Math.round(performance.now() - requestStarted),
+    });
     this.notifyDispatchWatchers(dispatch);
     await this.adoptCommittedDispatch(dispatch, args.payload);
     return dispatch;

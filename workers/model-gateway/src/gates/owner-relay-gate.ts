@@ -7,6 +7,9 @@ import {
 } from "@stella/contracts/gateway/api";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
+import { OwnerLedgerStore } from "../owner-ledger-store.js";
+import type { LedgerReserveArgs, LedgerReserveResult, LedgerSettleArgs } from "../ledger.js";
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 export const OWNER_IN_FLIGHT_ABANDON_AFTER_MS =
@@ -59,18 +62,27 @@ const scaledLimit = (limit: number, throttled: boolean): number =>
 
 /** One SQLite Durable Object per capability owner (`sub`). */
 export class OwnerRelayGate extends DurableObject<Env> {
+  private readonly ledger: OwnerLedgerStore;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.ledger = new OwnerLedgerStore(ctx.storage);
     void ctx.blockConcurrencyWhile(async () => {
       for (const statement of SCHEMA) this.ctx.storage.sql.exec(statement);
     });
   }
 
   async admitRelay(args: {
+    audience: ManagedModelAudience; requestId: string; throttled: boolean;
+  }): Promise<GateAdmission> {
+    return this.admitRelaySync(args);
+  }
+
+  private admitRelaySync(args: {
     audience: ManagedModelAudience;
     requestId: string;
     throttled: boolean;
-  }): Promise<GateAdmission> {
+  }): GateAdmission {
     const now = Date.now();
     this.ctx.storage.sql.exec(
       "DELETE FROM in_flight WHERE started_at <= ?",
@@ -133,6 +145,35 @@ export class OwnerRelayGate extends DurableObject<Env> {
     );
     return { ok: true };
   }
+
+  /** Owner-wide admission and generation/JTI accounting commit together. */
+  async admitAndReserve(args: {
+    audience: ManagedModelAudience; requestId: string; throttled: boolean;
+    generation: string; reservation: LedgerReserveArgs;
+  }): Promise<{ admission: GateAdmission; reservation?: LedgerReserveResult }> {
+    const admissionId = JSON.stringify([args.generation, args.reservation.jti, args.requestId]);
+    const result = this.ctx.storage.transactionSync(() => {
+      const admission = this.admitRelaySync({ ...args, requestId: admissionId });
+      if (!admission.ok) return { admission };
+      const reservation = this.ledger.reserveSync({
+        ...args.reservation,
+        requestId: args.requestId,
+        jti: JSON.stringify([args.generation, args.reservation.jti]),
+      });
+      if (reservation.kind !== "reserved" && !admission.duplicate) {
+        this.ctx.storage.sql.exec("DELETE FROM in_flight WHERE request_id = ?", admissionId);
+      }
+      return { admission, reservation };
+    });
+    await this.ledger.armAlarm();
+    return result;
+  }
+
+  async settleCapability(args: LedgerSettleArgs & { generation: string; jti: string }) {
+    return await this.ledger.settle({ ...args, jti: JSON.stringify([args.generation, args.jti]) });
+  }
+
+  async alarm(): Promise<void> { await this.ledger.alarm(); }
 
   async releaseRelay(requestId: string): Promise<void> {
     this.ctx.storage.sql.exec(

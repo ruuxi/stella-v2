@@ -41,7 +41,7 @@ it is neither pure provider time nor the full handler duration.
 
 # Owner-scoped capability ledgers
 
-New cloud-builder capabilities carry the signed `ledgerScope: "owner-v1"`
+Earlier cloud-builder capabilities carry the signed `ledgerScope: "owner-v1"`
 claim. They use `OWNER_CAPABILITY_LEDGER`, named by the JSON tuple of owner id
 and owner generation. Capabilities without the marker keep using the original
 `CAPABILITY_LEDGER` object named by `jti`. Never fall back between these routes
@@ -65,3 +65,15 @@ the issuer while retaining gateway routing support for already issued marked
 capabilities. Do not roll the gateway back to code that ignores the marker:
 that would send marked capabilities to a fresh legacy budget. The gateway's
 phase event includes `ledgerScope` to distinguish the two paths during rollout.
+
+New cloud-builder capabilities use `ledgerScope: "owner-relay-v2"`. Their
+ledger lives in the existing owner-keyed `OWNER_RELAY_GATE`. Admission and
+reservation commit in one SQLite transaction. Ledger keys are the JSON tuple
+of generation and JTI; admission keys also include the request id. Owner limits
+span generations while budgets, replies and refunds remain capability-local.
+Old signed scopes keep their original authority without fallback or migration.
+
+Cold pricing reads start alongside authorization. This is read-only speculative
+work with captured failures; no provider or budget mutation runs before the
+required authorization. New-scope tier refusals refund the reserved capability
+through the same failure cleanup used by upstream errors.

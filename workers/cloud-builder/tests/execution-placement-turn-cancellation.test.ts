@@ -5205,3 +5205,31 @@ test("reusing a registered owner lease does not add a durable write barrier", as
     put.mockRestore();
   }
 });
+
+describe("fresh chat admission reuse", () => {
+  test("only a matching immediate permit skips remote assertion; a retired local receipt still refuses", async () => {
+    const { createTurnRetryCancellation } = await import("../src/turn-cancellation.js");
+    for (const mode of ["fresh", "recovered", "expired", "different-lease", "retired"] as const) {
+      const h = sessionHarness();
+      const input = { ...turn(`admission-${mode}`), ownerPurgeLeaseId: "lease", ownerPurgeGeneration: "fence" };
+      let remote = 0; let local = 0;
+      h.instance["registerOwnerTurn"] = async () => "fence";
+      h.instance["assertOwnerTurn"] = async () => { remote++; };
+      h.instance["assertOwnerFenceLeaseReceiptActive"] = async () => { local++; if (mode === "retired") throw new Error("retired receipt"); };
+      h.instance["unregisterOwnerTurn"] = async () => true;
+      h.instance["releaseOwnerGate"] = async () => undefined;
+      // Stop immediately after admission so the test exercises the real startup
+      // boundary without constructing a provider/model environment.
+      h.instance["purged"] = () => true;
+      const run = h.instance["runTurn"] as (turn: typeof input, cancellation: ReturnType<typeof createTurnRetryCancellation>, signal: AbortSignal, enqueuedAt: number,
+        admission?: { leaseId: string; generation: string; at: number }) => Promise<Response>;
+      const promise = run.call(h.instance, input, createTurnRetryCancellation(), new AbortController().signal, performance.now(), mode === "recovered" ? undefined : {
+        leaseId: mode === "different-lease" ? "other" : "lease", generation: "fence", at: performance.now() - (mode === "expired" ? 2000 : 0),
+      });
+      if (mode === "retired") await expect(promise).rejects.toThrow("retired receipt");
+      else await promise;
+      expect(remote).toBe(mode === "fresh" || mode === "retired" ? 0 : 1);
+      expect(local).toBe(mode === "fresh" || mode === "retired" ? 1 : 0);
+    }
+  });
+});

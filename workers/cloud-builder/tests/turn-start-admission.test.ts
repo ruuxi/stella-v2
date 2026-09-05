@@ -869,3 +869,97 @@ describe("turn.event ordinals", () => {
     expect(outbox.events).toHaveLength(1);
   });
 });
+
+describe("combined warm admission", () => {
+  const warm = (options: Parameters<typeof harness>[0] = {}) => {
+    const h = harness({
+      journal: journalFake({ ownerId: "owner-1" }),
+      ...options,
+    });
+    h.instance.ownerGeneration = "generation-1";
+    delete h.instance.registerOwnerTurn;
+    h.instance.callOwnerFence = async () =>
+      new Response(JSON.stringify({ generation: "fence-fallback" }));
+    return h;
+  };
+  test("one gate call durably binds a warm turn; a lost acceptance replays the same turn", async () => {
+    const h = warm();
+    const first = await h.dispatch(start(), {
+      kind: "user",
+      ownerId: "owner-1",
+    });
+    expect(first.status).toBe(202);
+    const accepted = await first.json();
+    expect(h.gates.admits).toHaveLength(1);
+    expect(h.gates.fenceLeases).toHaveLength(1);
+    const queued = h.values.get(`queued:${accepted.turnId}`);
+    expect(queued).toMatchObject({
+      ownerGeneration: "generation-1",
+      ownerPurgeLeaseId: h.gates.fenceLeases[0].lease.leaseId,
+    });
+    const replay = await h.dispatch(start(), {
+      kind: "user",
+      ownerId: "owner-1",
+    });
+    expect(await replay.json()).toMatchObject({
+      turnId: accepted.turnId,
+      replayed: true,
+    });
+    expect(h.gates.admits).toHaveLength(1);
+  });
+  test("a rotated generation skips registration and resumes discovery with the current snapshot", async () => {
+    const h = warm({
+      gates: fakeOwnerGates({
+        snapshot: sampleOwnerSnapshot({ ownerGeneration: "generation-2" }),
+      }),
+    });
+    const response = await h.dispatch(start(), {
+      kind: "user",
+      ownerId: "owner-1",
+    });
+    expect(response.status).toBe(202);
+    const accepted = await response.json();
+    expect(h.gates.admits).toHaveLength(1);
+    expect(h.gates.fenceLeases[0].outcome.status).toBe("skipped");
+    expect(h.values.get(`queued:${accepted.turnId}`)).toMatchObject({
+      ownerGeneration: "generation-2",
+    });
+  });
+  test("a lost combined response retains the exact identity for reconciliation", async () => {
+    const h = warm();
+    const gate = h.gates.namespace.getByName("owner-1");
+    let attemptedLease = "";
+    h.gates.namespace.getByName = () => ({
+      ...gate,
+      admitWithFenceLease: async (input) => {
+        attemptedLease = input.lease.leaseId;
+        await gate.admitWithFenceLease(input);
+        throw new Error("response lost after commit");
+      },
+    });
+    const failed = await h.dispatch(start(), {
+      kind: "user",
+      ownerId: "owner-1",
+    });
+    expect(failed.status).toBe(503);
+    expect(
+      [...h.values.values()].some(
+        (v) =>
+          typeof v === "object" &&
+          v !== null &&
+          "leaseId" in v &&
+          v.leaseId === attemptedLease,
+      ),
+    ).toBe(true);
+    h.gates.namespace.getByName = () => gate;
+    const retried = await h.dispatch(start(), {
+      kind: "user",
+      ownerId: "owner-1",
+    });
+    expect(retried.status).toBe(202);
+    const accepted = await retried.json();
+    expect(h.values.get(`queued:${accepted.turnId}`)).toMatchObject({
+      ownerPurgeLeaseId: attemptedLease,
+    });
+  });
+});

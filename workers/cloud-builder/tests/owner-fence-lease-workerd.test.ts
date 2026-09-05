@@ -249,6 +249,30 @@ describe("owner-fence leases in real Workerd", () => {
     expect(expired.body.active).toEqual([]);
   }, 30_000);
 
+  test("combined admission retains its running row and exact lease across restart", async () => {
+    const ownerId = "owner-combined-admission";
+    const input = {
+      leaseId: "combined-lease",
+      turnId: "combined-turn",
+      sessionId: "combined-conversation",
+      ownerGeneration: `generation:${ownerId}`,
+    };
+    const path = `/owner/${encodeURIComponent(ownerId)}/__test/admit-with-lease`;
+    const first = await requestJson(path, input);
+    expect(first.body.admission).toMatchObject({ ok: true, replayed: false });
+    expect(first.body.lease.status).toBe("registered");
+    await restartWorkerd();
+    const replay = await requestJson(path, input);
+    expect(replay.body.admission).toMatchObject({ ok: true, replayed: true });
+    expect(replay.body.lease.generation).toBe(first.body.lease.generation);
+    const state = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
+    );
+    expect(
+      state.body.active.map((entry: { leaseId: string }) => entry.leaseId),
+    ).toEqual([input.leaseId]);
+  }, 30_000);
+
   test("the gate registers a lease in the same call that serves the snapshot", async () => {
     const ownerId = "owner-snapshot-lease";
     const lease = {

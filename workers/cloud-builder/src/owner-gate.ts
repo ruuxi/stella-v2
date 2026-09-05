@@ -158,6 +158,16 @@ export type OwnerGateAdmission =
   | { ok: true; snapshot: OwnerSnapshot; replayed: boolean }
   | OwnerGateRefusal;
 
+export type OwnerGateAdmissionWithLease =
+  | {
+      admission: Extract<OwnerGateAdmission, { ok: true }>;
+      lease: OwnerGateFenceLeaseOutcome;
+    }
+  | {
+      admission: OwnerGateRefusal;
+      lease: { status: "skipped"; reason: "admission_refused" };
+    };
+
 /** One exact owner-fence lease carried along with a snapshot read. */
 export type OwnerGateFenceLeaseRequest = {
   leaseId: string;
@@ -1039,6 +1049,43 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         lease: { status: "skipped", reason: "generation_stale" },
       };
     }
+    return { snapshot, lease: await this.registerFenceLease(input.lease) };
+  }
+
+  /** Admission policy and the colocated fence share one transport, not weaker checks. */
+  async admitWithFenceLease(input: {
+    admission: OwnerGateAdmitInput;
+    lease: OwnerGateFenceLeaseRequest;
+  }): Promise<OwnerGateAdmissionWithLease> {
+    if (input.admission.turnId !== input.lease.turnId) {
+      return {
+        admission: refuse(
+          "internal",
+          "Admission and lease turn ids differ.",
+          false,
+        ),
+        lease: { status: "skipped", reason: "admission_refused" },
+      };
+    }
+    const admission = await this.admit(input.admission);
+    if (!admission.ok) {
+      return {
+        admission,
+        lease: { status: "skipped", reason: "admission_refused" },
+      };
+    }
+    if (admission.snapshot.ownerGeneration !== input.lease.ownerGeneration) {
+      return {
+        admission,
+        lease: { status: "skipped", reason: "generation_stale" },
+      };
+    }
+    return { admission, lease: await this.registerFenceLease(input.lease) };
+  }
+
+  private async registerFenceLease(
+    lease: OwnerGateFenceLeaseRequest,
+  ): Promise<OwnerGateFenceLeaseOutcome> {
     const ownerId = this.ownerId();
     const response = await createOwnerFenceHost({
       ctx: this.ctx,
@@ -1051,7 +1098,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
           "content-type": "application/json",
           [HEADER_OWNER_FENCE_ID]: ownerId,
         },
-        body: JSON.stringify({ ...input.lease, ownerId }),
+        body: JSON.stringify({ ...lease, ownerId }),
       }),
     );
     const body = (await response.json().catch(() => null)) as {
@@ -1066,22 +1113,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       typeof body.expiresAt === "number"
     ) {
       return {
-        snapshot,
-        lease: {
-          status: "registered",
-          generation: body.generation,
-          expiresAt: body.expiresAt,
-        },
+        status: "registered",
+        generation: body.generation,
+        expiresAt: body.expiresAt,
       };
     }
     return {
-      snapshot,
-      lease: {
-        status: "refused",
-        httpStatus: response.status,
-        ...(typeof body?.code === "string" ? { code: body.code } : {}),
-        ...(typeof body?.error === "string" ? { error: body.error } : {}),
-      },
+      status: "refused",
+      httpStatus: response.status,
+      ...(typeof body?.code === "string" ? { code: body.code } : {}),
+      ...(typeof body?.error === "string" ? { error: body.error } : {}),
     };
   }
 

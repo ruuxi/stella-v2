@@ -1,3 +1,4 @@
+import { RelayTiming } from "./relay-timing.js";
 import {
   GATEWAY_NETWORK_POLICY,
   GATEWAY_HEALTH_PATH,
@@ -335,26 +336,66 @@ const handleRelay = async (
   convex: ConvexClient,
   traceId: string,
 ): Promise<Response> => {
-  const auth = await authenticateCapability(request, env, {
-    now: deps.now(),
-    allowProbe: true,
-  });
-  if (auth.claims.credential) {
-    return handleNativeRelay({ request, env, deps, convex, traceId, auth });
+  const timing = new RelayTiming();
+  let status: number | undefined;
+  let lane = "unknown";
+  let turn: { turnId: string; conversationId: string } | undefined;
+  try {
+    const auth = await authenticateCapability(request, env, {
+      now: deps.now(),
+      allowProbe: true,
+    });
+    timing.mark("authenticated");
+    if (auth.claims.turn) {
+      turn = {
+        turnId: auth.claims.turn.turnId,
+        conversationId: auth.claims.turn.conversationId,
+      };
+    }
+    lane = auth.claims.credential ? "native" : "managed";
+    if (auth.claims.credential) {
+      const response = await handleNativeRelay({
+        request,
+        env,
+        deps,
+        convex,
+        traceId,
+        auth,
+      });
+      status = response.status;
+      return response;
+    }
+    const protocol = protocolFromRelayPath(new URL(request.url).pathname);
+    if (!protocol) {
+      throw new GatewayError(404, "bad_request", "Unknown relay path.");
+    }
+    const response = await handleManagedRelay({
+      request,
+      env,
+      deps,
+      convex,
+      traceId,
+      auth,
+      protocol,
+      timing,
+    });
+    status = response.status;
+    return response;
+  } catch (error) {
+    status = toGatewayError(error).status;
+    throw error;
+  } finally {
+    console.info(
+      JSON.stringify({
+        event: "gateway_relay_timing",
+        traceId,
+        lane,
+        status,
+        ...turn,
+        ...timing.snapshot(),
+      }),
+    );
   }
-  const protocol = protocolFromRelayPath(new URL(request.url).pathname);
-  if (!protocol) {
-    throw new GatewayError(404, "bad_request", "Unknown relay path.");
-  }
-  return handleManagedRelay({
-    request,
-    env,
-    deps,
-    convex,
-    traceId,
-    auth,
-    protocol,
-  });
 };
 
 export const handleRequest = async (

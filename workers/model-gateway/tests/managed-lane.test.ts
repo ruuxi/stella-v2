@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test, spyOn } from "bun:test";
 import {
   GATEWAY_TRACE_HEADER,
   type GatewayModelResolution,
@@ -6,6 +6,7 @@ import {
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
+import type { RelayTiming } from "../src/relay-timing.js";
 import { GATEWAY_REPLAY_HEADER } from "../src/managed-lane.js";
 import { handleRequest } from "../src/router.js";
 import {
@@ -1281,5 +1282,93 @@ describe("POST /v1/models/resolve", () => {
     const response = await ctx.run(new Request("https://gateway.test/healthz"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+  });
+});
+
+describe("gateway phase timing", () => {
+  test("reports completion after awaited cleanup, with actual stream milestones and no payload", async () => {
+    const ctx = setup();
+    let releaseEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      releaseEntered = resolve;
+    });
+    let finishRelease!: () => void;
+    const release = new Promise<void>((resolve) => {
+      finishRelease = resolve;
+    });
+    Object.assign(ctx.harness.env, {
+      OWNER_RELAY_GATE: {
+        idFromName: (name: string) => ({ name }),
+        get: () => ({
+          admitRelay: async () => ({ ok: true }),
+          releaseRelay: async () => {
+            releaseEntered();
+            await release;
+          },
+        }),
+      },
+    });
+    const events: Array<
+      ReturnType<RelayTiming["snapshot"]> & { event: string; traceId: string }
+    > = [];
+    const logger = spyOn(console, "info").mockImplementation((line) => {
+      if (typeof line === "string") events.push(JSON.parse(line));
+    });
+    try {
+      const { token } = await signTurn();
+      const responseWork = ctx.run(
+        relayRequest("/v1/relay/responses", {
+          token,
+          body: museBody(),
+          headers: agentHeaders(),
+        }),
+      );
+      await entered;
+      expect(events).toHaveLength(0);
+      finishRelease();
+      const response = await responseWork;
+      expect(response.status).toBe(200);
+      const timing = events.find(
+        (event) => event.event === "gateway_relay_timing",
+      );
+      expect(timing).toBeDefined();
+      expect(timing!.traceId).toBe(response.headers.get(GATEWAY_TRACE_HEADER));
+      const m = timing!.milestonesMs;
+      expect(m.providerDispatch).toBeGreaterThanOrEqual(m.authenticated);
+      expect(m.firstUpstreamByte).toBeGreaterThanOrEqual(m.upstreamHeaders);
+      expect(m.upstreamBodyComplete).toBeGreaterThanOrEqual(
+        m.firstUpstreamByte,
+      );
+      expect(m.resultPersisted).toBeGreaterThanOrEqual(m.assemblyComplete);
+      expect(timing!.elapsedMs).toBeGreaterThanOrEqual(m.resultPersisted);
+      expect(timing!.durationsMs.ownerReleaseMs).toBeGreaterThanOrEqual(0);
+      expect(JSON.stringify(events)).not.toContain(token);
+      expect(JSON.stringify(events)).not.toContain("Hello there");
+    } finally {
+      finishRelease();
+      logger.mockRestore();
+    }
+  });
+  test("authentication refusals produce timing without imaginary provider milestones", async () => {
+    const ctx = setup();
+    const events: Array<
+      ReturnType<RelayTiming["snapshot"]> & { event: string; traceId: string }
+    > = [];
+    const logger = spyOn(console, "info").mockImplementation((line) => {
+      if (typeof line === "string") events.push(JSON.parse(line));
+    });
+    try {
+      const response = await ctx.run(
+        relayRequest("/v1/relay/responses", { body: museBody() }),
+      );
+      expect(response.status).toBe(401);
+      expect(events[0]).toMatchObject({
+        event: "gateway_relay_timing",
+        status: 401,
+        milestonesMs: {},
+      });
+    } finally {
+      logger.mockRestore();
+    }
   });
 });

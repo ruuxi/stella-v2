@@ -233,3 +233,59 @@ describe("OwnerGate.snapshotWithFenceLease", () => {
     });
   });
 });
+
+describe("OwnerGate.admitWithFenceLease", () => {
+  const input = () => ({
+    admission: {
+      lane: "chat" as const,
+      turnId: lease().turnId,
+      conversationId: "conversation-1",
+      now: NOW,
+    },
+    lease: lease(),
+  });
+  test("admits and registers once, replay preserves the exact lease", async () => {
+    const h = open();
+    const first = await h.instance.admitWithFenceLease(input());
+    expect(first.admission.ok).toBe(true);
+    expect(first.lease.status).toBe("registered");
+    const replay = await h.instance.admitWithFenceLease(input());
+    expect(replay.admission).toMatchObject({ ok: true, replayed: true });
+    expect(h.activeLeaseIds()).toEqual(["lease-1"]);
+  });
+  test("suspension and service generation mismatch never register", async () => {
+    const suspended = open({
+      snapshot: sampleOwnerSnapshot({ enforcement: { status: "suspended" } }),
+    });
+    expect(
+      (await suspended.instance.admitWithFenceLease(input())).admission,
+    ).toMatchObject({ ok: false, code: "owner_suspended" });
+    expect(suspended.activeLeaseIds()).toEqual([]);
+    const h = open();
+    const args = input();
+    const result = await h.instance.admitWithFenceLease({
+      ...args,
+      admission: { ...args.admission, expectedGeneration: "old" },
+    });
+    expect(result.admission).toMatchObject({
+      ok: false,
+      code: "generation_stale",
+    });
+    expect(h.activeLeaseIds()).toEqual([]);
+  });
+  test("user generation rotation returns a current snapshot but never registers the old lease", async () => {
+    const h = open({
+      snapshot: sampleOwnerSnapshot({ ownerGeneration: "generation-2" }),
+    });
+    const result = await h.instance.admitWithFenceLease(input());
+    expect(result.admission).toMatchObject({
+      ok: true,
+      snapshot: { ownerGeneration: "generation-2" },
+    });
+    expect(result.lease).toEqual({
+      status: "skipped",
+      reason: "generation_stale",
+    });
+    expect(h.activeLeaseIds()).toEqual([]);
+  });
+});

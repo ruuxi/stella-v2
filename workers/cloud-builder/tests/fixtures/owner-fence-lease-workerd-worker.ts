@@ -148,6 +148,34 @@ export class LeaseTestOwnerGate extends OwnerGate {
         b: this.ctx.storage.kv.get("probe:b"),
       });
     }
+    if (path === "/__test/admit-with-lease") {
+      const body = await parse(request);
+      if (
+        typeof body.leaseId !== "string" ||
+        typeof body.turnId !== "string" ||
+        typeof body.sessionId !== "string" ||
+        typeof body.ownerGeneration !== "string"
+      ) {
+        return json({ error: "invalid lease" }, 400);
+      }
+      return json(
+        await this.admitWithFenceLease({
+          admission: {
+            lane: "chat",
+            turnId: body.turnId,
+            conversationId: body.sessionId,
+          },
+          lease: {
+            leaseId: body.leaseId,
+            turnId: body.turnId,
+            sessionId: body.sessionId,
+            ownerGeneration: body.ownerGeneration,
+            namespace: "orchestrator",
+            role: "orchestrator",
+          },
+        }),
+      );
+    }
     if (path === "/__test/snapshot-with-lease") {
       const body = await parse(request);
       return json(

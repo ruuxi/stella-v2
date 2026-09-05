@@ -10,6 +10,7 @@ import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type {
   OwnerGateAdmission,
+  OwnerGateAdmissionWithLease,
   OwnerGateAdmitInput,
   OwnerGateFenceLeaseRequest,
   OwnerGateSnapshotWithLease,
@@ -42,6 +43,10 @@ export type FakeOwnerGates = {
   namespace: {
     getByName: (ownerId: string) => {
       admit: (input: OwnerGateAdmitInput) => Promise<OwnerGateAdmission>;
+      admitWithFenceLease: (input: {
+        admission: OwnerGateAdmitInput;
+        lease: OwnerGateFenceLeaseRequest;
+      }) => Promise<OwnerGateAdmissionWithLease>;
       release: (input: { turnId: string }) => Promise<void>;
       snapshot: () => Promise<OwnerSnapshot>;
       snapshotWithFenceLease: (input: {
@@ -128,6 +133,25 @@ export const fakeOwnerGates = (
         admit: async (input) => {
           admits.push({ ownerId, input: structuredClone(input) });
           return await (options.admit ?? defaultAdmit)(ownerId, input);
+        },
+        admitWithFenceLease: async ({ admission: input, lease }) => {
+          admits.push({ ownerId, input: structuredClone(input) });
+          const admission = await (options.admit ?? defaultAdmit)(
+            ownerId,
+            input,
+          );
+          if (!admission.ok)
+            return {
+              admission,
+              lease: { status: "skipped", reason: "admission_refused" },
+            };
+          const result = defaultSnapshotWithFenceLease(ownerId, lease);
+          fenceLeases.push({
+            ownerId,
+            lease: structuredClone(lease),
+            outcome: result.lease,
+          });
+          return { admission, lease: result.lease };
         },
         release: async ({ turnId }) => {
           releases.push({ ownerId, turnId });

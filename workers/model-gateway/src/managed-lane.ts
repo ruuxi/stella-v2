@@ -1,3 +1,4 @@
+import { RelayTiming } from "./relay-timing.js";
 import {
   GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
   GATEWAY_NETWORK_POLICY,
@@ -387,21 +388,23 @@ export const handleManagedRelay = async (args: {
   traceId: string;
   auth: AuthenticatedCapability;
   protocol: GatewayProtocol;
+  timing?: RelayTiming;
 }): Promise<Response> => {
   const { request, env, deps, convex, traceId, protocol } = args;
+  const timing = args.timing ?? new RelayTiming();
   const { claims, probe } = args.auth;
   const startedAt = deps.now();
   const pathname = new URL(request.url).pathname;
   const { requestId } = requestIdFrom(request);
-  const deviceKeyHash = await verifySessionDpop({
-    request,
-    auth: args.auth,
-    now: deps.now(),
-  });
-  const enforcement = await ownerEnforcementAdmission(
-    env,
-    claims.sub,
-    deps.now(),
+  const deviceKeyHash = await timing.measure("dpopMs", () =>
+    verifySessionDpop({
+      request,
+      auth: args.auth,
+      now: deps.now(),
+    }),
+  );
+  const enforcement = await timing.measure("ownerEnforcementMs", () =>
+    ownerEnforcementAdmission(env, claims.sub, deps.now()),
   );
   if (enforcement.suspended) {
     throw new GatewayError(
@@ -477,11 +480,13 @@ export const handleManagedRelay = async (args: {
   const ownerGate = env.OWNER_RELAY_GATE.get(
     env.OWNER_RELAY_GATE.idFromName(claims.sub),
   );
-  const ownerAdmission = await ownerGate.admitRelay({
-    audience: claims.audience,
-    requestId,
-    throttled: enforcement.throttled,
-  });
+  const ownerAdmission = await timing.measure("ownerAdmissionMs", () =>
+    ownerGate.admitRelay({
+      audience: claims.audience,
+      requestId,
+      throttled: enforcement.throttled,
+    }),
+  );
   const ownerAdmitted = ownerAdmission.ok && !ownerAdmission.duplicate;
   if (!ownerAdmission.ok) {
     throw new GatewayError(
@@ -574,7 +579,9 @@ export const handleManagedRelay = async (args: {
       }
     }
 
-    const config = await getGatewayConfig(convex, deps.waitUntil, deps.now);
+    const config = await timing.measure("pricingConfigMs", () =>
+      getGatewayConfig(convex, deps.waitUntil, deps.now),
+    );
     const price = config.priceFor(route.resolvedModel);
     if (!price) {
       throw new GatewayError(
@@ -640,12 +647,15 @@ export const handleManagedRelay = async (args: {
       tierGate = env.TIER_BUDGET.get(
         env.TIER_BUDGET.idFromName(limitsAudience),
       );
-      const reservation = await tierGate.reserve({
-        estimateMicroCents: estimatedMicroCents,
-        hourlyCeiling: tierCeiling.hourlyMicroCents,
-        dailyCeiling: tierCeiling.dailyMicroCents,
-        now: deps.now(),
-      });
+      const gate = tierGate;
+      const reservation = await timing.measure("tierReservationMs", () =>
+        gate.reserve({
+          estimateMicroCents: estimatedMicroCents,
+          hourlyCeiling: tierCeiling.hourlyMicroCents,
+          dailyCeiling: tierCeiling.dailyMicroCents,
+          now: deps.now(),
+        }),
+      );
       if (!reservation.ok) {
         const anonymous = limitsAudience === "anonymous";
         throw new GatewayError(
@@ -673,14 +683,17 @@ export const handleManagedRelay = async (args: {
       : env.CAPABILITY_LEDGER.get(env.CAPABILITY_LEDGER.idFromName(claims.jti));
     let capabilityHardLimitMicroCents: number | null = null;
     if (ledger) {
-      const reservation = await ledger.reserve({
-        jti: claims.jti,
-        budgetMicroCents: claims.budgetMicroCents,
-        maxRequests: claims.maxRequests,
-        expiresAt: claims.exp * 1000,
-        requestId,
-        estimatedMicroCents,
-      });
+      const capabilityLedger = ledger;
+      const reservation = await timing.measure("ledgerReservationMs", () =>
+        capabilityLedger.reserve({
+          jti: claims.jti,
+          budgetMicroCents: claims.budgetMicroCents,
+          maxRequests: claims.maxRequests,
+          expiresAt: claims.exp * 1000,
+          requestId,
+          estimatedMicroCents,
+        }),
+      );
       switch (reservation.kind) {
         case "replay":
           return new Response(reservation.body, {
@@ -733,13 +746,17 @@ export const handleManagedRelay = async (args: {
     ): Promise<void> => {
       tierActualMicroCents = chargedMicroCents;
       if (ledger && ledgerReserved) {
-        await ledger.settle({
-          requestId,
-          chargedMicroCents,
-          refundRequest,
-          result,
-        });
+        const capabilityLedger = ledger;
+        await timing.measure("ledgerSettlementMs", () =>
+          capabilityLedger.settle({
+            requestId,
+            chargedMicroCents,
+            refundRequest,
+            result,
+          }),
+        );
         ledgerSettled = true;
+        if (result) timing.mark("resultPersisted");
       }
       if (probe) return;
       const event: GatewayUsageEvent = {
@@ -861,8 +878,41 @@ export const handleManagedRelay = async (args: {
       }
     };
 
+    const readUpstreamText = async (response: Response): Promise<string> => {
+      if (!response.body) return "";
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const chunks: string[] = [];
+      let bytes = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            timing.mark("upstreamBodyComplete");
+            break;
+          }
+          if (value.byteLength) timing.mark("firstUpstreamByte");
+          controller.touch();
+          bytes += value.byteLength;
+          if (bytes > MAX_UPSTREAM_STREAM_BYTES) {
+            await reader.cancel("body_too_large");
+            throw new GatewayError(
+              502,
+              "upstream_error",
+              "The provider response exceeded the size limit.",
+            );
+          }
+          chunks.push(decoder.decode(value, { stream: true }));
+        }
+        chunks.push(decoder.decode());
+        return chunks.join("");
+      } finally {
+        reader.releaseLock();
+      }
+    };
     let upstream: Response;
     try {
+      timing.mark("providerDispatch");
       upstream = await deps.fetch(target, {
         method: "POST",
         headers,
@@ -889,12 +939,13 @@ export const handleManagedRelay = async (args: {
       );
       throw failure;
     }
+    timing.mark("upstreamHeaders");
     controller.touch();
 
     if (!upstream.ok) {
       let text = "";
       try {
-        text = await upstream.text();
+        text = await readUpstreamText(upstream);
       } catch {
         text = "";
       }
@@ -938,7 +989,7 @@ export const handleManagedRelay = async (args: {
 
     try {
       if (isJson) {
-        const text = await upstream.text();
+        const text = await readUpstreamText(upstream);
         firstUpstreamByte = text.length > 0;
         usageParser.pushText(text);
         const parsed = JSON.parse(text) as unknown;
@@ -962,8 +1013,14 @@ export const handleManagedRelay = async (args: {
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
-            if (value.byteLength > 0) firstUpstreamByte = true;
+            if (done) {
+              timing.mark("upstreamBodyComplete");
+              break;
+            }
+            if (value.byteLength > 0) {
+              firstUpstreamByte = true;
+              timing.mark("firstUpstreamByte");
+            }
             controller.touch();
             received += value.byteLength;
             if (received > MAX_UPSTREAM_STREAM_BYTES) {
@@ -1097,6 +1154,7 @@ export const handleManagedRelay = async (args: {
     }
 
     const bodyText = JSON.stringify(assembled);
+    timing.mark("assemblyComplete");
     const chargedMicroCents = chargeFor(usage);
     await finish(
       "succeeded",
@@ -1122,12 +1180,15 @@ export const handleManagedRelay = async (args: {
     });
   } finally {
     if (ledger && ledgerReserved && !ledgerSettled) {
+      const capabilityLedger = ledger;
       try {
-        await ledger.settle({
-          requestId,
-          chargedMicroCents: 0,
-          refundRequest: !firstUpstreamByte,
-        });
+        await timing.measure("ledgerSettlementMs", () =>
+          capabilityLedger.settle({
+            requestId,
+            chargedMicroCents: 0,
+            refundRequest: !firstUpstreamByte,
+          }),
+        );
       } catch (error) {
         console.error(
           `[model-gateway] trace=${traceId} ledger release failed: ${error instanceof Error ? error.message : "unknown"}`,
@@ -1135,12 +1196,16 @@ export const handleManagedRelay = async (args: {
       }
     }
     if (tierGate && tierReservation) {
+      const reservation = tierReservation;
+      const gate = tierGate;
       try {
-        await tierGate.settle({
-          estimateMicroCents: tierReservation.estimateMicroCents,
-          actualMicroCents: tierActualMicroCents,
-          minute: tierReservation.minute,
-        });
+        await timing.measure("tierSettlementMs", () =>
+          gate.settle({
+            estimateMicroCents: reservation.estimateMicroCents,
+            actualMicroCents: tierActualMicroCents,
+            minute: reservation.minute,
+          }),
+        );
       } catch (error) {
         console.error(
           `[model-gateway] trace=${traceId} tier settlement failed: ${error instanceof Error ? error.message : "unknown"}`,
@@ -1148,7 +1213,10 @@ export const handleManagedRelay = async (args: {
       }
     }
     try {
-      if (ownerAdmitted) await ownerGate.releaseRelay(requestId);
+      if (ownerAdmitted)
+        await timing.measure("ownerReleaseMs", () =>
+          ownerGate.releaseRelay(requestId),
+        );
     } catch (error) {
       console.error(
         `[model-gateway] trace=${traceId} owner gate release failed: ${error instanceof Error ? error.message : "unknown"}`,

@@ -120,6 +120,7 @@ import {
   OwnerGateSnapshotError,
   snapshotAllowsExecutionEngine,
   type OwnerGateAdmission,
+  type OwnerGateAdmissionWithLease,
   type OwnerGateAdmitInput,
 } from "./owner-gate.js";
 import { enqueueOutbox } from "./outbox.js";
@@ -3131,12 +3132,98 @@ export class OrchestratorSession extends DurableObject<Env> {
       const queuedAt = receipt?.queuedAt ?? Date.now();
 
       const admittedAt = performance.now();
-      const admission = await this.ownerGateAdmit(ownerId, {
+      const admissionInput: OwnerGateAdmitInput = {
         lane: "chat",
         turnId,
         conversationId,
         ...(expectedGeneration ? { expectedGeneration } : {}),
-      });
+      };
+      let admission: OwnerGateAdmission | undefined;
+      let combinedGeneration: string | undefined;
+      // Existing conversations know the generation needed to persist an exact
+      // lease intent before the combined remote call. Cold starts and uncertain
+      // receipt replays retain the discovery/reconciliation path below.
+      if (!receipt && boundOwner === ownerId && this.ownerGeneration) {
+        const intentAt = Date.now();
+        receipt = {
+          schemaVersion: 2,
+          fingerprint: admissionFingerprint,
+          ownerId,
+          ownerGeneration: this.ownerGeneration,
+          turnId,
+          leaseId,
+          phase: "registering",
+          createdConversation: !(await this.ctx.storage.get<boolean>(
+            CONVERSATION_PROJECTED_KEY,
+          )),
+          queuedAt,
+          createdAt: intentAt,
+          updatedAt: intentAt,
+        };
+        await this.putTurnState({ [receiptKey]: receipt });
+        const leaseTurn: OwnerFencedTurn = {
+          ownerId,
+          ownerGeneration: receipt.ownerGeneration,
+          turnId,
+          ownerPurgeLeaseId: leaseId,
+        };
+        const observed: { result?: OwnerGateAdmissionWithLease } = {};
+        try {
+          combinedGeneration = await this.registerOwnerTurn(
+            leaseTurn,
+            false,
+            admissionFingerprint,
+            async (registeredOwnerId, lease) => {
+              const result = await this.ownerGate(
+                registeredOwnerId,
+              ).admitWithFenceLease({
+                admission: admissionInput,
+                lease,
+              });
+              observed.result = result;
+              return result.lease.status === "registered"
+                ? { generation: result.lease.generation }
+                : null;
+            },
+          );
+          admission = observed.result?.admission;
+        } catch (error) {
+          const result = observed.result;
+          if (result?.lease.status === "skipped") {
+            // A definite refusal/skipped register created no external lease.
+            // Remove only this fresh attempt's local intent. A lost response
+            // must never take this branch: its original identity stays durable.
+            await this.ctx.blockConcurrencyWhile(async () => {
+              const key = orchestratorFenceLeaseReceiptKey(leaseId);
+              const local =
+                await this.getTurnState<OwnerFenceLeaseReceipt>(key);
+              if (local?.phase === "registering" && local.turnId === turnId) {
+                await this.ctx.storage.delete(key);
+                if (local.runSlotKey)
+                  await this.ctx.storage.delete(local.runSlotKey);
+              }
+              await this.ctx.storage.delete(receiptKey);
+            });
+            receipt = undefined;
+            admission = result.admission;
+            // A user may race a reset. The returned current snapshot resumes
+            // ordinary registration under its new generation; service callers
+            // still receive admit's expected-generation refusal.
+          } else {
+            await this.releaseOwnerGate({ ownerId, turnId });
+            return turnStartErrorResponse(
+              error instanceof OwnerFenceRegistrationUncertainError
+                ? "internal"
+                : "owner_purged",
+              error instanceof OwnerFenceRegistrationUncertainError
+                ? "Starting that turn is still being reconciled. Try again."
+                : "This account's cloud data is being reset or deleted.",
+              error instanceof OwnerFenceRegistrationUncertainError,
+            );
+          }
+        }
+      }
+      admission ??= await this.ownerGateAdmit(ownerId, admissionInput);
       if (!admission.ok) {
         return turnStartErrorResponse(
           admission.code,
@@ -3152,6 +3239,15 @@ export class OrchestratorSession extends DurableObject<Env> {
         message: string,
         retryable: boolean,
       ): Promise<Response> => {
+        if (combinedGeneration && receipt) {
+          await this.unregisterOwnerTurn({
+            ownerId,
+            ownerGeneration: receipt.ownerGeneration,
+            turnId,
+            ownerPurgeLeaseId: leaseId,
+            ownerPurgeGeneration: combinedGeneration,
+          });
+        }
         await this.releaseOwnerGate({ ownerId, turnId });
         return turnStartErrorResponse(code, message, retryable);
       };
@@ -3281,20 +3377,22 @@ export class OrchestratorSession extends DurableObject<Env> {
       }
       const registrationStarted = performance.now();
       try {
-        let registeredNow = false;
-        turn.ownerPurgeGeneration = await this.registerOwnerTurn(
-          turn,
-          false,
-          admissionFingerprint,
-          async (registeredOwnerId, body) => {
-            const result = await this.registerOwnerFenceLease(
-              registeredOwnerId,
-              body,
-            );
-            registeredNow = result !== null;
-            return result;
-          },
-        );
+        let registeredNow = combinedGeneration !== undefined;
+        turn.ownerPurgeGeneration =
+          combinedGeneration ??
+          (await this.registerOwnerTurn(
+            turn,
+            false,
+            admissionFingerprint,
+            async (registeredOwnerId, body) => {
+              const result = await this.registerOwnerFenceLease(
+                registeredOwnerId,
+                body,
+              );
+              registeredNow = result !== null;
+              return result;
+            },
+          ));
         // A successful register already validated the exact live owner fence.
         // Replays only read a local receipt, so they still need a remote check.
         // The admission commit below rechecks local lease retirement, and
@@ -3433,6 +3531,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       log("info", "chat_turn_admitted", {
         turnId,
         conversationId,
+        admissionTransport: combinedGeneration ? "combined" : "separate",
         ownerGateMs,
         registrationMs,
         commitMs: Math.round(performance.now() - commitStarted),

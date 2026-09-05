@@ -107,11 +107,7 @@ describe("the one chat's placement offer", () => {
         "cloud_running",
         "completed",
       ]);
-    expect(statusTexts).toEqual([
-      "Choosing where to run",
-      "Running in Stella Cloud",
-      "Running in Stella Cloud",
-    ]);
+    expect(statusTexts).toEqual([]);
     expect(terminal.state).toBe("completed");
     expect(automaticExecutionResultText(terminal)).toBe("here you go");
     // One turn, one executor: a fallback never opens a second dispatch.
@@ -127,28 +123,19 @@ describe("the one chat's placement offer", () => {
         "computer_running",
         "completed",
       ]);
-    expect(statusTexts).toEqual([
-      "Choosing where to run",
-      "Choosing where to run",
-      "Running on your computer",
-      "Running on your computer",
-    ]);
+    expect(statusTexts).toEqual([]);
     expect(terminal.state).toBe("completed");
     expect([...observedDispatchIds]).toEqual([DISPATCH_ID]);
   });
 
-  test("says it is reconnecting rather than inventing a second turn", async () => {
+  test("keeps reconciliation invisible while continuing the same turn", async () => {
     const { statusTexts } = await observePlacement([
       "computer_running",
       "reconciliation_required",
       "computer_running",
       "completed",
     ]);
-    expect(statusTexts).toEqual([
-      "Running on your computer",
-      "Reconnecting to your computer",
-      "Running on your computer",
-    ]);
+    expect(statusTexts).toEqual([]);
   });
 
   test("keeps a state the phone does not recognize off the surface", () => {

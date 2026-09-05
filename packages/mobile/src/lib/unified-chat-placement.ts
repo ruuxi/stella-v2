@@ -61,30 +61,11 @@ export const unifiedChatPlacementAdmission = (args: {
 };
 
 /**
- * The only trace placement leaves on the surface: one line of status copy while
- * the turn is in flight. It names where the work ended up because a phone that
- * woke a sleeping desktop should be able to tell, but the user never chose it
- * and there is nothing to act on.
+ * Placement is an implementation detail. Leave ordinary in-flight states to
+ * the working indicator's friendly thinking/tool copy; only cancellation
+ * needs an explicit status.
  */
 export const unifiedChatPlacementStatusText = (
   dispatch: AutomaticExecutionStatusSnapshot,
-): string | undefined => {
-  switch (dispatch.state) {
-    case "queued":
-    case "offering":
-    case "computer_claimed":
-      return "Choosing where to run";
-    case "computer_accepted":
-    case "computer_running":
-      return "Running on your computer";
-    case "cloud_committed":
-    case "cloud_running":
-      return "Running in Stella Cloud";
-    case "cancel_pending":
-      return "Stopping";
-    case "reconciliation_required":
-      return "Reconnecting to your computer";
-    default:
-      return undefined;
-  }
-};
+): string | undefined =>
+  dispatch.state === "cancel_pending" ? "Stopping" : undefined;

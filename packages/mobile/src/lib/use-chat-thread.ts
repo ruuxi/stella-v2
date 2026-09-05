@@ -905,7 +905,6 @@ export function useChatThread(opts: {
 
       try {
         assertAuthorityLease();
-        patchActivity({ statusText: "Choosing where to run" });
         let admitted: AutomaticExecutionDispatch | null = null;
         let placementConversationId = canonicalConversationId ?? "";
         let ignoreStoredAccess = false;
@@ -939,7 +938,6 @@ export function useChatThread(opts: {
             }
             assertAuthorityLease();
             if (!admissionEnabledRef.current) {
-              patchActivity({ statusText: "Waiting for cloud history" });
               await waitForAutomaticRetry(abort.signal);
               assertAuthorityLease();
               continue;
@@ -974,7 +972,6 @@ export function useChatThread(opts: {
               continue;
             }
             if (isPermanentAutomaticAdmissionError(error)) throw error;
-            patchActivity({ statusText: "Waiting for connection" });
             await waitForAutomaticRetry(abort.signal);
             assertAuthorityLease();
           }

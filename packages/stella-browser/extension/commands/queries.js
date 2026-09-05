@@ -12,6 +12,12 @@ import {
   buildTopLevelRectSource,
 } from "../lib/selector.js";
 import { evaluateRuntime } from "../lib/debugger.js";
+import {
+  callExactElement,
+  exactElementPoint,
+  frameVisible,
+  getObservationFrames,
+} from "../lib/frame-elements.js";
 
 /**
  * Inject a script that finds an element and runs code on it.
@@ -19,6 +25,7 @@ import { evaluateRuntime } from "../lib/debugger.js";
  */
 async function queryElement(tabId, ownerId, selector, scriptBody) {
   const resolved = resolveSelector(selector, ownerId, tabId);
+  if (resolved.exactNode) return callExactElement(tabId, resolved, scriptBody);
   const finder = buildResolvedElementMatcherScript(resolved);
   const missingMessage = resolved.isRef
     ? "Element not found"
@@ -78,6 +85,22 @@ export async function handleBoundingBox(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
   if (!selector) throw new Error("Selector is required for boundingbox");
+  const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  if (resolved.exactNode) {
+    const point = await exactElementPoint(tab.id, resolved, { boxOnly: true });
+    return {
+      id: command.id,
+      success: true,
+      data: {
+        box: {
+          x: point.left,
+          y: point.top,
+          width: point.width,
+          height: point.height,
+        },
+      },
+    };
+  }
 
   const box = await queryElement(
     tab.id,
@@ -141,6 +164,15 @@ export async function handleIsVisible(command) {
     }
     return true;
   `;
+  if (resolved.exactNode) {
+    const { frames } = await getObservationFrames(tab.id);
+    const frame = frames.get(resolved.exactNode.frameId);
+    const visible =
+      (await callExactElement(tab.id, resolved, visibilityCheck)) &&
+      frame &&
+      (await frameVisible(tab.id, frame, frames));
+    return { id: command.id, success: true, data: { visible: !!visible } };
+  }
   const finder = buildResolvedElementMatcherScript(resolved);
   const script = `(() => { const el = ${finder.trim()}; if (!el) return false; ${visibilityCheck} })()`;
 
@@ -183,6 +215,10 @@ export async function handleCount(command) {
   if (!selector) throw new Error("Selector is required for count");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  if (resolved.exactNode) {
+    await callExactElement(tab.id, resolved, "return true;");
+    return { id: command.id, success: true, data: { count: 1 } };
+  }
   if (resolved.isSemantic) {
     const allMatches = buildRoleMatcherAllScript(resolved.role, resolved.name);
     const count = await evaluateRuntime(
@@ -205,7 +241,7 @@ export async function handleStyles(command) {
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
   const extractScript = `
     const s = el.ownerDocument.defaultView.getComputedStyle(el);
-    ${buildTopLevelRectSource("el")}
+    ${resolved.exactNode ? "const localRect = el.getBoundingClientRect(); const topX = localRect.left; const topY = localRect.top;" : buildTopLevelRectSource("el")}
     return {
       tag: el.tagName.toLowerCase(),
       text: el.innerText?.trim().slice(0, 80) || null,
@@ -255,6 +291,15 @@ export async function handleStyles(command) {
     selector,
     extractScript,
   );
+  if (resolved.exactNode) {
+    const point = await exactElementPoint(tab.id, resolved, { boxOnly: true });
+    element.box = {
+      x: point.left,
+      y: point.top,
+      width: point.width,
+      height: point.height,
+    };
+  }
   return { id: command.id, success: true, data: { elements: [element] } };
 }
 

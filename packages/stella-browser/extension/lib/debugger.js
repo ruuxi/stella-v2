@@ -137,6 +137,12 @@ export function isDebuggerAttached(tabId) {
 
 // Map of "tabId:method" -> Set<callback>
 const eventListeners = new Map();
+const attachedFrameSessions = new Map();
+
+/** Sessions may predate an observation because network capture also auto-attaches. */
+export function getAttachedFrameSessions(tabId) {
+  return new Map(attachedFrameSessions.get(tabId) || []);
+}
 
 /**
  * Register a listener for a CDP event on a specific tab.
@@ -185,6 +191,18 @@ export function clearCdpEvents(tabId) {
 // `sessionId`, and commands about those requests must carry it back.
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (!source.tabId) return;
+  if (
+    method === "Target.attachedToTarget" &&
+    params?.targetInfo?.type === "iframe"
+  ) {
+    if (!attachedFrameSessions.has(source.tabId))
+      attachedFrameSessions.set(source.tabId, new Map());
+    attachedFrameSessions
+      .get(source.tabId)
+      .set(params.sessionId, params.targetInfo.targetId);
+  } else if (method === "Target.detachedFromTarget") {
+    attachedFrameSessions.get(source.tabId)?.delete(params.sessionId);
+  }
   const key = `${source.tabId}:${method}`;
   const listeners = eventListeners.get(key);
   if (listeners) {
@@ -202,6 +220,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 // held would keep the idle timer rescheduling against an attachment that can
 // never be satisfied again.
 chrome.tabs.onRemoved.addListener((tabId) => {
+  attachedFrameSessions.delete(tabId);
   debuggerAttachments.delete(tabId);
   releaseDebugger(tabId);
   clearCdpEvents(tabId);
@@ -210,6 +229,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Clean up when debugger is detached externally (e.g. user closes DevTools)
 chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId) {
+    attachedFrameSessions.delete(source.tabId);
     debuggerAttachments.delete(source.tabId);
     releaseDebugger(source.tabId);
   }

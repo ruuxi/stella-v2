@@ -591,7 +591,8 @@
     },
     "snapshot": {
       "chain": true,
-      "params": ["compact", "cursor", "interactive", "maxDepth", "selector"]
+      "params": ["compact", "cursor", "format", "interactive", "maxDepth", "selector"],
+      "note": "format: ax returns a bounded browser AX tree with documentKey for runtime-scoped incremental observations."
     },
     "state_clean": {
       "chain": false,

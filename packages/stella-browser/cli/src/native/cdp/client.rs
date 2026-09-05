@@ -37,6 +37,7 @@ pub struct CdpClient {
     event_tx: broadcast::Sender<CdpEvent>,
     raw_tx: broadcast::Sender<RawCdpMessage>,
     _reader_handle: tokio::task::JoinHandle<()>,
+    frame_sessions: Mutex<HashMap<(String, String), String>>,
 }
 
 impl CdpClient {
@@ -130,6 +131,7 @@ impl CdpClient {
             event_tx,
             raw_tx,
             _reader_handle: reader_handle,
+            frame_sessions: Mutex::new(HashMap::new()),
         })
     }
 
@@ -190,6 +192,42 @@ impl CdpClient {
         }
 
         Ok(response.result.unwrap_or(Value::Null))
+    }
+
+    pub async fn attach_frame(
+        &self,
+        parent_session: &str,
+        frame_id: &str,
+    ) -> Result<String, String> {
+        let key = (parent_session.to_string(), frame_id.to_string());
+        let previous = self.frame_sessions.lock().await.get(&key).cloned();
+        if let Some(previous) = previous {
+            if self
+                .send_command_no_params("Page.getFrameTree", Some(&previous))
+                .await
+                .is_ok()
+            {
+                return Ok(previous);
+            }
+            self.frame_sessions.lock().await.remove(&key);
+        }
+        let attached = self
+            .send_command(
+                "Target.attachToTarget",
+                Some(serde_json::json!({"targetId": frame_id,"flatten":true})),
+                Some(parent_session),
+            )
+            .await?;
+        let session = attached
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or("Missing child frame session")?
+            .to_string();
+        self.frame_sessions
+            .lock()
+            .await
+            .insert(key, session.clone());
+        Ok(session)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<CdpEvent> {

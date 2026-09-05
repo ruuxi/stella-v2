@@ -5,6 +5,38 @@ export type BrowserWorkerCall = (
 
 export type BrowserWorkerBackend = "in-app" | "external";
 
+export type BrowserWorkerAxSnapshotOptions = Readonly<{
+  mode?: "auto" | "full" | "diff";
+  interactive?: boolean;
+  compact?: boolean;
+  maxDepth?: number;
+  selector?: string;
+}>;
+
+export type BrowserWorkerAxObservation =
+  | Readonly<{
+      kind: "full";
+      snapshotId: string;
+      snapshot: string;
+      reason:
+        | "initial"
+        | "requested"
+        | "document-changed"
+        | "options-changed"
+        | "diff-budget"
+        | "diff-not-smaller";
+    }>
+  | Readonly<{
+      kind: "diff";
+      snapshotId: string;
+      baseSnapshotId: string;
+      diff: string;
+    }>
+  | Readonly<{
+      kind: "unchanged";
+      snapshotId: string;
+    }>;
+
 export type BrowserWorkerChainStep = Readonly<{
   action: string;
   params: Readonly<Record<string, unknown>>;
@@ -204,6 +236,9 @@ export interface BrowserWorkerTab {
   url(): Promise<string>;
   title(): Promise<string>;
   snapshot(options?: Record<string, unknown>): Promise<unknown>;
+  axSnapshot(
+    options?: BrowserWorkerAxSnapshotOptions,
+  ): Promise<BrowserWorkerAxObservation>;
   screenshot(
     options?: Record<string, unknown>,
   ): Promise<BrowserWorkerScreenshotReceipt>;
@@ -797,6 +832,84 @@ export function installBrowserWorkerApi(
     playwright?: BrowserWorkerPlaywright;
     keyboard?: BrowserWorkerKeyboard;
     network?: BrowserWorkerNetwork;
+    ax?: {
+      pending: Promise<void>;
+      baseline?: Readonly<{
+        snapshotId: string;
+        documentKey: string;
+        optionsKey: string;
+        snapshot: string;
+      }>;
+    };
+  };
+  let nextAxSnapshot = 1;
+
+  // Runs inside the persistent Node worker, never the Electron renderer. The
+  // matrix budget bounds work even if a backend returns an unusually deep tree.
+  const axLineDiff = (before: string, after: string): string | null => {
+    const a = before.split("\n");
+    const b = after.split("\n");
+    if (a.length * b.length > 250_000) return null;
+    const width = b.length + 1;
+    const lengths = new Uint16Array((a.length + 1) * width);
+    for (let i = a.length - 1; i >= 0; i -= 1) {
+      for (let j = b.length - 1; j >= 0; j -= 1) {
+        lengths[i * width + j] =
+          a[i] === b[j]
+            ? lengths[(i + 1) * width + j + 1] + 1
+            : Math.max(
+                lengths[(i + 1) * width + j],
+                lengths[i * width + j + 1],
+              );
+      }
+    }
+    const edits: {
+      prefix: " " | "-" | "+";
+      text: string;
+      oldLine: number;
+      newLine: number;
+    }[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < a.length || j < b.length) {
+      const oldLine = i + 1;
+      const newLine = j + 1;
+      if (i < a.length && j < b.length && a[i] === b[j]) {
+        edits.push({ prefix: " ", text: a[i], oldLine, newLine });
+        i += 1;
+        j += 1;
+      } else if (
+        i < a.length &&
+        (j === b.length ||
+          lengths[(i + 1) * width + j] >= lengths[i * width + j + 1])
+      ) {
+        edits.push({ prefix: "-", text: a[i], oldLine, newLine });
+        i += 1;
+      } else {
+        edits.push({ prefix: "+", text: b[j], oldLine, newLine });
+        j += 1;
+      }
+    }
+    const ranges: { start: number; end: number }[] = [];
+    for (let index = 0; index < edits.length; index += 1) {
+      if (edits[index].prefix === " ") continue;
+      const start = Math.max(0, index - 2);
+      const end = Math.min(edits.length, index + 3);
+      const previous = ranges.at(-1);
+      if (previous && start <= previous.end) previous.end = end;
+      else ranges.push({ start, end });
+    }
+    return ranges
+      .map(({ start, end }) => {
+        const lines = edits.slice(start, end);
+        const oldCount = lines.filter((line) => line.prefix !== "+").length;
+        const newCount = lines.filter((line) => line.prefix !== "-").length;
+        const first = edits[start];
+        const oldStart = oldCount === 0 ? first.oldLine - 1 : first.oldLine;
+        const newStart = newCount === 0 ? first.newLine - 1 : first.newLine;
+        return `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@\n${lines.map((line) => line.prefix + line.text).join("\n")}`;
+      })
+      .join("\n");
   };
   const currentTabId = (state: TabState): number => {
     assertCurrentTabGeneration(state.id, state.generation, state.backend);
@@ -1106,6 +1219,7 @@ export function installBrowserWorkerApi(
     "url",
     "title",
     "snapshot",
+    "axSnapshot",
     "screenshot",
     "scroll",
     "expectNewTab",
@@ -2409,6 +2523,120 @@ export function installBrowserWorkerApi(
       return fieldOrSelf(data, "snapshot");
     }
 
+    async axSnapshot(
+      rawOptions: BrowserWorkerAxSnapshotOptions = {},
+    ): Promise<BrowserWorkerAxObservation> {
+      const value = requireOptions(rawOptions, "AX snapshot options");
+      assertKnownKeys(
+        value,
+        ["mode", "interactive", "compact", "maxDepth", "selector"],
+        "AX snapshot options",
+      );
+      const mode = value.mode ?? "auto";
+      if (mode !== "auto" && mode !== "full" && mode !== "diff") {
+        throw new TypeError(
+          "AX snapshot mode must be 'auto', 'full', or 'diff'.",
+        );
+      }
+      const state = this.state();
+      const { mode: _mode, ...captureOptions } = value;
+      const params = snapshotParams(currentTabId(state), {
+        interactive: false,
+        compact: false,
+        ...captureOptions,
+      });
+      const optionsKey = JSON.stringify(params);
+      const cache = (state.ax ??= { pending: Promise.resolve() });
+      // Concurrent callers consume a single ordered baseline, never both a
+      // predecessor that has already been replaced by a later observation.
+      const capture = cache.pending.then(
+        async (): Promise<BrowserWorkerAxObservation> => {
+          try {
+            currentTabId(state);
+            const data = await command(
+              "snapshot",
+              {
+                ...params,
+                format: "ax",
+                ...tabGenerationParams(state.generation),
+              },
+              state.backend,
+            );
+            currentTabId(state);
+            if (
+              !isPlainObject(data) ||
+              typeof data.snapshot !== "string" ||
+              typeof data.documentKey !== "string" ||
+              !data.documentKey
+            ) {
+              throw new Error(
+                "AX snapshot backend did not return a tree and document identity. Update the browser backend.",
+              );
+            }
+            if (
+              data.snapshot.length > 100_000 ||
+              data.documentKey.length > 100_000
+            ) {
+              throw new Error(
+                "AX snapshot backend exceeded its bounded observation budget.",
+              );
+            }
+            const { snapshot, documentKey } = data;
+            const previous = cache.baseline;
+            const reason =
+              mode === "full"
+                ? "requested"
+                : !previous
+                  ? "initial"
+                  : previous.documentKey !== documentKey
+                    ? "document-changed"
+                    : previous.optionsKey !== optionsKey
+                      ? "options-changed"
+                      : undefined;
+            if (!reason && previous?.snapshot === snapshot) {
+              return Object.freeze({
+                kind: "unchanged",
+                snapshotId: previous.snapshotId,
+              });
+            }
+            const snapshotId = `ax-${nextAxSnapshot++}`;
+            const diff =
+              !reason && previous
+                ? axLineDiff(previous.snapshot, snapshot)
+                : null;
+            cache.baseline = { snapshotId, documentKey, optionsKey, snapshot };
+            if (
+              diff !== null &&
+              previous &&
+              (mode === "diff" || diff.length < snapshot.length)
+            ) {
+              return Object.freeze({
+                kind: "diff",
+                snapshotId,
+                baseSnapshotId: previous.snapshotId,
+                diff,
+              });
+            }
+            return Object.freeze({
+              kind: "full",
+              snapshotId,
+              snapshot,
+              reason:
+                reason ?? (diff === null ? "diff-budget" : "diff-not-smaller"),
+            });
+          } catch (error) {
+            cache.baseline = undefined;
+            throw error;
+          }
+        },
+      );
+      cache.pending = capture.then(
+        () => undefined,
+        () => undefined,
+      );
+      return await capture;
+    }
+
     async screenshot(
       rawOptions?: Record<string, unknown>,
     ): Promise<BrowserWorkerScreenshotReceipt> {
@@ -2975,6 +3203,7 @@ export function installBrowserWorkerApi(
         "url/title",
         "element state/text",
         "bounded semantic snapshot",
+        "desktop AX snapshot with automatic diffs and document-scoped refs",
         "screenshot receipt",
       ]),
       actions: Object.freeze([
@@ -2987,6 +3216,7 @@ export function installBrowserWorkerApi(
       ]),
       notes: Object.freeze([
         "Prefer state reads before snapshots.",
+        "On desktop, use tab.axSnapshot() for repeated structural observations; mode:'full' restores context after compaction.",
         "Screenshots attach automatically.",
         "Reuse one task-owned tab.",
       ]),

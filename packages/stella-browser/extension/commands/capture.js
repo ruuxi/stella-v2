@@ -8,7 +8,8 @@ import {
   buildResolvedElementMatcherScript,
   buildTopLevelRectSource,
 } from "../lib/selector.js";
-import { executeSnapshot } from "../lib/snapshot.js";
+import { captureFrameSnapshot } from "../lib/frame-snapshot.js";
+import { callExactElement, exactElementPoint } from "../lib/frame-elements.js";
 import { ensureDebugger, evaluateRuntime } from "../lib/debugger.js";
 
 function buildElementExpression(selector, ownerId, tabId, onFoundSource) {
@@ -18,6 +19,21 @@ function buildElementExpression(selector, ownerId, tabId, onFoundSource) {
 }
 
 async function getSelectorClip(tabId, selector, ownerId) {
+  const resolved = resolveSelector(selector, ownerId, tabId);
+  if (resolved.exactNode) {
+    const box = await exactElementPoint(tabId, resolved, {
+      boxOnly: true,
+      scroll: true,
+    });
+    const scroll = await evaluateRuntime(tabId, "({x:scrollX,y:scrollY})");
+    return {
+      x: box.left + scroll.x,
+      y: box.top + scroll.y,
+      width: box.width,
+      height: box.height,
+      scale: 1,
+    };
+  }
   const clip = await evaluateRuntime(
     tabId,
     buildElementExpression(
@@ -120,6 +136,7 @@ export async function handleScreenshot(command) {
 }
 
 export async function handleSnapshot(command) {
+  if (command.format === "ax") return handleAxSnapshot(command);
   const tab = await getActiveTab(command);
 
   const options = {
@@ -130,18 +147,7 @@ export async function handleSnapshot(command) {
     selector: command.selector,
   };
 
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: executeSnapshot,
-    args: [options],
-    world: "MAIN",
-  });
-
-  if (result?.error)
-    throw new Error(result.error.message || String(result.error));
-
-  const snapshot = result?.result;
-  if (!snapshot) throw new Error("Snapshot generation failed");
+  const snapshot = await captureFrameSnapshot(tab.id, options);
 
   // Update the ref map for subsequent commands
   setRefMap(command.ownerId, tab.id, snapshot.refs || {});
@@ -150,10 +156,34 @@ export async function handleSnapshot(command) {
     id: command.id,
     success: true,
     data: {
-      snapshot: snapshot.tree,
-      refs: snapshot.refs,
+      ...snapshot,
     },
   };
+}
+
+export async function handleAxSnapshot(command) {
+  const tab = await getActiveTab(command);
+  const snapshot = await captureFrameSnapshot(
+    tab.id,
+    {
+      interactive: command.interactive ?? false,
+      compact: command.compact ?? false,
+      maxDepth: command.maxDepth ?? command.depth,
+      selector: command.selector,
+    },
+    "ax",
+  );
+  setRefMap(command.ownerId, tab.id, snapshot.refs);
+  return { id: command.id, success: true, data: snapshot };
+}
+
+async function readElement(tabId, selector, ownerId, body) {
+  const resolved = resolveSelector(selector, ownerId, tabId);
+  if (resolved.exactNode) return callExactElement(tabId, resolved, body);
+  return evaluateRuntime(
+    tabId,
+    buildElementExpression(selector, ownerId, tabId, body),
+  );
 }
 
 export async function handleContent(command) {
@@ -162,14 +192,11 @@ export async function handleContent(command) {
 
   if (command.selector) {
     html =
-      (await evaluateRuntime(
+      (await readElement(
         tab.id,
-        buildElementExpression(
-          command.selector,
-          command.ownerId,
-          tab.id,
-          "return el ? el.innerHTML : null;",
-        ),
+        command.selector,
+        command.ownerId,
+        "return el ? el.innerHTML : null;",
       )) || "";
   } else {
     html =
@@ -207,17 +234,18 @@ export async function handleGetText(command) {
   const selector = command.selector || command.ref;
   if (!selector) throw new Error("Selector is required for gettext");
 
-  const script = buildElementExpression(
-    selector,
-    command.ownerId,
-    tab.id,
-    "return el ? el.textContent.trim() : null;",
-  );
-
   return {
     id: command.id,
     success: true,
-    data: { text: (await evaluateRuntime(tab.id, script)) ?? "" },
+    data: {
+      text:
+        (await readElement(
+          tab.id,
+          selector,
+          command.ownerId,
+          "return el ? el.textContent.trim() : null;",
+        )) ?? "",
+    },
   };
 }
 
@@ -228,17 +256,17 @@ export async function handleGetAttribute(command) {
   if (!selector) throw new Error("Selector is required");
   if (!attribute) throw new Error("Attribute name is required");
 
-  const script = buildElementExpression(
-    selector,
-    command.ownerId,
-    tab.id,
-    `return el ? el.getAttribute(${JSON.stringify(attribute)}) : null;`,
-  );
-
   return {
     id: command.id,
     success: true,
-    data: { value: await evaluateRuntime(tab.id, script) },
+    data: {
+      value: await readElement(
+        tab.id,
+        selector,
+        command.ownerId,
+        `return el ? el.getAttribute(${JSON.stringify(attribute)}) : null;`,
+      ),
+    },
   };
 }
 

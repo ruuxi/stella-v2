@@ -12,6 +12,7 @@ import {
   buildTopLevelRectSource,
 } from "../lib/selector.js";
 import { ensureDebugger, evaluateRuntime } from "../lib/debugger.js";
+import { callExactElement, exactElementPoint } from "../lib/frame-elements.js";
 import {
   buildAgentCursorPresentationExpression,
   trackAgentCursorTab,
@@ -27,6 +28,8 @@ import {
  * Uses CDP Runtime.evaluate to bypass CSP restrictions (no new Function/eval).
  */
 async function injectScript(tabId, resolved, actionScript, options) {
+  if (resolved.exactNode)
+    return callExactElement(tabId, resolved, actionScript, options);
   const finderScript = buildResolvedElementMatcherScript(resolved);
   const missingMessage = resolved.isRef
     ? "Element not found"
@@ -42,6 +45,7 @@ async function injectScript(tabId, resolved, actionScript, options) {
   return evaluateRuntime(tabId, script, options);
 }
 async function getClickablePoint(tabId, resolved) {
+  if (resolved.exactNode) return exactElementPoint(tabId, resolved);
   const point = await injectScript(
     tabId,
     resolved,
@@ -110,9 +114,27 @@ async function presentAgentCursor(
   throwIfCommandAborted(command);
 }
 
-async function dispatchPointerClick(command, tabId, point, clickCount) {
+async function dispatchPointerClick(
+  command,
+  tabId,
+  point,
+  clickCount,
+  resolved,
+) {
   await ensureDebugger(tabId);
   await presentAgentCursor(command, tabId, point);
+  if (resolved?.exactNode) {
+    const currentPoint = await exactElementPoint(tabId, resolved);
+    if (
+      Math.abs(currentPoint.x - point.x) > 1 ||
+      Math.abs(currentPoint.y - point.y) > 1
+    ) {
+      throw new Error(
+        "Exact element moved during cursor travel. Observe and retry the click.",
+      );
+    }
+  }
+  throwIfCommandAborted(command);
   markCommandMutationDispatched(command);
   await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
     type: "mouseMoved",
@@ -150,6 +172,9 @@ export async function handleClick(command) {
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
   const point = await getClickablePoint(tab.id, resolved);
   await presentAgentCursor(command, tab.id, point);
+  if (resolved.exactNode)
+    await callExactElement(tab.id, resolved, "return true;");
+  throwIfCommandAborted(command);
   markCommandMutationDispatched(command);
   await injectScript(
     tab.id,
@@ -537,7 +562,7 @@ export async function handleDblclick(command) {
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
   const point = await getClickablePoint(tab.id, resolved);
-  await dispatchPointerClick(command, tab.id, point, 2);
+  await dispatchPointerClick(command, tab.id, point, 2, resolved);
 
   return { id: command.id, success: true, data: { dblclicked: true } };
 }
@@ -557,6 +582,14 @@ export async function handleWait(command) {
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
 
   // Poll until element appears or timeout
+  if (resolved.exactNode) {
+    await callExactElement(tab.id, resolved, "return true;");
+    return {
+      id: command.id,
+      success: true,
+      data: { waited: true, found: true },
+    };
+  }
   const startTime = Date.now();
   const pollInterval = 200;
 

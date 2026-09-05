@@ -904,6 +904,7 @@ pub struct DaemonState {
     pub webdriver_backend: Option<super::webdriver::backend::WebDriverBackend>,
     pub backend_type: BackendType,
     pub ref_map: RefMap,
+    pub ax_next_ref: usize,
     pub domain_filter: Option<DomainFilter>,
     pub event_tracker: EventTracker,
     pub session_name: Option<String>,
@@ -969,6 +970,7 @@ impl DaemonState {
             webdriver_backend: None,
             backend_type: BackendType::Cdp,
             ref_map: RefMap::new(),
+            ax_next_ref: 1_000_000,
             domain_filter: env::var("STELLA_BROWSER_ALLOWED_DOMAINS")
                 .ok()
                 .filter(|s| !s.is_empty())
@@ -1948,6 +1950,7 @@ async fn dispatch_action(
         "evaluate" => handle_evaluate(cmd, state).await,
         "evaluate_detached" => handle_evaluate_detached(cmd, state).await,
         "close" => handle_close(state).await,
+        "snapshot" if cmd.get("format").and_then(Value::as_str) == Some("ax") => handle_ax_snapshot(cmd, state).await,
         "snapshot" => handle_snapshot(cmd, state).await,
         "screenshot" => handle_screenshot(cmd, state).await,
         "click" => handle_click(cmd, state).await,
@@ -2878,6 +2881,25 @@ async fn forward_targeted_extension_command(cmd: &Value, state: &DaemonState) ->
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    let requests_snapshot = cmd.get("action").and_then(Value::as_str) == Some("snapshot")
+        || (cmd.get("action").and_then(Value::as_str) == Some("chain")
+            && (cmd.get("returnSnapshot").and_then(Value::as_bool) == Some(true)
+                || cmd
+                    .get("steps")
+                    .and_then(Value::as_array)
+                    .is_some_and(|steps| {
+                        steps.iter().any(|step| {
+                            step.get("action").and_then(Value::as_str) == Some("snapshot")
+                        })
+                    })));
+    if requests_snapshot
+        && state
+            .domain_filter
+            .as_ref()
+            .is_some_and(|filter| !filter.allowed_domains.is_empty())
+    {
+        return error_response(&id, "External frame snapshots are unavailable with a configured domain allowlist. Use the in-app browser, which validates each frame's domain before capture.");
+    }
     if let Some(ref bridge) = state.extension_bridge {
         return forward_extension_command(cmd, bridge).await;
     }
@@ -3717,6 +3739,55 @@ pub(crate) async fn teardown_daemon_state(
 // Phase 2 handlers
 // ---------------------------------------------------------------------------
 
+async fn handle_ax_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+    let session_id = mgr.active_session_id()?;
+    let options = SnapshotOptions {
+        selector: cmd
+            .get("selector")
+            .and_then(Value::as_str)
+            .map(String::from),
+        interactive: cmd
+            .get("interactive")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        compact: cmd.get("compact").and_then(Value::as_bool).unwrap_or(false),
+        depth: cmd
+            .get("maxDepth")
+            .or_else(|| cmd.get("depth"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize),
+        cursor: cmd.get("cursor").and_then(Value::as_bool).unwrap_or(false),
+    };
+    let (snapshot, document_key, refs) = snapshot::take_ax_snapshot(
+        &mgr.client,
+        session_id,
+        &options,
+        state.domain_filter.as_ref(),
+        &state.ref_map,
+        state.ax_next_ref,
+    )
+    .await?;
+    let public_refs: serde_json::Map<String, Value> = refs
+        .entries_sorted()
+        .into_iter()
+        .map(|(id, entry)| {
+            let frame_id = entry
+                .frame_scope
+                .as_ref()
+                .and_then(|frames| frames.last())
+                .map(|frame| frame.frame_id.as_str());
+            (
+                id,
+                json!({"role": entry.role, "name": entry.name, "frameId": frame_id}),
+            )
+        })
+        .collect();
+    state.ax_next_ref = refs.next_ref_num();
+    state.ref_map = refs;
+    Ok(json!({"snapshot": snapshot, "refs": public_refs, "documentKey": document_key}))
+}
+
 async fn handle_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let session_id = mgr.active_session_id()?.to_string();
@@ -3894,6 +3965,7 @@ async fn handle_click(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
         use super::element::resolve_element_object_id;
         let object_id =
             resolve_element_object_id(&mgr.client, &session_id, &state.ref_map, selector).await?;
+        let session_id = super::element::ref_session(&session_id, &state.ref_map, selector);
         let call_params = json!({
             "objectId": object_id,
             "functionDeclaration": "function() { var h = this.getAttribute('href'); if (!h) return null; try { return new URL(h, document.baseURI).toString(); } catch(e) { return null; } }",

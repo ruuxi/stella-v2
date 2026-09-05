@@ -288,6 +288,7 @@ export function resolveSelector(selector, ownerId, tabId) {
       name: data.name,
       nth: data.nth,
       isRef: true,
+      ...(data.exact ? { exactNode: data } : {}),
     };
   }
 
@@ -351,6 +352,8 @@ export function buildComposedCssMatcherScript(selector) {
 
 /** Build page-context JS for either a semantic/ref locator or composed CSS. */
 export function buildResolvedElementMatcherScript(resolved) {
+  if (resolved.exactNode)
+    throw new Error("Exact frame refs require frame-scoped element evaluation");
   return resolved.isRef
     ? buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth)
     : buildComposedCssMatcherScript(resolved.css);

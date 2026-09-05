@@ -20,11 +20,22 @@ pub struct RefEntry {
     pub nth: Option<usize>,
     pub selector: Option<String>,
     pub hints: RefLocatorHints,
+    pub frame_scope: Option<Vec<RefFrame>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RefFrame {
+    pub frame_id: String,
+    pub loader_id: String,
+    pub session_id: String,
+}
+
+#[derive(Clone)]
 pub struct RefMap {
     map: HashMap<String, RefEntry>,
     next_ref: usize,
+    capture_scope: Option<Vec<RefFrame>>,
+    capture_ref_ids: HashSet<String>,
 }
 
 impl RefMap {
@@ -32,6 +43,8 @@ impl RefMap {
         Self {
             map: HashMap::new(),
             next_ref: 1,
+            capture_scope: None,
+            capture_ref_ids: HashSet::new(),
         }
     }
 
@@ -62,6 +75,9 @@ impl RefMap {
         nth: Option<usize>,
         hints: RefLocatorHints,
     ) {
+        if self.capture_scope.is_some() {
+            self.capture_ref_ids.insert(ref_id.clone());
+        }
         self.map.insert(
             ref_id,
             RefEntry {
@@ -71,6 +87,7 @@ impl RefMap {
                 nth,
                 selector: None,
                 hints,
+                frame_scope: self.capture_scope.clone(),
             },
         );
     }
@@ -92,12 +109,47 @@ impl RefMap {
                 nth,
                 selector: Some(selector),
                 hints: RefLocatorHints::default(),
+                frame_scope: None,
             },
         );
     }
 
     pub fn get(&self, ref_id: &str) -> Option<&RefEntry> {
         self.map.get(ref_id)
+    }
+
+    pub fn set_capture_scope(&mut self, scope: Option<Vec<RefFrame>>) {
+        self.capture_scope = scope;
+        self.capture_ref_ids.clear();
+    }
+
+    pub fn captured_ref_ids(&self) -> &HashSet<String> {
+        &self.capture_ref_ids
+    }
+
+    pub fn has_capture_scope(&self) -> bool {
+        self.capture_scope.is_some()
+    }
+
+    pub fn scoped_ref_id(&mut self, backend_id: Option<i64>) -> String {
+        let frame = self.capture_scope.as_ref().and_then(|scope| scope.last());
+        if let (Some(frame), Some(backend_id)) = (frame, backend_id) {
+            if let Some((id, _)) = self.map.iter().find(|(_, entry)| {
+                entry.backend_node_id == Some(backend_id)
+                    && entry
+                        .frame_scope
+                        .as_ref()
+                        .and_then(|scope| scope.last())
+                        .is_some_and(|old| {
+                            old.frame_id == frame.frame_id && old.loader_id == frame.loader_id
+                        })
+            }) {
+                return id.clone();
+            }
+        }
+        let id = format!("e{}", self.next_ref);
+        self.next_ref += 1;
+        id
     }
 
     pub fn entries_sorted(&self) -> Vec<(String, RefEntry)> {
@@ -120,6 +172,8 @@ impl RefMap {
     pub fn clear(&mut self) {
         self.map.clear();
         self.next_ref = 1;
+        self.capture_scope = None;
+        self.capture_ref_ids.clear();
     }
 
     /// Drop ref entries that were not included in the snapshot returned to
@@ -137,6 +191,67 @@ impl RefMap {
     pub fn set_next_ref_num(&mut self, n: usize) {
         self.next_ref = n;
     }
+}
+
+pub fn ref_frame_scope<'a>(ref_map: &'a RefMap, selector: &str) -> Option<&'a [RefFrame]> {
+    let id = parse_ref(selector)?;
+    ref_map.get(&id)?.frame_scope.as_deref()
+}
+
+pub fn ref_session<'a>(session_id: &'a str, ref_map: &'a RefMap, selector: &str) -> &'a str {
+    ref_frame_scope(ref_map, selector)
+        .and_then(|scope| scope.last())
+        .map(|frame| frame.session_id.as_str())
+        .unwrap_or(session_id)
+}
+
+pub fn find_frame<'a>(tree: &'a Value, frame_id: &str) -> Option<&'a Value> {
+    if tree
+        .get("frame")
+        .and_then(|frame| frame.get("id"))
+        .and_then(Value::as_str)
+        == Some(frame_id)
+    {
+        return tree.get("frame");
+    }
+    tree.get("childFrames")
+        .and_then(Value::as_array)?
+        .iter()
+        .find_map(|child| find_frame(child, frame_id))
+}
+
+pub async fn validate_ref_scope(
+    client: &CdpClient,
+    session_id: &str,
+    entry: &RefEntry,
+) -> Result<(), String> {
+    let Some(scope) = &entry.frame_scope else {
+        return Ok(());
+    };
+    if !scope
+        .first()
+        .is_some_and(|frame| frame.session_id == session_id)
+    {
+        return Err(
+            "This ref belongs to a different browser tab. Capture a new AX snapshot.".into(),
+        );
+    }
+    for frame in scope {
+        let result = client
+            .send_command_no_params("Page.getFrameTree", Some(&frame.session_id))
+            .await?;
+        let current = result
+            .get("frameTree")
+            .and_then(|tree| find_frame(tree, &frame.frame_id));
+        if current
+            .and_then(|frame| frame.get("loaderId"))
+            .and_then(Value::as_str)
+            != Some(frame.loader_id.as_str())
+        {
+            return Err("This ref is stale because its document or ancestor frame navigated. Capture a new AX snapshot.".into());
+        }
+    }
+    Ok(())
 }
 
 pub fn parse_ref(input: &str) -> Option<String> {
@@ -175,6 +290,9 @@ pub async fn resolve_element_center(
             .get(&ref_id)
             .ok_or_else(|| format!("Unknown ref: {}", ref_id))?;
 
+        validate_ref_scope(client, session_id, entry).await?;
+        let session_id = ref_session(session_id, ref_map, selector_or_ref);
+
         // Try cached backend_node_id first (fast path)
         if let Some(backend_node_id) = entry.backend_node_id {
             let result: Result<DomGetBoxModelResult, String> = client
@@ -195,6 +313,9 @@ pub async fn resolve_element_center(
             // backend_node_id is stale; re-query the accessibility tree below
         }
 
+        if entry.frame_scope.is_some() {
+            return Err("This AX ref no longer resolves. Capture a new AX snapshot.".into());
+        }
         // Fallback: re-query the accessibility tree to find a fresh node by role/name
         let fresh_id = find_node_id_by_ref_entry(client, session_id, entry).await?;
         let result: DomGetBoxModelResult = client
@@ -302,6 +423,9 @@ pub async fn resolve_element_object_id(
             .get(&ref_id)
             .ok_or_else(|| format!("Unknown ref: {}", ref_id))?;
 
+        validate_ref_scope(client, session_id, entry).await?;
+        let session_id = ref_session(session_id, ref_map, selector_or_ref);
+
         // Try cached backend_node_id first (fast path)
         if let Some(backend_node_id) = entry.backend_node_id {
             let result: Result<DomResolveNodeResult, String> = client
@@ -324,6 +448,9 @@ pub async fn resolve_element_object_id(
             // backend_node_id is stale; re-query the accessibility tree below
         }
 
+        if entry.frame_scope.is_some() {
+            return Err("This AX ref no longer resolves. Capture a new AX snapshot.".into());
+        }
         // Fallback: re-query the accessibility tree to find a fresh node by role/name
         let fresh_id = find_node_id_by_ref_entry(client, session_id, entry).await?;
         let result: DomResolveNodeResult = client
@@ -621,6 +748,7 @@ pub async fn get_element_text(
     selector_or_ref: &str,
 ) -> Result<String, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -652,6 +780,7 @@ pub async fn get_element_attribute(
     attribute: &str,
 ) -> Result<Value, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -680,6 +809,7 @@ pub async fn is_element_visible(
     selector_or_ref: &str,
 ) -> Result<bool, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -717,6 +847,7 @@ pub async fn is_element_enabled(
     selector_or_ref: &str,
 ) -> Result<bool, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -746,6 +877,7 @@ pub async fn is_element_checked(
     selector_or_ref: &str,
 ) -> Result<bool, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     // Mirrors Playwright's getChecked() with follow-label retargeting:
     // 1. If element is a native checkbox/radio input, return .checked
@@ -808,6 +940,7 @@ pub async fn get_element_inner_text(
     selector_or_ref: &str,
 ) -> Result<String, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -837,6 +970,7 @@ pub async fn get_element_inner_html(
     selector_or_ref: &str,
 ) -> Result<String, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -866,6 +1000,7 @@ pub async fn get_element_input_value(
     selector_or_ref: &str,
 ) -> Result<String, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -898,6 +1033,7 @@ pub async fn set_element_value(
     value: &str,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let js = format!(
         "function() {{ this.value = {}; this.dispatchEvent(new Event('input', {{bubbles: true}})); this.dispatchEvent(new Event('change', {{bubbles: true}})); }}",
@@ -928,6 +1064,7 @@ pub async fn get_element_bounding_box(
     selector_or_ref: &str,
 ) -> Result<Value, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -1009,6 +1146,7 @@ pub async fn get_element_styles(
     properties: Option<Vec<String>>,
 ) -> Result<Value, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let js = match properties {
         Some(props) => {
@@ -1078,6 +1216,7 @@ mod tests {
             name: name.to_string(),
             nth: None,
             selector: None,
+            frame_scope: None,
             hints: RefLocatorHints {
                 description: description.to_string(),
                 value_text: value_text.to_string(),

@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use super::cdp::client::CdpClient;
 use super::cdp::types::*;
-use super::element::{resolve_element_object_id, RefMap};
+use super::element::{ref_frame_scope, ref_session, resolve_element_object_id, RefFrame, RefMap};
 
 // ---------------------------------------------------------------------------
 // Actionability
@@ -122,7 +122,7 @@ const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
 /// It scrolls the element into view when needed (block: nearest first, then
 /// center as a fallback) before measuring; scrollIntoView also scrolls
 /// same-origin ancestor frames.
-const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
+const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit, scopedFrame) {
     const el = this;
     if (!el.isConnected) return { status: 'detached' };
     const doc = el.ownerDocument;
@@ -247,7 +247,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     // cross-origin boundary (frameElement inaccessible).
     const toTop = (x, y) => {
         let w = win;
-        for (let depth = 0; depth < 16 && w && w !== w.parent; depth += 1) {
+        for (let depth = 0; depth < 16 && !scopedFrame && w && w !== w.parent; depth += 1) {
             let frame = null;
             try { frame = w.frameElement; } catch (e) { frame = null; }
             if (!frame) return null;
@@ -326,7 +326,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     let w = win;
     let px = lp.x;
     let py = lp.y;
-    for (let depth = 0; depth < 16 && w && w !== w.parent; depth += 1) {
+    for (let depth = 0; depth < 16 && !scopedFrame && w && w !== w.parent; depth += 1) {
         let frame = null;
         try { frame = w.frameElement; } catch (e) { frame = null; }
         if (!frame) return fail('cross-origin-frame');
@@ -441,6 +441,95 @@ fn actionability_failure_message(
     format!("{}{}", base, actionability_diagnostic_suffix(details))
 }
 
+async fn frame_owner(
+    client: &CdpClient,
+    parent: &RefFrame,
+    child: &RefFrame,
+) -> Result<i64, String> {
+    let owner = client
+        .send_command(
+            "DOM.getFrameOwner",
+            Some(serde_json::json!({"frameId": child.frame_id})),
+            Some(&parent.session_id),
+        )
+        .await?;
+    owner
+        .get("backendNodeId")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Frame owner is no longer available. Capture a new AX snapshot.".to_string())
+}
+
+async fn translate_frame_point(
+    client: &CdpClient,
+    scope: &[RefFrame],
+    mut x: f64,
+    mut y: f64,
+    require_hit: bool,
+) -> Result<(f64, f64), String> {
+    for pair in scope.windows(2).rev() {
+        let owner = frame_owner(client, &pair[0], &pair[1]).await?;
+        let object: DomResolveNodeResult = client
+            .send_command_typed(
+                "DOM.resolveNode",
+                &DomResolveNodeParams {
+                    backend_node_id: Some(owner),
+                    node_id: None,
+                    object_group: Some("stella-browser".to_string()),
+                },
+                Some(&pair[0].session_id),
+            )
+            .await?;
+        let object_id = object
+            .object
+            .object_id
+            .ok_or("Frame owner is no longer attached")?;
+        let result: EvaluateResult = client.send_command_typed("Runtime.callFunctionOn", &CallFunctionOnParams {
+            function_declaration: r#"function(x, y, requireHit) {
+                const doc = this.ownerDocument, win = doc.defaultView;
+                if (!this.isConnected || !win) return {error:'Frame detached'};
+                const style = win.getComputedStyle(this);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return {error:'Frame hidden'};
+                for (let node = this; node;) {
+                    const s = win.getComputedStyle(node);
+                    const matrix = new win.DOMMatrixReadOnly(s.transform === 'none' ? undefined : s.transform);
+                    if (matrix.b !== 0 || matrix.c !== 0 || !matrix.is2D || matrix.a <= 0 || matrix.d <= 0) return {error:'Rotated, mirrored or 3D frame ancestors cannot be clicked safely'};
+                    if (Number.parseFloat(s.zoom || '1') !== 1) return {error:'CSS zoom on frame ancestors is unsupported'};
+                    node = node.parentElement || node.getRootNode()?.host;
+                }
+                const r = this.getBoundingClientRect();
+                if (!r.width || !r.height || !this.offsetWidth || !this.offsetHeight) return {error:'Frame has no visible bounds'};
+                const px = r.left + (x + this.clientLeft) * r.width / this.offsetWidth;
+                const py = r.top + (y + this.clientTop) * r.height / this.offsetHeight;
+                if (px < 0 || py < 0 || px >= win.innerWidth || py >= win.innerHeight) return {error:'Frame point is outside viewport'};
+                if (requireHit) {
+                    let hit = doc.elementFromPoint(px, py);
+                    while(hit?.shadowRoot) {const inner = hit.shadowRoot.elementFromPoint(px, py); if (!inner || inner === hit) break; hit=inner;}
+                    if (hit !== this && !this.contains(hit)) return {error:'Frame is covered by another element'};
+                }
+                return {x:px,y:py};
+            }"#.to_string(), object_id: Some(object_id),
+            arguments: Some(vec![CallArgument {value: Some(serde_json::json!(x)),object_id: None},CallArgument {value: Some(serde_json::json!(y)),object_id: None},CallArgument {value: Some(serde_json::json!(require_hit)),object_id: None}]),
+            return_by_value: Some(true), await_promise: Some(false),
+        }, Some(&pair[0].session_id)).await?;
+        let value = result
+            .result
+            .value
+            .ok_or("Frame point could not be translated")?;
+        if let Some(error) = value.get("error").and_then(Value::as_str) {
+            return Err(error.to_string());
+        }
+        x = value
+            .get("x")
+            .and_then(Value::as_f64)
+            .ok_or("Frame point has no x")?;
+        y = value
+            .get("y")
+            .and_then(Value::as_f64)
+            .ok_or("Frame point has no y")?;
+    }
+    Ok((x, y))
+}
+
 /// Run one actionability probe against a freshly-resolved element.
 /// Outer Err = resolution failure; inner Err = actionability failure message.
 async fn actionability_check_once(
@@ -451,17 +540,37 @@ async fn actionability_check_once(
     require_hit: bool,
 ) -> Result<Result<ActionablePoint, String>, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    if let Some(scope) = ref_frame_scope(ref_map, selector_or_ref) {
+        for pair in scope.windows(2) {
+            let owner = frame_owner(client, &pair[0], &pair[1]).await?;
+            client
+                .send_command(
+                    "DOM.scrollIntoViewIfNeeded",
+                    Some(serde_json::json!({"backendNodeId": owner})),
+                    Some(&pair[0].session_id),
+                )
+                .await?;
+        }
+    }
     let result: EvaluateResult = client
         .send_command_typed(
             "Runtime.callFunctionOn",
             &CallFunctionOnParams {
                 function_declaration: ACTIONABILITY_CHECK_JS.to_string(),
                 object_id: Some(object_id.clone()),
-                arguments: Some(vec![CallArgument {
-                    value: Some(serde_json::json!(require_hit)),
-                    object_id: None,
-                }]),
+                arguments: Some(vec![
+                    CallArgument {
+                        value: Some(serde_json::json!(require_hit)),
+                        object_id: None,
+                    },
+                    CallArgument {
+                        value: Some(serde_json::json!(
+                            ref_frame_scope(ref_map, selector_or_ref).is_some()
+                        )),
+                        object_id: None,
+                    },
+                ]),
                 return_by_value: Some(true),
                 await_promise: Some(false),
             },
@@ -479,6 +588,11 @@ async fn actionability_check_once(
         let x = value.get("x").and_then(|v| v.as_f64());
         let y = value.get("y").and_then(|v| v.as_f64());
         if let (Some(x), Some(y)) = (x, y) {
+            let (x, y) = if let Some(scope) = ref_frame_scope(ref_map, selector_or_ref) {
+                translate_frame_point(client, scope, x, y, require_hit).await?
+            } else {
+                (x, y)
+            };
             return Ok(Ok(ActionablePoint { object_id, x, y }));
         }
     }
@@ -543,7 +657,17 @@ pub async fn click(
     click_count: i32,
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
-    dispatch_click(client, session_id, point.x, point.y, button, click_count).await
+    dispatch_click(
+        client,
+        session_id,
+        ref_map,
+        selector_or_ref,
+        point.x,
+        point.y,
+        button,
+        click_count,
+    )
+    .await
 }
 
 pub async fn dblclick(
@@ -592,6 +716,7 @@ pub async fn fill(
     // Actionability: visible + non-zero size (occlusion does not matter for
     // focus-based input, so require_hit is false).
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
     let object_id = point.object_id;
 
     let result: EvaluateResult = client
@@ -654,6 +779,7 @@ pub async fn type_text(
     delay_ms: Option<u64>,
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
     let object_id = point.object_id;
 
     // Focus
@@ -913,6 +1039,7 @@ pub async fn scroll(
 ) -> Result<(), String> {
     if let Some(sel) = selector_or_ref {
         let object_id = resolve_element_object_id(client, session_id, ref_map, sel).await?;
+        let session_id = ref_session(session_id, ref_map, sel);
         let js = "function(dx, dy) { this.scrollBy(dx, dy); }".to_string();
         client
             .send_command_typed::<_, Value>(
@@ -961,6 +1088,7 @@ pub async fn select_option(
     values: &[String],
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
     let object_id = point.object_id;
 
     let js = r#"function(vals) {
@@ -1081,6 +1209,7 @@ async fn js_click_checkbox(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let js = r#"function() {
             var el = this;
@@ -1130,6 +1259,7 @@ pub async fn focus(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     client
         .send_command_typed::<_, Value>(
@@ -1155,6 +1285,7 @@ pub async fn clear(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     client
         .send_command_typed::<_, Value>(
@@ -1186,6 +1317,7 @@ pub async fn select_all(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     client
         .send_command_typed::<_, Value>(
@@ -1223,6 +1355,7 @@ pub async fn scroll_into_view(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     client
         .send_command_typed::<_, Value>(
@@ -1252,6 +1385,7 @@ pub async fn dispatch_event(
     event_init: Option<&Value>,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     let init_json = event_init
         .map(|v| serde_json::to_string(v).unwrap_or("{}".to_string()))
@@ -1287,6 +1421,7 @@ pub async fn highlight(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let session_id = ref_session(session_id, ref_map, selector_or_ref);
 
     client
         .send_command_typed::<_, Value>(
@@ -1351,6 +1486,8 @@ pub async fn tap_touch(
 async fn dispatch_click(
     client: &CdpClient,
     session_id: &str,
+    ref_map: &RefMap,
+    selector_or_ref: &str,
     x: f64,
     y: f64,
     button: &str,
@@ -1374,6 +1511,16 @@ async fn dispatch_click(
             Some(session_id),
         )
         .await?;
+
+    if ref_frame_scope(ref_map, selector_or_ref).is_some() {
+        // The adapter awaits cursor arrival during mouseMoved. Validate the
+        // disclosed document and final hit point again before pressing.
+        let point =
+            actionability_check_once(client, session_id, ref_map, selector_or_ref, true).await??;
+        if (point.x - x).abs() > 0.5 || (point.y - y).abs() > 0.5 {
+            return Err("AX target moved while the cursor travelled. Capture a new snapshot before clicking.".into());
+        }
+    }
 
     let button_value = match button {
         "right" => 2,

@@ -11,6 +11,7 @@ import {
   buildComposedCssMatcherScript,
 } from "../lib/selector.js";
 import { evaluateRuntime } from "../lib/debugger.js";
+import { callExactElement } from "../lib/frame-elements.js";
 import {
   attachCommandExecution,
   markCommandMutationOutcomeKnown,
@@ -404,9 +405,13 @@ async function waitForStepSelector(command, selector, timeout = 10000, signal) {
     if (signal?.aborted) {
       throw signal.reason || new Error("Browser chain selector wait aborted");
     }
+    let exactRef = false;
     try {
       const tab = await getActiveTab(command);
       const resolved = resolveSelector(selector, command.ownerId, tab.id);
+      exactRef = !!resolved.exactNode;
+      if (exactRef)
+        return await callExactElement(tab.id, resolved, "return true;");
       if (resolved.isRef) {
         const finder = buildRoleMatcherScript(
           resolved.role,
@@ -419,7 +424,8 @@ async function waitForStepSelector(command, selector, timeout = 10000, signal) {
         const found = await evaluateRuntime(tab.id, `!!(${finder.trim()})`);
         if (found) return true;
       }
-    } catch {
+    } catch (cause) {
+      if (exactRef) throw cause;
       // Page might be navigating, keep polling
     }
     const remaining = deadline - Date.now();

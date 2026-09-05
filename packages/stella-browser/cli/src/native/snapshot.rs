@@ -6,10 +6,193 @@ use super::cdp::client::CdpClient;
 use super::cdp::types::{
     AXNode, AXProperty, AXValue, EvaluateParams, EvaluateResult, GetFullAXTreeResult,
 };
-use super::element::{RefLocatorHints, RefMap};
+use super::element::{RefFrame, RefLocatorHints, RefMap};
 
 const MAX_SNAPSHOT_CHARS: usize = 20_000;
 const MAX_SNAPSHOT_ELEMENTS: usize = 200;
+const MAX_SNAPSHOT_FRAMES: usize = 32;
+const MAX_FRAME_DEPTH: usize = 8;
+
+/// Capture true Chromium AX trees in document order, keeping every disclosed
+/// ref bound to its owning frame, target session and document loader.
+pub async fn take_ax_snapshot(
+    client: &CdpClient,
+    session_id: &str,
+    options: &SnapshotOptions,
+    domain_filter: Option<&super::network::DomainFilter>,
+    previous_refs: &RefMap,
+    next_ref: usize,
+) -> Result<(String, String, RefMap), String> {
+    if options.cursor {
+        return Err("AX snapshots do not support cursor discovery.".into());
+    }
+    let root = client
+        .send_command_no_params("Page.getFrameTree", Some(session_id))
+        .await?;
+    let root_tree = root
+        .get("frameTree")
+        .ok_or("Browser did not return a frame tree")?;
+    let mut pending = vec![(
+        root_tree.clone(),
+        Vec::<RefFrame>::new(),
+        session_id.to_string(),
+    )];
+    let mut refs = previous_refs.clone();
+    refs.set_next_ref_num(next_ref);
+    let mut output = String::new();
+    let mut captured = Vec::new();
+    let mut omitted_frames = 0;
+    while let Some((tree, mut scope, parent_session)) = pending.pop() {
+        if captured.len() >= MAX_SNAPSHOT_FRAMES || scope.len() >= MAX_FRAME_DEPTH {
+            omitted_frames += 1;
+            continue;
+        }
+        let frame = tree.get("frame").ok_or("Missing frame metadata")?;
+        let frame_id = frame
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("Missing frame id")?;
+        let mut frame_session = parent_session.clone();
+        // Same-process frames share their parent's CDP session. OOPIFs require
+        // their own flattened target session; a frame ID is also its target ID.
+        let parent_tree = client
+            .send_command_no_params("Page.getFrameTree", Some(&parent_session))
+            .await?;
+        if !scope.is_empty()
+            && parent_tree
+                .get("frameTree")
+                .and_then(|tree| super::element::find_frame(tree, frame_id))
+                .is_none()
+        {
+            frame_session = client
+                .attach_frame(&parent_session, frame_id)
+                .await
+                .map_err(|error| format!("Could not attach frame {frame_id}: {error}"))?;
+            client
+                .send_command_no_params("Page.enable", Some(&frame_session))
+                .await?;
+        }
+        let current_tree = client
+            .send_command_no_params("Page.getFrameTree", Some(&frame_session))
+            .await?;
+        let current = current_tree
+            .get("frameTree")
+            .and_then(|tree| super::element::find_frame(tree, frame_id))
+            .ok_or("Frame detached during AX snapshot")?;
+        if let Some(filter) = domain_filter {
+            let url = current
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or("Missing frame URL")?;
+            filter.check_url(url)?;
+        }
+        let loader_id = current
+            .get("loaderId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or("Frame has no document loader identity")?;
+        if frame
+            .get("loaderId")
+            .and_then(Value::as_str)
+            .is_some_and(|initial| initial != loader_id)
+        {
+            return Err("A frame navigated during AX capture. Capture a new AX snapshot.".into());
+        }
+        scope.push(RefFrame {
+            frame_id: frame_id.to_string(),
+            loader_id: loader_id.to_string(),
+            session_id: frame_session.clone(),
+        });
+        refs.set_capture_scope(Some(scope.clone()));
+        let text =
+            take_snapshot(client, &frame_session, options, &mut refs, Some(frame_id)).await?;
+        let indent = "  ".repeat(scope.len() - 1);
+        output.push_str(&format!("{indent}- frame [frame={frame_id}]\n"));
+        for line in text.lines() {
+            output.push_str(&format!("{indent}  {line}\n"));
+        }
+        captured.push(scope.last().ok_or("Missing captured frame")?.clone());
+        let expanded_tree = current_tree
+            .get("frameTree")
+            .filter(|tree| {
+                tree.get("frame")
+                    .and_then(|frame| frame.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(frame_id)
+            })
+            .unwrap_or(&tree);
+        let current_iframes = refs
+            .entries_sorted()
+            .into_iter()
+            .filter(|(ref_id, entry)| {
+                refs.captured_ref_ids().contains(ref_id) && entry.role == "Iframe"
+            })
+            .collect::<Vec<_>>();
+        if bound_snapshot_with_budget(&output, 0, MAX_SNAPSHOT_CHARS - 512).truncated {
+            omitted_frames += pending.len() + current_iframes.len();
+            break;
+        }
+        if options.selector.is_none() {
+            let known_children = expanded_tree.get("childFrames").and_then(Value::as_array);
+            let mut children = Vec::new();
+            let mut seen = HashSet::new();
+            for (_, entry) in current_iframes {
+                let Some(backend_id) = entry.backend_node_id else {
+                    continue;
+                };
+                let child_id = resolve_iframe_frame_id(client, &frame_session, backend_id).await?;
+                if !seen.insert(child_id.clone()) {
+                    continue;
+                }
+                let known = known_children.and_then(|children| {
+                    children.iter().find(|tree| {
+                        tree.get("frame")
+                            .and_then(|frame| frame.get("id"))
+                            .and_then(Value::as_str)
+                            == Some(child_id.as_str())
+                    })
+                });
+                children.push(
+                    known
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({"frame":{"id":child_id}})),
+                );
+            }
+            for child in children.into_iter().rev() {
+                pending.push((child, scope.clone(), frame_session.clone()));
+            }
+        }
+    }
+    // A capture that spans document replacement must never publish old refs
+    // with new text or let the runtime compute a diff across those documents.
+    for frame in &captured {
+        let current = client
+            .send_command_no_params("Page.getFrameTree", Some(&frame.session_id))
+            .await?;
+        if current
+            .get("frameTree")
+            .and_then(|tree| super::element::find_frame(tree, &frame.frame_id))
+            .and_then(|frame| frame.get("loaderId"))
+            .and_then(Value::as_str)
+            != Some(frame.loader_id.as_str())
+        {
+            return Err("A frame navigated during AX capture. Capture a new AX snapshot.".into());
+        }
+    }
+    // Reserve room for both bounded-output and omitted-frame metadata.
+    let mut bounded = bound_snapshot_with_budget(&output, 0, MAX_SNAPSHOT_CHARS - 512);
+    if omitted_frames > 0 {
+        bounded.tree.push_str(&format!("\n[AX metadata: omittedFrames={omitted_frames}; maxFrames={MAX_SNAPSHOT_FRAMES}; maxFrameDepth={MAX_FRAME_DEPTH}]"));
+    }
+    refs.retain_ids(&bounded.visible_refs);
+    refs.set_capture_scope(None);
+    let documents = captured
+        .iter()
+        .map(|frame| format!("{}:{}", frame.frame_id, frame.loader_id))
+        .collect::<Vec<_>>()
+        .join("|");
+    Ok((bounded.tree, format!("{session_id}|{documents}"), refs))
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct BoundedSnapshot {
@@ -215,13 +398,64 @@ pub async fn take_snapshot(
             None
         };
 
-    let ax_tree: GetFullAXTreeResult = client
+    let mut ax_tree: GetFullAXTreeResult = client
         .send_command_typed(
             "Accessibility.getFullAXTree",
-            &serde_json::json!({}),
+            &match frame_id {
+                Some(id) => serde_json::json!({"frameId": id}),
+                None => serde_json::json!({}),
+            },
             Some(session_id),
         )
         .await?;
+
+    // Chromium normally masks password AX values, but never rely on a
+    // platform's AX representation to protect a password field.
+    for node in &mut ax_tree.nodes {
+        if node.value.is_none()
+            || !matches!(
+                extract_ax_string(&node.role).as_str(),
+                "textbox" | "searchbox"
+            )
+        {
+            continue;
+        }
+        let Some(backend_id) = node.backend_d_o_m_node_id else {
+            node.value = None;
+            continue;
+        };
+        let description = client
+            .send_command(
+                "DOM.describeNode",
+                Some(serde_json::json!({"backendNodeId": backend_id})),
+                Some(session_id),
+            )
+            .await;
+        let safe = description
+            .ok()
+            .and_then(|value| value.get("node").cloned())
+            .map(|node| {
+                let is_input = node.get("localName").and_then(Value::as_str) == Some("input");
+                let password = node
+                    .get("attributes")
+                    .and_then(Value::as_array)
+                    .is_some_and(|attrs| {
+                        attrs.chunks_exact(2).any(|pair| {
+                            pair[0]
+                                .as_str()
+                                .is_some_and(|name| name.eq_ignore_ascii_case("type"))
+                                && pair[1]
+                                    .as_str()
+                                    .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
+                        })
+                    });
+                !is_input || !password
+            })
+            .unwrap_or(false);
+        if !safe {
+            node.value = None;
+        }
+    }
 
     let (tree_nodes, root_indices) = build_tree(&ax_tree.nodes);
 
@@ -305,8 +539,13 @@ pub async fn take_snapshot(
             None
         };
 
-        let ref_id = format!("e{}", next_ref);
-        next_ref += 1;
+        let ref_id = if ref_map.has_capture_scope() {
+            ref_map.scoped_ref_id(tree_nodes[*idx].backend_node_id)
+        } else {
+            let id = format!("e{}", next_ref);
+            next_ref += 1;
+            id
+        };
 
         let backend_node_id = tree_nodes[*idx].backend_node_id;
         let role = tree_nodes[*idx].role.clone();
@@ -341,7 +580,9 @@ pub async fn take_snapshot(
         }
     }
 
-    ref_map.set_next_ref_num(next_ref);
+    if !ref_map.has_capture_scope() {
+        ref_map.set_next_ref_num(next_ref);
+    }
 
     let mut output = String::new();
     for &root_idx in &effective_roots {
@@ -927,7 +1168,10 @@ fn render_tree(
         &node.name
     };
     if !display_name.is_empty() {
-        line.push_str(&format!(" \"{}\"", display_name));
+        line.push_str(&format!(
+            " {}",
+            serde_json::to_string(display_name).unwrap_or_default()
+        ));
     }
 
     // Properties
@@ -978,7 +1222,10 @@ fn render_tree(
     // Value
     if let Some(ref val) = node.value_text {
         if !val.is_empty() && val != &node.name {
-            line.push_str(&format!(": {}", val));
+            line.push_str(&format!(
+                ": {}",
+                serde_json::to_string(val).unwrap_or_default()
+            ));
         }
     }
 
@@ -1040,6 +1287,14 @@ fn count_indent(line: &str) -> usize {
 /// extension's JavaScript implementation accounts with `String.length`.
 /// Metadata is appended after the content budget, matching the extension.
 fn bound_snapshot(tree: &str, skipped_cross_origin_frames: usize) -> BoundedSnapshot {
+    bound_snapshot_with_budget(tree, skipped_cross_origin_frames, MAX_SNAPSHOT_CHARS)
+}
+
+fn bound_snapshot_with_budget(
+    tree: &str,
+    skipped_cross_origin_frames: usize,
+    max_chars: usize,
+) -> BoundedSnapshot {
     let mut lines = Vec::new();
     let mut emitted_chars = 0usize;
     let mut truncated = false;
@@ -1047,7 +1302,7 @@ fn bound_snapshot(tree: &str, skipped_cross_origin_frames: usize) -> BoundedSnap
     for line in tree.lines() {
         let line_chars = line.encode_utf16().count() + 1;
         if lines.len() >= MAX_SNAPSHOT_ELEMENTS
-            || emitted_chars.saturating_add(line_chars) > MAX_SNAPSHOT_CHARS
+            || emitted_chars.saturating_add(line_chars) > max_chars
         {
             truncated = true;
             break;

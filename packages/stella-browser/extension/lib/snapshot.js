@@ -150,7 +150,10 @@ export function executeSnapshot(options) {
     const children = Array.from(el.children || []);
     if (el.shadowRoot)
       children.push(...Array.from(el.shadowRoot.children || []));
-    if (el.tagName === "IFRAME" || el.tagName === "FRAME") {
+    if (
+      options.traverseFrames !== false &&
+      (el.tagName === "IFRAME" || el.tagName === "FRAME")
+    ) {
       try {
         const body = el.contentDocument?.body;
         if (body) children.push(body);
@@ -376,7 +379,7 @@ export function executeSnapshot(options) {
 
       let line = indent + "- " + role;
       let emittedRef = null;
-      if (name) line += ' "' + name.replace(/"/g, '\\"') + '"';
+      if (name) line += " " + JSON.stringify(name);
 
       const shouldRef = isInteractive || (isContent && name);
       if (shouldRef) {
@@ -392,6 +395,7 @@ export function executeSnapshot(options) {
           name: name || undefined,
           nth: count,
         };
+        options.onRef?.(ref, el);
         line += " [ref=" + ref + "]";
         if (count > 0) line += " [nth=" + count + "]";
       }
@@ -428,7 +432,10 @@ export function executeSnapshot(options) {
     if (role && !INTERACTIVE_ROLES.has(role) && !STRUCTURAL_ROLES.has(role)) {
       const text = getDirectText(el);
       if (text && !getAccessibleName(el)) {
-        addLine(lines, indent + "  " + "- text: " + text.slice(0, 200));
+        addLine(
+          lines,
+          indent + "  " + "- text: " + JSON.stringify(text.slice(0, 200)),
+        );
       }
     }
   }
@@ -471,6 +478,7 @@ export function executeSnapshot(options) {
       if (rect.width === 0 || rect.height === 0) continue;
 
       results.push({
+        element: el,
         selector: buildCssSelector(el),
         text: text,
         hasCursor: hasCursor,
@@ -483,8 +491,11 @@ export function executeSnapshot(options) {
 
   // --- Main ---
   const root = options.selector
-    ? findComposedFirst(options.selector) || document.body
+    ? findComposedFirst(options.selector)
     : document.body;
+
+  if (options.selector && !root)
+    throw new Error("Snapshot selector not found: " + options.selector);
 
   const lines = [];
   processNode(root, 0, lines);
@@ -517,6 +528,7 @@ export function executeSnapshot(options) {
       const ref = nextRef();
       const role = el.hasCursor || el.hasOnClick ? "clickable" : "focusable";
       refs[ref] = { selector: el.selector, role: role, name: el.text };
+      options.onRef?.(ref, el.element);
 
       const hints = [];
       if (el.hasCursor) hints.push("cursor:pointer");
@@ -525,9 +537,9 @@ export function executeSnapshot(options) {
       const line =
         "- " +
         role +
-        ' "' +
-        el.text +
-        '" [ref=' +
+        " " +
+        JSON.stringify(el.text) +
+        " [ref=" +
         ref +
         "] [" +
         hints.join(", ") +

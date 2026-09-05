@@ -767,6 +767,7 @@ export class InAppBrowserService {
     method: string,
     params?: Record<string, unknown>,
     ownerId?: string,
+    debuggerSessionId?: string,
   ): Promise<unknown> {
     const resolvedOwnerId = this.resolveOwnerId(ownerId);
     const tab = this.requireTab(tabId, resolvedOwnerId);
@@ -781,7 +782,7 @@ export class InAppBrowserService {
     const lease = this.acquireDrawableHost(tabId, resolvedOwnerId);
     try {
       await this.settleDrawableHost(tabId);
-      return await tabDebugger.sendCommand(method, params);
+      return await tabDebugger.sendCommand(method, params, debuggerSessionId);
     } finally {
       lease.release();
     }
@@ -790,6 +791,7 @@ export class InAppBrowserService {
   async recoverDebuggerTarget(
     tabId: string,
     ownerId?: string,
+    debuggerSessionId?: string,
   ): Promise<InAppBrowserDebuggerRecovery> {
     const resolvedOwnerId = this.resolveOwnerId(ownerId);
     const tab = this.requireTab(tabId, resolvedOwnerId);
@@ -805,7 +807,7 @@ export class InAppBrowserService {
       if (!tabDebugger.isAttached()) tabDebugger.attach();
       terminated = await Promise.race([
         Promise.resolve(
-          tabDebugger.sendCommand("Runtime.terminateExecution"),
+          tabDebugger.sendCommand("Runtime.terminateExecution", {}, debuggerSessionId),
         ).then(
           () => true,
           () => false,
@@ -1636,6 +1638,7 @@ export class InAppBrowserService {
       const debuggerEvent: InAppBrowserDebuggerEvent = {
         tabId: tab.id,
         method,
+        ...(sessionId ? { sessionId } : {}),
         ...(params && typeof params === "object"
           ? { params: params as Record<string, unknown> }
           : {}),

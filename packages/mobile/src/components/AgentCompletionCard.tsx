@@ -28,6 +28,7 @@ export function AgentCompletionCard({
   sections,
   colors,
   onPress,
+  onOpenAgent,
   onOpenArtifact,
 }: {
   /** Per-agent completion rollups (title = the agent's task description). */
@@ -35,6 +36,8 @@ export function AgentCompletionCard({
   colors: Colors;
   /** Opens the agent detail (activity hub). */
   onPress?: () => void;
+  /** Opens the specific completed agent when several share a card. */
+  onOpenAgent?: (agentId: string, title: string) => void;
   /** Opens a tapped produced-file chip. Chips hide when absent. */
   onOpenArtifact?: (artifact: ChatArtifact) => void;
 }) {
@@ -44,8 +47,7 @@ export function AgentCompletionCard({
   return (
     <View>
       {sections.map((section) => {
-        const showPills =
-          Boolean(onOpenArtifact) && section.files.length > 0;
+        const showPills = Boolean(onOpenArtifact) && section.files.length > 0;
         const { visible, hiddenCount } = deriveFilePillRow(
           section.files,
           expandedKeys[section.key] === true,
@@ -57,7 +59,14 @@ export function AgentCompletionCard({
               glyph="check"
               working={false}
               colors={colors}
-              {...(onPress ? { onPress } : {})}
+              {...(onOpenAgent && section.agentId
+                ? {
+                    onPress: () =>
+                      onOpenAgent(section.agentId!, section.title || "Task"),
+                  }
+                : onPress
+                  ? { onPress }
+                  : {})}
             />
             {showPills ? (
               <View style={styles.pills}>

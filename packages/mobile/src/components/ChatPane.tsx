@@ -1701,6 +1701,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 key={`${artifact.id}:completion`}
                 sections={completionSections}
                 colors={colors}
+                onOpenAgent={onOpenReply ? (threadId, title) => onOpenReply({ kind: "agent", threadId, title }) : undefined}
                 {...((onOpenReply && artifact.payload.agentIds?.[0])
                   ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
                   : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
@@ -4193,10 +4194,11 @@ export function ChatPane({
           key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
           root={replyFocus} messages={visibleMessages} conversationId={conversationId ?? ""}
           colors={colors} onClose={closeReplyFocus} hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
-          renderMessage={item => <ChatMessageRow item={item} animate={false} styles={styles} colors={colors}
+          renderMessage={(item, contextRef) => <ChatMessageRow item={item} animate={false} styles={styles} colors={colors}
             menuActive={false} isSelecting={false} anySelecting={false}
             onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
+            onOpenReply={setReplyFocus} contextRef={contextRef}
             desktopAccess={realtimeVoiceDesktopAccess} />}
         />}
         {/* Floating glass controls (scroll-to-bottom FAB + computer-options

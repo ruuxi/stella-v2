@@ -39,3 +39,59 @@ test("desktop-resolved references survive canonical projection", () => {
   }] });
   expect(messages[0]?.replyRefs).toEqual([ref]);
 });
+
+test("focused task contexts omit unrelated exchanges and retain links to other work", () => {
+  const first = {
+    kind: "agent",
+    threadId: "first",
+    title: "First task",
+  } as const;
+  const second = {
+    kind: "agent",
+    threadId: "second",
+    title: "Second task",
+  } as const;
+  const messages: ChatMessage[] = [
+    { id: "u1", canonicalId: "canonical-u1", role: "user", text: "Research" },
+    {
+      id: "spawn",
+      requestId: "canonical-u1",
+      role: "assistant",
+      text: "Starting",
+      artifacts: [
+        {
+          id: "work",
+          conversationId: "c",
+          payload: {
+            kind: "agent-work",
+            agentIds: ["first"],
+            title: "First task",
+            subtitle: "",
+            state: "done",
+            total: 1,
+            completed: 1,
+            createdAt: 1,
+          },
+        },
+      ],
+    },
+    { id: "u2", role: "user", text: "Unrelated" },
+    { id: "result", role: "assistant", text: "Result", replyRefs: [first] },
+    {
+      id: "combined",
+      role: "assistant",
+      text: "Related work",
+      replyRefs: [second, first],
+    },
+  ];
+  expect(mobileReplyContexts(messages).get("result")).toEqual(first);
+  const focused = mobileReplyLineage(messages, first);
+  expect(focused.map((message) => message.id)).toEqual([
+    "u1",
+    "spawn",
+    "result",
+    "combined",
+  ]);
+  expect(mobileReplyContexts(focused).has("result")).toBe(false);
+  expect(mobileReplyContexts(focused).get("combined")).toEqual(second);
+});

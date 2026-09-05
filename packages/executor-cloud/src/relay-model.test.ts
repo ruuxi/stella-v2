@@ -7,6 +7,13 @@ import type { Api, Model } from "@stella/runtime/ai/types.js";
 import { CLOUD_MODEL_DIAGNOSTIC_SENTINELS } from "@stella/contracts/cloud-model-diagnostic";
 import type { GatewayModelResolution } from "@stella/contracts/gateway/api";
 import {
+  STELLA_DEFAULT_UPSTREAM_MODEL,
+  STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
+  STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
+} from "@stella/contracts/stella-api";
+import { loadModelRegistry } from "@stella/contracts/model-registry";
+import { findRegistryModel } from "@stella/runtime/kernel/model-routing-matching.js";
+import {
   CLOUD_LLM_CREDENTIAL_HEADER,
   createCloudRelayModel,
   createCloudRelaySession,
@@ -359,6 +366,77 @@ describe("cloud relay model selection", () => {
         xhigh: "high",
         off: "none",
       });
+    }
+  });
+
+  test("registry-independent managed descriptors have no generated registry row", async () => {
+    await loadModelRegistry();
+    for (const descriptor of [
+      {
+        provider: "openrouter",
+        requestedModel: "stella/default",
+        resolvedModel: STELLA_DEFAULT_UPSTREAM_MODEL,
+        protocol: "openai-responses",
+        expectedInput: ["text"],
+        expectedThinkingLevelMap: { xhigh: "xhigh" },
+      },
+      {
+        provider: "crof",
+        requestedModel: "stella/crof/deepseek-v4-flash-0731",
+        resolvedModel: STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
+        protocol: "openai-completions",
+        expectedInput: ["text"],
+        expectedThinkingLevelMap: {
+          minimal: "low",
+          medium: "medium",
+          xhigh: "high",
+          off: "none",
+        },
+      },
+      {
+        provider: "wafer",
+        requestedModel: "stella/wafer/deepseek-v4-flash-0731-fast",
+        resolvedModel: STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
+        protocol: "openai-completions",
+        expectedInput: ["text"],
+        expectedThinkingLevelMap: {
+          minimal: "low",
+          medium: "medium",
+          xhigh: "high",
+          off: "none",
+        },
+      },
+    ] as const) {
+      const nativeModelId =
+        descriptor.provider === "openrouter"
+          ? descriptor.resolvedModel
+          : descriptor.resolvedModel.slice(descriptor.provider.length + 1);
+      expect(
+        findRegistryModel(descriptor.provider, [
+          descriptor.resolvedModel,
+          nativeModelId,
+          nativeModelId.replace(/\./g, "-"),
+        ]),
+      ).toBeNull();
+
+      const model = createResolvedManagedRelayModel({
+        execution: managed(descriptor.requestedModel),
+        resolution: resolution({
+          requestedModel: descriptor.requestedModel,
+          resolvedModel: descriptor.resolvedModel,
+          provider: descriptor.provider,
+          protocol: descriptor.protocol,
+          supportsImages: false,
+        }),
+        gatewayOrigin: GATEWAY,
+        capability: CAPABILITY,
+        agentType: "general",
+      });
+      expect([...model.input]).toEqual([...descriptor.expectedInput]);
+      expect(model.reasoning).toBe(true);
+      expect(model.thinkingLevelMap).toMatchObject(
+        descriptor.expectedThinkingLevelMap,
+      );
     }
   });
 

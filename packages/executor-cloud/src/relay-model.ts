@@ -11,6 +11,9 @@ import type {
   CloudExecutionSelection,
 } from "@stella/contracts/agent-engine";
 import {
+  STELLA_DEFAULT_UPSTREAM_MODEL,
+  STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
+  STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
   isDeepSeekV4FlashModel,
   isMuseSpark13ContributorModel,
 } from "@stella/contracts/stella-api";
@@ -257,6 +260,63 @@ export const parseGatewayModelResolution = (
 /** The gateway's wire protocol is the runtime adapter id. */
 const apiForProtocol = (protocol: GatewayProtocol): Api => protocol;
 
+const unloadedRegistryMessage =
+  "Model registry is not loaded. Call and await loadModelRegistry()";
+
+const optionalRegistryModel = (
+  registryProvider: string,
+  requestedCandidates: string[],
+): Model<Api> | null => {
+  try {
+    return findRegistryModel(registryProvider, requestedCandidates);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith(unloadedRegistryMessage)
+    ) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+const REGISTRY_INDEPENDENT_OPENROUTER_MODELS = new Set<string>([
+  STELLA_DEFAULT_UPSTREAM_MODEL,
+]);
+
+const REGISTRY_INDEPENDENT_CHAT_COMPLETION_MODELS = new Map<
+  GatewayProvider,
+  string
+>([
+  ["crof", STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL],
+  ["wafer", STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL],
+]);
+
+const isRegistryIndependentManagedResolution = (
+  resolution: GatewayModelResolution,
+): boolean => {
+  if (
+    resolution.provider === "openrouter" &&
+    resolution.protocol === "openai-responses" &&
+    REGISTRY_INDEPENDENT_OPENROUTER_MODELS.has(resolution.resolvedModel)
+  ) {
+    return true;
+  }
+  return (
+    resolution.protocol === "openai-completions" &&
+    REGISTRY_INDEPENDENT_CHAT_COMPLETION_MODELS.get(resolution.provider) ===
+      resolution.resolvedModel
+  );
+};
+
+const loadRegistryIfUseful = async (
+  resolution: GatewayModelResolution,
+): Promise<void> => {
+  if (!isRegistryIndependentManagedResolution(resolution)) {
+    await loadModelRegistry();
+  }
+};
+
 /**
  * Build the managed-lane model from a gateway resolution. Request bodies keep
  * sending the `stella/...` alias (`id = execution.model`); the gateway pins
@@ -282,7 +342,7 @@ export const createResolvedManagedRelayModel = (args: {
     resolution.resolvedModel.startsWith(directModelPrefix)
       ? resolution.resolvedModel.slice(directModelPrefix.length)
       : resolution.resolvedModel;
-  const registryModel = findRegistryModel(relayProvider, [
+  const registryModel = optionalRegistryModel(relayProvider, [
     resolution.resolvedModel,
     nativeModelId,
     nativeModelId.replace(/\./g, "-"),
@@ -492,12 +552,12 @@ export const createCloudRelayModel = async (
     await loadModelRegistry();
     return subscriptionRelayModel({ execution, transport });
   }
-  // Resolution has no dependency on the registry. In a cold isolate, start
-  // its network trip immediately while the local catalog module loads.
-  const [, resolution] = await Promise.all([
-    loadModelRegistry(),
-    resolveManagedRelayModel({ execution, transport, signal: args.signal }),
-  ]);
+  const resolution = await resolveManagedRelayModel({
+    execution,
+    transport,
+    signal: args.signal,
+  });
+  await loadRegistryIfUseful(resolution);
   args.signal?.throwIfAborted();
   try {
     return createResolvedManagedRelayModel({ execution, resolution, ...transport });
@@ -562,7 +622,6 @@ export const createCloudRelaySession = async (
   const gatewayOrigin = args.gatewayOrigin.trim();
   if (!/^https?:\/\//i.test(gatewayOrigin)) throw new Error("Cloud model gateway origin must be an HTTP(S) URL.");
   if (!args.capability.trim()) throw new Error("Cloud model gateway capability is required.");
-  await loadModelRegistry();
   args.signal?.throwIfAborted();
   const transport: GatewayModelTransport = { ...args, gatewayOrigin };
   let resolution: GatewayModelResolution;
@@ -575,6 +634,8 @@ export const createCloudRelaySession = async (
     // authoritative lookup/error behavior when this build cannot resolve them.
     resolution = await resolveManagedRelayModel({ execution, transport, signal: args.signal });
   }
+  await loadRegistryIfUseful(resolution);
+  args.signal?.throwIfAborted();
   let model = createResolvedManagedRelayModel({ execution, resolution, ...transport });
   let revision = await gatewayModelResolutionRevision(resolution);
   let validatedRoute = true;
@@ -646,6 +707,7 @@ export const createCloudRelaySession = async (
                 signal: options?.signal && args.signal ? AbortSignal.any([options.signal, args.signal]) : options?.signal ?? args.signal });
               validatedRoute = false;
             } else if (mismatch) resolution = mismatch;
+            await loadRegistryIfUseful(resolution);
             model = createResolvedManagedRelayModel({ execution, resolution, ...transport });
             revision = await gatewayModelResolutionRevision(resolution);
             continue;

@@ -169,17 +169,7 @@ export interface AgentOptions {
 }
 
 export class Agent {
-	private _state: AgentState = {
-		systemPrompt: "",
-		model: getModel("google", "gemini-2.5-flash-lite-preview-06-17"),
-		thinkingLevel: "off",
-		tools: [],
-		messages: [],
-		isStreaming: false,
-		streamMessage: null,
-		pendingToolCalls: new Set<string>(),
-		error: undefined,
-	};
+	private _state: AgentState;
 
 	private listeners = new Set<(e: AgentEvent) => void>();
 	private abortController?: AbortController;
@@ -220,7 +210,21 @@ export class Agent {
 	) => Promise<AfterToolCallResult | undefined>;
 
 	constructor(opts: AgentOptions = {}) {
-		this._state = { ...this._state, ...opts.initialState };
+		const { model: initialModel, ...initialState } = opts.initialState ?? {};
+		const model =
+			initialModel ?? getModel("google", "gemini-2.5-flash-lite-preview-06-17");
+		this._state = {
+			systemPrompt: "",
+			model,
+			thinkingLevel: "off",
+			tools: [],
+			messages: [],
+			isStreaming: false,
+			streamMessage: null,
+			pendingToolCalls: new Set<string>(),
+			error: undefined,
+			...initialState,
+		};
 		this.convertToLlm = opts.convertToLlm || defaultConvertToLlm;
 		this.transformContext = opts.transformContext;
 		this.steeringMode = opts.steeringMode || "one-at-a-time";

@@ -31,12 +31,13 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const indexModule = await import("../src/index.js");
-const { purgeNativeStateForWorkspace } = indexModule;
+const worker = (await import("../src/index.js")).default;
+const { purgeNativeStateForWorkspace } = await import(
+  "../src/build-session/owner-purge-transfer.js"
+);
 const { BuildSessionObject: BuildSession } = await import(
   "../src/build-session/object.js"
 );
-const worker = indexModule.default;
 mock.restore();
 
 const ownerId = "owner-1";

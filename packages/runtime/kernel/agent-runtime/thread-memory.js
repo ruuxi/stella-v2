@@ -1,4 +1,3 @@
-import { runBeforeUserMessageHooks } from "../extensions/before-user-message.js";
 import { createRuntimeLogger } from "../debug.js";
 import {
   buildRuntimeThreadKey,
@@ -365,12 +364,8 @@ export const buildSystemPrompt = (context) => {
  * byte-exact dedup against the persisted thread, and the compaction
  * fold-in. This wrapper keeps the historical call sites stable.
  */
-export const buildStartupPromptMessages = async (args) => {
-  const results = await runBeforeUserMessageHooks([{
-    event: "before_user_message", handler: async () => ({ prependMessages: buildResidentContextMessages(args.context) }),
-  }], { agentType: args.context.agentType ?? "orchestrator", userPrompt: args.userPrompt ?? "" });
-  return results.flatMap((result) => result?.prependMessages ?? []);
-};
+export const buildStartupPromptMessages = async (args) =>
+  buildResidentContextMessages(args.context);
 const fanOutBeforeUserMessage = async (args) => {
   const empty = { prepend: [], append: [] };
   const { hookEmitter } = args.hookContext;
@@ -438,7 +433,6 @@ export const buildSubagentPromptMessages = async (args) => {
     messages.push(
       ...(await buildStartupPromptMessages({
         context: args.context,
-        userPrompt: args.userPrompt,
         stellaDataDir: args.stellaDataDir,
         stellaAppDir: args.stellaAppDir,
       })),
@@ -448,7 +442,6 @@ export const buildSubagentPromptMessages = async (args) => {
     messages.push(
       ...(await buildStartupPromptMessages({
         context: args.context,
-        userPrompt: args.userPrompt,
         stellaDataDir: args.stellaDataDir,
         stellaAppDir: args.stellaAppDir,
       })),
@@ -500,7 +493,6 @@ export const buildOrchestratorPromptMessages = async (args) => {
     messages.push(
       ...(await buildStartupPromptMessages({
         context: args.context,
-        userPrompt: args.userPrompt,
         stellaDataDir: args.stellaDataDir,
         stellaAppDir: args.stellaAppDir,
       })),
@@ -510,7 +502,6 @@ export const buildOrchestratorPromptMessages = async (args) => {
     messages.push(
       ...(await buildStartupPromptMessages({
         context: args.context,
-        userPrompt: args.userPrompt,
         stellaDataDir: args.stellaDataDir,
         stellaAppDir: args.stellaAppDir,
       })),

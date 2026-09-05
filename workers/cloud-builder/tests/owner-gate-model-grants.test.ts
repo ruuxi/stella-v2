@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
-import type { OwnerModelGrant, OwnerModelGrantStore } from "../src/owner-model-grants.js";
-import { createGateHarness, type GateHarness } from "./helpers/owner-gate-harness.js";
+import type {
+  OwnerModelGrant,
+  OwnerModelGrantStore,
+} from "../src/owner-model-grants.js";
+import {
+  createGateHarness,
+  type GateHarness,
+} from "./helpers/owner-gate-harness.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -66,16 +72,18 @@ const jsonRequest = (path: string, body: Record<string, unknown>) =>
   });
 
 const registerLease = async (harness: GateHarness) => {
-  const response = await harness.instance.fetch(jsonRequest("register", {
-    ownerGeneration: policy.ownerGeneration,
-    leaseId: "lease-1",
-    sessionId: "conversation-1",
-    turnId: "turn-1",
-    namespace: "orchestrator",
-    role: "orchestrator",
-  }));
+  const response = await harness.instance.fetch(
+    jsonRequest("register", {
+      ownerGeneration: policy.ownerGeneration,
+      leaseId: "lease-1",
+      sessionId: "conversation-1",
+      turnId: "turn-1",
+      namespace: "orchestrator",
+      role: "orchestrator",
+    }),
+  );
   expect(response.status).toBe(200);
-  return await response.json() as { generation: string; expiresAt: number };
+  return (await response.json()) as { generation: string; expiresAt: number };
 };
 
 const issue = async (harness: GateHarness) => {
@@ -109,25 +117,37 @@ describe("OwnerGate model grants", () => {
     const cache = { fenceGeneration: "fence-1", policy };
     harness.values.set("memoryPolicy:cache:v1", cache);
 
-    expect((await harness.instance.fetch(jsonRequest("register", {
-      leaseId: "transfer-1",
-      sessionId: "transfer-session",
-      turnId: "owner-transfer:1",
-      ownerGeneration: policy.ownerGeneration,
-      namespace: "activity",
-      role: "transfer",
-    }))).status).toBe(400);
+    expect(
+      (
+        await harness.instance.fetch(
+          jsonRequest("register", {
+            leaseId: "transfer-1",
+            sessionId: "transfer-session",
+            turnId: "owner-transfer:1",
+            ownerGeneration: policy.ownerGeneration,
+            namespace: "activity",
+            role: "transfer",
+          }),
+        )
+      ).status,
+    ).toBe(400);
     expect(harness.values.get("memoryPolicy:cache:v1")).toEqual(cache);
 
-    expect((await harness.instance.fetch(jsonRequest("register", {
-      leaseId: "transfer-1",
-      sessionId: "transfer-session",
-      turnId: "owner-transfer:1",
-      ownerGeneration: policy.ownerGeneration,
-      namespace: "activity",
-      role: "transfer",
-      expiresAt: Date.now() + 60_000,
-    }))).status).toBe(200);
+    expect(
+      (
+        await harness.instance.fetch(
+          jsonRequest("register", {
+            leaseId: "transfer-1",
+            sessionId: "transfer-session",
+            turnId: "owner-transfer:1",
+            ownerGeneration: policy.ownerGeneration,
+            namespace: "activity",
+            role: "transfer",
+            expiresAt: Date.now() + 60_000,
+          }),
+        )
+      ).status,
+    ).toBe(200);
     expect(harness.values.has("memoryPolicy:cache:v1")).toBe(false);
   });
 
@@ -154,12 +174,14 @@ describe("OwnerGate model grants", () => {
       fenceGeneration: lease.generation,
     });
 
-    expect(await gate(harness).modelGrants().retireExactTurnLease({
-      ownerGeneration: policy.ownerGeneration,
-      conversationId: "conversation-1",
-      turnId: "turn-1",
-      leaseId: "lease-1",
-    })).toEqual({ retiredGrantIds: [] });
+    expect(
+      await gate(harness).modelGrants().retireExactTurnLease({
+        ownerGeneration: policy.ownerGeneration,
+        conversationId: "conversation-1",
+        turnId: "turn-1",
+        leaseId: "lease-1",
+      }),
+    ).toEqual({ retiredGrantIds: [] });
   });
 
   test("freezes the exact reader before a valid purge fence changes", async () => {
@@ -168,33 +190,43 @@ describe("OwnerGate model grants", () => {
     const env = Reflect.get(harness.instance, "env") as {
       ORCHESTRATOR_SESSIONS: {
         idFromName(name: string): { toString(): string };
-        getByName(name: string): { freezeOwnerModelGrants(request: unknown): Promise<unknown> };
+        getByName(name: string): {
+          freezeOwnerModelGrants(request: unknown): Promise<unknown>;
+        };
       };
     };
     const sessions = env.ORCHESTRATOR_SESSIONS;
     let fenceStateDuringFreeze: string | undefined;
     env.ORCHESTRATOR_SESSIONS = {
       ...sessions,
-      getByName: name => ({
-        freezeOwnerModelGrants: async request => {
-          fenceStateDuringFreeze = (harness.values.get("ownerPurgeFence") as { state?: string }).state;
+      getByName: (name) => ({
+        freezeOwnerModelGrants: async (request) => {
+          fenceStateDuringFreeze = (
+            harness.values.get("ownerPurgeFence") as { state?: string }
+          ).state;
           return await sessions.getByName(name).freezeOwnerModelGrants(request);
         },
       }),
     };
 
-    const response = await harness.instance.fetch(jsonRequest("begin", {
-      requestId: "purge-1",
-    }));
+    const response = await harness.instance.fetch(
+      jsonRequest("begin", {
+        requestId: "purge-1",
+      }),
+    );
     expect(response.status).toBe(200);
     expect(fenceStateDuringFreeze).toBe("open");
-    expect(harness.frozenModelGrants).toEqual([{
-      ownerId: "owner-1",
-      ownerGeneration: policy.ownerGeneration,
-      conversationId: "conversation-1",
-      readerId: "reader-1",
-      grants: [{ grantId: grant.grantId, expiresAt: grant.expiresAt }],
-    }]);
-    expect((harness.values.get("ownerPurgeFence") as { state?: string }).state).toBe("blocked");
+    expect(harness.frozenModelGrants).toEqual([
+      {
+        ownerId: "owner-1",
+        ownerGeneration: policy.ownerGeneration,
+        conversationId: "conversation-1",
+        readerId: "reader-1",
+        grants: [{ grantId: grant.grantId, expiresAt: grant.expiresAt }],
+      },
+    ]);
+    expect(
+      (harness.values.get("ownerPurgeFence") as { state?: string }).state,
+    ).toBe("blocked");
   });
 });

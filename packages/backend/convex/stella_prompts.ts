@@ -1,4 +1,3 @@
-import { STELLA_PROMPT_DEFAULTS } from "./stella_prompt_defaults.generated";
 import { v } from "convex/values";
 
 import {
@@ -15,6 +14,7 @@ import {
   nextStellaPromptPublishedAt,
   validateStellaPromptInputs,
 } from "./stella_prompt_contract";
+import { STELLA_PROMPT_DEFAULTS } from "./stella_prompt_defaults.generated";
 
 export const promptValueValidator = v.object({
   id: v.string(),

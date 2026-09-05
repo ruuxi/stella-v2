@@ -164,6 +164,7 @@ import type {
   OwnerPurgeReport,
   OwnerPurgeRequest,
 } from "./shared/types.js";
+import { convexSiteBase } from "../convex-site.js";
 
 // ---------------------------------------------------------------------------
 // The user-authenticated conversation surfaces
@@ -191,7 +192,7 @@ const authenticateConversationCaller = async (
 ): Promise<
   { ok: true; caller: ConversationCaller } | { ok: false; response: Response }
 > => {
-  const issuer = (env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, "");
+  const issuer = convexSiteBase(env);
   const deny = (
     closeCode: number,
     status: number,
@@ -715,18 +716,19 @@ const handleDispatchSubmitRoute = async (
       result.error.retryAfterMs,
     );
   }
-  log("info", "dispatch_ingress_timing", {
-    requestId, dispatchId: result.response.dispatch.dispatchId,
-    originUserMessageId: submitted.payload.userMessageEventId,
-    receivedAt, gateAt, authMs, preparationMs,
-    totalMs: Math.round(performance.now() - startedAt),
-  });
   log("info", "dispatch_submitted", {
     requestId,
+    dispatchId: result.response.dispatch.dispatchId,
+    originUserMessageId: submitted.payload.userMessageEventId,
     ingress: submitted.ingress,
     kind: submitted.kind,
     state: result.response.dispatch.state,
     replayed: result.response.replayed,
+    receivedAt,
+    gateAt,
+    authMs,
+    preparationMs,
+    totalMs: Math.round(performance.now() - startedAt),
   });
   return Response.json(result.response, {
     status: result.response.replayed ? 200 : 201,

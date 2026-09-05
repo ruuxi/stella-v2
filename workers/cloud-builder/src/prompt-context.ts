@@ -2,14 +2,11 @@ import type {
   AgentMessage,
   AgentTool,
 } from "@stella/runtime/kernel/agent-core/types.js";
-import { runBeforeUserMessageHooks } from "@stella/runtime/kernel/extensions/before-user-message.js";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
+import type { ContextCheckpoint } from "./context-compaction.js";
 
 export const PROMPT_CONTEXT_KEY = "cloudPromptContext:v1";
-export type ToolSnapshot = Pick<
-  AgentTool,
-  "name" | "description" | "parameters"
->;
+type ToolSnapshot = Pick<AgentTool, "name" | "description" | "parameters">;
 export type PromptContext = {
   version: 1;
   epoch: string;
@@ -24,11 +21,6 @@ export type PromptContext = {
   startSeq: number;
 };
 
-export type PromptContextCheckpoint = {
-  coveredThroughSeq: number;
-  summary: string;
-};
-
 export const reusablePromptContext = (args: {
   storedContext?: PromptContext;
   journalEpoch: number;
@@ -41,7 +33,7 @@ export const reusablePromptContext = (args: {
 
 export const promptContextHistoryStartAfterSeq = (args: {
   previousContext?: PromptContext;
-  previousCheckpoint?: PromptContextCheckpoint;
+  previousCheckpoint?: ContextCheckpoint;
 }): number =>
   args.previousCheckpoint?.coveredThroughSeq ??
   Math.max(-1, (args.previousContext?.startSeq ?? 0) - 1);
@@ -49,8 +41,8 @@ export const promptContextHistoryStartAfterSeq = (args: {
 export const promptContextCheckpointChanged = (args: {
   storedContext?: PromptContext;
   previousContext?: PromptContext;
-  storedCheckpoint?: PromptContextCheckpoint;
-  nextCheckpoint?: PromptContextCheckpoint;
+  storedCheckpoint?: ContextCheckpoint;
+  nextCheckpoint?: ContextCheckpoint;
 }): boolean =>
   args.nextCheckpoint
     ? args.storedCheckpoint?.coveredThroughSeq !==
@@ -147,40 +139,13 @@ export const preparePromptContext = (args: {
   return { state, tools, deltas, boundary };
 };
 
-/** Mandatory bundled context updates use the same lifecycle hook as local turns. */
-export const beforeUserContext = async (
-  userPrompt: string,
-  deltas: string[],
-): Promise<string[]> => {
-  const results = await runBeforeUserMessageHooks(
-    [
-      {
-        event: "before_user_message",
-        handler: async () => ({
-          prependMessages: deltas.map((text) => ({
-            text,
-            uiVisibility: "hidden" as const,
-            customType: "runtime.context_delta.cloud",
-          })),
-        }),
-      },
-    ],
-    { agentType: "orchestrator", userPrompt },
-  );
-  return results.flatMap((result) =>
-    [...(result?.prependMessages ?? []), ...(result?.appendMessages ?? [])].map(
-      (message) => message.text,
-    ),
-  );
-};
-
-export type ProviderContextMetadata = {
+type ProviderContextMetadata = {
   version: 1;
   epoch: string;
   prepend: string[];
   clock: string;
 };
-export const providerContextMetadata = (
+const providerContextMetadata = (
   value: unknown,
 ): ProviderContextMetadata | undefined => {
   if (!value || typeof value !== "object" || !("providerContext" in value))

@@ -47,8 +47,8 @@ import {
   nativeStateIntegrityKeyFor,
   pendingAppBuildPublicationKey,
   turnStateCheckpointOperationKey,
-  validBuilderFallbackMessages,
 } from "./shared/keys.js";
+import { validBuilderFallbackMessages } from "./public-helpers.js";
 import type {
   AgentComputeRecoveryClaim,
   AgentExecutionMarker,

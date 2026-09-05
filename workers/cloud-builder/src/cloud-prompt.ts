@@ -167,7 +167,7 @@ const derivedRevision = async (digests: readonly PromptDigest[]) =>
     [...digests]
       // These ids were validated against the fixed ASCII prompt catalog.
       // Codepoint order preserves its published revision without loading ICU.
-      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .map((prompt) => `${prompt.id}:${prompt.sha256}`)
       .join("\n"),
   );
@@ -362,7 +362,9 @@ export const refreshCanonicalPrompts = async (
   cachedValue: unknown,
   now: number,
   signal?: AbortSignal,
-  revalidateInBackground?: (refresh: () => Promise<CanonicalPromptLoadResult>) => void,
+  revalidateInBackground?: (
+    refresh: () => Promise<CanonicalPromptLoadResult>,
+  ) => void,
 ): Promise<CanonicalPromptLoadResult> => {
   signal?.throwIfAborted();
   const endpoint = convexSiteBase.replace(/\/+$/u, "");
@@ -380,7 +382,9 @@ export const refreshCanonicalPrompts = async (
   if (cached && cacheInsideHardAge && revalidateInBackground) {
     // Keep the exact validated copy for this turn. A successful refresh can
     // become an appended update on a later turn; it never mutates this prefix.
-    revalidateInBackground(() => refreshCanonicalPrompts(convexSiteBase, cached, now));
+    revalidateInBackground(() =>
+      refreshCanonicalPrompts(convexSiteBase, cached, now),
+    );
     return { snapshot: cached, disposition: "cache_revalidating" };
   }
   // Expired publications revalidate by ETag. Cache hits never extend fetchedAt.

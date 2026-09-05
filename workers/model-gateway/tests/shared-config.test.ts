@@ -7,18 +7,17 @@ import {
   SHARED_GATEWAY_CONFIG_KEY,
   type SharedGatewayConfigRecord,
 } from "../src/shared-config.js";
-import { configSnapshot, createFetchMock, createTestEnv, json } from "./helpers/env.js";
-
-const completeSnapshot = () => configSnapshot({
-  tierCeilings: [
-    { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
-    { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
-  ],
-});
+import {
+  completeConfigSnapshot,
+  configSnapshot,
+  createFetchMock,
+  createTestEnv,
+  json,
+} from "./helpers/env.js";
 
 describe("shared gateway config", () => {
   test("the revision covers anonymous caps and tier ceilings", async () => {
-    const snapshot = completeSnapshot();
+    const snapshot = completeConfigSnapshot();
     const anonymousChanged = {
       ...snapshot,
       anonymous: { ...snapshot.anonymous, maxRequestsPerOwner: 21 },
@@ -40,30 +39,43 @@ describe("shared gateway config", () => {
   });
 
   test("strict validation refuses missing, duplicate, and invalid policy fields", () => {
-    const snapshot = completeSnapshot();
+    const snapshot = completeConfigSnapshot();
     expect(isCompleteGatewayConfigSnapshot(snapshot)).toBe(true);
-    expect(isCompleteGatewayConfigSnapshot({ ...snapshot, anonymous: undefined })).toBe(false);
-    expect(isCompleteGatewayConfigSnapshot({ ...snapshot, tierCeilings: [] })).toBe(false);
-    expect(isCompleteGatewayConfigSnapshot({
-      ...snapshot,
-      tierCeilings: [...snapshot.tierCeilings, snapshot.tierCeilings[0]],
-    })).toBe(false);
-    expect(isCompleteGatewayConfigSnapshot({
-      ...snapshot,
-      tierCeilings: [...snapshot.tierCeilings, {
-        audience: "unknown",
-        hourlyMicroCents: 1,
-        dailyMicroCents: 1,
-      }],
-    })).toBe(false);
-    expect(isCompleteGatewayConfigSnapshot({
-      ...snapshot,
-      prices: [{ ...snapshot.prices[0], inputPerMillionUsd: Number.NaN }],
-    })).toBe(false);
+    expect(
+      isCompleteGatewayConfigSnapshot({ ...snapshot, anonymous: undefined }),
+    ).toBe(false);
+    expect(
+      isCompleteGatewayConfigSnapshot({ ...snapshot, tierCeilings: [] }),
+    ).toBe(false);
+    expect(
+      isCompleteGatewayConfigSnapshot({
+        ...snapshot,
+        tierCeilings: [...snapshot.tierCeilings, snapshot.tierCeilings[0]],
+      }),
+    ).toBe(false);
+    expect(
+      isCompleteGatewayConfigSnapshot({
+        ...snapshot,
+        tierCeilings: [
+          ...snapshot.tierCeilings,
+          {
+            audience: "unknown",
+            hourlyMicroCents: 1,
+            dailyMicroCents: 1,
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      isCompleteGatewayConfigSnapshot({
+        ...snapshot,
+        prices: [{ ...snapshot.prices[0], inputPerMillionUsd: Number.NaN }],
+      }),
+    ).toBe(false);
   });
 
   test("scheduled publication writes the complete snapshot and original fetch time", async () => {
-    const snapshot = completeSnapshot();
+    const snapshot = completeConfigSnapshot();
     const fetchMock = createFetchMock().on(
       (call) => call.url.pathname === "/api/gateway/config",
       () => json(snapshot),
@@ -71,7 +83,11 @@ describe("shared gateway config", () => {
     const writes: Array<{ key: string; value: string }> = [];
     await publishSharedGatewayConfig({
       client: createConvexClient(createTestEnv().env, fetchMock.fetch),
-      store: { put: async (key, value) => { writes.push({ key, value: String(value) }); } },
+      store: {
+        put: async (key, value) => {
+          writes.push({ key, value: String(value) });
+        },
+      },
       source: "https://config.example",
       now: () => 12_345,
     });
@@ -92,7 +108,11 @@ describe("shared gateway config", () => {
     let writes = 0;
     await publishSharedGatewayConfig({
       client: createConvexClient(createTestEnv().env, fetchMock.fetch),
-      store: { put: async () => { writes += 1; } },
+      store: {
+        put: async () => {
+          writes += 1;
+        },
+      },
       source: "https://config.example",
     });
     expect(writes).toBe(0);
@@ -101,12 +121,18 @@ describe("shared gateway config", () => {
   test("scheduled publication reports a KV failure to the runtime", async () => {
     const fetchMock = createFetchMock().on(
       (call) => call.url.pathname === "/api/gateway/config",
-      () => json(completeSnapshot()),
+      () => json(completeConfigSnapshot()),
     );
-    await expect(publishSharedGatewayConfig({
-      client: createConvexClient(createTestEnv().env, fetchMock.fetch),
-      store: { put: async () => { throw new Error("KV unavailable"); } },
-      source: "https://config.example",
-    })).rejects.toThrow("KV unavailable");
+    await expect(
+      publishSharedGatewayConfig({
+        client: createConvexClient(createTestEnv().env, fetchMock.fetch),
+        store: {
+          put: async () => {
+            throw new Error("KV unavailable");
+          },
+        },
+        source: "https://config.example",
+      }),
+    ).rejects.toThrow("KV unavailable");
   });
 });

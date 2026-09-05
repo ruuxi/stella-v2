@@ -15,13 +15,15 @@ export { ModelGatewayControl };
 
 type Phase = "prearrival" | "afterauth" | "postheaders";
 type FixtureStats = {
-  authenticated: boolean;
   providerStarted: boolean;
   headersReceived: boolean;
   upstreamAborted: boolean;
 };
 type ControlBinding = {
-  cancelManagedRequest(args: { capability: string; requestId: string }): Promise<{ canceled: boolean }>;
+  cancelManagedRequest(args: {
+    capability: string;
+    requestId: string;
+  }): Promise<{ canceled: boolean }>;
 };
 type FixtureEnv = Env & {
   CONTROL: ControlBinding;
@@ -37,7 +39,6 @@ const pause = async (ms: number): Promise<void> => scheduler.wait(ms);
 
 export class CancellationGateFixture extends OwnerRelayGate {
   private statsValue: FixtureStats = {
-    authenticated: false,
     providerStarted: false,
     headersReceived: false,
     upstreamAborted: false,
@@ -47,9 +48,11 @@ export class CancellationGateFixture extends OwnerRelayGate {
     return this.statsValue;
   }
 
-  async runManagedFixture(identity: ManagedCancellationIdentity, phase: Phase): Promise<string> {
+  async runManagedFixture(
+    identity: ManagedCancellationIdentity,
+    phase: Phase,
+  ): Promise<string> {
     this.statsValue = {
-      authenticated: true,
       providerStarted: false,
       headersReceived: false,
       upstreamAborted: false,
@@ -74,28 +77,35 @@ export class CancellationGateFixture extends OwnerRelayGate {
   }
 }
 
-const issue = async (): Promise<{ token: string; claims: GatewayCapabilityClaims }> => {
+const issue = async (): Promise<{
+  token: string;
+  claims: GatewayCapabilityClaims;
+}> => {
   const signing = await importCapabilitySigningKey(PRIVATE_KEY, "fixture-k1");
-  return await signCapability({
-    iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
-    sub: "fixture-owner",
-    gen: "generation-1",
-    kind: "turn",
-    audience: "pro",
-    budgetMicroCents: 1_000_000,
-    ledgerScope: "owner-relay-v2",
-    agentTypes: ["orchestrator"],
-    turn: {
-      turnId: "fixture-turn",
-      conversationId: "fixture-conversation",
-      execution: {
-        engine: "stella",
-        provider: "stella",
-        model: "stella/meta/muse-spark-1.3-contributor",
-        reasoningEffort: "high",
+  return await signCapability(
+    {
+      iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
+      sub: "fixture-owner",
+      gen: "generation-1",
+      kind: "turn",
+      audience: "pro",
+      budgetMicroCents: 1_000_000,
+      ledgerScope: "owner-relay-v2",
+      agentTypes: ["orchestrator"],
+      turn: {
+        turnId: "fixture-turn",
+        conversationId: "fixture-conversation",
+        execution: {
+          engine: "stella",
+          provider: "stella",
+          model: "stella/meta/muse-spark-1.3-contributor",
+          reasoningEffort: "high",
+        },
       },
     },
-  }, signing, { ttlMs: 60_000 });
+    signing,
+    { ttlMs: 60_000 },
+  );
 };
 
 export class GatewayWorker extends WorkerEntrypoint<FixtureEnv> {
@@ -114,18 +124,27 @@ export class GatewayWorker extends WorkerEntrypoint<FixtureEnv> {
     };
     const gate = this.env.OWNER_RELAY_GATE.getByName(claims.sub);
     if (phase === "prearrival") {
-      await this.env.CONTROL.cancelManagedRequest({ capability: token, requestId });
+      await this.env.CONTROL.cancelManagedRequest({
+        capability: token,
+        requestId,
+      });
     }
     const running = gate.runManagedFixture(identity, phase);
     if (phase !== "prearrival") {
       const deadline = Date.now() + 2_000;
       while (Date.now() < deadline) {
         const stats = await gate.stats();
-        const ready = phase === "postheaders" ? stats.headersReceived : stats.providerStarted;
+        const ready =
+          phase === "postheaders"
+            ? stats.headersReceived
+            : stats.providerStarted;
         if (ready) break;
         await pause(5);
       }
-      await this.env.CONTROL.cancelManagedRequest({ capability: token, requestId });
+      await this.env.CONTROL.cancelManagedRequest({
+        capability: token,
+        requestId,
+      });
     }
     return { outcome: await running, stats: await gate.stats() };
   }

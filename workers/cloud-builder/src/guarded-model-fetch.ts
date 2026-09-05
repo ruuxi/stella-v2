@@ -32,7 +32,9 @@ export const guardedModelFetch = async (args: {
     cancelSource(reason);
   };
   let rejectAbort: ((reason: unknown) => void) | undefined;
-  const aborted = new Promise<void>((_resolve, reject) => { rejectAbort = reject; });
+  const aborted = new Promise<void>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
   void aborted.catch(() => undefined);
   const onAbort = (): void => {
     failBody(signal.reason);
@@ -44,32 +46,35 @@ export const guardedModelFetch = async (args: {
   // surface its original error even when the aborted fetch also rejects.
   const authorization = Promise.resolve().then(authorize);
   void authorization.catch(() => undefined);
-  const body = new ReadableStream<Uint8Array>({
-    start(value) {
-      controller = value;
-    },
-    async pull(value) {
-      try {
-        await authorization;
-        signal.throwIfAborted();
-        if (bodyFinished) return;
-        const chunk = await reader.read();
-        if (bodyFinished) return;
-        if (chunk.done) {
-          bodyFinished = true;
-          value.close();
-        } else {
-          value.enqueue(chunk.value);
+  const body = new ReadableStream<Uint8Array>(
+    {
+      start(value) {
+        controller = value;
+      },
+      async pull(value) {
+        try {
+          await authorization;
+          signal.throwIfAborted();
+          if (bodyFinished) return;
+          const chunk = await reader.read();
+          if (bodyFinished) return;
+          if (chunk.done) {
+            bodyFinished = true;
+            value.close();
+          } else {
+            value.enqueue(chunk.value);
+          }
+        } catch (error) {
+          failBody(error);
         }
-      } catch (error) {
-        failBody(error);
-      }
+      },
+      cancel(reason) {
+        bodyFinished = true;
+        cancelSource(reason);
+      },
     },
-    cancel(reason) {
-      bodyFinished = true;
-      cancelSource(reason);
-    },
-  }, { highWaterMark: 0 });
+    { highWaterMark: 0 },
+  );
 
   const responseWork = Promise.resolve().then(() =>
     args.fetch(new Request(request, { body, signal })),
@@ -91,7 +96,9 @@ export const guardedModelFetch = async (args: {
   } catch (error) {
     abort.abort(error);
     failBody(error);
-    void responseWork.then(response => response.body?.cancel()).catch(() => undefined);
+    void responseWork
+      .then((response) => response.body?.cancel())
+      .catch(() => undefined);
     throw error;
   } finally {
     signal.removeEventListener("abort", onAbort);

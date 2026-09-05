@@ -1,7 +1,7 @@
 import {
   parseRecallReference,
   recallSearchPlan,
-  recallTerms as normalizeMemorySearchTerms,
+  recallTerms,
   recallLimit,
   RECALL_CONTEXT_MESSAGES,
   renderRecallExchanges,
@@ -537,6 +537,15 @@ const formatDurableThreadSummaryResults = (
 };
 
 /** Hydrate and render original exchanges using the policy shared by all Recall adapters. */
+type TranscriptNeighborsBatch = (
+  targets: readonly {
+    conversationId: string;
+    atMs: number;
+    sequence?: number;
+  }[],
+  options?: { before?: number; after?: number; windowMs?: number },
+) => TranscriptSearchHit[][];
+
 export const formatTranscriptSearchResults = (
   store: Pick<
     ContextLookupStore,
@@ -545,26 +554,46 @@ export const formatTranscriptSearchResults = (
   conversationId: string,
   query: string | undefined,
   limit?: number,
-  listNeighborsBatch?: (
-    targets: readonly {
-      conversationId: string;
-      atMs: number;
-      sequence?: number;
-    }[],
-    options?: { before?: number; after?: number; windowMs?: number },
-  ) => TranscriptSearchHit[][],
+  listNeighborsBatch?: TranscriptNeighborsBatch,
   searchTerms?: readonly string[],
-): string => {
+): string =>
+  searchTranscriptExchanges(
+    store,
+    conversationId,
+    query,
+    limit,
+    listNeighborsBatch,
+    searchTerms,
+  ).text;
+
+/** Rendered transcript exchanges, or the guidance text when nothing was found. */
+const searchTranscriptExchanges = (
+  store: Pick<
+    ContextLookupStore,
+    "searchTranscripts" | "listTranscriptNeighbors"
+  >,
+  conversationId: string,
+  query: string | undefined,
+  limit?: number,
+  listNeighborsBatch?: TranscriptNeighborsBatch,
+  searchTerms?: readonly string[],
+): { text: string; found: boolean } => {
   const terms = searchTerms ?? [query ?? ""];
   if (!parseRecallReference(query ?? "") && !recallSearchPlan(terms))
-    return "No usable search terms — pass concrete names or keywords.";
+    return {
+      text: "No usable search terms — pass concrete names or keywords.",
+      found: false,
+    };
   const hits = store.searchTranscripts({
     query: query ?? "",
     terms,
     limit: recallLimit(limit),
   });
   if (!hits.length)
-    return "Nothing matched in past conversation transcripts. Try fewer/different concrete words.";
+    return {
+      text: "Nothing matched in past conversation transcripts. Try fewer/different concrete words.",
+      found: false,
+    };
   const message = (hit: TranscriptSearchHit): RecallMessage => ({
     scope: hit.conversationId,
     id: hit.id,
@@ -597,7 +626,8 @@ export const formatTranscriptSearchResults = (
       messages: [...neighbors, hit].map(message),
     };
   });
-  return renderRecallExchanges(exchanges, terms);
+  const text = renderRecallExchanges(exchanges, terms);
+  return { text, found: text.length > 0 };
 };
 
 type RecallSourceReference = {
@@ -902,9 +932,9 @@ const runArchitecturalRecall = async (args: {
   const intent: RecallIntent = "multi_source";
   if (args.seedTerms.length === 1 && parseRecallReference(args.seedTerms[0]!)) {
     args.signal?.throwIfAborted();
-    let result: string;
+    let result: { text: string; found: boolean };
     try {
-      result = formatTranscriptSearchResults(
+      result = searchTranscriptExchanges(
         args.store,
         args.conversationId,
         args.seedTerms[0],
@@ -917,14 +947,13 @@ const runArchitecturalRecall = async (args: {
       );
     }
     args.telemetry.setIntent(intent, true);
-    const found = result.startsWith("# Exchange ");
     args.onResultMetadata?.({
       intent,
       fastPath: true,
-      sources: found ? [{ kind: "transcript" }] : [],
+      sources: result.found ? [{ kind: "transcript" }] : [],
     });
-    args.emitTelemetry(found ? "fast-path" : "no-match");
-    return found ? result : RECALL_NO_MATCH_TEXT;
+    args.emitTelemetry(result.found ? "fast-path" : "no-match");
+    return result.found ? result.text : RECALL_NO_MATCH_TEXT;
   }
   const exactPhrases = extractExactRecallPhrases(args.lookupPrompt);
   args.telemetry.setIntent(intent, false);
@@ -945,12 +974,12 @@ const runArchitecturalRecall = async (args: {
     }
   }
 
-  const query = normalizeMemorySearchTerms(args.seedTerms).join(" ");
+  const query = recallTerms(args.seedTerms).join(" ");
   args.telemetry.addRetrievalPass();
   const retrieveSource = async (
     kind: UnifiedRecallSource,
     telemetryName: string,
-    transport: "file" | "sql" | "host",
+    transport: "sql" | "host",
     read: () => string | Promise<string>,
   ): Promise<{ kind: UnifiedRecallSource; value: string }> => {
     const startedAt = performance.now();
@@ -968,6 +997,7 @@ const runArchitecturalRecall = async (args: {
     }
   };
 
+  let transcriptsFound = false;
   const retrievals: Array<{
     kind: UnifiedRecallSource;
     label: string;
@@ -990,16 +1020,18 @@ const runArchitecturalRecall = async (args: {
     {
       kind: "episodic",
       label: "transcripts",
-      promise: retrieveSource("episodic", "transcripts", "sql", () =>
-        formatTranscriptSearchResults(
+      promise: retrieveSource("episodic", "transcripts", "sql", () => {
+        const exchanges = searchTranscriptExchanges(
           args.store,
           args.conversationId,
           query,
           args.limit,
           args.recallReadQueries?.listTranscriptNeighborsBatch,
           args.seedTerms,
-        ),
-      ),
+        );
+        transcriptsFound = exchanges.found;
+        return exchanges.text;
+      }),
     },
     {
       kind: "live_context",
@@ -1039,11 +1071,9 @@ const runArchitecturalRecall = async (args: {
 
   args.signal?.throwIfAborted();
   const assemblyStartedAt = performance.now();
-  const transcripts =
-    evidence.find(
-      (item) =>
-        item.kind === "episodic" && item.value.startsWith("# Exchange "),
-    )?.value ?? "";
+  const transcripts = transcriptsFound
+    ? (evidence.find((item) => item.kind === "episodic")?.value ?? "")
+    : "";
   const candidates = mergeAndRankRecallEvidence(
     evidence.filter((item) => item.kind !== "episodic"),
     args.seedTerms,

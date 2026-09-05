@@ -10,6 +10,7 @@ import {
   BoundedBodyError,
   readBoundedRequestJson,
 } from "./bounded-body.js";
+import { convexSiteBase } from "./convex-site.js";
 
 type CloudHomeRouteEnv = {
   AGENT_HOME?: R2Bucket;
@@ -46,7 +47,7 @@ const routeError = (error: unknown): Response => {
 };
 
 const endpointBase = (env: CloudHomeRouteEnv): string => {
-  const base = (env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/u, "");
+  const base = convexSiteBase(env);
   if (!base)
     throw new CloudHomeProtocolError("Cloud home is unavailable.", 503);
   return base;

@@ -116,30 +116,30 @@ describe("Recall read queries", () => {
       threadsReady: true,
     });
   });
-});
 
-it("batches canonical neighbors by sequence even when timestamps collide", () => {
-  const db = makeDb();
-  db.exec("ALTER TABLE entry ADD COLUMN visible INTEGER DEFAULT 1");
-  const insert = db.prepare(
-    "INSERT INTO entry VALUES ('conv', ?, ?, ?, ?, ?, 1000, ?)",
-  );
-  insert.run(1, "before", "user", "user_message", "question", 1);
-  insert.run(2, "hit", "assistant", "assistant_message", "suggestion", 1);
-  insert.run(3, "hidden", "user", "user_message", "internal", 0);
-  insert.run(
-    4,
-    "correction",
-    "user",
-    "user_message",
-    "actually, use PostgreSQL",
-    1,
-  );
-  const rows = listTranscriptNeighborsBatch(
-    db as never,
-    [{ conversationId: "conv", atMs: 1000, sequence: 2 }],
-    { before: 1, after: 1 },
-  );
-  expect(rows[0]?.map((row) => row.id)).toEqual(["before", "correction"]);
-  expect(rows[0]?.[1]?.text).toContain("PostgreSQL");
+  it("batches canonical neighbors by sequence even when timestamps collide", () => {
+    const db = makeDb();
+    db.exec("ALTER TABLE entry ADD COLUMN visible INTEGER DEFAULT 1");
+    const insert = db.prepare(
+      "INSERT INTO entry VALUES ('conv', ?, ?, ?, ?, ?, 1000, ?)",
+    );
+    insert.run(1, "before", "user", "user_message", "question", 1);
+    insert.run(2, "hit", "assistant", "assistant_message", "suggestion", 1);
+    insert.run(3, "hidden", "user", "user_message", "internal", 0);
+    insert.run(
+      4,
+      "correction",
+      "user",
+      "user_message",
+      "actually, use PostgreSQL",
+      1,
+    );
+    const rows = listTranscriptNeighborsBatch(
+      db as never,
+      [{ conversationId: "conv", atMs: 1000, sequence: 2 }],
+      { before: 1, after: 1 },
+    );
+    expect(rows[0]?.map((row) => row.id)).toEqual(["before", "correction"]);
+    expect(rows[0]?.[1]?.text).toContain("PostgreSQL");
+  });
 });

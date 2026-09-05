@@ -37,7 +37,9 @@ pub struct CdpClient {
     event_tx: broadcast::Sender<CdpEvent>,
     raw_tx: broadcast::Sender<RawCdpMessage>,
     _reader_handle: tokio::task::JoinHandle<()>,
-    frame_sessions: Mutex<HashMap<(String, String), String>>,
+    /// Flattened child-frame sessions by (parent session, frame id). Entries
+    /// are pruned when Chromium reports the child or parent session detached.
+    frame_sessions: Arc<Mutex<HashMap<(String, String), String>>>,
 }
 
 impl CdpClient {
@@ -63,9 +65,13 @@ impl CdpClient {
         let (event_tx, _) = broadcast::channel(256);
         let (raw_tx, _) = broadcast::channel(512);
 
+        let frame_sessions: Arc<Mutex<HashMap<(String, String), String>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
         let pending_clone = pending.clone();
         let event_tx_clone = event_tx.clone();
         let raw_tx_clone = raw_tx.clone();
+        let frame_sessions_clone = frame_sessions.clone();
 
         let reader_handle = tokio::spawn(async move {
             while let Some(msg) = ws_rx.next().await {
@@ -109,6 +115,21 @@ impl CdpClient {
                     }
                 } else if let Some(ref method) = parsed.method {
                     // Event
+                    if method == "Target.detachedFromTarget" {
+                        if let Some(detached) = parsed
+                            .params
+                            .as_ref()
+                            .and_then(|params| params.get("sessionId"))
+                            .and_then(Value::as_str)
+                        {
+                            frame_sessions_clone
+                                .lock()
+                                .await
+                                .retain(|(parent, _), child| {
+                                    parent != detached && child != detached
+                                });
+                        }
+                    }
                     let event = CdpEvent {
                         method: method.clone(),
                         params: parsed.params.clone().unwrap_or(Value::Null),
@@ -131,7 +152,7 @@ impl CdpClient {
             event_tx,
             raw_tx,
             _reader_handle: reader_handle,
-            frame_sessions: Mutex::new(HashMap::new()),
+            frame_sessions,
         })
     }
 

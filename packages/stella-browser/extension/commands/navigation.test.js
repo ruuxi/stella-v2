@@ -73,6 +73,9 @@ globalThis.chrome = {
       return {};
     },
   },
+  webNavigation: {
+    onDOMContentLoaded: { addListener() {}, removeListener() {} },
+  },
   debugger: {
     onEvent: noopEvent,
     onDetach: noopEvent,

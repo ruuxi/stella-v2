@@ -478,6 +478,35 @@ describe("unified Recall retrieval", () => {
     expect(store.searchTranscripts).toHaveBeenCalledTimes(1);
   });
 
+  it("returns original transcript exchanges as references without calling the model", async () => {
+    const root = await createRoot();
+    const store = makeStore({
+      transcripts: [
+        {
+          role: "user",
+          atMs: Date.parse("2026-03-02T09:00:00Z"),
+          text: "I first drove the blue Lotus today, 2026-03-02, around the coast road.",
+        },
+        {
+          role: "assistant",
+          atMs: Date.parse("2026-02-01T09:00:00Z"),
+          text: "The blue Lotus tire-pressure note is unrelated.",
+        },
+      ],
+    });
+
+    const brief = await runRecall(
+      await recallArgs(root, store, "When did I first drive the blue Lotus?", [
+        "blue Lotus",
+        "first drove",
+      ]),
+    );
+
+    expect(brief).toContain("blue Lotus");
+    expect(brief).toContain("messageRef=recall:");
+    expect(completeSimple).not.toHaveBeenCalled();
+  });
+
   it("does not search background profile or memory documents already in context", async () => {
     const root = await createRoot();
     await Promise.all([
@@ -509,29 +538,29 @@ describe("unified Recall retrieval", () => {
     expect(store.searchThreads).toHaveBeenCalledTimes(1);
     expect(store.searchTranscripts).toHaveBeenCalledTimes(1);
   });
-});
 
-it("reads references directly and classifies failed reads as retrieval errors", async () => {
-  const root = await createRoot();
-  const ref = "recall:conv-old:message-0:1500";
-  const store = makeStore({
-    transcripts: [{ text: "a".repeat(1500) + "continued original" }],
+  it("reads references directly and classifies failed reads as retrieval errors", async () => {
+    const root = await createRoot();
+    const ref = "recall:conv-old:message-0:1500";
+    const store = makeStore({
+      transcripts: [{ text: "a".repeat(1500) + "continued original" }],
+    });
+    const brief = await runRecall(
+      await recallArgs(root, store, "Read more", [ref]),
+    );
+    expect(brief).toContain("continued original");
+    expect(brief).not.toContain("a".repeat(100));
+    expect(store.searchThreads).not.toHaveBeenCalled();
+    expect(store.searchTranscripts).toHaveBeenCalledWith({
+      query: ref,
+      terms: [ref],
+      limit: 1,
+    });
+    const broken = makeStore({
+      transcriptFailure: new Error("database offline"),
+    });
+    await expect(
+      runRecall(await recallArgs(root, broken, "Read more", [ref])),
+    ).rejects.toBeInstanceOf(RecallRetrievalError);
   });
-  const brief = await runRecall(
-    await recallArgs(root, store, "Read more", [ref]),
-  );
-  expect(brief).toContain("continued original");
-  expect(brief).not.toContain("a".repeat(100));
-  expect(store.searchThreads).not.toHaveBeenCalled();
-  expect(store.searchTranscripts).toHaveBeenCalledWith({
-    query: ref,
-    terms: [ref],
-    limit: 1,
-  });
-  const broken = makeStore({
-    transcriptFailure: new Error("database offline"),
-  });
-  await expect(
-    runRecall(await recallArgs(root, broken, "Read more", [ref])),
-  ).rejects.toBeInstanceOf(RecallRetrievalError);
 });

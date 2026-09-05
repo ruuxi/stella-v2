@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { GatewayConfigSnapshot } from "@stella/contracts/gateway/usage";
 import {
   getGatewayConfig,
   CONFIG_TTL_MS,
-  type GatewayConfigRecord,
   resetConfigCacheForTests,
 } from "../src/config-cache.js";
 import { createConvexClient } from "../src/convex-client.js";
 import {
+  completeConfigSnapshot,
   configSnapshot,
   createFetchMock,
   createTestEnv,
@@ -16,6 +17,20 @@ import {
   gatewayConfigRevision,
   type SharedGatewayConfigRecord,
 } from "../src/shared-config.js";
+
+const SOURCE = "https://config.example";
+
+const sharedRecord = async (
+  snapshot: GatewayConfigSnapshot,
+  overrides: Partial<SharedGatewayConfigRecord> = {},
+): Promise<SharedGatewayConfigRecord> => ({
+  version: 1,
+  source: SOURCE,
+  originalFetchedAt: 1_000,
+  revision: await gatewayConfigRevision(snapshot),
+  snapshot,
+  ...overrides,
+});
 
 describe("gateway config cache", () => {
   beforeEach(() => resetConfigCacheForTests());
@@ -79,93 +94,146 @@ describe("gateway config cache", () => {
   });
   test("a restart restores fresh durable pricing without renewing its age", async () => {
     const harness = createTestEnv();
-    const fetchMock = createFetchMock().on(call => call.url.pathname === "/api/gateway/config", () => json(configSnapshot()));
-    let saved: GatewayConfigRecord | undefined;
-    const storage = { endpoint: "https://config.example", read: () => saved, write: (value: GatewayConfigRecord) => { saved = structuredClone(value); } };
+    const fetchMock = createFetchMock().on(
+      (call) => call.url.pathname === "/api/gateway/config",
+      () => json(completeConfigSnapshot()),
+    );
+    let saved: SharedGatewayConfigRecord | undefined;
+    const storage = {
+      source: SOURCE,
+      read: () => saved,
+      write: (value: SharedGatewayConfigRecord) => {
+        saved = structuredClone(value);
+      },
+    };
     const client = createConvexClient(harness.env, fetchMock.fetch);
-    const initial = await getGatewayConfig(client, () => undefined, () => 1_000, storage);
+    const initial = await getGatewayConfig(
+      client,
+      () => undefined,
+      () => 1_000,
+      storage,
+    );
     resetConfigCacheForTests();
-    const offline = createConvexClient(harness.env, (async () => { throw new Error("No cold request expected"); }) as typeof fetch);
-    const restored = await getGatewayConfig(offline, () => undefined, () => 2_000, storage);
+    const offline = createConvexClient(harness.env, (async () => {
+      throw new Error("No cold request expected");
+    }) as typeof fetch);
+    const restored = await getGatewayConfig(
+      offline,
+      () => undefined,
+      () => 2_000,
+      storage,
+    );
     expect(restored.fetchedAt).toBe(1_000);
     expect(restored.snapshot).toEqual(initial.snapshot);
-    expect(restored.priceFor(initial.snapshot.prices[0]!.model)).toEqual(initial.priceFor(initial.snapshot.prices[0]!.model));
-    expect(saved?.fetchedAt).toBe(1_000);
+    expect(restored.priceFor(initial.snapshot.prices[0]!.model)).toEqual(
+      initial.priceFor(initial.snapshot.prices[0]!.model),
+    );
+    expect(saved?.originalFetchedAt).toBe(1_000);
   });
 
   test("expired, future, wrong-source and malformed durable pricing require a fresh load", async () => {
     const harness = createTestEnv();
-    const offline = createConvexClient(harness.env, (async () => { throw new Error("offline"); }) as typeof fetch);
-    const base = { version: 1, endpoint: "https://config.example", fetchedAt: 1_000, snapshot: configSnapshot() };
-    const cases = [base, { ...base, fetchedAt: CONFIG_TTL_MS + 2_000 },
-      { ...base, fetchedAt: CONFIG_TTL_MS, endpoint: "https://wrong.example" }, { ...base, fetchedAt: CONFIG_TTL_MS, snapshot: {} }];
+    const offline = createConvexClient(harness.env, (async () => {
+      throw new Error("offline");
+    }) as typeof fetch);
+    const base = await sharedRecord(completeConfigSnapshot());
+    const cases = [
+      base,
+      { ...base, originalFetchedAt: CONFIG_TTL_MS + 2_000 },
+      {
+        ...base,
+        originalFetchedAt: CONFIG_TTL_MS,
+        source: "https://wrong.example",
+      },
+      { ...base, originalFetchedAt: CONFIG_TTL_MS, snapshot: {} },
+    ];
     for (const value of cases) {
       resetConfigCacheForTests();
-      await expect(getGatewayConfig(offline, () => undefined, () => CONFIG_TTL_MS + 1_000,
-        { endpoint: base.endpoint, read: () => value, write: () => { throw new Error("must not save"); } })).rejects.toThrow();
+      await expect(
+        getGatewayConfig(
+          offline,
+          () => undefined,
+          () => CONFIG_TTL_MS + 1_000,
+          {
+            source: base.source,
+            read: () => value,
+            write: () => {
+              throw new Error("must not save");
+            },
+          },
+        ),
+      ).rejects.toThrow();
     }
   });
 
   test("background refresh replaces persisted pricing, not just the resident copy", async () => {
     const harness = createTestEnv();
-    let saved: GatewayConfigRecord | undefined;
-    const storage = { endpoint: "https://config.example", read: () => saved, write: (value: GatewayConfigRecord) => { saved = structuredClone(value); } };
-    const client = createConvexClient(harness.env, createFetchMock().on(call => call.url.pathname === "/api/gateway/config", () => json(configSnapshot())).fetch);
-    await getGatewayConfig(client, () => undefined, () => 1_000, storage);
+    let saved: SharedGatewayConfigRecord | undefined;
+    const storage = {
+      source: SOURCE,
+      read: () => saved,
+      write: (value: SharedGatewayConfigRecord) => {
+        saved = structuredClone(value);
+      },
+    };
+    const client = createConvexClient(
+      harness.env,
+      createFetchMock().on(
+        (call) => call.url.pathname === "/api/gateway/config",
+        () => json(completeConfigSnapshot()),
+      ).fetch,
+    );
+    await getGatewayConfig(
+      client,
+      () => undefined,
+      () => 1_000,
+      storage,
+    );
     const pending: Promise<unknown>[] = [];
-    const stale = await getGatewayConfig(client, work => { pending.push(work); }, () => CONFIG_TTL_MS + 1_000, storage);
+    const stale = await getGatewayConfig(
+      client,
+      (work) => {
+        pending.push(work);
+      },
+      () => CONFIG_TTL_MS + 1_000,
+      storage,
+    );
     expect(stale.fetchedAt).toBe(1_000);
     await Promise.all(pending);
-    expect(saved?.fetchedAt).toBe(CONFIG_TTL_MS + 1_000);
+    expect(saved?.originalFetchedAt).toBe(CONFIG_TTL_MS + 1_000);
   });
 
   test("a cold owner restores a fresh complete shared snapshot without calling Convex", async () => {
-    const snapshot = configSnapshot({
-      tierCeilings: [
-        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
-        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
-      ],
-    });
-    const record: SharedGatewayConfigRecord = {
-      version: 1,
-      source: "https://config.example",
-      originalFetchedAt: 1_000,
-      revision: await gatewayConfigRevision(snapshot),
-      snapshot,
-    };
+    const snapshot = completeConfigSnapshot();
+    const record = await sharedRecord(snapshot);
     let convexCalls = 0;
     const client = createConvexClient(createTestEnv().env, (async () => {
       convexCalls += 1;
       return json(configSnapshot());
     }) as typeof fetch);
-    let saved: GatewayConfigRecord | undefined;
+    let saved: SharedGatewayConfigRecord | undefined;
     const restored = await getGatewayConfig(
       client,
       () => undefined,
       () => 2_000,
-      { endpoint: record.source, read: () => saved, write: value => { saved = structuredClone(value); } },
+      {
+        source: record.source,
+        read: () => saved,
+        write: (value) => {
+          saved = structuredClone(value);
+        },
+      },
       { source: record.source, read: async () => structuredClone(record) },
     );
     expect(convexCalls).toBe(0);
     expect(restored.fetchedAt).toBe(record.originalFetchedAt);
     expect(restored.snapshot).toEqual(snapshot);
-    expect(saved?.fetchedAt).toBe(record.originalFetchedAt);
+    expect(saved?.originalFetchedAt).toBe(record.originalFetchedAt);
   });
 
   test("invalid shared snapshots fall back to Convex without extending their age", async () => {
-    const complete = configSnapshot({
-      tierCeilings: [
-        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
-        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
-      ],
-    });
-    const base: SharedGatewayConfigRecord = {
-      version: 1,
-      source: "https://config.example",
-      originalFetchedAt: 1_000,
-      revision: await gatewayConfigRevision(complete),
-      snapshot: complete,
-    };
+    const complete = completeConfigSnapshot();
+    const base = await sharedRecord(complete);
     const cases: unknown[] = [
       null,
       { ...base, source: "https://wrong.example" },
@@ -193,19 +261,8 @@ describe("gateway config cache", () => {
   });
 
   test("concurrent cold readers share one KV read", async () => {
-    const snapshot = configSnapshot({
-      tierCeilings: [
-        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
-        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
-      ],
-    });
-    const record: SharedGatewayConfigRecord = {
-      version: 1,
-      source: "https://config.example",
-      originalFetchedAt: 1_000,
-      revision: await gatewayConfigRevision(snapshot),
-      snapshot,
-    };
+    const snapshot = completeConfigSnapshot();
+    const record = await sharedRecord(snapshot);
     let reads = 0;
     const shared = {
       source: record.source,
@@ -219,8 +276,20 @@ describe("gateway config cache", () => {
       throw new Error("No Convex request expected");
     }) as typeof fetch);
     const [first, second] = await Promise.all([
-      getGatewayConfig(offline, () => undefined, () => 2_000, undefined, shared),
-      getGatewayConfig(offline, () => undefined, () => 2_000, undefined, shared),
+      getGatewayConfig(
+        offline,
+        () => undefined,
+        () => 2_000,
+        undefined,
+        shared,
+      ),
+      getGatewayConfig(
+        offline,
+        () => undefined,
+        () => 2_000,
+        undefined,
+        shared,
+      ),
     ]);
     expect(reads).toBe(1);
     expect(first.snapshot).toEqual(snapshot);
@@ -228,23 +297,16 @@ describe("gateway config cache", () => {
   });
 
   test("a delayed shared read cannot replace newer owner storage", async () => {
-    const olderSnapshot = configSnapshot({
-      updatedAt: 1,
-      tierCeilings: [
-        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
-        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
-      ],
-    });
-    const newerSnapshot = { ...olderSnapshot, updatedAt: 2 };
-    const olderRecord: SharedGatewayConfigRecord = {
-      version: 1,
-      source: "https://config.example",
-      originalFetchedAt: 1_000,
-      revision: await gatewayConfigRevision(olderSnapshot),
-      snapshot: olderSnapshot,
-    };
+    const olderSnapshot = completeConfigSnapshot({ updatedAt: 1 });
+    const olderRecord = await sharedRecord(olderSnapshot);
+    const newerRecord = await sharedRecord(
+      { ...olderSnapshot, updatedAt: 2 },
+      { originalFetchedAt: 2_000 },
+    );
     let releaseShared: (() => void) | undefined;
-    const sharedBlocked = new Promise<void>((resolve) => { releaseShared = resolve; });
+    const sharedBlocked = new Promise<void>((resolve) => {
+      releaseShared = resolve;
+    });
     const offline = createConvexClient(createTestEnv().env, (async () => {
       throw new Error("No Convex request expected");
     }) as typeof fetch);
@@ -267,13 +329,8 @@ describe("gateway config cache", () => {
       () => undefined,
       () => 3_000,
       {
-        endpoint: olderRecord.source,
-        read: () => ({
-          version: 1,
-          endpoint: olderRecord.source,
-          fetchedAt: 2_000,
-          snapshot: newerSnapshot,
-        }),
+        source: olderRecord.source,
+        read: () => newerRecord,
         write: () => undefined,
       },
     );
@@ -283,5 +340,51 @@ describe("gateway config cache", () => {
     expect(first.snapshot.updatedAt).toBe(2);
     expect(newer.fetchedAt).toBe(2_000);
   });
+});
 
+test("warm isolate seeds owner durable storage", async () => {
+  resetConfigCacheForTests();
+  const harness = createTestEnv();
+  const fetchMock = createFetchMock().on(
+    (call) => call.url.pathname === "/api/gateway/config",
+    () => json(completeConfigSnapshot()),
+  );
+  const client = createConvexClient(harness.env, fetchMock.fetch);
+  await getGatewayConfig(
+    client,
+    () => undefined,
+    () => 1_000,
+  );
+  let saved: SharedGatewayConfigRecord | undefined;
+  await getGatewayConfig(
+    client,
+    () => undefined,
+    () => 1_000,
+    {
+      source: SOURCE,
+      read: () => saved,
+      write: (record) => {
+        saved = record;
+      },
+    },
+  );
+  expect(saved?.originalFetchedAt).toBe(1_000);
+  resetConfigCacheForTests();
+  const offline = createConvexClient(harness.env, async () => {
+    throw new Error("A durable cache hit must not fetch configuration");
+  });
+  const restored = await getGatewayConfig(
+    offline,
+    () => undefined,
+    () => 2_000,
+    {
+      source: SOURCE,
+      read: () => saved,
+      write: (record) => {
+        saved = record;
+      },
+    },
+  );
+  expect(restored.fetchedAt).toBe(1_000);
+  expect(restored.snapshot).toEqual(completeConfigSnapshot());
 });

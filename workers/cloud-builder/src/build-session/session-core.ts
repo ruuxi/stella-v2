@@ -71,6 +71,7 @@ import {
   type TurnEventEvent,
 } from "@stella/contracts/turn-plane/outbox";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
+import { convexSiteBase } from "../convex-site.js";
 
 export type SessionCoreHost = Pick<
   BuildSessionInternals,
@@ -298,9 +299,7 @@ export const convexCall = async (
   body: unknown,
   options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<Response> => {
-  const base = (host.env.STELLA_CONVEX_SITE_URL ?? "")
-    .trim()
-    .replace(/\/+$/, "");
+  const base = convexSiteBase(host.env);
   if (!base) throw new Error("Convex site URL is not configured.");
   const capability = await host.controlPlaneCapability(turn);
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 30_000);

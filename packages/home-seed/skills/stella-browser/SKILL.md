@@ -50,7 +50,7 @@ await tab.title();
 
 Locators resolve against current page state when called; do not replace a locator merely because the DOM changed. Rebuild it only when the selector or intended element changes.
 
-Selectors (semantic and CSS) search the top document plus same-origin iframes and open shadow roots, so embedded editors (e.g. a Google Docs canvas iframe) resolve without frame plumbing. Cross-origin frames cannot be searched; not-found errors state how many frames were skipped.
+Selectors (semantic and CSS) search the top document plus same-origin iframes and open shadow roots. Snapshots also expose cross-origin frame content through frame-qualified refs (see Observe Cheaply below); to act inside a cross-origin frame, use a ref from the latest observation rather than guessing a top-document selector or matching a same-named control elsewhere.
 
 ## Keyboard
 
@@ -73,12 +73,33 @@ Use the least expensive observation that answers the question:
 - Page identity: `await tab.url()` or `await tab.title()`.
 - Element existence or state: `count()`, `isVisible()`, `isEnabled()`, or `isChecked()`.
 - Focused values: `innerText()`, `textContent()`, `inputValue()`, or `getAttribute()`.
-- Unknown structure at a branch or recovery point: `tab.snapshot()` or `page.domSnapshot()`.
+- Unknown structure at a branch or recovery point: `tab.axSnapshot()` (incremental; see below). It is not available in cloud browser sessions; there, and whenever the full DOM snapshot format is wanted, use `tab.snapshot()` or `page.domSnapshot()`.
 - Visual appearance, coordinates, or rendering: `tab.screenshot()`. The image is attached to the tool result automatically; the JavaScript return value is only a compact `{ attached, path, format, mimeType }` receipt. Do not pass that receipt to `codeRuntime.emitImage()`.
 
 Do not take a snapshot after every action. Snapshot only when page structure is needed to choose the next step. Use a screenshot only when pixels matter.
 
-Semantic snapshots are bounded to 200 emitted entries and 20,000 characters. When a page exceeds that budget, the final metadata line reports truncation and any skipped cross-origin frames; narrow with `selector`, `interactive`, `compact`, or `maxDepth` instead of requesting repeated full-page snapshots.
+Semantic snapshots are bounded to 200 emitted entries and 20,000 characters. When a page exceeds that budget, metadata reports truncation and unavailable frames; narrow with `selector`, `interactive`, `compact`, or `maxDepth` instead of requesting repeated full-page snapshots. Selector-scoped captures omit descendant frames.
+
+Frame-qualified refs are bound to the document they were observed in: a cross-origin ref rejects a detached node or a replaced document instead of falling back to a same-named control, and pointer geometry through a transformed or CSS-zoomed iframe is rejected when it cannot be mapped safely. If a snapshot fails closed because an operator-configured domain filter (`STELLA_BROWSER_ALLOWED_DOMAINS`) applies to the external browser, use the in-app browser instead; never disable the filter.
+
+### Incremental AX observations
+
+`tab.axSnapshot()` reads the browser accessibility tree, including accessible child frames. Its default `mode: "auto"` returns one of:
+
+- `{ kind: "full", snapshotId, snapshot, reason }` on first use, a document/options change, when a diff would be larger than the full tree, or when the bounded diff computation would exceed its budget.
+- `{ kind: "diff", snapshotId, baseSnapshotId, diff }` with unified line-diff hunks relative to the indicated previous observation. Deleted lines are prefixed `-`, added lines `+`, and nearby unchanged lines with a space. Refs on deleted lines are no longer evidence for an action.
+- `{ kind: "unchanged", snapshotId }` when the bounded tree has not changed. This does not mean the page has finished loading or that pixels are unchanged.
+
+The baseline is private to this persistent runtime, backend, tab generation and snapshot options. Document replacement and reload reset identity even when the URL is unchanged. Same-document history changes can appear as ordinary diffs. A failed capture clears the baseline. Only the observed bounded tree is compared; omitted content is not claimed unchanged.
+
+```js
+var observation = await tab.axSnapshot();
+// Select a ref from the returned full tree or its subsequent changes.
+await tab.playwright.locator("@e123").click(); // replace with an observed ref
+await tab.axSnapshot();
+```
+
+Use `await tab.axSnapshot({ mode: "full" })` after context compaction, output pruning, or whenever the referenced baseline is no longer in context. `mode: "diff"` requests differences even if larger; a missing or incompatible baseline or exhausted computation budget still returns full output. AX options are `mode`, `interactive`, `compact`, `maxDepth`, and `selector`. Keep using the same options to retain the baseline. The DOM snapshot APIs remain full-output and do not share the AX baseline.
 
 ## Synchronize on Browser State
 
@@ -158,6 +179,7 @@ For a new task, call `tabs.new()` once and then navigate that handle with `tab.g
 | `markHandoff()`, `markDeliverable()`                                  | Retain during automatic turn cleanup.    |
 | `url()`, `title()`                                                    | Cheapest page identity reads.            |
 | `snapshot(options?)`                                                  | Structural observation.                  |
+| `axSnapshot({ mode?, interactive?, compact?, maxDepth?, selector? })`   | AX tree, incremental; not in cloud sessions. |
 | `screenshot(options?)`                                                | Pixel observation.                       |
 | `press(key)`                                                          | Page-level key press to current focus.   |
 | `keyboard.type(text)`, `keyboard.press(key)`                          | Raw text insertion / key press.          |

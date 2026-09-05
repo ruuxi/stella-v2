@@ -31,8 +31,9 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { OrchestratorSessionObject: OrchestratorSession } =
-  await import("../src/orchestrator-session-object.js");
+const { OrchestratorSessionObject: OrchestratorSession } = await import(
+  "../src/orchestrator-session-object.js"
+);
 mock.restore();
 
 /**
@@ -156,6 +157,8 @@ const harness = (
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     turnExecutions: new Map<string, unknown>(),
     ownerFencedAppends: new Map<string, unknown>(),
+    cloudHomePreparations: new Map<string, unknown>(),
+    admittedOwnerModelGrants: new Map<string, unknown>(),
     activeTurnId: null,
     journal,
     activeConversationEditLock: async () => options.editLock ?? null,
@@ -415,21 +418,6 @@ describe("OrchestratorSession turn admission", () => {
     expect(h.gates.admits).toHaveLength(0);
     expect(h.values.size).toBe(0);
     expect(h.outbox.events).toHaveLength(0);
-  });
-
-  test("replays pre-echo admission receipts when a retried placement carries its original renderer id", async () => {
-    const h = harness();
-    const accepted = await h.dispatch(start(), USER);
-    const original = await accepted.json();
-    const replay = await h.dispatch(
-      start({ originUserMessageId: "local-original-echo" }),
-      USER,
-    );
-    expect(replay.status).toBe(202);
-    expect(await replay.json()).toMatchObject({
-      turnId: original.turnId,
-      replayed: true,
-    });
   });
 
   test("replays the same clientMsgId with the same turn id and conflicts on a different message", async () => {

@@ -1,32 +1,48 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { GatewayModelResolution } from "@stella/contracts/gateway/api";
+import * as registryModule from "@stella/contracts/model-registry";
 
 let loadModelRegistryCalls = 0;
 
-mock.module("@stella/contracts/model-registry", () => ({
+// Module mocks outlive this file in one `bun test` process, so the strict
+// registry only refuses loads while this file's tests run and otherwise
+// delegates to the real functions captured before the mock replaced them.
+const REGISTRY_MODULE = "@stella/contracts/model-registry";
+const realRegistry = { ...registryModule };
+let refuseRegistryLoads = false;
+beforeAll(() => {
+  refuseRegistryLoads = true;
+});
+afterAll(() => {
+  refuseRegistryLoads = false;
+});
+
+mock.module(REGISTRY_MODULE, () => ({
+  ...realRegistry,
+  isModelRegistryLoaded: () =>
+    refuseRegistryLoads ? false : realRegistry.isModelRegistryLoaded(),
   loadModelRegistry: () => {
+    if (!refuseRegistryLoads) return realRegistry.loadModelRegistry();
     loadModelRegistryCalls += 1;
     throw new Error("registry import should stay off this path");
   },
   getLoadedModelRegistry: () => {
+    if (!refuseRegistryLoads) return realRegistry.getLoadedModelRegistry();
     throw new Error(
       "Model registry is not loaded. Call and await loadModelRegistry() during host startup before using synchronous model APIs.",
     );
   },
 }));
 
-const {
-  createCloudRelayModel,
-  createCloudRelaySession,
-} = await import("./relay-model.js");
+const { createCloudRelayModel, createCloudRelaySession } = await import(
+  "./relay-model.js"
+);
 
 const GATEWAY = "https://gateway.example.test";
 const CAPABILITY = "eyJ.turn-capability.sig";
 
-const managed = (
-  model = "stella/default",
-): CloudExecutionSelection => ({
+const managed = (model = "stella/default"): CloudExecutionSelection => ({
   engine: "stella",
   provider: "stella",
   model,
@@ -112,76 +128,58 @@ describe("managed relay registry loading", () => {
     }
   });
 
-  test("loads the generated registry for complete OpenAI gateway resolution metadata", async () => {
+  test.each([
+    {
+      name: "complete OpenAI gateway resolution metadata",
+      requestedModel: "stella/openai/gpt-5.6-sol",
+      resolvedModel: "openai/gpt-5.6-sol",
+      provider: "openai",
+      protocol: "openai-responses",
+      contextWindow: 272_000,
+      maxOutputTokens: 128_000,
+    },
+    {
+      name: "OpenRouter slugs with possible registry metadata",
+      requestedModel: "stella/openrouter/anthropic/claude-sonnet-4-6",
+      resolvedModel: "anthropic/claude-sonnet-4-6",
+      provider: "openrouter",
+      protocol: "openai-completions",
+      contextWindow: 200_000,
+      maxOutputTokens: 16_384,
+    },
+    {
+      name: "custom managed resolutions",
+      requestedModel: "stella/x-ai/grok-4.5",
+      resolvedModel: "x-ai/grok-4.5",
+      provider: "xai",
+      protocol: "openai-responses",
+      contextWindow: 500_000,
+      maxOutputTokens: 500_000,
+    },
+  ] as const)(
+    "loads the generated registry for $name",
+    async ({ name: _name, requestedModel, ...resolved }) => {
+      loadModelRegistryCalls = 0;
+      await expect(
+        createCloudRelayModel({
+          ...relayArgs(managed(requestedModel)),
+          fetch: Object.assign(
+            async () =>
+              Response.json(resolution({ requestedModel, ...resolved })),
+            fetch,
+          ),
+        }),
+      ).rejects.toThrow("registry import should stay off this path");
+
+      expect(loadModelRegistryCalls).toBe(1);
+    },
+  );
+
+  test("loads the generated registry for native subscription models", async () => {
     loadModelRegistryCalls = 0;
     await expect(
-      createCloudRelayModel({
-        ...relayArgs(managed("stella/openai/gpt-5.6-sol")),
-        fetch: Object.assign(
-          async () =>
-            Response.json(
-              resolution({
-                requestedModel: "stella/openai/gpt-5.6-sol",
-                resolvedModel: "openai/gpt-5.6-sol",
-                provider: "openai",
-                protocol: "openai-responses",
-                contextWindow: 272_000,
-                maxOutputTokens: 128_000,
-              }),
-            ),
-          fetch,
-        ),
-      }),
+      createCloudRelayModel(relayArgs(nativeAnthropic())),
     ).rejects.toThrow("registry import should stay off this path");
-
-    expect(loadModelRegistryCalls).toBe(1);
-  });
-
-  test("loads the generated registry for OpenRouter slugs with possible registry metadata", async () => {
-    loadModelRegistryCalls = 0;
-    await expect(
-      createCloudRelayModel({
-        ...relayArgs(managed("stella/openrouter/anthropic/claude-sonnet-4-6")),
-        fetch: Object.assign(
-          async () =>
-            Response.json(
-              resolution({
-                requestedModel:
-                  "stella/openrouter/anthropic/claude-sonnet-4-6",
-                resolvedModel: "anthropic/claude-sonnet-4-6",
-                provider: "openrouter",
-                protocol: "openai-completions",
-                contextWindow: 200_000,
-                maxOutputTokens: 16_384,
-              }),
-            ),
-          fetch,
-        ),
-      }),
-    ).rejects.toThrow("registry import should stay off this path");
-
-    expect(loadModelRegistryCalls).toBe(1);
-  });
-
-  test("keeps registry-backed metadata for native and custom managed resolutions", async () => {
-    loadModelRegistryCalls = 0;
-    await expect(createCloudRelayModel(relayArgs(nativeAnthropic()))).rejects.toThrow(
-      "registry import should stay off this path",
-    );
-    expect(loadModelRegistryCalls).toBe(1);
-
-    loadModelRegistryCalls = 0;
-    await expect(createCloudRelayModel({
-      ...relayArgs(managed("stella/x-ai/grok-4.5")),
-      fetch: Object.assign(async () => Response.json(resolution({
-        requestedModel: "stella/x-ai/grok-4.5",
-        resolvedModel: "x-ai/grok-4.5",
-        provider: "xai",
-        protocol: "openai-responses",
-        contextWindow: 500_000,
-        maxOutputTokens: 500_000,
-      })), fetch),
-    })).rejects.toThrow("registry import should stay off this path");
     expect(loadModelRegistryCalls).toBe(1);
   });
 });

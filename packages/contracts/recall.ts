@@ -1,9 +1,9 @@
 /** Shared, storage-independent policy for cloud, desktop and mobile Recall. */
 export const RECALL_LIMIT = 12;
-export const RECALL_MAX_LIMIT = 30;
+const RECALL_MAX_LIMIT = 30;
 export const RECALL_CONTEXT_MESSAGES = 2;
-export const RECALL_TEXT_BUDGET = 12_000;
-export const RECALL_MESSAGE_CHARS = 1_500;
+const RECALL_TEXT_BUDGET = 12_000;
+const RECALL_MESSAGE_CHARS = 1_500;
 
 export const RECALL_DESCRIPTION =
   "Search past conversation history and return original exchanges with message references, timestamps, and speakers. " +
@@ -86,7 +86,7 @@ export function shouldBroadenRecall(hits: number, limit: number): boolean {
   return hits < Math.min(3, recallLimit(limit));
 }
 
-export type RecallReference = { scope: string; id: string; offset: number };
+type RecallReference = { scope: string; id: string; offset: number };
 
 export function recallReference(scope: string, id: string, offset = 0): string {
   return `recall:${encodeURIComponent(scope)}:${encodeURIComponent(id)}:${offset}`;

@@ -39,7 +39,7 @@ async function domFrame(tabId, frame, options) {
     frame,
     `(() => {
     globalThis[${registry}] = new Map();
-    try { return (${executeSnapshot.toString()})({...${JSON.stringify(options)}, traverseFrames:false,
+    try { return (${executeSnapshot.toString()})({...${JSON.stringify(options)},
       onRef:(ref,el)=>globalThis[${registry}].set(ref,el)}); }
     catch (error) { delete globalThis[${registry}]; throw error; }
   })()`,
@@ -324,11 +324,14 @@ export async function captureFrameSnapshot(tabId, options = {}, kind = "dom") {
     throw new Error(
       "Debugger connection changed during snapshot. Retry observation.",
     );
+  const included = new Set(
+    coverage
+      .filter((entry) => entry.status === "included")
+      .map((entry) => entry.frameId),
+  );
   for (const frame of ordered) {
     if (
-      coverage.some(
-        (entry) => entry.frameId === frame.id && entry.status === "included",
-      ) &&
+      included.has(frame.id) &&
       after.frames.get(frame.id)?.loaderId !== frame.loaderId
     )
       throw new Error("Frame navigated during snapshot. Retry observation.");
@@ -357,11 +360,7 @@ export async function captureFrameSnapshot(tabId, options = {}, kind = "dom") {
   const documentKey =
     `${attachmentId}|` +
     ordered
-      .filter((frame) =>
-        coverage.some(
-          (entry) => entry.frameId === frame.id && entry.status === "included",
-        ),
-      )
+      .filter((frame) => included.has(frame.id))
       .map((frame) => `${frame.id}:${frame.loaderId}`)
       .sort()
       .join("|");

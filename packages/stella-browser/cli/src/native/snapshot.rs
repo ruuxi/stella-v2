@@ -32,17 +32,19 @@ pub async fn take_ax_snapshot(
     let root_tree = root
         .get("frameTree")
         .ok_or("Browser did not return a frame tree")?;
+    // (frame subtree, ancestor scope, parent session, listed in parent's tree)
     let mut pending = vec![(
         root_tree.clone(),
         Vec::<RefFrame>::new(),
         session_id.to_string(),
+        true,
     )];
     let mut refs = previous_refs.clone();
     refs.set_next_ref_num(next_ref);
     let mut output = String::new();
     let mut captured = Vec::new();
     let mut omitted_frames = 0;
-    while let Some((tree, mut scope, parent_session)) = pending.pop() {
+    while let Some((tree, mut scope, parent_session, in_parent_tree)) = pending.pop() {
         if captured.len() >= MAX_SNAPSHOT_FRAMES || scope.len() >= MAX_FRAME_DEPTH {
             omitted_frames += 1;
             continue;
@@ -53,17 +55,10 @@ pub async fn take_ax_snapshot(
             .and_then(Value::as_str)
             .ok_or("Missing frame id")?;
         let mut frame_session = parent_session.clone();
-        // Same-process frames share their parent's CDP session. OOPIFs require
-        // their own flattened target session; a frame ID is also its target ID.
-        let parent_tree = client
-            .send_command_no_params("Page.getFrameTree", Some(&parent_session))
-            .await?;
-        if !scope.is_empty()
-            && parent_tree
-                .get("frameTree")
-                .and_then(|tree| super::element::find_frame(tree, frame_id))
-                .is_none()
-        {
+        // Same-process frames appear in their parent's frame tree and share
+        // its CDP session. OOPIFs do not; they require their own flattened
+        // target session, and a frame ID is also its target ID.
+        if !in_parent_tree {
             frame_session = client
                 .attach_frame(&parent_session, frame_id)
                 .await
@@ -75,10 +70,13 @@ pub async fn take_ax_snapshot(
         let current_tree = client
             .send_command_no_params("Page.getFrameTree", Some(&frame_session))
             .await?;
-        let current = current_tree
+        let current_subtree = current_tree
             .get("frameTree")
-            .and_then(|tree| super::element::find_frame(tree, frame_id))
+            .and_then(|tree| super::element::find_frame_tree(tree, frame_id))
             .ok_or("Frame detached during AX snapshot")?;
+        let current = current_subtree
+            .get("frame")
+            .ok_or("Missing frame metadata")?;
         if let Some(filter) = domain_filter {
             let url = current
                 .get("url")
@@ -98,11 +96,12 @@ pub async fn take_ax_snapshot(
         {
             return Err("A frame navigated during AX capture. Capture a new AX snapshot.".into());
         }
-        scope.push(RefFrame {
+        let captured_frame = RefFrame {
             frame_id: frame_id.to_string(),
             loader_id: loader_id.to_string(),
             session_id: frame_session.clone(),
-        });
+        };
+        scope.push(captured_frame.clone());
         refs.set_capture_scope(Some(scope.clone()));
         let text =
             take_snapshot(client, &frame_session, options, &mut refs, Some(frame_id)).await?;
@@ -111,16 +110,7 @@ pub async fn take_ax_snapshot(
         for line in text.lines() {
             output.push_str(&format!("{indent}  {line}\n"));
         }
-        captured.push(scope.last().ok_or("Missing captured frame")?.clone());
-        let expanded_tree = current_tree
-            .get("frameTree")
-            .filter(|tree| {
-                tree.get("frame")
-                    .and_then(|frame| frame.get("id"))
-                    .and_then(Value::as_str)
-                    == Some(frame_id)
-            })
-            .unwrap_or(&tree);
+        captured.push(captured_frame);
         let current_iframes = refs
             .entries_sorted()
             .into_iter()
@@ -133,7 +123,7 @@ pub async fn take_ax_snapshot(
             break;
         }
         if options.selector.is_none() {
-            let known_children = expanded_tree.get("childFrames").and_then(Value::as_array);
+            let known_children = current_subtree.get("childFrames").and_then(Value::as_array);
             let mut children = Vec::new();
             let mut seen = HashSet::new();
             for (_, entry) in current_iframes {
@@ -152,30 +142,20 @@ pub async fn take_ax_snapshot(
                             == Some(child_id.as_str())
                     })
                 });
-                children.push(
-                    known
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!({"frame":{"id":child_id}})),
-                );
+                children.push(match known {
+                    Some(tree) => (tree.clone(), true),
+                    None => (serde_json::json!({"frame":{"id":child_id}}), false),
+                });
             }
-            for child in children.into_iter().rev() {
-                pending.push((child, scope.clone(), frame_session.clone()));
+            for (child, in_tree) in children.into_iter().rev() {
+                pending.push((child, scope.clone(), frame_session.clone(), in_tree));
             }
         }
     }
     // A capture that spans document replacement must never publish old refs
     // with new text or let the runtime compute a diff across those documents.
     for frame in &captured {
-        let current = client
-            .send_command_no_params("Page.getFrameTree", Some(&frame.session_id))
-            .await?;
-        if current
-            .get("frameTree")
-            .and_then(|tree| super::element::find_frame(tree, &frame.frame_id))
-            .and_then(|frame| frame.get("loaderId"))
-            .and_then(Value::as_str)
-            != Some(frame.loader_id.as_str())
-        {
+        if !super::element::frame_is_current(client, frame).await? {
             return Err("A frame navigated during AX capture. Capture a new AX snapshot.".into());
         }
     }

@@ -19,7 +19,9 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { parseAgentExecutorResult } = await import("../src/index.js");
+const { parseAgentExecutorResult } = await import(
+  "../src/build-session/public-helpers.js"
+);
 mock.restore();
 
 const context = () => {

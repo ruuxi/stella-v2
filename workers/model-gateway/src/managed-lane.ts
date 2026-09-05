@@ -1,11 +1,15 @@
-import { GATEWAY_MODEL_REVISION_HEADER, GATEWAY_MODEL_RESOLUTION_HEADER,
-  gatewayModelResolutionRevision } from "@stella/contracts/gateway/api";
-import { resolutionFor } from "./resolve.js";
+import {
+  GATEWAY_MODEL_REVISION_HEADER,
+  GATEWAY_MODEL_RESOLUTION_HEADER,
+  gatewayModelResolutionRevision,
+} from "@stella/contracts/gateway/api";
+import { managedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
 import {
   capabilityLedgerClient,
   type CapabilityLedgerClient,
+  type OwnerRelayAccounting,
 } from "./ledger-client.js";
-import { RelayTiming } from "./relay-timing.js";
+import type { RelayTiming } from "./relay-timing.js";
 import {
   GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
   GATEWAY_NETWORK_POLICY,
@@ -14,6 +18,7 @@ import {
   GATEWAY_UPSTREAM_MAX_DURATION_MS,
   limitsAudienceFor,
   type GatewayProtocol,
+  type ManagedModelAudienceForLimits,
 } from "@stella/contracts/gateway/api";
 import {
   GATEWAY_USAGE_EVENT_VERSION,
@@ -58,7 +63,7 @@ import {
   verifySessionDpop,
   type AuthenticatedCapability,
 } from "./capability.js";
-import { getGatewayConfig } from "./config-cache.js";
+import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
 import type { ConvexClient } from "./convex-client.js";
 import {
   GatewayError,
@@ -68,7 +73,10 @@ import {
 } from "./errors.js";
 import type { LedgerSettleArgs } from "./ledger.js";
 import { classifyNetwork } from "../../shared/network-class.js";
-import { ownerEnforcementAdmission } from "./owner-enforcement.js";
+import {
+  ownerEnforcementAdmission,
+  type OwnerEnforcementAdmission,
+} from "./owner-enforcement.js";
 import {
   agentTypeFrom,
   clientIp,
@@ -84,6 +92,7 @@ import {
   resolveManagedRoute,
   type ManagedRoute,
 } from "./resolve.js";
+import type { SharedGatewayConfigStore } from "./shared-config.js";
 
 /**
  * Managed lane: Stella-billed, request/response.
@@ -387,6 +396,55 @@ const outputTextLengthInFrame = (
   return length;
 };
 
+type TierReservation = { estimateMicroCents: number; minute: number };
+
+/** Reserves the audience-wide tier budget; a refusal carries the tier quota. */
+const reserveTierBudget = async (args: {
+  env: Env;
+  timing: RelayTiming;
+  now: () => number;
+  limitsAudience: ManagedModelAudienceForLimits;
+  ceiling: { hourlyMicroCents: number; dailyMicroCents: number };
+  estimateMicroCents: number;
+}): Promise<{
+  gate: ReturnType<Env["TIER_BUDGET"]["get"]>;
+  reservation: TierReservation;
+}> => {
+  const { env, limitsAudience } = args;
+  const gate = env.TIER_BUDGET.get(env.TIER_BUDGET.idFromName(limitsAudience));
+  const reservation = await args.timing.measure("tierReservationMs", () =>
+    gate.reserve({
+      estimateMicroCents: args.estimateMicroCents,
+      hourlyCeiling: args.ceiling.hourlyMicroCents,
+      dailyCeiling: args.ceiling.dailyMicroCents,
+      now: args.now(),
+    }),
+  );
+  if (!reservation.ok) {
+    const anonymous = limitsAudience === "anonymous";
+    throw new GatewayError(
+      anonymous ? 403 : 429,
+      anonymous ? "sign_in_required" : "tier_paused",
+      anonymous
+        ? "Sign in to continue using managed models."
+        : "Managed model access is paused for this plan.",
+      quotaErrorOptions({
+        scope: "tier",
+        now: args.now(),
+        resetAt: reservation.resetAt,
+        retryable: !anonymous,
+      }),
+    );
+  }
+  return {
+    gate,
+    reservation: {
+      estimateMicroCents: args.estimateMicroCents,
+      minute: reservation.minute,
+    },
+  };
+};
+
 export const handleManagedRelay = async (args: {
   request: Request;
   env: Env;
@@ -395,17 +453,16 @@ export const handleManagedRelay = async (args: {
   traceId: string;
   auth: AuthenticatedCapability;
   protocol: GatewayProtocol;
-  timing?: RelayTiming;
-  ownerAccounting?: import("./ledger-client.js").OwnerRelayAccounting;
-  configStorage?: import("./config-cache.js").GatewayConfigStorage;
-  sharedConfig?: import("./shared-config.js").SharedGatewayConfigStore;
+  timing: RelayTiming;
+  ownerAccounting?: OwnerRelayAccounting;
+  configStorage?: GatewayConfigStorage;
+  sharedConfig?: SharedGatewayConfigStore;
   ownerEnforcement?: (
     ownerId: string,
     now: number,
-  ) => Promise<import("./owner-enforcement.js").OwnerEnforcementAdmission>;
+  ) => Promise<OwnerEnforcementAdmission>;
 }): Promise<Response> => {
-  const { request, env, deps, convex, traceId, protocol } = args;
-  const timing = args.timing ?? new RelayTiming();
+  const { request, env, deps, convex, traceId, protocol, timing } = args;
   const { claims, probe } = args.auth;
   const startedAt = deps.now();
   const pathname = new URL(request.url).pathname;
@@ -419,33 +476,70 @@ export const handleManagedRelay = async (args: {
   );
   // Start cold pricing reads during authorization. Capture rejection even if
   // the request is refused before pricing is needed.
-  const configWork = timing.measure("pricingConfigMs", () =>
-    getGatewayConfig(convex, deps.waitUntil, deps.now, args.configStorage, args.sharedConfig),
-  ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
-  const enforcementWork = timing.measure("ownerEnforcementMs", () =>
-    args.ownerEnforcement
-      ? args.ownerEnforcement(claims.sub, deps.now())
-      : ownerEnforcementAdmission(env, claims.sub, deps.now()),
-  ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
+  const configWork = timing
+    .measure("pricingConfigMs", () =>
+      getGatewayConfig(
+        convex,
+        deps.waitUntil,
+        deps.now,
+        args.configStorage,
+        args.sharedConfig,
+      ),
+    )
+    .then(
+      (value) => ({ ok: true as const, value }),
+      (error) => ({ ok: false as const, error }),
+    );
+  const enforcementWork = timing
+    .measure("ownerEnforcementMs", () =>
+      args.ownerEnforcement
+        ? args.ownerEnforcement(claims.sub, deps.now())
+        : ownerEnforcementAdmission(env, claims.sub, deps.now()),
+    )
+    .then(
+      (value) => ({ ok: true as const, value }),
+      (error) => ({ ok: false as const, error }),
+    );
   // A speculative client may have an older catalog. Refuse it before any
   // limiter, reservation or provider request, so it can rebuild the adapter
   // and reapply context transforms to the original, unpruned messages.
-  let predictedRequestJson: Awaited<ReturnType<typeof readJsonObject>> | undefined;
+  let predictedRequestJson:
+    Awaited<ReturnType<typeof readJsonObject>> | undefined;
   const predictedRevision = request.headers.get(GATEWAY_MODEL_REVISION_HEADER);
   if (predictedRevision !== null) {
     predictedRequestJson = await readJsonObject(request);
     const agentType = agentTypeFrom(request);
-    if (!agentType) throw new GatewayError(400, "bad_request", "The x-stella-agent-type header is required.");
+    if (!agentType)
+      throw new GatewayError(
+        400,
+        "bad_request",
+        "The x-stella-agent-type header is required.",
+      );
     assertAgentTypeAllowed(claims, agentType);
-    const requestedModel = protocol === "google-generative-ai"
-      ? requestedModelFromGooglePath(pathname) ?? undefined
-      : typeof predictedRequestJson.model === "string" ? predictedRequestJson.model : undefined;
+    const requestedModel =
+      protocol === "google-generative-ai"
+        ? (requestedModelFromGooglePath(pathname) ?? undefined)
+        : typeof predictedRequestJson.model === "string"
+          ? predictedRequestJson.model
+          : undefined;
     const route = resolveManagedRoute({ claims, agentType, requestedModel });
-    const resolution = resolutionFor(route);
-    if (predictedRevision !== await gatewayModelResolutionRevision(resolution)) {
-      throw new GatewayError(409, "model_revision_mismatch", "The model configuration changed. Rebuild the request with the current descriptor.", {
-        headers: { "x-should-retry": "false", [GATEWAY_MODEL_RESOLUTION_HEADER]: encodeURIComponent(JSON.stringify(resolution)) },
-      });
+    const resolution = managedModelDescriptor(route);
+    if (
+      predictedRevision !== (await gatewayModelResolutionRevision(resolution))
+    ) {
+      throw new GatewayError(
+        409,
+        "model_revision_mismatch",
+        "The model configuration changed. Rebuild the request with the current descriptor.",
+        {
+          headers: {
+            "x-should-retry": "false",
+            [GATEWAY_MODEL_RESOLUTION_HEADER]: encodeURIComponent(
+              JSON.stringify(resolution),
+            ),
+          },
+        },
+      );
     }
   }
   const enforcementResult = await enforcementWork;
@@ -522,38 +616,39 @@ export const handleManagedRelay = async (args: {
     }
   }
 
-  const ownerGate = args.ownerAccounting ?? env.OWNER_RELAY_GATE.get(
-    env.OWNER_RELAY_GATE.idFromName(claims.sub),
-  );
+  const ownerGate =
+    args.ownerAccounting ??
+    env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(claims.sub));
+  // owner-relay-v2 admits and reserves together once the request is priced.
   const combinedAccounting = !probe && claims.ledgerScope === "owner-relay-v2";
-  const ownerAdmission = combinedAccounting ? { ok: true as const, duplicate: true } : await timing.measure("ownerAdmissionMs", () =>
-    ownerGate.admitRelay({
-      audience: claims.audience,
-      requestId,
-      throttled: enforcement.throttled,
-    }),
-  );
-  let ownerAdmitted = ownerAdmission.ok && !ownerAdmission.duplicate;
-  if (!ownerAdmission.ok) {
-    throw new GatewayError(
-      429,
-      ownerAdmission.refused,
-      ownerAdmission.refused === "concurrency_limit"
-        ? "This account has too many model requests in flight."
-        : "This account is sending model requests too quickly.",
-      quotaErrorOptions({
-        scope: "owner",
-        now: deps.now(),
-        resetAt: ownerAdmission.resetAt,
+  let ownerAdmitted = false;
+  if (!combinedAccounting) {
+    const ownerAdmission = await timing.measure("ownerAdmissionMs", () =>
+      ownerGate.admitRelay({
+        audience: claims.audience,
+        requestId,
+        throttled: enforcement.throttled,
       }),
     );
+    if (!ownerAdmission.ok) {
+      throw new GatewayError(
+        429,
+        ownerAdmission.refused,
+        ownerAdmission.refused === "concurrency_limit"
+          ? "This account has too many model requests in flight."
+          : "This account is sending model requests too quickly.",
+        quotaErrorOptions({
+          scope: "owner",
+          now: deps.now(),
+          resetAt: ownerAdmission.resetAt,
+        }),
+      );
+    }
+    ownerAdmitted = !ownerAdmission.duplicate;
   }
 
   let tierGate: ReturnType<Env["TIER_BUDGET"]["get"]> | null = null;
-  let tierReservation: {
-    estimateMicroCents: number;
-    minute: number;
-  } | null = null;
+  let tierReservation: TierReservation | null = null;
   let tierActualMicroCents = 0;
   let ledger: CapabilityLedgerClient | null = null;
   let ledgerReserved = false;
@@ -571,7 +666,7 @@ export const handleManagedRelay = async (args: {
     }
     assertAgentTypeAllowed(claims, agentType);
 
-    const requestJson = predictedRequestJson ?? await readJsonObject(request);
+    const requestJson = predictedRequestJson ?? (await readJsonObject(request));
     if (requestJson.stream === true) {
       throw new GatewayError(
         400,
@@ -683,72 +778,79 @@ export const handleManagedRelay = async (args: {
       audience: claims.audience,
     });
 
-    const tierCeiling = config.tierCeilings.get(limitsAudience);
-    if (
-      !combinedAccounting && !probe &&
-      claims.budgetMicroCents !== GATEWAY_BUDGET_UNLIMITED &&
-      tierCeiling &&
-      (tierCeiling.hourlyMicroCents >= 0 || tierCeiling.dailyMicroCents >= 0)
-    ) {
-      tierGate = env.TIER_BUDGET.get(
-        env.TIER_BUDGET.idFromName(limitsAudience),
-      );
-      const gate = tierGate;
-      const reservation = await timing.measure("tierReservationMs", () =>
-        gate.reserve({
+    const reserveRequestTierBudget = async (): Promise<void> => {
+      const tierCeiling = config.tierCeilings.get(limitsAudience);
+      if (
+        !probe &&
+        claims.budgetMicroCents !== GATEWAY_BUDGET_UNLIMITED &&
+        tierCeiling &&
+        (tierCeiling.hourlyMicroCents >= 0 || tierCeiling.dailyMicroCents >= 0)
+      ) {
+        const tier = await reserveTierBudget({
+          env,
+          timing,
+          now: deps.now,
+          limitsAudience,
+          ceiling: tierCeiling,
           estimateMicroCents: estimatedMicroCents,
-          hourlyCeiling: tierCeiling.hourlyMicroCents,
-          dailyCeiling: tierCeiling.dailyMicroCents,
-          now: deps.now(),
-        }),
-      );
-      if (!reservation.ok) {
-        const anonymous = limitsAudience === "anonymous";
-        throw new GatewayError(
-          anonymous ? 403 : 429,
-          anonymous ? "sign_in_required" : "tier_paused",
-          anonymous
-            ? "Sign in to continue using managed models."
-            : "Managed model access is paused for this plan.",
-          quotaErrorOptions({
-            scope: "tier",
-            now: deps.now(),
-            resetAt: reservation.resetAt,
-            retryable: !anonymous,
-          }),
-        );
+        });
+        tierGate = tier.gate;
+        tierReservation = tier.reservation;
       }
-      tierReservation = {
-        estimateMicroCents: estimatedMicroCents,
-        minute: reservation.minute,
-      };
-    }
+    };
+    if (!combinedAccounting) await reserveRequestTierBudget();
 
-    ledger = probe ? null : capabilityLedgerClient(env, claims, args.ownerAccounting);
+    ledger = probe
+      ? null
+      : capabilityLedgerClient(env, claims, args.ownerAccounting);
     let capabilityHardLimitMicroCents: number | null = null;
     if (ledger) {
       const capabilityLedger = ledger;
       const reservationArgs = {
-        jti: claims.jti, budgetMicroCents: claims.budgetMicroCents,
-        maxRequests: claims.maxRequests, expiresAt: claims.exp * 1000,
-        requestId, estimatedMicroCents,
+        jti: claims.jti,
+        budgetMicroCents: claims.budgetMicroCents,
+        maxRequests: claims.maxRequests,
+        expiresAt: claims.exp * 1000,
+        requestId,
+        estimatedMicroCents,
       };
-      const reservation = await timing.measure(combinedAccounting ? "ownerReservationMs" : "ledgerReservationMs", async () => {
-        if (!combinedAccounting) return await capabilityLedger.reserve(reservationArgs);
-        const result = await ownerGate.admitAndReserve({
-          audience: claims.audience, requestId, throttled: enforcement.throttled,
-          generation: claims.gen, reservation: reservationArgs,
-        });
-        const admission = result.admission;
-        if (!admission.ok) throw new GatewayError(429, admission.refused,
-          admission.refused === "concurrency_limit"
-            ? "This account has too many model requests in flight."
-            : "This account is sending model requests too quickly.",
-          quotaErrorOptions({ scope: "owner", now: deps.now(), resetAt: admission.resetAt }));
-        ownerAdmitted = !admission.duplicate && result.reservation?.kind === "reserved";
-        if (!result.reservation) throw new GatewayError(503, "internal", "Model admission did not return a reservation.");
-        return result.reservation;
-      });
+      const { reserve } = capabilityLedger;
+      const reservation = await timing.measure(
+        reserve ? "ledgerReservationMs" : "ownerReservationMs",
+        async () => {
+          if (reserve) return await reserve(reservationArgs);
+          const result = await ownerGate.admitAndReserve({
+            audience: claims.audience,
+            requestId,
+            throttled: enforcement.throttled,
+            generation: claims.gen,
+            reservation: reservationArgs,
+          });
+          const admission = result.admission;
+          if (!admission.ok)
+            throw new GatewayError(
+              429,
+              admission.refused,
+              admission.refused === "concurrency_limit"
+                ? "This account has too many model requests in flight."
+                : "This account is sending model requests too quickly.",
+              quotaErrorOptions({
+                scope: "owner",
+                now: deps.now(),
+                resetAt: admission.resetAt,
+              }),
+            );
+          ownerAdmitted =
+            !admission.duplicate && result.reservation?.kind === "reserved";
+          if (!result.reservation)
+            throw new GatewayError(
+              503,
+              "internal",
+              "Model admission did not return a reservation.",
+            );
+          return result.reservation;
+        },
+      );
       switch (reservation.kind) {
         case "replay":
           return new Response(reservation.body, {
@@ -791,45 +893,8 @@ export const handleManagedRelay = async (args: {
       }
     }
 
-    if (
-      combinedAccounting && !probe &&
-      claims.budgetMicroCents !== GATEWAY_BUDGET_UNLIMITED &&
-      tierCeiling &&
-      (tierCeiling.hourlyMicroCents >= 0 || tierCeiling.dailyMicroCents >= 0)
-    ) {
-      tierGate = env.TIER_BUDGET.get(
-        env.TIER_BUDGET.idFromName(limitsAudience),
-      );
-      const gate = tierGate;
-      const reservation = await timing.measure("tierReservationMs", () =>
-        gate.reserve({
-          estimateMicroCents: estimatedMicroCents,
-          hourlyCeiling: tierCeiling.hourlyMicroCents,
-          dailyCeiling: tierCeiling.dailyMicroCents,
-          now: deps.now(),
-        }),
-      );
-      if (!reservation.ok) {
-        const anonymous = limitsAudience === "anonymous";
-        throw new GatewayError(
-          anonymous ? 403 : 429,
-          anonymous ? "sign_in_required" : "tier_paused",
-          anonymous
-            ? "Sign in to continue using managed models."
-            : "Managed model access is paused for this plan.",
-          quotaErrorOptions({
-            scope: "tier",
-            now: deps.now(),
-            resetAt: reservation.resetAt,
-            retryable: !anonymous,
-          }),
-        );
-      }
-      tierReservation = {
-        estimateMicroCents: estimatedMicroCents,
-        minute: reservation.minute,
-      };
-    }
+    // Completed and in-flight owner requests must not reserve tier budget again.
+    if (combinedAccounting) await reserveRequestTierBudget();
 
     const finish = async (
       outcome: GatewayUsageOutcome,
@@ -1012,7 +1077,10 @@ export const handleManagedRelay = async (args: {
       // Await that same gate explicitly so it is counted as application
       // overhead instead of being hidden inside provider time.
       if (deps.beforeProviderDispatch) {
-        await timing.measure("providerOutputGateMs", deps.beforeProviderDispatch);
+        await timing.measure(
+          "providerOutputGateMs",
+          deps.beforeProviderDispatch,
+        );
       }
       controller.signal.throwIfAborted();
       timing.mark("providerDispatchReady");
@@ -1318,7 +1386,11 @@ export const handleManagedRelay = async (args: {
     try {
       if (ownerAdmitted)
         await timing.measure("ownerReleaseMs", () =>
-          ownerGate.releaseRelay(combinedAccounting ? JSON.stringify([claims.gen, claims.jti, requestId]) : requestId),
+          ownerGate.releaseRelay(
+            combinedAccounting
+              ? JSON.stringify([claims.gen, claims.jti, requestId])
+              : requestId,
+          ),
         );
     } catch (error) {
       console.error(

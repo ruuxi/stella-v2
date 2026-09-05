@@ -131,7 +131,7 @@ export async function getObservationFrames(tabId) {
   };
 }
 
-export async function frameContext(tabId, frame) {
+async function frameContext(tabId, frame) {
   const result = await chrome.debugger.sendCommand(
     frameTarget(tabId, frame.sessionId),
     "Page.createIsolatedWorld",
@@ -210,18 +210,23 @@ async function validateRef(tabId, ref) {
       "Stale frame ref: frame is no longer attached. Take a new snapshot.",
     );
   }
-  let found;
-  const visit = (tree) => {
-    if (tree.frame.id === ref.frameId) found = tree.frame;
-    for (const child of tree.childFrames || []) visit(child);
-  };
-  visit(result.frameTree);
+  const found = findFrame(result.frameTree, ref.frameId);
   if (!found || found.loaderId !== ref.documentId) {
     throw new Error(
       "Stale frame ref: document navigated. Take a new snapshot.",
     );
   }
   return { ...found, sessionId: ref.sessionId };
+}
+
+/** The frame metadata for `frameId` anywhere in a Page.getFrameTree result. */
+function findFrame(tree, frameId) {
+  if (tree.frame.id === frameId) return tree.frame;
+  for (const child of tree.childFrames || []) {
+    const found = findFrame(child, frameId);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 export async function callExactElement(tabId, resolved, body, options = {}) {
@@ -289,20 +294,24 @@ const VISIBLE = `
   return el.getClientRects().length > 0;
 `;
 
-export async function frameVisible(tabId, frame, frames) {
+/**
+ * Yield the owner-element ref of `frame` and of each ancestor frame in turn,
+ * innermost first, stopping at the main frame. Lazy so callers can stop at
+ * the first ancestor that fails a check.
+ */
+async function* frameOwners(tabId, frame, frames) {
   const visited = new Set();
   while (frame.parentId) {
     if (visited.has(frame.id)) throw new Error("Cyclic frame ancestry");
     visited.add(frame.id);
-    if (
-      !(await callExactElement(
-        tabId,
-        await frameOwner(tabId, frame, frames),
-        VISIBLE,
-      ))
-    )
-      return false;
+    yield await frameOwner(tabId, frame, frames);
     frame = frames.get(frame.parentId);
+  }
+}
+
+export async function frameVisible(tabId, frame, frames) {
+  for await (const owner of frameOwners(tabId, frame, frames)) {
+    if (!(await callExactElement(tabId, owner, VISIBLE))) return false;
   }
   return true;
 }
@@ -319,13 +328,8 @@ export async function exactElementPoint(
   if (!frame || frame.loaderId !== ref.documentId)
     throw new Error("Stale frame ref. Take a new snapshot.");
   const owners = [];
-  const visited = new Set();
-  while (frame.parentId) {
-    if (visited.has(frame.id)) throw new Error("Cyclic frame ancestry");
-    visited.add(frame.id);
-    owners.push(await frameOwner(tabId, frame, frames));
-    frame = frames.get(frame.parentId);
-  }
+  for await (const owner of frameOwners(tabId, frame, frames))
+    owners.push(owner);
   for (const owner of scroll ? [...owners].reverse() : []) {
     await callExactElement(
       tabId,

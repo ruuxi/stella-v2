@@ -1,4 +1,3 @@
-import { homeContextChanged } from "./lib/cloud_home_context_updates";
 // Cloud agent home: Convex's registry for orchestrator memory documents.
 //
 // Memory DOCUMENTS (MEMORY.md, memory_map.md, profile.md) live in R2 under
@@ -12,6 +11,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { agentHomeGenerationR2Prefix } from "./lib/cloud_home_policy";
 import { assertOwnerMemoryRuntimeEnabled } from "./cloud_memory";
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 
 const MEMORY_DOC_NAMES = new Set(["MEMORY.md", "memory_map.md", "profile.md"]);
 const AGENT_HOME_DOC_MAX_BYTES = 64 * 1024;
@@ -128,19 +128,18 @@ export const recordDocumentInternal = internalMutation({
         sizeBytes: args.sizeBytes,
         updatedAt: args.now,
       });
-      await homeContextChanged(ctx, args.ownerId, args.ownerGeneration);
-      return null;
+    } else {
+      await ctx.db.insert("cloud_agent_home_docs", {
+        ownerId: args.ownerId,
+        name: args.name,
+        r2Key: args.r2Key,
+        ownerGeneration: args.ownerGeneration,
+        memoryEpoch: memory.memoryEpoch,
+        sizeBytes: args.sizeBytes,
+        createdAt: args.now,
+        updatedAt: args.now,
+      });
     }
-    await ctx.db.insert("cloud_agent_home_docs", {
-      ownerId: args.ownerId,
-      name: args.name,
-      r2Key: args.r2Key,
-      ownerGeneration: args.ownerGeneration,
-      memoryEpoch: memory.memoryEpoch,
-      sizeBytes: args.sizeBytes,
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
     await homeContextChanged(ctx, args.ownerId, args.ownerGeneration);
     return null;
   },

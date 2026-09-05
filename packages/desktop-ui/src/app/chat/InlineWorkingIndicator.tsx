@@ -48,8 +48,8 @@ export type {
  * to show a "Done · task" state) — once work stops we want the indicator
  * gone promptly, with just a short grow-out so it doesn't snap away.
  */
-const EXIT_ANIMATION_MS = 240;
-const ENTER_ANIMATION_MS = 320;
+export const EXIT_ANIMATION_MS = 240;
+export const ENTER_ANIMATION_MS = 320;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
 
 function newReasoningSeed(): string {

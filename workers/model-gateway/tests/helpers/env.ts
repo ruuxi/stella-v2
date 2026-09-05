@@ -49,33 +49,6 @@ mock.module("cloudflare:workers", () => ({
 const ledgerModule = await import("../../src/ledger.js");
 export const { CapabilityLedger } = ledgerModule;
 export type CapabilityLedgerInstance = InstanceType<typeof CapabilityLedger>;
-const ownerLedgerModule = await import("../../src/owner-capability-ledger.js");
-export const { OwnerCapabilityLedger } = ownerLedgerModule;
-export type OwnerCapabilityLedgerInstance = InstanceType<
-  typeof OwnerCapabilityLedger
->;
-
-export const createOwnerCapabilityLedgerNamespace = (envRef: () => unknown) => {
-  const objects = new Map<string, OwnerCapabilityLedgerInstance>();
-  const states = new Map<string, ReturnType<typeof createDurableObjectState>>();
-  return {
-    objects,
-    states,
-    namespace: {
-      getByName: (name: string) => {
-        let object = objects.get(name);
-        if (!object) {
-          const state = createDurableObjectState(name);
-          states.set(name, state);
-          object = new OwnerCapabilityLedger(state as never, envRef() as never);
-          objects.set(name, object);
-        }
-        return object;
-      },
-    },
-  };
-};
-
 const gateModule = await import("../../src/gates/index.js");
 export const { NetworkGate, OwnerRelayGate, TierBudget } = gateModule;
 export type NetworkGateInstance = InstanceType<typeof NetworkGate>;
@@ -132,14 +105,23 @@ export const createDurableObjectState = (name: string) => {
   const values = new Map<string, unknown>();
   const storage = {
     kv: {
-      get: <T>(key: string) => structuredClone(values.get(key)) as T | undefined,
-      put: (key: string, value: unknown) => { values.set(key, structuredClone(value)); },
+      get: <T>(key: string) =>
+        structuredClone(values.get(key)) as T | undefined,
+      put: (key: string, value: unknown) => {
+        values.set(key, structuredClone(value));
+      },
     },
     sql,
     transactionSync: <T>(fn: () => T): T => {
       sql.exec("BEGIN");
-      try { const result = fn(); sql.exec("COMMIT"); return result; }
-      catch (error) { sql.exec("ROLLBACK"); throw error; }
+      try {
+        const result = fn();
+        sql.exec("COMMIT");
+        return result;
+      } catch (error) {
+        sql.exec("ROLLBACK");
+        throw error;
+      }
     },
     getAlarm: async () => alarm,
     setAlarm: async (at: number | Date) => {
@@ -185,7 +167,13 @@ export const createLedgerNamespace = (envRef: () => unknown) => {
 export const createOwnerRelayGateNamespace = (envRef: () => unknown) => {
   const objects = new Map<string, OwnerRelayGateInstance>();
   const states = new Map<string, ReturnType<typeof createDurableObjectState>>();
-  let relayFetch: ((request: Request, owner: string, object: OwnerRelayGateInstance) => Promise<Response>) | undefined;
+  let relayFetch:
+    | ((
+        request: Request,
+        owner: string,
+        object: OwnerRelayGateInstance,
+      ) => Promise<Response>)
+    | undefined;
   const namespace = {
     idFromName: (name: string) => ({ name, toString: () => name }),
     get: (id: { name: string }) => {
@@ -201,13 +189,23 @@ export const createOwnerRelayGateNamespace = (envRef: () => unknown) => {
         );
         const target = object;
         const originalFetch = target.fetch.bind(target);
-        target.fetch = request => relayFetch ? relayFetch(request, id.name, target) : originalFetch(request);
+        target.fetch = (request) =>
+          relayFetch
+            ? relayFetch(request, id.name, target)
+            : originalFetch(request);
         objects.set(id.name, object);
       }
       return object;
     },
   };
-  return { namespace, objects, states, setFetch: (fetch: NonNullable<typeof relayFetch>) => { relayFetch = fetch; } };
+  return {
+    namespace,
+    objects,
+    states,
+    setFetch: (fetch: NonNullable<typeof relayFetch>) => {
+      relayFetch = fetch;
+    },
+  };
 };
 
 export const createNetworkGateNamespace = (envRef: () => unknown) => {
@@ -504,6 +502,18 @@ export const configSnapshot = (
   ...overrides,
 });
 
+/** A snapshot that passes the shared-record validator: every required ceiling present. */
+export const completeConfigSnapshot = (
+  overrides: Partial<GatewayConfigSnapshot> = {},
+): GatewayConfigSnapshot =>
+  configSnapshot({
+    tierCeilings: [
+      { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
+      { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
+    ],
+    ...overrides,
+  });
+
 export const json = (
   body: unknown,
   status = 200,
@@ -590,7 +600,6 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const limiter = { success: true, keys: [] as string[] };
   let env: Record<string, unknown> = {};
   const ledger = createLedgerNamespace(() => env);
-  const ownerLedger = createOwnerCapabilityLedgerNamespace(() => env);
   const ownerGate = createOwnerRelayGateNamespace(() => env);
   const networkGate = createNetworkGateNamespace(() => env);
   const tierBudget = createTierBudgetNamespace(() => env);
@@ -627,7 +636,6 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     GATEWAY_SERVICE_SECRET: SERVICE_SECRET,
     STELLA_RELAY_PROBE_SECRET: PROBE_SECRET,
     CAPABILITY_LEDGER: ledger.namespace,
-    OWNER_CAPABILITY_LEDGER: ownerLedger.namespace,
     OWNER_RELAY_GATE: ownerGate.namespace,
     NETWORK_GATE: networkGate.namespace,
     TIER_BUDGET: tierBudget.namespace,
@@ -686,7 +694,6 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     pending,
     limiter,
     ledger,
-    ownerLedger,
     ownerGate,
     networkGate,
     tierBudget,

@@ -3,6 +3,8 @@ import type { TurnBrokerTurnStateCheckpointReceipt } from "@stella/contracts/tur
 import type { AgentExecutorResult } from "./shared/types.js";
 import { parseTurnStateCheckpointRequest } from "../turn-state-checkpoint.js";
 
+export const AGENT_HISTORY_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
+
 export const validBuilderFallbackMessages = (
   value: unknown,
 ): value is Array<{ ordinal: number; role: string; payloadJson: string }> => {
@@ -22,7 +24,7 @@ export const validBuilderFallbackMessages = (
     )
       return false;
     bytes += new TextEncoder().encode(row.payloadJson).byteLength;
-    if (bytes > 5 * 1024 * 1024) return false;
+    if (bytes > AGENT_HISTORY_RESPONSE_MAX_BYTES) return false;
     try {
       const payload = JSON.parse(row.payloadJson) as { role?: unknown };
       return payload?.role === row.role;

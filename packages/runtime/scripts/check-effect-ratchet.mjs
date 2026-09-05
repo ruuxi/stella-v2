@@ -23,6 +23,7 @@ const ignoredDirectories = new Set([
   "coverage",
   "release",
   ".image",
+  ".wrangler",
   "tests",
   // Maintenance/CI scripts are not migration targets; the ratchet measures
   // shipped runtime source only.

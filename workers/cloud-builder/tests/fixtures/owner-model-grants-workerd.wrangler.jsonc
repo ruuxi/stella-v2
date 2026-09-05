@@ -3,22 +3,26 @@
   "main": "./owner-model-grants-workerd-worker.ts",
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "BUILDER_SERVICE_SECRET": "fixture-secret",
+    "TURN_TIMEOUT_MS": "900000",
+  },
   "durable_objects": {
     "bindings": [
       {
-        "name": "OWNER",
-        "class_name": "OwnerGrantProtocolOwner"
+        "name": "OWNER_GATES",
+        "class_name": "GrantTestOwnerGate",
       },
       {
-        "name": "READER",
-        "class_name": "OwnerGrantProtocolReader"
-      }
-    ]
+        "name": "ORCHESTRATOR_SESSIONS",
+        "class_name": "OwnerGrantProtocolReader",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["OwnerGrantProtocolOwner", "OwnerGrantProtocolReader"]
-    }
-  ]
+      "new_sqlite_classes": ["GrantTestOwnerGate", "OwnerGrantProtocolReader"],
+    },
+  ],
 }

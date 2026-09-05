@@ -28,6 +28,7 @@ import {
   type OutboxBatchResult,
   type OutboxEvent,
 } from "@stella/contracts/turn-plane/outbox";
+import { convexSiteBase } from "./convex-site.js";
 
 export type OutboxProducerEnv = {
   TURN_OUTBOX?: Pick<Queue<OutboxEvent>, "sendBatch">;
@@ -150,7 +151,7 @@ export const deliverOutboxBatch = async (
       rejected: 0,
     };
   }
-  const base = (env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, "");
+  const base = convexSiteBase(env);
   const secret = env.BUILDER_SERVICE_SECRET;
   if (!base || !secret) {
     // Misconfiguration is not a reason to drop projections: leave them queued

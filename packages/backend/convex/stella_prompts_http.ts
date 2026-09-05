@@ -1,6 +1,5 @@
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { STELLA_PROMPT_DEFAULTS } from "./stella_prompt_defaults.generated";
 import {
   isCompleteStellaPromptPublication,
   STELLA_PROMPT_SCHEMA_VERSION,
@@ -56,19 +55,16 @@ export const stellaPromptResponse = (
   );
 };
 
+/** Shape a complete stored publication (one revision, one timestamp). */
 export const resolveStellaPromptSnapshot = (
   stored: StoredPrompt[],
 ): PromptResponseSnapshot => {
-  const useStored = isCompleteStellaPromptPublication(stored);
-  const prompts = useStored ? stored : STELLA_PROMPT_DEFAULTS.prompts;
+  const [first] = stored;
+  if (!first) throw new Error("Stella prompt publication is empty");
   return {
-    revision: useStored
-      ? stored[0]!.sourceRevision
-      : STELLA_PROMPT_DEFAULTS.revision,
-    publishedAt: useStored
-      ? stored[0]!.updatedAt
-      : STELLA_PROMPT_DEFAULTS.publishedAt,
-    prompts: prompts.map(({ id, sha256, content }) => ({
+    revision: first.sourceRevision,
+    publishedAt: first.updatedAt,
+    prompts: stored.map(({ id, sha256, content }) => ({
       id,
       sha256,
       content,

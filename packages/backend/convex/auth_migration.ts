@@ -1,4 +1,3 @@
-import { homeContextChanged } from "./lib/cloud_home_context_updates";
 /**
  * Ownership migration for anonymous → real account linking.
  *
@@ -95,6 +94,7 @@ import {
   stripeCustomerAuthorityIdempotencyKey,
   type StripeOperationQuiescenceResult,
 } from "./stripe_operation_dispatch";
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 
 const BATCH_SIZE = 500;
 const REMOTE_TURN_MIGRATION_BATCH = 32;
@@ -6041,13 +6041,16 @@ export const commitOwnerNamespaceTransfer = internalMutation({
       await finish({ hasMore: true, progressed: true });
     // Notification receipts are operational debt, not imported product data.
     // Destination heads below issue their own revision after each publication.
-    const contextNotifications = await ctx.db.query("cloud_home_context_updates")
-      .withIndex("by_ownerId", q => q.eq("ownerId", args.fromOwnerId)).take(20);
+    const contextNotifications = await ctx.db
+      .query("cloud_home_context_updates")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
+      .take(20);
     if (contextNotifications.length) {
-      await Promise.all(contextNotifications.map(row => ctx.db.delete(row._id)));
+      await Promise.all(
+        contextNotifications.map((row) => ctx.db.delete(row._id)),
+      );
       return await progressed();
     }
-
 
     // A completed wipe job is an operational replay receipt, not product
     // state. Remove the source receipt instead of transferring it. An existing
@@ -8013,8 +8016,10 @@ export const auditOwnershipMigrationResidue = internalQuery({
       ],
       [
         "cloud_home_context_updates",
-        await ctx.db.query("cloud_home_context_updates")
-          .withIndex("by_ownerId", q => q.eq("ownerId", ownerId)).take(1),
+        await ctx.db
+          .query("cloud_home_context_updates")
+          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+          .take(1),
       ],
       [
         "cloud_agent_home_docs",

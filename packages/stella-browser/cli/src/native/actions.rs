@@ -849,6 +849,10 @@ pub struct FetchPausedRequest {
     pub post_data: Option<String>,
 }
 
+/// First AX ref number. DOM snapshots restart at `e1` on every capture, so AX
+/// refs, which keep counting across captures, start far above that range and
+/// the two ref families never share an id.
+const AX_REF_START: usize = 1_000_000;
 const MAX_TRACKED_REQUESTS: usize = 256;
 const MAX_TRACKED_BODY_BYTES: usize = 128 * 1024;
 const MAX_TRACKED_TOTAL_BODY_BYTES: usize = 2 * 1024 * 1024;
@@ -970,7 +974,7 @@ impl DaemonState {
             webdriver_backend: None,
             backend_type: BackendType::Cdp,
             ref_map: RefMap::new(),
-            ax_next_ref: 1_000_000,
+            ax_next_ref: AX_REF_START,
             domain_filter: env::var("STELLA_BROWSER_ALLOWED_DOMAINS")
                 .ok()
                 .filter(|s| !s.is_empty())
@@ -3739,10 +3743,10 @@ pub(crate) async fn teardown_daemon_state(
 // Phase 2 handlers
 // ---------------------------------------------------------------------------
 
-async fn handle_ax_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let session_id = mgr.active_session_id()?;
-    let options = SnapshotOptions {
+/// Snapshot options shared by DOM and AX captures. `maxDepth` is the only
+/// depth key: the worker API normalizes `depth` before the command is sent.
+fn snapshot_options(cmd: &Value) -> SnapshotOptions {
+    SnapshotOptions {
         selector: cmd
             .get("selector")
             .and_then(Value::as_str)
@@ -3754,11 +3758,16 @@ async fn handle_ax_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Valu
         compact: cmd.get("compact").and_then(Value::as_bool).unwrap_or(false),
         depth: cmd
             .get("maxDepth")
-            .or_else(|| cmd.get("depth"))
             .and_then(Value::as_u64)
             .map(|value| value as usize),
         cursor: cmd.get("cursor").and_then(Value::as_bool).unwrap_or(false),
-    };
+    }
+}
+
+async fn handle_ax_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+    let session_id = mgr.active_session_id()?;
+    let options = snapshot_options(cmd);
     let (snapshot, document_key, refs) = snapshot::take_ax_snapshot(
         &mgr.client,
         session_id,
@@ -3791,26 +3800,7 @@ async fn handle_ax_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Valu
 async fn handle_snapshot(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let session_id = mgr.active_session_id()?.to_string();
-
-    let options = SnapshotOptions {
-        selector: cmd
-            .get("selector")
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        interactive: cmd
-            .get("interactive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        compact: cmd
-            .get("compact")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        depth: cmd
-            .get("maxDepth")
-            .and_then(|v| v.as_u64())
-            .map(|d| d as usize),
-        cursor: cmd.get("cursor").and_then(|v| v.as_bool()).unwrap_or(false),
-    };
+    let options = snapshot_options(cmd);
 
     state.ref_map.clear();
     let tree =
@@ -3963,9 +3953,8 @@ async fn handle_click(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
 
     if new_tab {
         use super::element::resolve_element_object_id;
-        let object_id =
+        let (object_id, session_id) =
             resolve_element_object_id(&mgr.client, &session_id, &state.ref_map, selector).await?;
-        let session_id = super::element::ref_session(&session_id, &state.ref_map, selector);
         let call_params = json!({
             "objectId": object_id,
             "functionDeclaration": "function() { var h = this.getAttribute('href'); if (!h) return null; try { return new URL(h, document.baseURI).toString(); } catch(e) { return null; } }",
@@ -3976,7 +3965,7 @@ async fn handle_click(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
             .send_command(
                 "Runtime.callFunctionOn",
                 Some(call_params),
-                Some(&session_id),
+                Some(session_id),
             )
             .await?;
         let href = call_result

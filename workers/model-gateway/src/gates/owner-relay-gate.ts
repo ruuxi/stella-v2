@@ -2,16 +2,22 @@ import { isGatewayError } from "../errors.js";
 import { DurableObject } from "cloudflare:workers";
 import { handleRequest } from "../router.js";
 import { defaultDeps } from "../request-util.js";
-import { getGatewayConfig, GATEWAY_CONFIG_STORAGE_KEY, type GatewayConfigStorage } from "../config-cache.js";
+import {
+  getGatewayConfig,
+  type GatewayConfigStorage,
+} from "../config-cache.js";
 import { createConvexClient } from "../convex-client.js";
 import {
   DEFAULT_ENFORCEMENT_TTL_SECONDS,
   enforcementAdmissionForRecord,
-  parseStoredOwnerEnforcement,
+  normalizeStoredOwnerEnforcement,
   type OwnerEnforcementAdmission,
   type StoredOwnerEnforcement,
 } from "../owner-enforcement.js";
-import { sharedGatewayConfigStore } from "../shared-config.js";
+import {
+  SHARED_GATEWAY_CONFIG_KEY,
+  sharedGatewayConfigStore,
+} from "../shared-config.js";
 import {
   GATEWAY_OWNER_RELAY_LIMITS,
   GATEWAY_THROTTLED_LIMIT_SHARE,
@@ -21,7 +27,11 @@ import {
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
 import { OwnerLedgerStore } from "../owner-ledger-store.js";
-import type { LedgerReserveArgs, LedgerReserveResult, LedgerSettleArgs } from "../ledger.js";
+import type {
+  LedgerReserveArgs,
+  LedgerReserveResult,
+  LedgerSettleArgs,
+} from "../ledger.js";
 import {
   managedCancellationKey,
   type ManagedCancellationIdentity,
@@ -57,7 +67,8 @@ type InFlightRow = { started_at: number };
 const parseAuthoritativeOwnerEnforcement = (
   value: unknown,
 ): StoredOwnerEnforcement | null | undefined => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
   const updatedAt = Reflect.get(value, "updatedAt");
   const enforcement = Reflect.get(value, "enforcement");
   if (
@@ -66,7 +77,8 @@ const parseAuthoritativeOwnerEnforcement = (
     !enforcement ||
     typeof enforcement !== "object" ||
     Array.isArray(enforcement)
-  ) return undefined;
+  )
+    return undefined;
   const status = Reflect.get(enforcement, "status");
   const until = Reflect.get(enforcement, "until");
   const reason = Reflect.get(enforcement, "reason");
@@ -74,19 +86,22 @@ const parseAuthoritativeOwnerEnforcement = (
     (until !== undefined &&
       (typeof until !== "number" || !Number.isFinite(until))) ||
     (reason !== undefined && typeof reason !== "string")
-  ) return undefined;
+  )
+    return undefined;
   if (updatedAt === null) {
     return status === "ok" ? null : undefined;
   }
-  return parseStoredOwnerEnforcement(JSON.stringify({
-    status,
-    ...(typeof until === "number" ? { until } : {}),
-    updatedAt,
-    expiresAt:
-      typeof until === "number"
-        ? until
-        : updatedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000,
-  })) ?? undefined;
+  return (
+    normalizeStoredOwnerEnforcement({
+      status,
+      ...(typeof until === "number" ? { until } : {}),
+      updatedAt,
+      expiresAt:
+        typeof until === "number"
+          ? until
+          : updatedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000,
+    }) ?? undefined
+  );
 };
 
 const SCHEMA = [
@@ -149,49 +164,64 @@ export class OwnerRelayGate extends DurableObject<Env> {
   }
 
   override fetch(request: Request): Promise<Response> {
-    return handleRequest(request, this.env, this.ctx, {
-      ...defaultDeps(this.ctx),
-      beforeProviderDispatch: () => this.ctx.storage.sync(),
-    }, {
-      matchesOwner: ownerId => this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() === this.ctx.id.toString(),
-      accounting: this,
-      instanceId: this.instanceId,
-      configStorage: this.configStorage,
-      ownerEnforcement: (ownerId, now) =>
-        this.admitOwnerEnforcement(ownerId, now),
-      cancellation: {
-        begin: identity => this.beginManagedRequest(identity),
-        release: key => this.releaseManagedRequest(key),
+    return handleRequest(
+      request,
+      this.env,
+      this.ctx,
+      {
+        ...defaultDeps(this.ctx),
+        beforeProviderDispatch: () => this.ctx.storage.sync(),
       },
-    });
+      {
+        matchesOwner: (ownerId) =>
+          this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() ===
+          this.ctx.id.toString(),
+        accounting: this,
+        instanceId: this.instanceId,
+        configStorage: this.configStorage,
+        ownerEnforcement: (ownerId, now) =>
+          this.admitOwnerEnforcement(ownerId, now),
+        cancellation: {
+          begin: (identity) => this.beginManagedRequest(identity),
+          release: (key) => this.releaseManagedRequest(key),
+        },
+      },
+    );
   }
 
   private get configStorage(): GatewayConfigStorage {
     return {
-      endpoint: this.env.STELLA_CONVEX_SITE_URL,
-      read: () => this.ctx.storage.kv.get(GATEWAY_CONFIG_STORAGE_KEY),
-      write: record => this.ctx.storage.kv.put(GATEWAY_CONFIG_STORAGE_KEY, record),
+      source: this.env.STELLA_CONVEX_SITE_URL,
+      read: () => this.ctx.storage.kv.get(SHARED_GATEWAY_CONFIG_KEY),
+      write: (record) =>
+        this.ctx.storage.kv.put(SHARED_GATEWAY_CONFIG_KEY, record),
     };
   }
 
   private enforcementRecord(): StoredOwnerEnforcement | null {
-    const row = this.ctx.storage.sql.exec<{
-      status: string;
-      until_at: number | null;
-      updated_at: number;
-      expires_at: number;
-    }>("SELECT status, until_at, updated_at, expires_at FROM owner_enforcement_state WHERE singleton = 1").toArray()[0];
+    const row = this.ctx.storage.sql
+      .exec<{
+        status: string;
+        until_at: number | null;
+        updated_at: number;
+        expires_at: number;
+      }>(
+        "SELECT status, until_at, updated_at, expires_at FROM owner_enforcement_state WHERE singleton = 1",
+      )
+      .toArray()[0];
     if (!row) return null;
-    return parseStoredOwnerEnforcement(JSON.stringify({
+    return normalizeStoredOwnerEnforcement({
       status: row.status,
       ...(row.until_at === null ? {} : { until: row.until_at }),
       updatedAt: row.updated_at,
       expiresAt: row.expires_at,
-    }));
+    });
   }
 
-  private applyOwnerEnforcementSync(record: StoredOwnerEnforcement): StoredOwnerEnforcement {
-    const current = this.enforcementRecord();
+  private applyOwnerEnforcementSync(
+    record: StoredOwnerEnforcement,
+    current: StoredOwnerEnforcement | null,
+  ): StoredOwnerEnforcement {
     if (!current || record.updatedAt > current.updatedAt) {
       const normalized = {
         ...record,
@@ -213,13 +243,15 @@ export class OwnerRelayGate extends DurableObject<Env> {
     return current;
   }
 
-  async applyOwnerEnforcement(input: StoredOwnerEnforcement): Promise<StoredOwnerEnforcement> {
-    const record = parseStoredOwnerEnforcement(JSON.stringify(input));
+  async applyOwnerEnforcement(
+    input: StoredOwnerEnforcement,
+  ): Promise<StoredOwnerEnforcement> {
+    const record = normalizeStoredOwnerEnforcement(input);
     if (!record || typeof record.expiresAt !== "number") {
       throw new Error("Owner enforcement update is invalid.");
     }
     const current = this.enforcementRecord();
-    const applied = this.applyOwnerEnforcementSync(record);
+    const applied = this.applyOwnerEnforcementSync(record, current);
     // A delayed authenticated push cannot attest to a newer legacy KV seed.
     // Leave its v1 marker for the authoritative bootstrap in that case.
     if (!current || record.updatedAt >= current.updatedAt) {
@@ -235,22 +267,30 @@ export class OwnerRelayGate extends DurableObject<Env> {
     ownerId: string,
     fetchImpl: typeof fetch = fetch,
   ): Promise<void> {
-    const initialized = this.ctx.storage.sql.exec<{ initialized: number }>(
-      "SELECT initialized FROM owner_enforcement_meta WHERE singleton = 1",
-    ).toArray()[0];
+    const initialized = this.ctx.storage.sql
+      .exec<{
+        initialized: number;
+      }>("SELECT initialized FROM owner_enforcement_meta WHERE singleton = 1")
+      .toArray()[0];
     if (
       initialized?.initialized !== undefined &&
       initialized.initialized >= OWNER_ENFORCEMENT_INITIALIZATION_VERSION
-    ) return;
+    )
+      return;
     // KV is an eventual compatibility mirror. Bootstrap from Convex so a
     // rollout read cannot permanently seed this durable owner state stale.
-    const result = await createConvexClient(this.env, fetchImpl).ownerEnforcement(ownerId);
+    const result = await createConvexClient(
+      this.env,
+      fetchImpl,
+    ).ownerEnforcement(ownerId);
     if (!result.ok) throw new Error("Owner enforcement bootstrap unavailable.");
     const authoritative = parseAuthoritativeOwnerEnforcement(result.body);
     if (authoritative === undefined) {
       throw new Error("Owner enforcement bootstrap response is invalid.");
     }
-    if (authoritative) this.applyOwnerEnforcementSync(authoritative);
+    if (authoritative) {
+      this.applyOwnerEnforcementSync(authoritative, this.enforcementRecord());
+    }
     this.ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO owner_enforcement_meta(singleton, initialized) VALUES (1, ?)",
       OWNER_ENFORCEMENT_INITIALIZATION_VERSION,
@@ -262,10 +302,16 @@ export class OwnerRelayGate extends DurableObject<Env> {
     now: number,
     fetchImpl: typeof fetch = fetch,
   ): Promise<OwnerEnforcementAdmission> {
-    if (this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !== this.ctx.id.toString()) {
+    if (
+      this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !==
+      this.ctx.id.toString()
+    ) {
       throw new Error("Owner enforcement identity does not match.");
     }
-    this.enforcementInitialization ??= this.initializeOwnerEnforcement(ownerId, fetchImpl).catch(error => {
+    this.enforcementInitialization ??= this.initializeOwnerEnforcement(
+      ownerId,
+      fetchImpl,
+    ).catch((error) => {
       this.enforcementInitialization = undefined;
       throw error;
     });
@@ -273,14 +319,28 @@ export class OwnerRelayGate extends DurableObject<Env> {
     return enforcementAdmissionForRecord(this.enforcementRecord(), now);
   }
 
-  async prepare(ownerId?: string, traceId?: string): Promise<void> {
+  async prepare(ownerId: string, traceId?: string): Promise<void> {
     const startedAt = performance.now();
     const invokedAt = Date.now();
-    const durations: { pricingMs?: number; enforcementMs?: number; configAgeMs?: number } = {};
-    console.info(JSON.stringify({ event: "gateway_owner_preparation_timing", traceId,
-      executorInstanceId: this.instanceId, invokedAt, status: "started" }));
+    const durations: {
+      pricingMs?: number;
+      enforcementMs?: number;
+      configAgeMs?: number;
+    } = {};
+    console.info(
+      JSON.stringify({
+        event: "gateway_owner_preparation_timing",
+        traceId,
+        executorInstanceId: this.instanceId,
+        invokedAt,
+        status: "started",
+      }),
+    );
     try {
-      if (ownerId && this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !== this.ctx.id.toString()) {
+      if (
+        this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !==
+        this.ctx.id.toString()
+      ) {
         throw new Error("Owner preparation identity does not match.");
       }
       await Promise.all([
@@ -289,33 +349,57 @@ export class OwnerRelayGate extends DurableObject<Env> {
           try {
             const config = await getGatewayConfig(
               createConvexClient(this.env),
-              work => this.ctx.waitUntil(work),
+              (work) => this.ctx.waitUntil(work),
               Date.now,
               this.configStorage,
               sharedGatewayConfigStore(this.env),
             );
             durations.configAgeMs = Math.max(0, Date.now() - config.fetchedAt);
-          } finally { durations.pricingMs = performance.now() - pricingStartedAt; }
+          } finally {
+            durations.pricingMs = performance.now() - pricingStartedAt;
+          }
         })(),
         (async () => {
           const enforcementStartedAt = performance.now();
           try {
-            if (ownerId) await this.admitOwnerEnforcement(ownerId, Date.now());
-          } finally { durations.enforcementMs = performance.now() - enforcementStartedAt; }
+            await this.admitOwnerEnforcement(ownerId, Date.now());
+          } finally {
+            durations.enforcementMs = performance.now() - enforcementStartedAt;
+          }
         })(),
       ]);
-      console.info(JSON.stringify({ event: "gateway_owner_preparation_timing", traceId,
-        executorInstanceId: this.instanceId, invokedAt, status: "completed", totalMs: performance.now() - startedAt, ...durations }));
+      console.info(
+        JSON.stringify({
+          event: "gateway_owner_preparation_timing",
+          traceId,
+          executorInstanceId: this.instanceId,
+          invokedAt,
+          status: "completed",
+          totalMs: performance.now() - startedAt,
+          ...durations,
+        }),
+      );
     } catch (error) {
-      console.warn(JSON.stringify({ event: "gateway_owner_preparation_timing", traceId,
-        executorInstanceId: this.instanceId, invokedAt, status: "failed", totalMs: performance.now() - startedAt,
-        code: isGatewayError(error) ? error.code : "internal", ...durations }));
+      console.warn(
+        JSON.stringify({
+          event: "gateway_owner_preparation_timing",
+          traceId,
+          executorInstanceId: this.instanceId,
+          invokedAt,
+          status: "failed",
+          totalMs: performance.now() - startedAt,
+          code: isGatewayError(error) ? error.code : "internal",
+          ...durations,
+        }),
+      );
       throw error;
     }
   }
 
   async admitRelay(args: {
-    audience: ManagedModelAudience; requestId: string; throttled: boolean;
+    audience: ManagedModelAudience;
+    requestId: string;
+    throttled: boolean;
   }): Promise<GateAdmission> {
     return this.admitRelaySync(args);
   }
@@ -390,12 +474,22 @@ export class OwnerRelayGate extends DurableObject<Env> {
 
   /** Owner-wide admission and generation/JTI accounting commit together. */
   async admitAndReserve(args: {
-    audience: ManagedModelAudience; requestId: string; throttled: boolean;
-    generation: string; reservation: LedgerReserveArgs;
+    audience: ManagedModelAudience;
+    requestId: string;
+    throttled: boolean;
+    generation: string;
+    reservation: LedgerReserveArgs;
   }): Promise<{ admission: GateAdmission; reservation?: LedgerReserveResult }> {
-    const admissionId = JSON.stringify([args.generation, args.reservation.jti, args.requestId]);
+    const admissionId = JSON.stringify([
+      args.generation,
+      args.reservation.jti,
+      args.requestId,
+    ]);
     const result = this.ctx.storage.transactionSync(() => {
-      const admission = this.admitRelaySync({ ...args, requestId: admissionId });
+      const admission = this.admitRelaySync({
+        ...args,
+        requestId: admissionId,
+      });
       if (!admission.ok) return { admission };
       const reservation = this.ledger.reserveSync({
         ...args.reservation,
@@ -403,7 +497,10 @@ export class OwnerRelayGate extends DurableObject<Env> {
         jti: JSON.stringify([args.generation, args.reservation.jti]),
       });
       if (reservation.kind !== "reserved" && !admission.duplicate) {
-        this.ctx.storage.sql.exec("DELETE FROM in_flight WHERE request_id = ?", admissionId);
+        this.ctx.storage.sql.exec(
+          "DELETE FROM in_flight WHERE request_id = ?",
+          admissionId,
+        );
       }
       return { admission, reservation };
     });
@@ -411,14 +508,21 @@ export class OwnerRelayGate extends DurableObject<Env> {
     return result;
   }
 
-  async settleCapability(args: LedgerSettleArgs & { generation: string; jti: string }) {
-    return await this.ledger.settle({ ...args, jti: JSON.stringify([args.generation, args.jti]) });
+  async settleCapability(
+    args: LedgerSettleArgs & { generation: string; jti: string },
+  ) {
+    return await this.ledger.settle({
+      ...args,
+      jti: JSON.stringify([args.generation, args.jti]),
+    });
   }
 
   private async armCancellationAlarm(): Promise<void> {
-    const next = this.ctx.storage.sql.exec<{ at: number | null }>(
-      "SELECT MIN(expires_at) AS at FROM managed_cancellations",
-    ).one().at;
+    const next = this.ctx.storage.sql
+      .exec<{
+        at: number | null;
+      }>("SELECT MIN(expires_at) AS at FROM managed_cancellations")
+      .one().at;
     if (next === null) return;
     const current = await this.ctx.storage.getAlarm();
     const at = Math.max(Date.now() + 1_000, next);
@@ -456,20 +560,28 @@ export class OwnerRelayGate extends DurableObject<Env> {
       key,
       identity.expiresAt,
     );
-    this.managedControllers.get(key)?.controller.abort("managed_request_canceled");
+    this.managedControllers
+      .get(key)
+      ?.controller.abort("managed_request_canceled");
     await this.armCancellationAlarm();
     return { canceled: true };
   }
 
-  beginManagedRequest(identity: ManagedCancellationIdentity):
+  beginManagedRequest(
+    identity: ManagedCancellationIdentity,
+  ):
     | { canceled: true }
     | { canceled: false; key: string; signal: AbortSignal } {
     const key = managedCancellationKey(identity);
-    const tombstone = this.ctx.storage.sql.exec<{ expires_at: number }>(
-      "SELECT expires_at FROM managed_cancellations WHERE identity = ? AND expires_at > ?",
-      key,
-      Date.now(),
-    ).toArray()[0];
+    const tombstone = this.ctx.storage.sql
+      .exec<{
+        expires_at: number;
+      }>(
+        "SELECT expires_at FROM managed_cancellations WHERE identity = ? AND expires_at > ?",
+        key,
+        Date.now(),
+      )
+      .toArray()[0];
     if (tombstone) return { canceled: true };
     const active = this.managedControllers.get(key);
     if (active) {

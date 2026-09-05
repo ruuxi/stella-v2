@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { Type } from "@sinclair/typebox";
 import {
   preparePromptContext,
-  beforeUserContext,
   materializeProviderContext,
   promptContextCheckpointChanged,
   promptContextHistoryStartAfterSeq,
@@ -57,7 +56,7 @@ describe("cloud prompt context", () => {
       JSON.stringify(first.state.tools),
     );
     expect(second.boundary).toBe(false);
-    expect(await beforeUserContext("hello", second.deltas)).toHaveLength(2);
+    expect(second.deltas).toHaveLength(2);
     expect(await second.tools[0]!.execute("id", {})).toMatchObject({
       content: [{ text: "turn-2" }],
     });
@@ -110,7 +109,7 @@ describe("cloud prompt context", () => {
         version: 1,
         epoch: context.state.epoch,
         clock: "2026-09-04T00:00:00.000Z",
-        prepend: await beforeUserContext("hello", ["updated memory"]),
+        prepend: ["updated memory"],
       },
     } as AgentMessage;
     const rows = [{ seq: 10, role: "user", hidden: false }];

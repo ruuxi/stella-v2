@@ -1,22 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { Type } from "@sinclair/typebox";
-import type { Api, AssistantMessage, Model } from "../ai/types.js";
+import type { AssistantMessage } from "../ai/types.js";
 import { createAssistantMessageEventStream } from "../ai/utils/event-stream.js";
 import { ExplicitModelAgent } from "../kernel/agent-core/explicit-model-agent.js";
 import type { AgentTool, StreamFn } from "../kernel/agent-core/types.js";
+import { testModel } from "./fixtures/model.js";
 
-const model = {
-  id: "test",
-  name: "test",
-  api: "openai-completions",
-  provider: "test",
-  baseUrl: "https://example.test",
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 128_000,
-  maxTokens: 4096,
-} satisfies Model<Api>;
+const model = testModel({ id: "test", name: "test" });
 const message = (
   content: AssistantMessage["content"],
   stopReason: AssistantMessage["stopReason"],

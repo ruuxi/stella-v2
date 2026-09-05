@@ -1,4 +1,3 @@
-import { homeContextChanged } from "./lib/cloud_home_context_updates";
 // A mirror of one device's canonical `~/.stella/skills/` root, not a catalog of
 // its own. Desktop sync uploads whatever that root holds; a cloud-executing
 // turn materializes those bytes into its sandbox. There is deliberately no
@@ -43,6 +42,7 @@ import {
   cloudSkillAvailabilityValidator,
   cloudSkillSourceValidator,
 } from "./schema/cloud_agent_home";
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
 
 const MAX_SKILLS_PER_OWNER = 50;
 const MAX_SKILL_NAME_CHARS = 120;

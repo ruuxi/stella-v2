@@ -22,6 +22,10 @@ import {
   deserializeRuntimeThread,
   type RuntimeThreadListing,
 } from "./agent-registry.js";
+import {
+  listTranscriptNeighborsBatch,
+  transcriptHitColumns,
+} from "./recall-read-queries.js";
 
 export type TranscriptSearchHit = {
   conversationId: string;
@@ -226,29 +230,28 @@ export class SearchIndex {
     if (reference) {
       const rows = this.db
         .prepare(
-          `SELECT id, seq AS sequence, conversation_id AS conversationId,
-        role, created_at AS atMs, search_text AS text FROM entry
-        WHERE id = ? AND conversation_id = ? AND visible = 1 AND role IN ('user', 'assistant')`,
+          `SELECT ${transcriptHitColumns()} FROM entry
+        WHERE entry.id = ? AND entry.conversation_id = ? AND entry.visible = 1
+          AND entry.role IN ('user', 'assistant')`,
         )
         .all(reference.id, reference.scope) as Array<Record<string, unknown>>;
       return this.deserializeTranscriptHits(rows);
     }
     const limit = recallLimit(args.limit);
-    const tokens = tokenizeSearchQuery(args.query);
-    if (tokens.length === 0) return [];
+    const plan = recallSearchPlan(args.terms ?? [args.query]);
+    if (!plan) return [];
     if (args.degradedMode === "like") {
       console.warn(
         "[stella:recall:fts-degraded]",
         JSON.stringify({ index: "transcripts", reason: "explicit LIKE mode" }),
       );
-      return this.searchTranscriptsLike(tokens, limit);
+      const tokens = tokenizeSearchQuery(args.query);
+      return tokens.length ? this.searchTranscriptsLike(tokens, limit) : [];
     }
     if (!this.transcriptFtsAvailable()) {
       return throwFtsSearchUnavailable("transcripts", "index table is missing");
     }
     try {
-      const plan = recallSearchPlan(args.terms ?? [args.query]);
-      if (!plan) return [];
       const hits = this.searchTranscriptsFts(plan.phrase, limit);
       return shouldBroadenRecall(hits.length, limit) &&
         plan.broad !== plan.phrase
@@ -269,9 +272,8 @@ export class SearchIndex {
   ): TranscriptSearchHit[] {
     const rows = this.db
       .prepare(
-        `SELECT entry.id, entry.seq AS sequence,
-           entry.conversation_id AS conversationId, entry.role, entry.created_at AS atMs,
-      entry.search_text AS text, snippet(entry_fts, 0, char(1), char(2), '…', 24) AS matches
+        `SELECT ${transcriptHitColumns()},
+      snippet(entry_fts, 0, char(1), char(2), '…', 24) AS matches
       FROM entry_fts JOIN entry ON entry.rowid = entry_fts.rowid
       WHERE entry_fts MATCH ? AND entry.visible = 1 AND entry.role IN ('user', 'assistant')
       ORDER BY bm25(entry_fts), entry.rowid DESC LIMIT ?`,
@@ -287,12 +289,7 @@ export class SearchIndex {
     const tokenClause = "entry.search_text LIKE ? ESCAPE '\\'";
     const rows = this.db
       .prepare(
-        `SELECT
-           entry.id, entry.seq AS sequence,
-           entry.conversation_id AS conversationId,
-           entry.role AS role,
-           entry.created_at AS atMs,
-           substr(entry.search_text, 1, ${TRANSCRIPT_SEARCH_TEXT_CAP}) AS text
+        `SELECT ${transcriptHitColumns(TRANSCRIPT_SEARCH_TEXT_CAP)}
          FROM entry
          WHERE entry.search_text IS NOT NULL
            AND (${tokens.map(() => tokenClause).join("\n          OR ")})
@@ -344,64 +341,6 @@ export class SearchIndex {
     after?: number;
     windowMs?: number;
   }): TranscriptSearchHit[] {
-    const before = Math.max(0, Math.min(8, Math.floor(args.before ?? 2)));
-    const after = Math.max(0, Math.min(10, Math.floor(args.after ?? 2)));
-    if (args.sequence !== undefined) {
-      const select = `SELECT id, seq AS sequence, conversation_id AS conversationId,
-        role, created_at AS atMs, search_text AS text FROM entry
-        WHERE conversation_id = ? AND visible = 1 AND role IN ('user', 'assistant') AND search_text IS NOT NULL`;
-      const rows = [
-        ...this.db
-          .prepare(`${select} AND seq < ? ORDER BY seq DESC LIMIT ?`)
-          .all(args.conversationId, args.sequence, before),
-        ...this.db
-          .prepare(`${select} AND seq > ? ORDER BY seq ASC LIMIT ?`)
-          .all(args.conversationId, args.sequence, after),
-      ] as Array<Record<string, unknown>>;
-      return this.deserializeTranscriptHits(rows).sort(
-        (a, b) => a.sequence! - b.sequence!,
-      );
-    }
-    const windowMs = Math.max(60_000, args.windowMs ?? 2 * 60 * 60 * 1000);
-    const base = `
-      SELECT
-        entry.id, entry.seq AS sequence,
-           entry.conversation_id AS conversationId,
-        entry.role AS role,
-        entry.created_at AS atMs,
-        substr(entry.search_text, 1, ${TRANSCRIPT_SEARCH_TEXT_CAP}) AS text
-      FROM entry
-      WHERE entry.conversation_id = ?
-        AND entry.search_text IS NOT NULL
-    `;
-    const rows = [
-      ...(before > 0
-        ? (this.db
-            .prepare(
-              `${base} AND entry.created_at < ? AND entry.created_at >= ?
-               ORDER BY entry.created_at DESC LIMIT ?`,
-            )
-            .all(
-              args.conversationId,
-              args.atMs,
-              args.atMs - windowMs,
-              before,
-            ) as Array<Record<string, unknown>>)
-        : []),
-      ...(after > 0
-        ? (this.db
-            .prepare(
-              `${base} AND entry.created_at > ? AND entry.created_at <= ?
-               ORDER BY entry.created_at ASC LIMIT ?`,
-            )
-            .all(
-              args.conversationId,
-              args.atMs,
-              args.atMs + windowMs,
-              after,
-            ) as Array<Record<string, unknown>>)
-        : []),
-    ];
-    return this.deserializeTranscriptHits(rows).sort((a, b) => a.atMs - b.atMs);
+    return listTranscriptNeighborsBatch(this.db, [args], args)[0] ?? [];
   }
 }

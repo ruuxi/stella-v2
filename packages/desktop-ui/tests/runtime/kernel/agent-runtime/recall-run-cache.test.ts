@@ -143,15 +143,15 @@ describe("RecallRunCache", () => {
     ).resolves.toEqual({ status: "found", brief: "Recovered." });
     expect(create).toHaveBeenCalledTimes(2);
   });
-});
 
-it("keeps message-reference case, offsets, and result limits distinct", () => {
-  const key = buildRecallLookupCacheKey;
-  expect(key("read", ["recall:Conv:Message:0"])).not.toBe(
-    key("read", ["recall:conv:message:0"]),
-  );
-  expect(key("read", ["recall:Conv:Message:0"])).not.toBe(
-    key("read", ["recall:Conv:Message:1500"]),
-  );
-  expect(key("find", ["SQLite"], 1)).not.toBe(key("find", ["SQLite"], 12));
+  it("keeps message-reference case, offsets, and result limits distinct", () => {
+    const key = buildRecallLookupCacheKey;
+    expect(key("read", ["recall:Conv:Message:0"])).not.toBe(
+      key("read", ["recall:conv:message:0"]),
+    );
+    expect(key("read", ["recall:Conv:Message:0"])).not.toBe(
+      key("read", ["recall:Conv:Message:1500"]),
+    );
+    expect(key("find", ["SQLite"], 1)).not.toBe(key("find", ["SQLite"], 12));
+  });
 });

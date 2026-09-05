@@ -73,7 +73,15 @@ type CdpRequest = {
 type ClientState = {
   socket: WebSocket;
   sessions: Map<string, string>;
-  childSessions: Map<string, { tabId: string; nativeSessionId: string; frameId: string; parentSessionId: string }>;
+  childSessions: Map<
+    string,
+    {
+      tabId: string;
+      nativeSessionId: string;
+      frameId: string;
+      parentSessionId: string;
+    }
+  >;
   childAttachments: Map<string, Promise<{ sessionId: string }>>;
   cursorTabs: Set<string>;
   discoverTargets: boolean;
@@ -86,16 +94,6 @@ export type InAppBrowserCdpCapability = Readonly<{
 }>;
 
 const OWNER_CAPABILITY_TTL_MS = 60_000;
-
-function isDescendantFrame(value: unknown, frameId: string): boolean {
-  if (!value || typeof value !== "object" || !("frameTree" in value)) return false;
-  const visit = (tree: unknown, allowRoot: boolean, depth: number): boolean => {
-    if (!tree || typeof tree !== "object" || depth > 32) return false;
-    if (allowRoot && "frame" in tree && tree.frame && typeof tree.frame === "object" && "id" in tree.frame && tree.frame.id === frameId) return true;
-    return "childFrames" in tree && Array.isArray(tree.childFrames) && tree.childFrames.some(child => visit(child, true, depth + 1));
-  };
-  return visit(value.frameTree, false, 0);
-}
 const DEFAULT_CDP_COMMAND_TIMEOUT_MS = 25_000;
 const DEFAULT_CDP_BOOTSTRAP_COMMAND_TIMEOUT_MS = 3_000;
 const DEFAULT_CDP_RECOVERY_TIMEOUT_MS = 1_500;
@@ -156,6 +154,29 @@ const isSafeNavigationUrl = (value: string) => {
     return false;
   }
 };
+
+function isDescendantFrame(value: unknown, frameId: string): boolean {
+  if (!value || typeof value !== "object" || !("frameTree" in value))
+    return false;
+  const visit = (tree: unknown, allowRoot: boolean, depth: number): boolean => {
+    if (!tree || typeof tree !== "object" || depth > 32) return false;
+    if (
+      allowRoot &&
+      "frame" in tree &&
+      tree.frame &&
+      typeof tree.frame === "object" &&
+      "id" in tree.frame &&
+      tree.frame.id === frameId
+    )
+      return true;
+    return (
+      "childFrames" in tree &&
+      Array.isArray(tree.childFrames) &&
+      tree.childFrames.some((child) => visit(child, true, depth + 1))
+    );
+  };
+  return visit(value.frameTree, false, 0);
+}
 
 const targetInfo = (target: InAppBrowserDebuggerTarget) => ({
   targetId: target.id,
@@ -451,19 +472,29 @@ export class InAppBrowserCdpAdapter {
           client.ownerId,
         );
         if (!targets.some((target) => target.id === targetId)) {
-          const parentTabId = request.sessionId
-            ? client.sessions.get(request.sessionId) ?? client.childSessions.get(request.sessionId)?.tabId
-            : undefined;
-          if (!parentTabId) throw new Error("Browser target was not found.");
           const parentSessionId = request.sessionId;
-          if (!parentSessionId) throw new Error("Parent frame session is required.");
+          const parentTabId = parentSessionId
+            ? (client.sessions.get(parentSessionId) ??
+              client.childSessions.get(parentSessionId)?.tabId)
+            : undefined;
+          if (!parentSessionId || !parentTabId)
+            throw new Error("Browser target was not found.");
           const key = parentTabId + ":" + targetId;
           const pending = client.childAttachments.get(key);
           if (pending) return await pending;
-          const attach = this.attachChildSession(client, parentTabId, parentSessionId, targetId);
+          const attach = this.attachChildSession(
+            client,
+            parentTabId,
+            parentSessionId,
+            targetId,
+          );
           client.childAttachments.set(key, attach);
-          try { return await attach; }
-          finally { if (client.childAttachments.get(key) === attach) client.childAttachments.delete(key); }
+          try {
+            return await attach;
+          } finally {
+            if (client.childAttachments.get(key) === attach)
+              client.childAttachments.delete(key);
+          }
         }
         const sessionId = randomUUID();
         client.sessions.set(sessionId, targetId);
@@ -496,7 +527,8 @@ export class InAppBrowserCdpAdapter {
           if (tabId === targetId) client.sessions.delete(sessionId);
         }
         for (const [sessionId, binding] of client.childSessions) {
-          if (binding.tabId === targetId) client.childSessions.delete(sessionId);
+          if (binding.tabId === targetId)
+            client.childSessions.delete(sessionId);
         }
         if (success) {
           this.broadcastTargetEvent(
@@ -511,16 +543,24 @@ export class InAppBrowserCdpAdapter {
         break;
     }
 
-    const child = request.sessionId ? client.childSessions.get(request.sessionId) : undefined;
+    const child = request.sessionId
+      ? client.childSessions.get(request.sessionId)
+      : undefined;
     const tabId = request.sessionId
-      ? client.sessions.get(request.sessionId) ?? child?.tabId
+      ? (client.sessions.get(request.sessionId) ?? child?.tabId)
       : undefined;
     if (!tabId) {
       throw new Error(`CDP method ${method} requires a page session.`);
     }
 
     if (!child) await this.presentAgentAction(client, tabId, method, params);
-    return await this.sendPageCommand(tabId, method, params, client.ownerId, child?.nativeSessionId);
+    return await this.sendPageCommand(
+      tabId,
+      method,
+      params,
+      client.ownerId,
+      child?.nativeSessionId,
+    );
   }
 
   private async sendPageCommand(
@@ -536,15 +576,26 @@ export class InAppBrowserCdpAdapter {
       : this.commandTimeoutMs;
     const send = async () => {
       let abandoned = false;
-      try { return await withTimeout(
-        async () => {
-          const result = await this.controller.sendDebuggerCommand(tabId, method, params, ownerId, debuggerSessionId);
-          if (abandoned) await discardLateResult?.(result);
-          return result;
-        },
-        timeoutMs,
-        () => new CdpCommandTimeoutError(method, timeoutMs),
-      ); } catch (error) { abandoned = true; throw error; }
+      try {
+        return await withTimeout(
+          async () => {
+            const result = await this.controller.sendDebuggerCommand(
+              tabId,
+              method,
+              params,
+              ownerId,
+              debuggerSessionId,
+            );
+            if (abandoned) await discardLateResult?.(result);
+            return result;
+          },
+          timeoutMs,
+          () => new CdpCommandTimeoutError(method, timeoutMs),
+        );
+      } catch (error) {
+        abandoned = true;
+        throw error;
+      }
     };
 
     try {
@@ -560,7 +611,12 @@ export class InAppBrowserCdpAdapter {
       let recovery: InAppBrowserDebuggerRecovery;
       try {
         recovery = await withTimeout(
-          () => this.controller.recoverDebuggerTarget(tabId, ownerId, debuggerSessionId),
+          () =>
+            this.controller.recoverDebuggerTarget(
+              tabId,
+              ownerId,
+              debuggerSessionId,
+            ),
           this.recoveryTimeoutMs,
           () =>
             new Error(
@@ -568,7 +624,8 @@ export class InAppBrowserCdpAdapter {
             ),
         );
       } catch (recoveryError) {
-        if (debuggerSessionId) await this.invalidateChildSession(tabId, debuggerSessionId);
+        if (debuggerSessionId)
+          await this.invalidateChildSession(tabId, debuggerSessionId);
         throw new Error(
           `${error.message} Page recovery failed: ${
             recoveryError instanceof Error
@@ -585,7 +642,9 @@ export class InAppBrowserCdpAdapter {
       // bootstrap does not repeatedly kill healthy new daemons.
       if (debuggerSessionId) {
         await this.invalidateChildSession(tabId, debuggerSessionId);
-        throw new Error(`${error.message} Frame session was invalidated after recovery; capture a new AX snapshot.`);
+        throw new Error(
+          `${error.message} Frame session was invalidated after recovery; capture a new AX snapshot.`,
+        );
       }
       if (BOOTSTRAP_PAGE_METHODS.has(method)) {
         return await send();
@@ -601,16 +660,29 @@ export class InAppBrowserCdpAdapter {
     for (const client of this.clients) {
       if (event.method === "Target.detachedFromTarget") {
         for (const [sessionId, binding] of client.childSessions) {
-          if (binding.tabId === event.tabId && binding.nativeSessionId === event.params?.sessionId) {
+          if (
+            binding.tabId === event.tabId &&
+            binding.nativeSessionId === event.params?.sessionId
+          ) {
             void this.detachChildSessions(client, binding.tabId, sessionId);
-            sendJson(client.socket, { method: "Target.detachedFromTarget", params: {sessionId} });
+            sendJson(client.socket, {
+              method: "Target.detachedFromTarget",
+              params: { sessionId },
+            });
           }
         }
       }
       if (event.sessionId) {
         for (const [sessionId, binding] of client.childSessions) {
-          if (binding.tabId === event.tabId && binding.nativeSessionId === event.sessionId) {
-            sendJson(client.socket, {method: event.method, params: event.params ?? {}, sessionId});
+          if (
+            binding.tabId === event.tabId &&
+            binding.nativeSessionId === event.sessionId
+          ) {
+            sendJson(client.socket, {
+              method: event.method,
+              params: event.params ?? {},
+              sessionId,
+            });
           }
         }
         continue;
@@ -702,65 +774,168 @@ export class InAppBrowserCdpAdapter {
     );
   }
 
-  private async attachChildSession(client: ClientState, tabId: string, parentSessionId: string, targetId: string): Promise<{sessionId: string}> {
-    if (!(await this.validateDescendant(client, parentSessionId, targetId))) throw new Error("Browser frame target was not found.");
-    const existing = [...client.childSessions.entries()].find(([, binding]) => binding.tabId === tabId && binding.frameId === targetId);
-    if (existing) return {sessionId: existing[0]};
+  private async attachChildSession(
+    client: ClientState,
+    tabId: string,
+    parentSessionId: string,
+    targetId: string,
+  ): Promise<{ sessionId: string }> {
+    const existing = [...client.childSessions.entries()].find(
+      ([, binding]) => binding.tabId === tabId && binding.frameId === targetId,
+    );
+    if (existing) return { sessionId: existing[0] };
+    if (!(await this.validateDescendant(client, parentSessionId, targetId)))
+      throw new Error("Browser frame target was not found.");
     // Electron's native Target agent only accepts target IDs it has reported.
     // Register currently live targets internally; never expose this unfiltered
     // browser-wide result through the owner-scoped adapter.
     await this.sendPageCommand(tabId, "Target.getTargets", {}, client.ownerId);
-    const attached = await this.sendPageCommand(tabId, "Target.attachToTarget", {targetId, flatten: true}, client.ownerId, undefined, async (result) => {
-      if (result && typeof result === "object" && "sessionId" in result && typeof result.sessionId === "string") {
-        await this.cleanupPageCommand(tabId, "Target.detachFromTarget", {sessionId: result.sessionId}, client.ownerId).catch(() => undefined);
-      }
-    });
-    if (!attached || typeof attached !== "object" || !("sessionId" in attached) || typeof attached.sessionId !== "string") throw new Error("Browser did not return a frame session.");
-    if (!this.clients.has(client) || client.socket.readyState !== WebSocket.OPEN || (!client.sessions.has(parentSessionId) && !client.childSessions.has(parentSessionId))) {
-      await this.cleanupPageCommand(tabId, "Target.detachFromTarget", {sessionId: attached.sessionId}, client.ownerId).catch(() => undefined);
+    const attached = await this.sendPageCommand(
+      tabId,
+      "Target.attachToTarget",
+      { targetId, flatten: true },
+      client.ownerId,
+      undefined,
+      async (result) => {
+        if (
+          result &&
+          typeof result === "object" &&
+          "sessionId" in result &&
+          typeof result.sessionId === "string"
+        ) {
+          await this.cleanupPageCommand(
+            tabId,
+            "Target.detachFromTarget",
+            { sessionId: result.sessionId },
+            client.ownerId,
+          ).catch(() => undefined);
+        }
+      },
+    );
+    if (
+      !attached ||
+      typeof attached !== "object" ||
+      !("sessionId" in attached) ||
+      typeof attached.sessionId !== "string"
+    )
+      throw new Error("Browser did not return a frame session.");
+    if (
+      !this.clients.has(client) ||
+      client.socket.readyState !== WebSocket.OPEN ||
+      (!client.sessions.has(parentSessionId) &&
+        !client.childSessions.has(parentSessionId))
+    ) {
+      await this.cleanupPageCommand(
+        tabId,
+        "Target.detachFromTarget",
+        { sessionId: attached.sessionId },
+        client.ownerId,
+      ).catch(() => undefined);
       throw new Error("Browser owner session ended while attaching a frame.");
     }
     const sessionId = randomUUID();
-    client.childSessions.set(sessionId, {tabId, nativeSessionId: attached.sessionId, frameId: targetId, parentSessionId});
-    return {sessionId};
+    client.childSessions.set(sessionId, {
+      tabId,
+      nativeSessionId: attached.sessionId,
+      frameId: targetId,
+      parentSessionId,
+    });
+    return { sessionId };
   }
 
-  private async validateDescendant(client: ClientState, parentSessionId: string, frameId: string, depth = 0): Promise<boolean> {
+  private async validateDescendant(
+    client: ClientState,
+    parentSessionId: string,
+    frameId: string,
+    depth = 0,
+  ): Promise<boolean> {
     if (depth > 32 || !this.clients.has(client)) return false;
     const parent = client.childSessions.get(parentSessionId);
     const tabId = client.sessions.get(parentSessionId) ?? parent?.tabId;
     if (!tabId) return false;
-    if (parent && !(await this.validateDescendant(client, parent.parentSessionId, parent.frameId, depth + 1))) return false;
-    const tree = await this.sendPageCommand(tabId, "Page.getFrameTree", {}, client.ownerId, parent?.nativeSessionId);
+    if (
+      parent &&
+      !(await this.validateDescendant(
+        client,
+        parent.parentSessionId,
+        parent.frameId,
+        depth + 1,
+      ))
+    )
+      return false;
+    const tree = await this.sendPageCommand(
+      tabId,
+      "Page.getFrameTree",
+      {},
+      client.ownerId,
+      parent?.nativeSessionId,
+    );
     if (isDescendantFrame(tree, frameId)) return true;
     // Chromium omits out-of-process frames from this session's frame tree.
     // DOM.getFrameOwner is scoped to the inspected target and proves that
     // the candidate frame has an owner element in this document subtree.
     try {
-      const owner = await this.sendPageCommand(tabId, "DOM.getFrameOwner", {frameId}, client.ownerId, parent?.nativeSessionId);
-      return !!owner && typeof owner === "object" && "backendNodeId" in owner && typeof owner.backendNodeId === "number";
-    } catch { return false; }
+      const owner = await this.sendPageCommand(
+        tabId,
+        "DOM.getFrameOwner",
+        { frameId },
+        client.ownerId,
+        parent?.nativeSessionId,
+      );
+      return (
+        !!owner &&
+        typeof owner === "object" &&
+        "backendNodeId" in owner &&
+        typeof owner.backendNodeId === "number"
+      );
+    } catch {
+      return false;
+    }
   }
 
-  private cleanupPageCommand(tabId: string, method: string, params: Record<string, unknown>, ownerId: string) {
-    return withTimeout(() => this.controller.sendDebuggerCommand(tabId, method, params, ownerId), this.recoveryTimeoutMs, () => new Error("Frame cleanup timed out."));
+  private cleanupPageCommand(
+    tabId: string,
+    method: string,
+    params: Record<string, unknown>,
+    ownerId: string,
+  ) {
+    return withTimeout(
+      () => this.controller.sendDebuggerCommand(tabId, method, params, ownerId),
+      this.recoveryTimeoutMs,
+      () => new Error("Frame cleanup timed out."),
+    );
   }
 
   private async invalidateChildSession(tabId: string, nativeSessionId: string) {
     for (const client of this.clients) {
       for (const [sessionId, binding] of client.childSessions) {
-        if (binding.tabId === tabId && binding.nativeSessionId === nativeSessionId) await this.detachChildSessions(client, tabId, sessionId);
+        if (
+          binding.tabId === tabId &&
+          binding.nativeSessionId === nativeSessionId
+        )
+          await this.detachChildSessions(client, tabId, sessionId);
       }
     }
   }
 
-  private async detachChildSessions(client: ClientState, tabId?: string, rootSessionId?: string) {
+  private async detachChildSessions(
+    client: ClientState,
+    tabId?: string,
+    rootSessionId?: string,
+  ) {
     const selected = new Set(rootSessionId ? [rootSessionId] : []);
     for (let round = 0; round <= client.childSessions.size; round += 1) {
       let changed = false;
       for (const [sessionId, binding] of client.childSessions) {
-        if ((!tabId || binding.tabId === tabId) && (!rootSessionId || selected.has(binding.parentSessionId) || selected.has(sessionId)) && !selected.has(sessionId)) {
-          selected.add(sessionId); changed = true;
+        if (
+          (!tabId || binding.tabId === tabId) &&
+          (!rootSessionId ||
+            selected.has(binding.parentSessionId) ||
+            selected.has(sessionId)) &&
+          !selected.has(sessionId)
+        ) {
+          selected.add(sessionId);
+          changed = true;
         }
       }
       if (!changed) break;
@@ -769,7 +944,14 @@ export class InAppBrowserCdpAdapter {
     for (const [sessionId, binding] of client.childSessions) {
       if (!selected.has(sessionId)) continue;
       client.childSessions.delete(sessionId);
-      pending.push(this.cleanupPageCommand(binding.tabId, "Target.detachFromTarget", {sessionId: binding.nativeSessionId}, client.ownerId));
+      pending.push(
+        this.cleanupPageCommand(
+          binding.tabId,
+          "Target.detachFromTarget",
+          { sessionId: binding.nativeSessionId },
+          client.ownerId,
+        ),
+      );
     }
     await Promise.allSettled(pending);
   }

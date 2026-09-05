@@ -1,13 +1,64 @@
-import { GATEWAY_PREPARE_PATH, GATEWAY_REQUEST_ID_HEADER, GATEWAY_VALIDATED_RELAY_PREFIX, GATEWAY_MODEL_REVISION_HEADER } from "@stella/contracts/gateway/api";
-import { RelayTiming } from "./relay-timing.js";
+import {
+  GATEWAY_HEALTH_PATH,
+  GATEWAY_MODEL_REVISION_HEADER,
+  GATEWAY_NETWORK_POLICY,
+  GATEWAY_OWNER_ENFORCEMENT_PATH,
+  GATEWAY_PREPARE_PATH,
+  GATEWAY_RELAY_PREFIX,
+  GATEWAY_REQUEST_ID_HEADER,
+  GATEWAY_RESOLVE_PATH,
+  GATEWAY_SESSION_CAPABILITY_PATH,
+  GATEWAY_VALIDATED_RELAY_PREFIX,
+  type GatewayProtocol,
+  type GatewayResolveRequest,
+} from "@stella/contracts/gateway/api";
+import {
+  isDpopAlgorithm,
+  verifyDeviceKeyProof,
+  type GatewayDeviceKeyProof,
+} from "@stella/contracts/gateway/dpop";
+import { managedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
+import { verifyConvexToken } from "./auth-jwt.js";
+import {
+  authenticateCapability,
+  bearerToken,
+  verifySessionDpop,
+} from "./capability.js";
 import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
+import { createConvexClient, type ConvexClient } from "./convex-client.js";
+import {
+  errorResponse,
+  GatewayError,
+  isGatewayError,
+  jsonResponse,
+  quotaErrorOptions,
+  toGatewayError,
+} from "./errors.js";
 import type { OwnerRelayAccounting } from "./ledger-client.js";
-import { sharedGatewayConfigStore } from "./shared-config.js";
 import {
   managedCancellationIdentity,
   type ManagedCancellationIdentity,
 } from "./managed-cancellation.js";
+import { handleManagedRelay } from "./managed-lane.js";
+import { classifyNetwork } from "../../shared/network-class.js";
+import { handleNativeRelay } from "./native-lane.js";
+import {
+  handleOwnerEnforcement,
+  ownerEnforcementAdmission,
+  type OwnerEnforcementAdmission,
+} from "./owner-enforcement.js";
+import { RelayTiming } from "./relay-timing.js";
+import {
+  defaultDeps,
+  ipHashFrom,
+  isGatewayRequestId,
+  readJsonObject,
+  type GatewayDeps,
+} from "./request-util.js";
+import { assertAgentTypeAllowed, resolveManagedRoute } from "./resolve.js";
+import { sharedGatewayConfigStore } from "./shared-config.js";
 
+/** The owner object hosting this request, when it runs inside `OwnerRelayGate`. */
 export type LocalOwnerRelay = {
   matchesOwner(ownerId: string): boolean;
   accounting: OwnerRelayAccounting;
@@ -16,16 +67,22 @@ export type LocalOwnerRelay = {
   ownerEnforcement?: (
     ownerId: string,
     now: number,
-  ) => Promise<import("./owner-enforcement.js").OwnerEnforcementAdmission>;
+  ) => Promise<OwnerEnforcementAdmission>;
   cancellation?: {
-    begin(identity: ManagedCancellationIdentity):
+    begin(
+      identity: ManagedCancellationIdentity,
+    ):
       | { canceled: true }
       | { canceled: false; key: string; signal: AbortSignal };
     release(key: string): void;
   };
 };
 
-const releaseAfterBody = (response: Response, release: () => void): Response => {
+/** Runs `release` once the response body is fully consumed or canceled. */
+const releaseAfterBody = (
+  response: Response,
+  release: () => void,
+): Response => {
   if (!response.body) {
     release();
     return response;
@@ -62,55 +119,6 @@ const releaseAfterBody = (response: Response, release: () => void): Response => 
   });
   return new Response(body, response);
 };
-import {
-  GATEWAY_NETWORK_POLICY,
-  GATEWAY_HEALTH_PATH,
-  GATEWAY_OWNER_ENFORCEMENT_PATH,
-  GATEWAY_RELAY_PREFIX,
-  GATEWAY_RESOLVE_PATH,
-  GATEWAY_SESSION_CAPABILITY_PATH,
-  type GatewayProtocol,
-  type GatewayResolveRequest,
-} from "@stella/contracts/gateway/api";
-import {
-  isDpopAlgorithm,
-  verifyDeviceKeyProof,
-  type GatewayDeviceKeyProof,
-} from "@stella/contracts/gateway/dpop";
-import { verifyConvexToken } from "./auth-jwt.js";
-import {
-  authenticateCapability,
-  bearerToken,
-  verifySessionDpop,
-} from "./capability.js";
-import { createConvexClient, type ConvexClient } from "./convex-client.js";
-import {
-  errorResponse,
-  GatewayError,
-  isGatewayError,
-  jsonResponse,
-  quotaErrorOptions,
-  toGatewayError,
-} from "./errors.js";
-import { handleManagedRelay } from "./managed-lane.js";
-import { classifyNetwork } from "../../shared/network-class.js";
-import { handleNativeRelay } from "./native-lane.js";
-import {
-  handleOwnerEnforcement,
-  ownerEnforcementAdmission,
-} from "./owner-enforcement.js";
-import {
-  defaultDeps,
-  ipHashFrom,
-  isGatewayRequestId,
-  readJsonObject,
-  type GatewayDeps,
-} from "./request-util.js";
-import {
-  assertAgentTypeAllowed,
-  resolutionFor,
-  resolveManagedRoute,
-} from "./resolve.js";
 
 /**
  * Route table
@@ -362,14 +370,12 @@ const handleResolve = async (
   deps: GatewayDeps,
   convex: ConvexClient,
   traceId: string,
-  preparationMode: "background" | "await" = "background",
+  preparationMode: "background" | "await",
 ): Promise<Response> => {
-  const startedAt = performance.now();
   const auth = await authenticateCapability(request, env, {
     now: deps.now(),
     allowProbe: true,
   });
-  const authenticationMs = performance.now() - startedAt;
   await verifySessionDpop({ request, auth, now: deps.now() });
   const body = (await readJsonObject(
     request,
@@ -396,36 +402,22 @@ const handleResolve = async (
   });
   // /prepare acknowledges actual completion. /resolve keeps its historical
   // nonblocking behavior, with failures observed instead of silently discarded.
-  const preparationStartedAt = performance.now();
-  const preparation = (async () => {
-    const ownerScoped = auth.claims.ledgerScope === "owner-relay-v2" && !auth.probe;
-    try {
-      if (ownerScoped) await env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub))
-        .prepare(auth.claims.sub, traceId);
-      else await getGatewayConfig(
+  const ownerScoped =
+    auth.claims.ledgerScope === "owner-relay-v2" && !auth.probe;
+  const preparation = ownerScoped
+    ? env.OWNER_RELAY_GATE.get(
+        env.OWNER_RELAY_GATE.idFromName(auth.claims.sub),
+      ).prepare(auth.claims.sub, traceId)
+    : getGatewayConfig(
         convex,
         deps.waitUntil,
         deps.now,
         undefined,
         sharedGatewayConfigStore(env),
-      );
-      console.info(JSON.stringify({ event: "gateway_preparation_timing", traceId,
-        mode: preparationMode, target: ownerScoped ? "owner" : "worker", status: "completed",
-        totalMs: performance.now() - preparationStartedAt }));
-    } catch (error) {
-      console.warn(JSON.stringify({ event: "gateway_preparation_timing", traceId,
-        mode: preparationMode, target: ownerScoped ? "owner" : "worker", status: "failed",
-        code: isGatewayError(error) ? error.code : "internal",
-        totalMs: performance.now() - preparationStartedAt }));
-      throw error;
-    }
-  })();
+      ).then(() => undefined);
   if (preparationMode === "await") await preparation;
   else deps.waitUntil(preparation.catch(() => undefined));
-  console.info(JSON.stringify({ event: "gateway_resolve_timing", traceId,
-    turnId: auth.claims.turn?.turnId, conversationId: auth.claims.turn?.conversationId,
-    authenticationMs, totalMs: performance.now() - startedAt }));
-  return jsonResponse(200, resolutionFor(route), traceId);
+  return jsonResponse(200, managedModelDescriptor(route), traceId);
 };
 
 const handleRelay = async (
@@ -440,14 +432,14 @@ const handleRelay = async (
   let status: number | undefined;
   let lane = "unknown";
   let forwarded = false;
-  let ledgerScope: "owner-v1" | "owner-relay-v2" | "capability" | undefined;
+  let ledgerScope: "owner-relay-v2" | "capability" | undefined;
   let turn: { turnId: string; conversationId: string } | undefined;
   let cancellationKey: string | undefined;
   try {
-    const auth = await timing.measure("authenticationMs", () => authenticateCapability(request, env, {
+    const auth = await authenticateCapability(request, env, {
       now: deps.now(),
       allowProbe: true,
-    }));
+    });
     timing.mark("authenticated");
     ledgerScope = auth.claims.ledgerScope ?? "capability";
     if (auth.claims.turn) {
@@ -457,13 +449,31 @@ const handleRelay = async (
       };
     }
     lane = auth.claims.credential ? "native" : "managed";
-    if (new URL(request.url).pathname.startsWith(GATEWAY_VALIDATED_RELAY_PREFIX + "/") &&
-        (auth.claims.credential || !request.headers.has(GATEWAY_MODEL_REVISION_HEADER))) {
-      throw new GatewayError(400, "bad_request", "This route requires a managed model descriptor revision.");
+    if (
+      new URL(request.url).pathname.startsWith(
+        GATEWAY_VALIDATED_RELAY_PREFIX + "/",
+      ) &&
+      (auth.claims.credential ||
+        !request.headers.has(GATEWAY_MODEL_REVISION_HEADER))
+    ) {
+      throw new GatewayError(
+        400,
+        "bad_request",
+        "This route requires a managed model descriptor revision.",
+      );
     }
-    if (localOwner && (!localOwner.matchesOwner(auth.claims.sub) || auth.probe ||
-        auth.claims.credential || auth.claims.ledgerScope !== "owner-relay-v2")) {
-      throw new GatewayError(403, "capability_invalid", "This request does not belong to this owner executor.");
+    if (
+      localOwner &&
+      (!localOwner.matchesOwner(auth.claims.sub) ||
+        auth.probe ||
+        auth.claims.credential ||
+        auth.claims.ledgerScope !== "owner-relay-v2")
+    ) {
+      throw new GatewayError(
+        403,
+        "capability_invalid",
+        "This request does not belong to this owner executor.",
+      );
     }
     if (localOwner?.cancellation) {
       const presentedRequestId = request.headers
@@ -477,7 +487,11 @@ const handleRelay = async (
         if (identity) {
           const cancellation = localOwner.cancellation.begin(identity);
           if (cancellation.canceled) {
-            throw new GatewayError(499, "canceled", "The model request was canceled.");
+            throw new GatewayError(
+              499,
+              "canceled",
+              "The model request was canceled.",
+            );
           }
           cancellationKey = cancellation.key;
           request = new Request(request, {
@@ -486,12 +500,19 @@ const handleRelay = async (
         }
       }
     }
-    if (!localOwner && !auth.probe && !auth.claims.credential && auth.claims.ledgerScope === "owner-relay-v2") {
+    if (
+      !localOwner &&
+      !auth.probe &&
+      !auth.claims.credential &&
+      auth.claims.ledgerScope === "owner-relay-v2"
+    ) {
       await verifySessionDpop({ request, auth, now: deps.now() });
       forwarded = true;
       // Inference and its exact accounting live in the same owner object.
       // The original request is reauthenticated there; no header bypass exists.
-      const response = await env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub)).fetch(request);
+      const response = await env.OWNER_RELAY_GATE.get(
+        env.OWNER_RELAY_GATE.idFromName(auth.claims.sub),
+      ).fetch(request);
       status = response.status;
       return response;
     }
@@ -529,7 +550,9 @@ const handleRelay = async (
     if (cancellationKey && localOwner?.cancellation) {
       const key = cancellationKey;
       cancellationKey = undefined;
-      return releaseAfterBody(response, () => localOwner.cancellation?.release(key));
+      return releaseAfterBody(response, () =>
+        localOwner.cancellation?.release(key),
+      );
     }
     return response;
   } catch (error) {
@@ -539,7 +562,9 @@ const handleRelay = async (
     if (cancellationKey) localOwner?.cancellation?.release(cancellationKey);
     console.info(
       JSON.stringify({
-        event: forwarded ? "gateway_relay_route_timing" : "gateway_relay_timing",
+        event: forwarded
+          ? "gateway_relay_route_timing"
+          : "gateway_relay_timing",
         execution: localOwner ? "owner" : "worker",
         executorInstanceId: localOwner?.instanceId,
         traceId,
@@ -564,9 +589,16 @@ export const handleRequest = async (
   const url = new URL(request.url);
   const convex = createConvexClient(env, deps.fetch);
   try {
-    if (localOwner && !url.pathname.startsWith(GATEWAY_RELAY_PREFIX + "/") &&
-        !url.pathname.startsWith(GATEWAY_VALIDATED_RELAY_PREFIX + "/")) {
-      throw new GatewayError(404, "bad_request", "Owner executors accept model requests only.");
+    if (
+      localOwner &&
+      !url.pathname.startsWith(GATEWAY_RELAY_PREFIX + "/") &&
+      !url.pathname.startsWith(GATEWAY_VALIDATED_RELAY_PREFIX + "/")
+    ) {
+      throw new GatewayError(
+        404,
+        "bad_request",
+        "Owner executors accept model requests only.",
+      );
     }
     if (url.pathname === GATEWAY_HEALTH_PATH) {
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -584,11 +616,20 @@ export const handleRequest = async (
         throw new GatewayError(405, "bad_request", "Method not allowed.");
       return await handleOwnerEnforcement({ request, env, deps, traceId });
     }
-    if (url.pathname === GATEWAY_RESOLVE_PATH || url.pathname === GATEWAY_PREPARE_PATH) {
+    if (
+      url.pathname === GATEWAY_RESOLVE_PATH ||
+      url.pathname === GATEWAY_PREPARE_PATH
+    ) {
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleResolve(request, env, deps, convex, traceId,
-        url.pathname === GATEWAY_PREPARE_PATH ? "await" : "background");
+      return await handleResolve(
+        request,
+        env,
+        deps,
+        convex,
+        traceId,
+        url.pathname === GATEWAY_PREPARE_PATH ? "await" : "background",
+      );
     }
     if (
       url.pathname === GATEWAY_VALIDATED_RELAY_PREFIX ||

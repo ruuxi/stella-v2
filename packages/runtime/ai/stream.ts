@@ -23,7 +23,7 @@ export { getEnvApiKey } from "./env-api-keys.js";
  * `result()` settles and async iteration terminates, matching the
  * provider-level error protocol instead of leaving the stream hung.
  */
-function makeProviderErrorMessage(
+export function makeProviderErrorMessage(
   model: Model<Api>,
   errorMessage: string,
 ): AssistantMessage {

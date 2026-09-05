@@ -17,7 +17,6 @@ import {
 } from "./context-compaction.js";
 import {
   PROMPT_CONTEXT_KEY,
-  beforeUserContext,
   materializeProviderContext,
   preparePromptContext,
   promptContextCheckpointChanged,
@@ -117,10 +116,9 @@ import {
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import type { TSchema } from "@sinclair/typebox";
 import { guardedModelFetch } from "./guarded-model-fetch.js";
-import { fetchManagedOwnerRelay } from "./managed-owner-relay-routing.js";
 import {
   fetchWithManagedCancellation,
-  type ManagedRequestControl,
+  type ModelGatewayControl,
 } from "./managed-request-cancellation.js";
 import {
   LocalOwnerModelGrants,
@@ -138,9 +136,12 @@ import {
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
-const loadRuntimeAgent = async () =>
-  (await import("@stella/runtime/kernel/agent-core/explicit-model-agent.js"))
-    .ExplicitModelAgent;
+import { loadRuntimeAgent } from "./runtime-agent.js";
+import { convexSiteBase } from "./convex-site.js";
+import type {
+  OwnerModelGrant,
+  OwnerModelGrantFreezeRequest,
+} from "./owner-model-grants.js";
 import {
   OUTBOX_EVENT_VERSION,
   type ConversationCreatedEvent,
@@ -548,11 +549,22 @@ const turnEventSeqKey = (turnId: string): string =>
  * so the projection is the first turn's job whichever contact came first.
  */
 const CONVERSATION_PROJECTED_KEY = "conversationProjected";
-/** Outbox events that could not be enqueued yet; the alarm retries them. */
-const OUTBOX_DEBT_KEY = "outboxDebt";
+/** Outbox batches the queue has not confirmed yet; the alarm retries them. */
 const OUTBOX_BATCH_PREFIX = "outboxBatch:";
-const OUTBOX_DEBT_MAX = 64;
 const OUTBOX_DEBT_RETRY_MS = 30_000;
+/** Time one named step into `timings`, whether it resolves or throws. */
+const measureInto =
+  (timings: Record<string, number>) =>
+  async <T>(name: string, work: () => Promise<T>): Promise<T> => {
+    const start = performance.now();
+    try {
+      return await work();
+    } finally {
+      timings[name] = Math.round(performance.now() - start);
+    }
+  };
+const ownerPurgeImportedLeaseKey = (leaseId: string): string =>
+  `ownerPurgeImportedLease:${leaseId}`;
 const orchestratorFenceLeaseReceiptKey = (leaseId: string): string =>
   `${ORCHESTRATOR_FENCE_LEASE_RECEIPT_PREFIX}${leaseId}`;
 
@@ -784,7 +796,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   private readonly localOwnerModelGrants = new LocalOwnerModelGrants(
     this.isolateId,
   );
-  private readonly admittedOwnerModelGrants = new Map<string, unknown>();
+  private readonly admittedOwnerModelGrants = new Map<
+    string,
+    OwnerModelGrant
+  >();
   private wakeTiming?: {
     bootstrapMs: number;
     restoreMs: number;
@@ -925,7 +940,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       log("info", "conversation_wake_timing", this.wakeTiming);
     });
     this.readerReady = wake;
-    void wake;
     // Registration must follow durable identity restore, but must not be
     // awaited inside blockConcurrencyWhile: OwnerGate may synchronously call
     // this reader during freeze and would otherwise deadlock the object.
@@ -950,17 +964,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
   }
 
-  /**
-   * Advisory cold-start hint for the owner gate. The nonce has no authority:
-   * the gate still validates the exact lease and policy before it can issue a
-   * grant bound to this reader.
-   */
   async ready(): Promise<void> {
     await this.readerReady;
   }
 
+  /**
+   * Advisory cold-start hint for the owner gate. The nonce has no authority:
+   * the gate still validates the exact lease and policy before it can issue a
+   * grant bound to this reader. The shell awaits `ready()` before any call.
+   */
   async prepareCloudChatReader(): Promise<string> {
-    await this.readerReady;
     return this.isolateId;
   }
 
@@ -1038,13 +1051,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     return `${OWNER_FENCE_RUN_SLOT_PREFIX}${identityHash}`;
   }
 
+  /** Pull the alarm forward to `at` unless one already fires sooner. */
+  private async armAlarmNoLaterThan(at: number): Promise<void> {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
+  }
+
   private async armOwnerFenceLeaseReconciliationAlarm(): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
       const retryAt = Date.now() + 30_000;
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > retryAt) {
-        await this.ctx.storage.setAlarm(retryAt);
-      }
+      await this.armAlarmNoLaterThan(retryAt);
     });
   }
 
@@ -1058,6 +1074,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
   }
 
+  /** Retirements or projections the alarm still owes. */
+  private async hasMaintenanceDebt(): Promise<boolean> {
+    return (
+      (await this.hasOwnerFenceLeaseRetirementDebt()) ||
+      (await this.hasOutboxDebt())
+    );
+  }
+
   private async retryOwnerFenceLeaseRetirements(): Promise<void> {
     const receipts = await this.ctx.storage.list<OwnerFenceLeaseReceipt>({
       prefix: ORCHESTRATOR_FENCE_LEASE_RECEIPT_PREFIX,
@@ -1067,10 +1091,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (receipt.phase !== "unregister_pending") continue;
       await this.retireOwnerFenceLeaseReceipt(receipt);
     }
-    if (
-      (await this.hasOwnerFenceLeaseRetirementDebt()) ||
-      (await this.hasOutboxDebt())
-    ) {
+    if (await this.hasMaintenanceDebt()) {
       await this.armOwnerFenceLeaseReconciliationAlarm();
     }
   }
@@ -1181,7 +1202,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const receiptKey = orchestratorFenceLeaseReceiptKey(leaseId);
       const current =
         await this.getTurnState<OwnerFenceLeaseReceipt>(receiptKey);
-      if (await this.getTurnState(`ownerPurgeImportedLease:${leaseId}`))
+      if (await this.getTurnState(ownerPurgeImportedLeaseKey(leaseId)))
         throw new OwnerPurgeFenceError();
       if (current && !this.ownerFenceReceiptMatches(current, turn, leaseId)) {
         throw new OwnerPurgeFenceError();
@@ -1295,7 +1316,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         !current ||
         current.phase === "unregister_pending" ||
         (await this.getTurnState(
-          `ownerPurgeImportedLease:${receipt.leaseId}`,
+          ownerPurgeImportedLeaseKey(receipt.leaseId),
         )) ||
         !this.ownerFenceReceiptMatches(current, receipt, receipt.leaseId)
       ) {
@@ -1562,44 +1583,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * Enqueue, or remember the debt and let the alarm retry. For the
-   * projections a turn start owes (`conversation.created`, `turn.started`,
-   * `thread.spawned`, `conversation.deleted`) a queue outage must never turn
-   * into a lost row: Convex cannot index a conversation it never heard of.
+   * Persist the projection locally, then deliver; queue latency must not
+   * delay a reply. For the projections a turn owes (`conversation.created`,
+   * `turn.started`, `thread.spawned`, `conversation.deleted`) a queue outage
+   * must never turn into a lost row: Convex cannot index a conversation it
+   * never heard of, so the alarm retries every batch still on disk.
    */
-  private async enqueueOutboxDurable(events: OutboxEvent[]): Promise<void> {
-    if (events.length === 0) return;
-    try {
-      await this.enqueueOutbox(events);
-    } catch (error) {
-      log("error", "outbox_enqueue_deferred", {
-        events: events.map((event) => `${event.kind}:${event.key}`),
-        message: errorMessage(error),
-      });
-      await this.ctx.blockConcurrencyWhile(async () => {
-        const debt =
-          (await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY)) ?? [];
-        const merged = [...debt, ...events].slice(-OUTBOX_DEBT_MAX);
-        await this.ctx.storage.put(OUTBOX_DEBT_KEY, merged);
-        const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-        const current = await this.ctx.storage.getAlarm();
-        if (current === null || current > retryAt) {
-          await this.ctx.storage.setAlarm(retryAt);
-        }
-      });
-    }
-  }
-
-  /** Persist the projection locally; queue latency must not delay a reply. */
   private async deferOutbox(events: OutboxEvent[]): Promise<void> {
     if (events.length === 0) return;
     const key = `${OUTBOX_BATCH_PREFIX}${crypto.randomUUID()}`;
     await this.ctx.blockConcurrencyWhile(async () => {
       const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > retryAt) {
-        await this.ctx.storage.setAlarm(retryAt);
-      }
+      await this.armAlarmNoLaterThan(retryAt);
       await this.putTurnState({ [key]: events });
     });
     void this.deliverDeferredOutbox(key, events).catch((error: unknown) => {
@@ -1627,10 +1622,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await this.ctx.blockConcurrencyWhile(async () => {
         if (!(await this.ctx.storage.get(key))) return;
         const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-        const current = await this.ctx.storage.getAlarm();
-        if (current === null || current > retryAt) {
-          await this.ctx.storage.setAlarm(retryAt);
-        }
+        await this.armAlarmNoLaterThan(retryAt);
       });
     }
   }
@@ -1640,11 +1632,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       prefix: OUTBOX_BATCH_PREFIX,
       limit: 1,
     });
-    return (
-      batches.size > 0 ||
-      ((await this.getTurnState<OutboxEvent[]>(OUTBOX_DEBT_KEY))?.length ?? 0) >
-        0
-    );
+    return batches.size > 0;
   }
 
   private async retryOutboxDebt(): Promise<void> {
@@ -1656,22 +1644,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         this.deliverDeferredOutbox(key, events),
       ),
     );
-    const debt = await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
-    if (!debt || debt.length === 0) return;
-    try {
-      await this.enqueueOutbox(debt);
-      await this.ctx.storage.delete(OUTBOX_DEBT_KEY);
-    } catch (error) {
-      log("error", "outbox_debt_retry_failed", {
-        events: debt.length,
-        message: errorMessage(error),
-      });
-      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > retryAt) {
-        await this.ctx.storage.setAlarm(retryAt);
-      }
-    }
   }
 
   private outboxBase(
@@ -1864,7 +1836,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             generation: turn.ownerPurgeGeneration,
             at: enqueuedAt,
           }
-      : undefined;
+        : undefined;
     const execution = startTurnExecution({
       work: ({ cancellation, signal }) =>
         preceding.then(() =>
@@ -1879,8 +1851,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     });
     this.turnExecutions.set(turn.turnId, execution);
     const clear = () => {
-      this.cloudHomePreparations?.delete(turn.turnId);
-      this.admittedOwnerModelGrants?.delete(turn.turnId);
+      this.cloudHomePreparations.delete(turn.turnId);
+      this.admittedOwnerModelGrants.delete(turn.turnId);
       if (this.turnExecutions.get(turn.turnId) === execution) {
         this.turnExecutions.delete(turn.turnId);
       }
@@ -2200,10 +2172,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   private async armLocalLeaseAlarm(expiresAt: number): Promise<void> {
     await this.ctx.blockConcurrencyWhile(async () => {
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > expiresAt) {
-        await this.ctx.storage.setAlarm(expiresAt);
-      }
+      await this.armAlarmNoLaterThan(expiresAt);
     });
   }
 
@@ -2355,15 +2324,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (resumeQueued) {
         queued = await this.queuedTurns();
         if (queued.length === 0) {
-          if (
-            (await this.hasOwnerFenceLeaseRetirementDebt()) ||
-            (await this.hasOutboxDebt())
-          ) {
+          if (await this.hasMaintenanceDebt()) {
             const retryAt = Date.now() + 30_000;
-            const alarmAt = await this.ctx.storage.getAlarm();
-            if (alarmAt === null || alarmAt > retryAt) {
-              await this.ctx.storage.setAlarm(retryAt);
-            }
+            await this.armAlarmNoLaterThan(retryAt);
           } else {
             await this.ctx.storage.deleteAlarm().catch(() => undefined);
           }
@@ -2384,9 +2347,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     body: unknown,
     options: { capability: string; signal?: AbortSignal },
   ): Promise<Response> {
-    const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
-      .trim()
-      .replace(/\/+$/, "");
+    const base = convexSiteBase(this.env);
     if (!base) {
       return Promise.reject(new Error("Convex site URL is not configured."));
     }
@@ -2676,10 +2637,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (watchdogAt !== undefined && Date.now() < watchdogAt) {
         // Projection retries and lease reconciliation share this alarm. An
         // earlier maintenance wake must not time out a healthy active turn.
-        const nextAlarm = await this.ctx.storage.getAlarm();
-        if (nextAlarm === null || nextAlarm > watchdogAt) {
-          await this.ctx.storage.setAlarm(watchdogAt);
-        }
+        await this.armAlarmNoLaterThan(watchdogAt);
         return;
       }
       await this.ctx.storage.put("terminal", true);
@@ -2834,7 +2792,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       // A placed turn can still be in transit from OwnerGate. Retain this
       // rejection after the exact lease receipt is retired.
-      await this.ctx.storage.put(`ownerPurgeImportedLease:${leaseId}`, {
+      await this.ctx.storage.put(ownerPurgeImportedLeaseKey(leaseId), {
         ownerId,
         ownerGeneration,
         turnId,
@@ -3101,19 +3059,19 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       this.admittedOwnerModelGrants.set(authority.turnId, preparedGrant);
     const response = await this.handleTurnStart(
       new Request("https://orchestrator-session/turn", {
-      method: "POST",
+        method: "POST",
         headers: {
           "content-type": "application/json",
           [HEADER_OWNER]: authority.ownerId,
           [HEADER_TURN_AUTH_KIND]: "service",
           [TURN_OWNER_GENERATION_HEADER]: authority.ownerGeneration,
         },
-      body: JSON.stringify(start),
+        body: JSON.stringify(start),
       }),
       { authority, preparation },
     );
     if (response.status !== 202)
-      this.admittedOwnerModelGrants?.delete(authority.turnId);
+      this.admittedOwnerModelGrants.delete(authority.turnId);
     return response;
   }
 
@@ -3182,7 +3140,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       );
     }
     const conversationId = this.conversationId();
-    let admissionFingerprint = await sha256Hex(
+    const admissionFingerprint = await sha256Hex(
       chatTurnFingerprintSource(ownerId, conversationId, start),
     );
     const imported = handoff?.authority;
@@ -3232,21 +3190,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             "Cloud admission identity changed.",
             false,
           );
-        }
-        // Placement began carrying the renderer echo id after older receipts
-        // were issued. Resume their original authority across this upgrade.
-        if (
-          stored.fingerprint !== admissionFingerprint &&
-          start.originUserMessageId
-        ) {
-          const legacyFingerprint = await sha256Hex(
-            chatTurnFingerprintSource(ownerId, conversationId, {
-              ...start,
-              originUserMessageId: undefined,
-            }),
-          );
-          if (stored.fingerprint === legacyFingerprint)
-            admissionFingerprint = legacyFingerprint;
         }
         if (stored.fingerprint !== admissionFingerprint) {
           return turnStartErrorResponse(
@@ -3303,13 +3246,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       let admittedDestinations = handoff?.preparation.destinations;
       // Global prompt configuration is read-only. A cold read can overlap
       // owner admission; its result is still consumed through the turn hook.
-      const canonicalPreparation =
-        this.cloudHomePreparations && this.ctx.storage.kv
-          ? this.loadCanonicalPrompts(
-              (this.env.STELLA_CONVEX_SITE_URL ?? "")
-                .trim()
-                .replace(/\/+$/, ""),
-            )
+      const canonicalPreparation = this.ctx.storage.kv
+        ? this.loadCanonicalPrompts(convexSiteBase(this.env))
         : undefined;
       void canonicalPreparation?.catch(() => undefined);
       // Existing conversations know the generation needed to persist an exact
@@ -3529,7 +3467,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // admission receipt and owner lease commit. No provider call occurs.
       // Busy queues load context when dequeued instead, avoiding stale work.
       if (
-        this.cloudHomePreparations &&
         !this.activeTurnId &&
         this.turnExecutions.size === 0 &&
         this.ctx.storage.kv &&
@@ -3549,7 +3486,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         }).then((capabilities) =>
           this.prepareCloudHomeContext(
             turn,
-            (this.env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, ""),
+            convexSiteBase(this.env),
             capabilities.controlPlane,
             admittedHomeContext,
           ),
@@ -3561,8 +3498,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           destinations: admittedDestinations
             ? Promise.resolve(admittedDestinations)
             : this.ownerGate(turn.ownerId)
-            .devices()
-            .catch(() => null),
+                .devices()
+                .catch(() => null),
         });
       }
       const registrationStarted = performance.now();
@@ -3585,7 +3522,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 )
                   throw new OwnerPurgeFenceError();
                 const canceled = await this.getTurnState(
-                  `ownerPurgeImportedLease:${body.leaseId}`,
+                  ownerPurgeImportedLeaseKey(body.leaseId),
                 );
                 if (canceled) throw new OwnerPurgeFenceError();
                 registeredNow = Date.now() - imported.admittedAt < 1_000;
@@ -3606,7 +3543,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (!registeredNow) await this.assertOwnerTurn(turn);
         freshAdmission = registeredNow && admittedHomeContext !== undefined;
       } catch (error) {
-        this.cloudHomePreparations?.delete(turnId);
+        this.cloudHomePreparations.delete(turnId);
         if (error instanceof OwnerFenceLeaseConflictError) {
           return await refuse(
             "idempotency_conflict",
@@ -3672,10 +3609,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         heldForLocalTurn = localLease !== undefined;
         if (localLease) {
           const retirementAt = localTurnRetirementDeadline(localLease);
-          const alarmAt = await this.ctx.storage.getAlarm();
-          if (alarmAt === null || alarmAt > retirementAt) {
-            await this.ctx.storage.setAlarm(retirementAt);
-          }
+          await this.armAlarmNoLaterThan(retirementAt);
         } else if ((await this.ctx.storage.getAlarm()) === null) {
           await this.ctx.storage.setAlarm(
             Date.now() + Math.max(1_000, turn.watchdogMs ?? CHAT_WATCHDOG_MS),
@@ -3683,7 +3617,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         }
       });
       if (editConflict) {
-        this.cloudHomePreparations?.delete(turnId);
+        this.cloudHomePreparations.delete(turnId);
         await this.unregisterOwnerTurn(turn);
         await this.releaseOwnerGate(turn);
         return turnStartErrorResponse(
@@ -3736,7 +3670,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await this.deferOutbox(projections);
 
       if (!heldForLocalTurn) this.enqueue(turn, freshAdmission);
-      else this.cloudHomePreparations?.delete(turnId);
+      else this.cloudHomePreparations.delete(turnId);
       log("info", "chat_turn_admitted", {
         turnId,
         conversationId,
@@ -3749,7 +3683,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         registrationMs,
         admissionCommitMs,
         projectionMs: Math.round(performance.now() - projectionStarted),
-        commitMs: Math.round(performance.now() - commitStarted),
         totalMs: Math.round(performance.now() - admittedAt),
       });
       return json(
@@ -4064,12 +3997,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   >();
 
-  async freezeOwnerModelGrants(args: {
-    ownerId: string;
-    ownerGeneration: string;
-    readerId: string;
-    grants: readonly { grantId: string; expiresAt: number }[];
-  }): Promise<{ frozen: true }> {
+  async freezeOwnerModelGrants(
+    args: OwnerModelGrantFreezeRequest,
+  ): Promise<{ frozen: true }> {
     // This is deliberately synchronous before the ACK. It never waits for a
     // turn, provider, or OwnerGate, so a privacy change cannot deadlock on the
     // request it is revoking.
@@ -4097,17 +4027,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     admittedContext?: OwnerHomeContext,
   ) {
     const timings: Record<string, number> = {};
-    const measure = async <T>(
-      name: string,
-      work: () => Promise<T>,
-    ): Promise<T> => {
-      const start = performance.now();
-      try {
-        return await work();
-      } finally {
-        timings[name] = Math.round(performance.now() - start);
-      }
-    };
+    const measure = measureInto(timings);
     const home = new AgentHome(
       this.env.AGENT_HOME,
       turn.ownerId,
@@ -4121,15 +4041,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const metadata =
       admittedContext ??
       (await measure("homeMetadataMs", async () => {
-      if (!turn.ownerPurgeGeneration) {
-        // Initial separate registration has not finished yet. This bootstrap
-        // uses the original authoritative reads; warm admission carries metadata.
-        const [memory, skills] = await Promise.all([
+        if (!turn.ownerPurgeGeneration) {
+          // Initial separate registration has not finished yet. This bootstrap
+          // uses the original authoritative reads; warm admission carries metadata.
+          const [memory, skills] = await Promise.all([
             home.cloudStore().getMemoryContext(),
             home.loadSkillCatalog("orchestrator"),
-        ]);
-        return { revision: 0, memory, skills };
-      }
+          ]);
+          return { revision: 0, memory, skills };
+        }
         return await this.ownerGate(turn.ownerId).homeContext(
           turn.ownerGeneration,
           turn.ownerPurgeGeneration,
@@ -4237,8 +4157,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (
         admission?.leaseId &&
         admission.generation &&
-          admission.leaseId === turn.ownerPurgeLeaseId &&
-          admission.generation === turn.ownerPurgeGeneration &&
+        admission.leaseId === turn.ownerPurgeLeaseId &&
+        admission.generation === turn.ownerPurgeGeneration &&
         performance.now() - admission.at < 1_000
       ) {
         assertTurnExecutionActive(turnCancellation, executionSignal);
@@ -4337,10 +4257,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ownerGeneration: turn.ownerGeneration,
       });
       if (preCanceled) return;
-      const nextAlarm = await this.ctx.storage.getAlarm();
-      if (nextAlarm === null || nextAlarm > watchdogAt) {
-        await this.ctx.storage.setAlarm(watchdogAt);
-      }
+      await this.armAlarmNoLaterThan(watchdogAt);
       await this.putTurnState({
         turn,
         turnWatchdogAt: watchdogAt,
@@ -4370,17 +4287,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     });
     const started = performance.now();
     const preparationTimings: Record<string, number> = {};
-    const measurePreparation = async <T>(
-      name: string,
-      work: () => Promise<T>,
-    ): Promise<T> => {
-      const start = performance.now();
-      try {
-        return await work();
-      } finally {
-        preparationTimings[name] = Math.round(performance.now() - start);
-      }
-    };
+    const measurePreparation = measureInto(preparationTimings);
     log("info", "chat_turn_started", {
       turnId: turn.turnId,
       conversationId: turn.conversationId,
@@ -4427,9 +4334,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await this.emitTurnEvent(turn, "started", {}, { deferred: true });
       await assertExactTurnActive();
 
-      const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
-        .trim()
-        .replace(/\/+$/, "");
+      const base = convexSiteBase(this.env);
       if (!base) throw new Error("Convex site URL is not configured.");
       const canonicalPromptsWork = measurePreparation(
         "canonicalPromptsMs",
@@ -4439,7 +4344,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             this.loadCanonicalPromptsForTurn(
               base,
               executionSignal,
-              this.cloudHomePreparations?.get(turn.turnId)?.canonicalPrompts,
+              this.cloudHomePreparations.get(turn.turnId)?.canonicalPrompts,
             ),
           ),
       );
@@ -4453,7 +4358,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const destinationsWork = measurePreparation(
         "devicesMs",
         () =>
-          this.cloudHomePreparations?.get(turn.turnId)?.destinations ??
+          this.cloudHomePreparations.get(turn.turnId)?.destinations ??
           this.ownerGate(turn.ownerId)
             .devices()
             .catch(() => null),
@@ -4515,7 +4420,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           modelGateway
             .fetch(
               new Request(new URL(GATEWAY_PREPARE_PATH, modelGatewayOrigin), {
-          method: "POST",
+                method: "POST",
                 headers: {
                   authorization: `Bearer ${turnCapability.token}`,
                   "content-type": "application/json",
@@ -4531,7 +4436,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               }),
             )
             .then(async (response) => {
-          await response.arrayBuffer();
+              await response.arrayBuffer();
               log("info", "chat_gateway_prepared", {
                 turnId: turn.turnId,
                 status: response.status,
@@ -4548,13 +4453,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             }),
         );
       }
-      const prefetchedHome = this.cloudHomePreparations?.get(turn.turnId)?.home;
+      const prefetchedHome = this.cloudHomePreparations.get(turn.turnId)?.home;
       const loadHome = () =>
         this.prepareCloudHomeContext(turn, base, capabilities.controlPlane);
       const homePreparation = prefetchedHome
         ? prefetchedHome.catch(loadHome)
         : loadHome();
-      this.cloudHomePreparations?.delete(turn.turnId);
+      this.cloudHomePreparations.delete(turn.turnId);
       const measuredHomePreparation = homePreparation.then((context) => {
         Object.assign(preparationTimings, context.timings);
         return context;
@@ -4690,20 +4595,26 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                     })
                   : physicalRequest;
                 try {
+                  // An eligible signed request goes straight to its owner
+                  // DO; the DO retains every check.
+                  const relayOwners =
+                    executionSelection.engine === "stella" &&
+                    turnCapability.claims.ledgerScope === "owner-relay-v2"
+                      ? this.env.MODEL_GATEWAY_OWNERS
+                      : undefined;
                   const guard = (requestToGuard: Request) =>
                     guardedModelFetch({
                       request: requestToGuard,
                       fetch: (value) =>
-                        fetchManagedOwnerRelay({
-                          request: value,
-                          ownerId: turnCapability.claims.sub,
-                          namespace: this.env.MODEL_GATEWAY_OWNERS,
-                          eligible:
-                            executionSelection.engine === "stella" &&
-                            turnCapability.claims.ledgerScope ===
-                              "owner-relay-v2",
-                          fallback: (request) => modelGateway.fetch(request),
-                        }),
+                        relayOwners
+                          ? relayOwners
+                              .get(
+                                relayOwners.idFromName(
+                                  turnCapability.claims.sub,
+                                ),
+                              )
+                              .fetch(value)
+                          : modelGateway.fetch(value),
                       mode: activeGrant
                         ? "authorize-before-fetch"
                         : "gate-body",
@@ -4720,17 +4631,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                         assertTurnExecutionActive(
                           turnCancellation,
                           executionSignal,
-                        );
-                        const persistenceStartedAt = performance.now();
-                        this.ctx.waitUntil(
-                          this.ctx.storage.sync().then(() => {
-                            log("info", "chat_pre_dispatch_persisted", {
-                              turnId: turn.turnId,
-                              elapsedMs: Math.round(
-                                performance.now() - persistenceStartedAt,
-                              ),
-                            });
-                          }),
                         );
                         if (activeGrant) activeGrant.assertValid();
                         else {
@@ -4775,7 +4675,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                           return fetchWithManagedCancellation({
                             request: guardedRequest,
                             capability: turnCapability.token,
-                            control: control as ManagedRequestControl & Fetcher,
+                            control: control as ModelGatewayControl & Fetcher,
                             waitUntil: (work) => this.ctx.waitUntil(work),
                             fetch: guard,
                           });
@@ -4923,17 +4823,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         startSeq: contextStartSeq,
         journalEpoch,
       });
-      const prepend = await beforeUserContext(turn.prompt, context.deltas);
+      const prepend = context.deltas;
       await assertExactTurnActive();
       const executionContext = createExecutionContextSnapshot({
         devices: destinations?.devices ?? null,
         destination: { kind: "cloud" },
       });
       const durablePrompt = {
-          role: "user",
-          content: [{ type: "text", text: turn.prompt }],
-          timestamp: now,
-          executionContext,
+        role: "user",
+        content: [{ type: "text", text: turn.prompt }],
+        timestamp: now,
+        executionContext,
         ...(turn.originUserMessageId
           ? { originUserMessageId: turn.originUserMessageId }
           : {}),
@@ -4943,8 +4843,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           prepend,
           clock: new Date(now).toISOString(),
         },
-          ...(turn.source ? { source: turn.source } : {}),
-        } as AgentMessage;
+        ...(turn.source ? { source: turn.source } : {}),
+      } as AgentMessage;
       // The prompt, its hidden updates, and the adopted checkpoint commit
       // together. A restart cannot remember an update that was never appended.
       const contextStateChanged = context.state !== previousContext;
@@ -4956,24 +4856,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       });
       const promptRow = this.ctx.storage.transactionSync(() => {
         const row = this.journal.appendMessage({
-        turnId: turn.turnId,
-        writer: "orchestrator",
-        writerKey: `turn:${turn.turnId}:prompt`,
-        role: "user",
-        hidden: turn.hiddenMessage === true,
-        clientMsgId: turn.clientMsgId,
-        createdAt: now,
-        message: durablePrompt,
-      });
+          turnId: turn.turnId,
+          writer: "orchestrator",
+          writerKey: `turn:${turn.turnId}:prompt`,
+          role: "user",
+          hidden: turn.hiddenMessage === true,
+          clientMsgId: turn.clientMsgId,
+          createdAt: now,
+          message: durablePrompt,
+        });
         if (contextStateChanged)
-        this.ctx.storage.kv.put(PROMPT_CONTEXT_KEY, context.state);
+          this.ctx.storage.kv.put(PROMPT_CONTEXT_KEY, context.state);
         if (checkpointChanged) {
           if (compaction.checkpoint)
             this.ctx.storage.kv.put(
               CONTEXT_CHECKPOINT_KEY,
               compaction.checkpoint,
             );
-        else this.ctx.storage.kv.delete(CONTEXT_CHECKPOINT_KEY);
+          else this.ctx.storage.kv.delete(CONTEXT_CHECKPOINT_KEY);
         }
         return row;
       });
@@ -5023,7 +4923,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                   },
           ),
           context.state.epoch,
-      );
+        );
       const replayedHistory = renderHistory(journalHistory);
       const history: AgentMessage[] = compaction.checkpoint
         ? [
@@ -5324,14 +5224,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (queued.size === 0) {
           if (
             !(await this.getTurnState<boolean>("terminalDelivered")) ||
-            (await this.hasOwnerFenceLeaseRetirementDebt()) ||
-            (await this.hasOutboxDebt())
+            (await this.hasMaintenanceDebt())
           ) {
             const retryAt = Date.now() + 30_000;
-            const alarmAt = await this.ctx.storage.getAlarm();
-            if (alarmAt === null || alarmAt > retryAt) {
-              await this.ctx.storage.setAlarm(retryAt);
-            }
+            await this.armAlarmNoLaterThan(retryAt);
           } else {
             await this.ctx.storage.deleteAlarm();
           }
@@ -5498,7 +5394,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (this.canonicalPromptRefresh) return;
         this.canonicalPromptRefresh = refresh()
           .then((loaded) => {
-          this.saveCanonicalPrompts(loaded);
+            this.saveCanonicalPrompts(loaded);
             log("info", "canonical_prompt_background_refresh", {
               disposition: loaded.disposition,
               refreshErrorCode: loaded.refreshErrorCode,
@@ -5734,8 +5630,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const role = (message as { role?: string }).role;
     if (role !== "user" && role !== "assistant" && role !== "toolResult")
       return;
-    // Legacy callers can still submit a single already-persisted user prompt.
-    if (index === 0 && role === "user") return;
     // An assistant message with no usable output is never persisted: ONE such
     // row poisons every future Anthropic request for this conversation. The
     // predicate is the retry ladder's own — a message it would pop from the
@@ -7645,10 +7539,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       current.expiresAt = Date.now() + LOCAL_TURN_LEASE_MS;
       await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
-      const alarmAt = await this.ctx.storage.getAlarm();
-      if (alarmAt === null || alarmAt > current.expiresAt) {
-        await this.ctx.storage.setAlarm(current.expiresAt);
-      }
+      await this.armAlarmNoLaterThan(current.expiresAt);
       renewed = current;
     });
     if (!renewed) {
@@ -7898,10 +7789,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         }
         current.expiresAt = Date.now() + LOCAL_TURN_LEASE_MS;
         await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
-        const alarmAt = await this.ctx.storage.getAlarm();
-        if (alarmAt === null || alarmAt > current.expiresAt) {
-          await this.ctx.storage.setAlarm(current.expiresAt);
-        }
+        await this.armAlarmNoLaterThan(current.expiresAt);
         renewed = current;
       });
       if (!renewed) {
@@ -8115,10 +8003,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         } satisfies LocalClientMessageReceipt;
       }
       await this.ctx.storage.put(records);
-      const alarmAt = await this.ctx.storage.getAlarm();
-      if (alarmAt === null || alarmAt > lease.expiresAt) {
-        await this.ctx.storage.setAlarm(lease.expiresAt);
-      }
+      await this.armAlarmNoLaterThan(lease.expiresAt);
       acquired = true;
     });
     markTiming("leaseAcquireMs");
@@ -8417,10 +8302,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       current.finishFingerprint = finishFingerprint;
       current.expiresAt = Date.now() + LOCAL_TURN_LEASE_MS;
       await this.ctx.storage.put(LOCAL_TURN_LEASE_KEY, current);
-      const alarmAt = await this.ctx.storage.getAlarm();
-      if (alarmAt === null || alarmAt > current.expiresAt) {
-        await this.ctx.storage.setAlarm(current.expiresAt);
-      }
+      await this.armAlarmNoLaterThan(current.expiresAt);
       claimedLease = current;
     });
     if (idempotencyConflict) {
@@ -9282,7 +9164,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // After the wipe, best-effort: Convex's own purge already tombstoned
       // the row before calling here; this closes the loop for a purge that
       // started on this side.
-      await this.enqueueOutboxDurable([
+      await this.deferOutbox([
         {
           ...this.outboxBase(identity, purgedId),
           kind: "conversation.deleted",
@@ -9525,8 +9407,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               expectedGeneration: input.expectedGeneration,
             }),
           releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
-          enqueueOutbox: async (events) =>
-            await this.enqueueOutboxDurable([...events]),
+          enqueueOutbox: async (events) => await this.deferOutbox([...events]),
         },
         caller: {
           ownerId: turn.ownerId,

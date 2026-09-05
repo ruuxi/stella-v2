@@ -8,6 +8,8 @@ import type { TokenPriceConfig } from "@stella/model-catalog/pricing";
 import type { ConvexClient } from "./convex-client.js";
 import { GatewayError } from "./errors.js";
 import {
+  sharedGatewayConfigRecord,
+  type SharedGatewayConfigRecord,
   type SharedGatewayConfigStore,
   validateSharedGatewayConfigRecord,
 } from "./shared-config.js";
@@ -31,24 +33,26 @@ export type GatewayConfig = {
   priceFor(model: string): TokenPriceConfig | null;
 };
 
-export type GatewayConfigRecord = {
-  version: 1;
-  endpoint: string;
-  fetchedAt: number;
-  snapshot: GatewayConfigSnapshot;
-};
+/**
+ * An object-local durable copy of the shared record (same shape and key as
+ * the shared KV snapshot), so a restarted owner object serves warm pricing.
+ */
 export type GatewayConfigStorage = {
-  endpoint: string;
+  source: string;
   read(): unknown;
-  write(record: GatewayConfigRecord): void;
+  write(record: SharedGatewayConfigRecord): void;
 };
-export const GATEWAY_CONFIG_STORAGE_KEY = "gatewayConfig:v1";
 
 let cached: GatewayConfig | null = null;
 let inflight: Promise<GatewayConfig> | null = null;
 let sharedInflight: Promise<GatewayConfig | null> | null = null;
 
-const residentConfig = (): GatewayConfig | null => cached;
+/** A delayed restore never replaces a newer resident copy. */
+const adopt = (restored: GatewayConfig | null): void => {
+  if (!cached || (restored && restored.fetchedAt > cached.fetchedAt)) {
+    cached = restored;
+  }
+};
 
 export const resetConfigCacheForTests = (): void => {
   cached = null;
@@ -121,10 +125,7 @@ const refresh = (
 ): Promise<GatewayConfig> => {
   if (inflight) return inflight;
   inflight = (async () => {
-    const startedAt = performance.now();
-    const cold = cached === null;
     const result = await client.config();
-    const fetchMs = performance.now() - startedAt;
     if (!result.ok || !isSnapshot(result.body)) {
       throw new GatewayError(
         503,
@@ -136,9 +137,6 @@ const refresh = (
       );
     }
     cached = indexPrices(result.body, now());
-    console.info(JSON.stringify({ event: "gateway_config_load_timing", cold,
-      fetchMs, indexingMs: performance.now() - startedAt - fetchMs,
-      totalMs: performance.now() - startedAt }));
     return cached;
   })().finally(() => {
     inflight = null;
@@ -146,24 +144,36 @@ const refresh = (
   return inflight;
 };
 
-const restoreConfig = (storage: GatewayConfigStorage, now: number): GatewayConfig | null => {
-  const record = storage.read();
-  if (!record || typeof record !== "object" || !("version" in record) || record.version !== 1 ||
-      !("endpoint" in record) || record.endpoint !== storage.endpoint ||
-      !("fetchedAt" in record) || typeof record.fetchedAt !== "number" || !Number.isFinite(record.fetchedAt) ||
-      record.fetchedAt > now || now - record.fetchedAt >= CONFIG_TTL_MS ||
-      !("snapshot" in record) || !isSnapshot(record.snapshot)) return null;
-  return indexPrices(record.snapshot, record.fetchedAt);
+const restoreRecord = async (
+  value: unknown,
+  source: string,
+  now: number,
+): Promise<GatewayConfig | null> => {
+  const result = await validateSharedGatewayConfigRecord({
+    value,
+    source,
+    now,
+    maxAgeMs: CONFIG_TTL_MS,
+  });
+  return result.ok
+    ? indexPrices(result.record.snapshot, result.record.originalFetchedAt)
+    : null;
 };
 
-const persistConfig = (config: GatewayConfig, storage?: GatewayConfigStorage): void => {
+const persistConfig = async (
+  config: GatewayConfig,
+  storage?: GatewayConfigStorage,
+): Promise<void> => {
   if (!storage) return;
-  const record = { version: 1, endpoint: storage.endpoint, fetchedAt: config.fetchedAt, snapshot: config.snapshot } satisfies GatewayConfigRecord;
-  const serialized = JSON.stringify(record);
-  if (JSON.stringify(storage.read()) === serialized) return;
-  // Configuration is bounded for SQLite KV; oversize snapshots still serve
-  // from memory. Persist the original fetch time, never extend freshness.
-  if (new TextEncoder().encode(serialized).byteLength < 100_000) storage.write(record);
+  // Incomplete or oversize snapshots still serve from memory. Persist the
+  // original fetch time, never extend freshness.
+  const built = await sharedGatewayConfigRecord({
+    snapshot: config.snapshot,
+    source: storage.source,
+    originalFetchedAt: config.fetchedAt,
+  });
+  if (!built.ok || JSON.stringify(storage.read()) === built.serialized) return;
+  storage.write(built.record);
 };
 
 export const getGatewayConfig = async (
@@ -174,59 +184,25 @@ export const getGatewayConfig = async (
   shared?: SharedGatewayConfigStore,
 ): Promise<GatewayConfig> => {
   if (!cached && storage) {
-    cached = restoreConfig(storage, now());
-    if (cached) console.info(JSON.stringify({ event: "gateway_config_restored", ageMs: now() - cached.fetchedAt }));
+    adopt(await restoreRecord(storage.read(), storage.source, now()));
   }
   if (!cached && shared) {
     sharedInflight ??= (async () => {
-      const startedAt = performance.now();
-      let status = "fallback";
-      let reason = "read_failed";
-      let restored: GatewayConfig | null = null;
       try {
-        const result = await validateSharedGatewayConfigRecord({
-          value: await shared.read(),
-          source: shared.source,
-          now: now(),
-          maxAgeMs: CONFIG_TTL_MS,
-        });
-        if (result.ok) {
-          restored = indexPrices(
-            result.record.snapshot,
-            result.record.originalFetchedAt,
-          );
-          status = "restored";
-          reason = "none";
-        } else {
-          reason = result.reason;
-        }
+        return await restoreRecord(await shared.read(), shared.source, now());
       } catch {
         // The authoritative Convex pull below remains the cold-path fallback.
+        return null;
       }
-      console.info(JSON.stringify({
-        event: "gateway_config_shared_read",
-        source: "shared_kv",
-        status,
-        reason,
-        durationMs: performance.now() - startedAt,
-        ...(restored
-          ? { ageMs: Math.max(0, now() - restored.fetchedAt) }
-          : {}),
-      }));
-      return restored;
     })().finally(() => {
       sharedInflight = null;
     });
-    const restored = await sharedInflight;
-    const installed = residentConfig();
-    if (!installed || (restored && restored.fetchedAt > installed.fetchedAt)) {
-      cached = restored;
-    }
-    if (cached) persistConfig(cached, storage);
+    adopt(await sharedInflight);
+    if (cached) await persistConfig(cached, storage);
   }
   const refreshAndPersist = async (): Promise<GatewayConfig> => {
     const config = await refresh(client, now);
-    persistConfig(config, storage);
+    await persistConfig(config, storage);
     return config;
   };
   const current = cached;
@@ -240,6 +216,7 @@ export const getGatewayConfig = async (
       }),
     );
   }
-  persistConfig(current, storage);
+  // A warm isolate can serve several owners; seed each owner's restart cache.
+  await persistConfig(current, storage);
   return current;
 };

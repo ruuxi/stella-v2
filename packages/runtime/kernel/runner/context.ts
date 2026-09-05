@@ -66,7 +66,7 @@ import {
   getClaudeCodeAgentModelId,
   getClaudeCodeRuntimeEffortLevel,
 } from "../integrations/claude-code-agent-runtime.js";
-import { getSupportedThinkingLevels } from "../../ai/models.js";
+import { getSupportedThinkingLevels } from "../../ai/thinking-levels.js";
 import type { Model, Api, ModelThinkingLevel } from "../../ai/types.js";
 import type {
   PersistedRuntimeThreadPayload,

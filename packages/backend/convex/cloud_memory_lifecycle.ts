@@ -1,5 +1,3 @@
-import { homeContextChanged } from "./lib/cloud_home_context_updates";
-import { synchronizeMemoryPolicyChange } from "./lib/memory_policy_change";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import {
@@ -23,6 +21,8 @@ import {
   cloudMemoryLifecycleStateValidator,
   cloudMemoryWipeStageValidator,
 } from "./schema/cloud_agent_home";
+import { homeContextChanged } from "./lib/cloud_home_context_updates";
+import { synchronizeMemoryPolicyChange } from "./lib/memory_policy_change";
 
 export const LEGACY_MEMORY_EPOCH = "legacy";
 
@@ -47,6 +47,11 @@ const runMemoryWipeRef = makeFunctionReference<
   { ownerId: string; operationId: string },
   null
 >("cloud_memory_lifecycle:runMemoryWipeInternal");
+const memoryWipeStatusRef = makeFunctionReference<
+  "query",
+  { ownerId: string; ownerGeneration: string },
+  Awaited<ReturnType<typeof readMemoryWipeStatus>>
+>("cloud_memory_lifecycle:getMemoryWipeStatusInternal");
 
 const readLifecycle = async (
   ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
@@ -382,10 +387,9 @@ export const startMyMemoryWipe = action({
       expectedMemoryEpoch: args.expectedMemoryEpoch,
       requestId: args.requestId,
     });
-    return await ctx.runQuery(makeFunctionReference<"query", {
-      ownerId: string; ownerGeneration: string;
-    }, Awaited<ReturnType<typeof readMemoryWipeStatus>>>("cloud_memory_lifecycle:getMemoryWipeStatusInternal"), {
-      ownerId: identity.tokenIdentifier, ownerGeneration: args.expectedOwnerGeneration,
+    return await ctx.runQuery(memoryWipeStatusRef, {
+      ownerId: identity.tokenIdentifier,
+      ownerGeneration: args.expectedOwnerGeneration,
     });
   },
 });

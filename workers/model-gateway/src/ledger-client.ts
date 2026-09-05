@@ -1,7 +1,5 @@
 import type { GatewayCapabilityClaims } from "@stella/contracts/gateway/capability";
 import type { OwnerRelayGate } from "./gates/owner-relay-gate.js";
-
-export type OwnerRelayAccounting = Pick<OwnerRelayGate, "admitRelay" | "admitAndReserve" | "settleCapability" | "releaseRelay">;
 import type {
   LedgerReserveArgs,
   LedgerReserveResult,
@@ -9,8 +7,17 @@ import type {
   LedgerSettleResult,
 } from "./ledger.js";
 
+export type OwnerRelayAccounting = Pick<
+  OwnerRelayGate,
+  "admitRelay" | "admitAndReserve" | "settleCapability" | "releaseRelay"
+>;
+
 export type CapabilityLedgerClient = {
-  reserve: (args: LedgerReserveArgs) => Promise<LedgerReserveResult>;
+  /**
+   * Absent for owner-relay-v2 capabilities: their reservation commits with
+   * owner admission in `OwnerRelayGate.admitAndReserve`.
+   */
+  reserve?: (args: LedgerReserveArgs) => Promise<LedgerReserveResult>;
   settle: (args: LedgerSettleArgs) => Promise<LedgerSettleResult>;
 };
 
@@ -21,20 +28,16 @@ export const capabilityLedgerClient = (
   localOwner?: OwnerRelayAccounting,
 ): CapabilityLedgerClient => {
   if (claims.ledgerScope === "owner-relay-v2") {
-    const gate = localOwner ?? env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(claims.sub));
+    const gate =
+      localOwner ??
+      env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(claims.sub));
     return {
-      reserve: async () => { throw new Error("owner-relay-v2 requires atomic admission and reservation"); },
-      settle: async (args) => await gate.settleCapability({ ...args, jti: claims.jti, generation: claims.gen }),
-    };
-  }
-  if (claims.ledgerScope === "owner-v1") {
-    const ledger = env.OWNER_CAPABILITY_LEDGER.getByName(
-      JSON.stringify([claims.sub, claims.gen]),
-    );
-    return {
-      reserve: async (args) =>
-        await ledger.reserve({ ...args, jti: claims.jti }),
-      settle: async (args) => await ledger.settle({ ...args, jti: claims.jti }),
+      settle: async (args) =>
+        await gate.settleCapability({
+          ...args,
+          jti: claims.jti,
+          generation: claims.gen,
+        }),
     };
   }
   const ledger = env.CAPABILITY_LEDGER.get(

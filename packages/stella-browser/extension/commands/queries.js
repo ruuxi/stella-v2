@@ -239,18 +239,24 @@ export async function handleStyles(command) {
   if (!selector) throw new Error("Selector is required for styles");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  // Exact (frame-scoped) nodes get their top-level box from
+  // exactElementPoint below; in-page frame walking cannot cross origins.
+  const boxScript = resolved.exactNode
+    ? "const box = null;"
+    : `${buildTopLevelRectSource("el")}
+       const box = {
+         x: Math.round(topX),
+         y: Math.round(topY),
+         width: Math.round(localRect.width),
+         height: Math.round(localRect.height),
+       };`;
   const extractScript = `
     const s = el.ownerDocument.defaultView.getComputedStyle(el);
-    ${resolved.exactNode ? "const localRect = el.getBoundingClientRect(); const topX = localRect.left; const topY = localRect.top;" : buildTopLevelRectSource("el")}
+    ${boxScript}
     return {
       tag: el.tagName.toLowerCase(),
       text: el.innerText?.trim().slice(0, 80) || null,
-      box: {
-        x: Math.round(topX),
-        y: Math.round(topY),
-        width: Math.round(localRect.width),
-        height: Math.round(localRect.height),
-      },
+      box,
       styles: {
         fontSize: s.fontSize,
         fontWeight: s.fontWeight,

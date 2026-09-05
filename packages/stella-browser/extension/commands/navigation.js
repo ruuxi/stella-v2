@@ -22,6 +22,7 @@ async function navigateAndWaitForLoad(command, tabId, navigate, waitUntil = "loa
   }
   const timeout = command.timeout || 30000;
   const signal = command.signal;
+  const waitForDomContentLoaded = waitUntil === "domcontentloaded";
   let dispose = () => {};
   const loaded = new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -34,7 +35,11 @@ async function navigateAndWaitForLoad(command, tabId, navigate, waitUntil = "loa
       settled = true;
       clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
-      chrome.webNavigation.onDOMContentLoaded.removeListener(onDOMContentLoaded);
+      if (waitForDomContentLoaded) {
+        chrome.webNavigation.onDOMContentLoaded.removeListener(
+          onDOMContentLoaded,
+        );
+      }
       signal?.removeEventListener("abort", onAbort);
       callback();
     };
@@ -61,7 +66,7 @@ async function navigateAndWaitForLoad(command, tabId, navigate, waitUntil = "loa
     }
 
     chrome.tabs.onUpdated.addListener(listener);
-    if (waitUntil === "domcontentloaded") {
+    if (waitForDomContentLoaded) {
       chrome.webNavigation.onDOMContentLoaded.addListener(onDOMContentLoaded);
     }
     signal?.addEventListener("abort", onAbort, { once: true });

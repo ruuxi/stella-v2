@@ -4,27 +4,13 @@ import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
+import { stubMemoryPolicyLoopback } from "./cloud_memory_policy.test-helpers";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => {
   vi.useFakeTimers();
   const t = convexTest(schema, modules);
-  vi.stubEnv("CLOUD_BUILDER_URL", "https://builder.test");
-  vi.stubEnv("BUILDER_SERVICE_SECRET", "memory-policy-test-secret");
-  // Exercise the real service callback and private mutations. The owner gate's
-  // serialization, durable recovery and acknowledgement are tested in its suite.
-  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = new Request(input, init);
-    if (request.url !== "https://builder.test/internal/owners/memory-policy/change") {
-      throw new Error(`Unexpected test fetch: ${request.url}`);
-    }
-    const applied = await t.fetch("/api/cloud/home/memory/policy/apply", {
-      method: "POST", headers: request.headers, body: await request.text(),
-    });
-    if (applied.ok) return Response.json({ ok: true });
-    const body = await applied.json();
-    return Response.json({ error: body.code ?? "MEMORY_POLICY_CHANGE_REFUSED" }, { status: applied.status });
-  });
+  stubMemoryPolicyLoopback(t);
   return t;
 };
 

@@ -807,7 +807,11 @@ export class InAppBrowserService {
       if (!tabDebugger.isAttached()) tabDebugger.attach();
       terminated = await Promise.race([
         Promise.resolve(
-          tabDebugger.sendCommand("Runtime.terminateExecution", {}, debuggerSessionId),
+          tabDebugger.sendCommand(
+            "Runtime.terminateExecution",
+            {},
+            debuggerSessionId,
+          ),
         ).then(
           () => true,
           () => false,

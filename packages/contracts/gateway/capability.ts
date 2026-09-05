@@ -100,8 +100,11 @@ export type GatewayCapabilityClaims = {
    * the owner's connected subscription credential. Never billed to Stella.
    */
   credential?: GatewayNativeCredentialProvider;
-  /** Immutable signed routing marker. Absent capabilities retain their legacy ledger. */
-  ledgerScope?: "owner-v1" | "owner-relay-v2";
+  /**
+   * Immutable signed routing marker. Capabilities without it keep the
+   * per-capability ledger; owner-relay-v2 capabilities account on the owner gate.
+   */
+  ledgerScope?: "owner-relay-v2";
 };
 
 export const GATEWAY_SESSION_CAPABILITY_TTL_MS = 60 * 60 * 1000;

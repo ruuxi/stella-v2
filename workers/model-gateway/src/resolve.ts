@@ -1,8 +1,4 @@
-import { managedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
-import type {
-  GatewayModelResolution,
-  GatewayProtocol,
-} from "@stella/contracts/gateway/api";
+import type { GatewayProtocol } from "@stella/contracts/gateway/api";
 import type { GatewayCapabilityClaims } from "@stella/contracts/gateway/capability";
 import {
   getManagedGatewayConfig,
@@ -11,9 +7,7 @@ import {
   type ManagedProtocol,
 } from "@stella/model-catalog/managed-gateway";
 import type { ModelConfig } from "@stella/model-catalog/model";
-import {
-  resolveRequestedStellaModel,
-} from "@stella/model-catalog/request-estimate";
+import { resolveRequestedStellaModel } from "@stella/model-catalog/request-estimate";
 import {
   resolveCloudManagedProtocol,
   toProviderNativeModel,
@@ -124,9 +118,6 @@ export const resolveManagedRoute = (args: {
     config: selection.config,
   };
 };
-
-export const resolutionFor = (route: ManagedRoute): GatewayModelResolution =>
-  managedModelDescriptor(route);
 
 export const upstreamBaseUrl = (provider: ManagedGatewayProvider): string =>
   getManagedGatewayConfig(provider).baseURL;

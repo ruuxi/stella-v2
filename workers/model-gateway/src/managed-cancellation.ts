@@ -36,10 +36,11 @@ export const managedCancellationIdentity = (args: {
 
 export const managedCancellationKey = (
   identity: ManagedCancellationIdentity,
-): string => JSON.stringify([
-  identity.ownerGeneration,
-  identity.capabilityId,
-  identity.requestId,
-  identity.turnId,
-  identity.conversationId,
-]);
+): string =>
+  JSON.stringify([
+    identity.ownerGeneration,
+    identity.capabilityId,
+    identity.requestId,
+    identity.turnId,
+    identity.conversationId,
+  ]);

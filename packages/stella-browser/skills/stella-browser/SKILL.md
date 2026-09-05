@@ -50,7 +50,7 @@ await tab.title();
 
 Locators resolve against current page state when called; do not replace a locator merely because the DOM changed. Rebuild it only when the selector or intended element changes.
 
-Selectors (semantic and CSS) search the top document plus same-origin iframes and open shadow roots. Desktop `axSnapshot()` and external DOM snapshots also expose cross-origin frame content through frame-qualified refs. Use a ref from the latest observation to act in a cross-origin frame, rather than guessing a top-document selector or matching a same-named control elsewhere. Unavailable frames and truncated content are reported explicitly.
+Selectors (semantic and CSS) search the top document plus same-origin iframes and open shadow roots. Snapshots also expose cross-origin frame content through frame-qualified refs (see Observe Cheaply below); to act inside a cross-origin frame, use a ref from the latest observation rather than guessing a top-document selector or matching a same-named control elsewhere.
 
 ## Keyboard
 
@@ -73,14 +73,16 @@ Use the least expensive observation that answers the question:
 - Page identity: `await tab.url()` or `await tab.title()`.
 - Element existence or state: `count()`, `isVisible()`, `isEnabled()`, or `isChecked()`.
 - Focused values: `innerText()`, `textContent()`, `inputValue()`, or `getAttribute()`.
-- Unknown structure at a desktop branch or recovery point: `tab.axSnapshot()`. Repeated observations return changes or an unchanged receipt. Use `tab.snapshot()` or `page.domSnapshot()` for the existing full snapshot format, including cloud browser sessions.
+- Unknown structure at a branch or recovery point: `tab.axSnapshot()` (incremental; see below). It is not available in cloud browser sessions; there, and whenever the full DOM snapshot format is wanted, use `tab.snapshot()` or `page.domSnapshot()`.
 - Visual appearance, coordinates, or rendering: `tab.screenshot()`. The image is attached to the tool result automatically; the JavaScript return value is only a compact `{ attached, path, format, mimeType }` receipt. Do not pass that receipt to `codeRuntime.emitImage()`.
 
 Do not take a snapshot after every action. Snapshot only when page structure is needed to choose the next step. Use a screenshot only when pixels matter.
 
-Semantic snapshots are bounded to 200 emitted entries and 20,000 characters. When a page exceeds that budget, metadata reports truncation and unavailable frames; narrow with `selector`, `interactive`, `compact`, or `maxDepth` instead of requesting repeated full-page snapshots.
+Semantic snapshots are bounded to 200 emitted entries and 20,000 characters. When a page exceeds that budget, metadata reports truncation and unavailable frames; narrow with `selector`, `interactive`, `compact`, or `maxDepth` instead of requesting repeated full-page snapshots. Selector-scoped captures omit descendant frames.
 
-### Incremental desktop AX observations
+Frame-qualified refs are bound to the document they were observed in: a cross-origin ref rejects a detached node or a replaced document instead of falling back to a same-named control, and pointer geometry through a transformed or CSS-zoomed iframe is rejected when it cannot be mapped safely. If a snapshot fails closed because an operator-configured domain filter (`STELLA_BROWSER_ALLOWED_DOMAINS`) applies to the external browser, use the in-app browser instead; never disable the filter.
+
+### Incremental AX observations
 
 `tab.axSnapshot()` reads the browser accessibility tree, including accessible child frames. Its default `mode: "auto"` returns one of:
 
@@ -98,8 +100,6 @@ await tab.axSnapshot();
 ```
 
 Use `await tab.axSnapshot({ mode: "full" })` after context compaction, output pruning, or whenever the referenced baseline is no longer in context. `mode: "diff"` requests differences even if larger; a missing or incompatible baseline or exhausted computation budget still returns full output. AX options are `mode`, `interactive`, `compact`, `maxDepth`, and `selector`. Keep using the same options to retain the baseline. The DOM snapshot APIs remain full-output and do not share the AX baseline.
-
-Selector-scoped AX captures omit descendant frames. Cross-origin refs reject detached nodes and replaced documents instead of falling back to a same-named control. Transformed or CSS-zoomed iframe pointer geometry is rejected when it cannot be mapped safely. When an explicit `STELLA_BROWSER_ALLOWED_DOMAINS` filter is configured, external snapshots fail closed; use the in-app browser, which checks every captured frame against that filter. Do not disable the filter to work around this restriction.
 
 ## Synchronize on Browser State
 
@@ -169,22 +169,22 @@ For a new task, call `tabs.new()` once and then navigate that handle with `tab.g
 
 ### Tab
 
-| API                                                                   | Notes                                    |
-| --------------------------------------------------------------------- | ---------------------------------------- |
-| `id`                                                                  | Positive numeric owned-tab ID.           |
-| `playwright`                                                          | Frozen page facade, cached for this tab. |
-| `goto(url, { waitUntil?, timeout? })`                                 | Navigate the tab.                        |
-| `back({ timeout? })`, `forward({ timeout? })`, `reload({ timeout? })` | History navigation.                      |
-| `close()`                                                             | Close this tab.                          |
-| `markHandoff()`, `markDeliverable()`                                  | Retain during automatic turn cleanup.    |
-| `url()`, `title()`                                                    | Cheapest page identity reads.            |
-| `snapshot(options?)`                                                  | Structural observation.                  |
-| `axSnapshot({ mode?, interactive?, compact?, maxDepth?, selector? })`   | Desktop AX tree; automatic incremental output. |
-| `screenshot(options?)`                                                | Pixel observation.                       |
-| `press(key)`                                                          | Page-level key press to current focus.   |
-| `keyboard.type(text)`, `keyboard.press(key)`                          | Raw text insertion / key press.          |
-| `scroll(options?)`                                                    | Scroll page or element.                  |
-| `expectNewTab(action, { timeoutMs? })`                                | Capture exactly one new owned tab.       |
+| API                                                                   | Notes                                        |
+| --------------------------------------------------------------------- | -------------------------------------------- |
+| `id`                                                                  | Positive numeric owned-tab ID.               |
+| `playwright`                                                          | Frozen page facade, cached for this tab.     |
+| `goto(url, { waitUntil?, timeout? })`                                 | Navigate the tab.                            |
+| `back({ timeout? })`, `forward({ timeout? })`, `reload({ timeout? })` | History navigation.                          |
+| `close()`                                                             | Close this tab.                              |
+| `markHandoff()`, `markDeliverable()`                                  | Retain during automatic turn cleanup.        |
+| `url()`, `title()`                                                    | Cheapest page identity reads.                |
+| `snapshot(options?)`                                                  | Structural observation.                      |
+| `axSnapshot({ mode?, interactive?, compact?, maxDepth?, selector? })` | AX tree, incremental; not in cloud sessions. |
+| `screenshot(options?)`                                                | Pixel observation.                           |
+| `press(key)`                                                          | Page-level key press to current focus.       |
+| `keyboard.type(text)`, `keyboard.press(key)`                          | Raw text insertion / key press.              |
+| `scroll(options?)`                                                    | Scroll page or element.                      |
+| `expectNewTab(action, { timeoutMs? })`                                | Capture exactly one new owned tab.           |
 
 Snapshot options are `interactive`, `cursor`, `maxDepth` (or `depth`), `compact`, and `selector`. Screenshot options are `fullPage`, `selector`, `format` (`"png"` or `"jpeg"`), `quality` (0-100), and `annotate`. Scroll options are pixel deltas `x`/`y` (negative scrolls up/left) or `selector` + `direction` + `amount`; prefer `locator.scrollIntoViewIfNeeded()` before acting on an element.
 

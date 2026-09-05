@@ -7,18 +7,18 @@
     "bindings": [
       {
         "name": "ORCHESTRATOR_SESSIONS",
-        "class_name": "OrchestratorSession"
+        "class_name": "OrchestratorSession",
       },
       {
         "name": "OWNER_GATES",
-        "class_name": "OwnerReaderRegistry"
-      }
-    ]
+        "class_name": "OwnerReaderRegistry",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["OrchestratorSession", "OwnerReaderRegistry"]
-    }
-  ]
+      "new_sqlite_classes": ["OrchestratorSession", "OwnerReaderRegistry"],
+    },
+  ],
 }

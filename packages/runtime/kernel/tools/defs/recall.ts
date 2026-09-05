@@ -46,7 +46,7 @@ export const createRecallTool = (
       ...(context.runId ? { runId: context.runId } : {}),
       prompt,
       limit,
-      ...(memorySearchTerms?.length ? { memorySearchTerms } : {}),
+      memorySearchTerms,
       ...(context.agentType ? { agentType: context.agentType } : {}),
       ...(context.modelConfigSnapshot
         ? { modelConfigSnapshot: context.modelConfigSnapshot }

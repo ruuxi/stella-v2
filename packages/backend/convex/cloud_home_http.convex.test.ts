@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import {
   CONTROL_PLANE_CAPABILITY_AUDIENCE,
   GATEWAY_CAPABILITY_ISSUERS,
@@ -7,8 +9,6 @@ import {
   importCapabilitySigningKey,
   signCapability,
 } from "@stella/contracts/gateway/jwt";
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import schema from "./schema";

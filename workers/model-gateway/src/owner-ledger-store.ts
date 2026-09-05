@@ -9,8 +9,6 @@ import {
   type LedgerReserveResult,
   type LedgerSettleArgs,
   type LedgerSettleResult,
-  type LedgerReplayResult,
-  type LedgerSnapshot,
 } from "./ledger.js";
 
 type LedgerRow = {
@@ -58,9 +56,8 @@ const SCHEMA = [
 const clampMicroCents = (value: number): number =>
   Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 
-/** One object per owner generation; every budget and result is still keyed by jti.
- * SQL mutations complete before the first await. Existing legacy ledgers remain
- * separate, selected by the capability's signed ledgerScope rollout marker.
+/** Owner-shared SQL ledger; every budget and result is still keyed by jti.
+ * SQL mutations complete before the first await.
  */
 export class OwnerLedgerStore {
   private alarmAt: number | null = null;
@@ -77,12 +74,6 @@ export class OwnerLedgerStore {
       .exec<LedgerRow>("SELECT * FROM ledger WHERE jti = ?", jti)
       .toArray();
     return rows[0] ?? null;
-  }
-
-  async reserve(args: LedgerReserveArgs): Promise<LedgerReserveResult> {
-    const result = this.reserveSync(args);
-    await this.armAlarm();
-    return result;
   }
 
   reserveSync(args: LedgerReserveArgs): LedgerReserveResult {
@@ -232,41 +223,14 @@ export class OwnerLedgerStore {
     };
   }
 
-  async replay(args: {
-    jti: string;
-    requestId: string;
-  }): Promise<LedgerReplayResult> {
-    const row = this.storage.sql
-      .exec<ResultRow>(
-        "SELECT * FROM results WHERE jti = ? AND request_id = ? AND status > 0",
-        args.jti,
-        args.requestId,
-      )
-      .toArray()[0];
-    return row && row.body !== null
-      ? { status: row.status, body: row.body }
-      : null;
-  }
-
-  async snapshot(args: { jti: string }): Promise<LedgerSnapshot> {
-    const row = this.ledgerRow(args.jti);
-    return row
-      ? {
-          budgetMicroCents: row.budget,
-          spentMicroCents: row.spent,
-          reservedMicroCents: row.reserved,
-          requests: row.requests,
-          maxRequests: row.max_requests,
-          expiresAt: row.expires_at,
-        }
-      : null;
-  }
-
   async armAlarm(): Promise<void> {
     const next = this.storage.sql
       .exec<{
         at: number | null;
-      }>("SELECT MIN(expires_at) + ? AS at FROM ledger", GATEWAY_RESULT_CACHE_TTL_MS)
+      }>(
+        "SELECT MIN(expires_at) + ? AS at FROM ledger",
+        GATEWAY_RESULT_CACHE_TTL_MS,
+      )
       .one().at;
     if (next !== null && (this.alarmAt === null || next < this.alarmAt)) {
       const at = Math.max(Date.now() + 1_000, next);
@@ -281,10 +245,7 @@ export class OwnerLedgerStore {
       "DELETE FROM results WHERE jti IN (SELECT jti FROM ledger WHERE expires_at <= ?)",
       cutoff,
     );
-    this.storage.sql.exec(
-      "DELETE FROM ledger WHERE expires_at <= ?",
-      cutoff,
-    );
+    this.storage.sql.exec("DELETE FROM ledger WHERE expires_at <= ?", cutoff);
     this.alarmAt = null;
     await this.armAlarm();
   }

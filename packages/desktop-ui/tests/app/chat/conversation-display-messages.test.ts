@@ -929,12 +929,12 @@ describe("stable slot ordering across the overlay -> persisted handoff", () => {
       "assistant-neighbor",
     ]);
   });
-});
 
-it("uses the exact origin identity to hide a placement echo before the acceptance callback", () => {
-  const canonical = message({ _id: "dsp:accepted", type: "user_message", payload: { text: "hi", originUserMessageId: "local-first" } });
-  const pending = message({ _id: "local-first", type: "user_message", payload: { text: "hi" } });
-  const repeated = message({ _id: "local-second", type: "user_message", payload: { text: "hi" } });
-  const result = mergeConversationDisplayMessageSources({ persistedMessages: [canonical], overlayMessages: [pending, repeated], streamingAssistants: [], persistedAssistantSlots: [] });
-  expect(result.map((entry) => entry._id)).toEqual(["dsp:accepted", "local-second"]);
+  it("uses the exact origin identity to hide a placement echo before the acceptance callback", () => {
+    const canonical = message({ _id: "dsp:accepted", type: "user_message", payload: { text: "hi", originUserMessageId: "local-first" } });
+    const pending = message({ _id: "local-first", type: "user_message", payload: { text: "hi" } });
+    const repeated = message({ _id: "local-second", type: "user_message", payload: { text: "hi" } });
+    const result = mergeConversationDisplayMessageSources({ persistedMessages: [canonical], overlayMessages: [pending, repeated], streamingAssistants: [], persistedAssistantSlots: [] });
+    expect(result.map((entry) => entry._id)).toEqual(["dsp:accepted", "local-second"]);
+  });
 });

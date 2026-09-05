@@ -198,35 +198,51 @@ pub fn ref_frame_scope<'a>(ref_map: &'a RefMap, selector: &str) -> Option<&'a [R
     ref_map.get(&id)?.frame_scope.as_deref()
 }
 
-pub fn ref_session<'a>(session_id: &'a str, ref_map: &'a RefMap, selector: &str) -> &'a str {
-    ref_frame_scope(ref_map, selector)
-        .and_then(|scope| scope.last())
-        .map(|frame| frame.session_id.as_str())
-        .unwrap_or(session_id)
-}
-
-pub fn find_frame<'a>(tree: &'a Value, frame_id: &str) -> Option<&'a Value> {
+/// The `Page.getFrameTree` subtree rooted at `frame_id`, if present.
+pub fn find_frame_tree<'a>(tree: &'a Value, frame_id: &str) -> Option<&'a Value> {
     if tree
         .get("frame")
         .and_then(|frame| frame.get("id"))
         .and_then(Value::as_str)
         == Some(frame_id)
     {
-        return tree.get("frame");
+        return Some(tree);
     }
     tree.get("childFrames")
         .and_then(Value::as_array)?
         .iter()
-        .find_map(|child| find_frame(child, frame_id))
+        .find_map(|child| find_frame_tree(child, frame_id))
 }
 
-pub async fn validate_ref_scope(
+/// The frame metadata object for `frame_id`, if present.
+pub fn find_frame<'a>(tree: &'a Value, frame_id: &str) -> Option<&'a Value> {
+    find_frame_tree(tree, frame_id).and_then(|tree| tree.get("frame"))
+}
+
+/// Whether `frame` is still attached to its session and hosts the document
+/// it was observed with.
+pub async fn frame_is_current(client: &CdpClient, frame: &RefFrame) -> Result<bool, String> {
+    let result = client
+        .send_command_no_params("Page.getFrameTree", Some(&frame.session_id))
+        .await?;
+    Ok(result
+        .get("frameTree")
+        .and_then(|tree| find_frame(tree, &frame.frame_id))
+        .and_then(|current| current.get("loaderId"))
+        .and_then(Value::as_str)
+        == Some(frame.loader_id.as_str()))
+}
+
+/// Validate a ref's frame scope and return the CDP session that owns the
+/// element: the innermost scoped frame's session, or the tab session for
+/// refs without a frame scope.
+pub async fn validate_ref_scope<'a>(
     client: &CdpClient,
-    session_id: &str,
-    entry: &RefEntry,
-) -> Result<(), String> {
+    session_id: &'a str,
+    entry: &'a RefEntry,
+) -> Result<&'a str, String> {
     let Some(scope) = &entry.frame_scope else {
-        return Ok(());
+        return Ok(session_id);
     };
     if !scope
         .first()
@@ -237,21 +253,28 @@ pub async fn validate_ref_scope(
         );
     }
     for frame in scope {
-        let result = client
-            .send_command_no_params("Page.getFrameTree", Some(&frame.session_id))
-            .await?;
-        let current = result
-            .get("frameTree")
-            .and_then(|tree| find_frame(tree, &frame.frame_id));
-        if current
-            .and_then(|frame| frame.get("loaderId"))
-            .and_then(Value::as_str)
-            != Some(frame.loader_id.as_str())
-        {
+        if !frame_is_current(client, frame).await? {
             return Err("This ref is stale because its document or ancestor frame navigated. Capture a new AX snapshot.".into());
         }
     }
-    Ok(())
+    Ok(scope
+        .last()
+        .map(|frame| frame.session_id.as_str())
+        .unwrap_or(session_id))
+}
+
+/// Re-resolve a ref whose cached backendNodeId went stale. Frame-scoped
+/// (cross-origin) refs are never re-matched by role/name: a same-named
+/// control in another document must not silently become the target.
+async fn refresh_backend_node_id(
+    client: &CdpClient,
+    session_id: &str,
+    entry: &RefEntry,
+) -> Result<i64, String> {
+    if entry.frame_scope.is_some() {
+        return Err("This AX ref no longer resolves. Capture a new AX snapshot.".into());
+    }
+    find_node_id_by_ref_entry(client, session_id, entry).await
 }
 
 pub fn parse_ref(input: &str) -> Option<String> {
@@ -290,8 +313,7 @@ pub async fn resolve_element_center(
             .get(&ref_id)
             .ok_or_else(|| format!("Unknown ref: {}", ref_id))?;
 
-        validate_ref_scope(client, session_id, entry).await?;
-        let session_id = ref_session(session_id, ref_map, selector_or_ref);
+        let session_id = validate_ref_scope(client, session_id, entry).await?;
 
         // Try cached backend_node_id first (fast path)
         if let Some(backend_node_id) = entry.backend_node_id {
@@ -313,11 +335,7 @@ pub async fn resolve_element_center(
             // backend_node_id is stale; re-query the accessibility tree below
         }
 
-        if entry.frame_scope.is_some() {
-            return Err("This AX ref no longer resolves. Capture a new AX snapshot.".into());
-        }
-        // Fallback: re-query the accessibility tree to find a fresh node by role/name
-        let fresh_id = find_node_id_by_ref_entry(client, session_id, entry).await?;
+        let fresh_id = refresh_backend_node_id(client, session_id, entry).await?;
         let result: DomGetBoxModelResult = client
             .send_command_typed(
                 "DOM.getBoxModel",
@@ -412,19 +430,21 @@ pub async fn resolve_selector_object_id(
         .ok_or_else(|| format!("Element not found: {}", selector))
 }
 
-pub async fn resolve_element_object_id(
+/// Resolve a ref or selector to a live Runtime objectId together with the
+/// CDP session that owns it (a frame-scoped ref lives in its frame's
+/// session; everything else in the tab session).
+pub async fn resolve_element_object_id<'a>(
     client: &CdpClient,
-    session_id: &str,
-    ref_map: &RefMap,
+    session_id: &'a str,
+    ref_map: &'a RefMap,
     selector_or_ref: &str,
-) -> Result<String, String> {
+) -> Result<(String, &'a str), String> {
     if let Some(ref_id) = parse_ref(selector_or_ref) {
         let entry = ref_map
             .get(&ref_id)
             .ok_or_else(|| format!("Unknown ref: {}", ref_id))?;
 
-        validate_ref_scope(client, session_id, entry).await?;
-        let session_id = ref_session(session_id, ref_map, selector_or_ref);
+        let session_id = validate_ref_scope(client, session_id, entry).await?;
 
         // Try cached backend_node_id first (fast path)
         if let Some(backend_node_id) = entry.backend_node_id {
@@ -442,17 +462,13 @@ pub async fn resolve_element_object_id(
 
             if let Ok(r) = result {
                 if let Some(oid) = r.object.object_id {
-                    return Ok(oid);
+                    return Ok((oid, session_id));
                 }
             }
             // backend_node_id is stale; re-query the accessibility tree below
         }
 
-        if entry.frame_scope.is_some() {
-            return Err("This AX ref no longer resolves. Capture a new AX snapshot.".into());
-        }
-        // Fallback: re-query the accessibility tree to find a fresh node by role/name
-        let fresh_id = find_node_id_by_ref_entry(client, session_id, entry).await?;
+        let fresh_id = refresh_backend_node_id(client, session_id, entry).await?;
         let result: DomResolveNodeResult = client
             .send_command_typed(
                 "DOM.resolveNode",
@@ -467,11 +483,13 @@ pub async fn resolve_element_object_id(
         return result
             .object
             .object_id
+            .map(|oid| (oid, session_id))
             .ok_or_else(|| format!("No objectId for ref {}", ref_id));
     }
 
     // Semantic (aria=) or CSS selector fallback via the unified resolver.
-    resolve_selector_object_id(client, session_id, selector_or_ref).await
+    let object_id = resolve_selector_object_id(client, session_id, selector_or_ref).await?;
+    Ok((object_id, session_id))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -747,8 +765,8 @@ pub async fn get_element_text(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<String, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -779,8 +797,8 @@ pub async fn get_element_attribute(
     selector_or_ref: &str,
     attribute: &str,
 ) -> Result<Value, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -808,8 +826,8 @@ pub async fn is_element_visible(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<bool, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -846,8 +864,8 @@ pub async fn is_element_enabled(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<bool, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -876,8 +894,8 @@ pub async fn is_element_checked(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<bool, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     // Mirrors Playwright's getChecked() with follow-label retargeting:
     // 1. If element is a native checkbox/radio input, return .checked
@@ -939,8 +957,8 @@ pub async fn get_element_inner_text(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<String, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -969,8 +987,8 @@ pub async fn get_element_inner_html(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<String, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -999,8 +1017,8 @@ pub async fn get_element_input_value(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<String, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -1032,8 +1050,8 @@ pub async fn set_element_value(
     selector_or_ref: &str,
     value: &str,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let js = format!(
         "function() {{ this.value = {}; this.dispatchEvent(new Event('input', {{bubbles: true}})); this.dispatchEvent(new Event('change', {{bubbles: true}})); }}",
@@ -1063,8 +1081,8 @@ pub async fn get_element_bounding_box(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<Value, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let result: EvaluateResult = client
         .send_command_typed(
@@ -1145,8 +1163,8 @@ pub async fn get_element_styles(
     selector_or_ref: &str,
     properties: Option<Vec<String>>,
 ) -> Result<Value, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let js = match properties {
         Some(props) => {

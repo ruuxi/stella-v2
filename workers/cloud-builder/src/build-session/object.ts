@@ -179,22 +179,9 @@ import type {
   GeneralAgentTurnResult,
 } from "../general-agent-turn.js";
 import type { InstanceSize } from "../instance-size.js";
-import { OrchestratorSession } from "../orchestrator-session.js";
-import { OwnerGate } from "../owner-gate.js";
 import { normalizeOwnerGeneration } from "../owner-generation.js";
-import { OwnerTransferCoordinator } from "../owner-transfer-coordinator-do.js";
 import { stableValueMarker } from "../owner-transfer-coordinator.js";
-import {
-  AppBuildSandbox as AppBuildSandboxBase,
-  ContainerProxy,
-  GeneralAgentSandbox,
-} from "../sandbox-egress-classes.js";
-import {
-  appBuildEgress,
-  generalAgentEgress,
-} from "../sandbox-egress-policy.js";
 import type { SandboxTarget, SandboxWorkload } from "../sandbox-lifecycle.js";
-import { inSubshell } from "../shell-subshell.js";
 import type { ThreadMessageInput } from "../thread-transcript.js";
 import type {
   TurnExecution,

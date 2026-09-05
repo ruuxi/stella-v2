@@ -2,17 +2,20 @@ use serde_json::Value;
 
 use super::cdp::client::CdpClient;
 use super::cdp::types::*;
-use super::element::{ref_frame_scope, ref_session, resolve_element_object_id, RefFrame, RefMap};
+use super::element::{ref_frame_scope, resolve_element_object_id, RefFrame, RefMap};
 
 // ---------------------------------------------------------------------------
 // Actionability
 // ---------------------------------------------------------------------------
 
-/// Result of a successful actionability wait: a live objectId for the element
-/// plus the viewport coordinates where pointer input should be dispatched.
+/// Result of a successful actionability wait: a live objectId for the element,
+/// the CDP session that owns it (the tab session, or a frame session for a
+/// cross-origin ref), and the top-level viewport coordinates where pointer
+/// input should be dispatched.
 #[derive(Debug, Clone)]
 pub struct ActionablePoint {
     pub object_id: String,
+    pub session_id: String,
     pub x: f64,
     pub y: f64,
 }
@@ -539,9 +542,10 @@ async fn actionability_check_once(
     selector_or_ref: &str,
     require_hit: bool,
 ) -> Result<Result<ActionablePoint, String>, String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
-    if let Some(scope) = ref_frame_scope(ref_map, selector_or_ref) {
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
+    let frame_scope = ref_frame_scope(ref_map, selector_or_ref);
+    if let Some(scope) = frame_scope {
         for pair in scope.windows(2) {
             let owner = frame_owner(client, &pair[0], &pair[1]).await?;
             client
@@ -565,9 +569,7 @@ async fn actionability_check_once(
                         object_id: None,
                     },
                     CallArgument {
-                        value: Some(serde_json::json!(
-                            ref_frame_scope(ref_map, selector_or_ref).is_some()
-                        )),
+                        value: Some(serde_json::json!(frame_scope.is_some())),
                         object_id: None,
                     },
                 ]),
@@ -588,12 +590,17 @@ async fn actionability_check_once(
         let x = value.get("x").and_then(|v| v.as_f64());
         let y = value.get("y").and_then(|v| v.as_f64());
         if let (Some(x), Some(y)) = (x, y) {
-            let (x, y) = if let Some(scope) = ref_frame_scope(ref_map, selector_or_ref) {
+            let (x, y) = if let Some(scope) = frame_scope {
                 translate_frame_point(client, scope, x, y, require_hit).await?
             } else {
                 (x, y)
             };
-            return Ok(Ok(ActionablePoint { object_id, x, y }));
+            return Ok(Ok(ActionablePoint {
+                object_id,
+                session_id: session_id.to_string(),
+                x,
+                y,
+            }));
         }
     }
 
@@ -716,7 +723,7 @@ pub async fn fill(
     // Actionability: visible + non-zero size (occlusion does not matter for
     // focus-based input, so require_hit is false).
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let session_id = point.session_id.as_str();
     let object_id = point.object_id;
 
     let result: EvaluateResult = client
@@ -779,7 +786,7 @@ pub async fn type_text(
     delay_ms: Option<u64>,
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let session_id = point.session_id.as_str();
     let object_id = point.object_id;
 
     // Focus
@@ -1038,8 +1045,8 @@ pub async fn scroll(
     delta_y: f64,
 ) -> Result<(), String> {
     if let Some(sel) = selector_or_ref {
-        let object_id = resolve_element_object_id(client, session_id, ref_map, sel).await?;
-        let session_id = ref_session(session_id, ref_map, sel);
+        let (object_id, session_id) =
+            resolve_element_object_id(client, session_id, ref_map, sel).await?;
         let js = "function(dx, dy) { this.scrollBy(dx, dy); }".to_string();
         client
             .send_command_typed::<_, Value>(
@@ -1088,7 +1095,7 @@ pub async fn select_option(
     values: &[String],
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let session_id = point.session_id.as_str();
     let object_id = point.object_id;
 
     let js = r#"function(vals) {
@@ -1208,8 +1215,8 @@ async fn js_click_checkbox(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let js = r#"function() {
             var el = this;
@@ -1259,7 +1266,7 @@ pub async fn focus(
     selector_or_ref: &str,
 ) -> Result<(), String> {
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let session_id = point.session_id.as_str();
 
     client
         .send_command_typed::<_, Value>(
@@ -1284,8 +1291,8 @@ pub async fn clear(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     client
         .send_command_typed::<_, Value>(
@@ -1316,8 +1323,8 @@ pub async fn select_all(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     client
         .send_command_typed::<_, Value>(
@@ -1354,8 +1361,8 @@ pub async fn scroll_into_view(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     client
         .send_command_typed::<_, Value>(
@@ -1384,8 +1391,8 @@ pub async fn dispatch_event(
     event_type: &str,
     event_init: Option<&Value>,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     let init_json = event_init
         .map(|v| serde_json::to_string(v).unwrap_or("{}".to_string()))
@@ -1420,8 +1427,8 @@ pub async fn highlight(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
-    let session_id = ref_session(session_id, ref_map, selector_or_ref);
+    let (object_id, session_id) =
+        resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
     client
         .send_command_typed::<_, Value>(
@@ -1513,8 +1520,8 @@ async fn dispatch_click(
         .await?;
 
     if ref_frame_scope(ref_map, selector_or_ref).is_some() {
-        // The adapter awaits cursor arrival during mouseMoved. Validate the
-        // disclosed document and final hit point again before pressing.
+        // Time passes while the mouseMoved above settles, so re-validate the
+        // disclosed document and the final hit point before pressing.
         let point =
             actionability_check_once(client, session_id, ref_map, selector_or_ref, true).await??;
         if (point.x - x).abs() > 0.5 || (point.y - y).abs() > 0.5 {
@@ -2002,7 +2009,7 @@ mod tests {
     /// elementFromPoint occlusion verification.
     #[test]
     fn test_actionability_check_js_structure() {
-        assert!(ACTIONABILITY_CHECK_JS.starts_with("function(requireHit)"));
+        assert!(ACTIONABILITY_CHECK_JS.starts_with("function(requireHit, scopedFrame)"));
         assert!(ACTIONABILITY_CHECK_JS.contains("scrollIntoView"));
         assert!(ACTIONABILITY_CHECK_JS.contains("scrollNestedContainers"));
         assert!(ACTIONABILITY_CHECK_JS.contains("scrollContainer"));

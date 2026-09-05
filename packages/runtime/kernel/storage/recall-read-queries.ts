@@ -1,7 +1,12 @@
 import type { TranscriptSearchHit } from "./search.js";
 import type { SqliteDatabase } from "./shared.js";
+import { TRANSCRIPT_SEARCH_TEXT_CAP } from "./view.js";
 
-const TRANSCRIPT_TEXT_CAP = 4_000;
+/** The `entry` projection every transcript hit query returns; `textCap` truncates `search_text`. */
+export const transcriptHitColumns = (textCap?: number): string =>
+  `entry.id, entry.seq AS sequence, entry.conversation_id AS conversationId,
+        entry.role AS role, entry.created_at AS atMs,
+        ${textCap === undefined ? "entry.search_text" : `substr(entry.search_text, 1, ${textCap})`} AS text`;
 
 export type RecallFtsHealth = {
   healthy: boolean;
@@ -110,11 +115,10 @@ export const listTranscriptNeighborsBatch = (
         { op: ">", order: "ASC", count: after },
       ].map((side) => {
         params.push(target.conversationId, target.sequence, side.count);
-        return `SELECT ${index} AS targetIndex, * FROM (SELECT id, seq AS sequence,
-        conversation_id AS conversationId, role, created_at AS atMs, search_text AS text
-        FROM entry WHERE conversation_id = ? AND visible = 1
-          AND role IN ('user', 'assistant') AND search_text IS NOT NULL AND seq ${side.op} ?
-        ORDER BY seq ${side.order} LIMIT ?)`;
+        return `SELECT ${index} AS targetIndex, * FROM (SELECT ${transcriptHitColumns()}
+        FROM entry WHERE entry.conversation_id = ? AND entry.visible = 1
+          AND entry.role IN ('user', 'assistant') AND entry.search_text IS NOT NULL AND entry.seq ${side.op} ?
+        ORDER BY entry.seq ${side.order} LIMIT ?)`;
       }),
     );
     const rows = db
@@ -122,7 +126,7 @@ export const listTranscriptNeighborsBatch = (
       .all(...params) as Array<TranscriptSearchHit & { targetIndex: number }>;
     return targets.map((_, index) =>
       rows
-        .filter((row) => row.targetIndex === index)
+        .filter((row) => row.targetIndex === index && row.text.trim())
         .map(({ targetIndex: _, ...hit }) => hit)
         .sort((a, b) => a.sequence! - b.sequence!),
     );
@@ -150,11 +154,7 @@ export const listTranscriptNeighborsBatch = (
        ), ranked AS (
          SELECT
            targets.target_index AS targetIndex,
-           entry.id, entry.seq AS sequence,
-           entry.conversation_id AS conversationId,
-           entry.role AS role,
-           entry.created_at AS atMs,
-           substr(entry.search_text, 1, ${TRANSCRIPT_TEXT_CAP}) AS text,
+           ${transcriptHitColumns(TRANSCRIPT_SEARCH_TEXT_CAP)},
            CASE WHEN entry.created_at < targets.target_ms THEN 'before' ELSE 'after' END AS side,
            ROW_NUMBER() OVER (
              PARTITION BY targets.target_index,

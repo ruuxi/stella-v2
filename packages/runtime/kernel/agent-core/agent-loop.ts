@@ -73,15 +73,10 @@ let toolValidationModule: Promise<
 	typeof import("../../ai/utils/validation.js")
 > | undefined;
 
+// Loaded lazily so the cloud bundle only pays for the validator when a tool call arrives.
 const loadToolValidation = (): Promise<
 	typeof import("../../ai/utils/validation.js")
-> =>
-	(toolValidationModule ??= import("../../ai/utils/validation.js").catch(
-		(error: unknown) => {
-			toolValidationModule = undefined;
-			throw error;
-		},
-	));
+> => (toolValidationModule ??= import("../../ai/utils/validation.js"));
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 

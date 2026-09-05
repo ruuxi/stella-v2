@@ -11969,10 +11969,10 @@ export const reviewedMemoryArchitectureBoundary = async () => {
     readFile(orchestrationDescriptorPath, "utf8"),
   ]);
   const orchestratorAnchors = [
-    'home.cloudStore().getMemoryContext()',
-    'home.readDocuments(context.documentHeads)',
-    'home.readPersonality(context.personalityHead)',
-    'context.preference.memoryEnabled',
+    "home.cloudStore().getMemoryContext()",
+    "home.readDocuments(context.documentHeads)",
+    "home.readPersonality(context.personalityHead)",
+    "context.preference.memoryEnabled",
     "residentSection: buildResidentMemorySection(memoryDocuments)",
     "personalityOverride ?? canonicalPrompts.personalityBody",
   ];

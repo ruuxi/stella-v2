@@ -2,10 +2,10 @@ import { createServer } from "node:net";
 
 /**
  * Ask the kernel for an unused loopback port, then release it immediately for
- * Wrangler's inspector. Wrangler 4.127.1 accepts `--inspector-port 0`, but its
- * local R2 transport loses the connection when that value is used directly.
+ * Wrangler. Wrangler 4.127.1 accepts `--inspector-port 0`, but its local R2
+ * transport loses the connection when that value is used directly.
  */
-export const allocateWorkerdInspectorPort = async (): Promise<number> => {
+export const allocateLoopbackPort = async (): Promise<number> => {
   const server = createServer();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -25,3 +25,5 @@ export const allocateWorkerdInspectorPort = async (): Promise<number> => {
     }
   }
 };
+
+export const allocateWorkerdInspectorPort = allocateLoopbackPort;

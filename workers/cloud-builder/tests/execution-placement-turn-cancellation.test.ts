@@ -36,10 +36,12 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { OrchestratorSessionObject: OrchestratorSession } =
-  await import("../src/orchestrator-session-object.js");
-const { BuildSessionObject: BuildSession } =
-  await import("../src/build-session/object.js");
+const { OrchestratorSessionObject: OrchestratorSession } = await import(
+  "../src/orchestrator-session-object.js"
+);
+const { BuildSessionObject: BuildSession } = await import(
+  "../src/build-session/object.js"
+);
 mock.restore();
 
 const request = (
@@ -122,7 +124,8 @@ const admissionReceipt = (
   exact: ReturnType<typeof turn>,
 ) =>
   values.get(`chatTurnAdmission:${exact.clientMsgId}`) as
-    { turnId: string; leaseId: string; phase: string } | undefined;
+    | { turnId: string; leaseId: string; phase: string }
+    | undefined;
 
 const queuedKeys = (values: Map<string, unknown>): string[] =>
   [...values.keys()].filter((key) => key.startsWith("queued:"));
@@ -181,6 +184,8 @@ const sessionHarness = (
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     turnExecutions: new Map<string, unknown>(),
     ownerFencedAppends: new Map<string, unknown>(),
+    cloudHomePreparations: new Map<string, unknown>(),
+    admittedOwnerModelGrants: new Map<string, unknown>(),
     activeTurnId: null,
     currentTurnAbort: undefined,
     currentAgent: undefined,
@@ -996,7 +1001,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
       controlledExecution(running, () => {
         (
           instance["currentTurnCancellation"] as
-            { abort?: () => void } | undefined
+            | { abort?: () => void }
+            | undefined
         )?.abort?.();
       }),
     );
@@ -1053,7 +1059,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
       controlledExecution(running, () => {
         (
           instance["currentTurnCancellation"] as
-            { abort?: () => void } | undefined
+            | { abort?: () => void }
+            | undefined
         )?.abort?.();
       }),
     );
@@ -5207,8 +5214,9 @@ test("reusing a registered owner lease does not add a durable write barrier", as
 
 describe("fresh chat admission reuse", () => {
   test("only a matching immediate permit skips remote assertion; a retired local receipt still refuses", async () => {
-    const { createTurnRetryCancellation } =
-      await import("../src/turn-cancellation.js");
+    const { createTurnRetryCancellation } = await import(
+      "../src/turn-cancellation.js"
+    );
     for (const mode of [
       "fresh",
       "recovered",

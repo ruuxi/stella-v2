@@ -5,7 +5,10 @@ import {
   type OwnerPurgeFence,
 } from "../src/owner-fence-do.js";
 import { OwnerFenceStore } from "../src/owner-fence-store.js";
-import { openSqlStorageFake, type SqlStorageFake } from "./fixtures/sql-storage.js";
+import {
+  openSqlStorageFake,
+  type SqlStorageFake,
+} from "./fixtures/sql-storage.js";
 
 const NOW = 1_800_000_000_000;
 const OWNER_ID = "owner-1";
@@ -53,8 +56,9 @@ const open = (beforeAuthorityChange?: OwnerFenceAuthorityChangeHook) => {
 };
 
 const readFence = async (harness: Harness) =>
-  (await (Reflect.get(harness, "values") as Map<string, unknown>)
-    .get("ownerPurgeFence")) as OwnerPurgeFence;
+  (await (Reflect.get(harness, "values") as Map<string, unknown>).get(
+    "ownerPurgeFence",
+  )) as OwnerPurgeFence;
 
 const request = (body: Record<string, unknown>) =>
   new Request("https://owner-gate/owner-fence", {
@@ -79,7 +83,10 @@ describe("OwnerFenceHost authority-change barrier", () => {
     });
     opened.push(harness);
 
-    const pending = harness.host.fetch("begin", request({ requestId: "purge-1" }));
+    const pending = harness.host.fetch(
+      "begin",
+      request({ requestId: "purge-1" }),
+    );
     await Promise.resolve();
     expect((await readFence(harness)).state).toBe("open");
     expect(calls).toBe(1);
@@ -96,16 +103,30 @@ describe("OwnerFenceHost authority-change barrier", () => {
     });
     opened.push(harness);
 
-    expect((await harness.host.fetch("begin", request({ requestId: "purge-1", expectedGeneration: "wrong" }))).status).toBe(409);
-    expect((await harness.host.fetch("register", request({
-      generation: GENERATION,
-      leaseId: "transfer-1",
-      sessionId: "transfer-session",
-      turnId: "owner-transfer:1",
-      ownerGeneration: "owner-generation-1",
-      namespace: "activity",
-      role: "transfer",
-    }))).status).toBe(400);
+    expect(
+      (
+        await harness.host.fetch(
+          "begin",
+          request({ requestId: "purge-1", expectedGeneration: "wrong" }),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await harness.host.fetch(
+          "register",
+          request({
+            generation: GENERATION,
+            leaseId: "transfer-1",
+            sessionId: "transfer-session",
+            turnId: "owner-transfer:1",
+            ownerGeneration: "owner-generation-1",
+            namespace: "activity",
+            role: "transfer",
+          }),
+        )
+      ).status,
+    ).toBe(400);
     expect(calls).toBe(0);
   });
 
@@ -117,16 +138,19 @@ describe("OwnerFenceHost authority-change barrier", () => {
       await held.promise;
     });
     opened.push(harness);
-    const pending = harness.host.fetch("register", request({
-      generation: GENERATION,
-      leaseId: "transfer-1",
-      sessionId: "transfer-session",
-      turnId: "owner-transfer:1",
-      ownerGeneration: "owner-generation-1",
-      namespace: "activity",
-      role: "transfer",
-      expiresAt: Date.now() + 60_000,
-    }));
+    const pending = harness.host.fetch(
+      "register",
+      request({
+        generation: GENERATION,
+        leaseId: "transfer-1",
+        sessionId: "transfer-session",
+        turnId: "owner-transfer:1",
+        ownerGeneration: "owner-generation-1",
+        namespace: "activity",
+        role: "transfer",
+        expiresAt: Date.now() + 60_000,
+      }),
+    );
     await Promise.resolve();
     const before = harness.store();
     before.initialize();
@@ -146,19 +170,26 @@ describe("OwnerFenceHost authority-change barrier", () => {
     });
     opened.push(harness);
 
-    await expect(harness.host.fetch("begin", request({ requestId: "purge-1" }))).rejects.toThrow("grant revocation failed");
+    await expect(
+      harness.host.fetch("begin", request({ requestId: "purge-1" })),
+    ).rejects.toThrow("grant revocation failed");
     expect((await readFence(harness)).state).toBe("open");
 
-    await expect(harness.host.fetch("register", request({
-      generation: GENERATION,
-      leaseId: "transfer-1",
-      sessionId: "transfer-session",
-      turnId: "owner-transfer:1",
-      ownerGeneration: "owner-generation-1",
-      namespace: "activity",
-      role: "transfer",
-      expiresAt: Date.now() + 60_000,
-    }))).rejects.toThrow("grant revocation failed");
+    await expect(
+      harness.host.fetch(
+        "register",
+        request({
+          generation: GENERATION,
+          leaseId: "transfer-1",
+          sessionId: "transfer-session",
+          turnId: "owner-transfer:1",
+          ownerGeneration: "owner-generation-1",
+          namespace: "activity",
+          role: "transfer",
+          expiresAt: Date.now() + 60_000,
+        }),
+      ),
+    ).rejects.toThrow("grant revocation failed");
     const store = harness.store();
     store.initialize();
     expect(store.activeLease("transfer-1")).toBeNull();

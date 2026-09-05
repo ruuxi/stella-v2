@@ -1,3 +1,18 @@
+/**
+ * SQLite FTS5-backed message index for the offline chat's recall tool.
+ *
+ * The recall search moved off the in-memory transcript scan onto a real
+ * on-device SQLite database with an FTS5 full-text index over the chat's own
+ * messages. Messages are mirrored into `messages` as they are persisted, an
+ * external-content FTS5 table (`messages_fts`) is kept in sync by triggers, and
+ * the `recall` tool runs bm25-ranked MATCH queries against it. On first run the
+ * existing AsyncStorage transcript is backfilled once so past messages are
+ * searchable.
+ *
+ * The key/value memory (remember/forget) and checkpoint compaction stay on
+ * AsyncStorage — only the search layer is SQLite-backed.
+ */
+
 import {
   parseRecallReference,
   recallLimit,
@@ -20,22 +35,12 @@ import {
   markAccountChatIndexCleared,
 } from "./chat-account-cleanup-state";
 import { accountChatMetadataReadsBlocked } from "./chat-account-metadata-queue";
-import { rowToHit, type MessageRow, type RecallHit } from "./chat-recall";
-
-/**
- * SQLite FTS5-backed message index for the offline chat's recall tool.
- *
- * The recall search moved off the in-memory transcript scan onto a real
- * on-device SQLite database with an FTS5 full-text index over the chat's own
- * messages. Messages are mirrored into `messages` as they are persisted, an
- * external-content FTS5 table (`messages_fts`) is kept in sync by triggers, and
- * the `recall` tool runs bm25-ranked MATCH queries against it. On first run the
- * existing AsyncStorage transcript is backfilled once so past messages are
- * searchable.
- *
- * The key/value memory (remember/forget) and checkpoint compaction stay on
- * AsyncStorage — only the search layer is SQLite-backed.
- */
+import {
+  normalizeRole,
+  rowToHit,
+  type MessageRow,
+  type RecallHit,
+} from "./chat-recall";
 
 const DB_NAME = "stella-chat-index.db";
 
@@ -435,7 +440,6 @@ export async function searchMessages(
   const reference = parseRecallReference(query);
   const plan = recallSearchPlan([query]);
   if (reference && reference.scope !== "mobile") return [];
-  if (!reference && !plan) return [];
   const limit = reference ? 1 : recallLimit(options.limit);
   const exclude = options.excludeIds;
   const fetchLimit = limit + (exclude ? exclude.size : 0);
@@ -449,21 +453,25 @@ export async function searchMessages(
       match,
       fetchLimit,
     );
-  let rows = reference
-    ? await db.getAllAsync<MessageRow & { rank: number }>(
-        `SELECT rowid AS sequence, id, role, text, created_at, 0 AS rank FROM messages WHERE id = ?`,
-        reference.id,
+  let rows: Array<MessageRow & { rank: number }>;
+  if (reference) {
+    rows = await db.getAllAsync<MessageRow & { rank: number }>(
+      `SELECT rowid AS sequence, id, role, text, created_at, 0 AS rank FROM messages WHERE id = ?`,
+      reference.id,
+    );
+  } else if (!plan) {
+    return [];
+  } else {
+    rows = await search(plan.phrase);
+    if (
+      plan.broad !== plan.phrase &&
+      shouldBroadenRecall(
+        rows.filter((row) => !exclude?.has(row.id)).length,
+        limit,
       )
-    : await search(plan!.phrase);
-  if (
-    !reference &&
-    plan!.broad !== plan!.phrase &&
-    shouldBroadenRecall(
-      rows.filter((row) => !exclude?.has(row.id)).length,
-      limit,
-    )
-  ) {
-    rows = await search(plan!.broad);
+    ) {
+      rows = await search(plan.broad);
+    }
   }
   const hits: RecallHit[] = [];
   for (const row of rows) {
@@ -480,7 +488,7 @@ export async function searchMessages(
       RECALL_CONTEXT_MESSAGES,
     );
     hits.push({
-      ...rowToHit(row, query, row.rank),
+      ...rowToHit(row, row.rank),
       neighbors: neighbors
         .filter(
           (neighbor) =>
@@ -490,10 +498,7 @@ export async function searchMessages(
         .map((neighbor) => ({
           scope: "mobile",
           id: neighbor.id,
-          role:
-            neighbor.role === "user"
-              ? ("user" as const)
-              : ("assistant" as const),
+          role: normalizeRole(neighbor.role),
           atMs: neighbor.created_at,
           text: neighbor.text,
           order: neighbor.sequence,

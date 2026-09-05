@@ -1,4 +1,3 @@
-import { OrchestratorSessionObject as OrchestratorSession } from "../../src/orchestrator-session-object.js";
 import { BuildSessionObject as BuildSession } from "../../src/build-session/object.js";
 import { OwnerFenceStore } from "../../src/owner-fence-store.js";
 import {
@@ -136,9 +135,12 @@ export class LeaseTestOwnerGate extends OwnerGate {
       if (request.method === "POST") {
         const body = await parse(request);
         try {
-          await OrchestratorSession.prototype["putTurnState"].call(this, {
-            "probe:a": body.value,
-            "probe:b": body.fail ? () => undefined : body.value,
+          this.ctx.storage.transactionSync(() => {
+            this.ctx.storage.kv.put("probe:a", body.value);
+            this.ctx.storage.kv.put(
+              "probe:b",
+              body.fail ? () => undefined : body.value,
+            );
           });
         } catch {
           return json({ failed: true }, 400);

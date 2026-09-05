@@ -24,7 +24,9 @@ const openHarness = () => {
     get: async <T>(key: string) => values.get(key) as T | undefined,
     put: async (key: string | Record<string, unknown>, value?: unknown) => {
       if (typeof key === "string") values.set(key, value);
-      else for (const [entryKey, entryValue] of Object.entries(key)) values.set(entryKey, entryValue);
+      else
+        for (const [entryKey, entryValue] of Object.entries(key))
+          values.set(entryKey, entryValue);
     },
     transactionSync: <T>(operation: () => T): T => operation(),
   };
@@ -45,7 +47,9 @@ describe("Journal bootstrap", () => {
 
     expect(harness.statements).toHaveLength(1);
     expect(harness.statements[0]).toContain("FROM meta WHERE meta.id = 0");
-    expect(harness.statements.some((statement) => statement.includes("CREATE"))).toBe(false);
+    expect(
+      harness.statements.some((statement) => statement.includes("CREATE")),
+    ).toBe(false);
   });
 
   test("repairs a current version whose named schema object is missing", async () => {
@@ -58,12 +62,18 @@ describe("Journal bootstrap", () => {
 
     expect(
       harness.sql
-        .exec<{ count: number }>(
+        .exec<{
+          count: number;
+        }>(
           "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'inbox'",
         )
         .one().count,
     ).toBe(1);
-    expect(harness.statements.some((statement) => statement.includes("CREATE TABLE IF NOT EXISTS inbox"))).toBe(true);
+    expect(
+      harness.statements.some((statement) =>
+        statement.includes("CREATE TABLE IF NOT EXISTS inbox"),
+      ),
+    ).toBe(true);
   });
 
   test("runs the existing migration path for an old version", async () => {
@@ -75,7 +85,13 @@ describe("Journal bootstrap", () => {
 
     await new Journal(harness.state, () => undefined).bootstrap();
 
-    expect(new Journal(harness.state, () => undefined).meta().schema_version).toBe(8);
-    expect(harness.statements.some((statement) => statement.includes("CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts"))).toBe(true);
+    expect(
+      new Journal(harness.state, () => undefined).meta().schema_version,
+    ).toBe(8);
+    expect(
+      harness.statements.some((statement) =>
+        statement.includes("CREATE VIRTUAL TABLE IF NOT EXISTS journal_fts"),
+      ),
+    ).toBe(true);
   });
 });

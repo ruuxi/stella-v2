@@ -94,10 +94,6 @@ export default {
       );
     }
 
-    if (route === "snapshot") {
-      return json(await env.OWNER_GATES.getByName("owner-1").snapshot());
-    }
-
     if (route === "freeze") {
       const now = Date.now();
       const requestBody = {

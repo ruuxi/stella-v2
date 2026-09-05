@@ -61,19 +61,35 @@ describe("owner model grant store", () => {
     const f = state();
     try {
       const store = f.store();
-      await store.registerReader({ conversationId: "conversation-1", readerId: "reader-a" });
+      await store.registerReader({
+        conversationId: "conversation-1",
+        readerId: "reader-a",
+      });
       await store.issueGrant(identity());
       f.advance(10_000);
       expect((await store.issueGrant(identity())).status).toBe("expired");
       const frozen: string[] = [];
-      await store.revokeAll({ operationId: "after-expiry", reason: "memory_policy_change",
-        freeze: async request => { frozen.push(...request.grants.map(grant => grant.grantId)); },
+      await store.revokeAll({
+        operationId: "after-expiry",
+        reason: "memory_policy_change",
+        freeze: async (request) => {
+          frozen.push(...request.grants.map((grant) => grant.grantId));
+        },
       });
       expect(frozen).toEqual(["grant-1"]);
       f.advance(GATEWAY_UPSTREAM_MAX_DURATION_MS);
-      expect((await store.retireExactTurnLease({ ownerGeneration: policy.ownerGeneration,
-        turnId: "turn-1", leaseId: "lease-1" })).retiredGrantIds).toEqual([]);
-    } finally { f.close(); }
+      expect(
+        (
+          await store.retireExactTurnLease({
+            ownerGeneration: policy.ownerGeneration,
+            turnId: "turn-1",
+            leaseId: "lease-1",
+          })
+        ).retiredGrantIds,
+      ).toEqual([]);
+    } finally {
+      f.close();
+    }
   });
   test("issues only to the latest registered reader nonce and replays the exact grant", async () => {
     const f = state();

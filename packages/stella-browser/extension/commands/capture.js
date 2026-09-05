@@ -136,44 +136,21 @@ export async function handleScreenshot(command) {
 }
 
 export async function handleSnapshot(command) {
-  if (command.format === "ax") return handleAxSnapshot(command);
   const tab = await getActiveTab(command);
-
+  const kind = command.format === "ax" ? "ax" : "dom";
   const options = {
     interactive: command.interactive ?? false,
-    cursor: command.cursor ?? false,
-    maxDepth: command.maxDepth ?? command.depth,
     compact: command.compact ?? false,
+    maxDepth: command.maxDepth,
     selector: command.selector,
   };
+  if (kind === "dom") options.cursor = command.cursor ?? false;
 
-  const snapshot = await captureFrameSnapshot(tab.id, options);
+  const snapshot = await captureFrameSnapshot(tab.id, options, kind);
 
   // Update the ref map for subsequent commands
   setRefMap(command.ownerId, tab.id, snapshot.refs || {});
 
-  return {
-    id: command.id,
-    success: true,
-    data: {
-      ...snapshot,
-    },
-  };
-}
-
-export async function handleAxSnapshot(command) {
-  const tab = await getActiveTab(command);
-  const snapshot = await captureFrameSnapshot(
-    tab.id,
-    {
-      interactive: command.interactive ?? false,
-      compact: command.compact ?? false,
-      maxDepth: command.maxDepth ?? command.depth,
-      selector: command.selector,
-    },
-    "ax",
-  );
-  setRefMap(command.ownerId, tab.id, snapshot.refs);
   return { id: command.id, success: true, data: snapshot };
 }
 

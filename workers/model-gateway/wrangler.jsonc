@@ -58,10 +58,6 @@
         "class_name": "CapabilityLedger",
       },
       {
-        "name": "OWNER_CAPABILITY_LEDGER",
-        "class_name": "OwnerCapabilityLedger",
-      },
-      {
         "name": "OWNER_RELAY_GATE",
         "class_name": "OwnerRelayGate",
       },
@@ -85,6 +81,7 @@
       "new_sqlite_classes": ["OwnerRelayGate", "NetworkGate", "TierBudget"],
     },
     { "tag": "v3", "new_sqlite_classes": ["OwnerCapabilityLedger"] },
+    { "tag": "v4", "deleted_classes": ["OwnerCapabilityLedger"] },
   ],
   "kv_namespaces": [
     {
@@ -168,10 +165,6 @@
             "class_name": "CapabilityLedger",
           },
           {
-            "name": "OWNER_CAPABILITY_LEDGER",
-            "class_name": "OwnerCapabilityLedger",
-          },
-          {
             "name": "OWNER_RELAY_GATE",
             "class_name": "OwnerRelayGate",
           },
@@ -195,6 +188,7 @@
           "new_sqlite_classes": ["OwnerRelayGate", "NetworkGate", "TierBudget"],
         },
         { "tag": "v3", "new_sqlite_classes": ["OwnerCapabilityLedger"] },
+        { "tag": "v4", "deleted_classes": ["OwnerCapabilityLedger"] },
       ],
       "kv_namespaces": [
         {

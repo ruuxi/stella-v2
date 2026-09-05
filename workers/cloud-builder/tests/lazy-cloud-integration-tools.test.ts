@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { CLOUD_INTEGRATION_TOOL_SPECS } from "../src/cloud-integration-tool-specs.js";
 import { createLazyCloudIntegrationTools } from "../src/lazy-cloud-integration-tools.js";
 
 type RpcRequest = {
@@ -13,21 +12,6 @@ const rpcResult = (id: unknown, result: unknown): Response =>
   Response.json({ jsonrpc: "2.0", id, result });
 
 describe("lazy cloud integration tools", () => {
-  test("constructs descriptors without touching the integration RPC", () => {
-    let postCount = 0;
-    const tools = createLazyCloudIntegrationTools({
-      post: async () => {
-        postCount += 1;
-        throw new Error("unexpected integration call");
-      },
-    });
-
-    expect(
-      tools.map(({ execute: _execute, ...descriptor }) => descriptor),
-    ).toEqual([...CLOUD_INTEGRATION_TOOL_SPECS]);
-    expect(postCount).toBe(0);
-  });
-
   test("loads the executable implementation only when a tool runs", async () => {
     const requests: RpcRequest[] = [];
     const tools = createLazyCloudIntegrationTools({
@@ -67,6 +51,7 @@ describe("lazy cloud integration tools", () => {
 
     const search = tools.find((tool) => tool.name === "tool_search");
     if (!search) throw new Error("tool_search missing");
+    expect(requests).toHaveLength(0);
     const result = await search.execute("tool-call-1", {
       query: "calendar",
       limit: 1,

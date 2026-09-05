@@ -1,7 +1,7 @@
 import { AzureOpenAI } from "openai";
 import type { ResponseCreateParamsStreaming } from "openai/resources/responses/responses.js";
 import { getEnvApiKey } from "../env-api-keys.js";
-import { supportsXhigh } from "../models.js";
+import { supportsXhigh } from "../thinking-levels.js";
 import type {
 	Api,
 	AssistantMessage,

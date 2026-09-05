@@ -531,10 +531,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       if (disposition.action === "reject") {
         return json({ error: "Owner purge generation cannot be joined." }, 409);
       }
-      if (
-        disposition.action === "start" ||
-        disposition.upgradeToPermanent
-      ) {
+      if (disposition.action === "start" || disposition.upgradeToPermanent) {
         await this.beforeAuthorityChange?.({
           path: "begin",
           body: body as Readonly<Record<string, unknown>>,
@@ -626,8 +623,9 @@ export const createOwnerFenceHost = (args: {
   ctx: DurableObjectState;
   env: OwnerFenceHostEnv;
   beforeAuthorityChange?: OwnerFenceAuthorityChangeHook;
-}): OwnerFenceHost => new DurableObjectOwnerFenceHost(
-  args.ctx,
-  args.env,
-  args.beforeAuthorityChange,
-);
+}): OwnerFenceHost =>
+  new DurableObjectOwnerFenceHost(
+    args.ctx,
+    args.env,
+    args.beforeAuthorityChange,
+  );

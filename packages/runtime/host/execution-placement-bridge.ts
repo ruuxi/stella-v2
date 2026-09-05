@@ -1,4 +1,3 @@
-import { getFileLogger } from "../observability/file-logger.js";
 import { createHash, randomUUID } from "node:crypto";
 import { anyApi } from "convex/server";
 import WebSocket from "ws";
@@ -26,6 +25,7 @@ import {
   type ExecutionTargetMode,
 } from "@stella/contracts/turn-plane/placement";
 import { canonicalDispatchPayloadJson } from "@stella/contracts/turn-plane/pairing-proof";
+import { getFileLogger } from "../observability/file-logger.js";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import {
   forkDelayed,

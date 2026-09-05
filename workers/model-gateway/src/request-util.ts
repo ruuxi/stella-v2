@@ -14,7 +14,9 @@ export type GatewayDeps = {
   beforeProviderDispatch?: () => Promise<void>;
 };
 
-export const defaultDeps = (ctx: Pick<ExecutionContext, "waitUntil">): GatewayDeps => ({
+export const defaultDeps = (
+  ctx: Pick<ExecutionContext, "waitUntil">,
+): GatewayDeps => ({
   fetch: globalThis.fetch.bind(globalThis),
   now: Date.now,
   waitUntil: (promise) => ctx.waitUntil(promise),

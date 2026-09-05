@@ -212,8 +212,9 @@ export const validateCapabilityClaims = (
   ) {
     return false;
   }
-  if (value.ledgerScope !== undefined && value.ledgerScope !== "owner-v1" && value.ledgerScope !== "owner-relay-v2")
+  if (value.ledgerScope !== undefined && value.ledgerScope !== "owner-relay-v2") {
     return false;
+  }
   if (value.kind === "turn") {
     const turn = value.turn;
     if (!isRecord(turn)) return false;

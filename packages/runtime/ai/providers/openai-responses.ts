@@ -32,13 +32,8 @@ import {
   hasCopilotVisionInput,
 } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
+import { postGatewayJson } from "./gateway-json-request.js";
 import {
-  gatewayJsonHeaders,
-  requestGatewayJson,
-} from "./gateway-json-request.js";
-import {
-  GATEWAY_REQUEST_TIMEOUT_MS,
-  gatewayRequestHeaders,
   isGatewayRelayBaseUrl,
   isPerRequestIdentityHeader,
 } from "./model-gateway.js";
@@ -60,25 +55,28 @@ const newRequestNonce = (): string =>
   (globalThis as { crypto?: Crypto }).crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-const isGatewayResponsesResponse = (
-  value: unknown,
-): value is OpenAI.Responses.Response => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  return (
-    typeof Reflect.get(value, "id") === "string" &&
-    Array.isArray(Reflect.get(value, "output"))
-  );
-};
-
+/** Validate what the event synthesizer consumes: a response id and typed output items. */
 const parseGatewayResponsesResponse = (
   value: unknown,
 ): OpenAI.Responses.Response => {
-  if (!isGatewayResponsesResponse(value)) {
+  const output: unknown =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Reflect.get(value, "output")
+      : undefined;
+  if (
+    !value ||
+    typeof Reflect.get(value, "id") !== "string" ||
+    !Array.isArray(output) ||
+    !output.every(
+      (item: unknown) =>
+        item &&
+        typeof item === "object" &&
+        typeof Reflect.get(item, "type") === "string",
+    )
+  ) {
     throw new Error("Invalid gateway Responses response.");
   }
-  return value;
+  return value as OpenAI.Responses.Response;
 };
 
 /**
@@ -214,9 +212,7 @@ export const streamOpenAIResponses: StreamFunction<
       requestIdSha256 = await hashProviderRequestIdentity(idempotencyKey);
       await notifyRequestLifecycle("request-admitted");
       const requestOptions = (perAttemptHeaders?: Record<string, string>) => {
-        const timeout = gatewayMode
-          ? GATEWAY_REQUEST_TIMEOUT_MS
-          : options?.timeoutMs;
+        const timeout = options?.timeoutMs;
         return {
           ...(options?.signal ? { signal: options.signal } : {}),
           ...(timeout !== undefined ? { timeout } : {}),
@@ -243,8 +239,8 @@ export const streamOpenAIResponses: StreamFunction<
             return await request(requestApiKey);
           },
         });
-      const clientForKey = async (requestApiKey: string): Promise<OpenAI> =>
-        await createClient(
+      const clientOptionsForKey = (requestApiKey: string) =>
+        createClientOptions(
           model,
           context,
           requestApiKey,
@@ -262,43 +258,27 @@ export const streamOpenAIResponses: StreamFunction<
           ...params,
           stream: false,
         };
-        const completed = await withActiveAuth(async (requestApiKey) => {
-          const config = createClientOptions(
-            model,
-            context,
-            requestApiKey,
-            options?.headers,
-            cacheSessionId,
-            promptCacheKey,
-          );
-          return await requestGatewayJson<OpenAI.Responses.Response>({
-            url: `${config.baseURL.replace(/\/+$/, "")}/responses`,
-            body: nonStreamingParams,
-            headers: gatewayJsonHeaders({
-              apiKey: config.apiKey,
-              defaults: config.defaultHeaders,
-              perRequest: {
-                "Idempotency-Key": idempotencyKey,
-                ...gatewayRequestHeaders(),
-              },
-              timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS,
+        const completed = await withActiveAuth(
+          async (requestApiKey) =>
+            await postGatewayJson({
+              config: clientOptionsForKey(requestApiKey),
+              path: "/responses",
+              body: nonStreamingParams,
+              idempotencyKey,
+              ...(options?.signal ? { signal: options.signal } : {}),
+              readResponse: async (response) =>
+                parseGatewayResponsesResponse(await response.json()),
             }),
-            timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS,
-            maxRetries: 0,
-            ...(options?.signal ? { signal: options.signal } : {}),
-            ...(config.fetch ? { fetch: config.fetch } : {}),
-            readResponse: async (response) =>
-              parseGatewayResponsesResponse(await response.json()),
-          });
-        });
+        );
         response = completed.response;
         events = synthesizeResponsesStreamEvents(completed.data);
       } else {
-        const opened = await withActiveAuth(async (requestApiKey) =>
-          (await clientForKey(requestApiKey))
-            .responses.create(params, requestOptions())
-            .withResponse(),
-        );
+        const opened = await withActiveAuth(async (requestApiKey) => {
+          const { default: OpenAIClient } = await import("openai");
+          return new OpenAIClient(clientOptionsForKey(requestApiKey)).responses
+            .create(params, requestOptions())
+            .withResponse();
+        });
         response = opened.response;
         events = opened.data;
       }
@@ -453,7 +433,7 @@ function createClientOptions(
           ...headers,
           Authorization: headers.Authorization ?? null,
           "cf-aig-authorization": `Bearer ${apiKey}`,
-      }
+        }
       : headers;
 
   return {
@@ -465,27 +445,6 @@ function createClientOptions(
     defaultHeaders,
     ...(model.fetch ? { fetch: model.fetch } : {}),
   };
-}
-
-async function createClient(
-  model: Model<"openai-responses">,
-  context: Context,
-  apiKey?: string,
-  optionsHeaders?: Record<string, string>,
-  sessionId?: string,
-  promptCacheKey?: string,
-): Promise<OpenAI> {
-  const { default: OpenAIClient } = await import("openai");
-  return new OpenAIClient(
-    createClientOptions(
-      model,
-      context,
-      apiKey,
-      optionsHeaders,
-      sessionId,
-      promptCacheKey,
-    ),
-  );
 }
 
 function buildParams(

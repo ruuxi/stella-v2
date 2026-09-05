@@ -88,7 +88,10 @@ export type OwnerModelGrant = OwnerModelGrantIdentity &
   }>;
 
 export type OwnerModelGrantState =
-  "active" | "revoking" | "revoked" | "retired";
+  | "active"
+  | "revoking"
+  | "revoked"
+  | "retired";
 
 export type OwnerModelGrantRecord = OwnerModelGrantIdentity &
   Readonly<{
@@ -149,7 +152,6 @@ export type OwnerModelGrantRevokeAllInput = Readonly<{
 
 export type OwnerModelGrantRevokeAllResult = Readonly<{
   revokedGrantIds: readonly string[];
-  pendingGrantIds: readonly string[];
 }>;
 
 export class OwnerModelGrantError extends Error {
@@ -337,21 +339,6 @@ export const parseOwnerModelGrant = (
   };
 };
 
-export const ownerModelGrantMatches = (
-  grant: OwnerModelGrant,
-  expected: OwnerModelGrantIdentity,
-): boolean =>
-  grant.ownerId === expected.ownerId &&
-  grant.ownerGeneration === expected.ownerGeneration &&
-  grant.conversationId === expected.conversationId &&
-  grant.turnId === expected.turnId &&
-  grant.leaseId === expected.leaseId &&
-  grant.fenceGeneration === expected.fenceGeneration &&
-  grant.readerId === expected.readerId &&
-  grant.grantId === expected.grantId &&
-  grant.expiresAt === expected.expiresAt &&
-  memoryPoliciesMatch(grant.memoryPolicy, expected.memoryPolicy);
-
 const grantIdentityMatches = (
   grant: OwnerModelGrantRecord,
   expected: OwnerModelGrantIdentity,
@@ -399,7 +386,9 @@ export class OwnerModelGrantStore {
   private initialize(): void {
     for (const statement of DDL) this.ctx.storage.sql.exec(statement);
     const current = this.ctx.storage.sql
-      .exec<{ version: number }>(
+      .exec<{
+        version: number;
+      }>(
         "SELECT COALESCE(MAX(version), 0) AS version FROM owner_model_grant_schema_migrations",
       )
       .one().version;
@@ -681,8 +670,7 @@ export class OwnerModelGrantStore {
       .toArray()
       .map(grantFromRow)
       .filter((grant): grant is OwnerModelGrantRecord => grant !== null);
-    if (targets.length === 0)
-      return { revokedGrantIds: [], pendingGrantIds: [] };
+    if (targets.length === 0) return { revokedGrantIds: [] };
     const now = this.now();
     this.ctx.storage.sql.exec(
       `UPDATE owner_model_grants
@@ -707,28 +695,30 @@ export class OwnerModelGrantStore {
     const revoked: string[] = [];
     // All grants are durably closed before contacting readers. Freeze in
     // parallel so a slow reader does not multiply the owner's exclusive wait.
-    await Promise.all(Array.from(groups.values(), async (group) => {
-      const first = group[0];
-      if (!first) return;
-      const grants = group
-        .map((grant) => ({
-          grantId: grant.grantId,
-          expiresAt: grant.expiresAt,
-        }))
-        .sort((left, right) => left.grantId.localeCompare(right.grantId));
-      try {
-        await input.freeze({
-          ownerId: this.ownerId,
-          ownerGeneration: first.ownerGeneration,
-          conversationId: first.conversationId,
-          readerId: first.readerId,
-          grants,
-        });
-        revoked.push(...grants.map((grant) => grant.grantId));
-      } catch {
-        failures.push(...grants.map((grant) => grant.grantId));
-      }
-    }));
+    await Promise.all(
+      Array.from(groups.values(), async (group) => {
+        const first = group[0];
+        if (!first) return;
+        const grants = group
+          .map((grant) => ({
+            grantId: grant.grantId,
+            expiresAt: grant.expiresAt,
+          }))
+          .sort((left, right) => left.grantId.localeCompare(right.grantId));
+        try {
+          await input.freeze({
+            ownerId: this.ownerId,
+            ownerGeneration: first.ownerGeneration,
+            conversationId: first.conversationId,
+            readerId: first.readerId,
+            grants,
+          });
+          revoked.push(...grants.map((grant) => grant.grantId));
+        } catch {
+          failures.push(...grants.map((grant) => grant.grantId));
+        }
+      }),
+    );
 
     if (revoked.length > 0) {
       const revokedAt = this.now();
@@ -749,7 +739,7 @@ export class OwnerModelGrantStore {
       await this.arm();
       throw new OwnerModelGrantError("REVOKE_INCOMPLETE");
     }
-    return { revokedGrantIds: revoked, pendingGrantIds: [] };
+    return { revokedGrantIds: revoked };
   }
 
   private record(grantId: string): OwnerModelGrantRecord | null {

@@ -338,7 +338,6 @@ test("Recall never reads profile documents or counts them as transcript matches"
   });
   expect(result.details).toMatchObject({
     status: "no_match",
-    documentCount: 0,
     matchCount: 0,
   });
 });

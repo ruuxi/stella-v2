@@ -61,6 +61,6 @@
     "new AbortController": 1
   },
   "workers/cloud-builder/src/owner-gate.ts": {
-    "setTimeout(": 2
+    "setTimeout(": 1
   }
 }

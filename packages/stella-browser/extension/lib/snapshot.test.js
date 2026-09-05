@@ -87,7 +87,7 @@ test("semantic snapshots are bounded and report truncation metadata", () => {
   assert.match(result.tree, /snapshot metadata: truncated=true/);
 });
 
-test("semantic snapshots traverse open shadow roots and same-origin frames", () => {
+test("semantic snapshots traverse open shadow roots but not frame documents", () => {
   const doc = makeDocument();
   globalThis.document = doc;
 
@@ -95,6 +95,7 @@ test("semantic snapshots traverse open shadow roots and same-origin frames", () 
   const shadowButton = new FakeElement("BUTTON", doc).appendText("Save");
   host.shadowRoot = { children: [shadowButton] };
 
+  // Frames are captured per frame over CDP; the in-page walk stops here.
   const frame = doc.body.append(new FakeElement("IFRAME", doc));
   const frameDoc = makeDocument();
   frameDoc.body.append(new FakeElement("BUTTON", frameDoc).appendText("Save"));
@@ -103,9 +104,7 @@ test("semantic snapshots traverse open shadow roots and same-origin frames", () 
   const result = executeSnapshot({});
 
   assert.equal(result.truncated, false);
-  assert.equal((result.tree.match(/- button/g) || []).length, 2);
+  assert.equal((result.tree.match(/- button/g) || []).length, 1);
   assert.equal(result.refs.e1.name, "Save");
-  assert.equal(result.refs.e1.nth, 0);
-  assert.equal(result.refs.e2.name, "Save");
-  assert.equal(result.refs.e2.nth, 1);
+  assert.equal(result.refs.e2, undefined);
 });

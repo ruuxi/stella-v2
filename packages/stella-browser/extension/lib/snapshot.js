@@ -129,7 +129,6 @@ export function executeSnapshot(options) {
   let emittedChars = 0;
   let emittedElements = 0;
   let truncated = false;
-  let skippedCrossOriginFrames = 0;
 
   function addLine(lines, line) {
     if (truncated) return false;
@@ -150,18 +149,8 @@ export function executeSnapshot(options) {
     const children = Array.from(el.children || []);
     if (el.shadowRoot)
       children.push(...Array.from(el.shadowRoot.children || []));
-    if (
-      options.traverseFrames !== false &&
-      (el.tagName === "IFRAME" || el.tagName === "FRAME")
-    ) {
-      try {
-        const body = el.contentDocument?.body;
-        if (body) children.push(body);
-        else skippedCrossOriginFrames += 1;
-      } catch (_) {
-        skippedCrossOriginFrames += 1;
-      }
-    }
+    // Child frames are captured per frame over CDP (frame-snapshot.js), so
+    // this in-page walk never descends into iframe documents.
     return children;
   }
 
@@ -555,7 +544,7 @@ export function executeSnapshot(options) {
     }
   }
 
-  if (truncated || skippedCrossOriginFrames > 0) {
+  if (truncated) {
     tree +=
       "\n[snapshot metadata: truncated=" +
       truncated +
@@ -567,8 +556,6 @@ export function executeSnapshot(options) {
       MAX_ELEMENTS +
       "; maxChars=" +
       MAX_CHARS +
-      "; skippedCrossOriginFrames=" +
-      skippedCrossOriginFrames +
       "]";
   }
 
@@ -581,7 +568,6 @@ export function executeSnapshot(options) {
       emittedChars: Math.min(emittedChars, MAX_CHARS),
       maxElements: MAX_ELEMENTS,
       maxChars: MAX_CHARS,
-      skippedCrossOriginFrames,
     },
   };
 }

@@ -154,7 +154,11 @@ export const parseCloudTurnStartRequest = (
     prompt,
   };
   if (value.originUserMessageId !== undefined) {
-    if (typeof value.originUserMessageId !== "string" || !CLIENT_MSG_ID_PATTERN.test(value.originUserMessageId)) return fail("originUserMessageId is malformed.");
+    if (
+      typeof value.originUserMessageId !== "string" ||
+      !CLIENT_MSG_ID_PATTERN.test(value.originUserMessageId)
+    )
+      return fail("originUserMessageId is malformed.");
     request.originUserMessageId = value.originUserMessageId;
   }
   if (value.execution !== undefined) {

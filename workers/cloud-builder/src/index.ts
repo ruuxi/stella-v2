@@ -11,66 +11,6 @@ import {
 } from "./sandbox-egress-classes.js";
 import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
 import { inSubshell } from "./shell-subshell.js";
-export type { ObservedBrowserSuspension } from "./build-session/shared/types.js";
-export const purgeNativeStateForWorkspace = async (
-  ...args: Parameters<
-    typeof import("./build-session/owner-purge-transfer.js").purgeNativeStateForWorkspace
-  >
-): Promise<
-  Awaited<
-    ReturnType<
-      typeof import("./build-session/owner-purge-transfer.js").purgeNativeStateForWorkspace
-    >
-  >
-> =>
-  await (
-    await import("./build-session/owner-purge-transfer.js")
-  ).purgeNativeStateForWorkspace(...args);
-
-export const bindObservedBrowserSuspensionToCanonicalCodeCall = async (
-  ...args: Parameters<
-    typeof import("./build-session/shared/keys.js").bindObservedBrowserSuspensionToCanonicalCodeCall
-  >
-): Promise<
-  Awaited<
-    ReturnType<
-      typeof import("./build-session/shared/keys.js").bindObservedBrowserSuspensionToCanonicalCodeCall
-    >
-  >
-> =>
-  await (
-    await import("./build-session/shared/keys.js")
-  ).bindObservedBrowserSuspensionToCanonicalCodeCall(...args);
-export { parseAgentExecutorResult } from "./build-session/public-helpers.js";
-export const waitForCloudAgentTurnResultText = async (
-  ...args: Parameters<
-    typeof import("./build-session/container-turn.js").waitForCloudAgentTurnResultText
-  >
-): Promise<
-  Awaited<
-    ReturnType<
-      typeof import("./build-session/container-turn.js").waitForCloudAgentTurnResultText
-    >
-  >
-> =>
-  await (
-    await import("./build-session/container-turn.js")
-  ).waitForCloudAgentTurnResultText(...args);
-export const normalizeToolWorkspaceRoot = async (
-  ...args: Parameters<
-    typeof import("./build-session/shared/keys.js").normalizeToolWorkspaceRoot
-  >
-): Promise<
-  Awaited<
-    ReturnType<
-      typeof import("./build-session/shared/keys.js").normalizeToolWorkspaceRoot
-    >
-  >
-> =>
-  await (
-    await import("./build-session/shared/keys.js")
-  ).normalizeToolWorkspaceRoot(...args);
-
 export { ContainerProxy };
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };

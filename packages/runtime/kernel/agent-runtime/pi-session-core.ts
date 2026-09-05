@@ -1,4 +1,3 @@
-import { runBeforeUserMessageHooks } from "../extensions/before-user-message.js";
 import { cleanupSessionResources } from "../../ai/session-resources.js";
 import type { Agent } from "../agent-core/agent.js";
 import type { AgentMessage } from "../agent-core/types.js";
@@ -1128,16 +1127,10 @@ export class PiSessionCore {
   }
 
   /** Drain the queued resident-context delta messages for this turn's prompt. */
-  protected async takePendingContextDeltaMessages(userPrompt: string, agentType: string): Promise<RuntimePromptMessage[]> {
-    if (this.pendingContextDeltaMessages.length === 0) {
-      return [];
-    }
+  protected takePendingContextDeltaMessages(): RuntimePromptMessage[] {
     const messages = this.pendingContextDeltaMessages;
-    const results = await runBeforeUserMessageHooks([{
-      event: "before_user_message", handler: async () => ({ prependMessages: messages }),
-    }], { userPrompt, agentType });
     this.pendingContextDeltaMessages = [];
-    return results.flatMap((result) => result?.prependMessages ?? []);
+    return messages;
   }
 
   /**
@@ -1161,8 +1154,7 @@ export class PiSessionCore {
     if (!agent) return;
     const frozen = this.frozenToolSchemas;
     const frozenSystemPrompt = this.frozenSystemPrompt;
-    const boundary = this.adoptFreshContextSnapshot || !frozen || !frozenSystemPrompt;
-    if (boundary || !frozen || !frozenSystemPrompt) {
+    if (this.adoptFreshContextSnapshot || !frozen || !frozenSystemPrompt) {
       agent.state.systemPrompt = args.systemPrompt;
       agent.state.tools = args.tools;
       this.freezeContextSnapshot(args.systemPrompt, args.tools);
@@ -1200,7 +1192,9 @@ export class PiSessionCore {
       });
     }
     if (driftedToolNames.length > 0) {
-      const signature = safeSchemaJson([...snapshotToolSchemas(args.tools)]);
+      const signature = safeSchemaJson(
+        args.tools.map((tool) => [tool.name, tool.description, safeSchemaJson(tool.parameters)]),
+      );
       if (this.announcedToolDriftSignature !== signature) {
         this.announcedToolDriftSignature = signature;
         this.pendingContextDeltaMessages.push({

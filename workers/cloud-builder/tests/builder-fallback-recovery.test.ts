@@ -17,7 +17,7 @@ const { BuildSessionObject: BuildSession } = await import(
   "../src/build-session/object.js"
 );
 const { bindObservedBrowserSuspensionToCanonicalCodeCall } = await import(
-  "../src/index.js"
+  "../src/build-session/shared/keys.js"
 );
 mock.restore();
 

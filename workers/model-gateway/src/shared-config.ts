@@ -56,7 +56,10 @@ export const isCompleteGatewayConfigSnapshot = (
   ) {
     return false;
   }
-  if (!Array.isArray(value.tierCeilings) || !isFiniteNonNegative(value.updatedAt)) {
+  if (
+    !Array.isArray(value.tierCeilings) ||
+    !isFiniteNonNegative(value.updatedAt)
+  ) {
     return false;
   }
   const seenModels = new Set<string>();
@@ -104,7 +107,7 @@ export const gatewayConfigRevision = async (
   return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoded)));
 };
 
-export type SharedRecordResult =
+type SharedRecordResult =
   | { ok: true; record: SharedGatewayConfigRecord }
   | {
       ok: false;
@@ -124,7 +127,8 @@ export const validateSharedGatewayConfigRecord = async (args: {
   maxAgeMs: number;
 }): Promise<SharedRecordResult> => {
   const { value } = args;
-  if (value === null || value === undefined) return { ok: false, reason: "missing" };
+  if (value === null || value === undefined)
+    return { ok: false, reason: "missing" };
   if (
     !isObject(value) ||
     value.version !== SHARED_GATEWAY_CONFIG_RECORD_VERSION ||
@@ -136,8 +140,10 @@ export const validateSharedGatewayConfigRecord = async (args: {
   ) {
     return { ok: false, reason: "malformed" };
   }
-  if (value.source !== args.source) return { ok: false, reason: "wrong_source" };
-  if (value.originalFetchedAt > args.now) return { ok: false, reason: "future" };
+  if (value.source !== args.source)
+    return { ok: false, reason: "wrong_source" };
+  if (value.originalFetchedAt > args.now)
+    return { ok: false, reason: "future" };
   if (args.now - value.originalFetchedAt >= args.maxAgeMs) {
     return { ok: false, reason: "stale" };
   }
@@ -156,6 +162,38 @@ export const validateSharedGatewayConfigRecord = async (args: {
   };
 };
 
+/**
+ * The KV record for a snapshot. Only complete snapshots are shared, and only
+ * when the record fits one KV value.
+ */
+export const sharedGatewayConfigRecord = async (args: {
+  snapshot: unknown;
+  source: string;
+  originalFetchedAt: number;
+}): Promise<
+  | { ok: true; record: SharedGatewayConfigRecord; serialized: string }
+  | { ok: false; reason: "incomplete_snapshot" | "oversize" }
+> => {
+  if (!isCompleteGatewayConfigSnapshot(args.snapshot)) {
+    return { ok: false, reason: "incomplete_snapshot" };
+  }
+  const record: SharedGatewayConfigRecord = {
+    version: SHARED_GATEWAY_CONFIG_RECORD_VERSION,
+    source: args.source,
+    originalFetchedAt: args.originalFetchedAt,
+    revision: await gatewayConfigRevision(args.snapshot),
+    snapshot: args.snapshot,
+  };
+  const serialized = JSON.stringify(record);
+  if (
+    new TextEncoder().encode(serialized).byteLength >=
+    MAX_SHARED_GATEWAY_CONFIG_BYTES
+  ) {
+    return { ok: false, reason: "oversize" };
+  }
+  return { ok: true, record, serialized };
+};
+
 export const publishSharedGatewayConfig = async (args: {
   client: ConvexClient;
   store: Pick<KVNamespace, "put">;
@@ -164,47 +202,44 @@ export const publishSharedGatewayConfig = async (args: {
 }): Promise<void> => {
   const startedAt = performance.now();
   const result = await args.client.config();
-  if (!result.ok || !isCompleteGatewayConfigSnapshot(result.body)) {
-    console.warn(JSON.stringify({
-      event: "gateway_config_shared_publish",
-      status: "failed",
-      reason: result.ok ? "incomplete_snapshot" : "convex_unavailable",
-      durationMs: performance.now() - startedAt,
-    }));
+  const built = result.ok
+    ? await sharedGatewayConfigRecord({
+        snapshot: result.body,
+        source: args.source,
+        originalFetchedAt: (args.now ?? Date.now)(),
+      })
+    : { ok: false as const, reason: "convex_unavailable" as const };
+  if (!built.ok) {
+    console.warn(
+      JSON.stringify({
+        event: "gateway_config_shared_publish",
+        status: "failed",
+        reason: built.reason,
+        durationMs: performance.now() - startedAt,
+      }),
+    );
     return;
   }
-  const record: SharedGatewayConfigRecord = {
-    version: SHARED_GATEWAY_CONFIG_RECORD_VERSION,
-    source: args.source,
-    originalFetchedAt: (args.now ?? Date.now)(),
-    revision: await gatewayConfigRevision(result.body),
-    snapshot: result.body,
-  };
-  const serialized = JSON.stringify(record);
-  if (new TextEncoder().encode(serialized).byteLength >= MAX_SHARED_GATEWAY_CONFIG_BYTES) {
-    console.warn(JSON.stringify({
-      event: "gateway_config_shared_publish",
-      status: "failed",
-      reason: "oversize",
-      durationMs: performance.now() - startedAt,
-    }));
-    return;
-  }
+  const { record, serialized } = built;
   try {
     await args.store.put(SHARED_GATEWAY_CONFIG_KEY, serialized);
   } catch (error) {
-    console.warn(JSON.stringify({
-      event: "gateway_config_shared_publish",
-      status: "failed",
-      reason: "kv_write_failed",
-      durationMs: performance.now() - startedAt,
-    }));
+    console.warn(
+      JSON.stringify({
+        event: "gateway_config_shared_publish",
+        status: "failed",
+        reason: "kv_write_failed",
+        durationMs: performance.now() - startedAt,
+      }),
+    );
     throw error;
   }
-  console.info(JSON.stringify({
-    event: "gateway_config_shared_publish",
-    status: "completed",
-    revision: record.revision,
-    durationMs: performance.now() - startedAt,
-  }));
+  console.info(
+    JSON.stringify({
+      event: "gateway_config_shared_publish",
+      status: "completed",
+      revision: record.revision,
+      durationMs: performance.now() - startedAt,
+    }),
+  );
 };

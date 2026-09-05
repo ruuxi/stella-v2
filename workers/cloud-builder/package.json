@@ -13,8 +13,9 @@
     "types:generate": "node scripts/generate-worker-types.mjs",
     "types:check": "node scripts/generate-worker-types.mjs --check",
     "typecheck": "bun run types:check && tsc --noEmit",
-    "test:unit": "bun test tests",
-    "test": "bun run test:unit && bun run test:code-workerd",
+    "test:unit": "bun test tests --path-ignore-patterns 'tests/*-workerd.test.ts'",
+    "test:workerd": "bun test tests/*-workerd.test.ts",
+    "test": "bun run test:unit && bun run test:workerd && bun run test:code-workerd",
     "build:dry-run": "node scripts/check-production-bundle.mjs",
     "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs"
   },

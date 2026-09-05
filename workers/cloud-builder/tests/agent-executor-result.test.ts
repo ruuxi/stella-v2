@@ -10,8 +10,12 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { parseAgentExecutorResult, waitForCloudAgentTurnResultText } =
-  await import("../src/index.js");
+const { parseAgentExecutorResult } = await import(
+  "../src/build-session/public-helpers.js"
+);
+const { waitForCloudAgentTurnResultText } = await import(
+  "../src/build-session/container-turn.js"
+);
 mock.restore();
 
 const hex = (character: string): string => character.repeat(64);

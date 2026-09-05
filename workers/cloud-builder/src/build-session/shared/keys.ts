@@ -484,16 +484,7 @@ export const mintAgentTurnModelGateway = async (
   return { origin, capability: minted.token, expiresAt: minted.expiresAt };
 };
 
-export const AGENT_HISTORY_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
-
-export {
-  validBuilderFallbackMessages,
-  validTurnStateCheckpointReceipt,
-} from "../public-helpers.js";
-import {
-  validBuilderFallbackMessages,
-  validTurnStateCheckpointReceipt,
-} from "../public-helpers.js";
+import { validTurnStateCheckpointReceipt } from "../public-helpers.js";
 
 export const cloudBrowserSuspensionMarker = (
   suspension: CloudBrowserSuspension,

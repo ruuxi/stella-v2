@@ -2,6 +2,8 @@ import { CloudHomeStore } from "./cloud-home-store.js";
 import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
 import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
 import { turnStartErrorResponse } from "./turn-start-request.js";
+import type { ModelGatewayControl } from "./managed-request-cancellation.js";
+import { convexSiteBase } from "./convex-site.js";
 /**
  * The owner gate: one Durable Object per owner, named by ownerId, that
  * answers "may this owner start a turn right now?" without a synchronous
@@ -133,9 +135,6 @@ export type OwnerGateEnv = Pick<
     >
   >;
 
-type ModelGatewayPreparationControl = {
-  prepareOwner(args: { ownerId: string }): Promise<void>;
-};
 
 /** Trusted headers the Worker stamps on a forwarded presence upgrade. */
 export const HEADER_PRESENCE_DEVICE_ID = "x-stella-device-id";
@@ -240,6 +239,23 @@ export const OWNER_GATE_STALE_SNAPSHOT_TTLS = 3;
 const DEFAULT_TURN_TIMEOUT_MS = 900_000;
 const OWNER_MODEL_GRANT_FREEZE_TIMEOUT_MS = 5_000;
 const CLOUD_CHAT_READER_PREPARE_TIMEOUT_MS = 1_000;
+
+/** Reject with `message` after `ms`; the underlying work is not cancelled. */
+const withTimeout = <T>(work: Promise<T>, ms: number, message: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+};
+
+const transferRegistration = (body: unknown): boolean =>
+  !!body && typeof body === "object" && "role" in body && body.role === "transfer";
+
+const ownerFenceRequest = (path: string, body: unknown, headers?: Record<string, string>): Request =>
+  new Request(`https://owner-gate/owner-fence/${path}`, {
+    method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
+  });
 const CLOUD_CHAT_READER_PREPARE_CACHE_MAX = 128;
 const SNAPSHOT_KEY = "ownerSnapshot";
 const DDL = [
@@ -883,7 +899,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         if (!this.env.AGENT_HOME) throw new Error("Cloud home bucket unavailable");
         const store = new CloudHomeStore(this.env.AGENT_HOME, {
           ownerId: this.ownerId(), ownerGeneration,
-          base: (this.env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, ""),
+          base: convexSiteBase(this.env),
           bearer: this.env.BUILDER_SERVICE_SECRET ?? "",
         });
         const [memory, skills] = await Promise.all([store.getMemoryContext(), store.loadSkillCatalog("orchestrator")]);
@@ -914,26 +930,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     // The first caller owns the nonce from a shared wake. Other concurrent
     // callers wait for the wake but resolve their reader from durable state.
     if (existing) return existing.then(() => undefined);
-    let rejectDeadline!: (reason?: unknown) => void;
-    const deadline = new Promise<never>((_resolve, reject) => {
-      rejectDeadline = reject;
-    });
-    const timeout = setTimeout(
-      () => rejectDeadline(new Error("Cloud chat reader preparation timed out.")),
-      CLOUD_CHAT_READER_PREPARE_TIMEOUT_MS,
-    );
-    const preparation = Promise.race([
+    const preparation = withTimeout(
       (sessions.getByName(conversationId) as unknown as {
         prepareCloudChatReader(): Promise<unknown>;
       }).prepareCloudChatReader(),
-      deadline,
-    ]).then(readerId =>
+      CLOUD_CHAT_READER_PREPARE_TIMEOUT_MS,
+      "Cloud chat reader preparation timed out.",
+    ).then(readerId =>
       typeof readerId === "string" && readerId.length > 0 && readerId.length <= 512
         ? readerId
         : undefined,
-    ).catch(() => undefined).finally(() => {
-      clearTimeout(timeout);
-    });
+    ).catch(() => undefined);
     const completion = preparation.then(readerId => {
       if (readerId === undefined) return;
       if (prepared.size >= CLOUD_CHAT_READER_PREPARE_CACHE_MAX) {
@@ -950,26 +957,19 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   private async revokeModelReaders(args: Omit<OwnerModelGrantRevokeAllInput, "freeze">): Promise<void> {
     const sessions = this.env.ORCHESTRATOR_SESSIONS;
-    const result = await this.modelGrants().revokeAll({ ...args, freeze: async request => {
+    await this.modelGrants().revokeAll({ ...args, freeze: async request => {
       if (!sessions) throw new Error("Conversation execution is not configured.");
-      let rejectDeadline!: (reason?: unknown) => void;
-      const deadline = new Promise<never>((_resolve, reject) => {
-        rejectDeadline = reject;
-      });
-      const timeout = setTimeout(
-        () => rejectDeadline(new Error("Owner model grant freeze timed out.")),
+      await withTimeout(
+        sessions.getByName(request.conversationId).freezeOwnerModelGrants(request),
         OWNER_MODEL_GRANT_FREEZE_TIMEOUT_MS,
+        "Owner model grant freeze timed out.",
       );
-      try {
-        await Promise.race([
-          sessions.getByName(request.conversationId).freezeOwnerModelGrants(request),
-          deadline,
-        ]);
-      } finally {
-        clearTimeout(timeout);
-      }
     } });
-    if (result.pendingGrantIds.length > 0) throw new MemoryPolicyError("OWNER_GRANT_REVOCATION_PENDING", 503);
+  }
+
+  /** One owner-fence host call from this object; `fetch()` routes external ones. */
+  private ownerFenceCall(path: string, body: unknown, headers?: Record<string, string>): Promise<Response> {
+    return createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch(path, ownerFenceRequest(path, body, headers));
   }
 
   async registerConversationReader(args: {
@@ -987,13 +987,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       throw new MemoryPolicyError("OWNER_MISMATCH", 403);
     const sessions = this.env.ORCHESTRATOR_SESSIONS;
     if (!sessions) throw new Error("Conversation execution is not configured.");
-    const response = await createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch("assert", new Request(
-      "https://owner-gate/owner-fence/assert", { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ownerId: args.ownerId, ownerGeneration: args.ownerGeneration,
-          generation: args.fenceGeneration, leaseId: args.leaseId, turnId: args.turnId,
-          sessionId: sessions.idFromName(args.conversationId).toString() }),
-      },
-    ));
+    const response = await this.ownerFenceCall("assert", {
+      ownerId: args.ownerId, ownerGeneration: args.ownerGeneration,
+      generation: args.fenceGeneration, leaseId: args.leaseId, turnId: args.turnId,
+      sessionId: sessions.idFromName(args.conversationId).toString(),
+    });
     if (!response.ok) throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
     const lease: unknown = await response.json();
     if (!lease || typeof lease !== "object" || !("expiresAt" in lease) ||
@@ -1055,12 +1053,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   async assertMemoryPolicy(policy: MemoryPolicy, fenceGeneration: string, leaseId: string, turnId?: string): Promise<void> {
     const invokedAt = Date.now();
     const startedAt = performance.now();
-    const response = await createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch("assert", new Request(
-      "https://owner-gate/owner-fence/assert", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ownerId: this.ownerId(), ownerGeneration: policy.ownerGeneration, generation: fenceGeneration, leaseId }),
-      },
-    ));
+    const response = await this.ownerFenceCall("assert", {
+      ownerId: this.ownerId(), ownerGeneration: policy.ownerGeneration, generation: fenceGeneration, leaseId,
+    });
     if (!response.ok) throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
     const fenceMs = performance.now() - startedAt;
     await this.memoryPolicy().assert(policy, fenceGeneration);
@@ -1089,7 +1084,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (!control) return;
     const ownerId = this.ownerId();
     const preparation = Promise.resolve().then(() =>
-      (control as ModelGatewayPreparationControl & Fetcher).prepareOwner({ ownerId }))
+      (control as ModelGatewayControl & Fetcher).prepareOwner({ ownerId }))
       .catch(error => {
         log("error", "owner_gateway_preparation_failed", {
           message: error instanceof Error ? error.message : String(error),
@@ -1126,9 +1121,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     ownerId: string,
     timeoutMs: number,
   ): Promise<OwnerSnapshot> {
-    const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
-      .trim()
-      .replace(/\/+$/, "");
+    const base = convexSiteBase(this.env);
     const secret = this.env.BUILDER_SERVICE_SECRET;
     if (!base || !secret) {
       throw new OwnerGateSnapshotError(
@@ -1341,19 +1334,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     lease: OwnerGateFenceLeaseRequest,
   ): Promise<OwnerGateFenceLeaseOutcome> {
     const ownerId = this.ownerId();
-    const response = await createOwnerFenceHost({
-      ctx: this.ctx,
-      env: this.env,
-    }).fetch(
+    const response = await this.ownerFenceCall(
       "register",
-      new Request("https://owner-gate/owner-fence/register", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [HEADER_OWNER_FENCE_ID]: ownerId,
-        },
-        body: JSON.stringify({ ...lease, ownerId }),
-      }),
+      { ...lease, ownerId },
+      { [HEADER_OWNER_FENCE_ID]: ownerId },
     );
     const body = (await response.json().catch(() => null)) as {
       generation?: unknown;
@@ -1690,12 +1674,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return null;
   }
 
-  private async fetchOwnerFence(path: string, request: Request): Promise<Response> {
-    const serialized = path === "begin" || path === "register"
-      ? await request.clone().text() : undefined;
-    const body: unknown = serialized ? JSON.parse(serialized) : undefined;
-    const changesAuthority = path === "begin" || (path === "register" && body &&
-      typeof body === "object" && "role" in body && body.role === "transfer");
+  /** `body` is `request`'s parsed JSON when the path can change authority. */
+  private async fetchOwnerFence(path: string, request: Request, body: unknown): Promise<Response> {
+    const changesAuthority = path === "begin" || (path === "register" && transferRegistration(body));
     if (!changesAuthority) return createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch(path, request);
     // Owner admission and revocation share this section. Reader freeze RPCs
     // only touch local conversation state; they never call back into OwnerGate.
@@ -1730,15 +1711,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       if (request.method !== "POST") {
         return Response.json({ error: "Method not allowed." }, { status: 405 });
       }
-      let transferRegistration = false;
-      if (url.pathname === "/owner-fence/register") {
-        const registration: unknown = await request.clone().json();
-        if (registration && typeof registration === "object" && "role" in registration &&
-            registration.role === "transfer") transferRegistration = true;
-      }
-      const unregister: unknown = url.pathname === "/owner-fence/unregister" ? await request.clone().json() : undefined;
-      const response = await this.fetchOwnerFence(url.pathname.slice("/owner-fence/".length), request);
-      if (response.ok && transferRegistration) await this.memoryPolicy().invalidate();
+      const path = url.pathname.slice("/owner-fence/".length);
+      const body: unknown = path === "begin" || path === "register" || path === "unregister"
+        ? await request.clone().json() : undefined;
+      const unregister = path === "unregister" ? body : undefined;
+      const response = await this.fetchOwnerFence(path, request, body);
+      if (response.ok && path === "register" && transferRegistration(body)) await this.memoryPolicy().invalidate();
       if (response.ok && unregister && typeof unregister === "object" &&
           "turnId" in unregister && typeof unregister.turnId === "string" &&
           "leaseId" in unregister && typeof unregister.leaseId === "string") {
@@ -2703,20 +2681,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       // Stop can target the exact turn even while its admission RPC is in
       // flight, including before the conversation has imported the handoff.
       this.ctx.storage.sql.exec("UPDATE dispatches SET cloud_turn_id = ? WHERE dispatch_id = ?", handoff.authority.turnId, row.dispatch_id);
-      // Observe the durability wait already required by the RPC output gate.
-      // Do not await it separately: RPC serialization can still overlap the
-      // flush, and the platform continues to hold delivery until it succeeds.
-      const handoffStartedAt = Date.now();
-      const persistenceStarted = performance.now();
-      const turnId = handoff.authority.turnId;
-      this.ctx.waitUntil(this.ctx.storage.sync().then(() => {
-        log("info", "owner_chat_handoff_persisted", {
-          dispatchId: row.dispatch_id,
-          turnId,
-          handoffStartedAt,
-          persistMs: Math.round(performance.now() - persistenceStarted),
-        });
-      }));
     }
     const response = handoff?.phase === "registered"
       ? await sessions.getByName(row.conversation_id).startAdmittedChat(request, handoff.authority, preparation)
@@ -2766,11 +2730,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private async retireCloudChatHandoff(a: AdmittedCloudChat): Promise<void> {
     const sessions = this.env.ORCHESTRATOR_SESSIONS;
     if (!sessions) throw new Error("Orchestrator sessions unavailable.");
-    const retired = await createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch("unregister", new Request("https://owner-gate/owner-fence/unregister", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ownerId: a.ownerId, ownerGeneration: a.ownerGeneration, leaseId: a.leaseId,
-        turnId: a.turnId, sessionId: sessions.idFromName(a.conversationId).toString(), generation: a.fenceGeneration }),
-    }));
+    const retired = await this.ownerFenceCall("unregister", {
+      ownerId: a.ownerId, ownerGeneration: a.ownerGeneration, leaseId: a.leaseId,
+      turnId: a.turnId, sessionId: sessions.idFromName(a.conversationId).toString(), generation: a.fenceGeneration,
+    });
     if (!retired.ok) throw new Error("Cloud admission retirement is pending.");
     await this.modelGrants().retireExactTurnLease({
       ownerGeneration: a.ownerGeneration,
@@ -3792,9 +3755,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     try {
       const pendingFence = await this.modelGrants().pendingFenceBarrier();
       if (pendingFence) {
-        await this.fetchOwnerFence(pendingFence.path, new Request(`https://owner-gate/owner-fence/${pendingFence.path}`, {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(pendingFence.body),
-        })).catch((error: unknown) => {
+        await this.fetchOwnerFence(pendingFence.path, ownerFenceRequest(pendingFence.path, pendingFence.body), pendingFence.body).catch((error: unknown) => {
           log("error", "owner_grant_fence_retry_pending", { message: error instanceof Error ? error.message : "Owner fence replay failed." });
         });
       }

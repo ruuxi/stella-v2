@@ -1,5 +1,11 @@
-import { memoryPoliciesMatch, type MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
-import { parseOwnerModelGrant, type OwnerModelGrant } from "./owner-model-grants.js";
+import {
+  memoryPoliciesMatch,
+  type MemoryPolicy,
+} from "@stella/contracts/turn-plane/memory-policy";
+import {
+  parseOwnerModelGrant,
+  type OwnerModelGrant,
+} from "./owner-model-grants.js";
 
 export type LocalOwnerModelGrantExpectation = Readonly<{
   ownerId: string;
@@ -18,8 +24,11 @@ type ActiveRequest = {
   grantId: string;
 };
 
-const revokeKey = (ownerId: string, ownerGeneration: string, grantId: string): string =>
-  JSON.stringify([ownerId, ownerGeneration, grantId]);
+const revokeKey = (
+  ownerId: string,
+  ownerGeneration: string,
+  grantId: string,
+): string => JSON.stringify([ownerId, ownerGeneration, grantId]);
 
 export class LocalOwnerModelGrants {
   private readonly revoked = new Map<string, number>();
@@ -35,8 +44,17 @@ export class LocalOwnerModelGrants {
     return JSON.stringify([ownerId, ownerGeneration]);
   }
 
-  freezeEpoch(expected: Pick<LocalOwnerModelGrantExpectation, "ownerId" | "ownerGeneration">): number {
-    return this.freezeEpochs.get(this.ownerKey(expected.ownerId, expected.ownerGeneration)) ?? 0;
+  freezeEpoch(
+    expected: Pick<
+      LocalOwnerModelGrantExpectation,
+      "ownerId" | "ownerGeneration"
+    >,
+  ): number {
+    return (
+      this.freezeEpochs.get(
+        this.ownerKey(expected.ownerId, expected.ownerGeneration),
+      ) ?? 0
+    );
   }
 
   validAfter(
@@ -55,20 +73,36 @@ export class LocalOwnerModelGrants {
     }
   }
 
-  valid(value: unknown, expected: LocalOwnerModelGrantExpectation): OwnerModelGrant | null {
+  valid(
+    value: unknown,
+    expected: LocalOwnerModelGrantExpectation,
+  ): OwnerModelGrant | null {
     this.clean();
     const grant = parseOwnerModelGrant(value);
-    if (!grant || grant.readerId !== this.readerId || grant.expiresAt <= this.now() ||
-        this.revoked.has(revokeKey(grant.ownerId, grant.ownerGeneration, grant.grantId)) ||
-        grant.ownerId !== expected.ownerId ||
-        grant.ownerGeneration !== expected.ownerGeneration ||
-        grant.conversationId !== expected.conversationId || grant.turnId !== expected.turnId ||
-        grant.leaseId !== expected.leaseId || grant.fenceGeneration !== expected.fenceGeneration ||
-        !memoryPoliciesMatch(grant.memoryPolicy, expected.memoryPolicy)) return null;
+    if (
+      !grant ||
+      grant.readerId !== this.readerId ||
+      grant.expiresAt <= this.now() ||
+      this.revoked.has(
+        revokeKey(grant.ownerId, grant.ownerGeneration, grant.grantId),
+      ) ||
+      grant.ownerId !== expected.ownerId ||
+      grant.ownerGeneration !== expected.ownerGeneration ||
+      grant.conversationId !== expected.conversationId ||
+      grant.turnId !== expected.turnId ||
+      grant.leaseId !== expected.leaseId ||
+      grant.fenceGeneration !== expected.fenceGeneration ||
+      !memoryPoliciesMatch(grant.memoryPolicy, expected.memoryPolicy)
+    )
+      return null;
     return grant;
   }
 
-  begin(value: unknown, expected: LocalOwnerModelGrantExpectation, signal: AbortSignal): {
+  begin(
+    value: unknown,
+    expected: LocalOwnerModelGrantExpectation,
+    signal: AbortSignal,
+  ): {
     requestSignal: AbortSignal;
     assertValid(): void;
     release(): void;
@@ -113,8 +147,11 @@ export class LocalOwnerModelGrants {
       // tombstones, while still aborting a request that began before expiry.
       if (grant.expiresAt > now) this.revoked.set(key, grant.expiresAt);
       for (const active of this.active) {
-        if (active.ownerId === args.ownerId && active.ownerGeneration === args.ownerGeneration &&
-            active.grantId === grant.grantId) {
+        if (
+          active.ownerId === args.ownerId &&
+          active.ownerGeneration === args.ownerGeneration &&
+          active.grantId === grant.grantId
+        ) {
           active.controller.abort(new Error("OWNER_MODEL_GRANT_REVOKED"));
         }
       }
@@ -126,18 +163,40 @@ export const releaseOwnerModelGrantAfterBody = (
   response: Response,
   release: () => void,
 ): Response => {
-  if (!response.body) { release(); return response; }
+  if (!response.body) {
+    release();
+    return response;
+  }
   const reader = response.body.getReader();
   let done = false;
-  const finish = (): void => { if (!done) { done = true; release(); } };
-  return new Response(new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const chunk = await reader.read();
-        if (chunk.done) { finish(); controller.close(); }
-        else controller.enqueue(chunk.value);
-      } catch (error) { finish(); controller.error(error); }
-    },
-    async cancel(reason) { try { await reader.cancel(reason); } finally { finish(); } },
-  }), response);
+  const finish = (): void => {
+    if (!done) {
+      done = true;
+      release();
+    }
+  };
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            finish();
+            controller.close();
+          } else controller.enqueue(chunk.value);
+        } catch (error) {
+          finish();
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        try {
+          await reader.cancel(reason);
+        } finally {
+          finish();
+        }
+      },
+    }),
+    response,
+  );
 };

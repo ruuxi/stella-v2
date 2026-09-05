@@ -8,17 +8,21 @@ export class ModelGatewayControl extends WorkerEntrypoint<Env> {
   /**
    * Best-effort owner-scoped preparation for trusted Worker callers. This
    * entrypoint deliberately performs no capability validation, inference, or
-  * accounting: the caller has already authenticated the owner object and the
-  * relay gate only warms its configuration and enforcement reads.
-  */
+   * accounting: the caller has already authenticated the owner object and the
+   * relay gate only warms its configuration and enforcement reads.
+   */
   async prepareOwner(args: { ownerId: string }): Promise<void> {
     const ownerId = typeof args?.ownerId === "string" ? args.ownerId : "";
     if (!ownerId || ownerId.length > 512) {
-      throw new GatewayError(400, "bad_request", "The owner preparation request is invalid.");
+      throw new GatewayError(
+        400,
+        "bad_request",
+        "The owner preparation request is invalid.",
+      );
     }
-    await this.env.OWNER_RELAY_GATE
-      .get(this.env.OWNER_RELAY_GATE.idFromName(ownerId))
-      .prepare(ownerId);
+    await this.env.OWNER_RELAY_GATE.get(
+      this.env.OWNER_RELAY_GATE.idFromName(ownerId),
+    ).prepare(ownerId);
   }
 
   async cancelManagedRequest(args: {
@@ -31,7 +35,11 @@ export class ModelGatewayControl extends WorkerEntrypoint<Env> {
       args.capability.length > 16_384 ||
       !isGatewayRequestId(args.requestId)
     ) {
-      throw new GatewayError(400, "bad_request", "The cancellation request is invalid.");
+      throw new GatewayError(
+        400,
+        "bad_request",
+        "The cancellation request is invalid.",
+      );
     }
     const auth = await authenticateCapability(
       new Request("https://gateway.invalid", {
@@ -51,8 +59,8 @@ export class ModelGatewayControl extends WorkerEntrypoint<Env> {
         "This capability cannot cancel a managed request.",
       );
     }
-    return await this.env.OWNER_RELAY_GATE
-      .get(this.env.OWNER_RELAY_GATE.idFromName(identity.ownerId))
-      .cancelManagedRequest(identity);
+    return await this.env.OWNER_RELAY_GATE.get(
+      this.env.OWNER_RELAY_GATE.idFromName(identity.ownerId),
+    ).cancelManagedRequest(identity);
   }
 }

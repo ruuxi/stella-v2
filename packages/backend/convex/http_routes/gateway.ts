@@ -485,7 +485,8 @@ const config = httpAction(async (ctx, request) => {
 const ownerEnforcement = httpAction(async (ctx, request) => {
   const denied = requireGatewayServiceRequest(request);
   if (denied) return denied;
-  const ownerId = new URL(request.url).searchParams.get("ownerId")?.trim() ?? "";
+  const ownerId =
+    new URL(request.url).searchParams.get("ownerId")?.trim() ?? "";
   if (!isId(ownerId)) return json({ error: "bad_request" }, 400);
   const result: ConvexOwnerEnforcementState = await ctx.runQuery(
     internal.owner_enforcement.getOwnerEnforcementStateInternal,

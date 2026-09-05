@@ -64,9 +64,7 @@ import type { TurnExecutionContext } from "./turn-cancellation.js";
 import { assertTurnExecutionActive } from "./turn-cancellation.js";
 import type { SteerMessage } from "./steer-mailbox.js";
 
-const loadRuntimeAgent = async () =>
-  (await import("@stella/runtime/kernel/agent-core/explicit-model-agent.js"))
-    .ExplicitModelAgent;
+import { loadRuntimeAgent } from "./runtime-agent.js";
 
 export type { CanonicalTranscriptReceipt } from "./agent-control-plane.js";
 

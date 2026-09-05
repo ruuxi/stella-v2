@@ -317,7 +317,7 @@ async fn get_rect_for_selector(
     ref_map: &RefMap,
     selector: &str,
 ) -> Result<Option<Rect>, String> {
-    let object_id =
+    let (object_id, session_id) =
         super::element::resolve_element_object_id(client, session_id, ref_map, selector).await?;
     get_rect_for_object(client, session_id, &object_id).await
 }
@@ -754,7 +754,11 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|name| name.ends_with(".tmp"))
             .collect();
-        assert!(leftovers.is_empty(), "unexpected temp files: {:?}", leftovers);
+        assert!(
+            leftovers.is_empty(),
+            "unexpected temp files: {:?}",
+            leftovers
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

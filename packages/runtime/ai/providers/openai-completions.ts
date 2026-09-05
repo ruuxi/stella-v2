@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import type OpenAI from "openai";
-import { gatewayJsonHeaders, requestGatewayJson } from "./gateway-json-request.js";
+import { postGatewayJson } from "./gateway-json-request.js";
 import type {
   ChatCompletionAssistantMessageParam,
   ChatCompletionChunk,
@@ -50,11 +50,7 @@ import {
   hasCopilotVisionInput,
 } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
-import {
-  GATEWAY_REQUEST_TIMEOUT_MS,
-  gatewayRequestHeaders,
-  isGatewayRelayBaseUrl,
-} from "./model-gateway.js";
+import { isGatewayRelayBaseUrl, newGatewayRequestId } from "./model-gateway.js";
 import { buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -204,11 +200,9 @@ export const streamOpenAICompletions: StreamFunction<
       const gatewayMode = isGatewayRelayBaseUrl(model.baseUrl);
       const requestOptions = (perAttemptHeaders?: Record<string, string>) => ({
         ...(options?.signal ? { signal: options.signal } : {}),
-        ...(gatewayMode
-          ? { timeout: GATEWAY_REQUEST_TIMEOUT_MS }
-          : options?.timeoutMs !== undefined
-            ? { timeout: options.timeoutMs }
-            : {}),
+        ...(options?.timeoutMs !== undefined
+          ? { timeout: options.timeoutMs }
+          : {}),
         ...(options?.maxRetries !== undefined
           ? { maxRetries: options.maxRetries }
           : {}),
@@ -240,21 +234,21 @@ export const streamOpenAICompletions: StreamFunction<
         };
         const nonStreamingParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
           { ...rest, stream: false };
+        // One key per logical request; an auth-refresh re-dispatch retains it.
+        const idempotencyKey = `stella-completion-${newGatewayRequestId()}`;
         const completed = await requestWithAuthRefresh({
           apiKey,
           refreshApiKey: options?.refreshApiKey,
-          request: async (requestApiKey) => {
-            const config = createClientOptions(model, context, requestApiKey,
-              options?.headers, cacheSessionId, promptCacheKey, compat);
-            const headers = gatewayJsonHeaders({ apiKey: config.apiKey,
-              defaults: config.defaultHeaders, perRequest: gatewayRequestHeaders(), timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS });
-            return await requestGatewayJson({
-              url: `${config.baseURL?.replace(/\/+$/, "")}/chat/completions`,
-              body: nonStreamingParams, headers, timeoutMs: GATEWAY_REQUEST_TIMEOUT_MS,
-              maxRetries: options?.maxRetries, signal: options?.signal, fetch: model.fetch,
+          request: async (requestApiKey) =>
+            await postGatewayJson({
+              config: createClientOptions(model, context, requestApiKey,
+                options?.headers, cacheSessionId, promptCacheKey, compat),
+              path: "/chat/completions",
+              body: nonStreamingParams,
+              idempotencyKey,
+              ...(options?.signal ? { signal: options.signal } : {}),
               readResponse: response => response.json(),
-            });
-          },
+            }),
         });
         response = completed.response;
         openaiStream = synthesizeChatCompletionChunks(completed.data);

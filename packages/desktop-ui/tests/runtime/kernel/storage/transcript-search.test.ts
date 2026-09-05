@@ -13,6 +13,8 @@ import {
 } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { rebuildSearchIndexes } from "@stella/runtime/kernel/storage/schema";
+import { recallReference } from "@stella/contracts/recall";
+import { formatTranscriptSearchResults } from "@stella/runtime/kernel/agent-runtime/context-lookup";
 
 type TestContext = {
   rootPath: string;
@@ -384,47 +386,43 @@ describe("transcript FTS index", () => {
 
     expect(store.searchTranscripts({ query: "%%%" })).toEqual([]);
   });
-});
 
-it("retrieves deep matches and round-trips scoped message references", async () => {
-  const { store } = createTestContext();
-  const { recallReference } = await import("@stella/contracts/recall");
-  const { formatTranscriptSearchResults } = await import(
-    "@stella/runtime/kernel/agent-runtime/context-lookup"
-  );
-  appendChat(
-    store,
-    "conv-deep",
-    "assistant_message",
-    "x".repeat(10000) + " NEEDLE " + "y".repeat(5000),
-    1000,
-  );
-  appendChat(
-    store,
-    "conv-deep",
-    "user_message",
-    "Correction: keep the existing behavior.",
-    1000,
-  );
-  const hits = store.searchTranscripts({ query: "NEEDLE" });
-  expect(hits[0]?.id).toBeTruthy();
-  const ref = recallReference("conv-deep", hits[0]!.id!);
-  expect(store.searchTranscripts({ query: ref })[0]).toMatchObject({
-    id: hits[0]!.id,
-    text: hits[0]!.text,
+  it("retrieves deep matches and round-trips scoped message references", async () => {
+    const { store } = createTestContext();
+    appendChat(
+      store,
+      "conv-deep",
+      "assistant_message",
+      "x".repeat(10000) + " NEEDLE " + "y".repeat(5000),
+      1000,
+    );
+    appendChat(
+      store,
+      "conv-deep",
+      "user_message",
+      "Correction: keep the existing behavior.",
+      1000,
+    );
+    const hits = store.searchTranscripts({ query: "NEEDLE" });
+    expect(hits[0]?.id).toBeTruthy();
+    const ref = recallReference("conv-deep", hits[0]!.id!);
+    expect(store.searchTranscripts({ query: ref })[0]).toMatchObject({
+      id: hits[0]!.id,
+      text: hits[0]!.text,
+    });
+    expect(
+      store.searchTranscripts({
+        query: recallReference("wrong-conversation", hits[0]!.id!),
+      }),
+    ).toEqual([]);
+    const output = formatTranscriptSearchResults(store, "conv-deep", "NEEDLE");
+    expect(output).toContain("NEEDLE");
+    expect(output).toContain("Correction: keep the existing behavior.");
+    expect(output).toContain("messageRef=" + ref);
+    const next = output.match(/next: (recall:\S+)/)?.[1];
+    expect(next).toBeTruthy();
+    const continuation = formatTranscriptSearchResults(store, "conv-deep", next);
+    expect(continuation).toContain("y".repeat(100));
+    expect(continuation).not.toContain("NEEDLE");
   });
-  expect(
-    store.searchTranscripts({
-      query: recallReference("wrong-conversation", hits[0]!.id!),
-    }),
-  ).toEqual([]);
-  const output = formatTranscriptSearchResults(store, "conv-deep", "NEEDLE");
-  expect(output).toContain("NEEDLE");
-  expect(output).toContain("Correction: keep the existing behavior.");
-  expect(output).toContain("messageRef=" + ref);
-  const next = output.match(/next: (recall:\S+)/)?.[1];
-  expect(next).toBeTruthy();
-  const continuation = formatTranscriptSearchResults(store, "conv-deep", next);
-  expect(continuation).toContain("y".repeat(100));
-  expect(continuation).not.toContain("NEEDLE");
 });

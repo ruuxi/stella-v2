@@ -3,6 +3,10 @@ import type { ParsedAgent } from "../agents/types.js";
 import type { AgentMessage, AgentToolResult } from "../agent-core/types.js";
 import type { AssistantMessageEvent } from "../../ai/types.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+import type {
+  BeforeUserMessageHookResult,
+  BeforeUserMessagePayload as BeforeUserMessageHookPayload,
+} from "./before-user-message.js";
 
 export interface ToolDefinition {
   /** Tool name (must be unique). */
@@ -132,9 +136,9 @@ export type BeforeAgentStartHookResult = {
  * without the kernel passing an opaque agentContext blob through the
  * payload. They're undefined for subagent builds.
  */
-export type BeforeUserMessagePayload = HookRuntimeContext & import("./before-user-message.js").BeforeUserMessagePayload;
-export type { BeforeUserMessageHookResult } from "./before-user-message.js";
-import type { BeforeUserMessageHookResult } from "./before-user-message.js";
+export type BeforeUserMessagePayload = HookRuntimeContext &
+  BeforeUserMessageHookPayload;
+export type { BeforeUserMessageHookResult };
 
 export type AgentStartPayload = HookRuntimeContext & {
   agentType: string;

@@ -5,14 +5,25 @@ import { makeFunctionReference } from "convex/server";
 import { describe, expect, it } from "vitest";
 
 import { STELLA_PROMPT_DEFAULTS } from "./stella_prompt_defaults.generated";
+import { STELLA_PROMPT_SCHEMA_VERSION } from "./stella_prompt_contract";
 import {
+  STELLA_PROMPTS_PATH,
   resolveStellaPromptSnapshot,
+  type PromptResponseSnapshot,
   type StoredPrompt,
 } from "./stella_prompts_http";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => convexTest(schema, modules);
+
+const served = async (t: ReturnType<typeof createTest>) => {
+  const response = await t.fetch(STELLA_PROMPTS_PATH);
+  expect(response.status).toBe(200);
+  return (await response.json()) as PromptResponseSnapshot & {
+    schemaVersion: number;
+  };
+};
 
 type PublishArgs = {
   revision: string;
@@ -127,9 +138,9 @@ describe("Stella prompt publication", () => {
     ).toBe(true);
   });
 
-  it("falls back atomically for incomplete or mixed stored snapshots", async () => {
+  it("repairs incomplete or mixed stored snapshots before serving them", async () => {
     const t = createTest();
-    await t.mutation(publish, publishArgs);
+    const first = await t.mutation(publish, publishArgs);
 
     const removedId = STELLA_PROMPT_DEFAULTS.prompts[0]!.id;
     await t.run(async (ctx) => {
@@ -140,11 +151,18 @@ describe("Stella prompt publication", () => {
       if (!row) throw new Error("expected published prompt row");
       await ctx.db.delete(row._id);
     });
-    expect(resolveStellaPromptSnapshot(await t.query(list, {}))).toEqual(
-      defaultSnapshot,
-    );
+    const repaired = await served(t);
+    expect(repaired).toEqual({
+      schemaVersion: STELLA_PROMPT_SCHEMA_VERSION,
+      ...defaultSnapshot,
+      publishedAt: repaired.publishedAt,
+    });
+    expect(repaired.publishedAt).toBeGreaterThan(first.publishedAt);
+    expect(resolveStellaPromptSnapshot(await t.query(list, {}))).toEqual({
+      ...defaultSnapshot,
+      publishedAt: repaired.publishedAt,
+    });
 
-    await t.mutation(publish, publishArgs);
     await t.run(async (ctx) => {
       const row = await ctx.db
         .query("prompts")
@@ -153,8 +171,11 @@ describe("Stella prompt publication", () => {
       if (!row) throw new Error("expected republished prompt row");
       await ctx.db.patch(row._id, { sourceRevision: "f".repeat(64) });
     });
-    expect(resolveStellaPromptSnapshot(await t.query(list, {}))).toEqual(
-      defaultSnapshot,
-    );
+    const reconciled = await served(t);
+    expect(reconciled).toEqual({
+      ...repaired,
+      publishedAt: reconciled.publishedAt,
+    });
+    expect(reconciled.publishedAt).toBeGreaterThan(repaired.publishedAt);
   });
 });

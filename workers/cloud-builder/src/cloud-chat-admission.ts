@@ -28,8 +28,10 @@ export type CloudChatHandoff =
   | { phase: "allocating"; turnId: string; leaseId: string }
   | { phase: "registered"; authority: AdmittedCloudChat }
   | { phase: "retired"; turnId: string; leaseId: string };
-export const cloudChatHandoffKey = (dispatchId: string) => `cloudChatHandoff:${dispatchId}`;
-export const cloudChatTurnKey = (turnId: string) => `cloudChatHandoffTurn:${turnId}`;
+export const cloudChatHandoffKey = (dispatchId: string) =>
+  `cloudChatHandoff:${dispatchId}`;
+export const cloudChatTurnKey = (turnId: string) =>
+  `cloudChatHandoffTurn:${turnId}`;
 
 /**
  * The semantic identity of a turn start: everything the caller chose. Ids the

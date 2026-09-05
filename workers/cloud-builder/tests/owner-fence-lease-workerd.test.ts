@@ -144,7 +144,7 @@ describe("owner-fence leases in real Workerd", () => {
     }
   }, 30_000);
 
-  test("synchronous turn state rolls back atomically and survives an acknowledged restart", async () => {
+  test("a synchronous storage transaction rolls back atomically and survives an acknowledged restart", async () => {
     const path = "/owner/turn-state-probe/__test/turn-state";
     expect(await requestJson(path, { value: "committed" })).toEqual({
       status: 200,

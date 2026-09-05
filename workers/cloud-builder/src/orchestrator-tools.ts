@@ -212,7 +212,6 @@ export const createMemoryTools = (
         content: [{ type: "text", text: sections.join("\n\n") }],
         details: {
           status,
-          documentCount: 0,
           matchCount: hits.length,
         },
       };

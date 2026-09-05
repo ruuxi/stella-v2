@@ -27,6 +27,33 @@ const isStatus = (value: unknown): value is OwnerEnforcementStatus =>
   typeof value === "string" &&
   (OWNER_ENFORCEMENT_STATUSES as readonly string[]).includes(value);
 
+export const normalizeStoredOwnerEnforcement = (
+  value: unknown,
+): StoredOwnerEnforcement | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const status = Reflect.get(value, "status");
+  const until = Reflect.get(value, "until");
+  const updatedAt = Reflect.get(value, "updatedAt");
+  const expiresAt = Reflect.get(value, "expiresAt");
+  if (
+    !isStatus(status) ||
+    typeof updatedAt !== "number" ||
+    !Number.isFinite(updatedAt) ||
+    (until !== undefined &&
+      (typeof until !== "number" || !Number.isFinite(until))) ||
+    (expiresAt !== undefined &&
+      (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)))
+  )
+    return null;
+  return {
+    status,
+    updatedAt,
+    ...(typeof until === "number" ? { until } : {}),
+    ...(typeof expiresAt === "number" ? { expiresAt } : {}),
+  };
+};
+
+/** The KV mirror stores the record as JSON text. */
 export const parseStoredOwnerEnforcement = (
   value: string,
 ): StoredOwnerEnforcement | null => {
@@ -36,34 +63,18 @@ export const parseStoredOwnerEnforcement = (
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const status = Reflect.get(parsed, "status");
-  const until = Reflect.get(parsed, "until");
-  const updatedAt = Reflect.get(parsed, "updatedAt");
-  const expiresAt = Reflect.get(parsed, "expiresAt");
-  if (
-    !isStatus(status) ||
-    typeof updatedAt !== "number" ||
-    !Number.isFinite(updatedAt) ||
-    (until !== undefined &&
-      (typeof until !== "number" || !Number.isFinite(until))) ||
-    (expiresAt !== undefined &&
-      (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)))
-  ) return null;
-  return {
-    status,
-    updatedAt,
-    ...(typeof until === "number" ? { until } : {}),
-    ...(typeof expiresAt === "number" ? { expiresAt } : {}),
-  };
+  return normalizeStoredOwnerEnforcement(parsed);
 };
 
 export const enforcementAdmissionForRecord = (
   stored: StoredOwnerEnforcement | null,
   now: number,
 ): OwnerEnforcementAdmission => {
-  if (!stored || stored.status === "ok") return { suspended: false, throttled: false };
-  const effectiveUntil = stored.until ?? stored.expiresAt ??
+  if (!stored || stored.status === "ok")
+    return { suspended: false, throttled: false };
+  const effectiveUntil =
+    stored.until ??
+    stored.expiresAt ??
     stored.updatedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000;
   if (effectiveUntil <= now) return { suspended: false, throttled: false };
   return {
@@ -138,7 +149,10 @@ export const ownerEnforcementAdmission = async (
 ): Promise<OwnerEnforcementAdmission> => {
   const stored = await env.OWNER_ENFORCEMENT.get(ownerId, { cacheTtl: 60 });
   if (!stored) return { suspended: false, throttled: false };
-  return enforcementAdmissionForRecord(parseStoredOwnerEnforcement(stored), now);
+  return enforcementAdmissionForRecord(
+    parseStoredOwnerEnforcement(stored),
+    now,
+  );
 };
 
 export const handleOwnerEnforcement = async (args: {
@@ -159,7 +173,8 @@ export const handleOwnerEnforcement = async (args: {
   const body = parseRequest(await readJsonObject(args.request));
   const receivedAt = args.deps.now();
   const until = body.enforcement.until;
-  const expiresAt = until ?? receivedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000;
+  const expiresAt =
+    until ?? receivedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000;
   const authoritative = await args.env.OWNER_RELAY_GATE.get(
     args.env.OWNER_RELAY_GATE.idFromName(body.ownerId),
   ).applyOwnerEnforcement({
@@ -178,9 +193,13 @@ export const handleOwnerEnforcement = async (args: {
             KV_MINIMUM_TTL_SECONDS,
             Math.ceil((authoritative.until - receivedAt) / 1_000),
           );
-    await args.env.OWNER_ENFORCEMENT.put(body.ownerId, JSON.stringify(authoritative), {
-      expirationTtl,
-    });
+    await args.env.OWNER_ENFORCEMENT.put(
+      body.ownerId,
+      JSON.stringify(authoritative),
+      {
+        expirationTtl,
+      },
+    );
   }
   return jsonResponse(200, { ok: true }, args.traceId);
 };

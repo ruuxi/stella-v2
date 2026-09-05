@@ -15,7 +15,8 @@ import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-ho
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { getModels, getSupportedThinkingLevels } from "@stella/runtime/ai/models";
+import { getModels } from "@stella/runtime/ai/models";
+import { getSupportedThinkingLevels } from "@stella/runtime/ai/thinking-levels";
 import { listClaudeCodeModels } from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";

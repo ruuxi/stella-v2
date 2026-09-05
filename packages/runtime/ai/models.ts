@@ -1,6 +1,5 @@
 import type { ModelRegistry } from "@stella/contracts/model-registry";
 import { modelRuntime } from "./model-runtime.js";
-export { calculateCost } from "./cost.js";
 import type { Api, Model } from "./types.js";
 
 type RegisteredProvider = keyof ModelRegistry;
@@ -68,9 +67,3 @@ export function registerModel(provider: string, model: Model<Api>): void {
 export function unregisterModel(provider: string, modelId: string): void {
   modelRuntime.unregisterModel(provider, modelId);
 }
-
-export {
-  clampThinkingLevel,
-  getSupportedThinkingLevels,
-  supportsXhigh,
-} from "./thinking-levels.js";

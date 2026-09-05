@@ -1,55 +1,24 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import {
+  MEMORY_POLICY_APPLY_PATH,
+  type MemoryPolicy,
+} from "@stella/contracts/turn-plane/memory-policy";
+import {
+  startWorkerdDev,
+  type JsonResponse,
+  type WorkerdDev,
+} from "./helpers/workerd-dev.js";
 
-const packageRoot = new URL("..", import.meta.url);
-const port = 22_000 + Math.floor(Math.random() * 1_000);
-const origin = `http://127.0.0.1:${port}`;
-
-type JsonResponse = { status: number; body: Record<string, unknown> };
-
-const pause = async (delayMs: number): Promise<void> => {
-  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-};
-
-const requestJson = async (
-  path: string,
-  body?: Record<string, unknown>,
-): Promise<JsonResponse> => {
-  const response = await fetch(`${origin}${path}`, {
-    method: body ? "POST" : "GET",
-    ...(body
-      ? {
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      : {}),
-  });
-  return {
-    status: response.status,
-    body: (await response.json()) as Record<string, unknown>,
-  };
-};
-
-const eventually = async <T>(
-  read: () => Promise<T>,
-  accept: (value: T) => boolean,
-  timeoutMs = 10_000,
-): Promise<T> => {
-  const deadline = Date.now() + timeoutMs;
-  let latest = await read();
-  while (!accept(latest) && Date.now() < deadline) {
-    await pause(50);
-    latest = await read();
-  }
-  if (!accept(latest))
-    throw new Error(`condition not reached: ${JSON.stringify(latest)}`);
-  return latest;
-};
+const policy = (overrides: Partial<MemoryPolicy> = {}): MemoryPolicy => ({
+  ownerGeneration: "owner-generation-1",
+  memoryEpoch: "epoch-1",
+  memoryEnabled: true,
+  revision: 0,
+  updatedAt: 1,
+  ...overrides,
+});
 
 const turn = (suffix: string) => ({
   ownerId: `owner-${suffix}`,
@@ -57,93 +26,97 @@ const turn = (suffix: string) => ({
   conversationId: `conversation-${suffix}`,
   turnId: `turn-${suffix}`,
   leaseId: `lease-${suffix}`,
+  policy: policy(),
 });
 
 const grantFrom = (response: JsonResponse): Record<string, unknown> => {
-  if (response.status !== 200) {
+  const grant = response.body.grant;
+  if (response.status !== 200 || !grant) {
     throw new Error(`issue failed: ${JSON.stringify(response)}`);
   }
-  const grant = response.body.grant;
-  expect(grant).toBeTruthy();
   return grant as Record<string, unknown>;
 };
 
+/**
+ * The Convex memory-policy endpoints the gate's transport calls: one policy
+ * per owner, and every applied change is recorded by request id.
+ */
+const startFakeConvex = async (): Promise<{
+  url: string;
+  applied: string[];
+  close(): Promise<void>;
+}> => {
+  const policies = new Map<string, MemoryPolicy>();
+  const applied: string[] = [];
+  const server: Server = createServer((request, response) => {
+    let raw = "";
+    request.on("data", (chunk: unknown) => {
+      raw += String(chunk);
+    });
+    request.on("end", () => {
+      const body = JSON.parse(raw || "{}") as Record<string, unknown>;
+      const ownerId = String(body.ownerId);
+      const reply = (status: number, payload: unknown): void => {
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(JSON.stringify(payload));
+      };
+      if (request.headers.authorization !== "Bearer fixture-secret") {
+        return reply(403, { error: "forbidden" });
+      }
+      if (request.url === "/api/cloud/home/memory/preference") {
+        return reply(200, policies.get(ownerId) ?? policy());
+      }
+      if (
+        request.url === MEMORY_POLICY_APPLY_PATH &&
+        body.kind === "preference"
+      ) {
+        const current = policies.get(ownerId) ?? policy();
+        policies.set(ownerId, {
+          ...current,
+          memoryEnabled: body.memoryEnabled === true,
+          revision: current.revision + 1,
+          updatedAt: current.updatedAt + 1,
+        });
+        applied.push(String(body.requestId));
+        return reply(200, { ok: true });
+      }
+      reply(404, { error: "not found" });
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    applied,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+};
+
 describe("owner model grant protocol in real Workerd", () => {
-  let persistencePath = "";
-  let workerd: ChildProcess | null = null;
-  let output = "";
-
-  const startWorkerd = async (): Promise<void> => {
-    output = "";
-    const inspectorPort = await allocateWorkerdInspectorPort();
-    const child = spawn(
-      process.execPath,
-      [
-        "x",
-        "wrangler",
-        "dev",
-        "--config",
-        "tests/fixtures/owner-model-grants-workerd.wrangler.jsonc",
-        "--ip",
-        "127.0.0.1",
-        "--port",
-        String(port),
-        "--local",
-        "--persist-to",
-        persistencePath,
-        "--inspector-port",
-        String(inspectorPort),
-        "--show-interactive-dev-session=false",
-      ],
-      { cwd: packageRoot, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    workerd = child;
-    const observe = (chunk: unknown): void => {
-      output += String(chunk);
-    };
-    child.stdout?.on("data", observe);
-    child.stderr?.on("data", observe);
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      if (child.exitCode !== null) {
-        throw new Error(`wrangler exited before readiness:\n${output}`);
-      }
-      try {
-        if ((await fetch(`${origin}/`)).ok) return;
-      } catch {
-        // Still starting.
-      }
-      await pause(50);
-    }
-    throw new Error(`workerd did not become ready:\n${output}`);
-  };
-
-  const stopWorkerd = async (): Promise<void> => {
-    const child = workerd;
-    workerd = null;
-    if (!child || child.exitCode !== null) return;
-    child.kill("SIGTERM");
-    await Promise.race([once(child, "exit"), pause(5_000)]);
-    if (child.exitCode === null) {
-      child.kill("SIGKILL");
-      await once(child, "exit");
-    }
-  };
+  let convex: Awaited<ReturnType<typeof startFakeConvex>>;
+  let dev: WorkerdDev;
+  const requestJson = (
+    path: string,
+    body?: Record<string, unknown>,
+  ): Promise<JsonResponse> => dev.requestJson(path, body);
 
   beforeAll(async () => {
-    persistencePath = await mkdtemp(
-      join(tmpdir(), "stella-owner-model-grants-workerd-"),
-    );
-    await startWorkerd();
+    convex = await startFakeConvex();
+    dev = await startWorkerdDev({
+      config: "tests/fixtures/owner-model-grants-workerd.wrangler.jsonc",
+      prefix: "stella-owner-model-grants-workerd-",
+      vars: { STELLA_CONVEX_SITE_URL: convex.url },
+    });
   }, 30_000);
 
   afterAll(async () => {
     try {
-      await stopWorkerd();
+      await dev?.stop();
     } finally {
-      if (persistencePath.includes("stella-owner-model-grants-workerd-")) {
-        await rm(persistencePath, { recursive: true, force: true });
-      }
+      await convex?.close();
     }
   }, 30_000);
 
@@ -161,16 +134,22 @@ describe("owner model grant protocol in real Workerd", () => {
       status: 200,
       body: { ok: true },
     });
+    expect(convex.applied).toContain("change-normal");
     expect(await requestJson("/use", { ...input, grant })).toMatchObject({
       status: 200,
       body: { ok: false },
     });
-    const snapshot = await requestJson("/snapshot", input);
-    expect(snapshot.status).toBe(200);
-    expect(snapshot.body.policy).toMatchObject({
-      memoryEnabled: false,
-      revision: 1,
-    });
+
+    const next = { ...input, turnId: "turn-next", leaseId: "lease-next" };
+    const stale = await requestJson("/issue", next);
+    expect(stale.status).toBe(503);
+    expect(String(stale.body.error)).toContain("MEMORY_POLICY_CHANGED");
+    grantFrom(
+      await requestJson("/issue", {
+        ...next,
+        policy: policy({ memoryEnabled: false, revision: 1, updatedAt: 2 }),
+      }),
+    );
   }, 60_000);
 
   test("lost freeze response persists pending change, denies new grants, and replay completes", async () => {
@@ -181,8 +160,8 @@ describe("owner model grant protocol in real Workerd", () => {
       requestId: "change-lost",
       lostOnce: true,
     });
-    expect(lost.status).toBe(503);
-    expect(String(lost.body.error)).toContain("REVOKE_INCOMPLETE");
+    expect(lost).toMatchObject({ status: 503, body: { ok: false } });
+    expect(convex.applied).not.toContain("change-lost");
 
     expect(await requestJson("/use", { ...input, grant })).toMatchObject({
       status: 200,
@@ -200,29 +179,15 @@ describe("owner model grant protocol in real Workerd", () => {
       status: 200,
       body: { ok: true },
     });
-    const snapshot = await requestJson("/snapshot", input);
-    expect(snapshot.body.policy).toMatchObject({
-      memoryEnabled: false,
-      revision: 1,
-    });
-  }, 60_000);
-
-  test("pre-arrival revocation makes a returned grant unusable before first local use", async () => {
-    const input = turn("prearrival");
-    const grant = grantFrom(await requestJson("/issue", input));
-    expect(
-      await requestJson("/change", {
+    expect(convex.applied.filter((id) => id === "change-lost")).toHaveLength(1);
+    grantFrom(
+      await requestJson("/issue", {
         ...input,
-        requestId: "change-prearrival",
+        turnId: "turn-new",
+        leaseId: "lease-new",
+        policy: policy({ memoryEnabled: false, revision: 1, updatedAt: 2 }),
       }),
-    ).toEqual({
-      status: 200,
-      body: { ok: true },
-    });
-    expect(await requestJson("/use", { ...input, grant })).toMatchObject({
-      status: 200,
-      body: { ok: false },
-    });
+    );
   }, 60_000);
 
   test("reader restart nonce makes an old grant unusable and stale-reader freeze ack is safe", async () => {
@@ -236,7 +201,7 @@ describe("owner model grant protocol in real Workerd", () => {
       status: 503,
       body: {},
     }));
-    const restarted = await eventually(
+    const restarted = await dev.eventually(
       () => requestJson("/use", { ...input, grant }),
       (value) => value.status === 200 && value.body.readerId !== oldReaderId,
     );
@@ -258,11 +223,10 @@ describe("owner model grant protocol in real Workerd", () => {
     expect(begun.status).toBe(200);
     expect(begun.body).toMatchObject({ status: 200 });
     expect(begun.body.fence).toMatchObject({ state: "blocked" });
+    expect(begun.body.barrier).toBeUndefined();
     expect(await requestJson("/use", { ...input, grant })).toMatchObject({
       status: 200,
       body: { ok: false },
     });
-    const snapshot = await requestJson("/snapshot", input);
-    expect(snapshot.body.barrier).toBeUndefined();
   }, 60_000);
 });

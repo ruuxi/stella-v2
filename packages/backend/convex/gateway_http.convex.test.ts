@@ -9,6 +9,7 @@ import { STATIC_MANAGED_MODEL_PRICE_OVERRIDES } from "@stella/model-catalog/pric
 import {
   CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
+  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
   CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   type GatewayUsageEvent,
@@ -211,6 +212,55 @@ describe("gateway service authentication", () => {
       headers: { authorization: `Bearer ${SERVICE_SECRET}` },
     });
     expect(disabled.status).toBe(503);
+  });
+});
+
+describe("GET /api/gateway/owner-enforcement", () => {
+  it("requires the gateway bearer and returns the authoritative versioned state", async () => {
+    const t = await createTest();
+    const unauthenticated = await t.fetch(
+      `${CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH}?ownerId=${encodeURIComponent(OWNER_ID)}`,
+      { method: "GET" },
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const absent = await t.fetch(
+      `${CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH}?ownerId=${encodeURIComponent(OWNER_ID)}`,
+      { method: "GET", headers: serviceHeaders },
+    );
+    expect(absent.status).toBe(200);
+    expect(await absent.json()).toEqual({
+      enforcement: { status: "ok" },
+      updatedAt: null,
+    });
+
+    const changed = await t.mutation(
+      internal.owner_enforcement.setOwnerEnforcementInternal,
+      {
+        ownerId: OWNER_ID,
+        status: "suspended",
+        reason: "test enforcement",
+        actor: "test",
+      },
+    );
+    const response = await t.fetch(
+      `${CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH}?ownerId=${encodeURIComponent(OWNER_ID)}`,
+      { method: "GET", headers: serviceHeaders },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      enforcement: { status: "suspended", reason: "test enforcement" },
+      updatedAt: changed.updatedAt,
+    });
+  });
+
+  it("rejects a missing owner id", async () => {
+    const t = await createTest();
+    const response = await t.fetch(CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH, {
+      method: "GET",
+      headers: serviceHeaders,
+    });
+    expect(response.status).toBe(400);
   });
 });
 

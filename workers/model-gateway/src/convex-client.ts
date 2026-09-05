@@ -5,6 +5,7 @@ import type {
 import {
   CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
+  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
   CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   type ConvexEngineAccessRequest,
@@ -13,6 +14,7 @@ import {
   type GatewayConfigSnapshot,
   type GatewayUsageBatch,
   type GatewayUsageBatchResult,
+  type ConvexOwnerEnforcementState,
 } from "@stella/contracts/gateway/usage";
 
 /**
@@ -46,6 +48,7 @@ export type ConvexClient = {
     request: ConvexEngineAccessRequest,
   ): Promise<ConvexResult<ConvexEngineAccessResponse>>;
   config(): Promise<ConvexResult<GatewayConfigSnapshot>>;
+  ownerEnforcement(ownerId: string): Promise<ConvexResult<ConvexOwnerEnforcementState>>;
   usage(
     batch: GatewayUsageBatch,
   ): Promise<ConvexResult<GatewayUsageBatchResult>>;
@@ -164,6 +167,11 @@ export const createConvexClient = (
       ),
     config: () =>
       call<GatewayConfigSnapshot>(CONVEX_GATEWAY_CONFIG_PATH, "GET"),
+    ownerEnforcement: (ownerId) =>
+      call<ConvexOwnerEnforcementState>(
+        `${CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH}?ownerId=${encodeURIComponent(ownerId)}`,
+        "GET",
+      ),
     usage: (batch) =>
       call<GatewayUsageBatchResult>(CONVEX_GATEWAY_USAGE_PATH, "POST", batch),
   };

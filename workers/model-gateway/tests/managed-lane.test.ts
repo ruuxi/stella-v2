@@ -7,7 +7,10 @@ import {
   GATEWAY_TRACE_HEADER,
   type GatewayModelResolution,
 } from "@stella/contracts/gateway/api";
-import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
+import {
+  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+  type GatewayUsageEvent,
+} from "@stella/contracts/gateway/usage";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
 import type { RelayTiming } from "../src/relay-timing.js";
@@ -145,6 +148,10 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
   const harness = createTestEnv(envOverrides);
   const fetchMock = createFetchMock()
     .on(
+      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      () => json({ enforcement: { status: "ok" }, updatedAt: null }),
+    )
+    .on(
       (call) => call.url.pathname === "/api/gateway/config",
       () => json(configSnapshot()),
     )
@@ -165,6 +172,8 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
     {
       matchesOwner: candidate => candidate === owner,
       accounting,
+      ownerEnforcement: (ownerId, now) =>
+        accounting.admitOwnerEnforcement(ownerId, now, fetchMock.fetch),
       cancellation: {
         begin: identity => accounting.beginManagedRequest(identity),
         release: key => accounting.releaseManagedRequest(key),
@@ -1498,6 +1507,262 @@ describe("atomic owner relay accounting", () => {
 });
 
 describe("owner-local model execution", () => {
+  test("bootstraps authoritative enforcement once for repeated owner requests", async () => {
+    const ctx = setup();
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const send = () => ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }));
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    expect(ctx.fetchMock.calls.filter(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+    )).toHaveLength(1);
+    expect(ctx.harness.enforcementCalls.filter(call => call.kind === "get")).toHaveLength(0);
+  });
+
+  test("upgrades a legacy KV-seeded marker through the authoritative read", async () => {
+    const ctx = setup();
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    const state = ctx.harness.ownerGate.states.get(OWNER_ID);
+    if (!state) throw new Error("expected owner state");
+    const staleUpdatedAt = Date.now() - 1_000;
+    state.storage.sql.exec(
+      `INSERT INTO owner_enforcement_state
+        (singleton, status, until_at, updated_at, expires_at) VALUES (1, 'ok', NULL, ?, ?)`,
+      staleUpdatedAt,
+      staleUpdatedAt + 7 * 24 * 60 * 60 * 1_000,
+    );
+    state.storage.sql.exec(
+      "INSERT INTO owner_enforcement_meta(singleton, initialized) VALUES (1, 1)",
+    );
+    ctx.fetchMock.on(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      () => json({ enforcement: { status: "suspended" }, updatedAt: Date.now() }),
+    );
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const response = await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }));
+    expect(owner).toBeDefined();
+    expect(response.status).toBe(403);
+    expect(ctx.fetchMock.calls.filter(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+    )).toHaveLength(1);
+  });
+
+  test("does not let a delayed push certify a newer legacy seed", async () => {
+    const ctx = setup();
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    const state = ctx.harness.ownerGate.states.get(OWNER_ID);
+    if (!state) throw new Error("expected owner state");
+    const staleUpdatedAt = Date.now() - 1_000;
+    state.storage.sql.exec(
+      `INSERT INTO owner_enforcement_state
+        (singleton, status, until_at, updated_at, expires_at) VALUES (1, 'ok', NULL, ?, ?)`,
+      staleUpdatedAt,
+      staleUpdatedAt + 7 * 24 * 60 * 60 * 1_000,
+    );
+    state.storage.sql.exec(
+      "INSERT INTO owner_enforcement_meta(singleton, initialized) VALUES (1, 1)",
+    );
+    await owner.applyOwnerEnforcement({
+      status: "ok",
+      updatedAt: staleUpdatedAt - 1,
+      expiresAt: staleUpdatedAt + 7 * 24 * 60 * 60 * 1_000,
+    });
+    ctx.fetchMock.on(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      () => json({ enforcement: { status: "suspended" }, updatedAt: Date.now() }),
+    );
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    expect((await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }))).status).toBe(403);
+    expect(ctx.fetchMock.calls.filter(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+    )).toHaveLength(1);
+  });
+
+  test("uses authoritative suspension state rather than an eventual KV mirror", async () => {
+    const ctx = setup();
+    ctx.harness.enforcementValues.set(OWNER_ID, JSON.stringify({ status: "ok", updatedAt: 1 }));
+    ctx.fetchMock.on(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      () => json({
+        enforcement: { status: "suspended" },
+        updatedAt: Date.now() - 1_000,
+      }),
+    );
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const response = await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }));
+    expect(response.status).toBe(403);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+    expect(ctx.harness.enforcementCalls.filter(call => call.kind === "get")).toHaveLength(0);
+  });
+
+  test("keeps the seven-day expiry anchored to the authoritative update", async () => {
+    const ctx = setup();
+    ctx.fetchMock.on(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      () => json({
+        enforcement: { status: "suspended" },
+        updatedAt: Date.now() - 7 * 24 * 60 * 60 * 1_000 - 1,
+      }),
+    );
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    expect((await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }))).status).toBe(200);
+  });
+
+  test("fails closed on malformed authoritative enforcement", async () => {
+    const responses = [
+      { enforcement: { status: "suspended" }, updatedAt: "not-a-timestamp" },
+      { enforcement: { status: "unknown" }, updatedAt: Date.now() },
+      { enforcement: { status: "ok", until: "not-a-timestamp" }, updatedAt: Date.now() },
+      { enforcement: { status: "ok", reason: 1 }, updatedAt: Date.now() },
+      { enforcement: { status: "suspended" }, updatedAt: null },
+    ];
+    for (const body of responses) {
+      const ctx = setup();
+      ctx.fetchMock.on(
+        call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+        () => json(body),
+      );
+      const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+      const response = await ctx.run(relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders(),
+      }));
+      expect(response.status).toBe(500);
+      expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+    }
+  });
+
+  test("uses ordered durable enforcement without an authoritative read after push", async () => {
+    const ctx = setup();
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    const expiresAt = Date.now() + 60_000;
+    await owner.applyOwnerEnforcement({
+      status: "suspended",
+      updatedAt: 20,
+      expiresAt,
+    });
+    expect(await owner.applyOwnerEnforcement({
+      status: "ok",
+      updatedAt: 21,
+      expiresAt,
+    })).toMatchObject({ status: "ok", updatedAt: 21 });
+    expect(await owner.applyOwnerEnforcement({
+      status: "suspended",
+      updatedAt: 20,
+      expiresAt,
+    })).toMatchObject({ status: "ok", updatedAt: 21 });
+
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const response = await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }));
+    expect(response.status).toBe(200);
+    expect(ctx.fetchMock.calls.filter(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+    )).toHaveLength(0);
+  });
+
+  test("an expired durable suspension allows dispatch but rejects stale revival", async () => {
+    const ctx = setup();
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    await owner.applyOwnerEnforcement({
+      status: "suspended",
+      updatedAt: 30,
+      expiresAt: Date.now() - 1,
+    });
+    expect(await owner.applyOwnerEnforcement({
+      status: "suspended",
+      updatedAt: 29,
+      expiresAt: Date.now() + 60_000,
+    })).toMatchObject({ updatedAt: 30 });
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    expect((await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }))).status).toBe(200);
+  });
+
+  test("fails closed when the one-time enforcement bootstrap fails", async () => {
+    const ctx = setup();
+    ctx.fetchMock.on(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      () => { throw new Error("Convex unavailable"); },
+    );
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const response = await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }));
+    expect(response.status).toBe(500);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+
+  test("a push arriving during bootstrap wins over the delayed authoritative read", async () => {
+    const ctx = setup();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<Response>();
+    ctx.fetchMock.on(
+      call => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      async () => {
+        entered.resolve();
+        return await release.promise;
+      },
+    );
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const pending = ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders(),
+    }));
+    await entered.promise;
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    await owner.applyOwnerEnforcement({
+      status: "ok",
+      updatedAt: 41,
+      expiresAt: Date.now() + 60_000,
+    });
+    release.resolve(json({
+      enforcement: { status: "suspended" },
+      updatedAt: 40,
+    }));
+    expect((await pending).status).toBe(200);
+  });
+
   test("a pre-arrival cancellation tombstone blocks the exact request before provider dispatch", async () => {
     const ctx = setup();
     const { token, claims } = await signTurn({ ledgerScope: "owner-relay-v2" });
@@ -1707,7 +1972,7 @@ describe("validated descriptor relay", () => {
 });
 
 describe("acknowledged owner preparation", () => {
-  test("owner preparation restores shared config without an authoritative pull", async () => {
+  test("owner preparation restores shared config after enforcement was already pushed", async () => {
     const snapshot = configSnapshot({
       tierCeilings: [
         { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
@@ -1733,6 +1998,11 @@ describe("acknowledged owner preparation", () => {
     const owner = ctx.harness.ownerGate.namespace.get(
       ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
     );
+    await owner.applyOwnerEnforcement({
+      status: "ok",
+      updatedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    });
     await owner.prepare(OWNER_ID, "shared-prepare-test");
     expect(sharedReads).toBe(1);
     expect(ctx.fetchMock.calls.filter(

@@ -13,6 +13,10 @@ export type LocalOwnerRelay = {
   accounting: OwnerRelayAccounting;
   instanceId?: string;
   configStorage?: GatewayConfigStorage;
+  ownerEnforcement?: (
+    ownerId: string,
+    now: number,
+  ) => Promise<import("./owner-enforcement.js").OwnerEnforcementAdmission>;
   cancellation?: {
     begin(identity: ManagedCancellationIdentity):
       | { canceled: true }
@@ -519,6 +523,7 @@ const handleRelay = async (
       ownerAccounting: localOwner?.accounting,
       configStorage: localOwner?.configStorage,
       sharedConfig: sharedGatewayConfigStore(env),
+      ownerEnforcement: localOwner?.ownerEnforcement,
     });
     status = response.status;
     if (cancellationKey && localOwner?.cancellation) {

@@ -83,6 +83,8 @@ export const CONVEX_GATEWAY_SESSION_CAPABILITY_PATH =
   "/api/gateway/session-capability" as const;
 export const CONVEX_GATEWAY_ENGINE_ACCESS_PATH =
   "/api/gateway/engine-access" as const;
+export const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH =
+  "/api/gateway/owner-enforcement" as const;
 
 // ---------------------------------------------------------------------------
 // Owner enforcement (suspension / throttling), pushed Convex -> gateway.
@@ -102,6 +104,13 @@ export type OwnerEnforcement = {
   /** Absolute ms timestamp the status expires back to `ok`; absent means until cleared. */
   until?: number;
   reason?: string;
+};
+
+/** Authenticated one-owner enforcement read used to seed a gateway owner DO. */
+export type ConvexOwnerEnforcementState = {
+  enforcement: OwnerEnforcement;
+  /** Null means this owner has never had an enforcement row. */
+  updatedAt: number | null;
 };
 
 /** `POST {gateway}/internal/owners/enforcement` body (GATEWAY_SERVICE_SECRET). */

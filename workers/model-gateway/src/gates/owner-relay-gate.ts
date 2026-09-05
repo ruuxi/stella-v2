@@ -4,7 +4,13 @@ import { handleRequest } from "../router.js";
 import { defaultDeps } from "../request-util.js";
 import { getGatewayConfig, GATEWAY_CONFIG_STORAGE_KEY, type GatewayConfigStorage } from "../config-cache.js";
 import { createConvexClient } from "../convex-client.js";
-import { ownerEnforcementAdmission } from "../owner-enforcement.js";
+import {
+  DEFAULT_ENFORCEMENT_TTL_SECONDS,
+  enforcementAdmissionForRecord,
+  parseStoredOwnerEnforcement,
+  type OwnerEnforcementAdmission,
+  type StoredOwnerEnforcement,
+} from "../owner-enforcement.js";
 import { sharedGatewayConfigStore } from "../shared-config.js";
 import {
   GATEWAY_OWNER_RELAY_LIMITS,
@@ -23,6 +29,7 @@ import {
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
+const OWNER_ENFORCEMENT_INITIALIZATION_VERSION = 2;
 export const OWNER_IN_FLIGHT_ABANDON_AFTER_MS =
   GATEWAY_UPSTREAM_MAX_DURATION_MS + MINUTE_MS;
 
@@ -47,6 +54,41 @@ type CountRow = { count: number };
 type OldestRow = { oldest: number | null };
 type InFlightRow = { started_at: number };
 
+const parseAuthoritativeOwnerEnforcement = (
+  value: unknown,
+): StoredOwnerEnforcement | null | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const updatedAt = Reflect.get(value, "updatedAt");
+  const enforcement = Reflect.get(value, "enforcement");
+  if (
+    (updatedAt !== null &&
+      (typeof updatedAt !== "number" || !Number.isFinite(updatedAt))) ||
+    !enforcement ||
+    typeof enforcement !== "object" ||
+    Array.isArray(enforcement)
+  ) return undefined;
+  const status = Reflect.get(enforcement, "status");
+  const until = Reflect.get(enforcement, "until");
+  const reason = Reflect.get(enforcement, "reason");
+  if (
+    (until !== undefined &&
+      (typeof until !== "number" || !Number.isFinite(until))) ||
+    (reason !== undefined && typeof reason !== "string")
+  ) return undefined;
+  if (updatedAt === null) {
+    return status === "ok" ? null : undefined;
+  }
+  return parseStoredOwnerEnforcement(JSON.stringify({
+    status,
+    ...(typeof until === "number" ? { until } : {}),
+    updatedAt,
+    expiresAt:
+      typeof until === "number"
+        ? until
+        : updatedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000,
+  })) ?? undefined;
+};
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS in_flight (
     request_id TEXT PRIMARY KEY,
@@ -70,6 +112,17 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS managed_cancellations_expiry
     ON managed_cancellations(expires_at)`,
+  `CREATE TABLE IF NOT EXISTS owner_enforcement_state (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    status TEXT NOT NULL,
+    until_at INTEGER,
+    updated_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS owner_enforcement_meta (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    initialized INTEGER NOT NULL
+  )`,
 ];
 
 const scaledLimit = (limit: number, throttled: boolean): number =>
@@ -85,6 +138,7 @@ export class OwnerRelayGate extends DurableObject<Env> {
     string,
     { controller: AbortController; references: number }
   >();
+  private enforcementInitialization?: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -103,6 +157,8 @@ export class OwnerRelayGate extends DurableObject<Env> {
       accounting: this,
       instanceId: this.instanceId,
       configStorage: this.configStorage,
+      ownerEnforcement: (ownerId, now) =>
+        this.admitOwnerEnforcement(ownerId, now),
       cancellation: {
         begin: identity => this.beginManagedRequest(identity),
         release: key => this.releaseManagedRequest(key),
@@ -116,6 +172,105 @@ export class OwnerRelayGate extends DurableObject<Env> {
       read: () => this.ctx.storage.kv.get(GATEWAY_CONFIG_STORAGE_KEY),
       write: record => this.ctx.storage.kv.put(GATEWAY_CONFIG_STORAGE_KEY, record),
     };
+  }
+
+  private enforcementRecord(): StoredOwnerEnforcement | null {
+    const row = this.ctx.storage.sql.exec<{
+      status: string;
+      until_at: number | null;
+      updated_at: number;
+      expires_at: number;
+    }>("SELECT status, until_at, updated_at, expires_at FROM owner_enforcement_state WHERE singleton = 1").toArray()[0];
+    if (!row) return null;
+    return parseStoredOwnerEnforcement(JSON.stringify({
+      status: row.status,
+      ...(row.until_at === null ? {} : { until: row.until_at }),
+      updatedAt: row.updated_at,
+      expiresAt: row.expires_at,
+    }));
+  }
+
+  private applyOwnerEnforcementSync(record: StoredOwnerEnforcement): StoredOwnerEnforcement {
+    const current = this.enforcementRecord();
+    if (!current || record.updatedAt > current.updatedAt) {
+      const normalized = {
+        ...record,
+        expiresAt:
+          record.expiresAt ??
+          record.until ??
+          record.updatedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000,
+      };
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO owner_enforcement_state
+          (singleton, status, until_at, updated_at, expires_at) VALUES (1, ?, ?, ?, ?)`,
+        normalized.status,
+        normalized.until ?? null,
+        normalized.updatedAt,
+        normalized.expiresAt,
+      );
+      return normalized;
+    }
+    return current;
+  }
+
+  async applyOwnerEnforcement(input: StoredOwnerEnforcement): Promise<StoredOwnerEnforcement> {
+    const record = parseStoredOwnerEnforcement(JSON.stringify(input));
+    if (!record || typeof record.expiresAt !== "number") {
+      throw new Error("Owner enforcement update is invalid.");
+    }
+    const current = this.enforcementRecord();
+    const applied = this.applyOwnerEnforcementSync(record);
+    // A delayed authenticated push cannot attest to a newer legacy KV seed.
+    // Leave its v1 marker for the authoritative bootstrap in that case.
+    if (!current || record.updatedAt >= current.updatedAt) {
+      this.ctx.storage.sql.exec(
+        "INSERT OR REPLACE INTO owner_enforcement_meta(singleton, initialized) VALUES (1, ?)",
+        OWNER_ENFORCEMENT_INITIALIZATION_VERSION,
+      );
+    }
+    return applied;
+  }
+
+  private async initializeOwnerEnforcement(
+    ownerId: string,
+    fetchImpl: typeof fetch = fetch,
+  ): Promise<void> {
+    const initialized = this.ctx.storage.sql.exec<{ initialized: number }>(
+      "SELECT initialized FROM owner_enforcement_meta WHERE singleton = 1",
+    ).toArray()[0];
+    if (
+      initialized?.initialized !== undefined &&
+      initialized.initialized >= OWNER_ENFORCEMENT_INITIALIZATION_VERSION
+    ) return;
+    // KV is an eventual compatibility mirror. Bootstrap from Convex so a
+    // rollout read cannot permanently seed this durable owner state stale.
+    const result = await createConvexClient(this.env, fetchImpl).ownerEnforcement(ownerId);
+    if (!result.ok) throw new Error("Owner enforcement bootstrap unavailable.");
+    const authoritative = parseAuthoritativeOwnerEnforcement(result.body);
+    if (authoritative === undefined) {
+      throw new Error("Owner enforcement bootstrap response is invalid.");
+    }
+    if (authoritative) this.applyOwnerEnforcementSync(authoritative);
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO owner_enforcement_meta(singleton, initialized) VALUES (1, ?)",
+      OWNER_ENFORCEMENT_INITIALIZATION_VERSION,
+    );
+  }
+
+  async admitOwnerEnforcement(
+    ownerId: string,
+    now: number,
+    fetchImpl: typeof fetch = fetch,
+  ): Promise<OwnerEnforcementAdmission> {
+    if (this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !== this.ctx.id.toString()) {
+      throw new Error("Owner enforcement identity does not match.");
+    }
+    this.enforcementInitialization ??= this.initializeOwnerEnforcement(ownerId, fetchImpl).catch(error => {
+      this.enforcementInitialization = undefined;
+      throw error;
+    });
+    await this.enforcementInitialization;
+    return enforcementAdmissionForRecord(this.enforcementRecord(), now);
   }
 
   async prepare(ownerId?: string, traceId?: string): Promise<void> {
@@ -145,9 +300,7 @@ export class OwnerRelayGate extends DurableObject<Env> {
         (async () => {
           const enforcementStartedAt = performance.now();
           try {
-            // Warm the existing 60-second KV cache. Inference still performs
-            // its normal read; no independent permission snapshot is kept.
-            if (ownerId) await ownerEnforcementAdmission(this.env, ownerId, Date.now());
+            if (ownerId) await this.admitOwnerEnforcement(ownerId, Date.now());
           } finally { durations.enforcementMs = performance.now() - enforcementStartedAt; }
         })(),
       ]);

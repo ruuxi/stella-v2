@@ -7,13 +7,15 @@ import { GatewayError, jsonResponse } from "./errors.js";
 import { bearerToken } from "./capability.js";
 import { readJsonObject, type GatewayDeps } from "./request-util.js";
 
-const DEFAULT_ENFORCEMENT_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const DEFAULT_ENFORCEMENT_TTL_SECONDS = 7 * 24 * 60 * 60;
 const KV_MINIMUM_TTL_SECONDS = 60;
 
-type StoredOwnerEnforcement = {
+export type StoredOwnerEnforcement = {
   status: OwnerEnforcementStatus;
   until?: number;
   updatedAt: number;
+  /** Effective expiry for statuses without an explicit `until`. */
+  expiresAt?: number;
 };
 
 export type OwnerEnforcementAdmission = {
@@ -24,6 +26,51 @@ export type OwnerEnforcementAdmission = {
 const isStatus = (value: unknown): value is OwnerEnforcementStatus =>
   typeof value === "string" &&
   (OWNER_ENFORCEMENT_STATUSES as readonly string[]).includes(value);
+
+export const parseStoredOwnerEnforcement = (
+  value: string,
+): StoredOwnerEnforcement | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const status = Reflect.get(parsed, "status");
+  const until = Reflect.get(parsed, "until");
+  const updatedAt = Reflect.get(parsed, "updatedAt");
+  const expiresAt = Reflect.get(parsed, "expiresAt");
+  if (
+    !isStatus(status) ||
+    typeof updatedAt !== "number" ||
+    !Number.isFinite(updatedAt) ||
+    (until !== undefined &&
+      (typeof until !== "number" || !Number.isFinite(until))) ||
+    (expiresAt !== undefined &&
+      (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)))
+  ) return null;
+  return {
+    status,
+    updatedAt,
+    ...(typeof until === "number" ? { until } : {}),
+    ...(typeof expiresAt === "number" ? { expiresAt } : {}),
+  };
+};
+
+export const enforcementAdmissionForRecord = (
+  stored: StoredOwnerEnforcement | null,
+  now: number,
+): OwnerEnforcementAdmission => {
+  if (!stored || stored.status === "ok") return { suspended: false, throttled: false };
+  const effectiveUntil = stored.until ?? stored.expiresAt ??
+    stored.updatedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000;
+  if (effectiveUntil <= now) return { suspended: false, throttled: false };
+  return {
+    suspended: stored.status === "suspended",
+    throttled: stored.status === "throttled",
+  };
+};
 
 const parseRequest = (
   body: Record<string, unknown>,
@@ -91,25 +138,7 @@ export const ownerEnforcementAdmission = async (
 ): Promise<OwnerEnforcementAdmission> => {
   const stored = await env.OWNER_ENFORCEMENT.get(ownerId, { cacheTtl: 60 });
   if (!stored) return { suspended: false, throttled: false };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return { suspended: false, throttled: false };
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { suspended: false, throttled: false };
-  }
-  const status = Reflect.get(parsed, "status");
-  const until = Reflect.get(parsed, "until");
-  if (!isStatus(status)) return { suspended: false, throttled: false };
-  if (typeof until === "number" && Number.isFinite(until) && until <= now) {
-    return { suspended: false, throttled: false };
-  }
-  return {
-    suspended: status === "suspended",
-    throttled: status === "throttled",
-  };
+  return enforcementAdmissionForRecord(parseStoredOwnerEnforcement(stored), now);
 };
 
 export const handleOwnerEnforcement = async (args: {
@@ -128,23 +157,28 @@ export const handleOwnerEnforcement = async (args: {
     );
   }
   const body = parseRequest(await readJsonObject(args.request));
-  if (body.enforcement.status === "ok") {
-    await args.env.OWNER_ENFORCEMENT.delete(body.ownerId);
-  } else {
-    const until = body.enforcement.until;
+  const receivedAt = args.deps.now();
+  const until = body.enforcement.until;
+  const expiresAt = until ?? receivedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000;
+  const authoritative = await args.env.OWNER_RELAY_GATE.get(
+    args.env.OWNER_RELAY_GATE.idFromName(body.ownerId),
+  ).applyOwnerEnforcement({
+    status: body.enforcement.status,
+    ...(until !== undefined ? { until } : {}),
+    updatedAt: body.updatedAt,
+    expiresAt,
+  });
+  // KV remains an eventual compatibility mirror for legacy/native routes.
+  // The owner DO is the ordered authority for owner-relay-v2 requests.
+  {
     const expirationTtl =
-      until === undefined
+      authoritative.until === undefined
         ? DEFAULT_ENFORCEMENT_TTL_SECONDS
         : Math.max(
             KV_MINIMUM_TTL_SECONDS,
-            Math.ceil((until - args.deps.now()) / 1_000),
+            Math.ceil((authoritative.until - receivedAt) / 1_000),
           );
-    const stored: StoredOwnerEnforcement = {
-      status: body.enforcement.status,
-      ...(until !== undefined ? { until } : {}),
-      updatedAt: body.updatedAt,
-    };
-    await args.env.OWNER_ENFORCEMENT.put(body.ownerId, JSON.stringify(stored), {
+    await args.env.OWNER_ENFORCEMENT.put(body.ownerId, JSON.stringify(authoritative), {
       expirationTtl,
     });
   }

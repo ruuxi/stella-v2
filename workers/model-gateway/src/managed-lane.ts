@@ -399,6 +399,10 @@ export const handleManagedRelay = async (args: {
   ownerAccounting?: import("./ledger-client.js").OwnerRelayAccounting;
   configStorage?: import("./config-cache.js").GatewayConfigStorage;
   sharedConfig?: import("./shared-config.js").SharedGatewayConfigStore;
+  ownerEnforcement?: (
+    ownerId: string,
+    now: number,
+  ) => Promise<import("./owner-enforcement.js").OwnerEnforcementAdmission>;
 }): Promise<Response> => {
   const { request, env, deps, convex, traceId, protocol } = args;
   const timing = args.timing ?? new RelayTiming();
@@ -419,7 +423,9 @@ export const handleManagedRelay = async (args: {
     getGatewayConfig(convex, deps.waitUntil, deps.now, args.configStorage, args.sharedConfig),
   ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
   const enforcementWork = timing.measure("ownerEnforcementMs", () =>
-    ownerEnforcementAdmission(env, claims.sub, deps.now()),
+    args.ownerEnforcement
+      ? args.ownerEnforcement(claims.sub, deps.now())
+      : ownerEnforcementAdmission(env, claims.sub, deps.now()),
   ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
   // A speculative client may have an older catalog. Refuse it before any
   // limiter, reservation or provider request, so it can rebuild the adapter

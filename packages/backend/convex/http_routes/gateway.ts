@@ -6,6 +6,7 @@ import { CONVEX_OWNER_SNAPSHOT_PATH } from "@stella/contracts/turn-plane/owner-s
 import {
   CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
+  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
   CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   GATEWAY_USAGE_EVENT_VERSION,
@@ -13,6 +14,7 @@ import {
   type ConvexSessionCapabilityRequest,
   type GatewayConfigSnapshot,
   type GatewayUsageBatchResult,
+  type ConvexOwnerEnforcementState,
 } from "@stella/contracts/gateway/usage";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -477,6 +479,22 @@ const config = httpAction(async (ctx, request) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/gateway/owner-enforcement?ownerId=
+// ---------------------------------------------------------------------------
+
+const ownerEnforcement = httpAction(async (ctx, request) => {
+  const denied = requireGatewayServiceRequest(request);
+  if (denied) return denied;
+  const ownerId = new URL(request.url).searchParams.get("ownerId")?.trim() ?? "";
+  if (!isId(ownerId)) return json({ error: "bad_request" }, 400);
+  const result: ConvexOwnerEnforcementState = await ctx.runQuery(
+    internal.owner_enforcement.getOwnerEnforcementStateInternal,
+    { ownerId },
+  );
+  return json(result);
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/gateway/engine-access
 // ---------------------------------------------------------------------------
 
@@ -571,6 +589,11 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     path: CONVEX_GATEWAY_CONFIG_PATH,
     method: "GET",
     handler: config,
+  });
+  http.route({
+    path: CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+    method: "GET",
+    handler: ownerEnforcement,
   });
   http.route({
     path: CONVEX_GATEWAY_ENGINE_ACCESS_PATH,

@@ -39,15 +39,17 @@ describe("POST /internal/owners/enforcement", () => {
       harness.deps(createFetchMock().fetch, () => now),
     );
     expect(response.status).toBe(200);
-    expect(harness.enforcementCalls.at(-1)).toEqual({
+    expect(harness.enforcementCalls.at(-1)).toMatchObject({
       kind: "put",
       key: "owner-1",
-      value: JSON.stringify({
-        status: "suspended",
-        until: now + 120_000,
-        updatedAt: now - 1,
-      }),
       expirationTtl: 120,
+    });
+    const written = harness.enforcementCalls.at(-1);
+    expect(written?.kind === "put" ? JSON.parse(written.value) : null).toEqual({
+      status: "suspended",
+      updatedAt: now - 1,
+      until: now + 120_000,
+      expiresAt: now + 120_000,
     });
     expect(
       await ownerEnforcementAdmission(harness.env, "owner-1", now),
@@ -59,7 +61,7 @@ describe("POST /internal/owners/enforcement", () => {
     });
   });
 
-  test("stores indefinite statuses for seven days and deletes ok status", async () => {
+  test("stores indefinite statuses and ordered ok tombstones for seven days", async () => {
     const harness = createTestEnv();
     const run = (body: unknown) =>
       handleRequest(
@@ -93,10 +95,15 @@ describe("POST /internal/owners/enforcement", () => {
         })
       ).status,
     ).toBe(200);
-    expect(harness.enforcementValues.has("owner-2")).toBe(false);
-    expect(harness.enforcementCalls.at(-1)).toEqual({
-      kind: "delete",
+    expect(JSON.parse(harness.enforcementValues.get("owner-2")!)).toEqual({
+      status: "ok",
+      updatedAt: 2_000_001,
+      expiresAt: 2_000_000 + 7 * 24 * 60 * 60 * 1_000,
+    });
+    expect(harness.enforcementCalls.at(-1)).toMatchObject({
+      kind: "put",
       key: "owner-2",
+      expirationTtl: 7 * 24 * 60 * 60,
     });
   });
 

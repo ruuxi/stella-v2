@@ -1,5 +1,6 @@
 import { getModelProviders, getModels } from "../ai/models.js";
 import type { Api, Model } from "../ai/types.js";
+import { findModelCandidate } from "./model-registry-view.js";
 
 export type ParsedModelReference = {
   provider: string;
@@ -129,29 +130,5 @@ export const findRegistryModel = (
     return null;
   }
 
-  for (const candidate of requestedCandidates) {
-    const exact = models.find((model) => model.id === candidate);
-    if (exact) {
-      return exact;
-    }
-  }
-
-  for (const candidate of requestedCandidates) {
-    const canonical = models.find(
-      (model) => `${model.provider}/${model.id}` === candidate,
-    );
-    if (canonical) {
-      return canonical;
-    }
-  }
-
-  for (const candidate of requestedCandidates) {
-    const normalizedCandidate = candidate.replace(/\./g, "-");
-    const normalized = models.find((model) => model.id === normalizedCandidate);
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return null;
+  return findModelCandidate(models, requestedCandidates);
 };

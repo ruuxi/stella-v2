@@ -11,6 +11,8 @@ vi.mock("@stella/contracts/model-registry", () => ({
 }));
 
 const { Agent } = await import("../kernel/agent-core/agent.js");
+const { ExplicitModelAgent } =
+  await import("../kernel/agent-core/explicit-model-agent.js");
 
 const explicitModel = {
   id: "explicit-model",
@@ -26,8 +28,8 @@ const explicitModel = {
 } satisfies Model<Api>;
 
 describe("Agent constructor model initialization", () => {
-  it("uses an explicit initial model without reading the default registry", () => {
-    const agent = new Agent({
+  it.each([Agent, ExplicitModelAgent])("uses an explicit initial model without reading the default registry in %s", (Constructor) => {
+    const agent = new Constructor({
       initialState: {
         model: explicitModel,
         systemPrompt: "custom prompt",

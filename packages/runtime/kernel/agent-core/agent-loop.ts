@@ -29,16 +29,14 @@
  *   (`errors.ts`).
  */
 
-import {
-	Cause,
-	Deferred,
-	Effect,
-	Exit,
-	Fiber,
-	Layer,
-	ManagedRuntime,
-	Stream,
-} from "effect";
+import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Stream from "effect/Stream";
 import type {
 	AssistantMessage,
 	AssistantMessageEvent,
@@ -48,7 +46,6 @@ import type {
 import { streamSimple } from "../../ai/stream.js";
 import { EventStream } from "../../ai/utils/event-stream.js";
 import { isContextOverflow } from "../../ai/utils/overflow.js";
-import { validateToolArguments } from "../../ai/utils/validation.js";
 import { acquireAbortLatch } from "./abort-bridge.js";
 import {
 	AgentContinueEmptyContextError,
@@ -71,6 +68,20 @@ import type {
 	AgentToolResult,
 	StreamFn,
 } from "./types.js";
+
+let toolValidationModule: Promise<
+	typeof import("../../ai/utils/validation.js")
+> | undefined;
+
+const loadToolValidation = (): Promise<
+	typeof import("../../ai/utils/validation.js")
+> =>
+	(toolValidationModule ??= import("../../ai/utils/validation.js").catch(
+		(error: unknown) => {
+			toolValidationModule = undefined;
+			throw error;
+		},
+	));
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
@@ -916,6 +927,7 @@ const prepareToolCall = (
 
 	return Effect.tryPromise({
 		try: async (): Promise<PreparedToolCall | ImmediateToolCallOutcome> => {
+			const { validateToolArguments } = await loadToolValidation();
 			const validatedArgs = validateToolArguments(tool, toolCall);
 			if (config.beforeToolCall) {
 				const beforeResult = await config.beforeToolCall(

@@ -14,7 +14,7 @@ import type {
 } from "openai/resources/chat/completions.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../cost.js";
-import { clampThinkingLevel } from "../models.js";
+import { clampThinkingLevel } from "../thinking-levels.js";
 import type {
   AssistantMessage,
   CacheRetention,

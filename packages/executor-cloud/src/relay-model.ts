@@ -17,7 +17,10 @@ import {
   isDeepSeekV4FlashModel,
   isMuseSpark13ContributorModel,
 } from "@stella/contracts/stella-api";
-import { loadModelRegistry } from "@stella/contracts/model-registry";
+import {
+  getLoadedModelRegistry,
+  loadModelRegistry,
+} from "@stella/contracts/model-registry";
 import {
   GATEWAY_AGENT_TYPE_HEADER,
   GATEWAY_PROTOCOLS,
@@ -29,14 +32,17 @@ import {
   type GatewayProvider,
   type GatewayResolveRequest,
 } from "@stella/contracts/gateway/api";
-import { clampThinkingLevel } from "@stella/runtime/ai/models.js";
+import { clampThinkingLevel } from "@stella/runtime/ai/thinking-levels.js";
 import type {
   Api,
   Model,
   ModelThinkingLevel,
 } from "@stella/runtime/ai/types.js";
 import { CLOUD_MODEL_DIAGNOSTIC_SENTINELS } from "@stella/contracts/cloud-model-diagnostic";
-import { findRegistryModel } from "@stella/runtime/kernel/model-routing-matching.js";
+import {
+  findModelCandidate,
+  registeredRegistryModelFinder,
+} from "@stella/runtime/kernel/model-registry-view.js";
 import type { ThinkingLevel } from "@stella/runtime/kernel/agent-core/types.js";
 
 /**
@@ -170,6 +176,24 @@ const genericSubscriptionModel = (
   contextWindow: 200_000,
   maxTokens: 16_384,
 });
+
+const findRegistryModel = (
+  registryProvider: string,
+  requestedCandidates: string[],
+): Model<Api> | null => {
+  const registered = registeredRegistryModelFinder();
+  if (registered) return registered(registryProvider, requestedCandidates);
+  const entry = Object.entries(getLoadedModelRegistry()).find(
+    ([provider]) => provider === registryProvider,
+  );
+  const model = findModelCandidate(
+    entry ? Object.values(entry[1]) : [],
+    requestedCandidates,
+  );
+  // Match ModelRuntime's detached metadata contract; callers can customize
+  // the returned model without mutating the shared generated registry.
+  return model ? structuredClone(model) : null;
+};
 
 /**
  * Connected Claude / ChatGPT subscriptions keep their native adapters; the

@@ -16,6 +16,10 @@ import {
 } from "./model-config.js";
 import type { Api, Model } from "./types.js";
 import {
+  findModelCandidate,
+  registerRegistryModelFinder,
+} from "../kernel/model-registry-view.js";
+import {
   ensurePrivateDirSync,
   writePrivateFileSync,
 } from "../kernel/shared/private-fs.js";
@@ -1053,3 +1057,6 @@ export class ModelRuntime {
 }
 
 export const modelRuntime = new ModelRuntime();
+registerRegistryModelFinder((provider, candidates) =>
+  findModelCandidate(modelRuntime.getModels(provider), candidates),
+);

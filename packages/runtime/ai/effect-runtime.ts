@@ -25,17 +25,15 @@
  * the same trade the kernel timer fibers accepted.
  */
 
-import {
-	Cause,
-	Channel,
-	Deferred,
-	Effect,
-	Exit,
-	Layer,
-	ManagedRuntime,
-	Scope,
-	Stream,
-} from "effect";
+import * as Cause from "effect/Cause";
+import * as Channel from "effect/Channel";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 
 /** Shared runtime for every Effect run in the ai/ provider gateway. */
 export const aiRuntime = ManagedRuntime.make(Layer.empty);

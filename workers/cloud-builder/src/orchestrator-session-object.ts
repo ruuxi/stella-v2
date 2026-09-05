@@ -74,7 +74,7 @@ import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-run
 
 import { DurableObject } from "cloudflare:workers";
 import "./cloud-api-providers.js";
-import type { Agent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/agent.js";
+import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
 import type {
   AgentEvent,
   AgentMessage,
@@ -139,7 +139,8 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
 const loadRuntimeAgent = async () =>
-  (await import("@stella/runtime/kernel/agent-core/agent.js")).Agent;
+  (await import("@stella/runtime/kernel/agent-core/explicit-model-agent.js"))
+    .ExplicitModelAgent;
 import {
   OUTBOX_EVENT_VERSION,
   type ConversationCreatedEvent,

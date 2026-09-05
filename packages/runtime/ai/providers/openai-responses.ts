@@ -5,7 +5,7 @@ import type {
   ResponseStreamEvent,
 } from "openai/resources/responses/responses.js";
 import { getEnvApiKey } from "../env-api-keys.js";
-import { clampThinkingLevel } from "../models.js";
+import { clampThinkingLevel } from "../thinking-levels.js";
 import type {
   Api,
   AssistantMessage,

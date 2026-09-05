@@ -15,7 +15,7 @@
  * exercised by tests; production still runs the container path.
  */
 
-import type { Agent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/agent.js";
+import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
 import type {
   AgentEvent,
   AgentMessage,
@@ -65,7 +65,8 @@ import { assertTurnExecutionActive } from "./turn-cancellation.js";
 import type { SteerMessage } from "./steer-mailbox.js";
 
 const loadRuntimeAgent = async () =>
-  (await import("@stella/runtime/kernel/agent-core/agent.js")).Agent;
+  (await import("@stella/runtime/kernel/agent-core/explicit-model-agent.js"))
+    .ExplicitModelAgent;
 
 export type { CanonicalTranscriptReceipt } from "./agent-control-plane.js";
 

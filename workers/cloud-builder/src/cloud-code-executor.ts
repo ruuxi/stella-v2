@@ -22,7 +22,8 @@ import type {
   JsonSchemaToolDescriptors,
   ResolvedProvider,
 } from "@cloudflare/codemode";
-import { Deferred, Effect } from "effect";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
 import { acquireAbortLatch } from "@stella/runtime/kernel/agent-core/abort-bridge.js";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import {

@@ -1,4 +1,6 @@
-import { Deferred, Effect, type Scope } from "effect";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 
 /**
  * The single site where a caller-owned `AbortSignal` crosses into the loop's

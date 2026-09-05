@@ -1,4 +1,5 @@
-import { Effect, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import { getApiProvider, resolveApiProviderInternal } from "./api-registry.js";
 import { aiRuntime } from "./effect-runtime.js";
 import { AssistantMessageEventStream } from "./utils/event-stream.js";

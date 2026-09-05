@@ -22,7 +22,7 @@ if (typeof process !== "undefined" && (process.versions?.node || process.version
 
 import { forkCancelableTimeout, iterateStream, scopedBodyChunks, sleepWithAbort } from "../effect-runtime.js";
 import { getEnvApiKey } from "../env-api-keys.js";
-import { clampThinkingLevel, getSupportedThinkingLevels } from "../models.js";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "../thinking-levels.js";
 import { registerSessionResourceCleanup } from "../session-resources.js";
 import type {
 	Api,

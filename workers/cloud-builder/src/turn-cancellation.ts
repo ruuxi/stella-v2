@@ -1,4 +1,6 @@
-import { Deferred, Effect, Fiber } from "effect";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import {
   runToolEffect,
   toolsRuntime,

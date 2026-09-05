@@ -1,9 +1,13 @@
 {
   "ai/providers/anthropic.ts": 1,
+  "ai/providers/gateway-json-request.ts": {
+    "new AbortController": 1,
+    "setTimeout(": 2
+  },
   "ai/utils/oauth/openai-codex.ts": 1,
   "headless/cli.ts": 1,
   "kernel/agent-core/agent-loop.ts": 1,
-  "kernel/agent-core/agent.ts": 1,
+  "kernel/agent-core/explicit-model-agent.ts": 1,
   "kernel/agent-runtime/agent-run-retry.ts": 1,
   "kernel/agent-runtime/compaction-scheduler.ts": 1,
   "kernel/agent-runtime/explore.ts": 3,
@@ -49,5 +53,14 @@
   },
   "workers/cloud-builder/src/cloud-code-worker-executor.ts": {
     "setTimeout(": 1
+  },
+  "workers/cloud-builder/src/guarded-model-fetch.ts": {
+    "new AbortController": 1
+  },
+  "workers/cloud-builder/src/local-owner-model-grants.ts": {
+    "new AbortController": 1
+  },
+  "workers/cloud-builder/src/owner-gate.ts": {
+    "setTimeout(": 2
   }
 }

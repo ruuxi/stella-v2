@@ -329,6 +329,7 @@ describe("cloud relay model selection", () => {
     ).toBe("openrouter/x-ai/grok-4.5");
   });
 
+
   test("accepts Crof and Wafer chat-completions routes returned by the gateway", () => {
     for (const [provider, resolvedModel, requestedModel] of [
       [

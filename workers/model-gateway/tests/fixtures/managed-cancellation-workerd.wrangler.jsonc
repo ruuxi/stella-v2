@@ -1,0 +1,19 @@
+{
+  "name": "stella-managed-cancellation-workerd",
+  "main": "managed-cancellation-workerd-worker.ts",
+  "compatibility_date": "2026-08-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"fixture-k1\",\"jwk\":{\"kty\":\"EC\",\"x\":\"Yo7XPzLZMYO1rrFajSi1A5OtXTduhVZxzQt8LdwAt3I\",\"y\":\"YqdW-ryopOklnT-1Vym8sO4xZr7XRMuvr1czlY2NM58\",\"crv\":\"P-256\"},\"issuer\":\"stella-cloud-builder\"}]}",
+    "STELLA_RELAY_PROBE_SECRET": "unused"
+  },
+  "services": [{
+    "binding": "CONTROL",
+    "service": "stella-managed-cancellation-workerd",
+    "entrypoint": "ModelGatewayControl"
+  }],
+  "durable_objects": {
+    "bindings": [{ "name": "OWNER_RELAY_GATE", "class_name": "CancellationGateFixture" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CancellationGateFixture"] }]
+}

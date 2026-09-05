@@ -88,6 +88,10 @@
   ],
   "kv_namespaces": [
     {
+      "binding": "CONFIG_SNAPSHOT",
+      "id": "1cca6b348e5a4998baab44e3333a1f49",
+    },
+    {
       "binding": "OWNER_ENFORCEMENT",
       "id": "4db6e39e36a7452d819cd91244e68655",
     },
@@ -98,6 +102,9 @@
       "id": "a255c73f45c94af094c46f604aaa50e8",
     },
   ],
+  "triggers": {
+    "crons": ["*/2 * * * *"],
+  },
   "queues": {
     "producers": [
       {
@@ -191,6 +198,9 @@
       ],
       "kv_namespaces": [
         {
+          "binding": "CONFIG_SNAPSHOT",
+        },
+        {
           "binding": "OWNER_ENFORCEMENT",
           "id": "2068e4c44e614da893a3e937342ebb94",
         },
@@ -199,6 +209,9 @@
           "id": "ead91aec5ef6410d92a530974f220797",
         },
       ],
+      "triggers": {
+        "crons": ["*/2 * * * *"],
+      },
       "queues": {
         "producers": [
           {

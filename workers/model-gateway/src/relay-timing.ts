@@ -13,6 +13,7 @@ export class RelayTiming {
     name:
       | "authenticated"
       | "providerDispatch"
+      | "providerDispatchReady"
       | "upstreamHeaders"
       | "firstUpstreamByte"
       | "upstreamBodyComplete"

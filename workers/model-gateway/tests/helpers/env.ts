@@ -36,7 +36,14 @@ mock.module("cloudflare:workers", () => ({
     }
   },
   RpcTarget: class {},
-  WorkerEntrypoint: class {},
+  WorkerEntrypoint: class {
+    ctx: unknown;
+    env: unknown;
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
 }));
 
 const ledgerModule = await import("../../src/ledger.js");

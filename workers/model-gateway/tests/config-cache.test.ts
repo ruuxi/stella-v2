@@ -12,6 +12,10 @@ import {
   createTestEnv,
   json,
 } from "./helpers/env.js";
+import {
+  gatewayConfigRevision,
+  type SharedGatewayConfigRecord,
+} from "../src/shared-config.js";
 
 describe("gateway config cache", () => {
   beforeEach(() => resetConfigCacheForTests());
@@ -113,6 +117,171 @@ describe("gateway config cache", () => {
     expect(stale.fetchedAt).toBe(1_000);
     await Promise.all(pending);
     expect(saved?.fetchedAt).toBe(CONFIG_TTL_MS + 1_000);
+  });
+
+  test("a cold owner restores a fresh complete shared snapshot without calling Convex", async () => {
+    const snapshot = configSnapshot({
+      tierCeilings: [
+        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
+        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
+      ],
+    });
+    const record: SharedGatewayConfigRecord = {
+      version: 1,
+      source: "https://config.example",
+      originalFetchedAt: 1_000,
+      revision: await gatewayConfigRevision(snapshot),
+      snapshot,
+    };
+    let convexCalls = 0;
+    const client = createConvexClient(createTestEnv().env, (async () => {
+      convexCalls += 1;
+      return json(configSnapshot());
+    }) as typeof fetch);
+    let saved: GatewayConfigRecord | undefined;
+    const restored = await getGatewayConfig(
+      client,
+      () => undefined,
+      () => 2_000,
+      { endpoint: record.source, read: () => saved, write: value => { saved = structuredClone(value); } },
+      { source: record.source, read: async () => structuredClone(record) },
+    );
+    expect(convexCalls).toBe(0);
+    expect(restored.fetchedAt).toBe(record.originalFetchedAt);
+    expect(restored.snapshot).toEqual(snapshot);
+    expect(saved?.fetchedAt).toBe(record.originalFetchedAt);
+  });
+
+  test("invalid shared snapshots fall back to Convex without extending their age", async () => {
+    const complete = configSnapshot({
+      tierCeilings: [
+        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
+        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
+      ],
+    });
+    const base: SharedGatewayConfigRecord = {
+      version: 1,
+      source: "https://config.example",
+      originalFetchedAt: 1_000,
+      revision: await gatewayConfigRevision(complete),
+      snapshot: complete,
+    };
+    const cases: unknown[] = [
+      null,
+      { ...base, source: "https://wrong.example" },
+      { ...base, originalFetchedAt: CONFIG_TTL_MS + 2_000 },
+      { ...base, originalFetchedAt: 1_000, revision: "wrong" },
+      { ...base, snapshot: { ...complete, tierCeilings: [] } },
+    ];
+    for (const value of cases) {
+      resetConfigCacheForTests();
+      let convexCalls = 0;
+      const client = createConvexClient(createTestEnv().env, (async () => {
+        convexCalls += 1;
+        return json(complete);
+      }) as typeof fetch);
+      const loaded = await getGatewayConfig(
+        client,
+        () => undefined,
+        () => CONFIG_TTL_MS + 1_000,
+        undefined,
+        { source: base.source, read: async () => structuredClone(value) },
+      );
+      expect(convexCalls).toBe(1);
+      expect(loaded.fetchedAt).toBe(CONFIG_TTL_MS + 1_000);
+    }
+  });
+
+  test("concurrent cold readers share one KV read", async () => {
+    const snapshot = configSnapshot({
+      tierCeilings: [
+        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
+        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
+      ],
+    });
+    const record: SharedGatewayConfigRecord = {
+      version: 1,
+      source: "https://config.example",
+      originalFetchedAt: 1_000,
+      revision: await gatewayConfigRevision(snapshot),
+      snapshot,
+    };
+    let reads = 0;
+    const shared = {
+      source: record.source,
+      read: async () => {
+        reads += 1;
+        await Promise.resolve();
+        return record;
+      },
+    };
+    const offline = createConvexClient(createTestEnv().env, (async () => {
+      throw new Error("No Convex request expected");
+    }) as typeof fetch);
+    const [first, second] = await Promise.all([
+      getGatewayConfig(offline, () => undefined, () => 2_000, undefined, shared),
+      getGatewayConfig(offline, () => undefined, () => 2_000, undefined, shared),
+    ]);
+    expect(reads).toBe(1);
+    expect(first.snapshot).toEqual(snapshot);
+    expect(second.snapshot).toEqual(snapshot);
+  });
+
+  test("a delayed shared read cannot replace newer owner storage", async () => {
+    const olderSnapshot = configSnapshot({
+      updatedAt: 1,
+      tierCeilings: [
+        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
+        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
+      ],
+    });
+    const newerSnapshot = { ...olderSnapshot, updatedAt: 2 };
+    const olderRecord: SharedGatewayConfigRecord = {
+      version: 1,
+      source: "https://config.example",
+      originalFetchedAt: 1_000,
+      revision: await gatewayConfigRevision(olderSnapshot),
+      snapshot: olderSnapshot,
+    };
+    let releaseShared: (() => void) | undefined;
+    const sharedBlocked = new Promise<void>((resolve) => { releaseShared = resolve; });
+    const offline = createConvexClient(createTestEnv().env, (async () => {
+      throw new Error("No Convex request expected");
+    }) as typeof fetch);
+    const olderLoad = getGatewayConfig(
+      offline,
+      () => undefined,
+      () => 3_000,
+      undefined,
+      {
+        source: olderRecord.source,
+        read: async () => {
+          await sharedBlocked;
+          return olderRecord;
+        },
+      },
+    );
+    await Promise.resolve();
+    const newer = await getGatewayConfig(
+      offline,
+      () => undefined,
+      () => 3_000,
+      {
+        endpoint: olderRecord.source,
+        read: () => ({
+          version: 1,
+          endpoint: olderRecord.source,
+          fetchedAt: 2_000,
+          snapshot: newerSnapshot,
+        }),
+        write: () => undefined,
+      },
+    );
+    releaseShared?.();
+    const first = await olderLoad;
+    expect(first.fetchedAt).toBe(2_000);
+    expect(first.snapshot.updatedAt).toBe(2);
+    expect(newer.fetchedAt).toBe(2_000);
   });
 
 });

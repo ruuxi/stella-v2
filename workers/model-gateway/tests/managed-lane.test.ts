@@ -14,6 +14,11 @@ import type { RelayTiming } from "../src/relay-timing.js";
 import { GATEWAY_REPLAY_HEADER } from "../src/managed-lane.js";
 import { handleRequest } from "../src/router.js";
 import {
+  gatewayConfigRevision,
+  type SharedGatewayConfigRecord,
+} from "../src/shared-config.js";
+import { managedCancellationIdentity } from "../src/managed-cancellation.js";
+import {
   configSnapshot,
   createFetchMock,
   createTestEnv,
@@ -134,10 +139,10 @@ const completionsFixture = () =>
     { data: "[DONE]" },
   ]);
 
-const setup = () => {
+const setup = (envOverrides: Record<string, unknown> = {}) => {
   resetConfigCacheForTests();
   resetCapabilityKeysForTests();
-  const harness = createTestEnv();
+  const harness = createTestEnv(envOverrides);
   const fetchMock = createFetchMock()
     .on(
       (call) => call.url.pathname === "/api/gateway/config",
@@ -157,7 +162,14 @@ const setup = () => {
     );
   harness.ownerGate.setFetch((request, owner, accounting) => handleRequest(
     request, harness.env, fakeExecutionContext(), harness.deps(fetchMock.fetch),
-    { matchesOwner: candidate => candidate === owner, accounting },
+    {
+      matchesOwner: candidate => candidate === owner,
+      accounting,
+      cancellation: {
+        begin: identity => accounting.beginManagedRequest(identity),
+        release: key => accounting.releaseManagedRequest(key),
+      },
+    },
   ));
   const runRaw = (request: Request) =>
     handleRequest(
@@ -1294,6 +1306,27 @@ describe("POST /v1/models/resolve", () => {
 });
 
 describe("gateway phase timing", () => {
+  test("waits for durable dispatch readiness before sending provider bytes", async () => {
+    const ctx = setup();
+    const { token } = await signTurn();
+    let entered!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const durable = new Promise<void>(resolve => { release = resolve; });
+    const work = handleRequest(relayRequest("/v1/relay/responses", {
+      token, body: museBody(), headers: agentHeaders(),
+    }), ctx.harness.env, fakeExecutionContext(), {
+      ...ctx.harness.deps(ctx.fetchMock.fetch),
+      beforeProviderDispatch: async () => { entered(); await durable; },
+    });
+    try {
+      await waiting;
+      expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+      release();
+      expect((await work).status).toBe(200);
+      expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(1);
+    } finally { release(); }
+  });
   test("reports completion after awaited cleanup, with actual stream milestones and no payload", async () => {
     const ctx = setup();
     let releaseEntered!: () => void;
@@ -1343,6 +1376,7 @@ describe("gateway phase timing", () => {
       expect(timing!.traceId).toBe(response.headers.get(GATEWAY_TRACE_HEADER));
       const m = timing!.milestonesMs;
       expect(m.providerDispatch).toBeGreaterThanOrEqual(m.authenticated);
+      expect(m.providerDispatchReady).toBeGreaterThanOrEqual(m.providerDispatch);
       expect(m.firstUpstreamByte).toBeGreaterThanOrEqual(m.upstreamHeaders);
       expect(m.upstreamBodyComplete).toBeGreaterThanOrEqual(
         m.firstUpstreamByte,
@@ -1464,6 +1498,113 @@ describe("atomic owner relay accounting", () => {
 });
 
 describe("owner-local model execution", () => {
+  test("a pre-arrival cancellation tombstone blocks the exact request before provider dispatch", async () => {
+    const ctx = setup();
+    const { token, claims } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const identity = managedCancellationIdentity({ claims, requestId: "req-pre-cancel" });
+    if (!identity) throw new Error("expected managed cancellation identity");
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    expect(await owner.cancelManagedRequest(identity)).toEqual({ canceled: true });
+    const response = await ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders({ "x-stella-request-id": identity.requestId }),
+    }));
+    expect(response.status).toBe(499);
+    expect((await readError(response)).error.code).toBe("canceled");
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+
+  test("cancellation after local authentication aborts the matching upstream only", async () => {
+    const ctx = setup();
+    const upstreamStarted = Promise.withResolvers<void>();
+    ctx.fetchMock.on(
+      (call) => call.url.host === "openrouter.ai",
+      (call) => new Promise<Response>((_resolve, reject) => {
+        upstreamStarted.resolve();
+        const abort = () => reject(new DOMException("aborted", "AbortError"));
+        if (call.signal?.aborted) abort();
+        else call.signal?.addEventListener("abort", abort, { once: true });
+      }),
+    );
+    const { token, claims } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const requestId = "req-active-cancel";
+    const identity = managedCancellationIdentity({ claims, requestId });
+    if (!identity) throw new Error("expected managed cancellation identity");
+    const pending = ctx.run(relayRequest("/v1/relay/responses", {
+      token,
+      body: museBody(),
+      headers: agentHeaders({ "x-stella-request-id": requestId }),
+    }));
+    await upstreamStarted.promise;
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    expect(await owner.cancelManagedRequest(identity)).toEqual({ canceled: true });
+    const response = await pending;
+    expect(response.status).toBe(499);
+    expect((await readError(response)).error.code).toBe("canceled");
+    expect(ctx.harness.usageEvents[0]).toMatchObject({ outcome: "aborted" });
+  });
+
+  test("the live cancellation controller remains registered until the response body settles", async () => {
+    const ctx = setup();
+    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    const release = spyOn(owner, "releaseManagedRequest");
+    try {
+      const response = await ctx.run(relayRequest("/v1/relay/responses", {
+        token,
+        body: museBody(),
+        headers: agentHeaders({ "x-stella-request-id": "req-response-settle" }),
+      }));
+      expect(response.status).toBe(200);
+      expect(release).not.toHaveBeenCalled();
+      await response.text();
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      release.mockRestore();
+    }
+  });
+
+  test("cancellation identity is isolated by owner, generation, capability, turn, and request", async () => {
+    const ctx = setup();
+    const { claims } = await signTurn({ ledgerScope: "owner-relay-v2" });
+    const identity = managedCancellationIdentity({ claims, requestId: "req-one" });
+    if (!identity) throw new Error("expected managed cancellation identity");
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    expect(await owner.cancelManagedRequest({ ...identity, ownerId: "wrong|owner" }))
+      .toEqual({ canceled: false });
+    expect(await owner.cancelManagedRequest(identity)).toEqual({ canceled: true });
+    for (const changed of [
+      { ...identity, requestId: "req-two" },
+      { ...identity, capabilityId: `${identity.capabilityId}-other` },
+      { ...identity, ownerGeneration: `${identity.ownerGeneration}-other` },
+      { ...identity, turnId: `${identity.turnId}-other` },
+    ]) {
+      const begun = owner.beginManagedRequest(changed);
+      expect(begun.canceled).toBe(false);
+      if (!begun.canceled) owner.releaseManagedRequest(begun.key);
+    }
+    const retryIdentity = { ...identity, requestId: "req-retry" };
+    const firstRetry = owner.beginManagedRequest(retryIdentity);
+    const secondRetry = owner.beginManagedRequest(retryIdentity);
+    if (firstRetry.canceled || secondRetry.canceled) {
+      throw new Error("active retry should not be pre-canceled");
+    }
+    owner.releaseManagedRequest(secondRetry.key);
+    await owner.cancelManagedRequest(retryIdentity);
+    expect(firstRetry.signal.aborted).toBe(true);
+    owner.releaseManagedRequest(firstRetry.key);
+    expect(owner.beginManagedRequest(identity)).toEqual({ canceled: true });
+  });
+
   test("rejects a capability routed to another owner object before provider or accounting work", async () => {
     const ctx = setup();
     const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
@@ -1542,6 +1683,39 @@ describe("validated descriptor relay", () => {
 });
 
 describe("acknowledged owner preparation", () => {
+  test("owner preparation restores shared config without an authoritative pull", async () => {
+    const snapshot = configSnapshot({
+      tierCeilings: [
+        { audience: "anonymous", hourlyMicroCents: 100, dailyMicroCents: 1_000 },
+        { audience: "free", hourlyMicroCents: 200, dailyMicroCents: 2_000 },
+      ],
+    });
+    const record: SharedGatewayConfigRecord = {
+      version: 1,
+      source: "https://outgoing-bulldog-865.convex.site",
+      originalFetchedAt: Date.now() - 1_000,
+      revision: await gatewayConfigRevision(snapshot),
+      snapshot,
+    };
+    let sharedReads = 0;
+    const ctx = setup({
+      CONFIG_SNAPSHOT: {
+        get: async () => {
+          sharedReads += 1;
+          return record;
+        },
+      },
+    });
+    const owner = ctx.harness.ownerGate.namespace.get(
+      ctx.harness.ownerGate.namespace.idFromName(OWNER_ID),
+    );
+    await owner.prepare(OWNER_ID, "shared-prepare-test");
+    expect(sharedReads).toBe(1);
+    expect(ctx.fetchMock.calls.filter(
+      (call) => call.url.pathname === "/api/gateway/config",
+    )).toHaveLength(0);
+  });
+
   test("prepare waits for owner completion while resolve stays nonblocking, without accounting", async () => {
     for (const path of [GATEWAY_PREPARE_PATH, "/v1/models/resolve"]) {
       const ctx = setup();

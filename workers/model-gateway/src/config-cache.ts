@@ -7,6 +7,10 @@ import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type { TokenPriceConfig } from "@stella/model-catalog/pricing";
 import type { ConvexClient } from "./convex-client.js";
 import { GatewayError } from "./errors.js";
+import {
+  type SharedGatewayConfigStore,
+  validateSharedGatewayConfigRecord,
+} from "./shared-config.js";
 
 /**
  * `GET /api/gateway/config` cached per isolate. Fresh for CONFIG_TTL_MS; after
@@ -42,10 +46,14 @@ export const GATEWAY_CONFIG_STORAGE_KEY = "gatewayConfig:v1";
 
 let cached: GatewayConfig | null = null;
 let inflight: Promise<GatewayConfig> | null = null;
+let sharedInflight: Promise<GatewayConfig | null> | null = null;
+
+const residentConfig = (): GatewayConfig | null => cached;
 
 export const resetConfigCacheForTests = (): void => {
   cached = null;
   inflight = null;
+  sharedInflight = null;
 };
 
 const isSnapshot = (value: unknown): value is GatewayConfigSnapshot =>
@@ -163,10 +171,58 @@ export const getGatewayConfig = async (
   waitUntil: (promise: Promise<unknown>) => void,
   now: () => number = Date.now,
   storage?: GatewayConfigStorage,
+  shared?: SharedGatewayConfigStore,
 ): Promise<GatewayConfig> => {
   if (!cached && storage) {
     cached = restoreConfig(storage, now());
     if (cached) console.info(JSON.stringify({ event: "gateway_config_restored", ageMs: now() - cached.fetchedAt }));
+  }
+  if (!cached && shared) {
+    sharedInflight ??= (async () => {
+      const startedAt = performance.now();
+      let status = "fallback";
+      let reason = "read_failed";
+      let restored: GatewayConfig | null = null;
+      try {
+        const result = await validateSharedGatewayConfigRecord({
+          value: await shared.read(),
+          source: shared.source,
+          now: now(),
+          maxAgeMs: CONFIG_TTL_MS,
+        });
+        if (result.ok) {
+          restored = indexPrices(
+            result.record.snapshot,
+            result.record.originalFetchedAt,
+          );
+          status = "restored";
+          reason = "none";
+        } else {
+          reason = result.reason;
+        }
+      } catch {
+        // The authoritative Convex pull below remains the cold-path fallback.
+      }
+      console.info(JSON.stringify({
+        event: "gateway_config_shared_read",
+        source: "shared_kv",
+        status,
+        reason,
+        durationMs: performance.now() - startedAt,
+        ...(restored
+          ? { ageMs: Math.max(0, now() - restored.fetchedAt) }
+          : {}),
+      }));
+      return restored;
+    })().finally(() => {
+      sharedInflight = null;
+    });
+    const restored = await sharedInflight;
+    const installed = residentConfig();
+    if (!installed || (restored && restored.fetchedAt > installed.fetchedAt)) {
+      cached = restored;
+    }
+    if (cached) persistConfig(cached, storage);
   }
   const refreshAndPersist = async (): Promise<GatewayConfig> => {
     const config = await refresh(client, now);

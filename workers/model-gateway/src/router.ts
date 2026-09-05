@@ -1,13 +1,62 @@
-import { GATEWAY_PREPARE_PATH, GATEWAY_VALIDATED_RELAY_PREFIX, GATEWAY_MODEL_REVISION_HEADER } from "@stella/contracts/gateway/api";
+import { GATEWAY_PREPARE_PATH, GATEWAY_REQUEST_ID_HEADER, GATEWAY_VALIDATED_RELAY_PREFIX, GATEWAY_MODEL_REVISION_HEADER } from "@stella/contracts/gateway/api";
 import { RelayTiming } from "./relay-timing.js";
 import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
 import type { OwnerRelayAccounting } from "./ledger-client.js";
+import { sharedGatewayConfigStore } from "./shared-config.js";
+import {
+  managedCancellationIdentity,
+  type ManagedCancellationIdentity,
+} from "./managed-cancellation.js";
 
 export type LocalOwnerRelay = {
   matchesOwner(ownerId: string): boolean;
   accounting: OwnerRelayAccounting;
   instanceId?: string;
   configStorage?: GatewayConfigStorage;
+  cancellation?: {
+    begin(identity: ManagedCancellationIdentity):
+      | { canceled: true }
+      | { canceled: false; key: string; signal: AbortSignal };
+    release(key: string): void;
+  };
+};
+
+const releaseAfterBody = (response: Response, release: () => void): Response => {
+  if (!response.body) {
+    release();
+    return response;
+  }
+  const reader = response.body.getReader();
+  let released = false;
+  const finish = (): void => {
+    if (released) return;
+    released = true;
+    release();
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const part = await reader.read();
+        if (part.done) {
+          finish();
+          controller.close();
+        } else {
+          controller.enqueue(part.value);
+        }
+      } catch (error) {
+        finish();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        finish();
+      }
+    },
+  });
+  return new Response(body, response);
 };
 import {
   GATEWAY_NETWORK_POLICY,
@@ -49,6 +98,7 @@ import {
 import {
   defaultDeps,
   ipHashFrom,
+  isGatewayRequestId,
   readJsonObject,
   type GatewayDeps,
 } from "./request-util.js";
@@ -348,7 +398,13 @@ const handleResolve = async (
     try {
       if (ownerScoped) await env.OWNER_RELAY_GATE.get(env.OWNER_RELAY_GATE.idFromName(auth.claims.sub))
         .prepare(auth.claims.sub, traceId);
-      else await getGatewayConfig(convex, deps.waitUntil, deps.now);
+      else await getGatewayConfig(
+        convex,
+        deps.waitUntil,
+        deps.now,
+        undefined,
+        sharedGatewayConfigStore(env),
+      );
       console.info(JSON.stringify({ event: "gateway_preparation_timing", traceId,
         mode: preparationMode, target: ownerScoped ? "owner" : "worker", status: "completed",
         totalMs: performance.now() - preparationStartedAt }));
@@ -382,6 +438,7 @@ const handleRelay = async (
   let forwarded = false;
   let ledgerScope: "owner-v1" | "owner-relay-v2" | "capability" | undefined;
   let turn: { turnId: string; conversationId: string } | undefined;
+  let cancellationKey: string | undefined;
   try {
     const auth = await timing.measure("authenticationMs", () => authenticateCapability(request, env, {
       now: deps.now(),
@@ -403,6 +460,27 @@ const handleRelay = async (
     if (localOwner && (!localOwner.matchesOwner(auth.claims.sub) || auth.probe ||
         auth.claims.credential || auth.claims.ledgerScope !== "owner-relay-v2")) {
       throw new GatewayError(403, "capability_invalid", "This request does not belong to this owner executor.");
+    }
+    if (localOwner?.cancellation) {
+      const presentedRequestId = request.headers
+        .get(GATEWAY_REQUEST_ID_HEADER)
+        ?.trim();
+      if (isGatewayRequestId(presentedRequestId)) {
+        const identity = managedCancellationIdentity({
+          claims: auth.claims,
+          requestId: presentedRequestId,
+        });
+        if (identity) {
+          const cancellation = localOwner.cancellation.begin(identity);
+          if (cancellation.canceled) {
+            throw new GatewayError(499, "canceled", "The model request was canceled.");
+          }
+          cancellationKey = cancellation.key;
+          request = new Request(request, {
+            signal: AbortSignal.any([request.signal, cancellation.signal]),
+          });
+        }
+      }
     }
     if (!localOwner && !auth.probe && !auth.claims.credential && auth.claims.ledgerScope === "owner-relay-v2") {
       await verifySessionDpop({ request, auth, now: deps.now() });
@@ -440,13 +518,20 @@ const handleRelay = async (
       timing,
       ownerAccounting: localOwner?.accounting,
       configStorage: localOwner?.configStorage,
+      sharedConfig: sharedGatewayConfigStore(env),
     });
     status = response.status;
+    if (cancellationKey && localOwner?.cancellation) {
+      const key = cancellationKey;
+      cancellationKey = undefined;
+      return releaseAfterBody(response, () => localOwner.cancellation?.release(key));
+    }
     return response;
   } catch (error) {
     status = toGatewayError(error).status;
     throw error;
   } finally {
+    if (cancellationKey) localOwner?.cancellation?.release(cancellationKey);
     console.info(
       JSON.stringify({
         event: forwarded ? "gateway_relay_route_timing" : "gateway_relay_timing",

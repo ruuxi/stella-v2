@@ -10,6 +10,8 @@ export type GatewayDeps = {
   fetch: typeof fetch;
   now: () => number;
   waitUntil: (promise: Promise<unknown>) => void;
+  /** Wait for the durable output gate before recording actual dispatch readiness. */
+  beforeProviderDispatch?: () => Promise<void>;
 };
 
 export const defaultDeps = (ctx: Pick<ExecutionContext, "waitUntil">): GatewayDeps => ({
@@ -102,6 +104,9 @@ export const readJsonObject = async (
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
 
+export const isGatewayRequestId = (value: unknown): value is string =>
+  typeof value === "string" && REQUEST_ID_PATTERN.test(value);
+
 /**
  * The caller-minted idempotency key, or a fresh id when none was sent (a
  * request without one can never be replayed).
@@ -110,7 +115,7 @@ export const requestIdFrom = (
   request: Request,
 ): { requestId: string; callerMinted: boolean } => {
   const header = request.headers.get(GATEWAY_REQUEST_ID_HEADER)?.trim();
-  if (header && REQUEST_ID_PATTERN.test(header)) {
+  if (header && isGatewayRequestId(header)) {
     return { requestId: header, callerMinted: true };
   }
   return { requestId: crypto.randomUUID(), callerMinted: false };

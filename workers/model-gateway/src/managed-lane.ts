@@ -398,6 +398,7 @@ export const handleManagedRelay = async (args: {
   timing?: RelayTiming;
   ownerAccounting?: import("./ledger-client.js").OwnerRelayAccounting;
   configStorage?: import("./config-cache.js").GatewayConfigStorage;
+  sharedConfig?: import("./shared-config.js").SharedGatewayConfigStore;
 }): Promise<Response> => {
   const { request, env, deps, convex, traceId, protocol } = args;
   const timing = args.timing ?? new RelayTiming();
@@ -415,7 +416,7 @@ export const handleManagedRelay = async (args: {
   // Start cold pricing reads during authorization. Capture rejection even if
   // the request is refused before pricing is needed.
   const configWork = timing.measure("pricingConfigMs", () =>
-    getGatewayConfig(convex, deps.waitUntil, deps.now, args.configStorage),
+    getGatewayConfig(convex, deps.waitUntil, deps.now, args.configStorage, args.sharedConfig),
   ).then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
   const enforcementWork = timing.measure("ownerEnforcementMs", () =>
     ownerEnforcementAdmission(env, claims.sub, deps.now()),
@@ -1001,6 +1002,14 @@ export const handleManagedRelay = async (args: {
     let upstream: Response;
     try {
       timing.mark("providerDispatch");
+      // Outbound fetch already waits for these writes in a Durable Object.
+      // Await that same gate explicitly so it is counted as application
+      // overhead instead of being hidden inside provider time.
+      if (deps.beforeProviderDispatch) {
+        await timing.measure("providerOutputGateMs", deps.beforeProviderDispatch);
+      }
+      controller.signal.throwIfAborted();
+      timing.mark("providerDispatchReady");
       upstream = await deps.fetch(target, {
         method: "POST",
         headers,

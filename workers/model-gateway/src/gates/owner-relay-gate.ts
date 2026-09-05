@@ -1,9 +1,11 @@
 import { isGatewayError } from "../errors.js";
 import { DurableObject } from "cloudflare:workers";
 import { handleRequest } from "../router.js";
+import { defaultDeps } from "../request-util.js";
 import { getGatewayConfig, GATEWAY_CONFIG_STORAGE_KEY, type GatewayConfigStorage } from "../config-cache.js";
 import { createConvexClient } from "../convex-client.js";
 import { ownerEnforcementAdmission } from "../owner-enforcement.js";
+import { sharedGatewayConfigStore } from "../shared-config.js";
 import {
   GATEWAY_OWNER_RELAY_LIMITS,
   GATEWAY_THROTTLED_LIMIT_SHARE,
@@ -14,6 +16,10 @@ import type { ManagedModelAudience } from "@stella/contracts/gateway/capability"
 
 import { OwnerLedgerStore } from "../owner-ledger-store.js";
 import type { LedgerReserveArgs, LedgerReserveResult, LedgerSettleArgs } from "../ledger.js";
+import {
+  managedCancellationKey,
+  type ManagedCancellationIdentity,
+} from "../managed-cancellation.js";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -58,6 +64,12 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS mint_admissions_at
     ON mint_admissions(admitted_at)`,
+  `CREATE TABLE IF NOT EXISTS managed_cancellations (
+    identity TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS managed_cancellations_expiry
+    ON managed_cancellations(expires_at)`,
 ];
 
 const scaledLimit = (limit: number, throttled: boolean): number =>
@@ -69,6 +81,10 @@ const scaledLimit = (limit: number, throttled: boolean): number =>
 export class OwnerRelayGate extends DurableObject<Env> {
   private readonly ledger: OwnerLedgerStore;
   private readonly instanceId = crypto.randomUUID();
+  private readonly managedControllers = new Map<
+    string,
+    { controller: AbortController; references: number }
+  >();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -79,11 +95,18 @@ export class OwnerRelayGate extends DurableObject<Env> {
   }
 
   override fetch(request: Request): Promise<Response> {
-    return handleRequest(request, this.env, this.ctx, undefined, {
+    return handleRequest(request, this.env, this.ctx, {
+      ...defaultDeps(this.ctx),
+      beforeProviderDispatch: () => this.ctx.storage.sync(),
+    }, {
       matchesOwner: ownerId => this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() === this.ctx.id.toString(),
       accounting: this,
       instanceId: this.instanceId,
       configStorage: this.configStorage,
+      cancellation: {
+        begin: identity => this.beginManagedRequest(identity),
+        release: key => this.releaseManagedRequest(key),
+      },
     });
   }
 
@@ -109,7 +132,13 @@ export class OwnerRelayGate extends DurableObject<Env> {
         (async () => {
           const pricingStartedAt = performance.now();
           try {
-            const config = await getGatewayConfig(createConvexClient(this.env), work => this.ctx.waitUntil(work), Date.now, this.configStorage);
+            const config = await getGatewayConfig(
+              createConvexClient(this.env),
+              work => this.ctx.waitUntil(work),
+              Date.now,
+              this.configStorage,
+              sharedGatewayConfigStore(this.env),
+            );
             durations.configAgeMs = Math.max(0, Date.now() - config.fetchedAt);
           } finally { durations.pricingMs = performance.now() - pricingStartedAt; }
         })(),
@@ -233,7 +262,78 @@ export class OwnerRelayGate extends DurableObject<Env> {
     return await this.ledger.settle({ ...args, jti: JSON.stringify([args.generation, args.jti]) });
   }
 
-  async alarm(): Promise<void> { await this.ledger.alarm(); }
+  private async armCancellationAlarm(): Promise<void> {
+    const next = this.ctx.storage.sql.exec<{ at: number | null }>(
+      "SELECT MIN(expires_at) AS at FROM managed_cancellations",
+    ).one().at;
+    if (next === null) return;
+    const current = await this.ctx.storage.getAlarm();
+    const at = Math.max(Date.now() + 1_000, next);
+    if (current === null || at < current) await this.ctx.storage.setAlarm(at);
+  }
+
+  async alarm(): Promise<void> {
+    await this.ledger.alarm();
+    this.ctx.storage.sql.exec(
+      "DELETE FROM managed_cancellations WHERE expires_at <= ?",
+      Date.now(),
+    );
+    await this.armCancellationAlarm();
+  }
+
+  async cancelManagedRequest(
+    identity: ManagedCancellationIdentity,
+  ): Promise<{ canceled: boolean }> {
+    if (
+      this.env.OWNER_RELAY_GATE.idFromName(identity.ownerId).toString() !==
+      this.ctx.id.toString()
+    ) {
+      return { canceled: false };
+    }
+    const now = Date.now();
+    if (identity.expiresAt <= now) return { canceled: false };
+    this.ctx.storage.sql.exec(
+      "DELETE FROM managed_cancellations WHERE expires_at <= ?",
+      now,
+    );
+    const key = managedCancellationKey(identity);
+    this.ctx.storage.sql.exec(
+      `INSERT INTO managed_cancellations (identity, expires_at) VALUES (?, ?)
+       ON CONFLICT(identity) DO UPDATE SET expires_at = MIN(expires_at, excluded.expires_at)`,
+      key,
+      identity.expiresAt,
+    );
+    this.managedControllers.get(key)?.controller.abort("managed_request_canceled");
+    await this.armCancellationAlarm();
+    return { canceled: true };
+  }
+
+  beginManagedRequest(identity: ManagedCancellationIdentity):
+    | { canceled: true }
+    | { canceled: false; key: string; signal: AbortSignal } {
+    const key = managedCancellationKey(identity);
+    const tombstone = this.ctx.storage.sql.exec<{ expires_at: number }>(
+      "SELECT expires_at FROM managed_cancellations WHERE identity = ? AND expires_at > ?",
+      key,
+      Date.now(),
+    ).toArray()[0];
+    if (tombstone) return { canceled: true };
+    const active = this.managedControllers.get(key);
+    if (active) {
+      active.references += 1;
+      return { canceled: false, key, signal: active.controller.signal };
+    }
+    const controller = new AbortController();
+    this.managedControllers.set(key, { controller, references: 1 });
+    return { canceled: false, key, signal: controller.signal };
+  }
+
+  releaseManagedRequest(key: string): void {
+    const active = this.managedControllers.get(key);
+    if (!active) return;
+    active.references -= 1;
+    if (active.references === 0) this.managedControllers.delete(key);
+  }
 
   async releaseRelay(requestId: string): Promise<void> {
     this.ctx.storage.sql.exec(

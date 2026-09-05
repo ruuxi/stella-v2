@@ -42,6 +42,33 @@ mock.module("cloudflare:workers", () => ({
 const ledgerModule = await import("../../src/ledger.js");
 export const { CapabilityLedger } = ledgerModule;
 export type CapabilityLedgerInstance = InstanceType<typeof CapabilityLedger>;
+const ownerLedgerModule = await import("../../src/owner-capability-ledger.js");
+export const { OwnerCapabilityLedger } = ownerLedgerModule;
+export type OwnerCapabilityLedgerInstance = InstanceType<
+  typeof OwnerCapabilityLedger
+>;
+
+export const createOwnerCapabilityLedgerNamespace = (envRef: () => unknown) => {
+  const objects = new Map<string, OwnerCapabilityLedgerInstance>();
+  const states = new Map<string, ReturnType<typeof createDurableObjectState>>();
+  return {
+    objects,
+    states,
+    namespace: {
+      getByName: (name: string) => {
+        let object = objects.get(name);
+        if (!object) {
+          const state = createDurableObjectState(name);
+          states.set(name, state);
+          object = new OwnerCapabilityLedger(state as never, envRef() as never);
+          objects.set(name, object);
+        }
+        return object;
+      },
+    },
+  };
+};
+
 const gateModule = await import("../../src/gates/index.js");
 export const { NetworkGate, OwnerRelayGate, TierBudget } = gateModule;
 export type NetworkGateInstance = InstanceType<typeof NetworkGate>;
@@ -536,6 +563,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const limiter = { success: true, keys: [] as string[] };
   let env: Record<string, unknown> = {};
   const ledger = createLedgerNamespace(() => env);
+  const ownerLedger = createOwnerCapabilityLedgerNamespace(() => env);
   const ownerGate = createOwnerRelayGateNamespace(() => env);
   const networkGate = createNetworkGateNamespace(() => env);
   const tierBudget = createTierBudgetNamespace(() => env);
@@ -572,6 +600,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     GATEWAY_SERVICE_SECRET: SERVICE_SECRET,
     STELLA_RELAY_PROBE_SECRET: PROBE_SECRET,
     CAPABILITY_LEDGER: ledger.namespace,
+    OWNER_CAPABILITY_LEDGER: ownerLedger.namespace,
     OWNER_RELAY_GATE: ownerGate.namespace,
     NETWORK_GATE: networkGate.namespace,
     TIER_BUDGET: tierBudget.namespace,
@@ -630,6 +659,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     pending,
     limiter,
     ledger,
+    ownerLedger,
     ownerGate,
     networkGate,
     tierBudget,

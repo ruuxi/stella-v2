@@ -212,6 +212,8 @@ export const validateCapabilityClaims = (
   ) {
     return false;
   }
+  if (value.ledgerScope !== undefined && value.ledgerScope !== "owner-v1")
+    return false;
   if (value.kind === "turn") {
     const turn = value.turn;
     if (!isRecord(turn)) return false;

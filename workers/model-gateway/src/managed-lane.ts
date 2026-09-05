@@ -1,3 +1,7 @@
+import {
+  capabilityLedgerClient,
+  type CapabilityLedgerClient,
+} from "./ledger-client.js";
 import { RelayTiming } from "./relay-timing.js";
 import {
   GATEWAY_MAX_OUTPUT_TOKENS_BY_AUDIENCE,
@@ -509,7 +513,7 @@ export const handleManagedRelay = async (args: {
     minute: number;
   } | null = null;
   let tierActualMicroCents = 0;
-  let ledger: ReturnType<Env["CAPABILITY_LEDGER"]["get"]> | null = null;
+  let ledger: CapabilityLedgerClient | null = null;
   let ledgerReserved = false;
   let ledgerSettled = false;
   let firstUpstreamByte = false;
@@ -678,9 +682,7 @@ export const handleManagedRelay = async (args: {
       };
     }
 
-    ledger = probe
-      ? null
-      : env.CAPABILITY_LEDGER.get(env.CAPABILITY_LEDGER.idFromName(claims.jti));
+    ledger = probe ? null : capabilityLedgerClient(env, claims);
     let capabilityHardLimitMicroCents: number | null = null;
     if (ledger) {
       const capabilityLedger = ledger;

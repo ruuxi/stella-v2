@@ -1372,3 +1372,67 @@ describe("gateway phase timing", () => {
     }
   });
 });
+
+describe("owner ledger rollout", () => {
+  test("new capabilities share an owner object but replay only within their own jti", async () => {
+    const ctx = setup();
+    const first = await signTurn({ ledgerScope: "owner-v1" });
+    const second = await signTurn({ ledgerScope: "owner-v1" });
+    const send = (token: string) =>
+      ctx.run(
+        relayRequest("/v1/relay/responses", {
+          token,
+          body: museBody(),
+          headers: agentHeaders({ "x-stella-request-id": "same-id" }),
+        }),
+      );
+    expect((await send(first.token)).status).toBe(200);
+    expect((await send(second.token)).status).toBe(200);
+    const replay = await send(first.token);
+    expect(replay.headers.get(GATEWAY_REPLAY_HEADER)).toBe("1");
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(2);
+    expect(ctx.harness.ownerLedger.objects.size).toBe(1);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+  });
+  test("legacy capabilities keep their old object, and owner generations never share the new one", async () => {
+    const ctx = setup();
+    for (const claims of [
+      {},
+      { ledgerScope: "owner-v1" as const },
+      { ledgerScope: "owner-v1" as const, gen: "rotated-generation" },
+    ]) {
+      const capability = await signTurn(claims);
+      const response = await ctx.run(
+        relayRequest("/v1/relay/responses", {
+          token: capability.token,
+          body: museBody(),
+          headers: agentHeaders(),
+        }),
+      );
+      expect(response.status).toBe(200);
+    }
+    expect(ctx.harness.ownerLedger.objects.size).toBe(2);
+    expect(ctx.harness.ledger.objects.size).toBe(1);
+  });
+  test("a failed owner-ledger call never falls back into a fresh legacy budget", async () => {
+    const ctx = setup();
+    Object.assign(ctx.harness.env, {
+      OWNER_CAPABILITY_LEDGER: {
+        getByName: () => {
+          throw new Error("unavailable");
+        },
+      },
+    });
+    const capability = await signTurn({ ledgerScope: "owner-v1" });
+    const response = await ctx.run(
+      relayRequest("/v1/relay/responses", {
+        token: capability.token,
+        body: museBody(),
+        headers: agentHeaders(),
+      }),
+    );
+    expect(response.status).toBe(500);
+    expect(ctx.harness.ledger.objects.size).toBe(0);
+    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
+  });
+});

@@ -339,6 +339,7 @@ const handleRelay = async (
   const timing = new RelayTiming();
   let status: number | undefined;
   let lane = "unknown";
+  let ledgerScope: "owner-v1" | "capability" | undefined;
   let turn: { turnId: string; conversationId: string } | undefined;
   try {
     const auth = await authenticateCapability(request, env, {
@@ -346,6 +347,7 @@ const handleRelay = async (
       allowProbe: true,
     });
     timing.mark("authenticated");
+    ledgerScope = auth.claims.ledgerScope ?? "capability";
     if (auth.claims.turn) {
       turn = {
         turnId: auth.claims.turn.turnId,
@@ -390,6 +392,7 @@ const handleRelay = async (
         event: "gateway_relay_timing",
         traceId,
         lane,
+        ledgerScope,
         status,
         ...turn,
         ...timing.snapshot(),

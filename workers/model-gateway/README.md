@@ -38,3 +38,30 @@ Native relays return a streaming response, so their handler duration does not
 represent full response-body completion. The `lane` field distinguishes them.
 The older managed completion log precedes `finally` and excludes some cleanup;
 it is neither pure provider time nor the full handler duration.
+
+# Owner-scoped capability ledgers
+
+New cloud-builder capabilities carry the signed `ledgerScope: "owner-v1"`
+claim. They use `OWNER_CAPABILITY_LEDGER`, named by the JSON tuple of owner id
+and owner generation. Capabilities without the marker keep using the original
+`CAPABILITY_LEDGER` object named by `jti`. Never fall back between these routes
+on an error: doing so would create a second budget and replay authority.
+
+The new object stores one ledger row per `jti` and one result row per
+`(jti, request_id)`. Budgets, request limits, reservations, charges, refunds and
+cached replies remain capability-local. Sharing the object avoids creating a
+new Durable Object for every turn; it does not pool users' or capabilities'
+budgets. A new owner generation receives a different object.
+
+Reserve and settle mutations run synchronously before their first await.
+Ordinary output gates still require durable writes before replies. A shared
+expiry alarm deletes only capabilities past their expiry plus the existing
+result-cache retention window, then rearms for the next expiry. The legacy
+class and its data are retained so issued capabilities can finish and replay.
+
+Deploy gateway support and its additive SQLite class migration before deploying
+the issuing cloud builder. To stop issuing the new route, remove the marker at
+the issuer while retaining gateway routing support for already issued marked
+capabilities. Do not roll the gateway back to code that ignores the marker:
+that would send marked capabilities to a fresh legacy budget. The gateway's
+phase event includes `ledgerScope` to distinguish the two paths during rollout.

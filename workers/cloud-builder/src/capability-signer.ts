@@ -167,6 +167,7 @@ export const mintTurnCapability = async (
       sub: input.ownerId,
       gen: input.ownerGeneration,
       kind: "turn",
+      ledgerScope: "owner-v1",
       audience: input.audience,
       agentTypes: [...input.agentTypes],
       budgetMicroCents: input.budgetMicroCents,

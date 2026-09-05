@@ -53,6 +53,33 @@ const defaultSnapshot = {
 };
 
 describe("Stella prompt publication", () => {
+  it("repairs an incomplete deployment publication once with a monotonic timestamp", async () => {
+    const t = createTest();
+    const first = await t.mutation(publish, publishArgs);
+    await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("prompts")
+        .take(STELLA_PROMPT_DEFAULTS.prompts.length);
+      if (!rows[0]) throw new Error("missing fixture prompt");
+      await ctx.db.delete(rows[0]._id);
+    });
+    const repair = makeFunctionReference<
+      "mutation",
+      Record<string, never>,
+      StoredPrompt[]
+    >("stella_prompts:ensureDefaultPublication");
+    const repaired = await t.mutation(repair, {});
+    expect(repaired).toHaveLength(STELLA_PROMPT_DEFAULTS.prompts.length);
+    expect(repaired[0]!.updatedAt).toBeGreaterThan(first.publishedAt);
+    const again = await t.mutation(repair, {});
+    expect(resolveStellaPromptSnapshot(again)).toEqual(
+      resolveStellaPromptSnapshot(repaired),
+    );
+    expect(resolveStellaPromptSnapshot(await t.query(list, {}))).toEqual(
+      resolveStellaPromptSnapshot(repaired),
+    );
+  });
+
   it("publishes the exact canonical roster and serves the complete stored snapshot", async () => {
     const t = createTest();
 

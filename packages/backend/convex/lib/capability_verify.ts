@@ -135,12 +135,11 @@ export type ControlPlaneRequestAuthority =
   | { ok: false; response: Response };
 
 /**
- * Route-level admission: verify the bearer capability, then pin its owner
- * generation to the owner's CURRENT generation. A capability minted before a
- * reset verifies fine cryptographically and is refused here.
+ * Authenticate the signed turn identity. The caller MUST validate the current
+ * owner generation in the same query/mutation that reads or writes its data.
+ * Most routes should use authorizeControlPlaneRequest instead.
  */
-export const authorizeControlPlaneRequest = async (
-  ctx: Parameters<typeof assertOwnerDataAccessActive>[0],
+export const authenticateControlPlaneRequest = async (
   request: Request,
 ): Promise<ControlPlaneRequestAuthority> => {
   const verified = await verifyControlPlaneCapability(bearerToken(request));
@@ -162,6 +161,16 @@ export const authorizeControlPlaneRequest = async (
       response: json({ error: "Unauthorized", reason: verified.reason }, 401),
     };
   }
+  return { ok: true, authority: verified.authority };
+};
+
+/** Verify the capability and the current owner generation before route work. */
+export const authorizeControlPlaneRequest = async (
+  ctx: Parameters<typeof assertOwnerDataAccessActive>[0],
+  request: Request,
+): Promise<ControlPlaneRequestAuthority> => {
+  const verified = await authenticateControlPlaneRequest(request);
+  if (!verified.ok) return verified;
   const { authority } = verified;
   try {
     const current = await assertOwnerDataAccessActive(ctx, authority.ownerId);
@@ -188,4 +197,5 @@ export const capabilityAllowsAgentType = (
   authority: Pick<ControlPlaneTurnAuthority, "agentTypes">,
   agentType: string,
 ): boolean =>
-  authority.agentTypes === undefined || authority.agentTypes.includes(agentType);
+  authority.agentTypes === undefined ||
+  authority.agentTypes.includes(agentType);

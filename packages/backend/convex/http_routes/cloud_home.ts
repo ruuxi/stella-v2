@@ -1,7 +1,10 @@
 import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
-import { authorizeControlPlaneRequest } from "../lib/capability_verify";
+import {
+  authenticateControlPlaneRequest,
+  authorizeControlPlaneRequest,
+} from "../lib/capability_verify";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -181,7 +184,14 @@ export function registerCloudHomeRoutes(http: HttpRouter) {
           ownerGeneration: string;
         } | null = null;
         if (!serviceAuthorized(request)) {
-          const auth = await authorizeControlPlaneRequest(ctx, request);
+          // These read queries validate the capability's generation and owner
+          // lifecycle in the SAME database snapshot as the data. A separate
+          // route-level lifecycle query only adds a duplicate round trip.
+          const auth =
+            route.path === "/api/cloud/home/memory/preference" ||
+            route.path === "/api/cloud/home/skills/catalog"
+              ? await authenticateControlPlaneRequest(request)
+              : await authorizeControlPlaneRequest(ctx, request);
           if (!auth.ok) return auth.response;
           capabilityOwner = {
             ownerId: auth.authority.ownerId,

@@ -641,13 +641,73 @@ describe("OrchestratorSession turn admission", () => {
     );
   });
 
+  test("admission completes while queue delivery is stalled, and a restart retries the persisted batch", async () => {
+    const outbox = fakeOutbox();
+    const pending = Promise.withResolvers<void>();
+    outbox.queue.sendBatch = async () => pending.promise;
+    const h = harness({ outbox });
+    try {
+      const response = await Promise.race([
+        h.dispatch(start(), USER),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("admission waited for queue")),
+            250,
+          ),
+        ),
+      ]);
+      expect(response.status).toBe(202);
+      const batchKeys = [...h.values.keys()].filter((key) =>
+        key.startsWith("outboxBatch:"),
+      );
+      expect(batchKeys).toHaveLength(1);
+      expect(h.alarm()).not.toBeNull();
+      const restarted = harness({ values: h.values });
+      await (restarted.instance["retryOutboxDebt"] as () => Promise<void>)();
+      expect(restarted.outbox.events.map((event) => event.kind)).toEqual([
+        "conversation.created",
+        "turn.started",
+      ]);
+      expect(h.values.has(batchKeys[0]!)).toBe(false);
+    } finally {
+      pending.resolve();
+    }
+  });
+
+  test("a completing batch cannot erase a second batch appended while it was in flight", async () => {
+    const outbox = fakeOutbox();
+    const pending = Promise.withResolvers<void>();
+    outbox.queue.sendBatch = async () => pending.promise;
+    const h = harness({ outbox });
+    try {
+      await h.dispatch(start(), USER);
+      const first = [...h.values.keys()].find((key) =>
+        key.startsWith("outboxBatch:"),
+      )!;
+      outbox.queue.sendBatch = async () => {
+        throw new Error("queue unavailable");
+      };
+      await h.dispatch(start({ clientMsgId: "client-msg-0002" }), USER);
+      pending.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(h.values.has(first)).toBe(false);
+      expect(
+        [...h.values.keys()].filter((key) => key.startsWith("outboxBatch:")),
+      ).toHaveLength(1);
+    } finally {
+      pending.resolve();
+    }
+  });
+
   test("a refused outbox at admission becomes durable debt the alarm retries", async () => {
     const outbox = fakeOutbox();
     outbox.failNext(1);
     const h = harness({ outbox });
     const response = await h.dispatch(start(), USER);
     expect(response.status).toBe(202);
-    const debt = h.values.get("outboxDebt") as Array<{ kind: string }>;
+    const debt = [...h.values]
+      .filter(([key]) => key.startsWith("outboxBatch:"))
+      .flatMap(([, value]) => value as Array<{ kind: string }>);
     expect(debt.map((event) => event.kind)).toEqual([
       "conversation.created",
       "turn.started",
@@ -660,7 +720,28 @@ describe("OrchestratorSession turn admission", () => {
       "conversation.created",
       "turn.started",
     ]);
-    expect(h.values.has("outboxDebt")).toBe(false);
+    expect(
+      [...h.values.keys()].some((key) => key.startsWith("outboxBatch:")),
+    ).toBe(false);
+  });
+});
+
+describe("projection retry alarms", () => {
+  test("an early maintenance alarm does not terminate a turn before its persisted watchdog", async () => {
+    const h = harness();
+    const watchdogAt = Date.now() + 60_000;
+    h.values.set("turnWatchdogAt", watchdogAt);
+    h.instance["owedTerminal"] = async () => null;
+    h.instance["currentTurnCancellation"] = {
+      abort: () => {
+        throw new Error("premature timeout");
+      },
+    };
+    await (h.instance["runAlarm"] as (turn: unknown) => Promise<void>)({
+      turnId: "turn-1",
+    });
+    expect(h.alarm()).toBe(watchdogAt);
+    expect(h.values.has("terminal")).toBe(false);
   });
 });
 

@@ -1,4 +1,4 @@
-import { BuildSession } from "../../src/index.js";
+import { BuildSession, OrchestratorSession } from "../../src/index.js";
 import { OwnerFenceStore } from "../../src/owner-fence-store.js";
 import {
   OwnerGate,
@@ -131,6 +131,23 @@ export class LeaseTestOwnerGate extends OwnerGate {
 
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (path === "/__test/turn-state") {
+      if (request.method === "POST") {
+        const body = await parse(request);
+        try {
+          await OrchestratorSession.prototype["putTurnState"].call(this, {
+            "probe:a": body.value,
+            "probe:b": body.fail ? () => undefined : body.value,
+          });
+        } catch {
+          return json({ failed: true }, 400);
+        }
+      }
+      return json({
+        a: this.ctx.storage.kv.get("probe:a"),
+        b: this.ctx.storage.kv.get("probe:b"),
+      });
+    }
     if (path === "/__test/snapshot-with-lease") {
       const body = await parse(request);
       return json(

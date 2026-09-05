@@ -190,6 +190,33 @@ describe("canonical cloud prompts", () => {
     expect(ifNoneMatch).toBe(snapshot.etag);
   });
 
+  test("reuses an integrity-checked publication for 60 seconds without sliding its expiry", async () => {
+    const { snapshot } = await load(10_000);
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests++;
+      return new Response(null, {
+        status: 304,
+        headers: { etag: snapshot.etag },
+      });
+    }) as typeof fetch;
+    const cached = await refreshCanonicalPrompts(
+      "https://convex.example",
+      snapshot,
+      69_999,
+    );
+    expect(cached.disposition).toBe("cache_fresh");
+    expect(cached.snapshot.fetchedAt).toBe(10_000);
+    expect(requests).toBe(0);
+    const refreshed = await refreshCanonicalPrompts(
+      "https://convex.example",
+      cached.snapshot,
+      70_000,
+    );
+    expect(refreshed.disposition).toBe("cache_not_modified");
+    expect(requests).toBe(1);
+  });
+
   test("revalidates a cached publication on exact 304", async () => {
     const { snapshot } = await load(10_000);
     globalThis.fetch = (async () =>

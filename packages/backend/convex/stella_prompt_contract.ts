@@ -135,3 +135,22 @@ export const readBoundedPromptPublishBody = async (
     return { ok: false, error: "Request body must be valid JSON." };
   }
 };
+
+export const isCompleteStellaPromptPublication = (
+  stored: ReadonlyArray<{
+    id: string;
+    sourceRevision: string;
+    updatedAt: number;
+  }>,
+): boolean => {
+  if (stored.length !== STELLA_PROMPT_COUNT) return false;
+  const expected = new Set<string>(STELLA_PROMPT_IDS);
+  const revisions = new Set(stored.map((prompt) => prompt.sourceRevision));
+  const publicationTimes = new Set(stored.map((prompt) => prompt.updatedAt));
+  return (
+    revisions.size === 1 &&
+    publicationTimes.size === 1 &&
+    stored.every((prompt) => expected.delete(prompt.id)) &&
+    expected.size === 0
+  );
+};

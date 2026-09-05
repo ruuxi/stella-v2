@@ -144,6 +144,22 @@ describe("owner-fence leases in real Workerd", () => {
     }
   }, 30_000);
 
+  test("synchronous turn state rolls back atomically and survives an acknowledged restart", async () => {
+    const path = "/owner/turn-state-probe/__test/turn-state";
+    expect(await requestJson(path, { value: "committed" })).toEqual({
+      status: 200,
+      body: { a: "committed", b: "committed" },
+    });
+    expect(
+      (await requestJson(path, { value: "partial", fail: true })).status,
+    ).toBe(400);
+    await restartWorkerd();
+    expect(await requestJson(path)).toEqual({
+      status: 200,
+      body: { a: "committed", b: "committed" },
+    });
+  });
+
   test("a lost register response replays one exact lease across restart", async () => {
     const input = turn(
       "owner-lost-register",
@@ -278,6 +294,11 @@ describe("owner-fence leases in real Workerd", () => {
       },
     );
     expect(asserted.status).toBe(200);
+    expect(asserted.body.expiresAt).toBe(combined.body.lease.expiresAt);
+    const afterAssertion = await requestJson(
+      `/owner/${encodeURIComponent(ownerId)}/__test/fence-snapshot`,
+    );
+    expect(afterAssertion.body.active).toEqual(observed.body.active);
 
     // A caller behind the snapshot's generation gets the snapshot and no lease.
     const stale = await requestJson(

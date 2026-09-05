@@ -2,8 +2,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { STELLA_PROMPT_DEFAULTS } from "./stella_prompt_defaults.generated";
 import {
-  STELLA_PROMPT_COUNT,
-  STELLA_PROMPT_IDS,
+  isCompleteStellaPromptPublication,
   STELLA_PROMPT_SCHEMA_VERSION,
 } from "./stella_prompt_contract";
 
@@ -57,23 +56,10 @@ export const stellaPromptResponse = (
   );
 };
 
-const isCompleteStoredSnapshot = (stored: StoredPrompt[]): boolean => {
-  if (stored.length !== STELLA_PROMPT_COUNT) return false;
-  const expected = new Set<string>(STELLA_PROMPT_IDS);
-  const revisions = new Set(stored.map((prompt) => prompt.sourceRevision));
-  const publicationTimes = new Set(stored.map((prompt) => prompt.updatedAt));
-  return (
-    revisions.size === 1 &&
-    publicationTimes.size === 1 &&
-    stored.every((prompt) => expected.delete(prompt.id)) &&
-    expected.size === 0
-  );
-};
-
 export const resolveStellaPromptSnapshot = (
   stored: StoredPrompt[],
 ): PromptResponseSnapshot => {
-  const useStored = isCompleteStoredSnapshot(stored);
+  const useStored = isCompleteStellaPromptPublication(stored);
   const prompts = useStored ? stored : STELLA_PROMPT_DEFAULTS.prompts;
   return {
     revision: useStored
@@ -91,9 +77,15 @@ export const resolveStellaPromptSnapshot = (
 };
 
 export const stellaPrompts = httpAction(async (ctx, request) => {
-  const stored: StoredPrompt[] = await ctx.runQuery(
+  let stored: StoredPrompt[] = await ctx.runQuery(
     internal.stella_prompts.list,
     {},
   );
+  if (!isCompleteStellaPromptPublication(stored)) {
+    stored = await ctx.runMutation(
+      internal.stella_prompts.ensureDefaultPublication,
+      {},
+    );
+  }
   return stellaPromptResponse(request, resolveStellaPromptSnapshot(stored));
 });

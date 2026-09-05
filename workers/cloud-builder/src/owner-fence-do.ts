@@ -439,6 +439,12 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       ) {
         return json({ error: "Owner purge fence changed." }, 409);
       }
+      // Assertions still check the live fence and exact lease every time.
+      // Renew only when half the lease remains instead of adding a replicated
+      // write to every validation within the same short turn.
+      if (lease.expiresAt - now > OWNER_FENCE_LEASE_TTL_MS / 2) {
+        return json({ ok: true, expiresAt: lease.expiresAt });
+      }
       const expiresAt = now + OWNER_FENCE_LEASE_TTL_MS;
       let renewed!: ReturnType<OwnerFenceStore["renewLeaseExact"]>;
       await this.ctx.storage.transaction(async (txn) => {

@@ -498,6 +498,7 @@ const turnEventSeqKey = (turnId: string): string =>
 const CONVERSATION_PROJECTED_KEY = "conversationProjected";
 /** Outbox events that could not be enqueued yet; the alarm retries them. */
 const OUTBOX_DEBT_KEY = "outboxDebt";
+const OUTBOX_BATCH_PREFIX = "outboxBatch:";
 const OUTBOX_DEBT_MAX = 64;
 const OUTBOX_DEBT_RETRY_MS = 30_000;
 const orchestratorFenceLeaseReceiptKey = (leaseId: string): string =>
@@ -919,6 +920,29 @@ export class OrchestratorSession extends DurableObject<Env> {
     return this.journal.meta().conversation_id || this.ctx.id.name || "";
   }
 
+  private async getTurnState<T>(key: string): Promise<T | undefined> {
+    return this.ctx.storage.kv
+      ? this.ctx.storage.kv.get<T>(key)
+      : await this.ctx.storage.get<T>(key);
+  }
+
+  /**
+   * SQLite writes batch until the next I/O boundary. Cloudflare's output gate
+   * still holds external requests/responses until the writes are durable.
+   * The async fallback supports storage implementations without synchronous KV.
+   */
+  private async putTurnState(entries: Record<string, unknown>): Promise<void> {
+    const { storage } = this.ctx;
+    if (storage.kv) {
+      storage.transactionSync(() => {
+        for (const [key, value] of Object.entries(entries))
+          storage.kv.put(key, value);
+      });
+    } else {
+      await storage.put(entries);
+    }
+  }
+
   private async callOwnerFence(
     ownerId: string,
     path: string,
@@ -991,7 +1015,10 @@ export class OrchestratorSession extends DurableObject<Env> {
       if (receipt.phase !== "unregister_pending") continue;
       await this.retireOwnerFenceLeaseReceipt(receipt);
     }
-    if (await this.hasOwnerFenceLeaseRetirementDebt()) {
+    if (
+      (await this.hasOwnerFenceLeaseRetirementDebt()) ||
+      (await this.hasOutboxDebt())
+    ) {
       await this.armOwnerFenceLeaseReconciliationAlarm();
     }
   }
@@ -1085,7 +1112,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     let receipt!: OwnerFenceLeaseReceipt;
     await this.ctx.blockConcurrencyWhile(async () => {
       const slot = runSlotKey
-        ? await this.ctx.storage.get<OwnerFenceRunSlot>(runSlotKey)
+        ? await this.getTurnState<OwnerFenceRunSlot>(runSlotKey)
         : undefined;
       if (
         slot &&
@@ -1101,7 +1128,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         : (turn.ownerPurgeLeaseId ?? slot?.leaseId ?? crypto.randomUUID());
       const receiptKey = orchestratorFenceLeaseReceiptKey(leaseId);
       const current =
-        await this.ctx.storage.get<OwnerFenceLeaseReceipt>(receiptKey);
+        await this.getTurnState<OwnerFenceLeaseReceipt>(receiptKey);
       if (current && !this.ownerFenceReceiptMatches(current, turn, leaseId)) {
         throw new OwnerPurgeFenceError();
       }
@@ -1163,7 +1190,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         } satisfies OwnerFenceRunSlot;
       }
       // The exact lease id is durable before owner-fence/register can commit.
-      await this.ctx.storage.put(writes);
+      await this.putTurnState(writes);
     });
 
     if (receipt.phase === "unregister_pending") {
@@ -1209,7 +1236,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     await this.ctx.blockConcurrencyWhile(async () => {
       const receiptKey = orchestratorFenceLeaseReceiptKey(receipt.leaseId);
       const current =
-        await this.ctx.storage.get<OwnerFenceLeaseReceipt>(receiptKey);
+        await this.getTurnState<OwnerFenceLeaseReceipt>(receiptKey);
       if (
         !current ||
         current.phase === "unregister_pending" ||
@@ -1223,7 +1250,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         registrationGeneration: body.generation,
         updatedAt: Date.now(),
       };
-      await this.ctx.storage.put(receiptKey, receipt);
+      await this.putTurnState({ [receiptKey]: receipt });
       committed = true;
     });
     if (!committed) {
@@ -1506,7 +1533,72 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
   }
 
+  /** Persist the projection locally; queue latency must not delay a reply. */
+  private async deferOutbox(events: OutboxEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    const key = `${OUTBOX_BATCH_PREFIX}${crypto.randomUUID()}`;
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+      const current = await this.ctx.storage.getAlarm();
+      if (current === null || current > retryAt) {
+        await this.ctx.storage.setAlarm(retryAt);
+      }
+      await this.putTurnState({ [key]: events });
+    });
+    void this.deliverDeferredOutbox(key, events).catch((error: unknown) => {
+      log("error", "outbox_batch_delivery_failed", {
+        message: errorMessage(error),
+      });
+    });
+  }
+
+  private async deliverDeferredOutbox(
+    key: string,
+    events: OutboxEvent[],
+  ): Promise<void> {
+    try {
+      await this.enqueueOutbox(events);
+      // Each batch owns its key. A concurrent append or retry cannot be erased
+      // by an earlier send completing; duplicate sends remain idempotent.
+      if (this.ctx.storage.kv) this.ctx.storage.kv.delete(key);
+      else await this.ctx.storage.delete(key);
+    } catch (error) {
+      log("error", "outbox_enqueue_deferred", {
+        events: events.map((event) => `${event.kind}:${event.key}`),
+        message: errorMessage(error),
+      });
+      await this.ctx.blockConcurrencyWhile(async () => {
+        if (!(await this.ctx.storage.get(key))) return;
+        const retryAt = Date.now() + OUTBOX_DEBT_RETRY_MS;
+        const current = await this.ctx.storage.getAlarm();
+        if (current === null || current > retryAt) {
+          await this.ctx.storage.setAlarm(retryAt);
+        }
+      });
+    }
+  }
+
+  private async hasOutboxDebt(): Promise<boolean> {
+    const batches = await this.ctx.storage.list({
+      prefix: OUTBOX_BATCH_PREFIX,
+      limit: 1,
+    });
+    return (
+      batches.size > 0 ||
+      ((await this.getTurnState<OutboxEvent[]>(OUTBOX_DEBT_KEY))?.length ?? 0) >
+        0
+    );
+  }
+
   private async retryOutboxDebt(): Promise<void> {
+    const batches = await this.ctx.storage.list<OutboxEvent[]>({
+      prefix: OUTBOX_BATCH_PREFIX,
+    });
+    await Promise.all(
+      [...batches].map(([key, events]) =>
+        this.deliverDeferredOutbox(key, events),
+      ),
+    );
     const debt = await this.ctx.storage.get<OutboxEvent[]>(OUTBOX_DEBT_KEY);
     if (!debt || debt.length === 0) return;
     try {
@@ -1547,8 +1639,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     const tail: Promise<unknown> = this.eventSeqTail ?? Promise.resolve();
     const work = tail.then(async () => {
       const key = turnEventSeqKey(turnId);
-      const next = ((await this.ctx.storage.get<number>(key)) ?? 0) + 1;
-      await this.ctx.storage.put(key, next);
+      const next = ((await this.getTurnState<number>(key)) ?? 0) + 1;
+      await this.putTurnState({ [key]: next });
       return next;
     });
     this.eventSeqTail = work.catch(() => undefined);
@@ -1717,6 +1809,7 @@ export class OrchestratorSession extends DurableObject<Env> {
     });
     this.turnExecutions.set(turn.turnId, execution);
     const clear = () => {
+      this.cloudHomePreparations?.delete(turn.turnId);
       if (this.turnExecutions.get(turn.turnId) === execution) {
         this.turnExecutions.delete(turn.turnId);
       }
@@ -2191,7 +2284,10 @@ export class OrchestratorSession extends DurableObject<Env> {
       if (resumeQueued) {
         queued = await this.queuedTurns();
         if (queued.length === 0) {
-          if (await this.hasOwnerFenceLeaseRetirementDebt()) {
+          if (
+            (await this.hasOwnerFenceLeaseRetirementDebt()) ||
+            (await this.hasOutboxDebt())
+          ) {
             const retryAt = Date.now() + 30_000;
             const alarmAt = await this.ctx.storage.getAlarm();
             if (alarmAt === null || alarmAt > retryAt) {
@@ -2252,6 +2348,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       eventSeq?: number;
       errorMessage?: string;
       resultJson?: string;
+      deferred?: boolean;
     } = {},
   ): Promise<number> {
     const eventSeq =
@@ -2273,7 +2370,8 @@ export class OrchestratorSession extends DurableObject<Env> {
       ...(options.resultJson ? { resultJson: options.resultJson } : {}),
       createdAt: Date.now(),
     };
-    await this.enqueueOutbox([event]);
+    if (options.deferred && !terminal) await this.deferOutbox([event]);
+    else await this.enqueueOutbox([event]);
     return eventSeq;
   }
 
@@ -2503,6 +2601,16 @@ export class OrchestratorSession extends DurableObject<Env> {
     // pressed Stop is told the turn timed out instead.
     let owed = await this.owedTerminal(turn);
     if (!owed) {
+      const watchdogAt = await this.ctx.storage.get<number>("turnWatchdogAt");
+      if (watchdogAt !== undefined && Date.now() < watchdogAt) {
+        // Projection retries and lease reconciliation share this alarm. An
+        // earlier maintenance wake must not time out a healthy active turn.
+        const nextAlarm = await this.ctx.storage.getAlarm();
+        if (nextAlarm === null || nextAlarm > watchdogAt) {
+          await this.ctx.storage.setAlarm(watchdogAt);
+        }
+        return;
+      }
       await this.ctx.storage.put("terminal", true);
       // Marking the turn terminal is not enough — the loop would keep burning
       // metered relay calls for output runTurn will discard.
@@ -3022,6 +3130,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       const leaseId = receipt?.leaseId ?? crypto.randomUUID();
       const queuedAt = receipt?.queuedAt ?? Date.now();
 
+      const admittedAt = performance.now();
       const admission = await this.ownerGateAdmit(ownerId, {
         lane: "chat",
         turnId,
@@ -3036,6 +3145,7 @@ export class OrchestratorSession extends DurableObject<Env> {
           admission.retryAfterMs,
         );
       }
+      const ownerGateMs = Math.round(performance.now() - admittedAt);
       const snapshot = admission.snapshot;
       const refuse = async (
         code: Parameters<typeof turnStartErrorResponse>[0],
@@ -3130,17 +3240,68 @@ export class OrchestratorSession extends DurableObject<Env> {
         // Persist the full request/owner/lease binding before the external
         // register boundary. A crash at any later prequeue point can only
         // resume this intent; a changed payload is a conflict.
-        await this.ctx.storage.put(receiptKey, receipt);
+        await this.putTurnState({ [receiptKey]: receipt });
       }
 
+      // An idle conversation can prepare read-only context while its exact
+      // admission receipt and owner lease commit. No provider call occurs.
+      // Busy queues load context when dequeued instead, avoiding stale work.
+      if (
+        this.cloudHomePreparations &&
+        !this.activeTurnId &&
+        this.turnExecutions.size === 0 &&
+        this.ctx.storage.kv &&
+        !this.ctx.storage.kv.get(LOCAL_TURN_LEASE_KEY) &&
+        Array.from(this.ctx.storage.kv.list({ prefix: "queued:", limit: 1 }))
+          .length === 0
+      ) {
+        const work = mintTurnCapabilities(this.env, {
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          execution: turn.execution,
+          audience: turn.audience,
+          budgetMicroCents: turn.budgetMicroCents,
+          agentTypes: ["orchestrator"],
+        }).then((capabilities) =>
+          this.prepareCloudHomeContext(
+            turn,
+            (this.env.STELLA_CONVEX_SITE_URL ?? "").trim().replace(/\/+$/, ""),
+            capabilities.controlPlane,
+          ),
+        );
+        void work.catch(() => undefined);
+        this.cloudHomePreparations.set(turnId, {
+          home: work,
+          destinations: this.ownerGate(turn.ownerId)
+            .devices()
+            .catch(() => null),
+        });
+      }
+      const registrationStarted = performance.now();
       try {
+        let registeredNow = false;
         turn.ownerPurgeGeneration = await this.registerOwnerTurn(
           turn,
           false,
           admissionFingerprint,
+          async (registeredOwnerId, body) => {
+            const result = await this.registerOwnerFenceLease(
+              registeredOwnerId,
+              body,
+            );
+            registeredNow = result !== null;
+            return result;
+          },
         );
-        await this.assertOwnerTurn(turn);
+        // A successful register already validated the exact live owner fence.
+        // Replays only read a local receipt, so they still need a remote check.
+        // The admission commit below rechecks local lease retirement, and
+        // runTurn always checks the live fence again before touching history.
+        if (!registeredNow) await this.assertOwnerTurn(turn);
       } catch (error) {
+        this.cloudHomePreparations?.delete(turnId);
         if (error instanceof OwnerFenceLeaseConflictError) {
           return await refuse(
             "idempotency_conflict",
@@ -3167,6 +3328,10 @@ export class OrchestratorSession extends DurableObject<Env> {
         throw error;
       }
 
+      const registrationMs = Math.round(
+        performance.now() - registrationStarted,
+      );
+      const commitStarted = performance.now();
       // Accept and run in the background. The exact request receipt, queued
       // turn, and owner generation commit together before the 202, so a lost
       // response/restart can replay without registering a new owner fence or
@@ -3186,7 +3351,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         if (turn.ownerPurgeLeaseId !== receipt!.leaseId) {
           throw new OwnerPurgeFenceError();
         }
-        await this.ctx.storage.put({
+        await this.putTurnState({
           [`queued:${turn.turnId}`]: turn,
           [receiptKey]: {
             ...receipt!,
@@ -3213,6 +3378,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         }
       });
       if (editConflict) {
+        this.cloudHomePreparations?.delete(turnId);
         await this.unregisterOwnerTurn(turn);
         await this.releaseOwnerGate(turn);
         return turnStartErrorResponse(
@@ -3260,9 +3426,18 @@ export class OrchestratorSession extends DurableObject<Env> {
         prompt: turn.prompt,
         createdAt: queuedAt,
       } satisfies TurnStartedEvent);
-      await this.enqueueOutboxDurable(projections);
+      await this.deferOutbox(projections);
 
       if (!heldForLocalTurn) this.enqueue(turn);
+      else this.cloudHomePreparations?.delete(turnId);
+      log("info", "chat_turn_admitted", {
+        turnId,
+        conversationId,
+        ownerGateMs,
+        registrationMs,
+        commitMs: Math.round(performance.now() - commitStarted),
+        totalMs: Math.round(performance.now() - admittedAt),
+      });
       return json(
         {
           protocol: TURN_PLANE_PROTOCOL,
@@ -3566,13 +3741,92 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
   }
 
+  private readonly cloudHomePreparations = new Map<
+    string,
+    {
+      home: ReturnType<OrchestratorSession["prepareCloudHomeContext"]>;
+      destinations: Promise<Awaited<
+        ReturnType<ReturnType<OrchestratorSession["ownerGate"]>["devices"]>
+      > | null>;
+    }
+  >();
+
+  private async prepareCloudHomeContext(
+    turn: ChatTurnRequest,
+    base: string,
+    controlPlane: Pick<MintedTurnCapability, "token">,
+  ) {
+    const timings: Record<string, number> = {};
+    const measure = async <T>(
+      name: string,
+      work: () => Promise<T>,
+    ): Promise<T> => {
+      const start = performance.now();
+      try {
+        return await work();
+      } finally {
+        timings[name] = Math.round(performance.now() - start);
+      }
+    };
+    const home = new AgentHome(
+      this.env.AGENT_HOME,
+      turn.ownerId,
+      turn.ownerGeneration,
+      {
+        base,
+        bearer: controlPlane.token,
+        ownerGeneration: turn.ownerGeneration,
+      },
+    );
+    const [memory, skillCatalog] = await Promise.all([
+      (async () => {
+        const context = await measure("memorySnapshotMs", () =>
+          requireCloudContext(
+            "agent_home_memory",
+            home.cloudStore().getMemoryContext(),
+          ),
+        );
+        const [memoryDocuments, personalityOverride] = await Promise.all([
+          context.preference.memoryEnabled
+            ? measure("memoryDocumentsMs", () =>
+                requireCloudContext(
+                  "agent_home_memory",
+                  home.readDocuments(context.documentHeads),
+                ),
+              )
+            : Promise.resolve([]),
+          context.preference.memoryEnabled
+            ? measure("personalityMs", () =>
+                requireCloudContext(
+                  "agent_home_personality",
+                  home.readPersonality(context.personalityHead),
+                ),
+              )
+            : Promise.resolve(null),
+        ]);
+        return {
+          memoryPreference: context.preference,
+          memoryDocuments,
+          personalityOverride,
+        };
+      })(),
+      measure("skillCatalogMs", () =>
+        requireCloudContext(
+          "skill_catalog",
+          home.loadSkillCatalog("orchestrator"),
+        ),
+      ),
+    ]);
+    return { ...memory, skillCatalog, timings };
+  }
+
   private async runTurn(
     turn: ChatTurnRequest,
     turnCancellation: TurnRetryCancellation,
     executionSignal: AbortSignal,
   ): Promise<Response> {
     const localLease =
-      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
+      await this.getTurnState<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) {
       const retirementAt = localTurnRetirementDeadline(localLease);
       if (retirementAt <= Date.now()) {
@@ -3639,11 +3893,11 @@ export class OrchestratorSession extends DurableObject<Env> {
     }
     // A prior turn that never delivered its terminal event (isolate restart
     // mid-run) would otherwise stay "running" in Convex forever.
-    const stale = await this.ctx.storage.get<ChatTurnRequest>("turn");
+    const stale = await this.getTurnState<ChatTurnRequest>("turn");
     if (
       stale &&
       stale.turnId !== turn.turnId &&
-      !(await this.ctx.storage.get<boolean>("terminalDelivered"))
+      !(await this.getTurnState<boolean>("terminalDelivered"))
     ) {
       const interrupted = "Stella was interrupted answering this. Try again.";
       await this.emitTurnEvent(
@@ -3668,6 +3922,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     // The stale-turn recovery above deliberately sits outside the window: it
     // yields on the outbox send, and it needs the previous turn to still be
     // under `turn` in order to recover it at all.
+    const watchdogAt =
+      Date.now() + Math.max(1_000, turn.watchdogMs ?? CHAT_WATCHDOG_MS);
     let preCanceled: ExactTurnCancellation | null = null;
     await this.ctx.blockConcurrencyWhile(async () => {
       // This check and the queued -> current swap share the same critical
@@ -3679,14 +3935,21 @@ export class OrchestratorSession extends DurableObject<Env> {
         ownerGeneration: turn.ownerGeneration,
       });
       if (preCanceled) return;
-      await this.ctx.storage.put({
+      const nextAlarm = await this.ctx.storage.getAlarm();
+      if (nextAlarm === null || nextAlarm > watchdogAt) {
+        await this.ctx.storage.setAlarm(watchdogAt);
+      }
+      await this.putTurnState({
         turn,
+        turnWatchdogAt: watchdogAt,
         terminal: false,
         terminalDelivered: false,
         terminalOwed: null,
         alarmAttempts: 0,
       });
-      await this.ctx.storage.delete(`queued:${turn.turnId}`);
+      if (this.ctx.storage.kv)
+        this.ctx.storage.kv.delete(`queued:${turn.turnId}`);
+      else await this.ctx.storage.delete(`queued:${turn.turnId}`);
     });
     if (preCanceled) {
       return await this.finishPreCanceledTurn(turn, preCanceled);
@@ -3702,9 +3965,6 @@ export class OrchestratorSession extends DurableObject<Env> {
       state: "running",
       now: Date.now(),
     });
-    await this.ctx.storage.setAlarm(
-      Date.now() + Math.max(1_000, turn.watchdogMs ?? CHAT_WATCHDOG_MS),
-    );
     const started = performance.now();
     const preparationTimings: Record<string, number> = {};
     const measurePreparation = async <T>(
@@ -3728,8 +3988,8 @@ export class OrchestratorSession extends DurableObject<Env> {
     const assertExactTurnActive = async (): Promise<void> => {
       assertTurnExecutionActive(turnCancellation, executionSignal);
       const [stored, terminal] = await Promise.all([
-        this.ctx.storage.get<ChatTurnRequest>("turn"),
-        this.ctx.storage.get<boolean>("terminal"),
+        this.getTurnState<ChatTurnRequest>("turn"),
+        this.getTurnState<boolean>("terminal"),
       ]);
       assertTurnExecutionActive(turnCancellation, executionSignal);
       if (
@@ -3743,42 +4003,133 @@ export class OrchestratorSession extends DurableObject<Env> {
     };
     this.currentTurnCancellation = turnCancellation;
     try {
-      await this.assertOwnerTurn(turn);
+      // The queue boundary above already checked the live fence. Repeat that
+      // check alongside read-only preparation, and join it before publishing
+      // the prompt or constructing the agent.
+      const ownerAssertionWork = this.assertOwnerTurn(turn);
+      void ownerAssertionWork.catch(() => undefined);
       await assertExactTurnActive();
       this.activeTurnId = turn.turnId;
       // Admission already bound the owner; this only re-asserts it and sets
       // the title on a turn that carried one.
       this.bindConversation(turn);
-      await this.emitTurnEvent(turn, "started", {});
+      await this.emitTurnEvent(turn, "started", {}, { deferred: true });
       await assertExactTurnActive();
 
       const base = (this.env.STELLA_CONVEX_SITE_URL ?? "")
         .trim()
         .replace(/\/+$/, "");
       if (!base) throw new Error("Convex site URL is not configured.");
+      const canonicalPromptsWork = measurePreparation(
+        "canonicalPromptsMs",
+        () =>
+          requireCloudContext(
+            "canonical_prompt",
+            this.loadCanonicalPromptsForTurn(base, executionSignal),
+          ),
+      );
+      // This work can reject before the other preparation joins it. Preserve
+      // that rejection for the await below without an unhandled rejection.
+      void canonicalPromptsWork.catch(() => undefined);
       // Both capabilities, minted before any callback: the control-plane one
       // is the bearer for every synchronous Convex route this turn touches
       // (agent home, attachments, search, recall, schedules, integrations),
       // the model one is the only credential the model gateway ever sees.
-      const [capabilities, destinations] = await Promise.all([
-        measurePreparation("capabilitiesMs", () =>
-          mintTurnCapabilities(this.env, {
-            ownerId: turn.ownerId,
-            ownerGeneration: turn.ownerGeneration,
-            turnId: turn.turnId,
-            conversationId: turn.conversationId,
-            execution: turn.execution,
-            audience: turn.audience,
-            budgetMicroCents: turn.budgetMicroCents,
-            agentTypes: ["orchestrator"],
-          }),
-        ),
-        measurePreparation("devicesMs", () =>
+      const destinationsWork = measurePreparation(
+        "devicesMs",
+        () =>
+          this.cloudHomePreparations?.get(turn.turnId)?.destinations ??
           this.ownerGate(turn.ownerId)
             .devices()
             .catch(() => null),
+      );
+      const capabilities = await measurePreparation("capabilitiesMs", () =>
+        mintTurnCapabilities(this.env, {
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          execution: turn.execution,
+          audience: turn.audience,
+          budgetMicroCents: turn.budgetMicroCents,
+          agentTypes: ["orchestrator"],
+        }),
+      );
+      await assertExactTurnActive();
+
+      const agentHome = new AgentHome(
+        this.env.AGENT_HOME,
+        turn.ownerId,
+        turn.ownerGeneration,
+        {
+          base,
+          bearer: capabilities.controlPlane.token,
+          ownerGeneration: turn.ownerGeneration,
+          // The orchestrator turn holds this activity lease until its terminal
+          // finally block. Reassert it immediately before each R2 PUT so reset
+          // cannot finish its owner-prefix sweep ahead of an in-flight writer.
+          assertExternalWrite: async () => {
+            await this.assertOwnerTurn(turn);
+            await assertExactTurnActive();
+          },
+        },
+      );
+      // Resolve the owner's control-plane preference before any Agent Home
+      // content. Disabled means no resident-memory/personality read and no
+      // memory tools; unavailable or corrupt authoritative context blocks the
+      // turn instead of producing a normal-looking memoryless reply.
+      const executionSelection = turn.execution;
+      const modelGatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+      const modelGateway = this.env.MODEL_GATEWAY;
+      if (!modelGatewayOrigin || !modelGateway) {
+        throw new Error("Model gateway is not configured.");
+      }
+      const turnCapability = capabilities.model;
+      const prefetchedHome = this.cloudHomePreparations?.get(turn.turnId)?.home;
+      const loadHome = () =>
+        this.prepareCloudHomeContext(turn, base, capabilities.controlPlane);
+      const homePreparation = prefetchedHome
+        ? prefetchedHome.catch(loadHome)
+        : loadHome();
+      this.cloudHomePreparations?.delete(turn.turnId);
+      const measuredHomePreparation = homePreparation.then((context) => {
+        Object.assign(preparationTimings, context.timings);
+        return context;
+      });
+      void measuredHomePreparation.catch(() => undefined);
+      // Only memory reads depend on memory policy. Model resolution and other
+      // context can run alongside that chain; no provider call starts here.
+      const preparationWork = Promise.all([
+        measuredHomePreparation,
+        canonicalPromptsWork,
+        measurePreparation("localeMs", () =>
+          this.resolveTurnLocale(turn, () =>
+            assertTurnExecutionActive(turnCancellation, executionSignal),
+          ),
+        ),
+        measurePreparation("attachmentsMs", () =>
+          this.loadChatAttachmentImages(
+            base,
+            turn,
+            capabilities.controlPlane,
+            executionSignal,
+          ),
+        ),
+        measuredHomePreparation.then((context) => context.skillCatalog),
+        measurePreparation("modelResolutionMs", () =>
+          createCloudRelayModel({
+            gatewayOrigin: modelGatewayOrigin,
+            capability: turnCapability.token,
+            agentType: "orchestrator",
+            execution: executionSelection,
+            signal: executionSignal,
+            fetch: (input, init) => modelGateway.fetch(input, init),
+          }),
         ),
       ]);
+      void preparationWork.catch(() => undefined);
+      const destinations = await destinationsWork;
+      await ownerAssertionWork;
       await assertExactTurnActive();
 
       // Repair BEFORE the prompt row exists. An eviction, a cancel or a
@@ -3873,64 +4224,6 @@ export class OrchestratorSession extends DurableObject<Env> {
         .flush({ activity: "running", updatedAt: now })
         .catch(() => undefined);
 
-      const agentHome = new AgentHome(
-        this.env.AGENT_HOME,
-        turn.ownerId,
-        turn.ownerGeneration,
-        {
-          base,
-          bearer: capabilities.controlPlane.token,
-          ownerGeneration: turn.ownerGeneration,
-          // The orchestrator turn holds this activity lease until its terminal
-          // finally block. Reassert it immediately before each R2 PUT so reset
-          // cannot finish its owner-prefix sweep ahead of an in-flight writer.
-          assertExternalWrite: async () => {
-            await this.assertOwnerTurn(turn);
-            await assertExactTurnActive();
-          },
-        },
-      );
-      // Resolve the owner's control-plane preference before any Agent Home
-      // content. Disabled means no resident-memory/personality read and no
-      // memory tools; unavailable or corrupt authoritative context blocks the
-      // turn instead of producing a normal-looking memoryless reply.
-      const executionSelection = turn.execution;
-      const modelGatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
-      const modelGateway = this.env.MODEL_GATEWAY;
-      if (!modelGatewayOrigin || !modelGateway) {
-        throw new Error("Model gateway is not configured.");
-      }
-      const turnCapability = capabilities.model;
-      const loadMemoryContext = async () => {
-        const memoryContext = await measurePreparation("memorySnapshotMs", () =>
-          requireCloudContext(
-            "agent_home_memory",
-            agentHome.cloudStore().getMemoryContext(),
-          ),
-        );
-        const memoryPreference = memoryContext.preference;
-        const [memoryDocuments, personalityOverride] = await Promise.all([
-          memoryPreference.memoryEnabled
-            ? measurePreparation("memoryDocumentsMs", () =>
-                requireCloudContext(
-                  "agent_home_memory",
-                  agentHome.readDocuments(memoryContext.documentHeads),
-                ),
-              )
-            : Promise.resolve([]),
-          memoryPreference.memoryEnabled
-            ? measurePreparation("personalityMs", () =>
-                requireCloudContext(
-                  "agent_home_personality",
-                  agentHome.readPersonality(memoryContext.personalityHead),
-                ),
-              )
-            : Promise.resolve(null),
-        ]);
-        return { memoryPreference, memoryDocuments, personalityOverride };
-      };
-      // Only memory reads depend on memory policy. Model resolution and other
-      // context can run alongside that chain; no provider call starts here.
       const [
         { memoryPreference, memoryDocuments, personalityOverride },
         canonicalPrompts,
@@ -3938,44 +4231,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         attachmentImages,
         skillCatalog,
         model,
-      ] = await Promise.all([
-        loadMemoryContext(),
-        measurePreparation("canonicalPromptsMs", () =>
-          requireCloudContext(
-            "canonical_prompt",
-            this.loadCanonicalPromptsForTurn(base, executionSignal),
-          ),
-        ),
-        measurePreparation("localeMs", () =>
-          this.resolveTurnLocale(turn, () =>
-            assertTurnExecutionActive(turnCancellation, executionSignal),
-          ),
-        ),
-        measurePreparation("attachmentsMs", () =>
-          this.loadChatAttachmentImages(
-            base,
-            turn,
-            capabilities.controlPlane,
-            executionSignal,
-          ),
-        ),
-        measurePreparation("skillCatalogMs", () =>
-          requireCloudContext(
-            "skill_catalog",
-            agentHome.loadSkillCatalog("orchestrator"),
-          ),
-        ),
-        measurePreparation("modelResolutionMs", () =>
-          createCloudRelayModel({
-            gatewayOrigin: modelGatewayOrigin,
-            capability: turnCapability.token,
-            agentType: "orchestrator",
-            execution: executionSelection,
-            signal: executionSignal,
-            fetch: (input, init) => modelGateway.fetch(input, init),
-          }),
-        ),
-      ]);
+      ] = await preparationWork;
       const memoryEnabled = memoryPreference.memoryEnabled;
       log("info", "cloud_memory_preference_loaded", {
         turnId: turn.turnId,
@@ -4012,7 +4268,7 @@ export class OrchestratorSession extends DurableObject<Env> {
       } catch (error) {
         if (
           turnCancellation.aborted ||
-          (await this.ctx.storage.get<boolean>("terminal"))
+          (await this.getTurnState<boolean>("terminal"))
         ) {
           // The prompt row is already committed, so this turn has content
           // worth indexing even though the loop never ran. Returning without
@@ -4197,7 +4453,7 @@ export class OrchestratorSession extends DurableObject<Env> {
         throw new Error(`Persisting the reply failed: ${persistError}`);
       }
 
-      if (await this.ctx.storage.get<boolean>("terminal")) {
+      if (await this.getTurnState<boolean>("terminal")) {
         // Canceled or timed out mid-loop; the terminal event and its journal
         // record are already written by whichever path marked it terminal.
         // The post-terminal work is not: that path deliberately leaves it to
@@ -4262,7 +4518,11 @@ export class OrchestratorSession extends DurableObject<Env> {
           limit: 1,
         });
         if (queued.size === 0) {
-          if (await this.hasOwnerFenceLeaseRetirementDebt()) {
+          if (
+            !(await this.getTurnState<boolean>("terminalDelivered")) ||
+            (await this.hasOwnerFenceLeaseRetirementDebt()) ||
+            (await this.hasOutboxDebt())
+          ) {
             const retryAt = Date.now() + 30_000;
             const alarmAt = await this.ctx.storage.getAlarm();
             if (alarmAt === null || alarmAt > retryAt) {
@@ -4308,7 +4568,7 @@ export class OrchestratorSession extends DurableObject<Env> {
             : {}),
         });
       }
-      if (!(await this.ctx.storage.get<boolean>("terminal"))) {
+      if (!(await this.getTurnState<boolean>("terminal"))) {
         // Same pairing as `/cancel`: the alarm retries what is owed, so what
         // is owed becomes durable in the same write that says a terminal was
         // reached at all.
@@ -4372,7 +4632,7 @@ export class OrchestratorSession extends DurableObject<Env> {
 
   /**
    * The canonical prompt snapshot, cached in durable storage and refreshed
-   * by ETag on every turn. A refresh failure may use only a
+   * by ETag after at most 60 seconds. A refresh failure may use only a
    * revalidated last-known-good cache; a cold/corrupt cache throws before the
    * relay model is constructed.
    */
@@ -4380,10 +4640,12 @@ export class OrchestratorSession extends DurableObject<Env> {
     convexSiteBase: string,
     signal?: AbortSignal,
   ): Promise<CanonicalPromptSnapshot> {
+    const started = performance.now();
     signal?.throwIfAborted();
     const cached = await this.ctx.storage.get<unknown>(
       CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY,
     );
+    const storageMs = Math.round(performance.now() - started);
     signal?.throwIfAborted();
     const loaded = await refreshCanonicalPrompts(
       convexSiteBase,
@@ -4408,6 +4670,12 @@ export class OrchestratorSession extends DurableObject<Env> {
         refreshErrorCode: loaded.refreshErrorCode ?? "unknown",
       });
     }
+    log("info", "canonical_prompt_loaded", {
+      disposition: loaded.disposition,
+      storageMs,
+      totalMs: Math.round(performance.now() - started),
+      ageMs: Date.now() - loaded.snapshot.fetchedAt,
+    });
     return loaded.snapshot;
   }
 

@@ -23,6 +23,8 @@ import { sha256Hex } from "./hash.js";
 export const CANONICAL_ORCHESTRATOR_PROMPT_ID = "agents/orchestrator.md";
 export const CANONICAL_PERSONALITY_PROMPT_ID = "prompts/personality.md";
 
+// Matches the public prompt endpoint's max-age, with no sliding renewal.
+const PROMPT_FRESH_MAX_AGE_MS = 60_000;
 const PROMPT_LKG_MAX_AGE_MS = 24 * 60 * 60_000;
 const PROMPT_FETCH_TIMEOUT_MS = 10_000;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
@@ -62,7 +64,11 @@ export type CanonicalPromptSnapshot = {
 
 export type CanonicalPromptLoadResult = {
   snapshot: CanonicalPromptSnapshot;
-  disposition: "fresh" | "cache_not_modified" | "cache_recovery";
+  disposition:
+    | "fresh"
+    | "cache_fresh"
+    | "cache_not_modified"
+    | "cache_recovery";
   refreshErrorCode?: string;
 };
 
@@ -364,9 +370,10 @@ export const refreshCanonicalPrompts = async (
     validatedCache && validatedCache.fetchedAt <= now ? validatedCache : null;
   const cacheInsideHardAge =
     cached !== null && now - cached.fetchedAt <= PROMPT_LKG_MAX_AGE_MS;
-  // Every turn revalidates: with a cached publication this is one
-  // `If-None-Match` round trip answered by a 304, so a Convex deploy reaches
-  // the next message instead of waiting out a refresh interval.
+  if (cached && now - cached.fetchedAt < PROMPT_FRESH_MAX_AGE_MS) {
+    return { snapshot: cached, disposition: "cache_fresh" };
+  }
+  // Expired publications revalidate by ETag. Cache hits never extend fetchedAt.
   try {
     signal?.throwIfAborted();
     const response = await fetch(`${endpoint}/api/stella/prompts`, {

@@ -1,8 +1,14 @@
+import { STELLA_PROMPT_DEFAULTS } from "./stella_prompt_defaults.generated";
 import { v } from "convex/values";
 
-import { internalMutation, internalQuery } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "./_generated/server";
 import {
   STELLA_PROMPT_COUNT,
+  isCompleteStellaPromptPublication,
   STELLA_PROMPT_REVISION_PATTERN,
   deriveStellaPromptRevision,
   hashStellaPromptInputs,
@@ -56,53 +62,94 @@ export const publish = internalMutation({
     published: v.number(),
     publishedAt: v.number(),
   }),
-  handler: async (ctx, args) => {
-    if (!STELLA_PROMPT_REVISION_PATTERN.test(args.revision)) {
-      throw new Error("revision must be a lowercase SHA-256 hex string");
-    }
-    const validated = validateStellaPromptInputs(args.prompts);
-    if (!validated.ok) throw new Error(validated.error);
-    const revision = await deriveStellaPromptRevision(validated.prompts);
-    if (revision !== args.revision) {
-      throw new Error("revision does not match prompt content");
-    }
+  handler: publishPrompts,
+});
 
-    const existingRows = [];
-    for await (const row of ctx.db.query("prompts")) {
-      existingRows.push(row);
-      if (existingRows.length > STELLA_PROMPT_COUNT) {
-        throw new Error(`Prompt table exceeds ${STELLA_PROMPT_COUNT} rows`);
-      }
+async function publishPrompts(
+  ctx: MutationCtx,
+  args: {
+    revision: string;
+    prompts: Array<{ id: string; content: string }>;
+  },
+) {
+  if (!STELLA_PROMPT_REVISION_PATTERN.test(args.revision)) {
+    throw new Error("revision must be a lowercase SHA-256 hex string");
+  }
+  const validated = validateStellaPromptInputs(args.prompts);
+  if (!validated.ok) throw new Error(validated.error);
+  const revision = await deriveStellaPromptRevision(validated.prompts);
+  if (revision !== args.revision) {
+    throw new Error("revision does not match prompt content");
+  }
+
+  const existingRows = [];
+  for await (const row of ctx.db.query("prompts")) {
+    existingRows.push(row);
+    if (existingRows.length > STELLA_PROMPT_COUNT) {
+      throw new Error(`Prompt table exceeds ${STELLA_PROMPT_COUNT} rows`);
     }
-    const existingById = new Map(
-      existingRows.map((row) => [row.promptId, row]),
-    );
-    const publishedAt = nextStellaPromptPublishedAt(
-      existingRows.map((row) => row.updatedAt),
-      Date.now(),
-    );
-    const hashed = await hashStellaPromptInputs(validated.prompts);
-    const keepIds = new Set<string>();
-    for (const prompt of hashed) {
-      keepIds.add(prompt.id);
-      const value = {
-        promptId: prompt.id,
-        content: prompt.content,
-        sha256: prompt.sha256,
-        sourceRevision: revision,
-        updatedAt: publishedAt,
-      };
-      const existing = existingById.get(prompt.id);
-      if (existing) await ctx.db.replace(existing._id, value);
-      else await ctx.db.insert("prompts", value);
-    }
-    for (const row of existingRows) {
-      if (!keepIds.has(row.promptId)) await ctx.db.delete(row._id);
-    }
-    return {
-      revision,
-      published: validated.prompts.length,
-      publishedAt,
+  }
+  const existingById = new Map(existingRows.map((row) => [row.promptId, row]));
+  const publishedAt = nextStellaPromptPublishedAt(
+    existingRows.map((row) => row.updatedAt),
+    Date.now(),
+  );
+  const hashed = await hashStellaPromptInputs(validated.prompts);
+  const keepIds = new Set<string>();
+  for (const prompt of hashed) {
+    keepIds.add(prompt.id);
+    const value = {
+      promptId: prompt.id,
+      content: prompt.content,
+      sha256: prompt.sha256,
+      sourceRevision: revision,
+      updatedAt: publishedAt,
     };
+    const existing = existingById.get(prompt.id);
+    if (existing) await ctx.db.replace(existing._id, value);
+    else await ctx.db.insert("prompts", value);
+  }
+  for (const row of existingRows) {
+    if (!keepIds.has(row.promptId)) await ctx.db.delete(row._id);
+  }
+  return {
+    revision,
+    published: validated.prompts.length,
+    publishedAt,
+  };
+}
+
+/** Repair an incomplete roster once, using a durable monotonic publication. */
+export const ensureDefaultPublication = internalMutation({
+  args: {},
+  returns: v.array(storedPromptValidator),
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("prompts").take(STELLA_PROMPT_COUNT + 1);
+    if (rows.length > STELLA_PROMPT_COUNT)
+      throw new Error("Prompt table exceeds its bound");
+    const stored = rows.map((row) => ({
+      id: row.promptId,
+      sha256: row.sha256,
+      content: row.content,
+      sourceRevision: row.sourceRevision,
+      updatedAt: row.updatedAt,
+    }));
+    // A concurrent administrator publication wins over automatic repair.
+    if (isCompleteStellaPromptPublication(stored))
+      return stored.sort((a, b) => a.id.localeCompare(b.id));
+    const result = await publishPrompts(ctx, {
+      revision: STELLA_PROMPT_DEFAULTS.revision,
+      prompts: STELLA_PROMPT_DEFAULTS.prompts.map(({ id, content }) => ({
+        id,
+        content,
+      })),
+    });
+    return STELLA_PROMPT_DEFAULTS.prompts
+      .map((prompt) => ({
+        ...prompt,
+        sourceRevision: result.revision,
+        updatedAt: result.publishedAt,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
   },
 });

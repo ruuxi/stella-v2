@@ -30,7 +30,6 @@ import {
   loadExistingOfficePreviewHtml,
   loadOfficePreviewHtml,
   readDesktopArtifactFile,
-  resolveArtifactBridge,
 } from "../lib/desktop-artifact-data";
 import { sharePdf } from "../lib/chat-pdf";
 import {
@@ -305,6 +304,7 @@ export function ArtifactViewerContent({
   useEffect(() => {
     if (!artifact) return;
     let cancelled = false;
+    const controller = new AbortController();
     // PDFs and audio are handed to native renderers as real files; they live
     // in the cache only as long as this artifact is on screen.
     let materialized: ArtifactMediaFile | null = null;
@@ -345,16 +345,16 @@ export function ArtifactViewerContent({
       if (!access) {
         throw new Error("Pair this phone with your desktop again.");
       }
-      const bridge = await resolveArtifactBridge(access);
 
       if (payload.kind === "office") {
         return {
           kind: "html-document" as const,
           html: prepareDocumentHtml(
             await loadExistingOfficePreviewHtml(
-              bridge,
+              access,
               artifact.conversationId,
               payload.previewRef.sessionId,
+              controller.signal,
             ),
           ),
         };
@@ -367,9 +367,10 @@ export function ArtifactViewerContent({
           kind: "html-document" as const,
           html: prepareDocumentHtml(
             await loadOfficePreviewHtml(
-              bridge,
+              access,
               artifact.conversationId,
               payload.filePath,
+              controller.signal,
             ),
           ),
         };
@@ -380,9 +381,10 @@ export function ArtifactViewerContent({
         throw new Error("This artifact does not have a mobile preview yet.");
       }
       const result = await readDesktopArtifactFile(
-        bridge,
+        access,
         artifact.conversationId,
         filePath,
+        controller.signal,
       );
       if (result.missing) throw new Error("This file is no longer available.");
 
@@ -465,6 +467,7 @@ export function ArtifactViewerContent({
 
     return () => {
       cancelled = true;
+      controller.abort();
       materialized?.remove();
     };
   }, [access, artifact, colors, title]);

@@ -1,10 +1,11 @@
 import {
   fetchDesktopBridgeFileBytes,
   invokeDesktopBridge,
-  resolveDesktopBridge,
+  withDesktopBridgeRecovery,
   type DesktopBridgeConnection,
 } from "./desktop-bridge-chat";
 import type { StoredPhoneAccess } from "./phone-access";
+import { isBridgeRecoveryError } from "./bridge-recovery";
 
 export type DesktopFileReadResult =
   | {
@@ -30,7 +31,52 @@ export type OfficePreviewSnapshot = {
 const OFFICE_PREVIEW_TIMEOUT_MS = 30_000;
 const OFFICE_PREVIEW_POLL_MS = 750;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const assertActive = (signal?: AbortSignal): void => {
+  if (!signal?.aborted) return;
+  const error = new Error("Artifact loading cancelled.");
+  error.name = "AbortError";
+  throw error;
+};
+
+const withArtifactBridge = async <T>(
+  access: StoredPhoneAccess,
+  signal: AbortSignal | undefined,
+  operation: (bridge: DesktopBridgeConnection) => Promise<T>,
+): Promise<T> => {
+  assertActive(signal);
+  return withDesktopBridgeRecovery(access, async (bridge) => {
+    assertActive(signal);
+    try {
+      const result = await operation(bridge);
+      assertActive(signal);
+      return result;
+    } catch (error) {
+      // A cancelled read must not trigger a fresh handshake or another read.
+      assertActive(signal);
+      throw error;
+    }
+  });
+};
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    assertActive(signal);
+    const finish = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      try {
+        assertActive(signal);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 
 const normalizeBytes = (value: unknown): Uint8Array => {
   if (value instanceof Uint8Array) return value;
@@ -52,10 +98,11 @@ const normalizeBytes = (value: unknown): Uint8Array => {
   return new Uint8Array();
 };
 
-export async function readDesktopArtifactFile(
+async function readArtifactFileOnBridge(
   bridge: DesktopBridgeConnection,
   conversationId: string,
   filePath: string,
+  signal?: AbortSignal,
 ): Promise<DesktopFileReadResult> {
   // Prefer the encrypted-binary lane (~1.0x wire size). Any failure — feature
   // missing (returns null), transport hiccup — falls back to the legacy
@@ -76,10 +123,13 @@ export async function readDesktopArtifactFile(
             mimeType: binary.mimeType,
           };
     }
-  } catch {
-    // fall through to the legacy lane
+  } catch (error) {
+    assertActive(signal);
+    if (isBridgeRecoveryError(error)) throw error;
+    // An unavailable binary capability can still use the legacy lane.
   }
 
+  assertActive(signal);
   const result = await invokeDesktopBridge<Record<string, unknown>>(
     bridge,
     "display:readFile",
@@ -105,6 +155,16 @@ export async function readDesktopArtifactFile(
         : "application/octet-stream",
   };
 }
+
+export const readDesktopArtifactFile = (
+  access: StoredPhoneAccess,
+  conversationId: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<DesktopFileReadResult> =>
+  withArtifactBridge(access, signal, (bridge) =>
+    readArtifactFileOnBridge(bridge, conversationId, filePath, signal),
+  );
 
 export const bytesToText = (bytes: Uint8Array): string => {
   if (typeof TextDecoder !== "undefined") {
@@ -140,14 +200,11 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
 export const bytesToDataUri = (bytes: Uint8Array, mimeType: string): string =>
   `data:${mimeType || "application/octet-stream"};base64,${bytesToBase64(bytes)}`;
 
-export const resolveArtifactBridge = async (
-  access: StoredPhoneAccess,
-): Promise<DesktopBridgeConnection> => resolveDesktopBridge(access);
-
-export async function loadOfficePreviewHtml(
+async function startOfficePreviewOnBridge(
   bridge: DesktopBridgeConnection,
   conversationId: string,
   filePath: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const ref = await invokeDesktopBridge<{ sessionId: string }>(
     bridge,
@@ -156,6 +213,7 @@ export async function loadOfficePreviewHtml(
   );
   const started = Date.now();
   while (Date.now() - started < OFFICE_PREVIEW_TIMEOUT_MS) {
+    assertActive(signal);
     const snapshots = await invokeDesktopBridge<OfficePreviewSnapshot[]>(
       bridge,
       "officePreview:list",
@@ -168,18 +226,20 @@ export async function loadOfficePreviewHtml(
     if (snapshot?.status === "error") {
       throw new Error(snapshot.error || "Office preview failed.");
     }
-    await sleep(OFFICE_PREVIEW_POLL_MS);
+    await sleep(OFFICE_PREVIEW_POLL_MS, signal);
   }
   throw new Error("Office preview timed out.");
 }
 
-export async function loadExistingOfficePreviewHtml(
+async function existingOfficePreviewOnBridge(
   bridge: DesktopBridgeConnection,
   conversationId: string,
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const started = Date.now();
   while (Date.now() - started < OFFICE_PREVIEW_TIMEOUT_MS) {
+    assertActive(signal);
     const snapshots = await invokeDesktopBridge<OfficePreviewSnapshot[]>(
       bridge,
       "officePreview:list",
@@ -190,7 +250,27 @@ export async function loadExistingOfficePreviewHtml(
     if (snapshot?.status === "error") {
       throw new Error(snapshot.error || "Office preview failed.");
     }
-    await sleep(OFFICE_PREVIEW_POLL_MS);
+    await sleep(OFFICE_PREVIEW_POLL_MS, signal);
   }
   throw new Error("Office preview timed out.");
 }
+
+export const loadOfficePreviewHtml = (
+  access: StoredPhoneAccess,
+  conversationId: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<string> =>
+  withArtifactBridge(access, signal, (bridge) =>
+    startOfficePreviewOnBridge(bridge, conversationId, filePath, signal),
+  );
+
+export const loadExistingOfficePreviewHtml = (
+  access: StoredPhoneAccess,
+  conversationId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<string> =>
+  withArtifactBridge(access, signal, (bridge) =>
+    existingOfficePreviewOnBridge(bridge, conversationId, sessionId, signal),
+  );

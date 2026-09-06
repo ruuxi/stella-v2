@@ -103,7 +103,6 @@ import type { StoredPhoneAccess } from "../lib/phone-access";
 import {
   bytesToDataUri,
   readDesktopArtifactFile,
-  resolveArtifactBridge,
 } from "../lib/desktop-artifact-data";
 import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
@@ -1266,10 +1265,8 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
       setFailed(true);
       return () => undefined;
     }
-    void resolveArtifactBridge(access)
-      .then((bridge) =>
-        readDesktopArtifactFile(bridge, conversationId, filePath),
-      )
+    const controller = new AbortController();
+    void readDesktopArtifactFile(access, conversationId, filePath, controller.signal)
       .then((result) => {
         if (cancelled) return;
         if (result.missing) {
@@ -1283,6 +1280,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [access, conversationId, filePath]);
 

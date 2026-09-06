@@ -153,6 +153,9 @@ export const handleMuseTranscribeSocket = async (args: {
   const client = pair[0];
   const gateway = pair[1];
   const upstream = upstreamResponse.webSocket;
+  // Current Workers compatibility dates deliver binary frames as Blob by
+  // default. Keep PCM frames synchronous and ordered for the relay below.
+  gateway.binaryType = "arraybuffer";
   gateway.accept();
   upstream.accept();
 

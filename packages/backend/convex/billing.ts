@@ -4325,10 +4325,20 @@ export const acquireManagedProviderDispatchInternal = internalMutation({
     attemptId: v.string(),
     leaseId: v.string(),
     billing: v.optional(managedDispatchBillingEnvelopeValidator),
+    providerTimeoutMs: v.optional(v.number()),
     now: v.number(),
   },
   returns: managedDispatchTimingValidator,
   handler: async (ctx, args) => {
+    const providerTimeoutMs =
+      args.providerTimeoutMs ?? MANAGED_PROVIDER_DISPATCH_DEADLINE_MS;
+    if (
+      !Number.isSafeInteger(providerTimeoutMs) ||
+      providerTimeoutMs <= 0 ||
+      providerTimeoutMs > 60 * 60_000
+    ) {
+      throw new Error("Managed provider timeout must be between 1 ms and 1 hour.");
+    }
     const executionId = requireManagedDispatchId(
       args.executionId,
       "execution id",
@@ -4354,7 +4364,8 @@ export const acquireManagedProviderDispatchInternal = internalMutation({
         existing.ownerGeneration !== args.ownerGeneration ||
         existing.executionId !== executionId ||
         existing.leaseId !== leaseId ||
-        !managedDispatchBillingEnvelopeMatches(existing, billing)
+        !managedDispatchBillingEnvelopeMatches(existing, billing) ||
+        existing.providerDeadlineAt - existing.createdAt !== providerTimeoutMs
       ) {
         throw new Error("Managed provider attempt id was reused.");
       }
@@ -4381,8 +4392,10 @@ export const acquireManagedProviderDispatchInternal = internalMutation({
       throw new Error("Managed provider execution already has an active try.");
     }
 
-    const providerDeadlineAt = args.now + MANAGED_PROVIDER_DISPATCH_DEADLINE_MS;
-    const leaseExpiresAt = args.now + MANAGED_PROVIDER_DISPATCH_LEASE_MS;
+    const providerDeadlineAt = args.now + providerTimeoutMs;
+    const leaseExpiresAt =
+      providerDeadlineAt +
+      (MANAGED_PROVIDER_DISPATCH_LEASE_MS - MANAGED_PROVIDER_DISPATCH_DEADLINE_MS);
     const quiescentAfterAt =
       leaseExpiresAt + MANAGED_PROVIDER_DISPATCH_QUIESCENCE_MS;
     await ctx.db.insert("billing_managed_dispatch_leases", {

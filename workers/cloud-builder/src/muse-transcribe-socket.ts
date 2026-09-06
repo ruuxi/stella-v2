@@ -14,6 +14,7 @@ type MuseRelayEnv = Pick<
 type PreparedSession = {
   sessionId: string;
   ownerGeneration: string;
+  providerDeadlineAt: number;
 };
 
 export const createMuseHandshake = (apiKey: string) => ({
@@ -100,10 +101,42 @@ export const handleMuseTranscribeSocket = async (args: {
     return new Response("Muse transcription is unavailable.", { status: 503 });
   }
 
+  if (
+    !Number.isFinite(prepared.providerDeadlineAt) ||
+    prepared.providerDeadlineAt <= Date.now()
+  ) {
+    return new Response("Muse transcription session expired.", { status: 503 });
+  }
+  const reportUsage = async (
+    audioBytes: number,
+    durationMs: number,
+    success: boolean,
+  ) => {
+    // Reuse identical settlement bytes on retry; the durable session receipt
+    // makes a lost successful response safe to repeat.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await callControlPlane(args.env, "/api/cloud/dictation/settle", {
+          ownerId: args.ownerId,
+          ownerGeneration: prepared.ownerGeneration,
+          sessionId: prepared.sessionId,
+          audioBytes,
+          durationMs,
+          success,
+        });
+        return;
+      } catch {
+        // If all attempts fail, Convex's receipt expiry bills the reserved cap.
+      }
+    }
+  };
   const upstreamUrl = new URL(MUSE_SOCKET_URL);
   upstreamUrl.searchParams.set("sessionId", prepared.sessionId);
   const upstreamResponse = await fetch(upstreamUrl, {
     headers: { Upgrade: "websocket" },
+    signal: AbortSignal.timeout(
+      Math.max(1, Math.min(10_000, prepared.providerDeadlineAt - Date.now())),
+    ),
   }).catch(() => null);
   if (
     !upstreamResponse ||
@@ -111,6 +144,7 @@ export const handleMuseTranscribeSocket = async (args: {
     !upstreamResponse.webSocket
   ) {
     await upstreamResponse?.body?.cancel().catch(() => undefined);
+    args.waitUntil(reportUsage(0, 0, false));
     return new Response("Muse transcription is unavailable.", { status: 502 });
   }
 
@@ -123,34 +157,43 @@ export const handleMuseTranscribeSocket = async (args: {
 
   let audioBytes = 0;
   let settled = false;
+  let closing = false;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   let sawFinalTranscript = false;
   let sawUpstreamError = false;
   const startedAt = Date.now();
   const settle = (success: boolean): void => {
     if (settled) return;
     settled = true;
-    args.waitUntil(
-      callControlPlane(args.env, "/api/cloud/dictation/settle", {
-        ownerId: args.ownerId,
-        ownerGeneration: prepared.ownerGeneration,
-        sessionId: prepared.sessionId,
-        audioBytes,
-        durationMs: Date.now() - startedAt,
-        success,
-      }).catch(() => undefined),
-    );
+    clearTimeout(deadlineTimer);
+    args.waitUntil(reportUsage(audioBytes, Date.now() - startedAt, success));
   };
 
+  const closeBoth = (code: number, reason: string) => {
+    closing = true;
+    closeSocket(upstream, code, reason);
+    closeSocket(gateway, code, reason);
+  };
+  deadlineTimer = setTimeout(
+    () => {
+      closeBoth(1000, "Transcription session time limit reached");
+    },
+    Math.max(0, prepared.providerDeadlineAt - Date.now()),
+  );
+
   gateway.addEventListener("message", (event) => {
+    if (settled || closing) return;
+    if (Date.now() >= prepared.providerDeadlineAt) {
+      closeBoth(1000, "Transcription session time limit reached");
+      return;
+    }
     if (event.data instanceof ArrayBuffer) {
       if (
         event.data.byteLength === 0 ||
         event.data.byteLength > MAX_FRAME_BYTES ||
         audioBytes + event.data.byteLength > MAX_AUDIO_BYTES
       ) {
-        settle(false);
-        closeSocket(gateway, 4400, "Invalid audio frame");
-        closeSocket(upstream, 1008, "Invalid audio frame");
+        closeBoth(1008, "Invalid audio frame");
         return;
       }
       audioBytes += event.data.byteLength;
@@ -161,11 +204,10 @@ export const handleMuseTranscribeSocket = async (args: {
       upstream.send(JSON.stringify({ type: "endStream" }));
       return;
     }
-    settle(false);
-    closeSocket(gateway, 4400, "Invalid transcription frame");
-    closeSocket(upstream, 1008, "Invalid transcription frame");
+    closeBoth(1008, "Invalid transcription frame");
   });
   upstream.addEventListener("message", (event) => {
+    if (settled || closing) return;
     if (typeof event.data === "string") {
       try {
         const frame = JSON.parse(event.data) as {
@@ -183,15 +225,19 @@ export const handleMuseTranscribeSocket = async (args: {
     gateway.send(event.data);
   });
   upstream.addEventListener("close", (event) => {
-    settle(!sawUpstreamError && (event.code === 1000 || sawFinalTranscript));
+    settle(
+      !closing &&
+        !sawUpstreamError &&
+        (event.code === 1000 || sawFinalTranscript),
+    );
     closeSocket(gateway, event.code, event.reason);
   });
   upstream.addEventListener("error", () => {
+    closeBoth(1011, "Muse transcription failed");
     settle(false);
-    closeSocket(gateway, 1011, "Muse transcription failed");
   });
   gateway.addEventListener("close", (event) => {
-    settle(false);
+    closing = true;
     closeSocket(upstream, event.code, event.reason);
   });
 

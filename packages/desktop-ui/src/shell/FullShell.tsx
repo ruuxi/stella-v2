@@ -127,10 +127,6 @@ const HostedChatSurface = () => (
 );
 
 const WebsiteShell = () => {
-  useEffect(() => {
-    holdLaunchSplashUntilLive();
-  }, []);
-
   return (
     <ShellChrome windowMode="app">
       <HostedChatSurface />

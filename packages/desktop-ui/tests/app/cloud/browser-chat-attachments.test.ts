@@ -53,19 +53,19 @@ describe("browser chat attachments", () => {
         "upload-123456789",
         new Date("2026-08-31T12:00:00Z"),
       ),
-    ).toBe("/Chat Attachments/2026-08-31/23456789-quarter-report.png");
+    ).toBe("Chat Attachments/2026-08-31/23456789-quarter-report.png");
   });
 
   test("prepares, uploads, finalizes, and only then exposes the immutable path", async () => {
     action
       .mockResolvedValueOnce({
-        path: "/Chat Attachments/2026-08-31/image.png",
+        path: "Chat Attachments/2026-08-31/image.png",
         uploadId: "upload-id",
         uploadUrl: "https://r2.example/put",
         contentType: "image/png",
       })
       .mockResolvedValueOnce({
-        path: "/Chat Attachments/2026-08-31/image.png",
+        path: "Chat Attachments/2026-08-31/image.png",
         name: "image.png",
         sizeBytes: 3,
         contentType: "image/png",
@@ -90,7 +90,7 @@ describe("browser chat attachments", () => {
     await ready;
     expect(cloudAttachmentsStore.getSnapshot()).toEqual([
       expect.objectContaining({
-        path: "/Chat Attachments/2026-08-31/image.png",
+        path: "Chat Attachments/2026-08-31/image.png",
         contentType: "image/png",
       }),
     ]);

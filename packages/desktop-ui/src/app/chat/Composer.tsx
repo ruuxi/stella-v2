@@ -355,7 +355,7 @@ function ComposerImpl({
                   onPaste={(event) => {
                     handleComposerPaste(event, setChatContext);
                   }}
-                  disabled={!conversationId}
+                  disabled={!conversationId && !platformCapabilities.website}
                   rows={1}
                 />
 

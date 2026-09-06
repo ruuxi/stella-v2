@@ -177,6 +177,20 @@ function devCspRelax(): Plugin {
   };
 }
 
+/** The website opens directly into chat; native launch/recovery UI is desktop-only. */
+function websiteLaunchHtml(): Plugin {
+  return {
+    name: "website-launch-html",
+    transformIndexHtml(html) {
+      if (!WEBSITE_BUILD) return html;
+      return html.replace(
+        /    <div id="stella-launch"[\s\S]*?<script src="[^"\n]*\/stella-launch-rescue\.js"><\/script>\s*/,
+        "",
+      );
+    },
+  };
+}
+
 /**
  * Bun's node:http never settles `server.close(callback)` once a WebSocket
  * upgrade has happened on the server (zombie upgrade sockets keep the
@@ -255,6 +269,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     devCspRelax(),
+    websiteLaunchHtml(),
     bunHttpServerCloseFix(),
     uiStateSharedStore(),
     pdfWorkerAsset(),

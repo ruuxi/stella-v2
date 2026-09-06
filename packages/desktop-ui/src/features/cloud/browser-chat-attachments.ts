@@ -92,7 +92,7 @@ export const browserAttachmentDrivePath = (
   id: string,
   now = new Date(),
 ): string =>
-  `/Chat Attachments/${now.toISOString().slice(0, 10)}/${id.slice(-8)}-${safeName(file.name)}`;
+  `Chat Attachments/${now.toISOString().slice(0, 10)}/${id.slice(-8)}-${safeName(file.name)}`;
 
 const putWithProgress = (
   upload: BrowserAttachmentUpload,

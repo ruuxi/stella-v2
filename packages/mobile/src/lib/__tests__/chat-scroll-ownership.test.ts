@@ -44,6 +44,18 @@ describe("chat data-change scroll ownership", () => {
   });
 
   test("near-tail sends and normal live-tail appends retain their owners", () => {
+    expect(resolveChatDataChangeScrollOwner({
+      isFollowingLatest: true,
+      isStreaming: false,
+      postSendPlacementPending: false,
+      hasResponseSpacer: true,
+    })).toBe("custom-follow");
+    expect(resolveChatDataChangeScrollOwner({
+      isFollowingLatest: false,
+      isStreaming: false,
+      postSendPlacementPending: false,
+      hasResponseSpacer: true,
+    })).toBe("history-anchor");
     expect(
       resolveChatDataChangeScrollOwner({
         isFollowingLatest: true,

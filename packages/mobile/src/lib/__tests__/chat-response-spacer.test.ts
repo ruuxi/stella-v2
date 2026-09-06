@@ -3,6 +3,7 @@ import {
   consumeResponseSpacerHeight,
   resolvePostSendPlacement,
   resolvePostSendTarget,
+  resolveReplyOverflow,
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
 } from "../chat-response-spacer";
@@ -13,6 +14,22 @@ import {
 } from "../user-message-clamp";
 
 describe("chat response spacer geometry", () => {
+  test("short replies do not scroll merely to preserve synthetic blank space", () => {
+    expect(resolveReplyOverflow({
+      contentHeightPx: 844.67,
+      viewportHeightPx: 766,
+      responseSpacerHeightPx: 280,
+    })).toBe(0);
+  });
+
+  test("growing replies consume blank room before scrolling, retaining real insets", () => {
+    const viewportHeightPx = 766;
+    const responseSpacerHeightPx = 280;
+    expect(resolveReplyOverflow({ contentHeightPx: 1046, viewportHeightPx, responseSpacerHeightPx })).toBe(0);
+    expect(resolveReplyOverflow({ contentHeightPx: 1096, viewportHeightPx, responseSpacerHeightPx })).toBe(50);
+    expect(resolveReplyOverflow({ contentHeightPx: 1096, viewportHeightPx, responseSpacerHeightPx: 0 })).toBe(330);
+  });
+
   test("reserves one half of the readable viewport", () => {
     expect(
       resolveResponseSpacerHeight({

@@ -110,6 +110,7 @@ import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
   consumeResponseSpacerHeight,
   resolvePostSendPlacement,
+  resolveReplyOverflow,
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
 } from "../lib/chat-response-spacer";
@@ -724,7 +725,11 @@ function useChatScroll(
     const contentHeight = contentHeightRef.current;
     const rowBottom = Math.max(0, contentHeight - listTrailingSlackPx);
     const rowTop = Math.max(0, rowBottom - assistantHeight);
-    const desiredScrollTop = Math.max(0, contentHeight - layoutHeight);
+    const desiredScrollTop = resolveReplyOverflow({
+      contentHeightPx: contentHeight,
+      viewportHeightPx: layoutHeight,
+      responseSpacerHeightPx: responseSpacerHeightRef.current,
+    });
     const pinnedTop = Math.max(0, rowTop - FOLLOW_TOP_PEEK_PX);
     setFollowTarget(Math.min(pinnedTop, desiredScrollTop));
   }, [listTrailingSlackPx, setFollowTarget]);
@@ -855,7 +860,11 @@ function useChatScroll(
       if (activeAssistantHeightRef.current > 0) {
         followActiveAssistantRow();
       } else {
-        setFollowTarget(metricsRef.current.offsetY + height - baseline);
+        setFollowTarget(resolveReplyOverflow({
+          contentHeightPx: height,
+          viewportHeightPx: metricsRef.current.layoutHeight,
+          responseSpacerHeightPx: responseSpacerHeightRef.current,
+        }));
       }
     },
     [followActiveAssistantRow, schedulePlaceLatestTurn, setFollowTarget],
@@ -3106,7 +3115,8 @@ export function ChatPane({
   // bridge) — and scrolls to the literal content end, full response spacer
   // included, fighting the custom post-send nudge that owns the tail. Suppress
   // it while a send-nudge is in flight; streaming or the next appended row
-  // (the reply) releases it.
+  // releases this identity latch. The custom owner remains active for the
+  // reserved response space, including the final idle answer append.
   const [sendPinSuppressForId, setSendPinSuppressForId] = useState<
     string | null
   >(null);
@@ -3121,6 +3131,9 @@ export function ChatPane({
     isFollowingLatest: scroll.isFollowingLatest,
     isStreaming: streaming,
     postSendPlacementPending: sendPinSuppressForId !== null,
+    // Completion can append the final answer in the same render that busy
+    // becomes false. End-pinning here would scroll into reserved blank space.
+    hasResponseSpacer: responseSpacerHeightPx > 0,
   });
   const maintainVisibleContentPosition = useMemo(
     () => ({

@@ -7,6 +7,19 @@ export const RESPONSE_SPACER_CONTENT_FLOOR_PX = 240;
 /** Do not pull a submit out of scrollback when the user is reading history. */
 export const LATEST_TURN_PLACEMENT_THRESHOLD_PX = 300;
 
+/** Synthetic room for a future reply must not scroll an already-visible one. */
+export function resolveReplyOverflow({
+  contentHeightPx,
+  viewportHeightPx,
+  responseSpacerHeightPx,
+}: {
+  contentHeightPx: number;
+  viewportHeightPx: number;
+  responseSpacerHeightPx: number;
+}) {
+  return Math.max(0, contentHeightPx - responseSpacerHeightPx - viewportHeightPx);
+}
+
 /**
  * Codex-style empty response area beneath the latest turn.
  *

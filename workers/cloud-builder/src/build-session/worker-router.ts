@@ -14,6 +14,7 @@ import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
 import { BUILDER_OWNER_SNAPSHOT_CHANGED_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import { MEMORY_POLICY_CHANGE_PATH, parseMemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
 import { MemoryPolicyError } from "../memory-policy.js";
+import { withBrowserCors } from "../browser-cors.js";
 import type {
   OwnerSnapshot,
   OwnerSnapshotChangedRequest,
@@ -852,7 +853,7 @@ const handleDispatchControlRoute = async (
   }
 };
 
-export const worker = {
+const router = {
   async fetch(
     request: Request,
     env: Env,
@@ -2460,5 +2461,12 @@ export const worker = {
       queue: batch.queue,
       ...delivery,
     });
+  },
+} satisfies ExportedHandler<Env>;
+
+export const worker = {
+  ...router,
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return withBrowserCors(request, () => router.fetch(request, env, ctx));
   },
 } satisfies ExportedHandler<Env>;

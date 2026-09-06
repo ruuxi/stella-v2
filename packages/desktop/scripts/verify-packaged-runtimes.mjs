@@ -71,6 +71,10 @@ const env = {
   PATH: runtimePath,
   PIP_USER: "1",
   PYTHONDONTWRITEBYTECODE: "1",
+  // Probe the pinned OfficeCLI without spawning its upstream self-updater,
+  // which would replace a sealed executable after macOS notarization.
+  OFFICECLI_SKIP_UPDATE: "1",
+  OFFICECLI_NO_AUTO_INSTALL: "1",
   // Linux ships no bundled git runtime; pointing git env at the (empty)
   // bundled root would break the system-git probe below.
   ...(isLinux

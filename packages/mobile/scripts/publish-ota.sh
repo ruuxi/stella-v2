@@ -57,7 +57,7 @@ if [[ -n "${STELLA_OTA_IOS_TESTFLIGHT_BUILD:-}" ]]; then
   TESTFLIGHT_ARGS=(--ios-testflight-build "${STELLA_OTA_IOS_TESTFLIGHT_BUILD}")
 fi
 bun scripts/resolve-public-mobile-builds.ts --platform "${PLATFORM}" \
-  --channel "${CHANNEL}" --verify-local-fingerprint "${TESTFLIGHT_ARGS[@]}"
+  --channel "${CHANNEL}" --verify-local-fingerprint ${TESTFLIGHT_ARGS[@]+"${TESTFLIGHT_ARGS[@]}"}
 
 if [[ "${PLATFORM}" == "all" ]]; then
   PLATFORMS=(ios android)

@@ -655,6 +655,18 @@ export async function resolveDesktopBridge(
   return promise;
 }
 
+/** Retry an idempotent settings operation once when its cached session expires. */
+export async function withDesktopBridgeRecovery<T>(
+  access: StoredPhoneAccess,
+  operation: (bridge: DesktopBridgeConnection) => Promise<T>,
+): Promise<T> {
+  return runWithSingleBridgeRecovery({
+    initial: await resolveDesktopBridge(access),
+    operation,
+    recover: () => resolveDesktopBridge(access, undefined, { forceRefresh: true }),
+  });
+}
+
 async function handshakeDesktopBridge(
   access: StoredPhoneAccess,
   onStatus?: (status: DesktopBridgeSendStatus) => void,

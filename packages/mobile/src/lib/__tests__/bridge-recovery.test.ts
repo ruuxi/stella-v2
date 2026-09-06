@@ -52,6 +52,25 @@ describe("single bridge recovery", () => {
     expect(attempts).toEqual(["stale", "fresh"]);
   });
 
+  test("surfaces failed rediscovery without repeating the settings operation", async () => {
+    let attempts = 0;
+    let recoveries = 0;
+    const error = new Error("Desktop is offline");
+    await expect(runWithSingleBridgeRecovery({
+      initial: "expired",
+      operation: async () => {
+        attempts += 1;
+        throw new BridgeRecoveryError("session", "expired");
+      },
+      recover: async () => {
+        recoveries += 1;
+        throw error;
+      },
+    })).rejects.toBe(error);
+    expect(attempts).toBe(1);
+    expect(recoveries).toBe(1);
+  });
+
   test("does not retry deterministic failures or loop after recovery", async () => {
     let recoveries = 0;
     let deterministicError: unknown;

@@ -22,7 +22,7 @@ import {
   type ReasoningEffort,
   type StellaCatalog,
 } from "./desktop-model-prefs";
-import { resolveDesktopBridge } from "./desktop-bridge-chat";
+import { withDesktopBridgeRecovery } from "./desktop-bridge-chat";
 import type { StoredPhoneAccess } from "./phone-access";
 import { notifyError } from "./haptics";
 import { userFacingError } from "./user-facing-error";
@@ -176,8 +176,9 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     if (!access || loading) return;
     setLoading(true);
     try {
-      const bridge = await resolveDesktopBridge(access);
-      syncFromSnapshot(await getDesktopModelPrefs(bridge));
+      syncFromSnapshot(
+        await withDesktopBridgeRecovery(access, getDesktopModelPrefs),
+      );
     } finally {
       setLoading(false);
     }
@@ -196,8 +197,11 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
       if (!access || saving) return;
       setSaving(true);
       try {
-        const bridge = await resolveDesktopBridge(access);
-        syncFromSnapshot(await setDesktopModelPrefs(bridge, patch));
+        syncFromSnapshot(
+          await withDesktopBridgeRecovery(access, (bridge) =>
+            setDesktopModelPrefs(bridge, patch),
+          ),
+        );
       } catch (error) {
         notifyError();
         Alert.alert("Couldn't update model", userFacingError(error));

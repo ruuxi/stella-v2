@@ -1,4 +1,4 @@
-import { resolveDesktopBridge } from "../lib/desktop-bridge-chat";
+import { withDesktopBridgeRecovery } from "../lib/desktop-bridge-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -144,11 +144,15 @@ export function ComputerSettingsSheet({
     });
     void (async () => {
       try {
-        const bridge = await resolveDesktopBridge(access);
+        const { bridge, next } = await withDesktopBridgeRecovery(
+          access,
+          async (bridge) => ({
+            bridge,
+            next: await getDesktopModelPrefs(bridge),
+          }),
+        );
         if (cancelled) return;
         bridgeRef.current = bridge;
-        const next = await getDesktopModelPrefs(bridge);
-        if (cancelled) return;
         setSnapshot(next);
         setEngine(next.agentRuntimeEngine);
         onApplied?.(next);
@@ -173,12 +177,15 @@ export function ComputerSettingsSheet({
 
   const apply = useCallback(
     async (patch: Parameters<typeof setDesktopModelPrefs>[1]) => {
-      const bridge = bridgeRef.current;
-      if (!bridge) return;
+      if (!access || !bridgeRef.current) return;
       setSaving(true);
       setError(null);
       try {
-        const next = await setDesktopModelPrefs(bridge, patch);
+        const next = await withDesktopBridgeRecovery(access, async (bridge) => {
+          const updated = await setDesktopModelPrefs(bridge, patch);
+          bridgeRef.current = bridge;
+          return updated;
+        });
         setSnapshot(next);
         setEngine(next.agentRuntimeEngine);
         onApplied?.(next);
@@ -189,7 +196,7 @@ export function ComputerSettingsSheet({
         setSaving(false);
       }
     },
-    [onApplied],
+    [access, onApplied],
   );
 
   const onSelectEngine = useCallback(

@@ -15,6 +15,8 @@ import {
 import { useColors } from "../theme/theme-context";
 import { type Colors } from "../theme/colors";
 
+import { GlassSurface } from "./glass";
+
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /** Extra hide distance so the drop shadow clears the top edge too. */
@@ -35,6 +37,7 @@ type TopSheetProps = {
    * sparse (e.g. the activity hub with one or two tasks).
    */
   contentSized?: boolean;
+  glass?: boolean;
 };
 
 /**
@@ -50,6 +53,7 @@ export function TopSheet({
   children,
   heightFraction = TOP_SHEET_HEIGHT_FRACTION,
   contentSized = false,
+  glass = false,
 }: TopSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -130,9 +134,19 @@ export function TopSheet({
           <View
             style={[
               styles.sheet,
+              glass && { backgroundColor: "transparent" },
               contentSized ? { maxHeight: maxSheetHeight } : styles.sheetFill,
             ]}
           >
+            {glass ? (
+              <GlassSurface
+                radius={26}
+                legible
+                fallbackColor={colors.background}
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+              />
+            ) : null}
             {children}
           </View>
         </Animated.View>

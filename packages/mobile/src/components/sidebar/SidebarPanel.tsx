@@ -659,8 +659,7 @@ export function SidebarPanel({
         ]}
       >
         {/* Brand row: the wordmark on the left (tap: back to the chat) and
-            Settings + Account together in one glass pill on the right. Both
-            are low-frequency, so they live at the top, out of thumb range. */}
+            Account access stays at the top of the sidebar. */}
         <View style={styles.header}>
           <Pressable
             onPress={() => onNavigate("/chat")}
@@ -671,9 +670,7 @@ export function SidebarPanel({
           >
             <Text style={styles.wordmark}>{t("common.appName")}</Text>
           </Pressable>
-          {/* One interactive glass capsule holding both buttons, the way the
-              system groups bar buttons: a single shape, so there is no seam
-              to blend, and a touch anywhere draws the glow inside it. */}
+          {/* Account access remains in its own glass capsule. */}
           <GlassSurface
             glass="regular"
             interactive
@@ -681,19 +678,6 @@ export function SidebarPanel({
             fallbackColor={colors.surface}
             style={styles.headerPill}
           >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("mobile.nav.settings")}
-              hitSlop={4}
-              onPress={() => onNavigate("/settings")}
-              style={({ pressed }) => [
-                styles.headerIconButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Icon name="settings" size={18} color={colors.text} weight="semibold" />
-            </Pressable>
-            <View style={styles.headerDivider} />
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={accountLabel}
@@ -822,18 +806,6 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       height: HEADER_PILL_HEIGHT,
       overflow: "hidden",
-    },
-    headerIconButton: {
-      alignItems: "center",
-      height: HEADER_PILL_HEIGHT,
-      justifyContent: "center",
-      paddingLeft: 14,
-      paddingRight: 12,
-    },
-    headerDivider: {
-      backgroundColor: fadeHex(colors.border, 0.9),
-      height: 18,
-      width: StyleSheet.hairlineWidth,
     },
     headerAccountButton: {
       alignItems: "center",

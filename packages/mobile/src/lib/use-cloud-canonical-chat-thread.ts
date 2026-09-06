@@ -10,6 +10,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { AppState } from "react-native";
+import { notifySuccess } from "./haptics";
+import { ReplyArrivalHaptics } from "./reply-arrival-haptics";
 import { authClient } from "./auth-client";
 import { clearCachedToken, getConvexTokenOwnerForSubject } from "./auth-token";
 import {
@@ -411,6 +413,24 @@ export const useCloudCanonicalChatThread = (
     return () => subscription.remove();
   }, []);
 
+  const replyHaptics = useMemo(() => new ReplyArrivalHaptics(), [store, threadId]);
+  useEffect(() => {
+    // Observe connection transitions directly: React may batch reconnect + replay
+    // into one render. Catch-up must retire eligibility before old rows arrive.
+    const retireDuringReplay = () => {
+      replyHaptics.observeConnection(store.getSnapshot());
+    };
+    const unsubscribe = store.subscribe(retireDuringReplay);
+    const appState = AppState.addEventListener("change", (next) => {
+      if (next !== "active" && next !== "unknown") replyHaptics.reset();
+    });
+    return () => {
+      unsubscribe();
+      appState.remove();
+      replyHaptics.reset();
+    };
+  }, [replyHaptics, store]);
+
   const state = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -551,6 +571,17 @@ export const useCloudCanonicalChatThread = (
   );
   const messages = useChatAttachmentPreviews(mergedMessages, JSON.stringify(cacheAuthority));
 
+  useEffect(() => {
+    if (!clientAuthorityReady || cacheVisible || threadId !== "cloud" ||
+      (AppState.currentState !== "active" && AppState.currentState !== "unknown")) {
+      replyHaptics.reset();
+      return;
+    }
+    // Runs after the canonical reply has committed to the displayed transcript,
+    // independently of the slower execution-placement terminal poll.
+    for (const _requestId of replyHaptics.take(messages, state.records)) notifySuccess();
+  }, [cacheVisible, clientAuthorityReady, messages, replyHaptics, state.records, threadId]);
+
   const cacheWriteGenerationRef = useRef(0);
   const cacheWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
@@ -655,6 +686,7 @@ export const useCloudCanonicalChatThread = (
       if (!clientAuthorityReady) return null;
       const result = send();
       if (!result) return null;
+      if (threadId === "cloud") replyHaptics.arm(result.userMessageId);
       setDispatchBindings((current) => {
         if (current.has(result.userMessageId)) return current;
         const next = new Map(current);
@@ -663,7 +695,7 @@ export const useCloudCanonicalChatThread = (
       });
       return result;
     },
-    [clientAuthorityReady],
+    [clientAuthorityReady, replyHaptics, threadId],
   );
   const localSend = local.send;
   const localSendPrompt = local.sendPrompt;
@@ -724,6 +756,7 @@ export const useCloudCanonicalChatThread = (
     // Preserve the base hook's durable queued/active cancellation path. A
     // clean client may also be watching a DO turn whose local outbox no longer
     // exists, so reconstruct that exact placement cancellation below.
+    replyHaptics.reset();
     localStop();
     if (!runningDispatchId) return;
     if (canonicalCancellationRef.current?.dispatchId === runningDispatchId) {
@@ -767,6 +800,7 @@ export const useCloudCanonicalChatThread = (
     authority.conversationId,
     authority.socketOrigin,
     localStop,
+    replyHaptics,
     runningDispatchId,
   ]);
 

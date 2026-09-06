@@ -18,8 +18,13 @@ describe("anonymous mobile Chat entry", () => {
     expect(anonymousSignIn).toContain("requestWithAppIntegrity");
     expect(login).toContain("await signInMobileAnonymous()");
     expect(login.indexOf("await signInMobileAnonymous()")).toBeLessThan(
-      login.indexOf("await setGuestMode(true)"),
+      login.indexOf("await setGuestMode(result.data?.user.isAnonymous === true)"),
     );
+    expect(anonymousSignIn).toContain("createAnonymousSessionStarter({");
+    expect(anonymousSignIn).toContain("await authClient.getSession()");
+    expect(login).not.toContain("clearMobileAuthStorage");
+    expect(login).not.toContain("clearCachedToken");
+    expect(login).not.toContain("clearCachedDesktopBridge");
   });
 
   test("sends magic links with a native app-integrity proof", async () => {

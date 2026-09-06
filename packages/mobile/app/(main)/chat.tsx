@@ -64,7 +64,6 @@ import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserI
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { CloudBoundary } from "../../src/components/CloudBoundary";
 import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
-import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
@@ -280,7 +279,6 @@ function ChatSurface(props: {
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
-  const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
   const [appActive, setAppActive] = useState(
     () =>
@@ -448,9 +446,8 @@ function ChatSurface(props: {
   // The top bar's computer button is chrome owned by the layout above this
   // route, so its state and tap handler travel through the shell store.
   const openComputer = useCallback(() => {
-    if (access) setDeviceSheetOpen(true);
-    else if (pairingResolved) setPairSheetOpen(true);
-  }, [access, pairingResolved]);
+    setDeviceSheetOpen(true);
+  }, []);
   const computerLabel = !access
     ? t("mobile.computer.pairLabel")
     : connection === "connecting"
@@ -459,10 +456,6 @@ function ChatSurface(props: {
         ? t("mobile.computer.connectedLabel")
         : t("mobile.computer.disconnectedLabel");
   useEffect(() => {
-    if (!access && !pairingResolved) {
-      publishComputerControl(null);
-      return;
-    }
     publishComputerControl({
       connection: access ? connection : null,
       label: computerLabel,
@@ -650,37 +643,24 @@ function ChatSurface(props: {
         onOpenActivity={requestOpenSidebar}
         catchingUp={thread.catchingUp}
       />
-      <PairPhoneSheet
-        visible={pairSheetOpen}
-        onClose={() => setPairSheetOpen(false)}
-        onPaired={(paired) => {
-          onAccessChange(paired);
-          setPairSheetOpen(false);
-        }}
-        preferredAccess={access}
+      <ComputerDeviceSheet
+        visible={deviceSheetOpen}
+        onClose={() => setDeviceSheetOpen(false)}
+        access={access}
+        platformLabel={platformLabel}
+        statusLabel={statusLabel}
+        statusAvailable={status.available}
+        connecting={status.checking || waking}
+        showWake={!status.checking && !status.available && !waking}
+        onWake={wake}
+        onRepaired={onAccessChange}
         pairedDesktops={pairedDesktops}
-        onSwitchDesktop={onAccessChange}
+        executionTarget={executionTarget}
+        onExecutionTargetChange={onExecutionTargetChange}
+        modelSettings={modelSettings}
+        composerModelPinned={composerModelPinned}
+        onComposerModelPinnedChange={setComposerModelPinned}
       />
-      {access ? (
-        <ComputerDeviceSheet
-          visible={deviceSheetOpen}
-          onClose={() => setDeviceSheetOpen(false)}
-          access={access}
-          platformLabel={platformLabel}
-          statusLabel={statusLabel}
-          statusAvailable={status.available}
-          connecting={status.checking || waking}
-          showWake={!status.checking && !status.available && !waking}
-          onWake={wake}
-          onRepaired={onAccessChange}
-          pairedDesktops={pairedDesktops}
-          executionTarget={executionTarget}
-          onExecutionTargetChange={onExecutionTargetChange}
-          modelSettings={modelSettings}
-          composerModelPinned={composerModelPinned}
-          onComposerModelPinnedChange={setComposerModelPinned}
-        />
-      ) : null}
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}
         artifact={selectedArtifact}

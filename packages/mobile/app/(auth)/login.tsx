@@ -20,7 +20,6 @@ import { useRouter } from "expo-router";
 import Svg, { Path } from "react-native-svg";
 import {
   authClient,
-  clearMobileAuthStorage,
   MOBILE_SESSION_TOKEN_KEY,
 } from "../../src/lib/auth-client";
 import {
@@ -28,8 +27,6 @@ import {
   generateClaimSecret,
   hashClaimSecret,
 } from "../../src/lib/claim-secret";
-import { clearCachedToken } from "../../src/lib/auth-token";
-import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { env } from "../../src/config/env";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { setGuestMode } from "../../src/lib/guest-mode";
@@ -113,11 +110,6 @@ export default function LoginScreen() {
   const continueAsGuest = async () => {
     setSubmitState({ type: "verifying" });
     try {
-      await clearMobileAuthStorage();
-      clearCachedToken();
-      clearCachedDesktopBridge();
-      await setGuestMode(false);
-
       const result = await signInMobileAnonymous();
       if (result.error) {
         throw new Error(
@@ -125,7 +117,7 @@ export default function LoginScreen() {
         );
       }
 
-      await setGuestMode(true);
+      await setGuestMode(result.data?.user.isAnonymous === true);
       router.replace(await loadLastMainTabHref());
     } catch (error) {
       setSubmitState({ type: "error", message: userFacingError(error) });

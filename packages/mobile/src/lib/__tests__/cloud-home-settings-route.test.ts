@@ -7,15 +7,19 @@ const source = async (relativeUrl: string): Promise<string> =>
 
 describe("mobile Cloud Home Settings reachability", () => {
   test("mounts the editor route from the signed-in Settings surface", async () => {
-    const [settingsRoute, cloudHomeRoute] = await Promise.all([
+    const [settingsRoute, settingsContent, deviceSheet, cloudHomeRoute] = await Promise.all([
       source("../../../app/(main)/settings.tsx"),
+      source("../../components/SettingsContent.tsx"),
+      source("../../components/ComputerDeviceSheet.tsx"),
       source("../../../app/(main)/cloud-home.tsx"),
     ]);
 
-    expect(settingsRoute).toContain('router.push("/cloud-home")');
-    expect(settingsRoute).toContain('t("mobile.cloudHome.openSettingsLabel")');
-    expect(settingsRoute.indexOf("{isSignedIn ? (")).toBeLessThan(
-      settingsRoute.indexOf('router.push("/cloud-home")'),
+    expect(settingsRoute).toContain("<SettingsContent");
+    expect(deviceSheet).toContain("<SettingsContent");
+    expect(settingsContent).toContain('router.push("/cloud-home")');
+    expect(settingsContent).toContain('t("mobile.cloudHome.openSettingsLabel")');
+    expect(settingsContent.indexOf("{isSignedIn ? (")).toBeLessThan(
+      settingsContent.indexOf('router.push("/cloud-home")'),
     );
     expect(cloudHomeRoute).toContain("<CloudHomeSettings");
     expect(cloudHomeRoute).toContain("observeCloudConversationIdentity(");

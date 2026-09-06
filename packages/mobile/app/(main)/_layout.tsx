@@ -359,13 +359,13 @@ export default function MainLayout() {
         // glyph while unpaired or asleep, a spinner while
         // waking, and the green dot only once connected.
         <GlassIconButton
-          icon="monitor"
+          icon="settings"
           size={TOP_BAR_BUTTON}
           iconSize={21}
           muted={computer.connection !== "connected"}
           loading={computer.connection === "connecting"}
           dot={computer.connection === "connected" ? colors.ok : null}
-          accessibilityLabel={computer.label}
+          accessibilityLabel={`${t("mobile.nav.settings")}, ${computer.label}`}
           onPress={onPressComputer}
         />
       ) : null}

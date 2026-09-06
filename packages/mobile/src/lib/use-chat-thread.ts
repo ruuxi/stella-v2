@@ -90,7 +90,6 @@ import {
   clearComposerNotices,
   showComposerNoticeForError,
 } from "./composer-notice";
-import { notifySuccess } from "./haptics";
 import type {
   ChatArtifact,
   ChatMessage,
@@ -1081,7 +1080,6 @@ export function useChatThread(opts: {
           terminal.state === "canceled",
         );
         acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
-        if (terminal.state === "completed") notifySuccess();
         finishDispatch();
       } catch (error) {
         if (

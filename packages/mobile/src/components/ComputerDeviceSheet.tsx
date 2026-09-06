@@ -1,18 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { NativeMenu } from "./NativeMenu";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SettingsContent } from "./SettingsContent";
 import { TopSheet } from "./TopSheet";
 import { Icon, type IconName } from "./Icon";
-import { StellaMarkHero } from "./stella-mark/StellaMarkHero";
 import { ComputerSettingsSheet } from "./ComputerSettingsSheet";
 import { PairPhoneSheet } from "./PairPhoneSheet";
 import { type StoredPhoneAccess } from "../lib/phone-access";
@@ -27,10 +17,6 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
-
-/** The character at the top of the sheet: the same hero onboarding opens
- *  with, sized to sit above the device name without crowding it. */
-const HERO_MARK_SIZE = 96;
 
 /** Live presence goes stale quickly; refresh while the sheet is on screen. */
 const EXECUTION_DEVICE_POLL_MS = 15_000;
@@ -56,13 +42,7 @@ type ComputerDeviceSheetProps = {
   onComposerModelPinnedChange: (next: boolean) => void;
 };
 
-/**
- * The paired computer's device surface — status, wake, view-screen, and model
- * settings — presented as a top sheet from the chat's gear button. The
- * conversation itself is the chat; this sheet is the "how is my computer
- * configured" panel beside it. Artifacts moved to the activity hub sheet (the
- * floating pill left of the gear).
- */
+/** Settings and computer controls share one top-origin sheet above the chat. */
 export function ComputerDeviceSheet({
   visible,
   onClose,
@@ -82,13 +62,9 @@ export function ComputerDeviceSheet({
   onComposerModelPinnedChange,
 }: ComputerDeviceSheetProps) {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const [rowWidth, setRowWidth] = useState(width - 48);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
-  const [targetSheetOpen, setTargetSheetOpen] = useState(false);
   const [destinations, setDestinations] = useState<
     ExecutionDeviceDestination[] | undefined
   >(undefined);
@@ -113,15 +89,10 @@ export function ComputerDeviceSheet({
       clearInterval(timer);
     };
   }, [visible]);
-  const selectedDestination =
-    executionTarget.mode === "device"
-      ? destinations?.find(
-          (device) => device.deviceId === executionTarget.deviceId,
-        )
-      : undefined;
   // Follows the paired desktop's developer-mode flag: only an explicit "off"
   // hides the Model row (and its sheet); unknown/older desktops keep it.
-  const modelControlsHidden = modelSettings.developerModeEnabled === false;
+  const modelControlsHidden =
+    !access || modelSettings.developerModeEnabled === false;
 
   const rows: {
     id: string;
@@ -130,22 +101,6 @@ export function ComputerDeviceSheet({
     trailing?: string;
     onPress: () => void;
   }[] = [
-    {
-      id: "destination",
-      icon: "monitor",
-      label: "Run on",
-      trailing:
-        executionTarget.mode === "automatic"
-          ? "Automatic"
-          : executionTarget.mode === "cloud"
-            ? "Cloud"
-            : (selectedDestination?.label ??
-              `Computer ${executionTarget.deviceId.slice(0, 4).toUpperCase()}`),
-      onPress: () => {
-        tapLight();
-        setTargetSheetOpen(true);
-      },
-    },
     ...(modelControlsHidden
       ? []
       : [
@@ -163,7 +118,7 @@ export function ComputerDeviceSheet({
     {
       id: "pair",
       icon: "smartphone",
-      label: "Pair another computer",
+      label: access ? "Pair another computer" : "Pair a computer",
       onPress: () => {
         tapLight();
         setPairSheetOpen(true);
@@ -177,123 +132,108 @@ export function ComputerDeviceSheet({
     target: executionTarget,
   });
   return (
-    <TopSheet visible={visible} onClose={onClose}>
-      <ScrollView
-        style={styles.screen}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: 32 + insets.bottom },
-        ]}
-      >
-        <View style={styles.deviceHero}>
-          <View style={styles.heroMark}>
-            <StellaMarkHero
-              size={HERO_MARK_SIZE}
-              faceColor={colors.background}
-            />
-          </View>
-          <Text style={styles.deviceName}>{platformLabel}</Text>
-          <View style={styles.statusRow}>
-            {connecting ? null : (
-              <View
-                style={[
-                  styles.statusDot,
-                  {
-                    backgroundColor: statusAvailable
-                      ? colors.ok
-                      : colors.textMuted,
-                  },
-                ]}
-              />
-            )}
-            <Text style={styles.statusText}>{statusLabel}</Text>
-            {showWake ? (
-              <Pressable
-                onPress={onWake}
-                hitSlop={8}
-                accessibilityLabel="Wake your computer"
-                style={({ pressed }) => pressed && styles.wakePressed}
-              >
-                <Text style={styles.wakeText}>Wake up</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-
-        <View
-          style={styles.rowGroup}
-          onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
-        >
-          {rows.map((row, index) =>
-            row.id === "destination" && Platform.OS === "ios" ? (
-              <NativeMenu
-                key={row.id}
-                accessibilityLabel={row.label}
-                width={rowWidth}
-                height={52}
-                onFallbackPress={row.onPress}
-                label={
-                  <View style={[styles.row, { width: rowWidth - 40 }]}>
-                    <Icon name={row.icon} size={18} color={colors.textMuted} />
-                    <Text style={styles.rowLabel}>{row.label}</Text>
-                    <Text style={styles.rowTrailing} numberOfLines={1}>
-                      {row.trailing}
-                    </Text>
-                    <Icon
-                      name="chevron-down"
-                      size={15}
-                      color={colors.textMuted}
-                    />
-                  </View>
-                }
-                items={targetOptions.map((option) => ({
-                  id: option.key,
-                  title: option.disabled
-                    ? `${option.label} (${option.unavailableLabel})`
-                    : option.label,
-                  selected: option.selected,
-                  disabled: option.disabled,
-                  systemImage:
-                    option.key === "cloud"
-                      ? "globe"
-                      : option.key === "automatic"
-                        ? "sparkles"
-                        : "desktopcomputer",
-                  onPress: () => {
-                    tapLight();
-                    onExecutionTargetChange(option.target);
-                  },
-                }))}
-              />
-            ) : (
-              <Pressable
-                key={row.id}
-                onPress={row.onPress}
-                accessibilityLabel={row.label}
-                style={({ pressed }) => [
-                  styles.row,
-                  index > 0 && styles.rowDivider,
-                  pressed && styles.rowPressed,
-                ]}
-              >
-                <Icon
-                  name={row.icon}
-                  size={18}
-                  color={colors.textMuted}
-                  style={styles.rowIcon}
+    <TopSheet visible={visible} onClose={onClose} glass>
+      <SettingsContent onClose={onClose} embedded>
+        {access ? (
+          <View style={styles.deviceHero}>
+            <Text style={styles.deviceName}>{platformLabel}</Text>
+            <View style={styles.statusRow}>
+              {connecting ? null : (
+                <View
+                  style={[
+                    styles.statusDot,
+                    {
+                      backgroundColor: statusAvailable
+                        ? colors.ok
+                        : colors.textMuted,
+                    },
+                  ]}
                 />
-                <Text style={styles.rowLabel}>{row.label}</Text>
-                {row.trailing ? (
-                  <Text style={styles.rowTrailing} numberOfLines={1}>
-                    {row.trailing}
-                  </Text>
-                ) : null}
-                <Icon name="chevron-right" size={15} color={colors.textMuted} />
-              </Pressable>
-            ),
-          )}
+              )}
+              <Text style={styles.statusText}>{statusLabel}</Text>
+              {showWake ? (
+                <Pressable
+                  onPress={onWake}
+                  hitSlop={8}
+                  accessibilityLabel="Wake your computer"
+                  style={({ pressed }) => pressed && styles.wakePressed}
+                >
+                  <Text style={styles.wakeText}>Wake up</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        <Text style={styles.sectionLabel}>Run on</Text>
+        <View style={styles.rowGroup}>
+          {targetOptions.map((option, index) => (
+            <Pressable
+              key={option.key}
+              accessibilityRole="button"
+              accessibilityState={{
+                selected: option.selected,
+                disabled: option.disabled,
+              }}
+              disabled={option.disabled}
+              onPress={() => {
+                tapLight();
+                onExecutionTargetChange(option.target);
+              }}
+              style={({ pressed }) => [
+                styles.row,
+                index > 0 && styles.rowDivider,
+                pressed && styles.rowPressed,
+                option.disabled && styles.targetDisabled,
+              ]}
+            >
+              <Icon
+                name={option.icon}
+                size={18}
+                color={colors.textMuted}
+                style={styles.rowIcon}
+              />
+              <Text style={styles.rowLabel}>{option.label}</Text>
+              {option.selected ? (
+                <Icon name="check" size={17} color={colors.accent} />
+              ) : null}
+              {option.disabled ? (
+                <Text style={styles.rowTrailing}>
+                  {option.unavailableLabel}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
         </View>
-      </ScrollView>
+        <View style={[styles.rowGroup, { marginTop: 20, marginBottom: 20 }]}>
+          {rows.map((row, index) => (
+            <Pressable
+              key={row.id}
+              onPress={row.onPress}
+              accessibilityLabel={row.label}
+              style={({ pressed }) => [
+                styles.row,
+                index > 0 && styles.rowDivider,
+                pressed && styles.rowPressed,
+              ]}
+            >
+              <Icon
+                name={row.icon}
+                size={18}
+                color={colors.textMuted}
+                style={styles.rowIcon}
+              />
+              <Text style={styles.rowLabel}>{row.label}</Text>
+              {row.trailing ? (
+                <Text style={styles.rowTrailing} numberOfLines={1}>
+                  {row.trailing}
+                </Text>
+              ) : null}
+              <Icon name="chevron-right" size={15} color={colors.textMuted} />
+            </Pressable>
+          ))}
+        </View>
+      </SettingsContent>
 
       <ComputerSettingsSheet
         visible={modelSheetOpen && !modelControlsHidden}
@@ -304,17 +244,6 @@ export function ComputerDeviceSheet({
         composerModelPinned={composerModelPinned}
         onComposerModelPinnedChange={onComposerModelPinnedChange}
       />
-      <ExecutionTargetSheet
-        visible={targetSheetOpen}
-        onClose={() => setTargetSheetOpen(false)}
-        pairedDesktops={pairedDesktops}
-        destinations={destinations}
-        target={executionTarget}
-        onSelect={(next) => {
-          onExecutionTargetChange(next);
-          setTargetSheetOpen(false);
-        }}
-      />
       <PairPhoneSheet
         visible={pairSheetOpen}
         onClose={() => setPairSheetOpen(false)}
@@ -324,6 +253,7 @@ export function ComputerDeviceSheet({
         }}
         preferredAccess={access}
         pairedDesktops={pairedDesktops}
+        onSwitchDesktop={onRepaired}
       />
     </TopSheet>
   );
@@ -391,67 +321,18 @@ function executionOptions(props: {
   return options;
 }
 
-function ExecutionTargetSheet(props: {
-  visible: boolean;
-  onClose: () => void;
-  pairedDesktops: StoredPhoneAccess[];
-  destinations: ExecutionDeviceDestination[] | undefined;
-  target: AutomaticExecutionTarget;
-  onSelect: (target: AutomaticExecutionTarget) => void;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const options = executionOptions(props);
-
-  return (
-    <TopSheet visible={props.visible} onClose={props.onClose}>
-      <View style={styles.targetSheet}>
-        {options.map((option, index) => (
-          <Pressable
-            key={option.key}
-            disabled={option.disabled}
-            onPress={() => {
-              tapLight();
-              props.onSelect(option.target);
-            }}
-            style={({ pressed }) => [
-              styles.row,
-              index > 0 && styles.rowDivider,
-              pressed && styles.rowPressed,
-              option.disabled && styles.targetDisabled,
-            ]}
-          >
-            <Icon
-              name={option.icon}
-              size={18}
-              color={colors.textMuted}
-              style={styles.rowIcon}
-            />
-            <Text style={styles.rowLabel}>{option.label}</Text>
-            {option.disabled ? (
-              <Text style={styles.rowTrailing}>{option.unavailableLabel}</Text>
-            ) : option.selected ? (
-              <Icon name="check" size={17} color={colors.accent} />
-            ) : null}
-          </Pressable>
-        ))}
-      </View>
-    </TopSheet>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    screen: { flex: 1 },
-    scrollContent: { paddingTop: 8, paddingHorizontal: 24 },
-
-    deviceHero: {
-      alignItems: "center",
-      gap: 4,
-      marginTop: 24,
+    sectionLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+      marginBottom: 10,
+      textTransform: "uppercase",
     },
-    heroMark: {
-      marginBottom: 12,
+    deviceHero: {
+      gap: 4,
+      marginBottom: 24,
     },
     deviceName: {
       color: colors.text,
@@ -489,11 +370,7 @@ const makeStyles = (colors: Colors) =>
     },
 
     rowGroup: {
-      marginTop: 36,
-    },
-    targetSheet: {
-      paddingHorizontal: 24,
-      paddingTop: 12,
+      marginTop: 0,
     },
     targetDisabled: {
       opacity: 0.55,

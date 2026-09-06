@@ -1878,6 +1878,8 @@ function AnimatedSubmitButton({
       <Pressable
         onPress={onPress}
         disabled={!canSubmit}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !canSubmit }}
         accessibilityLabel={accessibilityLabel}
         style={styles.submitButton}
         hitSlop={4}
@@ -1914,6 +1916,7 @@ function StopButton({
         tapLight();
         onPress();
       }}
+      accessibilityRole="button"
       accessibilityLabel="Stop reply"
       style={styles.submitButton}
       hitSlop={4}
@@ -4058,6 +4061,7 @@ export function ChatPane({
       <Pressable
         style={styles.addButton}
         hitSlop={4}
+        accessibilityRole="button"
         accessibilityLabel="Open add menu"
         onPress={onPressPlus}
       >
@@ -4079,6 +4083,8 @@ export function ChatPane({
   const micButton = (
     <Pressable
       onPress={() => void toggleVoice()}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: dictation.isTranscribing }}
       accessibilityLabel={
         isListening ? "Stop voice input" : "Start voice input"
       }
@@ -4421,242 +4427,249 @@ export function ChatPane({
               ))}
             </View>
           )}
-          <GlassSurface
-            glass="regular"
-            // Interactive so a touch on the composer draws Apple's glow inside
-            // the glass, the way every other Liquid Glass control answers a
-            // tap. It does not take the touches: the input and buttons inside
-            // keep receiving them.
-            interactive
-            // Softer than the menu tint: enough contrast for the input text
-            // while keeping the composer visibly glassy over scrolling chat.
-            tintColor={fadeHex(colors.surface, 0.5)}
-            radius={isExpandedComposed ? 20 : 999}
-            fallbackColor={colors.surface}
-            style={styles.shell}
+          <Pressable
+            accessible={false}
+            style={styles.composerFocusTarget}
+            disabled={!composerEnabled || dictationInline || dictationBelow}
+            onPress={() => inputRef.current?.focus()}
           >
-            {showAttachmentStrip ? (
-              // Pending attachments sit inside the composer, above the text,
-              // in a horizontal rail so any number of them stays one row.
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                style={styles.attachmentStrip}
-                contentContainerStyle={styles.attachmentStripContent}
-              >
-                {(attachments ?? []).map((attachment) => (
-                  <View key={attachment.id} style={styles.attachmentThumb}>
-                    {attachment.kind === "image" ? (
-                      <Image
-                        source={{ uri: attachment.uri }}
-                        style={styles.attachmentImage}
-                        contentFit="cover"
-                      />
-                    ) : (
-                      <View style={styles.attachmentFile}>
-                        <Icon
-                          name="file-text"
-                          size={18}
-                          color={colors.textMuted}
-                        />
-                        <Text style={styles.attachmentFileName} numberOfLines={2}>
-                          {attachment.name}
-                        </Text>
-                      </View>
-                    )}
-                    {attachment.status !== "ready" && (
-                      <Pressable
-                        style={styles.attachmentStatusScrim}
-                        disabled={attachment.status === "uploading"}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          attachment.status === "uploading"
-                            ? t("chat.attachments.uploading")
-                            : t("chat.attachments.retryUpload")
-                        }
-                        onPress={() => onRetryAttachment?.(attachment.id)}
-                      >
-                        {attachment.status === "uploading" ? (
-                          <ActivityIndicator size="small" color="#ffffff" />
-                        ) : (
-                          <Icon
-                            name="refresh-cw"
-                            size={16}
-                            color="#ffffff"
-                            weight="bold"
-                          />
-                        )}
-                      </Pressable>
-                    )}
-                    <Pressable
-                      style={styles.attachmentRemove}
-                      accessibilityLabel={t("chat.attachments.remove")}
-                      onPress={() => onRemoveAttachment?.(attachment.id)}
-                      hitSlop={4}
-                    >
-                      <Icon
-                        name="x"
-                        size={12}
-                        // The button's scrim is a fixed dark wash (it sits over
-                        // arbitrary photo content), so the glyph has to be a
-                        // fixed light colour too — `accentForeground` inverts
-                        // with the theme and goes near-black in every dark one.
-                        color="#ffffff"
-                        weight="bold"
-                      />
-                    </Pressable>
-                  </View>
-                ))}
-              </ScrollView>
-            ) : null}
-            {dictationInline ? (
-              <View style={styles.formPill}>
-                {plusButton}
-                <DictationRecordingBar
-                  onCancel={() => void dictation.cancel()}
-                  onConfirm={() => void dictation.stop()}
-                  onSend={stopAndSendVoice}
-                />
-              </View>
-            ) : (
-              // Single TextInput, stable JSX position across pill ⇄ expanded so
-              // React reuses the same native UITextView when the shape swaps.
-              // Swapping between two separate <TextInput> instances dropped
-              // focus, which collapsed and re-summoned the keyboard on every
-              // expand — visible as a flicker whenever a line wrapped.
-              <View>
-                <View
-                  style={
-                    isExpandedComposed
-                      ? styles.expandedInputBlock
-                      : styles.formPill
-                  }
+            <GlassSurface
+              glass="regular"
+              // Interactive so a touch on the composer draws Apple's glow inside
+              // the glass, the way every other Liquid Glass control answers a
+              // tap. It does not take the touches: the input and buttons inside
+              // keep receiving them.
+              interactive
+              // Softer than the menu tint: enough contrast for the input text
+              // while keeping the composer visibly glassy over scrolling chat.
+              tintColor={fadeHex(colors.surface, 0.5)}
+              radius={isExpandedComposed ? 20 : 999}
+              fallbackColor={colors.surface}
+              style={styles.shell}
+            >
+              {showAttachmentStrip ? (
+                // Pending attachments sit inside the composer, above the text,
+                // in a horizontal rail so any number of them stays one row.
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  style={styles.attachmentStrip}
+                  contentContainerStyle={styles.attachmentStripContent}
                 >
-                  {isExpandedComposed ? null : plusButton}
-                  <TextInput
-                    ref={inputRef}
-                    multiline
-                    scrollEnabled={isExpandedComposed}
-                    onChangeText={onChangeDraft}
-                    onContentSizeChange={handleContentSizeChange}
-                    onFocus={() => {
-                      // Focusing the composer (keyboard opening) exits any
-                      // active message text selection.
-                      if (selectingMessageId != null) stopSelectingMessage();
-                    }}
-                    blurOnSubmit={false}
-                    placeholder={
-                      isExpandedComposed
-                        ? placeholder
-                        : dictation.isTranscribing
-                          ? "Transcribing\u2026"
-                          : placeholder
-                    }
-                    placeholderTextColor={fadeHex(colors.textMuted, 0.35)}
-                    selectionColor={colors.accent}
-                    underlineColorAndroid="transparent"
+                  {(attachments ?? []).map((attachment) => (
+                    <View key={attachment.id} style={styles.attachmentThumb}>
+                      {attachment.kind === "image" ? (
+                        <Image
+                          source={{ uri: attachment.uri }}
+                          style={styles.attachmentImage}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View style={styles.attachmentFile}>
+                          <Icon
+                            name="file-text"
+                            size={18}
+                            color={colors.textMuted}
+                          />
+                          <Text style={styles.attachmentFileName} numberOfLines={2}>
+                            {attachment.name}
+                          </Text>
+                        </View>
+                      )}
+                      {attachment.status !== "ready" && (
+                        <Pressable
+                          style={styles.attachmentStatusScrim}
+                          disabled={attachment.status === "uploading"}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            attachment.status === "uploading"
+                              ? t("chat.attachments.uploading")
+                              : t("chat.attachments.retryUpload")
+                          }
+                          onPress={() => onRetryAttachment?.(attachment.id)}
+                        >
+                          {attachment.status === "uploading" ? (
+                            <ActivityIndicator size="small" color="#ffffff" />
+                          ) : (
+                            <Icon
+                              name="refresh-cw"
+                              size={16}
+                              color="#ffffff"
+                              weight="bold"
+                            />
+                          )}
+                        </Pressable>
+                      )}
+                      <Pressable
+                        style={styles.attachmentRemove}
+                        accessibilityLabel={t("chat.attachments.remove")}
+                        onPress={() => onRemoveAttachment?.(attachment.id)}
+                        hitSlop={4}
+                      >
+                        <Icon
+                          name="x"
+                          size={12}
+                          // The button's scrim is a fixed dark wash (it sits over
+                          // arbitrary photo content), so the glyph has to be a
+                          // fixed light colour too — `accentForeground` inverts
+                          // with the theme and goes near-black in every dark one.
+                          color="#ffffff"
+                          weight="bold"
+                        />
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : null}
+              {dictationInline ? (
+                <View style={styles.formPill}>
+                  {plusButton}
+                  <DictationRecordingBar
+                    onCancel={() => void dictation.cancel()}
+                    onConfirm={() => void dictation.stop()}
+                    onSend={stopAndSendVoice}
+                  />
+                </View>
+              ) : (
+                // Single TextInput, stable JSX position across pill ⇄ expanded so
+                // React reuses the same native UITextView when the shape swaps.
+                // Swapping between two separate <TextInput> instances dropped
+                // focus, which collapsed and re-summoned the keyboard on every
+                // expand — visible as a flicker whenever a line wrapped.
+                <View>
+                  <View
                     style={
                       isExpandedComposed
-                        ? [styles.inputExpanded, draft.length === 0 && styles.inputExpandedEmpty]
-                        : styles.inputPill
+                        ? styles.expandedInputBlock
+                        : styles.formPill
                     }
-                    value={draft}
-                    editable={composerEnabled}
-                  />
-                  {isExpandedComposed ? null : canSubmit ? (
-                    <AnimatedSubmitButton
-                      canSubmit={canSubmit}
-                      onPress={submit}
-                      styles={styles}
-                      colors={colors}
-                      accessibilityLabel="Send message"
+                  >
+                    {isExpandedComposed ? null : plusButton}
+                    <TextInput
+                      ref={inputRef}
+                      multiline
+                      scrollEnabled={isExpandedComposed}
+                      onChangeText={onChangeDraft}
+                      onContentSizeChange={handleContentSizeChange}
+                      onFocus={() => {
+                        // Focusing the composer (keyboard opening) exits any
+                        // active message text selection.
+                        if (selectingMessageId != null) stopSelectingMessage();
+                      }}
+                      blurOnSubmit={false}
+                      placeholder={
+                        isExpandedComposed
+                          ? placeholder
+                          : dictation.isTranscribing
+                            ? "Transcribing\u2026"
+                            : placeholder
+                      }
+                      placeholderTextColor={fadeHex(colors.textMuted, 0.35)}
+                      selectionColor={colors.accent}
+                      underlineColorAndroid="transparent"
+                      style={
+                        isExpandedComposed
+                          ? [styles.inputExpanded, draft.length === 0 && styles.inputExpandedEmpty]
+                          : styles.inputPill
+                      }
+                      value={draft}
+                      editable={composerEnabled}
                     />
-                  ) : streaming && onStop ? (
-                    // Busy with an empty composer: keep the mic available so a
-                    // dictated message can steer the active turn, and keep Stop
-                    // reachable alongside it (mirrors the expanded toolbar,
-                    // which always shows the mic).
-                    <View style={styles.pillTrailingCluster}>
-                      {micButton}
-                      {realtimeVoiceButton}
-                      <StopButton
-                        onPress={onStop}
+                    {isExpandedComposed ? null : canSubmit ? (
+                      <AnimatedSubmitButton
+                        canSubmit={canSubmit}
+                        onPress={submit}
                         styles={styles}
                         colors={colors}
+                        accessibilityLabel="Send message"
                       />
-                    </View>
-                  ) : (
-                    <View style={styles.pillTrailingCluster}>
-                      {micButton}
-                      {realtimeVoiceButton}
-                    </View>
-                  )}
-                </View>
-                {isExpandedComposed && !dictationBelow ? (
-                  <View style={styles.toolbar}>
-                    <View style={styles.toolbarLeft}>{plusButton}</View>
-                    <View style={styles.toolbarRight}>
-                      {composerModelPicker?.pinned ? (
-                        <View ref={modelPickerAnchorRef} collapsable={false}>
-                          <Pressable
-                            onPress={onPressModelPicker}
-                            disabled={composerModelPicker.loading}
-                            accessibilityRole="button"
-                            accessibilityLabel={t("app.chat.miniModelPicker.triggerLabel", { model: composerModelPicker.label })}
-                            style={({ pressed }) => [
-                              styles.miniModelPickerTrigger,
-                              pressed && styles.miniModelPickerTriggerPressed,
-                            ]}
-                          >
-                            <Text
-                              style={styles.miniModelPickerLabel}
-                              numberOfLines={1}
-                            >
-                              {composerModelPicker.loading
-                                ? "Loading…"
-                                : composerModelPicker.label}
-                            </Text>
-                            <Icon
-                              name="chevron-down"
-                              size={13}
-                              color={colors.textMuted}
-                            />
-                          </Pressable>
-                        </View>
-                      ) : null}
-                      {micButton}
-                      {realtimeVoiceButton}
-                      {streaming && onStop && !hasText ? (
+                    ) : streaming && onStop ? (
+                      // Busy with an empty composer: keep the mic available so a
+                      // dictated message can steer the active turn, and keep Stop
+                      // reachable alongside it (mirrors the expanded toolbar,
+                      // which always shows the mic).
+                      <View style={styles.pillTrailingCluster}>
+                        {micButton}
+                        {realtimeVoiceButton}
                         <StopButton
                           onPress={onStop}
                           styles={styles}
                           colors={colors}
                         />
-                      ) : (
-                        <AnimatedSubmitButton
-                          canSubmit={canSubmit}
-                          onPress={submit}
-                          styles={styles}
-                          colors={colors}
-                          accessibilityLabel="Send message"
-                        />
-                      )}
+                      </View>
+                    ) : (
+                      <View style={styles.pillTrailingCluster}>
+                        {micButton}
+                        {realtimeVoiceButton}
+                      </View>
+                    )}
+                  </View>
+                  {isExpandedComposed && !dictationBelow ? (
+                    <View style={styles.toolbar}>
+                      <View style={styles.toolbarLeft}>{plusButton}</View>
+                      <View style={styles.toolbarRight}>
+                        {composerModelPicker?.pinned ? (
+                          <View ref={modelPickerAnchorRef} collapsable={false}>
+                            <Pressable
+                              onPress={onPressModelPicker}
+                              disabled={composerModelPicker.loading}
+                              accessibilityRole="button"
+                              accessibilityLabel={t("app.chat.miniModelPicker.triggerLabel", { model: composerModelPicker.label })}
+                              style={({ pressed }) => [
+                                styles.miniModelPickerTrigger,
+                                pressed && styles.miniModelPickerTriggerPressed,
+                              ]}
+                            >
+                              <Text
+                                style={styles.miniModelPickerLabel}
+                                numberOfLines={1}
+                              >
+                                {composerModelPicker.loading
+                                  ? "Loading…"
+                                  : composerModelPicker.label}
+                              </Text>
+                              <Icon
+                                name="chevron-down"
+                                size={13}
+                                color={colors.textMuted}
+                              />
+                            </Pressable>
+                          </View>
+                        ) : null}
+                        {micButton}
+                        {realtimeVoiceButton}
+                        {streaming && onStop && !hasText ? (
+                          <StopButton
+                            onPress={onStop}
+                            styles={styles}
+                            colors={colors}
+                          />
+                        ) : (
+                          <AnimatedSubmitButton
+                            canSubmit={canSubmit}
+                            onPress={submit}
+                            styles={styles}
+                            colors={colors}
+                            accessibilityLabel="Send message"
+                          />
+                        )}
+                      </View>
                     </View>
-                  </View>
-                ) : null}
-                {dictationBelow ? (
-                  <View style={styles.dictationRow}>
-                    <DictationRecordingBar
-                      onCancel={() => void dictation.cancel()}
-                      onConfirm={() => void dictation.stop()}
-                      onSend={stopAndSendVoice}
-                    />
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </GlassSurface>
+                  ) : null}
+                  {dictationBelow ? (
+                    <View style={styles.dictationRow}>
+                      <DictationRecordingBar
+                        onCancel={() => void dictation.cancel()}
+                        onConfirm={() => void dictation.stop()}
+                        onSend={stopAndSendVoice}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              )}
+            </GlassSurface>
+          </Pressable>
         </View>
       </Reanimated.View>
       <PlusMenuPopover
@@ -5217,13 +5230,14 @@ const makeStyles = (colors: Colors) =>
       elevation: 8,
     },
 
+    composerFocusTarget: { width: "100%" },
     formPill: {
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
-      minHeight: 50,
+      minHeight: 56,
       paddingHorizontal: 8,
-      paddingVertical: 8,
+      paddingVertical: 11,
     },
     expandedInputBlock: { flexDirection: "column" },
 
@@ -5248,15 +5262,15 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.2,
       lineHeight: 24,
       maxHeight: 200,
-      minHeight: 40,
+      minHeight: 46,
       paddingHorizontal: 16,
-      paddingTop: 11,
+      paddingTop: 14,
       paddingBottom: 2,
     },
     // A pinned model picker keeps the same scrollable UITextView expanded
     // after send. Its old intrinsic content height can survive clearing value;
     // an empty draft has a known resting height, independent of that cache.
-    inputExpandedEmpty: { height: 40 },
+    inputExpandedEmpty: { height: 46 },
 
     toolbar: {
       alignItems: "center",

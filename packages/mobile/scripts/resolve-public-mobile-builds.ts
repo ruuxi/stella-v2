@@ -13,6 +13,7 @@
  * Usage: bun scripts/resolve-public-mobile-builds.ts
  *          [--platform ios|android|all] [--channel <channel>]
  *          [--google-play-key <path>] [--verify-local-fingerprint]
+ *          [--ios-testflight-build <buildNumber>]
  */
 import { execFile } from "node:child_process";
 import { createSign } from "node:crypto";
@@ -250,9 +251,44 @@ const fetchPlayProductionTrack = async (keyPath: string): Promise<PlayTrack> => 
   }
 };
 
-const resolveIosTarget = async (expectedChannel: string): Promise<PublicMobileTarget> => {
+/**
+ * A TestFlight build as the OTA target instead of the App Store live
+ * version: for a rollout that is live for testers before it is live in the
+ * store. The build must still be one App Store Connect knows about and has
+ * processed, and it is validated against EAS exactly like the live one.
+ */
+export const selectIosTestFlightBuild = (
+  status: JsonRecord,
+  buildNumber: string,
+): JsonRecord => {
+  const ios = status.ios as JsonRecord | undefined;
+  const builds = (ios?.testFlightBuilds as JsonRecord[] | undefined) ?? [];
+  const match = builds.find(
+    (build) =>
+      String(build.buildNumber ?? "") === buildNumber &&
+      build.processingState === "VALID" &&
+      build.expired !== true,
+  );
+  if (!match) {
+    throw new Error(
+      `App Store Connect has no valid, unexpired TestFlight build ${buildNumber}.`,
+    );
+  }
+  return {
+    ...match,
+    versionString: match.appVersion,
+    state: `TESTFLIGHT_${String(match.internalState ?? "UNKNOWN")}`,
+  };
+};
+
+const resolveIosTarget = async (
+  expectedChannel: string,
+  testFlightBuild?: string,
+): Promise<PublicMobileTarget> => {
   const status = await easJson<JsonRecord>(["submit:status", "--platform", "ios"]);
-  const live = selectIosLive(status);
+  const live = testFlightBuild
+    ? selectIosTestFlightBuild(status, testFlightBuild)
+    : selectIosLive(status);
   const easBuildId = String(live.easBuildId ?? "");
   const easSubmissionId = String(live.easSubmissionId ?? "");
   if (!easBuildId || !easSubmissionId) {
@@ -341,6 +377,10 @@ const main = async () => {
   const platform = readArg("--platform") ?? "all";
   const expectedChannel = readArg("--channel") ?? "preview";
   const verifyFingerprint = process.argv.includes("--verify-local-fingerprint");
+  const iosTestFlightBuild = readArg("--ios-testflight-build");
+  if (iosTestFlightBuild !== undefined && !/^\d{1,10}$/.test(iosTestFlightBuild)) {
+    throw new Error("--ios-testflight-build must be an App Store build number.");
+  }
   if (!new Set(["ios", "android", "all"]).has(platform)) {
     throw new Error("--platform must be ios, android, or all.");
   }
@@ -351,7 +391,7 @@ const main = async () => {
   );
   const targets: PublicMobileTarget[] = [];
   if (platform === "ios" || platform === "all") {
-    targets.push(await resolveIosTarget(expectedChannel));
+    targets.push(await resolveIosTarget(expectedChannel, iosTestFlightBuild));
   }
   if (platform === "android" || platform === "all") {
     targets.push(await resolveAndroidTarget(expectedChannel, keyPath));

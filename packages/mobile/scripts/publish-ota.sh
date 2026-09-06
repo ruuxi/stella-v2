@@ -12,6 +12,10 @@
 #
 # Usage: scripts/publish-ota.sh <channel> [platform]
 #   e.g. scripts/publish-ota.sh preview ios
+# Set STELLA_OTA_IOS_TESTFLIGHT_BUILD=<App Store build number> to target a
+# TestFlight build that is live for testers before the store version is: the
+# build must still exist in App Store Connect and match this tree's
+# fingerprint, so the guarantees below are unchanged.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -47,8 +51,13 @@ SUBJECT="$(git log -1 --format=%s)"
 # whose native side is older. Resolve the live store build instead and abort
 # unless this tree's fingerprint is identical to it.
 echo "Resolving the public store build instead of the newest EAS build..."
+TESTFLIGHT_ARGS=()
+if [[ -n "${STELLA_OTA_IOS_TESTFLIGHT_BUILD:-}" ]]; then
+  echo "Targeting iOS TestFlight build ${STELLA_OTA_IOS_TESTFLIGHT_BUILD} instead of the App Store live version."
+  TESTFLIGHT_ARGS=(--ios-testflight-build "${STELLA_OTA_IOS_TESTFLIGHT_BUILD}")
+fi
 bun scripts/resolve-public-mobile-builds.ts --platform "${PLATFORM}" \
-  --channel "${CHANNEL}" --verify-local-fingerprint
+  --channel "${CHANNEL}" --verify-local-fingerprint "${TESTFLIGHT_ARGS[@]}"
 
 if [[ "${PLATFORM}" == "all" ]]; then
   PLATFORMS=(ios android)

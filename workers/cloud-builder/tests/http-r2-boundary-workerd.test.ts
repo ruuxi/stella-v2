@@ -17,13 +17,18 @@ const pause = async (delayMs: number): Promise<void> => {
 
 const chunkedBody = (chunks: string[]): ReadableStream<Uint8Array> => {
   const encoder = new TextEncoder();
+  let canceled = false;
   return new ReadableStream({
     async start(controller) {
       for (const chunk of chunks) {
+        if (canceled) return;
         controller.enqueue(encoder.encode(chunk));
         await pause(1);
       }
-      controller.close();
+      if (!canceled) controller.close();
+    },
+    cancel() {
+      canceled = true;
     },
   });
 };

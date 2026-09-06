@@ -127,6 +127,44 @@ describe("cloud prompt context", () => {
     expect(live).toHaveLength(2);
   });
 
+  test("keeps exact attached Drive references with their message across journal and epoch replay", () => {
+    const attachments = [
+      "execution-attachments/current-dispatch/01.txt",
+      "execution-attachments/current-dispatch/02.png",
+    ];
+    const canonical = {
+      role: "user",
+      content: [{ type: "text", text: "Read both attachments." }],
+      timestamp: 123,
+      providerContext: {
+        version: 1,
+        epoch: "original-epoch",
+        clock: "2026-09-05T00:00:00.000Z",
+        prepend: [],
+        attachments,
+      },
+    } as AgentMessage;
+    for (const epoch of ["original-epoch", "new-epoch"]) {
+      const replay = materializeProviderContext(
+        stampUserMessageSequences(
+          [JSON.parse(JSON.stringify(canonical))],
+          [{ seq: 10, role: "user", hidden: false }],
+        ),
+        epoch,
+      );
+      expect(replay).toHaveLength(1);
+      const content = replay[0]!.content as { type: string; text: string }[];
+      expect(content.at(-1)?.text).toContain(JSON.stringify(attachments));
+      expect(content.at(-1)?.text).toContain("pass these paths to any agent");
+      expect(content.at(-1)?.text).not.toContain("release-check.txt");
+    }
+    expect(canonical.content).toEqual([{ type: "text", text: "Read both attachments." }]);
+    const unrelated = materializeProviderContext([
+      { role: "user", content: "Next question", timestamp: 124 },
+    ], "new-epoch");
+    expect(JSON.stringify(unrelated)).not.toContain("execution-attachments");
+  });
+
   test("permission and wipe boundaries remove old context updates immediately", () => {
     const first = preparePromptContext(input);
     for (const changed of [

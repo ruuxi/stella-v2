@@ -144,6 +144,7 @@ type ProviderContextMetadata = {
   epoch: string;
   prepend: string[];
   clock: string;
+  attachments?: string[];
 };
 const providerContextMetadata = (
   value: unknown,
@@ -170,6 +171,11 @@ const providerContextMetadata = (
     epoch: context.epoch,
     clock: context.clock,
     prepend: context.prepend,
+    ...("attachments" in context &&
+    Array.isArray(context.attachments) &&
+    context.attachments.every((path): path is string => typeof path === "string")
+      ? { attachments: context.attachments }
+      : {}),
   };
 };
 
@@ -203,6 +209,12 @@ export const materializeProviderContext = (
             text: `<current-time>${metadata.clock}</current-time>`,
           },
           ...content,
+          ...(metadata.attachments?.length
+            ? [{
+                type: "text" as const,
+                text: `<attached-drive-files>\nThe user attached these exact Drive paths to this message. Read these files, and pass these paths to any agent handling the attachments. Do not substitute other files found by searching the Drive.\n${JSON.stringify(metadata.attachments)}\n</attached-drive-files>`,
+              }]
+            : []),
         ],
       },
     ];

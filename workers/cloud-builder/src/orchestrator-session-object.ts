@@ -387,10 +387,9 @@ export type ChatTurnRequest = {
   // directive. Persisted per conversation so later turns without one (schedule
   // fires, agent-completion wakes) keep answering in the user's language.
   locale?: string;
-  // Drive paths of attached images. The DO hydrates them into image content
-  // blocks on this turn's prompt via the capability-scoped attachment route;
-  // the prompt text separately names the paths (the composer's preamble), so
-  // later turns can still reach the files through the drive.
+  // Drive paths of attached files. Persisted as provider-only prompt metadata
+  // so every client supplies exact references, including on history replay.
+  // Images also hydrate through the capability-scoped attachment route.
   attachments?: string[];
   /**
    * Exact control receipt for a cloud-agent lifecycle wake. Kept structured
@@ -4842,6 +4841,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           epoch: context.state.epoch,
           prepend,
           clock: new Date(now).toISOString(),
+          ...(turn.attachments?.length
+            ? { attachments: [...turn.attachments] }
+            : {}),
         },
         ...(turn.source ? { source: turn.source } : {}),
       } as AgentMessage;

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { BrandCharacter } from "@/components/BrandCharacter";
 import "./feature-graphic.css";
 
 export default async function FeatureGraphic({
@@ -26,12 +27,19 @@ export default async function FeatureGraphic({
         data-output-ready={String(outputReady)}
         data-native-ready={String(showNative)}
       >
-        <div className="feature-wordmark">stella</div>
+        <div className="feature-light" aria-hidden="true" />
+        <div className="feature-orbit" aria-hidden="true" />
+        <div className="feature-wordmark">Stella</div>
+        <BrandCharacter
+          shape="blob"
+          className="feature-mascot"
+          eyeColor="#182820"
+        />
         <div className="feature-copy">
           <h1>
             Your computer.
             <br />
-            From your phone.
+            <span>From your phone.</span>
           </h1>
           <p>Work with your apps and files.</p>
         </div>
@@ -51,6 +59,7 @@ export default async function FeatureGraphic({
             alt="The current Stella Android app"
           />
         )}
+        <BrandCharacter shape="cursor" className="feature-cursor" />
       </article>
     </main>
   );

@@ -3,6 +3,7 @@ import path from "node:path";
 import { devices, slides, type Device } from "@/store/slides";
 import { supportingArtifacts } from "@/store/supporting";
 import "./store.css";
+import { BrandCharacter } from "@/components/BrandCharacter";
 
 export default async function Page({
   searchParams,
@@ -57,7 +58,7 @@ export default async function Page({
               <article
                 data-export-slide={slide.slug}
                 data-capture-ready={available ? "true" : "false"}
-                className={`store-slide device-${device} ${hasSupporting ? "has-supporting" : ""}`}
+                className={`store-slide scene-${slide.slug} device-${device} ${hasSupporting ? "has-supporting" : ""}`}
                 style={
                   {
                     width: size.width,
@@ -65,12 +66,16 @@ export default async function Page({
                     background: slide.background,
                     color: slide.ink,
                     "--accent": slide.accent,
+                    "--canvas-width": `${size.width}px`,
                   } as React.CSSProperties
                 }
               >
-                <div className="slide-wordmark">stella</div>
+                <div className="scene-light" aria-hidden="true" />
+                <div className="scene-orbit" aria-hidden="true" />
+                <div className="slide-wordmark">Stella</div>
+                <BrandCharacter shape="blob" className="slide-mascot" eyeColor={slide.background} />
                 <div className="slide-copy">
-                  <h1>{slide.title}</h1>
+                  <h1>{slide.title.split("\n").map((line, index) => <span key={line} className={index === 1 ? "headline-accent" : undefined}>{line}</span>)}</h1>
                   <p>{slide.subtitle}</p>
                 </div>
                 {hasSupporting && (
@@ -80,6 +85,7 @@ export default async function Page({
                       src={supporting.source}
                       alt={supporting.alt}
                     />
+                    {(slide.slug === "computer" || slide.slug === "browser") && <BrandCharacter shape="cursor" className="artifact-cursor" />}
                   </figure>
                 )}
                 <div className="screen-stage">

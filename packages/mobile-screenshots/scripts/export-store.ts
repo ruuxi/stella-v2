@@ -86,6 +86,10 @@ try {
     await page.goto(`${base}/?device=${device}&export=1`, {
       waitUntil: "networkidle",
     });
+    await page.waitForFunction(() => {
+      const marks = [...document.querySelectorAll('[data-brand-ready]')];
+      return marks.length > 0 && marks.every((mark) => mark.getAttribute('data-brand-ready') === 'true');
+    });
     await page.evaluate(async (slugs) => {
       await document.fonts.ready;
       await Promise.all(

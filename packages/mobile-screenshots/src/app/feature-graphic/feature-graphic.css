@@ -1,75 +1,131 @@
 .feature-studio {
   min-height: 100vh;
-  background: #e4e2dd;
+  background: #182820;
 }
 .feature-graphic {
   position: relative;
+  isolation: isolate;
   width: 1024px;
   height: 500px;
   overflow: hidden;
-  background: #f0ede6;
-  color: #292922;
+  background: #182820;
+  color: #f4f1e7;
   font-family: var(--font-manrope), sans-serif;
 }
 .feature-wordmark {
   position: absolute;
-  left: 44px;
-  top: 35px;
-  font-size: 38px;
-  letter-spacing: -0.06em;
-  font-weight: 500;
+  z-index: 5;
+  left: 46px;
+  top: 24px;
+  font-family: var(--font-cormorant), serif;
+  font-size: 57px;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  font-weight: 400;
+}
+.feature-mascot {
+  position: absolute;
+  z-index: 5;
+  width: 84px;
+  height: 84px;
+  left: 335px;
+  top: 15px;
+  transform: rotate(8deg);
 }
 .feature-copy {
   position: absolute;
-  left: 44px;
-  top: 172px;
-  width: 405px;
+  z-index: 5;
+  left: 46px;
+  top: 155px;
+  width: 430px;
 }
 .feature-copy h1 {
-  font-family: var(--font-cormorant), serif;
-  font-size: 59px;
-  line-height: 0.98;
-  letter-spacing: -0.045em;
-  font-weight: 400;
+  font-size: 44px;
+  font-weight: 600;
+  line-height: 1.13;
+  letter-spacing: -0.06em;
   margin: 0;
 }
-.feature-copy p {
-  font-size: 18px;
-  letter-spacing: -0.025em;
-  line-height: 1.4;
-  margin-top: 24px;
-}
-.feature-output {
-  position: absolute;
-  left: 454px;
-  top: 118px;
-  width: 530px;
-  height: auto;
+.feature-copy h1 span {
   display: block;
-  box-shadow: 0 15px 28px -18px #29292240;
+  font-family: var(--font-cormorant), serif;
+  font-size: 60px;
+  line-height: 1.04;
+  font-weight: 400;
+  color: #c8deb5;
+  letter-spacing: -0.055em;
 }
-.with-native .feature-copy {
-  top: 148px;
-  width: 300px;
+.feature-copy h1 br {
+  display: none;
 }
-.with-native .feature-copy h1 {
-  font-size: 48px;
+.feature-copy p {
+  font-size: 17px;
+  line-height: 1.5;
+  opacity: 0.75;
+  margin-top: 23px;
+  letter-spacing: -0.025em;
 }
-.with-native .feature-copy p {
-  max-width: 245px;
+.feature-light {
+  position: absolute;
+  z-index: -2;
+  width: 900px;
+  height: 700px;
+  left: 290px;
+  top: 40px;
+  background: radial-gradient(ellipse, #85aa6960, transparent 65%);
 }
-.with-native .feature-output {
-  top: 208px;
-  left: 350px;
-  width: 435px;
+.feature-orbit {
+  position: absolute;
+  z-index: -1;
+  width: 690px;
+  height: 690px;
+  border: 1px solid #c8deb526;
+  border-radius: 50%;
+  left: 470px;
+  top: 100px;
+  box-shadow:
+    0 0 0 40px #ffffff03,
+    0 0 0 80px #ffffff02;
 }
 .feature-native {
   position: absolute;
-  right: 27px;
-  top: 40px;
-  height: 420px;
+  z-index: 1;
+  right: 55px;
+  top: 24px;
+  height: 610px;
   width: auto;
-  max-width: 206px;
-  object-fit: contain;
-  box-shadow: 0 15px 28px -18px #29292240;
+  display: block;
+  border: 5px solid #e6e7dd;
+  border-radius: 31px;
+  transform: rotate(8deg);
+  box-shadow: 20px 25px 42px #0006;
+}
+.feature-output {
+  position: absolute;
+  z-index: 3;
+  width: 430px;
+  left: 426px;
+  top: 224px;
+  height: auto;
+  display: block;
+  padding: 7px;
+  background: white;
+  border-radius: 12px;
+  transform: rotate(-6deg);
+  box-shadow: 12px 20px 35px #0005;
+}
+.feature-cursor {
+  position: absolute;
+  z-index: 4;
+  width: 58px;
+  height: 65px;
+  left: 796px;
+  top: 202px;
+  transform: rotate(-12deg);
+  filter: drop-shadow(0 4px 5px #0005);
+}
+.output-only .feature-output {
+  width: 490px;
+  left: 490px;
+  top: 155px;
 }

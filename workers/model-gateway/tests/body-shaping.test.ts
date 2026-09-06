@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { GatewayProtocol } from "@stella/contracts/gateway/api";
 import type { ManagedGatewayProvider } from "@stella/model-catalog/managed-gateway";
 import { toProviderNativeModel } from "@stella/model-catalog/request-shaping";
+import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
 import {
   clampOutputTokens,
   shapeUpstreamRequest,
@@ -262,6 +263,28 @@ describe("body shaping parity: crof", () => {
 });
 
 describe("body shaping parity: openrouter", () => {
+  test("Muse advertises vision and preserves the runtime's Responses image bytes", () => {
+    const model = "stella/meta/muse-spark-1.3-contributor";
+    const descriptor = resolveManagedModelDescriptor({
+      agentType: "orchestrator",
+      requestedModel: model,
+      audience: "pro",
+    });
+    expect(descriptor.supportsImages).toBe(true);
+    const input = [{
+      role: "user",
+      content: [
+        { type: "input_text", text: "What color is this image?" },
+        { type: "input_image", detail: "auto", image_url: "data:image/png;base64,aW1hZ2U=" },
+      ],
+    }];
+    const { json } = shape(
+      "openrouter", "meta/muse-spark-1.3-contributor", "openai-responses",
+      "/v1/relay/responses", { model, input },
+    );
+    expect(json.input).toEqual(input);
+  });
+
   test("Responses path: chat-shaped input is normalized, reasoning stays nested, no store flag", () => {
     const { url, headers, json } = shape(
       "openrouter",
@@ -300,8 +323,9 @@ describe("body shaping parity: openrouter", () => {
         content: [
           { type: "input_text", text: "hi" },
           {
-            type: "input_text",
-            text: "(image omitted: model does not support images)",
+            type: "input_image",
+            image_url: "data:image/png;base64,abc",
+            detail: "auto",
           },
         ],
       },

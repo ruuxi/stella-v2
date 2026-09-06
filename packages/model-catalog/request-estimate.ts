@@ -191,23 +191,15 @@ export function estimateRequestTokens(
   };
 }
 
-/**
- * The OpenRouter-hosted contributor variant shares the `meta/` prefix with
- * its first-party Muse Spark sibling but stays text-only until OpenRouter
- * documents multimodal support for it — matching its static billing
- * modalities in `STATIC_MANAGED_MODEL_PRICE_OVERRIDES`.
+/** Whether a resolved managed model accepts image input parts.
+ * Muse Spark Contributor accepts images through OpenRouter's Responses API:
+ * https://openrouter.ai/meta/muse-spark-1.3-contributor
+ * Keep this aligned with its multimodal pricing/catalog metadata so relay
+ * shaping never silently discards images accepted by the client runtime.
  */
-const TEXT_ONLY_MANAGED_MODEL_EXACT_IDS = [
-  "meta/muse-spark-1.3-contributor",
-] as const;
-
-/** Whether a resolved managed model accepts image input parts. */
 export const managedModelSupportsImageInput = (
   resolvedModel: string,
 ): boolean =>
-  !(TEXT_ONLY_MANAGED_MODEL_EXACT_IDS as readonly string[]).includes(
-    resolvedModel,
-  ) &&
   IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES.some((prefix) =>
     resolvedModel.startsWith(prefix),
   );

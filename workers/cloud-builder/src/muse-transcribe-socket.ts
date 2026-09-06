@@ -1,3 +1,4 @@
+import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { SUBPROTOCOL } from "./conversation-hub.js";
 
 const MUSE_MODEL = "muse-voice-transcribe-1.0";
@@ -158,14 +159,14 @@ export const handleMuseTranscribeSocket = async (args: {
   let audioBytes = 0;
   let settled = false;
   let closing = false;
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let cancelDeadline: (() => void) | undefined;
   let sawFinalTranscript = false;
   let sawUpstreamError = false;
   const startedAt = Date.now();
   const settle = (success: boolean): void => {
     if (settled) return;
     settled = true;
-    clearTimeout(deadlineTimer);
+    cancelDeadline?.();
     args.waitUntil(reportUsage(audioBytes, Date.now() - startedAt, success));
   };
 
@@ -174,11 +175,11 @@ export const handleMuseTranscribeSocket = async (args: {
     closeSocket(upstream, code, reason);
     closeSocket(gateway, code, reason);
   };
-  deadlineTimer = setTimeout(
+  cancelDeadline = forkAbortTimer(
+    Math.max(0, prepared.providerDeadlineAt - Date.now()),
     () => {
       closeBoth(1000, "Transcription session time limit reached");
     },
-    Math.max(0, prepared.providerDeadlineAt - Date.now()),
   );
 
   gateway.addEventListener("message", (event) => {

@@ -7,7 +7,6 @@
 
 import { ConvexError, v } from "convex/values";
 import { makeFunctionReference } from "convex/server";
-import { CopyObjectCommand } from "@aws-sdk/client-s3";
 import {
   action,
   internalAction,
@@ -2031,22 +2030,11 @@ export const reconcileDriveObject = async (
   return file ? { outcome: "adopted", file } : { outcome: "untouched" };
 };
 
-const copyDriveObject = async (
-  stagingR2Key: string,
-  finalR2Key: string,
-): Promise<void> => {
-  const copySource = [r2.config.bucket, ...stagingR2Key.split("/")]
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  await r2.client.send(
-    new CopyObjectCommand({
-      Bucket: r2.config.bucket,
-      CopySource: copySource,
-      Key: finalR2Key,
-      MetadataDirective: "COPY",
-    }),
-  );
-};
+const copyDriveObjectRef = makeFunctionReference<
+  "action",
+  { stagingR2Key: string; finalR2Key: string },
+  null
+>("cloud_drive_node:copyDriveObject");
 
 /**
  * The object's true byte length. The R2 component's stored metadata leaves
@@ -2210,7 +2198,10 @@ const finalizeDriveUploadFor = async (
       });
   };
   try {
-    await copyDriveObject(r2Key, finalR2Key);
+    await ctx.runAction(copyDriveObjectRef, {
+      stagingR2Key: r2Key,
+      finalR2Key,
+    });
     await r2.syncMetadata(ctx, finalR2Key);
   } catch (error) {
     await queueFinalCleanup();

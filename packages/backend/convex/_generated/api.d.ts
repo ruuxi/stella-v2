@@ -51,6 +51,7 @@ import type * as cloud_apps from "../cloud_apps.js";
 import type * as cloud_browser from "../cloud_browser.js";
 import type * as cloud_conversation_edits from "../cloud_conversation_edits.js";
 import type * as cloud_drive from "../cloud_drive.js";
+import type * as cloud_drive_node from "../cloud_drive_node.js";
 import type * as cloud_engines from "../cloud_engines.js";
 import type * as cloud_home_context from "../cloud_home_context.js";
 import type * as cloud_integration_catalog from "../cloud_integration_catalog.js";
@@ -371,6 +372,7 @@ declare const fullApi: ApiFromModules<{
   cloud_browser: typeof cloud_browser;
   cloud_conversation_edits: typeof cloud_conversation_edits;
   cloud_drive: typeof cloud_drive;
+  cloud_drive_node: typeof cloud_drive_node;
   cloud_engines: typeof cloud_engines;
   cloud_home_context: typeof cloud_home_context;
   cloud_integration_catalog: typeof cloud_integration_catalog;

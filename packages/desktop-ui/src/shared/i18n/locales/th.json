@@ -1268,7 +1268,6 @@
       },
       "replyCount": {
         "label": {
-          "one": "{count} reply",
           "other": "{count} replies"
         }
       },
@@ -1357,6 +1356,10 @@
         "videoToVideo": {
           "description": "แปลงวิดีโอด้วยคำสั่งข้อความ",
           "name": "วิดีโอเป็นวิดีโอ"
+        },
+        "referenceToVideo": {
+          "description": "สร้างวิดีโอจากรูปภาพ วิดีโอ และเสียงอ้างอิง",
+          "name": "วิดีโอจากข้อมูลอ้างอิง"
         }
       },
       "imageFailure": {
@@ -1395,8 +1398,6 @@
         "generationFailed": "สร้างไม่สำเร็จ",
         "lead": "สร้างรูปภาพ เสียง เพลง วิดีโอ และ 3D",
         "openOutputsFolder": "เปิดโฟลเดอร์ผลลัพธ์",
-        "profileBest": "ดีที่สุด",
-        "profileFast": "เร็ว",
         "prompt": "พรอมต์",
         "promptPlaceholder": "อธิบายสิ่งที่คุณต้องการ…",
         "quality": "คุณภาพ",
@@ -1407,7 +1408,10 @@
         "sourceVideo": "วิดีโอต้นทาง",
         "submitting": "กำลังส่ง…",
         "title": "สื่อ",
-        "transformVideo": "แปลงวิดีโอ"
+        "transformVideo": "แปลงวิดีโอ",
+        "qualityHigh": "สูง",
+        "qualityLow": "ต่ำ",
+        "qualityMedium": "ปานกลาง"
       }
     }
   },
@@ -1872,7 +1876,10 @@
       "chat": "แชท",
       "settings": "การตั้งค่า",
       "openLabel": "เปิดเมนูนำทาง",
-      "closeLabel": "ปิดเมนูนำทาง"
+      "closeLabel": "ปิดเมนูนำทาง",
+      "account": "บัญชี",
+      "signIn": "เข้าสู่ระบบ",
+      "backToChat": "กลับไปที่แชต"
     },
     "search": {
       "placeholder": "ค้นหาข้อความ",
@@ -1990,7 +1997,8 @@
       "statusAsleep": "หลับอยู่",
       "connectingLabel": "กำลังเชื่อมต่อกับคอมพิวเตอร์ของคุณ",
       "connectedLabel": "เชื่อมต่อคอมพิวเตอร์แล้ว",
-      "disconnectedLabel": "ตัดการเชื่อมต่อคอมพิวเตอร์แล้ว"
+      "disconnectedLabel": "ตัดการเชื่อมต่อคอมพิวเตอร์แล้ว",
+      "pairLabel": "จับคู่คอมพิวเตอร์"
     },
     "desktop": {
       "pairTitle": "จับคู่มือถือของคุณ",
@@ -2144,6 +2152,19 @@
       "clearLabel": "ล้างข้อมูลวินิจฉัย",
       "empty": "ยังไม่มีการบันทึกข้อมูลวินิจฉัย CarPlay เชื่อมต่อ CarPlay สักครั้งแล้วกลับมาที่นี่",
       "clipboardEmpty": "(ไม่มีการบันทึกข้อมูลวินิจฉัย CarPlay)"
+    },
+    "account": {
+      "title": "บัญชี"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "กำลังดำเนินการ {count} รายการ"
+      },
+      "openLabel": "แสดงกิจกรรม"
+    },
+    "sidebar": {
+      "searchPlaceholder": "ค้นหาในกิจกรรมและไฟล์",
+      "signedOutHint": "ลงชื่อเข้าใช้เพื่อดูว่า Stella กำลังทำอะไรอยู่เบื้องหลัง"
     }
   },
   "companion": {

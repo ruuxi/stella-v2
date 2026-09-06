@@ -1373,6 +1373,10 @@
         "videoToVideo": {
           "description": "Transformer une vidéo avec des instructions écrites",
           "name": "Vidéo vers vidéo"
+        },
+        "referenceToVideo": {
+          "description": "Générez une vidéo à partir de références visuelles, vidéo et audio",
+          "name": "Vidéo à partir de références"
         }
       },
       "imageFailure": {
@@ -1411,8 +1415,6 @@
         "generationFailed": "Échec de la génération",
         "lead": "Créez des images, de l’audio, de la musique, des vidéos et de la 3D.",
         "openOutputsFolder": "Ouvrir le dossier des résultats",
-        "profileBest": "Qualité",
-        "profileFast": "Rapide",
         "prompt": "Consigne",
         "promptPlaceholder": "Décrivez ce que vous voulez…",
         "quality": "Qualité",
@@ -1423,7 +1425,10 @@
         "sourceVideo": "Vidéo source",
         "submitting": "Envoi…",
         "title": "Médias",
-        "transformVideo": "Transformer la vidéo"
+        "transformVideo": "Transformer la vidéo",
+        "qualityHigh": "Élevé",
+        "qualityLow": "Faible",
+        "qualityMedium": "Moyen"
       }
     }
   },
@@ -1910,7 +1915,10 @@
       "chat": "Chat",
       "settings": "Paramètres",
       "openLabel": "Ouvrir la navigation",
-      "closeLabel": "Fermer la navigation"
+      "closeLabel": "Fermer la navigation",
+      "account": "Compte",
+      "signIn": "Se connecter",
+      "backToChat": "Retour au chat"
     },
     "search": {
       "placeholder": "Rechercher dans les messages",
@@ -2030,7 +2038,8 @@
       "statusAsleep": "En veille",
       "connectingLabel": "Connexion à votre ordinateur",
       "connectedLabel": "Ordinateur connecté",
-      "disconnectedLabel": "Ordinateur déconnecté"
+      "disconnectedLabel": "Ordinateur déconnecté",
+      "pairLabel": "Associer un ordinateur"
     },
     "desktop": {
       "pairTitle": "Associez votre téléphone",
@@ -2186,6 +2195,21 @@
       "clearLabel": "Effacer les diagnostics",
       "empty": "Aucun diagnostic CarPlay enregistré. Connectez-vous une fois à CarPlay, puis revenez ici.",
       "clipboardEmpty": "(aucun diagnostic CarPlay enregistré)"
+    },
+    "account": {
+      "title": "Compte"
+    },
+    "activity": {
+      "inProgress": {
+        "many": "{count} en cours",
+        "one": "{count} en cours",
+        "other": "{count} en cours"
+      },
+      "openLabel": "Afficher l’activité"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Rechercher dans l’activité et les fichiers",
+      "signedOutHint": "Connectez-vous pour voir sur quoi Stella travaille en arrière-plan."
     }
   },
   "companion": {

@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Omdan en video med tekstinstruktioner",
           "name": "Video til video"
+        },
+        "referenceToVideo": {
+          "description": "Generér en video ud fra billed-, video- og lydreferencer",
+          "name": "Video fra referencer"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Genereringen mislykkedes",
         "lead": "Lav billeder, lyd, musik, video og 3D.",
         "openOutputsFolder": "Åbn outputmappen",
-        "profileBest": "Bedst",
-        "profileFast": "Hurtig",
         "prompt": "Prompt",
         "promptPlaceholder": "Beskriv, hvad du gerne vil have…",
         "quality": "Kvalitet",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Kildevideo",
         "submitting": "Sender…",
         "title": "Medier",
-        "transformVideo": "Omdan video"
+        "transformVideo": "Omdan video",
+        "qualityHigh": "Høj",
+        "qualityLow": "Lav",
+        "qualityMedium": "Mellem"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Chat",
       "settings": "Indstillinger",
       "openLabel": "Åbn navigationen",
-      "closeLabel": "Luk navigationen"
+      "closeLabel": "Luk navigationen",
+      "account": "Konto",
+      "signIn": "Log ind",
+      "backToChat": "Tilbage til chat"
     },
     "search": {
       "placeholder": "Søg i beskeder",
@@ -2012,7 +2020,8 @@
       "statusAsleep": "På vågeblus",
       "connectingLabel": "Opretter forbindelse til din computer",
       "connectedLabel": "Computer tilsluttet",
-      "disconnectedLabel": "Computer afbrudt"
+      "disconnectedLabel": "Computer afbrudt",
+      "pairLabel": "Par en computer"
     },
     "desktop": {
       "pairTitle": "Par din telefon",
@@ -2167,6 +2176,20 @@
       "clearLabel": "Ryd diagnostik",
       "empty": "Ingen CarPlay-diagnostik registreret endnu. Tilslut til CarPlay én gang, og kom så tilbage hertil.",
       "clipboardEmpty": "(ingen CarPlay-diagnostik registreret)"
+    },
+    "account": {
+      "title": "Konto"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} i gang",
+        "other": "{count} i gang"
+      },
+      "openLabel": "Vis aktivitet"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Søg i aktivitet og filer",
+      "signedOutHint": "Log ind for at se, hvad Stella arbejder på i baggrunden."
     }
   },
   "companion": {

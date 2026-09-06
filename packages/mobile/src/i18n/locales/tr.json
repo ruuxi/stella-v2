@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Bir videoyu metin talimatlarıyla dönüştürün",
           "name": "Videodan Videoya"
+        },
+        "referenceToVideo": {
+          "description": "Görsel, video ve ses referanslarından video oluşturun",
+          "name": "Referanslardan Video"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Oluşturma başarısız oldu",
         "lead": "Görsel, ses, müzik, video ve 3B içerik oluşturun.",
         "openOutputsFolder": "Çıktı klasörünü aç",
-        "profileBest": "En iyi",
-        "profileFast": "Hızlı",
         "prompt": "İstem",
         "promptPlaceholder": "Ne istediğinizi anlatın…",
         "quality": "Kalite",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Kaynak video",
         "submitting": "Gönderiliyor…",
         "title": "Medya",
-        "transformVideo": "Videoyu dönüştür"
+        "transformVideo": "Videoyu dönüştür",
+        "qualityHigh": "Yüksek",
+        "qualityLow": "Düşük",
+        "qualityMedium": "Orta"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Sohbet",
       "settings": "Ayarlar",
       "openLabel": "Gezinmeyi aç",
-      "closeLabel": "Gezinmeyi kapat"
+      "closeLabel": "Gezinmeyi kapat",
+      "account": "Hesap",
+      "signIn": "Giriş yap",
+      "backToChat": "Sohbete dön"
     },
     "search": {
       "placeholder": "Mesajlarda ara",
@@ -2011,7 +2019,8 @@
       "statusAsleep": "Uykuda",
       "connectingLabel": "Bilgisayarınıza bağlanılıyor",
       "connectedLabel": "Bilgisayar bağlandı",
-      "disconnectedLabel": "Bilgisayar bağlantısı kesildi"
+      "disconnectedLabel": "Bilgisayar bağlantısı kesildi",
+      "pairLabel": "Bilgisayar eşleştir"
     },
     "desktop": {
       "pairTitle": "Telefonunuzu eşleştirin",
@@ -2166,6 +2175,20 @@
       "clearLabel": "Tanılamayı temizle",
       "empty": "Henüz CarPlay tanılama kaydı yok. Bir kez CarPlay'e bağlanın, sonra buraya dönün.",
       "clipboardEmpty": "(CarPlay tanılama kaydı yok)"
+    },
+    "account": {
+      "title": "Hesap"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} devam ediyor",
+        "other": "{count} devam ediyor"
+      },
+      "openLabel": "Etkinliği göster"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Etkinlik ve dosyalarda ara",
+      "signedOutHint": "Stella’nın arka planda ne üzerinde çalıştığını görmek için giriş yapın."
     }
   },
   "companion": {

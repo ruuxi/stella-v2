@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Muunna video tekstiohjeilla",
           "name": "Videosta videoksi"
+        },
+        "referenceToVideo": {
+          "description": "Luo video kuva-, video- ja ääniviitteiden pohjalta",
+          "name": "Video viitteistä"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Luonti epäonnistui",
         "lead": "Luo kuvia, ääntä, musiikkia, videoita ja 3D:tä.",
         "openOutputsFolder": "Avaa tuloskansio",
-        "profileBest": "Paras",
-        "profileFast": "Nopea",
         "prompt": "Kehote",
         "promptPlaceholder": "Kuvaile, mitä haluat…",
         "quality": "Laatu",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Lähdevideo",
         "submitting": "Lähetetään…",
         "title": "Media",
-        "transformVideo": "Muunna video"
+        "transformVideo": "Muunna video",
+        "qualityHigh": "Korkea",
+        "qualityLow": "Matala",
+        "qualityMedium": "Keskitaso"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Keskustelu",
       "settings": "Asetukset",
       "openLabel": "Avaa navigointi",
-      "closeLabel": "Sulje navigointi"
+      "closeLabel": "Sulje navigointi",
+      "account": "Tili",
+      "signIn": "Kirjaudu sisään",
+      "backToChat": "Takaisin keskusteluun"
     },
     "search": {
       "placeholder": "Hae viesteistä",
@@ -2011,7 +2019,8 @@
       "statusAsleep": "Lepotilassa",
       "connectingLabel": "Yhdistetään tietokoneeseesi",
       "connectedLabel": "Tietokone yhdistetty",
-      "disconnectedLabel": "Tietokoneen yhteys katkaistu"
+      "disconnectedLabel": "Tietokoneen yhteys katkaistu",
+      "pairLabel": "Yhdistä tietokone"
     },
     "desktop": {
       "pairTitle": "Pariliitä puhelimesi",
@@ -2166,6 +2175,20 @@
       "clearLabel": "Tyhjennä diagnostiikka",
       "empty": "CarPlay-diagnostiikkaa ei ole vielä tallennettu. Yhdistä CarPlayhin kerran ja palaa sitten tänne.",
       "clipboardEmpty": "(CarPlay-diagnostiikkaa ei ole tallennettu)"
+    },
+    "account": {
+      "title": "Tili"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} käynnissä",
+        "other": "{count} käynnissä"
+      },
+      "openLabel": "Näytä toiminta"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Hae toiminnasta ja tiedostoista",
+      "signedOutHint": "Kirjaudu sisään nähdäksesi, mitä Stella tekee taustalla."
     }
   },
   "companion": {

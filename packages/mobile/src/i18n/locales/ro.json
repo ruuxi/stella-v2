@@ -1373,6 +1373,10 @@
         "videoToVideo": {
           "description": "Transformă un videoclip cu instrucțiuni text",
           "name": "Video în video"
+        },
+        "referenceToVideo": {
+          "description": "Generează un videoclip din referințe de imagine, video și audio",
+          "name": "Video din referințe"
         }
       },
       "imageFailure": {
@@ -1411,8 +1415,6 @@
         "generationFailed": "Generarea a eșuat",
         "lead": "Creează imagini, audio, muzică, video și 3D.",
         "openOutputsFolder": "Deschide folderul de rezultate",
-        "profileBest": "Cel mai bun",
-        "profileFast": "Rapid",
         "prompt": "Prompt",
         "promptPlaceholder": "Descrie ce ai vrea…",
         "quality": "Calitate",
@@ -1423,7 +1425,10 @@
         "sourceVideo": "Videoclip sursă",
         "submitting": "Se trimite…",
         "title": "Media",
-        "transformVideo": "Transformă videoclipul"
+        "transformVideo": "Transformă videoclipul",
+        "qualityHigh": "Ridicat",
+        "qualityLow": "Scăzut",
+        "qualityMedium": "Mediu"
       }
     }
   },
@@ -1910,7 +1915,10 @@
       "chat": "Chat",
       "settings": "Setări",
       "openLabel": "Deschide navigarea",
-      "closeLabel": "Închide navigarea"
+      "closeLabel": "Închide navigarea",
+      "account": "Cont",
+      "signIn": "Conectează-te",
+      "backToChat": "Înapoi la chat"
     },
     "search": {
       "placeholder": "Caută în mesaje",
@@ -2030,7 +2038,8 @@
       "statusAsleep": "În repaus",
       "connectingLabel": "Se conectează la computerul tău",
       "connectedLabel": "Computer conectat",
-      "disconnectedLabel": "Computer deconectat"
+      "disconnectedLabel": "Computer deconectat",
+      "pairLabel": "Asociază un computer"
     },
     "desktop": {
       "pairTitle": "Asociază-ți telefonul",
@@ -2186,6 +2195,21 @@
       "clearLabel": "Șterge diagnosticarea",
       "empty": "Nicio diagnosticare CarPlay înregistrată încă. Conectează-te o dată la CarPlay, apoi revino aici.",
       "clipboardEmpty": "(nicio diagnosticare CarPlay înregistrată)"
+    },
+    "account": {
+      "title": "Cont"
+    },
+    "activity": {
+      "inProgress": {
+        "few": "{count} în curs",
+        "one": "{count} în curs",
+        "other": "{count} în curs"
+      },
+      "openLabel": "Afișează activitatea"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Caută în activitate și fișiere",
+      "signedOutHint": "Conectează-te pentru a vedea la ce lucrează Stella în fundal."
     }
   },
   "companion": {

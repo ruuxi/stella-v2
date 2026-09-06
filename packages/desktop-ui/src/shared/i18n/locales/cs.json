@@ -1381,6 +1381,10 @@
         "videoToVideo": {
           "description": "Přeměňte video textovými pokyny",
           "name": "Video na video"
+        },
+        "referenceToVideo": {
+          "description": "Vytvořte video podle obrazových, video a zvukových předloh",
+          "name": "Video z předloh"
         }
       },
       "imageFailure": {
@@ -1419,8 +1423,6 @@
         "generationFailed": "Generování selhalo",
         "lead": "Tvořte obrázky, zvuk, hudbu, video a 3D.",
         "openOutputsFolder": "Otevřít složku s výstupy",
-        "profileBest": "Nejlepší",
-        "profileFast": "Rychlé",
         "prompt": "Zadání",
         "promptPlaceholder": "Popište, co chcete…",
         "quality": "Kvalita",
@@ -1431,7 +1433,10 @@
         "sourceVideo": "Zdrojové video",
         "submitting": "Odesílání…",
         "title": "Média",
-        "transformVideo": "Přeměnit video"
+        "transformVideo": "Přeměnit video",
+        "qualityHigh": "Vysoká",
+        "qualityLow": "Nízká",
+        "qualityMedium": "Střední"
       }
     }
   },
@@ -1928,7 +1933,10 @@
       "chat": "Chat",
       "settings": "Nastavení",
       "openLabel": "Otevřít navigaci",
-      "closeLabel": "Zavřít navigaci"
+      "closeLabel": "Zavřít navigaci",
+      "account": "Účet",
+      "signIn": "Přihlásit se",
+      "backToChat": "Zpět do chatu"
     },
     "search": {
       "placeholder": "Hledat ve zprávách",
@@ -2048,7 +2056,8 @@
       "statusAsleep": "Spí",
       "connectingLabel": "Připojování k vašemu počítači",
       "connectedLabel": "Počítač připojen",
-      "disconnectedLabel": "Počítač odpojen"
+      "disconnectedLabel": "Počítač odpojen",
+      "pairLabel": "Spárovat počítač"
     },
     "desktop": {
       "pairTitle": "Spárujte svůj telefon",
@@ -2205,6 +2214,22 @@
       "clearLabel": "Vymazat diagnostiku",
       "empty": "Zatím není zaznamenaná žádná diagnostika CarPlay. Připojte se jednou k CarPlay a pak se sem vraťte.",
       "clipboardEmpty": "(žádná zaznamenaná diagnostika CarPlay)"
+    },
+    "account": {
+      "title": "Účet"
+    },
+    "activity": {
+      "inProgress": {
+        "few": "{count} probíhá",
+        "many": "{count} probíhá",
+        "one": "{count} probíhá",
+        "other": "{count} probíhá"
+      },
+      "openLabel": "Zobrazit aktivitu"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Hledat v aktivitě a souborech",
+      "signedOutHint": "Přihlaste se a zjistěte, na čem Stella pracuje na pozadí."
     }
   },
   "companion": {

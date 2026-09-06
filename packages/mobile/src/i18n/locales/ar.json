@@ -1397,6 +1397,10 @@
         "videoToVideo": {
           "description": "حوّل فيديو بتعليمات نصية",
           "name": "من فيديو إلى فيديو"
+        },
+        "referenceToVideo": {
+          "description": "إنشاء فيديو باستخدام مراجع من الصور والفيديو والصوت",
+          "name": "فيديو من مراجع"
         }
       },
       "imageFailure": {
@@ -1435,8 +1439,6 @@
         "generationFailed": "فشل التوليد",
         "lead": "أنشئ صورًا وصوتًا وموسيقى وفيديو ونماذج ثلاثية الأبعاد.",
         "openOutputsFolder": "افتح مجلد المخرجات",
-        "profileBest": "الأفضل",
-        "profileFast": "سريع",
         "prompt": "المطالبة",
         "promptPlaceholder": "صِف ما تريده…",
         "quality": "الجودة",
@@ -1447,7 +1449,10 @@
         "sourceVideo": "الفيديو المصدر",
         "submitting": "جارٍ الإرسال…",
         "title": "الوسائط",
-        "transformVideo": "حوّل الفيديو"
+        "transformVideo": "حوّل الفيديو",
+        "qualityHigh": "مرتفع",
+        "qualityLow": "منخفض",
+        "qualityMedium": "متوسط"
       }
     }
   },
@@ -1964,7 +1969,10 @@
       "chat": "الدردشة",
       "settings": "الإعدادات",
       "openLabel": "فتح التنقل",
-      "closeLabel": "إغلاق التنقل"
+      "closeLabel": "إغلاق التنقل",
+      "account": "الحساب",
+      "signIn": "تسجيل الدخول",
+      "backToChat": "العودة إلى المحادثة"
     },
     "search": {
       "placeholder": "البحث في الرسائل",
@@ -2086,7 +2094,8 @@
       "statusAsleep": "في وضع السكون",
       "connectingLabel": "جارٍ الاتصال بكمبيوترك",
       "connectedLabel": "تم الاتصال بالكمبيوتر",
-      "disconnectedLabel": "انقطع الاتصال بالكمبيوتر"
+      "disconnectedLabel": "انقطع الاتصال بالكمبيوتر",
+      "pairLabel": "إقران كمبيوتر"
     },
     "desktop": {
       "pairTitle": "إقران هاتفك",
@@ -2245,6 +2254,24 @@
       "clearLabel": "مسح التشخيصات",
       "empty": "لم تُسجَّل أي تشخيصات لـ CarPlay بعد. اتصل بـ CarPlay مرة واحدة ثم عُد إلى هنا.",
       "clipboardEmpty": "(لم تُسجَّل أي تشخيصات لـ CarPlay)"
+    },
+    "account": {
+      "title": "الحساب"
+    },
+    "activity": {
+      "inProgress": {
+        "few": "{count} قيد التنفيذ",
+        "many": "{count} قيد التنفيذ",
+        "one": "{count} قيد التنفيذ",
+        "two": "{count} قيد التنفيذ",
+        "zero": "{count} قيد التنفيذ",
+        "other": "{count} قيد التنفيذ"
+      },
+      "openLabel": "عرض النشاط"
+    },
+    "sidebar": {
+      "searchPlaceholder": "البحث في النشاط والملفات",
+      "signedOutHint": "سجّل الدخول لمعرفة ما تعمل عليه Stella في الخلفية."
     }
   },
   "companion": {

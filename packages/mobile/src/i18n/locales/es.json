@@ -1373,6 +1373,10 @@
         "videoToVideo": {
           "description": "Transforma un vídeo con instrucciones de texto",
           "name": "De vídeo a vídeo"
+        },
+        "referenceToVideo": {
+          "description": "Genera un vídeo a partir de referencias de imagen, vídeo y audio",
+          "name": "Vídeo a partir de referencias"
         }
       },
       "imageFailure": {
@@ -1411,8 +1415,6 @@
         "generationFailed": "Error de generación",
         "lead": "Crea imágenes, audio, música, vídeo y 3D.",
         "openOutputsFolder": "Abrir la carpeta de resultados",
-        "profileBest": "Mejor",
-        "profileFast": "Rápido",
         "prompt": "Prompt",
         "promptPlaceholder": "Describe lo que quieres…",
         "quality": "Calidad",
@@ -1423,7 +1425,10 @@
         "sourceVideo": "Vídeo de origen",
         "submitting": "Enviando…",
         "title": "Multimedia",
-        "transformVideo": "Transformar vídeo"
+        "transformVideo": "Transformar vídeo",
+        "qualityHigh": "Alto",
+        "qualityLow": "Bajo",
+        "qualityMedium": "Medio"
       }
     }
   },
@@ -1910,7 +1915,10 @@
       "chat": "Chat",
       "settings": "Ajustes",
       "openLabel": "Abrir la navegación",
-      "closeLabel": "Cerrar la navegación"
+      "closeLabel": "Cerrar la navegación",
+      "account": "Cuenta",
+      "signIn": "Iniciar sesión",
+      "backToChat": "Volver al chat"
     },
     "search": {
       "placeholder": "Buscar mensajes",
@@ -2030,7 +2038,8 @@
       "statusAsleep": "En reposo",
       "connectingLabel": "Conectando con tu ordenador",
       "connectedLabel": "Ordenador conectado",
-      "disconnectedLabel": "Ordenador desconectado"
+      "disconnectedLabel": "Ordenador desconectado",
+      "pairLabel": "Vincular un ordenador"
     },
     "desktop": {
       "pairTitle": "Vincula tu móvil",
@@ -2186,6 +2195,21 @@
       "clearLabel": "Borrar el diagnóstico",
       "empty": "Todavía no hay diagnósticos de CarPlay registrados. Conéctate a CarPlay una vez y vuelve aquí.",
       "clipboardEmpty": "(no hay diagnósticos de CarPlay registrados)"
+    },
+    "account": {
+      "title": "Cuenta"
+    },
+    "activity": {
+      "inProgress": {
+        "many": "{count} en curso",
+        "one": "{count} en curso",
+        "other": "{count} en curso"
+      },
+      "openLabel": "Mostrar actividad"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Buscar actividad y archivos",
+      "signedOutHint": "Inicia sesión para ver en qué está trabajando Stella en segundo plano."
     }
   },
   "companion": {

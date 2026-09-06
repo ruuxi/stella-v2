@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Transformeer een video met tekstinstructies",
           "name": "Video naar video"
+        },
+        "referenceToVideo": {
+          "description": "Genereer een video op basis van beeld-, video- en audioreferenties",
+          "name": "Video uit referenties"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Genereren mislukt",
         "lead": "Maak afbeeldingen, audio, muziek, video en 3D.",
         "openOutputsFolder": "Map met uitvoer openen",
-        "profileBest": "Beste",
-        "profileFast": "Snel",
         "prompt": "Prompt",
         "promptPlaceholder": "Beschrijf wat je wilt…",
         "quality": "Kwaliteit",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Bronvideo",
         "submitting": "Versturen…",
         "title": "Media",
-        "transformVideo": "Video transformeren"
+        "transformVideo": "Video transformeren",
+        "qualityHigh": "Hoog",
+        "qualityLow": "Laag",
+        "qualityMedium": "Gemiddeld"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Chat",
       "settings": "Instellingen",
       "openLabel": "Navigatie openen",
-      "closeLabel": "Navigatie sluiten"
+      "closeLabel": "Navigatie sluiten",
+      "account": "Account",
+      "signIn": "Inloggen",
+      "backToChat": "Terug naar chat"
     },
     "search": {
       "placeholder": "Berichten zoeken",
@@ -2011,7 +2019,8 @@
       "statusAsleep": "In slaapstand",
       "connectingLabel": "Verbinden met je computer",
       "connectedLabel": "Computer verbonden",
-      "disconnectedLabel": "Computer niet verbonden"
+      "disconnectedLabel": "Computer niet verbonden",
+      "pairLabel": "Een computer koppelen"
     },
     "desktop": {
       "pairTitle": "Koppel je telefoon",
@@ -2166,6 +2175,20 @@
       "clearLabel": "Diagnostiek wissen",
       "empty": "Nog geen CarPlay-diagnostiek vastgelegd. Maak één keer verbinding met CarPlay en kom hier terug.",
       "clipboardEmpty": "(geen CarPlay-diagnostiek vastgelegd)"
+    },
+    "account": {
+      "title": "Account"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} in uitvoering",
+        "other": "{count} in uitvoering"
+      },
+      "openLabel": "Activiteit tonen"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Zoek in activiteit en bestanden",
+      "signedOutHint": "Log in om te zien waar Stella op de achtergrond aan werkt."
     }
   },
   "companion": {

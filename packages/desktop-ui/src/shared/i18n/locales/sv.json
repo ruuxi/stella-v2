@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Omvandla en video med textinstruktioner",
           "name": "Video till video"
+        },
+        "referenceToVideo": {
+          "description": "Generera en video från bild-, video- och ljudreferenser",
+          "name": "Video från referenser"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Genereringen misslyckades",
         "lead": "Skapa bilder, ljud, musik, video och 3D.",
         "openOutputsFolder": "Öppna utdatamappen",
-        "profileBest": "Bäst",
-        "profileFast": "Snabb",
         "prompt": "Prompt",
         "promptPlaceholder": "Beskriv vad du vill ha…",
         "quality": "Kvalitet",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Källvideo",
         "submitting": "Skickar…",
         "title": "Media",
-        "transformVideo": "Omvandla video"
+        "transformVideo": "Omvandla video",
+        "qualityHigh": "Hög",
+        "qualityLow": "Låg",
+        "qualityMedium": "Medel"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Chatt",
       "settings": "Inställningar",
       "openLabel": "Öppna navigeringen",
-      "closeLabel": "Stäng navigeringen"
+      "closeLabel": "Stäng navigeringen",
+      "account": "Konto",
+      "signIn": "Logga in",
+      "backToChat": "Tillbaka till chatten"
     },
     "search": {
       "placeholder": "Sök i meddelanden",
@@ -2012,7 +2020,8 @@
       "statusAsleep": "I viloläge",
       "connectingLabel": "Ansluter till din dator",
       "connectedLabel": "Datorn ansluten",
-      "disconnectedLabel": "Datorn frånkopplad"
+      "disconnectedLabel": "Datorn frånkopplad",
+      "pairLabel": "Parkoppla en dator"
     },
     "desktop": {
       "pairTitle": "Parkoppla din telefon",
@@ -2167,6 +2176,20 @@
       "clearLabel": "Rensa diagnostiken",
       "empty": "Ingen CarPlay-diagnostik har registrerats än. Anslut till CarPlay en gång och kom sedan tillbaka hit.",
       "clipboardEmpty": "(ingen CarPlay-diagnostik registrerad)"
+    },
+    "account": {
+      "title": "Konto"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} pågår",
+        "other": "{count} pågår"
+      },
+      "openLabel": "Visa aktivitet"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Sök i aktivitet och filer",
+      "signedOutHint": "Logga in för att se vad Stella arbetar med i bakgrunden."
     }
   },
   "companion": {

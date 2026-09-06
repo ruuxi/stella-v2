@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Μετασχηματίστε ένα βίντεο με οδηγίες κειμένου",
           "name": "Βίντεο σε βίντεο"
+        },
+        "referenceToVideo": {
+          "description": "Δημιουργήστε βίντεο από εικόνες, βίντεο και ήχο αναφοράς",
+          "name": "Βίντεο από αναφορές"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Η δημιουργία απέτυχε",
         "lead": "Δημιουργήστε εικόνες, ήχο, μουσική, βίντεο και 3D.",
         "openOutputsFolder": "Άνοιγμα φακέλου εξόδων",
-        "profileBest": "Βέλτιστο",
-        "profileFast": "Γρήγορο",
         "prompt": "Prompt",
         "promptPlaceholder": "Περιγράψτε τι θα θέλατε…",
         "quality": "Ποιότητα",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Βίντεο προέλευσης",
         "submitting": "Υποβολή…",
         "title": "Πολυμέσα",
-        "transformVideo": "Μετασχηματισμός βίντεο"
+        "transformVideo": "Μετασχηματισμός βίντεο",
+        "qualityHigh": "Υψηλή",
+        "qualityLow": "Χαμηλή",
+        "qualityMedium": "Μεσαία"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Συνομιλία",
       "settings": "Ρυθμίσεις",
       "openLabel": "Άνοιγμα πλοήγησης",
-      "closeLabel": "Κλείσιμο πλοήγησης"
+      "closeLabel": "Κλείσιμο πλοήγησης",
+      "account": "Λογαριασμός",
+      "signIn": "Σύνδεση",
+      "backToChat": "Επιστροφή στη συνομιλία"
     },
     "search": {
       "placeholder": "Αναζήτηση στα μηνύματα",
@@ -2011,7 +2019,8 @@
       "statusAsleep": "Σε αναστολή",
       "connectingLabel": "Σύνδεση με τον υπολογιστή σας",
       "connectedLabel": "Ο υπολογιστής συνδέθηκε",
-      "disconnectedLabel": "Ο υπολογιστής αποσυνδέθηκε"
+      "disconnectedLabel": "Ο υπολογιστής αποσυνδέθηκε",
+      "pairLabel": "Σύζευξη υπολογιστή"
     },
     "desktop": {
       "pairTitle": "Αντιστοιχίστε το κινητό σας",
@@ -2166,6 +2175,20 @@
       "clearLabel": "Εκκαθάριση διαγνωστικών",
       "empty": "Δεν έχουν καταγραφεί ακόμη διαγνωστικά CarPlay. Συνδεθείτε μία φορά στο CarPlay και μετά επιστρέψτε εδώ.",
       "clipboardEmpty": "(δεν έχουν καταγραφεί διαγνωστικά CarPlay)"
+    },
+    "account": {
+      "title": "Λογαριασμός"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} σε εξέλιξη",
+        "other": "{count} σε εξέλιξη"
+      },
+      "openLabel": "Εμφάνιση δραστηριότητας"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Αναζήτηση σε δραστηριότητα και αρχεία",
+      "signedOutHint": "Συνδεθείτε για να δείτε τι επεξεργάζεται η Stella στο παρασκήνιο."
     }
   },
   "companion": {

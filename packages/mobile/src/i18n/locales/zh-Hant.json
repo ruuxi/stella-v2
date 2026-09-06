@@ -1268,7 +1268,6 @@
       },
       "replyCount": {
         "label": {
-          "one": "{count} reply",
           "other": "{count} replies"
         }
       },
@@ -1357,6 +1356,10 @@
         "videoToVideo": {
           "description": "用文字指示轉換影片",
           "name": "影片轉影片"
+        },
+        "referenceToVideo": {
+          "description": "根據圖片、影片和音訊參考素材產生影片",
+          "name": "參考素材轉影片"
         }
       },
       "imageFailure": {
@@ -1395,8 +1398,6 @@
         "generationFailed": "生成失敗",
         "lead": "創作圖片、音訊、音樂、影片和 3D。",
         "openOutputsFolder": "開啟輸出資料夾",
-        "profileBest": "最佳",
-        "profileFast": "快速",
         "prompt": "提示",
         "promptPlaceholder": "描述你想要的內容…",
         "quality": "品質",
@@ -1407,7 +1408,10 @@
         "sourceVideo": "來源影片",
         "submitting": "正在送出…",
         "title": "媒體",
-        "transformVideo": "轉換影片"
+        "transformVideo": "轉換影片",
+        "qualityHigh": "高",
+        "qualityLow": "低",
+        "qualityMedium": "中"
       }
     }
   },
@@ -1872,7 +1876,10 @@
       "chat": "聊天",
       "settings": "設定",
       "openLabel": "開啟導覽",
-      "closeLabel": "關閉導覽"
+      "closeLabel": "關閉導覽",
+      "account": "帳號",
+      "signIn": "登入",
+      "backToChat": "返回聊天"
     },
     "search": {
       "placeholder": "搜尋訊息",
@@ -1990,7 +1997,8 @@
       "statusAsleep": "睡眠中",
       "connectingLabel": "正在連線到您的電腦",
       "connectedLabel": "電腦已連線",
-      "disconnectedLabel": "電腦已中斷連線"
+      "disconnectedLabel": "電腦已中斷連線",
+      "pairLabel": "配對電腦"
     },
     "desktop": {
       "pairTitle": "配對您的手機",
@@ -2144,6 +2152,19 @@
       "clearLabel": "清除診斷資訊",
       "empty": "尚未記錄任何 CarPlay 診斷資訊。請先連線 CarPlay 一次，再回到這裡。",
       "clipboardEmpty": "（未記錄 CarPlay 診斷資訊）"
+    },
+    "account": {
+      "title": "帳號"
+    },
+    "activity": {
+      "inProgress": {
+        "other": "{count} 項進行中"
+      },
+      "openLabel": "顯示活動"
+    },
+    "sidebar": {
+      "searchPlaceholder": "搜尋活動與檔案",
+      "signedOutHint": "登入以查看 Stella 正在背景處理的工作。"
     }
   },
   "companion": {

@@ -1381,6 +1381,10 @@
         "videoToVideo": {
           "description": "Преобразование видео текстовыми инструкциями",
           "name": "Видео в видео"
+        },
+        "referenceToVideo": {
+          "description": "Создайте видео на основе изображений, видео и аудио",
+          "name": "Видео по референсам"
         }
       },
       "imageFailure": {
@@ -1419,8 +1423,6 @@
         "generationFailed": "Не удалось создать",
         "lead": "Создавайте изображения, звук, музыку, видео и 3D.",
         "openOutputsFolder": "Открыть папку результатов",
-        "profileBest": "Лучшее",
-        "profileFast": "Быстро",
         "prompt": "Запрос",
         "promptPlaceholder": "Опишите, что хотите получить…",
         "quality": "Качество",
@@ -1431,7 +1433,10 @@
         "sourceVideo": "Исходное видео",
         "submitting": "Отправка…",
         "title": "Медиа",
-        "transformVideo": "Преобразовать видео"
+        "transformVideo": "Преобразовать видео",
+        "qualityHigh": "Высокая",
+        "qualityLow": "Низкая",
+        "qualityMedium": "Средняя"
       }
     }
   },
@@ -1928,7 +1933,10 @@
       "chat": "Чат",
       "settings": "Настройки",
       "openLabel": "Открыть навигацию",
-      "closeLabel": "Закрыть навигацию"
+      "closeLabel": "Закрыть навигацию",
+      "account": "Аккаунт",
+      "signIn": "Войти",
+      "backToChat": "Вернуться в чат"
     },
     "search": {
       "placeholder": "Поиск по сообщениям",
@@ -2049,7 +2057,8 @@
       "statusAsleep": "Спит",
       "connectingLabel": "Подключение к вашему компьютеру",
       "connectedLabel": "Компьютер подключён",
-      "disconnectedLabel": "Компьютер отключён"
+      "disconnectedLabel": "Компьютер отключён",
+      "pairLabel": "Подключить компьютер"
     },
     "desktop": {
       "pairTitle": "Свяжите телефон",
@@ -2206,6 +2215,22 @@
       "clearLabel": "Очистить диагностику",
       "empty": "Диагностика CarPlay ещё не записана. Подключитесь один раз к CarPlay, а потом вернитесь сюда.",
       "clipboardEmpty": "(диагностика CarPlay не записана)"
+    },
+    "account": {
+      "title": "Аккаунт"
+    },
+    "activity": {
+      "inProgress": {
+        "few": "{count} в работе",
+        "many": "{count} в работе",
+        "one": "{count} в работе",
+        "other": "{count} в работе"
+      },
+      "openLabel": "Показать активность"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Искать в активности и файлах",
+      "signedOutHint": "Войдите, чтобы увидеть, над чем Stella работает в фоновом режиме."
     }
   },
   "companion": {

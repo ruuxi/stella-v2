@@ -1373,6 +1373,10 @@
         "videoToVideo": {
           "description": "שנה וידאו בעזרת הוראות טקסט",
           "name": "מווידאו לווידאו"
+        },
+        "referenceToVideo": {
+          "description": "יצירת וידאו מחומרי ייחוס של תמונות, וידאו ואודיו",
+          "name": "וידאו מחומרי ייחוס"
         }
       },
       "imageFailure": {
@@ -1411,8 +1415,6 @@
         "generationFailed": "היצירה נכשלה",
         "lead": "צור תמונות, אודיו, מוזיקה, וידאו ותלת-ממד.",
         "openOutputsFolder": "פתח את תיקיית הפלט",
-        "profileBest": "הטוב ביותר",
-        "profileFast": "מהיר",
         "prompt": "הנחיה",
         "promptPlaceholder": "תאר מה תרצה…",
         "quality": "איכות",
@@ -1423,7 +1425,10 @@
         "sourceVideo": "וידאו מקור",
         "submitting": "שולח…",
         "title": "מדיה",
-        "transformVideo": "שנה וידאו"
+        "transformVideo": "שנה וידאו",
+        "qualityHigh": "גבוה",
+        "qualityLow": "נמוך",
+        "qualityMedium": "בינוני"
       }
     }
   },
@@ -1910,7 +1915,10 @@
       "chat": "צ׳אט",
       "settings": "הגדרות",
       "openLabel": "פתיחת הניווט",
-      "closeLabel": "סגירת הניווט"
+      "closeLabel": "סגירת הניווט",
+      "account": "חשבון",
+      "signIn": "התחברות",
+      "backToChat": "חזרה לצ׳אט"
     },
     "search": {
       "placeholder": "חיפוש בהודעות",
@@ -2030,7 +2038,8 @@
       "statusAsleep": "במצב שינה",
       "connectingLabel": "מתחבר למחשב שלכם",
       "connectedLabel": "המחשב מחובר",
-      "disconnectedLabel": "המחשב מנותק"
+      "disconnectedLabel": "המחשב מנותק",
+      "pairLabel": "צימוד מחשב"
     },
     "desktop": {
       "pairTitle": "חברו את הטלפון שלכם",
@@ -2186,6 +2195,21 @@
       "clearLabel": "ניקוי האבחון",
       "empty": "עדיין לא נרשמו נתוני אבחון של CarPlay. התחברו פעם אחת ל-CarPlay ואז חזרו לכאן.",
       "clipboardEmpty": "(לא נרשמו נתוני אבחון של CarPlay)"
+    },
+    "account": {
+      "title": "חשבון"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} בתהליך",
+        "two": "{count} בתהליך",
+        "other": "{count} בתהליך"
+      },
+      "openLabel": "הצגת פעילות"
+    },
+    "sidebar": {
+      "searchPlaceholder": "חיפוש בפעילות ובקבצים",
+      "signedOutHint": "יש להתחבר כדי לראות על מה Stella עובדת ברקע."
     }
   },
   "companion": {

@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Videó átalakítása szöveges utasításokkal",
           "name": "Videóból videó"
+        },
+        "referenceToVideo": {
+          "description": "Videó létrehozása kép-, videó- és hangreferenciák alapján",
+          "name": "Videó referenciákból"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "A generálás sikertelen",
         "lead": "Készíts képeket, hangot, zenét, videót és 3D-t.",
         "openOutputsFolder": "Kimeneti mappa megnyitása",
-        "profileBest": "Legjobb",
-        "profileFast": "Gyors",
         "prompt": "Prompt",
         "promptPlaceholder": "Írd le, mit szeretnél…",
         "quality": "Minőség",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Forrásvideó",
         "submitting": "Elküldés…",
         "title": "Média",
-        "transformVideo": "Videó átalakítása"
+        "transformVideo": "Videó átalakítása",
+        "qualityHigh": "Magas",
+        "qualityLow": "Alacsony",
+        "qualityMedium": "Közepes"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Csevegés",
       "settings": "Beállítások",
       "openLabel": "Navigáció megnyitása",
-      "closeLabel": "Navigáció bezárása"
+      "closeLabel": "Navigáció bezárása",
+      "account": "Fiók",
+      "signIn": "Bejelentkezés",
+      "backToChat": "Vissza a csevegéshez"
     },
     "search": {
       "placeholder": "Keresés az üzenetekben",
@@ -2011,7 +2019,8 @@
       "statusAsleep": "Alvó állapotban",
       "connectingLabel": "Csatlakozás a számítógépedhez",
       "connectedLabel": "Számítógép csatlakoztatva",
-      "disconnectedLabel": "Számítógép leválasztva"
+      "disconnectedLabel": "Számítógép leválasztva",
+      "pairLabel": "Számítógép párosítása"
     },
     "desktop": {
       "pairTitle": "Párosítsd a telefonod",
@@ -2166,6 +2175,20 @@
       "clearLabel": "Diagnosztika törlése",
       "empty": "Még nincs rögzített CarPlay-diagnosztika. Csatlakozz egyszer a CarPlayhez, majd gyere vissza ide.",
       "clipboardEmpty": "(nincs rögzített CarPlay-diagnosztika)"
+    },
+    "account": {
+      "title": "Fiók"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} folyamatban",
+        "other": "{count} folyamatban"
+      },
+      "openLabel": "Tevékenység megjelenítése"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Keresés a tevékenységben és a fájlokban",
+      "signedOutHint": "Jelentkezz be, hogy lásd, min dolgozik Stella a háttérben."
     }
   },
   "companion": {

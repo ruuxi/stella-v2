@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Transformer en video med tekstinstruksjoner",
           "name": "Video til video"
+        },
+        "referenceToVideo": {
+          "description": "Generer en video fra bilde-, video- og lydreferanser",
+          "name": "Video fra referanser"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Generering mislyktes",
         "lead": "Lag bilder, lyd, musikk, video og 3D.",
         "openOutputsFolder": "Åpne utdatamappen",
-        "profileBest": "Best",
-        "profileFast": "Rask",
         "prompt": "Ledetekst",
         "promptPlaceholder": "Beskriv hva du ønsker deg…",
         "quality": "Kvalitet",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Kildevideo",
         "submitting": "Sender inn…",
         "title": "Medier",
-        "transformVideo": "Transformer video"
+        "transformVideo": "Transformer video",
+        "qualityHigh": "Høy",
+        "qualityLow": "Lav",
+        "qualityMedium": "Middels"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Chat",
       "settings": "Innstillinger",
       "openLabel": "Åpne navigasjon",
-      "closeLabel": "Lukk navigasjon"
+      "closeLabel": "Lukk navigasjon",
+      "account": "Konto",
+      "signIn": "Logg inn",
+      "backToChat": "Tilbake til chat"
     },
     "search": {
       "placeholder": "Søk i meldinger",
@@ -2012,7 +2020,8 @@
       "statusAsleep": "Sover",
       "connectingLabel": "Kobler til datamaskinen din",
       "connectedLabel": "Datamaskin tilkoblet",
-      "disconnectedLabel": "Datamaskin frakoblet"
+      "disconnectedLabel": "Datamaskin frakoblet",
+      "pairLabel": "Koble til en datamaskin"
     },
     "desktop": {
       "pairTitle": "Koble til telefonen din",
@@ -2167,6 +2176,20 @@
       "clearLabel": "Tøm diagnostikken",
       "empty": "Ingen CarPlay-diagnostikk er registrert ennå. Koble til CarPlay én gang, og kom tilbake hit.",
       "clipboardEmpty": "(ingen CarPlay-diagnostikk registrert)"
+    },
+    "account": {
+      "title": "Konto"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} pågår",
+        "other": "{count} pågår"
+      },
+      "openLabel": "Vis aktivitet"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Søk i aktivitet og filer",
+      "signedOutHint": "Logg inn for å se hva Stella jobber med i bakgrunnen."
     }
   },
   "companion": {

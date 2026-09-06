@@ -1365,6 +1365,10 @@
         "videoToVideo": {
           "description": "Ein Video mit Textanweisungen umwandeln",
           "name": "Video zu Video"
+        },
+        "referenceToVideo": {
+          "description": "Ein Video aus Bild-, Video- und Audiovorlagen erstellen",
+          "name": "Video aus Vorlagen"
         }
       },
       "imageFailure": {
@@ -1403,8 +1407,6 @@
         "generationFailed": "Erzeugung fehlgeschlagen",
         "lead": "Erstelle Bilder, Audio, Musik, Video und 3D.",
         "openOutputsFolder": "Ausgabeordner öffnen",
-        "profileBest": "Beste",
-        "profileFast": "Schnell",
         "prompt": "Prompt",
         "promptPlaceholder": "Beschreibe, was du möchtest…",
         "quality": "Qualität",
@@ -1415,7 +1417,10 @@
         "sourceVideo": "Quellvideo",
         "submitting": "Wird gesendet…",
         "title": "Medien",
-        "transformVideo": "Video umwandeln"
+        "transformVideo": "Video umwandeln",
+        "qualityHigh": "Hoch",
+        "qualityLow": "Niedrig",
+        "qualityMedium": "Mittel"
       }
     }
   },
@@ -1892,7 +1897,10 @@
       "chat": "Chat",
       "settings": "Einstellungen",
       "openLabel": "Navigation öffnen",
-      "closeLabel": "Navigation schließen"
+      "closeLabel": "Navigation schließen",
+      "account": "Konto",
+      "signIn": "Anmelden",
+      "backToChat": "Zurück zum Chat"
     },
     "search": {
       "placeholder": "Nachrichten durchsuchen",
@@ -2011,7 +2019,8 @@
       "statusAsleep": "Im Ruhezustand",
       "connectingLabel": "Verbindung zu deinem Computer",
       "connectedLabel": "Computer verbunden",
-      "disconnectedLabel": "Computer getrennt"
+      "disconnectedLabel": "Computer getrennt",
+      "pairLabel": "Computer koppeln"
     },
     "desktop": {
       "pairTitle": "Koppel dein Handy",
@@ -2166,6 +2175,20 @@
       "clearLabel": "Diagnose löschen",
       "empty": "Noch keine CarPlay-Diagnose aufgezeichnet. Verbinde dich einmal mit CarPlay und komm dann zurück.",
       "clipboardEmpty": "(keine CarPlay-Diagnose aufgezeichnet)"
+    },
+    "account": {
+      "title": "Konto"
+    },
+    "activity": {
+      "inProgress": {
+        "one": "{count} in Bearbeitung",
+        "other": "{count} in Bearbeitung"
+      },
+      "openLabel": "Aktivität anzeigen"
+    },
+    "sidebar": {
+      "searchPlaceholder": "Aktivität und Dateien durchsuchen",
+      "signedOutHint": "Melde dich an, um zu sehen, woran Stella im Hintergrund arbeitet."
     }
   },
   "companion": {

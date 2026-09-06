@@ -4,8 +4,6 @@ import { once } from "node:events";
 import {
   mkdir,
   mkdtemp,
-  readFile,
-  readlink,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -126,14 +124,27 @@ describe("WorldStore in real Workerd", () => {
       const longParent = Array.from({ length: 8 }, () =>
         "目录".repeat(20),
       ).join("/");
-      expect(
-        await readFile(
-          join(destination, longParent, `文件-${"x".repeat(41)}😀.txt`),
-          "utf8",
-        ),
-      ).toBe("roundtrip ✓");
-      expect(await readlink(join(destination, longParent, "链接"))).toBe(
-        `${"目标/".repeat(30)}终点-🌟`,
+      // The world path itself is 1,024 UTF-8 bytes. Prefixing the extraction
+      // directory exceeds macOS PATH_MAX even though tar restored every entry.
+      // Read relative paths in children so we retain the full limit fixture
+      // without changing the test runner's working directory.
+      const restored = Bun.spawnSync([
+        "/bin/sh",
+        "-c",
+        'cd "$1" && cat "$2"',
+        "verify-world-pax",
+        longParent,
+        `文件-${"x".repeat(41)}😀.txt`,
+      ], { cwd: destination });
+      expect(restored.exitCode).toBe(0);
+      expect(restored.stdout.toString()).toBe("roundtrip ✓");
+      const restoredLink = Bun.spawnSync([
+        "/usr/bin/readlink",
+        `${longParent}/链接`,
+      ], { cwd: destination });
+      expect(restoredLink.exitCode).toBe(0);
+      expect(restoredLink.stdout.toString()).toBe(
+        `${"目标/".repeat(30)}终点-🌟\n`,
       );
     } finally {
       await rm(extraction, { recursive: true, force: true });

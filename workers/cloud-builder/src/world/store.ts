@@ -233,9 +233,15 @@ const tarHeader = (
   header[156] =
     options.typeFlag ??
     (entry.kind === "file" ? 0x30 : entry.kind === "dir" ? 0x35 : 0x32);
-  if (encoder.encode(linkTarget).byteLength <= 100) {
-    header.set(tarString(linkTarget, 100), 157);
-  }
+  // Keep a nonempty legacy linkname for readers that determine link type
+  // before applying the authoritative PAX linkpath (notably libarchive).
+  header.set(
+    tarString(
+      encoder.encode(linkTarget).byteLength <= 100 ? linkTarget : "PaxLinks/stella",
+      100,
+    ),
+    157,
+  );
   header.set(encoder.encode("ustar\0"), 257);
   header.set(encoder.encode("00"), 263);
   header.set(tarString(pathParts.prefix, 155), 345);

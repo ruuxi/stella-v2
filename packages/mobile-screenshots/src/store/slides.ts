@@ -48,6 +48,20 @@ export const devices = {
     group: "APP_IPAD_PRO_3GEN_129",
     platform: "ios",
   },
+  android7: {
+    label: "Android 7-inch tablet",
+    width: 1080,
+    height: 1920,
+    group: "sevenInchScreenshots",
+    platform: "android",
+  },
+  android10: {
+    label: "Android 10-inch tablet",
+    width: 1440,
+    height: 2560,
+    group: "tenInchScreenshots",
+    platform: "android",
+  },
   android: {
     label: "Android",
     width: 1080,

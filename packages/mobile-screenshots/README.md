@@ -12,14 +12,18 @@ Place full portrait PNG captures in the ignored local folder:
 public/captures/iphone/{computer,browser,shopping,memory}.png
 public/captures/ipad/{computer,browser,shopping,memory}.png
 public/captures/android/{computer,browser,shopping,memory}.png
+public/captures/android7/{computer,browser,shopping,memory}.png
+public/captures/android10/{computer,browser,shopping,memory}.png
 ```
 
-- `computer`: real work requested from the phone and completed on the paired computer.
+- `computer`: real work completed on the paired computer and opened from the phone.
 - `browser`: a real browser task with useful results, such as restaurant availability.
 - `shopping`: a real item/cart ready for review, without a fabricated purchase.
 - `memory`: the same ongoing conversation recalling an earlier preference or item.
 
 Never use model selection or multiple chat history as a Stella product screenshot story. New capture slugs intentionally block reuse of the rejected earlier narrative. That material is preserved only in ignored `out/archive-rejected-story-20260906/`.
+
+The first three slides also show the real task output at a readable size alongside the native capture. Place those unaltered images at `public/supporting/{computer,browser,shopping}.png`. They must come from the same actual tasks; never draw replacement UI or invent a completed checkout. Export requires every supporting image and records its dimensions and hash separately from the native sources.
 
 Use the actual iPad layout for iPad. Android export is prepared, but requires genuine Android captures; iOS screenshots must never stand in for Android. Missing captures show a clearly labeled empty placeholder in the studio and block all exports. Do not export placeholders.
 
@@ -37,7 +41,13 @@ STELLA_SCREENSHOT_URL=http://localhost:3015 bun run export:store
 
 If Playwright’s bundled Chromium is unavailable, set `STELLA_SCREENSHOT_BROWSER_CHANNEL=chrome` to use installed Chrome. This is the browser used for the September 2026 export review.
 
-Default devices are iPhone (1242 × 2688) and iPad (2064 × 2752), matching the existing Apple target groups. `STELLA_SCREENSHOT_DEVICES=android` prepares 1080 × 1920 Play images **only once genuine Android captures exist**. Verify current store requirements before upload.
+Default devices are iPhone (1242 × 2688) and iPad (2064 × 2752), matching the existing Apple target groups. `STELLA_SCREENSHOT_DEVICES=android,android7,android10` prepares the independent Play phone and tablet groups **only once genuine Android captures for every requested viewport exist**. Verify current store requirements before upload.
+
+The Play feature graphic also requires the actual Android computer capture:
+
+```
+STELLA_SCREENSHOT_URL=http://localhost:3016 STELLA_SCREENSHOT_BROWSER_CHANNEL=chrome bun scripts/export-feature-graphic.ts
+```
 
 Exports go into a new timestamped `out/store-*` folder. `STELLA_SCREENSHOT_OUTPUT` may set another new directory; an existing destination is rejected. No previous approved PNGs are deleted or replaced. The manifest records source and output dimensions and SHA-256 hashes. Generated PNGs and native sources are ignored release assets, not committed source.
 

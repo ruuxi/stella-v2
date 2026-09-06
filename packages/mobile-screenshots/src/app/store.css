@@ -58,8 +58,11 @@
 .slide-preview .device-ipad {
   zoom: calc(100cqw / 2064px);
 }
-.slide-preview .device-android {
+.slide-preview :is(.device-android, .device-android7) {
   zoom: calc(100cqw / 1080px);
+}
+.slide-preview .device-android10 {
+  zoom: calc(100cqw / 1440px);
 }
 .slide-wordmark {
   position: absolute;
@@ -116,16 +119,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.screen-halo {
-  position: absolute;
-  width: 1240px;
-  height: 1240px;
-  border-radius: 100%;
-  background: var(--accent);
-  opacity: 0.25;
-  bottom: -360px;
-  left: -450px;
 }
 .capture-frame {
   position: relative;
@@ -204,34 +197,34 @@
 .device-ipad footer {
   left: 135px;
 }
-.device-android .slide-wordmark {
-  top: 60px;
-  left: 75px;
-  right: 75px;
-  font-size: 50px;
+:is(.device-android, .device-android7, .device-android10) .slide-wordmark {
+  top: calc(60px * var(--android-scale, 1));
+  left: calc(75px * var(--android-scale, 1));
+  right: calc(75px * var(--android-scale, 1));
+  font-size: calc(50px * var(--android-scale, 1));
 }
-.device-android .slide-wordmark img {
-  width: 55px;
-  height: 55px;
+:is(.device-android, .device-android7, .device-android10) .slide-wordmark img {
+  width: calc(55px * var(--android-scale, 1));
+  height: calc(55px * var(--android-scale, 1));
 }
-.device-android .slide-copy {
-  top: 180px;
-  left: 75px;
+:is(.device-android, .device-android7, .device-android10) .slide-copy {
+  top: calc(180px * var(--android-scale, 1));
+  left: calc(75px * var(--android-scale, 1));
 }
-.device-android .slide-copy h1 {
-  font-size: 100px;
+:is(.device-android, .device-android7, .device-android10) .slide-copy h1 {
+  font-size: calc(100px * var(--android-scale, 1));
 }
-.device-android .slide-copy p {
-  font-size: 27px;
-  margin-top: 24px;
+:is(.device-android, .device-android7, .device-android10) .slide-copy p {
+  font-size: calc(27px * var(--android-scale, 1));
+  margin-top: calc(24px * var(--android-scale, 1));
 }
-.device-android .screen-stage {
-  top: 545px;
-  bottom: 88px;
+:is(.device-android, .device-android7, .device-android10) .screen-stage {
+  top: calc(545px * var(--android-scale, 1));
+  bottom: calc(88px * var(--android-scale, 1));
 }
-.device-android footer {
-  left: 75px;
-  font-size: 20px;
+:is(.device-android, .device-android7, .device-android10) footer {
+  left: calc(75px * var(--android-scale, 1));
+  font-size: calc(20px * var(--android-scale, 1));
 }
 .export-mode {
   padding: 0;
@@ -258,4 +251,69 @@
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+/* Real output sits outside the complete native capture so landscape work is legible. */
+.supporting-artifact {
+  position: absolute;
+  top: 700px;
+  left: 76px;
+  right: 76px;
+  margin: 0;
+  border: 2px solid #30273718;
+  background: white;
+  box-shadow: 0 26px 60px -30px #28201635;
+}
+.supporting-artifact img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.has-supporting .screen-stage {
+  top: 1400px;
+  bottom: 76px;
+}
+.has-supporting .capture-frame {
+  padding: 7px;
+  border-radius: 43px;
+}
+.has-supporting .capture-frame img {
+  border-radius: 36px;
+}
+.device-ipad .supporting-artifact {
+  top: 740px;
+  left: 432px;
+  right: 432px;
+}
+.device-ipad.has-supporting .screen-stage {
+  top: 1560px;
+  bottom: 75px;
+}
+:is(.device-android, .device-android7, .device-android10) .supporting-artifact {
+  top: calc(555px * var(--android-scale, 1));
+  left: calc(65px * var(--android-scale, 1));
+  right: calc(65px * var(--android-scale, 1));
+}
+:is(.device-android, .device-android7, .device-android10).has-supporting
+  .screen-stage {
+  top: calc(1180px * var(--android-scale, 1));
+  bottom: calc(65px * var(--android-scale, 1));
+}
+
+.device-android10 {
+  --android-scale: 1.3333333333;
+}
+:is(.device-android7, .device-android10) .supporting-artifact {
+  left: calc(130px * var(--android-scale, 1));
+  right: calc(130px * var(--android-scale, 1));
+}
+:is(.device-android7, .device-android10).has-supporting .screen-stage {
+  top: calc(1120px * var(--android-scale, 1));
+}
+:is(.device-android7, .device-android10) .capture-frame {
+  padding: calc(7px * var(--android-scale, 1));
+  border-radius: calc(26px * var(--android-scale, 1));
+}
+:is(.device-android7, .device-android10) .capture-frame img {
+  border-radius: calc(19px * var(--android-scale, 1));
 }

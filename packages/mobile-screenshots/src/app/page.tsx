@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { devices, slides, type Device } from "@/store/slides";
+import { supportingArtifacts } from "@/store/supporting";
 import "./store.css";
 
 export default async function Page({
@@ -10,8 +11,8 @@ export default async function Page({
 }) {
   const query = await searchParams;
   const device: Device =
-    query.device === "ipad" || query.device === "android"
-      ? query.device
+    typeof query.device === "string" && Object.hasOwn(devices, query.device)
+      ? (query.device as Device)
       : "iphone";
   const size = devices[device];
   const exportMode = query.export === "1";
@@ -38,11 +39,15 @@ export default async function Page({
         </header>
       )}
       <div className="store-gallery">
-        {slides.map((slide, index) => {
+        {slides.map((slide) => {
           const source = `/captures/${device}/${slide.slug}.png`;
           const available = existsSync(
             path.join(process.cwd(), "public", source),
           );
+          const supporting = supportingArtifacts[slide.slug];
+          const hasSupporting =
+            supporting &&
+            existsSync(path.join(process.cwd(), "public", supporting.source));
           return (
             <section
               key={slide.slug}
@@ -52,7 +57,7 @@ export default async function Page({
               <article
                 data-export-slide={slide.slug}
                 data-capture-ready={available ? "true" : "false"}
-                className={`store-slide device-${device}`}
+                className={`store-slide device-${device} ${hasSupporting ? "has-supporting" : ""}`}
                 style={
                   {
                     width: size.width,
@@ -63,15 +68,21 @@ export default async function Page({
                   } as React.CSSProperties
                 }
               >
-                <div className="slide-wordmark">
-                  stella<span>{String(index + 1).padStart(2, "0")}</span>
-                </div>
+                <div className="slide-wordmark">stella</div>
                 <div className="slide-copy">
                   <h1>{slide.title}</h1>
                   <p>{slide.subtitle}</p>
                 </div>
+                {hasSupporting && (
+                  <figure className="supporting-artifact">
+                    <img
+                      data-supporting-artifact
+                      src={supporting.source}
+                      alt={supporting.alt}
+                    />
+                  </figure>
+                )}
                 <div className="screen-stage">
-                  <div className="screen-halo" />
                   <div className="capture-frame">
                     {available ? (
                       <img

@@ -1,0 +1,75 @@
+.feature-studio {
+  min-height: 100vh;
+  background: #e4e2dd;
+}
+.feature-graphic {
+  position: relative;
+  width: 1024px;
+  height: 500px;
+  overflow: hidden;
+  background: #f0ede6;
+  color: #292922;
+  font-family: var(--font-manrope), sans-serif;
+}
+.feature-wordmark {
+  position: absolute;
+  left: 44px;
+  top: 35px;
+  font-size: 38px;
+  letter-spacing: -0.06em;
+  font-weight: 500;
+}
+.feature-copy {
+  position: absolute;
+  left: 44px;
+  top: 172px;
+  width: 405px;
+}
+.feature-copy h1 {
+  font-family: var(--font-cormorant), serif;
+  font-size: 59px;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  font-weight: 400;
+  margin: 0;
+}
+.feature-copy p {
+  font-size: 18px;
+  letter-spacing: -0.025em;
+  line-height: 1.4;
+  margin-top: 24px;
+}
+.feature-output {
+  position: absolute;
+  left: 454px;
+  top: 118px;
+  width: 530px;
+  height: auto;
+  display: block;
+  box-shadow: 0 15px 28px -18px #29292240;
+}
+.with-native .feature-copy {
+  top: 148px;
+  width: 300px;
+}
+.with-native .feature-copy h1 {
+  font-size: 48px;
+}
+.with-native .feature-copy p {
+  max-width: 245px;
+}
+.with-native .feature-output {
+  top: 208px;
+  left: 350px;
+  width: 435px;
+}
+.feature-native {
+  position: absolute;
+  right: 27px;
+  top: 40px;
+  height: 420px;
+  width: auto;
+  max-width: 206px;
+  object-fit: contain;
+  box-shadow: 0 15px 28px -18px #29292240;
+}

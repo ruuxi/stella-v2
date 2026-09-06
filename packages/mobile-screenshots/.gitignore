@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Real native store captures (release artifacts, never source)
 /public/captures/
+
+# Unaltered output images used alongside native captures
+/public/supporting/

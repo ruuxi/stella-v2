@@ -77,10 +77,10 @@ RUN groupadd --system --gid 42424 stella-tools \
   && test "$(stat -c '%u:%g:%a' /workspace)" = 0:42424:750 \
   && test "$(readlink -f /usr/bin/setpriv)" = /usr/bin/setpriv \
   && test "$(stat -c '%u:%g:%a:%h' /usr/bin/setpriv)" = 0:0:755:1 \
-  && ln -s /opt/stella/node_modules /opt/stella/packages/app-template/node_modules \
   && mkdir -p /opt/stella/node_modules/@stella \
   && ln -s /opt/stella/packages/apps-sdk /opt/stella/node_modules/@stella/apps-sdk \
-  && ln -s /opt/stella/node_modules/vite/bin/vite.js /usr/local/bin/vite \
+  && test -f /opt/stella/packages/app-template/node_modules/vite/bin/vite.js \
+  && ln -s /opt/stella/packages/app-template/node_modules/vite/bin/vite.js /usr/local/bin/vite \
   && ln -s /opt/stella/node_modules/.bin/claude /usr/local/bin/claude \
   && ln -s /opt/stella/node_modules/.bin/codex /usr/local/bin/codex
 

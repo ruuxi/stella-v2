@@ -173,7 +173,9 @@ export const runAppTurn = (
           toolHost.executeTool(
             "exec_command",
             {
-              cmd: "cp -R /opt/stella/packages/app-template/. /workspace/app/ && rm -rf /workspace/app/node_modules && ln -s /opt/stella/node_modules /workspace/app/node_modules",
+              // Bun's isolated install keeps this workspace's dependencies
+              // beside the template rather than in the root node_modules.
+              cmd: "cp -R /opt/stella/packages/app-template/. /workspace/app/ && rm -rf /workspace/app/node_modules && ln -s /opt/stella/packages/app-template/node_modules /workspace/app/node_modules",
               // ToolHost is deliberately rooted at /workspace/app. Running
               // this from /workspace crosses that boundary and is rejected
               // before the already-baked dependencies can be hydrated.

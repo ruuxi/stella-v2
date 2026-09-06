@@ -6,6 +6,7 @@ import {
 } from "@stella/contracts/turn-plane/outbox";
 import {
   TURN_PLANE_PROTOCOL,
+  TURN_PROMPT_MAX_CHARS,
   type CloudAgentSteerMessage,
   type CloudAgentTurnStartRequest,
   type CloudAgentTurnStartResponse,
@@ -636,13 +637,27 @@ export const agentStatusResult = (
   const status = active ? "active" : "paused";
   const lastActiveAt = new Date(control.threadUpdatedAt).toISOString();
   const currentTime = new Date(now).toISOString();
+  const terminal =
+    control.status === "completed" ||
+    control.status === "failed" ||
+    control.status === "canceled";
+  // This is the same bounded, exact-attempt report carried by the queued
+  // lifecycle wake. Expose it to a polling parent before that wake can run.
+  const report = terminal
+    ? control.lifecycleReport?.slice(0, TURN_PROMPT_MAX_CHARS)
+    : undefined;
+  const reportTruncated =
+    terminal && (control.lifecycleReport?.length ?? 0) > TURN_PROMPT_MAX_CHARS;
   const text = [
     `Thread ${control.threadId}: ${status} (${control.status}).`,
     control.description ? `Description: ${control.description}.` : "",
     `Last lifecycle change: ${lastActiveAt}. Current time: ${currentTime}.`,
     active
       ? "It is executing a turn right now; its report arrives as an [Agent completed] message. This snapshot did not interrupt it."
-      : "It is idle; send_input resumes it with its history. This snapshot did not message it.",
+      : report !== undefined
+        ? "This attempt is finished; its report is included below. No follow-up is needed to retrieve it. This snapshot did not message it."
+        : "It is idle; send_input resumes it with its history. This snapshot did not message it.",
+    report !== undefined ? `Report for this attempt:\n${report}${reportTruncated ? "\n[Report truncated]" : ""}` : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -656,6 +671,8 @@ export const agentStatusResult = (
       last_active_at: lastActiveAt,
       attempt_generation: control.attemptGeneration,
       current_time: currentTime,
+      ...(report !== undefined ? { result: report } : {}),
+      ...(reportTruncated ? { result_truncated: true } : {}),
       note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.",
     },
   };

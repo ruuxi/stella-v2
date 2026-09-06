@@ -4330,6 +4330,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       attemptGeneration: 1,
       threadUpdatedAt: 1_700_000_001_000,
       status: "completed",
+      lifecycleReport: "ORCHID-517",
     });
     const finished = await status.execute("tool-status-finished", {
       thread_id: "thread-status-1",
@@ -4339,7 +4340,32 @@ describe("execution-placement exact cloud turn cancellation", () => {
       status_detail: "completed",
       description: "Shell marker",
       last_active_at: "2023-11-14T22:13:21.000Z",
+      result: "ORCHID-517",
     });
+    expect(finished.content[0]?.text).toContain("Report for this attempt:\nORCHID-517");
+
+    // Corrupt/legacy oversized stored reports cannot produce unbounded output.
+    await remember({
+      threadId: "thread-status-1",
+      attemptGeneration: 1,
+      threadUpdatedAt: 1_700_000_002_000,
+      status: "completed",
+      lifecycleReport: "x".repeat(8_001),
+    });
+    const bounded = await status.execute("tool-status-bounded", { thread_id: "thread-status-1" });
+    expect(bounded.details).toMatchObject({ result: "x".repeat(8_000), result_truncated: true });
+    expect(bounded.content[0]?.text).toContain("[Report truncated]");
+
+    // A new attempt must not inherit a previous attempt's completed report.
+    await remember({
+      threadId: "thread-status-1",
+      attemptGeneration: 2,
+      threadUpdatedAt: 1_700_000_003_000,
+      status: "running",
+    });
+    const nextAttempt = await status.execute("tool-status-next", { thread_id: "thread-status-1" });
+    expect(nextAttempt.details).not.toHaveProperty("result");
+    expect(nextAttempt.content[0]?.text).not.toContain("Report for this attempt");
 
     // Another conversation's agent is not this one's to see.
     await expect(

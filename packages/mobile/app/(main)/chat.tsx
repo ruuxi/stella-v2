@@ -534,7 +534,7 @@ function ChatSurface(props: {
       return {
         pinned: true,
         label: cloudModelSettings.label,
-        loading: cloudModelSettings.loading,
+        loading: cloudModelSettings.loading && !cloudModelSettings.execution,
         saving: cloudModelSettings.saving,
         effortLabel: cloudModelSettings.effort === "default"
           ? t("settings.agentModelPicker.default")

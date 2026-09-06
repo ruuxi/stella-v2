@@ -11,7 +11,7 @@ import { renderGradientImage } from "@stella/theme";
 import { useColors, useTheme } from "../theme/theme-context";
 
 /** Height of the top-bar row itself (added on top of the safe-area inset). */
-export const TOP_BAR_BAR_HEIGHT = 36;
+export const TOP_BAR_BAR_HEIGHT = 42;
 
 /**
  * Buffer resolution as a fraction of the window's logical size. Desktop

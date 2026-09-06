@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NativeMenu } from "./NativeMenu";
 import { TopSheet } from "./TopSheet";
 import { Icon, type IconName } from "./Icon";
 import { StellaMarkHero } from "./stella-mark/StellaMarkHero";
@@ -74,6 +83,8 @@ export function ComputerDeviceSheet({
 }: ComputerDeviceSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const [rowWidth, setRowWidth] = useState(width - 48);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
@@ -160,6 +171,11 @@ export function ComputerDeviceSheet({
     },
   ];
 
+  const targetOptions = executionOptions({
+    pairedDesktops,
+    destinations,
+    target: executionTarget,
+  });
   return (
     <TopSheet visible={visible} onClose={onClose}>
       <ScrollView
@@ -171,7 +187,10 @@ export function ComputerDeviceSheet({
       >
         <View style={styles.deviceHero}>
           <View style={styles.heroMark}>
-            <StellaMarkHero size={HERO_MARK_SIZE} faceColor={colors.background} />
+            <StellaMarkHero
+              size={HERO_MARK_SIZE}
+              faceColor={colors.background}
+            />
           </View>
           <Text style={styles.deviceName}>{platformLabel}</Text>
           <View style={styles.statusRow}>
@@ -201,33 +220,78 @@ export function ComputerDeviceSheet({
           </View>
         </View>
 
-        <View style={styles.rowGroup}>
-          {rows.map((row, index) => (
-            <Pressable
-              key={row.id}
-              onPress={row.onPress}
-              accessibilityLabel={row.label}
-              style={({ pressed }) => [
-                styles.row,
-                index > 0 && styles.rowDivider,
-                pressed && styles.rowPressed,
-              ]}
-            >
-              <Icon
-                name={row.icon}
-                size={18}
-                color={colors.textMuted}
-                style={styles.rowIcon}
+        <View
+          style={styles.rowGroup}
+          onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+        >
+          {rows.map((row, index) =>
+            row.id === "destination" && Platform.OS === "ios" ? (
+              <NativeMenu
+                key={row.id}
+                accessibilityLabel={row.label}
+                width={rowWidth}
+                height={52}
+                onFallbackPress={row.onPress}
+                label={
+                  <View style={[styles.row, { width: rowWidth - 40 }]}>
+                    <Icon name={row.icon} size={18} color={colors.textMuted} />
+                    <Text style={styles.rowLabel}>{row.label}</Text>
+                    <Text style={styles.rowTrailing} numberOfLines={1}>
+                      {row.trailing}
+                    </Text>
+                    <Icon
+                      name="chevron-down"
+                      size={15}
+                      color={colors.textMuted}
+                    />
+                  </View>
+                }
+                items={targetOptions.map((option) => ({
+                  id: option.key,
+                  title: option.disabled
+                    ? `${option.label} (${option.unavailableLabel})`
+                    : option.label,
+                  selected: option.selected,
+                  disabled: option.disabled,
+                  systemImage:
+                    option.key === "cloud"
+                      ? "globe"
+                      : option.key === "automatic"
+                        ? "sparkles"
+                        : "desktopcomputer",
+                  onPress: () => {
+                    tapLight();
+                    onExecutionTargetChange(option.target);
+                  },
+                }))}
               />
-              <Text style={styles.rowLabel}>{row.label}</Text>
-              {row.trailing ? (
-                <Text style={styles.rowTrailing} numberOfLines={1}>
-                  {row.trailing}
-                </Text>
-              ) : null}
-              <Icon name="chevron-right" size={15} color={colors.textMuted} />
-            </Pressable>
-          ))}
+            ) : (
+              <Pressable
+                key={row.id}
+                onPress={row.onPress}
+                accessibilityLabel={row.label}
+                style={({ pressed }) => [
+                  styles.row,
+                  index > 0 && styles.rowDivider,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <Icon
+                  name={row.icon}
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.rowIcon}
+                />
+                <Text style={styles.rowLabel}>{row.label}</Text>
+                {row.trailing ? (
+                  <Text style={styles.rowTrailing} numberOfLines={1}>
+                    {row.trailing}
+                  </Text>
+                ) : null}
+                <Icon name="chevron-right" size={15} color={colors.textMuted} />
+              </Pressable>
+            ),
+          )}
         </View>
       </ScrollView>
 
@@ -265,19 +329,13 @@ export function ComputerDeviceSheet({
   );
 }
 
-function ExecutionTargetSheet(props: {
-  visible: boolean;
-  onClose: () => void;
+function executionOptions(props: {
   pairedDesktops: StoredPhoneAccess[];
   destinations: ExecutionDeviceDestination[] | undefined;
   target: AutomaticExecutionTarget;
-  onSelect: (target: AutomaticExecutionTarget) => void;
 }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const pairedIds = useMemo(
-    () => new Set(props.pairedDesktops.map((entry) => entry.desktopDeviceId)),
-    [props.pairedDesktops],
+  const pairedIds = new Set(
+    props.pairedDesktops.map((entry) => entry.desktopDeviceId),
   );
   const computers = (props.destinations ?? []).filter(
     (device) =>
@@ -329,6 +387,21 @@ function ExecutionTargetSheet(props: {
       target: { mode: "device" as const, deviceId: device.deviceId },
     })),
   ];
+
+  return options;
+}
+
+function ExecutionTargetSheet(props: {
+  visible: boolean;
+  onClose: () => void;
+  pairedDesktops: StoredPhoneAccess[];
+  destinations: ExecutionDeviceDestination[] | undefined;
+  target: AutomaticExecutionTarget;
+  onSelect: (target: AutomaticExecutionTarget) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const options = executionOptions(props);
 
   return (
     <TopSheet visible={props.visible} onClose={props.onClose}>

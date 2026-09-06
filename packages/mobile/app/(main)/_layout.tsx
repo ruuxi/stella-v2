@@ -21,6 +21,7 @@ import {
 } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
+import { NativeMenu } from "../../src/components/NativeMenu";
 import { GlassIconButton } from "../../src/components/GlassIconButton";
 import {
   AppBackdrop,
@@ -82,7 +83,7 @@ const SIDEBAR_WIDTH = 320;
  * covers. */
 const DRAWER_REVEAL = 292;
 /** Diameter of the top bar's circular glass controls. */
-const TOP_BAR_BUTTON = 40;
+const TOP_BAR_BUTTON = 44;
 /** Snappy, lightly-springy settle for the drawer — tuned to feel closer to
  * ChatGPT iOS: it starts moving instantly (unlike an ease-in curve) and rests
  * fast with just a hint of overshoot for tactility. `duration` is the
@@ -339,6 +340,38 @@ export default function MainLayout() {
     opacity: drawerProgress.value * 0.18,
   }));
 
+  const chatControls = (
+    <View style={styles.topBarRight}>
+      {onChatSurface && history ? (
+        <NativeMenu
+          label={<Icon name="history" size={21} color={colors.text} />}
+          circular
+          width={TOP_BAR_BUTTON}
+          height={TOP_BAR_BUTTON}
+          accessibilityLabel={t("shell.topbar.conversation.history")}
+          disabled={history.disabled}
+          items={history.items}
+          onFallbackPress={history.onPress}
+        />
+      ) : null}
+      {onChatSurface && computer ? (
+        // Quiet unless there is something to say: a muted
+        // glyph while unpaired or asleep, a spinner while
+        // waking, and the green dot only once connected.
+        <GlassIconButton
+          icon="monitor"
+          size={TOP_BAR_BUTTON}
+          iconSize={21}
+          muted={computer.connection !== "connected"}
+          loading={computer.connection === "connecting"}
+          dot={computer.connection === "connected" ? colors.ok : null}
+          accessibilityLabel={computer.label}
+          onPress={onPressComputer}
+        />
+      ) : null}
+    </View>
+  );
+
   return (
     // edges=[] disables SafeAreaView's auto-padding so every layer below
     // (gradient, sidebar, foreground) can extend edge-to-edge through the
@@ -359,6 +392,17 @@ export default function MainLayout() {
               onOpenArtifact={openArtifact}
             />
             <View style={styles.content}>
+              <View
+                style={[
+                  styles.topBar,
+                  {
+                    height: insets.top + TOP_BAR_BAR_HEIGHT,
+                    justifyContent: "flex-end",
+                  },
+                ]}
+              >
+                {chatControls}
+              </View>
               <View style={styles.contentSlot}>
                 <MainStack />
               </View>
@@ -448,7 +492,7 @@ export default function MainLayout() {
                       <GlassIconButton
                         icon="chevron-left"
                         size={TOP_BAR_BUTTON}
-                        iconSize={18}
+                        iconSize={20}
                         accessibilityLabel={
                           onChatSurface
                             ? t("mobile.nav.openLabel")
@@ -458,37 +502,7 @@ export default function MainLayout() {
                       />
                     </View>
                     <View style={{ flex: 1 }} />
-                    <View style={styles.topBarRight}>
-                      {onChatSurface && history ? (
-                        <GlassIconButton
-                          icon="history"
-                          size={TOP_BAR_BUTTON}
-                          iconSize={19}
-                          accessibilityLabel={t("shell.topbar.conversation.history")}
-                          disabled={history.disabled}
-                          onPress={history.onPress}
-                        />
-                      ) : null}
-                      {onChatSurface && computer ? (
-                        // Quiet unless there is something to say: a muted
-                        // glyph while unpaired or asleep, a spinner while
-                        // waking, and the green dot only once connected.
-                        <GlassIconButton
-                          icon="monitor"
-                          size={TOP_BAR_BUTTON}
-                          iconSize={19}
-                          muted={computer.connection !== "connected"}
-                          loading={computer.connection === "connecting"}
-                          dot={
-                            computer.connection === "connected"
-                              ? colors.ok
-                              : null
-                          }
-                          accessibilityLabel={computer.label}
-                          onPress={onPressComputer}
-                        />
-                      ) : null}
-                    </View>
+                    {chatControls}
                   </>
                 )}
               </View>
@@ -547,7 +561,19 @@ function MainStack() {
           animation: "slide_from_right",
           gestureEnabled: false,
         }}
-      />
+      >
+        <Stack.Screen
+          name="settings"
+          options={{
+            presentation: "formSheet",
+            animation: "slide_from_bottom",
+            gestureEnabled: true,
+            sheetAllowedDetents: [0.9],
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 28,
+          }}
+        />
+      </Stack>
     </NavigationThemeProvider>
   );
 }
@@ -581,7 +607,7 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
     },
 
-    // Top bar — phone only (chevron | spacer | computer). Height is set inline
+    // Top bar — phone and tablet action controls. Height is set inline
     // as `insets.top + barHeight` so the safe-area inset is added on top of
     // the bar's own height rather than eating into it (RN box model is
     // border-box, so a fixed `height` would absorb the inset).

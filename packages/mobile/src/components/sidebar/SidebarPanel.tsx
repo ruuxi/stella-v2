@@ -21,7 +21,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { GlassSurface } from "../glass";
 import { Icon, type IconName } from "../Icon";
-import { StellaBrandMark } from "../StellaBrandMark";
 import {
   ConversationFilesRow,
   ScheduleRow,
@@ -670,7 +669,7 @@ export function SidebarPanel({
             hitSlop={8}
             style={({ pressed }) => [styles.brand, pressed && styles.pressed]}
           >
-            <StellaBrandMark compact />
+            <Text style={styles.wordmark}>{t("common.appName")}</Text>
           </Pressable>
           {/* One interactive glass capsule holding both buttons, the way the
               system groups bar buttons: a single shape, so there is no seam
@@ -810,6 +809,13 @@ const makeStyles = (colors: Colors) =>
     brand: {
       paddingLeft: 4,
       paddingVertical: 6,
+    },
+    wordmark: {
+      color: colors.text,
+      fontFamily: fonts.display.regular,
+      fontSize: 22,
+      letterSpacing: -0.4,
+      lineHeight: 24,
     },
     headerPill: {
       alignItems: "center",

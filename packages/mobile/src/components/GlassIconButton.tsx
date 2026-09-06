@@ -15,7 +15,7 @@ import { fadeHex } from "../theme/oklch";
 
 const DEFAULT_SIZE = 40;
 
-type GlassIconButtonProps = {
+export type GlassIconButtonProps = {
   icon: IconName;
   onPress: () => void;
   accessibilityLabel: string;

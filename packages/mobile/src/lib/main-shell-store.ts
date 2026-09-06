@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { NativeMenuItem } from "../components/NativeMenu.types";
 import type { StoredPhoneAccess } from "./phone-access";
 import type { DesktopConnection } from "./top-bar-status";
 import type { ChatArtifact, MobileTask } from "../types";
@@ -32,7 +33,11 @@ export type ComputerControl = {
   onPress: () => void;
 };
 
-export type HistoryControl = { disabled: boolean; onPress: () => void };
+export type HistoryControl = {
+  disabled: boolean;
+  onPress: () => void;
+  items: NativeMenuItem[];
+};
 
 type ShellState = {
   activity: ActivityHubData | null;

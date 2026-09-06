@@ -2132,6 +2132,7 @@ function PlusMenuPopover({
   headerLabel = null,
   scrim = false,
   large = false,
+  wrapLabels = false,
 }: {
   visible: boolean;
   anchor: AnchorRect | null;
@@ -2166,6 +2167,8 @@ function PlusMenuPopover({
    * cramped as a primary context menu).
    */
   large?: boolean;
+  /** Allow long model names to remain readable. */
+  wrapLabels?: boolean;
 }) {
   const styles = useMemo(() => makePlusMenuStyles(colors), [colors]);
   const [menuLayout, setMenuLayout] = useState<{
@@ -2416,7 +2419,7 @@ function PlusMenuPopover({
                       large && styles.menuItemLabelLarge,
                       option.disabled && styles.menuItemLabelMuted,
                     ]}
-                    numberOfLines={1}
+                    numberOfLines={wrapLabels ? 2 : 1}
                   >
                     {option.label}
                   </Text>
@@ -2993,6 +2996,14 @@ export function ChatPane({
     () => visibleChatMessages(messages),
     [messages],
   );
+  // A conversation first observed empty mounts its list on the optimistic
+  // send. Our post-send owner already places that row; starting Legend's
+  // footer-preserving end bootstrap as well would move it a second time.
+  // Existing history still bootstraps at its tail once hydration completes.
+  const initialScrollAtEndRef = useRef<boolean | null>(null);
+  if (!historyLoading && initialScrollAtEndRef.current === null) {
+    initialScrollAtEndRef.current = visibleMessages.length > 0;
+  }
   const [replyFocus, setReplyFocus] = useState<ReplyRef | null>(null);
   const replyContexts = useMemo(() => mobileReplyContexts(visibleMessages), [visibleMessages]);
   const closeReplyFocus = useCallback(() => setReplyFocus(null), []);
@@ -4148,7 +4159,7 @@ export function ChatPane({
                 // of landing at the top of history. Short conversations that
                 // don't fill the viewport read top-down (no `alignItemsAtEnd`)
                 // so the first message sits at the top rather than the bottom.
-                initialScrollAtEnd
+                initialScrollAtEnd={initialScrollAtEndRef.current === true}
                 // Keep the visible message anchored when the data array changes
                 // (e.g. messages syncing in from the desktop) so the list never
                 // snaps back to the top.
@@ -4648,6 +4659,8 @@ export function ChatPane({
         onDismiss={dismissModelPicker}
         colors={colors}
         containerRef={rootRef}
+        large
+        wrapLabels
       />
       <RealtimeVoiceOverlay
         visible={realtimeVoiceOpen}

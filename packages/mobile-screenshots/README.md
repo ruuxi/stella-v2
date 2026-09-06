@@ -1,98 +1,46 @@
-# Stella Marketing Asset Studio
+# Stella store image studio
 
-This is a small Next.js export tool for Stella marketing assets. It lives at `packages/mobile-screenshots/` and is **not** part of the Expo app: it does not import any application modules. Icon files under `public/` are copied in manually when you want them to match `packages/mobile/assets/`.
+Four restrained store slides built around **actual native screenshots**: computer work, browser errands, shopping review, and memory in one ongoing conversation. The studio adds typography, background color, and a simple border around each capture. It does not redraw, restyle, crop, or invent the app UI. Icon animation tools remain at `/animation`.
 
-## What it does
+## Capture handoff
 
-- Renders live Stella animation icon concepts on HTML for static PNG export
-- Renders six App Store slides with deterministic, production-faithful mobile fixtures
-- Uses Stella's current mobile navigation, icon assets, terminology, and product copy
-- Supports `Carbon`, `Midnight`, and `Editorial` visual themes
-- Supports both `iPhone` and `iPad` layouts
-- Exports PNGs at Apple's 6.5-inch iPhone and 13-inch iPad portrait sizes
+Capture the current shipping candidate on each device independently. Use real UI actions with a safe test account and natural conversation content. No test markers, personal data, debug overlays, keyboards, stale designs, or unverified claims. Coordinate Simulator ownership with the mobile verification agent.
 
-## Assumptions
+Place full portrait PNG captures in the ignored local folder:
 
-- Paired-computer states depend on a live Stella desktop bridge, so the studio uses deterministic safe fixtures modeled on the current production components in `packages/mobile/app/(main)` and `packages/mobile/src/components`.
-- The fixtures show the production narrow top bar and wide sidebar patterns, including the current `Chat`, `Computer`, and `Settings` labels. They do not claim to show live account or backend state.
-- The narrative arc is:
-  1. personal AI chat
-  2. text and voice input
-  3. paired-computer tasks and activity
-  4. QR or manual-code pairing
-  5. local-first storage with clear AI-processing language
-  6. appearance, notifications, paired computers, and legal settings
-
-## Run it
-
-```bash
-cd packages/mobile-screenshots
-bun dev
+```
+public/captures/iphone/{computer,browser,shopping,memory}.png
+public/captures/ipad/{computer,browser,shopping,memory}.png
+public/captures/android/{computer,browser,shopping,memory}.png
 ```
 
-Then open `http://localhost:3000`.
+- `computer`: real work requested from the phone and completed on the paired computer.
+- `browser`: a real browser task with useful results, such as restaurant availability.
+- `shopping`: a real item/cart ready for review, without a fabricated purchase.
+- `memory`: the same ongoing conversation recalling an earlier preference or item.
 
-## Export workflow
+Never use model selection or multiple chat history as a Stella product screenshot story. New capture slugs intentionally block reuse of the rejected earlier narrative. That material is preserved only in ignored `out/archive-rejected-story-20260906/`.
 
-### Icon concepts
+Use the actual iPad layout for iPad. Android export is prepared, but requires genuine Android captures; iOS screenshots must never stand in for Android. Missing captures show a clearly labeled empty placeholder in the studio and block all exports. Do not export placeholders.
 
-1. Open the `Stella Asset Studio` section.
-2. Pick a surface, background, and animation state.
-3. Freeze a frame if you want a specific static moment.
-4. Export a single PNG or the `256 / 512 / 1024` set.
+## Preview and export
 
-### App Store slides
-
-For a reviewable production export, run:
-
-```bash
-cd packages/mobile-screenshots
-bunx playwright install chromium # first run only
-NODE_ENV=production bun run build
-NODE_ENV=production bun run start -- -p 3000
+```
+bun run dev -- -p 3015
 ```
 
-In a second terminal:
+Preview `http://localhost:3015`. After adding captures, restart if using a production build. To export:
 
-```bash
-cd packages/mobile-screenshots
-bun run export:store
+```
+STELLA_SCREENSHOT_URL=http://localhost:3015 bun run export:store
 ```
 
-The export script clears old PNGs from the two target device folders and writes the six approved filenames directly to the ignored local path:
+If Playwright’s bundled Chromium is unavailable, set `STELLA_SCREENSHOT_BROWSER_CHANNEL=chrome` to use installed Chrome. This is the browser used for the September 2026 export review.
 
-```text
-packages/mobile/store/apple/screenshot/en-US/APP_IPHONE_65/
-packages/mobile/store/apple/screenshot/en-US/APP_IPAD_PRO_3GEN_129/
-```
+Default devices are iPhone (1242 × 2688) and iPad (2064 × 2752), matching the existing Apple target groups. `STELLA_SCREENSHOT_DEVICES=android` prepares 1080 × 1920 Play images **only once genuine Android captures exist**. Verify current store requirements before upload.
 
-Set `STELLA_SCREENSHOT_URL` to use a server on another port. Set `STELLA_SCREENSHOT_OUTPUT` to write somewhere other than the default ignored store path.
+Exports go into a new timestamped `out/store-*` folder. `STELLA_SCREENSHOT_OUTPUT` may set another new directory; an existing destination is rejected. No previous approved PNGs are deleted or replaced. The manifest records source and output dimensions and SHA-256 hashes. Generated PNGs and native sources are ignored release assets, not committed source.
 
-The interactive studio still supports theme, device, and size selection for previews and one-off exports.
+Review every exported slide at full resolution and thumbnail size: readable text, no clipping, actual device UI, coherent conversation, accurate feature claims, consistent color/spacing. Record app build and capture provenance beside the export manifest. This tool does not upload, submit, sync metadata, or publish store images.
 
-Exports are named with a numeric prefix so they sort correctly in Finder and App Store Connect upload folders.
-
-## Release asset policy
-
-Screenshot PNGs are release assets, not source files. Generated exports under this tool's `out/` folder and staged copies under `packages/mobile/store/apple/screenshot/` stay local and are ignored by git. The committed `packages/mobile/store.config.json` deliberately omits screenshot paths, so a fresh checkout never points EAS Metadata at files that are not in the repository.
-
-The committed config also omits `apple.version`. EAS Metadata otherwise targets the latest available App Store version. When a specific release version has been chosen and exists in App Store Connect, add `apple.version` to the local release config before syncing versioned metadata; do not guess the next version in source control.
-
-For a listing update:
-
-1. Export a fresh iPhone and iPad set and compare every mock screen and claim with the shipping app.
-2. Remove personal data, internal notes, and stale UI before approval.
-3. Archive the approved originals in versioned release-asset storage with a checksum manifest.
-4. Upload them directly in App Store Connect, or copy them into the ignored `packages/mobile/store/apple/screenshot/` folder and add the screenshot map only to a local, uncommitted metadata config before running `eas metadata:push`.
-
-Do not add generated screenshot binaries or committed paths to missing screenshots unless the repository adopts an intentional Git LFS or release-assets convention.
-
-## Key files
-
-- `src/app/page.tsx`: all slide definitions, mock screens, toolbar controls, and export logic
-- `src/components/StellaIconStudio.tsx`: live Stella animation icon preview and PNG export controls
-- `src/components/stella-animation/*`: WebGL renderer adapted for the asset studio
-- `src/app/layout.tsx`: Stella-aligned font setup
-- `public/app-icon.png`: copied from `packages/mobile/assets/icon.png`
-- `public/splash-icon.png`: copied from `packages/mobile/assets/splash-icon.png`
-- `public/mockup.png`: iPhone frame asset used for export
+After export, run `python3 scripts/review-exports.py out/store-<timestamp>` (requires Pillow) to verify every PNG's dimensions and full opacity and write one labeled contact sheet per device. These sheets are review artifacts, not store uploads.

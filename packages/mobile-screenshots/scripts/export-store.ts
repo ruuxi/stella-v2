@@ -1,116 +1,110 @@
-import { mkdir, readdir, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
-import { chromium, type Page } from "playwright";
+import { chromium } from "playwright";
+import { devices, slides, type Device } from "../src/store/slides";
 
-const BASE_URL = process.env.STELLA_SCREENSHOT_URL ?? "http://localhost:3000";
-const OUTPUT_ROOT = path.resolve(
-  process.cwd(),
+const base = process.env.STELLA_SCREENSHOT_URL ?? "http://localhost:3000";
+const requested = (
+  process.env.STELLA_SCREENSHOT_DEVICES ?? "iphone,ipad"
+).split(",");
+for (const device of requested)
+  if (!(device in devices)) throw new Error(`Unknown device: ${device}`);
+const output = path.resolve(
   process.env.STELLA_SCREENSHOT_OUTPUT ??
-    "../mobile/store/apple/screenshot/en-US",
+    `out/store-${new Date().toISOString().replace(/[:.]/g, "-")}`,
 );
-
-const slides = ["hero", "chat", "tasks", "pairing", "privacy", "settings"];
-const devices = [
-  {
-    query: "iphone",
-    group: "APP_IPHONE_65",
-    canvas: { width: 1290, height: 2796 },
-    output: { width: 1242, height: 2688 },
-  },
-  {
-    query: "ipad",
-    group: "APP_IPAD_PRO_3GEN_129",
-    canvas: { width: 2064, height: 2752 },
-    output: { width: 2064, height: 2752 },
-  },
-] as const;
-
-async function clearPngs(directory: string) {
-  await mkdir(directory, { recursive: true });
-  const entries = await readdir(directory, { withFileTypes: true });
-  await Promise.all(
-    entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".png"))
-      .map((entry) => unlink(path.join(directory, entry.name))),
-  );
-}
-
-async function prepareSlide(
-  page: Page,
-  slug: string,
-  canvas: { width: number; height: number },
-  output: { width: number; height: number },
-) {
-  await page.evaluate(
-    ({ requestedSlug, canvasSize, outputSize }) => {
-      document.querySelectorAll("nextjs-portal").forEach((node) => node.remove());
-      const nodes = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-export-slide]"),
+// Preflight every native source before writing anything. Never replace an approved set.
+const sourceManifest = [];
+for (const device of requested as Device[]) {
+  for (const slide of slides) {
+    const source = path.join("public", "captures", device, `${slide.slug}.png`);
+    const bytes = await readFile(source).catch(() => {
+      throw new Error(
+        `Missing actual ${device} capture: ${source}. Do not substitute mocked or another platform's UI.`,
       );
-      for (const node of nodes) {
-        const active = node.dataset.exportSlide === requestedSlug;
-        node.style.position = "fixed";
-        node.style.left = active ? "0" : "-99999px";
-        node.style.top = "0";
-        node.style.zIndex = active ? "99999" : "-1";
-        node.style.opacity = active ? "1" : "0";
-        node.style.width = `${outputSize.width}px`;
-        node.style.height = `${outputSize.height}px`;
-        node.style.overflow = "hidden";
-        node.style.pointerEvents = "none";
-
-        const slide = node.firstElementChild as HTMLElement | null;
-        if (slide) {
-          slide.style.transformOrigin = "top left";
-          slide.style.transform = `scale(${outputSize.width / canvasSize.width}, ${outputSize.height / canvasSize.height})`;
-        }
-      }
-      document.body.style.margin = "0";
-      document.body.style.overflow = "hidden";
-    },
-    { requestedSlug: slug, canvasSize: canvas, outputSize: output },
-  );
+    });
+    if (bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a")
+      throw new Error(`Invalid PNG: ${source}`);
+    const width = bytes.readUInt32BE(16),
+      height = bytes.readUInt32BE(20);
+    if (width >= height)
+      throw new Error(`Expected portrait native screenshot: ${source}`);
+    sourceManifest.push({
+      device,
+      slide: slide.slug,
+      source,
+      width,
+      height,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
+  }
 }
-
-const browser = await chromium.launch({ headless: true });
-
+await mkdir(output, { recursive: false });
+const browser = await chromium.launch({
+  headless: true,
+  channel: process.env.STELLA_SCREENSHOT_BROWSER_CHANNEL,
+});
+const exported = [];
 try {
-  for (const device of devices) {
-    const directory = path.join(OUTPUT_ROOT, device.group);
-    await clearPngs(directory);
-
+  for (const device of requested as Device[]) {
+    const spec = devices[device];
+    const directory = path.join(output, spec.group);
+    await mkdir(directory);
     const page = await browser.newPage({
-      viewport: {
-        width: Math.max(device.canvas.width, device.output.width),
-        height: Math.max(device.canvas.height, device.output.height),
-      },
+      viewport: { width: spec.width, height: spec.height },
       deviceScaleFactor: 1,
-      colorScheme: "light",
     });
-
-    await page.goto(`${BASE_URL}/?theme=carbon&device=${device.query}`, {
-      waitUntil: "domcontentloaded",
+    await page.goto(`${base}/?device=${device}&export=1`, {
+      waitUntil: "networkidle",
     });
-    await page.waitForSelector('[data-export-slide="hero"]', {
-      state: "attached",
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await Promise.all(
+        [
+          ...document.querySelectorAll<HTMLImageElement>(
+            "[data-native-capture]",
+          ),
+        ].map((image) => image.decode()),
+      );
     });
-    await page.evaluate(async () => await document.fonts.ready);
-
-    for (const [index, slug] of slides.entries()) {
-      await prepareSlide(page, slug, device.canvas, device.output);
-      const target = page.locator(`[data-export-slide="${slug}"]`);
-      const filename = `${index + 1}-${slug}.png`;
-      await target.screenshot({
+    for (const [index, slide] of slides.entries()) {
+      const target = page.locator(`[data-export-slide="${slide.slug}"]`);
+      if ((await target.getAttribute("data-capture-ready")) !== "true")
+        throw new Error(
+          `Server missing ${device}/${slide.slug} capture; restart studio after adding sources.`,
+        );
+      const filename = `${index + 1}-${slide.slug}.png`;
+      const bytes = await target.screenshot({
         path: path.join(directory, filename),
         animations: "disabled",
         caret: "hide",
         scale: "css",
       });
-      console.log(`${device.group}/${filename}`);
+      exported.push({
+        file: `${spec.group}/${filename}`,
+        width: spec.width,
+        height: spec.height,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
+      console.log(`${spec.group}/${filename}`);
     }
-
     await page.close();
   }
+  await writeFile(
+    path.join(output, "manifest.json"),
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        status: "review-required",
+        sources: sourceManifest,
+        exports: exported,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
 } finally {
   await browser.close();
 }
+console.log(`Review PNGs and manifest: ${output}`);

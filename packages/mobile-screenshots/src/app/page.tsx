@@ -3,6 +3,8 @@ import path from "node:path";
 import { devices, slides, type Device } from "@/store/slides";
 import { supportingArtifacts } from "@/store/supporting";
 import "./store.css";
+import { CapabilityComposition } from "@/components/CapabilityComposition";
+import { StoreAura } from "@/components/StoreAura";
 import { BrandCharacter } from "@/components/BrandCharacter";
 
 export default async function Page({
@@ -17,6 +19,8 @@ export default async function Page({
       : "iphone";
   const size = devices[device];
   const exportMode = query.export === "1";
+  const requestedSlugs = typeof query.slides === "string" ? query.slides.split(",") : null;
+  const activeSlides = requestedSlugs ? requestedSlugs.flatMap(slug => slides.filter(slide => slide.slug === slug)) : slides;
   return (
     <main className={`store-studio ${exportMode ? "export-mode" : ""}`}>
       {!exportMode && (
@@ -40,8 +44,9 @@ export default async function Page({
         </header>
       )}
       <div className="store-gallery">
-        {slides.map((slide) => {
-          const source = `/captures/${device}/${slide.slug}.png`;
+        {activeSlides.map((slide, slideIndex) => {
+          const captureSlug = "captureSlug" in slide ? slide.captureSlug : slide.slug;
+          const source = `/captures/${device}/${captureSlug}.png`;
           const available = existsSync(
             path.join(process.cwd(), "public", source),
           );
@@ -70,14 +75,14 @@ export default async function Page({
                   } as React.CSSProperties
                 }
               >
-                <div className="scene-light" aria-hidden="true" />
-                <div className="scene-orbit" aria-hidden="true" />
+                <StoreAura index={slideIndex} count={activeSlides.length} className="slide-aura" />
                 <div className="slide-wordmark">Stella</div>
                 <BrandCharacter shape="blob" className="slide-mascot" eyeColor={slide.background} />
                 <div className="slide-copy">
                   <h1>{slide.title.split("\n").map((line, index) => <span key={line} className={index === 1 ? "headline-accent" : undefined}>{line}</span>)}</h1>
-                  <p>{slide.subtitle}</p>
+                  {slide.subtitle && <p>{slide.subtitle}</p>}
                 </div>
+                {slide.slug === "assistant" && <CapabilityComposition />}
                 {hasSupporting && (
                   <figure className="supporting-artifact">
                     <img
@@ -90,6 +95,7 @@ export default async function Page({
                 )}
                 <div className="screen-stage">
                   <div className="capture-frame">
+                    {device === "iphone" && <img className="iphone-hardware" data-device-frame src="/devices/iphone-17.png" alt="" />}
                     {available ? (
                       <img
                         data-native-capture

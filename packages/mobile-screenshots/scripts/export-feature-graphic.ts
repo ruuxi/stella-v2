@@ -36,6 +36,10 @@ try {
   });
   await page.goto(`${base}/feature-graphic`, { waitUntil: "networkidle" });
   await page.waitForFunction(() => {
+      const auras = [...document.querySelectorAll('[data-aura-ready]')];
+      return auras.length > 0 && auras.every(aura => aura.getAttribute('data-aura-ready') === 'true');
+    });
+    await page.waitForFunction(() => {
       const marks = [...document.querySelectorAll('[data-brand-ready]')];
       return marks.length > 0 && marks.every((mark) => mark.getAttribute('data-brand-ready') === 'true');
     });

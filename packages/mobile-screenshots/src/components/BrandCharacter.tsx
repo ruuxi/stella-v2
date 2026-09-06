@@ -15,7 +15,9 @@ export interface BrandCharacterProps {
 /**
  * Original Stella artwork, held still for store-image export.
  * Blob: the exact shipping desktop working-indicator rig and default star.
- * Cursor: the SVG from global/onboarding/demo/DemoScenes.tsx, unchanged.
+ * Cursor: the exact gradient PNG shared by the browser automation cursor
+ * and native desktop helper. Its source is agent-cursor.js CURSOR_ASSET.
+ * Do not substitute the unrelated onboarding arrow or redraw this artwork.
  * The parent supplies dimensions through className. Export waits for
  * [data-brand-ready="true"] so the imperative SVG has painted its first frame.
  */
@@ -28,8 +30,13 @@ export function BrandCharacter({
   const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
-    if (shape !== "blob" || !host.current) return;
+    if (shape === "cursor") {
+      const image = host.current?.querySelector("img");
+      setReady(Boolean(image?.complete && image.naturalWidth));
+      return;
+    }
     setReady(false);
+    if (!host.current) return;
     const mark = createStellaMark(host.current, {
       size: null,
       shape: "star",
@@ -56,21 +63,19 @@ export function BrandCharacter({
       ref={host}
       className={className}
       data-brand-shape={shape}
-      data-brand-ready={shape === "cursor" || ready ? "true" : "false"}
+      data-brand-ready={ready ? "true" : "false"}
       aria-hidden="true"
       style={{ display: "block" }}
     >
       {shape === "cursor" && (
-        <svg viewBox="0 0 16 18" fill="none"
-          style={{ display: "block", width: "100%", height: "100%" }}>
-          <path
-            d="M1.5 1.5v13.2l3.6-3.2 2.3 4.9 2.7-1.3-2.3-4.7h4.8z"
-            fill="#fff"
-            stroke="#111"
-            strokeWidth="1.2"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <img
+          src="/brand/agent-cursor.png"
+          width={46}
+          height={48}
+          alt=""
+          draggable={false}
+          style={{ display: "block", width: "100%", height: "100%", objectFit: "contain" }}
+        />
       )}
     </span>
   );

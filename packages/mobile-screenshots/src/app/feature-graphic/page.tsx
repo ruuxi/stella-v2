@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { StoreAura } from "@/components/StoreAura";
 import { BrandCharacter } from "@/components/BrandCharacter";
 import "./feature-graphic.css";
 
@@ -27,13 +28,12 @@ export default async function FeatureGraphic({
         data-output-ready={String(outputReady)}
         data-native-ready={String(showNative)}
       >
-        <div className="feature-light" aria-hidden="true" />
-        <div className="feature-orbit" aria-hidden="true" />
+        <StoreAura index={0} count={1} className="feature-aura" />
         <div className="feature-wordmark">Stella</div>
         <BrandCharacter
           shape="blob"
           className="feature-mascot"
-          eyeColor="#182820"
+          eyeColor="#faf9f7"
         />
         <div className="feature-copy">
           <h1>

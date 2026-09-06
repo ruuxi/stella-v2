@@ -1,0 +1,30 @@
+{
+  "source": "packages/website/src/components/aurora-canvas.tsx",
+  "sourceSha256": "5d0bcc2900890df9f3562aa5a1c1ebfb3c86140bbb25ea19e2df5c1f0324566a",
+  "vertexSha256": "c612649da0cc371ed3e75af67b9cd6b5de6278aa9300ed5c0d93523dd64550b7",
+  "fragmentSha256": "b1e5ad99617d203f55b7cacb48e186d64176a6b3ba4119f805bd06642ff7edfa",
+  "shaderChanged": false,
+  "frozenTime": "Website reduced-motion still:8seconds",
+  "width": 6144,
+  "height": 1600,
+  "domain": {
+    "x": [
+      0.4,
+      1
+    ],
+    "y": [
+      0,
+      1
+    ]
+  },
+  "uniforms": {
+    "uTime": 8,
+    "uAspect": 6.4,
+    "uStrength": 1,
+    "uScale": 1.7777777777777777
+  },
+  "alpha": "Transparent straight-alpha shader output, composited over white by store layout",
+  "continuity": "One shared panorama; adjacent index/count segments, no per-slide shader reset",
+  "renderer": "WebKit WebGL",
+  "pngSha256": "06af03f03c23385d440197744d2a5193b03db576658f50a5e4b1caa07a11ddf6"
+}

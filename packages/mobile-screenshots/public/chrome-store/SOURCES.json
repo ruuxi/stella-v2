@@ -1,0 +1,7 @@
+{
+  "browser": "Unaltered ~/.stella/outputs/hana-japanese-eatery-phoenix.png from verified Stella browser task",
+  "checkout": "Unaltered ~/.stella/outputs/trail-shoes-checkout.png from verified task, before shipping/payment, no order",
+  "connected-popup": "Native screenshot of installed Chrome extension kfnchfpocpmdblhfgcnpfaaebaioojnl popup showing Connected on 2026-09-06; no state override",
+  "aura": "../brand/store-aura-provenance.json",
+  "scope": "Store images only. Package, description, icon and settings unchanged."
+}

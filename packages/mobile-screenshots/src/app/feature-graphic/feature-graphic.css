@@ -1,6 +1,6 @@
 .feature-studio {
   min-height: 100vh;
-  background: #182820;
+  background: #faf9f7;
 }
 .feature-graphic {
   position: relative;
@@ -8,8 +8,8 @@
   width: 1024px;
   height: 500px;
   overflow: hidden;
-  background: #182820;
-  color: #f4f1e7;
+  background: #faf9f7;
+  color: #252525;
   font-family: var(--font-manrope), sans-serif;
 }
 .feature-wordmark {
@@ -52,7 +52,7 @@
   font-size: 60px;
   line-height: 1.04;
   font-weight: 400;
-  color: #c8deb5;
+  color: #252525;
   letter-spacing: -0.055em;
 }
 .feature-copy h1 br {
@@ -129,3 +129,7 @@
   left: 490px;
   top: 155px;
 }
+
+.feature-light, .feature-orbit { display:none; }
+
+.feature-aura { position:absolute; inset:0; z-index:-1; }

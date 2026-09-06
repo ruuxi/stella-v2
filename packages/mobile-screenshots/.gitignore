@@ -45,3 +45,9 @@ next-env.d.ts
 
 # Unaltered output images used alongside native captures
 /public/supporting/
+
+# Third-party hardware assets prohibit standalone redistribution; keep SOURCES.md
+/public/devices/*.png
+
+# Actual Chrome Web Store captures; retain source metadata only
+/public/chrome-store/*.png

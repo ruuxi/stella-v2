@@ -46,7 +46,7 @@ for (const [slide, artifact] of Object.entries(supportingArtifacts)) {
 }
 for (const device of requested as Device[]) {
   for (const slide of selectedSlides) {
-    const source = path.join("public", "captures", device, `${slide.slug}.png`);
+    const source = path.join("public", "captures", device, `${"captureSlug" in slide ? slide.captureSlug : slide.slug}.png`);
     const bytes = await readFile(source).catch(() => {
       throw new Error(
         `Missing actual ${device} capture: ${source}. Do not substitute mocked or another platform's UI.`,
@@ -83,8 +83,12 @@ try {
       viewport: { width: spec.width, height: spec.height },
       deviceScaleFactor: 1,
     });
-    await page.goto(`${base}/?device=${device}&export=1`, {
+    await page.goto(`${base}/?device=${device}&export=1&slides=${requestedSlides.join(",")}`, {
       waitUntil: "networkidle",
+    });
+    await page.waitForFunction(() => {
+      const auras = [...document.querySelectorAll('[data-aura-ready]')];
+      return auras.length > 0 && auras.every(aura => aura.getAttribute('data-aura-ready') === 'true');
     });
     await page.waitForFunction(() => {
       const marks = [...document.querySelectorAll('[data-brand-ready]')];
@@ -98,7 +102,7 @@ try {
             slugs
               .map(
                 (slug) =>
-                  `[data-export-slide="${slug}"] [data-native-capture], [data-export-slide="${slug}"] [data-supporting-artifact]`,
+                  `[data-export-slide="${slug}"] [data-native-capture], [data-export-slide="${slug}"] [data-supporting-artifact], [data-export-slide="${slug}"] [data-device-frame]`,
               )
               .join(","),
           ),

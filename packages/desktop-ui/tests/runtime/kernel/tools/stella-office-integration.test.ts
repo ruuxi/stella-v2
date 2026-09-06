@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,12 +8,11 @@ import {
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const officeWrapperPath = path.resolve(
-  process.cwd(),
-  "../stella-office",
+  import.meta.dirname,
+  "../../../../../stella-office",
   "bin",
   "stella-office.js",
 );
-const runIfOfficeBinary = existsSync(officeWrapperPath) ? it : it.skip;
 const OFFICE_INTEGRATION_TEST_TIMEOUT_MS = 20_000;
 
 const tempDirs = createSyncTempDirTracker();
@@ -37,7 +35,7 @@ const runOffice = async (cwd: string, command: string) => {
 };
 
 describe("stella-office integration", () => {
-  runIfOfficeBinary(
+  it(
     "creates and reads a docx document",
     async () => {
       const tempDir = createTempDir();
@@ -57,7 +55,7 @@ describe("stella-office integration", () => {
     OFFICE_INTEGRATION_TEST_TIMEOUT_MS,
   );
 
-  runIfOfficeBinary(
+  it(
     "creates and reads an xlsx document",
     async () => {
       const tempDir = createTempDir();
@@ -77,7 +75,7 @@ describe("stella-office integration", () => {
     OFFICE_INTEGRATION_TEST_TIMEOUT_MS,
   );
 
-  runIfOfficeBinary(
+  it(
     "creates and reads a pptx document",
     async () => {
       const tempDir = createTempDir();

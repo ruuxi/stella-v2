@@ -39,6 +39,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Build renderer
@@ -62,6 +63,9 @@ jobs:
 
       - name: Typecheck Electron and preload
         run: bun run electron:typecheck
+
+      - name: Hydrate pinned OfficeCLI binary for integration tests
+        run: bun run stella-office:download
 
       - name: Test desktop UI
         run: bun run test:run
@@ -95,6 +99,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Check generated prompt defaults
@@ -133,6 +138,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Check package boundaries
@@ -167,6 +173,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Typecheck executor
@@ -206,6 +213,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Test Rust CLI, extension, and browser action contracts
@@ -250,6 +258,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Typecheck worker
@@ -288,6 +297,7 @@ jobs:
       - name: Install dependencies
         env:
           STELLA_SKIP_BROWSER_HYDRATE: "1"
+          STELLA_SKIP_OFFICE_HYDRATE: "1"
         run: bun install --frozen-lockfile
 
       - name: Typecheck mobile

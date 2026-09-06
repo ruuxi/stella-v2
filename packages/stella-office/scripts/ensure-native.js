@@ -4,10 +4,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { getBundledBinaryPath } from "./shared.js";
 
-if (
-  process.env.STELLA_SKIP_BROWSER_HYDRATE === "1" ||
-  process.env.STELLA_SKIP_OFFICE_HYDRATE === "1"
-) {
+if (process.env.STELLA_SKIP_OFFICE_HYDRATE === "1") {
   process.exit(0);
 }
 

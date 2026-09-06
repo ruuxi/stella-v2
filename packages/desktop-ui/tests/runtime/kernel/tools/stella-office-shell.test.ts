@@ -8,8 +8,8 @@ import {
 } from "@stella/runtime/kernel/tools/shell";
 
 const officeWrapperPath = path.resolve(
-  process.cwd(),
-  "../stella-office",
+  import.meta.dirname,
+  "../../../../../stella-office",
   "bin",
   "stella-office.js",
 );

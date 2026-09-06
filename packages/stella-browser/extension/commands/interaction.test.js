@@ -75,7 +75,13 @@ globalThis.chrome = {
       debuggerCalls.push({ target, method, params });
       if (method === "Runtime.evaluate") {
         evaluatedExpression = params.expression;
-        return { result: { value: evaluationOutcome } };
+        return {
+          result: {
+            value: params.expression.includes("const ancestorFrames = []")
+              ? { x: 128, y: 90 }
+              : evaluationOutcome,
+          },
+        };
       }
       return {};
     },
@@ -176,9 +182,14 @@ test("dblclick dispatches accumulated top-frame coordinates for nested iframe ta
   });
 
   assert.equal(response.success, true);
-  assert.match(evaluatedExpression, /ancestorFrames\.reverse/);
+  const pointExpression = debuggerCalls.find(
+    (call) =>
+      call.method === "Runtime.evaluate" &&
+      call.params.expression.includes("const ancestorFrames = []"),
+  )?.params.expression;
+  assert.match(pointExpression, /ancestorFrames\.reverse/);
   assert.match(
-    evaluatedExpression,
+    pointExpression,
     /frameRect\.left \+ \(frameElement\.clientLeft \|\| 0\)/,
   );
   const mouseCalls = debuggerCalls.filter(

@@ -132,7 +132,7 @@ describe("working orchestrator surface", () => {
       "The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.",
     );
     expect(prompt).toContain(
-      "Every query searches and merges both thread and transcript history",
+      "Recall` searches every thread you have ever run and returns the matching `thread_id`s",
     );
     expect(prompt).toContain("~/.stella/memories/profile.md");
     expect(prompt).not.toContain("memory_map.md");
@@ -185,7 +185,7 @@ describe("working orchestrator surface", () => {
 
     expect(orchestrator?.maxAgentDepth).toBe(2);
     expect(orchestrator?.systemPrompt).toContain(
-      "Execution happens through background agents",
+      "Agents run in the background.",
     );
     expect(orchestrator?.toolsAllowlist).toEqual(
       expect.arrayContaining([
@@ -212,11 +212,11 @@ describe("working orchestrator surface", () => {
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
     ).toContain(
-      "You are Stella, the World's best Personal AI Assistant and Secretary.",
+      "You are Stella, the user's personal AI assistant.",
     );
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
-    ).toContain("Execution happens through background agents");
+    ).toContain("Agents run in the background.");
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.GENERAL)?.systemPrompt,
     ).toBeTruthy();
@@ -236,7 +236,7 @@ describe("working orchestrator surface", () => {
     expect(
       reloaded.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
         ?.systemPrompt,
-    ).toContain("World's best Personal AI Assistant");
+    ).toContain("You are Stella, the user's personal AI assistant.");
   });
 
   it("offers coordinator tools and keeps child agents one level deep", async () => {

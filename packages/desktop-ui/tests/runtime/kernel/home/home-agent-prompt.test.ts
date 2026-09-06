@@ -65,7 +65,7 @@ describe("loadAgentSystemPrompt", () => {
   it("reads the real bundled orchestrator prompt without an override", async () => {
     delete process.env.STELLA_AGENT_METADATA_DIR;
     await expect(loadAgentSystemPrompt("orchestrator")).resolves.toContain(
-      "World's best Personal AI Assistant",
+      "You are Stella, the user's personal AI assistant.",
     );
   });
 });

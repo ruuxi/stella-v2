@@ -91,6 +91,22 @@ test("boundary fence owns both Effect-bearing cloud packages", async () => {
   ]);
 });
 
+test("renderer can share theme primitives without importing execution code", async () => {
+  const root = await createRepo();
+  await put(
+    root,
+    "packages/desktop-ui/src/theme.ts",
+    moduleSource("@stella/theme", "@stella/theme/color", "@stella/contracts", "@stella/runtime"),
+  );
+  await put(root, "packages/theme/color.ts", moduleSource("effect", "@stella/runtime"));
+  const offenders = await checkBoundaries(root);
+  assert.deepEqual(offenders.map(({ file, specifier }) => [file, specifier]), [
+    ["packages/desktop-ui/src/theme.ts", "@stella/runtime"],
+    ["packages/theme/color.ts", "effect"],
+    ["packages/theme/color.ts", "@stella/runtime"],
+  ]);
+});
+
 test("Effect-native home service stays behind the runtime package boundary", async () => {
   const runtimePackage = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),

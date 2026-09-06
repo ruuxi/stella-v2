@@ -38,19 +38,19 @@ describe("state tools", () => {
 
     expect(
       spawnAgent?.parameters.properties?.description?.description,
-    ).toContain("2–3 word domain name");
+    ).toContain("A short name for the project or area of work");
     expect(spawnAgent?.description).toContain(
-      "that agent it may spawn its own subagents",
+      "Agents can delegate independent parts to subagents.",
     );
-    expect(spawnAgent?.description).toContain("Most tasks stay with one agent");
+    expect(spawnAgent?.description).toContain("Continue related work with an existing agent through send_input");
     expect(spawnAgent?.description).toContain(
-      "immediate tool result means the agent has started, not finished",
+      "immediate result means work has started; completion arrives in [Agent completed]",
     );
     expect(sendInput?.description).toContain(
-      "benefits from an existing agent's context",
+      "Preserves the thread's context",
     );
     expect(sendInput?.description).toContain(
-      "successful tool result means the agent has started or resumed working, not finished",
+      "successful result means the input was accepted, not that the work finished",
     );
     expect(sendInput?.parameters.properties).not.toHaveProperty("description");
     expect(sendInput?.parameters.required).toEqual(["thread_id", "message"]);

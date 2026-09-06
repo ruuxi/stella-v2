@@ -209,7 +209,7 @@ export const checkBoundaries = async (repoRoot) => {
   );
 
   // packages/desktop-ui — the whole package is Effect-free. The stricter
-  // contracts-only import rule applies to renderer src (tests intentionally
+  // contracts/theme import rule applies to renderer src (tests intentionally
   // exercise @stella/runtime/worker/* internals; configs use build tooling).
   await inspect(
     path.join(repoRoot, "packages", "desktop-ui"),
@@ -229,9 +229,11 @@ export const checkBoundaries = async (repoRoot) => {
       if (
         specifier.startsWith("@stella/") &&
         specifier !== "@stella/contracts" &&
-        !specifier.startsWith("@stella/contracts/")
+        !specifier.startsWith("@stella/contracts/") &&
+        specifier !== "@stella/theme" &&
+        !specifier.startsWith("@stella/theme/")
       ) {
-        return "renderer may import only @stella/contracts workspace modules";
+        return "renderer may import only @stella/contracts and @stella/theme workspace modules";
       }
       if (/\.\.\/.*(?:runtime|desktop|contracts)\//.test(specifier)) {
         return "renderer must use the contracts workspace boundary";
@@ -275,6 +277,16 @@ export const checkBoundaries = async (repoRoot) => {
     }
     if (isEffectBearingCloudImport(specifier)) {
       return "Effect-bearing cloud packages are fenced from contracts";
+    }
+    return null;
+  });
+
+  // Shared theme math and palettes execute in clients; keep them independent
+  // of Effect and host/runtime packages, just like renderer code.
+  await inspect(path.join(repoRoot, "packages", "theme"), (specifier) => {
+    if (isEffectImport(specifier)) return "Effect is fenced from theme";
+    if (specifier.startsWith("@stella/")) {
+      return "theme must not depend on other workspace packages";
     }
     return null;
   });

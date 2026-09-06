@@ -1813,6 +1813,7 @@ describe("session-store", () => {
     expect(messages.at(-1)?.payload?.text).toBe("user 4049");
   });
 
+  // Allow for populating 4,002 real indexed entries on slower CI disks.
   it("finds visible history beyond more than 4,000 hidden successors", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
@@ -1822,23 +1823,26 @@ describe("session-store", () => {
       timestamp: 1_000,
       payload: { text: "still visible" },
     });
-    for (let index = 0; index < 4_001; index += 1) {
-      store.appendEvent({
-        conversationId,
-        type: "user_message",
-        timestamp: 2_000 + index,
-        payload: {
-          text: `hidden ${index}`,
-          metadata: { ui: { visibility: "hidden" } },
-        },
-      });
-    }
+    // This is a pagination fixture, so populate it in one durable transaction.
+    store.withTransaction(() => {
+      for (let index = 0; index < 4_001; index += 1) {
+        store.appendEvent({
+          conversationId,
+          type: "user_message",
+          timestamp: 2_000 + index,
+          payload: {
+            text: `hidden ${index}`,
+            metadata: { ui: { visibility: "hidden" } },
+          },
+        });
+      }
+    });
 
     const page = store.listMessages(conversationId, { maxVisibleMessages: 80 });
 
     expect(page.visibleMessageCount).toBe(1);
     expect(page.messages.map((message) => message._id)).toEqual([visible._id]);
-  });
+  }, 30_000);
 
   it("maintains the indexed visibility projection at write time", () => {
     const { db, store } = createTestContext();

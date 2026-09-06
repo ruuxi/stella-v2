@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
   preloadAuthDialog: vi.fn(),
   preloadBillingScreen: vi.fn(),
   onSignIn: vi.fn(),
+  navigate: vi.fn().mockResolvedValue(undefined),
+}));
+
+// The phone item lazily imports the app router. Keep navigation at the unit
+// boundary so selecting it cannot load the route tree after test teardown.
+vi.mock("@/router", () => ({
+  router: { navigate: mocks.navigate },
 }));
 
 vi.mock("@/shell/topbar/nav-surface-preloads", () => ({
@@ -231,7 +238,7 @@ describe("shell top-bar account control", () => {
     ).toBeNull();
   });
 
-  it("selecting the phone item dismisses the shared hint", async () => {
+  it("selecting the phone item dismisses the shared hint and opens its dialog", async () => {
     await render(true);
     await openMenu();
 
@@ -239,6 +246,15 @@ describe("shell top-bar account control", () => {
       menuItem("Stella on your phone")?.click();
     });
 
+    await vi.waitFor(() => {
+      expect(mocks.navigate).toHaveBeenCalledOnce();
+    });
     expect(mocks.dismissConnectHint).toHaveBeenCalledOnce();
+    const [navigation] = mocks.navigate.mock.calls[0];
+    expect(navigation.to).toBe(".");
+    expect(navigation.search({ c: "conversation-1" })).toEqual({
+      c: "conversation-1",
+      dialog: "connect",
+    });
   });
 });

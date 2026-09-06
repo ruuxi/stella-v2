@@ -170,8 +170,9 @@ describe("shell hardening", () => {
         user: "stella-tools",
       },
     };
-    const result = await handleExecCommand(
-      createShellState(root),
+    const state = createShellState(root);
+    let result = await handleExecCommand(
+      state,
       {
         cmd: "printf identity-boundary",
         workdir: root,
@@ -179,6 +180,14 @@ describe("shell hardening", () => {
       },
       context,
     );
+    // exec_command may yield while a real shell is still starting under load.
+    if ((result.details as { running?: boolean })?.running) {
+      result = await handleWriteStdin(state, {
+        session_id: (result.details as { session_id: string }).session_id,
+        chars: "",
+        yield_time_ms: 1_000,
+      }, context);
+    }
     expect(result.result).toContain("identity-boundary");
     const spawnOptions = mocks.spawn.mock.calls.at(-1)?.[2] as
       | {

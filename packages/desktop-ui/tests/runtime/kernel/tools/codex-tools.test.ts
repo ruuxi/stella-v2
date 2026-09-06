@@ -404,6 +404,8 @@ describe("general agent tools", () => {
       );
       expect(recovered).toBe("recovered\n");
     },
+    // Four real PowerShell processes each have a 5-second command budget.
+    25_000,
   );
 
   it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {

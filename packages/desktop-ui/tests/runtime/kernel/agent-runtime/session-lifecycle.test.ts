@@ -335,7 +335,7 @@ describe("OrchestratorSession", () => {
     });
   });
 
-  it("refreshes the advertised tool schema on the next turn of an open session", async () => {
+  it("holds the advertised tool schema until the next history boundary", async () => {
     const session = new OrchestratorSession("conversation-1");
     const advertisedTools: string[][] = [];
     const tempRoot = await mkdtemp(
@@ -372,7 +372,7 @@ describe("OrchestratorSession", () => {
     );
     expect(beforeReload?.systemPrompt).toBe("Legacy-compatible metadata body.");
     expect(afterReload?.systemPrompt).toContain(
-      "World's best Personal AI Assistant",
+      "You are Stella, the user's personal AI assistant.",
     );
     expect(beforeReload?.toolsAllowlist).not.toContain("exec_command");
     expect(afterReload?.toolsAllowlist).not.toContain("exec_command");
@@ -419,10 +419,31 @@ describe("OrchestratorSession", () => {
     );
 
     expect(advertisedTools[0]).toEqual(originalTools);
-    expect(advertisedTools[1]).toEqual(updatedTools);
-    expect(advertisedTools[1]).not.toContain("exec_command");
-    expect(advertisedTools[1]).toContain("code");
-    expect(advertisedTools[1]).not.toContain("node_repl");
+    // Keep the provider cache prefix stable across ordinary continuation turns.
+    expect(advertisedTools[1]).toEqual(originalTools);
+
+    session.notifyCompacted();
+    await session.runTurn(
+      createOptions({
+        runId: "run-after-history-boundary",
+        userPrompt: "Continue after compaction",
+        agentContext: {
+          systemPrompt: "Customized prompt body",
+          dynamicContext: "",
+          maxAgentDepth: 1,
+          toolsAllowlist: updatedTools,
+        },
+        toolCatalog: updatedTools.map(toolMetadata),
+        store: {
+          recordRunEvent: vi.fn(),
+          loadThreadMessages: vi.fn(() => []),
+        } as never,
+      }),
+    );
+    expect(advertisedTools[2]).toEqual(updatedTools);
+    expect(advertisedTools[2]).not.toContain("exec_command");
+    expect(advertisedTools[2]).toContain("code");
+    expect(advertisedTools[2]).not.toContain("node_repl");
     await rm(tempRoot, { recursive: true, force: true });
   });
 

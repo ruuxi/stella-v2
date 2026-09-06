@@ -495,6 +495,7 @@ describe("native tool-result persistence boundary", () => {
     const readFile = vi.spyOn(fs.promises, "readFile");
     try {
       const [tool] = createPiTools({
+        executionHost: "sandbox",
         runId: "run-cloud-authorized-image",
         rootRunId: "run-cloud-authorized-image",
         conversationId: "conversation-1",
@@ -564,6 +565,7 @@ describe("native tool-result persistence boundary", () => {
     const imgPath = writePng(tempDir, "native typed image.png");
     const audioPath = path.join(tempDir, "typed audio.mp3");
     const [tool] = createPiTools({
+      executionHost: "device",
       runId: "run-code-media",
       rootRunId: "run-code-media",
       conversationId: "conversation-1",
@@ -631,6 +633,7 @@ describe("native tool-result persistence boundary", () => {
   it("keeps browser response-metadata screenshots out of model content", async () => {
     const screenshotUrl = `data:image/jpeg;base64,${JPEG_BYTES.toString("base64")}`;
     const [tool] = createPiTools({
+      executionHost: "device",
       runId: "run-browser-response-meta",
       rootRunId: "run-browser-response-meta",
       conversationId: "conversation-1",
@@ -681,6 +684,7 @@ describe("native tool-result persistence boundary", () => {
   it("truncates tool text once before it enters durable history", async () => {
     const rawText = `HEAD-${"x".repeat(60_000)}-TAIL`;
     const [tool] = createPiTools({
+      executionHost: "device",
       runId: "run-raw-tool-output",
       rootRunId: "run-raw-tool-output",
       conversationId: "conversation-1",

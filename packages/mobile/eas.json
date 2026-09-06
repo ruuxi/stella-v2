@@ -20,6 +20,10 @@
         "EXPO_PUBLIC_CONVEX_URL": "https://outgoing-bulldog-865.convex.cloud",
         "EXPO_PUBLIC_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
         "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "450329171803"
+      },
+      "android": {
+        "distribution": "internal",
+        "buildType": "apk"
       }
     },
     "production": {

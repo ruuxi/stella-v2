@@ -3,11 +3,11 @@
   "apple": {
     "copyright": "2026 FromYou, LLC",
     "release": {
-      "automaticRelease": false
+      "automaticRelease": true
     },
     "info": {
       "en-US": {
-        "description": "Stella is a personal AI assistant for your phone and computer. Ask a question, talk through an idea, or send work to your paired computer while you're away.\n\nUse Stella to:\n• Chat with an AI assistant from your phone\n• Speak instead of typing with voice input\n• Pair with the Stella desktop app and ask your computer to browse, manage files, or run tasks\n• Choose Stella models, your own provider keys, Codex, or Claude Code on a paired computer\n• Keep chat history and local context on your devices rather than in a cloud message archive\n\nStella is local-first and open source. Depending on how you use it, message content may be processed by Stella services or the AI provider you select to produce a response. See the privacy policy for details.\n\nComputer control requires the Stella desktop app and a paired computer. What Stella can do depends on your computer, selected model or engine, connected services, and permissions.",
+        "description": "Stella is a personal AI assistant for your phone and computer.\n\nAsk questions, talk through ideas, write, and get things done. Send photos and files, use voice, or connect your computer to work with your apps and files.",
         "keywords": [
           "assistant",
           "productivity",
@@ -23,9 +23,10 @@
         ],
         "marketingUrl": "https://stella.sh",
         "supportUrl": "https://stella.sh",
-        "title": "Stella: Personal AI",
-        "subtitle": "Chat, voice & desktop control",
-        "privacyPolicyUrl": "https://stella.sh/privacy"
+        "title": "Stella - Your AI",
+        "subtitle": "Your Personal AI Assistant",
+        "privacyPolicyUrl": "https://stella.sh/privacy",
+        "releaseNotes": "Improved menus, text selection, and chat scrolling."
       }
     },
     "categories": [
@@ -66,7 +67,7 @@
       "email": "contact@fromyou.ai",
       "phone": "+1 571 278 2333",
       "demoRequired": false,
-      "notes": "Sign-in is optional. To review without an account, tap 'Continue without signing in,' then complete or skip onboarding and open Chat.\n\nThe Computer tab connects to the separately installed Stella desktop app. Pairing uses a one-time code or QR code shown by the desktop app, so computer control is unavailable until a computer is paired.\n\nChat messages are exchanged with an AI assistant, not with other users. The app has no public feed or public user profiles.\n\nSubscriptions: Stella's managed AI service has optional paid plans (Go and Pro). Stella is available on iOS, desktop, and web. In-app subscription purchase is shown ONLY to users whose App Store storefront is the United States, determined from StoreKit's storefront country (not device language or IP), consistent with the U.S. external-purchase-link allowance. On the Account tab, a signed-in U.S. user taps Subscribe, completes payment via Stripe Checkout in the system browser, and returns to the app; their plan updates automatically. Users on every other storefront, and when the storefront is unknown, are shown no purchase option, price, or link (fail closed). Existing subscribers — including anyone who subscribed on the web — are recognized in every region after signing in and can view and manage their plan. To review the purchase flow, sign in on the Account tab from a U.S. App Store account."
+      "notes": "Sign-in is optional. Complete onboarding to start chatting.\n\nComputer mode requires pairing with the Stella desktop app using a code. Chat responses come from the AI assistant; there is no public feed or chat between users."
     }
   }
 }

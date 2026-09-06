@@ -1,4 +1,8 @@
-import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
+import {
+  forkAbortTimer,
+  runToolEffect,
+} from "@stella/runtime/kernel/tools/effect-runtime.js";
+import * as Effect from "effect/Effect";
 import { SUBPROTOCOL } from "./conversation-hub.js";
 
 const MUSE_MODEL = "muse-voice-transcribe-1.0";
@@ -133,12 +137,20 @@ export const handleMuseTranscribeSocket = async (args: {
   };
   const upstreamUrl = new URL(MUSE_SOCKET_URL);
   upstreamUrl.searchParams.set("sessionId", prepared.sessionId);
-  const upstreamResponse = await fetch(upstreamUrl, {
-    headers: { Upgrade: "websocket" },
-    signal: AbortSignal.timeout(
-      Math.max(1, Math.min(10_000, prepared.providerDeadlineAt - Date.now())),
+  // Aborting a fetch after its 101 response also disconnects the upgraded
+  // socket. Bound only the upgrade; the session has its own deadline below.
+  const upstreamResponse = await runToolEffect(
+    Effect.tryPromise((signal) =>
+      fetch(upstreamUrl, {
+        headers: { Upgrade: "websocket" },
+        signal,
+      }),
+    ).pipe(
+      Effect.timeout(
+        Math.max(1, Math.min(10_000, prepared.providerDeadlineAt - Date.now())),
+      ),
     ),
-  }).catch(() => null);
+  ).catch(() => null);
   if (
     !upstreamResponse ||
     upstreamResponse.status !== 101 ||

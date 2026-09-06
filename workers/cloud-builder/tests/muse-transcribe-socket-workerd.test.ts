@@ -4,7 +4,7 @@ import { startWorkerdDev, type WorkerdDev } from "./helpers/workerd-dev.js";
 const exchange = (
   origin: string,
   path: string,
-  frames: (Uint8Array | string)[],
+  frames: (Uint8Array | string | number)[],
   protocols?: string[],
 ) =>
   new Promise<{ messages: unknown[]; code: number; reason: string }>(
@@ -17,9 +17,13 @@ const exchange = (
       const timer = setTimeout(() => {
         socket.close();
         reject(new Error("WebSocket proof timed out"));
-      }, 10_000);
-      socket.addEventListener("open", () => {
-        for (const frame of frames) socket.send(frame);
+      }, 25_000);
+      socket.addEventListener("open", async () => {
+        for (const frame of frames) {
+          if (typeof frame === "number") {
+            await new Promise((resolve) => setTimeout(resolve, frame));
+          } else if (socket.readyState === WebSocket.OPEN) socket.send(frame);
+        }
       });
       socket.addEventListener("message", (event) =>
         messages.push(JSON.parse(String(event.data))),
@@ -89,4 +93,36 @@ describe("Muse PCM relay in real Workerd", () => {
       success: true,
     });
   });
+
+  test("an upgraded relay remains alive beyond the ten-second handshake deadline", async () => {
+    const audio = new Uint8Array([5, 0, 6, 0]);
+    const result = await exchange(
+      dev.origin,
+      "/relay",
+      [audio, 11_000, audio, JSON.stringify({ type: "endStream" })],
+      ["stella.v1"],
+    );
+    expect(result.code).toBe(1000);
+    expect(result.messages).toEqual([
+      { type: "transcript", final: true, text: "binary audio accepted" },
+    ]);
+    let settlement: any;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const state = (await (await fetch(`${dev.origin}/state`)).json()) as any;
+      settlement = state.settlements.at(-1);
+      if (settlement?.durationMs >= 11_000) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(settlement).toMatchObject({ audioBytes: 8, success: true });
+    expect(settlement.durationMs).toBeGreaterThanOrEqual(11_000);
+  }, 20_000);
+
+  test("a provider that never upgrades still times out within ten seconds", async () => {
+    const startedAt = Date.now();
+    const response = await fetch(`${dev.origin}/relay?hang=1`);
+    const elapsed = Date.now() - startedAt;
+    expect(response.status).toBe(502);
+    expect(elapsed).toBeGreaterThanOrEqual(9_000);
+    expect(elapsed).toBeLessThan(15_000);
+  }, 20_000);
 });

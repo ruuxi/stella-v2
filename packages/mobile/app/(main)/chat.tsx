@@ -40,6 +40,8 @@ import {
   useComposerModelPinned,
 } from "../../src/lib/composer-model-pin";
 import { useComputerModelSettings } from "../../src/lib/use-computer-model-settings";
+import { useCloudModelSettings } from "../../src/lib/use-cloud-model-settings";
+import { usesCloudModelSettings } from "../../src/lib/cloud-model-selection";
 import {
   REASONING_OPTIONS,
   type ReasoningEffort,
@@ -265,7 +267,9 @@ function ChatSurface(props: {
   const offline = useIsOffline();
   const isFocused = useIsFocused();
   const composerModelPinned = useComposerModelPinned();
-  const modelSettings = useComputerModelSettings(access);
+  const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
+  const cloudModelSettings = useCloudModelSettings(cloudModelsActive);
+  const modelSettings = useComputerModelSettings(cloudModelsActive ? null : access);
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
@@ -508,6 +512,7 @@ function ChatSurface(props: {
     // A turn is only sendable once every attachment has a drive path. Until
     // then the chip is still uploading or has failed, and sending would drop it.
     attachmentsSettled(thread.attachments) &&
+    !(cloudModelsActive && cloudModelSettings.saving) &&
     !offline &&
     thread.storageLoaded &&
     thread.authorityReady !== false;
@@ -518,6 +523,28 @@ function ChatSurface(props: {
   );
 
   const composerModelPicker = useMemo(() => {
+    if (cloudModelsActive) {
+      return {
+        pinned: true,
+        label: cloudModelSettings.label,
+        loading: cloudModelSettings.loading,
+        saving: cloudModelSettings.saving,
+        effortLabel: cloudModelSettings.effort === "default"
+          ? t("settings.agentModelPicker.default")
+          : t(`settings.reasoningEffort.${cloudModelSettings.effort}`),
+        effortOptions: REASONING_OPTIONS.map((option) => ({
+          ...option,
+          label: option.id === "default"
+            ? t("settings.agentModelPicker.default")
+            : t(`settings.reasoningEffort.${option.id}`),
+          selected: option.id === cloudModelSettings.effort,
+        })),
+        recentModels: cloudModelSettings.models,
+        onOpen: () => { void cloudModelSettings.refresh(); },
+        onSelectEffort: (id: string) => cloudModelSettings.selectEffort(id as ReasoningEffort),
+        onSelectModel: cloudModelSettings.selectModel,
+      };
+    }
     if (!access) return undefined;
     return {
       // The pinned composer picker is a developer-mode surface; an explicit
@@ -543,7 +570,7 @@ function ChatSurface(props: {
         modelSettings.selectEffort(id as ReasoningEffort),
       onSelectModel: modelSettings.selectRecentModel,
     };
-  }, [access, composerModelPinned, modelSettings]);
+  }, [access, cloudModelsActive, cloudModelSettings, composerModelPinned, modelSettings, t]);
 
   return (
     <View style={styles.screen}>

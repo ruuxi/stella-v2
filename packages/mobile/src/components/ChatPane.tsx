@@ -3641,11 +3641,11 @@ export function ChatPane({
     const options: PlusMenuOption[] = [
       {
         id: "model-thinking",
-        label: "Thinking",
+        label: t("app.chat.miniModelPicker.reasoningEffortLabel"),
         icon: "sparkles",
         trailingLabel: composerModelPicker.effortLabel,
         disabled: composerModelPicker.loading,
-        submenuTitle: "Thinking",
+        submenuTitle: t("app.chat.miniModelPicker.reasoningEffortLabel"),
         submenu: composerModelPicker.effortOptions.map((effort) => ({
           id: `model-effort-${effort.id}`,
           label: effort.label,
@@ -3666,7 +3666,7 @@ export function ChatPane({
       })),
     ];
     return options;
-  }, [composerModelPicker]);
+  }, [composerModelPicker, t]);
 
   const onPressModelPicker = useCallback(() => {
     if (!composerModelPicker?.pinned || !modelPickerAnchorRef.current) return;
@@ -4535,7 +4535,7 @@ export function ChatPane({
                             onPress={onPressModelPicker}
                             disabled={composerModelPicker.loading}
                             accessibilityRole="button"
-                            accessibilityLabel={`Model: ${composerModelPicker.label}`}
+                            accessibilityLabel={t("app.chat.miniModelPicker.triggerLabel", { model: composerModelPicker.label })}
                             style={({ pressed }) => [
                               styles.miniModelPickerTrigger,
                               pressed && styles.miniModelPickerTriggerPressed,

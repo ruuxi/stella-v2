@@ -136,10 +136,12 @@ type CatalogApiResponse = {
   defaults?: Array<{ agentType?: unknown }>;
 };
 
-export async function fetchStellaCatalog(): Promise<StellaCatalog> {
+export async function fetchStellaCatalog(
+  options?: { headers?: Record<string, string> },
+): Promise<StellaCatalog> {
   let parsed: CatalogApiResponse;
   try {
-    parsed = (await getJson("/api/stella/models")) as CatalogApiResponse;
+    parsed = (await getJson("/api/stella/models", options)) as CatalogApiResponse;
   } catch {
     return { models: FALLBACK_STELLA_MODELS, agentKeys: FALLBACK_AGENT_KEYS };
   }

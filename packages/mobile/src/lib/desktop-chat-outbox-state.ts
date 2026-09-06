@@ -1,3 +1,5 @@
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { parseCloudModelSelection } from "./cloud-model-selection";
 import type { ChatMessage } from "../types";
 import type { AutomaticExecutionTarget } from "./execution-placement";
 
@@ -30,6 +32,7 @@ export type DesktopChatOutboxRecord = {
   sequence: number;
   attachments: DesktopChatOutboxAttachment[];
   executionTarget?: AutomaticExecutionTarget;
+  execution?: CloudExecutionSelection;
   /** Exact server owner fence for canonical journal replay. */
   authority?: DesktopChatOutboxAuthority;
   /** Durable placement cancel intent, retained until the server is terminal. */
@@ -188,6 +191,9 @@ export const parseDesktopChatOutbox = (
       : [];
     const authority = parseAuthority(record.authority);
     const executionTarget = parseExecutionTarget(record.executionTarget);
+    const execution = executionTarget?.mode !== "device"
+      ? parseCloudModelSelection(record.execution)
+      : undefined;
     const parsed = {
       sendId,
       userMessageId,
@@ -197,6 +203,7 @@ export const parseDesktopChatOutbox = (
       sequence,
       attachments,
       ...(executionTarget ? { executionTarget } : {}),
+      ...(execution ? { execution } : {}),
       ...(authority ? { authority } : {}),
       ...(typeof record.cancelRequestId === "string" &&
       record.cancelRequestId.trim()
@@ -239,7 +246,11 @@ export const appendDesktopChatOutboxRecord = (
       (highest, record) => Math.max(highest, record.sequence),
       0,
     ) + 1;
-  const record = { ...input, sequence };
+  const { execution: inputExecution, ...rest } = input;
+  const execution = input.executionTarget?.mode !== "device"
+    ? parseCloudModelSelection(inputExecution)
+    : undefined;
+  const record = { ...rest, sequence, ...(execution ? { execution } : {}) };
   return { records: [...normalized, record], record };
 };
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { managedCloudModelSelection, runOwnerBoundModelRequest, usesCloudModelSettings } from "../cloud-model-selection";
+import { managedCloudModelSelection, parseCloudModelSelection, runOwnerBoundModelRequest, usesCloudModelSettings } from "../cloud-model-selection";
 
 describe("mobile cloud model settings", () => {
   test("cloud and unpaired chats use account models; paired computer keeps local models", () => {
@@ -13,6 +13,11 @@ describe("mobile cloud model settings", () => {
     expect(managedCloudModelSelection("stella/sonnet", {
       engine: "openai-codex", provider: "openai-codex", model: "gpt-5.5", reasoningEffort: "high",
     })).toEqual({ engine: "stella", provider: "stella", model: "stella/sonnet", reasoningEffort: "high" });
+  });
+
+  test("rejects mismatched providers and corrupt persisted reasoning settings", () => {
+    expect(parseCloudModelSelection({ engine: "stella", provider: "anthropic", model: "stella/sonnet", reasoningEffort: "default" })).toBeUndefined();
+    expect(parseCloudModelSelection({ engine: "stella", provider: "stella", model: "stella/sonnet", reasoningEffort: "unsupported" })).toBeUndefined();
   });
 
   test("account change during token resolution cannot issue a stale write", async () => {

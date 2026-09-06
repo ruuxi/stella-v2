@@ -1,3 +1,4 @@
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import {
@@ -343,6 +344,8 @@ export type AutomaticExecutionAdmissionInput = {
   subject?: AutomaticExecutionSubject;
   /** Which executor runs it, independent of subject. */
   target?: AutomaticExecutionTarget;
+  /** Exact cloud model chosen when this durable send was created. */
+  execution?: CloudExecutionSelection;
   requiredCapabilities?: AutomaticExecutionCapability[];
   /**
    * Drive-relative paths of files already uploaded for this turn. References
@@ -399,6 +402,7 @@ export const buildAutomaticExecutionAdmission = (
     prompt,
     conversationId,
     clientMsgId: idempotencyKey,
+    ...(input.execution && input.target?.mode !== "device" ? { execution: input.execution } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(input.kind === "agent"
       ? { description: input.description?.trim() || prompt.slice(0, 160) }

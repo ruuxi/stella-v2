@@ -1,3 +1,4 @@
+import { buildAutomaticExecutionAdmission } from "./execution-placement-core";
 import { describe, expect, test } from "bun:test";
 import { mergeMessagesById } from "./chat-merge";
 import {
@@ -329,6 +330,41 @@ describe("chat durable outbox", () => {
         authority: authorityA1,
       }),
     ).toThrow("Conflicting durable chat outbox identity");
+  });
+
+  test("replays the chosen cloud model with the same signed payload after preferences change", () => {
+    const chosen = { engine: "stella" as const, provider: "stella" as const, model: "stella/sonnet", reasoningEffort: "high" as const };
+    const records = appendDesktopChatOutboxRecord([], {
+      ...pending("cloud-model-send", "hello", 1),
+      authority: authorityA1,
+      executionTarget: { mode: "cloud" },
+      execution: chosen,
+    }).records;
+    const [replayed] = parseDesktopChatOutbox(JSON.parse(JSON.stringify(records)));
+    chosen.model = "stella/opus";
+    expect(replayed!.execution?.model).toBe("stella/sonnet");
+    const admission = (execution: typeof replayed.execution) => buildAutomaticExecutionAdmission({
+      idempotencyKey: replayed!.sendId,
+      conversationId: "conv:model",
+      kind: "chat",
+      prompt: replayed!.text,
+      target: { mode: "cloud" },
+      ...(execution ? { execution } : {}),
+    });
+    const before = admission(records[0]!.execution);
+    const after = admission(replayed!.execution);
+    expect(after.payloadHash).toBe(before.payloadHash);
+    expect(after.body.payload.execution?.model).toBe("stella/sonnet");
+    expect(admission(chosen).payloadHash).not.toBe(after.payloadHash);
+  });
+
+  test("computer replay does not acquire a cloud model override", () => {
+    const records = appendDesktopChatOutboxRecord([], {
+      ...pending("computer-send", "hello", 1),
+      executionTarget: { mode: "device", deviceId: "desktop" },
+      execution: { engine: "stella", provider: "stella", model: "stella/sonnet", reasoningEffort: "default" },
+    }).records;
+    expect(records[0]!.execution).toBeUndefined();
   });
 
   test("freezes an exact execution target across durable replay", () => {

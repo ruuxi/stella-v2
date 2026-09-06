@@ -162,10 +162,15 @@ function SignedInCanonicalChat(props: {
     });
   }, []);
 
+  const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
+  const cloudModelSettings = useCloudModelSettings(cloudModelsActive);
   const thread = useCloudCanonicalChatThread(props.authority, {
     reloadAuthority: props.reloadAuthority,
     access,
     executionTarget,
+    ...(cloudModelsActive && cloudModelSettings.execution
+      ? { execution: cloudModelSettings.execution }
+      : {}),
   });
 
   const updateAccess = useCallback((next: StoredPhoneAccess) => {
@@ -198,6 +203,7 @@ function SignedInCanonicalChat(props: {
   return (
     <ChatSurface
       thread={thread}
+      cloudModelSettings={cloudModelSettings}
       access={access}
       pairedDesktops={pairedDesktops}
       executionTarget={executionTarget}
@@ -243,6 +249,7 @@ function CloudAuthorityGate(props: {
 
 function ChatSurface(props: {
   thread: ChatThread;
+  cloudModelSettings: ReturnType<typeof useCloudModelSettings>;
   access: StoredPhoneAccess | null;
   pairedDesktops: StoredPhoneAccess[];
   executionTarget: AutomaticExecutionTarget;
@@ -252,6 +259,7 @@ function ChatSurface(props: {
 }) {
   const {
     thread,
+    cloudModelSettings,
     access,
     pairedDesktops,
     executionTarget,
@@ -268,7 +276,6 @@ function ChatSurface(props: {
   const isFocused = useIsFocused();
   const composerModelPinned = useComposerModelPinned();
   const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
-  const cloudModelSettings = useCloudModelSettings(cloudModelsActive);
   const modelSettings = useComputerModelSettings(cloudModelsActive ? null : access);
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,

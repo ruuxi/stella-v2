@@ -1,3 +1,4 @@
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { makeFunctionReference } from "convex/server";
 import {
   useCallback,
@@ -323,6 +324,7 @@ export const useCloudCanonicalChatThread = (
     /** Paired computer, when one exists, for the live activity overlay. */
     access?: StoredPhoneAccess | null;
     executionTarget?: AutomaticExecutionTarget;
+    execution?: CloudExecutionSelection;
     /**
      * Which durable outbox the optimistic overlay queues into. Two surfaces on
      * the same conversation (the Chat tab and the CarPlay loop) must not drain
@@ -335,6 +337,7 @@ export const useCloudCanonicalChatThread = (
   const access = options?.access ?? null;
   const executionTarget =
     options?.executionTarget ?? AUTOMATIC_EXECUTION_TARGET;
+  const execution = options?.execution;
   const threadId = options?.threadId ?? "cloud";
   const [dispatchBindings, setDispatchBindings] = useState<
     ReadonlyMap<string, string | null>
@@ -428,11 +431,13 @@ export const useCloudCanonicalChatThread = (
       authorityReady,
       access,
       executionTarget,
+      ...(execution ? { execution } : {}),
       onAdmission,
     }),
     [
       access,
       executionTarget,
+      execution,
       authority.accountScope,
       authority.conversationId,
       authority.ownerGeneration,

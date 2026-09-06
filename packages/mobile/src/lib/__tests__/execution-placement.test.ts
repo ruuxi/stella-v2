@@ -12,6 +12,20 @@ import {
 } from "../execution-placement-core";
 
 describe("automatic mobile execution admission", () => {
+  test("carries an explicit cloud model while stripping it from Computer dispatch", () => {
+    const input = {
+      idempotencyKey: "msg:model",
+      conversationId: "conv:model",
+      kind: "chat" as const,
+      prompt: "hello",
+      execution: { engine: "stella" as const, provider: "stella" as const, model: "stella/sonnet", reasoningEffort: "high" as const },
+    };
+    const cloud = buildAutomaticExecutionAdmission({ ...input, target: { mode: "cloud" } });
+    expect(cloud.body.payload.execution).toEqual(input.execution);
+    const computer = buildAutomaticExecutionAdmission({ ...input, target: { mode: "device", deviceId: "desktop" } });
+    expect(computer.body.payload.execution).toBeUndefined();
+  });
+
   test("defaults an unstated subject to portable work", () => {
     const admission = buildAutomaticExecutionAdmission({
       idempotencyKey: "msg:01JDEFAULT",

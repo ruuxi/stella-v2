@@ -113,6 +113,7 @@ export function useCloudModelSettings(active: boolean) {
   }, [active, owner, scope, execution, catalog, t]);
 
   return {
+    execution,
     loading,
     saving,
     refresh,

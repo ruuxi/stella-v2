@@ -27,3 +27,19 @@ export async function runOwnerBoundModelRequest<T>(args: {
   const result = await args.request(token);
   return args.isCurrent() ? result : undefined;
 }
+
+/** Read the optional persisted route without promoting corrupt outbox data. */
+export function parseCloudModelSelection(value: unknown): CloudExecutionSelection | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  const model = typeof row.model === "string" ? row.model.trim() : "";
+  const efforts: readonly unknown[] = ["default", "none", "minimal", "low", "medium", "high", "xhigh"];
+  if (!model || !efforts.includes(row.reasoningEffort) || row.engine !== row.provider) return undefined;
+  const reasoningEffort = row.reasoningEffort as CloudExecutionSelection["reasoningEffort"];
+  switch (row.engine) {
+    case "stella": return { engine: "stella", provider: "stella", model, reasoningEffort };
+    case "anthropic": return { engine: "anthropic", provider: "anthropic", model, reasoningEffort };
+    case "openai-codex": return { engine: "openai-codex", provider: "openai-codex", model, reasoningEffort };
+    default: return undefined;
+  }
+}

@@ -1,3 +1,4 @@
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, LayoutAnimation } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -215,6 +216,7 @@ type QueuedSend = {
   /** Durable server cancellation identity restored from the outbox. */
   cancelRequestId?: string;
   executionTarget?: AutomaticExecutionTarget;
+  execution?: CloudExecutionSelection;
 };
 
 /**
@@ -230,6 +232,7 @@ export type ChatTransport = {
   /** Paired desktop credentials, when one is paired, for live activity reads. */
   access?: StoredPhoneAccess | null;
   executionTarget?: AutomaticExecutionTarget;
+  execution?: CloudExecutionSelection;
   /**
    * Cloud journal reconciliation seam. The placement service allocates a
    * server dispatch id distinct from the mobile optimistic id; the DO echoes
@@ -624,6 +627,7 @@ export function useChatThread(opts: {
             attachments: stored?.attachments ?? [],
             executionTarget:
               stored?.executionTarget ?? AUTOMATIC_EXECUTION_TARGET,
+            ...(stored?.execution ? { execution: stored.execution } : {}),
             ...(stored ? { queueSequence: stored.sequence } : {}),
             canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
             ...(stored?.cancelRequestId
@@ -952,6 +956,7 @@ export function useChatThread(opts: {
                 attachments: placementAttachments,
               }),
               ...(access ? { access } : {}),
+              ...(item.execution && target.mode !== "device" ? { execution: item.execution } : {}),
               target,
             });
             assertAuthorityLease();
@@ -1332,6 +1337,9 @@ export function useChatThread(opts: {
         attachments: sendAttachments,
         executionTarget:
           transport.executionTarget ?? AUTOMATIC_EXECUTION_TARGET,
+        ...(transport.execution && transport.executionTarget?.mode !== "device"
+          ? { execution: { ...transport.execution } }
+          : {}),
         canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
       };
       pendingEnqueueRef.current.add(userMessageId);
@@ -1345,6 +1353,9 @@ export function useChatThread(opts: {
         attachments: sendAttachments,
         executionTarget:
           transport.executionTarget ?? AUTOMATIC_EXECUTION_TARGET,
+        ...(transport.execution && transport.executionTarget?.mode !== "device"
+          ? { execution: { ...transport.execution } }
+          : {}),
         authority: canonicalOutboxAuthority,
       };
       // Transmission gates on this write. If iOS kills the process while
@@ -1407,6 +1418,7 @@ export function useChatThread(opts: {
       storageLoaded,
       threadId,
       transport.executionTarget,
+      transport.execution,
       updateMessages,
     ],
   );

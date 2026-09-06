@@ -114,10 +114,13 @@ describe("Stella prompt defaults", () => {
     const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
       ({ id }) => id === "agents/orchestrator.md",
     )?.content;
-    expect(orchestrator).toContain("user-facing coordinator");
     expect(orchestrator).toContain(
-      "Execution happens through background agents",
+      "You are the orchestrator in the user's ongoing conversation",
     );
+    expect(orchestrator).toContain(
+      "route anything that must act on the user's machine, browser, files, apps, or accounts to an agent",
+    );
+    expect(orchestrator).toContain("Agents run in the background");
     expect(orchestrator).not.toContain(
       "Complete requests directly with your own tools",
     );

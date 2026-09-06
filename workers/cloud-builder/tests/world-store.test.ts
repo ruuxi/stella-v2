@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 import { WorldSqlStore } from "../src/world/store.js";
@@ -770,7 +770,11 @@ describe("WorldSqlStore", () => {
   });
 
   test("matches the Node host for Read, Edit, Grep, and apply_patch", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "stella-world-parity-"));
+    const root = await realpath(
+      // macOS's canonical temp directory is /private/var, which file tools
+      // correctly refuse as a system directory. Use a disposable home fixture.
+      await mkdtemp(path.join(homedir(), ".stella-world-parity-")),
+    );
     try {
       const world = createWorld();
       const localPath = path.join(root, "demo.ts");
@@ -825,7 +829,17 @@ describe("WorldSqlStore", () => {
         name: "Grep",
         arguments: { path: worldPath, ...grepArgs },
       });
-      expect(normalize(worldGrep.output)).toBe(normalize(nodeGrep.result));
+      // Node uses ripgrep when installed and a JS scan otherwise. The fallback
+      // includes the file path and a result-count header; compare the complete
+      // matched lines so parity is independent of the host's ripgrep install.
+      const matchedLines = (value: unknown) =>
+        normalize(value)
+          .replace(/^Found (?:matches|\d+ result\(s\)):\n\n/, "")
+          .replaceAll(`${worldPath}:`, "");
+      expect(worldGrep.ok).toBe(true);
+      expect(nodeGrep.error).toBeUndefined();
+      expect(matchedLines(worldGrep.output)).toBe("2:const beta = 3;");
+      expect(matchedLines(worldGrep.output)).toBe(matchedLines(nodeGrep.result));
 
       const nodePatch = `*** Begin Patch\n*** Update File: ${localPath}\n@@\n-const alpha = 1;\n+const alpha = 4;\n*** End Patch`;
       const worldPatch = nodePatch.replace(localPath, worldPath);

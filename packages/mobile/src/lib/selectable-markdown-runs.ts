@@ -1,7 +1,14 @@
 import type { MarkdownNode } from "react-native-nitro-markdown";
 import type { Colors } from "../theme/colors";
 import { fadeHex } from "../theme/oklch";
-export type Run = { text: string; fontFamily: string; fontSize: number; color: string; italic?: boolean; strikethrough?: boolean; backgroundColor?: string; href?: string };
+export type Run = { text: string; fontFamily: string; fontSize: number; color: string; fontWeight?: "300" | "400" | "500" | "600" | "700"; italic?: boolean; strikethrough?: boolean; backgroundColor?: string; href?: string };
+
+/** UIKit and RN must use the same real italic face, including its measured width. */
+export function selectableItalicFonts(runs: Run[], weights: Record<string, Run["fontWeight"]>): Run[] {
+  return runs.map((run) => run.italic
+    ? { ...run, fontFamily: "System", fontWeight: weights[run.fontFamily] ?? "400" }
+    : run);
+}
 
 /** Convert parser spans, not raw Markdown, into UIKit's attributed text runs. */
 export function markdownTextRuns(node: MarkdownNode, colors: Pick<Colors, "text" | "accent" | "muted">, fonts: { sans: { regular: string; semiBold: string }; mono: { regular: string } }, base: Partial<Run> = {}): Run[] {

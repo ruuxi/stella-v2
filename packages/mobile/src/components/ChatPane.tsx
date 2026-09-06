@@ -3945,11 +3945,13 @@ export function ChatPane({
       realtimeVoiceDesktopAccess,
     ],
   );
-  // Legend recycles memoized rows keyed on item data, so top-level focus state
-  // (which row's menu is open / which is selecting) never reaches a mounted row
-  // on its own. Feed it as `extraData` so opening the menu actually re-renders
-  // the pressed row and its lift spring fires (and selection mode shows).
-  const listExtraData = `${activeMenuMessageId ?? ""}|${selectingMessageId ?? ""}`;
+  // Recycled rows also depend on focus and the current palette. Invalidate
+  // them when either changes so native attributed text receives new colors
+  // even when the message data itself has not changed.
+  const listExtraData = useMemo(
+    () => ({ activeMenuMessageId, selectingMessageId, colors }),
+    [activeMenuMessageId, selectingMessageId, colors],
+  );
   const renderSeparator = useCallback(
     () => <View style={styles.itemSeparator} />,
     [styles],
@@ -4165,6 +4167,10 @@ export function ChatPane({
                 contentContainerStyle={listContentContainerStyle}
                 data={visibleMessages}
                 extraData={listExtraData}
+                // Short transcript rows measure roughly 44–70 pt. Reserve
+                // enough containers for those runs; measured heights still
+                // determine layout for longer replies and artifacts.
+                estimatedItemSize={64}
                 renderItem={renderItem}
                 keyExtractor={keyExtractor}
                 getItemType={getItemType}

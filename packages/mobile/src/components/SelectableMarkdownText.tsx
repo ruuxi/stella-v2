@@ -4,7 +4,15 @@ import { requireNativeViewManager, requireOptionalNativeModule } from "expo-modu
 import type { MarkdownNode } from "react-native-nitro-markdown";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
-import { markdownTextRuns } from "../lib/selectable-markdown-runs";
+import { markdownTextRuns, selectableItalicFonts } from "../lib/selectable-markdown-runs";
+
+const italicFontWeights = {
+  [fonts.sans.regular]: "400", [fonts.sans.medium]: "500",
+  [fonts.sans.semiBold]: "600", [fonts.sans.bold]: "700",
+  [fonts.display.light]: "300", [fonts.display.regular]: "400",
+  [fonts.display.regularItalic]: "400", [fonts.display.semiBold]: "600",
+  [fonts.mono.regular]: "400", [fonts.mono.medium]: "500",
+} as const;
 
 const selectionModule = Platform.OS === "ios"
   ? requireOptionalNativeModule<{ supportsSelectionActions?: boolean }>("StellaSelectableText")
@@ -23,10 +31,10 @@ export const SelectableMarkdownText = memo(function SelectableMarkdownText({ nod
   const flattened = StyleSheet.flatten(textStyle) ?? {};
   const { fontScale } = useWindowDimensions();
   const fontSize = (flattened.fontSize ?? 17) * fontScale;
-  const runs = useMemo(() => markdownTextRuns(node, colors, fonts, {
+  const runs = useMemo(() => selectableItalicFonts(markdownTextRuns(node, colors, fonts, {
     fontSize, fontFamily: flattened.fontFamily ?? fonts.sans.regular,
     color: typeof flattened.color === "string" ? flattened.color : colors.text,
-  }), [node, colors, fontSize, flattened.fontFamily, flattened.color]);
+  }), italicFontWeights), [node, colors, fontSize, flattened.fontFamily, flattened.color]);
   const runsJSON = useMemo(() => JSON.stringify(runs), [runs]);
   if (!NativeText) return null;
   // RN's attributed Text measures the complete block synchronously with Yoga.
@@ -35,7 +43,7 @@ export const SelectableMarkdownText = memo(function SelectableMarkdownText({ nod
   return <View style={{ alignSelf: "stretch", flexShrink: 1 }}>
     <Text allowFontScaling={false} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
       pointerEvents="none" style={{ opacity: 0, fontFamily: flattened.fontFamily ?? fonts.sans.regular, fontSize, lineHeight: fontSize * 1.5 }}>
-      {runs.map((run, index) => <Text allowFontScaling={false} key={index} style={{ fontFamily: run.fontFamily, fontSize: run.fontSize, fontStyle: run.italic ? "italic" : "normal" }}>{run.text}</Text>)}
+      {runs.map((run, index) => <Text allowFontScaling={false} key={index} style={{ fontFamily: run.fontFamily, fontSize: run.fontSize, fontWeight: run.fontWeight, fontStyle: run.italic ? "italic" : "normal" }}>{run.text}</Text>)}
     </Text>
     <NativeText runsJSON={runsJSON} alignment={flattened.textAlign}
       {...(supportsSelectionActions ? {

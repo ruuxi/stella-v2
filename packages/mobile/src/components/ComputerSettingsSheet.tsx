@@ -4,12 +4,12 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Icon } from "./Icon";
 import { GlassToggle } from "./glass";
 import { type Colors } from "../theme/colors";

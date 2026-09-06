@@ -49,18 +49,13 @@ final class StellaSelectableTextView: ExpoView, UITextViewDelegate {
     for run in runs {
       let size = run["fontSize"] as? Double ?? 17
       let resolvedFont = RCTFont.update(nil, withFamily: run["fontFamily"] as? String,
-        size: NSNumber(value: size), weight: nil,
+        size: NSNumber(value: size), weight: run["fontWeight"] as? String,
         style: (run["italic"] as? Bool == true) ? "italic" : nil,
         variant: nil, scaleMultiplier: 1) ?? UIFont.systemFont(ofSize: size)
-      // Some custom families (including Manrope) have no italic face.
-      // Preserve Markdown emphasis with a synthetic slant in that case.
-      let font = run["italic"] as? Bool == true && !resolvedFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
-        ? UIFont(descriptor: resolvedFont.fontDescriptor.withMatrix(CGAffineTransform(a: 1, b: 0, c: 0.2, d: 1, tx: 0, ty: 0)), size: size)
-        : resolvedFont
       let paragraph = NSMutableParagraphStyle()
       paragraph.minimumLineHeight = CGFloat(size * 1.5)
       paragraph.maximumLineHeight = CGFloat(size * 1.5)
-      var attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: paragraph]
+      var attributes: [NSAttributedString.Key: Any] = [.font: resolvedFont, .paragraphStyle: paragraph]
       if let color = Self.color(run["color"] as? String) { attributes[.foregroundColor] = color }
       if let color = Self.color(run["backgroundColor"] as? String) { attributes[.backgroundColor] = color }
       if run["strikethrough"] as? Bool == true { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }

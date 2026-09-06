@@ -2,13 +2,13 @@ import { useCallback, useState } from "react";
 import {
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   setPreferredDesktopDeviceId,
   type StoredPhoneAccess,

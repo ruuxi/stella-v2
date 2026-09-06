@@ -19,6 +19,7 @@ import type {
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { Api, AssistantMessage, Model } from "@stella/runtime/ai/types.js";
 import { createAssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream.js";
+import { resolveApiProviderInternal } from "@stella/runtime/ai/api-registry.js";
 import { AgentTurnJournal } from "../../src/agent-turn-journal.js";
 import type { SealedTurnTranscript } from "../../src/agent-turn-journal.js";
 import {
@@ -325,6 +326,25 @@ export default {
   async fetch(request: Request, env: FixtureEnv): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/") return new Response("ready");
+    if (url.pathname === "/providers") {
+      const apis = [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses",
+        "openai-codex-responses",
+      ] as const;
+      const providers = await Promise.all(
+        apis.map(async (api) => {
+          const provider = await resolveApiProviderInternal(api);
+          return {
+            api,
+            stream: typeof provider.stream,
+            streamSimple: typeof provider.streamSimple,
+          };
+        }),
+      );
+      return Response.json({ providers });
+    }
     const stub = env.RESIDENT_TURNS.get(
       env.RESIDENT_TURNS.idFromName("resident"),
     );

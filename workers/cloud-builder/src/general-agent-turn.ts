@@ -15,6 +15,7 @@
  * exercised by tests; production still runs the container path.
  */
 
+import "./cloud-api-providers.js";
 import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
 import type {
   AgentEvent,

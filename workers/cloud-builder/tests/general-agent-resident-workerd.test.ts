@@ -152,6 +152,23 @@ describe("resident general-agent turn in workerd", () => {
     }
   });
 
+  test("registers provider adapters in a cold resident host without an orchestrator import", async () => {
+    const response = await requestJson("/providers");
+    expect(response.status).toBe(200);
+    expect(response.body.providers).toEqual(
+      [
+        "anthropic-messages",
+        "openai-completions",
+        "openai-responses",
+        "openai-codex-responses",
+      ].map((api) => ({
+        api,
+        stream: "function",
+        streamSimple: "function",
+      })),
+    );
+  });
+
   test("completes a scripted resident turn against real Durable Object SQL", async () => {
     const turn = await requestJson("/turn", { script: "text" });
 

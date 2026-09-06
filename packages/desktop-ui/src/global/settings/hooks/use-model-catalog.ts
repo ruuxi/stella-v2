@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { isWebsiteHost } from "@/platform/capabilities";
 import { api } from "@/convex/api";
 import { useDesktopAuthSession, getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
 import { readModelCatalogUpdatedAtSnapshot, useModelCatalogUpdatedAt } from "@/global/settings/hooks/model-catalog-updated-at";
@@ -201,12 +202,12 @@ export function useModelCatalog() {
   }, [authAudienceKey, modelCatalogUpdatedAt]);
 
   const stellaQuery = useResourceStore(stellaCatalogStore, stellaCacheKey);
-  const managedQuery = useResourceStore(managedGatewayStore, "default");
+  const managedQuery = useResourceStore(managedGatewayStore, isWebsiteHost() ? null : "default");
 
   const stellaPayload = stellaQuery.data ?? EMPTY_STELLA;
   const managedPayload = managedQuery.data ?? EMPTY_MANAGED;
 
-  const localModels = useMemo(() => listLocalCatalogModels(), []);
+  const localModels = useMemo(() => isWebsiteHost() ? [] : listLocalCatalogModels(), []);
   // The curated Stella preset modes always render from a local fallback, so the
   // compact picker is never blank while the catalog loads / on a fetch failure.
   // Fetched entries override the fallbacks with authoritative metadata.
@@ -273,7 +274,7 @@ function buildAnonymousStellaCatalogKey(
 
 /** Intent-hover warm for the sidebar Models popover and composer entry points. */
 export function preloadModelCatalogCache(): void {
-  void managedGatewayStore.ensure("default");
+  if (!isWebsiteHost()) void managedGatewayStore.ensure("default");
 
   const modelCatalogUpdatedAt = readModelCatalogUpdatedAtSnapshot();
   if (modelCatalogUpdatedAt === null) return;

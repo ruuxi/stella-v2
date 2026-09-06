@@ -22,6 +22,8 @@ import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
 import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromOpenAiCodexModelId, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
+import { isWebsiteHost } from "@/platform/capabilities";
+import { WebsiteModelPicker } from "./WebsiteModelPicker";
 
 type ImageGenerationProvider = "stella" | "openai" | "openrouter" | "fal";
 type ImageGenerationPreferences = {
@@ -159,7 +161,11 @@ function useByokProviderOptions(options: readonly ProviderOption[]): ProviderOpt
             }),
         }), [options, t]);
 }
-export function AgentModelPicker({ active = true, onSelected, className, surface = "sidebar", }: AgentModelPickerProps) {
+export function AgentModelPicker(props: AgentModelPickerProps) {
+    return isWebsiteHost() ? <WebsiteModelPicker {...props} /> : <DesktopAgentModelPicker {...props} />;
+}
+
+function DesktopAgentModelPicker({ active = true, onSelected, className, surface = "sidebar", }: AgentModelPickerProps) {
     const t = useT();
     const imageProviderOptions = useByokProviderOptions(IMAGE_PROVIDER_OPTIONS);
     const voiceProviderOptions = useByokProviderOptions(VOICE_PROVIDER_OPTIONS);

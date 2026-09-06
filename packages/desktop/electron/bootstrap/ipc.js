@@ -300,12 +300,14 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerOfficePreviewHandlers({
+        getConvexAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         localChatHistoryService: services.localChatHistoryService,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerDisplayHandlers({
+        getConvexAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         localChatHistoryService: services.localChatHistoryService,

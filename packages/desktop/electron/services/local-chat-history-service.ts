@@ -45,6 +45,7 @@ import {
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
 import { CloudConversationCacheClient } from "./cloud-conversation-cache-client.js";
+import { listCanonicalConversationFilePaths } from "./canonical-conversation-file-paths.js";
 
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
@@ -442,6 +443,16 @@ export class LocalChatHistoryService {
     };
   }
 
+  listCanonicalFilePaths(
+    conversationId: string,
+    ownerScope: string | null,
+  ): string[] {
+    this.getStore(); // Respect reset/closed lifecycle before accessing SQLite.
+    return this.db
+      ? listCanonicalConversationFilePaths(this.db, conversationId, ownerScope)
+      : [];
+  }
+
   listFiles(args: {
     conversationId: string;
     limit?: number;
@@ -486,10 +497,9 @@ export class LocalChatHistoryService {
     return this.getStore().hasEventId(args.eventId, args.type);
   }
 
-  persistDiscoveryWelcome(args: {
-    conversationId: string;
-    message: string;
-  }): { ok: true } {
+  persistDiscoveryWelcome(args: { conversationId: string; message: string }): {
+    ok: true;
+  } {
     const message = args.message.trim();
     const store = this.getStore();
     let latestEvent: LocalChatEventRecord | undefined;

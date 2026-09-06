@@ -21,11 +21,14 @@ import {
   isMobileBridgeSender,
 } from "./display-handlers.js";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
+import { resolveConvexJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
+import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 
 type OfficePreviewHandlersOptions = {
   getStellaAppDir: () => string | null;
   getStellaDataDir: () => string | null;
   localChatHistoryService?: LocalChatHistoryService;
+  getConvexAuthToken?: () => Promise<string | null>;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -188,11 +191,11 @@ const isMobileOfficePreviewPathAllowed = (
 export const registerOfficePreviewHandlers = (
   options: OfficePreviewHandlersOptions,
 ) => {
-  const requireMobileConversationFileEvents = (
+  const requireMobileConversationFileEvents = async (
     event: IpcMainEvent | IpcMainInvokeEvent,
     payload: { conversationId?: unknown } | undefined,
     channel: string,
-  ): MobileOfficePreviewPolicy | null => {
+  ): Promise<MobileOfficePreviewPolicy | null> => {
     if (!isMobileBridgeSender(event)) return null;
     const conversationId =
       typeof payload?.conversationId === "string"
@@ -208,12 +211,23 @@ export const registerOfficePreviewHandlers = (
       conversationId,
       limit: 500,
     }).files;
-    const artifactPaths = collectOfficePreviewArtifactPaths(
-      options.localChatHistoryService.listSyncMessages({
-        conversationId,
-        maxMessages: 500,
-      }),
+    const artifactPaths = new Set(
+      collectOfficePreviewArtifactPaths(
+        options.localChatHistoryService.listSyncMessages({
+          conversationId,
+          maxMessages: 500,
+        }),
+      ),
     );
+    for (const filePath of await resolveCanonicalConversationFilePaths(
+      options.localChatHistoryService.listCanonicalFilePaths(
+        conversationId,
+        resolveConvexJwtOwnerScope(
+          await options.getConvexAuthToken?.().catch(() => null),
+        ),
+      ),
+    ))
+      artifactPaths.add(filePath);
     return { fileEvents, artifactPaths };
   };
 
@@ -229,7 +243,7 @@ export const registerOfficePreviewHandlers = (
         return [];
       }
 
-      const mobilePolicy = requireMobileConversationFileEvents(
+      const mobilePolicy = await requireMobileConversationFileEvents(
         event,
         payload,
         IPC_OFFICE_PREVIEW_LIST,
@@ -263,7 +277,7 @@ export const registerOfficePreviewHandlers = (
       }
 
       const sourcePath = path.resolve(requestedPath);
-      const mobilePolicy = requireMobileConversationFileEvents(
+      const mobilePolicy = await requireMobileConversationFileEvents(
         event,
         payload,
         IPC_OFFICE_PREVIEW_START,
@@ -292,7 +306,11 @@ export const registerOfficePreviewHandlers = (
       const sessionId = randomUUID();
       const title = path.basename(sourcePath);
       const ref: OfficePreviewRef = { sessionId, title, sourcePath };
-      const sessionDir = path.join(stellaDataDir, PREVIEW_ROOT_DIRNAME, sessionId);
+      const sessionDir = path.join(
+        stellaDataDir,
+        PREVIEW_ROOT_DIRNAME,
+        sessionId,
+      );
       const startedAt = Date.now();
       await writeManifest(sessionDir, ref, format, "starting", startedAt);
 

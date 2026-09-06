@@ -22,11 +22,14 @@ import type { LocalChatHistoryService } from "../services/local-chat-history-ser
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
+import { resolveConvexJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
+import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
   getStellaDataDir: () => string | null;
   localChatHistoryService?: LocalChatHistoryService;
+  getConvexAuthToken?: () => Promise<string | null>;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -260,7 +263,21 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
             conversationId,
             limit: 500,
           });
-          if (!isDisplayReadPathInLocalChatFiles(files, resolved)) {
+          const allowedByLocalHistory = isDisplayReadPathInLocalChatFiles(
+            files,
+            resolved,
+          );
+          const canonicalPaths = allowedByLocalHistory
+            ? new Set<string>()
+            : await resolveCanonicalConversationFilePaths(
+                options.localChatHistoryService.listCanonicalFilePaths(
+                  conversationId,
+                  resolveConvexJwtOwnerScope(
+                    await options.getConvexAuthToken?.().catch(() => null),
+                  ),
+                ),
+              );
+          if (!allowedByLocalHistory && !canonicalPaths.has(resolved)) {
             throw new Error(
               `${REMOTE_VIEW_DENIAL_PREFIX}reading this file needs your computer. Only Stella's own outputs and files from the current conversation can load here.`,
             );
@@ -389,8 +406,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
           `Blocked untrusted ${IPC_DISPLAY_OPEN_SHARED_CANVAS} request.`,
         );
       }
-      const url =
-        typeof payload?.url === "string" ? payload.url.trim() : "";
+      const url = typeof payload?.url === "string" ? payload.url.trim() : "";
       if (!url) return null;
       return await resolveSharedCanvasPayload({
         url,

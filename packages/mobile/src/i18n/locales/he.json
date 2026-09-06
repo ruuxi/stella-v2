@@ -1971,7 +1971,10 @@
     },
     "chat": {
       "emptyPrompt": "שאלו את Stella כל דבר",
-      "composerPlaceholder": "כתבו ל-Stella"
+      "composerPlaceholder": "כתבו ל-Stella",
+      "mainChat": "צ׳אט ראשי",
+      "createFailed": "לא ניתן ליצור צ׳אט. יש לנסות שוב.",
+      "loadMore": "טעינת עוד"
     },
     "activityHub": {
       "tabs": {

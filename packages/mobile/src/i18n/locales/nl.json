@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Vraag Stella wat je wilt",
-      "composerPlaceholder": "Bericht aan Stella"
+      "composerPlaceholder": "Bericht aan Stella",
+      "mainChat": "Hoofdchat",
+      "createFailed": "Kan geen chat aanmaken. Probeer het opnieuw.",
+      "loadMore": "Meer laden"
     },
     "activityHub": {
       "tabs": {

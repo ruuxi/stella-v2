@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "随便问 Stella",
-      "composerPlaceholder": "给 Stella 发消息"
+      "composerPlaceholder": "给 Stella 发消息",
+      "mainChat": "主聊天",
+      "createFailed": "无法创建聊天。请重试。",
+      "loadMore": "加载更多"
     },
     "activityHub": {
       "tabs": {

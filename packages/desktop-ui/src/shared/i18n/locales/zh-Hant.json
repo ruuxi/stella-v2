@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "什麼都可以問 Stella",
-      "composerPlaceholder": "傳訊息給 Stella"
+      "composerPlaceholder": "傳訊息給 Stella",
+      "mainChat": "主要聊天",
+      "createFailed": "無法建立聊天。請重試。",
+      "loadMore": "載入更多"
     },
     "activityHub": {
       "tabs": {

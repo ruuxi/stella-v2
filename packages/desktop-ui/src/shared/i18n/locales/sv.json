@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Fråga Stella vad som helst",
-      "composerPlaceholder": "Skriv till Stella"
+      "composerPlaceholder": "Skriv till Stella",
+      "mainChat": "Huvudchatt",
+      "createFailed": "Det gick inte att skapa en chatt. Försök igen.",
+      "loadMore": "Läs in fler"
     },
     "activityHub": {
       "tabs": {

@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Stella'ya istediğinizi sorun",
-      "composerPlaceholder": "Stella'ya mesaj yazın"
+      "composerPlaceholder": "Stella'ya mesaj yazın",
+      "mainChat": "Ana sohbet",
+      "createFailed": "Sohbet oluşturulamadı. Lütfen tekrar deneyin.",
+      "loadMore": "Daha fazla yükle"
     },
     "activityHub": {
       "tabs": {

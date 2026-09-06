@@ -1989,7 +1989,10 @@
     },
     "chat": {
       "emptyPrompt": "Zapytaj Stellę o cokolwiek",
-      "composerPlaceholder": "Napisz do Stelli"
+      "composerPlaceholder": "Napisz do Stelli",
+      "mainChat": "Główny czat",
+      "createFailed": "Nie udało się utworzyć czatu. Spróbuj ponownie.",
+      "loadMore": "Wczytaj więcej"
     },
     "activityHub": {
       "tabs": {

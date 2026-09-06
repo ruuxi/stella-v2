@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Ρωτήστε τη Stella οτιδήποτε",
-      "composerPlaceholder": "Γράψτε στη Stella"
+      "composerPlaceholder": "Γράψτε στη Stella",
+      "mainChat": "Κύρια συνομιλία",
+      "createFailed": "Δεν ήταν δυνατή η δημιουργία συνομιλίας. Δοκιμάστε ξανά.",
+      "loadMore": "Φόρτωση περισσότερων"
     },
     "activityHub": {
       "tabs": {

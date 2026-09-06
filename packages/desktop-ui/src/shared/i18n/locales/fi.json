@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
-      "composerPlaceholder": "Kirjoita Stellalle"
+      "composerPlaceholder": "Kirjoita Stellalle",
+      "mainChat": "Pääkeskustelu",
+      "createFailed": "Keskustelua ei voitu luoda. Yritä uudelleen.",
+      "loadMore": "Lataa lisää"
     },
     "activityHub": {
       "tabs": {

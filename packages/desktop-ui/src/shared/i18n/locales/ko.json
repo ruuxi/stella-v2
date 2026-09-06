@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
-      "composerPlaceholder": "Stella에게 메시지"
+      "composerPlaceholder": "Stella에게 메시지",
+      "mainChat": "기본 채팅",
+      "createFailed": "채팅을 만들 수 없습니다. 다시 시도해 주세요.",
+      "loadMore": "더 불러오기"
     },
     "activityHub": {
       "tabs": {

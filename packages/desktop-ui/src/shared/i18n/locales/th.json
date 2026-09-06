@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "ถาม Stella อะไรก็ได้",
-      "composerPlaceholder": "ส่งข้อความถึง Stella"
+      "composerPlaceholder": "ส่งข้อความถึง Stella",
+      "mainChat": "แชตหลัก",
+      "createFailed": "ไม่สามารถสร้างแชตได้ โปรดลองอีกครั้ง",
+      "loadMore": "โหลดเพิ่มเติม"
     },
     "activityHub": {
       "tabs": {

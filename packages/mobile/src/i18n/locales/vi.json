@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
-      "composerPlaceholder": "Nhắn cho Stella"
+      "composerPlaceholder": "Nhắn cho Stella",
+      "mainChat": "Trò chuyện chính",
+      "createFailed": "Không thể tạo cuộc trò chuyện. Vui lòng thử lại.",
+      "loadMore": "Tải thêm"
     },
     "activityHub": {
       "tabs": {

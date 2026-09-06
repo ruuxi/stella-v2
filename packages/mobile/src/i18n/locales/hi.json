@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Stella से कुछ भी पूछें",
-      "composerPlaceholder": "Stella को संदेश भेजें"
+      "composerPlaceholder": "Stella को संदेश भेजें",
+      "mainChat": "मुख्य चैट",
+      "createFailed": "चैट नहीं बनाई जा सकी। कृपया फिर से कोशिश करें।",
+      "loadMore": "और लोड करें"
     },
     "activityHub": {
       "tabs": {

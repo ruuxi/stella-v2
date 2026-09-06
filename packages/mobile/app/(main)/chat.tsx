@@ -55,6 +55,7 @@ import {
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
+import { ConversationSwitcher } from "../../src/components/ConversationSwitcher";
 import { mainContentStyles } from "../../src/components/MainScreenSurface";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
@@ -109,11 +110,16 @@ function SignedInChatScreen() {
           }
         />
       ) : (
-        <SignedInCanonicalChat
-          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
+        <ConversationSwitcher
+          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}`}
           authority={authority.authority}
-          reloadAuthority={authority.retry}
-        />
+        >
+          {(selectedAuthority) => <SignedInCanonicalChat
+            key={selectedAuthority.conversationId}
+            authority={selectedAuthority}
+            reloadAuthority={authority.retry}
+          />}
+        </ConversationSwitcher>
       )}
     </View>
   );

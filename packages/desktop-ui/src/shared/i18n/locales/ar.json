@@ -2025,7 +2025,10 @@
     },
     "chat": {
       "emptyPrompt": "اسأل Stella عن أي شيء",
-      "composerPlaceholder": "راسِل Stella"
+      "composerPlaceholder": "راسِل Stella",
+      "mainChat": "المحادثة الرئيسية",
+      "createFailed": "تعذّر إنشاء محادثة. يُرجى المحاولة مرة أخرى.",
+      "loadMore": "تحميل المزيد"
     },
     "activityHub": {
       "tabs": {

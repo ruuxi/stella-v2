@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Kérdezz bármit a Stellától",
-      "composerPlaceholder": "Írj a Stellának"
+      "composerPlaceholder": "Írj a Stellának",
+      "mainChat": "Fő csevegés",
+      "createFailed": "Nem sikerült létrehozni a csevegést. Próbáld újra.",
+      "loadMore": "Továbbiak betöltése"
     },
     "activityHub": {
       "tabs": {

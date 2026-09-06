@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Spør Stella om hva som helst",
-      "composerPlaceholder": "Skriv til Stella"
+      "composerPlaceholder": "Skriv til Stella",
+      "mainChat": "Hovedchat",
+      "createFailed": "Kunne ikke opprette en chat. Prøv igjen.",
+      "loadMore": "Last inn flere"
     },
     "activityHub": {
       "tabs": {

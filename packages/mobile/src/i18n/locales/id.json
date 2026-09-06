@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "Tanya Stella apa saja",
-      "composerPlaceholder": "Pesan untuk Stella"
+      "composerPlaceholder": "Pesan untuk Stella",
+      "mainChat": "Obrolan utama",
+      "createFailed": "Tidak dapat membuat obrolan. Silakan coba lagi.",
+      "loadMore": "Muat lebih banyak"
     },
     "activityHub": {
       "tabs": {

@@ -1971,7 +1971,10 @@
     },
     "chat": {
       "emptyPrompt": "Chiedi qualsiasi cosa a Stella",
-      "composerPlaceholder": "Scrivi a Stella"
+      "composerPlaceholder": "Scrivi a Stella",
+      "mainChat": "Chat principale",
+      "createFailed": "Impossibile creare una chat. Riprova.",
+      "loadMore": "Carica altro"
     },
     "activityHub": {
       "tabs": {

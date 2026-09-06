@@ -1932,7 +1932,10 @@
     },
     "chat": {
       "emptyPrompt": "Stella に何でも聞いてください",
-      "composerPlaceholder": "Stella にメッセージ"
+      "composerPlaceholder": "Stella にメッセージ",
+      "mainChat": "メインチャット",
+      "createFailed": "チャットを作成できませんでした。もう一度お試しください。",
+      "loadMore": "さらに読み込む"
     },
     "activityHub": {
       "tabs": {

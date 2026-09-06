@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Ask Stella anything",
-      "composerPlaceholder": "Message Stella"
+      "composerPlaceholder": "Message Stella",
+      "mainChat": "Main chat",
+      "createFailed": "Could not create a chat. Please try again.",
+      "loadMore": "Load more"
     },
     "activityHub": {
       "tabs": {

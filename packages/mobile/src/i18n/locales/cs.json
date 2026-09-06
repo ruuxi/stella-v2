@@ -1989,7 +1989,10 @@
     },
     "chat": {
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
-      "composerPlaceholder": "Napište Stelle"
+      "composerPlaceholder": "Napište Stelle",
+      "mainChat": "Hlavní chat",
+      "createFailed": "Chat se nepodařilo vytvořit. Zkuste to prosím znovu.",
+      "loadMore": "Načíst další"
     },
     "activityHub": {
       "tabs": {

@@ -1953,7 +1953,10 @@
     },
     "chat": {
       "emptyPrompt": "Frag Stella alles",
-      "composerPlaceholder": "Nachricht an Stella"
+      "composerPlaceholder": "Nachricht an Stella",
+      "mainChat": "Hauptchat",
+      "createFailed": "Der Chat konnte nicht erstellt werden. Bitte versuche es erneut.",
+      "loadMore": "Mehr laden"
     },
     "activityHub": {
       "tabs": {

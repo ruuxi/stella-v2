@@ -1989,7 +1989,10 @@
     },
     "chat": {
       "emptyPrompt": "Спросите у Stella что угодно",
-      "composerPlaceholder": "Написать Stella"
+      "composerPlaceholder": "Написать Stella",
+      "mainChat": "Основной чат",
+      "createFailed": "Не удалось создать чат. Попробуйте ещё раз.",
+      "loadMore": "Загрузить ещё"
     },
     "activityHub": {
       "tabs": {

@@ -1971,7 +1971,10 @@
     },
     "chat": {
       "emptyPrompt": "Întreab-o pe Stella orice",
-      "composerPlaceholder": "Scrie-i Stellei"
+      "composerPlaceholder": "Scrie-i Stellei",
+      "mainChat": "Chat principal",
+      "createFailed": "Nu s-a putut crea un chat. Încearcă din nou.",
+      "loadMore": "Încarcă mai multe"
     },
     "activityHub": {
       "tabs": {

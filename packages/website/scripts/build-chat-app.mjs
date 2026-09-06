@@ -17,10 +17,30 @@ const convexUrl =
 const convexSiteUrl =
   process.env.VITE_CONVEX_SITE_URL ||
   process.env.NEXT_PUBLIC_CONVEX_SITE_URL ||
-  desktopPublicEnv.VITE_CONVEX_SITE_URL ||
   (convexUrl.endsWith(".convex.cloud")
     ? `${convexUrl.slice(0, -".convex.cloud".length)}.convex.site`
+    : desktopPublicEnv.VITE_CONVEX_SITE_URL || "");
+
+const deploymentSuffix = {
+  "https://outgoing-bulldog-865.convex.cloud": "dev",
+  "https://intent-jackal-330.convex.cloud": "prod",
+  "https://basic-nightingale-118.convex.cloud": "basic-nightingale-118",
+}[convexUrl];
+const appsHost =
+  process.env.VITE_STELLA_APPS_HOST ||
+  process.env.NEXT_PUBLIC_STELLA_APPS_HOST ||
+  (deploymentSuffix
+    ? `https://stella-v2-apps-host-${deploymentSuffix}.lolruuxi.workers.dev`
     : "");
+const appsAuthHost =
+  process.env.VITE_STELLA_APPS_AUTH_HOST ||
+  process.env.NEXT_PUBLIC_STELLA_APPS_AUTH_HOST ||
+  (deploymentSuffix
+    ? `https://stella-v2-apps-auth-${deploymentSuffix}.lolruuxi.workers.dev`
+    : "");
+if (!appsHost || !appsAuthHost) {
+  throw new Error("Configure both Stella Apps host origins for this backend.");
+}
 
 const result = spawnSync(process.execPath, [viteBin, "build"], {
   cwd: desktopUi,
@@ -35,15 +55,8 @@ const result = spawnSync(process.execPath, [viteBin, "build"], {
       process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
       desktopPublicEnv.VITE_TURNSTILE_SITE_KEY ||
       "",
-    VITE_STELLA_APPS_HOST:
-      process.env.VITE_STELLA_APPS_HOST ||
-      process.env.NEXT_PUBLIC_STELLA_APPS_HOST ||
-      "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
-    VITE_STELLA_APPS_AUTH_HOST:
-      process.env.VITE_STELLA_APPS_AUTH_HOST ||
-      process.env.NEXT_PUBLIC_STELLA_APPS_AUTH_HOST ||
-      process.env.NEXT_PUBLIC_STELLA_APPS_HOST ||
-      "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+    VITE_STELLA_APPS_HOST: appsHost,
+    VITE_STELLA_APPS_AUTH_HOST: appsAuthHost,
   },
 });
 

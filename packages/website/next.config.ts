@@ -11,10 +11,9 @@ const publicConvexUrl =
   process.env.NEXT_PUBLIC_CONVEX_URL || desktopPublicEnv.VITE_CONVEX_URL;
 const publicConvexSiteUrl =
   process.env.NEXT_PUBLIC_CONVEX_SITE_URL ||
-  desktopPublicEnv.VITE_CONVEX_SITE_URL ||
   (publicConvexUrl?.endsWith(".convex.cloud")
     ? `${publicConvexUrl.slice(0, -".convex.cloud".length)}.convex.site`
-    : undefined);
+    : desktopPublicEnv.VITE_CONVEX_SITE_URL);
 const publicTurnstileSiteKey =
   process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
   desktopPublicEnv.VITE_TURNSTILE_SITE_KEY;

@@ -23,7 +23,7 @@ describe("main shell store", () => {
   });
 
   test("starts empty so chrome renders nothing before the chat publishes", () => {
-    expect(readMainShellState()).toEqual({ activity: null, computer: null });
+    expect(readMainShellState()).toEqual({ activity: null, computer: null, history: null });
   });
 
   test("publishing replaces one slot without touching the other", () => {

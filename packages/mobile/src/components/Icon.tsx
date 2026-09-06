@@ -1,5 +1,6 @@
 import { Platform, View, type ViewStyle, type StyleProp } from "react-native";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import Svg, { Path } from "react-native-svg";
 import Feather from "@expo/vector-icons/Feather";
 
 /**
@@ -8,6 +9,7 @@ import Feather from "@expo/vector-icons/Feather";
  * `name` from `IconName` which we translate to both libraries.
  */
 export type IconName =
+  | "history"
   | "menu"
   | "plus"
   | "x"
@@ -64,6 +66,7 @@ const FEATHER_NAMES: Record<
   IconName,
   React.ComponentProps<typeof Feather>["name"]
 > = {
+  history: "rotate-ccw",
   menu: "menu",
   plus: "plus",
   x: "x",
@@ -122,6 +125,7 @@ const FEATHER_NAMES: Record<
 };
 
 const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
+  history: "clock.arrow.circlepath",
   menu: "line.3.horizontal",
   plus: "plus",
   x: "xmark",
@@ -199,6 +203,14 @@ export function Icon({
   weight = "medium",
   style,
 }: IconProps) {
+  // Exact Lucide History paths used by desktop ConversationTopBar (ISC).
+  if (name === "history") {
+    return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.85} strokeLinecap="round" strokeLinejoin="round" style={style}>
+      <Path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <Path d="M3 3v5h5" />
+      <Path d="M12 7v5l4 2" />
+    </Svg>;
+  }
   if (Platform.OS === "ios") {
     const base = SYMBOL_NAMES[name];
     // SF Symbol filled variants follow the `<name>.fill` convention; we only

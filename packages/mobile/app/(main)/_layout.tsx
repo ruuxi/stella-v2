@@ -61,6 +61,7 @@ import {
   subscribeSidebarOpenRequests,
   useActivityHub,
   useComputerControl,
+  useHistoryControl,
 } from "../../src/lib/main-shell-store";
 import { useT } from "../../src/i18n";
 import type { ChatArtifact } from "../../src/types";
@@ -135,6 +136,7 @@ export default function MainLayout() {
   const activeTab = readMainTabFromPath(pathname);
   const onChatSurface = pathname === "/chat";
   const computer = useComputerControl();
+  const history = useHistoryControl();
   const hubAccess = useActivityHub()?.access ?? null;
   const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(
     null,
@@ -457,6 +459,16 @@ export default function MainLayout() {
                     </View>
                     <View style={{ flex: 1 }} />
                     <View style={styles.topBarRight}>
+                      {onChatSurface && history ? (
+                        <GlassIconButton
+                          icon="history"
+                          size={TOP_BAR_BUTTON}
+                          iconSize={19}
+                          accessibilityLabel={t("shell.topbar.conversation.history")}
+                          disabled={history.disabled}
+                          onPress={history.onPress}
+                        />
+                      ) : null}
                       {onChatSurface && computer ? (
                         // Quiet unless there is something to say: a muted
                         // glyph while unpaired or asleep, a spinner while
@@ -586,6 +598,7 @@ const makeStyles = (colors: Colors) =>
     },
     // Right-side action cluster (search + chat/computer toggle).
     topBarRight: {
+      gap: 8,
       alignItems: "center",
       flexDirection: "row",
       height: 44,

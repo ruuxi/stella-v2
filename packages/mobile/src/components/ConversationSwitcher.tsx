@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { makeFunctionReference } from "convex/server";
 import { randomUUID } from "expo-crypto";
 import { getConvexClient } from "../lib/convex";
@@ -8,13 +8,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useT } from "../i18n";
 import { fonts } from "../theme/fonts";
 import { Icon } from "./Icon";
-import { TopSheet } from "./TopSheet";
+import { GlassSurface } from "./glass";
+import { TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
+import { publishHistoryControl } from "../lib/main-shell-store";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "../theme/theme-context";
 
 type Conversation = { conversationId: string; title: string };
 const createConversation = makeFunctionReference<"mutation", {
-  clientCreateId: string; expectedOwnerGeneration: string; title: string;
+  clientCreateId: string; expectedOwnerGeneration: string;
 }, Conversation>("cloud_apps:createMyConversation");
 const getConversation = makeFunctionReference<"query", { conversationId: string }, Conversation | null>("cloud_apps:getMyConversation");
 const historySnapshot = makeFunctionReference<"query", Record<string, never>, {
@@ -25,8 +27,8 @@ const historyPage = makeFunctionReference<"query", {
   paginationOpts: { numItems: number; cursor: string | null };
 }, { page: Conversation[]; isDone: boolean; continueCursor: string }>("cloud_apps:listMyConversationsPage");
 
-/** Selection is scoped by the parent's account/generation key. The original
- * long-running chat always remains reachable, including outside history pages. */
+/** Selection is scoped by the parent's account/generation key. The shell owns
+ * the glass history trigger; this route owns its menu and persisted selection. */
 export function ConversationSwitcher({ authority, children }: {
   authority: CloudConversationAuthority;
   children: (authority: CloudConversationAuthority) => ReactNode;
@@ -34,6 +36,7 @@ export function ConversationSwitcher({ authority, children }: {
   const colors = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const storageKey = `stella.mobile.selected-chat.v1:${JSON.stringify([authority.accountScope, authority.ownerGeneration])}`;
   const [restoring, setRestoring] = useState(true);
   const persistence = useRef(Promise.resolve());
@@ -75,9 +78,7 @@ export function ConversationSwitcher({ authority, children }: {
       AsyncStorage.setItem(storageKey, conversation.conversationId),
     ).catch(() => undefined);
   };
-  const titleFor = (conversation: Conversation) =>
-    conversation.conversationId === authority.conversationId
-      ? t("mobile.chat.mainChat") : conversation.title || t("mobile.nav.chat");
+  const titleFor = (conversation: Conversation) => conversation.title || t("mobile.nav.chat");
   const button = { paddingHorizontal: 16, paddingVertical: 12, minHeight: 44 };
   const text = { color: colors.text, fontSize: 14, fontFamily: fonts.sans.medium };
 
@@ -92,7 +93,6 @@ export function ConversationSwitcher({ authority, children }: {
       const conversation = await getConvexClient().mutation(createConversation, {
         clientCreateId: createId.current,
         expectedOwnerGeneration: authority.ownerGeneration,
-        title: t("sidebar.newChat"),
       });
       createId.current = null;
       selectConversation(conversation);
@@ -104,7 +104,7 @@ export function ConversationSwitcher({ authority, children }: {
       setBusy(false);
     }
   };
-  const loadHistory = async (reset: boolean) => {
+  const loadHistory = useCallback(async (reset: boolean) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -127,37 +127,45 @@ export function ConversationSwitcher({ authority, children }: {
       busyRef.current = false;
       setBusy(false);
     }
-  };
+  }, [t]);
+  useEffect(() => {
+    publishHistoryControl({
+      disabled: busy || restoring,
+      onPress: () => { setOpen(true); void loadHistory(true); },
+    });
+    return () => publishHistoryControl(null);
+  }, [busy, restoring, loadHistory]);
+
   return <View style={{ flex: 1 }}>
-    <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t("shell.topbar.conversation.history")} disabled={busy || restoring}
-        style={{ ...button, flex: 1 }} onPress={() => { setOpen(true); void loadHistory(true); }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Text style={{ ...text, flexShrink: 1 }} numberOfLines={1}>{titleFor(selected)}</Text><Icon name="chevron-down" size={14} color={colors.textMuted} /></View>
-      </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={t("sidebar.newChat")} disabled={busy || restoring}
-        accessibilityState={{ disabled: busy || restoring }} style={button} onPress={() => void startChat()}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Icon name="plus" size={16} color={colors.textMuted} /><Text style={text}>{busy && !open ? t("common.loading") : t("sidebar.newChat")}</Text></View>
-      </Pressable>
-    </View>
-    {error && !open ? <Text accessibilityRole="alert" style={{ ...text, paddingHorizontal: 16 }}>{error}</Text> : null}
     {restoring ? <View style={{ flex: 1, justifyContent: "center" }}><ActivityIndicator color={colors.textMuted} /></View> : children({ ...authority, conversationId: selected.conversationId })}
-    <TopSheet visible={open} onClose={() => setOpen(false)}>
-      <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top + 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          <Text style={{ ...text, flex: 1, padding: 16, fontSize: 26, fontFamily: fonts.display.regular }}>{t("shell.topbar.conversation.history")}</Text>
-          <Pressable accessibilityRole="button" style={button} onPress={() => setOpen(false)}><Text style={text}>{t("mobile.common.done")}</Text></Pressable>
-        </View>
-        <ScrollView>
-          {[{ conversationId: authority.conversationId, title: "" }, ...rows.filter((row) => row.conversationId !== authority.conversationId)].map((row) =>
-            <Pressable key={row.conversationId} accessibilityRole="button" accessibilityState={{ selected: row.conversationId === selected.conversationId }}
-              style={button} onPress={() => { selectConversation(row); setError(null); setOpen(false); }}>
-              <Text style={text}>{titleFor(row)}{row.conversationId === selected.conversationId ? " ✓" : ""}</Text>
-            </Pressable>)}
-          {busy ? <ActivityIndicator color={colors.textMuted} /> : null}
-          {error ? <Pressable accessibilityRole="button" style={button} onPress={() => void loadHistory(true)}><Text style={text}>{error}</Text></Pressable> : null}
-          {hasMore && !busy && !error ? <Pressable accessibilityRole="button" style={button} onPress={() => void loadHistory(false)}><Text style={text}>{t("mobile.chat.loadMore")}</Text></Pressable> : null}
-        </ScrollView>
+    <Modal visible={open} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setOpen(false)}>
+      <View style={{ flex: 1 }}>
+        <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel={t("mobile.common.done")} onPress={() => setOpen(false)} />
+        <GlassSurface glass="regular" legible ringed radius={22}
+          style={{ position: "absolute", top: insets.top + TOP_BAR_BAR_HEIGHT + 8, right: 16, width: Math.min(320, width - 32), maxHeight: Math.min(480, height - insets.top - insets.bottom - 100), padding: 6 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("sidebar.newChat")} disabled={busy}
+            accessibilityState={{ disabled: busy }} style={button} onPress={() => void startChat()}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Icon name="plus" size={18} color={colors.text} />
+              <Text style={text}>{t("sidebar.newChat")}</Text>
+            </View>
+          </Pressable>
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginHorizontal: 10, marginVertical: 4 }} />
+          <ScrollView style={{ flexShrink: 1 }}>
+            {rows.map((row) =>
+              <Pressable key={row.conversationId} accessibilityRole="button" accessibilityState={{ selected: row.conversationId === selected.conversationId }}
+                style={button} onPress={() => { selectConversation(row); setError(null); setOpen(false); }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Text numberOfLines={1} style={{ ...text, flex: 1 }}>{titleFor(row)}</Text>
+                  {row.conversationId === selected.conversationId ? <Icon name="check" size={16} color={colors.textMuted} /> : null}
+                </View>
+              </Pressable>)}
+            {busy ? <ActivityIndicator style={{ padding: 12 }} color={colors.textMuted} /> : null}
+            {error ? <Pressable accessibilityRole="button" style={button} onPress={() => void loadHistory(true)}><Text style={text}>{error}</Text></Pressable> : null}
+            {hasMore && !busy && !error ? <Pressable accessibilityRole="button" style={button} onPress={() => void loadHistory(false)}><Text style={text}>{t("mobile.chat.loadMore")}</Text></Pressable> : null}
+          </ScrollView>
+        </GlassSurface>
       </View>
-    </TopSheet>
+    </Modal>
   </View>;
 }

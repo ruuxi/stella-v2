@@ -32,12 +32,15 @@ export type ComputerControl = {
   onPress: () => void;
 };
 
+export type HistoryControl = { disabled: boolean; onPress: () => void };
+
 type ShellState = {
   activity: ActivityHubData | null;
   computer: ComputerControl | null;
+  history: HistoryControl | null;
 };
 
-let state: ShellState = { activity: null, computer: null };
+let state: ShellState = { activity: null, computer: null, history: null };
 const listeners = new Set<() => void>();
 
 const emit = () => {
@@ -61,6 +64,17 @@ export function publishComputerControl(next: ComputerControl | null): void {
   if (state.computer === next) return;
   state = { ...state, computer: next };
   emit();
+}
+
+export function publishHistoryControl(next: HistoryControl | null): void {
+  if (state.history === next) return;
+  state = { ...state, history: next };
+  emit();
+}
+
+const readHistory = () => state.history;
+export function useHistoryControl(): HistoryControl | null {
+  return useSyncExternalStore(subscribe, readHistory, readHistory);
 }
 
 const readActivity = () => state.activity;
@@ -98,7 +112,7 @@ export function subscribeSidebarOpenRequests(listener: () => void): () => void {
 
 /** Test hook: drop every subscriber and published value. */
 export function resetMainShellStore(): void {
-  state = { activity: null, computer: null };
+  state = { activity: null, computer: null, history: null };
   listeners.clear();
   openRequestListeners.clear();
 }

@@ -72,6 +72,7 @@ export function AppBackdrop({ style }: { style?: StyleProp<ViewStyle> }) {
   if (!uri) {
     return (
       <View
+        pointerEvents="none"
         style={[
           StyleSheet.absoluteFill,
           { backgroundColor: colors.background },

@@ -4229,29 +4229,33 @@ export function ChatPane({
                 screen via the top-bar offset) and masks it to a vertical fade,
                 so it matches the soft gradient seamlessly instead of stamping a
                 flat `colors.background` band over it. */}
-            <MaskedView
-              style={styles.topTaper}
-              pointerEvents="none"
-              maskElement={
-                <LinearGradient
-                  colors={["#000", "rgba(0,0,0,0)"]}
-                  locations={[0, 1]}
-                  style={StyleSheet.absoluteFill}
-                />
-              }
-            >
-              <View
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  top: -(insets.top + TOP_BAR_BAR_HEIGHT),
-                  height: screenHeight,
-                }}
+            {/* Android's native MaskedView does not implement pointerEvents.
+                Keep touch exclusion on a real RN View around the whole mask,
+                including its screen-height backdrop child. */}
+            <View style={styles.topTaper} pointerEvents="none" collapsable={false}>
+              <MaskedView
+                style={StyleSheet.absoluteFill}
+                maskElement={
+                  <LinearGradient
+                    colors={["#000", "rgba(0,0,0,0)"]}
+                    locations={[0, 1]}
+                    style={StyleSheet.absoluteFill}
+                  />
+                }
               >
-                <AppBackdrop />
-              </View>
-            </MaskedView>
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: -(insets.top + TOP_BAR_BAR_HEIGHT),
+                    height: screenHeight,
+                  }}
+                >
+                  <AppBackdrop />
+                </View>
+              </MaskedView>
+            </View>
           </>
         )}
         {replyFocus && <ReplyFocus

@@ -4,7 +4,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { arch, platform } from "node:os";
 import { spawn } from "node:child_process";
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  ipcMain,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from "electron";
 import {
   IPC_OFFICE_PREVIEW_LIST,
   IPC_OFFICE_PREVIEW_START,
@@ -43,6 +48,19 @@ type MobileOfficePreviewPolicy = {
 const PREVIEW_ROOT_DIRNAME = "office-previews";
 const SESSION_MANIFEST_NAME = "session.json";
 const SESSION_HTML_NAME = "preview.html";
+
+export const resolveOfficePreviewBinaryPath = (
+  stellaAppDir: string,
+  packaged: boolean,
+  resourcesPath: string,
+  binaryName: string,
+): string =>
+  path.join(
+    packaged ? resourcesPath : path.join(stellaAppDir, "packages"),
+    "stella-office",
+    "bin",
+    binaryName,
+  );
 
 const formatForPath = (filePath: string): OfficePreviewFormat => {
   const extension = path.extname(filePath).toLowerCase();
@@ -314,11 +332,10 @@ export const registerOfficePreviewHandlers = (
       const startedAt = Date.now();
       await writeManifest(sessionDir, ref, format, "starting", startedAt);
 
-      const binaryPath = path.join(
+      const binaryPath = resolveOfficePreviewBinaryPath(
         stellaAppDir,
-        "desktop",
-        "stella-office",
-        "bin",
+        app.isPackaged,
+        process.resourcesPath,
         getOfficeBinaryName(),
       );
       void (async () => {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { filterOfficePreviewSnapshotsForMobile } from "@stella/desktop/electron/ipc/office-preview-handlers.js";
+import {
+  filterOfficePreviewSnapshotsForMobile,
+  resolveOfficePreviewBinaryPath,
+} from "@stella/desktop/electron/ipc/office-preview-handlers.js";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 
@@ -18,6 +21,25 @@ const snapshot = (
 });
 
 describe("mobile office preview policy", () => {
+  it("uses the monorepo binary in development and the shipped resource in packaged apps", () => {
+    const binary = "stella-office-darwin-arm64";
+    expect(
+      resolveOfficePreviewBinaryPath(
+        "/repo",
+        false,
+        "/electron/resources",
+        binary,
+      ),
+    ).toBe("/repo/packages/stella-office/bin/" + binary);
+    expect(
+      resolveOfficePreviewBinaryPath(
+        "/App/Resources/app.asar",
+        true,
+        "/App/Resources",
+        binary,
+      ),
+    ).toBe("/App/Resources/stella-office/bin/" + binary);
+  });
   it("limits mobile office preview snapshots to recent conversation files", () => {
     const events: LocalChatEventRecord[] = [
       {

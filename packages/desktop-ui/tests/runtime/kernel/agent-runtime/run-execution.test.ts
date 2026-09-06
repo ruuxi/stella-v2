@@ -582,6 +582,42 @@ describe("executeRuntimeAgentPrompt", () => {
     );
   });
 
+  it("persists file access context separately without exposing it in the user bubble", async () => {
+    const appendThreadMessage = vi.fn();
+    const appendThreadCustomMessage = vi.fn();
+    const onUserMessage = vi.fn();
+    const agent = {
+      state: { messages: [] as Array<ReturnType<typeof createAssistantMessage>> },
+      subscribe: () => () => {},
+      prompt: vi.fn(async () => {
+        agent.state.messages = [createAssistantMessage("done")];
+      }),
+      followUp: vi.fn(), continue: vi.fn(), abort: vi.fn(),
+    };
+    await executeRuntimeAgentPrompt({
+      agent,
+      promptMessages: [{
+        text: "Read the attached file", uiVisibility: "visible",
+        attachments: [{ url: "/tmp/test-note.txt", sourcePath: "/tmp/test-note.txt", kind: "file", mimeType: "text/plain" }],
+      }],
+      runId: "run-file", agentType: "orchestrator", userMessageId: "msg-file",
+      recorder: {} as never, callbacks: { onUserMessage },
+      threadStore: { appendThreadMessage, appendThreadCustomMessage } as never,
+      threadKey: "thread-file",
+    });
+    expect(agent.prompt).toHaveBeenCalledWith([
+      expect.objectContaining({ role: "user", content: [{ type: "text", text: "Read the attached file" }] }),
+      expect.objectContaining({
+        role: "runtimeInternal", customType: "runtime.file_attachments", display: false,
+        content: [{ type: "text", text: expect.stringContaining("/tmp/test-note.txt") }],
+      }),
+    ]);
+    expect(appendThreadMessage).toHaveBeenCalledOnce();
+    expect(appendThreadCustomMessage).toHaveBeenCalledWith(expect.objectContaining({ customType: "runtime.file_attachments", display: false }));
+    expect(JSON.stringify(onUserMessage.mock.calls)).not.toContain("/tmp/test-note.txt");
+    expect(JSON.stringify(appendThreadMessage.mock.calls)).not.toContain("/tmp/test-note.txt");
+  });
+
   it("persists a hidden description beside each new image for text-only models", async () => {
     const appendThreadMessage = vi.fn();
     const appendThreadCustomMessage = vi.fn();

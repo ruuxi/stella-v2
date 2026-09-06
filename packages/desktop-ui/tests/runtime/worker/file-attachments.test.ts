@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { materializeFileAttachments, MAX_FILE_ATTACHMENT_BYTES } from "@stella/runtime/worker/server/attachments";
-import { createUserPromptMessage, createRuntimePromptAgentMessage } from "@stella/runtime/kernel/agent-runtime/run-preparation";
+import { createUserPromptMessage, createRuntimePromptAgentMessage, createFileAttachmentPromptInput } from "@stella/runtime/kernel/agent-runtime/run-preparation";
 const dirs: string[] = [];
 afterEach(async () => {
   vi.unstubAllGlobals();
@@ -23,9 +23,12 @@ describe("local document attachments", () => {
     expect(files[0].sourcePath!.startsWith(path.join(args.stellaDataDirPath, "cache", "chat-attachments"))).toBe(true);
     expect(await fs.readFile(files[0].sourcePath!, "utf8")).toBe("secret: amber-cactus");
     for (const message of [createUserPromptMessage("Read the file", files), createRuntimePromptAgentMessage({ text: "Read the file", attachments: files }, 1)]) {
-      expect(JSON.stringify(message.content)).toContain(files[0].sourcePath);
+      expect(message.content).toEqual([{ type: "text", text: "Read the file" }]);
       expect(JSON.stringify(message.content)).not.toContain("https://drive.example");
     }
+    const context = createFileAttachmentPromptInput(files)!;
+    expect(context.text).toContain(files[0].sourcePath);
+    expect(context).toMatchObject({ messageType: "message", display: false, uiVisibility: "hidden" });
   });
   it("supports local paths and base64 documents without treating images as files", async () => {
     const args = await setup();

@@ -12,6 +12,7 @@ import {
 } from "./run-events.js";
 import {
   createRuntimePromptAgentMessage,
+  createFileAttachmentPromptInput,
   prepareRuntimeAttachments,
 } from "./run-preparation.js";
 import {
@@ -471,7 +472,10 @@ export const executeRuntimeAgentPrompt = async (args: {
     const promptTimestamp = now();
     const promptMessages = (
       await Promise.all(
-        promptInputs.map(async (input, index) => {
+        promptInputs.flatMap((input) => {
+          const fileContext = createFileAttachmentPromptInput(input.attachments);
+          return fileContext ? [input, fileContext] : [input];
+        }).map(async (input, index) => {
           const inputTimestamp =
             typeof input.timestamp === "number" &&
             Number.isFinite(input.timestamp)

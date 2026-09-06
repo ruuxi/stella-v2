@@ -41,9 +41,23 @@ const toImageContent = (
   };
 };
 
-const toFileContent = (attachment: RuntimeAttachmentRef) => {
-  if (attachment.kind !== "file" || !attachment.sourcePath) return [];
-  return [{ type: "text" as const, text: `The user attached a file: ${JSON.stringify(attachment.name || "attachment")} (${attachment.mimeType || "application/octet-stream"}). The file is available locally at ${JSON.stringify(attachment.sourcePath)}. Use Read or delegate to an agent to inspect it. Pass this absolute path to any agent that needs its contents.` }];
+/** Keep tool paths in durable model context, separate from the visible user turn. */
+export const createFileAttachmentPromptInput = (
+  attachments?: RuntimeAttachmentRef[],
+): RuntimePromptMessage | null => {
+  const files = (attachments ?? []).filter(
+    (attachment) => attachment.kind === "file" && attachment.sourcePath,
+  );
+  if (files.length === 0) return null;
+  return {
+    text: files.map((attachment) =>
+      `The user attached a file: ${JSON.stringify(attachment.name || "attachment")} (${attachment.mimeType || "application/octet-stream"}). The file is available locally at ${JSON.stringify(attachment.sourcePath)}. Use Read or delegate to an agent to inspect it. Pass this absolute path to any agent that needs its contents.`,
+    ).join("\n"),
+    messageType: "message",
+    customType: "runtime.file_attachments",
+    display: false,
+    uiVisibility: "hidden",
+  };
 };
 
 /**
@@ -100,7 +114,6 @@ export const createUserPromptMessage = (
   role: "user" as const,
   content: [
     { type: "text" as const, text },
-    ...(attachments ?? []).flatMap(toFileContent),
     ...(attachments ?? [])
       .map((attachment) => toImageContent(attachment))
       .filter((attachment): attachment is ImageContent => attachment !== null),
@@ -113,7 +126,6 @@ export const createRuntimePromptAgentMessage = (
 ): AgentMessage => {
   const content = [
     { type: "text" as const, text: message.text },
-    ...(message.attachments ?? []).flatMap(toFileContent),
     ...(message.attachments ?? [])
       .map((attachment) => toImageContent(attachment))
       .filter((attachment): attachment is ImageContent => attachment !== null),

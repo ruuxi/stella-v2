@@ -119,6 +119,9 @@ const installAuthRoutes = (routes: Record<string, AuthRoute>) => {
 
 describe("AuthService main-process token authority", () => {
   beforeEach(() => {
+    // Token-authority tests do not open the hosted challenge UI; the challenge
+    // header test below supplies its token explicitly at that boundary.
+    vi.stubEnv("VITE_TURNSTILE_SITE_KEY", undefined);
     electronMocks.isPackaged = false;
     electronMocks.userDataPath = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-auth-service-"),
@@ -131,6 +134,7 @@ describe("AuthService main-process token authority", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     resetTestSafeStorage();
     delete process.env.STELLA_DEV_HARNESS;
     delete process.env.STELLA_DEV_HARNESS_SESSION_TOKEN;

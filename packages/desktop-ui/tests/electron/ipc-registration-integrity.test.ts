@@ -299,14 +299,28 @@ describe("Electron IPC registration integrity", () => {
     registerSystemHandlers(options);
 
     const signDevice = ipc.handles.get("auth:signDevice");
-    await expect(signDevice?.({}, "canonical-input")).resolves.toEqual({
+    const canonicalInput =
+      "stella-dpop\nPOST\n/api/gateway\ntoken-id\nrequest-id\n1700000000000";
+    await expect(signDevice?.({}, canonicalInput)).resolves.toEqual({
       alg: "ed25519",
       rawPublicKey: Array.from({ length: 32 }, (_, index) => index),
       signature: "device-signature",
     });
     expect(assertPrivilegedSender).toHaveBeenCalledWith({}, "auth:signDevice");
     expect(loadDeviceSigner).toHaveBeenCalledOnce();
-    expect(sign).toHaveBeenCalledWith("canonical-input");
+    expect(sign).toHaveBeenCalledWith(canonicalInput);
+
+    await expect(signDevice?.({}, "canonical-input")).rejects.toThrow(
+      "outside the DPoP contract",
+    );
+    expect(loadDeviceSigner).toHaveBeenCalledOnce();
+    expect(sign).toHaveBeenCalledOnce();
+
+    assertPrivilegedSender.mockReturnValue(false);
+    await expect(signDevice?.({}, canonicalInput)).rejects.toThrow(
+      "Blocked untrusted device-signing request",
+    );
+    expect(sign).toHaveBeenCalledOnce();
   });
 
   it("wires the connector credential service into system registration", () => {

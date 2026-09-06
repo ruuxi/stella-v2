@@ -614,6 +614,7 @@ describe("InAppBrowserService", () => {
       tabId: "tab-1",
       method: "Page.loadEventFired",
       params: { timestamp: 1 },
+      sessionId: "session-1",
     });
   });
 
@@ -1032,6 +1033,8 @@ describe("InAppBrowserService", () => {
     ).resolves.toBe("terminated");
     expect(contents.debugger.sendCommand).toHaveBeenLastCalledWith(
       "Runtime.terminateExecution",
+      {},
+      undefined,
     );
     expect(contents.reload).not.toHaveBeenCalled();
 

@@ -144,6 +144,7 @@ describe("InAppBrowserCdpAdapter", () => {
       "Page.getNavigationHistory",
       {},
       "owner-test",
+      undefined,
     );
 
     socket.close();
@@ -179,7 +180,7 @@ describe("InAppBrowserCdpAdapter", () => {
     expect(sendDebuggerCommand.mock.calls[0]?.[1]).toBe("Runtime.evaluate");
     expect(sendDebuggerCommand.mock.calls[0]?.[2]).toEqual(
       expect.objectContaining({
-        expression: expect.stringContaining("__stella_agent_pointer__"),
+        expression: expect.stringContaining("__stella_agent_cursor_root__"),
       }),
     );
     expect(sendDebuggerCommand.mock.calls[1]).toEqual([
@@ -187,6 +188,7 @@ describe("InAppBrowserCdpAdapter", () => {
       "Input.dispatchMouseEvent",
       { type: "mousePressed", x: 40, y: 52, button: "left" },
       "owner-test",
+      undefined,
     ]);
 
     socket.close();
@@ -294,7 +296,11 @@ describe("InAppBrowserCdpAdapter", () => {
     ).rejects.toThrow(
       "CDP command Runtime.evaluate timed out after 20ms. Page execution was terminated.",
     );
-    expect(recoverDebuggerTarget).toHaveBeenCalledWith("tab-1", "owner-test");
+    expect(recoverDebuggerTarget).toHaveBeenCalledWith(
+      "tab-1",
+      "owner-test",
+      undefined,
+    );
     await expect(
       request(socket, 3, "Target.getTargets"),
     ).resolves.toMatchObject({
@@ -314,6 +320,7 @@ describe("InAppBrowserCdpAdapter", () => {
       "Page.getNavigationHistory",
       {},
       "owner-test",
+      undefined,
     );
 
     socket.close();
@@ -347,7 +354,11 @@ describe("InAppBrowserCdpAdapter", () => {
     await expect(
       request(socket, 2, "Runtime.enable", {}, String(attached.sessionId)),
     ).resolves.toEqual({});
-    expect(recoverDebuggerTarget).toHaveBeenCalledWith("tab-1", "owner-test");
+    expect(recoverDebuggerTarget).toHaveBeenCalledWith(
+      "tab-1",
+      "owner-test",
+      undefined,
+    );
     expect(
       sendDebuggerCommand.mock.calls.filter(
         (call) => call[1] === "Runtime.enable",

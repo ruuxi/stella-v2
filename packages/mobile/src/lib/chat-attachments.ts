@@ -180,6 +180,8 @@ export type AttachmentUploadDeps = {
   client: Pick<ConvexReactClient, "action">;
   /** Reads the picked file's bytes. Split out so tests never touch the disk. */
   readFile: (uri: string) => Promise<Uint8Array<ArrayBuffer>>;
+  /** Native uses expo/fetch, which accepts byte buffers without RN Blob conversion. */
+  fetch?: (url: string, init: RequestInit) => Promise<Pick<Response, "ok" | "status">>;
   now?: () => Date;
 };
 
@@ -207,10 +209,10 @@ export const uploadChatAttachment = async (
     sizeBytes: bytes.byteLength,
     contentType,
   });
-  const put = await fetch(prepared.uploadUrl, {
+  const put = await (deps.fetch ?? fetch)(prepared.uploadUrl, {
     method: "PUT",
     headers: { "content-type": prepared.contentType },
-    body: new Blob([bytes], { type: prepared.contentType }),
+    body: bytes,
   });
   if (!put.ok) {
     throw new Error(`Upload failed (${put.status}).`);

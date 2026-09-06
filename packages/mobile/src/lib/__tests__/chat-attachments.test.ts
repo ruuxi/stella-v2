@@ -156,6 +156,27 @@ describe("the prompt preamble", () => {
 });
 
 describe("the two-step drive upload", () => {
+  test("sends native file bytes directly without constructing an unsupported RN Blob", async () => {
+    const { deps } = fakeDrive();
+    const originalBlob = globalThis.Blob;
+    let uploaded: unknown;
+    globalThis.Blob = class {
+      constructor() { throw new Error("Native Blob cannot accept ArrayBufferView"); }
+    } as unknown as typeof Blob;
+    try {
+      await uploadChatAttachment(picked("native"), new Set(), {
+        ...deps,
+        fetch: async (_url, init) => {
+          uploaded = init.body;
+          return { ok: true, status: 200 };
+        },
+      });
+      expect(uploaded).toBe(PNG);
+    } finally {
+      globalThis.Blob = originalBlob;
+    }
+  });
+
   test("claims a presigned PUT, sends the bytes, then records the row", async () => {
     const { calls, deps } = fakeDrive();
     const path = await uploadChatAttachment(picked("a"), new Set(), deps);

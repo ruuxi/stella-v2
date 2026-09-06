@@ -31,6 +31,7 @@ import {
 } from "./chat-attachments";
 import { getConvexClient } from "./convex";
 import { File } from "expo-file-system";
+import { fetch as expoFetch } from "expo/fetch";
 import { useT } from "../i18n/I18nProvider";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import {
@@ -404,6 +405,7 @@ export function useChatThread(opts: {
       void uploadChatAttachment(picked, taken, {
         client: getConvexClient(),
         readFile: async (uri) => await new File(uri).bytes(),
+        fetch: expoFetch,
       })
         .then((drivePath) => {
           setAttachments((current) =>

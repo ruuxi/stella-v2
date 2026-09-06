@@ -23,11 +23,16 @@ describe("assistant message boundary rendering", () => {
   });
 
   test("wraps assistant message text — and only the text — in the assistant bubble", () => {
-    expect(chatPane).toContain(
-      "<MorphingAssistantBubble style={styles.assistantBubble} animate={animate || mountedEmptyRef.current}>",
-    );
+    const bubbles = [...chatPane.matchAll(
+      /<MorphingAssistantBubble\b([^>]*?)>([\s\S]*?)<\/MorphingAssistantBubble>/g,
+    )];
+    expect(bubbles).toHaveLength(1);
+    const [, attributes, body] = bubbles[0]!;
+    expect(attributes).toContain("styles.assistantBubble");
+    expect(attributes).toContain("animate={animate || mountedEmptyRef.current}");
+    expect(body.trim()).toBe("{renderAssistantMarkdown(item.text)}");
     // Artifacts, tool traces and row actions stay outside the bubble.
-    expect(chatPane).toContain("</MorphingAssistantBubble>\n      ) : null}\n      {toolActivity ? (");
+    expect(/<\/MorphingAssistantBubble>\s*\) : null}\s*{toolActivity \? \(/.test(chatPane)).toBe(true);
   });
 
   test("keeps every agent activity artifact in the boundary group", () => {

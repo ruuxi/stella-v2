@@ -2,9 +2,11 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 import { createHash } from "node:crypto";
 import type { AppIntegrityProof } from "@stella/contracts/app-integrity";
 
+const originalDevDescriptor = Object.getOwnPropertyDescriptor(globalThis, "__DEV__");
 Object.defineProperty(globalThis, "__DEV__", {
   value: false,
   configurable: true,
+  writable: true,
 });
 
 let platform: "android" | "ios" = "ios";
@@ -25,6 +27,10 @@ mock.module("react-native", () => ({
 }));
 
 mock.module("expo-secure-store", () => ({
+  getItem: (key: string) => secureStore.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    secureStore.set(key, value);
+  },
   getItemAsync: async (key: string) => secureStore.get(key) ?? null,
   setItemAsync: async (key: string, value: string) => {
     secureStore.set(key, value);
@@ -97,6 +103,11 @@ const {
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
+  if (originalDevDescriptor) {
+    Object.defineProperty(globalThis, "__DEV__", originalDevDescriptor);
+  } else {
+    delete (globalThis as Record<string, unknown>).__DEV__;
+  }
   mock.restore();
 });
 

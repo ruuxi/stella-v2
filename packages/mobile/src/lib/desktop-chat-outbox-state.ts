@@ -2,6 +2,7 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { parseCloudModelSelection } from "./cloud-model-selection";
 import type { ChatMessage } from "../types";
 import type { AutomaticExecutionTarget } from "./execution-placement";
+import { withAttachmentPreamble } from "./chat-attachments";
 
 /**
  * An attachment a queued row carries. The bytes are not here: they reached the
@@ -28,6 +29,8 @@ export type DesktopChatOutboxRecord = {
   userMessageId: string;
   /** Journal echo identity; absent on pre-upgrade rows to preserve their hash. */
   userMessageEventId?: string;
+  /** New sends carry drive paths only in the structured admission payload. */
+  structuredAttachments?: true;
   text: string;
   displayText: string;
   createdAt: number;
@@ -41,6 +44,13 @@ export type DesktopChatOutboxRecord = {
   cancelRequestId?: string;
   cancelRequestedAt?: number;
 };
+
+/** Preserve the exact prompt used by pre-upgrade idempotent admissions. */
+export const desktopChatOutboxPrompt = (
+  record: Pick<DesktopChatOutboxRecord, "text" | "attachments" | "structuredAttachments">,
+): string => record.structuredAttachments === true
+  ? record.text
+  : withAttachmentPreamble(record.text, record.attachments.map((entry) => entry.path));
 
 const finiteNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -200,6 +210,7 @@ export const parseDesktopChatOutbox = (
       sendId,
       userMessageId,
       ...(record.userMessageEventId === userMessageId ? { userMessageEventId: userMessageId } : {}),
+      ...(record.structuredAttachments === true ? { structuredAttachments: true as const } : {}),
       text,
       displayText,
       createdAt,
@@ -321,6 +332,13 @@ export const restoreOutboxMessages = (
       text: record.displayText,
       createdAt: record.createdAt,
       queued: true,
+      ...(record.attachments.length ? {
+        attachmentPaths: record.attachments.map(entry => entry.path),
+        attachmentPreviews: record.attachments.map(entry => ({
+          path: entry.path, name: entry.name,
+          ...(entry.previewUri ? { imageUri: entry.previewUri } : {}),
+        })),
+      } : {}),
       ...(preview.hasImage ? { hasImage: true } : {}),
       ...(preview.thumbnailUris.length > 0
         ? { thumbnailUris: preview.thumbnailUris }

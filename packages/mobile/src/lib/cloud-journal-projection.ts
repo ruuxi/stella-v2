@@ -9,6 +9,7 @@ import {
   type JournalRecord,
 } from "./cloud-conversation-protocol";
 import type { LiveTurn } from "./cloud-conversation-store";
+import { withAttachmentPreamble } from "./chat-attachments";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -28,6 +29,24 @@ const timestampOf = (record: JournalMessageRecord): number =>
   Number.isFinite(record.payload.timestamp)
     ? record.payload.timestamp
     : record.createdAtMs;
+
+const userAttachmentPresentation = (payload: Record<string, unknown>) => {
+  const raw = asRecord(payload.providerContext)?.attachments;
+  const attachmentPaths = Array.isArray(raw)
+    ? [...new Set(raw.filter((path): path is string => typeof path === "string" && path.length > 0 && path.length <= 400))]
+    : [];
+  const text = messageText(payload);
+  // This is the exact transport suffix generated for these structured paths,
+  // not a search for prose that happens to mention attachments or storage.
+  const suffix = attachmentPaths.length ? withAttachmentPreamble("", attachmentPaths) : "";
+  return {
+    text: suffix && text.endsWith(suffix) ? text.slice(0, -suffix.length) : text,
+    ...(attachmentPaths.length ? {
+      attachmentPaths,
+      attachmentPreviews: attachmentPaths.map(path => ({ path, name: path.split("/").at(-1) ?? path })),
+    } : {}),
+  };
+};
 
 const toolCalls = (
   record: JournalMessageRecord,
@@ -120,7 +139,7 @@ export const projectCloudConversationMessages = (args: {
           id: userMessageId,
           canonicalId: `cloud:${turnId}:message:${record.seq}`,
           role: "user",
-          text: messageText(record.payload),
+          ...userAttachmentPresentation(record.payload),
           createdAt,
           canonicalCreatedAt: record.createdAtMs,
           sequence: record.seq,
@@ -405,7 +424,28 @@ export const mergeCanonicalCloudMessages = (args: {
         !canonicalAssistantOwners.has(owner),
     );
   });
-  return [...args.canonical, ...optimistic];
+  const localById = new Map(args.local.map(message => [message.id, message]));
+  const canonical = args.canonical.map(message => {
+    const local = localById.get(message.id);
+    if (message.role !== "user" || local?.role !== "user") return message;
+    // Identity is already canonical here. Keep the picked preview while the
+    // authenticated canonical attachment URL resolves, including after ACK.
+    return {
+      ...message,
+      ...(message.attachmentPaths?.length ? {
+        attachmentPreviews: message.attachmentPaths.map(path =>
+          local.attachmentPreviews?.find(preview => preview.path === path)
+          ?? message.attachmentPreviews?.find(preview => preview.path === path)
+          ?? { path, name: path.split("/").at(-1) ?? path }),
+      } : {}),
+      ...(!message.thumbnailUris?.length && local.thumbnailUris?.length
+        ? { thumbnailUris: local.thumbnailUris, hasImage: true } : {}),
+      ...(!message.documentNames?.length && local.documentNames?.length
+        ? { documentNames: local.documentNames } : {}),
+      ...(!message.quotedText && local.quotedText ? { quotedText: local.quotedText } : {}),
+    };
+  });
+  return [...canonical, ...optimistic];
 };
 
 /**

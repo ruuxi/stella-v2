@@ -552,6 +552,15 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(tasks.length > 0 ? { tasks } : {}),
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),
+    ...(Array.isArray(o.attachmentPaths)
+      ? { attachmentPaths: o.attachmentPaths.filter((path): path is string => typeof path === "string" && path.length > 0 && path.length <= 400) }
+      : {}),
+    ...(Array.isArray(o.attachmentPreviews) ? {
+      attachmentPreviews: o.attachmentPreviews.flatMap(value => {
+        if (!value || typeof value !== "object" || typeof value.path !== "string" || typeof value.name !== "string") return [];
+        return [{ path: value.path, name: value.name, ...(typeof value.imageUri === "string" ? { imageUri: value.imageUri } : {}) }];
+      }),
+    } : {}),
     ...(documentNames.length > 0 ? { documentNames } : {}),
     ...(typeof o.quotedText === "string" && o.quotedText.trim()
       ? { quotedText: o.quotedText }

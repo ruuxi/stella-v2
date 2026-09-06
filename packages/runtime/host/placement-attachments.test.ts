@@ -10,7 +10,7 @@ const DOCUMENT = "uploads/2026-08-29/lease.pdf";
 
 /** The exact payload a mobile unified-chat turn admits for these two files. */
 const dispatchPayload = {
-  prompt: `is this rent legal\n\nAttached in my drive:\n- ${IMAGE}\n- ${DOCUMENT}`,
+  prompt: "is this rent legal",
   attachments: [IMAGE, DOCUMENT],
 };
 
@@ -167,9 +167,19 @@ describe("both placements see the same references", () => {
     expect(resolvedOrder).toEqual(cloudTurnAttachments);
   });
 
-  test("the prompt names the same paths, which is how documents reach either agent", () => {
-    for (const path of dispatchPayload.attachments) {
-      expect(dispatchPayload.prompt).toContain(path);
-    }
+  test("a clean prompt needs no attachment preamble for computer resolution", async () => {
+    expect(dispatchPayload.prompt).toBe("is this rent legal");
+    const resolved = await resolvePlacementAttachments({
+      paths: placementAttachmentPaths(dispatchPayload), resolve: resolveFromDrive,
+    });
+    const legacy = await resolvePlacementAttachments({
+      paths: placementAttachmentPaths({ ...dispatchPayload,
+        prompt: `${dispatchPayload.prompt}\n\nAttached in my drive:\n- ${IMAGE}\n- ${DOCUMENT}`,
+      }), resolve: resolveFromDrive,
+    });
+    expect(resolved).toEqual(legacy);
+    expect(resolved.map(({ name, kind }) => ({ name, kind }))).toEqual([
+      { name: "receipt.png", kind: "image" }, { name: "lease.pdf", kind: "file" },
+    ]);
   });
 });

@@ -55,6 +55,7 @@ import {
 } from "./execution-placement";
 import { groupActivityArtifacts } from "./activity-hub-model";
 import { canonicalWorkingState } from "./canonical-working-state";
+import { useChatAttachmentPreviews } from "./use-chat-attachment-previews";
 import type { ChatArtifact, ChatMessage } from "../types";
 import type { ChatThreadId } from "./offline-chat-storage";
 import type { StoredPhoneAccess } from "./phone-access";
@@ -538,7 +539,7 @@ export const useCloudCanonicalChatThread = (
     () => rebindCanonicalCloudMessages(displayedProjection, dispatchBindings),
     [dispatchBindings, displayedProjection],
   );
-  const messages = useMemo(
+  const mergedMessages = useMemo(
     () =>
       mergeCanonicalCloudMessages({
         canonical,
@@ -548,6 +549,7 @@ export const useCloudCanonicalChatThread = (
       }),
     [acknowledgedDispatchIds, canonical, dispatchBindings, local.messages],
   );
+  const messages = useChatAttachmentPreviews(mergedMessages, JSON.stringify(cacheAuthority));
 
   const cacheWriteGenerationRef = useRef(0);
   const cacheWriteQueueRef = useRef<Promise<void>>(Promise.resolve());

@@ -660,6 +660,8 @@ describe("chat storage round-trip", () => {
         createdAt: 10,
         hasImage: true,
         thumbnailUris: ["file:///cached/photo.png"],
+        attachmentPaths: ["Photos/photo.png"],
+        attachmentPreviews: [{ path: "Photos/photo.png", name: "photo.png", imageUri: "file:///cached/photo.png" }],
       },
     ];
 

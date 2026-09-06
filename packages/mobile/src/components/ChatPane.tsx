@@ -1523,6 +1523,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
 
   if (item.role === "user") {
     const thumbs = item.thumbnailUris ?? [];
+    const attachmentPreviews = item.attachmentPreviews ?? [];
     const showThumbs = thumbs.length > 0;
     const documentNames = item.documentNames ?? [];
     const showText = item.text.trim().length > 0;
@@ -1574,7 +1575,23 @@ const ChatMessageRow = memo(function ChatMessageRow({
                   item.queued && styles.userBubbleQueued,
                 ]}
               >
-                {showThumbs ? (
+                {attachmentPreviews.length > 0 ? (
+                  <View style={[styles.userThumbStrip, showText && styles.userThumbsAbove]}>
+                    {attachmentPreviews.slice(0, 3).map(preview => (
+                      <View key={preview.path} style={styles.userThumbImage}>
+                        {preview.imageUri ? (
+                          <Image source={{ uri: preview.imageUri }} style={styles.userThumbImage}
+                            contentFit="cover" accessibilityLabel={preview.name} />
+                        ) : (
+                          <View style={styles.userAttachmentPlaceholder}>
+                            <Icon name="file-text" size={20} color={colors.textMuted} />
+                            <Text style={styles.userDocumentName} numberOfLines={2}>{preview.name}</Text>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                ) : showThumbs ? (
                   <View
                     style={[
                       styles.userThumbStrip,
@@ -1591,7 +1608,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                     ))}
                   </View>
                 ) : null}
-                {documentNames.length > 0 ? (
+                {attachmentPreviews.length === 0 && documentNames.length > 0 ? (
                   <View
                     style={[
                       styles.userDocumentStrip,
@@ -4977,6 +4994,13 @@ const makeStyles = (colors: Colors) =>
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 6,
+    },
+    userAttachmentPlaceholder: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 6,
+      gap: 5,
     },
     userDocumentChip: {
       alignItems: "center",

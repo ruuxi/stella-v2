@@ -292,6 +292,9 @@ export type ChatMessage = {
    * fallback covers that gracefully.
    */
   thumbnailUris?: string[];
+  /** Canonical authenticated Drive references; resolve previews from server MIME metadata. */
+  attachmentPaths?: string[];
+  attachmentPreviews?: { path: string; name: string; imageUri?: string }[];
   /**
    * User message: names of attached documents. Documents have no preview to
    * render, so the bubble names them; the bytes are in the owner's drive and

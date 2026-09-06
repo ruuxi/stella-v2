@@ -16,6 +16,7 @@ import {
 } from "./desktop-chat-outbox";
 import {
   restoreOutboxMessages,
+  desktopChatOutboxPrompt,
   type DesktopChatOutboxAttachment,
   type DesktopChatOutboxRecord,
 } from "./desktop-chat-outbox-state";
@@ -24,7 +25,6 @@ import {
   attachmentsSettled,
   isAttachmentReady,
   uploadChatAttachment,
-  withAttachmentPreamble,
   withAttachmentStatus,
   CHAT_ATTACHMENT_MAX_COUNT,
   type ComposerAttachment,
@@ -187,6 +187,7 @@ const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
  * observer.
  */
 type QueuedSend = {
+  structuredAttachments?: true;
   userMessageEventId?: string;
   dispatchId: string;
   clientRequestId: string;
@@ -627,6 +628,7 @@ export function useChatThread(opts: {
             clientRequestId: stored?.sendId ?? row.id,
             userMessageId: row.id,
             ...(stored?.userMessageEventId ? { userMessageEventId: stored.userMessageEventId } : {}),
+            ...(stored?.structuredAttachments === true ? { structuredAttachments: true } : {}),
             text: stored?.text ?? row.text,
             attachments: stored?.attachments ?? [],
             executionTarget:
@@ -907,7 +909,6 @@ export function useChatThread(opts: {
         );
       };
 
-      const attachmentPaths = item.attachments.map((entry) => entry.path);
       const placementAttachments = item.attachments.map((entry) => ({
         path: entry.path,
         kind: entry.kind,
@@ -957,7 +958,7 @@ export function useChatThread(opts: {
                 dispatchId: item.dispatchId,
                 ...(item.userMessageEventId ? { userMessageEventId: item.userMessageEventId } : {}),
                 conversationId: placementConversationId,
-                prompt: withAttachmentPreamble(item.text, attachmentPaths),
+                prompt: desktopChatOutboxPrompt(item),
                 attachments: placementAttachments,
               }),
               ...(access ? { access } : {}),
@@ -1315,6 +1316,13 @@ export function useChatThread(opts: {
         text: displayText,
         createdAt,
         hasImage: images.length > 0,
+        ...(sendAttachments.length ? {
+          attachmentPaths: sendAttachments.map(entry => entry.path),
+          attachmentPreviews: sendAttachments.map(entry => ({
+            path: entry.path, name: entry.name,
+            ...(entry.previewUri ? { imageUri: entry.previewUri } : {}),
+          })),
+        } : {}),
         ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
         ...(documents.length > 0
           ? { documentNames: documents.map((entry) => entry.name) }
@@ -1334,6 +1342,7 @@ export function useChatThread(opts: {
       });
 
       const item: QueuedSend = {
+        structuredAttachments: true,
         dispatchId: userMessageId,
         clientRequestId: userMessageId,
         userMessageId,
@@ -1351,6 +1360,7 @@ export function useChatThread(opts: {
       pendingEnqueueRef.current.add(userMessageId);
       if (admission === "dispatch") markSending(true);
       const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
+        structuredAttachments: true,
         sendId: userMessageId,
         userMessageId,
         userMessageEventId: userMessageId,

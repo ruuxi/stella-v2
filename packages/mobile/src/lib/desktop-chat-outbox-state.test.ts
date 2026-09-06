@@ -4,6 +4,7 @@ import { mergeMessagesById } from "./chat-merge";
 import {
   acknowledgeDesktopChatOutboxRecords,
   appendDesktopChatOutboxRecord,
+  desktopChatOutboxPrompt,
   markDesktopChatOutboxRecordCanceled,
   parseDesktopChatOutbox,
   partitionDesktopChatOutboxForAuthority,
@@ -41,6 +42,40 @@ const authorityB: DesktopChatOutboxAuthority = {
 };
 
 describe("chat durable outbox", () => {
+  test("new attachment sends keep titles clean while legacy admission hashes survive restart", () => {
+    const attachments: DesktopChatOutboxRecord["attachments"] = [
+      { path: "uploads/photo.png", name: "photo.png", kind: "image" },
+      { path: "uploads/notes.txt", name: "notes.txt", kind: "file" },
+    ];
+    const legacy = appendDesktopChatOutboxRecord([], {
+      ...pending("old-photo", "Describe these", 1), attachments,
+    }).record;
+    const fresh = appendDesktopChatOutboxRecord([], {
+      ...pending("new-photo", "Describe these", 2), attachments, structuredAttachments: true,
+    }).record;
+    const replay = parseDesktopChatOutbox(JSON.parse(JSON.stringify([legacy, fresh])));
+    const oldReplay = replay.find((record) => record.sendId === legacy.sendId);
+    const newReplay = replay.find((record) => record.sendId === fresh.sendId);
+    const admission = (record: DesktopChatOutboxRecord, prompt = desktopChatOutboxPrompt(record)) =>
+      buildAutomaticExecutionAdmission({ idempotencyKey: record.sendId, conversationId: "conv", kind: "chat", prompt,
+        attachments: record.attachments.map(({ path }) => path),
+      });
+    const legacyPrompt = "Describe these\n\nAttached in my drive:\n- uploads/photo.png\n- uploads/notes.txt";
+    expect(oldReplay!.structuredAttachments).toBeUndefined();
+    expect(newReplay!.structuredAttachments).toBe(true);
+    expect(desktopChatOutboxPrompt(oldReplay!)).toBe(legacyPrompt);
+    expect(admission(oldReplay!).payloadHash).toBe(admission(legacy, legacyPrompt).payloadHash);
+    expect(desktopChatOutboxPrompt(newReplay!)).toBe("Describe these");
+    expect(admission(newReplay!).payloadHash).toBe(admission(fresh).payloadHash);
+    expect(admission(newReplay!).body.payload.attachments).toEqual([
+      "uploads/photo.png", "uploads/notes.txt",
+    ]);
+    for (const invalidFlag of [false, "true", 1, undefined]) {
+      const [parsed] = parseDesktopChatOutbox([{ ...legacy, structuredAttachments: invalidFlag }]);
+      expect(parsed!.structuredAttachments).toBeUndefined();
+      expect(desktopChatOutboxPrompt(parsed!)).toBe(legacyPrompt);
+    }
+  });
   test("does not expose a transmissible record before durable enqueue completes", () => {
     const durable: DesktopChatOutboxRecord[] = [];
     const attemptedBeforeCommit = durable.find(

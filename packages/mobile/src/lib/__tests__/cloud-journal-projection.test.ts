@@ -14,6 +14,47 @@ const message = (
 ): JournalRecord => ({ ...value, createdAtMs: value.seq * 10 });
 
 describe("cloud journal projection", () => {
+  test("projects structured attachments and removes only their exact generated transport suffix", () => {
+    const text = "What plant is this?\n\nAttached in my drive:\n- Photos/plant.jpg";
+    const project = (paths?: string[]) => projectCloudConversationMessages({ records: [message({
+      kind: "message", seq: 1, turnId: "photo-turn", role: "user", hidden: false,
+      clientMsgId: "photo-send", payload: { content: text,
+        ...(paths ? { providerContext: { attachments: paths } } : {}) },
+    })] })[0]!;
+    expect(project(["Photos/plant.jpg"])).toMatchObject({
+      text: "What plant is this?", attachmentPaths: ["Photos/plant.jpg"],
+      attachmentPreviews: [{ path: "Photos/plant.jpg", name: "plant.jpg" }],
+    });
+    expect(project().text).toBe(text);
+    expect(project(["Photos/other.jpg"]).text).toBe(text);
+  });
+
+  test("keeps authored attachment wording before the exact structured suffix", () => {
+    const authored = "Explain this phrase: Attached in my drive:\n- Photos/plant.jpg";
+    const [projected] = projectCloudConversationMessages({ records: [message({
+      kind: "message", seq: 1, turnId: "photo-turn", role: "user", hidden: false,
+      payload: { content: authored + "\n\nAttached in my drive:\n- Photos/plant.jpg",
+        providerContext: { attachments: ["Photos/plant.jpg"] } },
+    })] });
+    expect(projected?.text).toBe(authored);
+  });
+
+  test("keeps the picked image preview through canonical acknowledgement by identity", () => {
+    const [canonical] = projectCloudConversationMessages({ records: [message({
+      kind: "message", seq: 1, turnId: "photo-turn", role: "user", hidden: false,
+      clientMsgId: "dispatch", payload: { originUserMessageId: "local-photo", content: "Look",
+        providerContext: { attachments: ["Photos/plant.jpg"] } },
+    })] });
+    const merged = mergeCanonicalCloudMessages({ canonical: [canonical!],
+      local: [{ id: "local-photo", role: "user", text: "Look", thumbnailUris: ["file:///plant.jpg"],
+        attachmentPreviews: [{ path: "Photos/plant.jpg", name: "plant.jpg", imageUri: "file:///plant.jpg" }] }],
+      dispatchBindings: new Map([["local-photo", "dispatch"]]), acknowledgedDispatchIds: new Set(["dispatch"]),
+    });
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.attachmentPreviews?.[0]?.imageUri).toBe("file:///plant.jpg");
+    expect(merged[0]?.thumbnailUris).toEqual(["file:///plant.jpg"]);
+  });
+
   test("binds one server dispatch to one stable optimistic row", () => {
     const records: JournalRecord[] = [
       message({

@@ -167,6 +167,9 @@ diff --git a/android/src/main/java/net/siteed/audiostudio/RecordingActionReceive
 index eb871c52380986c4e233dff4fd87a7a0d2c9afdf..e45b20a2c718fffac50812c06cadc44b0619537f 100644
 --- a/android/src/main/java/net/siteed/audiostudio/RecordingActionReceiver.kt
 +++ b/android/src/main/java/net/siteed/audiostudio/RecordingActionReceiver.kt
-@@ -45 +45 @@ class RecordingActionReceiver : BroadcastReceiver() {
+@@ -44,4 +44,4 @@ class RecordingActionReceiver : BroadcastReceiver() {
 -                override fun reject(code: String, message: String?, cause: Throwable?) {
 +                override fun reject(code: String?, message: String?, cause: Throwable?) {
+                     Log.e("RecordingActionReceiver", "$action failed: $message", cause)
+                     isProcessingAction.set(false)
+                 }

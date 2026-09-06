@@ -257,9 +257,16 @@ export class AlarmFixtureSession extends BrowserProfileSession {
 
   override async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (path === "/__test/setup") return this.setup();
+    if (path === "/__test/setup") {
+      // The fixture does not use the POST payload, but must consume its
+      // forwarded stream before responding. Otherwise Workerd's deferred
+      // stream read can fail after the response and terminate Wrangler.
+      await request.arrayBuffer();
+      return this.setup();
+    }
     if (path === "/__test/state") return this.fixtureSnapshot();
     if (path === "/__test/replay-expired-decision") {
+      await request.arrayBuffer();
       return this.replayExpiredDecision();
     }
     return super.fetch(request);

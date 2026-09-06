@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMinimumVisibleValue } from "@/shared/hooks/use-minimum-visible-value";
 import { useWindowFocus } from "@/shared/hooks/use-window-focus";
 import { cn } from "@/shared/lib/utils";
@@ -9,6 +9,8 @@ import {
   getWorkingIndicatorCharacterState,
   getWorkingIndicatorDisplayStatus,
   INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS,
+  WORKING_INDICATOR_POSE_ROTATE_MS,
+  type WorkingIndicatorCharacterState,
 } from "@/features/chat/working-indicator-state";
 import "./indicators.css";
 
@@ -47,6 +49,22 @@ export function WorkingIndicator({
   const windowFocused = useWindowFocus();
   const animationPaused = !animationActive || !windowFocused;
 
+  // One pose per rotation window of a tool call, dealt from the whole
+  // repertoire rather than read off the tool's name; a long call moves on to
+  // another pose every window and never repeats the one it just left.
+  const [poseEpoch, setPoseEpoch] = useState(0);
+  useEffect(() => {
+    if (animationPaused) return;
+    const timer = window.setInterval(
+      () => setPoseEpoch((epoch) => epoch + 1),
+      WORKING_INDICATOR_POSE_ROTATE_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [animationPaused]);
+  const previousPoseRef = useRef<WorkingIndicatorCharacterState | undefined>(
+    undefined,
+  );
+
   // Pose and label are held as one tuple so they can never disagree: holding
   // them separately would let a stale label sit under the next activity's
   // pose for the remainder of its floor.
@@ -62,10 +80,13 @@ export function WorkingIndicator({
       characterState: getWorkingIndicatorCharacterState({
         toolName,
         isReasoning,
+        seed: `${toolCallId ?? reasoningSeed ?? ""}:${poseEpoch}`,
+        avoid: previousPoseRef.current,
       }),
     }),
-    [status, toolName, toolCallId, isReasoning, reasoningSeed],
+    [status, toolName, toolCallId, isReasoning, reasoningSeed, poseEpoch],
   );
+  previousPoseRef.current = liveDisplay.characterState;
   const held = useMinimumVisibleValue(
     liveDisplay,
     minimumVisibleMs,

@@ -19,6 +19,18 @@
     "no": "No",
     "copy": "Copy"
   },
+  "cloudConnector": {
+    "titleOffer": "Connect {name}?",
+    "titleWaiting": "Waiting for {name}",
+    "connecting": "Finish signing in to {name} in your browser. Stella will continue once it's approved.",
+    "connect": "Connect",
+    "openAgain": "Open again",
+    "notNow": "Not now",
+    "errors": {
+      "decision": "Couldn't connect {name}. Try again.",
+      "open": "Couldn't open the sign-in page."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",

@@ -74,9 +74,7 @@ import {
 import { AgentWorkCard } from "./AgentWorkCard";
 import { AgentCompletionCard } from "./AgentCompletionCard";
 import { MapRouteCard } from "./MapRouteCard";
-import { ToolActivityTrace } from "./ToolActivityTrace";
 import { RunningTasksPill, runningTaskCount } from "./RunningTasksPill";
-import { deriveToolActivity } from "../lib/tool-activity";
 import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
 import {
   deriveFloatingHidden,
@@ -1528,10 +1526,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
     () => consolidateRowArtifacts(item.artifacts ?? [], item.tasks ?? []),
     [item.artifacts, item.tasks],
   );
-  const toolActivity = useMemo(() => {
-    const steps = item.toolSteps ?? [];
-    return steps.length > 0 ? deriveToolActivity(steps) : undefined;
-  }, [item.toolSteps]);
   // Schedule tool results render their human-readable summaries as plain
   // text lines in the flow (desktop parity — no chip/card). Every settled
   // Schedule call in the turn gets its line, in call order; unparseable or
@@ -1755,9 +1749,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
         >
           {renderAssistantMarkdown(item.text)}
         </MorphingAssistantBubble>
-      ) : null}
-      {toolActivity ? (
-        <ToolActivityTrace group={toolActivity} colors={colors} />
       ) : null}
       {scheduleReceipts.map((receipt) => (
         <Text

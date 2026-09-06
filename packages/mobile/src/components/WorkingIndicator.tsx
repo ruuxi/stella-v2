@@ -6,6 +6,7 @@ import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
 import {
   getWorkingIndicatorCharacterState,
+  WORKING_INDICATOR_POSE_ROTATE_MS,
   type WorkingIndicatorCharacterState,
 } from "./working-indicator-character";
 import { useMinimumVisibleValue } from "../lib/use-minimum-visible-value";
@@ -207,6 +208,21 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   // `reasoningSeed`). Refreshed on each rising edge of `active` below.
   const [reasoningSeed, setReasoningSeed] = useState(() => String(Date.now()));
   const wasActiveRef = useRef(false);
+  // One pose per rotation window of a tool call, dealt from the whole
+  // repertoire rather than read off the tool's name; a long call moves on to
+  // another pose every window and never repeats the one it just left.
+  const [poseEpoch, setPoseEpoch] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(
+      () => setPoseEpoch((epoch) => epoch + 1),
+      WORKING_INDICATOR_POSE_ROTATE_MS,
+    );
+    return () => clearInterval(timer);
+  }, [active]);
+  const previousPoseRef = useRef<WorkingIndicatorCharacterState | undefined>(
+    undefined,
+  );
   const liveDisplay = useMemo(
     () => ({
       status: computeWorkingIndicatorStatus({
@@ -214,10 +230,15 @@ export const WorkingIndicator = memo(function WorkingIndicator({
         toolName,
         seed: toolCallId ?? reasoningSeed,
       }),
-      characterState: getWorkingIndicatorCharacterState(toolName),
+      characterState: getWorkingIndicatorCharacterState(
+        toolName,
+        `${toolCallId ?? reasoningSeed}:${poseEpoch}`,
+        previousPoseRef.current,
+      ),
     }),
-    [reasoningSeed, status, toolCallId, toolName],
+    [poseEpoch, reasoningSeed, status, toolCallId, toolName],
   );
+  previousPoseRef.current = liveDisplay.characterState;
   // The hold covers the mark as well as the label. Without it the character
   // would flap between thinking and tool poses whenever a quick tool starts
   // and ends.

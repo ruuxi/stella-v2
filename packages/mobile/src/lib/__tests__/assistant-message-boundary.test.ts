@@ -32,7 +32,10 @@ describe("assistant message boundary rendering", () => {
     expect(attributes).toContain("animate={animate || mountedEmptyRef.current}");
     expect(body.trim()).toBe("{renderAssistantMarkdown(item.text)}");
     // Artifacts, tool traces and row actions stay outside the bubble.
-    expect(/<\/MorphingAssistantBubble>\s*\) : null}\s*{toolActivity \? \(/.test(chatPane)).toBe(true);
+    // No tool trace row follows the bubble: tool activity lives in the working
+    // indicator while it runs and leaves nothing behind in the transcript.
+    expect(chatPane.includes("ToolActivityTrace")).toBe(false);
+    expect(/<\/MorphingAssistantBubble>\s*\) : null}\s*{scheduleReceipts\.map\(/.test(chatPane)).toBe(true);
   });
 
   test("keeps every agent activity artifact in the boundary group", () => {

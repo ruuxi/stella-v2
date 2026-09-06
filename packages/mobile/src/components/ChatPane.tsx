@@ -1402,6 +1402,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenStellaFile,
   onOpenMessageMenu,
   onEndSelecting,
+  onAskStella,
   onOpenAgentActivity,
   contextRef,
   onOpenReply,
@@ -1423,6 +1424,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
   /** Leaves native text-selection mode for this row. */
   onEndSelecting: () => void;
+  onAskStella: (text: string) => void;
   /** Opens the activity hub — the tap-through target for agent rows. */
   onOpenAgentActivity?: () => void;
   contextRef?: ReplyRef;
@@ -1692,6 +1694,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
         selectable
         fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}
+        onAskStella={onAskStella}
       />
     );
     // Keep the rendered text itself as the selection surface. A wrapper only
@@ -3912,6 +3915,7 @@ export function ChatPane({
             onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu}
             onEndSelecting={stopSelectingMessage}
+            onAskStella={quoteMessage}
             onOpenAgentActivity={onOpenActivity}
             onOpenReply={setReplyFocus}
             contextRef={replyContexts.get(item.id)}
@@ -3936,6 +3940,7 @@ export function ChatPane({
       selectingMessageId,
       startSelectingMessage,
       stopSelectingMessage,
+      quoteMessage,
       onOpenActivity,
       realtimeVoiceDesktopAccess,
     ],
@@ -4272,6 +4277,7 @@ export function ChatPane({
             menuActive={false} isSelecting={false} anySelecting={false}
             onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
+            onAskStella={quoteMessage}
             onOpenReply={setReplyFocus} contextRef={contextRef}
             desktopAccess={realtimeVoiceDesktopAccess} />}
         />}

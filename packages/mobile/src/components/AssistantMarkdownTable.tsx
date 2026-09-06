@@ -28,6 +28,7 @@ type AssistantMarkdownTableProps = {
   colors: Colors;
   selectable?: boolean;
   onLinkPress?: (url: string) => unknown;
+  onAskStella?: (text: string) => void;
 };
 
 function TableCellContent({
@@ -37,6 +38,7 @@ function TableCellContent({
   selectable,
   colors,
   onLinkPress,
+  onAskStella,
 }: {
   colors: Colors;
   node?: MarkdownNode;
@@ -44,9 +46,10 @@ function TableCellContent({
   textStyle: StyleProp<TextStyle>;
   selectable?: boolean;
   onLinkPress?: (url: string) => unknown;
+  onAskStella?: (text: string) => void;
 }) {
   if (!node) return null;
-  if (selectable && nativeMarkdownSelectionAvailable) return <SelectableMarkdownText node={node} colors={colors} textStyle={textStyle} onLinkPress={onLinkPress} />;
+  if (selectable && nativeMarkdownSelectionAvailable) return <SelectableMarkdownText onAskStella={onAskStella} node={node} colors={colors} textStyle={textStyle} onLinkPress={onLinkPress} />;
   const children = node.children ?? [];
 
   return (
@@ -76,6 +79,7 @@ export function AssistantMarkdownTable({
   colors,
   selectable,
   onLinkPress,
+  onAskStella,
 }: AssistantMarkdownTableProps) {
   const [viewportWidth, setViewportWidth] = useState(0);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -131,6 +135,7 @@ export function AssistantMarkdownTable({
                   selectable={selectable}
                   colors={colors}
                   onLinkPress={onLinkPress}
+                  onAskStella={onAskStella}
                   textStyle={[
                     styles.headerText,
                     { textAlign: cellAlignment(columnIndex) },
@@ -163,8 +168,9 @@ export function AssistantMarkdownTable({
                     node={row[columnIndex]}
                     Renderer={Renderer}
                     selectable={selectable}
-                  colors={colors}
-                  onLinkPress={onLinkPress}
+                    colors={colors}
+                    onLinkPress={onLinkPress}
+                    onAskStella={onAskStella}
                     textStyle={[
                       styles.bodyText,
                       { textAlign: cellAlignment(columnIndex) },

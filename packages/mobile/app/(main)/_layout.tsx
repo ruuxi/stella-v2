@@ -615,6 +615,10 @@ const makeStyles = (colors: Colors) =>
       alignItems: "flex-end",
       flexDirection: "row",
       paddingHorizontal: 10,
+      // Native glass shadows extend below this row. Paint the controls above
+      // the route surface so its backdrop cannot cut them off at the seam.
+      overflow: "visible",
+      zIndex: 1,
     },
     topBarSide: {
       alignItems: "center",

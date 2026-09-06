@@ -6,14 +6,19 @@ import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 import { markdownTextRuns } from "../lib/selectable-markdown-runs";
 
-export const nativeMarkdownSelectionAvailable = Platform.OS === "ios" && Boolean(requireOptionalNativeModule("StellaSelectableText"));
+const selectionModule = Platform.OS === "ios"
+  ? requireOptionalNativeModule<{ supportsSelectionActions?: boolean }>("StellaSelectableText")
+  : null;
+export const nativeMarkdownSelectionAvailable = Boolean(selectionModule);
+const supportsSelectionActions = selectionModule?.supportsSelectionActions === true;
 const NativeText = nativeMarkdownSelectionAvailable ? requireNativeViewManager<{
-  runsJSON: string; alignment?: string; style: object;
+  runsJSON: string; alignment?: string; style: object; askStellaEnabled?: boolean;
+  onAskStella?: (event: { nativeEvent: { text: string } }) => void;
   onLinkPress: (event: { nativeEvent: { url: string } }) => void;
 }>("StellaSelectableText") : null;
 
-export const SelectableMarkdownText = memo(function SelectableMarkdownText({ node, colors, textStyle, onLinkPress }: {
-  node: MarkdownNode; colors: Colors; textStyle?: StyleProp<TextStyle>; onLinkPress?: (url: string) => unknown;
+export const SelectableMarkdownText = memo(function SelectableMarkdownText({ node, colors, textStyle, onLinkPress, onAskStella }: {
+  node: MarkdownNode; colors: Colors; textStyle?: StyleProp<TextStyle>; onLinkPress?: (url: string) => unknown; onAskStella?: (text: string) => void;
 }) {
   const flattened = StyleSheet.flatten(textStyle) ?? {};
   const { fontScale } = useWindowDimensions();
@@ -33,6 +38,10 @@ export const SelectableMarkdownText = memo(function SelectableMarkdownText({ nod
       {runs.map((run, index) => <Text allowFontScaling={false} key={index} style={{ fontFamily: run.fontFamily, fontSize: run.fontSize, fontStyle: run.italic ? "italic" : "normal" }}>{run.text}</Text>)}
     </Text>
     <NativeText runsJSON={runsJSON} alignment={flattened.textAlign}
+      {...(supportsSelectionActions ? {
+        askStellaEnabled: Boolean(onAskStella),
+        onAskStella: ({ nativeEvent }: { nativeEvent: { text: string } }) => onAskStella?.(nativeEvent.text),
+      } : {})}
       style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
       onLinkPress={({ nativeEvent }) => onLinkPress?.(nativeEvent.url)} />
   </View>;

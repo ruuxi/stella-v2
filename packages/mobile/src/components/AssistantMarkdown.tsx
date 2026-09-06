@@ -172,6 +172,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   selectable = false,
   fill = true,
   onStellaFileLink,
+  onAskStella,
 }: {
   text: string;
   colors: Colors;
@@ -190,6 +191,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
    * the unknown scheme).
    */
   onStellaFileLink?: (path: string) => void;
+  onAskStella?: (text: string) => void;
 }) {
   const theme = useMemo(() => buildTheme(colors), [colors]);
   const nodeStyles = useMemo(() => buildNodeStyles(colors), [colors]);
@@ -235,7 +237,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
               }
               flush();
               const body = groups.map((group, groupIndex) => group.type === "paragraph" && !containsImage(group)
-                ? <SelectableMarkdownText key={groupIndex} node={group} colors={colors} onLinkPress={onLinkPress} />
+                ? <SelectableMarkdownText onAskStella={onAskStella} key={groupIndex} node={group} colors={colors} onLinkPress={onLinkPress} />
                 : <Renderer key={groupIndex} node={group} depth={1} inListItem />);
               return item.type === "task_list_item"
                 ? <TaskListItem key={index} checked={item.checked ?? false}>{body}</TaskListItem>
@@ -245,12 +247,12 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         ),
         paragraph: ({ node }: CustomRendererProps) => containsImage(node) ? undefined : (
           <View style={{ marginBottom: 10 }}>
-            <SelectableMarkdownText node={node} colors={colors} onLinkPress={onLinkPress} />
+            <SelectableMarkdownText onAskStella={onAskStella} node={node} colors={colors} onLinkPress={onLinkPress} />
           </View>
         ),
         heading: ({ node, level }: CustomRendererProps) => (
           <View style={{ marginTop: 12, marginBottom: 6 }}>
-            <SelectableMarkdownText node={node} colors={colors} onLinkPress={onLinkPress}
+            <SelectableMarkdownText onAskStella={onAskStella} node={node} colors={colors} onLinkPress={onLinkPress}
               textStyle={{ fontFamily: fonts.sans.semiBold, color: colors.textStrong, fontSize: [22, 20, 18, 17, 15, 14][(level ?? 1) - 1] }} />
           </View>
         ),
@@ -258,7 +260,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           <View style={nodeStyles.code_block}>
             <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false}>
               <View style={{ minWidth: 100 }}>
-                <SelectableMarkdownText node={node} colors={colors} textStyle={{ fontFamily: fonts.mono.regular, fontSize: 16 }} />
+                <SelectableMarkdownText onAskStella={onAskStella} node={node} colors={colors} textStyle={{ fontFamily: fonts.mono.regular, fontSize: 16 }} />
               </View>
             </ScrollView>
           </View>
@@ -270,11 +272,12 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           Renderer={Renderer}
           colors={colors}
           selectable={selectable}
+          onAskStella={onAskStella}
           onLinkPress={onLinkPress}
         />
       ),
     }),
-    [colors, selectable, nodeStyles, onLinkPress],
+    [colors, selectable, nodeStyles, onLinkPress, onAskStella],
   );
 
   const content: ReactNode = (

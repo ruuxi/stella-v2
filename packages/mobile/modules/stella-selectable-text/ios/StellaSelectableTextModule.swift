@@ -5,8 +5,12 @@ import React
 public final class StellaSelectableTextModule: Module {
   public func definition() -> ModuleDefinition {
     Name("StellaSelectableText")
+    Constants(["supportsSelectionActions": true])
     View(StellaSelectableTextView.self) {
-      Events("onLinkPress")
+      Events("onLinkPress", "onAskStella")
+      Prop("askStellaEnabled") { (view: StellaSelectableTextView, value: Bool) in
+        view.textView.onAskStella = value ? { [weak view] text in view?.onAskStella(["text": text]) } : nil
+      }
       Prop("runsJSON") { (view: StellaSelectableTextView, value: String) in
         view.setRuns(value)
       }
@@ -18,8 +22,9 @@ public final class StellaSelectableTextModule: Module {
 }
 
 final class StellaSelectableTextView: ExpoView, UITextViewDelegate {
-  let textView = UITextView(frame: .zero)
+  let textView = StellaSelectionTextView(frame: .zero)
   let onLinkPress = EventDispatcher()
+  let onAskStella = EventDispatcher()
   private var lastJSON = ""
 
   required init(appContext: AppContext? = nil) {
@@ -76,6 +81,32 @@ final class StellaSelectableTextView: ExpoView, UITextViewDelegate {
     guard interaction == .invokeDefaultAction else { return true }
     onLinkPress(["url": URL.absoluteString])
     return false
+  }
+
+  func textViewDidChangeSelection(_ textView: UITextView) {
+    self.textView.selectionDidChange()
+  }
+
+  func textViewDidEndEditing(_ textView: UITextView) {
+    self.textView.dismissSelection()
+  }
+
+  @available(iOS 16.0, *)
+  func textView(_ textView: UITextView, editMenuForTextIn range: NSRange,
+    suggestedActions: [UIMenuElement]) -> UIMenu? {
+    self.textView.selectionMenu(for: [range])
+  }
+
+  @available(iOS 16.0, *)
+  func textView(_ textView: UITextView, willDismissEditMenuWith animator: UIEditMenuInteractionAnimating) {
+    self.textView.menuWillDismiss()
+    animator.addCompletion { [weak self] in self?.textView.menuDidDismiss() }
+  }
+
+  @available(iOS 26.0, *)
+  func textView(_ textView: UITextView, editMenuForTextInRanges ranges: [NSValue],
+    suggestedActions: [UIMenuElement]) -> UIMenu? {
+    self.textView.selectionMenu(for: ranges.map { $0.rangeValue })
   }
 
   private static func color(_ value: String?) -> UIColor? {

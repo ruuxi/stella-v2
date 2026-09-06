@@ -1311,7 +1311,7 @@ describe("POST /v1/models/resolve", () => {
       resolvedModel: MUSE_RESOLVED,
       provider: "openrouter",
       protocol: "openai-responses",
-      supportsImages: false,
+      supportsImages: true,
     });
 
     const proFallback = await signSession({ audience: "pro_fallback" });

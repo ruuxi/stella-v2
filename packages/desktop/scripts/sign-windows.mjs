@@ -91,6 +91,16 @@ export function signingPolicy(filePath) {
   ) {
     return "managed-cli-runtime";
   }
+  // OfficeCLI is downloaded from the pinned upstream release and verified
+  // against its SHA256SUMS before packaging. Preserve its upstream identity,
+  // just as for Node/Python/Git; no other file in the Office tree is exempt.
+  if (
+    lowerPath.endsWith(
+      "\\resources\\stella-office\\bin\\stella-office-win32-x64.exe",
+    )
+  ) {
+    return null;
+  }
   if (
     lowerPath.includes("\\resources\\runtimes\\git\\") ||
     lowerPath.includes("\\resources\\runtimes\\node\\") ||

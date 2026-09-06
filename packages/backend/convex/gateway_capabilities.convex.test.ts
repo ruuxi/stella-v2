@@ -2,7 +2,7 @@
 
 import { convexTest } from "convex-test";
 import { ConvexError } from "convex/values";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   GATEWAY_ANONYMOUS_REQUEST_CHUNK,
   GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS,
@@ -67,6 +67,7 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   process.env.CAPABILITY_SIGNING_KID = "convex-test";
 });
 
@@ -435,6 +436,8 @@ describe("signSessionCapabilityInternal", () => {
   });
 
   it("reserves the anonymous request ceiling and a finite monetary grant", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     const ownerId = "https://convex.test|signed-anon";
     const t = await createTest([ownerId]);
     const response = await t.action(
@@ -479,6 +482,8 @@ describe("signSessionCapabilityInternal", () => {
     expect(reserved.counters).toHaveLength(1);
     expect(reserved.counters[0]?.requestCount).toBe(ANON_MAX_REQUESTS);
 
+    // Mint across a second boundary so the grants have different expirations.
+    clock.mockReturnValue(now + 1_000);
     const second = await t.action(
       internal.gateway_capabilities.signSessionCapabilityInternal,
       {
@@ -489,6 +494,7 @@ describe("signSessionCapabilityInternal", () => {
       },
     );
     expect(second).toMatchObject({ maxRequests: 0, budgetMicroCents: 0 });
+    expect(second.expiresAt).toBe(response.expiresAt + 1_000);
 
     const chargedMicroCents = dollarsToMicroCents(0.01);
     await t.mutation(internal.billing.ingestGatewayUsageBatchInternal, {
@@ -541,7 +547,10 @@ describe("signSessionCapabilityInternal", () => {
       internal.gateway_capabilities
         .releaseExpiredGatewayCapabilityGrantsInternal,
       {
-        now: response.expiresAt + GATEWAY_GRANT_SETTLEMENT_GRACE_MS + 1,
+        now:
+          Math.max(response.expiresAt, second.expiresAt) +
+          GATEWAY_GRANT_SETTLEMENT_GRACE_MS +
+          1,
       },
     );
     expect(released).toMatchObject({ released: 2, refundedRequests: 2 });

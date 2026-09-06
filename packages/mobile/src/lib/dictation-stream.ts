@@ -4,6 +4,7 @@ import { postJson } from "./http";
 type RealtimeConfig = { relayOrigin: string; modelId: string };
 type TranscriptFrame = {
   type?: unknown;
+  sessionId?: unknown;
   transcript?: unknown;
   text?: unknown;
   final?: unknown;
@@ -15,14 +16,34 @@ export class DictationStream {
   private transcript = "";
   private finalTranscript = "";
   private streamError: Error | null = null;
+  private cancelled = false;
+  private rejectOpening: ((error: Error) => void) | null = null;
+  private rejectFinishing: ((error: Error) => void) | null = null;
 
-  constructor(private readonly onPartial?: (text: string) => void) {}
+  constructor(
+    private readonly onPartial?: (text: string) => void,
+    private readonly onFailure?: (error: Error) => void,
+  ) {}
+
+  throwIfFailed(): void {
+    if (this.streamError) throw this.streamError;
+    if (this.cancelled) throw new Error("Dictation cancelled.");
+  }
+
+  private fail(error: Error): void {
+    if (this.cancelled || this.streamError) return;
+    this.streamError = error;
+    if (this.rejectOpening) this.rejectOpening(error);
+    else if (this.rejectFinishing) this.rejectFinishing(error);
+    else this.onFailure?.(error);
+  }
 
   async open(): Promise<void> {
     const [config, token] = await Promise.all([
       postJson("/api/dictation/realtime-config", {}),
       getConvexToken(),
     ]);
+    if (this.cancelled) throw new Error("Dictation cancelled.");
     const relayOrigin = (config as RealtimeConfig).relayOrigin;
     const url = new URL("/dictation/socket", relayOrigin);
     if (url.protocol === "https:") url.protocol = "wss:";
@@ -33,20 +54,50 @@ export class DictationStream {
         `stella.token.${token}`,
       ]);
       this.socket = socket;
-      const timer = setTimeout(() => {
-        socket.close();
-        reject(new Error("Dictation took too long to connect."));
-      }, 10_000);
-      socket.binaryType = "arraybuffer";
-      socket.onopen = () => {
+      const failOpening = (error: Error) => {
         clearTimeout(timer);
-        resolve();
+        this.rejectOpening = null;
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        if (this.socket === socket) this.socket = null;
+        try {
+          socket.close();
+        } catch {
+          /* The peer may already be gone. */
+        }
+        reject(error);
       };
+      const timer = setTimeout(() => {
+        failOpening(new Error("Dictation took too long to connect."));
+      }, 10_000);
+      this.rejectOpening = failOpening;
+      socket.binaryType = "arraybuffer";
+      // The relay forwards Muse's handshake acknowledgment unchanged. A
+      // WebSocket upgrade alone does not mean the provider accepted its key.
+      socket.onopen = () => undefined;
       socket.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error("Could not connect to dictation."));
+        this.fail(
+          new Error(
+            this.rejectOpening
+              ? "Could not connect to dictation."
+              : "Dictation disconnected.",
+          ),
+        );
+      };
+      socket.onclose = () => {
+        this.fail(
+          new Error(
+            this.rejectOpening
+              ? "Could not connect to dictation."
+              : "Dictation disconnected.",
+          ),
+        );
       };
       socket.onmessage = (event) => {
+        if (this.cancelled || this.streamError || this.socket !== socket)
+          return;
         if (typeof event.data !== "string") return;
         let frame: TranscriptFrame;
         try {
@@ -54,7 +105,16 @@ export class DictationStream {
         } catch {
           return;
         }
-        if (frame.type === "transcript") {
+        if (
+          frame.type === undefined &&
+          typeof frame.sessionId === "string" &&
+          frame.sessionId.trim() &&
+          this.rejectOpening
+        ) {
+          clearTimeout(timer);
+          this.rejectOpening = null;
+          resolve();
+        } else if (frame.type === "transcript") {
           const transcript =
             typeof frame.transcript === "string"
               ? frame.transcript
@@ -65,10 +125,12 @@ export class DictationStream {
           this.onPartial?.(transcript);
           if (frame.final === true) this.finalTranscript = transcript;
         } else if (frame.type === "error") {
-          this.streamError = new Error(
-            typeof frame.message === "string"
-              ? frame.message
-              : "Dictation failed.",
+          this.fail(
+            new Error(
+              typeof frame.message === "string"
+                ? frame.message
+                : "Dictation failed.",
+            ),
           );
         }
       };
@@ -88,30 +150,60 @@ export class DictationStream {
       throw new Error("Dictation is not connected.");
     }
     return await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        socket.close();
-        reject(new Error("Dictation took too long to finish."));
-      }, 15_000);
-      socket.onclose = (event) => {
+      let settled = false;
+      const complete = (error: Error | null, text = "") => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        this.socket = null;
-        if (this.streamError) reject(this.streamError);
+        this.rejectFinishing = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        if (this.socket === socket) this.socket = null;
+        try {
+          socket.close();
+        } catch {
+          /* Settlement must still complete. */
+        }
+        if (error) reject(error);
+        else resolve(text);
+      };
+      const timer = setTimeout(() => {
+        complete(new Error("Dictation took too long to finish."));
+      }, 15_000);
+      this.rejectFinishing = (error) => complete(error);
+      socket.onclose = (event) => {
+        if (this.streamError) complete(this.streamError);
         else if (event.code === 1000 || this.finalTranscript) {
-          resolve((this.finalTranscript || this.transcript).trim());
+          complete(null, (this.finalTranscript || this.transcript).trim());
         } else {
-          reject(new Error(event.reason || "Dictation disconnected."));
+          complete(new Error(event.reason || "Dictation disconnected."));
         }
       };
-      socket.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error("Dictation failed."));
-      };
-      socket.send(JSON.stringify({ type: "endStream" }));
+      socket.onerror = () => this.fail(new Error("Dictation failed."));
+      try {
+        socket.send(JSON.stringify({ type: "endStream" }));
+      } catch {
+        complete(new Error("Dictation disconnected."));
+      }
     });
   }
 
   cancel(): void {
-    this.socket?.close(1000, "Cancelled");
+    this.cancelled = true;
+    this.rejectOpening?.(new Error("Dictation cancelled."));
+    this.rejectFinishing?.(new Error("Dictation cancelled."));
+    if (this.socket) {
+      this.socket.onopen = null;
+      this.socket.onmessage = null;
+      this.socket.onclose = null;
+      this.socket.onerror = null;
+    }
+    try {
+      this.socket?.close(1000, "Cancelled");
+    } catch {
+      /* Best effort. */
+    }
     this.socket = null;
   }
 }

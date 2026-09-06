@@ -21,6 +21,7 @@ import {
 } from "./mobile-audio-session";
 import { stopReadAloudForDictation } from "./read-aloud";
 import { DictationStream } from "./dictation-stream";
+import { HttpRequestError } from "./http";
 import {
   startDictationMeter,
   stopDictationMeter,
@@ -69,6 +70,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const recordingLeaseRef = useRef<RecordingAudioLease | null>(null);
   const dictationStreamRef = useRef<DictationStream | null>(null);
   const audioSubscriptionRef = useRef<EventSubscription | null>(null);
+  const cancelRecordingRef = useRef<(() => Promise<string | null>) | null>(
+    null,
+  );
 
   const safeSetStatus = useCallback((next: DictationStatus) => {
     statusRef.current = next;
@@ -102,6 +106,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       operationInFlightRef.current = false;
       return false;
     }
+    let phase: "permission" | "audio-session" | "relay" | "recorder" =
+      "permission";
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -137,6 +143,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         return false;
       }
 
+      phase = "audio-session";
       const lease = await acquireRecordingAudioSession();
       if (lease === null) {
         operationInFlightRef.current = false;
@@ -150,9 +157,29 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
 
       resetDictationTranscriptPreview();
-      const stream = new DictationStream(updateDictationTranscriptPreview);
-      await stream.open();
+      phase = "relay";
+      const stream = new DictationStream(
+        updateDictationTranscriptPreview,
+        (error) => {
+          // Opening errors belong to start's catch; finishing errors belong to
+          // finish(). Only a live recording needs this unsolicited terminal path.
+          if (statusRef.current !== "recording") return;
+          void cancelRecordingRef.current?.().finally(() => {
+            if (mountedRef.current) Alert.alert("Voice input", error.message);
+          });
+        },
+      );
+      // Own the connection while opening too, so failed startup and unmount
+      // can close it before a microphone is ever started.
       dictationStreamRef.current = stream;
+      await stream.open();
+      if (!mountedRef.current) {
+        stream.cancel();
+        await releaseAudioMode();
+        operationInFlightRef.current = false;
+        return false;
+      }
+      phase = "recorder";
       const emitter = new LegacyEventEmitter(AudioStudioModule);
       audioSubscriptionRef.current = emitter.addListener<{
         encoded?: string;
@@ -175,6 +202,17 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         output: { primary: { enabled: false } },
       });
 
+      if (!mountedRef.current) {
+        await AudioStudioModule.stopRecording().catch(() => undefined);
+        stream.cancel();
+        audioSubscriptionRef.current?.remove();
+        audioSubscriptionRef.current = null;
+        await releaseAudioMode();
+        operationInFlightRef.current = false;
+        return false;
+      }
+      phase = "relay";
+      stream.throwIfFailed();
       cancelledRef.current = false;
       startedAtRef.current = Date.now();
       startDictationMeter(startedAtRef.current);
@@ -182,7 +220,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       operationInFlightRef.current = false;
       return true;
     } catch (error) {
-      console.warn("[dictation] start failed", error);
+      console.warn(`[dictation] start failed during ${phase}`, error);
       await AudioStudioModule.stopRecording().catch(() => undefined);
       dictationStreamRef.current?.cancel();
       dictationStreamRef.current = null;
@@ -192,10 +230,15 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       resetDictationTranscriptPreview();
       await releaseAudioMode();
       operationInFlightRef.current = false;
-      Alert.alert(
-        "Voice input",
-        "Couldn't start recording. Try again in a moment.",
-      );
+      if (mountedRef.current) {
+        Alert.alert(
+          "Voice input",
+          error instanceof HttpRequestError ||
+            (phase === "relay" && error instanceof Error)
+            ? error.message
+            : "Couldn't start recording. Try again in a moment.",
+        );
+      }
       return false;
     }
   }, [releaseAudioMode, safeSetStatus]);
@@ -258,19 +301,21 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         if (uri) file = new File(uri);
         const text = (await dictationStreamRef.current?.finish()) ?? "";
         dictationStreamRef.current = null;
-        if (text && !cancelledRef.current) {
+        if (text && !cancelledRef.current && mountedRef.current) {
           options.onTranscript(text);
           return text;
         }
         return null;
       } catch (error) {
         console.warn("[dictation] transcription failed", error);
-        Alert.alert(
-          "Voice input",
-          error instanceof Error
-            ? error.message
-            : "Could not transcribe that audio. Try again.",
-        );
+        if (mountedRef.current) {
+          Alert.alert(
+            "Voice input",
+            error instanceof Error
+              ? error.message
+              : "Could not transcribe that audio. Try again.",
+          );
+        }
         return null;
       } finally {
         dictationStreamRef.current?.cancel();
@@ -289,6 +334,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
   const stop = useCallback(() => finalize(true), [finalize]);
   const cancel = useCallback(() => finalize(false), [finalize]);
+  cancelRecordingRef.current = cancel;
 
   const toggle = useCallback(async () => {
     if (status === "idle") {

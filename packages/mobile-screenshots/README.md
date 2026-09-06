@@ -43,6 +43,8 @@ If Playwright’s bundled Chromium is unavailable, set `STELLA_SCREENSHOT_BROWSE
 
 Default devices are iPhone (1242 × 2688) and iPad (2064 × 2752), matching the existing Apple target groups. `STELLA_SCREENSHOT_DEVICES=android,android7,android10` prepares the independent Play phone and tablet groups **only once genuine Android captures for every requested viewport exist**. Verify current store requirements before upload.
 
+All four scenes export by default. Set `STELLA_SCREENSHOT_SLIDES=computer,browser,shopping` for an explicitly approved three-image set. Unknown or duplicate scene names fail; every requested native capture and supporting artifact must still exist and decode. The current iPhone set retains memory, while iPad and Android use the three primary capabilities.
+
 The Play feature graphic also requires the actual Android computer capture:
 
 ```

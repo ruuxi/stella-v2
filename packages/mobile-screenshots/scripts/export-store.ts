@@ -11,6 +11,16 @@ const requested = (
 ).split(",");
 for (const device of requested)
   if (!(device in devices)) throw new Error(`Unknown device: ${device}`);
+const requestedSlides =
+  process.env.STELLA_SCREENSHOT_SLIDES?.split(",") ??
+  slides.map((slide) => slide.slug);
+if (new Set(requestedSlides).size !== requestedSlides.length)
+  throw new Error("Duplicate requested slide");
+const selectedSlides = requestedSlides.map((slug) => {
+  const slide = slides.find((candidate) => candidate.slug === slug);
+  if (!slide) throw new Error(`Unknown slide: ${slug}`);
+  return slide;
+});
 const output = path.resolve(
   process.env.STELLA_SCREENSHOT_OUTPUT ??
     `out/store-${new Date().toISOString().replace(/[:.]/g, "-")}`,
@@ -19,6 +29,7 @@ const output = path.resolve(
 const sourceManifest = [];
 const supportingManifest = [];
 for (const [slide, artifact] of Object.entries(supportingArtifacts)) {
+  if (!requestedSlides.includes(slide)) continue;
   const source = path.join("public", artifact.source);
   const bytes = await readFile(source).catch(() => {
     throw new Error(`Missing actual supporting artifact: ${source}`);
@@ -34,7 +45,7 @@ for (const [slide, artifact] of Object.entries(supportingArtifacts)) {
   });
 }
 for (const device of requested as Device[]) {
-  for (const slide of slides) {
+  for (const slide of selectedSlides) {
     const source = path.join("public", "captures", device, `${slide.slug}.png`);
     const bytes = await readFile(source).catch(() => {
       throw new Error(
@@ -75,17 +86,22 @@ try {
     await page.goto(`${base}/?device=${device}&export=1`, {
       waitUntil: "networkidle",
     });
-    await page.evaluate(async () => {
+    await page.evaluate(async (slugs) => {
       await document.fonts.ready;
       await Promise.all(
         [
           ...document.querySelectorAll<HTMLImageElement>(
-            "[data-native-capture], [data-supporting-artifact]",
+            slugs
+              .map(
+                (slug) =>
+                  `[data-export-slide="${slug}"] [data-native-capture], [data-export-slide="${slug}"] [data-supporting-artifact]`,
+              )
+              .join(","),
           ),
         ].map((image) => image.decode()),
       );
-    });
-    for (const [index, slide] of slides.entries()) {
+    }, requestedSlides);
+    for (const [index, slide] of selectedSlides.entries()) {
       const target = page.locator(`[data-export-slide="${slide.slug}"]`);
       if ((await target.getAttribute("data-capture-ready")) !== "true")
         throw new Error(

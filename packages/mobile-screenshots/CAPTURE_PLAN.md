@@ -1,6 +1,6 @@
 # Store capture story — September 2026
 
-Status: real capability work and native artifact verification are complete; final device captures and export review remain in progress. The revised phone memory scene and supporting-artifact composition have been reviewed, but no complete revised set is approved for upload. The old exports and native captures are preserved only in ignored `out/archive-rejected-story-20260906/`; they are not current candidates.
+Status: all final revised assets are visually approved by root: iPhone four images; iPad, Android phone, Android 7-inch and Android 10-inch tablets three images each; and one Google Play feature graphic. The exact paths and counts are indexed in ignored `out/approved-capabilities-index-20260906.json`. Each final export folder contains source/output hashes and approval provenance; screenshot sets passed dimension/full-opacity audits. Root owns store uploads and submissions. Memory remains only in the approved iPhone set. Rejected stories and provisional memory images are preserved separately and are not upload candidates.
 
 Stella is one long-running conversation with memory. Product screenshots must show useful computer work, browser work, shopping and continuity. Never use model selection or a list of separate chats as a marketing story.
 

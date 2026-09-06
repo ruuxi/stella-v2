@@ -68,6 +68,36 @@ describe("cloud journal projection", () => {
     expect(merged.map((row) => row.sequence)).toEqual([1, 2]);
   });
 
+  test("journal-before-admission retains one stable bubble per rapid identical send", () => {
+    const local: ChatMessage[] = [
+      { id: "mobile-first", role: "user", text: "same prompt" },
+      { id: "mobile-second", role: "user", text: "same prompt", queued: true },
+    ];
+    const bindings = new Map<string, string | null>([
+      ["mobile-first", null], ["mobile-second", null],
+    ]);
+    const records: JournalRecord[] = [message({
+      kind: "message", seq: 1, turnId: "turn-first", role: "user", hidden: false,
+      clientMsgId: "dsp:first",
+      payload: { content: "same prompt", originUserMessageId: "mobile-first" },
+    })];
+    const merge = () => mergeCanonicalCloudMessages({
+      canonical: rebindCanonicalCloudMessages(projectCloudConversationMessages({ records }), bindings),
+      local, dispatchBindings: bindings,
+      acknowledgedDispatchIds: canonicalCloudDispatchIds(records),
+    });
+    expect(merge().map(row => row.id)).toEqual(["mobile-first", "mobile-second"]);
+    bindings.set("mobile-first", "dsp:first");
+    expect(merge().map(row => row.id)).toEqual(["mobile-first", "mobile-second"]);
+    records.push(message({
+      kind: "message", seq: 2, turnId: "turn-first", role: "assistant", hidden: false,
+      payload: { content: "first answer" },
+    }));
+    expect(merge()[1]).toMatchObject({ role: "assistant", requestId: "mobile-first" });
+    expect(merge().filter(row => row.role === "user").map(row => row.id))
+      .toEqual(["mobile-first", "mobile-second"]);
+  });
+
   test("keeps the unresolved assistant slot until its canonical row arrives", () => {
     const records: JournalRecord[] = [
       message({

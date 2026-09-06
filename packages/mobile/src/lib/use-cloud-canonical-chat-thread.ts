@@ -41,7 +41,6 @@ import {
   activeCloudTurnId,
   canonicalCloudDispatchIdForTurn,
   canonicalCloudDispatchIds,
-  cloudTurnActivity,
   mergeCanonicalCloudMessages,
   projectCloudConversationMessages,
   rebindCanonicalCloudMessages,
@@ -55,10 +54,7 @@ import {
   type AutomaticExecutionTarget,
 } from "./execution-placement";
 import { groupActivityArtifacts } from "./activity-hub-model";
-import {
-  buildWorkingIndicatorState,
-  IDLE_WORKING_ACTIVITY,
-} from "../components/working-indicator-state";
+import { canonicalWorkingState } from "./canonical-working-state";
 import type { ChatArtifact, ChatMessage } from "../types";
 import type { ChatThreadId } from "./offline-chat-storage";
 import type { StoredPhoneAccess } from "./phone-access";
@@ -685,35 +681,22 @@ export const useCloudCanonicalChatThread = (
     state.records,
     runningTurnId,
   );
-  const sending = local.sending || Boolean(runningTurnId);
-  const workingIndicator = useMemo(() => {
-    if (local.sending) return local.workingIndicator;
-    if (!runningTurnId) {
-      return buildWorkingIndicatorState({
-        sending: false,
-        activity: IDLE_WORKING_ACTIVITY,
-      });
-    }
-    // Committed records carry the answer/tool history; the live snapshot only
-    // knows which tool is open right now.
-    const journal = cloudTurnActivity(state.records, runningTurnId);
-    return buildWorkingIndicatorState({
-      sending: true,
-      activity: {
-        ...(state.live?.toolName ? { toolName: state.live.toolName } : {}),
-        ...(state.live?.toolLabel ? { statusText: state.live.toolLabel } : {}),
-        answerLanded: journal.answerLanded,
-        hasToolActivity:
-          journal.hasToolActivity || Boolean(state.live?.toolName),
-      },
-    });
-  }, [
-    local.sending,
-    local.workingIndicator,
-    runningTurnId,
-    state.live,
-    state.records,
-  ]);
+  const { sending, workingIndicator } = useMemo(
+    () => canonicalWorkingState({
+      records: state.records,
+      live: state.live,
+      localSending: local.sending,
+      localIndicator: local.workingIndicator,
+      hasQueuedSend: local.messages.some((message) =>
+        message.role === "user" && message.queued && !message.stopped),
+      activeSendMessageId: local.activeSendMessageId,
+      activeDispatchId: local.activeSendMessageId
+        ? dispatchBindings.get(local.activeSendMessageId) ?? null
+        : null,
+    }),
+    [dispatchBindings, local.activeSendMessageId, local.sending,
+      local.workingIndicator, local.messages, state.live, state.records],
+  );
   const conversationArtifacts = useMemo(
     () => collectArtifacts(messages),
     [messages],

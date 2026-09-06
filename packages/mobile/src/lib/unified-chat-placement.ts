@@ -42,6 +42,7 @@ export const attachmentsNeedHostedSubject = (
  */
 export const unifiedChatPlacementAdmission = (args: {
   dispatchId: string;
+  userMessageEventId?: string;
   conversationId: string;
   prompt: string;
   attachments?: readonly PlacementAttachment[];
@@ -49,6 +50,7 @@ export const unifiedChatPlacementAdmission = (args: {
   const attachments = args.attachments ?? [];
   return {
     idempotencyKey: args.dispatchId,
+    ...(args.userMessageEventId ? { userMessageEventId: args.userMessageEventId } : {}),
     conversationId: args.conversationId,
     kind: "chat",
     prompt: args.prompt,

@@ -333,6 +333,8 @@ export const automaticExecutionResultText = (
 };
 
 export type AutomaticExecutionAdmissionInput = {
+  /** Persisted opt-in so pre-upgrade outbox retries keep their original hash. */
+  userMessageEventId?: string;
   idempotencyKey: string;
   conversationId: string;
   kind: AutomaticExecutionKind;
@@ -402,6 +404,8 @@ export const buildAutomaticExecutionAdmission = (
     prompt,
     conversationId,
     clientMsgId: idempotencyKey,
+    // Echo the UI identity in the journal even when it beats admission back.
+    ...(input.userMessageEventId ? { userMessageEventId: input.userMessageEventId } : {}),
     ...(input.execution && input.target?.mode !== "device" ? { execution: input.execution } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(input.kind === "agent"

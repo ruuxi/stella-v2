@@ -71,6 +71,16 @@ describe("automatic mobile execution admission", () => {
     expect("desktopDeviceId" in admission.body).toBe(false);
   });
 
+  test("opts new chat sends into journal identity without changing legacy retry bytes", () => {
+    const legacy = { idempotencyKey: "mobile-retry", conversationId: "conv", kind: "chat" as const, prompt: "same" };
+    const previous = buildAutomaticExecutionAdmission(legacy);
+    expect(previous.body.payload.userMessageEventId).toBeUndefined();
+    const next = buildAutomaticExecutionAdmission({ ...legacy, userMessageEventId: "mobile-retry" });
+    expect(next.body.payload.userMessageEventId).toBe("mobile-retry");
+    expect(next.payloadHash).not.toBe(previous.payloadHash);
+    expect(buildAutomaticExecutionAdmission(legacy).payloadHash).toBe(previous.payloadHash);
+  });
+
   test("carries an explicit computer subject and binds it into the challenge", () => {
     const admission = buildAutomaticExecutionAdmission({
       idempotencyKey: "agent:01JPLACEMENT",

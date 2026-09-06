@@ -56,6 +56,25 @@ describe("chat durable outbox", () => {
     expect(committed.records).toHaveLength(1);
   });
 
+  test("persists journal identity opt-in while preserving pre-upgrade retry hashes", () => {
+    const oldSend = appendDesktopChatOutboxRecord([], pending("old-send", "hello", 1)).record;
+    const newSend = appendDesktopChatOutboxRecord([], {
+      ...pending("new-send", "hello", 2), userMessageEventId: "new-send",
+    }).record;
+    const replay = parseDesktopChatOutbox(JSON.parse(JSON.stringify([oldSend, newSend])));
+    const oldReplay = replay.find(record => record.sendId === "old-send")!;
+    const newReplay = replay.find(record => record.sendId === "new-send")!;
+    expect(oldReplay.userMessageEventId).toBeUndefined();
+    expect(newReplay.userMessageEventId).toBe("new-send");
+    const admission = (record: DesktopChatOutboxRecord) => buildAutomaticExecutionAdmission({
+      idempotencyKey: record.sendId, conversationId: "conv", kind: "chat", prompt: record.text,
+      ...(record.userMessageEventId ? { userMessageEventId: record.userMessageEventId } : {}),
+    });
+    expect(admission(oldReplay).payloadHash).toBe(admission(oldSend).payloadHash);
+    expect(admission(newReplay).payloadHash).toBe(admission(newSend).payloadHash);
+    expect(admission(newReplay).body.payload.userMessageEventId).toBe("new-send");
+  });
+
   test("replays every interruption window with one stable identity", () => {
     let outbox = appendDesktopChatOutboxRecord(
       [],

@@ -26,6 +26,8 @@ export type DesktopChatOutboxAuthority = {
 export type DesktopChatOutboxRecord = {
   sendId: string;
   userMessageId: string;
+  /** Journal echo identity; absent on pre-upgrade rows to preserve their hash. */
+  userMessageEventId?: string;
   text: string;
   displayText: string;
   createdAt: number;
@@ -197,6 +199,7 @@ export const parseDesktopChatOutbox = (
     const parsed = {
       sendId,
       userMessageId,
+      ...(record.userMessageEventId === userMessageId ? { userMessageEventId: userMessageId } : {}),
       text,
       displayText,
       createdAt,

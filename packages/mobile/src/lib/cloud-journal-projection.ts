@@ -15,6 +15,14 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+// Placement allocates a dispatch id, but preserves this caller identity in
+// the committed prompt. The journal can arrive before the admission response.
+const projectedMessageId = (record: JournalMessageRecord): string => {
+  const origin = record.role === "user" ? record.payload.originUserMessageId : undefined;
+  return (typeof origin === "string" && origin.trim()) ||
+    record.clientMsgId || `cloud:${record.turnId}:message:${record.seq}`;
+};
+
 const timestampOf = (record: JournalMessageRecord): number =>
   typeof record.payload.timestamp === "number" &&
   Number.isFinite(record.payload.timestamp)
@@ -106,8 +114,7 @@ export const projectCloudConversationMessages = (args: {
       if (record.kind !== "message") continue;
       const createdAt = timestampOf(record);
       if (record.role === "user") {
-        userMessageId =
-          record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
+        userMessageId = projectedMessageId(record);
         if (record.hidden) continue;
         messages.push({
           id: userMessageId,
@@ -142,7 +149,7 @@ export const projectCloudConversationMessages = (args: {
         const target = recordsBySeq.get(ref.sequence);
         if (!target || target.kind !== "message" || target.hidden || (target.role !== "user" && target.role !== "assistant")) return [];
         return [{ kind: "message", sequence: ref.sequence,
-          id: target.clientMsgId ?? `cloud:${target.turnId}:message:${target.seq}`,
+          id: projectedMessageId(target),
           role: target.role, preview: toReplyPreview(splitReplyRefs(messageText(target.payload)).text) }];
       });
       const storedRefs = resolvedMobileReplyRefs(record.payload);
@@ -272,10 +279,14 @@ export const activeCloudTurnId = (
   records: readonly JournalRecord[],
   live: LiveTurn | null,
 ): string | null => {
-  if (live) return live.turnId;
   const phases = new Map<string, string>();
   for (const record of records) {
     if (record.kind === "turn") phases.set(record.turnId, record.phase);
+  }
+  // Durable terminal evidence wins over an older ephemeral snapshot. The
+  // terminal record and live-clear frame can arrive in separate renders.
+  if (live && (!phases.has(live.turnId) || phases.get(live.turnId) === "started")) {
+    return live.turnId;
   }
   for (const [turnId, phase] of [...phases].reverse()) {
     if (phase === "started") return turnId;

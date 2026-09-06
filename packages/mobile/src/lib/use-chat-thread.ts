@@ -187,6 +187,7 @@ const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
  * observer.
  */
 type QueuedSend = {
+  userMessageEventId?: string;
   dispatchId: string;
   clientRequestId: string;
   userMessageId: string;
@@ -270,6 +271,8 @@ export type ChatComposerThread = {
   /** Remove a pending quote chip by id. */
   removeQuote: (id: string) => void;
   sending: boolean;
+  /** Prompt owned by the active placement waiter, for canonical reconciliation. */
+  activeSendMessageId?: string | null;
   /** Live working-indicator props — active/label reflect the current step. */
   workingIndicator: WorkingIndicatorState;
   storageLoaded: boolean;
@@ -623,6 +626,7 @@ export function useChatThread(opts: {
             dispatchId: stored?.sendId ?? row.id,
             clientRequestId: stored?.sendId ?? row.id,
             userMessageId: row.id,
+            ...(stored?.userMessageEventId ? { userMessageEventId: stored.userMessageEventId } : {}),
             text: stored?.text ?? row.text,
             attachments: stored?.attachments ?? [],
             executionTarget:
@@ -951,6 +955,7 @@ export function useChatThread(opts: {
             admitted = await submitAutomaticExecution({
               ...unifiedChatPlacementAdmission({
                 dispatchId: item.dispatchId,
+                ...(item.userMessageEventId ? { userMessageEventId: item.userMessageEventId } : {}),
                 conversationId: placementConversationId,
                 prompt: withAttachmentPreamble(item.text, attachmentPaths),
                 attachments: placementAttachments,
@@ -1332,6 +1337,7 @@ export function useChatThread(opts: {
         dispatchId: userMessageId,
         clientRequestId: userMessageId,
         userMessageId,
+        userMessageEventId: userMessageId,
         text,
         ...(decoupleQuotes ? { promptText, selectedText: rawQuotes } : {}),
         attachments: sendAttachments,
@@ -1347,6 +1353,7 @@ export function useChatThread(opts: {
       const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
         sendId: userMessageId,
         userMessageId,
+        userMessageEventId: userMessageId,
         text,
         displayText,
         createdAt,
@@ -1593,6 +1600,7 @@ export function useChatThread(opts: {
     addQuote,
     removeQuote,
     sending,
+    activeSendMessageId: sending ? activeDispatchRef.current?.userMessageId ?? null : null,
     workingIndicator,
     storageLoaded,
     authorityIssue: hydrationAuthorityIssue,

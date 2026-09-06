@@ -71,6 +71,9 @@ describe("chat data-change scroll ownership", () => {
     expect(chatPane).toContain(
       'data: dataChangeScrollOwner === "history-anchor"',
     );
+    expect(chatPane).toContain(
+      'size: dataChangeScrollOwner === "history-anchor"',
+    );
     expect(
       /maintainScrollAtEnd=\{\s*dataChangeScrollOwner === "legend-tail"\s*\? \{/.test(
         chatPane,

@@ -62,6 +62,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { assistantBubbleNeedsBoundedWidth } from "../lib/assistant-bubble-layout";
 import { AssistantTextSelection } from "./AssistantTextSelection";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
@@ -343,6 +344,8 @@ function useChatScroll(
   onClearResponseSpacer: () => void,
 ) {
   const listRef = useRef<LegendListRef>(null);
+  const listTrailingSlackRef = useRef(listTrailingSlackPx);
+  listTrailingSlackRef.current = listTrailingSlackPx;
   const responseSpacerHeightRef = useRef(responseSpacerHeightPx);
   responseSpacerHeightRef.current = responseSpacerHeightPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
@@ -364,13 +367,12 @@ function useChatScroll(
   );
   /**
    * Live post-send anchor. Placement re-runs from the latest user row's own
-   * `onLayout` until its height settles (the four-line clamp can collapse a
-   * tall row a few frames after the first paint), so the committed scroll
-   * target always matches the row's final height instead of a pre-clamp one.
+   * `onLayout` and list content-size events until its geometry settles. Both
+   * the four-line clamp and composer collapse can change the target after
+   * the initial paint.
    */
   const pendingSendAnchorRef = useRef<{
     userMessageId: string;
-    trailingSlackPx: number;
     placedRowHeightPx: number | null;
     staleAtMs: number;
   } | null>(null);
@@ -741,27 +743,6 @@ function useChatScroll(
     stopFollowLoop();
   }, [stopFollowLoop]);
 
-  const onListContentSizeChange = useCallback(
-    (_width: number, height: number) => {
-      contentHeightRef.current = height;
-      metricsRef.current.contentHeight = height;
-
-      const baseline = assistantLayoutBaselineRef.current;
-      if (baseline === null || height <= baseline) {
-        followActiveAssistantRow();
-        return;
-      }
-
-      assistantLayoutBaselineRef.current = null;
-      if (activeAssistantHeightRef.current > 0) {
-        followActiveAssistantRow();
-      } else {
-        setFollowTarget(metricsRef.current.offsetY + height - baseline);
-      }
-    },
-    [followActiveAssistantRow, setFollowTarget],
-  );
-
   const scrollToBottom = useCallback(() => {
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = false;
@@ -787,14 +768,18 @@ function useChatScroll(
   }, []);
 
   /**
-   * Place the newest user row above the pending post-send anchor's trailing
-   * slack (response spacer + reserved bottom inset). The same gentle loop owns
+   * Place the newest user row above the current trailing slack (response
+   * spacer + reserved bottom inset). The same gentle loop owns
    * this motion and streaming follow, so the two movements blend if reply text
    * arrives before placement settles.
    */
   const placeLatestTurn = useCallback(() => {
     const pending = pendingSendAnchorRef.current;
     if (!pending) return;
+    if (Date.now() > pending.staleAtMs) {
+      pendingSendAnchorRef.current = null;
+      return;
+    }
     const metrics = metricsRef.current;
     const contentHeight = contentHeightRef.current;
     const maxOffset = Math.max(0, contentHeight - metrics.layoutHeight);
@@ -819,7 +804,7 @@ function useChatScroll(
     const target = resolvePostSendPlacement({
       contentHeightPx: contentHeight,
       viewportHeightPx: metrics.layoutHeight,
-      trailingSlackPx: pending.trailingSlackPx,
+      trailingSlackPx: listTrailingSlackRef.current,
       rowHeightPx: measurement.height,
     });
 
@@ -841,6 +826,40 @@ function useChatScroll(
       });
     });
   }, [placeLatestTurn]);
+
+  const onListContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      contentHeightRef.current = height;
+      metricsRef.current.contentHeight = height;
+
+      // Composer collapse and footer/spacer changes can settle after the user
+      // row measures. Re-anchor from this committed geometry as well.
+      const pending = pendingSendAnchorRef.current;
+      if (
+        pending &&
+        pending.userMessageId === trailingMessageIdRef.current &&
+        Date.now() <= pending.staleAtMs
+      ) {
+        schedulePlaceLatestTurn();
+        return;
+      }
+      pendingSendAnchorRef.current = null;
+
+      const baseline = assistantLayoutBaselineRef.current;
+      if (baseline === null || height <= baseline) {
+        followActiveAssistantRow();
+        return;
+      }
+
+      assistantLayoutBaselineRef.current = null;
+      if (activeAssistantHeightRef.current > 0) {
+        followActiveAssistantRow();
+      } else {
+        setFollowTarget(metricsRef.current.offsetY + height - baseline);
+      }
+    },
+    [followActiveAssistantRow, schedulePlaceLatestTurn, setFollowTarget],
+  );
 
   const onLatestUserLayout = useCallback(
     (messageId: string, event: LayoutChangeEvent) => {
@@ -864,10 +883,9 @@ function useChatScroll(
   );
 
   const nudgeAfterSend = useCallback(
-    (userMessageId: string, trailingSlackPx: number) => {
+    (userMessageId: string) => {
       pendingSendAnchorRef.current = {
         userMessageId,
-        trailingSlackPx,
         placedRowHeightPx: null,
         staleAtMs: Date.now() + POST_SEND_REANCHOR_WINDOW_MS,
       };
@@ -1484,6 +1502,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
     return receipts;
   }, [item.toolSteps]);
   const hasText = item.text.trim().length > 0;
+  const boundedAssistantBubble = useMemo(
+    () => item.role === "assistant" && assistantBubbleNeedsBoundedWidth(item.text),
+    [item.role, item.text],
+  );
   // The reply row is appended empty when the turn dispatches and gains its text
   // when the message lands, so "mounted empty" is exactly "this message arrived
   // while the user was watching" — the cue for the landing entrance. Rows
@@ -1644,7 +1666,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
         text={text}
         colors={colors}
         selectable
-        fill={false}
+        fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}
       />
     );
@@ -1664,7 +1686,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <Icon name="chevron-right" size={12} color={colors.textMuted} />
       </Pressable>}
       {hasText ? (
-        <MorphingAssistantBubble style={styles.assistantBubble} animate={animate || mountedEmptyRef.current}>
+        <MorphingAssistantBubble
+          style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
+          animate={animate || mountedEmptyRef.current}
+        >
           {renderAssistantMarkdown(item.text)}
         </MorphingAssistantBubble>
       ) : null}
@@ -3009,9 +3034,8 @@ export function ChatPane({
     assistantIdRef.current = null;
   }
 
-  useEffect(() => {
-    if (streaming) scroll.resetAssistantAutoScroll();
-  }, [streaming, scroll.resetAssistantAutoScroll]);
+  // Assistant identity changes reset its measurements above. A busy-state
+  // transition alone must not cancel the in-flight post-send placement.
 
   // When the keyboard rises while the user is at/near the bottom, pull the
   // chat up so the keyboard doesn't cover the latest messages. If the user
@@ -3056,13 +3080,12 @@ export function ChatPane({
   // where the inset has actually collapsed.
   const pendingSendNudgeRef = useRef<{
     userMessageId: string;
-    trailingSlackPx: number;
   } | null>(null);
   useEffect(() => {
     const pending = pendingSendNudgeRef.current;
     if (!pending || keyboardExtra > 0) return;
     pendingSendNudgeRef.current = null;
-    scroll.nudgeAfterSend(pending.userMessageId, pending.trailingSlackPx);
+    scroll.nudgeAfterSend(pending.userMessageId);
   }, [keyboardExtra, scroll.nudgeAfterSend]);
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
@@ -3088,11 +3111,12 @@ export function ChatPane({
   });
   const maintainVisibleContentPosition = useMemo(
     () => ({
-      // Native + Legend data anchoring is reserved for history. Enabling it at
+      // Native + Legend data and size anchoring are reserved for history.
+      // Even size-only anchoring enables native MVCP. Enabling it at
       // the live tail would introduce a second writer beside the stream/send
       // loop or Legend's end pin.
       data: dataChangeScrollOwner === "history-anchor",
-      size: true,
+      size: dataChangeScrollOwner === "history-anchor",
     }),
     [dataChangeScrollOwner],
   );
@@ -3219,10 +3243,9 @@ export function ChatPane({
         // (the `pendingSendNudgeRef` effect above).
         pendingSendNudgeRef.current = {
           userMessageId: submitted.userMessageId,
-          trailingSlackPx: restingSpacerTargetPx,
         };
       } else {
-        scroll.nudgeAfterSend(submitted.userMessageId, restingSpacerTargetPx);
+        scroll.nudgeAfterSend(submitted.userMessageId);
       }
     } else if (submitted) {
       clearResponseSpacer();
@@ -4490,7 +4513,7 @@ export function ChatPane({
                     underlineColorAndroid="transparent"
                     style={
                       isExpandedComposed
-                        ? styles.inputExpanded
+                        ? [styles.inputExpanded, draft.length === 0 && styles.inputExpandedEmpty]
                         : styles.inputPill
                     }
                     value={draft}
@@ -4968,6 +4991,10 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 13,
       paddingTop: 10,
     },
+    // Yoga stretches block Markdown to the measured list-cell width in the
+    // same layout pass, giving nested list/scroller children a definite bound.
+    // Plain text keeps the intrinsic hugging style above.
+    assistantBlockBubble: { alignSelf: "stretch" },
     // Schedule tool receipt — a plain text line in the conversation flow
     // (desktop parity: no chip or card), slightly quieter than reply prose.
     scheduleReceipt: {
@@ -5172,6 +5199,10 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 11,
       paddingBottom: 2,
     },
+    // A pinned model picker keeps the same scrollable UITextView expanded
+    // after send. Its old intrinsic content height can survive clearing value;
+    // an empty draft has a known resting height, independent of that cache.
+    inputExpandedEmpty: { height: 40 },
 
     toolbar: {
       alignItems: "center",

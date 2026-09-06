@@ -9,9 +9,13 @@
  * replaces it, which is a normal re-render.
  */
 import { memo, useCallback, useMemo, type ReactNode } from "react";
-import { Alert, Linking, Platform, StyleSheet, View } from "react-native";
+import { Alert, Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
 import {
   Markdown,
+  List,
+  ListItem,
+  TaskListItem,
+  type MarkdownNode,
   type CustomRenderers,
   type CustomRendererProps,
   type NodeStyleOverrides,
@@ -22,6 +26,7 @@ import { parseStellaFileUrl } from "../lib/stella-file-links";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
+import { SelectableMarkdownText, nativeMarkdownSelectionAvailable } from "./SelectableMarkdownText";
 import { AssistantMarkdownTable } from "./AssistantMarkdownTable";
 
 const BASE_FONT_SIZE = 17;
@@ -148,6 +153,8 @@ function buildNodeStyles(colors: Colors): NodeStyleOverrides {
   };
 }
 
+const containsImage = (node: MarkdownNode): boolean => node.type === "image" || Boolean(node.children?.some(containsImage));
+
 const PARSER_OPTIONS = { gfm: true, math: false, html: false } as const;
 const containerStyle = StyleSheet.create({
   // The wrapping View lets the parent Pressable still receive long-press —
@@ -187,20 +194,6 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   const theme = useMemo(() => buildTheme(colors), [colors]);
   const nodeStyles = useMemo(() => buildNodeStyles(colors), [colors]);
 
-  const renderers = useMemo<CustomRenderers>(
-    () => ({
-      table: ({ node, Renderer }: CustomRendererProps) => (
-        <AssistantMarkdownTable
-          node={node}
-          Renderer={Renderer}
-          colors={colors}
-          selectable={selectable}
-        />
-      ),
-    }),
-    [colors, selectable],
-  );
-
   const onLinkPress = useCallback(
     (url: string): boolean => {
       const stellaFilePath = parseStellaFileUrl(url);
@@ -221,6 +214,67 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       return false;
     },
     [onStellaFileLink],
+  );
+
+  const renderers = useMemo<CustomRenderers>(
+    () => ({
+      ...(selectable && nativeMarkdownSelectionAvailable ? {
+        list: ({ node, Renderer }: CustomRendererProps) => (
+          <List ordered={node.ordered ?? false} start={node.start} depth={0}>
+            {(node.children ?? []).map((item, index) => {
+              const groups: MarkdownNode[] = [];
+              let inline: MarkdownNode[] = [];
+              const flush = () => {
+                if (inline.length) groups.push({ type: "paragraph", children: inline });
+                inline = [];
+              };
+              for (const child of item.children ?? []) {
+                if (["paragraph", "list", "blockquote", "code_block", "table", "image", "heading", "horizontal_rule"].includes(child.type)) {
+                  flush(); groups.push(child);
+                } else inline.push(child);
+              }
+              flush();
+              const body = groups.map((group, groupIndex) => group.type === "paragraph" && !containsImage(group)
+                ? <SelectableMarkdownText key={groupIndex} node={group} colors={colors} onLinkPress={onLinkPress} />
+                : <Renderer key={groupIndex} node={group} depth={1} inListItem />);
+              return item.type === "task_list_item"
+                ? <TaskListItem key={index} checked={item.checked ?? false}>{body}</TaskListItem>
+                : <ListItem key={index} index={index} ordered={node.ordered ?? false} start={node.start ?? 1}>{body}</ListItem>;
+            })}
+          </List>
+        ),
+        paragraph: ({ node }: CustomRendererProps) => containsImage(node) ? undefined : (
+          <View style={{ marginBottom: 10 }}>
+            <SelectableMarkdownText node={node} colors={colors} onLinkPress={onLinkPress} />
+          </View>
+        ),
+        heading: ({ node, level }: CustomRendererProps) => (
+          <View style={{ marginTop: 12, marginBottom: 6 }}>
+            <SelectableMarkdownText node={node} colors={colors} onLinkPress={onLinkPress}
+              textStyle={{ fontFamily: fonts.sans.semiBold, color: colors.textStrong, fontSize: [22, 20, 18, 17, 15, 14][(level ?? 1) - 1] }} />
+          </View>
+        ),
+        code_block: ({ node }: CustomRendererProps) => (
+          <View style={nodeStyles.code_block}>
+            <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false}>
+              <View style={{ minWidth: 100 }}>
+                <SelectableMarkdownText node={node} colors={colors} textStyle={{ fontFamily: fonts.mono.regular, fontSize: 16 }} />
+              </View>
+            </ScrollView>
+          </View>
+        ),
+      } : {}),
+      table: ({ node, Renderer }: CustomRendererProps) => (
+        <AssistantMarkdownTable
+          node={node}
+          Renderer={Renderer}
+          colors={colors}
+          selectable={selectable}
+          onLinkPress={onLinkPress}
+        />
+      ),
+    }),
+    [colors, selectable, nodeStyles, onLinkPress],
   );
 
   const content: ReactNode = (

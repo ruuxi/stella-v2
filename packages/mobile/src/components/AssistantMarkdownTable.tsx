@@ -18,6 +18,7 @@ import {
   fitMarkdownTableColumnWidths,
 } from "../lib/markdown-table-layout";
 import type { Colors } from "../theme/colors";
+import { SelectableMarkdownText, nativeMarkdownSelectionAvailable } from "./SelectableMarkdownText";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
 
@@ -26,6 +27,7 @@ type AssistantMarkdownTableProps = {
   Renderer: ComponentType<NodeRendererProps>;
   colors: Colors;
   selectable?: boolean;
+  onLinkPress?: (url: string) => unknown;
 };
 
 function TableCellContent({
@@ -33,13 +35,18 @@ function TableCellContent({
   Renderer,
   textStyle,
   selectable,
+  colors,
+  onLinkPress,
 }: {
+  colors: Colors;
   node?: MarkdownNode;
   Renderer: ComponentType<NodeRendererProps>;
   textStyle: StyleProp<TextStyle>;
   selectable?: boolean;
+  onLinkPress?: (url: string) => unknown;
 }) {
   if (!node) return null;
+  if (selectable && nativeMarkdownSelectionAvailable) return <SelectableMarkdownText node={node} colors={colors} textStyle={textStyle} onLinkPress={onLinkPress} />;
   const children = node.children ?? [];
 
   return (
@@ -68,6 +75,7 @@ export function AssistantMarkdownTable({
   Renderer,
   colors,
   selectable,
+  onLinkPress,
 }: AssistantMarkdownTableProps) {
   const [viewportWidth, setViewportWidth] = useState(0);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -121,6 +129,8 @@ export function AssistantMarkdownTable({
                   node={cell}
                   Renderer={Renderer}
                   selectable={selectable}
+                  colors={colors}
+                  onLinkPress={onLinkPress}
                   textStyle={[
                     styles.headerText,
                     { textAlign: cellAlignment(columnIndex) },
@@ -153,6 +163,8 @@ export function AssistantMarkdownTable({
                     node={row[columnIndex]}
                     Renderer={Renderer}
                     selectable={selectable}
+                  colors={colors}
+                  onLinkPress={onLinkPress}
                     textStyle={[
                       styles.bodyText,
                       { textAlign: cellAlignment(columnIndex) },

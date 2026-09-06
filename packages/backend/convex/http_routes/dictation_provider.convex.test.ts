@@ -33,9 +33,12 @@ const prepare = async (t: ReturnType<typeof createTest>) => {
     sessionId: string;
     ownerGeneration: string;
     providerDeadlineAt: number;
+    maxAudioBytes: number;
   };
 };
 beforeEach(() => {
+  // Billing plan limits are cached when each Convex module is first loaded.
+  vi.resetModules();
   vi.useFakeTimers();
   vi.stubEnv("BUILDER_SERVICE_SECRET", "dictation-test");
   vi.stubEnv("STELLA_INCLUDED_USAGE_UTILIZATION_RATE", "0.5");
@@ -59,6 +62,7 @@ describe("Muse realtime dictation", () => {
     const t = createTest();
     const session = await prepare(t);
     expect(session.providerDeadlineAt - Date.now()).toBe(MUSE_MAX_SESSION_MS);
+    expect(session.maxAudioBytes).toBe(32_000 * 3600);
     const receipt = await t.run((ctx) =>
       ctx.db.query("billing_managed_dispatch_leases").first(),
     );
@@ -124,38 +128,102 @@ describe("Muse realtime dictation", () => {
         ?.totalRequestCount,
     ).toBe(1);
   });
-  it("durably charges the bounded fallback if the relay disappears", async () => {
+  it("fits a ten-cent allowance and settles exact usage without spending the full grant", async () => {
+    for (const window of ["LIFETIME", "ROLLING", "WEEKLY", "MONTHLY"])
+      vi.stubEnv(`STELLA_FREE_${window}_LIMIT_USD`, "0.10");
     const t = createTest();
     const session = await prepare(t);
-    vi.setSystemTime(session.providerDeadlineAt + 45_000);
-    const args = { attemptId: session.sessionId, leaseId: session.sessionId };
-    await t.mutation(
-      internal.billing.finalizeManagedProviderDispatchBillingInternal,
-      args,
-    );
-    await t.mutation(
-      internal.billing.finalizeManagedProviderDispatchBillingInternal,
-      args,
-    );
+    expect(session.providerDeadlineAt - Date.now()).toBe(2_000_000);
+    expect(session.maxAudioBytes).toBe(32_000 * 2000);
     expect(
       await t.run((ctx) =>
         ctx.db.query("billing_managed_dispatch_leases").first(),
       ),
     ).toMatchObject({
-      state: "terminal",
-      billing: {
-        billingState: "billed",
-        capturedUsage: {
-          costMicroCents: dollarsToMicroCents(0.18),
-          success: false,
-        },
-      },
+      billing: { fallbackCostMicroCents: dollarsToMicroCents(0.1) },
     });
+    const body = {
+      ownerId,
+      ...session,
+      audioBytes: 32_000 * 60,
+      durationMs: 60_000,
+      success: true,
+    };
+    // The caller cannot expand the durable grant with a forged response field.
     expect(
-      (await t.run((ctx) => ctx.db.query("billing_usage_windows").first()))
-        ?.totalRequestCount,
-    ).toBe(1);
+      (
+        await post(t, "settle", {
+          ...body,
+          maxAudioBytes: 32_000 * 3600,
+          audioBytes: session.maxAudioBytes + 2,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.query("billing_managed_dispatch_leases").first(),
+      ),
+    ).toMatchObject({ billing: { billingState: "pending" } });
+    expect((await post(t, "settle", body)).status).toBe(200);
+    expect((await post(t, "settle", body)).status).toBe(200);
+    expect(
+      await t.run((ctx) => ctx.db.query("billing_usage_windows").first()),
+    ).toMatchObject({
+      totalRequestCount: 1,
+      totalUsageMicroCents: dollarsToMicroCents(0.003),
+    });
   });
+  it("rejects an allowance below one second without reserving a session", async () => {
+    for (const window of ["LIFETIME", "ROLLING", "WEEKLY", "MONTHLY"])
+      vi.stubEnv(`STELLA_FREE_${window}_LIMIT_USD`, "0.000049");
+    const t = createTest();
+    expect((await post(t, "prepare", { ownerId })).status).toBe(429);
+    expect(
+      await t.run((ctx) =>
+        ctx.db.query("billing_managed_dispatch_leases").first(),
+      ),
+    ).toBeNull();
+  });
+  it.each([
+    { allowance: "10", fallbackUsd: 0.18 },
+    { allowance: "0.10", fallbackUsd: 0.1 },
+  ])(
+    "durably charges the bounded fallback with $allowance allowance if the relay disappears",
+    async ({ allowance, fallbackUsd }) => {
+      for (const window of ["LIFETIME", "ROLLING", "WEEKLY", "MONTHLY"])
+        vi.stubEnv(`STELLA_FREE_${window}_LIMIT_USD`, allowance);
+      const t = createTest();
+      const session = await prepare(t);
+      vi.setSystemTime(session.providerDeadlineAt + 45_000);
+      const args = { attemptId: session.sessionId, leaseId: session.sessionId };
+      await t.mutation(
+        internal.billing.finalizeManagedProviderDispatchBillingInternal,
+        args,
+      );
+      await t.mutation(
+        internal.billing.finalizeManagedProviderDispatchBillingInternal,
+        args,
+      );
+      expect(
+        await t.run((ctx) =>
+          ctx.db.query("billing_managed_dispatch_leases").first(),
+        ),
+      ).toMatchObject({
+        state: "terminal",
+        billing: {
+          billingState: "billed",
+          capturedUsage: {
+            costMicroCents: dollarsToMicroCents(fallbackUsd),
+            success: false,
+          },
+        },
+      });
+      expect(
+        (await t.run((ctx) => ctx.db.query("billing_usage_windows").first()))
+          ?.totalRequestCount,
+      ).toBe(1);
+    },
+  );
   it("rejects provider leases beyond one hour", async () => {
     const t = createTest();
     await expect(

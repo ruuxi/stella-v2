@@ -91,6 +91,7 @@ import type * as data_secrets_rotation from "../data/secrets_rotation.js";
 import type * as data_threads from "../data/threads.js";
 import type * as data_x_bot from "../data/x_bot.js";
 import type * as device_identity from "../device_identity.js";
+import type * as dictation_sessions from "../dictation_sessions.js";
 import type * as events from "../events.js";
 import type * as execution_placement from "../execution_placement.js";
 import type * as feedback from "../feedback.js";
@@ -412,6 +413,7 @@ declare const fullApi: ApiFromModules<{
   "data/threads": typeof data_threads;
   "data/x_bot": typeof data_x_bot;
   device_identity: typeof device_identity;
+  dictation_sessions: typeof dictation_sessions;
   events: typeof events;
   execution_placement: typeof execution_placement;
   feedback: typeof feedback;

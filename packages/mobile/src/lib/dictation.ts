@@ -73,6 +73,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const cancelRecordingRef = useRef<(() => Promise<string | null>) | null>(
     null,
   );
+  const stopRecordingRef = useRef<(() => Promise<string | null>) | null>(null);
 
   const safeSetStatus = useCallback((next: DictationStatus) => {
     statusRef.current = next;
@@ -163,10 +164,20 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         (error) => {
           // Opening errors belong to start's catch; finishing errors belong to
           // finish(). Only a live recording needs this unsolicited terminal path.
-          if (statusRef.current !== "recording") return;
+          if (
+            dictationStreamRef.current !== stream ||
+            statusRef.current !== "recording"
+          ) return;
           void cancelRecordingRef.current?.().finally(() => {
             if (mountedRef.current) Alert.alert("Voice input", error.message);
           });
+        },
+        () => {
+          if (
+            mountedRef.current &&
+            dictationStreamRef.current === stream &&
+            statusRef.current === "recording"
+          ) void stopRecordingRef.current?.();
         },
       );
       // Own the connection while opening too, so failed startup and unmount
@@ -186,12 +197,13 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         pcmFloat32?: Float32Array | number[];
         buffer?: Float32Array;
       }>("AudioData", (event) => {
+        if (!mountedRef.current || dictationStreamRef.current !== stream) return;
         const audio = event.encoded ?? event.pcmFloat32 ?? event.buffer;
         if (!audio) return;
         const bytes = audioEventToPcm16(audio);
         if (bytes.byteLength === 0) return;
         updateDictationMeter(pcm16Level(bytes));
-        dictationStreamRef.current?.send(bytes);
+        stream.send(bytes);
       });
       await AudioStudioModule.startRecording({
         sampleRate: 16_000,
@@ -218,6 +230,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       startDictationMeter(startedAtRef.current);
       safeSetStatus("recording");
       operationInFlightRef.current = false;
+      // A very short allowance may complete while native capture is starting.
+      // Let the same normal stop path own cleanup and composer delivery.
+      if (stream.isComplete) void stopRecordingRef.current?.();
       return true;
     } catch (error) {
       console.warn(`[dictation] start failed during ${phase}`, error);
@@ -268,7 +283,10 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       stopDictationMeter();
       resetDictationTranscriptPreview();
 
-      if (!commit || durationMs < MIN_RECORDING_MS) {
+      if (
+        !commit ||
+        (durationMs < MIN_RECORDING_MS && !dictationStreamRef.current?.isComplete)
+      ) {
         dictationStreamRef.current?.cancel();
         dictationStreamRef.current = null;
         safeSetStatus("idle");
@@ -335,6 +353,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const stop = useCallback(() => finalize(true), [finalize]);
   const cancel = useCallback(() => finalize(false), [finalize]);
   cancelRecordingRef.current = cancel;
+  stopRecordingRef.current = stop;
 
   const toggle = useCallback(async () => {
     if (status === "idle") {

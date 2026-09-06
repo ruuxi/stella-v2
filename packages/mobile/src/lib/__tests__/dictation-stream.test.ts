@@ -126,6 +126,58 @@ test("dictation opening closes rejected and cancelled sockets without starting a
     assert.equal(await completedText, "A short recorded phrase.");
     assert.equal(completedSocket.onmessage, null);
 
+    let finals = 0;
+    let unexpectedFailures = 0;
+    const auto = new DictationStream(undefined, () => unexpectedFailures++, () => finals++);
+    const autoOpen = auto.open();
+    await flush();
+    const autoSocket = Socket.instances.at(-1);
+    autoSocket.open();
+    autoSocket.receive({ sessionId: "accepted-cap" });
+    await autoOpen;
+    autoSocket.receive({ type: "transcript", transcript: "unfinished", final: false });
+    assert.equal(finals, 0, "partial utterances do not end recording");
+    autoSocket.receive({ type: "transcript", transcript: "Allowance-limited phrase.", final: true });
+    assert.equal(finals, 1);
+    assert.equal(auto.isComplete, true);
+    auto.send(new ArrayBuffer(320));
+    assert.equal(autoSocket.sent.length, 0, "native trailing audio is ignored after terminal final");
+    autoSocket.receive({ type: "transcript", transcript: "late replacement", final: true });
+    autoSocket.onerror();
+    autoSocket.readyState = 3;
+    autoSocket.onclose({ code: 1000 });
+    assert.equal(finals, 1);
+    assert.equal(unexpectedFailures, 0);
+    assert.equal(await auto.finish(), "Allowance-limited phrase.");
+    assert.equal(autoSocket.onmessage, null);
+
+    const empty = new DictationStream();
+    const emptyOpen = empty.open();
+    await flush();
+    const emptySocket = Socket.instances.at(-1);
+    emptySocket.open();
+    emptySocket.receive({ sessionId: "accepted-empty" });
+    await emptyOpen;
+    emptySocket.receive({ type: "transcript", transcript: "discarded interim", final: false });
+    emptySocket.receive({ type: "transcript", transcript: "", final: true });
+    emptySocket.readyState = 3;
+    emptySocket.onclose({ code: 1000 });
+    assert.equal(await empty.finish(), "", "an empty final must not resurrect interim text");
+
+    let cancelledFinals = 0;
+    const abandoned = new DictationStream(undefined, undefined, () => cancelledFinals++);
+    const abandonedOpen = abandoned.open();
+    await flush();
+    const abandonedSocket = Socket.instances.at(-1);
+    abandonedSocket.open();
+    abandonedSocket.receive({ sessionId: "accepted-cancel-final" });
+    await abandonedOpen;
+    const queuedFinal = abandonedSocket.onmessage;
+    abandoned.cancel();
+    queuedFinal({ data: JSON.stringify({ type: "transcript", transcript: "discard me", final: true }) });
+    assert.equal(cancelledFinals, 0);
+    await assert.rejects(abandoned.finish(), /cancelled/);
+
     let invalidFrames = 0;
     const batching = new DictationStream(undefined, () => { invalidFrames++; });
     const batchingOpen = batching.open();

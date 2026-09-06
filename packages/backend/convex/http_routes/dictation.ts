@@ -7,6 +7,7 @@
  * audio after the stream closes.
  */
 import type { HttpRouter } from "convex/server";
+import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
@@ -15,7 +16,7 @@ import {
   jsonResponse,
   registerCorsOptions,
 } from "../http_shared/cors";
-import { requireSignedInAccountAction } from "../http_shared/auth";
+import { authRequiredResponse } from "../http_shared/auth";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import type { ManagedDispatchBillingEnvelope } from "../lib/managed_dispatch";
 import { runManagedGate } from "../lib/gate_and_meter";
@@ -40,14 +41,15 @@ const sessionAuthority = (
   attemptId: sessionId,
   leaseId: sessionId,
 });
-const sessionBilling = (sessionId: string): ManagedDispatchBillingEnvelope => ({
+const sessionBilling = (
+  sessionId: string,
+  fallbackCostMicroCents: number,
+): ManagedDispatchBillingEnvelope => ({
   kind: "managed_usage",
   requestFingerprint: `dictation:${sessionId}`,
   agentType: "service:dictation",
   model: MUSE_DICTATION_MODEL,
-  fallbackCostMicroCents: dollarsToMicroCents(
-    (MUSE_MAX_SESSION_MS / 1000) * MUSE_STT_USD_PER_SECOND,
-  ),
+  fallbackCostMicroCents,
 });
 
 const hasBuilderAuthorization = (request: Request): boolean => {
@@ -65,11 +67,17 @@ export const registerDictationRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const auth = await requireSignedInAccountAction(ctx, origin, {
-          message: "Sign in to Stella to use dictation.",
-          realm: "stella-dictation",
-        });
-        if (!auth.ok) return auth.response;
+        // Account-free clients have a verified Better Auth anonymous owner.
+        // Keep that owner authenticated; the relay applies the same metered
+        // usage and rate gates to anonymous and registered sessions.
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) {
+          return authRequiredResponse(origin, {
+            message: "Stella could not verify this session. Try again.",
+            action: "Refresh the Stella session and retry dictation.",
+            realm: "stella-dictation",
+          });
+        }
 
         const relayOrigin = process.env.CLOUD_BUILDER_URL?.trim().replace(
           /\/+$/u,
@@ -121,37 +129,78 @@ export const registerDictationRoutes = (http: HttpRouter) => {
       });
       if (!gate.ok) return gate.response;
 
+      const remaining = await ctx.runQuery(
+        internal.dictation_sessions.remainingAllowance,
+        {
+          ownerId,
+          ownerGeneration: gate.ownerGeneration,
+        },
+      );
+      const costPerSecond = dollarsToMicroCents(MUSE_STT_USD_PER_SECOND);
+      const maxSeconds =
+        remaining === null
+          ? MUSE_MAX_SESSION_MS / 1000
+          : Math.min(
+              MUSE_MAX_SESSION_MS / 1000,
+              Math.floor(remaining / costPerSecond),
+            );
+      if (maxSeconds < 1)
+        return Response.json(
+          {
+            error: "Your Stella usage allowance is too low to start dictation.",
+            code: "usage_limit_reached",
+          },
+          { status: 429 },
+        );
+      const maxSessionMs = maxSeconds * 1000;
+
       const sessionId = `muse_${crypto.randomUUID()}`;
       const authority = sessionAuthority(
         ownerId,
         gate.ownerGeneration,
         sessionId,
       );
-      const billing = sessionBilling(sessionId);
+      const billing = sessionBilling(sessionId, maxSeconds * costPerSecond);
       const timing = await ctx.runMutation(
         internal.billing.acquireManagedProviderDispatchInternal,
         {
           ...authority,
           billing,
-          providerTimeoutMs: MUSE_MAX_SESSION_MS,
+          providerTimeoutMs: maxSessionMs,
           now: Date.now(),
         },
       );
       // Commit the reservation before the relay may open the provider socket.
-      const marked = await ctx.runMutation(
-        internal.billing.markManagedProviderDispatchMayHaveStartedInternal,
-        {
-          ...authority,
-          billing,
-          now: Date.now(),
-        },
-      );
+      let marked: boolean;
+      try {
+        marked = await ctx.runMutation(
+          internal.billing.markManagedProviderDispatchMayHaveStartedInternal,
+          {
+            ...authority,
+            billing,
+            now: Date.now(),
+          },
+        );
+      } catch (error) {
+        const data = error instanceof ConvexError ? error.data : null;
+        if (
+          data &&
+          typeof data === "object" &&
+          data.code === "USAGE_LIMIT_REACHED"
+        )
+          return Response.json(
+            { error: data.message, code: "usage_limit_reached" },
+            { status: 429 },
+          );
+        throw error;
+      }
       if (!marked)
         return Response.json({ error: "Session unavailable" }, { status: 409 });
       return Response.json({
         sessionId,
         ownerGeneration: gate.ownerGeneration,
         providerDeadlineAt: timing.providerDeadlineAt,
+        maxAudioBytes: maxSeconds * PCM_BYTES_PER_SECOND,
       });
     }),
   });
@@ -194,12 +243,24 @@ export const registerDictationRoutes = (http: HttpRouter) => {
       }
 
       const audioSeconds = audioBytes / PCM_BYTES_PER_SECOND;
+      const receipt = await ctx.runQuery(internal.dictation_sessions.receipt, {
+        ownerId,
+        ownerGeneration,
+        sessionId,
+      });
+      if (!receipt)
+        return Response.json({ error: "Session unavailable" }, { status: 409 });
+      if (audioBytes > (receipt.maxMs / 1000) * PCM_BYTES_PER_SECOND)
+        return Response.json(
+          { error: "Audio exceeds the reserved session allowance" },
+          { status: 400 },
+        );
       const authority = sessionAuthority(ownerId, ownerGeneration, sessionId);
       const captured = await ctx.runMutation(
         internal.billing.captureManagedProviderDispatchUsageInternal,
         {
           ...authority,
-          billing: sessionBilling(sessionId),
+          billing: sessionBilling(sessionId, receipt.fallbackCostMicroCents),
           now: Date.now(),
           usage: {
             durationMs:

@@ -32,8 +32,9 @@ describe("Muse relay settlement", () => {
   it.each(["frames", "silence"])(
     "enforces the receipt deadline during %s and retries usage only after upstream closes",
     async (mode) => {
-      const { handleMuseTranscribeSocket } =
-        await import("../src/muse-transcribe-socket.js");
+      const { handleMuseTranscribeSocket } = await import(
+        "../src/muse-transcribe-socket.js"
+      );
       class Socket extends EventTarget {
         sent: unknown[] = [];
         closed = false;
@@ -119,8 +120,9 @@ describe("Muse relay settlement", () => {
           now = deadline;
           gateway.emit("message", { data: new ArrayBuffer(32000) });
         }
-        expect(upstream.closed).toBe(true);
-        expect(upstream.sent).toHaveLength(2);
+        expect(upstream.closed).toBe(false);
+        expect(upstream.sent).toHaveLength(3);
+        expect(upstream.sent[2]).toBe(JSON.stringify({ type: "endStream" }));
         expect(settlements).toHaveLength(0);
         upstream.emit("close", { code: 1000, reason: "closed" });
         await Promise.all(pending);
@@ -128,10 +130,10 @@ describe("Muse relay settlement", () => {
         expect(settlements[0]).toEqual(settlements[1]);
         expect(settlements[0]).toMatchObject({
           audioBytes: 32000,
-          success: false,
+          success: true,
         });
         gateway.emit("message", { data: new ArrayBuffer(32000) });
-        expect(upstream.sent).toHaveLength(2);
+        expect(upstream.sent).toHaveLength(3);
       } finally {
         Date.now = originalNow;
         globalThis.fetch = originalFetch;

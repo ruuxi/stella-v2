@@ -20,7 +20,10 @@ type PreparedSession = {
   sessionId: string;
   ownerGeneration: string;
   providerDeadlineAt: number;
+  maxAudioBytes?: number;
 };
+
+class DictationUsageError extends Error {}
 
 export const createMuseHandshake = (apiKey: string) => ({
   authorization: { accessToken: `Bearer ${apiKey}` },
@@ -77,6 +80,16 @@ const callControlPlane = async <T>(
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
+    if (response.status === 429) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      throw new DictationUsageError(
+        typeof body?.error === "string"
+          ? body.error
+          : "Your Stella usage allowance is exhausted.",
+      );
+    }
     await response.body?.cancel().catch(() => undefined);
     throw new Error(
       `Muse relay control plane rejected the request (${response.status}).`,
@@ -102,7 +115,18 @@ export const handleMuseTranscribeSocket = async (args: {
       "/api/cloud/dictation/prepare",
       { ownerId: args.ownerId },
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof DictationUsageError) {
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].send(JSON.stringify({ type: "error", message: error.message }));
+      pair[1].close(1008, "Dictation usage limit reached");
+      return new Response(null, {
+        status: 101,
+        webSocket: pair[0],
+        headers: { "sec-websocket-protocol": SUBPROTOCOL },
+      });
+    }
     return new Response("Muse transcription is unavailable.", { status: 503 });
   }
 
@@ -174,6 +198,7 @@ export const handleMuseTranscribeSocket = async (args: {
   let audioBytes = 0;
   let settled = false;
   let closing = false;
+  let inputEnded = false;
   let cancelDeadline: (() => void) | undefined;
   let sawFinalTranscript = false;
   let sawUpstreamError = false;
@@ -190,34 +215,48 @@ export const handleMuseTranscribeSocket = async (args: {
     closeSocket(upstream, code, reason);
     closeSocket(gateway, code, reason);
   };
+  const endInput = () => {
+    if (inputEnded || closing || settled) return;
+    inputEnded = true;
+    cancelDeadline?.();
+    upstream.send(JSON.stringify({ type: "endStream" }));
+    // No more billable audio is admitted. Allow a bounded provider flush so
+    // reaching the allowance returns the transcript already recorded.
+    cancelDeadline = forkAbortTimer(10_000, () => {
+      closeBoth(1011, "Transcription took too long to finish");
+    });
+  };
   cancelDeadline = forkAbortTimer(
     Math.max(0, prepared.providerDeadlineAt - Date.now()),
-    () => {
-      closeBoth(1000, "Transcription session time limit reached");
-    },
+    endInput,
+  );
+  const maxAudioBytes = Math.min(
+    MAX_AUDIO_BYTES,
+    prepared.maxAudioBytes ?? MAX_AUDIO_BYTES,
   );
 
   gateway.addEventListener("message", (event) => {
-    if (settled || closing) return;
+    if (settled || closing || inputEnded) return;
     if (Date.now() >= prepared.providerDeadlineAt) {
-      closeBoth(1000, "Transcription session time limit reached");
+      endInput();
       return;
     }
     if (event.data instanceof ArrayBuffer) {
       if (
         event.data.byteLength === 0 ||
-        event.data.byteLength > MAX_FRAME_BYTES ||
-        audioBytes + event.data.byteLength > MAX_AUDIO_BYTES
+        event.data.byteLength > MAX_FRAME_BYTES
       ) {
         closeBoth(1008, "Invalid audio frame");
         return;
       }
-      audioBytes += event.data.byteLength;
-      upstream.send(event.data);
+      const frame = event.data.slice(0, maxAudioBytes - audioBytes);
+      audioBytes += frame.byteLength;
+      upstream.send(frame);
+      if (audioBytes === maxAudioBytes) endInput();
       return;
     }
     if (isMuseEndStreamFrame(event.data)) {
-      upstream.send(JSON.stringify({ type: "endStream" }));
+      endInput();
       return;
     }
     closeBoth(1008, "Invalid transcription frame");

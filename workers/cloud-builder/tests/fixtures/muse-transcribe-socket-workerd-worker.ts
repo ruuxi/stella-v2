@@ -15,11 +15,18 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.hostname === "control.fixture") {
     if (url.pathname.endsWith("/prepare")) {
       const body = (await request.json()) as { ownerId: string };
+      if (body.ownerId === "owner-exhausted")
+        return Response.json(
+          { error: "Your Stella usage allowance is exhausted." },
+          { status: 429 },
+        );
       return Response.json({
         sessionId:
           body.ownerId === "owner-hanging" ? "muse-hanging" : "muse-fixture",
         ownerGeneration: "generation-1",
-        providerDeadlineAt: Date.now() + 30_000,
+        providerDeadlineAt:
+          Date.now() + (body.ownerId === "owner-deadline" ? 500 : 30_000),
+        ...(body.ownerId === "owner-capped" ? { maxAudioBytes: 6 } : {}),
       });
     }
     state.settlements.push((await request.json()) as Record<string, unknown>);
@@ -98,7 +105,7 @@ export default {
         request,
         ownerId: new URL(request.url).searchParams.has("hang")
           ? "owner-hanging"
-          : "owner-fixture",
+          : `owner-${new URL(request.url).searchParams.get("case") ?? "fixture"}`,
         env: {
           BUILDER_SERVICE_SECRET: "fixture-only",
           META_MODEL_API_KEY: "fixture-only",

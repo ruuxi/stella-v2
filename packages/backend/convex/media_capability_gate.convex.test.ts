@@ -288,6 +288,47 @@ describe("media capability gating", () => {
     });
     expect(response.status).toBe(200);
   });
+
+  it("allows a verified anonymous session to configure dictation", async () => {
+    ensureEnv();
+    const t = createTest();
+    const anonymous = t.withIdentity({
+      issuer: "https://issuer.test",
+      subject: "anonymous-dictation-owner",
+      tokenIdentifier: "https://issuer.test|anonymous-dictation-owner",
+      isAnonymous: true,
+    });
+    const response = await anonymous.fetch("/api/dictation/realtime-config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      relayOrigin: process.env.CLOUD_BUILDER_URL,
+      modelId: "muse-voice-transcribe-1.0",
+    });
+  });
+
+  it("still requires an authenticated owner and trusted dictation control plane", async () => {
+    ensureEnv();
+    const t = createTest();
+    const response = await t.fetch("/api/dictation/realtime-config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ code: "auth_required" });
+    for (const route of ["prepare", "settle"]) {
+      const control = await asOwner(t).fetch(`/api/cloud/dictation/${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ownerId: OWNER_ID }),
+      });
+      expect(control.status).toBe(401);
+    }
+  });
 });
 
 describe("orchestration is not a capability", () => {

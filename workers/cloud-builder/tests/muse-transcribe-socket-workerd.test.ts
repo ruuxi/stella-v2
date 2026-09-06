@@ -125,4 +125,48 @@ describe("Muse PCM relay in real Workerd", () => {
     expect(elapsed).toBeGreaterThanOrEqual(9_000);
     expect(elapsed).toBeLessThan(15_000);
   }, 20_000);
+
+  test.each(["capped", "deadline"])(
+    "flushes the final transcript at the %s allowance boundary",
+    async (kind) => {
+      const result = await exchange(
+        dev.origin,
+        `/relay?case=${kind}`,
+        [new Uint8Array([1, 0, 2, 0, 3, 0, 4, 0])],
+        ["stella.v1"],
+      );
+      expect(result.code).toBe(1000);
+      expect(result.messages).toEqual([
+        { type: "transcript", final: true, text: "binary audio accepted" },
+      ]);
+      let settlement: any;
+      for (let i = 0; i < 50; i++) {
+        const state = (await (
+          await fetch(`${dev.origin}/state`)
+        ).json()) as any;
+        settlement = state.settlements.find(
+          (row: any) => row.ownerId === `owner-${kind}`,
+        );
+        if (settlement) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(settlement).toMatchObject({
+        audioBytes: kind === "capped" ? 6 : 8,
+        success: true,
+      });
+    },
+  );
+
+  test("returns actionable exhausted-allowance errors over the socket", async () => {
+    const result = await exchange(
+      dev.origin,
+      "/relay?case=exhausted",
+      [],
+      ["stella.v1"],
+    );
+    expect(result.code).toBe(1008);
+    expect(result.messages).toEqual([
+      { type: "error", message: "Your Stella usage allowance is exhausted." },
+    ]);
+  });
 });

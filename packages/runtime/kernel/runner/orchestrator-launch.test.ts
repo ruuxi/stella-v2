@@ -242,7 +242,7 @@ const launchHarness = (options: {
 };
 
 describe("cloud orchestrator launch", () => {
-  test("starts the model before begin resolves and finishes after matching sequence bounds", async () => {
+  test("waits for admission before model execution even with cached history", async () => {
     const begin = deferred<CloudTranscriptBeginAck>();
     let modelStarted = false;
     const harness = launchHarness({
@@ -261,7 +261,8 @@ describe("cloud orchestrator launch", () => {
       },
     });
 
-    await waitFor(() => modelStarted);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(modelStarted).toBe(false);
     expect(harness.terminalEvents).toEqual([]);
     begin.resolve(beginAck());
     await harness.waitUntilSettled();
@@ -272,88 +273,67 @@ describe("cloud orchestrator launch", () => {
     expect(harness.events.slice(0, 2)).toEqual(["finish", "end"]);
   });
 
-  test("aborts the optimistic model run and surfaces a begin rejection", async () => {
+  test("does not start the provider or tools when admission rejects", async () => {
     const begin = deferred<CloudTranscriptBeginAck>();
-    let modelStarted = false;
-    let modelAborted = false;
+    let modelStarts = 0;
     const harness = launchHarness({
       cachedHistory: CACHED_HISTORY,
       begin: () => begin.promise,
-      run: async (runOptions) => {
-        modelStarted = true;
-        await new Promise<void>((resolve) => {
-          runOptions.abortSignal?.addEventListener(
-            "abort",
-            () => {
-              modelAborted = true;
-              resolve();
-            },
-            { once: true },
-          );
-        });
+      run: async () => {
+        modelStarts += 1;
       },
     });
     const beginError = new Error("Cloud begin failed.");
-
-    await waitFor(() => modelStarted);
     begin.reject(beginError);
     await harness.waitUntilSettled();
-
-    expect(modelAborted).toBe(true);
+    expect(modelStarts).toBe(0);
     expect(harness.captureIsActive()).toBe(false);
     expect(harness.finishes).toEqual([]);
     expect(harness.fatalErrors).toEqual([beginError]);
     expect(harness.events).toEqual(["cleanup", "fatal"]);
   });
 
-  test("fails and finishes without partial output when the cached sequence is stale", async () => {
+  test("uses newly admitted history when another device advanced the cached sequence", async () => {
     const begin = deferred<CloudTranscriptBeginAck>();
-    let modelStarted = false;
+    let modelStarts = 0;
+    let suppliedHistory: unknown;
+    const authoritative = JSON.stringify({
+      role: "user",
+      content: "New message from phone",
+      timestamp: 2,
+    });
     const harness = launchHarness({
       cachedHistory: CACHED_HISTORY,
       begin: () => begin.promise,
       run: async (runOptions) => {
-        modelStarted = true;
-        await new Promise<void>((resolve) => {
-          runOptions.abortSignal?.addEventListener(
-            "abort",
-            () => {
-              runOptions.callbacks.onInterrupted?.({
-                runId: RUN_ID,
-                agentType: "general",
-                seq: 1,
-                userMessageId: "message-1",
-                reason: "aborted",
-              });
-              resolve();
-            },
-            { once: true },
-          );
+        modelStarts += 1;
+        suppliedHistory = runOptions.agentContext.threadHistory;
+        runOptions.callbacks.onEnd({
+          runId: RUN_ID,
+          agentType: "general",
+          seq: 1,
+          userMessageId: "message-1",
+          finalText: "Done",
+          persisted: true,
         });
       },
     });
-
-    await waitFor(() => modelStarted);
-    begin.resolve(beginAck(CACHED_HISTORY.contextEndSeq + 1));
+    begin.resolve({
+      ...beginAck(CACHED_HISTORY.contextEndSeq + 1),
+      history: [authoritative],
+    });
     await harness.waitUntilSettled();
-
+    expect(modelStarts).toBe(1);
+    expect(suppliedHistory).toEqual(
+      parseCanonicalCloudHistory([authoritative]),
+    );
     expect(harness.finishes).toHaveLength(1);
     expect(harness.finishes[0]).toMatchObject({
       leaseToken: "lease-1",
-      records: [],
-      phase: "failed",
-      notice: "The local turn did not finish.",
+      phase: "completed",
     });
-    expect(harness.terminalEvents).toEqual([]);
-    expect(harness.fatalErrors).toHaveLength(1);
-    const fatalError = harness.fatalErrors[0];
-    if (!(fatalError instanceof Error)) {
-      throw new Error("Expected the stale-window failure to be an Error.");
-    }
-    expect(fatalError.message).toBe(
-      "This conversation changed on another device. Send that again.",
-    );
-    expect(harness.events).toEqual(["finish", "cleanup", "fatal"]);
+    expect(harness.fatalErrors).toEqual([]);
+    expect(harness.terminalEvents).toEqual(["end"]);
   });
 
   test("waits for begin on a cache miss and refreshes history for the next turn", async () => {

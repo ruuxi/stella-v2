@@ -39,10 +39,6 @@ type DeferredTerminalCallback =
   | { kind: "error"; event: RuntimeErrorEvent }
   | { kind: "interrupted"; event: RuntimeInterruptedEvent };
 
-type OrchestratorRunOutcome =
-  | { kind: "fulfilled" }
-  | { kind: "rejected"; error: unknown };
-
 const buildCloudUserMessage = (
   prepared: PreparedOrchestratorRun,
 ): PersistedRuntimeThreadPayload => {
@@ -95,9 +91,10 @@ export const parseCanonicalCloudHistory = (
     return payload;
   });
   return executionContextHistoryEntries(messages).map((entry) => {
-    const payload = entry.kind === "resident"
-      ? createRuntimePromptAgentMessage(entry.prompt, entry.timestamp)
-      : entry.message;
+    const payload =
+      entry.kind === "resident"
+        ? createRuntimePromptAgentMessage(entry.prompt, entry.timestamp)
+        : entry.message;
     return {
       timestamp:
         typeof (payload as { timestamp?: unknown }).timestamp === "number"
@@ -330,11 +327,6 @@ export const launchPreparedOrchestratorRun = (args: {
     let ephemeralCaptureStarted = false;
     let deferredTerminal: DeferredTerminalCallback | null = null;
     let runError: unknown;
-    let discardCloudOutput = false;
-    let optimisticBegin: {
-      cachedContextEndSeq: number;
-      promise: Promise<CloudTranscriptBeginAck>;
-    } | null = null;
     const callbacks: RuntimeRunCallbacks = isCloudTurn
       ? {
           ...args.runtimeCallbacks,
@@ -400,21 +392,16 @@ export const launchPreparedOrchestratorRun = (args: {
             null,
           );
         };
-        const cachedHistory = context.cloudTranscript.peekHistory(
-          prepared.conversationId,
-        );
-        if (cachedHistory) {
-          seedCloudHistory(cachedHistory);
-          optimisticBegin = {
-            cachedContextEndSeq: cachedHistory.contextEndSeq,
-            promise: beginCloudTurn(),
-          };
-        } else {
+        // A different device can advance the canonical journal while this
+        // computer is idle. Acquire its lease and authoritative history before
+        // provider output or tools can run; cached history is not an admission
+        // fence and speculative work cannot safely be replayed after a conflict.
+        if (!context.cloudTranscript.peekHistory(prepared.conversationId)) {
           void context.cloudTranscript.refreshHistory(prepared.conversationId);
-          const begin = await beginCloudTurn();
-          leaseToken = begin.leaseToken;
-          seedCloudHistory(begin);
         }
+        const begin = await beginCloudTurn();
+        leaseToken = begin.leaseToken;
+        seedCloudHistory(begin);
       }
 
       const runPromise = runOrchestratorTurn({
@@ -493,42 +480,7 @@ export const launchPreparedOrchestratorRun = (args: {
           ),
         compactionScheduler: context.state.compactionScheduler,
       });
-      if (optimisticBegin) {
-        const runOutcomePromise =
-          (async (): Promise<OrchestratorRunOutcome> => {
-            try {
-              await runPromise;
-              return { kind: "fulfilled" };
-            } catch (error) {
-              return { kind: "rejected", error };
-            }
-          })();
-        let begin: CloudTranscriptBeginAck;
-        try {
-          begin = await optimisticBegin.promise;
-        } catch (error) {
-          prepared.abortController.abort(error);
-          await runOutcomePromise;
-          throw error;
-        }
-        leaseToken = begin.leaseToken;
-        if (begin.contextEndSeq !== optimisticBegin.cachedContextEndSeq) {
-          const changedError = new Error(
-            "This conversation changed on another device. Send that again.",
-          );
-          prepared.abortController.abort(changedError);
-          await runOutcomePromise;
-          deferredTerminal = null;
-          discardCloudOutput = true;
-          throw changedError;
-        }
-        const runOutcome = await runOutcomePromise;
-        if (runOutcome.kind === "rejected") {
-          throw runOutcome.error;
-        }
-      } else {
-        await runPromise;
-      }
+      await runPromise;
     } catch (error) {
       runError = error;
     } finally {
@@ -552,25 +504,24 @@ export const launchPreparedOrchestratorRun = (args: {
 
     if (isCloudTurn && leaseToken) {
       try {
-        const records =
-          discardCloudOutput || !ephemeralCaptureStarted
-            ? []
-            : context.runtimeStore
-                .readEphemeralThreadCapture({
-                  threadKey: orchestratorSession.threadKey,
-                  captureId: prepared.runId,
-                })
-                .filter(
-                  (message) =>
-                    message.payload !== undefined &&
-                    (message.payload.role === "assistant" ||
-                      message.payload.role === "toolResult"),
-                )
-                .map((message, ordinal) => ({
-                  ordinal,
-                  role: message.payload!.role as "assistant" | "toolResult",
-                  payloadJson: JSON.stringify(message.payload),
-                }));
+        const records = !ephemeralCaptureStarted
+          ? []
+          : context.runtimeStore
+              .readEphemeralThreadCapture({
+                threadKey: orchestratorSession.threadKey,
+                captureId: prepared.runId,
+              })
+              .filter(
+                (message) =>
+                  message.payload !== undefined &&
+                  (message.payload.role === "assistant" ||
+                    message.payload.role === "toolResult"),
+              )
+              .map((message, ordinal) => ({
+                ordinal,
+                role: message.payload!.role as "assistant" | "toolResult",
+                payloadJson: JSON.stringify(message.payload),
+              }));
         const reportCloudSyncFailure = (message: string): void => {
           args.runtimeCallbacks.onError({
             runId: prepared.runId,

@@ -2133,6 +2133,7 @@ function PlusMenuPopover({
   scrim = false,
   large = false,
   wrapLabels = false,
+  minWidth,
 }: {
   visible: boolean;
   anchor: AnchorRect | null;
@@ -2169,6 +2170,7 @@ function PlusMenuPopover({
   large?: boolean;
   /** Allow long model names to remain readable. */
   wrapLabels?: boolean;
+  minWidth?: number;
 }) {
   const styles = useMemo(() => makePlusMenuStyles(colors), [colors]);
   const [menuLayout, setMenuLayout] = useState<{
@@ -2253,7 +2255,7 @@ function PlusMenuPopover({
 
   const screen = Dimensions.get("window");
   const measured = menuLayout;
-  const menuMinWidth = large ? PLUS_MENU_LARGE_MIN_WIDTH : PLUS_MENU_MIN_WIDTH;
+  const menuMinWidth = minWidth ?? (large ? PLUS_MENU_LARGE_MIN_WIDTH : PLUS_MENU_MIN_WIDTH);
   // Cap the options list so a tall menu scrolls instead of overflowing the
   // screen; short menus (the common case) still size to their content.
   const menuMaxOptionsHeight = Math.round(screen.height * 0.55);
@@ -4659,7 +4661,7 @@ export function ChatPane({
         onDismiss={dismissModelPicker}
         colors={colors}
         containerRef={rootRef}
-        large
+        minWidth={320}
         wrapLabels
       />
       <RealtimeVoiceOverlay

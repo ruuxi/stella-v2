@@ -209,6 +209,11 @@ const createBuildOptions = () => [
     alias: workspaceAliases,
     bundle: true,
     define: {
+      // Manual verification installers must never replace themselves with a
+      // stable production build. Bake this in; runtime env cannot re-enable it.
+      "process.env.STELLA_DESKTOP_AUTO_UPDATE": JSON.stringify(
+        process.env.STELLA_DESKTOP_AUTO_UPDATE === "false" ? "false" : "true",
+      ),
       "process.env.VITE_TURNSTILE_SITE_KEY": JSON.stringify(
         publicTurnstileSiteKey,
       ),

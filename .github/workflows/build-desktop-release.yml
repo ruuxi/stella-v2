@@ -13,6 +13,15 @@ on:
     tags:
       - "desktop-v2-v*"
   workflow_dispatch:
+    inputs:
+      target:
+        description: Backend environment for downloadable verification installers (never published)
+        type: choice
+        required: true
+        default: development
+        options:
+          - development
+          - production
 
 permissions:
   contents: write
@@ -35,23 +44,55 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      target: ${{ steps.version.outputs.target }}
+      convex_url: ${{ steps.version.outputs.convex_url }}
+      convex_site_url: ${{ steps.version.outputs.convex_site_url }}
+      apps_host: ${{ steps.version.outputs.apps_host }}
+      apps_auth_host: ${{ steps.version.outputs.apps_auth_host }}
+      auto_update: ${{ steps.version.outputs.auto_update }}
     steps:
       - name: Require an exact stable semantic version tag
         id: version
+        env:
+          REQUESTED_TARGET: ${{ inputs.target }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            # Throwaway version for a non-publishing verification run.
-            version="0.0.${GITHUB_RUN_NUMBER}"
+            target="$REQUESTED_TARGET"
+            case "$target" in
+              development|production) ;;
+              *) echo "Unsupported desktop target: $target" >&2; exit 1 ;;
+            esac
+            # Identifies the environment and source in About and installer names.
+            version="0.0.${GITHUB_RUN_NUMBER}-${target}.${GITHUB_RUN_ATTEMPT}.${GITHUB_SHA:0:8}"
+            auto_update=false
           else
+            target=production
+            auto_update=true
             version="${GITHUB_REF_NAME#desktop-v2-v}"
             if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Stable desktop-v2 releases require desktop-v2-vX.Y.Z; refusing: $GITHUB_REF_NAME" >&2
               exit 1
             fi
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$target" == development ]]; then
+            deployment=outgoing-bulldog-865
+            worker_suffix=dev
+          else
+            deployment=intent-jackal-330
+            worker_suffix=prod
+          fi
+          {
+            echo "version=$version"
+            echo "target=$target"
+            echo "auto_update=$auto_update"
+            echo "convex_url=https://${deployment}.convex.cloud"
+            echo "convex_site_url=https://${deployment}.convex.site"
+            echo "apps_host=https://stella-v2-apps-host-${worker_suffix}.lolruuxi.workers.dev"
+            echo "apps_auth_host=https://stella-v2-apps-auth-${worker_suffix}.lolruuxi.workers.dev"
+          } >> "$GITHUB_OUTPUT"
+          echo "Desktop $version targets $target; stable auto-updates: $auto_update" >> "$GITHUB_STEP_SUMMARY"
 
   resolve-binary-pins:
     needs: validate_stable_tag
@@ -137,15 +178,23 @@ jobs:
 
       - name: Build and validate shared desktop JavaScript
         env:
-          VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL || 'https://intent-jackal-330.convex.cloud' }}
-          VITE_CONVEX_SITE_URL: ${{ vars.VITE_CONVEX_SITE_URL || 'https://intent-jackal-330.convex.site' }}
-          # Repository variables can move a reviewed release to a replacement
-          # stack. Until then, releases target the provisioned Intent stack.
-          VITE_STELLA_APPS_HOST: ${{ vars.VITE_STELLA_APPS_HOST || 'https://stella-v2-apps-host-prod.lolruuxi.workers.dev' }}
+          # Explicit, reviewed environment pins: repository variables must not
+          # silently redirect a stable release to an old deployment.
+          VITE_CONVEX_URL: ${{ needs.validate_stable_tag.outputs.convex_url }}
+          VITE_CONVEX_SITE_URL: ${{ needs.validate_stable_tag.outputs.convex_site_url }}
+          VITE_STELLA_APPS_HOST: ${{ needs.validate_stable_tag.outputs.apps_host }}
+          VITE_STELLA_APPS_AUTH_HOST: ${{ needs.validate_stable_tag.outputs.apps_auth_host }}
+          STELLA_DESKTOP_AUTO_UPDATE: ${{ needs.validate_stable_tag.outputs.auto_update }}
+          DESKTOP_TARGET: ${{ needs.validate_stable_tag.outputs.target }}
+          VITE_STELLA_DEV_APPS_HOST_HARNESS: ${{ needs.validate_stable_tag.outputs.target == 'development' && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail
-          node packages/desktop/scripts/validate-cloud-apps-host.mjs
+          if [[ "$DESKTOP_TARGET" == development ]]; then
+            node packages/desktop/scripts/validate-cloud-apps-host.mjs --allow-development-host
+          else
+            node packages/desktop/scripts/validate-cloud-apps-host.mjs
+          fi
           bun run build
           bun run electron:typecheck
           node packages/desktop/scripts/dev-electron-build.mjs --once
@@ -586,8 +635,8 @@ jobs:
             Remove-Item $env:STELLA_WINDOWS_PUBLIC_CERT_FILE -Force
           }
 
-    # A manual dispatch verifies signing only; it must never touch R2 or cut a
-    # GitHub release.
+    # Manual development and production builds are downloadable Actions
+    # artifacts only; neither may touch R2 or cut a GitHub release.
   publish:
     needs: build
     if: github.event_name == 'push'

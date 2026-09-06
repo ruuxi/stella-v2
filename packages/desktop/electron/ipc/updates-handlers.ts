@@ -66,7 +66,7 @@ export const registerUpdatesHandlers = (
   const updater = new DesktopUpdater({
     client: autoUpdater as unknown as DesktopUpdaterClient,
     currentVersion: app.getVersion(),
-    enabled: app.isPackaged,
+    enabled: app.isPackaged && process.env.STELLA_DESKTOP_AUTO_UPDATE !== "false",
     onStateChanged: broadcast,
     onBeforeRestart: () => {
       // Windows installs run the NSIS installer fully silent (/S), so this

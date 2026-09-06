@@ -7,11 +7,9 @@
  * `RuntimeAttachmentRef`s pointing at a short-lived signed drive GET, which the
  * agent runtime already knows how to materialize into vision content.
  *
- * In practice only images arrive: a turn carrying a document names the hosted
- * subject and is committed to cloud, because this side has no drive mirror to
- * open a PDF from (see `attachmentsNeedHostedSubject` in mobile). A non-image
- * that does arrive still resolves to a `file` ref rather than being dropped, so
- * the day a drive-backed Read exists it needs nothing from here.
+ * The worker materializes documents from these owner-authorized signed URLs
+ * into the profile's local attachment cache and supplies a real absolute Read
+ * path to the agent, just as it persists images for later inspection.
  *
  * Nothing here caps the array. The server validated the count and the payload
  * hash covers the exact list, so a cap on this side could only silently drop an

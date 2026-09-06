@@ -36,6 +36,7 @@ import {
 import {
   asTrimmedString,
   materializeImageAttachments,
+  materializeFileAttachments,
 } from "../attachments.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
@@ -281,6 +282,11 @@ export const layer = Layer.effect(
         payload.attachments,
         composerImageTarget,
       );
+      const modelFileAttachments = await materializeFileAttachments({
+        attachments: payload.attachments,
+        stellaDataDirPath: config.get().stellaDataDirPath,
+        conversationId: payload.conversationId,
+      });
       let modelImageAttachments = materializedImageAttachments.map(
         ({ attachment }) => attachment,
       );
@@ -496,6 +502,7 @@ export const layer = Layer.effect(
       let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       const mergedAttachments = [
         ...modelImageAttachments,
+        ...modelFileAttachments,
         ...(modelWindowScreenshotAttachment
           ? [modelWindowScreenshotAttachment]
           : []),
@@ -996,6 +1003,11 @@ export const layer = Layer.effect(
         payload.attachments,
         automationImageTarget,
       );
+      const modelFileAttachments = await materializeFileAttachments({
+        attachments: payload.attachments,
+        stellaDataDirPath: config.get().stellaDataDirPath,
+        conversationId: payload.conversationId,
+      });
       const remoteTurnAttemptId = payload.remoteTurnAttemptId?.trim();
       const remoteRequestId =
         payload.connectorDeliveryTarget?.requestId?.trim();
@@ -1028,11 +1040,12 @@ export const layer = Layer.effect(
               },
             }
           : {}),
-        ...(materializedImageAttachments.length > 0
+        ...(materializedImageAttachments.length > 0 || modelFileAttachments.length > 0
           ? {
-              attachments: materializedImageAttachments.map(
-                ({ attachment }) => attachment,
-              ),
+              attachments: [
+                ...materializedImageAttachments.map(({ attachment }) => attachment),
+                ...modelFileAttachments,
+              ],
             }
           : {}),
       });

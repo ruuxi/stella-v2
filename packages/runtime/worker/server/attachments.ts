@@ -1,5 +1,6 @@
 import { promises as fsPromises } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 // Photon itself is lazy-loaded inside resizeImage, so this import adds no
 // WASM parse cost to the worker-ready path.
@@ -115,6 +116,11 @@ export const materializeImageAttachments = async (
       continue;
     }
 
+    const declaredMimeType = normalizeAttachmentMimeType(attachment.mimeType);
+    if ((declaredMimeType && !isImageMimeType(declaredMimeType)) || (attachment.kind === "file" && !declaredMimeType)) {
+      continue;
+    }
+
     // Path-backed composer attachments: the renderer keeps only the
     // path + preview; the original bytes are read and resized here.
     if (isLocalFileAttachmentUrl(url)) {
@@ -200,4 +206,78 @@ export const materializeImageAttachments = async (
   }
 
   return materialized;
+};
+
+/** Documents are downloaded by the worker, never decoded in the renderer.
+ * Hosted URLs are owner-authorized signed URLs resolved by the placement host.
+ * Keep the resulting files under this profile's conversation attachment cache.
+ */
+export const MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+export const materializeFileAttachments = async (args: {
+  attachments?: RuntimeAttachmentRef[];
+  stellaDataDirPath: string;
+  conversationId: string;
+}): Promise<RuntimeAttachmentRef[]> => {
+  const files: RuntimeAttachmentRef[] = [];
+  for (const attachment of args.attachments ?? []) {
+    const url = asTrimmedString(attachment.url);
+    const mimeType = normalizeAttachmentMimeType(attachment.mimeType);
+    if (!url || mimeType.startsWith("image/") || attachment.kind === "image") continue;
+    if (attachment.kind !== "file" && !mimeType) continue;
+    const name = attachment.name || "attachment";
+    try {
+      let sourcePath: string;
+      let size: number;
+      if (isLocalFileAttachmentUrl(url)) {
+        sourcePath = FILE_URL_RE.test(url) ? fileURLToPath(url) : url;
+        const stat = await fsPromises.stat(sourcePath);
+        if (!stat.isFile()) throw new Error("Attachment is not a regular file");
+        size = stat.size;
+        if (size > MAX_FILE_ATTACHMENT_BYTES) throw new Error("Attachment exceeds 50 MiB");
+      } else {
+        let data: Buffer;
+        const match = DATA_URL_RE.exec(url);
+        if (match) {
+          if (match[2].length > Math.ceil(MAX_FILE_ATTACHMENT_BYTES / 3) * 4) throw new Error("Attachment exceeds 50 MiB");
+          data = Buffer.from(match[2], "base64");
+        } else if (HTTP_URL_RE.test(url)) {
+          const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+          if (!response.ok || !response.body) throw new Error(`Attachment download failed (${response.status})`);
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let bytes = 0;
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              bytes += value.byteLength;
+              if (bytes > MAX_FILE_ATTACHMENT_BYTES) throw new Error("Attachment exceeds 50 MiB");
+              chunks.push(value);
+            }
+          } catch (error) {
+            await reader.cancel().catch(() => {});
+            throw error;
+          } finally {
+            reader.releaseLock();
+          }
+          data = Buffer.concat(chunks);
+        } else {
+          throw new Error("Unsupported attachment location");
+        }
+        size = data.byteLength;
+        if (size > MAX_FILE_ATTACHMENT_BYTES) throw new Error("Attachment exceeds 50 MiB");
+        const dir = path.join(args.stellaDataDirPath, "cache", "chat-attachments", args.conversationId.replace(/[^a-zA-Z0-9_-]/g, "-"));
+        await fsPromises.mkdir(dir, { recursive: true, mode: 0o700 });
+        const safeName = path.basename(name).replace(/[^a-zA-Z0-9._-]/g, "-").slice(-120) || "attachment";
+        sourcePath = path.join(dir, `${randomUUID()}-${safeName}`);
+        await fsPromises.writeFile(sourcePath, data, { flag: "wx", mode: 0o600 });
+      }
+      files.push({ ...attachment, url: sourcePath, sourcePath, size, kind: "file" });
+    } catch (error) {
+      // Fail explicitly rather than silently claiming an inaccessible document
+      // was supplied. Never log a signed download URL.
+      throw new Error(`Unable to prepare attachment ${JSON.stringify(name)}: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+  return files;
 };

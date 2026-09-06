@@ -49,12 +49,26 @@ export const cloudAttachmentsStore = {
     if (attachments.length) emitAttachments([]);
   },
   /**
-   * Clears only the exact immutable attachment snapshot submitted with a
+   * Clears only the unchanged attachment snapshot submitted with a
    * completed mutation. A slow response must not erase files the user added
    * to another tab or account while that request was in flight.
    */
   clearIfCurrent(expected: readonly CloudAttachment[]): boolean {
-    if (attachments !== expected) return false;
+    // The durable outbox freezes a copy of the submission, so reference
+    // equality cannot identify the acknowledged composer snapshot.
+    if (
+      attachments.length !== expected.length ||
+      attachments.some((attachment, index) => {
+        const submitted = expected[index];
+        return (
+          !submitted ||
+          attachment.path !== submitted.path ||
+          attachment.name !== submitted.name ||
+          attachment.sizeBytes !== submitted.sizeBytes ||
+          attachment.contentType !== submitted.contentType
+        );
+      })
+    ) return false;
     if (attachments.length) emitAttachments([]);
     return true;
   },

@@ -9,6 +9,33 @@ afterEach(() => {
 });
 
 describe("cloud composer attachments", () => {
+  test("clears acknowledged outbox copies so the next prompt has no stale files", () => {
+    cloudAttachmentsStore.add({
+      path: "images/chart.png", name: "chart.png", sizeBytes: 100,
+      contentType: "image/png",
+    });
+    const submitted = structuredClone(cloudAttachmentsStore.getSnapshot());
+    expect(cloudAttachmentsStore.clearIfCurrent(submitted)).toBe(true);
+    expect(withAttachmentPreamble("Next message", cloudAttachmentsStore.getSnapshot()))
+      .toBe("Next message");
+  });
+
+  test("preserves a newer attachment while an older submission is acknowledged", () => {
+    cloudAttachmentsStore.add({ path: "one.txt", name: "one.txt", sizeBytes: 1 });
+    const submitted = structuredClone(cloudAttachmentsStore.getSnapshot());
+    cloudAttachmentsStore.add({ path: "two.txt", name: "two.txt", sizeBytes: 2 });
+    expect(cloudAttachmentsStore.clearIfCurrent(submitted)).toBe(false);
+    expect(cloudAttachmentsStore.getSnapshot()).toHaveLength(2);
+  });
+
+  test("preserves a replacement of the submitted drive path", () => {
+    cloudAttachmentsStore.add({ path: "one.txt", name: "one.txt", sizeBytes: 1 });
+    const submitted = structuredClone(cloudAttachmentsStore.getSnapshot());
+    cloudAttachmentsStore.add({ path: "one.txt", name: "one.txt", sizeBytes: 2 });
+    expect(cloudAttachmentsStore.clearIfCurrent(submitted)).toBe(false);
+    expect(cloudAttachmentsStore.getSnapshot()[0]?.sizeBytes).toBe(2);
+  });
+
   test("replaces duplicate drive paths without disturbing other attachments", () => {
     cloudAttachmentsStore.add({
       path: "reports/one.pdf",

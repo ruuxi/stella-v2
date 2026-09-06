@@ -1,9 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { allocateWorkerdInspectorPort } from "./helpers/workerd-test-port.js";
 
 const packageRoot = new URL("..", import.meta.url);
@@ -75,6 +83,54 @@ describe("sandbox egress policy in real Workerd + Sandbox SDK containers", () =>
   beforeAll(async () => {
     initialFixtureContainers = await fixtureContainerIds();
     persistencePath = await mkdtemp(join(tmpdir(), "stella-egress-workerd-"));
+    // A clean checkout has no .image. Stage the deterministic production
+    // context privately so this proof also cannot replace a deploy's context.
+    const imageContext = join(persistencePath, "image-context");
+    await mkdir(imageContext);
+    const prepare = Bun.spawn(
+      [
+        "node",
+        fileURLToPath(new URL("scripts/prepare-image.mjs", packageRoot)),
+        `--output=${join(imageContext, ".image")}`,
+      ],
+      { cwd: fileURLToPath(packageRoot), stdout: "pipe", stderr: "pipe" },
+    );
+    const [prepareStdout, prepareStderr, prepareExitCode] = await Promise.all([
+      new Response(prepare.stdout).text(),
+      new Response(prepare.stderr).text(),
+      prepare.exited,
+    ]);
+    if (prepareExitCode !== 0) {
+      throw new Error(
+        `Fixture image preparation failed:\n${prepareStdout}${prepareStderr}`,
+      );
+    }
+    const dockerfile = join(imageContext, "Dockerfile");
+    await copyFile(new URL("Dockerfile", packageRoot), dockerfile);
+    const fixtureConfig = await readFile(
+      new URL(
+        "tests/fixtures/sandbox-egress-workerd.wrangler.jsonc",
+        packageRoot,
+      ),
+      "utf8",
+    );
+    const configPath = join(persistencePath, "wrangler.jsonc");
+    await writeFile(
+      configPath,
+      fixtureConfig
+        .replace(
+          '"./sandbox-egress-workerd-worker.ts"',
+          JSON.stringify(
+            fileURLToPath(
+              new URL(
+                "tests/fixtures/sandbox-egress-workerd-worker.ts",
+                packageRoot,
+              ),
+            ),
+          ),
+        )
+        .replaceAll('"../../Dockerfile"', JSON.stringify(dockerfile)),
+    );
     const inspectorPort = await allocateWorkerdInspectorPort();
     workerd = spawn(
       process.execPath,
@@ -83,7 +139,7 @@ describe("sandbox egress policy in real Workerd + Sandbox SDK containers", () =>
         "wrangler",
         "dev",
         "--config",
-        "tests/fixtures/sandbox-egress-workerd.wrangler.jsonc",
+        configPath,
         "--ip",
         "127.0.0.1",
         "--port",

@@ -3592,6 +3592,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (turn.ownerPurgeLeaseId !== receipt!.leaseId) {
           throw new OwnerPurgeFenceError();
         }
+        // A completion wake queues behind the currently executing model turn.
+        // Publish its validated lifecycle fact now so that turn's agent_status
+        // sees completion instead of polling a stale running receipt forever.
+        // The shared receipt merge preserves attempt-generation monotonicity.
+        if (turn.agentThreadControl) {
+          await this.rememberCloudAgentControlReceipt(turn.agentThreadControl);
+        }
         await this.putTurnState({
           [`queued:${turn.turnId}`]: turn,
           [receiptKey]: {

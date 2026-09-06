@@ -34,6 +34,11 @@ mock.module("@cloudflare/sandbox", () => ({
 const { OrchestratorSessionObject: OrchestratorSession } = await import(
   "../src/orchestrator-session-object.js"
 );
+const {
+  agentStatusResult,
+  rememberCloudAgentControlReceipt,
+  requireCloudAgentControlReceipt,
+} = await import("../src/cloud-agent-dispatch.js");
 mock.restore();
 
 /**
@@ -539,6 +544,48 @@ describe("OrchestratorSession turn admission", () => {
       expect(await errorOf(response)).toMatchObject({ code: "forbidden" });
     }
     expect(h.gates.admits).toHaveLength(0);
+  });
+
+  test("a validated wake advances status before its model turn runs, without reviving older attempts", async () => {
+    const h = harness({
+      journal: journalFake({ ownerId: "owner-1", title: "Bound" }),
+    });
+    h.instance.activeTurnId = "parent-still-polling";
+    const running = {
+      threadId: "thread-1",
+      attemptGeneration: 2,
+      threadUpdatedAt: 100,
+      status: "running",
+    };
+    await rememberCloudAgentControlReceipt(h.instance.ctx.storage, running);
+    const completed = { ...running, status: "completed", threadUpdatedAt: 200, lifecycleReport: "AZALEA-928" };
+    const wake = (id: string, control: typeof running) => start({
+      clientMsgId: id,
+      lane: "wake",
+      source: "agent-thread",
+      hiddenMessage: true,
+      prompt: "[Agent completed]",
+      agentThreadControl: control,
+    });
+    const service = { kind: "service" as const, ownerId: "owner-1", generation: "generation-1" };
+    const read = () => requireCloudAgentControlReceipt({ storage: h.instance.ctx.storage, threadId: "thread-1" });
+
+    // Rejected authority cannot advance the local receipt.
+    expect((await h.dispatch(wake("wrong-generation", completed), { ...service, generation: "generation-0" })).status).toBe(403);
+    expect((await read()).status).toBe("running");
+    expect((await h.dispatch(wake("completed-attempt-two", completed), service)).status).toBe(202);
+    expect(h.instance.activeTurnId).toBe("parent-still-polling");
+    expect(await read()).toMatchObject(completed);
+    expect(agentStatusResult(await read()).details).toMatchObject({ status_detail: "completed" });
+
+    // Replayed admission and delayed older lifecycle deliveries stay harmless.
+    expect((await h.dispatch(wake("completed-attempt-two", completed), service)).status).toBe(202);
+    expect((await h.dispatch(wake("late-attempt-one", { ...running, attemptGeneration: 1, threadUpdatedAt: 999 }), service)).status).toBe(202);
+    expect(await read()).toMatchObject(completed);
+    const newer = { ...running, attemptGeneration: 3, threadUpdatedAt: 300 };
+    expect((await h.dispatch(wake("next-attempt-three", newer), service)).status).toBe(202);
+    expect((await h.dispatch(wake("late-attempt-two", { ...completed, threadUpdatedAt: 999 }), service)).status).toBe(202);
+    expect(await read()).toEqual(newer);
   });
 
   test("a service caller runs a wake turn with its control receipt", async () => {

@@ -3350,6 +3350,13 @@ export function ChatPane({
   });
 
   const isListening = dictation.isRecording;
+  // Dictation flips the shell between pill and expanded shapes from inside
+  // the hook, so configure the spring on the render that carries the flip.
+  const wasListeningRef = useRef(isListening);
+  if (wasListeningRef.current !== isListening) {
+    wasListeningRef.current = isListening;
+    LayoutAnimation.configureNext(LAYOUT_SPRING);
+  }
 
   const toggleVoice = useCallback(async () => {
     if (dictation.status === "idle") {
@@ -4535,9 +4542,14 @@ export function ChatPane({
                 </ScrollView>
               ) : null}
               {dictationInline ? (
-                <View style={styles.formPill}>
-                  {plusButton}
+                // Dictation into an empty composer keeps the expanded shape:
+                // the live transcript takes the text area and the waveform
+                // row sits where the toolbar normally is.
+                <View style={styles.dictationInlineBlock}>
                   <DictationRecordingBar
+                    leading={plusButton}
+                    placeholder={"Listening\u2026"}
+                    transcriptStyle={styles.dictationInlineTranscript}
                     onCancel={() => void dictation.cancel()}
                     onConfirm={() => void dictation.stop()}
                     onSend={stopAndSendVoice}
@@ -5328,6 +5340,15 @@ const makeStyles = (colors: Colors) =>
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: fadeHex(colors.border, 0.5),
     },
+    // Insets so the transcript lands where expanded input text sits
+    // (`inputExpanded`: 16 across, 14 down) and the waveform row where the
+    // toolbar sits, with the same resting height as an empty expanded shell.
+    dictationInlineBlock: {
+      paddingHorizontal: 12,
+      paddingTop: 13,
+      paddingBottom: 8,
+    },
+    dictationInlineTranscript: { minHeight: 30 },
 
     addButton: {
       alignItems: "center",

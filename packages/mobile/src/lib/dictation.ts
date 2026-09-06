@@ -5,6 +5,12 @@
  * Mirrors desktop's dictation UX: while recording the leaf recording bar polls
  * this recorder for its waveform/timer, and on stop we wait for the transcript
  * before resolving so the caller can paste it into the composer.
+ *
+ * The microphone starts while the relay is still connecting (that handshake
+ * is a couple of seconds through Convex and Meta; the recorder is ~100 ms).
+ * Audio captured before the provider acknowledges is held in a short pre-roll
+ * and flushed on connect, so recording appears the moment the mic is live and
+ * nothing said during the connect is lost.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,6 +27,7 @@ import {
 } from "./mobile-audio-session";
 import { stopReadAloudForDictation } from "./read-aloud";
 import { DictationStream } from "./dictation-stream";
+import { DictationIngressPacer } from "./dictation-pacer";
 import { HttpRequestError } from "./http";
 import {
   startDictationMeter,
@@ -34,6 +41,12 @@ import {
 
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
+/**
+ * Audio held while the relay connects. Meta closes a session with more than
+ * five seconds queued ahead of real time, so a flush must stay well under
+ * that; a connect slower than this is failing anyway.
+ */
+const PRE_ROLL_MAX_BYTES = 4 * 16_000 * 2;
 
 export type DictationStatus = "idle" | "recording" | "transcribing";
 
@@ -60,6 +73,17 @@ export type UseDictationResult = {
   toggle: () => Promise<void>;
 };
 
+/** One dictation's relay connection plus the audio waiting on it. */
+type DictationSession = {
+  stream: DictationStream;
+  /** Settles when the provider acknowledged the handshake (or failed). */
+  opened: Promise<void>;
+  /** Set once connected; owns real-time accounting from then on. */
+  pacer: DictationIngressPacer | null;
+  preRoll: ArrayBuffer[];
+  preRollBytes: number;
+};
+
 export function useDictation(options: UseDictationOptions): UseDictationResult {
   const [status, setStatus] = useState<DictationStatus>("idle");
   const cancelledRef = useRef(false);
@@ -68,11 +92,8 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   const statusRef = useRef<DictationStatus>("idle");
   const operationInFlightRef = useRef(false);
   const recordingLeaseRef = useRef<RecordingAudioLease | null>(null);
-  const dictationStreamRef = useRef<DictationStream | null>(null);
+  const sessionRef = useRef<DictationSession | null>(null);
   const audioSubscriptionRef = useRef<EventSubscription | null>(null);
-  const cancelRecordingRef = useRef<(() => Promise<string | null>) | null>(
-    null,
-  );
   const stopRecordingRef = useRef<(() => Promise<string | null>) | null>(null);
 
   const safeSetStatus = useCallback((next: DictationStatus) => {
@@ -89,6 +110,17 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     } catch {
       // best-effort; the OS will reset on app suspension regardless.
     }
+  }, []);
+
+  /** Drop the session: stop pacing, close the socket, forget buffered audio. */
+  const discardSession = useCallback((session: DictationSession | null) => {
+    if (!session) return;
+    if (sessionRef.current === session) sessionRef.current = null;
+    session.pacer?.stop();
+    session.pacer = null;
+    session.preRoll = [];
+    session.preRollBytes = 0;
+    session.stream.cancel();
   }, []);
 
   const start = useCallback(async (): Promise<boolean> => {
@@ -109,6 +141,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     }
     let phase: "permission" | "audio-session" | "relay" | "recorder" =
       "permission";
+    let session: DictationSession | null = null;
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -161,35 +194,65 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       phase = "relay";
       const stream = new DictationStream(
         updateDictationTranscriptPreview,
-        (error) => {
-          // Opening errors belong to start's catch; finishing errors belong to
-          // finish(). Only a live recording needs this unsolicited terminal path.
+        () => {
+          // Opening errors settle `opened`; finishing errors belong to
+          // finish(). Only a live recording needs this unsolicited terminal
+          // path. Stop rather than cancel: finalize() keeps the cumulative
+          // transcript the provider already sent and explains the failure.
           if (
-            dictationStreamRef.current !== stream ||
+            sessionRef.current?.stream !== stream ||
             statusRef.current !== "recording"
           ) return;
-          void cancelRecordingRef.current?.().finally(() => {
-            if (mountedRef.current) Alert.alert("Voice input", error.message);
-          });
+          void stopRecordingRef.current?.();
         },
         () => {
           if (
             mountedRef.current &&
-            dictationStreamRef.current === stream &&
+            sessionRef.current?.stream === stream &&
             statusRef.current === "recording"
           ) void stopRecordingRef.current?.();
         },
       );
+      const current: DictationSession = {
+        stream,
+        opened: Promise.resolve(),
+        pacer: null,
+        preRoll: [],
+        preRollBytes: 0,
+      };
+      session = current;
       // Own the connection while opening too, so failed startup and unmount
       // can close it before a microphone is ever started.
-      dictationStreamRef.current = stream;
-      await stream.open();
-      if (!mountedRef.current) {
-        stream.cancel();
-        await releaseAudioMode();
-        operationInFlightRef.current = false;
-        return false;
-      }
+      sessionRef.current = current;
+      current.opened = stream.open().then(
+        () => {
+          if (sessionRef.current !== current) return;
+          // The provider's real-time clock is running from here on. Audio
+          // captured meanwhile goes first; the pacer counts it as sent, so
+          // it pads nothing until the wall clock catches up.
+          const pacer = new DictationIngressPacer(stream);
+          current.pacer = pacer;
+          const buffered = concatPcm(current.preRoll, current.preRollBytes);
+          current.preRoll = [];
+          current.preRollBytes = 0;
+          if (buffered.byteLength > 0) pacer.send(buffered);
+          pacer.start();
+          // A very short allowance may complete before the mic is live. Let
+          // the same normal stop path own cleanup and composer delivery.
+          if (stream.isComplete && statusRef.current === "recording") {
+            void stopRecordingRef.current?.();
+          }
+        },
+        () => {
+          // Failure while recording: stop and let finalize() report it with
+          // whatever was recognized. Before that, start() reads the failure.
+          if (
+            sessionRef.current === current &&
+            statusRef.current === "recording"
+          ) void stopRecordingRef.current?.();
+        },
+      );
+
       phase = "recorder";
       const emitter = new LegacyEventEmitter(AudioStudioModule);
       audioSubscriptionRef.current = emitter.addListener<{
@@ -197,13 +260,24 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         pcmFloat32?: Float32Array | number[];
         buffer?: Float32Array;
       }>("AudioData", (event) => {
-        if (!mountedRef.current || dictationStreamRef.current !== stream) return;
+        if (!mountedRef.current || sessionRef.current !== current) return;
         const audio = event.encoded ?? event.pcmFloat32 ?? event.buffer;
         if (!audio) return;
         const bytes = audioEventToPcm16(audio);
         if (bytes.byteLength === 0) return;
-        updateDictationMeter(pcm16Level(bytes));
-        stream.send(bytes);
+        updateDictationMeter(pcm16PeakLevel(bytes));
+        if (current.pacer) {
+          current.pacer.send(bytes);
+          return;
+        }
+        current.preRoll.push(bytes);
+        current.preRollBytes += bytes.byteLength;
+        while (
+          current.preRollBytes > PRE_ROLL_MAX_BYTES &&
+          current.preRoll.length > 1
+        ) {
+          current.preRollBytes -= current.preRoll.shift()!.byteLength;
+        }
       });
       await AudioStudioModule.startRecording({
         sampleRate: 16_000,
@@ -216,7 +290,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       if (!mountedRef.current) {
         await AudioStudioModule.stopRecording().catch(() => undefined);
-        stream.cancel();
+        discardSession(current);
         audioSubscriptionRef.current?.remove();
         audioSubscriptionRef.current = null;
         await releaseAudioMode();
@@ -224,21 +298,19 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         return false;
       }
       phase = "relay";
+      // The relay may already have refused while the recorder was starting.
       stream.throwIfFailed();
       cancelledRef.current = false;
       startedAtRef.current = Date.now();
       startDictationMeter(startedAtRef.current);
       safeSetStatus("recording");
       operationInFlightRef.current = false;
-      // A very short allowance may complete while native capture is starting.
-      // Let the same normal stop path own cleanup and composer delivery.
       if (stream.isComplete) void stopRecordingRef.current?.();
       return true;
     } catch (error) {
       console.warn(`[dictation] start failed during ${phase}`, error);
       await AudioStudioModule.stopRecording().catch(() => undefined);
-      dictationStreamRef.current?.cancel();
-      dictationStreamRef.current = null;
+      discardSession(session);
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
@@ -256,7 +328,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
       return false;
     }
-  }, [releaseAudioMode, safeSetStatus]);
+  }, [discardSession, releaseAudioMode, safeSetStatus]);
 
   const finalize = useCallback(
     async (commit: boolean): Promise<string | null> => {
@@ -277,18 +349,25 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       } catch (error) {
         console.warn("[dictation] stop failed", error);
       }
+      // The recorder's final buffers can still arrive until the subscription
+      // is gone; keep the session current so the listener forwards them.
       await releaseAudioMode();
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
+      const session = sessionRef.current;
+      sessionRef.current = null;
+      session?.pacer?.stop();
       stopDictationMeter();
       resetDictationTranscriptPreview();
 
+      const stream = session?.stream ?? null;
       if (
         !commit ||
-        (durationMs < MIN_RECORDING_MS && !dictationStreamRef.current?.isComplete)
+        (durationMs < MIN_RECORDING_MS &&
+          !stream?.isComplete &&
+          !stream?.failure)
       ) {
-        dictationStreamRef.current?.cancel();
-        dictationStreamRef.current = null;
+        discardSession(session);
         safeSetStatus("idle");
         // Cleanup the empty/cancelled clip best-effort.
         if (uri) {
@@ -303,6 +382,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       }
 
       if (!mountedRef.current) {
+        discardSession(session);
         if (uri) {
           try {
             new File(uri).delete();
@@ -317,27 +397,52 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       let file: File | null = null;
       try {
         if (uri) file = new File(uri);
-        const text = (await dictationStreamRef.current?.finish()) ?? "";
-        dictationStreamRef.current = null;
+        let text = "";
+        let failure: Error | null = null;
+        if (session && stream) {
+          try {
+            // Stopping before the relay connected: wait for the handshake,
+            // then the pre-roll (the whole utterance) goes out ahead of
+            // endStream. The recorder's final flush already went through the
+            // listener into the same buffer or pacer.
+            await session.opened;
+            if (!session.pacer && !stream.failure) {
+              const buffered = concatPcm(session.preRoll, session.preRollBytes);
+              session.preRoll = [];
+              session.preRollBytes = 0;
+              if (buffered.byteLength > 0) stream.send(buffered);
+            }
+            text = await stream.finish();
+          } catch (error) {
+            failure =
+              stream.failure ??
+              (error instanceof Error
+                ? error
+                : new Error("Could not transcribe that audio. Try again."));
+          }
+        }
+        if (failure) {
+          // Partials are cumulative, so whatever the provider recognized
+          // before it dropped the session is still worth pasting rather than
+          // making the user repeat everything they said.
+          text = stream?.partialTranscript.trim() ?? "";
+          console.warn("[dictation] transcription failed", failure);
+          if (mountedRef.current) {
+            Alert.alert(
+              "Voice input",
+              text
+                ? `Dictation stopped early. ${failure.message}`
+                : failure.message,
+            );
+          }
+        }
         if (text && !cancelledRef.current && mountedRef.current) {
           options.onTranscript(text);
           return text;
         }
         return null;
-      } catch (error) {
-        console.warn("[dictation] transcription failed", error);
-        if (mountedRef.current) {
-          Alert.alert(
-            "Voice input",
-            error instanceof Error
-              ? error.message
-              : "Could not transcribe that audio. Try again.",
-          );
-        }
-        return null;
       } finally {
-        dictationStreamRef.current?.cancel();
-        dictationStreamRef.current = null;
+        discardSession(session);
         try {
           file?.delete();
         } catch {
@@ -347,12 +452,11 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         operationInFlightRef.current = false;
       }
     },
-    [releaseAudioMode, safeSetStatus, options],
+    [discardSession, releaseAudioMode, safeSetStatus, options],
   );
 
   const stop = useCallback(() => finalize(true), [finalize]);
   const cancel = useCallback(() => finalize(false), [finalize]);
-  cancelRecordingRef.current = cancel;
   stopRecordingRef.current = stop;
 
   const toggle = useCallback(async () => {
@@ -370,8 +474,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     return () => {
       mountedRef.current = false;
       statusRef.current = "idle";
-      dictationStreamRef.current?.cancel();
-      dictationStreamRef.current = null;
+      discardSession(sessionRef.current);
       audioSubscriptionRef.current?.remove();
       audioSubscriptionRef.current = null;
       stopDictationMeter();
@@ -379,7 +482,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       void AudioStudioModule.stopRecording().catch(() => undefined);
       void releaseAudioMode();
     };
-  }, [releaseAudioMode]);
+  }, [discardSession, releaseAudioMode]);
 
   return {
     status,
@@ -391,6 +494,17 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     toggle,
   };
 }
+
+const concatPcm = (chunks: ArrayBuffer[], totalBytes: number): ArrayBuffer => {
+  if (chunks.length === 1) return chunks[0]!;
+  const out = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(new Uint8Array(chunk), offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+};
 
 const audioEventToPcm16 = (
   data: string | Float32Array | Int16Array | number[],
@@ -412,12 +526,28 @@ const audioEventToPcm16 = (
   return pcm.buffer;
 };
 
-const pcm16Level = (bytes: ArrayBuffer): number => {
+/** Samples per RMS window: 8 ms at 16 kHz, close to desktop's worklet frame. */
+const LEVEL_FRAME_SAMPLES = 128;
+/** RMS during normal speech sits around 0.05–0.15; desktop's `LEVEL_GAIN`. */
+const LEVEL_GAIN = 6;
+
+/**
+ * Peak RMS across short windows of the chunk, on desktop's 0..1 scale. The
+ * native recorder hands over ~100 ms at a time; one RMS over all of it
+ * averages the syllables away and reads as a flat, sluggish waveform.
+ */
+const pcm16PeakLevel = (bytes: ArrayBuffer): number => {
   const samples = new Int16Array(bytes);
-  let sum = 0;
-  for (let i = 0; i < samples.length; i += 1) {
-    const sample = samples[i]! / 0x8000;
-    sum += sample * sample;
+  let peak = 0;
+  for (let start = 0; start < samples.length; start += LEVEL_FRAME_SAMPLES) {
+    const end = Math.min(samples.length, start + LEVEL_FRAME_SAMPLES);
+    let sum = 0;
+    for (let i = start; i < end; i += 1) {
+      const sample = samples[i]! / 0x8000;
+      sum += sample * sample;
+    }
+    const rms = Math.sqrt(sum / Math.max(1, end - start));
+    if (rms > peak) peak = rms;
   }
-  return Math.min(1, Math.sqrt(sum / Math.max(1, samples.length)) * 6);
+  return Math.min(1, peak * LEVEL_GAIN);
 };

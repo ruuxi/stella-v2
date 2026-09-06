@@ -13,15 +13,15 @@ describe("resolveComposerExpanded", () => {
     ).toBe(true);
   });
 
-  test("inline dictation temporarily wins over the pinned toolbar", () => {
+  test("inline dictation expands an empty composer", () => {
     expect(
       resolveComposerExpanded({
         expanded: false,
         dictationBelow: false,
         dictationInline: true,
-        modelPickerPinned: true,
+        modelPickerPinned: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("normal text and below-text dictation still expand independently", () => {

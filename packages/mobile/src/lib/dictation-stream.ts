@@ -5,6 +5,19 @@ import { postJson } from "./http";
 const MAX_PCM_FRAME_BYTES = 16_000 * 2;
 
 type RealtimeConfig = { relayOrigin: string; modelId: string };
+
+/**
+ * Provider error frames are forwarded verbatim by the relay. Reword the ones
+ * a person cannot act on; the pacer in `dictation-pacer.ts` exists to keep the
+ * first from happening.
+ */
+export const describeDictationProviderError = (message: string): string => {
+  const trimmed = message.trim();
+  if (/slower than real[- ]?time|ingress/iu.test(trimmed)) {
+    return "Audio stopped reaching the transcription service in time.";
+  }
+  return trimmed || "Dictation failed.";
+};
 type TranscriptFrame = {
   type?: unknown;
   sessionId?: unknown;
@@ -32,6 +45,20 @@ export class DictationStream {
 
   get isComplete(): boolean {
     return this.hasFinalTranscript;
+  }
+
+  /** The terminal error, if the relay or provider ended the session. */
+  get failure(): Error | null {
+    return this.streamError;
+  }
+
+  /**
+   * The latest cumulative transcript the provider sent. Partials replace
+   * each other, so this is everything recognized so far even when the
+   * session ends before a final frame.
+   */
+  get partialTranscript(): string {
+    return this.hasFinalTranscript ? this.finalTranscript : this.transcript;
   }
 
   throwIfFailed(): void {
@@ -148,9 +175,9 @@ export class DictationStream {
         } else if (frame.type === "error") {
           this.fail(
             new Error(
-              typeof frame.message === "string"
-                ? frame.message
-                : "Dictation failed.",
+              describeDictationProviderError(
+                typeof frame.message === "string" ? frame.message : "",
+              ),
             ),
           );
         }

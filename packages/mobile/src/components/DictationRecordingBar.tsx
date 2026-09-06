@@ -1,27 +1,41 @@
 /**
  * Mobile mirror of desktop's DictationRecordingBar
  * (`desktop/src/features/dictation/components/DictationRecordingBar.tsx`).
- * The composer pill grows as cumulative text wraps, while the waveform
- * and controls remain anchored underneath:
+ * The composer keeps its expanded shape while dictating: the cumulative
+ * transcript fills the text area and the waveform row stays anchored
+ * underneath, where the toolbar normally sits:
  *
  *   A live transcript that can wrap and revise
- *   [waveform — flex 1]   [0:24]   [X]   [✓]   [↑]
+ *   [+]  [waveform — flex 1]   [0:24]   [X]   [✓]   [↑]
  *
  * The trailing send (↑) is optional: when `onSend` is given it stops dictation
  * and, once the transcript lands, auto-submits the message in one tap.
  *
- * Both transcript and meter use leaf-level external stores. The waveform stays
- * in RN's native render path, and word fades run on the native driver.
+ * Transcript, waveform and timer are separate leaves on external stores, so a
+ * partial transcript never re-lays-out the waveform and a waveform tick never
+ * re-renders the words. Word fades run on the native driver.
  */
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Animated,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { Icon } from "./Icon";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
-import { useDictationMeter } from "../lib/dictation-meter";
+import {
+  getDictationMeterSnapshot,
+  useDictationMeterStartedAt,
+  useDictationMeterTick,
+} from "../lib/dictation-meter";
 import {
   tokenizeDictationTranscript,
   useDictationTranscriptPreview,
@@ -32,55 +46,46 @@ const BAR_GAP = 2;
 const WAVEFORM_HEIGHT = 28;
 const MIN_BAR_HEIGHT = 1;
 const LEVEL_BUFFER_LENGTH = 64;
+const TIMER_TICK_MS = 250;
 
 type Props = {
   onCancel: () => void;
   onConfirm: () => void;
   /** When provided, stop dictation and auto-send once the transcript lands. */
   onSend?: () => void;
+  /** Rendered at the leading edge of the waveform row (the composer's +). */
+  leading?: ReactNode;
+  /** Muted hint shown in the transcript area until the first words arrive. */
+  placeholder?: string;
+  /** Extra layout for the transcript area (the composer's text-area inset). */
+  transcriptStyle?: StyleProp<ViewStyle>;
 };
 
 export const DictationRecordingBar = memo(function DictationRecordingBar({
   onCancel,
   onConfirm,
   onSend,
+  leading,
+  placeholder,
+  transcriptStyle,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const meter = useDictationMeter();
-  const transcript = useDictationTranscriptPreview();
   const reduceMotion = useReducedMotion();
-  const [now, setNow] = useState(Date.now());
-  const [levels, setLevels] = useState<number[]>([]);
-
-  useEffect(() => {
-    setLevels((previous) => [
-      ...previous.slice(-(LEVEL_BUFFER_LENGTH - 1)),
-      meter.level,
-    ]);
-  }, [meter.level, meter.revision]);
-
-  useEffect(() => {
-    if (!meter.active) return;
-    const timer = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(timer);
-  }, [meter.active]);
-  const durationMs = meter.active ? Math.max(0, now - meter.startedAt) : 0;
 
   return (
     <View style={styles.recordingBar}>
       <LiveTranscript
-        text={transcript.text}
-        revision={transcript.revision}
-        stableWordCount={transcript.stableWordCount}
         color={fadeHex(colors.text, 0.66)}
+        placeholder={placeholder}
+        placeholderColor={fadeHex(colors.textMuted, 0.35)}
         reduceMotion={reduceMotion}
+        style={transcriptStyle}
       />
       <View style={styles.recordingRow}>
-        <DictationWaveform levels={levels} color={fadeHex(colors.text, 0.7)} />
-        <Text style={styles.timer} accessibilityLiveRegion="polite">
-          {formatElapsed(durationMs)}
-        </Text>
+        {leading}
+        <DictationWaveform color={fadeHex(colors.text, 0.7)} />
+        <ElapsedTimer style={styles.timer} />
         <Pressable
           onPress={onCancel}
           accessibilityLabel="Cancel dictation"
@@ -122,24 +127,34 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
   );
 });
 
-function LiveTranscript({
-  text,
-  revision,
-  stableWordCount,
+const LiveTranscript = memo(function LiveTranscript({
   color,
+  placeholder,
+  placeholderColor,
   reduceMotion,
+  style,
 }: {
-  text: string;
-  revision: number;
-  stableWordCount: number;
   color: string;
+  placeholder?: string;
+  placeholderColor: string;
   reduceMotion: boolean;
+  style?: StyleProp<ViewStyle>;
 }) {
-  if (!text) return null;
+  const { text, revision, stableWordCount } = useDictationTranscriptPreview();
+  if (!text) {
+    if (!placeholder) return null;
+    return (
+      <View style={[waveStyles.transcript, style]}>
+        <Text style={[waveStyles.placeholder, { color: placeholderColor }]}>
+          {placeholder}
+        </Text>
+      </View>
+    );
+  }
   const words = tokenizeDictationTranscript(text);
   return (
     <View
-      style={waveStyles.transcript}
+      style={[waveStyles.transcript, style]}
       accessible
       accessibilityLabel={text}
       accessibilityLiveRegion="polite"
@@ -158,7 +173,7 @@ function LiveTranscript({
       ))}
     </View>
   );
-}
+});
 
 const AnimatedWord = memo(function AnimatedWord({
   word,
@@ -205,13 +220,52 @@ const AnimatedWord = memo(function AnimatedWord({
   );
 });
 
-function DictationWaveform({
-  levels,
+const ElapsedTimer = memo(function ElapsedTimer({
+  style,
+}: {
+  style: StyleProp<ViewStyle>;
+}) {
+  const startedAt = useDictationMeterStartedAt();
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!startedAt) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), TIMER_TICK_MS);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+
+  const durationMs = startedAt ? Math.max(0, now - startedAt) : 0;
+  return (
+    <Text style={style} accessibilityLiveRegion="polite">
+      {formatElapsed(durationMs)}
+    </Text>
+  );
+});
+
+/**
+ * One bar per meter tick (~12.5 Hz), newest on the right, older bars
+ * scrolling off the left once the buffer is full — the same series desktop
+ * draws on its canvas.
+ */
+const DictationWaveform = memo(function DictationWaveform({
   color,
 }: {
-  levels: number[];
   color: string;
 }) {
+  const tick = useDictationMeterTick();
+  const [levels, setLevels] = useState<number[]>([]);
+
+  useEffect(() => {
+    const { active, level } = getDictationMeterSnapshot();
+    if (!active) return;
+    setLevels((previous) =>
+      previous.length < LEVEL_BUFFER_LENGTH
+        ? [...previous, level]
+        : [...previous.slice(previous.length - LEVEL_BUFFER_LENGTH + 1), level],
+    );
+  }, [tick]);
+
   return (
     <View style={waveStyles.container}>
       <View style={waveStyles.row}>
@@ -236,7 +290,7 @@ function DictationWaveform({
       </View>
     </View>
   );
-}
+});
 
 const waveStyles = StyleSheet.create({
   transcript: {
@@ -244,6 +298,12 @@ const waveStyles = StyleSheet.create({
     flexWrap: "wrap",
     paddingHorizontal: 4,
     paddingTop: 1,
+  },
+  placeholder: {
+    fontFamily: fonts.sans.regular,
+    fontSize: 15,
+    fontStyle: "italic",
+    lineHeight: 21,
   },
   container: {
     flex: 1,

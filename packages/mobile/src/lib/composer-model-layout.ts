@@ -6,7 +6,14 @@ export function resolveComposerExpanded({
   hasAttachments = false,
 }: {
   expanded: boolean;
+  /** Dictation running underneath typed text. */
   dictationBelow: boolean;
+  /**
+   * Dictation running in an otherwise empty composer. The live transcript
+   * takes the text area and the waveform row sits underneath it, so the
+   * shell needs the expanded (rounded rectangle) shape rather than a pill
+   * that would stretch to fit both.
+   */
   dictationInline: boolean;
   modelPickerPinned: boolean;
   /**
@@ -18,7 +25,8 @@ export function resolveComposerExpanded({
   return (
     expanded ||
     dictationBelow ||
+    dictationInline ||
     hasAttachments ||
-    (modelPickerPinned && !dictationInline)
+    modelPickerPinned
   );
 }

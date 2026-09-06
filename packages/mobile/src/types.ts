@@ -70,6 +70,8 @@ export type MobileDisplayPayload =
       title?: string;
       slug?: string;
       createdAt: number;
+      /** The html lives in the owner's cloud drive, not on a paired desktop. */
+      driveBacked?: boolean;
     }
   | { kind: "url"; url: string; title: string; tabId: string; tooltip?: string }
   | { kind: "office"; previewRef: MobileOfficePreviewRef; title?: string }
@@ -124,6 +126,12 @@ export type MobileDisplayPayload =
       generationState?: "running" | "completed" | "failed" | "canceled";
       /** Live chronology metadata captured when the tool started. */
       textOffset?: number;
+      /**
+       * The image paths are cloud drive paths (a cloud turn's `image_gen`).
+       * They resolve through the owner's signed drive URLs, never through the
+       * desktop bridge.
+       */
+      driveBacked?: boolean;
     }
   | {
       /**

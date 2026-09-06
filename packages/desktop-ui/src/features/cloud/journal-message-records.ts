@@ -328,6 +328,11 @@ export const journalRecordsToMessageRecords = (
         requestId: toolCallId,
         payload: {
           toolName,
+          // Every tool result in the conversation journal is the
+          // orchestrator's own (spawned agents keep their own transcripts),
+          // which the turn-resource derivations key on to render, e.g., an
+          // `image_gen` result inline rather than as a subagent's file.
+          agentType: "orchestrator",
           result: details ?? resultText,
           resultPreview: resultText,
           ...(details ?? {}),

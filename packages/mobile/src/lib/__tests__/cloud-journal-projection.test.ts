@@ -283,4 +283,58 @@ describe("cloud journal projection", () => {
     );
     expect(canonicalCloudDispatchIdForTurn(records, "other-turn")).toBeNull();
   });
+
+  test("projects a cloud map call, a map lifted out of code, and a drive-backed html canvas", () => {
+    const map = {
+      kind: "map-route",
+      version: 1,
+      title: "Coffee",
+      markers: [{ id: "m1", name: "Blue Bottle", lat: 37.78, lng: -122.4, role: "place" }],
+    };
+    const records: JournalRecord[] = [
+      message({ kind: "message", seq: 1, turnId: "t1", role: "user", hidden: false, payload: { content: "Coffee near me?" } }),
+      message({
+        kind: "message", seq: 2, turnId: "t1", role: "assistant", hidden: false,
+        payload: { content: [
+          { type: "toolCall", id: "call-map", name: "map", arguments: { places: ["Blue Bottle"] } },
+          { type: "toolCall", id: "call-code", name: "code", arguments: { code: "await tools.map({})" } },
+          { type: "toolCall", id: "call-html", name: "html", arguments: { slug: "coffee-guide" } },
+        ] },
+      }),
+      message({
+        kind: "message", seq: 3, turnId: "t1", role: "toolResult", hidden: true,
+        payload: { toolCallId: "call-map", toolName: "map", content: "Pinned 1 place.", details: { map } },
+      }),
+      message({
+        kind: "message", seq: 4, turnId: "t1", role: "toolResult", hidden: true,
+        payload: { toolCallId: "call-code", toolName: "code", content: "ok", details: { code: { ok: true }, maps: [map, { kind: "not-a-map" }] } },
+      }),
+      message({
+        kind: "message", seq: 5, turnId: "t1", role: "toolResult", hidden: true,
+        payload: { toolCallId: "call-html", toolName: "html", content: "saved", details: { filePath: "outputs/html/coffee-guide.html", driveBacked: true } },
+      }),
+      { kind: "card", seq: 6, turnId: "t1", createdAtMs: 60, card: { type: "files", files: [
+        { path: "outputs/html/coffee-guide.html", name: "coffee-guide.html", sizeBytes: 1200, contentType: "text/html; charset=utf-8", stored: true },
+      ] } } as JournalRecord,
+      message({ kind: "message", seq: 7, turnId: "t1", role: "assistant", hidden: false, payload: { content: "Here you go." } }),
+    ];
+    const messages = projectCloudConversationMessages({ conversationId: "conv-1", records });
+    const withMaps = messages.find((entry) => entry.artifacts?.some((artifact) => artifact.payload.kind === "map-route"));
+    const maps = withMaps?.artifacts?.filter((artifact) => artifact.payload.kind === "map-route") ?? [];
+    expect(maps.map((artifact) => artifact.id)).toEqual([
+      "cloud:t1:map:call-map:0",
+      "cloud:t1:map:call-code:0",
+    ]);
+    expect(maps[0]?.payload).toMatchObject({ kind: "map-route", version: 1, title: "Coffee" });
+    const canvas = messages
+      .flatMap((entry) => entry.artifacts ?? [])
+      .find((artifact) => artifact.payload.kind === "canvas-html");
+    expect(canvas?.payload).toMatchObject({
+      kind: "canvas-html",
+      filePath: "outputs/html/coffee-guide.html",
+      slug: "coffee-guide",
+      title: "Coffee Guide",
+      driveBacked: true,
+    });
+  });
 });

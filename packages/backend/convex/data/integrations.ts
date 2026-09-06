@@ -1067,6 +1067,21 @@ export const getUserIntegrationByOwnerAndProvider = internalQuery({
   },
 });
 
+/** Composio-backed integrations one owner has a provider session for. */
+export const listComposioUserIntegrationsForOwner = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.array(userIntegrationDocumentValidator),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("user_integrations")
+      .withIndex("by_ownerId_mode_updatedAt", (q) =>
+        q.eq("ownerId", args.ownerId).eq("mode", "composio"),
+      )
+      .order("desc")
+      .take(200);
+  },
+});
+
 export const listUserIntegrations = internalQuery({
   args: {},
   handler: async (ctx) => {

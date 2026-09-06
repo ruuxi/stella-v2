@@ -24,6 +24,7 @@ import { registerCloudHomeRoutes } from "./http_routes/cloud_home";
 import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
 import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
 import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
+import { registerCloudConnectorConnectRoutes } from "./http_routes/cloud_connector_connect";
 import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
 import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
@@ -67,6 +68,7 @@ registerCloudHomeRoutes(http);
 registerCloudDriveRoutes(http);
 registerCloudProjectRoutes(http);
 registerCloudIntegrationRoutes(http);
+registerCloudConnectorConnectRoutes(http);
 registerAppsSdkRoutes(http);
 registerAppIntegrityRoutes(http);
 

@@ -45,6 +45,7 @@ import type { Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { classifyCanvasNavigation } from "../lib/canvas-navigation";
+import { resolveCloudDriveFileUri } from "../lib/use-cloud-drive-file-uri";
 
 type ArtifactViewerProps = {
   artifact: ChatArtifact | null;
@@ -341,6 +342,17 @@ export function ArtifactViewerContent({
         if (filePath && /^(?:file|https?|data):/i.test(filePath)) {
           return { kind: "image" as const, uri: filePath };
         }
+      }
+      // A cloud canvas (`html` in a cloud turn) lives in the owner's drive:
+      // resolve its signed URL and render the document; no desktop needed.
+      if (payload.kind === "canvas-html" && payload.driveBacked) {
+        const uri = await resolveCloudDriveFileUri(payload.filePath);
+        const response = await fetch(uri, { signal: controller.signal });
+        if (!response.ok) throw new Error("This file is no longer available.");
+        return {
+          kind: "canvas-html" as const,
+          html: prepareDocumentHtml(await response.text()),
+        };
       }
       if (!access) {
         throw new Error("Pair this phone with your desktop again.");

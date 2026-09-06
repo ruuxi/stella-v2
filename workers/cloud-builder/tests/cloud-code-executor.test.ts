@@ -488,6 +488,29 @@ describe("cloud code executor", () => {
     expect(factories).toBe(2);
   });
 
+  test("the code deadline pauses while a nested host call is in flight", async () => {
+    // The tool takes far longer than the whole timeout; the code itself is
+    // instant. A connect card waiting on the user is bounded by its own
+    // timeout, never by the sandbox's.
+    const result = await executeCloudCodeWithExecutorFactory(
+      {
+        loader,
+        code: "async () => codemode.read_value({ key: 'alpha' })",
+        timeoutMs: 40,
+        tools: await prepareCloudCodeTools([
+          tool({
+            execute: async () => {
+              await new Promise((resolve) => setTimeout(resolve, 160));
+              return "slow:alpha";
+            },
+          }),
+        ]),
+      },
+      callOnlyTool,
+    );
+    expect(result).toMatchObject({ ok: true, result: "slow:alpha" });
+  });
+
   test("maps the package's own timeout into the bounded timeout result", async () => {
     const result = await executeCloudCodeWithExecutorFactory(
       {

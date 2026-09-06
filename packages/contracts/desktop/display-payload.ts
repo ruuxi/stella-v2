@@ -38,6 +38,12 @@ export type DisplayPayload =
       title?: string;
       slug?: string;
       createdAt: number;
+      /**
+       * The html lives in the owner's cloud drive (`filePath` is a drive
+       * path) rather than on this machine; the viewer fetches it through a
+       * signed URL instead of the local display file bridge.
+       */
+      driveBacked?: boolean;
     }
   | {
       /**
@@ -153,6 +159,7 @@ const displayPayloadSchema = z.discriminatedUnion("kind", [
     createdAt: z.number(),
     title: z.string().optional(),
     slug: z.string().optional(),
+    driveBacked: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("url"),

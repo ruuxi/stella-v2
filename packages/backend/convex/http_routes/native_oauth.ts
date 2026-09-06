@@ -28,8 +28,12 @@ import {
   normalizeGoogleAdsProxyResponse,
 } from "../lib/google_ads_mutations";
 import { enforceActionRateLimit, RATE_STANDARD } from "../lib/rate_limits";
+import {
+  authorizeCloudTurnOwner,
+  isCloudTurnCaller,
+} from "../http_shared/cloud_turn_caller";
 
-type StoreIntegrationRecord = {
+export type StoreIntegrationRecord = {
   id?: unknown;
   connector?: unknown;
 };
@@ -312,15 +316,37 @@ const parseUnknownBody = async (request: Request) => {
   }
 };
 
-const requireActiveIntegrationIdentity = async (ctx: ActionCtx) => {
+/**
+ * The account behind an integration call. Connectors belong to the owner,
+ * not to a device: a cloud orchestrator turn presents its turn capability
+ * (see `cloud_turn_caller`) and resolves to the same owner as the signed-in
+ * desktop or mobile app, so a service connected on one surface is connected
+ * on every surface.
+ */
+const requireActiveIntegrationIdentity = async (
+  ctx: ActionCtx,
+  request?: Request,
+) => {
   try {
+    if (request && isCloudTurnCaller(request)) {
+      const owner = await authorizeCloudTurnOwner(ctx, request);
+      if (!owner.ok) return null;
+      if (owner.anonymous) return "sign_in_required" as const;
+      return {
+        identity: { tokenIdentifier: owner.ownerId },
+        ownerGeneration: owner.ownerGeneration,
+      };
+    }
     const identity = await requireUserIdentity(ctx);
     if (isAnonymousIdentity(identity)) return "sign_in_required" as const;
     const { generation } = await assertOwnerDataAccessActive(
       ctx,
       identity.tokenIdentifier,
     );
-    return { identity, ownerGeneration: generation };
+    return {
+      identity: { tokenIdentifier: identity.tokenIdentifier },
+      ownerGeneration: generation,
+    };
   } catch {
     return null;
   }
@@ -546,7 +572,7 @@ const readComposioBaseUrl = () =>
     "https://backend.composio.dev/api/v3.1/tool_router"
   ).replace(/\/+$/u, "");
 
-const readComposioConnector = (record: StoreIntegrationRecord) => {
+export const readComposioConnector = (record: StoreIntegrationRecord) => {
   const connector =
     record.connector && typeof record.connector === "object"
       ? (record.connector as StoreConnectorRecord)
@@ -787,7 +813,7 @@ export const composioLinkFromPayload = (payload: Record<string, unknown>) =>
       : null,
   );
 
-const ensureComposioSession = async (
+export const ensureComposioSession = async (
   ctx: ActionCtx,
   args: {
     ownerId: string;
@@ -966,7 +992,7 @@ const ensureComposioSession = async (
   return sessionId;
 };
 
-const loadComposioSessionId = async (
+export const loadComposioSessionId = async (
   ctx: ActionCtx,
   ownerId: string,
   integrationId: string,
@@ -985,7 +1011,7 @@ const loadComposioSessionId = async (
   );
 };
 
-const loadPublicIntegration = async (ctx: ActionCtx, id: string) =>
+export const loadPublicIntegration = async (ctx: ActionCtx, id: string) =>
   (await ctx.runQuery(internal.data.integrations.getPublicIntegrationById, {
     id,
   })) as StoreIntegrationRecord | null;
@@ -994,6 +1020,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/native-integrations/catalog",
     "/api/native-integrations/actions",
+    "/api/native-integrations/connections",
     "/api/native-integrations/connect-link",
     "/api/native-integrations/status",
     "/api/native-integrations/run",
@@ -1270,7 +1297,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "GET",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const admission = await requireActiveIntegrationIdentity(ctx);
+        const admission = await requireActiveIntegrationIdentity(ctx, request);
         if (admission === "sign_in_required") {
           return errorResponse(403, "sign_in_required", origin);
         }
@@ -1433,12 +1460,74 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     ),
   });
 
+  /**
+   * The owner's connected Store integrations, with each one's live provider
+   * status. One round trip for the cloud `connect.connectors()` /
+   * `connect.discover()` surfaces, which otherwise would probe every
+   * integration separately.
+   */
+  http.route({
+    path: "/api/native-integrations/connections",
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const admission = await requireActiveIntegrationIdentity(ctx, request);
+        if (admission === "sign_in_required") {
+          return errorResponse(403, "sign_in_required", origin);
+        }
+        if (!admission) return errorResponse(401, "Unauthorized", origin);
+        const { identity } = admission;
+        const rows = (await ctx.runQuery(
+          internal.data.integrations.listComposioUserIntegrationsForOwner,
+          { ownerId: identity.tokenIdentifier },
+        )) as Array<{
+          provider: string;
+          externalId?: string;
+          config?: Record<string, unknown>;
+        }>;
+        const composio = requireComposioConfig();
+        const connections = await Promise.all(
+          rows.map(async (row) => {
+            const id = row.provider.trim().toLowerCase();
+            const sessionId =
+              readString(row.externalId) ?? readString(row.config?.sessionId);
+            if (!sessionId || !composio.config) {
+              return { id, connected: false };
+            }
+            try {
+              const integration = await loadPublicIntegration(ctx, id);
+              const connector = integration
+                ? readComposioConnector(integration)
+                : null;
+              if (!connector) return { id, connected: false };
+              const payload = await composioFetch(
+                `/session/${encodeURIComponent(sessionId)}/toolkits`,
+                { method: "GET" },
+                composio.config,
+              );
+              return {
+                id,
+                connected: composioToolkitConnectedFromPayload(
+                  payload,
+                  connector.toolkit,
+                ),
+              };
+            } catch {
+              return { id, connected: false };
+            }
+          }),
+        );
+        return jsonResponse({ connections }, 200, origin);
+      }),
+    ),
+  });
+
   http.route({
     path: "/api/native-integrations/connect-link",
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const admission = await requireActiveIntegrationIdentity(ctx);
+        const admission = await requireActiveIntegrationIdentity(ctx, request);
         if (admission === "sign_in_required") {
           return errorResponse(403, "sign_in_required", origin);
         }
@@ -1512,7 +1601,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "GET",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const admission = await requireActiveIntegrationIdentity(ctx);
+        const admission = await requireActiveIntegrationIdentity(ctx, request);
         if (admission === "sign_in_required") {
           return errorResponse(403, "sign_in_required", origin);
         }
@@ -1586,7 +1675,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const admission = await requireActiveIntegrationIdentity(ctx);
+        const admission = await requireActiveIntegrationIdentity(ctx, request);
         if (admission === "sign_in_required") {
           return errorResponse(403, "sign_in_required", origin);
         }

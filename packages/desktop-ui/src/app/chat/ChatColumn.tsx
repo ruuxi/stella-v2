@@ -27,6 +27,7 @@ import { ChevronDown } from "@/ui/icons";
 import { ConnectorConnectCard } from "./ConnectorConnectCard";
 import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
+import { CloudConnectorConnectCard } from "@/features/cloud/CloudConnectorConnectCard";
 import { ConversationEvents } from "./ConversationEvents";
 import { ConversationFocusOverlay } from "./ConversationFocusOverlay";
 import { useConversationFocus } from "@/features/chat/services/conversation-focus-store";
@@ -362,6 +363,7 @@ export const ChatColumn = memo(function ChatColumn({
           {/* Inline connect offer (agent-initiated) pinned above the
               composer while the agent's turn waits on the answer. */}
           <ConnectorConnectCard conversationId={conversationId} />
+          <CloudConnectorConnectCard conversationId={conversationId} />
           <CloudBrowserInterventionCard conversationId={conversationId} />
           {/* Sign-in / plan-limit / provider notices pin here too, so the
               thing blocking the composer sits right above it. */}

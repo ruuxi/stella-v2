@@ -357,9 +357,14 @@ describe("canonical cloud prompts", () => {
       memoryEnabled: true,
     });
     expect(prompt).toContain(
-      "code, spawn_agent, send_input, pause_agent, agent_status, merge_workspace, web, Recall, Remember, Schedule",
+      "code, html, image_gen, web, Read, Recall, Remember, spawn_agent, send_input, pause_agent, agent_status, merge_workspace",
+    );
+    expect(prompt).toContain(
+      "demoted map, schedule_add/list/update/remove and connector_status inside code",
     );
     expect(prompt).toContain("check on it with agent_status");
+    expect(prompt).not.toContain("spawn_manager");
+    expect(prompt).not.toContain("tool_search");
   });
 
   test("memory-off system prompt exposes no Recall/Remember tool contract", () => {
@@ -372,6 +377,7 @@ describe("canonical cloud prompts", () => {
       memoryEnabled: false,
     });
     expect(prompt).toContain("The owner has disabled cloud memory");
-    expect(prompt).not.toContain("web, Recall, Remember, Schedule");
+    expect(prompt).not.toContain("Read, Recall, Remember, spawn_agent");
+    expect(prompt).toContain("Read, spawn_agent");
   });
 });

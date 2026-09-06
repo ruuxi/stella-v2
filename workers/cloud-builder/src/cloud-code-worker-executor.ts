@@ -5,7 +5,23 @@ import type {
   ToolDispatcher,
 } from "@cloudflare/codemode";
 
+import { CONNECT_DOCUMENTATION } from "@stella/runtime/kernel/connectors/connect-documentation.js";
+
 type CloudflareCodeModeModule = typeof import("@cloudflare/codemode");
+
+/**
+ * Reserved sandbox intrinsics dispatched through the same RPC bridge as
+ * tools. `$`-prefixed names are never real tools (the device kernel reserves
+ * them too), so the child can route them without a second dispatcher.
+ */
+export const CLOUD_CODE_SEARCH_INTRINSIC = "$search";
+export const CLOUD_CODE_DESCRIBE_INTRINSIC = "$describe";
+export const CLOUD_CODE_CONNECT_INTRINSIC = "$connect";
+export const CLOUD_CODE_INTRINSIC_NAMES: ReadonlySet<string> = new Set([
+  CLOUD_CODE_SEARCH_INTRINSIC,
+  CLOUD_CODE_DESCRIBE_INTRINSIC,
+  CLOUD_CODE_CONNECT_INTRINSIC,
+]);
 
 let cloudflareCodeModePromise: Promise<CloudflareCodeModeModule> | undefined;
 
@@ -233,7 +249,11 @@ function __errorMessage(error) {
 }
 `;
 
-const buildWorkerModule = (normalizedCode: string, timeoutMs: number): string =>
+const buildWorkerModule = (
+  normalizedCode: string,
+  timeoutMs: number,
+  toolNames: readonly string[],
+): string =>
   [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
     CHILD_RUNTIME,
@@ -260,26 +280,120 @@ const buildWorkerModule = (normalizedCode: string, timeoutMs: number): string =>
     '    console.log = (...args) => __pushLog("", args);',
     '    console.warn = (...args) => __pushLog("[warn]", args);',
     '    console.error = (...args) => __pushLog("[error]", args);',
-    "    const codemode = new Proxy(Object.create(null), {",
-    "      get: (_target, toolName) => {",
-    '        if (typeof toolName !== "string") return undefined;',
-    "        return async (...args) => {",
-    '          const safeArgs = __cloneBoundedJson(args, "tool input");',
-    "          const argsJson = JSON.stringify(safeArgs);",
-    "          const responseJson = await __dispatchers.codemode.call(String(toolName), argsJson);",
-    '          if (typeof responseJson !== "string" || __utf8Bytes(responseJson, __MAX_VALUE_BYTES + 4096) > __MAX_VALUE_BYTES + 4096) {',
-    '            __resourceLimit("tool result envelope");',
-    "          }",
-    "          const data = JSON.parse(responseJson);",
-    '          if (data && typeof data.error === "string") throw new Error(__utf8Prefix(data.error, __MAX_LOG_LINE_BYTES));',
-    '          return __cloneBoundedJson(data ? data.result : undefined, "tool result");',
-    "        };",
+    `    const __TOOL_NAMES = ${JSON.stringify(toolNames)};`,
+    `    const __CONNECT_DOCUMENTATION = ${JSON.stringify(CONNECT_DOCUMENTATION)};`,
+    "    const __IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;",
+    "    // The deadline measures code time only: it pauses while a host call is",
+    "    // in flight (a connect card waiting on the user, an image job, a",
+    "    // connector action), the way a device REPL cell yields around long",
+    "    // tool calls. The host mirrors this on its own clock.",
+    `    let __remainingMs = ${timeoutMs};`,
+    "    let __timer = null;",
+    "    let __timerStartedAt = 0;",
+    "    let __inflight = 0;",
+    "    let __rejectTimeout = () => {};",
+    "    const __timeoutPromise = new Promise((_, reject) => { __rejectTimeout = reject; });",
+    "    const __startClock = () => {",
+    "      if (__timer !== null) return;",
+    "      __timerStartedAt = Date.now();",
+    '      __timer = setTimeout(() => __rejectTimeout(new Error("Execution timed out")), __remainingMs);',
+    "    };",
+    "    const __pauseClock = () => {",
+    "      if (__timer === null) return;",
+    "      clearTimeout(__timer);",
+    "      __timer = null;",
+    "      __remainingMs = Math.max(1, __remainingMs - (Date.now() - __timerStartedAt));",
+    "    };",
+    "    const __dispatch = async (name, args) => {",
+    '      const safeArgs = __cloneBoundedJson(args, "tool input");',
+    "      const argsJson = JSON.stringify(safeArgs);",
+    "      __inflight += 1;",
+    "      if (__inflight === 1) __pauseClock();",
+    "      let responseJson;",
+    "      try {",
+    "        responseJson = await __dispatchers.codemode.call(name, argsJson);",
+    "      } finally {",
+    "        __inflight -= 1;",
+    "        if (__inflight === 0) __startClock();",
+    "      }",
+    '      if (typeof responseJson !== "string" || __utf8Bytes(responseJson, __MAX_VALUE_BYTES + 4096) > __MAX_VALUE_BYTES + 4096) {',
+    '        __resourceLimit("tool result envelope");',
+    "      }",
+    "      const data = JSON.parse(responseJson);",
+    '      if (data && typeof data.error === "string") throw new Error(__utf8Prefix(data.error, __MAX_LOG_LINE_BYTES));',
+    '      return __cloneBoundedJson(data ? data.result : undefined, "tool result");',
+    "    };",
+    "    const __toolFunctions = new Map();",
+    "    for (const __name of __TOOL_NAMES) {",
+    "      __toolFunctions.set(__name, Object.freeze((args = {}) => __dispatch(__name, [args])));",
+    "    }",
+    '    const __searchTool = Object.freeze((args = {}) => __dispatch("$search", [args]));',
+    "    const __describeTool = Object.freeze((name, options = {}) => {",
+    '      if (typeof name !== "string" || name.trim().length === 0) {',
+    '        return Promise.reject(new Error("tools.$describe requires an exact non-empty tool name string."));',
+    "      }",
+    '      if (!options || typeof options !== "object" || Array.isArray(options)) {',
+    '        return Promise.reject(new Error("tools.$describe options must be an object when provided."));',
+    "      }",
+    '      return __dispatch("$describe", [{ ...options, name }]);',
+    "    });",
+    "    const __listTools = Object.freeze(() =>",
+    "      [...__TOOL_NAMES].sort().map((name) =>",
+    "        Object.freeze({",
+    "          name,",
+    '          access: __IDENTIFIER_RE.test(name) ? "tools." + name : "tools[" + JSON.stringify(name) + "]",',
+    "          dotNotation: __IDENTIFIER_RE.test(name),",
+    "        }),",
+    "      ),",
+    "    );",
+    "    const __lookupTool = (property) =>",
+    '      property === "$search" ? __searchTool',
+    '        : property === "$describe" ? __describeTool',
+    '          : property === "$list" ? __listTools',
+    '            : typeof property === "string" ? __toolFunctions.get(property)',
+    "              : undefined;",
+    "    const tools = new Proxy(Object.create(null), {",
+    "      get: (_target, property) => __lookupTool(property),",
+    "      has: (_target, property) => __lookupTool(property) !== undefined,",
+    '      ownKeys: () => ["$search", "$describe", "$list", ...__TOOL_NAMES],',
+    "      getOwnPropertyDescriptor: (_target, property) => {",
+    "        const value = __lookupTool(property);",
+    "        if (value === undefined) return undefined;",
+    "        return { value, enumerable: true, writable: false, configurable: true };",
     "      },",
+    "      set: () => false,",
+    "      defineProperty: () => false,",
+    "      deleteProperty: () => false,",
+    "      setPrototypeOf: () => false,",
+    "    });",
+    "    const __requireNonEmptyString = (value, name) => {",
+    '      if (typeof value !== "string" || !value.trim()) {',
+    '        throw new TypeError("connect: " + name + " must be a non-empty string.");',
+    "      }",
+    "      return value.trim();",
+    "    };",
+    "    const __requirePlainObject = (value, name) => {",
+    '      if (value === null || typeof value !== "object" || Array.isArray(value)) {',
+    '        throw new TypeError("connect: " + name + " must be a plain object.");',
+    "      }",
+    "      return value;",
+    "    };",
+    '    const __connectCall = (method, args) => __dispatch("$connect", [{ method, args }]);',
+    "    const connect = Object.freeze({",
+    "      documentation: () => __CONNECT_DOCUMENTATION,",
+    '      discover: (query) => __connectCall("discover", [__requireNonEmptyString(query, "query")]),',
+    '      connectors: () => __connectCall("connectors", []),',
+    '      actions: (id, options) => __connectCall("actions", [__requireNonEmptyString(id, "id"), options === undefined ? {} : __requirePlainObject(options, "options")]),',
+    '      schema: (id, action) => __connectCall("schema", [__requireNonEmptyString(id, "id"), __requireNonEmptyString(action, "action")]),',
+    '      call: (id, action, args) => __connectCall("call", [__requireNonEmptyString(id, "id"), __requireNonEmptyString(action, "action"), args === undefined ? {} : __requirePlainObject(args, "args")]),',
+    '      addMcp: (options) => __connectCall("addMcp", [__requirePlainObject(options, "options")]),',
+    '      remove: (id) => __connectCall("remove", [__requireNonEmptyString(id, "id")]),',
     "    });",
     "    try {",
+    "      __startClock();",
     "      const result = await Promise.race([",
     `        (${normalizedCode})(),`,
-    `        new Promise((_, reject) => setTimeout(() => reject(new Error("Execution timed out")), ${timeoutMs})),`,
+    "        __timeoutPromise,",
     "      ]);",
     '      const safeResult = result === undefined ? undefined : __cloneBoundedJson(result, "result");',
     "      return { result: safeResult, logs: __logs };",
@@ -395,13 +509,22 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
     const dispatchers = {
       codemode: new ToolDispatcher(sanitizedFns),
     };
+    // `tools.<name>` is the exact sanitized identifier; intrinsics are
+    // reachable only through their `tools.$…` accessors.
+    const toolNames = [...sanitizedNames.keys()].filter(
+      (name) => !CLOUD_CODE_INTRINSIC_NAMES.has(name),
+    );
 
     try {
       this.#worker = this.#loader.load({
         compatibilityDate: "2025-06-01",
         mainModule: "executor.js",
         modules: {
-          "executor.js": buildWorkerModule(normalized, this.#timeoutMs),
+          "executor.js": buildWorkerModule(
+            normalized,
+            this.#timeoutMs,
+            toolNames,
+          ),
         },
         globalOutbound: null,
       });

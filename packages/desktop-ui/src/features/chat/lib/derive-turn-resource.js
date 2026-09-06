@@ -106,6 +106,8 @@ const orchestratorHtmlPayload = (toolEvents) => {
             ...(title ? { title } : {}),
             ...(slug ? { slug } : {}),
             createdAt: createdAtNum,
+            // A cloud turn's canvas lives in the owner's drive.
+            ...(record.driveBacked === true ? { driveBacked: true } : {}),
         };
     }
     return null;

@@ -10,7 +10,8 @@ import {
   type CloudSkillCatalogEntry,
 } from "../src/cloud-home-store.js";
 import { materializeCloudSkillSnapshot } from "../src/cloud-skill-materializer.js";
-import { createCloudSkillTools } from "../src/cloud-skill-tools.js";
+import { createCloudReadTool } from "../src/cloud-read-tool.js";
+import { buildCloudSkillsBlock } from "../src/cloud-skills.js";
 import { sha256BytesHex, sha256Hex } from "../src/hash.js";
 
 const fakeBucket = (
@@ -247,15 +248,17 @@ describe("memory-only R2 wipe", () => {
     const snapshot = await home.loadSkillCatalog("general");
     expect(home.searchSkills(snapshot, "calendar")).toHaveLength(1);
 
-    const tools = createCloudSkillTools(home, snapshot);
-    const searchReceipt = await tools
-      .find((tool) => tool.name === "skill_search")!
-      .execute("search-call", { query: "calendar" });
-    expect(JSON.stringify(searchReceipt)).toContain("version-1");
-    const readReceipt = await tools
-      .find((tool) => tool.name === "skill_read")!
-      .execute("read-call", { skill_id: "skill-calendar" });
+    // The orchestrator reads the mirrored skill the way it does on the
+    // desktop: the <skills> block names the path and `Read` opens it.
+    const block = buildCloudSkillsBlock(snapshot);
+    expect(block).toContain("~/.stella/skills/calendar-imported/SKILL.md");
+    const read = createCloudReadTool({ skills: { home, snapshot } });
+    const readReceipt = await read.execute("read-call", {
+      file_path: "~/.stella/skills/calendar-imported/SKILL.md",
+    });
+    expect(readReceipt.isError).not.toBe(true);
     expect(JSON.stringify(readReceipt)).toContain("calendar.list");
+    expect(JSON.stringify(readReceipt)).toContain("version-1");
 
     const writes = new Map<string, Uint8Array>();
     const materialized = await materializeCloudSkillSnapshot({

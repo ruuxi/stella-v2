@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
+import { useCloudDriveHtml } from "@/features/cloud/use-cloud-drive-html";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { CanvasIllustration } from "../illustrations/CanvasIllustration";
 import { CanvasShareBar } from "./CanvasShareBar";
@@ -190,11 +191,8 @@ const CanvasIllustrationSpot = ({ label }: { label?: ReactNode }) => (<div class
     </div>
     {label ? (<div className="canvas-tab__illustration-label">{label}</div>) : null}
   </div>);
-const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
-    const t = useT();
-    const iframeRef = useRef<HTMLIFrameElement | null>(null);
-    const loadCountRef = useRef(0);
-    const [navigationReset, setNavigationReset] = useState(0);
+/** Local canvas: bytes from `~/.stella/outputs/html` over the display bridge. */
+const LocalCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     const { bytes, error, loading } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined,
     // Same-slug canvases overwrite the same file in place; folding
     // `createdAt` into the read forces a fresh disk read (and iframe
@@ -202,6 +200,26 @@ const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     // content served from the display-file cache.
     item.createdAt);
     const html = useMemo(() => (bytes ? decoder.decode(bytes) : ""), [bytes]);
+    return <CanvasHeroFrameDocument item={item} html={html} error={error} loading={loading}/>;
+};
+/** Cloud canvas: the html the cloud `html` tool wrote into the owner's drive. */
+const CloudCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
+    const { html, error, loading } = useCloudDriveHtml(item.filePath, item.createdAt);
+    return <CanvasHeroFrameDocument item={item} html={html ?? ""} error={error} loading={loading}/>;
+};
+const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => item.driveBacked
+    ? <CloudCanvasHeroFrameContent item={item}/>
+    : <LocalCanvasHeroFrameContent item={item}/>;
+const CanvasHeroFrameDocument = ({ item, html, error, loading, }: {
+  item: CanvasHtmlItem;
+  html: string;
+  error: string | null;
+  loading: boolean;
+}) => {
+    const t = useT();
+    const iframeRef = useRef<HTMLIFrameElement | null>(null);
+    const loadCountRef = useRef(0);
+    const [navigationReset, setNavigationReset] = useState(0);
     const srcDoc = useMemo(() => (html ? injectCanvasSelectionBridge(html) : ""), [html]);
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {

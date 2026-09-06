@@ -67,6 +67,10 @@ import { AssistantTextSelection } from "./AssistantTextSelection";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
+import {
+  resolveCloudDriveFileUri,
+  useCloudDriveFileUri,
+} from "../lib/use-cloud-drive-file-uri";
 import { AgentWorkCard } from "./AgentWorkCard";
 import { AgentCompletionCard } from "./AgentCompletionCard";
 import { MapRouteCard } from "./MapRouteCard";
@@ -1237,6 +1241,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
   filePath,
   conversationId,
   access,
+  driveBacked,
   aspectRatio,
   alt,
   generationState,
@@ -1245,18 +1250,25 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
   filePath?: string;
   conversationId: string;
   access?: StoredPhoneAccess;
+  /** `filePath` is a cloud drive path; resolve it through the drive, not the bridge. */
+  driveBacked?: boolean;
   aspectRatio: number;
   alt: string;
   generationState?: "running" | "completed" | "failed" | "canceled";
   colors: Colors;
 }) {
-  const [uri, setUri] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [bridgeUri, setBridgeUri] = useState<string | null>(null);
+  const [bridgeFailed, setBridgeFailed] = useState(false);
+  const drive = useCloudDriveFileUri(driveBacked && filePath ? filePath : null);
+  const uri = driveBacked ? drive.uri : bridgeUri;
+  const failed = driveBacked ? drive.failed : bridgeFailed;
   useEffect(() => {
     let cancelled = false;
+    const setUri = setBridgeUri;
+    const setFailed = setBridgeFailed;
     setUri(null);
     setFailed(false);
-    if (!filePath) return () => undefined;
+    if (!filePath || driveBacked) return () => undefined;
     if (/^(?:file|https?|data):/i.test(filePath)) {
       setUri(filePath);
       return () => undefined;
@@ -1282,7 +1294,7 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
       cancelled = true;
       controller.abort();
     };
-  }, [access, conversationId, filePath]);
+  }, [access, conversationId, driveBacked, filePath]);
 
   return (
     <View
@@ -1342,6 +1354,29 @@ const GeneratedImageCard = memo(function GeneratedImageCard({
   onPress?: (artifact: ChatArtifact) => void;
 }) {
   const payload = artifact.payload;
+  const driveBacked = payload.kind === "media" && payload.driveBacked === true;
+  const open = useCallback(() => {
+    if (!onPress) return;
+    if (
+      !driveBacked ||
+      payload.kind !== "media" ||
+      payload.asset.kind !== "image"
+    ) {
+      onPress(artifact);
+      return;
+    }
+    // The viewer renders http(s) images directly; hand it signed URLs so a
+    // cloud drive path never reaches the desktop bridge.
+    const asset = payload.asset;
+    void Promise.all(asset.filePaths.map(resolveCloudDriveFileUri))
+      .then((filePaths) =>
+        onPress({
+          ...artifact,
+          payload: { ...payload, asset: { ...asset, filePaths } },
+        }),
+      )
+      .catch(() => onPress(artifact));
+  }, [artifact, driveBacked, onPress, payload]);
   if (payload.kind !== "media" || payload.asset.kind !== "image") return null;
   const paths =
     payload.asset.filePaths.length > 0 ? payload.asset.filePaths : [undefined];
@@ -1358,7 +1393,7 @@ const GeneratedImageCard = memo(function GeneratedImageCard({
             : "Generating image"
       }
       disabled={payload.asset.filePaths.length === 0}
-      onPress={() => onPress?.(artifact)}
+      onPress={open}
       style={generatedImageStyles.strip}
     >
       {paths.map((filePath, index) => (
@@ -1367,6 +1402,7 @@ const GeneratedImageCard = memo(function GeneratedImageCard({
           filePath={filePath}
           conversationId={artifact.conversationId}
           access={access}
+          driveBacked={driveBacked}
           aspectRatio={generatedImageAspectRatio(payload.aspectRatio)}
           alt={payload.prompt ?? "Generated image"}
           generationState={payload.generationState}

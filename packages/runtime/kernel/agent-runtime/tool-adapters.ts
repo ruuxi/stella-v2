@@ -46,7 +46,7 @@ import {
   type ImageCapTarget,
 } from "../../ai/utils/image-caps.js";
 import { decodeAndValidateImage } from "../tools/image-decode-validation.js";
-import { buildCatalogSection } from "../tools/code-catalog.js";
+import { buildDemotedCodeSuffix } from "../tools/code-catalog.js";
 import {
   CODE_TOOL_NAME,
   toolRequiresExplicitApproval,
@@ -638,15 +638,6 @@ export const collectDemotedToolNames = (
   collectVisibleDemotedTools(toolCatalog, connectorProvider).map(
     (tool) => tool.name,
   );
-
-const DEMOTED_WORKFLOW_TEXT =
-  'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The compact catalog below lists names, signatures, and descriptions. When it is marked COMPLETE, call simple listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) for ranked compact matches. For an unfamiliar or complex match, optionally run await tools.$describe(name) to load exactly that tool\'s complete schema, then invoke tools.<name>(args). Do not guess tool names.';
-
-/** Workflow paragraph + budgeted signature catalog; "" for an empty set. */
-const buildDemotedCodeSuffix = (demotedTools: ToolMetadata[]): string =>
-  demotedTools.length > 0
-    ? `\n\n${DEMOTED_WORKFLOW_TEXT}\n\n${buildCatalogSection(demotedTools)}`
-    : "";
 
 /**
  * External-engine parity for the code catalog: engines that build their

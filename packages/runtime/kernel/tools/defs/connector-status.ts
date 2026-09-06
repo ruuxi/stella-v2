@@ -33,8 +33,16 @@ import { getNativeConnectorReadiness } from "../../connectors/connection-status.
 import { scoreConnectorMatch } from "../../connectors/discovery.js";
 import type { NativeConnectorCatalogEntry } from "../../connectors/native-integrations.js";
 import type { ToolDefinition } from "../types.js";
+import {
+  CONNECTOR_STATUS_SEARCH_TERMS,
+  CONNECTOR_STATUS_TOOL_DESCRIPTION,
+  CONNECTOR_STATUS_TOOL_LABEL,
+  CONNECTOR_STATUS_TOOL_NAME,
+  CONNECTOR_STATUS_TOOL_PARAMETERS,
+  CONNECTOR_STATUS_TOOL_WORKING_TEXT,
+} from "./connector-status-def.js";
 
-export const CONNECTOR_STATUS_TOOL_NAME = "connector_status";
+export { CONNECTOR_STATUS_TOOL_NAME };
 
 export type ConnectorConnectionRequester = (
   payload: {
@@ -156,47 +164,16 @@ export const createConnectorStatusTool = (
   options: ConnectorStatusToolOptions,
 ): ToolDefinition => ({
   name: CONNECTOR_STATUS_TOOL_NAME,
-  label: "Connector status",
-  workingText: "Checking connector",
+  label: CONNECTOR_STATUS_TOOL_LABEL,
+  workingText: CONNECTOR_STATUS_TOOL_WORKING_TEXT,
   // Orchestrator-only chat affordance, mirroring the map/html tools.
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   // Demoted out of the direct tool list when node_repl is available; the
   // connector-availability reminder points the orchestrator at calling it
   // (directly or as tools.connector_status inside node_repl).
-  demoted: {
-    searchTerms: [
-      "connector",
-      "connectors",
-      "integration",
-      "integrations",
-      "connect",
-      "connection",
-      "status",
-      "oauth",
-      "account",
-      "service",
-      "store",
-    ],
-  },
-  description:
-    "Check whether a Stella Store connector (Gmail, Outlook, Notion, Slack, and hundreds more) is connected, and if not, show the user an inline connect card in the chat. Deterministic — pure lookup plus the card; the card itself is the user's consent, so don't ask permission before calling. Blocks until the user connects, declines, or the card times out, then reports the outcome so you can proceed.",
-  parameters: {
-    type: "object",
-    properties: {
-      connector: {
-        type: "string",
-        description:
-          'Connector id or name (e.g. "gmail", "Google Calendar", "notion").',
-      },
-      reason: {
-        type: "string",
-        description:
-          'Optional one-line, user-facing context shown on the card (e.g. "To check your recent purchase emails").',
-      },
-    },
-    required: ["connector"],
-    additionalProperties: false,
-  },
+  demoted: { searchTerms: CONNECTOR_STATUS_SEARCH_TERMS },
+  description: CONNECTOR_STATUS_TOOL_DESCRIPTION,
+  parameters: CONNECTOR_STATUS_TOOL_PARAMETERS,
   execute: async (args, context, extras) => {
     const query =
       typeof args.connector === "string" ? args.connector.trim() : "";

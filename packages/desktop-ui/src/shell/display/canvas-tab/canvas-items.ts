@@ -20,6 +20,8 @@ export type CanvasHtmlItem = {
   title: string;
   slug?: string;
   createdAt: number;
+  /** Cloud canvas: `filePath` is a drive path, fetched by signed URL. */
+  driveBacked?: boolean;
 };
 
 /** Display-tab id for a canvas, so one file is one Files entry. */
@@ -48,6 +50,7 @@ const toFileEntry = (item: CanvasHtmlItem): FileEntry => ({
     title: item.title,
     createdAt: item.createdAt,
     ...(item.slug ? { slug: item.slug } : {}),
+    ...(item.driveBacked ? { driveBacked: true } : {}),
   },
 });
 
@@ -126,6 +129,7 @@ export const addCanvasHtmlItem = (
     title: titleFromPayload(payload),
     createdAt: payload.createdAt,
     ...(payload.slug ? { slug: payload.slug } : {}),
+    ...(payload.driveBacked ? { driveBacked: true } : {}),
   };
   const existing = itemsByPath.get(payload.filePath);
   if (existing) {

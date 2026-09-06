@@ -71,7 +71,7 @@ const resolveCard = (starts: EventRecord[], allEvents: EventRecord[]) => {
 };
 
 describe("spawn-anchored background task lifecycle", () => {
-  it("settles a spawn_manager card through the shared completion lifecycle", () => {
+  it("settles a legacy manager-typed card through the shared completion lifecycle", () => {
     const start = started({
       id: "manager-start",
       at: 100,

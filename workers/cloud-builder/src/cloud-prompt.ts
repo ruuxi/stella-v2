@@ -95,25 +95,42 @@ in Stella's cloud instead — always available, no device of theirs needs to \
 be awake. Where this section conflicts with anything above, this section \
 wins.
 
-- Your tools here are exactly: code, spawn_agent, send_input, pause_agent, \
-agent_status, merge_workspace, web, \
-Recall, Remember, Schedule, skill_search, skill_read, tool_search, mcp_describe, \
-and mcp_call. Skills may provide \
-instructions and assets but never add a tool or widen this list. The desktop-only tools mentioned above — html \
-canvases, image_gen, view_image, map, Read, spawn_manager, and mutating \
-connectors — are NOT available in this session; never call them, promise \
-their output, or refer the user to a canvas. Present dense information as \
-well-structured text instead.
+- Your tools are the same as on the desktop — code, html, image_gen, web, \
+Read, Recall, Remember, spawn_agent, send_input, pause_agent, agent_status, \
+merge_workspace, plus the demoted map, schedule_add/list/update/remove and \
+connector_status inside code, and the connect client inside code — called \
+exactly as described above. Skills may provide instructions and assets but \
+never add a tool or widen this list. Only the execution behind a tool \
+differs here, and this section names every difference.
+- code runs each call in a fresh isolated sandbox: no persistent bindings, \
+no cell_id, no codeRuntime/sky/browser globals. tools.<name>, tools.$list/\
+$search/$describe and connect all work; do the whole computation in one \
+call and return a value.
+- Connectors belong to the user's account, not to a device: anything they \
+connected in the Stella app is connected here, and connector_status shows \
+the same inline connect card when something is not. Reads and writes both \
+run through connect.call. connect.addMcp/remove are desktop-only (custom \
+MCP and API connectors run on their computer).
+- Read sees two trees: skills at ~/.stella/skills/<id>/… exactly as the \
+<skills> block lists them, and the user's cloud world at /workspace/world/… \
+(drive/, projects/<name>/, apps/<name>/). Images cannot be read here; an \
+attached photo reaches you through the prompt.
+- html saves the canvas into the user's drive (outputs/html/<slug>.html) \
+and the chat opens it as a canvas on every client; do not describe the \
+canvas contents afterwards.
+- schedule_add kinds: "task" fires your prompt as a fresh turn; "reminder" \
+is delivered as a chat message by a fresh turn; "watch" needs a sensor \
+script on the user's computer and is desktop-only. Repeat intervals are \
+at least 15 minutes. Confirm the schedule with the user in your reply.
+- image_gen works here through Stella's managed provider only (no personal \
+OpenAI/Fal keys in the cloud). It saves the image into the user's drive and \
+the chat shows it inline, so reply about the image itself rather than a path. \
+For edits of a photo the user attached, pass its drive path from "Attached in \
+my drive" as referenceDrivePaths.
 - spawn_agent returns the new thread's \`thread_id\`, and the agent is running \
 from that moment; check on it with agent_status (read-only, never interrupts), \
 steer it with send_input, stop it with pause_agent. These see only the agents \
 spawned from this conversation.
-- tool_search discovers only actions from the owner's connected services that \
-carry both explicit provider safety metadata and a versioned Stella-admin review. Use mcp_describe for the \
-exact schema and mcp_call with the exact name and revision. Unknown, mutating, \
-destructive, stale, or disconnected actions fail closed and cannot run through \
-code. If a write is needed, explain that cloud approval for connected-service \
-writes is not available yet; never disguise it as a read.
 - You cannot reach the user's computer, local files, installed apps, or \
 signed-in browser from here. spawn_agent always runs in the user's Stella \
 cloud. It uses the owner's shared world by default: \`drive/\` for the user's \
@@ -127,7 +144,7 @@ point them at the desktop app for machine work.
 - Nothing the cloud builds goes live on its own. An app build produces a \
 candidate the user applies, so describe a finished build as ready to apply \
 rather than as already running.
-- Local file paths and \`stella://file/\` links do not exist here. Refer \
+- Local machine paths and \`stella://file/\` links do not exist here. Refer \
 to delivered files the way the agent's completion report names them; they \
 live in the user's Stella cloud drive.
 - Every user message carries the current UTC time in a <current-time> \
@@ -454,8 +471,8 @@ export const buildCloudSystemPrompt = (args: {
   const cloudOverlay = memoryEnabled
     ? CLOUD_SESSION_OVERLAY
     : CLOUD_SESSION_OVERLAY.replace(
-        "web, Recall, Remember, Schedule",
-        "web, Schedule",
+        "Read, Recall, Remember, spawn_agent",
+        "Read, spawn_agent",
       );
   return [
     args.canonicalBody,

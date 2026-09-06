@@ -95,6 +95,10 @@ export type PublicApiType = {
     "decideMyBrowserInteraction": FunctionReference<'action', 'public', { requestId: string; interactionId: string; decision: 'done' | 'cancel'; expectedRevision: number; }, any, string | undefined>;
     "resetMyBrowserProfile": FunctionReference<'action', 'public', { requestId: string; }, any, string | undefined>;
   };
+  "cloud_connector_connect": {
+    "listMyPendingConnectRequests": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "decideMyConnectRequest": FunctionReference<'action', 'public', { requestId: string; decision: 'connect' | 'decline'; decisionRequestId: string; expectedRevision: number; }, any, string | undefined>;
+  };
   "cloud_conversation_edits": {
     "forkMyConversation": FunctionReference<'action', 'public', { requestId: string; sourceConversationId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; }, any, string | undefined>;
     "rewindMyConversation": FunctionReference<'action', 'public', { conversationId: string; requestId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; activeTurnPolicy: 'conflict' | 'cancel'; }, any, string | undefined>;
@@ -204,7 +208,7 @@ export type PublicApiType = {
     };
     "preferences": {
       "getAccountMode": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "setAccountMode": FunctionReference<'mutation', 'public', { mode: 'private_local' | 'connected'; }, any, string | undefined>;
+      "setAccountMode": FunctionReference<'mutation', 'public', { mode: 'connected' | 'private_local'; }, any, string | undefined>;
       "setPreferredBrowser": FunctionReference<'mutation', 'public', { browser: 'none' | 'arc' | 'brave' | 'chrome' | 'edge' | 'firefox' | 'opera' | 'safari' | 'vivaldi'; }, any, string | undefined>;
       "getLocale": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "setLocale": FunctionReference<'mutation', 'public', { locale: 'id' | 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'nl' | 'ru' | 'ja' | 'zh-Hans' | 'zh-Hant' | 'ko' | 'pl' | 'sv' | 'nb' | 'da' | 'fi' | 'cs' | 'el' | 'tr' | 'ro' | 'hu' | 'ar' | 'hi' | 'vi' | 'th' | 'he'; }, any, string | undefined>;

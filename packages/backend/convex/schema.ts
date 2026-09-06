@@ -26,6 +26,7 @@ import { executionPlacementSchema } from "./schema/execution_placement";
 import { cloudConversationEditsSchema } from "./schema/cloud_conversation_edits";
 import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
+import { cloudConnectorConnectSchema } from "./schema/cloud_connector_connect";
 import { cloudOutboxSchema } from "./schema/cloud_outbox";
 import { xBotSchema } from "./schema/x_bot";
 import { abuseSchema } from "./schema/abuse";
@@ -58,6 +59,7 @@ export default defineSchema({
   ...cloudConversationEditsSchema,
   ...accountExternalMediaSchema,
   ...cloudBrowserSchema,
+  ...cloudConnectorConnectSchema,
   ...cloudOutboxSchema,
   ...xBotSchema,
   ...abuseSchema,

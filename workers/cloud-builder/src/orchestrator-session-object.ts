@@ -182,10 +182,7 @@ import {
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
 import { AgentHome, buildResidentMemorySection } from "./agent-home.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
-import {
-  buildCloudSkillCatalogPrompt,
-  createCloudSkillTools,
-} from "./cloud-skill-tools.js";
+import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex } from "./hash.js";
 import { worldName } from "./workspace.js";
@@ -222,12 +219,28 @@ import {
   type CanonicalPromptLoadResult,
 } from "./cloud-prompt.js";
 import { getResponseLanguageSystemPrompt } from "@stella/runtime/kernel/runner/locale-prompt.js";
-import { createMemoryTools, createScheduleTool } from "./orchestrator-tools.js";
+import { createMemoryTools } from "./orchestrator-tools.js";
 import {
   createCloudCodeAgentTool,
   type CloudCodeSourceAgentTool,
 } from "./cloud-code-tool.js";
-import { createLazyCloudIntegrationTools } from "./lazy-cloud-integration-tools.js";
+import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
+import { createCloudHtmlTool } from "./cloud-html-tool.js";
+import { createCloudReadTool } from "./cloud-read-tool.js";
+import { createCloudScheduleTools } from "./cloud-schedule-tools.js";
+import {
+  createCloudConnectClient,
+  CloudConnectorDirectory,
+  type CloudConnectorDeclines,
+} from "./cloud-connect-client.js";
+import {
+  createCloudConnectorStatusTool,
+  type CloudConnectorConnectionOutcome,
+  type CloudConnectorConnectionRequest,
+} from "./cloud-connector-status-tool.js";
+import { createCloudMapTool } from "./cloud-map-tool.js";
+import { toolRequiresExplicitApproval } from "@stella/runtime/kernel/tools/code-tool.js";
+import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import "./conversation-hub.js";
 import {
   APPEND_MAX_BYTES,
@@ -326,6 +339,10 @@ import {
  * remain optional here solely for rolling-deploy compatibility and production
  * configurations that omit acceptance probes.
  */
+/** Desktop keeps a connect card up about this long before giving up. */
+const CONNECT_CARD_WAIT_MS = 5 * 60_000;
+const CONNECT_CARD_POLL_MS = 2_000;
+
 type Env = Pick<
   Cloudflare.Env,
   | "BUILD_SESSIONS"
@@ -2346,21 +2363,50 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     body: unknown,
     options: { capability: string; signal?: AbortSignal },
   ): Promise<Response> {
+    return this.convexRequest(
+      path,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(body),
+        signal: options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
+          : AbortSignal.timeout(30_000),
+      },
+      options.capability,
+    );
+  }
+
+  /**
+   * The general form of {@link convexPost}: a tool that polls a job or
+   * cancels one needs GET and DELETE under the same capability bearer, with
+   * its own request budget.
+   */
+  private convexRequest(
+    path: string,
+    init: {
+      method: "GET" | "POST" | "DELETE";
+      headers?: Record<string, string>;
+      body?: string;
+      signal?: AbortSignal;
+    },
+    capability: string,
+  ): Promise<Response> {
     const base = convexSiteBase(this.env);
     if (!base) {
       return Promise.reject(new Error("Convex site URL is not configured."));
     }
     return fetch(`${base}${path}`, {
-      method: "POST",
+      method: init.method,
       headers: {
-        authorization: `Bearer ${options.capability}`,
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
+        ...(init.headers ?? {}),
+        authorization: `Bearer ${capability}`,
       },
-      body: JSON.stringify(body),
-      signal: options.signal
-        ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
-        : AbortSignal.timeout(30_000),
+      ...(init.body !== undefined ? { body: init.body } : {}),
+      ...(init.signal ? { signal: init.signal } : {}),
     });
   }
 
@@ -4775,7 +4821,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           personalityOverride ?? canonicalPrompts.personalityBody,
         localeDirective: getResponseLanguageSystemPrompt(locale),
         residentSection: buildResidentMemorySection(memoryDocuments),
-        skillSection: buildCloudSkillCatalogPrompt(skillCatalog),
+        skillSection: buildCloudSkillsBlock(skillCatalog),
         memoryEnabled,
       });
       const compaction = await compactCloudHistory({
@@ -9267,6 +9313,35 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (appended.inserted) this.publish(appended.record);
   }
 
+  /**
+   * A `files` card for drive files the orchestrator's own turn produced. The
+   * outbox only projects files for spawned threads (`applyThreadCompleted`),
+   * so a direct tool such as `image_gen` publishes its own. Same card shape
+   * the clients already render for thread output.
+   */
+  private publishTurnFilesCard(
+    turnId: string,
+    writerKey: string,
+    files: Array<{
+      path: string;
+      name: string;
+      sizeBytes: number;
+      contentType: string;
+    }>,
+  ): void {
+    const appended = this.journal.appendCard({
+      turnId,
+      card: {
+        type: "files",
+        files: files.map((file) => ({ ...file, stored: true })),
+      },
+      writer: "orchestrator",
+      writerKey,
+    });
+    this.journal.setTurnSpan(turnId, appended.seq);
+    if (appended.inserted) this.publish(appended.record);
+  }
+
   private publishAgentActivation(
     turn: ChatTurnRequest,
     toolCallId: string,
@@ -9310,28 +9385,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * The cloud orchestrator's pinned tool catalog. Code-pinned on purpose —
-   * frontmatter allowlists are agent-writable home data on desktop; in the
-   * cloud the execution surface is never data-driven.
+   * The cloud orchestrator's tool catalog: the desktop orchestrator's exact
+   * model-visible contract (`orchestrator.md`'s allowlist — code, html,
+   * image_gen, web, map, Read, Recall, Remember, spawn_agent, send_input,
+   * pause_agent, agent_status, merge_workspace — plus the demoted
+   * schedule_* and connector_status tools reachable inside code, and the
+   * `connect` client inside code). The model reads one description and
+   * calls one shape on either host; only the execution behind each tool
+   * differs, and every cloud-specific difference is stated in the cloud
+   * session overlay.
    *
-   * Desktop orchestrator tools deliberately ABSENT here, each blocked on a
-   * concrete constraint rather than silently omitted (the cloud persona
-   * overlay tells the model the same list):
-   * - `Read`: reads the local filesystem; cloud files live in the drive and
-   *   reach the model via image attachments or a spawned drive agent.
-   * - `html`: renders into the desktop Canvas tab; the cloud chat surface
-   *   has no canvas host yet.
-   * - `image_gen`: the managed pipeline delivers local artifact paths and a
-   *   desktop card; needs drive-backed artifacts before it can exist here.
-   * - `view_image`: local-path reader; the attachment hydration route covers
-   *   the chat need (images ride the prompt as blocks).
-   * - `map`: renders a desktop map card; no cloud card renderer.
-   * - Mutating connector actions: cloud has no durable user-approval resume
-   *   loop yet. The pinned tool_search/MCP facade below admits only canonical,
-   *   native actions approved by both provider metadata and Stella's versioned
-   *   admin review, and revalidates both authorities server-side.
-   * - `spawn_manager`: the manager runtime coordinates local threads; cloud
-   *   equivalents need a manager loop over BuildSessions first.
+   * Code-pinned on purpose — frontmatter allowlists are agent-writable home
+   * data on desktop; in the cloud the execution surface is never data-driven.
    */
   private async createTools(
     turn: ChatTurnRequest,
@@ -9365,6 +9430,25 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           ...(signal ? { signal } : {}),
         }),
     };
+    // Resolved on first use: a turn that never reads a world file never
+    // touches the world Durable Object.
+    const worldBinding = this.env.WORLDS as typeof this.env.WORLDS | undefined;
+    const world = worldBinding
+      ? {
+          tool: async (call: { name: "Read"; arguments: Record<string, unknown> }) =>
+            worldBinding.getByName(await worldName(turn.ownerId)).tool(call),
+        }
+      : undefined;
+    const declines = this.connectorDeclines();
+    // Connectors belong to the account: the same Store integrations the
+    // desktop app connected, resolved through Convex under the turn
+    // capability. One directory per turn memoizes the catalog and the
+    // owner's live connections for every connect.* call and status check.
+    const connectors = new CloudConnectorDirectory({
+      convexFetch: (path, init) =>
+        this.convexRequest(path, init, controlPlane.token),
+      declines,
+    });
 
     /**
      * A deterministic id for one tool call, UUID-shaped so it can name a
@@ -9848,7 +9932,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         label: "Web",
         description: WEB_TOOL_DESCRIPTION,
         parameters: WEB_TOOL_PARAMETERS as unknown as TSchema,
-        codeEligibility: "read_only",
         execute: async (_id, params, signal) => {
           const args = params as {
             query?: string;
@@ -9909,18 +9992,181 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           };
         },
       },
+      createCloudImageGenTool({
+        ownerGeneration: turn.ownerGeneration,
+        conversationId: turn.conversationId,
+        turnId: turn.turnId,
+        convexFetch: (path, init) =>
+          this.convexRequest(path, init, controlPlane.token),
+        publishFiles: (writerKey, files) =>
+          this.publishTurnFilesCard(turn.turnId, writerKey, files),
+      }),
       ...(memoryEnabled ? createMemoryTools(toolContext) : []),
-      createScheduleTool(toolContext),
-      ...createLazyCloudIntegrationTools(toolContext),
-      ...(agentHome.available
-        ? createCloudSkillTools(agentHome.cloudStore(), skillCatalog)
-        : []),
+      createCloudHtmlTool({
+        turnId: turn.turnId,
+        convexFetch: (path, init) =>
+          this.convexRequest(path, init, controlPlane.token),
+        publishFiles: (writerKey, files) =>
+          this.publishTurnFilesCard(turn.turnId, writerKey, files),
+      }),
+      createCloudMapTool(),
+      createCloudReadTool({
+        ...(agentHome.available
+          ? { skills: { home: agentHome.cloudStore(), snapshot: skillCatalog } }
+          : {}),
+        ...(world ? { world } : {}),
+      }),
+      ...createCloudScheduleTools(toolContext),
+      createCloudConnectorStatusTool({
+        directory: connectors,
+        declines,
+        requestConnection: (request, signal) =>
+          this.requestCloudConnectorConnection(
+            turn,
+            controlPlane,
+            request,
+            signal,
+          ),
+      }),
     ];
     const codeTool = await createCloudCodeAgentTool({
       loader: this.env.LOADER,
       tools,
       executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
+      connect: createCloudConnectClient(connectors),
     });
-    return [codeTool, ...tools];
+    // Demotion, the device rule: with code in the active set a demoted tool
+    // leaves the direct list and is callable only as tools.<name> inside
+    // code. Approval-bearing tools stay direct so nested code can never
+    // bypass their top-level approval flow.
+    const direct = tools.filter(
+      (tool) => !tool.demoted || toolRequiresExplicitApproval(tool.approval),
+    );
+    return [codeTool, ...direct];
+  }
+
+  /**
+   * The user's memory of connect offers they declined, so the card is never
+   * re-shown for that connector in this conversation.
+   */
+  private connectorDeclines(): CloudConnectorDeclines {
+    const key = (id: string) => `connector_decline:${id}`;
+    return {
+      isDeclined: async (id) =>
+        (await this.ctx.storage.get<boolean>(key(id))) === true,
+      recordDecline: async (id) => {
+        await this.ctx.storage.put(key(id), true);
+      },
+    };
+  }
+
+  /**
+   * Show the inline connect card and wait for the answer. The card is a
+   * pending request row in Convex that every signed-in client renders
+   * (the same pattern as cloud browser interactions); the user's answer
+   * either finishes the account-level Composio connection or declines.
+   * Polling is the wait: the turn holds the tool call open while the row
+   * moves through pending → connecting → connected/declined/expired.
+   */
+  private async requestCloudConnectorConnection(
+    turn: ChatTurnRequest,
+    controlPlane: Pick<MintedTurnCapability, "token">,
+    request: CloudConnectorConnectionRequest,
+    signal?: AbortSignal,
+  ): Promise<CloudConnectorConnectionOutcome> {
+    const post = async (
+      body: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> => {
+      const response = await this.convexPost(
+        "/api/cloud/connector-connect",
+        {
+          conversationId: turn.conversationId,
+          turnId: turn.turnId,
+          ...body,
+        },
+        { capability: controlPlane.token },
+      );
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.error === "string"
+            ? payload.error
+            : `Connect card request failed (${response.status}).`,
+        );
+      }
+      return payload;
+    };
+    const readRequest = (payload: Record<string, unknown>) => {
+      const record =
+        payload.request && typeof payload.request === "object"
+          ? (payload.request as Record<string, unknown>)
+          : payload;
+      return {
+        requestId:
+          typeof record.requestId === "string" ? record.requestId : "",
+        state: typeof record.state === "string" ? record.state : "",
+        expiresAt:
+          typeof record.expiresAt === "number" ? record.expiresAt : 0,
+      };
+    };
+    let created: ReturnType<typeof readRequest>;
+    try {
+      created = readRequest(
+        await post({
+          action: "create",
+          integrationId: request.id,
+          name: request.name,
+          ...(request.description ? { description: request.description } : {}),
+          ...(request.iconUrl ? { iconUrl: request.iconUrl } : {}),
+          ...(request.category ? { category: request.category } : {}),
+          ...(request.reason ? { reason: request.reason } : {}),
+        }),
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : "unsupported",
+      };
+    }
+    if (!created.requestId) return { ok: false, reason: "unsupported" };
+    const deadline = Math.min(
+      created.expiresAt || Number.MAX_SAFE_INTEGER,
+      Date.now() + CONNECT_CARD_WAIT_MS,
+    );
+    const cancel = async () => {
+      await post({ action: "cancel", requestId: created.requestId }).catch(
+        () => undefined,
+      );
+    };
+    while (true) {
+      if (signal?.aborted) {
+        await cancel();
+        return { ok: false, reason: "cancelled" };
+      }
+      let state: string;
+      try {
+        state = readRequest(
+          await post({ action: "poll", requestId: created.requestId }),
+        ).state;
+      } catch {
+        state = "";
+      }
+      if (state === "connected") return { ok: true, status: "connected" };
+      if (state === "declined") return { ok: false, reason: "declined" };
+      if (state === "canceled") return { ok: false, reason: "cancelled" };
+      if (state === "expired" || Date.now() >= deadline) {
+        await cancel();
+        return { ok: false, reason: "timeout" };
+      }
+      // An abort just ends the wait; the loop's next check cancels the card.
+      await sleepWithAbort(
+        CONNECT_CARD_POLL_MS,
+        signal,
+        () => new Error("Connect card wait aborted."),
+      ).catch(() => undefined);
+    }
   }
 }

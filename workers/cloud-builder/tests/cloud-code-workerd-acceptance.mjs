@@ -57,63 +57,32 @@ try {
   if (!response?.ok)
     throw new Error(`workerd did not become ready:\n${output}`);
   const payload = await response.json();
-  const hash = /^[a-f0-9]{64}$/u;
-  const catalog = payload?.result?.catalog;
-  const listProof = catalog?.proof;
-  const describeProof = payload?.result?.describeProof;
-  const callProof = payload?.result?.callProof;
-  const listRequestHashes = listProof?.toolsListRequestIdSha256s;
+  const result = payload?.result;
+  const listedNames = Array.isArray(result?.listed)
+    ? result.listed.map((entry) => entry?.name)
+    : [];
   if (
     payload?.ok !== true ||
-    payload?.result?.answer !== 42 ||
-    payload?.result?.outbound !== "blocked" ||
-    payload?.result?.callOutput?.email !== "me@example.com" ||
-    !Array.isArray(catalog?.tools) ||
-    catalog.tools.length !== 2 ||
-    catalog.tools.some(
-      (tool) =>
-        typeof tool?.name !== "string" ||
-        typeof tool?.revision !== "string" ||
-        !hash.test(tool?.toolIdSha256 ?? "") ||
-        Object.hasOwn(tool, "inputSchema") ||
-        Object.hasOwn(tool, "description"),
-    ) ||
-    listProof?.protocolVersion !== "2025-03-26" ||
-    listProof?.initializedNotificationSent !== true ||
-    listProof?.toolsListCompleted !== true ||
-    listProof?.toolsListPageCount !== 2 ||
-    listProof?.toolCount !== 2 ||
-    !hash.test(listProof?.serverIdSha256 ?? "") ||
-    !hash.test(listProof?.initializeRequestIdSha256 ?? "") ||
-    !hash.test(listProof?.initializationReceiptSha256 ?? "") ||
-    !hash.test(listProof?.initializedNotificationReceiptSha256 ?? "") ||
-    !hash.test(listProof?.catalogSha256 ?? "") ||
-    !Array.isArray(listRequestHashes) ||
-    listRequestHashes.length !== 2 ||
-    listRequestHashes.some((value) => !hash.test(value)) ||
-    new Set(listRequestHashes).size !== 2 ||
-    describeProof?.describeCompleted !== true ||
-    !hash.test(describeProof?.describeRequestIdSha256 ?? "") ||
-    !hash.test(describeProof?.toolIdSha256 ?? "") ||
-    !hash.test(describeProof?.describeReceiptSha256 ?? "") ||
-    listRequestHashes.includes(describeProof?.describeRequestIdSha256) ||
-    callProof?.callCompleted !== true ||
-    !hash.test(callProof?.callRequestIdSha256 ?? "") ||
-    !hash.test(callProof?.toolIdSha256 ?? "") ||
-    !hash.test(callProof?.resultReceiptSha256 ?? "") ||
-    callProof?.initializeRequestIdSha256 !==
-      listProof?.initializeRequestIdSha256 ||
-    listRequestHashes.includes(callProof?.callRequestIdSha256) ||
-    describeProof?.describeRequestIdSha256 === callProof?.callRequestIdSha256 ||
-    describeProof?.toolIdSha256 !== callProof?.toolIdSha256 ||
-    payload?.hostProof?.rpcRequestCount !== 5 ||
-    payload?.hostProof?.rawRpcIdsDistinct !== true ||
-    payload?.hostProof?.rawRpcIdsLeaked !== false ||
-    payload?.hostProof?.privateFieldsLeaked !== false ||
-    payload?.hostProof?.initializedNotificationCount !== 1 ||
-    payload?.hostProof?.toolsListPageCount !== 2 ||
-    payload?.hostProof?.toolsDescribeCount !== 1 ||
-    payload?.hostProof?.toolsCallCount !== 1
+    result?.answer !== 42 ||
+    result?.outbound !== "blocked" ||
+    listedNames.length !== 1 ||
+    listedNames[0] !== "read_value" ||
+    result?.listed?.[0]?.access !== "tools.read_value" ||
+    !Array.isArray(result?.hits) ||
+    result.hits[0] !== "read_value" ||
+    result?.describedInvocation !== "tools.read_value(args)" ||
+    result?.value !== "value:alpha" ||
+    result?.caught !== 'No value stored for "missing".' ||
+    result?.docsMentionsCall !== true ||
+    !Array.isArray(result?.discovered) ||
+    result.discovered[0] !== "gmail" ||
+    result?.calledEmail !== "me@example.com" ||
+    typeof result?.addMcp !== "string" ||
+    !result.addMcp.includes("desktop-only") ||
+    result?.frozen !== true ||
+    payload?.hostProof?.nestedCallCount !== 2 ||
+    payload?.hostProof?.connectCallCount !== 2 ||
+    payload?.hostProof?.secretLeaked !== false
   ) {
     throw new Error(`unexpected workerd result: ${JSON.stringify(payload)}`);
   }
@@ -121,9 +90,8 @@ try {
     `${JSON.stringify({
       ok: true,
       runtime: "workerd",
-      toolCount: listProof.toolCount,
-      listPageCount: listProof.toolsListPageCount,
-      rpcRequestCount: payload.hostProof.rpcRequestCount,
+      nestedCallCount: payload.hostProof.nestedCallCount,
+      connectCallCount: payload.hostProof.connectCallCount,
       outbound: payload.result.outbound,
     })}\n`,
   );

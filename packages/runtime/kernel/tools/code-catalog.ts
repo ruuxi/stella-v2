@@ -484,3 +484,20 @@ export const describeToolCatalogEntry = (
   ...(tool.label ? { label: tool.label } : {}),
   ...(tool.workingText ? { workingText: tool.workingText } : {}),
 });
+
+/**
+ * The workflow paragraph that precedes the demoted catalog in code's
+ * description. Shared by every host that advertises `code` (device kernel,
+ * external engines, the cloud Durable Object) so the model reads one
+ * contract everywhere.
+ */
+export const DEMOTED_WORKFLOW_TEXT =
+  'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The compact catalog below lists names, signatures, and descriptions. When it is marked COMPLETE, call simple listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) for ranked compact matches. For an unfamiliar or complex match, optionally run await tools.$describe(name) to load exactly that tool\'s complete schema, then invoke tools.<name>(args). Do not guess tool names.';
+
+/** Workflow paragraph + budgeted signature catalog; "" for an empty set. */
+export const buildDemotedCodeSuffix = (
+  demotedTools: readonly DemotedToolCatalogEntry[],
+): string =>
+  demotedTools.length > 0
+    ? `\n\n${DEMOTED_WORKFLOW_TEXT}\n\n${buildCatalogSection(demotedTools)}`
+    : "";

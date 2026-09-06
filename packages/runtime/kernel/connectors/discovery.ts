@@ -63,53 +63,11 @@ const truncateDescription = (value: string | undefined): string => {
   return `${collapsed.slice(0, DESCRIPTION_LIMIT - 1)}…`;
 };
 
-type ScoreFields = {
-  id: string;
-  name: string;
-  category?: string;
-  description?: string;
-};
-
-/**
- * Shared by connector discovery and direct connector-status resolution.
- * Exact id/name hits dominate so `discover gmail` always puts the Gmail
- * integration first even though "mail" appears in dozens of descriptions.
- */
-export const scoreConnectorMatch = (
-  tokens: readonly string[],
-  fields: ScoreFields,
-): number => {
-  if (tokens.length === 0) return 0;
-  const id = fields.id.toLowerCase();
-  const name = fields.name.toLowerCase();
-  const nameTokens = name.split(/[^a-z0-9]+/u).filter(Boolean);
-  const idTokens = id.split(/[^a-z0-9]+/u).filter(Boolean);
-  const category = (fields.category ?? "").toLowerCase();
-  const description = (fields.description ?? "").toLowerCase();
-  let score = 0;
-  for (const token of tokens) {
-    if (id === token || name === token) {
-      score += 50;
-    } else if (
-      idTokens.includes(token) ||
-      nameTokens.includes(token)
-    ) {
-      score += 30;
-    } else if (
-      idTokens.some((entry) => entry.startsWith(token)) ||
-      nameTokens.some((entry) => entry.startsWith(token))
-    ) {
-      score += 20;
-    } else if (id.includes(token) || name.includes(token)) {
-      score += 12;
-    } else if (category.includes(token)) {
-      score += 6;
-    } else if (description.includes(token)) {
-      score += 3;
-    }
-  }
-  return score;
-};
+export {
+  scoreConnectorMatch,
+  type ConnectorScoreFields,
+} from "./discovery-score.js";
+import { scoreConnectorMatch } from "./discovery-score.js";
 
 export const discoverConnectors = async (
   stellaAppDir: string,

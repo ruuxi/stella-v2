@@ -1,6 +1,7 @@
 import { projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
 import { splitReplyRefs, toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
+import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
 import type { ToolStep } from "./tool-activity";
 import {
   hasToolCalls,
@@ -74,6 +75,122 @@ const toolCalls = (
   });
 };
 
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter(
+        (entry): entry is string =>
+          typeof entry === "string" && entry.trim().length > 0,
+      )
+    : [];
+
+/**
+ * One inline image card per `image_gen` call the orchestrator made in this
+ * assistant row — the cloud twin of the desktop bridge's tool-start /
+ * tool-end artifacts. A call without a result yet renders as generating;
+ * a settled call carries the drive paths the cloud tool saved the image to.
+ */
+const generatedImageArtifacts = (args: {
+  record: JournalMessageRecord;
+  conversationId: string;
+  toolResults: ReadonlyMap<
+    string,
+    { error: boolean; payload: Record<string, unknown> }
+  >;
+  terminal: Extract<JournalRecord, { kind: "turn" }> | undefined;
+  createdAt: number;
+}): ChatArtifact[] => {
+  const artifacts: ChatArtifact[] = [];
+  for (const call of toolCalls(args.record)) {
+    if (call.name !== "image_gen") continue;
+    const result = args.toolResults.get(call.id);
+    const details = asRecord(result?.payload.details);
+    const drivePaths = stringList(details?.drivePaths);
+    const status = typeof details?.status === "string" ? details.status : "";
+    const generationState: "running" | "completed" | "failed" | "canceled" =
+      result
+        ? !result.error && drivePaths.length > 0
+          ? "completed"
+          : status === "canceled"
+            ? "canceled"
+            : "failed"
+        : args.terminal
+          ? args.terminal.phase === "canceled"
+            ? "canceled"
+            : "failed"
+          : "running";
+    const prompt =
+      (typeof details?.prompt === "string" && details.prompt) ||
+      call.args?.prompt;
+    const aspectRatio =
+      (typeof details?.aspectRatio === "string" && details.aspectRatio) ||
+      call.args?.aspectRatio;
+    artifacts.push({
+      id: `cloud:${args.record.turnId}:image:${call.id}`,
+      conversationId: args.conversationId,
+      payload: {
+        kind: "media",
+        asset: { kind: "image", filePaths: drivePaths },
+        createdAt: args.createdAt,
+        presentation: "inline-image",
+        toolCallId: call.id,
+        generationState,
+        ...(drivePaths.length ? { driveBacked: true } : {}),
+        ...(prompt ? { prompt } : {}),
+        ...(aspectRatio ? { aspectRatio } : {}),
+        ...(typeof details?.capability === "string"
+          ? { capability: details.capability }
+          : {}),
+      },
+    });
+  }
+  return artifacts;
+};
+
+/** Keep a runaway turn from stacking maps down the timeline. */
+const MAX_MAP_CARDS_PER_TURN = 3;
+
+/**
+ * One inline map card per resolved `map` call in this assistant row — the
+ * cloud twin of the desktop bridge's `map-route` artifact. A map resolved
+ * inside `code` rides that call's lifted `maps`, exactly as on desktop.
+ */
+const mapRouteArtifacts = (args: {
+  record: JournalMessageRecord;
+  conversationId: string;
+  toolResults: ReadonlyMap<
+    string,
+    { error: boolean; payload: Record<string, unknown> }
+  >;
+  createdAt: number;
+}): ChatArtifact[] => {
+  const artifacts: ChatArtifact[] = [];
+  for (const call of toolCalls(args.record)) {
+    if (call.name !== "map" && call.name !== "code") continue;
+    const result = args.toolResults.get(call.id);
+    if (!result || result.error) continue;
+    const details = asRecord(result.payload.details);
+    const candidates = Array.isArray(details?.maps)
+      ? details.maps
+      : [details?.map];
+    candidates.forEach((candidate, index) => {
+      if (artifacts.length >= MAX_MAP_CARDS_PER_TURN) return;
+      if (!isMapRouteArtifact(candidate)) return;
+      artifacts.push({
+        id: `cloud:${args.record.turnId}:map:${call.id}:${index}`,
+        conversationId: args.conversationId,
+        payload: {
+          kind: "map-route",
+          version: 1,
+          ...(candidate.title ? { title: candidate.title } : {}),
+          markers: candidate.markers,
+          ...(candidate.route ? { route: candidate.route } : {}),
+        },
+      });
+    });
+  }
+  return artifacts;
+};
+
 const completeWindow = (
   records: readonly JournalRecord[],
   hasOlder: boolean,
@@ -115,7 +232,10 @@ export const projectCloudConversationMessages = (args: {
   for (const [turnId, turn] of byTurn) {
     let userMessageId = `cloud:${turnId}:user`;
     let terminal: Extract<JournalRecord, { kind: "turn" }> | undefined;
-    const toolResults = new Map<string, { error: boolean }>();
+    const toolResults = new Map<
+      string,
+      { error: boolean; payload: Record<string, unknown> }
+    >();
     for (const record of turn) {
       if (record.kind === "turn" && record.phase !== "started") {
         terminal = record;
@@ -125,7 +245,12 @@ export const projectCloudConversationMessages = (args: {
           typeof record.payload.toolCallId === "string"
             ? record.payload.toolCallId
             : "";
-        if (id) toolResults.set(id, { error: record.payload.isError === true });
+        if (id) {
+          toolResults.set(id, {
+            error: record.payload.isError === true,
+            payload: record.payload,
+          });
+        }
       }
     }
 
@@ -178,7 +303,22 @@ export const projectCloudConversationMessages = (args: {
         const threadId = wake?.kind === "message" ? /\(thread ([^)]+)\)/u.exec(messageText(wake.payload))?.[1] : undefined;
         if (threadId) replyRefs.push({ kind: "agent", threadId, title: "" });
       }
-      if (!value && !tools.length) continue;
+      const artifacts = [
+        ...mapRouteArtifacts({
+          record,
+          conversationId: args.conversationId ?? "",
+          toolResults,
+          createdAt,
+        }),
+        ...generatedImageArtifacts({
+          record,
+          conversationId: args.conversationId ?? "",
+          toolResults,
+          terminal,
+          createdAt,
+        }),
+      ];
+      if (!value && !tools.length && !artifacts.length) continue;
       messages.push({
         id: `cloud:${turnId}:message:${record.seq}`,
         requestId: userMessageId,
@@ -189,6 +329,7 @@ export const projectCloudConversationMessages = (args: {
         canonicalCreatedAt: record.createdAtMs,
         sequence: record.seq,
         ...(tools.length ? { toolSteps: tools } : {}),
+        ...(artifacts.length ? { artifacts } : {}),
       });
     }
 
@@ -204,6 +345,17 @@ export const projectCloudConversationMessages = (args: {
         let payload: MobileDisplayPayload;
         if (extension === "pdf") {
           payload = { kind: "pdf", filePath: path, title: file.name };
+        } else if (extension === "html" || extension === "htm") {
+          // A cloud `html` canvas: the orchestrator wrote it into the drive.
+          const slug = file.name.replace(/\.html?$/i, "");
+          payload = {
+            kind: "canvas-html",
+            filePath: path,
+            title: slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+            slug,
+            createdAt: turn.at(-1)?.createdAtMs ?? 0,
+            driveBacked: true,
+          };
         } else if (extension === "md" || extension === "markdown") {
           payload = {
             kind: "markdown",

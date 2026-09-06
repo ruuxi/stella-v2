@@ -12566,7 +12566,7 @@ const stepCloudSkillDiscoveryUse = async ({
     state.identity,
     owner.conversationId,
     {
-      prompt: `Use skill_search for the exact acceptance capability ${context.runId}. Report the exact skill id and version from the tool result.`,
+      prompt: `Look at the <skills> block in your prompt for the exact acceptance capability ${context.runId}, then open that skill's SKILL.md with Read at the path the block lists. Report the exact skill id and version from the tool result.`,
       clientMsgId: `skill-discovery-${context.runId}`,
     },
     rawLog,
@@ -12579,12 +12579,15 @@ const stepCloudSkillDiscoveryUse = async ({
     rawLog,
   );
   const discoveryRows = recordsForTurn(discoveryJournal, discovery.turnId);
-  const searchEvidence = matchedToolReceipts(discoveryRows, "skill_search");
+  const searchEvidence = matchedToolReceipts(discoveryRows, "Read");
   assert(
-    searchEvidence.length === 1 &&
-      canonicalJson(searchEvidence[0].result.payload).includes(skill.skillId) &&
-      canonicalJson(searchEvidence[0].result.payload).includes(skill.versionId),
-    "Cloud discovery turn did not call skill_search and receive the exact authorized version.",
+    searchEvidence.length >= 1 &&
+      searchEvidence.some(
+        (receipt) =>
+          canonicalJson(receipt.result.payload).includes(skill.skillId) &&
+          canonicalJson(receipt.result.payload).includes(skill.versionId),
+      ),
+    "Cloud discovery turn did not Read the listed skill and receive the exact authorized version.",
   );
   const use = await electronCloudTurn(
     context,
@@ -12592,7 +12595,7 @@ const stepCloudSkillDiscoveryUse = async ({
     state.identity,
     owner.conversationId,
     {
-      prompt: `Use skill_read on exact skill_id ${skill.skillId} for SKILL.md, then use skill_read again for ${assetPath}. Return the exact asset marker ${assetText}.`,
+      prompt: `Use Read on ~/.stella/skills/${skill.slug}/SKILL.md, then use Read again on ~/.stella/skills/${skill.slug}/${assetPath}. Return the exact asset marker ${assetText}.`,
       clientMsgId: `skill-use-${context.runId}`,
     },
     rawLog,
@@ -12605,9 +12608,9 @@ const stepCloudSkillDiscoveryUse = async ({
     rawLog,
   );
   const useRows = recordsForTurn(useJournal, use.turnId);
-  const readEvidence = matchedToolReceipts(useRows, "skill_read");
+  const readEvidence = matchedToolReceipts(useRows, "Read");
   const skillFileReceipt = readEvidence.find((receipt) =>
-    canonicalJson(receipt.block).includes('"path":"SKILL.md"'),
+    canonicalJson(receipt.block).includes("/SKILL.md"),
   );
   const assetReceipt = readEvidence.find((receipt) =>
     canonicalJson(receipt.block).includes(assetPath),

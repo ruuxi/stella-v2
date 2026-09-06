@@ -110,7 +110,7 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
     expect(work).toBeUndefined();
   });
 
-  it("classifies a spawn_manager lifecycle start as inline background work", () => {
+  it("classifies a legacy manager-typed lifecycle start as inline background work", () => {
     const work = getBackgroundWork([
       started("manager-thread", "Coordinate the launch", {
         agentType: "manager",

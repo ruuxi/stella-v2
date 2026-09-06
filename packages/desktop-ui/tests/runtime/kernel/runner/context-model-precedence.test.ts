@@ -86,7 +86,7 @@ describe("spawn_agent Stella reasoning clamping", () => {
   });
 });
 
-describe("spawn_manager model inheritance snapshots", () => {
+describe("legacy manager-typed spawn model inheritance snapshots", () => {
   const stellaRoute = (id: string): ResolvedLlmRoute =>
     ({
       model: { id, provider: "stella" },

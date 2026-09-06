@@ -25,7 +25,10 @@ import type {
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { acquireAbortLatch } from "@stella/runtime/kernel/agent-core/abort-bridge.js";
-import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
+import {
+  forkAbortTimer,
+  runToolEffect,
+} from "@stella/runtime/kernel/tools/effect-runtime.js";
 import {
   cloneBoundedJsonValue,
   truncateUtf8,
@@ -33,6 +36,7 @@ import {
   type BoundedJsonLimits,
 } from "./cloud-code-bounds.js";
 import {
+  CLOUD_CODE_INTRINSIC_NAMES,
   CLOUD_CODE_WORKER_MAX_STRING_BYTES,
   CLOUD_CODE_WORKER_MAX_VALUE_DEPTH,
   CLOUD_CODE_WORKER_MAX_VALUE_ENTRIES,
@@ -171,6 +175,8 @@ export type CloudCodeExecutionRequest = Readonly<{
   timeoutMs?: number;
   signal?: AbortSignal;
   approvalGate?: CloudCodeApprovalGate;
+  /** `$`-named intrinsics; every key must be in CLOUD_CODE_INTRINSIC_NAMES. */
+  intrinsics?: Readonly<Record<string, CloudCodeIntrinsic>>;
   /** Host-only diagnostics. The original error is never sent to generated code. */
   onToolError?: (
     error: unknown,
@@ -197,6 +203,63 @@ type DispatchFailure = Readonly<{
   code: DispatchFailureCode;
   tool: CloudCodeToolNameMapping;
 }>;
+
+/**
+ * The host-side code clock: the execution deadline counts only the time the
+ * sandbox spends in its own code. It pauses while a nested host call is in
+ * flight — a connect card waiting on the user, an image job, a connector
+ * action — so those calls are bounded by their own timeouts, not by the
+ * sandbox's. The child module keeps an identical clock for its own race.
+ */
+type CodeClock = Readonly<{
+  expired: Promise<void>;
+  pause(): void;
+  resume(): void;
+  dispose(): void;
+}>;
+
+const createCodeClock = (timeoutMs: number): CodeClock => {
+  let remainingMs = timeoutMs;
+  let cancelTimer: (() => void) | null = null;
+  let startedAt = 0;
+  let inflight = 0;
+  let disposed = false;
+  let expire: () => void = () => {};
+  const expired = new Promise<void>((resolve) => {
+    expire = resolve;
+  });
+  const start = () => {
+    if (disposed || cancelTimer !== null) return;
+    startedAt = Date.now();
+    cancelTimer = forkAbortTimer(remainingMs, () => {
+      cancelTimer = null;
+      expire();
+    });
+  };
+  const stop = () => {
+    if (cancelTimer === null) return;
+    cancelTimer();
+    cancelTimer = null;
+    remainingMs = Math.max(1, remainingMs - (Date.now() - startedAt));
+  };
+  start();
+  return {
+    expired,
+    pause: () => {
+      inflight += 1;
+      if (inflight === 1) stop();
+    },
+    resume: () => {
+      inflight = Math.max(0, inflight - 1);
+      if (inflight === 0) start();
+    },
+    dispose: () => {
+      disposed = true;
+      cancelTimer?.();
+      cancelTimer = null;
+    },
+  };
+};
 
 const definitionsByPreparedTools = new WeakMap<
   PreparedCloudCodeTools,
@@ -225,6 +288,41 @@ export class CloudCodeConfigurationError extends Error {
     this.name = "CloudCodeConfigurationError";
   }
 }
+
+/**
+ * A nested tool's own model-visible failure. Unlike a host exception, this
+ * is the tool telling the model what went wrong (the device kernel throws
+ * the tool's `error` text into the REPL the same way), so it rejects the
+ * awaiting call inside the sandbox — catchable by generated code — instead
+ * of failing the whole execution.
+ */
+export class CloudCodeNestedToolError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CloudCodeNestedToolError";
+  }
+}
+
+const MAX_NESTED_ERROR_CHARS = 4_000;
+
+const nestedErrorMessage = (error: unknown): string => {
+  const raw =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : "The call failed.";
+  return truncateUtf8(raw, MAX_NESTED_ERROR_CHARS, "[error truncated]");
+};
+
+/**
+ * Sandbox intrinsics (`tools.$search`, `tools.$describe`, `connect.*`)
+ * resolved host-side. They share the RPC bridge and value bounds with tools
+ * but are not metered as nested tool calls, matching the device kernel where
+ * `$search`/`$describe` are catalog lookups rather than tool executions.
+ */
+export type CloudCodeIntrinsic = (
+  input: unknown,
+  context: Readonly<{ executionId: string; signal: AbortSignal }>,
+) => Promise<unknown> | unknown;
 
 const assertToolName = (rawName: string): void => {
   if (!rawName || rawName !== rawName.trim()) {
@@ -553,6 +651,8 @@ const createProvider = (
   approvalGate: CloudCodeApprovalGate | undefined,
   onToolError: CloudCodeExecutionRequest["onToolError"],
   setDispatchFailure: (failure: DispatchFailure) => void,
+  intrinsics: CloudCodeExecutionRequest["intrinsics"],
+  clock: Pick<CodeClock, "pause" | "resume">,
 ): ResolvedProvider => {
   const fns: Record<string, (...args: unknown[]) => Promise<unknown>> =
     Object.create(null) as Record<
@@ -561,6 +661,44 @@ const createProvider = (
     >;
   let sequence = 0;
   let activeCalls = 0;
+
+  for (const [name, intrinsic] of Object.entries(intrinsics ?? {})) {
+    if (!CLOUD_CODE_INTRINSIC_NAMES.has(name)) {
+      throw new CloudCodeConfigurationError(
+        `Cloud code intrinsic "${name}" is not a reserved intrinsic name.`,
+      );
+    }
+    fns[name] = async (...args: unknown[]): Promise<unknown> => {
+      if (signalController.signal.aborted) {
+        throw new Error("Cloud code execution was canceled.");
+      }
+      const boundedInput = cloneBoundedJsonValue(args[0], NESTED_VALUE_LIMITS);
+      if (!boundedInput.ok) {
+        throw new Error(`${name} input exceeded the sandbox value limit.`);
+      }
+      let result: unknown;
+      clock.pause();
+      try {
+        result = await intrinsic(boundedInput.value, {
+          executionId,
+          signal: signalController.signal,
+        });
+      } catch (error) {
+        if (signalController.signal.aborted) {
+          throw new Error("Cloud code execution was canceled.");
+        }
+        throw new Error(nestedErrorMessage(error));
+      } finally {
+        clock.resume();
+      }
+      if (result === undefined) return undefined;
+      const boundedResult = cloneBoundedJsonValue(result, NESTED_VALUE_LIMITS);
+      if (!boundedResult.ok) {
+        throw new Error(`${name} result exceeded the sandbox value limit.`);
+      }
+      return boundedResult.value;
+    };
+  }
 
   definitions.forEach((tool, index) => {
     const mapping = mappings[index];
@@ -573,6 +711,7 @@ const createProvider = (
     fns[tool.rawName] = async (...args: unknown[]): Promise<unknown> => {
       const toolCallId = `${executionId}:${sequence + 1}:${mapping.sanitizedName}`;
       let countedActiveCall = false;
+      clock.pause();
       const contextBase = {
         executionId,
         toolCallId,
@@ -651,6 +790,12 @@ const createProvider = (
           if (signalController.signal.aborted) {
             throw new Error("Cloud code execution was canceled.");
           }
+          if (error instanceof CloudCodeNestedToolError) {
+            // The tool's own report: reject this one call so generated
+            // code can catch it, the way the device REPL rethrows a tool's
+            // `error` text. Host exceptions below stay opaque and fatal.
+            throw new Error(nestedErrorMessage(error));
+          }
           try {
             await onToolError?.(error, context);
           } catch {
@@ -659,6 +804,7 @@ const createProvider = (
           return fail("tool_failed");
         }
       } finally {
+        clock.resume();
         if (countedActiveCall) activeCalls -= 1;
       }
     };
@@ -744,6 +890,7 @@ export const executeCloudCodeWithExecutorFactory = async (
 
   const signalController = new AbortController();
   let dispatchFailure: DispatchFailure | undefined;
+  const clock = createCodeClock(timeout);
   const provider = createProvider(
     definitions,
     request.tools.nameMappings,
@@ -754,6 +901,8 @@ export const executeCloudCodeWithExecutorFactory = async (
     (failure) => {
       dispatchFailure ??= failure;
     },
+    request.intrinsics,
+    clock,
   );
 
   const boundedExecution = Effect.scoped(
@@ -850,10 +999,11 @@ export const executeCloudCodeWithExecutorFactory = async (
       );
 
       const abortLatch = yield* acquireAbortLatch(request.signal);
+      yield* Effect.addFinalizer(() => Effect.sync(() => clock.dispose()));
       return yield* Effect.raceFirst(
         execution,
         Effect.raceFirst(
-          Effect.sleep(timeout).pipe(
+          Effect.promise(() => clock.expired).pipe(
             Effect.flatMap(() =>
               interrupt("timeout", "Cloud code execution timed out."),
             ),

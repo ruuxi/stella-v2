@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { extractFrontmatter } from "../frontmatter.js";
 import { statSignature } from "./fs-signature.js";
+import { renderInlineSkillCatalogBlock } from "./skill-catalog-render.js";
 
 export const INLINE_SKILL_CATALOG_THRESHOLD = 50;
 
@@ -181,37 +182,6 @@ export const shouldUseAutomaticSkillExplore = async (
 ): Promise<boolean> => {
   const locations = await listSkillLocations(stellaAppDir);
   return locations.length > INLINE_SKILL_CATALOG_THRESHOLD;
-};
-
-const renderInlineSkillCatalogBlock = (
-  entries: readonly SkillCatalogEntry[],
-): string => {
-  const lines = [
-    "<skills>",
-    "## Skills",
-  ];
-
-  if (entries.length === 0) {
-    lines.push("- No saved skills yet.");
-  } else {
-    for (const entry of entries) {
-      const suffix = entry.hasProgram ? " Includes optional `scripts/program.ts`." : "";
-      lines.push(
-        `- \`${entry.id}\` — ${entry.description} (path: ${entry.path})${suffix}`,
-      );
-    }
-  }
-
-  lines.push("## How to use skills");
-  lines.push(
-    "- If a task matches a skill description, open its `SKILL.md` first with `Read`.",
-  );
-  lines.push(
-    "- When you finish a non-trivial reusable workflow, consider saving it as a new skill under `~/.stella/skills/`.",
-  );
-  lines.push("</skills>");
-
-  return lines.join("\n");
 };
 
 const renderPlaceholderSkillCatalogBlock = (totalSkills: number): string =>

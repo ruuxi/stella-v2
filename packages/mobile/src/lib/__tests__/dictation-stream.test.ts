@@ -126,6 +126,36 @@ test("dictation opening closes rejected and cancelled sockets without starting a
     assert.equal(await completedText, "A short recorded phrase.");
     assert.equal(completedSocket.onmessage, null);
 
+    let invalidFrames = 0;
+    const batching = new DictationStream(undefined, () => { invalidFrames++; });
+    const batchingOpen = batching.open();
+    await flush();
+    const batchSocket = Socket.instances.at(-1);
+    batchSocket.open();
+    batchSocket.receive({ sessionId: "accepted-batches" });
+    await batchingOpen;
+    batching.send(new ArrayBuffer(0));
+    assert.equal(batchSocket.sent.length, 0);
+    for (const length of [32000, 32002, 35200, 96008]) {
+      batchSocket.sent = [];
+      const input = Uint8Array.from({ length }, (_, index) => index % 251);
+      batching.send(input.buffer);
+      assert.ok(batchSocket.sent.every(frame => frame.byteLength <= 32000 && frame.byteLength % 2 === 0));
+      const rebuilt = new Uint8Array(length);
+      let cursor = 0;
+      for (const frame of batchSocket.sent) {
+        rebuilt.set(new Uint8Array(frame), cursor);
+        cursor += frame.byteLength;
+      }
+      assert.equal(cursor, length);
+      assert.deepEqual(rebuilt, input);
+    }
+    const validCount = batchSocket.sent.length;
+    batching.send(new ArrayBuffer(3));
+    assert.equal(batchSocket.sent.length, validCount, "odd PCM is never truncated or sent");
+    assert.equal(invalidFrames, 1);
+    batching.cancel();
+
     let releaseConfig;
     config = () => new Promise(resolve => { releaseConfig = resolve; });
     const beforeConfig = new DictationStream();

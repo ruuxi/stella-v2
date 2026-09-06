@@ -1,6 +1,9 @@
 import { getConvexToken } from "./auth-token";
 import { postJson } from "./http";
 
+// The relay accepts at most one second of 16 kHz mono signed PCM per frame.
+const MAX_PCM_FRAME_BYTES = 16_000 * 2;
+
 type RealtimeConfig = { relayOrigin: string; modelId: string };
 type TranscriptFrame = {
   type?: unknown;
@@ -138,8 +141,36 @@ export class DictationStream {
   }
 
   send(bytes: ArrayBuffer): void {
-    if (this.socket?.readyState === WebSocket.OPEN && bytes.byteLength > 0) {
-      this.socket.send(bytes);
+    const socket = this.socket;
+    if (
+      this.cancelled ||
+      this.streamError ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN ||
+      bytes.byteLength === 0
+    )
+      return;
+    if (bytes.byteLength % 2 !== 0) {
+      this.fail(new Error("The microphone returned invalid audio."));
+      return;
+    }
+    // Native delivery can coalesce beyond the requested interval (including
+    // the final flush). Preserve PCM sample boundaries/order while enforcing
+    // the relay's frame limit independently of native callback timing.
+    try {
+      for (
+        let offset = 0;
+        offset < bytes.byteLength;
+        offset += MAX_PCM_FRAME_BYTES
+      ) {
+        socket.send(
+          bytes.byteLength <= MAX_PCM_FRAME_BYTES
+            ? bytes
+            : bytes.slice(offset, offset + MAX_PCM_FRAME_BYTES),
+        );
+      }
+    } catch {
+      this.fail(new Error("Could not send dictation audio."));
     }
   }
 

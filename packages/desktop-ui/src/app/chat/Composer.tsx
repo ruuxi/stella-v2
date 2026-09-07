@@ -161,13 +161,11 @@ function ComposerImpl({
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;
   // A pinned model picker keeps the toolbar row visible even while the
-  // textarea is empty (`updateComposerTextareaExpansion` only clears
-  // `composerExpanded`, so the pin wins). Inline dictation replaces the
-  // whole toolbar row, so the pin defers to it rather than expanding an
-  // empty shell around the recording bar.
+  // textarea is empty. Dictation also needs the expanded shape: its live
+  // transcript occupies the text area above the waveform and controls.
   const modelPinned = useComposerModelPinned();
   const isExpanded =
-    composerExpanded || dictationBelow || (modelPinned && !dictationInline);
+    composerExpanded || dictation.isRecordingVisible || modelPinned;
 
   useAnimatedComposerShell({
     shellRef,
@@ -287,6 +285,19 @@ function ComposerImpl({
 
             {dictationInline ? (
               <DictationRecordingBar
+                className="composer-dictation-inline"
+                placeholder={t("features.dictation.listening")}
+                leading={
+                  <ComposerAddMenu
+                    className="composer-add-button"
+                    title={t("app.chat.composer.add")}
+                    setChatContext={setChatContext}
+                    contextSuggestions={contextSuggestions.suggestions}
+                    onSelectContextSuggestion={
+                      contextSuggestions.selectSuggestion
+                    }
+                  />
+                }
                 levels={dictation.levels}
                 elapsedMs={dictation.elapsedMs}
                 transcriptPreview={dictation.transcriptPreview}

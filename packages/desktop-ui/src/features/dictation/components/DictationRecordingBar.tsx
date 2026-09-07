@@ -1,7 +1,7 @@
 /**
  * DictationRecordingBar — replaces the composer's textarea + toolbar while
- * dictation is active. The surrounding pill grows as cumulative text
- * wraps, while the waveform and controls remain anchored underneath:
+ * dictation is active. The transcript grows as cumulative text wraps,
+ * while the waveform and controls remain anchored underneath:
  *
  *   A live transcript that can wrap and revise
  *   [waveform — flex 1]   [0:24]   [X]   [✓]   [↑ (optional)]
@@ -13,7 +13,7 @@
  * uses one <canvas>, so transcript and meter updates do not reconcile the chat tree.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/shared/lib/utils";
 import { ArrowUp, Check, X } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
@@ -25,6 +25,11 @@ import {
 import "./dictation-recording-bar.css";
 
 type DictationRecordingBarProps = {
+  className?: string;
+  /** The composer's add button, placed beside the waveform. */
+  leading?: ReactNode;
+  /** Reserves the text area until the first transcript arrives. */
+  placeholder?: string;
   levels: number[];
   elapsedMs: number;
   transcriptPreview: DictationTranscriptPreview;
@@ -41,6 +46,9 @@ type DictationRecordingBarProps = {
 };
 
 export function DictationRecordingBar({
+  className,
+  leading,
+  placeholder,
   levels,
   elapsedMs,
   transcriptPreview,
@@ -52,13 +60,15 @@ export function DictationRecordingBar({
   const t = useT();
   const transcript = useDictationTranscriptPreview(transcriptPreview);
   return (
-    <div className="composer-dictation-recording-bar">
+    <div className={cn("composer-dictation-recording-bar", className)}>
       <LiveTranscript
+        placeholder={placeholder}
         text={transcript.text}
         revision={transcript.revision}
         stableWordCount={transcript.stableWordCount}
       />
       <div className="composer-dictation-recording-row">
+        {leading}
         <DictationWaveform levels={levels} />
         <span className="composer-dictation-timer" aria-live="polite">
           {formatElapsed(elapsedMs)}
@@ -110,15 +120,23 @@ export function DictationRecordingBar({
 }
 
 function LiveTranscript({
+  placeholder,
   text,
   revision,
   stableWordCount,
 }: {
+  placeholder?: string;
   text: string;
   revision: number;
   stableWordCount: number;
 }) {
-  if (!text) return null;
+  if (!text) {
+    return placeholder ? (
+      <div className="composer-dictation-transcript composer-dictation-transcript--placeholder">
+        {placeholder}
+      </div>
+    ) : null;
+  }
   const words = tokenizeDictationTranscript(text);
   return (
     <div

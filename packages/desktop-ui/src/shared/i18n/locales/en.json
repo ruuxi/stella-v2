@@ -1492,6 +1492,7 @@
     },
     "dictation": {
       "cancel": "Cancel dictation",
+      "listening": "Listening…",
       "stopAndTranscribe": "Stop and transcribe",
       "stopAndTranscribeLabel": "Stop dictation and transcribe",
       "stopTranscribeSend": "Stop, transcribe, and send",

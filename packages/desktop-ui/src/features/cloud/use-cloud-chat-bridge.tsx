@@ -1,3 +1,4 @@
+import { journalWorkingActivity } from "@stella/contracts/journal-working-activity";
 import {
   useCallback,
   useEffect,
@@ -277,6 +278,8 @@ export type CloudChatBridge = {
   isStreaming: boolean;
   runtimeStatusText: string | null;
   activeToolName: string | null;
+  activeToolCallId: string | null;
+  answerLanded: boolean;
   pendingUserMessageId: string | null;
   isInitialLoading: boolean;
   sendMessage: (args: SendMessageArgs) => Promise<boolean>;
@@ -512,7 +515,12 @@ export function useCloudChatBridge({
   const pendingUserMessageId = latestInFlightCloudUserMessageId(
     conversation.pending,
   );
-  const activeToolName = conversation.state.live?.toolName ?? null;
+  const activity = useMemo(
+    () => journalWorkingActivity(completeRecords, conversation.state.live?.turnId ?? null),
+    [completeRecords, conversation.state.live?.turnId],
+  );
+  const activeToolName = activity.answerLanded ? null
+    : conversation.state.live?.toolName ?? activity.toolName ?? null;
 
   return {
     conversation,
@@ -533,6 +541,8 @@ export function useCloudChatBridge({
         ? "Thinking…"
         : null,
     activeToolName,
+    activeToolCallId: activity.toolCallId ?? null,
+    answerLanded: activity.answerLanded,
     pendingUserMessageId,
     // The local replica (including an explicit known-empty snapshot) paints
     // immediately. Cloud reconciliation is connection status, not a reason to

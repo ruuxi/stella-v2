@@ -198,9 +198,13 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   const [consumed, setConsumed] = useState(false);
   useEffect(() => {
     if (!consumed || !active) return;
+    if (toolName) {
+      setConsumed(false);
+      return;
+    }
     const timer = setTimeout(() => setConsumed(false), 240);
     return () => clearTimeout(timer);
-  }, [active, consumed]);
+  }, [active, consumed, toolName]);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Per-activation seed so the no-tool reasoning/idle label varies across
@@ -242,9 +246,10 @@ export const WorkingIndicator = memo(function WorkingIndicator({
   // The hold covers the mark as well as the label. Without it the character
   // would flap between thinking and tool poses whenever a quick tool starts
   // and ends.
+  // Dots have no text to read: a tool can replace them immediately.
   const heldDisplay = useMinimumVisibleValue(
     liveDisplay,
-    STATUS_MIN_VISIBLE_MS,
+    liveDisplay.characterState === "thinking" ? 0 : STATUS_MIN_VISIBLE_MS,
     (a, b) =>
       a.status === b.status && a.characterState === b.characterState,
   );
@@ -348,12 +353,14 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     [shellProgress],
   );
 
+  const showShell = renderShell && !consumed && (active || !exitImmediately);
+
   return (
     <View
-      style={[styles.slot, (!renderShell || consumed) && styles.slotCollapsed]}
+      style={[styles.slot, !showShell && styles.slotCollapsed]}
       pointerEvents="none"
     >
-      {renderShell && !consumed ? (
+      {showShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
           <View style={[styles.bubble, !hasLabel && styles.bubbleDots]}
             onLayout={({ nativeEvent: { layout } }) => {

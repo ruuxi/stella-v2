@@ -37,6 +37,10 @@ export function canonicalWorkingState(args: {
   const turnId = localPending ? localTurnId : runningTurnId;
   const journal = cloudTurnActivity(args.records, turnId);
   const live = args.live?.turnId === turnId ? args.live : null;
+  // Admission does not replace the device stream. Keep its in-flight tool
+  // until canonical answer/terminal evidence takes over.
+  const deviceTool = localPending && !journal.answerLanded
+    ? args.localIndicator.toolName : undefined;
   return {
     sending,
     workingIndicator: buildWorkingIndicatorState({
@@ -45,8 +49,11 @@ export function canonicalWorkingState(args: {
         ...journal,
         // The prior answer is visible, but a later prompt is already waiting.
         answerLanded: journal.answerLanded && !args.hasQueuedSend,
-        ...(live?.toolName ? { toolName: live.toolName } : {}),
-        ...(live?.toolLabel ? { statusText: live.toolLabel } : {}),
+        ...((!journal.answerLanded || args.hasQueuedSend) && live?.toolName ? { toolName: live.toolName } : {}),
+        ...((!journal.answerLanded || args.hasQueuedSend) && live?.toolLabel ? { statusText: live.toolLabel } : {}),
+        ...(deviceTool ? { toolName: deviceTool,
+          toolCallId: args.localIndicator.toolCallId,
+          statusText: args.localIndicator.status } : {}),
         hasToolActivity: journal.hasToolActivity || Boolean(live?.toolName),
       } : { ...IDLE_WORKING_ACTIVITY, answerLanded: localTerminal && !args.hasQueuedSend },
     }),

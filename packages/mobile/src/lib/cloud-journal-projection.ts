@@ -478,33 +478,7 @@ export type CloudTurnActivity = {
   hasToolActivity: boolean;
 };
 
-export const cloudTurnActivity = (
-  records: readonly JournalRecord[],
-  turnId: string | null,
-): CloudTurnActivity => {
-  if (!turnId) return { answerLanded: false, hasToolActivity: false };
-  let answerLanded = false;
-  let hasToolActivity = false;
-  let sawLatestAssistant = false;
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    const record = records[index]!;
-    if (record.turnId !== turnId || record.kind !== "message") continue;
-    if (record.role === "toolResult") {
-      hasToolActivity = true;
-      continue;
-    }
-    if (record.role !== "assistant") continue;
-    if (hasToolCalls(record.payload)) hasToolActivity = true;
-    // Only the turn's newest assistant row decides whether the answer landed:
-    // an earlier one was a preamble the run already moved past.
-    if (!sawLatestAssistant) {
-      sawLatestAssistant = true;
-      answerLanded =
-        !hasToolCalls(record.payload) && messageText(record.payload).length > 0;
-    }
-  }
-  return { answerLanded, hasToolActivity };
-};
+export { journalWorkingActivity as cloudTurnActivity } from "@stella/contracts/journal-working-activity";
 
 /** Server placement dispatch echoed by the canonical prompt for one turn. */
 export const canonicalCloudDispatchIdForTurn = (

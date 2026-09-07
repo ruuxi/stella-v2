@@ -290,13 +290,24 @@ export function useFullShellChat({
     : localStreamingAssistants;
   // Desktop placement stops owning a run when the cloud accepts it.
   // Follow the canonical turn while no local execution owns the controls.
+  // Remember the canonical turn this window executed. Its live-clear frame
+  // can lag local completion; falling back to it would resurrect the dots.
+  const locallyOwnedCloudTurnRef = useRef(null);
+  const cloudLiveTurnId = cloudChat.conversation.state.live?.turnId ?? null;
+  useLayoutEffect(() => {
+    if (localIsStreaming && cloudLiveTurnId && (localHasToolActivity || localAnswerLanded)) {
+      locallyOwnedCloudTurnRef.current = cloudLiveTurnId;
+    }
+  }, [localIsStreaming, cloudLiveTurnId, localHasToolActivity, localAnswerLanded]);
+  const localTurnHandedOff = !localIsStreaming && Boolean(cloudLiveTurnId) &&
+    locallyOwnedCloudTurnRef.current === cloudLiveTurnId;
   const useCloudRun = cloudChat.isWebShell || (!localIsStreaming && cloudChat.isStreaming);
   const runtimeStatusText = useCloudRun
     ? cloudChat.runtimeStatusText
     : localRuntimeStatusText;
-  const activeToolCallId = useCloudRun ? null : localActiveToolCallId;
+  const activeToolCallId = useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
   const activeToolName = useCloudRun
-    ? cloudChat.activeToolName
+    ? (localTurnHandedOff ? null : cloudChat.activeToolName)
     : localActiveToolName;
   const latestCompletedTool = useCloudRun
     ? null
@@ -305,13 +316,13 @@ export function useFullShellChat({
     ? Boolean(cloudChat.activeToolName)
     : localHasToolActivity;
   const isToolActive = useCloudRun
-    ? Boolean(cloudChat.activeToolName)
+    ? Boolean(activeToolName)
     : localIsToolActive;
   const reasoningText = useCloudRun ? "" : localReasoningText;
   const isStreaming = cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
-  // Cloud replies arrive as committed journal rows. The terminal turn row
-  // clears the indicator; there is no local streaming handoff to animate.
-  const answerLanded = useCloudRun || awaitingMessageAdmission ? false : localAnswerLanded;
+  // The committed reply hands off before the terminal turn frame arrives.
+  const answerLanded = !awaitingMessageAdmission &&
+    (useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
   const pendingUserMessageId = cloudChat.isWebShell
     ? cloudChat.pendingUserMessageId
     : localPendingUserMessageId;

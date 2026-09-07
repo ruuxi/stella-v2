@@ -70,9 +70,13 @@ export function InlineWorkingIndicator({
   const [consumed, setConsumed] = useState(false);
   useEffect(() => {
     if (!consumed || !active) return;
+    if (runningTool) {
+      setConsumed(false);
+      return;
+    }
     const timer = window.setTimeout(() => setConsumed(false), 240);
     return () => window.clearTimeout(timer);
-  }, [active, consumed]);
+  }, [active, consumed, runningTool]);
 
   // Snapshot the live props the moment `active` flips false so the exit
   // animation displays a stable last-known label even though upstream
@@ -151,6 +155,14 @@ export function InlineWorkingIndicator({
     wasActiveRef.current = false;
     setEntering(false);
     if (!renderShell) return;
+    // Let the reply consume the registered morph source in this commit,
+    // then remove any remaining shell before the browser paints.
+    if (handoff) {
+      clearTimer();
+      setRenderShell(false);
+      setLeaving(false);
+      return;
+    }
 
     const startExit = () => {
       setLeaving(true);

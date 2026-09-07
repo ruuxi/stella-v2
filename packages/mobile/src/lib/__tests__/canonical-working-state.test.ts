@@ -22,6 +22,20 @@ const base = {
 };
 
 describe("canonical mobile working state", () => {
+  test("device tool activity survives canonical prompt admission", () => {
+    expect(canonicalWorkingState({
+      ...base, records: [prompt, phase("started")],
+      localIndicator: { active: true, exitImmediately: false,
+        toolName: "spawn_agent", toolCallId: "device-tool", status: "Delegating" },
+    })).toMatchObject({ workingIndicator: { active: true,
+      toolName: "spawn_agent", toolCallId: "device-tool", status: "Delegating" } });
+  });
+  test("a final reply clears an older live tool snapshot", () => {
+    expect(canonicalWorkingState({
+      ...base, records: [prompt, phase("started"), answer],
+      live: { ...base.live, toolName: "spawn_agent" },
+    })).toMatchObject({ workingIndicator: { active: false, exitImmediately: true } });
+  });
   test("a second send queued during terminal-before-poll handoff becomes busy immediately", () => {
     const records = [prompt, phase("started"), answer, phase("completed")];
     expect(canonicalWorkingState({ ...base, records })).toMatchObject({ sending: false });

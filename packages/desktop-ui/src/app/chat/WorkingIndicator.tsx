@@ -87,9 +87,10 @@ export function WorkingIndicator({
     [status, toolName, toolCallId, isReasoning, reasoningSeed, poseEpoch],
   );
   previousPoseRef.current = liveDisplay.characterState;
+  // Dots have no text to read: a tool can replace them immediately.
   const held = useMinimumVisibleValue(
     liveDisplay,
-    minimumVisibleMs,
+    liveDisplay.characterState === "thinking" ? 0 : minimumVisibleMs,
     (a, b) => a.status === b.status && a.characterState === b.characterState,
   );
   // Thinking has nothing worth narrating, so it shows as the mark alone and

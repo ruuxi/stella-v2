@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useLayoutEffect } from "react";
+import { BubbleMorphProvider, useBubbleMorphSource } from "@/app/chat/BubbleMorph";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,7 +12,7 @@ import {
 import { INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS } from "@/features/chat/working-indicator-state";
 
 vi.mock("@/app/chat/WorkingIndicator", () => ({
-  WorkingIndicator: () => <span data-testid="dots" />,
+  WorkingIndicator: () => <span className="working-indicator" data-testid="dots" />,
 }));
 vi.mock("@/shell/chat-scroll-follow", () => ({
   notifyChatContentGrowth: vi.fn(),
@@ -45,6 +46,33 @@ describe("working indicator entrance", () => {
     expect(shell()?.classList.contains("inline-working-indicator--entering")).toBe(true);
     advance(1);
     expect(shell()?.classList.contains("inline-working-indicator--entering")).toBe(false);
+    expect(indicator()).not.toBeNull();
+  });
+
+  it("removes the bubble in the same render as the answer, without a fade tail", () => {
+    render(true);
+    advance(10);
+    render(false, { handoff: true });
+    expect(indicator()).toBeNull();
+    expect(shell()?.classList.contains("inline-working-indicator--vacated")).toBe(true);
+  });
+
+  it("restores a tool immediately after a preamble consumes the indicator", () => {
+    function Preamble({ consume }: { consume: boolean }) {
+      const morph = useBubbleMorphSource();
+      useLayoutEffect(() => { if (consume) morph?.source?.hide(); }, [consume, morph]);
+      return null;
+    }
+    const update = (consume: boolean, runningTool?: string) => act(() => root.render(
+      <BubbleMorphProvider>
+        <InlineWorkingIndicator active runningTool={runningTool} />
+        <Preamble consume={consume} />
+      </BubbleMorphProvider>,
+    ));
+    update(false);
+    update(true);
+    expect(indicator()).toBeNull();
+    update(true, "spawn_agent");
     expect(indicator()).not.toBeNull();
   });
 

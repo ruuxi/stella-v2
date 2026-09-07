@@ -41,7 +41,19 @@ export const GOOGLE_WORKSPACE_TOOL_ALLOWLIST = [
   "gmail.sendDraft",
   "gmail.listLabels",
   "gmail.createLabel",
-  // Time helpers
+  // Sheets (write-capable; no destructive batch ops in v1)
+  "sheets.create",
+  "sheets.getSpreadsheet",
+  "sheets.getValues",
+  "sheets.updateValues",
+  "sheets.appendValues",
+  "sheets.addSheet",
+  // Tasks (no delete in v1)
+  "tasks.listTaskLists",
+  "tasks.list",
+  "tasks.create",
+  "tasks.update",
+  "tasks.complete",
   "time.getCurrentDate",
   "time.getCurrentTime",
   "time.getTimeZone",
@@ -55,9 +67,8 @@ export type GoogleWorkspaceToolName =
 export const canonicalizeGoogleWorkspaceToolName = (name: string): string =>
   name.replace(/_/g, ".");
 
-export const toGoogleWorkspaceToolRegistrationName = (
-  name: string,
-): string => canonicalizeGoogleWorkspaceToolName(name).replace(/\./g, "_");
+export const toGoogleWorkspaceToolRegistrationName = (name: string): string =>
+  canonicalizeGoogleWorkspaceToolName(name).replace(/\./g, "_");
 
 export const getGoogleWorkspaceToolAliases = (name: string): string[] => {
   const canonicalName = canonicalizeGoogleWorkspaceToolName(name);

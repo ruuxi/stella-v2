@@ -5,6 +5,7 @@ import {
   GOOGLE_WORKSPACE_TOOL_ALLOWLIST,
   type GoogleWorkspaceToolName,
 } from "../google-workspace/tool-allowlist.js";
+import { GOOGLE_WORKSPACE_BUNDLE_ID } from "../google-workspace/scopes.js";
 import { GOOGLE_WORKSPACE_TOOL_METADATA } from "../google-workspace/google-workspace-tool-metadata.js";
 import {
   getNativeOAuthProviderConfig,
@@ -196,6 +197,49 @@ const GOOGLE_WORKSPACE_CONNECTOR_CATALOG: NativeConnectorCatalogEntry[] = [
     description:
       "Search Drive, create folders, download files, and rename files.",
   },
+  {
+    id: "googlesheets",
+    name: "Google Sheets",
+    category: "spreadsheets",
+    auth: ["OAUTH2"],
+    catalogToolCount: 6,
+    availability: "ready",
+    provider: "google-workspace",
+    localExecution: "production-ready",
+    toolPrefix: "sheets.",
+    connectable: true,
+    description:
+      "Create spreadsheets, read and write cell ranges, append rows, and add tabs.",
+  },
+  {
+    id: "googletasks",
+    name: "Google Tasks",
+    category: "task management",
+    auth: ["OAUTH2"],
+    catalogToolCount: 5,
+    availability: "ready",
+    provider: "google-workspace",
+    localExecution: "production-ready",
+    toolPrefix: "tasks.",
+    connectable: true,
+    description: "List, create, update, and complete Google Tasks.",
+  },
+  {
+    // One-tap all-Google bundle. Internal id/alias stays `googlesuper` for
+    // compatibility; the user-facing name is "Google Workspace". Connecting
+    // it grants the full six-service scope union in a single consent.
+    id: GOOGLE_WORKSPACE_BUNDLE_ID,
+    name: "Google Workspace",
+    category: "productivity",
+    auth: ["OAUTH2"],
+    catalogToolCount: GOOGLE_WORKSPACE_TOOL_ALLOWLIST.length,
+    availability: "ready",
+    provider: "google-workspace",
+    localExecution: "production-ready",
+    connectable: true,
+    description:
+      "Connect Gmail, Calendar, Drive, Docs, Sheets, and Tasks in one step.",
+  },
 ];
 
 // Lazily derived from the on-disk OAuth catalog so the ~8MB JSON is only
@@ -255,6 +299,8 @@ export const buildNativeConnectorCatalog = (
   }
   const byId = new Map(base.map((entry) => [entry.id, entry]));
   for (const entry of serverCatalog) {
+    const bundled = byId.get(entry.id);
+    if (process.env.STELLA_GOOGLE_OAUTH_REVIEW === "1" && bundled?.provider === "google-workspace") continue;
     byId.set(entry.id, entry);
   }
   return [...byId.values()];
@@ -350,9 +396,9 @@ export const getNativeConnectorCatalogActions = (
       ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
     }));
   }
-  if (!entry.toolPrefix) return [];
+  if (!entry.toolPrefix && entry.id !== GOOGLE_WORKSPACE_BUNDLE_ID) return [];
   return GOOGLE_WORKSPACE_TOOL_ALLOWLIST.filter((toolName) =>
-    toolName.startsWith(entry.toolPrefix!),
+    entry.id === GOOGLE_WORKSPACE_BUNDLE_ID || toolName.startsWith(entry.toolPrefix!),
   ).map((toolName) => {
     const meta =
       GOOGLE_WORKSPACE_TOOL_METADATA[toolName as GoogleWorkspaceToolName];
@@ -472,9 +518,9 @@ export const getNativeConnectorTools = (
     }
     return [apiRequest];
   }
-  if (!entry.toolPrefix) return [];
+  if (!entry.toolPrefix && entry.id !== GOOGLE_WORKSPACE_BUNDLE_ID) return [];
   return GOOGLE_WORKSPACE_TOOL_ALLOWLIST.filter((toolName) =>
-    toolName.startsWith(entry.toolPrefix!),
+    entry.id === GOOGLE_WORKSPACE_BUNDLE_ID || toolName.startsWith(entry.toolPrefix!),
   ).map((toolName) => {
     const meta =
       GOOGLE_WORKSPACE_TOOL_METADATA[toolName as GoogleWorkspaceToolName];

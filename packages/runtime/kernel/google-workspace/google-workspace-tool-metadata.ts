@@ -180,6 +180,210 @@ export const GOOGLE_WORKSPACE_TOOL_METADATA: Record<
       "Create a new Gmail label. Labels help organize emails into categories.",
     parameters: OBJ,
   },
+  "sheets.create": {
+    description:
+      "Creates a new Google Spreadsheet, optionally with named tabs. Returns the spreadsheetId and URL.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Title for the new spreadsheet.",
+        },
+        sheetTitles: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional tab titles to create in the spreadsheet.",
+        },
+      },
+      required: ["title"],
+    },
+  },
+  "sheets.getSpreadsheet": {
+    description:
+      "Gets spreadsheet metadata (title and tabs) for a spreadsheet id or URL.",
+    parameters: {
+      type: "object",
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet id or full Google Sheets URL.",
+        },
+      },
+      required: ["spreadsheetId"],
+    },
+  },
+  "sheets.getValues": {
+    description:
+      "Reads cell values from an A1 range (e.g. 'Sheet1!A1:C10').",
+    parameters: {
+      type: "object",
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet id or full Google Sheets URL.",
+        },
+        range: {
+          type: "string",
+          description: "A1 notation range, e.g. 'Sheet1!A1:C10'.",
+        },
+      },
+      required: ["spreadsheetId", "range"],
+    },
+  },
+  "sheets.updateValues": {
+    description:
+      "Writes a 2D array of values to an A1 range, overwriting existing cells.",
+    parameters: {
+      type: "object",
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet id or full Google Sheets URL.",
+        },
+        range: {
+          type: "string",
+          description: "A1 notation range to write to, e.g. 'Sheet1!A1'.",
+        },
+        values: {
+          type: "array",
+          items: { type: "array" },
+          description: "2D array of row values to write.",
+        },
+        valueInputOption: {
+          type: "string",
+          enum: ["RAW", "USER_ENTERED"],
+          description:
+            "How input is interpreted. Defaults to USER_ENTERED (parses formulas/dates).",
+        },
+      },
+      required: ["spreadsheetId", "range", "values"],
+    },
+  },
+  "sheets.appendValues": {
+    description:
+      "Appends rows after the last row of data within a range.",
+    parameters: {
+      type: "object",
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet id or full Google Sheets URL.",
+        },
+        range: {
+          type: "string",
+          description: "A1 notation range identifying the table, e.g. 'Sheet1!A1'.",
+        },
+        values: {
+          type: "array",
+          items: { type: "array" },
+          description: "2D array of row values to append.",
+        },
+        valueInputOption: {
+          type: "string",
+          enum: ["RAW", "USER_ENTERED"],
+          description:
+            "How input is interpreted. Defaults to USER_ENTERED.",
+        },
+      },
+      required: ["spreadsheetId", "range", "values"],
+    },
+  },
+  "sheets.addSheet": {
+    description: "Adds a new tab (sheet) to an existing spreadsheet.",
+    parameters: {
+      type: "object",
+      properties: {
+        spreadsheetId: {
+          type: "string",
+          description: "Spreadsheet id or full Google Sheets URL.",
+        },
+        title: { type: "string", description: "Title for the new tab." },
+      },
+      required: ["spreadsheetId", "title"],
+    },
+  },
+  "tasks.listTaskLists": {
+    description: "Lists the user's Google Tasks task lists.",
+    parameters: { type: "object", properties: {} },
+  },
+  "tasks.list": {
+    description:
+      "Lists tasks within a task list. Defaults to the primary list ('@default').",
+    parameters: {
+      type: "object",
+      properties: {
+        tasklist: {
+          type: "string",
+          description: "Task list id. Defaults to '@default'.",
+        },
+        showCompleted: {
+          type: "boolean",
+          description: "Include completed (hidden) tasks. Defaults to false.",
+        },
+      },
+    },
+  },
+  "tasks.create": {
+    description:
+      "Creates a task in a task list. Defaults to the primary list ('@default').",
+    parameters: {
+      type: "object",
+      properties: {
+        tasklist: {
+          type: "string",
+          description: "Task list id. Defaults to '@default'.",
+        },
+        title: { type: "string", description: "Task title." },
+        notes: { type: "string", description: "Optional task notes." },
+        due: {
+          type: "string",
+          description: "Optional RFC 3339 due date (e.g. '2026-08-25T00:00:00.000Z').",
+        },
+      },
+      required: ["title"],
+    },
+  },
+  "tasks.update": {
+    description:
+      "Updates mutable fields of a task (title, notes, due, status).",
+    parameters: {
+      type: "object",
+      properties: {
+        tasklist: {
+          type: "string",
+          description: "Task list id. Defaults to '@default'.",
+        },
+        taskId: { type: "string", description: "Id of the task to update." },
+        title: { type: "string", description: "New task title." },
+        notes: { type: "string", description: "New task notes." },
+        due: {
+          type: "string",
+          description: "New RFC 3339 due date.",
+        },
+        status: {
+          type: "string",
+          enum: ["needsAction", "completed"],
+          description: "New task status.",
+        },
+      },
+      required: ["taskId"],
+    },
+  },
+  "tasks.complete": {
+    description: "Marks a task as completed.",
+    parameters: {
+      type: "object",
+      properties: {
+        tasklist: {
+          type: "string",
+          description: "Task list id. Defaults to '@default'.",
+        },
+        taskId: { type: "string", description: "Id of the task to complete." },
+      },
+      required: ["taskId"],
+    },
+  },
   "time.getCurrentDate": {
     description:
       "Gets the current date. Returns both UTC and local time, along with the timezone.",

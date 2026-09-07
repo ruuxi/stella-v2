@@ -293,7 +293,7 @@ export class DocsService {
         await docs.documents.batchUpdate({
           documentId: id,
           requestBody: {
-            requests: [{ insertText: { text } }],
+            requests: [{ insertText: { endOfSegmentLocation: {}, text } }],
           },
         });
       } else {

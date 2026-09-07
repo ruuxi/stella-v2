@@ -13,6 +13,15 @@ describe("google-workspace-allowlist", () => {
     expect(isAllowedGoogleWorkspaceTool("auth_clear")).toBe(true);
   });
 
+  it("allows the Sheets and Tasks demo tools", () => {
+    expect(isAllowedGoogleWorkspaceTool("sheets.create")).toBe(true);
+    expect(isAllowedGoogleWorkspaceTool("sheets.updateValues")).toBe(true);
+    expect(isAllowedGoogleWorkspaceTool("sheets_getValues")).toBe(true);
+    expect(isAllowedGoogleWorkspaceTool("tasks.create")).toBe(true);
+    expect(isAllowedGoogleWorkspaceTool("tasks.complete")).toBe(true);
+    expect(isAllowedGoogleWorkspaceTool("tasks_listTaskLists")).toBe(true);
+  });
+
   it("blocks tools outside the curated set", () => {
     expect(isAllowedGoogleWorkspaceTool("chat.sendMessage")).toBe(false);
     expect(isAllowedGoogleWorkspaceTool("calendar.deleteEvent")).toBe(false);
@@ -23,13 +32,19 @@ describe("google-workspace-allowlist", () => {
     expect(GOOGLE_WORKSPACE_TOOL_ALLOWLIST.length).toBeGreaterThan(10);
   });
 
+  it("does not contain duplicate actions", () => {
+    expect(new Set(GOOGLE_WORKSPACE_TOOL_ALLOWLIST).size).toBe(
+      GOOGLE_WORKSPACE_TOOL_ALLOWLIST.length,
+    );
+  });
+
   it("creates provider-safe registration names", () => {
     expect(toGoogleWorkspaceToolRegistrationName("gmail.search")).toBe(
       "gmail_search",
     );
-    expect(
-      toGoogleWorkspaceToolRegistrationName("time.getCurrentDate"),
-    ).toBe("time_getCurrentDate");
+    expect(toGoogleWorkspaceToolRegistrationName("time.getCurrentDate")).toBe(
+      "time_getCurrentDate",
+    );
     expect(toGoogleWorkspaceToolRegistrationName("people_getMe")).toBe(
       "people_getMe",
     );

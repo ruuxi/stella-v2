@@ -4,8 +4,8 @@ import { useAuthSessionState } from "./use-auth-session-state";
 import { useCurrentUser } from "./use-current-user";
 
 const NICKNAME_PREFIX = "stella-nickname:";
-const NICKNAME_ASKED_PREFIX = "stella-nickname-asked:";
 const NICKNAME_CHANGED_EVENT = "stella:nickname-changed";
+const DEFAULT_NICKNAME = "Account";
 
 const identityKey = (email: string | null | undefined): string | null => {
   if (!email) return null;
@@ -15,8 +15,8 @@ const identityKey = (email: string | null | undefined): string | null => {
 
 export function getStoredNickname(email: string | null | undefined): string {
   const id = identityKey(email);
-  if (!id) return "";
-  return uiState.getItem(`${NICKNAME_PREFIX}${id}`) ?? "";
+  if (!id) return DEFAULT_NICKNAME;
+  return uiState.getItem(`${NICKNAME_PREFIX}${id}`) ?? DEFAULT_NICKNAME;
 }
 
 export function setStoredNickname(
@@ -31,24 +31,7 @@ export function setStoredNickname(
   } else {
     uiState.removeItem(`${NICKNAME_PREFIX}${id}`);
   }
-  // Always mark as asked once the user explicitly saves; the dialog
-  // shouldn't keep re-prompting.
-  uiState.setItem(`${NICKNAME_ASKED_PREFIX}${id}`, "true");
   window.dispatchEvent(new CustomEvent(NICKNAME_CHANGED_EVENT));
-}
-
-export function hasNicknameBeenAsked(
-  email: string | null | undefined,
-): boolean {
-  const id = identityKey(email);
-  if (!id) return true;
-  return uiState.getItem(`${NICKNAME_ASKED_PREFIX}${id}`) === "true";
-}
-
-export function markNicknameAsked(email: string | null | undefined): void {
-  const id = identityKey(email);
-  if (!id) return;
-  uiState.setItem(`${NICKNAME_ASKED_PREFIX}${id}`, "true");
 }
 
 interface UseNicknameResult {

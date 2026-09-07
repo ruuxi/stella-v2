@@ -181,6 +181,13 @@ export class AuthService {
   private readonly pendingChallenges = new Map<string, PendingChallenge>();
 
   constructor(private readonly options: AuthServiceOptions) {
+    // Services are constructed before Electron is ready. Only the isolated
+    // harness has a storage provider available at that point. Do not evaluate
+    // getBearerToken() for normal runs: reading an encrypted session here
+    // poisons the OS storage cache and caches the saved bearer as missing.
+    if (app.isPackaged || process.env.STELLA_DEV_HARNESS !== "1") {
+      return;
+    }
     const harnessSessionToken = resolveDevHarnessSessionToken({
       isPackaged: app.isPackaged,
       hasStoredBearer: Boolean(this.getBearerToken()),

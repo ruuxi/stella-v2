@@ -34,6 +34,7 @@ vi.mock("electron", () => ({
 }));
 
 import { AuthService } from "@stella/desktop/electron/services/auth-service.js";
+import { protectValue } from "@stella/runtime/kernel/shared/protected-storage";
 
 const SITE_URL = "https://example.convex.site";
 const BEARER_KEY = "better-auth_session_token";
@@ -152,6 +153,34 @@ describe("AuthService main-process token authority", () => {
       authToken: freshToken,
     });
   });
+
+  it.each([false, true])(
+    "preserves a saved bearer when constructed before storage is ready (packaged=%s)",
+    (isPackaged) => {
+      electronMocks.isPackaged = isPackaged;
+      // Even inherited harness flags must not trigger early reads in releases.
+      if (isPackaged) {
+        process.env.STELLA_DEV_HARNESS = "1";
+        process.env.STELLA_DEV_HARNESS_SESSION_TOKEN = "harness-bearer";
+      }
+      fs.writeFileSync(
+        path.join(electronMocks.userDataPath, "better-auth-storage.json"),
+        JSON.stringify({
+          [BEARER_KEY]: protectValue("desktop-better-auth-storage", "saved-bearer"),
+        }),
+      );
+      resetTestSafeStorage();
+      const { service } = createService();
+      installTestSafeStorage();
+      installAuthRoutes({
+        "/convex/token": () => json({ token: futureJwt() }),
+        "/get-session": connectedSession,
+      });
+      configure(service);
+      expect(service.getAuthStorageItem(BEARER_KEY)).toBe("saved-bearer");
+      service.stopAuthRefreshLoop();
+    },
+  );
 
   it("adopts a harness bearer during construction before auth bootstrap", async () => {
     process.env.STELLA_DEV_HARNESS = "1";

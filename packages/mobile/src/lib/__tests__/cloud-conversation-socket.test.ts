@@ -186,6 +186,71 @@ describe("mobile cloud conversation socket", () => {
     }
   });
 
+  test("a long absence reloads the newest window instead of replaying thousands of missed rows", async () => {
+    installFakeWebSocket();
+    const events: ConversationSocketEvent[] = [];
+    const socket = new ConversationSocket({
+      conversationId: "conversation-long-absence",
+      baseUrl: "https://builder.example.test",
+      getToken: async () => "header.payload.signature",
+      onEvent: (event) => events.push(event),
+    });
+    const snapshot = (headSeq: number, windowStartSeq: number) =>
+      ready({
+        conversationId: "conversation-long-absence",
+        epoch: 7,
+        headSeq,
+        windowStartSeq,
+      });
+    try {
+      socket.start();
+      await settle();
+      const first = FakeWebSocket.instances[0]!;
+      first.open();
+      first.receive(snapshot(99, 0));
+      for (let seq = 0; seq < 100; seq++) first.receive(record(seq));
+
+      first.disconnect(1006);
+      socket.retryNow();
+      await settle();
+      const resume = FakeWebSocket.instances[1]!;
+      expect(new URL(resume.url).searchParams.get("since")).toBe("99");
+      resume.open();
+      resume.receive(snapshot(9_999, 100));
+      // In-flight replay from the retired connection must not enter the view.
+      resume.receive(record(100));
+      await settle();
+      const fresh = FakeWebSocket.instances[2]!;
+      expect(resume.readyState).toBe(FakeWebSocket.CLOSED);
+      expect(new URL(fresh.url).searchParams.has("since")).toBe(false);
+      fresh.open();
+      fresh.receive(snapshot(9_999, 9_900));
+      for (let seq = 9_900; seq < 10_000; seq++) fresh.receive(record(seq));
+
+      expect(events.filter((event) => event.type === "reset")).toEqual([
+        { type: "reset", reason: "window" },
+      ]);
+      const applied = events.flatMap((event) =>
+        event.type === "records" ? event.records : [],
+      );
+      expect(applied).toHaveLength(200);
+      expect(applied[100]?.seq).toBe(9_900);
+      expect(socket.cursor.lastSeq).toBe(9_999);
+      expect(sentFrames(resume)).toEqual([]);
+      expect(sentFrames(fresh)).toEqual([]);
+
+      // Skipped history is still available on demand.
+      expect(socket.requestOlder(9_900)).toBe(true);
+      expect(sentFrames(fresh).at(-1)).toMatchObject({
+        type: "backfill",
+        fromSeq: 9_700,
+        toSeq: 9_899,
+      });
+    } finally {
+      socket.stop();
+    }
+  });
+
   test("assembles byte-truncated scrollback before emitting one older page", async () => {
     installFakeWebSocket();
     const events: ConversationSocketEvent[] = [];

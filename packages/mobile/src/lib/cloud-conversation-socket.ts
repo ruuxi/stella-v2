@@ -642,6 +642,16 @@ export class ConversationSocket {
       this.resetStream(epochChanged ? "epoch" : "window");
     }
 
+    // After a long absence, replaying every missed record would walk the
+    // entire journal in successive repair requests, even though the view only
+    // retains a bounded tail. Reopen without a cursor for the newest window;
+    // earlier history remains available through explicit scrollback.
+    if (this.lastSeq >= 0 && ready.headSeq - this.lastSeq > MAX_RESUME_RECORDS) {
+      this.resetStream("window");
+      this.forceReconnect();
+      return;
+    }
+
     this.options.onEvent({ type: "ready", ready });
     this.setStatus("live", { retryable: true });
     this.armResumeGrace();

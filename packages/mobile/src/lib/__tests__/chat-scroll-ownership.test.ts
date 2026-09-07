@@ -105,9 +105,9 @@ describe("chat data-change scroll ownership", () => {
   test("keeps bounded-history paging under visible-position anchoring", () => {
     expect(chatPane).toContain("hasOlderHistory?: boolean");
     expect(chatPane).toContain("hasNewerHistory?: boolean");
-    expect(chatPane).toContain("onStartReached={() => {");
+    expect(chatPane).toContain("historyPaging.beginDrag()");
     expect(chatPane).toContain("void onLoadOlderHistory?.()");
-    expect(chatPane).toContain("onEndReached={() => {");
+    expect(chatPane).toContain("requestHistoryNearPosition(e.nativeEvent)");
     expect(chatPane).toContain("void onLoadNewerHistory?.()");
     expect(chatPane).toContain(
       "maintainVisibleContentPosition={maintainVisibleContentPosition}",

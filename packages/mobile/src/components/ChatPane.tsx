@@ -81,6 +81,7 @@ import {
   type FloatingScrollMetrics,
 } from "../lib/floating-button-visibility";
 import { useCatchUpIndicatorVisible } from "../lib/catch-up-indicator";
+import { ChatHistoryPaging } from "../lib/chat-history-paging";
 import {
   isStandInArtifactRow,
   shouldAnimateMessageEntry,
@@ -3659,9 +3660,35 @@ export function ChatPane({
     floatingHiddenRef.current = hidden;
     setFloatingHidden(hidden);
   }, []);
+  // Discard a previous conversation's gesture even if this pane stays mounted.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const historyPaging = useMemo(() => new ChatHistoryPaging(), [conversationId]);
+  const requestHistoryNearPosition = useCallback(
+    ({ contentOffset, contentSize, layoutMeasurement }: NativeScrollEvent) => {
+      const page = historyPaging.takePage({
+        offsetY: contentOffset.y,
+        contentHeight: contentSize.height,
+        layoutHeight: layoutMeasurement.height,
+        hasOlder: hasOlderHistory && Boolean(onLoadOlderHistory),
+        hasNewer: hasNewerHistory && Boolean(onLoadNewerHistory),
+        loading: historyPageLoading,
+      });
+      if (page === "older") void onLoadOlderHistory?.();
+      if (page === "newer") void onLoadNewerHistory?.();
+    },
+    [
+      historyPaging,
+      hasOlderHistory,
+      hasNewerHistory,
+      historyPageLoading,
+      onLoadOlderHistory,
+      onLoadNewerHistory,
+    ],
+  );
   const handleListScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       scroll.onScroll(e);
+      requestHistoryNearPosition(e.nativeEvent);
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const prevOffsetY = floatingMetricsRef.current.offsetY;
       floatingMetricsRef.current = {
@@ -3677,7 +3704,7 @@ export function ChatPane({
         ),
       );
     },
-    [applyFloatingHidden, scroll.onScroll],
+    [applyFloatingHidden, scroll.onScroll, requestHistoryNearPosition],
   );
   // Re-derive from the resting position alone (zero-delta pass keeps the
   // hidden latch mid-list but enforces the near-bottom invariant).
@@ -4210,27 +4237,26 @@ export function ChatPane({
                 getItemType={getItemType}
                 ItemSeparatorComponent={renderSeparator}
                 ListFooterComponent={listFooter}
-                onStartReached={() => {
-                  if (hasOlderHistory && !historyPageLoading) {
-                    void onLoadOlderHistory?.();
-                  }
-                }}
-                onStartReachedThreshold={0.35}
-                onEndReached={() => {
-                  if (hasNewerHistory && !historyPageLoading) {
-                    void onLoadNewerHistory?.();
-                  }
-                }}
-                onEndReachedThreshold={0.35}
                 onScroll={handleListScroll}
-                onScrollBeginDrag={() => {
+                onScrollBeginDrag={(e) => {
                   // Scrolling the transcript exits any active text selection
                   // before the drag runs (inline so it adds no new deps warning).
                   if (selectingMessageId != null) stopSelectingMessage();
                   scroll.onScrollBeginDrag();
+                  historyPaging.beginDrag();
+                  // A short page may already be at the boundary and never
+                  // cross a list threshold. The drag itself requests one page.
+                  requestHistoryNearPosition(e.nativeEvent);
                 }}
-                onScrollEndDrag={handleListScrollSettle}
-                onMomentumScrollEnd={handleListScrollSettle}
+                onScrollEndDrag={(e) => {
+                  historyPaging.endDrag(e.nativeEvent.velocity?.y);
+                  handleListScrollSettle();
+                }}
+                onMomentumScrollBegin={() => historyPaging.beginMomentum()}
+                onMomentumScrollEnd={() => {
+                  historyPaging.endScroll();
+                  handleListScrollSettle();
+                }}
                 onContentSizeChange={handleListContentSizeChange}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}

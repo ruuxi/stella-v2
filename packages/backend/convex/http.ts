@@ -1,6 +1,8 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
+import { AUTH_CAPTCHA_HEADER } from "@stella/contracts/auth-challenge";
+import { APP_INTEGRITY_HEADER } from "@stella/contracts/app-integrity";
 import { corsPreflightHandler } from "./http_shared/cors";
 
 // Route modules
@@ -42,8 +44,16 @@ const http = httpRouter();
 // clients: the convex-helpers CORS wrapper SETS Access-Control-Expose-Headers
 // on the way out, clobbering the value the bearer plugin adds. Without this
 // the header is present on the response but unreadable from JS.
+//
+// `allowedHeaders` must list the captcha header: the browser web chat sends
+// its Turnstile proof as `x-captcha-response` on anonymous sign-in, and the
+// component's default preflight only allows Content-Type/Authorization, so
+// the request never leaves the browser (CORS preflight failure).
 authComponent.registerRoutes(http, createAuth, {
-  cors: { exposedHeaders: ["set-auth-token"] },
+  cors: {
+    allowedHeaders: [AUTH_CAPTCHA_HEADER, APP_INTEGRITY_HEADER],
+    exposedHeaders: ["set-auth-token"],
+  },
 });
 
 // ---------------------------------------------------------------------------

@@ -15,11 +15,13 @@ export const TOP_BAR_BAR_HEIGHT = 42;
 
 /**
  * Buffer resolution as a fraction of the window's logical size. Desktop
- * renders at 0.6; the blobs are smooth enough that 0.25 upscaled bilinearly
- * is indistinguishable at phone size, and it keeps the per-pixel loop (which
- * runs on the JS thread in Hermes) to a few tens of thousands of pixels.
+ * renders at 0.6. At 0.25 each buffer pixel covered ~12 device pixels on a
+ * 3x phone, so the per-pixel dither read as faint mottling on smooth areas.
+ * 0.5 halves that cell size (about 80k pixels for a phone window) while
+ * keeping the per-pixel loop, which runs on the JS thread in Hermes, cheap
+ * enough to stay a one-off per theme change (results are cached below).
  */
-const MOBILE_RENDER_SCALE = 0.25;
+const MOBILE_RENDER_SCALE = 0.5;
 
 const imageCache = new Map<string, string>();
 

@@ -2074,8 +2074,13 @@
         "soft": "Soft",
         "flat": "Flat"
       },
+      "backgroundColor": {
+        "relative": "Relative",
+        "strong": "Strong"
+      },
       "useAppearanceLabel": "Use {name} appearance",
       "useBackgroundLabel": "Use {name} background",
+      "useBackgroundColorLabel": "Use {name} background color",
       "useThemeLabel": "Use {name} theme",
       "notificationsSection": "Notifications",
       "pushToggleLabel": "Allow push notifications",

@@ -244,8 +244,11 @@
   cursor: default;
 }
 
-/* Toolbar add button — hidden in pill mode, shown in expanded */
-.composer-add-button--toolbar {
+/* Toolbar add button — hidden in pill mode, shown in expanded. Scoped to
+ * the form so this outranks `.chat-composer-icon-button { display }` from
+ * composer-primitives.css regardless of stylesheet order; otherwise the pill
+ * shows a second "+" on the right. */
+.composer-form .composer-add-button--toolbar {
   display: none;
 }
 

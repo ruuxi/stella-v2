@@ -30,6 +30,7 @@ import { type Colors } from "../theme/colors";
 import {
   useColors,
   useTheme,
+  type GradientColor,
   type GradientMode,
   type ThemePreference,
 } from "../theme/theme-context";
@@ -46,6 +47,12 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; labelKey: string }[] = [
 const GRADIENT_OPTIONS: { value: GradientMode; labelKey: string }[] = [
   { value: "soft", labelKey: "mobile.settings.background.soft" },
   { value: "flat", labelKey: "mobile.settings.background.flat" },
+];
+
+// Mirrors desktop's "Gradient Color" control (ThemePicker.tsx).
+const GRADIENT_COLOR_OPTIONS: { value: GradientColor; labelKey: string }[] = [
+  { value: "relative", labelKey: "mobile.settings.backgroundColor.relative" },
+  { value: "strong", labelKey: "mobile.settings.backgroundColor.strong" },
 ];
 
 function platformLabelFor(
@@ -81,6 +88,8 @@ export function SettingsContent({
     flat,
     gradientPreference,
     setGradientPreference,
+    gradientColor,
+    setGradientColor,
   } = useTheme();
   // Flat themes (Default) paint no blob — disable the Soft option so the
   // toggle reflects the actual rendered surface instead of misleading the user.
@@ -325,6 +334,44 @@ export function SettingsContent({
               }}
               disabled={disabled}
               accessibilityLabel={t("mobile.settings.useBackgroundLabel", {
+                name: t(opt.labelKey),
+              })}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected, disabled }}
+              style={[
+                styles.themeOption,
+                isSelected && styles.themeOptionActive,
+                disabled && styles.themeOptionDisabled,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.themeOptionText,
+                  isSelected && styles.themeOptionTextActive,
+                ]}
+              >
+                {t(opt.labelKey)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.themeRow}>
+        {GRADIENT_COLOR_OPTIONS.map((opt) => {
+          const isSelected = !gradientLocked && gradientColor === opt.value;
+          // Like desktop, the color choice is inert while the surface is flat.
+          const disabled = gradientLocked;
+          return (
+            <Pressable
+              key={opt.value}
+              onPress={() => {
+                if (disabled) return;
+                tapLight();
+                setGradientColor(opt.value);
+              }}
+              disabled={disabled}
+              accessibilityLabel={t("mobile.settings.useBackgroundColorLabel", {
                 name: t(opt.labelKey),
               })}
               accessibilityRole="button"

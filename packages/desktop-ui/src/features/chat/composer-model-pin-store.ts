@@ -21,9 +21,11 @@ const writePersistedPinned = (next: boolean): void => {
   else uiState.removeItem(STORAGE_KEY);
 };
 
-// Restored from the shared UI state store so the pin survives panel close +
-// reopen and app restarts.
-let isPinned = readPersistedPinned();
+// The pin always starts off. Nothing on desktop currently turns it on, so a
+// value left behind by an older build must not force the composer into its
+// expanded rectangle; drop any stale persisted flag rather than restoring it.
+let isPinned = false;
+if (readPersistedPinned()) writePersistedPinned(false);
 const listeners = new Set<Listener>();
 
 const emit = (): void => {

@@ -84,7 +84,9 @@ describe("composer add-menu contract", () => {
 
     const fullComposer = readSource("app/chat/Composer.tsx");
     const sidebarComposer = readSource("shell/ChatSidebar.tsx");
-    expect(fullComposer.match(/<ComposerAddMenu/g)).toHaveLength(2);
+    // Pill-mode button, expanded-toolbar button, and the inline dictation
+    // bar's leading button (only one renders at a time).
+    expect(fullComposer.match(/<ComposerAddMenu/g)).toHaveLength(3);
     expect(sidebarComposer.match(/<ComposerAddMenu/g)).toHaveLength(2);
   });
 

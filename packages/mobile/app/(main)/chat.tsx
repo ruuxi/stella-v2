@@ -526,7 +526,7 @@ function ChatSurface(props: {
   const composerModelPicker = useMemo(() => {
     if (cloudModelsActive) {
       return {
-        pinned: true,
+        pinned: composerModelPinned,
         label: cloudModelSettings.label,
         loading: cloudModelSettings.loading && !cloudModelSettings.execution,
         saving: cloudModelSettings.saving,
@@ -548,10 +548,9 @@ function ChatSurface(props: {
     }
     if (!access) return undefined;
     return {
-      // The pinned composer picker is a developer-mode surface; an explicit
-      // "off" from the paired computer unpins it regardless of local state.
-      pinned:
-        composerModelPinned && modelSettings.developerModeEnabled !== false,
+      // One pin for both cloud and computer chats: off by default, and only
+      // the user's own "Show in composer" toggle turns it on.
+      pinned: composerModelPinned,
       label: modelSettings.selectedModelLabel,
       loading: modelSettings.loading && !modelSettings.snapshot,
       saving: modelSettings.saving,

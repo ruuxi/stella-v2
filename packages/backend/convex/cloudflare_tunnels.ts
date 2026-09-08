@@ -134,6 +134,123 @@ type TunnelExternalRef = {
   hostname: string;
 };
 
+type CloudflareDnsRecord = {
+  id: string;
+  content: string;
+  proxied: boolean;
+};
+
+const tunnelCnameTarget = (tunnelId: string) => `${tunnelId}.cfargotunnel.com`;
+
+const listTunnelDnsRecords = async (
+  zoneId: string,
+  hostname: string,
+  apiToken: string,
+): Promise<CloudflareDnsRecord[]> => {
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records?type=CNAME&name=${encodeURIComponent(hostname)}`,
+    {
+      headers: { Authorization: `Bearer ${apiToken}` },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const body = (await response.json().catch(() => null)) as {
+    success?: boolean;
+    result?: Array<{ id?: string; content?: string; proxied?: boolean }>;
+    errors?: Array<{ message?: string }>;
+  } | null;
+  if (!response.ok || body?.success !== true || !Array.isArray(body.result)) {
+    throw new Error(
+      body?.errors?.[0]?.message ??
+        `Cloudflare DNS lookup failed (${response.status}).`,
+    );
+  }
+  return body.result.flatMap((item) =>
+    typeof item.id === "string" && item.id
+      ? [
+          {
+            id: item.id,
+            content: typeof item.content === "string" ? item.content : "",
+            proxied: item.proxied === true,
+          },
+        ]
+      : [],
+  );
+};
+
+const writeTunnelDnsRecord = async (
+  zoneId: string,
+  apiToken: string,
+  record: { recordId?: string; tunnelName: string; tunnelId: string },
+): Promise<string> => {
+  const url = record.recordId
+    ? `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${encodeURIComponent(record.recordId)}`
+    : `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`;
+  const response = await fetch(url, {
+    method: record.recordId ? "PATCH" : "POST",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "CNAME",
+      name: record.tunnelName,
+      content: tunnelCnameTarget(record.tunnelId),
+      proxied: true,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = (await response.json().catch(() => null)) as {
+    success?: boolean;
+    result?: { id?: string };
+    errors?: Array<{ message?: string }>;
+  } | null;
+  if (!response.ok || body?.success !== true || !body.result?.id) {
+    throw new ConvexError({
+      code: "INTERNAL_ERROR",
+      message:
+        body?.errors?.[0]?.message ??
+        `Failed to ${record.recordId ? "update" : "create"} DNS record`,
+    });
+  }
+  return body.result.id;
+};
+
+/** True when the remote tunnel exists and has not been deleted; false when it is gone. */
+const remoteTunnelExists = async (
+  accountId: string,
+  tunnelId: string,
+  apiToken: string,
+): Promise<boolean> => {
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel/${encodeURIComponent(tunnelId)}`,
+    {
+      headers: { Authorization: `Bearer ${apiToken}` },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (response.status === 404) return false;
+  const body = (await response.json().catch(() => null)) as {
+    success?: boolean;
+    result?: { id?: string; deleted_at?: string | null };
+    errors?: Array<{ code?: number; message?: string }>;
+  } | null;
+  if (response.ok && body?.success === true && body.result?.id) {
+    return !body.result.deleted_at;
+  }
+  // Cloudflare reports an unknown tunnel id with 1003 / "not found" style
+  // errors on a non-404 status; anything else is a transport failure that
+  // must not be mistaken for a missing tunnel.
+  const message = body?.errors?.[0]?.message?.toLowerCase() ?? "";
+  if (message.includes("not found") || message.includes("does not exist")) {
+    return false;
+  }
+  throw new Error(
+    body?.errors?.[0]?.message ??
+      `Cloudflare tunnel lookup failed (${response.status}).`,
+  );
+};
+
 /** Deletes every exact/id-derived and name-derived remote resource. */
 const deleteTunnelExternalRef = async (
   ref: TunnelExternalRef,
@@ -417,6 +534,68 @@ export const attachDeviceIdToTunnel = internalMutation({
       updatedAt: Date.now(),
     });
     return null;
+  },
+});
+
+/** Records a repaired DNS record id on a ready (non-provisioning) row. */
+export const recordReadyTunnelDnsRecordId = internalMutation({
+  args: {
+    id: v.id("cloudflare_tunnels"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    tunnelId: v.string(),
+    dnsRecordId: v.string(),
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
+    const row = await ctx.db.get(args.id);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.tunnelId !== args.tunnelId ||
+      row.provisionState === "provisioning"
+    ) {
+      return false;
+    }
+    await ctx.db.patch(row._id, {
+      dnsRecordId: args.dnsRecordId,
+      updatedAt: args.now,
+    });
+    return true;
+  },
+});
+
+/**
+ * Exact-locator deletion of a ready row whose remote tunnel no longer exists,
+ * so the next request provisions a fresh tunnel under the same name.
+ */
+export const deleteConfirmedStaleTunnel = internalMutation({
+  args: {
+    id: v.id("cloudflare_tunnels"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    tunnelId: v.string(),
+    tunnelName: v.string(),
+    hostname: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
+    const row = await ctx.db.get(args.id);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.tunnelId !== args.tunnelId ||
+      row.tunnelName !== args.tunnelName ||
+      row.hostname !== args.hostname ||
+      row.provisionState === "provisioning"
+    ) {
+      return false;
+    }
+    await ctx.db.delete(row._id);
+    return true;
   },
 });
 
@@ -733,13 +912,124 @@ export const purgeIdleTunnelsInternal = internalAction({
   },
 });
 
+type TunnelRepairSummary = { dnsRepaired: boolean; reprovisioned: boolean };
+
+type TunnelProvisionResult = {
+  tunnelToken: string;
+  hostname: string;
+  repair?: TunnelRepairSummary;
+};
+
+/**
+ * Reconcile a ready tunnel row with Cloudflare when a desktop reports that
+ * the hostname never became reachable. Returns `null` when the remote tunnel
+ * is gone (the row has been retired and the caller must provision anew);
+ * otherwise reports whether the DNS record had to be rewritten.
+ */
+const repairReadyTunnel = async (
+  ctx: ActionCtx,
+  row: {
+    _id: Id<"cloudflare_tunnels">;
+    tunnelId: string;
+    tunnelName: string;
+    hostname: string;
+    dnsRecordId?: string;
+  },
+  owner: { ownerId: string; ownerGeneration: string },
+  credentials: { apiToken: string; accountId: string; zoneId: string },
+): Promise<{ dnsRepaired: boolean } | null> => {
+  const exists = await remoteTunnelExists(
+    credentials.accountId,
+    row.tunnelId,
+    credentials.apiToken,
+  );
+  if (!exists) {
+    console.warn(
+      `[cloudflare_tunnels] Remote tunnel ${row.tunnelName} is gone; retiring its row for re-provisioning`,
+    );
+    await deleteTunnelExternalRef(row, credentials);
+    const deleted: boolean = await ctx.runMutation(
+      internal.cloudflare_tunnels.deleteConfirmedStaleTunnel,
+      {
+        id: row._id,
+        ownerId: owner.ownerId,
+        ownerGeneration: owner.ownerGeneration,
+        tunnelId: row.tunnelId,
+        tunnelName: row.tunnelName,
+        hostname: row.hostname,
+      },
+    );
+    if (!deleted) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Tunnel state changed; retry.",
+      });
+    }
+    return null;
+  }
+
+  const expectedContent = tunnelCnameTarget(row.tunnelId);
+  const records = await listTunnelDnsRecords(
+    credentials.zoneId,
+    row.hostname,
+    credentials.apiToken,
+  );
+  const matching = records.find(
+    (record) => record.content.toLowerCase() === expectedContent.toLowerCase(),
+  );
+  let dnsRecordId: string;
+  let dnsRepaired = false;
+  if (matching && matching.proxied) {
+    dnsRecordId = matching.id;
+  } else {
+    // Either no record, a record pointing at a stale tunnel id, or an
+    // unproxied record (cfargotunnel targets only route when proxied).
+    const stale = matching ?? records[0];
+    dnsRecordId = await writeTunnelDnsRecord(
+      credentials.zoneId,
+      credentials.apiToken,
+      {
+        ...(stale ? { recordId: stale.id } : {}),
+        tunnelName: row.tunnelName,
+        tunnelId: row.tunnelId,
+      },
+    );
+    dnsRepaired = true;
+    console.warn(
+      `[cloudflare_tunnels] ${stale ? "Rewrote" : "Recreated"} DNS record for ${row.hostname}`,
+    );
+  }
+  if (dnsRecordId !== row.dnsRecordId) {
+    await ctx.runMutation(
+      internal.cloudflare_tunnels.recordReadyTunnelDnsRecordId,
+      {
+        id: row._id,
+        ownerId: owner.ownerId,
+        ownerGeneration: owner.ownerGeneration,
+        tunnelId: row.tunnelId,
+        dnsRecordId,
+        now: Date.now(),
+      },
+    );
+  }
+  return { dnsRepaired };
+};
+
 export const getOrProvisionTunnel = internalAction({
-  args: { ownerId: v.string(), deviceId: v.string() },
-  returns: v.object({ tunnelToken: v.string(), hostname: v.string() }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ tunnelToken: string; hostname: string }> => {
+  args: {
+    ownerId: v.string(),
+    deviceId: v.string(),
+    /** Reconcile an existing tunnel's DNS/tunnel state with Cloudflare first. */
+    repair: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    tunnelToken: v.string(),
+    hostname: v.string(),
+    repair: v.optional(
+      v.object({ dnsRepaired: v.boolean(), reprovisioned: v.boolean() }),
+    ),
+  }),
+  handler: async (ctx, args): Promise<TunnelProvisionResult> => {
     const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
       ctx,
       args.ownerId,
@@ -757,6 +1047,7 @@ export const getOrProvisionTunnel = internalAction({
       internal.cloudflare_tunnels.getTunnelForOwnerDevice,
       { ownerId: args.ownerId, deviceId: args.deviceId },
     );
+    let reprovisioned = false;
     if (existing && existing.provisionState !== "provisioning") {
       if (existing.idleCleanupStartedAt !== undefined) {
         throw new ConvexError({
@@ -775,22 +1066,46 @@ export const getOrProvisionTunnel = internalAction({
           },
         );
       }
-      const touched = await ctx.runMutation(
-        internal.cloudflare_tunnels.touchTunnelLastUsed,
-        {
-          id: existing._id,
-          ownerId: args.ownerId,
-          ownerGeneration,
-          now: Date.now(),
-        },
-      );
-      if (!touched) {
-        throw new ConvexError({
-          code: "CONFLICT",
-          message: "Tunnel state changed; retry.",
-        });
+      const repaired = args.repair
+        ? await repairReadyTunnel(
+            ctx,
+            existing,
+            { ownerId: args.ownerId, ownerGeneration },
+            {
+              apiToken: requireCfApiToken(),
+              accountId: requireCfAccountId(),
+              zoneId: requireCfZoneId(),
+            },
+          )
+        : undefined;
+      if (repaired === null) {
+        // The remote tunnel was gone; its row is retired. Provision a fresh one.
+        existing = null;
+        reprovisioned = true;
+      } else {
+        const touched = await ctx.runMutation(
+          internal.cloudflare_tunnels.touchTunnelLastUsed,
+          {
+            id: existing._id,
+            ownerId: args.ownerId,
+            ownerGeneration,
+            now: Date.now(),
+          },
+        );
+        if (!touched) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message: "Tunnel state changed; retry.",
+          });
+        }
+        return {
+          tunnelToken: existing.tunnelToken,
+          hostname: existing.hostname,
+          ...(repaired
+            ? { repair: { dnsRepaired: repaired.dnsRepaired, reprovisioned } }
+            : {}),
+        };
       }
-      return { tunnelToken: existing.tunnelToken, hostname: existing.hostname };
     }
 
     const apiToken = requireCfApiToken();
@@ -975,7 +1290,13 @@ export const getOrProvisionTunnel = internalAction({
       if (!ready) {
         throw new Error("Tunnel provisioning reservation changed.");
       }
-      return { tunnelToken, hostname };
+      return {
+        tunnelToken,
+        hostname,
+        ...(args.repair
+          ? { repair: { dnsRepaired: reprovisioned, reprovisioned } }
+          : {}),
+      };
     } catch (error) {
       try {
         await deleteTunnelExternalRef(

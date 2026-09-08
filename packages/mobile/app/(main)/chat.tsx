@@ -42,6 +42,7 @@ import {
 import { useComputerModelSettings } from "../../src/lib/use-computer-model-settings";
 import { useCloudModelSettings } from "../../src/lib/use-cloud-model-settings";
 import { usesCloudModelSettings } from "../../src/lib/cloud-model-selection";
+import { resolveRealtimeVoiceRoute } from "../../src/lib/realtime-voice-routing";
 import {
   REASONING_OPTIONS,
   type ReasoningEffort,
@@ -522,6 +523,17 @@ function ChatSurface(props: {
     async (request: string) => sendRealtimePrompt?.(request) ?? null,
     [sendRealtimePrompt],
   );
+  // Voice follows the execution selection: Cloud stays on the phone even with
+  // paired computers, and a chosen computer runs voice tools on that computer.
+  const realtimeVoiceRoute = useMemo(
+    () =>
+      resolveRealtimeVoiceRoute({
+        executionTarget,
+        preferredAccess: access,
+        pairedDesktops,
+      }),
+    [access, executionTarget, pairedDesktops],
+  );
 
   const composerModelPicker = useMemo(() => {
     if (cloudModelsActive) {
@@ -612,8 +624,9 @@ function ChatSurface(props: {
         onSubmit={thread.send}
         onStop={thread.stop}
         realtimeVoiceConversationId={thread.conversationId}
-        realtimeVoiceExecution={access ? "computer" : "phone"}
-        {...(access ? { realtimeVoiceDesktopAccess: access } : {})}
+        realtimeVoiceExecution={realtimeVoiceRoute.execution}
+        realtimeVoiceDesktopAccess={realtimeVoiceRoute.desktopAccess}
+        desktopAccess={access}
         onRealtimeVoiceAction={performRealtimeVoiceAction}
         placeholder={t("mobile.chat.composerPlaceholder")}
         composerIntervention={

@@ -399,6 +399,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         getBroadcastToMobile: lazyMobileBroadcast,
         getOverlayController: () => state.overlayController ?? null,
+        getActiveCloudConversationCacheAuthority: () => services.localChatHistoryService.getActiveCloudConversationCacheAuthority(),
         stellaAppDir: state.stellaAppDir,
         stellaDataDirPath: state.stellaDataDirPath,
     });

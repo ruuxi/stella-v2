@@ -34,6 +34,33 @@ export const requireMatchingCloudConversationId = (
 };
 
 /**
+ * Bind a paired-phone bridge request to the conversation the phone asked for.
+ * The phone owns its own conversation selection, so it must not be forced to
+ * match whichever conversation the desktop window happens to show; the cloud
+ * journal and history endpoints still enforce account ownership server-side
+ * with the desktop's own token, and the active cache authority proves that a
+ * signed-in owner generation exists to write under.
+ */
+export const requireRequestedCloudConversationId = (
+  requestedValue: unknown,
+  authority: { ownerGeneration?: string | null } | null | undefined,
+): string => {
+  const requestedId =
+    typeof requestedValue === "string"
+      ? selectedCloudConversationId(requestedValue)
+      : null;
+  if (!requestedId) {
+    throw new Error("A cloud conversation id is required.");
+  }
+  if (!authority?.ownerGeneration?.trim()) {
+    throw new Error(
+      "Cloud conversation authority is not ready. Try again in a moment.",
+    );
+  }
+  return requestedId;
+};
+
+/**
  * Electron's ordinary chat boundary is cloud-only. Keep this override in main
  * as well as the runtime so an older renderer cannot revive local transcript
  * ownership by sending `storageMode: "local"`.

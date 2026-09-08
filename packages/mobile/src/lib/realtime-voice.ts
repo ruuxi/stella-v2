@@ -1,4 +1,3 @@
-import { AudioModule } from "expo-audio";
 import type {
   MediaStream,
   RTCPeerConnection as NativeRTCPeerConnection,
@@ -25,6 +24,7 @@ import {
   type DesktopRealtimeVoice,
 } from "./desktop-realtime-voice";
 import { REALTIME_VOICE_AUDIO_MODE } from "./realtime-voice-audio";
+import { ensureMicrophonePermission } from "./microphone-permission";
 import {
   acquireRecordingAudioSession,
   refreshRecordingAudioSession,
@@ -217,6 +217,20 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : "";
 
+/**
+ * Stable append id for one persisted voice transcript row. The desktop's cloud
+ * journal dedupes on it, so a retried bridge send can never duplicate a line.
+ * Matches the runtime's `[A-Za-z0-9._:-]{1,128}` append-id contract.
+ */
+export const desktopVoiceTranscriptEventId = (
+  requestId: string,
+  role: "user" | "assistant",
+  itemId: string,
+): string => {
+  const clean = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "-");
+  return `voice:${clean(requestId)}:${role}:${clean(itemId)}`.slice(0, 128);
+};
+
 const clearlyEndsConversation = (text: string): boolean =>
   /^(?:okay[, ]*)?(?:bye|goodbye|good night|goodnight|see you|talk (?:to you )?later)[.! ]*$/i.test(
     text.trim(),
@@ -361,7 +375,9 @@ export class MobileRealtimeVoiceSession {
     this.publish({ ...INITIAL_REALTIME_VOICE_SNAPSHOT });
 
     try {
-      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      // The composer resolves microphone access before this surface opens, so
+      // this normally reuses an existing grant without a system prompt.
+      const permission = await ensureMicrophonePermission();
       if (!permission.granted) throw new RealtimeVoicePermissionError();
 
       this.audioLease = await acquireRecordingAudioSession(
@@ -906,15 +922,23 @@ export class MobileRealtimeVoiceSession {
     transcript: string,
   ) {
     if (!this.desktopVoice) return;
-    const eventItemId = asString(event.item_id) || asString(event.response_id);
-    const key = eventItemId ? `${role}:${eventItemId}:${transcript}` : "";
-    if (key) {
-      if (this.persistedDesktopTranscripts.has(key)) return;
-      this.persistedDesktopTranscripts.add(key);
-    }
+    const eventItemId =
+      asString(event.item_id) ||
+      asString(event.response_id) ||
+      asString(event.event_id) ||
+      `${Date.now()}`;
+    const key = `${role}:${eventItemId}:${transcript}`;
+    if (this.persistedDesktopTranscripts.has(key)) return;
+    this.persistedDesktopTranscripts.add(key);
     try {
       await persistDesktopRealtimeVoiceTranscript(this.desktopVoice.bridge, {
         conversationId: this.options.conversationId,
+        eventId: desktopVoiceTranscriptEventId(
+          this.requestId,
+          role,
+          eventItemId,
+        ),
+        timestamp: Date.now(),
         role,
         text: transcript,
         uiVisibility: "hidden",
@@ -1459,6 +1483,12 @@ export class MobileRealtimeVoiceSession {
       try {
         await persistDesktopRealtimeVoiceTranscript(desktopVoice.bridge, {
           conversationId: this.options.conversationId,
+          eventId: desktopVoiceTranscriptEventId(
+            this.requestId,
+            "assistant",
+            "session-summary",
+          ),
+          timestamp: Date.now(),
           role: "assistant",
           text: [
             "Voice session",

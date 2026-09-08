@@ -27,6 +27,14 @@ vi.mock("electron", () => ({
 const { registerVoiceHandlers } = await import(
   "@stella/desktop/electron/ipc/voice-handlers.js"
 );
+const { MOBILE_BRIDGE_SENDER_URL } = await import(
+  "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js"
+);
+
+const bridgeEvent = {
+  sender: { id: -1, getURL: () => MOBILE_BRIDGE_SENDER_URL },
+  senderFrame: { url: MOBILE_BRIDGE_SENDER_URL },
+};
 
 describe("voice IPC cloud conversation fence", () => {
   beforeEach(() => {
@@ -35,7 +43,9 @@ describe("voice IPC cloud conversation fence", () => {
     vi.restoreAllMocks();
   });
 
-  const register = () => {
+  const register = (authority: { ownerGeneration: string } | null = {
+    ownerGeneration: "gen-1",
+  }) => {
     const uiState = {
       conversationId: "cloud-current",
       isVoiceRtcActive: true,
@@ -59,6 +69,7 @@ describe("voice IPC cloud conversation fence", () => {
       toggleRealtimeVoice: () => undefined,
       assertPrivilegedSender: () => true,
       getStellaHostRunner: () => runner,
+      getActiveCloudConversationCacheAuthority: () => authority,
       stellaAppDir: "/tmp/stella-cloud-authority-test",
       stellaDataDirPath: "/tmp/stella-cloud-authority-test",
     });
@@ -94,7 +105,11 @@ describe("voice IPC cloud conversation fence", () => {
     await Promise.resolve();
 
     expect(runner.persistVoiceTranscript).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: "cloud-current" }),
+      expect.objectContaining({
+        conversationId: "cloud-current",
+        eventId: expect.stringMatching(/^voice:[A-Za-z0-9._:-]+$/),
+        timestamp: expect.any(Number),
+      }),
     );
 
     await electron.handles.get(IPC_VOICE_ORCHESTRATOR_CONFIG)?.({}, {
@@ -125,6 +140,65 @@ describe("voice IPC cloud conversation fence", () => {
     ).rejects.toThrow("active cloud conversation changed");
 
     expect(runner.handleVoiceChat).not.toHaveBeenCalled();
+    expect(runner.executeVoiceTool).not.toHaveBeenCalled();
+  });
+
+  it("authorizes a paired phone against the conversation it requested", async () => {
+    const { runner } = register();
+
+    await electron.handles.get(IPC_VOICE_ORCHESTRATOR_CONFIG)?.(bridgeEvent, {
+      conversationId: " phone-selected ",
+    });
+    expect(runner.getVoiceOrchestratorConfig).toHaveBeenCalledWith({
+      conversationId: "phone-selected",
+    });
+
+    await electron.handles.get(IPC_VOICE_EXECUTE_MOBILE_TOOL)?.(bridgeEvent, {
+      conversationId: "phone-selected",
+      requestId: "voice-1",
+      callId: "call-1",
+      name: "search",
+      args: {},
+    });
+    expect(runner.executeVoiceTool).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: "phone-selected" }),
+    );
+
+    electron.listeners.get("voice:persistTranscript")?.(bridgeEvent, {
+      conversationId: "phone-selected",
+      eventId: "voice:req:user:item-1",
+      timestamp: 1_700_000_000_000,
+      role: "user",
+      text: "from the phone",
+    });
+    await Promise.resolve();
+    expect(runner.persistVoiceTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "phone-selected",
+        eventId: "voice:req:user:item-1",
+        timestamp: 1_700_000_000_000,
+      }),
+    );
+  });
+
+  it("still requires a conversation id and a ready cloud authority for phone requests", async () => {
+    const { runner } = register(null);
+
+    await expect(
+      electron.handles.get(IPC_VOICE_ORCHESTRATOR_CONFIG)?.(bridgeEvent, {
+        conversationId: "phone-selected",
+      }),
+    ).rejects.toThrow("Cloud conversation authority is not ready");
+    await expect(
+      electron.handles.get(IPC_VOICE_EXECUTE_MOBILE_TOOL)?.(bridgeEvent, {
+        conversationId: "  ",
+        requestId: "voice-1",
+        callId: "call-1",
+        name: "search",
+        args: {},
+      }),
+    ).rejects.toThrow("A cloud conversation id is required.");
+    expect(runner.getVoiceOrchestratorConfig).not.toHaveBeenCalled();
     expect(runner.executeVoiceTool).not.toHaveBeenCalled();
   });
 });

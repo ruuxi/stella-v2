@@ -1300,9 +1300,12 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
-        let body: { deviceId?: unknown } | null = null;
+        let body: { deviceId?: unknown; repair?: unknown } | null = null;
         try {
-          body = (await request.json()) as { deviceId?: unknown };
+          body = (await request.json()) as {
+            deviceId?: unknown;
+            repair?: unknown;
+          };
         } catch {
           return errorResponse(400, "Invalid JSON body", origin);
         }
@@ -1311,11 +1314,15 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         if (!deviceId) {
           return errorResponse(400, "deviceId is required", origin);
         }
+        // A desktop whose tunnel hostname never became reachable asks for a
+        // reconcile pass: the DNS record and the remote tunnel are verified
+        // and repaired (or re-provisioned) before the token is returned.
+        const repair = body?.repair === true;
 
         try {
           const result = await ctx.runAction(
             internal.cloudflare_tunnels.getOrProvisionTunnel,
-            { ownerId: owner.ownerId, deviceId },
+            { ownerId: owner.ownerId, deviceId, ...(repair ? { repair } : {}) },
           );
           return jsonResponse(result, 200, origin);
         } catch (error) {

@@ -13,6 +13,7 @@ import { encodeBridgeBinaryValues } from "./binary-codec.js";
 import { BRIDGE_CRYPTO_PROTOCOL, BRIDGE_FEATURE_DEFLATE, createBridgeKeyPair, createBridgeReplayGuard, decryptBridgeBytes, decryptBridgePayload, deriveBridgeCryptoSession, encryptBridgeBytes, encryptBridgePayload, isBridgeEncryptedEnvelope, } from "./crypto.js";
 import { getHandler, getOnHandlers } from "./handler-registry.js";
 import { guardMobileBridgeInvokeArgs } from "./invoke-guards.js";
+import { MOBILE_BRIDGE_SENDER_URL } from "./bridge-policy.js";
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 import { resolveRendererRoot } from "../../renderer-location.js";
@@ -59,7 +60,6 @@ const parseBridgeFeaturesHeader = (value) => {
         .filter(Boolean));
 };
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
-const MOBILE_BRIDGE_SENDER_URL = "stella-mobile-bridge://mobile";
 const DEVELOPER_RESOURCE_PREVIEWS_KEY = "stella-developer-resource-previews";
 /** Per-tick probe budget when re-checking the advertised public tunnel URL. */
 const BRIDGE_PUBLIC_HEALTH_TIMEOUT_MS = 2_000;
@@ -305,9 +305,6 @@ export class MobileBridgeService {
     convexHttpClientUrl = null;
     convexHttpClientAuthToken = null;
     tunnelUrl = null;
-    registerUnverifiedTunnelFallback = false;
-    refreshUnverifiedTunnelRegistration = false;
-    tunnelEverVerified = false;
     healthFailureStreak = 0;
     lastHealthyProbeAt = 0;
     syncInFlight = false;
@@ -384,7 +381,6 @@ export class MobileBridgeService {
     }
     setTunnelUrl(url, readiness) {
         const next = url?.trim() || null;
-        const shouldRegisterUnverifiedFallback = next !== null && readiness === "fallback-unverified";
         if (next === this.tunnelUrl && readiness === undefined)
             return;
         if (next && next !== this.tunnelUrl) {
@@ -392,22 +388,14 @@ export class MobileBridgeService {
             // probed fresh (don't reuse a prior URL's cached result).
             this.healthFailureStreak = 0;
             this.lastHealthyProbeAt = 0;
-            this.tunnelEverVerified = false;
-            this.refreshUnverifiedTunnelRegistration = false;
         }
         if (next && readiness === "verified") {
-            // The tunnel service has just completed the same public health probe.
-            // Reuse that result instead of adding a second readiness gate before
-            // registration.
+            // The tunnel service only advertises a URL after its own public health
+            // probe succeeded. Reuse that result instead of adding a second
+            // readiness gate before registration.
             this.lastHealthyProbeAt = Date.now();
-            this.tunnelEverVerified = true;
-            this.refreshUnverifiedTunnelRegistration = false;
-        }
-        else if (shouldRegisterUnverifiedFallback) {
-            this.refreshUnverifiedTunnelRegistration = true;
         }
         this.tunnelUrl = next;
-        this.registerUnverifiedTunnelFallback = shouldRegisterUnverifiedFallback;
         this.scheduleRegistrationSync();
     }
     getPort() {
@@ -1442,14 +1430,7 @@ export class MobileBridgeService {
         // broke mid-session) would otherwise keep the phone pointed at an
         // unreachable URL until the 150s lease lapsed.
         let healthy;
-        const useUnverifiedFallback = this.registerUnverifiedTunnelFallback;
-        if (useUnverifiedFallback) {
-            // The tunnel layer already exhausted its readiness window. Register the
-            // advertised fallback immediately so a resolver-blinded desktop does not
-            // add three periodic refresh ticks to the cold path.
-            healthy = false;
-        }
-        else if (Date.now() - this.lastHealthyProbeAt < BRIDGE_PUBLIC_HEALTH_CACHE_MS) {
+        if (Date.now() - this.lastHealthyProbeAt < BRIDGE_PUBLIC_HEALTH_CACHE_MS) {
             // Reuse a very recent successful probe (collapses the duplicate probe from
             // a coalesced/burst sync). Anchored to the last real probe, so it never
             // extends itself across the far-spaced refresh ticks.
@@ -1459,52 +1440,26 @@ export class MobileBridgeService {
             healthy = await this.probePublicTunnelHealth(this.tunnelUrl);
             if (healthy) {
                 this.lastHealthyProbeAt = Date.now();
-                this.tunnelEverVerified = true;
-                this.refreshUnverifiedTunnelRegistration = false;
             }
         }
-        if (!healthy && !useUnverifiedFallback) {
+        if (!healthy) {
+            // The phone must never be pointed at a URL this desktop cannot confirm
+            // is serving. A single miss keeps any existing lease (transient edge
+            // blip); a sustained streak clears availability so the phone stops
+            // burning its connect budget on a dead tunnel.
             this.healthFailureStreak += 1;
             const streakExceeded = this.healthFailureStreak >= BRIDGE_PUBLIC_HEALTH_FAILURE_THRESHOLD;
-            // Only a previously verified URL is cleared on a failure streak — that's
-            // the healthy→dead transition this guard exists for. A URL that has
-            // NEVER probed healthy from this desktop may still be a resolver-vantage
-            // false negative (e.g. a VPN's DNS server returning stale NXDOMAIN while
-            // the phone's network resolves the hostname fine), so clearing — or
-            // never registering — would strand a working tunnel.
-            const everVerified = this.tunnelEverVerified;
-            if (streakExceeded && everVerified && this.hasRegisteredBridge) {
+            if (streakExceeded && this.hasRegisteredBridge) {
                 console.warn(`[mobile-bridge] Public tunnel failed ${this.healthFailureStreak} health checks; clearing availability`);
                 await this.clearRegistration();
                 return;
             }
-            if (everVerified ||
-                (!streakExceeded && !this.refreshUnverifiedTunnelRegistration)) {
-                // Keep any existing lease but don't refresh the registration against
-                // an unconfirmed URL this tick.
-                if (this.hasActiveRegistrationLease()) {
-                    this.registrationState = "degraded";
-                }
-                return;
+            if (this.hasActiveRegistrationLease()) {
+                this.registrationState = "degraded";
             }
-            if (this.refreshUnverifiedTunnelRegistration) {
-                // Once an unverified endpoint has been accepted, refresh its lease on
-                // every five-minute tick while continuing to probe.
-                console.warn("[mobile-bridge] Public tunnel remains unverified; refreshing degraded registration");
-            }
-            else {
-                // Streak exceeded and never verified: mirror the tunnel layer's
-                // advertise-anyway fallback and register the URL as degraded rather
-                // than leaving the phone with nothing to connect to.
-                console.warn(`[mobile-bridge] Public tunnel unverified after ${this.healthFailureStreak} health checks; registering anyway (probe may be resolver-blinded)`);
-            }
+            return;
         }
-        else if (!healthy) {
-            console.warn("[mobile-bridge] Tunnel readiness fallback was unverified; registering immediately as degraded");
-        }
-        else {
-            this.healthFailureStreak = 0;
-        }
+        this.healthFailureStreak = 0;
         try {
             const response = await this.registerDesktopBridge({
                 deviceId: this.deviceId,
@@ -1526,11 +1481,7 @@ export class MobileBridgeService {
             }
             this.setRegistrationLease(expiresAt);
             this.hasRegisteredBridge = true;
-            this.registerUnverifiedTunnelFallback = false;
-            this.refreshUnverifiedTunnelRegistration = !healthy;
-            // An unverified advertise-anyway registration stays degraded until a
-            // probe actually succeeds from this desktop.
-            this.registrationState = healthy ? "healthy" : "degraded";
+            this.registrationState = "healthy";
         }
         catch (error) {
             const errorCode = error && typeof error === "object"

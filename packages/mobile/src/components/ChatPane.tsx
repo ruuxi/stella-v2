@@ -21,6 +21,7 @@ import {
   Keyboard,
   LayoutChangeEvent,
   LayoutAnimation,
+  Linking,
   type ListRenderItemInfo,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -93,6 +94,7 @@ import {
 } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
 import { RealtimeVoiceOverlay } from "./RealtimeVoiceOverlay";
+import { ensureMicrophonePermission } from "../lib/microphone-permission";
 import {
   WorkingIndicator,
   WORKING_INDICATOR_SLOT_HEIGHT,
@@ -2799,6 +2801,12 @@ export type ChatPaneProps = {
   realtimeVoiceExecution?: "phone" | "computer";
   /** Paired desktop credentials used only by Computer realtime voice. */
   realtimeVoiceDesktopAccess?: StoredPhoneAccess | null;
+  /**
+   * Paired desktop used to open computer-owned files in the transcript. Kept
+   * separate from the voice route so a cloud voice selection does not hide
+   * files produced by an earlier computer turn.
+   */
+  desktopAccess?: StoredPhoneAccess | null;
   /** Show sign-in before starting capture for an anonymous cloud user. */
   realtimeVoiceSignInRequired?: boolean;
   /** Dispatches one action request into the attached text chat. */
@@ -2917,6 +2925,7 @@ export function ChatPane({
   realtimeVoiceConversationId = null,
   realtimeVoiceExecution = "phone",
   realtimeVoiceDesktopAccess = null,
+  desktopAccess: desktopAccessProp = null,
   realtimeVoiceSignInRequired = false,
   onRealtimeVoiceAction,
   enableAttachments,
@@ -2936,6 +2945,9 @@ export function ChatPane({
   onOpenActivity,
   catchingUp = false,
 }: ChatPaneProps) {
+  // Transcript file links open on the preferred paired computer even when the
+  // voice route itself is the phone's cloud session.
+  const desktopAccess = desktopAccessProp ?? realtimeVoiceDesktopAccess;
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
@@ -3397,15 +3409,50 @@ export function ChatPane({
     await dictation.toggle();
   }, [dictation]);
 
-  const openRealtimeVoice = useCallback(() => {
+  const realtimeVoiceOpeningRef = useRef(false);
+  const openRealtimeVoice = useCallback(async () => {
     if (!realtimeVoiceSignInRequired && !hasAiConsent()) {
       requestAiConsent();
       return;
     }
+    if (realtimeVoiceOpeningRef.current) return;
+    realtimeVoiceOpeningRef.current = true;
     tapMedium();
-    stopReadAloud();
-    Keyboard.dismiss();
-    setRealtimeVoiceOpen(true);
+    try {
+      // Resolve microphone access before the voice screen exists. The system
+      // prompt suspends the app (Android reports it as `background`), which
+      // used to close a voice screen that had only just opened. An already
+      // granted permission resolves silently and never shows a prompt.
+      const permission = realtimeVoiceSignInRequired
+        ? ({ granted: true } as const)
+        : await ensureMicrophonePermission();
+      if (!permission.granted) {
+        Alert.alert(
+          "Microphone access needed",
+          permission.canAskAgain
+            ? "Stella needs access to your microphone for realtime voice. You can allow it the next time the system asks."
+            : "Stella needs access to your microphone for realtime voice. Turn it on in Settings → Stella → Microphone.",
+          permission.canAskAgain
+            ? [{ text: "OK", style: "default" }]
+            : [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Open Settings",
+                  style: "default",
+                  onPress: () => {
+                    void Linking.openSettings();
+                  },
+                },
+              ],
+        );
+        return;
+      }
+      stopReadAloud();
+      Keyboard.dismiss();
+      setRealtimeVoiceOpen(true);
+    } finally {
+      realtimeVoiceOpeningRef.current = false;
+    }
   }, [realtimeVoiceSignInRequired]);
 
   const performRealtimeVoiceAction = useCallback(
@@ -3980,7 +4027,7 @@ export function ChatPane({
             onOpenAgentActivity={onOpenActivity}
             onOpenReply={setReplyFocus}
             contextRef={replyContexts.get(item.id)}
-            desktopAccess={realtimeVoiceDesktopAccess}
+            desktopAccess={desktopAccess}
           />
         </FadeInMessage>
       );
@@ -4003,7 +4050,7 @@ export function ChatPane({
       stopSelectingMessage,
       quoteMessage,
       onOpenActivity,
-      realtimeVoiceDesktopAccess,
+      desktopAccess,
     ],
   );
   // Recycled rows also depend on focus and the current palette. Invalidate
@@ -4180,7 +4227,7 @@ export function ChatPane({
     !composerHasContent &&
     dictation.status === "idle" ? (
       <Pressable
-        onPress={openRealtimeVoice}
+        onPress={() => void openRealtimeVoice()}
         accessibilityRole="button"
         accessibilityLabel="Start realtime voice conversation"
         style={({ pressed }) => [
@@ -4345,7 +4392,7 @@ export function ChatPane({
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
             onAskStella={quoteMessage}
             onOpenReply={setReplyFocus} contextRef={contextRef}
-            desktopAccess={realtimeVoiceDesktopAccess} />}
+            desktopAccess={desktopAccess} />}
         />}
         {/* Floating glass controls (scroll-to-bottom FAB + computer-options
             button) sit in a pass-through absolute overlay. This MUST be a plain

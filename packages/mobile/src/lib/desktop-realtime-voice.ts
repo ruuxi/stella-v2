@@ -56,6 +56,9 @@ export const persistDesktopRealtimeVoiceTranscript = async (
   bridge: DesktopBridgeConnection,
   payload: {
     conversationId: string;
+    /** Stable append id; the desktop dedupes retries on it. */
+    eventId: string;
+    timestamp: number;
     role: "user" | "assistant";
     text: string;
     uiVisibility: "visible" | "hidden";

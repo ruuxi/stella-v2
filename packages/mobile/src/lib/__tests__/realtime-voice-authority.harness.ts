@@ -24,6 +24,7 @@ let postImpl: (
 
 mock.module("expo-audio", () => ({
   AudioModule: {
+    getRecordingPermissionsAsync: async () => ({ granted: true }),
     requestRecordingPermissionsAsync: async () => ({ granted: true }),
   },
 }));

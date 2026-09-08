@@ -106,7 +106,7 @@ describe("MobileBridgeService health-gated registration", () => {
     anyService.clearRegistrationLeaseTimer();
   });
 
-  it("registers and refreshes an unverified fallback until it becomes healthy", async () => {
+  it("never registers a URL it cannot confirm is reachable", async () => {
     const service = createService();
     const anyService = configureReadyService(service);
     const counts = mockBridgeCalls(anyService);
@@ -117,29 +117,23 @@ describe("MobileBridgeService health-gated registration", () => {
     );
 
     anyService.tunnelUrl = null;
-    service.setTunnelUrl(TUNNEL_URL, "fallback-unverified");
+    service.setTunnelUrl(TUNNEL_URL);
+    await anyService.syncRegistration();
+    await anyService.syncRegistration();
     await anyService.syncRegistration();
 
-    expect(health.probe).not.toHaveBeenCalled();
-    expect(counts.register).toBe(1);
+    // Three failed probes, zero registrations: the phone is never handed an
+    // unreachable URL, no matter how long the tunnel stays dark.
+    expect(health.probe).toHaveBeenCalledTimes(3);
+    expect(counts.register).toBe(0);
     expect(counts.clear).toBe(0);
-    expect(anyService.registrationState).toBe("degraded");
-    expect(anyService.isBridgeAccessEnabled()).toBe(true);
-
-    // Periodic failed probes must refresh the degraded lease while waiting for
-    // the tunnel to become verifiable from this desktop.
-    await anyService.syncRegistration();
-    await anyService.syncRegistration();
-    expect(health.probe).toHaveBeenCalledTimes(2);
-    expect(counts.register).toBe(3);
-    expect(anyService.registrationState).toBe("degraded");
-    expect(anyService.isBridgeAccessEnabled()).toBe(true);
+    expect(anyService.isBridgeAccessEnabled()).toBe(false);
 
     health.healthy = true;
     await anyService.syncRegistration();
-    expect(health.probe).toHaveBeenCalledTimes(3);
-    expect(counts.register).toBe(4);
+    expect(counts.register).toBe(1);
     expect(anyService.registrationState).toBe("healthy");
+    expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
     anyService.clearRegistrationLeaseTimer();
   });

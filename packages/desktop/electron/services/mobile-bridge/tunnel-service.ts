@@ -9,14 +9,38 @@ import { probeBridgePublicHealth } from "./public-health.js";
  * After cloudflared reports a registered connection we don't immediately trust
  * that the public hostname is routable — the Cloudflare edge can take a moment
  * to start routing to a freshly (re)connected connector. We probe the public
- * `/bridge/health` endpoint and only advertise the tunnel URL once it answers,
- * so the phone never receives a URL that isn't actually reachable yet.
+ * `/bridge/health` endpoint and advertise the tunnel URL only once it answers,
+ * so the phone never receives a URL that isn't actually reachable. There is no
+ * advertise-anyway fallback: an unreachable URL is worse than no URL because
+ * the phone spends its whole connect budget on it.
+ *
+ * When the hostname stays unreachable past the repair threshold we ask the
+ * backend to repair the tunnel's Cloudflare routing (the DNS record can be
+ * missing or pointing at a stale tunnel, or the tunnel itself can be gone).
+ * A repair that re-provisions the tunnel restarts cloudflared with the new
+ * token; otherwise probing simply continues with backoff.
  */
-const PUBLIC_READINESS_TIMEOUT_MS = 15_000;
 const PUBLIC_READINESS_PROBE_TIMEOUT_MS = 2_000;
-const PUBLIC_READINESS_RETRY_MS = 3_000;
+const PUBLIC_READINESS_RETRY_MIN_MS = 3_000;
+const PUBLIC_READINESS_RETRY_MAX_MS = 15_000;
+const PUBLIC_READINESS_REPAIR_AFTER_MS = 15_000;
+const PUBLIC_READINESS_REPAIR_INTERVAL_MS = 60_000;
+/** cloudflared must register a connector within this window or its token is presumed stale. */
+const CONNECTOR_REGISTRATION_TIMEOUT_MS = 45_000;
 
-export type TunnelPublicReadiness = "verified" | "fallback-unverified";
+export type TunnelPublicReadiness = "verified";
+
+export type TunnelTokenResponse = {
+  tunnelToken: string;
+  hostname: string;
+  repair?: { dnsRepaired: boolean; reprovisioned: boolean };
+};
+
+export type TunnelRepairOutcome =
+  | "restarted"
+  | "repaired"
+  | "unchanged"
+  | "failed";
 
 export class CloudflareTunnelService {
   private process: ChildProcess | null = null;
@@ -24,6 +48,9 @@ export class CloudflareTunnelService {
   private bridgePort: number | null = null;
   private started = false;
   private readinessStarted = false;
+  private readinessGeneration = 0;
+  private registrationTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeToken: { tunnelToken: string; hostname: string } | null = null;
 
   constructor(
     private readonly options: {
@@ -60,10 +87,14 @@ export class CloudflareTunnelService {
 
     this.started = true;
 
+    const generation = ++this.readinessGeneration;
     try {
       const { tunnelToken, hostname } = await this.fetchTunnelToken();
+      if (generation !== this.readinessGeneration || !this.started) return;
+      this.activeToken = { tunnelToken, hostname };
 
       const cloudflaredBin = await this.ensureCloudflaredBinary();
+      if (generation !== this.readinessGeneration || !this.started) return;
 
       console.log(
         `[cloudflare-tunnel] Starting tunnel to localhost:${this.bridgePort}`,
@@ -85,6 +116,18 @@ export class CloudflareTunnelService {
         },
       );
 
+      this.clearRegistrationTimer();
+      this.registrationTimer = setTimeout(() => {
+        this.registrationTimer = null;
+        if (this.readinessStarted || !this.isGenerationActive(generation)) {
+          return;
+        }
+        console.warn(
+          `[cloudflare-tunnel] Connector did not register within ${CONNECTOR_REGISTRATION_TIMEOUT_MS}ms; asking the backend to repair the tunnel`,
+        );
+        void this.repairTunnelRouting(generation);
+      }, CONNECTOR_REGISTRATION_TIMEOUT_MS);
+
       this.process.stderr?.on("data", (chunk: Buffer) => {
         const line = chunk.toString();
         if (
@@ -92,10 +135,11 @@ export class CloudflareTunnelService {
           line.includes("Registered tunnel connection")
         ) {
           this.readinessStarted = true;
+          this.clearRegistrationTimer();
           console.log(
             "[cloudflare-tunnel] Connector registered; verifying public reachability",
           );
-          void this.announceWhenReachable(`https://${hostname}`);
+          void this.announceWhenReachable(`https://${hostname}`, generation);
         }
       });
 
@@ -112,6 +156,8 @@ export class CloudflareTunnelService {
         this.process = null;
         this.started = false;
         this.readinessStarted = false;
+        this.readinessGeneration += 1;
+        this.clearRegistrationTimer();
         this.tunnelUrl = null;
         this.options.onTunnelUrl(null);
 
@@ -133,6 +179,8 @@ export class CloudflareTunnelService {
   async stop() {
     this.started = false;
     this.readinessStarted = false;
+    this.readinessGeneration += 1;
+    this.clearRegistrationTimer();
     if (this.process) {
       await stopChildProcessTree(this.process);
       this.process = null;
@@ -182,50 +230,106 @@ export class CloudflareTunnelService {
     return target;
   }
 
-  /**
-   * Wait until the public tunnel URL actually serves `/bridge/health`, then
-   * advertise it. If it never becomes reachable within the timeout we advertise
-   * anyway as a last resort, so a working-but-slow edge doesn't leave the phone
-   * permanently unable to connect.
-   */
-  private async announceWhenReachable(url: string) {
-    const reachable = await this.waitForPublicReadiness(url);
-    // Bail if the tunnel was stopped or the process exited while we probed.
-    if (!this.started || !this.process) return;
-    if (reachable) {
-      console.log(`[cloudflare-tunnel] Connected: ${url}`);
-    } else {
-      console.warn(
-        `[cloudflare-tunnel] Public URL not reachable within ${PUBLIC_READINESS_TIMEOUT_MS}ms; advertising anyway: ${url}`,
-      );
-    }
-    this.tunnelUrl = url;
-    this.options.onTunnelUrl(
-      url,
-      reachable ? "verified" : "fallback-unverified",
+  private isGenerationActive(generation: number): boolean {
+    return (
+      this.started &&
+      this.process !== null &&
+      generation === this.readinessGeneration
     );
   }
 
-  private async waitForPublicReadiness(url: string): Promise<boolean> {
-    const deadline = Date.now() + PUBLIC_READINESS_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      if (!this.started || !this.process) return false;
-      if (
-        await probeBridgePublicHealth(url, PUBLIC_READINESS_PROBE_TIMEOUT_MS)
-      ) {
-        return true;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, PUBLIC_READINESS_RETRY_MS),
-      );
-    }
-    return false;
+  private clearRegistrationTimer() {
+    if (this.registrationTimer) clearTimeout(this.registrationTimer);
+    this.registrationTimer = null;
   }
 
-  private async fetchTunnelToken(): Promise<{
-    tunnelToken: string;
-    hostname: string;
-  }> {
+  /**
+   * Probe the public URL until it actually serves `/bridge/health`, then
+   * advertise it. Never advertises an unreachable URL. Past the repair
+   * threshold the backend is asked to reconcile the tunnel's DNS record and
+   * existence; a re-provision restarts cloudflared and ends this loop.
+   */
+  private async announceWhenReachable(url: string, generation: number) {
+    const startedAt = Date.now();
+    let delayMs = PUBLIC_READINESS_RETRY_MIN_MS;
+    let lastRepairAt = 0;
+    let failures = 0;
+    while (this.isGenerationActive(generation)) {
+      const reachable = await probeBridgePublicHealth(
+        url,
+        PUBLIC_READINESS_PROBE_TIMEOUT_MS,
+      );
+      if (!this.isGenerationActive(generation)) return;
+      if (reachable) {
+        console.log(`[cloudflare-tunnel] Connected: ${url}`);
+        this.tunnelUrl = url;
+        this.options.onTunnelUrl(url, "verified");
+        return;
+      }
+      failures += 1;
+      const now = Date.now();
+      if (
+        now - startedAt >= PUBLIC_READINESS_REPAIR_AFTER_MS &&
+        now - lastRepairAt >= PUBLIC_READINESS_REPAIR_INTERVAL_MS
+      ) {
+        lastRepairAt = now;
+        console.warn(
+          `[cloudflare-tunnel] Public URL unreachable after ${failures} probes; asking the backend to repair the tunnel: ${url}`,
+        );
+        const outcome = await this.repairTunnelRouting(generation);
+        if (outcome === "restarted") return;
+        if (!this.isGenerationActive(generation)) return;
+        if (outcome === "repaired") {
+          // The record was just (re)written; give the edge a fresh short cycle.
+          delayMs = PUBLIC_READINESS_RETRY_MIN_MS;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 2, PUBLIC_READINESS_RETRY_MAX_MS);
+    }
+  }
+
+  /**
+   * Ask the backend to reconcile this desktop's tunnel with Cloudflare. If it
+   * had to re-provision (or the credentials no longer match the running
+   * connector), restart cloudflared with the fresh token.
+   */
+  private async repairTunnelRouting(
+    generation: number,
+  ): Promise<TunnelRepairOutcome> {
+    let response: TunnelTokenResponse;
+    try {
+      response = await this.fetchTunnelToken({ repair: true });
+    } catch (error) {
+      console.warn(
+        "[cloudflare-tunnel] Tunnel repair request failed:",
+        (error as Error).message,
+      );
+      return "failed";
+    }
+    if (!this.isGenerationActive(generation)) return "failed";
+    const credentialsChanged =
+      !this.activeToken ||
+      this.activeToken.tunnelToken !== response.tunnelToken ||
+      this.activeToken.hostname !== response.hostname;
+    if (response.repair?.reprovisioned || credentialsChanged) {
+      console.warn(
+        "[cloudflare-tunnel] Tunnel was re-provisioned; restarting connector with the new token",
+      );
+      await this.stop();
+      await this.start();
+      return "restarted";
+    }
+    if (response.repair?.dnsRepaired) {
+      console.warn("[cloudflare-tunnel] Tunnel DNS record was repaired");
+      return "repaired";
+    }
+    return "unchanged";
+  }
+
+  private async fetchTunnelToken(
+    options: { repair?: boolean } = {},
+  ): Promise<TunnelTokenResponse> {
     const siteUrl = this.options.getConvexSiteUrl();
     const token = await this.options.getAuthToken();
 
@@ -246,7 +350,10 @@ export class CloudflareTunnelService {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ deviceId }),
+        body: JSON.stringify({
+          deviceId,
+          ...(options.repair ? { repair: true } : {}),
+        }),
       },
     );
 
@@ -254,6 +361,24 @@ export class CloudflareTunnelService {
       throw new Error(`Tunnel token request failed: ${response.status}`);
     }
 
-    return (await response.json()) as { tunnelToken: string; hostname: string };
+    const body = (await response.json()) as Partial<TunnelTokenResponse>;
+    if (
+      typeof body.tunnelToken !== "string" ||
+      !body.tunnelToken ||
+      typeof body.hostname !== "string" ||
+      !body.hostname
+    ) {
+      throw new Error("Tunnel token response was incomplete");
+    }
+    return {
+      tunnelToken: body.tunnelToken,
+      hostname: body.hostname,
+      ...(body.repair &&
+      typeof body.repair === "object" &&
+      typeof body.repair.dnsRepaired === "boolean" &&
+      typeof body.repair.reprovisioned === "boolean"
+        ? { repair: body.repair }
+        : {}),
+    };
   }
 }

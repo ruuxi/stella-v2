@@ -554,17 +554,18 @@ export const runAttachedToolHost = (
         linkedPaths: readonly string[],
       ): Promise<AttachedToolHostReport> => {
         await toolHost.shutdown();
-        await pushWorldProjection({ root: workspaceRoot, access: input.world });
         // A file the turn wrote through the Durable Object's own Write/Edit
-        // tools is in the world but not yet on this disk. Bring the world
-        // down before reading the linked paths, or a reply that links such a
-        // file delivers nothing.
+        // tools after this sandbox's last sync is in the world but not on
+        // this disk. A push replaces the world with this disk's listing, so
+        // pushing first would delete that file; bring the world down first,
+        // exactly as every exec boundary does, then push, then collect.
         await pullWorldProjection({
           root: workspaceRoot,
           access: input.world,
         }).catch((error) => {
           console.error(`world pull failed: ${asError(error).message}`);
         });
+        await pushWorldProjection({ root: workspaceRoot, access: input.world });
         const collected = await collectProducedFiles({
           workspaceRoot: driveWorkspace.root,
           linked: linkedPaths,

@@ -631,11 +631,9 @@ type AssistantRowProps = {
 };
 
 export const AssistantMessageRow = memo(
-  function AssistantMessageRow({
-    row,
-    conversationId,
-    agentModelConfigByThread,
-  }: AssistantRowProps) {
+  // `agentModelConfigByThread` stays on the props (the memo comparator keys
+  // on it) but the row no longer renders anything per-thread that needs it.
+  function AssistantMessageRow({ row, conversationId }: AssistantRowProps) {
     const text = row.text;
     const hasText = text.trim().length > 0;
     const hasWebSearchResults = (row.webSearchResults?.length ?? 0) > 0;

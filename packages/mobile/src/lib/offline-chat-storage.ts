@@ -53,6 +53,17 @@ const SYNC_STATE_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-chat-sync-state-v1",
   carplay: "stella-mobile-carplay-sync-state-v1",
 };
+/**
+ * Raw journal tail beside the projection cache, so a cold launch resumes the
+ * conversation socket from a cursor instead of downloading the newest window.
+ * SQLite `mobile_chat_meta` holds it natively; this is the non-native fallback.
+ */
+const JOURNAL_CACHE_KEY: Record<ChatThreadId, string> = {
+  cloud: "stella-mobile-cloud-journal-v1",
+  carplay: "stella-mobile-carplay-journal-v1",
+};
+const journalCacheMetaKey = (thread: ChatThreadId): string =>
+  `cloud-journal:${thread}`;
 
 const TRANSCRIPT_DB_NAME = "stella-mobile-transcripts.db";
 const TRANSCRIPT_CLEANUP_REQUIRED_KEY =
@@ -222,6 +233,7 @@ const enqueueTranscriptWrite = <T>(work: () => Promise<T>): Promise<T> => {
 const allAccountChatStorageKeys = (): string[] => [
   ...Object.values(MESSAGES_KEY),
   ...Object.values(SYNC_STATE_KEY),
+  ...Object.values(JOURNAL_CACHE_KEY),
   ...desktopChatOutboxStorageKeys(),
 ];
 
@@ -1399,9 +1411,14 @@ export async function clearChatMessages(thread: ChatThreadId): Promise<void> {
         "DELETE FROM mobile_chat_messages WHERE thread_id = ?",
         thread,
       );
+      await db.runAsync(
+        "DELETE FROM mobile_chat_meta WHERE key = ?",
+        journalCacheMetaKey(thread),
+      );
     }
     await clearAsyncTranscriptRows(thread);
     await AsyncStorage.removeItem(MESSAGES_KEY[thread]);
+    await AsyncStorage.removeItem(JOURNAL_CACHE_KEY[thread]);
     orderKeysByThread.delete(thread);
     serializedByThread.delete(thread);
     fallbackMigrations.delete(thread);
@@ -1466,6 +1483,76 @@ export async function saveChatSyncState(
       return;
     }
     await AsyncStorage.setItem(SYNC_STATE_KEY[thread], JSON.stringify(next));
+  });
+}
+
+/**
+ * The encoded raw journal tail the last cache rebuild committed, or null.
+ * Read under the same account-cleanup gates as the sync cursor so a wiped
+ * account can never seed its successor's socket.
+ */
+export async function loadCloudJournalCache(
+  thread: ChatThreadId,
+): Promise<string | null> {
+  try {
+    if (await accountChatMetadataReadsBlocked()) return null;
+    const db = await getTranscriptDb();
+    if (await accountChatMetadataReadsBlocked()) return null;
+    if (db) {
+      const row = await db.getFirstAsync<{ value: string }>(
+        "SELECT value FROM mobile_chat_meta WHERE key = ?",
+        journalCacheMetaKey(thread),
+      );
+      return row?.value ?? null;
+    }
+    return await AsyncStorage.getItem(JOURNAL_CACHE_KEY[thread]);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist (or with null, drop) the encoded raw journal tail for a thread. */
+export async function saveCloudJournalCache(
+  thread: ChatThreadId,
+  encoded: string | null,
+): Promise<void> {
+  if (
+    transcriptCleanupInProgress ||
+    (await accountChatMetadataReadsBlocked())
+  ) {
+    return;
+  }
+  const generation = transcriptGeneration(thread);
+  const db = await getTranscriptDb();
+  await enqueueTranscriptWrite(async () => {
+    if (
+      transcriptCleanupInProgress ||
+      generation !== transcriptGeneration(thread) ||
+      (await accountChatMetadataReadsBlocked())
+    ) {
+      return;
+    }
+    if (db) {
+      if (encoded === null) {
+        await db.runAsync(
+          "DELETE FROM mobile_chat_meta WHERE key = ?",
+          journalCacheMetaKey(thread),
+        );
+      } else {
+        await db.runAsync(
+          `INSERT INTO mobile_chat_meta(key, value) VALUES(?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          journalCacheMetaKey(thread),
+          encoded,
+        );
+      }
+      return;
+    }
+    if (encoded === null) {
+      await AsyncStorage.removeItem(JOURNAL_CACHE_KEY[thread]);
+    } else {
+      await AsyncStorage.setItem(JOURNAL_CACHE_KEY[thread], encoded);
+    }
   });
 }
 

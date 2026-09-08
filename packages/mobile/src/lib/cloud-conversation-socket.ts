@@ -73,6 +73,13 @@ export type ConversationSocketOptions = {
   getToken: (options?: { forceRefresh?: boolean }) => Promise<string | null>;
   /** Native lifecycle gate. Background sockets may lapse and reconnect later. */
   isActive?: () => boolean;
+  /**
+   * A cursor restored from disk. The first connect then resumes from it
+   * exactly like a reconnect would: the server replays only `(lastSeq, head]`
+   * and answers an epoch mismatch or a compacted window with `reset`, so a
+   * stale cursor costs one newest-window download, never a wrong transcript.
+   */
+  resume?: { lastSeq: number; epoch: number; floorSeq: number };
   onEvent: (event: ConversationSocketEvent) => void;
 };
 
@@ -189,6 +196,13 @@ export class ConversationSocket {
 
   constructor(options: ConversationSocketOptions) {
     this.options = options;
+    const resume = options.resume;
+    if (resume && resume.lastSeq >= 0) {
+      this.lastSeq = resume.lastSeq;
+      this.headSeq = resume.lastSeq;
+      this.epoch = resume.epoch;
+      this.floorSeq = resume.floorSeq;
+    }
   }
 
   start(): void {

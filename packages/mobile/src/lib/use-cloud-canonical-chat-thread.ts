@@ -29,6 +29,7 @@ import {
 import { CloudConversationAuthorityStore } from "./cloud-conversation-authority-store";
 import {
   readMobileCloudConversationCache,
+  readMobileCloudJournalCache,
   rebuildMobileCloudConversationCache,
 } from "./cloud-conversation-cache";
 import { cancelCanonicalCloudExecution } from "./cloud-canonical-execution";
@@ -57,6 +58,7 @@ import {
 } from "./execution-placement";
 import { groupActivityArtifacts } from "./activity-hub-model";
 import { canonicalWorkingState } from "./canonical-working-state";
+import { planCloudTranscriptDisplay } from "./cloud-transcript-display";
 import { useChatAttachmentPreviews } from "./use-chat-attachment-previews";
 import type { ChatArtifact, ChatMessage } from "../types";
 import type { ChatThreadId } from "./offline-chat-storage";
@@ -398,6 +400,27 @@ export const useCloudCanonicalChatThread = (
     authority.ownerGeneration,
   ]);
 
+  // Seed the store from the persisted journal tail before its socket opens,
+  // so the first connect resumes from a cursor and the server replays only
+  // the rows this device has not seen. Layout timing puts it ahead of the
+  // subscribe and config effects that would otherwise open a cold socket.
+  useLayoutEffect(() => {
+    store.hydrate(() =>
+      readMobileCloudJournalCache({
+        accountScope: authority.accountScope,
+        ownerGeneration: authority.ownerGeneration,
+        conversationId: authority.conversationId,
+        socketOrigin: authority.socketOrigin,
+      }),
+    );
+  }, [
+    authority.accountScope,
+    authority.conversationId,
+    authority.ownerGeneration,
+    authority.socketOrigin,
+    store,
+  ]);
+
   useEffect(() => {
     store.setConfig(authority.socketOrigin, true);
     store.wake();
@@ -547,9 +570,38 @@ export const useCloudCanonicalChatThread = (
     cachedProjection.store === store &&
     state.epoch === null &&
     state.records.length === 0;
-  const displayedProjection = cacheVisible
-    ? cachedProjection.messages
-    : projected;
+  const settledFailure =
+    state.status === "blocked" || state.status === "offline";
+  // What this surface last painted for this store. A reconnect, the cold-start
+  // cache handoff, or an epoch reset must never blank the list: the previous
+  // transcript stands until the journal replays something different, and the
+  // list then diffs rows by id instead of remounting.
+  const paintedRef = useRef<{
+    store: ConversationStore;
+    messages: readonly ChatMessage[] | null;
+    everShown: boolean;
+  }>({ store, messages: null, everShown: false });
+  const painted =
+    paintedRef.current.store === store
+      ? paintedRef.current
+      : { store, messages: null, everShown: false };
+  const display = planCloudTranscriptDisplay({
+    caughtUp,
+    settledFailure,
+    cacheVisible,
+    cached: cachedProjection?.messages ?? null,
+    projected,
+    lastShown: painted.messages,
+    everShown: painted.everShown,
+  });
+  useEffect(() => {
+    paintedRef.current = {
+      store,
+      messages: display.messages.length > 0 ? display.messages : painted.messages,
+      everShown: painted.everShown || display.shown,
+    };
+  });
+  const displayedProjection = display.messages;
 
   const acknowledgedDispatchIds = useMemo(
     () => canonicalCloudDispatchIds(state.records),
@@ -584,6 +636,7 @@ export const useCloudCanonicalChatThread = (
 
   const cacheWriteGenerationRef = useRef(0);
   const cacheWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const records = state.records;
   useEffect(() => {
     if (!authorityReady || state.epoch === null) return;
     const generation = ++cacheWriteGenerationRef.current;
@@ -605,6 +658,8 @@ export const useCloudCanonicalChatThread = (
           // The projection is committed records only, so the cache never
           // persists anything the journal has not durably accepted.
           messages: projected,
+          // The raw tail beside it lets the next launch resume by cursor.
+          records,
           isCurrent: () => generation === cacheWriteGenerationRef.current,
         }),
       );
@@ -615,6 +670,7 @@ export const useCloudCanonicalChatThread = (
     authority.socketOrigin,
     authorityReady,
     projected,
+    records,
     state.epoch,
     state.floorSeq,
     state.headSeq,
@@ -642,19 +698,11 @@ export const useCloudCanonicalChatThread = (
         retryable: true,
       };
     }
-    if (state.status === "connecting" && state.records.length > 0) {
-      return {
-        message: "Reconnecting to cloud conversation history…",
-        retryable: false,
-      };
-    }
+    // A transient reconnect is not an issue: `catchingUp` drives the pane's
+    // delayed indicator, and a banner here would shift the whole transcript
+    // on every foreground.
     return null;
-  }, [
-    state.records.length,
-    state.status,
-    state.statusMessage,
-    state.statusRetryable,
-  ]);
+  }, [state.status, state.statusMessage, state.statusRetryable]);
   const issue =
     placementIssue ??
     (local.authorityIssue
@@ -676,10 +724,9 @@ export const useCloudCanonicalChatThread = (
         retry: retryAuthority,
       }
     : null;
-  const settledFailure =
-    state.status === "blocked" || state.status === "offline";
-  const storageLoaded =
-    (caughtUp || settledFailure || cacheVisible) && !local.authorityIssue;
+  // Once a transcript has painted for this authority it stays painted; a
+  // resync only ever adds or replaces rows in place.
+  const storageLoaded = display.shown && !local.authorityIssue;
 
   const trackSend = useCallback(
     (send: () => { userMessageId: string } | null) => {

@@ -83,6 +83,21 @@ const initialState = (conversationId: string): ConversationState => ({
 const OLDER_TIMEOUT_MS = 15_000;
 /** How long the socket outlives its last watcher, to survive a remount. */
 const TEARDOWN_GRACE_MS = 5_000;
+/**
+ * How long the first socket waits for the on-disk journal tail. A slow disk
+ * must not hold the transcript hostage: past this the socket opens cold and a
+ * late seed is discarded.
+ */
+const HYDRATE_TIMEOUT_MS = 1_500;
+
+/** Rows and cursor restored from disk before the first socket opens. */
+export type ConversationStoreSeed = {
+  epoch: number;
+  headSeq: number;
+  floorSeq: number;
+  /** Ascending, contiguous, ending at `headSeq`. */
+  records: readonly JournalRecord[];
+};
 
 class ConversationStore {
   readonly conversationId: string;
@@ -95,6 +110,9 @@ class ConversationStore {
   private baseUrl: string | null = null;
   private olderTimer: ReturnType<typeof setTimeout> | null = null;
   private teardownTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pending disk read the first socket waits on; null once settled. */
+  private hydration: Promise<void> | null = null;
+  private hydrateRequested = false;
 
   constructor(
     conversationId: string,
@@ -163,6 +181,60 @@ class ConversationStore {
         statusRetryable: false,
       });
     }
+  }
+
+  /**
+   * Seeds the view from the journal tail the last session persisted, so the
+   * first socket resumes with a cursor and the server replays only what this
+   * device has not seen. One shot per store, and only while the store has
+   * never heard from a socket: anything a live socket has said is newer than
+   * anything on disk. The socket waits for this (bounded by
+   * `HYDRATE_TIMEOUT_MS`) so the seed and the cursor can never disagree.
+   */
+  hydrate(load: () => Promise<ConversationStoreSeed | null>): void {
+    if (this.hydrateRequested) return;
+    this.hydrateRequested = true;
+    if (this.socket || this.state.epoch !== null || this.state.records.length) {
+      return;
+    }
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      this.hydration = null;
+      this.ensureSocket();
+    };
+    const timer = setTimeout(settle, HYDRATE_TIMEOUT_MS);
+    this.hydration = load()
+      .then((seed) => {
+        if (settled) return;
+        clearTimeout(timer);
+        if (seed) this.applySeed(seed);
+      })
+      .catch(() => undefined)
+      .then(settle);
+  }
+
+  private applySeed(seed: ConversationStoreSeed): void {
+    // The socket is the authority once it exists; a seed that lost the race
+    // to a cold connect would only fight the replay it is about to receive.
+    if (this.socket || this.state.epoch !== null || this.state.records.length) {
+      return;
+    }
+    const records = seed.records;
+    if (!records.length || records[records.length - 1]!.seq !== seed.headSeq) {
+      return;
+    }
+    for (let index = 1; index < records.length; index += 1) {
+      if (records[index]!.seq !== records[index - 1]!.seq + 1) return;
+    }
+    this.patch({
+      epoch: seed.epoch,
+      headSeq: seed.headSeq,
+      floorSeq: seed.floorSeq,
+      records: records.slice(-MAX_CLIENT_RECORDS),
+      hasOlder: records[0]!.seq > seed.floorSeq,
+    });
   }
 
   /** True when nothing is watching, so the registry may forget it. */
@@ -249,9 +321,17 @@ class ConversationStore {
 
   private ensureSocket(): void {
     if (this.socket || this.subscribers <= 0 || !this.baseUrl) return;
+    // The seed read is in flight: it re-enters here when it settles.
+    if (this.hydration) return;
+    const lastSeq = this.state.records.at(-1)?.seq ?? -1;
+    const resume =
+      this.state.epoch !== null && lastSeq >= 0
+        ? { lastSeq, epoch: this.state.epoch, floorSeq: this.state.floorSeq }
+        : undefined;
     this.socket = new ConversationSocket({
       conversationId: this.conversationId,
       baseUrl: this.baseUrl,
+      ...(resume ? { resume } : {}),
       // Keep the journal store framework-free until a socket genuinely starts.
       // `auth-token` reaches the native auth client, which reducer tests and
       // server-side rendering must not eagerly evaluate.

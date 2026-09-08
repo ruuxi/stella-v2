@@ -1770,7 +1770,6 @@
       "conversation": {
         "newChat": "Nouvelle conversation",
         "newChatConfirm": "Click again to confirm",
-        "home": "Accueil",
         "history": "Historique des conversations",
         "historyEmpty": "Aucune conversation pour l’instant",
         "historyRetry": "Impossible de charger les conversations. Réessayer",

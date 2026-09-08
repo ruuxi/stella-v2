@@ -1767,7 +1767,6 @@
       "conversation": {
         "newChat": "New chat",
         "newChatConfirm": "Click again to confirm",
-        "home": "Home",
         "history": "Conversation history",
         "historyEmpty": "No conversations yet",
         "historyRetry": "Couldn’t load conversations. Try again",

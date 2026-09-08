@@ -20,7 +20,8 @@
  */
 
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { Deferred, Effect } from "effect";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type {
@@ -584,6 +585,48 @@ export const runAttachedToolHost = (
         });
         const files = collected?.files ?? [];
         if (files.length === 0) {
+          // A reply that linked files but delivered none is worth a record
+          // the turn's event stream keeps: what was linked, and what this
+          // disk actually had at each path, so the gap is diagnosable from
+          // Convex instead of from a container that is about to be torn down.
+          if (linkedPaths.length > 0) {
+            const looked = await Promise.all(
+              linkedPaths.slice(0, 8).map(async (linked) => {
+                const resolved = path.resolve(driveWorkspace.root, linked);
+                const entry = await lstat(resolved).then(
+                  (stat) => ({
+                    exists: true,
+                    file: stat.isFile(),
+                    symlink: stat.isSymbolicLink(),
+                    uid: stat.uid,
+                    gid: stat.gid,
+                    size: stat.size,
+                  }),
+                  (error: unknown) => ({
+                    exists: false,
+                    error: asError(error).message.slice(0, 200),
+                  }),
+                );
+                return { linked, resolved, ...entry };
+              }),
+            );
+            await postJson("/api/cloud/events", {
+              turnId: input.turnId,
+              attemptGeneration: input.attemptGeneration,
+              sessionId: input.threadId,
+              seq: "auto",
+              kind: "output_files_missing",
+              payload: {
+                driveRoot: driveWorkspace.root,
+                owner: CLOUD_TOOL_PROCESS_IDENTITY.uid,
+                looked,
+              },
+            }).catch((error) => {
+              console.error(
+                `event output_files_missing failed: ${asError(error).message}`,
+              );
+            });
+          }
           return { bootNotices, deliveredFiles: [] };
         }
         const delivery = await reportProducedFiles({

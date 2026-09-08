@@ -673,10 +673,23 @@ describe("claim, ack, and completion", () => {
         type: "complete",
         dispatchId,
         outcome: "completed",
+        resultJson: JSON.stringify({ finalText: "The desktop reply." }),
       }),
     );
     const done = await harness.instance.dispatchStatus(dispatchId);
     expect(done.response.dispatch.state).toBe("completed");
+    expect(done.response.dispatch.resultJson).toBe(
+      JSON.stringify({ finalText: "The desktop reply." }),
+    );
+    expect(lastFrame(socket, "dispatch")?.dispatch).toEqual(done.response.dispatch);
+    // A lost completion acknowledgement must be replayable without changing
+    // the outcome or releasing the same capacity a second time.
+    socket.sent.length = 0;
+    await withNow(NOW + 501, () => harness.sendFrame(socket, {
+      type: "complete", dispatchId, outcome: "completed",
+      resultJson: JSON.stringify({ finalText: "A different reply." }),
+    }));
+    expect(lastFrame(socket, "dispatch")?.dispatch).toEqual(done.response.dispatch);
     // The slot and the owner-gate admission both came back.
     expect(
       (await harness.instance.devices(NOW + 500)).devices[0].availability

@@ -309,6 +309,7 @@ const DDL = [
      cancel_reason                TEXT,
      error_code                   TEXT,
      error_message                TEXT,
+     result_json                  TEXT,
      cloud_turn_id                TEXT,
      cloud_thread_id              TEXT,
      payload_json                 TEXT,
@@ -798,6 +799,7 @@ type DispatchRow = {
   cancel_reason: string | null;
   error_code: string | null;
   error_message: string | null;
+  result_json?: string | null;
   cloud_turn_id: string | null;
   cloud_thread_id: string | null;
   payload_json: string | null;
@@ -841,6 +843,7 @@ export const dispatchSummary = (row: DispatchRow): DispatchSummary => ({
   ...optional(row.cancel_reason, "cancelReason"),
   ...optional(row.error_code, "errorCode"),
   ...optional(row.error_message, "errorMessage"),
+  ...optional(row.result_json, "resultJson"),
   ...optional(row.cloud_turn_id, "cloudTurnId"),
   ...optional(row.cloud_thread_id, "cloudThreadId"),
   createdAt: row.created_at,
@@ -1098,6 +1101,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (this.schemaReady) return;
     const startedAt = performance.now();
     for (const statement of DDL) this.ctx.storage.sql.exec(statement);
+    // Existing owner objects predate durable desktop completion receipts.
+    const dispatchColumns = this.ctx.storage.sql
+      .exec<{ name: string }>("PRAGMA table_info(dispatches)").toArray();
+    if (!dispatchColumns.some((column) => column.name === "result_json")) {
+      this.ctx.storage.sql.exec("ALTER TABLE dispatches ADD COLUMN result_json TEXT");
+    }
     this.schemaReady = true;
     const schemaMs = Math.round(performance.now() - startedAt);
     log("info", "owner_gate_wake_timing", {
@@ -3544,7 +3553,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         deny("bad_request", "A completion needs a terminal outcome.");
         return;
       }
-      if (isTerminalDispatchState(row.state as DispatchState)) return;
+      if (isTerminalDispatchState(row.state as DispatchState)) {
+        this.notifyExecutor(row);
+        return;
+      }
       if (
         row.state !== "computer_accepted" &&
         row.state !== "computer_running" &&
@@ -3562,6 +3574,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         row,
         {
           state: outcome,
+          result_json: typeof frame.resultJson === "string" ? frame.resultJson : null,
           payload_json: null,
           payload_expires_at: null,
           lease_expires_at: null,
@@ -3573,7 +3586,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
             : {}),
         },
         now,
-        { notifyExecutor: false },
       );
       await this.releaseGate(terminal);
       await this.scheduleAlarm(now);

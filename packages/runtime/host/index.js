@@ -1253,9 +1253,6 @@ export class StellaRuntimeHost {
             platform: process.platform,
             getAuthToken: () => this.getConfiguredHostAuthToken(),
             getAvailability: async () => {
-                const health = await this.getWorkerHealth({
-                    ensureWorker: false,
-                }).catch(() => null);
                 const platformCapabilities = process.platform === "darwin" || process.platform === "win32"
                     ? ["computer-use", "local-apps"]
                     : [];
@@ -1263,8 +1260,7 @@ export class StellaRuntimeHost {
                     ready: Boolean(this.started &&
                         this.hostReady &&
                         this.configCache.hasConnectedAccount &&
-                        this.configCache.cloudSyncEnabled &&
-                        !isWorkerBusyForRestart(health)),
+                        this.configCache.cloudSyncEnabled),
                     chatSlots: 1,
                     agentSlots: 1,
                     capabilities: [
@@ -1332,7 +1328,10 @@ export class StellaRuntimeHost {
                     conversationId: dispatch.conversationId,
                     userPrompt: prompt,
                     userMessageEventId,
-                    rejectIfBusy: true,
+                    // A desktop/voice turn may be in flight when the phone
+                    // sends. The runtime queues this exact accepted execution;
+                    // background agents must not make the computer offline.
+                    rejectIfBusy: false,
                     executionPlacementRunId: placementLocalChatRunId(dispatch.dispatchId),
                     ownerGeneration,
                     ...(attachments.length > 0 ? { attachments } : {}),

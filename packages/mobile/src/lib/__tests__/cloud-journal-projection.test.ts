@@ -14,6 +14,37 @@ const message = (
 ): JournalRecord => ({ ...value, createdAtMs: value.seq * 10 });
 
 describe("cloud journal projection", () => {
+  test("keeps an older rejected send before newer successful computer replies", () => {
+    const canonical: ChatMessage[] = [
+      { id: "first", role: "user", text: "First", createdAt: 100 },
+      { id: "first-reply", role: "assistant", requestId: "first", text: "First reply", createdAt: 200 },
+      { id: "third", role: "user", text: "Third", createdAt: 500 },
+      { id: "third-reply", role: "assistant", requestId: "third", text: "Third reply", createdAt: 600 },
+    ];
+    const merged = mergeCanonicalCloudMessages({
+      canonical,
+      local: [
+        { id: "second", role: "user", text: "Second", createdAt: 300 },
+        { id: "second-error", role: "assistant", requestId: "second", text: "Computer unavailable", createdAt: 300 },
+      ],
+      dispatchBindings: new Map([["second", "blocked-dispatch"]]),
+      acknowledgedDispatchIds: new Set(),
+    });
+    expect(merged.map(row => row.id)).toEqual([
+      "first", "first-reply", "second", "second-error", "third", "third-reply",
+    ]);
+  });
+
+  test("keeps an optimistic reply after its canonical user even with clock skew", () => {
+    const merged = mergeCanonicalCloudMessages({
+      canonical: [{ id: "user", role: "user", text: "Hello", createdAt: 200 }],
+      local: [{ id: "pending", role: "assistant", requestId: "user", text: "", createdAt: 100 }],
+      dispatchBindings: new Map([["user", "dispatch"]]),
+      acknowledgedDispatchIds: new Set(["dispatch"]),
+    });
+    expect(merged.map(row => row.id)).toEqual(["user", "pending"]);
+  });
+
   test("projects structured attachments and removes only their exact generated transport suffix", () => {
     const text = "What plant is this?\n\nAttached in my drive:\n- Photos/plant.jpg";
     const project = (paths?: string[]) => projectCloudConversationMessages({ records: [message({

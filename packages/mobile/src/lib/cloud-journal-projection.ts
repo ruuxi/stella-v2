@@ -571,7 +571,30 @@ export const mergeCanonicalCloudMessages = (args: {
       ...(!message.quotedText && local.quotedText ? { quotedText: local.quotedText } : {}),
     };
   });
-  return [...canonical, ...optimistic];
+  // Failed admissions have no journal row. Appending them after the entire
+  // journal makes an old offline notice follow every later successful reply.
+  // Merge by time while preserving the journal's authoritative relative order.
+  const timestamp = (message: ChatMessage) => message.createdAt ?? Infinity;
+  const pending = [...optimistic].sort((a, b) => timestamp(a) - timestamp(b));
+  const merged: ChatMessage[] = [];
+  const seenCanonical = new Set<string>();
+  let index = 0;
+  for (const message of canonical) {
+    while (index < pending.length) {
+      const next = pending[index]!;
+      if (timestamp(next) > timestamp(message)) break;
+      // A phone clock can precede the server clock. Never put an optimistic
+      // assistant segment above the canonical user message it answers.
+      if (next.requestId && canonicalIds.has(next.requestId) &&
+          !seenCanonical.has(next.requestId)) break;
+      merged.push(next);
+      index += 1;
+    }
+    merged.push(message);
+    seenCanonical.add(message.id);
+  }
+  merged.push(...pending.slice(index));
+  return merged;
 };
 
 /**

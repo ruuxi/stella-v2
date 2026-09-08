@@ -1,97 +1,295 @@
-import { useEffect } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import {
+import Animated, {
   Easing,
   cancelAnimation,
+  useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withRepeat,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
-import { StellaMarkHero } from "./stella-mark/StellaMarkHero";
-import { clamp01 } from "./stella-mark/motion";
-
-export type RealtimeVoiceVisualizerMode = "idle" | "listening" | "speaking";
+import { STELLA_STAR_PATH } from "./stella-mark/geometry";
+import { MarkLayer } from "./stella-mark/MarkLayer";
+import { StellaFace } from "./stella-mark/StellaFace";
+import { CLOCK_SPAN_MS, clamp01 } from "./stella-mark/motion";
+import {
+  RING_COUNT,
+  voiceBodyMotion,
+  voiceRingMotion,
+  type VoiceCharacterPhase,
+} from "./stella-mark/voice-motion";
+import { useAppVisible } from "../lib/use-app-visible";
+import type { RealtimeVoicePhase } from "../lib/realtime-voice-protocol";
 
 type Props = {
   size: number;
-  mode: RealtimeVoiceVisualizerMode;
+  phase: RealtimeVoicePhase;
+  isConnected: boolean;
   isUserSpeaking: boolean;
+  isAssistantSpeaking: boolean;
   micLevel: number;
   outputLevel: number;
+  /** The overlay background, used to punch the character's eyes through. */
+  faceColor: string;
 };
 
 /** How fast the mark chases a new audio level. */
 const ENERGY_RAMP_MS = 90;
+/** How long a phase hand-off takes; motion cross-fades rather than snapping. */
+const PHASE_BLEND_MS = 320;
+/** Fraction of the stage the body occupies; the rest is room for the rings. */
+const BODY_FRACTION = 0.58;
+const RING_COLOR = "#4878db";
 
 /**
- * One 0..1 level for the character to pulse on, from whichever side of the
- * conversation currently holds the floor. Each branch keeps a floor so a quiet
- * talker still reads as present rather than as silence.
+ * Collapse the session snapshot into the character's phase. Assistant speech
+ * wins over user speech (the assistant is the one animating), user speech wins
+ * over plain listening, and anything before the peer is live is "connecting".
  */
-export const realtimeVoiceEnergy = ({
-  mode,
+export const voiceCharacterPhase = ({
+  phase,
+  isConnected,
   isUserSpeaking,
-  micLevel,
-  outputLevel,
-}: Omit<Props, "size">): number => {
-  const mic = clamp01(micLevel);
-  const output = clamp01(outputLevel);
-  if (mode === "speaking") return Math.max(0.28, output);
-  if (isUserSpeaking) return Math.max(0.22, mic);
-  if (mode === "listening") return Math.max(0.06, mic * 0.8);
-  return 0;
+  isAssistantSpeaking,
+}: Pick<
+  Props,
+  "phase" | "isConnected" | "isUserSpeaking" | "isAssistantSpeaking"
+>): VoiceCharacterPhase => {
+  if (phase === "error") return "error";
+  if (!isConnected || phase === "connecting") return "connecting";
+  if (isAssistantSpeaking || phase === "assistant-speaking") return "talking";
+  if (isUserSpeaking || phase === "user-speaking") return "hearing";
+  return "listening";
 };
 
 /**
- * The voice overlay's meter: the character mark itself, breathing at rest and
- * pulsing with live level while anyone is talking.
+ * One 0..1 level for the character to scale its motion on, from whichever
+ * side of the conversation currently holds the floor.
+ */
+export const realtimeVoiceEnergy = ({
+  characterPhase,
+  micLevel,
+  outputLevel,
+}: {
+  characterPhase: VoiceCharacterPhase;
+  micLevel: number;
+  outputLevel: number;
+}): number => {
+  if (characterPhase === "talking") return clamp01(outputLevel);
+  if (characterPhase === "hearing") return clamp01(micLevel);
+  return 0;
+};
+
+const PHASE_ORDER: VoiceCharacterPhase[] = [
+  "connecting",
+  "listening",
+  "hearing",
+  "talking",
+  "error",
+];
+
+function SonarRing({
+  index,
+  size,
+  phase,
+  clock,
+  energy,
+  blend,
+}: {
+  index: number;
+  size: number;
+  phase: SharedValue<number>;
+  clock: SharedValue<number>;
+  energy: SharedValue<number>;
+  blend: SharedValue<number>;
+}) {
+  const style = useAnimatedStyle(() => {
+    const current = PHASE_ORDER[Math.round(phase.value)] ?? "listening";
+    const frame = voiceRingMotion(index, current, clock.value, energy.value);
+    return {
+      opacity: frame.opacity * blend.value,
+      transform: [{ scale: frame.scale }],
+    };
+  });
+  const box = useMemo(
+    () => ({
+      borderRadius: size / 2,
+      height: size,
+      left: 0,
+      position: "absolute" as const,
+      top: 0,
+      width: size,
+    }),
+    [size],
+  );
+  return <Animated.View style={[styles.ring, box, style]} />;
+}
+
+/**
+ * The voice overlay's character: the Stella mark with eyes, animated per
+ * conversation phase so the user can tell at a glance whether Stella is
+ * connecting, listening, hearing them, or talking.
  *
- * Audio snapshots retarget one shared value, which the hero rig reads on the
- * UI thread, so a busy call never re-renders React at frame rate and no GL
- * context is left behind when the modal closes.
+ * Everything runs on the UI thread from one shared clock plus three retargeted
+ * shared values (phase, energy, blend), so a busy call never re-renders React
+ * at frame rate. Phase changes cross-fade: the old motion eases out over
+ * `PHASE_BLEND_MS` while the new one eases in, so a hand-off between hearing
+ * and talking reads as one body changing its mind rather than a cut.
  */
 export function RealtimeVoiceVisualizer({
   size,
-  mode,
+  phase,
+  isConnected,
   isUserSpeaking,
+  isAssistantSpeaking,
   micLevel,
   outputLevel,
+  faceColor,
 }: Props) {
   const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
+  const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
+  const bodySize = Math.round(size * BODY_FRACTION);
+
+  const characterPhase = voiceCharacterPhase({
+    phase,
+    isConnected,
+    isUserSpeaking,
+    isAssistantSpeaking,
+  });
+  const targetEnergy = realtimeVoiceEnergy({
+    characterPhase,
+    micLevel,
+    outputLevel,
+  });
+
+  const clock = useSharedValue(0);
   const energy = useSharedValue(0);
+  /** Index into PHASE_ORDER, retargeted on each phase change. */
+  const phaseIndex = useSharedValue(PHASE_ORDER.indexOf(characterPhase));
+  /** 0 at the moment of a phase change, easing to 1 as the new motion settles. */
+  const blend = useSharedValue(1);
 
   useEffect(() => {
-    const target = realtimeVoiceEnergy({
-      mode,
-      isUserSpeaking,
-      micLevel,
-      outputLevel,
-    });
-    cancelAnimation(energy);
-    if (reduceMotion) {
-      energy.value = 0;
+    cancelAnimation(clock);
+    if (reduceMotion || !appVisible) {
+      clock.value = 0;
       return;
     }
-    energy.value = withTiming(target, {
+    clock.value = 0;
+    clock.value = withRepeat(
+      withTiming(CLOCK_SPAN_MS, {
+        duration: CLOCK_SPAN_MS,
+        easing: Easing.linear,
+      }),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(clock);
+  }, [appVisible, clock, reduceMotion]);
+
+  useEffect(() => {
+    cancelAnimation(energy);
+    energy.value = withTiming(reduceMotion ? 0 : targetEnergy, {
       duration: ENERGY_RAMP_MS,
       easing: Easing.out(Easing.quad),
     });
     return () => cancelAnimation(energy);
-  }, [energy, isUserSpeaking, micLevel, mode, outputLevel, reduceMotion]);
+  }, [energy, reduceMotion, targetEnergy]);
+
+  useEffect(() => {
+    const next = PHASE_ORDER.indexOf(characterPhase);
+    if (phaseIndex.value === next) return;
+    phaseIndex.value = next;
+    cancelAnimation(blend);
+    blend.value = 0;
+    blend.value = withTiming(1, {
+      duration: PHASE_BLEND_MS,
+      easing: Easing.out(Easing.cubic),
+    });
+    return () => cancelAnimation(blend);
+  }, [blend, characterPhase, phaseIndex]);
+
+  const bodyStyle = useAnimatedStyle(() => {
+    if (reduceMotion) {
+      return { opacity: 1, transform: [{ scale: 1 }] };
+    }
+    const current = PHASE_ORDER[Math.round(phaseIndex.value)] ?? "listening";
+    const frame = voiceBodyMotion(current, clock.value, energy.value);
+    // Ease the new phase's pose in from rest so the switch never pops.
+    const k = blend.value;
+    const mix = (value: number, rest: number) => rest + (value - rest) * k;
+    return {
+      opacity: mix(frame.opacity, 1),
+      transform: [
+        { translateX: mix(frame.translateX, 0) * bodySize },
+        { translateY: mix(frame.translateY, 0) * bodySize },
+        { rotate: `${mix(frame.rotationDeg, 0)}deg` },
+        { scaleX: mix(frame.scaleX, 1) },
+        { scaleY: mix(frame.scaleY, 1) },
+      ],
+    };
+  });
+
+  const stage = useMemo(
+    () => [styles.stage, { height: size, width: size }],
+    [size],
+  );
+  const bodyBox = useMemo(
+    () => ({
+      height: bodySize,
+      left: (size - bodySize) / 2,
+      position: "absolute" as const,
+      top: (size - bodySize) / 2,
+      width: bodySize,
+    }),
+    [bodySize, size],
+  );
 
   return (
-    <View
-      style={[styles.root, { height: size, width: size }]}
-      pointerEvents="none"
-    >
-      <StellaMarkHero size={size * 0.62} energy={energy} />
+    <View style={stage} pointerEvents="none">
+      {!reduceMotion ? (
+        <View style={bodyBox}>
+          {Array.from({ length: RING_COUNT }, (_, index) => (
+            <SonarRing
+              key={index}
+              index={index}
+              size={bodySize}
+              phase={phaseIndex}
+              clock={clock}
+              energy={energy}
+              blend={blend}
+            />
+          ))}
+        </View>
+      ) : null}
+      <Animated.View style={[bodyBox, bodyStyle]}>
+        <MarkLayer
+          d={STELLA_STAR_PATH}
+          size={bodySize}
+          gradientId={`${uid}-voice`}
+        />
+        <StellaFace
+          size={bodySize}
+          color={faceColor}
+          state={characterPhase}
+          active={appVisible && !reduceMotion}
+        />
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
+  ring: {
+    borderColor: RING_COLOR,
+    borderWidth: 2,
+  },
+  stage: {
     alignItems: "center",
     justifyContent: "center",
+    overflow: "visible",
   },
 });

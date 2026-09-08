@@ -54,7 +54,22 @@ const GAZE_MS = 620;
 const GAZE_X = C * 0.085;
 const GAZE_Y = C * 0.06;
 
-type StellaFaceState = "idle" | ToolCharacterMotionState;
+/**
+ * Voice states mirror `voice-motion.ts`: connecting is drowsy, listening is
+ * bright and looks around, hearing locks a wide attentive gaze, talking is
+ * warm and animated, error is sad.
+ */
+export type StellaFaceVoiceState =
+  | "connecting"
+  | "listening"
+  | "hearing"
+  | "talking"
+  | "error";
+
+export type StellaFaceState =
+  | "idle"
+  | ToolCharacterMotionState
+  | StellaFaceVoiceState;
 
 const POSES_BY_STATE: Record<StellaFaceState, readonly EyePoseName[]> = {
   idle: IDLE_POSES,
@@ -62,6 +77,11 @@ const POSES_BY_STATE: Record<StellaFaceState, readonly EyePoseName[]> = {
   writing: ["focus", "neutral"],
   searching: ["focus", "curious", "wide", "neutral"],
   reading: ["focus", "squint"],
+  connecting: ["sleepy", "neutral", "sleepy"],
+  listening: ["open", "curious", "neutral", "wide", "open"],
+  hearing: ["wide", "curious", "wide", "open"],
+  talking: ["happy", "open", "neutral", "happy", "star", "open"],
+  error: ["sad"],
 };
 
 const POSE_EVERY_BY_STATE: Record<StellaFaceState, [number, number]> = {
@@ -70,6 +90,11 @@ const POSE_EVERY_BY_STATE: Record<StellaFaceState, [number, number]> = {
   writing: [2400, 4200],
   searching: [1000, 1800],
   reading: [2200, 3800],
+  connecting: [2200, 3600],
+  listening: [1400, 2600],
+  hearing: [900, 1600],
+  talking: [700, 1400],
+  error: [6000, 9000],
 };
 
 const BLINK_EVERY_BY_STATE: Record<StellaFaceState, [number, number]> = {
@@ -78,6 +103,28 @@ const BLINK_EVERY_BY_STATE: Record<StellaFaceState, [number, number]> = {
   writing: [3000, 6000],
   searching: [1600, 4000],
   reading: [3000, 6000],
+  connecting: [1800, 3200],
+  listening: [2400, 4800],
+  hearing: [3200, 6000],
+  talking: [1800, 3600],
+  error: [4000, 7000],
+};
+
+/** Gaze drift cadence: listening looks around; hearing and talking hold. */
+const GAZE_EVERY_BY_STATE: Partial<Record<StellaFaceState, [number, number]>> = {
+  listening: [900, 1900],
+  hearing: [2600, 4200],
+  talking: [1200, 2200],
+  connecting: [3000, 5000],
+  error: [8000, 12000],
+};
+
+const GAZE_REACH_BY_STATE: Partial<Record<StellaFaceState, number>> = {
+  listening: 1,
+  hearing: 0.25,
+  talking: 0.55,
+  connecting: 0.35,
+  error: 0.2,
 };
 
 const FACE_TUNE_BY_STATE: Record<
@@ -89,6 +136,11 @@ const FACE_TUNE_BY_STATE: Record<
   writing: { size: 0.96, gap: 0.98, height: 0.95 },
   searching: { size: 1.02, gap: 1.02, height: 1 },
   reading: { size: 0.96, gap: 0.96, height: 0.98 },
+  connecting: { size: 0.98, gap: 1, height: 0.9 },
+  listening: { size: 1.04, gap: 1.02, height: 1.02 },
+  hearing: { size: 1.08, gap: 1.04, height: 1.06 },
+  talking: { size: 1.02, gap: 1, height: 1 },
+  error: { size: 0.98, gap: 0.98, height: 0.94 },
 };
 
 export function StellaFace({
@@ -167,9 +219,17 @@ export function StellaFace({
   useEffect(() => {
     if (!active) return;
     let timer: ReturnType<typeof setTimeout>;
+    const cadence = GAZE_EVERY_BY_STATE[state] ?? GAZE_EVERY_MS;
+    const maxReach = GAZE_REACH_BY_STATE[state] ?? 1;
+    // A state that holds its gaze (hearing) should also settle it, not keep
+    // the previous state's random offset.
+    if (maxReach < 0.5) {
+      gazeX.value = withTiming(0, { duration: GAZE_MS });
+      gazeY.value = withTiming(0, { duration: GAZE_MS });
+    }
     const schedule = () => {
       timer = setTimeout(() => {
-        const reach = Math.random();
+        const reach = Math.random() * maxReach;
         const angle = Math.random() * Math.PI * 2;
         gazeX.value = withTiming(Math.cos(angle) * reach * GAZE_X, {
           duration: GAZE_MS,
@@ -180,7 +240,7 @@ export function StellaFace({
           easing: Easing.out(Easing.cubic),
         });
         schedule();
-      }, randomBetween(GAZE_EVERY_MS[0], GAZE_EVERY_MS[1]));
+      }, randomBetween(cadence[0], cadence[1]));
     };
     schedule();
     return () => {
@@ -188,7 +248,7 @@ export function StellaFace({
       cancelAnimation(gazeX);
       cancelAnimation(gazeY);
     };
-  }, [active, gazeX, gazeY]);
+  }, [active, gazeX, gazeY, state]);
 
   const from = EYE_POSES[poses.from];
   const to = EYE_POSES[poses.to];

@@ -55,13 +55,6 @@ const phaseCopy = (snapshot: RealtimeVoiceSnapshot): string => {
   }
 };
 
-const animationMode = (
-  snapshot: RealtimeVoiceSnapshot,
-): "idle" | "listening" | "speaking" => {
-  if (!snapshot.isConnected) return "idle";
-  return snapshot.isAssistantSpeaking ? "speaking" : "listening";
-};
-
 export function RealtimeVoiceOverlay({
   visible,
   conversationId,
@@ -175,10 +168,13 @@ export function RealtimeVoiceOverlay({
               importantForAccessibility="no-hide-descendants"
             >
               <RealtimeVoiceVisualizer
+                faceColor={colors.background}
+                isAssistantSpeaking={snapshot.isAssistantSpeaking}
+                isConnected={snapshot.isConnected}
                 isUserSpeaking={snapshot.isUserSpeaking}
                 micLevel={snapshot.micLevel}
-                mode={animationMode(snapshot)}
                 outputLevel={snapshot.outputLevel}
+                phase={snapshot.phase}
                 size={creatureSize}
               />
             </View>

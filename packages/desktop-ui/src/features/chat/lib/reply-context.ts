@@ -88,7 +88,6 @@ export function withReplyContext(
         ...(owns.length ? { ownsAgentIds: owns } : {}),
       };
     }
-    if (row.kind !== "assistant") return { id: row.id, role: "assistant" };
     const answers: string[] = [];
     if (row.replyToUserMessageId) answers.push(row.replyToUserMessageId);
     if (row.sourceMessageId) answers.push(row.sourceMessageId);

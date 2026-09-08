@@ -516,9 +516,11 @@ describe("thread projections", () => {
       const card = scheduled.find((entry) =>
         entry.name.includes("postConversationCardInternal"),
       );
+      // Filed under the conversation turn that spawned the thread, which is
+      // the turn whose lifecycle card lets the clients attribute the files.
       expect(card?.args[0]).toMatchObject({
         conversationId: CONVERSATION_ID,
-        sourceTurnId: "agent-turn-1",
+        sourceTurnId: "parent-turn",
         card: { type: "files", files: [{ path: "out/report.md" }] },
       });
     });

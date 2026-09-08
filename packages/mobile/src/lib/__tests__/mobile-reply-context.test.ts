@@ -230,3 +230,22 @@ test("summaryExcerpt keeps link text and cuts long results at a word", () => {
   expect(long.length).toBeLessThanOrEqual(161);
   expect(long.endsWith("…")).toBe(true);
 });
+
+test("a real never-attached cloud run: the relaying reply carries the completion card with the delivered file pill", () => {
+  const raw = JSON.parse(readFileSync(new URL("./fixtures/cloud-journal-write-only-agent.json", import.meta.url).pathname, "utf8")) as unknown[];
+  const records = raw.map(entry => decodeSequencedJournalEntry(entry)).filter((r): r is JournalRecord => r !== null);
+  const messages = projectCloudConversationMessages({ records, conversationId: "c" });
+  const spawnRows = messages.filter(m => m.artifacts?.some(a => a.payload.kind === "agent-work" && !a.payload.completion));
+  expect(spawnRows).toHaveLength(1);
+  // The spawn turn shows only its settled spawn card; the file is not loose there.
+  expect(spawnRows[0]!.artifacts?.map(a => a.payload.kind)).toEqual(["agent-work"]);
+  const reply = messages.find(m => m.text.startsWith("done, it's in your drive"))!;
+  const card = reply.artifacts?.[0]?.payload;
+  const sections = card?.kind === "agent-work" ? card.agents ?? [] : [];
+  expect(card?.kind === "agent-work" && card.completion).toBe(true);
+  expect(sections).toHaveLength(1);
+  expect(sections[0]?.title).toBe("create notes.md hello");
+  expect(sections[0]?.files).toEqual([{ kind: "markdown", filePath: "notes.md", title: "notes.md", createdAt: expect.any(Number), driveBacked: true }]);
+  expect(consolidateRowArtifacts(reply.artifacts ?? []).looseFiles).toEqual([]);
+  expect(mobileReplyContexts(messages).contexts.has(reply.id)).toBe(false);
+});

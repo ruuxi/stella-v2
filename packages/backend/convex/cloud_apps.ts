@@ -4084,7 +4084,13 @@ export type AgentThreadCompletionStatus =
   | "waiting_for_user";
 
 export type AgentThreadCompletionResult =
-  | { applied: true; conversationId: string; originDelivery: boolean }
+  | {
+      applied: true;
+      conversationId: string;
+      originDelivery: boolean;
+      /** The conversation turn that spawned the thread, when recorded. */
+      parentTurnId?: string;
+    }
   | {
       applied: false;
       reason: "unknown_thread" | "owner_mismatch" | "stale" | "duplicate";
@@ -4164,6 +4170,7 @@ export const completeAgentThread = async (
     originDelivery: Boolean(
       thread.originDeviceId && thread.originConversationId,
     ),
+    ...(thread.parentTurnId ? { parentTurnId: thread.parentTurnId } : {}),
   };
 };
 

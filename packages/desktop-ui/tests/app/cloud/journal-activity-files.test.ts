@@ -101,6 +101,68 @@ describe("canonical cloud Activity and Files projection", () => {
     });
   });
 
+  test("attributes a files card on the spawn turn to the task that turn started", () => {
+    const spawnRecords: JournalRecord[] = [
+      {
+        kind: "card",
+        seq: 1,
+        turnId: "spawn-1",
+        createdAtMs: 20,
+        card: {
+          type: "agent-lifecycle",
+          eventId: "cloud:spawn-1:call-1:agent-started",
+          event: {
+            type: "agent-started",
+            payload: {
+              agentId: "thr-cloud-2",
+              attemptGeneration: 1,
+              description: "Write notes",
+              agentType: "general",
+              isFollowUp: false,
+            },
+          },
+        },
+      },
+      {
+        kind: "message",
+        seq: 2,
+        turnId: "wake-2",
+        createdAtMs: 30,
+        role: "user",
+        hidden: true,
+        payload: {
+          role: "user",
+          source: "agent-thread",
+          content: "[Agent completed] Write notes (thread thr-cloud-2)\n\nDone.",
+          timestamp: 30,
+        },
+      },
+      {
+        kind: "card",
+        seq: 3,
+        turnId: "spawn-1",
+        createdAtMs: 40,
+        card: {
+          type: "files",
+          files: [
+            {
+              path: "notes.md",
+              name: "notes.md",
+              sizeBytes: 20,
+              contentType: "text/markdown; charset=utf-8",
+            },
+          ],
+        },
+      },
+    ];
+    const activity = journalRecordsToCloudActivityEvents(spawnRecords);
+    const filesEvent = activity.find((event) => event.type === "cloud_files");
+    expect(filesEvent?.payload).toMatchObject({
+      agentId: "thr-cloud-2",
+      cloudDriveFiles: [{ path: "notes.md" }],
+    });
+  });
+
   test("retires an acknowledged desktop event but keeps local-only overlays", () => {
     const canonical = journalRecordsToCloudActivityEvents(records);
     const local: EventRecord[] = [

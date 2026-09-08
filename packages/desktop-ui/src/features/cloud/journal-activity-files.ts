@@ -16,8 +16,8 @@ const timestampOf = (
     : fallback;
 
 /**
- * Agent completion wakes are durable hidden user rows. Their matching files
- * card is keyed to the wake turn, so this stable marker lets the Files
+ * Agent completion wakes are durable hidden user rows. A files card keyed to
+ * the wake turn belongs to that agent, so this stable marker lets the Files
  * projection retain per-agent attribution without consulting desktop SQLite.
  */
 const agentThreadIdFromWakePrompt = (
@@ -29,11 +29,28 @@ const agentThreadIdFromWakePrompt = (
   return /\(thread ([^)]+)\)/u.exec(messageText(record.payload))?.[1] ?? null;
 };
 
+/**
+ * The agent a turn's files card belongs to. The outbox files a completed
+ * task's card under the conversation turn that spawned it, whose
+ * `agent-started` card names the task (the first one on the turn claims it,
+ * the same rule the mobile projection uses); a card on a completion wake turn
+ * belongs to the agent the wake prompt names.
+ */
 const agentThreadIdsByTurn = (
   records: readonly JournalRecord[],
 ): ReadonlyMap<string, string> => {
   const result = new Map<string, string>();
   for (const record of records) {
+    if (record.kind === "card") {
+      if (
+        record.card.type === "agent-lifecycle" &&
+        record.card.event.type === "agent-started" &&
+        !result.has(record.turnId)
+      ) {
+        result.set(record.turnId, record.card.event.payload.agentId);
+      }
+      continue;
+    }
     if (record.kind !== "message") continue;
     const threadId = agentThreadIdFromWakePrompt(record);
     if (threadId) result.set(record.turnId, threadId);

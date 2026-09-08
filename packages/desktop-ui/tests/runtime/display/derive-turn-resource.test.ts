@@ -19,16 +19,13 @@ describe("deriveTurnResource", () => {
     expect(deriveTurnResource([], "Saved /tmp/report.pdf")).toBeNull();
   });
 
-  it("derives the primary preview from an absolute Markdown link", () => {
+  it("never turns a linked file into a card: links render as pills on the row", () => {
     expect(
       deriveTurnResource([], "Created [report](/out/report.pdf)"),
-    ).toEqual({ kind: "pdf", filePath: "/out/report.pdf" });
-  });
-
-  it("supports angle brackets for paths containing spaces", () => {
+    ).toBeNull();
     expect(
       deriveTurnResource([], "Created [notes](</out/My Notes.md>)"),
-    ).toMatchObject({ kind: "markdown", filePath: "/out/My Notes.md" });
+    ).toBeNull();
   });
 
   it("ignores tool file metadata, including large intermediate sets", () => {
@@ -115,12 +112,12 @@ describe("developer response links", () => {
     ).toEqual(["/repo/app.ts"]);
   });
 
-  it("uses linked developer files as the turn preview when enabled", () => {
+  it("keeps linked developer files out of the turn preview card", () => {
     expect(
       deriveTurnResource([], "[source](/repo/app.ts)", undefined, {
         developerResourcesEnabled: true,
       }),
-    ).toMatchObject({ kind: "source-diff", filePath: "/repo/app.ts" });
+    ).toBeNull();
   });
 });
 

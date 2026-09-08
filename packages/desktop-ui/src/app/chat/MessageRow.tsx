@@ -51,7 +51,7 @@ import { MapRouteCards } from "@/app/chat/MapRouteCard";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
-import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
+import { AgentCompletionCard, FilePills } from "@/app/chat/AgentCompletionCard";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
 import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
@@ -672,6 +672,9 @@ export const AssistantMessageRow = memo(
               <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules />
             </AssistantBubble>
           )}
+          {row.linkedFiles && row.linkedFiles.length > 0 ? (
+            <FilePills files={row.linkedFiles} />
+          ) : null}
           {hasBackgroundWork && row.backgroundWork ? (
             <BackgroundWorkCard
               threadIds={row.backgroundWork.threadIds}

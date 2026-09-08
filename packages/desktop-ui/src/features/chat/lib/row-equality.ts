@@ -72,6 +72,10 @@ const channelEnvelopeEqual = (
   );
 };
 
+const linkedFilesKey = (
+  files: ReadonlyArray<{ path: string }> | undefined,
+): string => (files ?? []).map((entry) => entry.path).join("\u001f");
+
 const resourcePayloadEqual = (
   a: DisplayPayload | undefined,
   b: DisplayPayload | undefined,
@@ -411,6 +415,7 @@ const assistantRowEqual = (
   (a.officePreviewRef?.sessionId ?? null) ===
     (b.officePreviewRef?.sessionId ?? null) &&
   resourcePayloadEqual(a.resourcePayload, b.resourcePayload) &&
+  linkedFilesKey(a.linkedFiles) === linkedFilesKey(b.linkedFiles) &&
   sourceDiffPayloadsEqual(a.inlineImagePayloads, b.inlineImagePayloads) &&
   sourceDiffPayloadsEqual(a.sourceDiffPayloads, b.sourceDiffPayloads) &&
   webSearchResultsEqual(a.webSearchResults, b.webSearchResults) &&

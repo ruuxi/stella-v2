@@ -7389,6 +7389,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     lease: LocalTurnLease,
     userMessage: AgentMessage,
     userMessageJson: string,
+    options?: { hidden?: boolean },
   ): Promise<{
     history: string[];
     contextStartSeq: number;
@@ -7452,6 +7453,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       role: "user",
       message: sizedPrompt.message,
       payloadJson: sizedPrompt.payloadJson,
+      // A desktop-run lifecycle wake (`[Agent completed]` and friends) is a
+      // hidden prompt on every client, exactly like a cloud-run wake.
+      ...(options?.hidden ? { hidden: true } : {}),
       ...(sizedPrompt.spillKey ? { spillKey: sizedPrompt.spillKey } : {}),
       ...(lease.clientMsgId ? { clientMsgId: lease.clientMsgId } : {}),
       createdAt: now,
@@ -7643,6 +7647,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       clientMsgId?: string;
       leaseToken?: string;
       renewOnly?: boolean;
+      /** The prompt is a lifecycle wake the clients never show. */
+      hidden?: boolean;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -7677,11 +7683,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       !expectedOwnerGeneration ||
       !LOCAL_TURN_ID_PATTERN.test(localTurnId) ||
       (body.renewOnly !== undefined && typeof body.renewOnly !== "boolean") ||
+      (body.hidden !== undefined && typeof body.hidden !== "boolean") ||
       (clientMsgId !== undefined &&
         !LOCAL_CLIENT_MSG_ID_PATTERN.test(clientMsgId))
     ) {
       return json({ code: "bad_request", message: "Malformed request." }, 400);
     }
+    const promptHidden = body.hidden === true;
     // The gate snapshot that used to be read here now arrives with the fence
     // registration below, in one gate round trip. Only the local half of the
     // owner check runs before the request is validated.
@@ -7871,6 +7879,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           renewed,
           userMessage,
           userMessageJson,
+          { hidden: promptHidden },
         );
         await this.assertOwnerTurn(renewed);
         const finalLease =
@@ -8098,6 +8107,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         lease,
         userMessage,
         userMessageJson,
+        { hidden: promptHidden },
       );
       markTiming("initializeMs");
       // No remote fence assert here. An owner purge that began after the

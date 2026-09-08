@@ -39,9 +39,19 @@ type DeferredTerminalCallback =
   | { kind: "error"; event: RuntimeErrorEvent }
   | { kind: "interrupted"; event: RuntimeInterruptedEvent };
 
-const buildCloudUserMessage = (
-  prepared: PreparedOrchestratorRun,
-): PersistedRuntimeThreadPayload => {
+/**
+ * The user message a local turn mirrors into the cloud journal. A hidden
+ * runtime prompt (an agent's `[Agent completed]` wake, a queued-message
+ * reply) has no user-typed text: it travels as a `message`-type prompt with
+ * an empty `userPrompt`. Mirror that prompt's text, flagged hidden, so every
+ * client can read the task it names instead of an empty, visible bubble.
+ */
+export const buildCloudUserMessage = (
+  prepared: Pick<
+    PreparedOrchestratorRun,
+    "promptMessages" | "userPrompt" | "attachments" | "agentContext" | "uiVisibility"
+  >,
+): { message: PersistedRuntimeThreadPayload; hidden: boolean } => {
   const promptMessages = prepared.promptMessages ?? [];
   let promptInput: RuntimePromptMessage & {
     attachments?: RuntimeAttachmentRef[];
@@ -49,9 +59,11 @@ const buildCloudUserMessage = (
     text: prepared.userPrompt,
     attachments: prepared.attachments,
   };
+  let chosen: RuntimePromptMessage | null = null;
   for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
     const candidate = promptMessages[index]!;
     if ((candidate.messageType ?? "user") !== "user") continue;
+    chosen = candidate;
     promptInput = {
       ...candidate,
       ...(index === promptMessages.length - 1 && prepared.attachments.length
@@ -60,12 +72,39 @@ const buildCloudUserMessage = (
     };
     break;
   }
+  // A turn with no user-typed prompt was started by the runtime itself (a
+  // lifecycle wake, a queued-message reply): mirror the runtime prompt's
+  // text so clients can read what the turn answers, and mark it hidden —
+  // the user never typed it and no client shows it.
+  let runtimePrompt = false;
+  if (!chosen && !prepared.userPrompt.trim()) {
+    const candidate = promptMessages.findLast(
+      (entry) => entry.text.trim().length > 0,
+    );
+    if (candidate) {
+      chosen = candidate;
+      runtimePrompt = true;
+      promptInput = {
+        text: candidate.text,
+        ...(prepared.attachments.length
+          ? { attachments: prepared.attachments }
+          : {}),
+      };
+    }
+  }
   const message = createRuntimePromptAgentMessage(promptInput, Date.now());
   if (message.role !== "user") {
     throw new Error("Cloud local turns require a user message.");
   }
   const executionContext = prepared.agentContext.executionContext;
-  return { ...message, ...(executionContext ? { executionContext } : {}) };
+  const hidden =
+    runtimePrompt ||
+    prepared.uiVisibility === "hidden" ||
+    chosen?.uiVisibility === "hidden";
+  return {
+    message: { ...message, ...(executionContext ? { executionContext } : {}) },
+    hidden,
+  };
 };
 
 export const parseCanonicalCloudHistory = (
@@ -348,7 +387,8 @@ export const launchPreparedOrchestratorRun = (args: {
 
     try {
       if (isCloudTurn) {
-        const userMessage = buildCloudUserMessage(prepared);
+        const { message: userMessage, hidden: userMessageHidden } =
+          buildCloudUserMessage(prepared);
         const beginCloudTurn = (): Promise<CloudTranscriptBeginAck> =>
           context.cloudTranscript.begin({
             conversationId: prepared.conversationId,
@@ -356,6 +396,7 @@ export const launchPreparedOrchestratorRun = (args: {
             localTurnId: prepared.runId,
             clientMsgId: args.userMessageId,
             userMessageJson: JSON.stringify(userMessage),
+            ...(userMessageHidden ? { hidden: true } : {}),
             onLeaseLost: (reason) => {
               prepared.abortController.abort(
                 `Cloud conversation lease ended (${reason}).`,

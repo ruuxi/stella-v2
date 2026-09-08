@@ -270,8 +270,8 @@ export const collectTurnSourceDiffPayloads = (toolEvents, options) => {
     }
     return payloads;
 };
-export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, options) => {
-    if (toolEvents.length === 0 && !assistantText)
+export const deriveTurnResource = (toolEvents, _assistantText = "", _turnCwd, options) => {
+    if (toolEvents.length === 0)
         return null;
 
     const htmlPayload = orchestratorHtmlPayload(toolEvents);
@@ -299,10 +299,13 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
         }
     }
 
+    // Files the reply merely links render as pills under the bubble (see
+    // `linkedFiles` on the assistant row); the end-resource card is for what
+    // this turn's own tools produced (an html canvas, image_gen output, an
+    // office preview session).
     const candidatePaths = [
         ...imagePayloads.keys(),
         ...referencedFromOffice.keys(),
-        ...extractLocalFileLinkPaths(assistantText),
     ];
     if (candidatePaths.length === 0)
         return null;

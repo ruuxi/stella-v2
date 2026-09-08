@@ -22,6 +22,30 @@ describe("deriveConversationFiles", () => {
     ]);
   });
 
+  it("maps links into the cloud world's drive onto drive files and dedupes them with the files card", () => {
+    const files = deriveConversationFiles([
+      event("assistant_message", {
+        text: "Wrote [notes](/workspace/world/drive/notes.md) and [deck](</workspace/forks/f1/world/drive/q3/deck.pptx>).",
+      }),
+      event(
+        "cloud_files",
+        {
+          cloudDriveFiles: [
+            { path: "notes.md", name: "notes.md", sizeBytes: 20, contentType: "text/markdown; charset=utf-8" },
+          ],
+        },
+        2,
+      ),
+    ]);
+    expect(files.map((entry) => [entry.path, entry.cloudDriveFile?.sizeBytes])).toEqual([
+      ["notes.md", 20],
+      ["q3/deck.pptx", 0],
+    ]);
+    expect(files[0]?.payload).toMatchObject({ kind: "markdown", filePath: "/notes.md" });
+    expect(files[1]?.payload).toMatchObject({ kind: "file-artifact", artifactKind: "office-slides" });
+    expect(files.every((entry) => entry.cloudDriveFile)).toBe(true);
+  });
+
   it("derives delegated files only from agent completion result links", () => {
     const files = deriveConversationFiles([
       event("tool_result", {

@@ -35,6 +35,153 @@ export const lifecycleWakeTask = (
   return description ? { threadId, description } : { threadId };
 };
 
+const LIFECYCLE_KIND_RE =
+  /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/m;
+const LIFECYCLE_TRAILER_RE = /^(?:agent_state|presentation|routing|error):/;
+
+/**
+ * The `result:` body of an `[Agent completed]` wake prompt (the lines after
+ * `result:` up to the runtime's trailing instructions), or the `error:`
+ * line of a failed / canceled one.
+ */
+export const lifecycleWakeOutcome = (
+  text: string,
+): { kind: "completed" | "failed" | "canceled"; body: string } | null => {
+  const kind = LIFECYCLE_KIND_RE.exec(text)?.[1];
+  if (!kind) return null;
+  const lines = text.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) =>
+    kind === "Agent completed" ? line.startsWith("result:") : line.startsWith("error:"),
+  );
+  let body = "";
+  if (startIndex !== -1) {
+    const first = lines[startIndex]!.replace(/^(?:result|error):\s?/, "");
+    const rest: string[] = [];
+    for (const line of lines.slice(startIndex + 1)) {
+      if (LIFECYCLE_TRAILER_RE.test(line)) break;
+      rest.push(line);
+    }
+    body = [first, ...rest].join("\n").trim();
+  }
+  return {
+    kind:
+      kind === "Agent completed"
+        ? "completed"
+        : kind === "Task failed"
+          ? "failed"
+          : "canceled",
+    body,
+  };
+};
+
+const lifecycleAgentIdsOnTurn = (
+  turnRecords: readonly JournalRecord[],
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const record of turnRecords) {
+    if (record.kind === "card" && record.card.type === "agent-lifecycle") {
+      ids.add(record.card.event.payload.agentId);
+    }
+  }
+  return ids;
+};
+
+const spawnResultThreadId = (
+  record: JournalMessageRecord,
+): string | null => {
+  if (record.role !== "toolResult" || record.payload.toolName !== "spawn_agent") {
+    return null;
+  }
+  const details = asRecord(record.payload.details);
+  if (typeof details?.thread_id === "string" && details.thread_id) {
+    return details.thread_id;
+  }
+  // A locally executed turn mirrors the tool's JSON text without details.
+  try {
+    const parsed = JSON.parse(messageText(record.payload)) as unknown;
+    const threadId = asRecord(parsed)?.thread_id;
+    return typeof threadId === "string" && threadId ? threadId : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Lifecycle events for a turn the desktop executed and mirrored into the
+ * journal. Such a turn carries no `agent-lifecycle` card: the spawn is only
+ * a `spawn_agent` result naming its thread, and the completion is only the
+ * hidden `[Agent completed]` wake prompt. Synthesize the events the worker
+ * would have written so both placements project the same rows (spawn row on
+ * the spawning reply, completion with its linked files on the relaying
+ * reply). A task that does have a card on the turn keeps the card.
+ */
+const mirroredLifecycleEvents = (
+  turnId: string,
+  turnRecords: readonly JournalRecord[],
+): { spawns: Map<number, EventRecord>; wake: EventRecord | null } => {
+  const carded = lifecycleAgentIdsOnTurn(turnRecords);
+  const descriptionsByCall = new Map<string, string>();
+  for (const record of turnRecords) {
+    if (record.kind !== "message" || record.role !== "assistant") continue;
+    for (const block of contentBlocks(record.payload)) {
+      if (block.type !== "toolCall" || block.name !== "spawn_agent") continue;
+      const description = asRecord(block.arguments)?.description;
+      if (typeof block.id === "string" && typeof description === "string") {
+        descriptionsByCall.set(block.id, description.trim());
+      }
+    }
+  }
+  const spawns = new Map<number, EventRecord>();
+  let wake: EventRecord | null = null;
+  for (const record of turnRecords) {
+    if (record.kind !== "message") continue;
+    const timestamp = timestampOf(record.payload, record.createdAtMs);
+    if (record.role === "user" && record.hidden) {
+      const text = messageText(record.payload);
+      const task = lifecycleWakeTask(text);
+      const outcome = lifecycleWakeOutcome(text);
+      if (!task || !outcome || carded.has(task.threadId)) continue;
+      const base = { agentId: task.threadId, ...(task.description ? { description: task.description } : {}) };
+      wake =
+        outcome.kind === "completed"
+          ? {
+              _id: `cloud:${turnId}:wake:${record.seq}:agent-completed`,
+              timestamp,
+              type: "agent-completed",
+              payload: { ...base, result: outcome.body },
+            }
+          : {
+              _id: `cloud:${turnId}:wake:${record.seq}:agent-${outcome.kind}`,
+              timestamp,
+              type: outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+              payload: { ...base, ...(outcome.body ? { error: outcome.body } : {}) },
+            };
+      continue;
+    }
+    const threadId = spawnResultThreadId(record);
+    if (!threadId || carded.has(threadId)) continue;
+    const callId =
+      typeof record.payload.toolCallId === "string" ? record.payload.toolCallId : "";
+    const description =
+      descriptionsByCall.get(callId) ??
+      (() => {
+        const details = asRecord(record.payload.details);
+        return typeof details?.description === "string" ? details.description : "";
+      })();
+    spawns.set(record.seq, {
+      _id: `cloud:${turnId}:tool-result:${record.seq}:agent-started`,
+      timestamp: timestamp + 1,
+      type: "agent-started",
+      payload: {
+        agentId: threadId,
+        description,
+        agentType: "general",
+      },
+    });
+  }
+  return { spawns, wake };
+};
+
 /**
  * Resolve the citations an assistant journal record carried against the
  * loaded journal window. The cloud journal has no `entry_ref` index, so this
@@ -265,6 +412,7 @@ export const journalRecordsToMessageRecords = (
     const events: EventRecord[] = [];
     let userMessageId: string | undefined;
     let turnUserRecord: JournalMessageRecord | undefined;
+    const mirrored = mirroredLifecycleEvents(turnId, turnRecords);
 
     for (const record of turnRecords) {
       const lifecycle = journalLifecycleEvent(record);
@@ -284,6 +432,9 @@ export const journalRecordsToMessageRecords = (
           type: "user_message",
           payload: textPayload(record, messageText(record.payload)),
         });
+        // The wake's completion precedes the reply that relays it, so the
+        // grouping hands it to that reply.
+        if (mirrored.wake) events.push(mirrored.wake);
         continue;
       }
 
@@ -363,6 +514,8 @@ export const journalRecordsToMessageRecords = (
             : {}),
         },
       });
+      const spawn = mirrored.spawns.get(record.seq);
+      if (spawn) events.push(spawn);
     }
     messages.push(...groupEventsIntoMessages(events));
   }

@@ -699,6 +699,92 @@ describe("routeLifecycleEvents", () => {
     expect(routed[1]!.toolEvents.map((e) => e._id)).toEqual(["c-mid"]);
   });
 
+  it("moves a completion off a hidden wake prompt onto the turn's first reply even when the reply streamed later", () => {
+    // Cloud wake: the worker appends the `agent-completed` card before the
+    // hidden `[Agent completed]` prompt's turn starts, so the event predates
+    // the reply's stream start. A hidden prompt renders nothing, so the
+    // reply must carry it — and the pin must not freeze it on the prompt.
+    const completion = event({
+      _id: "completed-cloud",
+      type: "agent-completed",
+      timestamp: 190_452,
+      payload: { agentId: "agent-cloud" },
+    });
+    const wake = message({
+      _id: "wake:agent-cloud:1",
+      timestamp: 190_989,
+      type: "user_message",
+      payload: {
+        text: "[Agent completed] make notes (thread agent-cloud)",
+        metadata: { ui: { visibility: "hidden" } },
+      },
+      toolEvents: [completion],
+    });
+    const state = createLifecycleRoutingState();
+    // No reply yet: the event waits on the prompt, unpinned.
+    const waiting = routeLifecycleEvents([wake], state);
+    expect(waiting[0]!.toolEvents.map((e) => e._id)).toEqual(["completed-cloud"]);
+    expect(state.sticky.has("completed-cloud")).toBe(false);
+
+    const overlay = message({
+      _id: "stream-overlay:wake:agent-cloud:1:1",
+      timestamp: 191_400,
+      type: "assistant_message",
+      payload: {
+        text: "done, file's live",
+        userMessageId: "wake:agent-cloud:1",
+        metadata: { runtime: { isStreaming: true } },
+      },
+      toolEvents: [],
+    });
+    const streaming = routeLifecycleEvents([wake, overlay], state);
+    expect(streaming[0]!.toolEvents).toEqual([]);
+    expect(streaming[1]!.toolEvents.map((e) => e._id)).toEqual(["completed-cloud"]);
+
+    // The persisted twin takes over the slot and keeps the card.
+    const twin = message({
+      _id: "cloud:turn-wake:message:10",
+      timestamp: 194_384,
+      type: "assistant_message",
+      payload: {
+        text: "done, file's live",
+        userMessageId: "wake:agent-cloud:1",
+        metadata: { runtime: { streamStartedAtMs: 191_402 } },
+      },
+      toolEvents: [completion],
+    });
+    const persisted = routeLifecycleEvents(
+      [message({ ...wake, toolEvents: [] }), twin],
+      state,
+    );
+    expect(persisted[0]!.toolEvents).toEqual([]);
+    expect(persisted[1]!.toolEvents.map((e) => e._id)).toEqual(["completed-cloud"]);
+  });
+
+  it("still anchors a pre-stream event on a visible prompt", () => {
+    const state = createLifecycleRoutingState();
+    const user = message({
+      _id: "u-visible",
+      timestamp: 100,
+      type: "user_message",
+      toolEvents: [completedBeforeStream],
+    });
+    const overlay = message({
+      _id: "stream-overlay:u-visible:1",
+      timestamp: 300,
+      type: "assistant_message",
+      payload: {
+        text: "streaming…",
+        userMessageId: "u-visible",
+        metadata: { runtime: { isStreaming: true } },
+      },
+      toolEvents: [],
+    });
+    const routed = routeLifecycleEvents([user, overlay], state);
+    expect(routed[0]!.toolEvents.map((e) => e._id)).toEqual(["c1"]);
+    expect(routed[1]!.toolEvents).toEqual([]);
+  });
+
   it("reuses routed message identity across repeated calls (structural sharing)", () => {
     const state = createLifecycleRoutingState();
     const user = message({

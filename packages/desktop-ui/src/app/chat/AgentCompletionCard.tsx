@@ -96,7 +96,7 @@ const FilePill = ({ entry }: { entry: ConversationFileEntry }) =>
 /** The chip strip under a completed row — old card's cap + "+N more"
  *  expand/collapse (grid-rows 0fr -> 1fr, no JS measurement), minus the
  *  card chrome. */
-const FilePills = ({ files }: { files: ConversationFileEntry[] }) => {
+export const FilePills = ({ files }: { files: ConversationFileEntry[] }) => {
   const t = useT();
   const tPlural = useTPlural();
   const [expanded, setExpanded] = useState(false);

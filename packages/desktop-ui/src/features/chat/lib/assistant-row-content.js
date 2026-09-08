@@ -18,6 +18,7 @@
 export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0 ||
     Boolean(row.officePreviewRef) ||
     Boolean(row.resourcePayload) ||
+    (row.linkedFiles?.length ?? 0) > 0 ||
     (row.inlineImagePayloads?.length ?? 0) > 0 ||
     (row.webSearchResults?.length ?? 0) > 0 ||
     (row.mapArtifacts?.length ?? 0) > 0 ||

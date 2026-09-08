@@ -11,6 +11,7 @@ import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 import type { TurnMapArtifact } from "@/features/chat/lib/derive-turn-map-artifacts";
 import type { PastedTextDescriptor } from "@/features/chat/lib/paste-context";
 import type { ToolActivityGroup } from "@/features/chat/lib/tool-activity";
+import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import type { VoiceSessionSummaryMetadata } from "@stella/contracts/local-chat";
@@ -116,6 +117,12 @@ export type AssistantRowViewModel = {
    */
   spawnedDescriptions?: string[];
   officePreviewRef?: OfficePreviewRef;
+  /**
+   * Files the reply text links (local paths, or the cloud world's drive),
+   * minus any a completion section on this row already shows. Rendered as
+   * pills under the bubble; a linked file never becomes a full card.
+   */
+  linkedFiles?: ConversationFileEntry[];
   resourcePayload?: DisplayPayload;
   /** Orchestrator image_gen inline cards — one group per tool call. */
   inlineImagePayloads?: DisplayPayload[];

@@ -9,6 +9,7 @@ import type {
   CloudTranscriptWriter,
 } from "./cloud-transcript-write.js";
 import {
+  buildCloudUserMessage,
   launchPreparedOrchestratorRun,
   parseCanonicalCloudHistory,
   type PreparedOrchestratorRun,
@@ -362,5 +363,58 @@ describe("cloud orchestrator launch", () => {
 
     expect(modelStarts).toBe(1);
     expect(harness.finishes[0]?.phase).toBe("completed");
+  });
+});
+
+describe("buildCloudUserMessage", () => {
+  const base = {
+    userPrompt: "",
+    attachments: [],
+    agentContext: {} as PreparedOrchestratorRun["agentContext"],
+  };
+
+  test("mirrors a typed prompt visibly", () => {
+    const { message, hidden } = buildCloudUserMessage({
+      ...base,
+      userPrompt: "hello",
+      uiVisibility: "visible",
+    });
+    expect(hidden).toBe(false);
+    expect(JSON.stringify(message)).toContain("hello");
+  });
+
+  test("mirrors a runtime prompt that carries only a custom type as hidden", () => {
+    const { message, hidden } = buildCloudUserMessage({
+      ...base,
+      uiVisibility: "visible",
+      promptMessages: [
+        {
+          text: "<system-reminder>\nThe agent has finished.\n</system-reminder>\n[Agent completed]\nthread_id: t\nresult: done",
+          messageType: "message",
+          customType: "runtime.task_lifecycle",
+        },
+      ],
+    });
+    expect(hidden).toBe(true);
+    expect(JSON.stringify(message)).toContain("thread_id: t");
+  });
+
+  test("mirrors a hidden runtime wake with its text, flagged hidden", () => {
+    const wake = "[Agent completed]\ndescription: d\nthread_id: t\nresult: done";
+    const { message, hidden } = buildCloudUserMessage({
+      ...base,
+      uiVisibility: "hidden",
+      promptMessages: [
+        {
+          text: wake,
+          messageType: "message",
+          uiVisibility: "hidden",
+          customType: "runtime.task_lifecycle",
+        },
+      ],
+    });
+    expect(hidden).toBe(true);
+    expect(JSON.stringify(message)).toContain("[Agent completed]");
+    expect(JSON.stringify(message)).toContain("thread_id: t");
   });
 });

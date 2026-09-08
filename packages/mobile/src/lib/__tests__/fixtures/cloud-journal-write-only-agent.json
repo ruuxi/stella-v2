@@ -1,0 +1,347 @@
+[
+ {
+  "type": "record",
+  "seq": 0,
+  "kind": "message",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853568475,
+  "role": "user",
+  "hidden": false,
+  "clientMsgId": "6920c0fa-d2f0-40c1-a4fe-75b6ea0ce3a1",
+  "payload": {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "Spawn one background task that must use only its Write tool, never a shell command, to create a file named notes.md in my drive containing the single line hello from the cloud, then report back with a markdown link to the file. Reply with one short line."
+    }
+   ],
+   "timestamp": 1788853568475,
+   "executionContext": {
+    "destination": {
+     "kind": "cloud"
+    },
+    "devicesKnown": true,
+    "devices": []
+   },
+   "providerContext": {
+    "version": 1,
+    "epoch": "177939b5-e3c8-4eae-aa5f-1d5872480692",
+    "prepend": [],
+    "clock": "2026-09-08T07:46:08.475Z"
+   }
+  }
+ },
+ {
+  "type": "record",
+  "seq": 1,
+  "kind": "turn",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853568475,
+  "phase": "started",
+  "lane": "chat",
+  "promptSeq": 0
+ },
+ {
+  "type": "record",
+  "seq": 2,
+  "kind": "message",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853572270,
+  "role": "assistant",
+  "hidden": false,
+  "streamId": "as_14f2da1292ba4f58",
+  "payload": {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "thinking",
+     "thinking": "",
+     "thinkingSignature": "{\"id\":\"rs_6a9fbd4173368ba9907e4b12:rs_01a07ffb49607602af53cf7a384d76d3\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"encrypted_content\":\"Q-PaDgErRACFkypU4O7avp5OrhVM1xgMGA4JhyJfPFZPx7djSRUhqHPaCUPKpD83lstR8GdB4M_--SkjHzmR9UjSbmzNW_6b9z8gepjOkhPO_QoCE6LbgLhBx5KQR26_-illMqFzyPoCecW59M6eAUjizsCC-b5Ojg5hlULaBoabw6lreIN59pmHG87hLFteEwT2IZjE0HHJ0NFB8_h8tagN_OzqZpvxrCVpYvgiYGSWEe_GQH0MTT88IffvjaIk2ImoUNXtjafsLdOuXlqOtQYOVoT_gm-5GdgTXteSklfPuXEv5zI58M40HvWvu5howPgrl_5nNPUNLo3UzFOtxtIa4gMhvlxZlh4pJXm4NHNrQyY6b0UNUw9O3L85Gvxmgx3sXNegi_ISwIy6D-1aHC7Lb0Q_qvgO4yCV4_hi_i6uAiVuSplfre8HCBgQno4WdA2q1G9fO04ZbRtTkeViE6Mc8ekjXf6maA_ulrAT2iwjPnzBoN9p_lXos0OpyAl52hzqYRxdNjgXrWNogZNwcJHtwTzs1aBjQtKk2zwF4ipBwbGGm3LSwWP8fLgPCaMa9DmXib4V7Kb5nbMpDZjl1Ipc7nlSa42GN5BygA4zbDtP7lP0LhgklkxWql7bD99CwENTjFDxKyVVWUKOL9LaDkgQYI1iyICKXVhHzDb1V0nJXh6mL6-jbazCeE7jbdIK_NpXAfiemM5HYhpEL976gbnddwj5vQ_CJ7WMUPFUZoZq2kSOuOXAoVkLqT3ytOyoQzeSCYYl9AxzksGTyte0oi0zhr2wq0pzqylSSM4LIUJo5pMlM9tZAEfZKourhX2XOlvEXtPEzyRQrROELBQrwU9NXWlspKO8DXV-xD5l1EFWnF6VOX8LfVVHUDHrrWeSr7wTTE4LPfBfGRHD9YakUdjuu3cswy9S_RSrJ4qaNcs3RHkEeqdiB6Ckbnm-lqTcXFfnfVOkIdWXKVtIojxfxbtZA84ZWKVatNjZFDaerlVCQud6ivsFfwv5T35fsaRMLrn3W_JMYfAGBKJEsv6wSsKnhYMpF-6lr0xB0fpLLKgRV4Rz5dT94A4FQr5xQHnrM_ORjy8-hX7M3X5Eg2ymkzBkrW78Sf-Bj16ChuBaFy2poPyact7ulGLdfM_A4U8buYbfNHQjCLyOTd0t6WB8stiu5ZYZDgMF6PAHNPWbjVBXsNlBjKD2JV_1ETPSwt-QxLM9s0eNP8NNo9vYdySmJWh9ibrQ5VxFBjXVXweX9xruxcUKubN2wmYK4_wfmLDIVV35yRA98YtzsZ7g4J2arh-NzCz6nFF9V48z7jlGqS4A7PhVzDGC8O1kcw2c0hb0dV9HuUv7rmJaEIUDmzEbuP9txGssGzEGxCvCELlLhatHxh2Rh3QidyLSw_bpLiikceyUWdCezUOtSxeOnayWkaFNL1wTa6WwwcGH3Q2xd3Cp7cJcBicRGzYOP9Z_4RbyQJojREjbBmuyYbp0YCsVMH5g2W4QQAC5792Qsu8eihlTaAckqKY6uKctHrLgY0bbNgjydk_8aNL_CNAkHvcqkjDCHq5m55V5iHxBdCzvC2tl02qEGlVGnCDDWFNHXnn8YoVtQBWC_JFXEwY8UxkJa-FwgGNIwWUUFm0CIO3Lboq5IzdzLGuB6MK0ziKIbI0khsXeoI7mnSWbkawhlg5PAM0xnyWNYx7I_oJHAAqCTmjshLYtHkECOjz_CW1JJrdjuGX2kUUKLZueZxhGzgX-jPyKR1tS_H7-tpve0BfgzU-wbPvc4TeLjsQyWGrhwIo2WV1CI8sRqDvgRZtfZygSLmgqjIuOsK1T8qp9rLWsPTpME_ZnUrRRZZEleYXtkK-TJhxcIFPdQX-r1W_bIIcpEB-Fhd4hT2r3cK7CZ2gOwq55EwBMLgbyzDfJ5yijxtVCHzWuCxoCzoHJTn-_dgc_HNJMD1BUbKpGjFODHDv3yWoH1SjTeL-gRMqxeXSk_xBOu2-8VeePMJovX6pCJlKXZJzD_K1aQ8eBsuP29eIX7Bv4rZ0A4SG4DqVQaOsi2rhYazXvRf7XfzjRq-ZqztM7RokjypCDe4NjJ17bdqaoJWmzEWsKfcbNy1MhV9rurUrB8gusXWB7nb0gZ9qQ52vZwWJbmdzjDLHIPRNX1hYgHAA8QBJDihlXqap3eLMkq5ZGGasC4T03e4i2gzA2C5618ySR2WQbJFE0JKK0nny31PYPoW5C7Uictm29IRD25l9giMam62QHXHfv4b8ZZol3QR6_4UdKOGnujGNu2PwE2B0e2gmzZInaeNJ1J6qP5wYQA2zs98Sx_vBDpaCvdVGE2sRv5fEW7MHHUo7fwLwj6Diukfq4-Bp2exYBo3aQglNDB3IZv7otPgkJOfPz0eGw30Dx-V7nLeW985rvc1x5uYRKc0neecNcGmFi0Ju-YBGdIvtkSEPxHDlti0gJ7oJvHboMWtnlpMbWalhbUrGikLKHzF6ROQymBK5AZMor6pGiv5_XYC8hNuh922am4AmXnbf7izEc5lewRoQ3ISQkqiL0OYc-D6nQNYEAsveQ3ANp1_rcfakXYV80If-Oo_DyCV5FJrI8uUVrV29Mw8Mnolfqs1Cu7TiKVkmxOS_yYJdUEyxzeOZoRfi_oIcF8VfUEBWCiqOYvXQ3b0HIJMVkUGu-JDibVq5ErKowbHJjGi7b3Ps1yR-PxqFSEJCAsTo7IDRLHMbNKtoCXY3wRj2GK77IWa3cyyrIYnn8vcHJlDsojdaqtxNG2wCsipF68cF54MGBCtBRRJOq4zxVrEU.eyJlbmRwb2ludF9zbHVnIjoibWV0YS9tdXNlLXNwYXJrLTEuMy1jb250cmlidXRvci0yMDI2MDkwMnxtZXRhIn0\",\"format\":\"meta-responses-v1\"}"
+    },
+    {
+     "type": "text",
+     "text": "got it, spawning the background task now.",
+     "textSignature": "{\"v\":1,\"id\":\"msg_tmp_i570djd8wn\",\"phase\":\"commentary\"}"
+    },
+    {
+     "type": "toolCall",
+     "id": "call_01a07ffb4f417ff0969cfe01ce3304ff|fc_tmp_p5ngmublrds",
+     "name": "spawn_agent",
+     "arguments": {
+      "description": "create notes.md hello",
+      "prompt": "Create a file named notes.md in my drive (in the shared world drive/) containing exactly the single line: hello from the cloud\n\nConstraints: you must use only your Write tool, never a shell command. Then report back with a markdown link to the file."
+     }
+    }
+   ],
+   "api": "openai-responses",
+   "provider": "openrouter",
+   "model": "stella/default",
+   "usage": {
+    "input": 10408,
+    "output": 295,
+    "reasoning": 159,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 10703,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "stopReason": "toolUse",
+   "timestamp": 1788853568475,
+   "responseId": "gen-1788853569-ayb4XSUxwTqNLy8RotsN"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 3,
+  "kind": "card",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853572541,
+  "card": {
+   "type": "agent-lifecycle",
+   "eventId": "cloud:601ab8e6-d564-4f3c-9ee0-db30626f2796:call_01a07ffb4f417ff0969cfe01ce3304ff|fc_tmp_p5ngmublrds:agent-started",
+   "event": {
+    "type": "agent-started",
+    "payload": {
+     "agentId": "ee2c399c-f452-4b85-8c94-24c5f21ec652",
+     "rootRunId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+     "attemptGeneration": 1,
+     "description": "create notes.md hello",
+     "agentType": "general"
+    }
+   }
+  }
+ },
+ {
+  "type": "record",
+  "seq": 4,
+  "kind": "message",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853575103,
+  "role": "toolResult",
+  "hidden": false,
+  "payload": {
+   "role": "toolResult",
+   "toolCallId": "call_01a07ffb4f417ff0969cfe01ce3304ff|fc_tmp_p5ngmublrds",
+   "toolName": "spawn_agent",
+   "content": [
+    {
+     "type": "text",
+     "text": "Spawned agent (thread_id: ee2c399c-f452-4b85-8c94-24c5f21ec652, status: running, description: \"create notes.md hello\"). It is running in the background and has NOT finished \u2014 an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent."
+    }
+   ],
+   "details": {
+    "thread_id": "ee2c399c-f452-4b85-8c94-24c5f21ec652",
+    "status": "running",
+    "description": "create notes.md hello",
+    "attempt_generation": 1,
+    "thread_updated_at": 1788853572541,
+    "workspace": "shared"
+   },
+   "isError": false,
+   "timestamp": 1788853575103
+  }
+ },
+ {
+  "type": "record",
+  "seq": 5,
+  "kind": "message",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853578388,
+  "role": "assistant",
+  "hidden": false,
+  "streamId": "as_10c28dac058044b9",
+  "payload": {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "thinking",
+     "thinking": "",
+     "thinkingSignature": "{\"id\":\"rs_6a9fbd47a53d544bc3af4ed1:rs_01a07ffb601675219bff3448e25bd951\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"encrypted_content\":\"Q-PaDgExg2RB8-0cFJCkPjC4YrpDcwIMO1ly-pVFjJ4koquDiBBZyCARpuTOxZGIceCl7W67mL_iKcACsx9Uo4aaJte0TcKYct8rW2BZeWf8i3JrtH7rgFsUz528I0JGJ9s1DZnlkUx-GRd7GULN32KTffthojbwz9pwkVPC34Lol0NhO47i4TutQZV2GfullLy8k0aSxoS5aeiOrsKj7FG_QdDumAr5_2sMOmD7DHeCTlWML7xUJ1kvherBacIgChingRau8pKUpbcmVNND09whtojgDFPy48RYFF1gtjt1xlctolQALD_yqAqc9MVaMP8N8s6uHCUg-GmVYynR8KfIw3MSLDZaCIN4RWvzoHH3fzlre4KHN2WF0TiXF1xF6Kt1kJ5dKLg1ItZWG2IxywGy2mEHBWewXPoHCtb2jB0pPmRkLYJEhH2IDnLkKicTDyaN1lchXrKZCesQ2gIo5ODhdd3By6FSr1GKeU-7OcIvd0b3cWB32MAHIaMOsH5AfCmZFZcf4dmwsT7Tvbszg1b96PQGQm2rkWdL0NwvRxLjsQbR5EDX9SSLXvICsPBzPKRscNCc-mYjqIKKDZxzSa4Ri0YCBzGVedH0poG3lPuwE-FvHWr_W-SSqPKruBi3X_xPoAsfSMiITMfWFu7ub9fucXM_bGsBeyIQWURZ-afWqGlsmtNv7YT6lbIC9MYYBYnOR2WsK9qjWdtc7daYJJX5ZecJPH03hMoHfx_q_J4OUII6lmMFOoRt0n7HO6h5HnySvGAKcq_hiNdafZlcf5Y-1ACrtU4rvPRUnnlyJrlsaCghRWOXtnQjuSoxx0al89wVEe8x8FL-l-1pjusEtznz0OP6lCXYuL9VDtpi9uAkW2A6N18AANx0mVyeo4hACuoDKOx9Z24m3zT1N1dm2r73dONfZ_zRzi92dvV12f1ghzulg6wIxrnaxjFsTrKJ9p5QkX7b2a705THZ7PVaqdrOEERvvBaQdDcyjTGKpGOCkh-tM3Q9n7tsyMdt43AYbbI5EShxXA7lVn5lSmQmB4sOtRYG6yNqwuNeN4zfkLIjsYZWpfNpzSpLzbCNnpvQOp4qeuZ4Ht5aeQ-xoXzludBYcXiXEGVjTPDsGu3yZoRcg8GfSMtKwmvtUpD-ClkPY3quMe-FvVWqBK8E6GiJ5hq0Huqnc0SHrWT4fRo_zCR_lQjDQVD93EDsKIZqrvpFk-us-MS7NjBNmSulWpdoIitSy4G2N7VoNw6jiz7I2Ym-NvNpDTuqqbsytrGZoyCF9vN-ngE35wsnSGXs5p66vg8nXMChDtlmJTBB72c4GME7gVk7G_WgeQUENsjCt7jlfynnA-b4F94YrsOR5-yY3bBDRuYfNeS5svhQ8WawfLsTARkE-GP6LREXT2_Xg6EmSkOtlhHoy4DEy3Cn8I3-GqdRmDAQeMym9rhc-67clmhottTlKlkGvpEcMrOnwIyoNCc169rFrGe3ecxyR1ElP6mnn7QmgKJ2iebJI1mOoqewcR3icjiHIBPuUQTV9NHSbP0CrC9YvwLIHrHASysh8tj2n1VSqetqttS1YLpkF_2-U2ltoZbGQgPc1x2xIg2SzwvT2h0dK0sw0MHgzAbc59pLp3-OARQ6LAfNhG0LqcWlTxylTmJLI2DOWYjZNmrBXEvjNqfXQgYrUBZTlicuHsxcKuigTKOsHt55eeUWNTR-GK38ivbR-VbggnlOjtiec_4UR33U4eTwnY4cccdRl4VwLXU_EspyTB3VgqfJ9sqvV8XeLffjPaNIjyLJZOqGLhHNlJoUBbTTHpiY274cnQd0Sp0CXECCgqo10eDfbbTM2euOsqGANUEm-viiQyON3bXk11aTXYgiaRMiNfSFH97r9FVEdX0KtN3_TJTlGNPoCzMTVUTmZDc53C8HiRC3gjt5KV-7pV4XHvGpbbbSNlpDcgPzr-zHce2ezDCRMynMDxumX2SEg8x-9Fsp6dw1vPtgCyuJSq-GJaI9JlJZYKFKd2ZmrtEYSFoRDJ2T5HXV9hmslNyYwL07NoVQcl_d_FPopRbz-lcbkorL4unMcayan6lAMaJqsubwiAqYrVLMS7Tn2ZRUaPPUehZOgz84L3K1lElVF3MJVbpHoiND_HWJ77JPAGb-yfL9BKV6s1YMhZJuKK1nLpBSHnUl5p9O9z7gKnH8nkdMgFGCoXBfl6aUfS-G1NX88cYSY_NKri_UCjKg8Tl5kLV0oDI8-hiFn_qaYJzVJCcjApVNvgvPBqg2AaBassxc0ygqPk-xm8buKRa4MYJObyow8106XEoEaKxey1CMXYSiZenH9MHF7A-ijNHS3l2T9RpQqBPGf9cCwUWIj8HLpykl-gJR7wDFNPieMeqwQUUXtCsZI7oEFefLU4hYcQiPQI7qYEcja5e-LMiJK7YnY_lJCXSD8xcDQN5aHUHkQEqptCr7j-KmX28-0AhBX1Z8hdSXTFwcUSt5_o4uXGEhFUX1HHXUDImoa0_iXmkQly3Zw9GSUfjX0a9iMszUgOPqBVesYYISnfzH6Io_vhGJWoNPKoeuumgnR3BDlwAwd75Oecn6A-ecPrsN1nBf1COWfhx2r5iz6vL_Drxxd63lqrz2biYpARd56PgeJJWxKZJDV5r0Yyqt1Gnjn9NdRHI1t19H-REpzpaQ9XZvXW_mkG0vlPPD5l3Rz2coQ2CfOfqE9xf44VxQwBmAZ3nNLUSeVa--5jlHrO7cRsHl_61761C8qMomdHvWLGoC3XF4Z2zYw0LkzZN0OkaRb-6CRFWTMy4deGc.eyJlbmRwb2ludF9zbHVnIjoibWV0YS9tdXNlLXNwYXJrLTEuMy1jb250cmlidXRvci0yMDI2MDkwMnxtZXRhIn0\",\"format\":\"meta-responses-v1\"}"
+    },
+    {
+     "type": "text",
+     "text": "task's running, i'll drop the link when it's back",
+     "textSignature": "{\"v\":1,\"id\":\"msg_tmp_r5tr2muixa\"}"
+    }
+   ],
+   "api": "openai-responses",
+   "provider": "openrouter",
+   "model": "stella/default",
+   "usage": {
+    "input": 461,
+    "output": 215,
+    "reasoning": 193,
+    "cacheRead": 10353,
+    "cacheWrite": 0,
+    "totalTokens": 11029,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "stopReason": "stop",
+   "timestamp": 1788853575103,
+   "responseId": "gen-1788853575-bTFKGzdEVbU1vcwpkT00"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 6,
+  "kind": "turn",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853578388,
+  "phase": "completed",
+  "lane": "chat",
+  "wallClockMs": 9913
+ },
+ {
+  "type": "record",
+  "seq": 7,
+  "kind": "message",
+  "turnId": "a536a0cb-f9b5-4b3a-944d-664210f570db",
+  "createdAtMs": 1788853588489,
+  "role": "user",
+  "hidden": true,
+  "clientMsgId": "wake:ee2c399c-f452-4b85-8c94-24c5f21ec652:1",
+  "payload": {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "[Agent completed] create notes.md hello (thread ee2c399c-f452-4b85-8c94-24c5f21ec652)\n\nCreated notes.md in drive/ containing exactly `hello from the cloud` using only the Write tool.\n\nFile: [notes.md](/workspace/world/drive/notes.md)"
+    }
+   ],
+   "timestamp": 1788853588489,
+   "executionContext": {
+    "destination": {
+     "kind": "cloud"
+    },
+    "devicesKnown": true,
+    "devices": []
+   },
+   "providerContext": {
+    "version": 1,
+    "epoch": "177939b5-e3c8-4eae-aa5f-1d5872480692",
+    "prepend": [],
+    "clock": "2026-09-08T07:46:28.489Z"
+   },
+   "source": "agent-thread"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 8,
+  "kind": "card",
+  "turnId": "a536a0cb-f9b5-4b3a-944d-664210f570db",
+  "createdAtMs": 1788853587761,
+  "card": {
+   "type": "agent-lifecycle",
+   "eventId": "cloud:ee2c399c-f452-4b85-8c94-24c5f21ec652:1:terminal",
+   "event": {
+    "type": "agent-completed",
+    "payload": {
+     "agentId": "ee2c399c-f452-4b85-8c94-24c5f21ec652",
+     "attemptGeneration": 1,
+     "result": "Created notes.md in drive/ containing exactly `hello from the cloud` using only the Write tool.\n\nFile: [notes.md](/workspace/world/drive/notes.md)"
+    }
+   }
+  }
+ },
+ {
+  "type": "record",
+  "seq": 9,
+  "kind": "turn",
+  "turnId": "a536a0cb-f9b5-4b3a-944d-664210f570db",
+  "createdAtMs": 1788853588489,
+  "phase": "started",
+  "lane": "wake",
+  "source": "agent-thread",
+  "promptSeq": 7
+ },
+ {
+  "type": "record",
+  "seq": 10,
+  "kind": "message",
+  "turnId": "a536a0cb-f9b5-4b3a-944d-664210f570db",
+  "createdAtMs": 1788853613239,
+  "role": "assistant",
+  "hidden": false,
+  "streamId": "as_bbcde6352d034fa9",
+  "payload": {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "thinking",
+     "thinking": "",
+     "thinkingSignature": "{\"id\":\"rs_6a9fbd67c933b99fa33044ec:rs_01a07ffbdd647572a0507753e5bf1a87\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"encrypted_content\":\"Q-PaDgFFdnWOriqDZv65sVWMTCYwn4YHg6XrMka1IkTXrdFxTrEShrwxZLNUMsPCMvFI8D2hWJSVrQ9aVM_R2Qep2zBsznWW4-1moiIVkRhc0LoLLq48gz-5ygH4DwEqp0DPCT0aCB85qqTg1n8ZIe8BnN6dOgcOgFKyTRh8A4fVO5MOTjCRW4tFaJaPTEnEwyUSJa9mfLwwyZ5tg8XqX_dcCqTH6P9I-hNkM5JO54iHgVt33ecoe82nCUL-g2-WhKWSQqENP4OPs6qnqMAMdjU-5y_Yz_BdjD0K6ohU_oi25f71_n2w9-iYYS4RrVvq5wiaG949UA6jMFnupdiK_vbTAPPd5SMNWVcEuG6RT_jB2YGGlWxMOgR4joK4NvAneI4-xjoI2iC0HH8xkvqqVmTajosM9shaP3iCOEuOov180mkEpO_Sth5h0gbDDiwCS_gyjm4gSXTYy6BaL0kAMr12CBrnVcMlZeD29-Sxihny63iimGWCoOPjXIZg28F8x8vzLZJxUJnmeV0ibEHQawJUeOljgcgLqJZ2f2vm3Z6DCo0XFtJ-ZVFo748b6N5oaQ1qArX1VKC6WMKksUXklq8YIeExHF2yJhxJc8Z3EYVf3tZTNF27d5HqW8jEdlQak1Y_NCRG6Y5kOIsxknpERYdxmCGNsRxGAjxk9iHEh-4rj_NEThJppUgVudAsTeLziZC-hV65Qi0rvPiuqZIVg1GMvpvCF_tCufZonSRgggvfKMrXQG1EUXrZSMenPzSxcdaCu5KXYZkrNBpkLrdST4OSiXE2HY-Z6mZlEkXd53x_sE-FE0Vam2aVIdWiYuJ0J65um0zIr8Be0UMhtuM3KVRzc6I7rGfO8_e2z8bSXlpBdF7DsoBu5QYo9ntYMH_pJNZ21CNuIDRT46LBo7N7EWS4tJz9IQEGLsY8I2SwQZQJE1mD1uhsXpnL-DN5E8nE1y5BSXkmn7gT2uNc3Cc6ZwYD85_lOs6cXVxiRg5SawR17QvPnm9CJ37gCXS5j_y4hIxUSvi9Jb2T2sc2QVVG2Sz80DR1tvjRk-sWeEo55x8mWIQxqt7V0hTbeyDFVD3V2lBLXwMxlPqMaTGvB3CcLsXSUG-X4zdxv4pTUv9wAzIfa1HZ1H9OMRnUWPljfXL-7bB3gRg5x3aBsnjySk8-BhlJPPtQ1SrFkcCd2yEGwl6HKmkiNhNcB0Z4Ui7zV-vyNevurG5gNDaOrYZd2e6g87l5-1wOHtCt_X3k_-r18bbtQE86aNskrlrG8tzGUAlT1W9r_82hEv3R-7z5YqOKylFyYm4nOZp_SCFkGcuXK1LfvqPpTYJkVRmZu0JF-wlTVSI_-OlOnqyoSBpei2J8G8tWLGoLxHTBV6Om8FDSjqubVTHnoL4ENwG0slJutuzb_8ImKWTkyMrEnNutjxzbBlSKE2j_Ky3SWq-mv6-wBNEjpiaSt39zJ8Wk2Svfl9vK5gz7-g6J_oBB3p2ivhmIQeQ8Q9Ge5qCBMeUj7bN1s2Rb8dXE3yfgeTQWAA_YIE2y1P2hNbVhVkExCxiDTL3WoEo62E_5KkXJ5Ixt6y3IFOWTvp3wTrnOIxeKDfM_Hf_5EvlF92eVPSifjQUeyBiKgiv2nYSmsU4PUOgB_AQHIGQ21EiBWtJw-B7TRGuT6OaD3Id0b56YgyEexQblwc5GeeRPa9Co5LomeODyyisWORUlgcXJMV4SSykc6OBiXx81C1t8lzrXjIXJUJjrTaj1_TueX5-Z6KLPDcSzQaVsVmEqmYuJWjNUzsQOaPJIQbKsmNAtf3PDc6ArILYNtzYMUGLtWQlcmVRIvk5FqWtv28MUz8XgqNB2QbSeD-D9FcBO5wwRDKF4-gJKmr_g5wdv0IqgkapaCNF63Rjex9d1PTnB_6v0NktArEynttbp28F5K32gxLtLMqikP-3-8iyShYraLr9TAeNvr9urNy-nYFlv5ZNWTzSOk50MHdmJtgb17hkfBRErgIti8YFCUY5Q0fHIc-jj9a47DGBK1jm6bgoqYtlo7xAYVjZhiw7hSsBkmPQFGjTvzm_qfhSE1x1W9tpd40axtU5LJOPsoj_nxyPmCtKLnge-OhMYpVOJk2qRC_-0bfScFrXs8cxmxc-5oR9mEUuYXsBy_wFwCtqHgPW5-u1ea3DXczhlZbeftLj420Z0DvlrTgjbfqilyxy9Yahdywovp-Yej3aXgO51vlmPH9CK6xq-LwgraunJJ9ZMXWmtyOUz3kauy0jhRlqHBaignLKkunKKaxELUOD1cwLv3reZkzACsNUv2gZQG6dWkEf-djqv4S_ZPkm04wHBVYUY8zvz__hquYtL5dnmWeseK-MU99Mu-2Y6IuLc1yjTdBm15PmKhSEN7KLqkenuSvthX-Lw0dR3unc9QDq7aKC3f11w6e_Bapx5nHzifUdbjsoRDsRntzLcq_-tDlBowkBX2gM66ygzRecUEh4bqNk0CdwtZ_kCxNE89ws4p3wb1V7x93E8gQdkKagqJpMQEqd-ZlridNqx_4GW1nmZfIrbTneB6rMAQruLQ_SjYHkuKRBOGg-_R3em6V90aOjC18cGu8gzYz9p6QllMtJVBuKjy1W1q7oWtpBlT6unxX4ffMih9An6nGWJfFI_MZrce4NcSVv7u2VBD11kaymyTHvTQbezxBPoPHMY2l8VMDgB2coKSqDqREnqTc7AhUJh6dBPof5GZT2jcKrsMVRh18NpDptXyY4LjcVhl0T7c4JtzGb9aYGBjO7w7hiJdkLFTzBF6r6OZPjCguBHHtAly9uDNxJomhWLoSaw5z9xdVHdvSIy30aumd6_gmf2QVxIEXn4j506fkODKQowv4BVeVnVBI1MYOaMxM1dwyen2Tte9tVq5-Co0jnJWAKILrMJnDEOwiNpkkaXtjRKCNTLTD7RZIKnzaqNpjTy4CO_A-UU_U0W96UQIdobrgtNdoZoDbls5_OHXfguw_ZxAwGyeEWJ3iGU3fcjYmUxRIdqCX6HMo6mNlkidPK1v1IRveFxXiQKQvuBBYsFnWCoIqpTpfPkVx3n9pyPV3nfdbSgwK3D-zmI5GfNiF3ZdJgytB_7mr4vfa0hYMyzQVW6d-kjDzB74Cnt_Kf4S93tPpbNN9pNqLFlQQTkg32d1YCHtZpXc3LdVKAf3jk4oUs2lrx4LlV6yZrKHpdFF0hc7wPQ8uEFdlG-nCfwozyBr1HeCGogfNMAV8E91y5EFU4wVUN2KQURG4IAErSYofL_8ZXSjGlVsi-_FK0lVuknZJoBnVw2MMgGYrd-Vs08ZBBrnu7-5mPZYA5TfvhnCfqad6mFHEi6QjX16bo6xpl8o0oTeFM6FHR20pAgmTE9RYovv4h1hTrzl2cZrq0X5iOoXj1fDWBqVrveBwlgDlo0A4W7uoulIFw0HkwSZ-Tyd7rdEMAMqsHZrOaBobUDZDMxstmsiszwn7djZKa55G_MxM1nUB1dCSVZJhXW5MAoxRGfTA1DQ2V7eA-BuF4b7UbqSyxC2vIKxXKVp5r0vC6bHRWFll2lIuBqMCT24e9xipPbkjMYnVmN7m30n4kXEnDIMLw9Qjij3emKSdkK05wj3OArJ0oT1O1aqVXXX2L_7xq6oxuQJJN3nr7ZWADIyvr38Yem6WlDoFK4ar82QZgi2468Gr0RqVJ_yWwqmyjCdH7PMR7sm7HJdADtCTG_7yXXl2dVmG6vHChrzvUQ1gacntXKTjKSvGn_XCKLSdIYsm8shqaEanPyklVJUrr27uMkD91kVKx0t263AUIjmomsOiinCwSAUxN9WZHek7sOmFQKzsL9g9OGcWfrtZDRtbPoQcRzj5Zw1hE9-j11IUvkZ_5qxHXMElBj18UZ_0Dc1xHkaTofrqQ9_e2nQZaZxMqUkAXPLrC8h3xDdLh-SV5eTVf0F7O4VGa7HAXFlxQ_w1fMwDKorfK1YscbAjGYC-nz5670DJCj_dDu5-Vnmt5aoI5qplAPo-ny-jPRMFvRmKf2KlI-yneUziiea6TyJid4WWzhDcNbs5aoQcOzZ3NWDq8r7XA2H7qDY4vampyPQukOueZcAIliallsS024r-nNTe-aYfDkMssnw4W8cB8JcchPHGL1OpCoOJp6HtxArR7sTgcR6fr-pbuXwTm3oXhNBN1ATQNCJtkg2NRIGdQOcAi3ZsT3Zri2AC5rXrL2gkZVh4FeHx38HNkmV-XsEVK_E7ttfgbyEOFS9wYXzb6HUALxqVaAAOJeHniaRMnksuFEePWmKke1X7ViasmY_3luBqUY-sZYoXk5lRE42yEEkDbANTy3rHHZOU9qV_5uq8kPE9xTnh6p3RT7KAPleGXMYh8oaBxdcZEWcV962fX_eglPLp6U3x34Ha7_AqgzUdaNStWzJoXJWPNMmu-pSJDagGRPWQbD5ixz7SQ5dPEnPiJFgk6A017QCHXut-i80MH_mRnV9519fL3n_io263hKf37V5heHDH7Pfgc8G-tnrrWXR9mSu1_NRVsE-GoLQtijhKPPDozt7udaTIVgHKP-BtrWdzrlTVhEBxsdF7EmxODw6Ag9UV2ZEo8bWGvlYeps3HC2MHYx_EwkzzCfdhgi24BY-5hnZFZ3B2FMVNYFPgAVzeqe0OqtAgw9oSdOr-XSBaDYaPZwsarJRmdBbyMuWIDuQL-bdOrMmAxTZM1Y-5R0LBbALNCgAFuBIPcYX4XoCtokNCZHrqRAlhLjAHWFbMaZXCCQGMI1dVg9RJQw50tYUlj1Fx9WKVjxOXyOsYJGkJYFe6r8a2JBV1MwUwevHskTeM1jLadMsbG0nLfXzYViKR-4ACtXM-nrOWEDMlbS2pPX7rFOB4xj7lnvnVtRQDXVTbwzRyhKCNy3eHFG83BlCd3Tnk51u9DZrsrspy6d59CaAylf2HuoHhWe2_erVSVCrACHKofvF5cgvrrvTCWAGUdzzfYx9JKL52we7L5Gqy5b43As3Iv5RR_lKRxYefSi3OkEoh_ZEtw9xDYaitJMmE034IYQb-AiRPpqA2OSaj8WjLfDmBlze55Ge3JueOKezOvJMleLFm9wx_FgEhA8TBeANUt67Io3utijhQEg-KB1tYdBTvEindwc63pq0knm9uWEzTzgFS77kubhSPZXE6upj1FwbA-SYSPJipntMRrVi7GoXLe6sIxzP4hG4aptoi5N7FZjwfJB0IwmAYv8wJRy6o80t47KbO5MsTmHfNiBK99oYCxuFRxiJ1Sjse44HYUg1cBxZ68uLxEtRSFVXYre2tYWgydZGnOarqY48kcnPJCkx1kxEkgnxVPyYmzwIVa07QYlUUgXH6aIkZQulmTEQ-WxCJaLABSJEMqKSzhe8Gpr8Fu0YOEl_ipp5FACvwsRgQxPOY_FPLPzwIQ0ynGRwVqr0gR-vOlog7pKhYWyb41fvxn057wbF9K5I5JHWYzYNfq_k0hfIrB3a_8SJhaln7ZcMgJ0Nyyjpio874pjPNMKFb01YocL2Ur6hPweuK5mCAkdYPpvlN3u_rcuMA.eyJlbmRwb2ludF9zbHVnIjoibWV0YS9tdXNlLXNwYXJrLTEuMy1jb250cmlidXRvci0yMDI2MDkwMnxtZXRhIn0\",\"format\":\"meta-responses-v1\"}"
+    },
+    {
+     "type": "text",
+     "text": "done, it's in your drive\n\n[notes.md](/workspace/world/drive/notes.md)\n```refs\nagent:ee2c399c-f452-4b85-8c94-24c5f21ec652\n```",
+     "textSignature": "{\"v\":1,\"id\":\"msg_tmp_d4wejdb4oc\"}"
+    }
+   ],
+   "api": "openai-responses",
+   "provider": "openrouter",
+   "model": "stella/default",
+   "usage": {
+    "input": 389,
+    "output": 582,
+    "reasoning": 523,
+    "cacheRead": 10737,
+    "cacheWrite": 0,
+    "totalTokens": 11708,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "stopReason": "stop",
+   "timestamp": 1788853588489,
+   "responseId": "gen-1788853588-pgoHjehiGnGM7w88vAHN"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 11,
+  "kind": "turn",
+  "turnId": "a536a0cb-f9b5-4b3a-944d-664210f570db",
+  "createdAtMs": 1788853613239,
+  "phase": "completed",
+  "lane": "wake",
+  "source": "agent-thread",
+  "wallClockMs": 24750
+ },
+ {
+  "type": "record",
+  "seq": 12,
+  "kind": "card",
+  "turnId": "601ab8e6-d564-4f3c-9ee0-db30626f2796",
+  "createdAtMs": 1788853590930,
+  "card": {
+   "files": [
+    {
+     "contentType": "text/markdown; charset=utf-8",
+     "name": "notes.md",
+     "path": "notes.md",
+     "sizeBytes": 20,
+     "stored": true
+    }
+   ],
+   "type": "files"
+  }
+ }
+]

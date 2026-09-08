@@ -354,6 +354,54 @@ export function ArtifactViewerContent({
           html: prepareDocumentHtml(await response.text()),
         };
       }
+      // Any other file the cloud journal reported lives in the owner's drive
+      // too: resolve its signed URL and render it here, never over the
+      // desktop bridge (desktop opens the same signed URL).
+      if ("driveBacked" in payload && payload.driveBacked === true) {
+        const drivePath = artifactPrimaryFilePath(payload);
+        if (!drivePath) {
+          throw new Error("This artifact does not have a mobile preview yet.");
+        }
+        const uri = await resolveCloudDriveFileUri(drivePath);
+        const fetchText = async () => {
+          const response = await fetch(uri, { signal: controller.signal });
+          if (!response.ok) throw new Error("This file is no longer available.");
+          return response.text();
+        };
+        if (payload.kind === "pdf") return { kind: "pdf" as const, uri };
+        if (payload.kind === "markdown") {
+          return { kind: "markdown" as const, text: await fetchText() };
+        }
+        if (payload.kind === "file-artifact") {
+          if (payload.artifactKind === "delimited-table") {
+            const delimiter = drivePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+            return {
+              kind: "html" as const,
+              html: delimitedToHtml(colors, title, await fetchText(), delimiter),
+            };
+          }
+          // Office documents render in the platform web view from the URL.
+          return { kind: "url" as const, uri };
+        }
+        if (payload.kind === "media") {
+          if (payload.asset.kind === "image") return { kind: "image" as const, uri };
+          if (payload.asset.kind === "audio") return { kind: "audio" as const, uri };
+          if (payload.asset.kind === "video") {
+            return {
+              kind: "web-media" as const,
+              html: mediaHtml(colors, title, `<video controls playsinline src="${uri}"></video>`),
+            };
+          }
+          const response = await fetch(uri, { signal: controller.signal });
+          if (!response.ok) throw new Error("This file is no longer available.");
+          const contentType = response.headers.get("content-type") ?? "";
+          if (/^(?:text\/|application\/(?:json|xml|javascript))/i.test(contentType)) {
+            return { kind: "text" as const, text: await response.text() };
+          }
+          return { kind: "url" as const, uri };
+        }
+        return { kind: "url" as const, uri };
+      }
       if (!access) {
         throw new Error("Pair this phone with your desktop again.");
       }

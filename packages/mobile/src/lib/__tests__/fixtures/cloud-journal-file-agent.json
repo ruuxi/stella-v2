@@ -1,0 +1,323 @@
+[
+ {
+  "type": "record",
+  "seq": 0,
+  "kind": "message",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849719932,
+  "role": "user",
+  "hidden": false,
+  "clientMsgId": "27dfd577-5932-4511-852a-136d2cc92e98",
+  "payload": {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "Spawn one background task that creates a small text file named hello.txt containing the single word hi in my drive, then reports back. Reply with one short line."
+    }
+   ],
+   "timestamp": 1788849719932,
+   "executionContext": {
+    "destination": {
+     "kind": "cloud"
+    },
+    "devicesKnown": true,
+    "devices": []
+   },
+   "providerContext": {
+    "version": 1,
+    "epoch": "0b328b77-ebca-426c-b65b-d2719ca89687",
+    "prepend": [],
+    "clock": "2026-09-08T06:41:59.932Z"
+   }
+  }
+ },
+ {
+  "type": "record",
+  "seq": 1,
+  "kind": "turn",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849719932,
+  "phase": "started",
+  "lane": "chat",
+  "promptSeq": 0
+ },
+ {
+  "type": "record",
+  "seq": 2,
+  "kind": "message",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849723290,
+  "role": "assistant",
+  "hidden": false,
+  "streamId": "as_5ffb626d4c7a4fcb",
+  "payload": {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "thinking",
+     "thinking": "",
+     "thinkingSignature": "{\"id\":\"rs_6a9fae3943849167042543a7:rs_01a07fc091f17ef396da599d4153f9eb\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"encrypted_content\":\"Q-PaDgEZkjwotPgWX4nlL6Ub4eWI2ykjuZK0OJXj8bD_jtEgDPKq8DHieXkJmSrFGu6oB9KEiXHJpcshxNgk1CswXmFFEsy_-YiV2NOdPYX8WgBU5mLePSis93jGeH8DUDKygQpJBRstbLeJ3slZ6oNmSCS83ihAxsggyrztFzHKA82dU5B3wUWuqQzewG6RyymyIIMM0H64XD99jalrE1LkY89GB4uZj0nrHgoP6xAjLt_eQUZggxSm1u3Defp4naosh0j-YkDXVgivny3l6RT0MdqCPGywxwT23BTP8SLcXDxAgqmK5AhD8txPBp810O608l3QkSwujC-kB5q73fQc93McRR7nfQcJxAD4JtBHPoyqCD6Xorecvu-gK6ofC6JNGNPUL5O9HbUk976Fd5Y7Nuq7YtuzNFPJpaUQD-V0rCs-vdvQh3T4mPWnDITVYKgm83v1cgNzs6lxhBTe6sNwidibNFHEyvVNksoM2tjlqrd4zReCn28PL6iCqf1orEcl56cuDmKQdVOd_G1Kvggn9sbn2zki_zR-abInsinWhos1IJPfOv101ybaQ4o0RaHpD98E1_19SaqB5lEnWuoWeWAUjJONTallPFmBR1aAuvLysK5ozFeJtQZVADfSk6bBFxa0M0q8L425kDPShkLxVI8Bjn8JvRy7ej41TNOeUw7nWbVBMdbOn-NUSGoktrron3xO4kCZnFaLozjxdkamDx1yGJomj1agWlr6s1h6h91IEWNgz_DjdsWgdr7VL6pPaL6XwxYJk9omFmuv6XPUdgbBol46tSCVkdganuLZheOPWAJw_ISRkCK7F_R3lnrQpPg7P2XY9JXPGCmeqrrmO5Elk_V1KoX3-aPJgoDjYll2V2mQfn8q4Ix7ErUX4o3sgCIybaGjAZQVHOn87y2V3tAfRDg9Cd__nVerXywEqyeswnVgga2lenI_kPNkoJybyPY4g3hpVJSUtTPLntm5Djn10VWmO4R1U3cGhQ9BhVMx8vUo-DGZcRuE9YL9-SEKQaoFKLitwa5DVUNAXGX2Y_0lTBeFHfAkk3FCZ_PKj1NxzH_H3-QfwBqbyoWyMQqn0-9VyBUH0Cpl7GvxCTN7UH480EBFUa95rtMnAzggGV2b2zPoTj-ZBjhc0yGASBcsxkek9AZ6ol5PsFJKGznn-_xrnsO2D6DXo1ZP460r45Lx-4PleXqsGvyg_KW5hcJwG8bLBtfJ2GXWb0mJv3pgsBiPSscIIt0aa6lrq9BF5eJHDChsSaQTu-06gYcdId7M7ps-xtnNaz0WDSTCCvE-sFPPu8ozXiaTJ9JrBi8gYPhmHLMwl2-HghKFTRIDg7TF97wO9qRdXPdCCw2sUyNt8n9pt05zmR9uE33SMzORyedstcnRfIy6CW_T03j0-Ds0SFvNiz6gXpr59Q.eyJlbmRwb2ludF9zbHVnIjoibWV0YS9tdXNlLXNwYXJrLTEuMy1jb250cmlidXRvci0yMDI2MDkwMnxtZXRhIn0\",\"format\":\"meta-responses-v1\"}"
+    },
+    {
+     "type": "toolCall",
+     "id": "call_01a07fc095077fa28c245d443b771532|fc_tmp_y9kbhn0lej",
+     "name": "spawn_agent",
+     "arguments": {
+      "description": "create hello.txt in drive",
+      "prompt": "Create a small text file named hello.txt containing the single word hi in the user's drive (shared world drive/), then report back when done."
+     }
+    }
+   ],
+   "api": "openai-responses",
+   "provider": "openrouter",
+   "model": "stella/default",
+   "usage": {
+    "input": 10387,
+    "output": 175,
+    "reasoning": 80,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 10562,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "stopReason": "toolUse",
+   "timestamp": 1788849720001,
+   "responseId": "gen-1788849720-jUzH64uFCw8vDQZUuOqF"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 3,
+  "kind": "card",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849723396,
+  "card": {
+   "type": "agent-lifecycle",
+   "eventId": "cloud:9261a658-c1a1-43b1-a2b9-2291321440c7:call_01a07fc095077fa28c245d443b771532|fc_tmp_y9kbhn0lej:agent-started",
+   "event": {
+    "type": "agent-started",
+    "payload": {
+     "agentId": "e3e7b83a-ca68-454a-82d0-162714ff7390",
+     "rootRunId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+     "attemptGeneration": 1,
+     "description": "create hello.txt in drive",
+     "agentType": "general"
+    }
+   }
+  }
+ },
+ {
+  "type": "record",
+  "seq": 4,
+  "kind": "message",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849724677,
+  "role": "toolResult",
+  "hidden": false,
+  "payload": {
+   "role": "toolResult",
+   "toolCallId": "call_01a07fc095077fa28c245d443b771532|fc_tmp_y9kbhn0lej",
+   "toolName": "spawn_agent",
+   "content": [
+    {
+     "type": "text",
+     "text": "Spawned agent (thread_id: e3e7b83a-ca68-454a-82d0-162714ff7390, status: running, description: \"create hello.txt in drive\"). It is running in the background and has NOT finished \u2014 an [Agent completed] message will arrive on this conversation with its report. Check on it with agent_status, steer it with send_input, or stop it with pause_agent."
+    }
+   ],
+   "details": {
+    "thread_id": "e3e7b83a-ca68-454a-82d0-162714ff7390",
+    "status": "running",
+    "description": "create hello.txt in drive",
+    "attempt_generation": 1,
+    "thread_updated_at": 1788849723396,
+    "workspace": "shared"
+   },
+   "isError": false,
+   "timestamp": 1788849724677
+  }
+ },
+ {
+  "type": "record",
+  "seq": 5,
+  "kind": "message",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849726012,
+  "role": "assistant",
+  "hidden": false,
+  "streamId": "as_42ca7c0e03594c0b",
+  "payload": {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "thinking",
+     "thinking": "",
+     "thinkingSignature": "{\"id\":\"rs_6a9fae3d4bf79ac5bb2a4363:rs_01a07fc09f417812a59443124fb46dd5\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"encrypted_content\":\"Q-PaDgFVTzKeQXKFkEknPkQMnbw8vtnVLg4JidlixWw_OIYsaGEQTfH2RKH_0BJ17TtrFw9tDeRls89fTHG5O_oelyGF21dg6UdEHanyDvqueyT0Gv2jet-vrxnSlzKeoxY5oLtrVnD0iZyE6sQMSJjSAJhGd-fWHxY1DOTER_RjxRLGWakyXm1JFDOf8uRttGq_9-wuh_cBz9JNBMtvLW3TDoEbGeMbADjB42RokBd7WlyFddugvGKSSADRTBkMTmbiHiR3s-V0h5nCP0ebceFNZheuXGCmSUSadISwOUalU4E_yOI820CLGHlVicG51AW_yv3tkRM5E0fhDZmzTeDr622bc4LJIWfSyWRcVA6mYvjVRrxnyjlTdq1aZL-aSg14R45J3J3WuzhNlINut8A-W8Z_6mmqbjJvmRQ24df0rH-YiIjL6MWryBOqHKaP4eeddLWvI6ggH1IO7lHKq7fOFI7sG8Y32TOGD1lR2N28D3f8ow1O6Xy-p0BOHOWndYizwCIPfGGSSehevgXcdg4j7Ne_T3CIjjCqNSLlCn9VYIFJk8VnM5bM2xFHaAHVLH7wj2tTLmp3TOHFxb4qGgfaD8SErES50W3PSXb5c5VOtZmbeqUxXYC9bPFAwYXNQGdHmPxXVaqLEvOo857J_w5fimnpMAwC6zvTe3XFiAZEGGqdxlmBwfAYYdCAdZ5FgCY-mbOAkSex0SuRO6hLuPEtggZj4OzhxaqMxsfccF34LHupErLVtjsVLYs_qHIUEHSdoT1dAOZykTUitCIfPgeG5tETtoSOTu4anIkP6qeuPB9BdjA0K2ee4Sc-TnSVt-UoTPUOV1KYxtpIX9bvqGO3bmOf2_i3wESokI0cVm-fIc9XBqIktycf7Uav0i21kHs2gKTaw7yBSLyvdYmSsbMPmofgoem10D0URe2rKKIOHn2fnc4VsX0ujAFk7-1ryOj9Awajf0pGzCZi5her4T3EcMJ_ce6mnuPkAYPxVEqeRujg7pz8nZ7M0nPKSoPfpgo_VCiaJlX6itlCjYgT-mXJPqGmzx1_Yi7x_5KlF1aSwBlzOycgLOcANLShItXVSzGOMzrXUA1cs6lca4nH9TxcwkW0ChKI8al94UlFjBcKSI64PKMICD1GB-jRgLRi1TnmJ0u1RjRBvk_1T6vr9gruQ8LTXBk9VpjxTzl5kiEM5iybLfLnsJc1270LqtXG8KgbjurTYmclQxXGRdn3i6Ig83_A2nahKrVkgESISTgB-e73DWN5fqDCdaf3pT4AFejZzrFfmVnJ9j1e-lYB3-ShIys87IoFYQAnd4Z2vrciNQ913mw54qu-3RH8BZ09npnj2lUWHMcz1Px5qki370c2pVMp8CQFKgYELai7Ggua2H3Kt5hmsLkoX2GSkYKzAnL7Wj1n671BQuejTQ.eyJlbmRwb2ludF9zbHVnIjoibWV0YS9tdXNlLXNwYXJrLTEuMy1jb250cmlidXRvci0yMDI2MDkwMnxtZXRhIn0\",\"format\":\"meta-responses-v1\"}"
+    },
+    {
+     "type": "text",
+     "text": "on it, making hello.txt now",
+     "textSignature": "{\"v\":1,\"id\":\"msg_tmp_1l1t08i6lbeh\"}"
+    }
+   ],
+   "api": "openai-responses",
+   "provider": "openrouter",
+   "model": "stella/default",
+   "usage": {
+    "input": 320,
+    "output": 24,
+    "reasoning": 7,
+    "cacheRead": 10353,
+    "cacheWrite": 0,
+    "totalTokens": 10697,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "stopReason": "stop",
+   "timestamp": 1788849724677,
+   "responseId": "gen-1788849724-URSK6EpIzbE3q8vO3JdS"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 6,
+  "kind": "turn",
+  "turnId": "9261a658-c1a1-43b1-a2b9-2291321440c7",
+  "createdAtMs": 1788849726012,
+  "phase": "completed",
+  "lane": "chat",
+  "wallClockMs": 6080
+ },
+ {
+  "type": "record",
+  "seq": 7,
+  "kind": "message",
+  "turnId": "8f3d2d30-15c5-4776-9768-96c381b39ea5",
+  "createdAtMs": 1788849752273,
+  "role": "user",
+  "hidden": true,
+  "clientMsgId": "wake:e3e7b83a-ca68-454a-82d0-162714ff7390:1",
+  "payload": {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "[Agent completed] create hello.txt in drive (thread e3e7b83a-ca68-454a-82d0-162714ff7390)\n\nDone \u2014 created `hello.txt` containing the single word `hi` in the user's drive.\n\n- [hello.txt](/workspace/world/drive/hello.txt)"
+    }
+   ],
+   "timestamp": 1788849752273,
+   "executionContext": {
+    "destination": {
+     "kind": "cloud"
+    },
+    "devicesKnown": true,
+    "devices": []
+   },
+   "providerContext": {
+    "version": 1,
+    "epoch": "0b328b77-ebca-426c-b65b-d2719ca89687",
+    "prepend": [],
+    "clock": "2026-09-08T06:42:32.273Z"
+   },
+   "source": "agent-thread"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 8,
+  "kind": "card",
+  "turnId": "8f3d2d30-15c5-4776-9768-96c381b39ea5",
+  "createdAtMs": 1788849751260,
+  "card": {
+   "type": "agent-lifecycle",
+   "eventId": "cloud:e3e7b83a-ca68-454a-82d0-162714ff7390:1:terminal",
+   "event": {
+    "type": "agent-completed",
+    "payload": {
+     "agentId": "e3e7b83a-ca68-454a-82d0-162714ff7390",
+     "attemptGeneration": 1,
+     "result": "Done \u2014 created `hello.txt` containing the single word `hi` in the user's drive.\n\n- [hello.txt](/workspace/world/drive/hello.txt)"
+    }
+   }
+  }
+ },
+ {
+  "type": "record",
+  "seq": 9,
+  "kind": "turn",
+  "turnId": "8f3d2d30-15c5-4776-9768-96c381b39ea5",
+  "createdAtMs": 1788849752273,
+  "phase": "started",
+  "lane": "wake",
+  "source": "agent-thread",
+  "promptSeq": 7
+ },
+ {
+  "type": "record",
+  "seq": 10,
+  "kind": "message",
+  "turnId": "8f3d2d30-15c5-4776-9768-96c381b39ea5",
+  "createdAtMs": 1788849755914,
+  "role": "assistant",
+  "hidden": false,
+  "streamId": "as_67e811d7096341ee",
+  "payload": {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "thinking",
+     "thinking": "",
+     "thinkingSignature": "{\"id\":\"rs_6a9fae5a15c846436b274d0e:rs_01a07fc110117b029de22b4d40f56fdf\",\"type\":\"reasoning\",\"status\":\"completed\",\"summary\":[],\"encrypted_content\":\"Q-PaDgERIefU37yAPgiQdHi4lLmDKOR-77i_xl75a275qQYBJtsRdX8-_UKJvp4bdVi8EOSV-o4Jyo3Hm74YYMTnbu_HexlDYpcfbpE6iv4Pvpal6_Tv-IAeyhNmE67QFx3qTAGAJTd5cgRRl_UROkHBXFWZHddOAV0ahVFjoxcbvlExsq0HcHG7VAKeaeUO1Vt_ZhLkfac4Lc3tLvgatS7jiEQcBGMZr5lrOZPFCeezGIo-bXt7WvgCYxPWQZ8yOiGtSgCJaqmsbV8dG69_pkodj4cByLbdI5YtDv2PC4o0ZU-Y20tFNQCLFIheDjjHydD05PIZlASuSViPye-XwyHT2OUMhb4KOL2OrZplfW-JCgD628vAypSPtAaBJo6fdPw5tw87ypzXNkiaJkfKjqcMTG-Jxv-znszyUX1h4x1Z09k7kdYuCCRUBXpsQpor1cDdmsQwaMporavQ0r1pDCAZnyXfQ2EfaqAPDkpA6YIwhFsykoZ702d8UZMDphQWuV11i2V41K9-jEO_ctAX5R6BXJVsnvAZMyYv5pslrDBneY838tZLN5vnPf0V4augrzFsru2plA3h44LkWPA8jMbrQLigbt8Dz33CK1nrO1f56Dk-d1RYIAVHqo5vTyllFx0UOgRg-9ZoFCnbApCfflas8uRnPP-4kfyTER4i1g7S_9ePDm7E5gFsU0_hRR5LUccSSSxzKwMVvQt1y372xBnMs4zavsfsYk-HIh_NPtyUrPIHnSPtHsSWKgThNPNTF4n39ZCITZ9Own7dgTaeYv2JCeOfu35g5oT-aUvsMLzQx43vLnr32jLgUBkp9hN4qSrGmRKk7v7IxE-uBYW7XgWTGC-6gSSP6eM1PEGHOK6RiH8TH4Tt2Ubo_7qRTyClt0C6JPyKU0BCmpNa6HNGBQXPNQY_eznFYb0q05FSZYaN4ekLXZ75gq4hmBC_xl3S0Zqo5xb_RhWFv_dVCNP7-vHuNzh5aUtIOD2i39ZirXh38csOthDUNDmALuUoDjGZldFGT09VmVigYvJ8Ui11KidsurFkAIH0N-h3RqbRJRHrKK3qSb8ydE5IOITW7xBKG9bjYLZ6GoY0QVIfIASs99fEt-5Xc-sHKVf2r3-gea8jGLmmqpi6udnmoZnkcNgZ7n8eUz_tnkeFXdQjIckMPyagLppfX9E2gsS0Ee86Lr8oTybMm-WgonvuIRR6XOeg9N9zIwr7X27W63e6jRbw710SwSEJ7ZfqO1UwpzRVJWU5EfviJfoZVp3gxCOAPb7tGYiHs9EqgceZXknZZ0a8NYhIZ3lcEMK6ei7NSsT7eRMCZduUCh5ShTCMFlw4VF6RdSM6MmN6GAj8R-hgJw-PJ5cdcOeu5QNRtiJFfJUjD_H731VM-BB5UJo7CIJBWxazX5EQNaotYKqhHzdlfQ.eyJlbmRwb2ludF9zbHVnIjoibWV0YS9tdXNlLXNwYXJrLTEuMy1jb250cmlidXRvci0yMDI2MDkwMnxtZXRhIn0\",\"format\":\"meta-responses-v1\"}"
+    },
+    {
+     "type": "text",
+     "text": "done, hello.txt is in your drive with hi in it\n\n```refs\nagent:e3e7b83a-ca68-454a-82d0-162714ff7390\n```",
+     "textSignature": "{\"v\":1,\"id\":\"msg_tmp_amhsunl2edp\"}"
+    }
+   ],
+   "api": "openai-responses",
+   "provider": "openrouter",
+   "model": "stella/default",
+   "usage": {
+    "input": 182,
+    "output": 203,
+    "reasoning": 152,
+    "cacheRead": 10609,
+    "cacheWrite": 0,
+    "totalTokens": 10994,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "stopReason": "stop",
+   "timestamp": 1788849752273,
+   "responseId": "gen-1788849753-2QD5okK0dPJAa7rbd0Bt"
+  }
+ },
+ {
+  "type": "record",
+  "seq": 11,
+  "kind": "turn",
+  "turnId": "8f3d2d30-15c5-4776-9768-96c381b39ea5",
+  "createdAtMs": 1788849755914,
+  "phase": "completed",
+  "lane": "wake",
+  "source": "agent-thread",
+  "wallClockMs": 3641
+ }
+]

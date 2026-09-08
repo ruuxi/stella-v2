@@ -33,6 +33,7 @@ import {
   turnBrokerStorageKey,
 } from "../turn-credential-broker.js";
 import { issueWorldCapability } from "../world-capability.js";
+import { deliverWorldLinkedFiles } from "./world-linked-files.js";
 import {
   agentTurnSessionId,
   worldName,
@@ -87,6 +88,8 @@ export type ResidentTurnHost = Pick<
   | "turnStateCheckpointRuns"
   | "agentTurnExecutions"
   | "agentControlPlane"
+  | "controlPlaneCapability"
+  | "emitTurnEvent"
   | "assertAgentExecutionActive"
   | "assertAgentTurnIdentity"
   | "attachAgentWorld"
@@ -723,6 +726,20 @@ export const commitResidentTurnDurability = async (
 ): Promise<Exclude<TurnDurability, { kind: "none" }>> => {
   const { turn, execution, ladder, sealed, control } = args;
   if (!ladder.attached()) {
+    // No sandbox ever quiesced for this turn, so its reply-linked files are
+    // delivered from the world the Durable Object's own tools wrote into.
+    await deliverWorldLinkedFiles(host, {
+      turn,
+      finalText: args.finalText,
+      signal: execution.signal,
+      log: (event, fields) => log("error", event, fields),
+    }).catch((error) => {
+      log("error", "world_linked_files_failed", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+        message: errorMessage(error),
+      });
+    });
     return {
       kind: "transcript_only",
       transcript: await control.appendAndVerifyTranscript(sealed),

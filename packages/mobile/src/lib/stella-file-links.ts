@@ -1,4 +1,9 @@
 import { parseLocalFileLinkTarget } from "@stella/contracts/local-file-links";
+import {
+  cloudWorldDriveName,
+  cloudWorldDrivePath,
+} from "@stella/contracts/cloud-world-paths";
+import { cloudFileArtifact } from "./cloud-file-payload";
 import type { ChatArtifact, MobileDisplayPayload } from "../types";
 
 export const parseStellaFileUrl = parseLocalFileLinkTarget;
@@ -109,6 +114,21 @@ export const stellaFileChatArtifact = (
   filePath: string,
   conversationId: string,
 ): ChatArtifact => {
+  // A link into the cloud world's drive names a drive file, never one on
+  // the paired computer: it opens through a drive URL like a files-card pill.
+  const drivePath = cloudWorldDrivePath(filePath);
+  if (drivePath) {
+    return cloudFileArtifact(
+      {
+        path: drivePath,
+        name: cloudWorldDriveName(drivePath),
+        sizeBytes: 0,
+        contentType: "application/octet-stream",
+      },
+      conversationId,
+      Date.now(),
+    );
+  }
   const payload = displayPayloadForStellaFile(filePath, Date.now());
   return {
     id: `${conversationId}:${payload.kind}:${filePath}`,

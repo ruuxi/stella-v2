@@ -15,6 +15,8 @@ export type CloudTranscriptBeginRequest = {
   clientMsgId: string;
   /** Serialized user `AgentMessage`. */
   userMessageJson: string;
+  /** The prompt is a runtime wake the clients never show. */
+  hidden?: boolean;
   /** Local-only data used to reconstruct persisted output after a crash. */
   recovery?: {
     /**
@@ -207,6 +209,7 @@ type BeginPayload = {
   localTurnId: string;
   clientMsgId: string;
   userMessageJson: string;
+  hidden?: boolean;
 };
 
 type RenewPayload = {
@@ -1278,6 +1281,7 @@ export const createCloudTranscriptWriter = (
         localTurnId: request.localTurnId,
         clientMsgId: request.clientMsgId,
         userMessageJson: request.userMessageJson,
+        ...(request.hidden ? { hidden: true } : {}),
       };
       const payloadJson = JSON.stringify(payload);
       const recoveryJson = request.recovery

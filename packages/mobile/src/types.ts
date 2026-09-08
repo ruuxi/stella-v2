@@ -80,6 +80,8 @@ export type MobileDisplayPayload =
       filePath: string;
       title?: string;
       createdAt?: number;
+      /** The file lives in the owner's cloud drive, not on a paired desktop. */
+      driveBacked?: boolean;
     }
   | {
       kind: "source-diff";
@@ -94,6 +96,8 @@ export type MobileDisplayPayload =
       artifactKind: MobileDisplayFileArtifactKind;
       title?: string;
       createdAt?: number;
+      /** The file lives in the owner's cloud drive, not on a paired desktop. */
+      driveBacked?: boolean;
     }
   | {
       kind: "pdf";
@@ -112,6 +116,8 @@ export type MobileDisplayPayload =
       sizeBytes?: number;
       textOffset?: number;
       toolCallId?: string;
+      /** The file lives in the owner's cloud drive, not on a paired desktop. */
+      driveBacked?: boolean;
     }
   | {
       kind: "media";
@@ -185,6 +191,13 @@ export type MobileDisplayPayload =
        * invented failure treatment (desktop parity).
        */
       failed?: boolean;
+      /**
+       * A settled completion card placed on the reply that relays the task's
+       * result (desktop's `AgentCompletionCard`), distinct from the spawn
+       * card on the turn that started the task. Reply context does not treat
+       * it as the task's spawn.
+       */
+      completion?: boolean;
     }
   | {
       /**

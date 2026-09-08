@@ -350,6 +350,11 @@ const applyThreadCompleted = async (
   // C4: the files a thread produced belong where the user reads the
   // orchestrator's relay of its report — the cloud conversation. Desktop
   // origin threads deliver through the device subscription instead.
+  //
+  // The card is filed under the conversation turn that spawned the thread:
+  // that turn's `agent-started` card is how both clients attribute the
+  // files to the task (and place them on its completion). The thread's own
+  // turn id names nothing in the conversation journal.
   if (event.status === "completed" && !result.originDelivery) {
     const files = await collectThreadOutputFiles(ctx, event.threadId);
     if (files.length > 0) {
@@ -360,7 +365,7 @@ const applyThreadCompleted = async (
           ownerId: event.ownerId,
           ownerGeneration: event.ownerGeneration,
           conversationId: result.conversationId,
-          sourceTurnId: event.turnId,
+          sourceTurnId: result.parentTurnId ?? event.turnId,
           card: { type: "files", files },
         },
       );

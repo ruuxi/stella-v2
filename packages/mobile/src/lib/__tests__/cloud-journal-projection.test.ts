@@ -60,6 +60,18 @@ describe("cloud journal projection", () => {
     expect(project(["Photos/other.jpg"]).text).toBe(text);
   });
 
+  test("drops a blank unflagged prompt (an older mirrored desktop wake) like a hidden one", () => {
+    const rows = projectCloudConversationMessages({ records: [
+      message({ kind: "message", seq: 1, turnId: "t1", role: "user", hidden: false,
+        clientMsgId: "message:old-wake", payload: { content: [{ type: "text", text: "" }] } }),
+      message({ kind: "message", seq: 2, turnId: "t1", role: "assistant", hidden: false,
+        payload: { content: [{ type: "text", text: "done" }] } }),
+      message({ kind: "message", seq: 3, turnId: "t2", role: "user", hidden: false,
+        clientMsgId: "typed", payload: { content: "hello" } }),
+    ] });
+    expect(rows.map(row => [row.role, row.text])).toEqual([["assistant", "done"], ["user", "hello"]]);
+  });
+
   test("keeps authored attachment wording before the exact structured suffix", () => {
     const authored = "Explain this phrase: Attached in my drive:\n- Photos/plant.jpg";
     const [projected] = projectCloudConversationMessages({ records: [message({

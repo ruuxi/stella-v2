@@ -15,6 +15,10 @@
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import {
+  cloudWorldDrivePath,
+  cloudWorldDriveName,
+} from "@stella/contracts/cloud-world-paths";
+import {
   isDisplayTabPayload,
   type DisplayTabPayload,
 } from "@stella/contracts/desktop/display-payload";
@@ -80,6 +84,33 @@ export const responseTextForFileLinks = (event: EventRecord): string => {
   return "";
 };
 
+/**
+ * A drive file as a conversation entry. The payload only chooses the icon
+ * (it is never opened locally: `cloudDriveFile` routes the open through a
+ * drive URL), so it takes the viewer kind the name implies and falls back
+ * to a plain download.
+ */
+const cloudDriveEntry = (
+  file: CloudDriveConversationFile,
+  timestamp: number,
+): ConversationFileEntry => {
+  const iconPath = file.path.startsWith("/") ? file.path : `/${file.path}`;
+  const typed = buildPayloadFromBarePath(iconPath, timestamp);
+  return {
+    path: file.path,
+    timestamp,
+    payload:
+      typed && isDisplayTabPayload(typed) && typed.kind !== "source-diff"
+        ? typed
+        : {
+            kind: "media",
+            asset: { kind: "download", filePath: iconPath, label: file.name },
+            createdAt: timestamp,
+          },
+    cloudDriveFile: file,
+  };
+};
+
 export function deriveConversationFiles(
   events: ReadonlyArray<EventRecord>,
   options?: { cap?: number },
@@ -91,26 +122,36 @@ export function deriveConversationFiles(
       | { cloudDriveFiles?: unknown }
       | undefined;
     for (const file of cloudDriveFilesFrom(eventPayload?.cloudDriveFiles)) {
-      const iconPath = file.path.startsWith("/") ? file.path : `/${file.path}`;
-      seen.set(`cloud:${file.path}`, {
-        path: file.path,
-        timestamp: event.timestamp,
-        payload: {
-          kind: "media",
-          asset: {
-            kind: "download",
-            filePath: iconPath,
-            label: file.name,
-          },
-          createdAt: event.timestamp,
-        },
-        cloudDriveFile: file,
-      });
+      seen.set(`cloud:${file.path}`, cloudDriveEntry(file, event.timestamp));
     }
 
     for (const filePath of extractLocalFileLinkPaths(
       responseTextForFileLinks(event),
     )) {
+      // A link into the cloud world's drive names a drive file, never a
+      // file on this machine. The journal's files card for the same path
+      // (with real size and type) is the richer record: keep it when the
+      // link arrives later, and let it replace this entry when it arrives
+      // after.
+      const drivePath = cloudWorldDrivePath(filePath);
+      if (drivePath) {
+        const key = `cloud:${drivePath}`;
+        if (!seen.has(key)) {
+          seen.set(
+            key,
+            cloudDriveEntry(
+              {
+                path: drivePath,
+                name: cloudWorldDriveName(drivePath),
+                sizeBytes: 0,
+                contentType: "application/octet-stream",
+              },
+              event.timestamp,
+            ),
+          );
+        }
+        continue;
+      }
       const payload = buildPayloadFromBarePath(filePath, event.timestamp, {
         developerResourcesEnabled: true,
       });

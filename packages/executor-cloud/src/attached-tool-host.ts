@@ -20,7 +20,8 @@
  */
 
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { Deferred, Effect } from "effect";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type {
@@ -54,7 +55,11 @@ import {
   hydrateDriveForAgentTurn,
   prepareCloudToolFilesystem,
 } from "./agent-turn.js";
-import { collectProducedFiles, reportProducedFiles } from "./produced-files.js";
+import {
+  collectProducedFiles,
+  reportProducedFiles,
+  toDriveFile,
+} from "./produced-files.js";
 import {
   takeTurnBrokerHandoff,
   TurnCredentialBrokerClient,
@@ -550,6 +555,17 @@ export const runAttachedToolHost = (
         linkedPaths: readonly string[],
       ): Promise<AttachedToolHostReport> => {
         await toolHost.shutdown();
+        // A file the turn wrote through the Durable Object's own Write/Edit
+        // tools after this sandbox's last sync is in the world but not on
+        // this disk. A push replaces the world with this disk's listing, so
+        // pushing first would delete that file; bring the world down first,
+        // exactly as every exec boundary does, then push, then collect.
+        await pullWorldProjection({
+          root: workspaceRoot,
+          access: input.world,
+        }).catch((error) => {
+          console.error(`world pull failed: ${asError(error).message}`);
+        });
         await pushWorldProjection({ root: workspaceRoot, access: input.world });
         const collected = await collectProducedFiles({
           workspaceRoot: driveWorkspace.root,
@@ -560,9 +576,57 @@ export const runAttachedToolHost = (
             ...CLOUD_TOOL_PROCESS_IDENTITY,
             home: CLOUD_TOOL_HOME,
           },
-        }).catch(() => null);
+        }).catch((error) => {
+          // Delivery is best-effort, but a swallowed failure here is the
+          // difference between a file the user can open and one that
+          // silently never reaches the chat.
+          console.error(`produced files failed: ${asError(error).message}`);
+          return null;
+        });
         const files = collected?.files ?? [];
         if (files.length === 0) {
+          // A reply that linked files but delivered none is worth a record
+          // the turn's event stream keeps: what was linked, and what this
+          // disk actually had at each path, so the gap is diagnosable from
+          // Convex instead of from a container that is about to be torn down.
+          if (linkedPaths.length > 0) {
+            const looked = await Promise.all(
+              linkedPaths.slice(0, 8).map(async (linked) => {
+                const resolved = path.resolve(driveWorkspace.root, linked);
+                const entry = await lstat(resolved).then(
+                  (stat) => ({
+                    exists: true,
+                    file: stat.isFile(),
+                    symlink: stat.isSymbolicLink(),
+                    uid: stat.uid,
+                    gid: stat.gid,
+                    size: stat.size,
+                  }),
+                  (error: unknown) => ({
+                    exists: false,
+                    error: asError(error).message.slice(0, 200),
+                  }),
+                );
+                return { linked, resolved, ...entry };
+              }),
+            );
+            await postJson("/api/cloud/events", {
+              turnId: input.turnId,
+              attemptGeneration: input.attemptGeneration,
+              sessionId: input.threadId,
+              seq: "auto",
+              kind: "output_files_missing",
+              payload: {
+                driveRoot: driveWorkspace.root,
+                owner: CLOUD_TOOL_PROCESS_IDENTITY.uid,
+                looked,
+              },
+            }).catch((error) => {
+              console.error(
+                `event output_files_missing failed: ${asError(error).message}`,
+              );
+            });
+          }
           return { bootNotices, deliveredFiles: [] };
         }
         const delivery = await reportProducedFiles({
@@ -573,10 +637,39 @@ export const runAttachedToolHost = (
           post: postJson,
         });
         const refused = new Set(delivery.skipped.map((entry) => entry.path));
+        const renamedBy = new Map(
+          delivery.renamed.map((entry) => [entry.from, entry.to]),
+        );
+        const delivered = files
+          .filter((file) => !refused.has(file.path))
+          .map((file) => {
+            const to = renamedBy.get(file.path);
+            return to
+              ? { ...file, path: to, name: to.slice(to.lastIndexOf("/") + 1) }
+              : file;
+          });
+        // The container path announces its deliverables with an
+        // `output_files` event, which is what the outbox turns into the
+        // conversation's files card. The attached path must announce them
+        // the same way, or a resident turn's files stay drive-only.
+        await postJson("/api/cloud/events", {
+          turnId: input.turnId,
+          attemptGeneration: input.attemptGeneration,
+          sessionId: input.threadId,
+          seq: "auto",
+          kind: "output_files",
+          payload: {
+            files: delivered.map((file) => ({
+              ...toDriveFile(file),
+              stored: delivery.stored.has(file.path),
+            })),
+          },
+        }).catch((error) => {
+          console.error(`event output_files failed: ${asError(error).message}`);
+        });
         return {
           bootNotices,
-          deliveredFiles: files
-            .filter((file) => !refused.has(file.path))
+          deliveredFiles: delivered
             .slice(0, ATTACHED_TOOL_MAX_DELIVERED_FILES)
             .map((file) => file.path),
         };

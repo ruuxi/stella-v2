@@ -1,5 +1,9 @@
 import { withReplyContext } from "../lib/reply-context";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
+import {
+  deriveConversationFiles,
+  type ConversationFileEntry,
+} from "@/features/workspace-display/derive-conversation-files";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { parseReplyRefs } from "@/features/chat/lib/reply-refs";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
@@ -360,6 +364,7 @@ export const assistantRowHasNonBackgroundContent = (
   row.text.trim().length > 0 ||
   Boolean(row.officePreviewRef) ||
   Boolean(row.resourcePayload) ||
+  (row.linkedFiles?.length ?? 0) > 0 ||
   (row.inlineImagePayloads?.length ?? 0) > 0 ||
   (row.webSearchResults?.length ?? 0) > 0 ||
   (row.mapArtifacts?.length ?? 0) > 0 ||
@@ -414,6 +419,35 @@ export const dedupeAgentCompletionRows = (
       droppedRowIndices.add(index);
     }
   });
+};
+
+/**
+ * Files a reply links, as pills under its bubble. Local links keep their
+ * local viewer payload; links into the cloud world's drive become drive
+ * entries (opened through a drive URL, never the local file system). A
+ * file the row's completion section already shows is not repeated, and
+ * developer source files keep their own diff presentation.
+ */
+export const deriveLinkedFiles = (
+  text: string,
+  timestamp: number,
+  sections: readonly AgentCompletionSection[],
+): ConversationFileEntry[] => {
+  if (!text || !text.includes("](")) return [];
+  const shown = new Set<string>();
+  for (const section of sections) {
+    for (const entry of section.files) shown.add(entry.path);
+  }
+  return deriveConversationFiles([
+    {
+      _id: "linked-files",
+      timestamp,
+      type: "assistant_message",
+      payload: { text },
+    },
+  ]).filter(
+    (entry) => entry.payload.kind !== "source-diff" && !shown.has(entry.path),
+  );
 };
 
 /** Resolve completion events on one timeline row through their exact start. */
@@ -865,6 +899,11 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           toolEvents,
           lifecycleIndex,
         );
+        const linkedFiles = deriveLinkedFiles(
+          text,
+          message.timestamp,
+          agentCompletionSections,
+        );
         const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
         const row: AssistantRowViewModel = {
           kind: "assistant",
@@ -887,6 +926,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(replyRefs.length > 0 ? { replyRefs } : {}),
           ...(replyToUserMessageId ? { replyToUserMessageId } : {}),
           ...(officePreviewRef ? { officePreviewRef } : {}),
+          ...(linkedFiles.length > 0 ? { linkedFiles } : {}),
           ...(resourcePayload ? { resourcePayload } : {}),
           ...(inlineImagePayloads.length > 0 ? { inlineImagePayloads } : {}),
           ...(webSearchResults.length > 0 ? { webSearchResults } : {}),

@@ -1,4 +1,5 @@
 import { lifecycleWakeTask, projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
+import { cloudFileArtifact } from "./cloud-file-payload";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
 import { splitReplyRefs, toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
 import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
@@ -23,6 +24,22 @@ const projectedMessageId = (record: JournalMessageRecord): string => {
   const origin = record.role === "user" ? record.payload.originUserMessageId : undefined;
   return (typeof origin === "string" && origin.trim()) ||
     record.clientMsgId || `cloud:${record.turnId}:message:${record.seq}`;
+};
+
+const isBlankUserRecord = (
+  record: Extract<JournalRecord, { kind: "message" }>,
+): boolean => {
+  if (record.role !== "user") return false;
+  const content = record.payload.content;
+  if (typeof content === "string") return content.trim().length === 0;
+  if (!Array.isArray(content)) return true;
+  return content.every(
+    (block) =>
+      block &&
+      typeof block === "object" &&
+      (block as { type?: unknown }).type === "text" &&
+      !String((block as { text?: unknown }).text ?? "").trim(),
+  );
 };
 
 const timestampOf = (record: JournalMessageRecord): number =>
@@ -259,7 +276,9 @@ export const projectCloudConversationMessages = (args: {
       const createdAt = timestampOf(record);
       if (record.role === "user") {
         userMessageId = projectedMessageId(record);
-        if (record.hidden) continue;
+        // A prompt with nothing to show (older desktop turns mirrored their
+        // lifecycle wake as an empty, unflagged user record) is a hidden one.
+        if (record.hidden || isBlankUserRecord(record)) continue;
         messages.push({
           id: userMessageId,
           canonicalId: `cloud:${turnId}:message:${record.seq}`,
@@ -347,69 +366,29 @@ export const projectCloudConversationMessages = (args: {
       });
     }
 
-    const files = turn.flatMap((record) =>
-      record.kind === "card" && record.card.type === "files"
-        ? record.card.files
-        : [],
+    // Files the turn itself produced (an orchestrator-direct `html`,
+    // `image_gen`, …) ride the turn's last reply. Files a spawned task
+    // produced are reported under the same turn id but belong to the task's
+    // completion card, which `projectMobileLifecycle` places on the reply
+    // that relays the result — desktop parity.
+    const turnSpawnedAgent = turn.some(
+      (record) =>
+        record.kind === "card" &&
+        record.card.type === "agent-lifecycle" &&
+        record.card.event.type === "agent-started",
     );
+    const files = turnSpawnedAgent
+      ? []
+      : turn.flatMap((record) =>
+          record.kind === "card" && record.card.type === "files"
+            ? record.card.files
+            : [],
+        );
     if (files.length) {
-      const artifacts: ChatArtifact[] = files.map((file, index) => {
-        const path = file.path;
-        const extension = path.split(".").at(-1)?.toLowerCase() ?? "";
-        let payload: MobileDisplayPayload;
-        if (extension === "pdf") {
-          payload = { kind: "pdf", filePath: path, title: file.name };
-        } else if (extension === "html" || extension === "htm") {
-          // A cloud `html` canvas: the orchestrator wrote it into the drive.
-          const slug = file.name.replace(/\.html?$/i, "");
-          payload = {
-            kind: "canvas-html",
-            filePath: path,
-            title: slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-            slug,
-            createdAt: turn.at(-1)?.createdAtMs ?? 0,
-            driveBacked: true,
-          };
-        } else if (extension === "md" || extension === "markdown") {
-          payload = {
-            kind: "markdown",
-            filePath: path,
-            title: file.name,
-            createdAt: turn.at(-1)?.createdAtMs,
-          };
-        } else if (
-          ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "tsv"].includes(
-            extension,
-          )
-        ) {
-          const artifactKind =
-            extension === "csv" || extension === "tsv"
-              ? "delimited-table"
-              : extension.startsWith("xls")
-                ? "office-spreadsheet"
-                : extension.startsWith("ppt")
-                  ? "office-slides"
-                  : "office-document";
-          payload = {
-            kind: "file-artifact",
-            filePath: path,
-            artifactKind,
-            title: file.name,
-            createdAt: turn.at(-1)?.createdAtMs,
-          };
-        } else {
-          payload = {
-            kind: "media",
-            asset: { kind: "download", filePath: path, label: file.name },
-            createdAt: turn.at(-1)?.createdAtMs ?? 0,
-          };
-        }
-        return {
-          id: `cloud:${turnId}:file:${index}:${path}`,
-          conversationId: args.conversationId ?? "",
-          payload,
-        };
-      });
+      const createdAt = turn.at(-1)?.createdAtMs ?? 0;
+      const artifacts: ChatArtifact[] = files.map((file) =>
+        cloudFileArtifact(file, args.conversationId ?? "", createdAt),
+      );
       const lastAssistantIndex = messages.findLastIndex(
         (message) =>
           message.role === "assistant" && message.requestId === userMessageId,

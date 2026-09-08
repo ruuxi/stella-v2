@@ -352,7 +352,16 @@ export const consolidateRowArtifacts = (
       files.push(artifact);
     }
   }
-  const ranked = rankDeliverablesFirst(files);
+  // A file already shown as a completion-card pill is not a second loose card.
+  const sectionFileIds = new Set<string>();
+  for (const artifact of agentWork) {
+    for (const section of agentWorkCardSections(artifact) ?? []) {
+      for (const file of section.files) sectionFileIds.add(file.id);
+    }
+  }
+  const ranked = rankDeliverablesFirst(
+    files.filter((artifact) => !sectionFileIds.has(artifact.id)),
+  );
   const hasAgentWork = agentWork.length > 0;
   // A card carrying an `agents` list marks a consolidating bridge: agent
   // files ride the card's own sections and whatever is left loose on the row

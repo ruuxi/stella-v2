@@ -119,6 +119,13 @@ type Anchor = {
    */
   startTs: number | undefined;
   messageIndex: number;
+  /**
+   * A hidden user prompt (an agent's `[Agent completed]` wake) renders no
+   * row, so nothing anchored to it can paint. It is never a routing target:
+   * an event that predates every reply in its turn waits on it, unpinned,
+   * and moves to the first reply once one exists.
+   */
+  hiddenUser?: boolean;
 };
 
 const compareEvents = (a: EventRecord, b: EventRecord): number =>
@@ -210,9 +217,11 @@ export const routeLifecycleEvents = (
     const anchorsByKey = new Map<string, TurnEntry>();
     for (const entry of entries) anchorsByKey.set(entry.anchor.key, entry);
     // Routing targets: anchors with a defined start, in walk order (their
-    // startTs are non-decreasing by construction of the timeline).
+    // startTs are non-decreasing by construction of the timeline). A hidden
+    // user prompt is not one (see `Anchor.hiddenUser`).
     const targets = entries.filter(
-      (entry) => entry.anchor.startTs !== undefined,
+      (entry) =>
+        entry.anchor.startTs !== undefined && !entry.anchor.hiddenUser,
     );
 
     const isOverlayEntry = (entry: TurnEntry): boolean =>
@@ -263,6 +272,14 @@ export const routeLifecycleEvents = (
         if (startTs !== undefined && startTs <= event.timestamp) {
           resolved = candidate;
         }
+      }
+      if (resolved === undefined && source.anchor.hiddenUser) {
+        // Nothing painted before the event and its prompt cannot paint it:
+        // the turn's first reply carries it. With no reply yet, keep waiting
+        // on the prompt without a pin so the reply claims it on arrival.
+        const firstReply = targets[0];
+        if (!firstReply) return source;
+        resolved = firstReply;
       }
       const target = resolved ?? source;
       // Pin overlay routings too: the overlay and its persisted twin share
@@ -342,6 +359,9 @@ export const routeLifecycleEvents = (
           key: `user:${message._id}`,
           startTs: Number.NEGATIVE_INFINITY,
           messageIndex: index,
+          ...(isUiHiddenChatMessagePayload(message.payload ?? null)
+            ? { hiddenUser: true }
+            : {}),
         },
         message,
       });

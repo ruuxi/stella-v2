@@ -170,8 +170,17 @@ export function projectMobileLifecycle(messages: ChatMessage[], records: readonl
     attach(message, files.map(entry => cloudFileArtifact(entry.file, conversationId, entry.createdAt)));
     placed.add(agentId);
   }
+  // A spawn that only recorded its description (a locally executed turn
+  // mirrored into the journal) still names the task: its description is the
+  // thread id's slug.
+  const descriptions = messages.flatMap(message => message.spawnedDescriptions ?? []);
+  const titleFor = (ref: Extract<ReplyRef, { kind: "agent" }>) =>
+    titles.get(ref.threadId) ||
+    (ref.title && ref.title !== ref.threadId ? ref.title : "") ||
+    descriptions.find(description => titleNamesThread(description, ref.threadId)) ||
+    ref.title;
   return messages.map(message => ({ ...message, ...(message.replyRefs ? {
-    replyRefs: message.replyRefs.map(ref => ref.kind === "agent" ? { ...ref, title: titles.get(ref.threadId) || ref.title } : ref),
+    replyRefs: message.replyRefs.map(ref => ref.kind === "agent" ? { ...ref, title: titleFor(ref) } : ref),
   } : {}) }));
 }
 

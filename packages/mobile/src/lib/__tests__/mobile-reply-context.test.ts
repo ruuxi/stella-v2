@@ -159,6 +159,20 @@ test("a spawn known only from its request description still owns the task for it
   expect(projected.counts).toEqual({ messages: {}, agents: {} });
 });
 
+test("an untitled cited task takes its title from the spawn description that names its thread", () => {
+  const records: JournalRecord[] = [
+    { kind: "message", seq: 1, turnId: "t", createdAtMs: 1, role: "user", hidden: false, clientMsgId: "u", payload: { content: "Do the thing" } },
+    { kind: "message", seq: 2, turnId: "t", createdAtMs: 2, role: "assistant", hidden: false, payload: { content: [{ type: "text", text: "on it" }, { type: "toolCall", id: "call-1", name: "spawn_agent", arguments: { description: "Sales deck" } }] } },
+    { kind: "message", seq: 3, turnId: "t", createdAtMs: 3, role: "toolResult", hidden: false, payload: { toolCallId: "call-1", toolName: "spawn_agent", content: "started" } },
+    { kind: "message", seq: 4, turnId: "u2", createdAtMs: 4, role: "user", hidden: false, clientMsgId: "u2", payload: { content: "Unrelated" } },
+    { kind: "message", seq: 5, turnId: "u2", createdAtMs: 5, role: "assistant", hidden: false, payload: { content: "sure" } },
+    { kind: "message", seq: 6, turnId: "wake", createdAtMs: 6, role: "user", hidden: true, payload: { content: "[Agent completed] (thread sales-deck)" } },
+    { kind: "message", seq: 7, turnId: "wake", createdAtMs: 7, role: "assistant", hidden: false, payload: { content: "deck is ready\n```refs\nagent:sales-deck\n```" } },
+  ];
+  const messages = projectCloudConversationMessages({ records, conversationId: "c" });
+  expect(messages.at(-1)?.replyRefs).toEqual([{ kind: "agent", threadId: "sales-deck", title: "Sales deck" }]);
+});
+
 test("a spawn description matches the slugged thread id when the report carries no title", () => {
   const waiter = { kind: "agent", threadId: "20s-waiter", title: "" } as const;
   const messages: ChatMessage[] = [

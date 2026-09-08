@@ -147,6 +147,12 @@ export function projectReplyContexts(
  * so a spawn that only recorded its description can still be matched to the
  * thread a later report cites when no title map is available.
  */
+/**
+ * Whether a task title names a thread id. Desktop-run threads are keyed by
+ * the slug of their description plus a short random tail
+ * (`create-report-k3f9qz`); older ones were the bare slug. Either form names
+ * the thread whose description slugs the same way.
+ */
 export const titleNamesThread = (title: string, threadId: string): boolean => {
   const slug = (value: string) =>
     value
@@ -156,7 +162,9 @@ export const titleNamesThread = (title: string, threadId: string): boolean => {
       .replace(/^-+|-+$/g, "");
   const a = slug(title);
   const b = slug(threadId);
-  return a.length > 0 && a === b;
+  if (a.length === 0) return false;
+  if (a === b) return true;
+  return b.startsWith(`${a}-`) && /^[a-z0-9]{6}$/.test(b.slice(a.length + 1));
 };
 
 /** Reply count for a message known by any of the given ids. */

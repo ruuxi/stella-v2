@@ -143,6 +143,10 @@ describe("titleNamesThread", () => {
   it("matches a description to its slugged thread id and nothing else", () => {
     expect(titleNamesThread("20s waiter", "20s-waiter")).toBe(true);
     expect(titleNamesThread("Pricing research", "agent:pricing-research")).toBe(true);
+    // A desktop thread key carries a six-character random tail after the slug.
+    expect(titleNamesThread("20s waiter", "20s-waiter-k3f9qz")).toBe(true);
+    expect(titleNamesThread("20s waiter", "20s-waiter-final-k3f9qz")).toBe(false);
+    expect(titleNamesThread("20s waiter", "20s-waiter-2")).toBe(false);
     expect(titleNamesThread("Pricing research", "vendor-calls")).toBe(false);
     expect(titleNamesThread("", "x")).toBe(false);
   });

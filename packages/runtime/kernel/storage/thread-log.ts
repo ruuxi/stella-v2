@@ -12,6 +12,7 @@ import {
   MAX_ACTIVE_RUNTIME_THREADS,
   normalizeRuntimeThreadId,
 } from "../runtime-threads.js";
+import { randomBytes } from "node:crypto";
 import { slugify } from "../shared/slug.js";
 import {
   QUARANTINE_CUSTOM_TYPE,
@@ -77,6 +78,17 @@ export type ThreadContextRow = {
   details: unknown;
   tokensBefore: number;
   timestampIso: string;
+};
+
+/** Length of the random tail on a minted thread key (base-36 characters). */
+export const THREAD_KEY_TAIL_LENGTH = 6;
+
+const threadKeyTail = (): string => {
+  let tail = "";
+  while (tail.length < THREAD_KEY_TAIL_LENGTH) {
+    tail += randomBytes(8).readBigUInt64BE().toString(36);
+  }
+  return tail.slice(0, THREAD_KEY_TAIL_LENGTH);
 };
 
 export class ThreadLog {
@@ -199,26 +211,23 @@ export class ThreadLog {
     }
   }
 
+  /**
+   * A thread key is the readable slug of its description plus a short random
+   * tail (`create-report-k3f9qz`). The slug keeps the id quotable by the
+   * model and matchable to the description it names; the tail makes the key
+   * unique beyond this device. Desktop-run threads register with the cloud
+   * under this key, where thread ids are one namespace for every account, so
+   * two people (or two conversations) asking for the same task must never
+   * mint the same id: a bare slug did, and the second start was rejected as
+   * another owner's thread.
+   */
   mintThreadKey(args: { agentType: string; nameHint?: string }): string {
     const slug = slugify(args.nameHint ?? "");
-    if (slug && !slug.startsWith("legacy-")) {
-      return this.mintUniqueKey(slug);
+    const base = slug && !slug.startsWith("legacy-") ? slug : "task";
+    for (;;) {
+      const candidate = `${base}-${threadKeyTail()}`;
+      if (!this.threadKeyExists(candidate)) return candidate;
     }
-    const prefix = "task-";
-    const row = this.db
-      .prepare(
-        `SELECT MAX(CAST(substr(id, ?) AS INTEGER)) AS maxOrdinal
-         FROM thread
-         WHERE agent_type = ? AND id GLOB 'task-[0-9]*'`,
-      )
-      .get(prefix.length + 1, args.agentType) as
-      | { maxOrdinal?: number | null }
-      | undefined;
-    const nextOrdinal =
-      typeof row?.maxOrdinal === "number" && Number.isFinite(row.maxOrdinal)
-        ? row.maxOrdinal + 1
-        : 1;
-    return this.mintUniqueKey(`${prefix}${nextOrdinal}`);
   }
 
   listActiveThreadsByAge(

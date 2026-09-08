@@ -43,6 +43,7 @@ import {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
+import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
 
@@ -229,65 +230,96 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 				}
 			}
 
-			// Fetch with retry logic for rate limits and transient errors
-			let response: Response | undefined;
-			let lastError: Error | undefined;
+			// Fetch with retry logic for rate limits and transient errors.
+			const fetchCodexResponse = async (requestApiKey: string): Promise<Response> => {
+				const requestHeaders =
+					requestApiKey === apiKey
+						? sseHeaders
+						: buildSSEHeaders(
+								model.headers,
+								options?.headers,
+								extractAccountId(requestApiKey),
+								requestApiKey,
+								options?.sessionId,
+							);
+				let response: Response | undefined;
+				let lastError: Error | undefined;
 
-			for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-				if (options?.signal?.aborted) {
-					throw new Error("Request was aborted");
-				}
-
-				try {
-					response = await (model.fetch ?? fetch)(resolveCodexUrl(model.baseUrl), {
-						method: "POST",
-						headers: sseHeaders,
-						body: bodyJson,
-						signal: options?.signal,
-					});
-					await options?.onResponse?.(
-						{ status: response.status, headers: headersToRecord(response.headers) },
-						model,
-					);
-
-					if (response.ok) {
-						break;
+				for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+					if (options?.signal?.aborted) {
+						throw new Error("Request was aborted");
 					}
 
-					const errorText = await response.text();
-					if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
-						const delayMs = BASE_DELAY_MS * 2 ** attempt;
-						await sleep(delayMs, options?.signal);
-						continue;
-					}
+					try {
+						response = await (model.fetch ?? fetch)(resolveCodexUrl(model.baseUrl), {
+							method: "POST",
+							headers: requestHeaders,
+							body: bodyJson,
+							signal: options?.signal,
+						});
+						await options?.onResponse?.(
+							{ status: response.status, headers: headersToRecord(response.headers) },
+							model,
+						);
 
-					// Parse error for friendly message on final attempt or non-retryable error
-					const fakeResponse = new Response(errorText, {
-						status: response.status,
-						statusText: response.statusText,
-					});
-					const info = await parseErrorResponse(fakeResponse);
-					throw new Error(info.friendlyMessage || info.message);
-				} catch (error) {
-					if (error instanceof Error) {
-						if (error.name === "AbortError" || error.message === "Request was aborted") {
-							throw new Error("Request was aborted");
+						if (response.ok) {
+							break;
 						}
-					}
-					lastError = error instanceof Error ? error : new Error(String(error));
-					// Network errors are retryable
-					if (attempt < MAX_RETRIES && !lastError.message.includes("usage limit")) {
-						const delayMs = BASE_DELAY_MS * 2 ** attempt;
-						await sleep(delayMs, options?.signal);
-						continue;
-					}
-					throw lastError;
-				}
-			}
 
-			if (!response?.ok) {
-				throw lastError ?? new Error("Failed after retries");
-			}
+						const errorText = await response.text();
+						if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
+							const delayMs = BASE_DELAY_MS * 2 ** attempt;
+							await sleep(delayMs, options?.signal);
+							continue;
+						}
+
+						// Parse error for friendly message on final attempt or non-retryable error
+						const fakeResponse = new Response(errorText, {
+							status: response.status,
+							statusText: response.statusText,
+						});
+						const info = await parseErrorResponse(fakeResponse);
+						// Carries the HTTP status so a 401 (ChatGPT `token_expired`)
+						// is recognized as an auth failure and refreshed, not retried
+						// as a network blip.
+						throw new CodexApiError(info.friendlyMessage || info.message, {
+							status: response.status,
+							code: info.code,
+						});
+					} catch (error) {
+						if (error instanceof Error) {
+							if (error.name === "AbortError" || error.message === "Request was aborted") {
+								throw new Error("Request was aborted");
+							}
+						}
+						// A definitive provider verdict is not a transport failure.
+						if (isCodexNonTransportError(error)) {
+							throw error;
+						}
+						lastError = error instanceof Error ? error : new Error(String(error));
+						// Network errors are retryable
+						if (attempt < MAX_RETRIES && !lastError.message.includes("usage limit")) {
+							const delayMs = BASE_DELAY_MS * 2 ** attempt;
+							await sleep(delayMs, options?.signal);
+							continue;
+						}
+						throw lastError;
+					}
+				}
+
+				if (!response?.ok) {
+					throw lastError ?? new Error("Failed after retries");
+				}
+				return response;
+			};
+
+			// One refreshed-credential retry on 401, before any event is
+			// exposed to callers, so it can never duplicate model output.
+			const response = await requestWithAuthRefresh({
+				apiKey,
+				refreshApiKey: options?.refreshApiKey,
+				request: fetchCodexResponse,
+			});
 
 			if (!response.body) {
 				throw new Error("No response body");
@@ -485,12 +517,18 @@ async function processStream(
 
 class CodexApiError extends Error {
 	readonly code?: string;
+	/** HTTP status of the rejected request; absent for in-stream errors. */
+	readonly status?: number;
 	readonly payload?: Record<string, unknown>;
 
-	constructor(message: string, options?: { code?: string; payload?: Record<string, unknown>; cause?: unknown }) {
+	constructor(
+		message: string,
+		options?: { code?: string; status?: number; payload?: Record<string, unknown>; cause?: unknown },
+	) {
 		super(message);
 		this.name = "CodexApiError";
 		this.code = options?.code;
+		this.status = options?.status;
 		this.payload = options?.payload;
 		this.cause = options?.cause;
 	}
@@ -1271,10 +1309,13 @@ async function processWebSocketStream(
 // Error Handling
 // ============================================================================
 
-async function parseErrorResponse(response: Response): Promise<{ message: string; friendlyMessage?: string }> {
+async function parseErrorResponse(
+	response: Response,
+): Promise<{ message: string; friendlyMessage?: string; code?: string }> {
 	const raw = await response.text();
 	let message = raw || response.statusText || "Request failed";
 	let friendlyMessage: string | undefined;
+	let code: string | undefined;
 
 	try {
 		const parsed = JSON.parse(raw) as {
@@ -1282,8 +1323,8 @@ async function parseErrorResponse(response: Response): Promise<{ message: string
 		};
 		const err = parsed?.error;
 		if (err) {
-			const code = err.code || err.type || "";
-			if (/usage_limit_reached|usage_not_included|rate_limit_exceeded/i.test(code) || response.status === 429) {
+			code = err.code || err.type || undefined;
+			if (/usage_limit_reached|usage_not_included|rate_limit_exceeded/i.test(code ?? "") || response.status === 429) {
 				const plan = err.plan_type ? ` (${err.plan_type.toLowerCase()} plan)` : "";
 				const mins = err.resets_at
 					? Math.max(0, Math.round((err.resets_at * 1000 - Date.now()) / 60000))
@@ -1302,7 +1343,7 @@ async function parseErrorResponse(response: Response): Promise<{ message: string
 		}
 	} catch {}
 
-	return { message, friendlyMessage };
+	return { message, friendlyMessage, code };
 }
 
 // ============================================================================

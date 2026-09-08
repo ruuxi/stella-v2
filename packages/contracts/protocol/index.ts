@@ -300,6 +300,12 @@ export type HostLlmCredentialsRequest =
       operation: "get";
       kind: "api-key" | "oauth-api-key";
       provider: string;
+      /**
+       * OAuth only: mint a new access token from the stored refresh token
+       * even when the cached one has not reached its recorded expiry. Set
+       * after the provider rejected the cached token (401 / token_expired).
+       */
+      forceRefresh?: boolean;
     };
 
 export type HostLlmCredentialsResult =

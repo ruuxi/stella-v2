@@ -166,6 +166,16 @@ export const resolveStellaProviderErrorToast = (
         action: signInAction,
         secondaryAction: BYOK_TOAST_ACTION,
       }
+    case 'chatgpt-auth':
+      return {
+        title: 'Reconnect ChatGPT',
+        description:
+          'Your ChatGPT sign-in has expired. Reconnect it from the model picker, or choose another model.',
+        variant: 'error',
+        duration: 10000,
+        action: chooseModelAction,
+        secondaryAction: BYOK_TOAST_ACTION,
+      }
     case 'chatgpt-usage-limit':
       return {
         title: 'ChatGPT usage limit reached',
@@ -329,6 +339,7 @@ const COMPOSER_NOTICE_KIND_BY_ERROR: Partial<
   'model-restriction': 'upgrade',
   'rate-limit': 'limit',
   'chatgpt-usage-limit': 'limit',
+  'chatgpt-auth': 'provider',
   'provider-access': 'provider',
 }
 

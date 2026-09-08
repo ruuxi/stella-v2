@@ -15,7 +15,11 @@ const statusFromError = (error: unknown, depth = 0): number | null => {
 export const isUnauthorizedProviderError = (error: unknown): boolean => {
 	if (statusFromError(error) === 401) return true;
 	const message = error instanceof Error ? error.message : String(error ?? "");
-	return /(?:^|\b)401(?:\b|$)|\bunauthorized\b/i.test(message);
+	// `token_expired` / `token_revoked` are ChatGPT OAuth's 401 codes; the
+	// Codex transport surfaces them in the message with no HTTP status.
+	return /(?:^|\b)401(?:\b|$)|\bunauthorized\b|\btoken_(?:expired|revoked)\b|authentication token is expired/i.test(
+		message,
+	);
 };
 
 /**

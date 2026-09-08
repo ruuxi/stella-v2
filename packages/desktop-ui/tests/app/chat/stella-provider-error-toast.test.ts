@@ -285,6 +285,18 @@ describe("stella provider error → composer notice routing", () => {
     expect(resolveStellaProviderErrorNoticeKind("You have hit your ChatGPT usage limit")).toBe(
       "limit",
     );
+    // ChatGPT OAuth rejected its token: reconnect the provider, never the
+    // Stella account.
+    const chatGptExpired =
+      "Codex error (token_expired): Provided authentication token is expired. Please try signing in again.";
+    expect(resolveStellaProviderErrorNoticeKind(chatGptExpired)).toBe("provider");
+    expect(resolveStellaProviderErrorToast(chatGptExpired).title).toBe("Reconnect ChatGPT");
+    expect(isStellaLimitOrAuthReason(chatGptExpired)).toBe(true);
+    expect(
+      resolveStellaProviderErrorNoticeKind("Codex error: 401 Unauthorized"),
+    ).toBe("provider");
+    // A Stella-side auth failure still routes to sign-in.
+    expect(resolveStellaProviderErrorNoticeKind("unauthorized")).toBe("sign-in");
     expect(resolveStellaProviderErrorNoticeKind("authentication failed: api key")).toBe(
       "provider",
     );

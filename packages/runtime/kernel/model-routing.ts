@@ -148,6 +148,32 @@ const getLocalProviderApiKey = async (
 };
 
 /**
+ * The provider rejected the credential it was just given (401 or an
+ * explicit token_expired). A static API key cannot be refreshed, so only an
+ * OAuth credential is re-minted; a failed mint is reported as "no key" and
+ * the original provider error stands.
+ */
+const refreshLocalProviderApiKey = async (
+  stellaAppDir: string,
+  providerId: string,
+): Promise<string | undefined> => {
+  const apiKey = (
+    await getAccessibleLocalLlmApiKey(stellaAppDir, providerId)
+  )?.trim();
+  if (apiKey) return undefined;
+  try {
+    const oauthKey = (
+      await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId, {
+        forceRefresh: true,
+      })
+    )?.trim();
+    return oauthKey || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
  * Per-provider quirks — registry name + credential name + model-id aliases.
  * Most providers map 1:1 between the model-id prefix, the registry key, and
  * the credential key. The exceptions get an entry here.
@@ -444,6 +470,21 @@ const resolveDirectProviderRoute = (args: {
         model: routedModel,
         route: "direct-provider",
         getApiKey: getRequestApiKey,
+        refreshApiKey: async () => {
+          const refreshed = await refreshLocalProviderApiKey(
+            args.stellaAppDir,
+            directProvider.credentialProvider,
+          );
+          if (
+            refreshed &&
+            modelRuntime.usesConfiguredAuthHeader(directProvider.registryProvider)
+          ) {
+            routedModel.headers = mergeModelHeaders(routedModel.headers, {
+              Authorization: `Bearer ${refreshed}`,
+            });
+          }
+          return refreshed;
+        },
       },
     };
   }

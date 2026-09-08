@@ -114,6 +114,7 @@ export const createHeadlessHostHandlers = (
       operation: string;
       kind?: "api-key" | "oauth-api-key";
       provider?: string;
+      forceRefresh?: boolean;
     }) => {
       if (request.operation === "list") {
         return {
@@ -136,6 +137,7 @@ export const createHeadlessHostHandlers = (
             : await getLocalLlmOAuthApiKey(
                 paths.stellaDataDirPath,
                 request.provider ?? "",
+                { forceRefresh: request.forceRefresh === true },
               );
         return { ok: true as const, value };
       } catch {

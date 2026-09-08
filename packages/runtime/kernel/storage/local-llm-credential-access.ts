@@ -4,11 +4,19 @@ import {
   hasLocalLlmOAuthCredential,
 } from "./llm-oauth-credentials.js";
 
+export type LocalLlmOAuthApiKeyAccessOptions = {
+  /** Mint a new access token even if the stored one has not expired. */
+  forceRefresh?: boolean;
+};
+
 export type LocalLlmCredentialAccessBroker = {
   hasApiKey(provider: string): boolean;
   hasOAuth(provider: string): boolean;
   getApiKey(provider: string): Promise<string | null>;
-  getOAuthApiKey(provider: string): Promise<string | null>;
+  getOAuthApiKey(
+    provider: string,
+    options?: LocalLlmOAuthApiKeyAccessOptions,
+  ): Promise<string | null>;
 };
 
 let broker: LocalLlmCredentialAccessBroker | null = null;
@@ -54,9 +62,10 @@ export const getAccessibleLocalLlmApiKey = async (
 export const getAccessibleLocalLlmOAuthApiKey = async (
   stellaDataDirPath: string,
   provider: string,
+  options: LocalLlmOAuthApiKeyAccessOptions = {},
 ): Promise<string | null> => {
   const normalized = normalizeProvider(provider);
   return broker
-    ? await broker.getOAuthApiKey(normalized)
-    : await getLocalLlmOAuthApiKey(stellaDataDirPath, normalized);
+    ? await broker.getOAuthApiKey(normalized, options)
+    : await getLocalLlmOAuthApiKey(stellaDataDirPath, normalized, options);
 };

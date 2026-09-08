@@ -250,9 +250,21 @@ export const deleteLocalLlmOAuthCredential = (
   return { removed: true };
 };
 
+export type GetLocalLlmOAuthApiKeyOptions = {
+  /**
+   * Mint a new access token from the stored refresh token even though the
+   * recorded expiry has not passed. When that refresh fails, the stored
+   * expiry is cleared so the next read (including the settings validator)
+   * retries the refresh and reports "needs reauth" instead of trusting a
+   * token the provider already rejected.
+   */
+  forceRefresh?: boolean;
+};
+
 export const getLocalLlmOAuthApiKey = async (
   stellaAppDir: string,
   provider: string,
+  options: GetLocalLlmOAuthApiKeyOptions = {},
 ): Promise<string | null> => {
   const normalizedProvider = normalizeProvider(provider);
   const file = readCredentialFile(stellaAppDir);
@@ -265,9 +277,23 @@ export const getLocalLlmOAuthApiKey = async (
   );
   if (!credentials) return null;
 
-  const result = await getOAuthApiKey(normalizedProvider, {
-    [normalizedProvider]: credentials,
-  });
+  let result: Awaited<ReturnType<typeof getOAuthApiKey>>;
+  try {
+    result = await getOAuthApiKey(
+      normalizedProvider,
+      { [normalizedProvider]: credentials },
+      { forceRefresh: options.forceRefresh === true },
+    );
+  } catch (error) {
+    if (options.forceRefresh && credentials.expires > 0) {
+      saveLocalLlmOAuthCredential(stellaAppDir, {
+        provider: normalizedProvider,
+        label: record.label,
+        credentials: { ...credentials, expires: 0 },
+      });
+    }
+    throw error;
+  }
   if (!result) return null;
 
   if (result.newCredentials !== credentials) {

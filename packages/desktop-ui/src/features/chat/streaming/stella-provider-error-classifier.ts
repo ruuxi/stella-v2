@@ -11,6 +11,7 @@ export type StellaProviderErrorKind =
   | 'account-auth'
   | 'billing'
   | 'capability-required'
+  | 'chatgpt-auth'
   | 'chatgpt-usage-limit'
   | 'claude-code-login'
   | 'content-blocked'
@@ -92,6 +93,25 @@ const billingMatchers = [
 ] as const
 
 const chatGptUsageLimitMatcher = 'you have hit your chatgpt usage limit'
+
+/**
+ * ChatGPT OAuth (Codex subscription) rejected its access token. This is the
+ * user's ChatGPT connection, not their Stella account, so it must not be
+ * routed to the Stella sign-in dialog. The transport prefixes these with
+ * "Codex error"; the codes and prose are OpenAI's own.
+ */
+const chatGptAuthMatchers = [
+  'token_expired',
+  'token_revoked',
+  'authentication token is expired',
+  'token is expired',
+  'token has expired',
+  'try signing in again',
+  'refresh token was revoked',
+] as const
+
+const isCodexTransportError = (normalized: string): boolean =>
+  /(?:^|\s)codex\s+error\b/.test(normalized)
 
 const rateLimitMatchers = [
   'rate limit exceeded',
@@ -304,6 +324,13 @@ export const classifyStellaProviderError = (
   if (normalized.includes(chatGptUsageLimitMatcher)) {
     return { kind: 'chatgpt-usage-limit', message }
   }
+  if (
+    includesAny(normalized, chatGptAuthMatchers) ||
+    (isCodexTransportError(normalized) &&
+      (includesAny(normalized, authMatchers) || statusCode === 401))
+  ) {
+    return { kind: 'chatgpt-auth', message }
+  }
   if (includesAny(normalized, freeAllowanceMatchers)) {
     return { kind: 'free-allowance-exhausted', message }
   }
@@ -377,6 +404,7 @@ const LIMIT_OR_AUTH_KINDS = new Set<StellaProviderErrorKind>([
   'account-auth',
   'billing',
   'capability-required',
+  'chatgpt-auth',
   'chatgpt-usage-limit',
   'claude-code-login',
   'free-allowance-exhausted',

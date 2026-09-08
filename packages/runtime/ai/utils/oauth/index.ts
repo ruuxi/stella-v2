@@ -108,9 +108,26 @@ export function getOAuthProviders(): OAuthProviderInterface[] {
  * @returns API key string and updated credentials, or null if no credentials
  * @throws Error if refresh fails
  */
+export type GetOAuthApiKeyOptions = {
+	/**
+	 * Mint a new access token even if the stored expiry has not passed. Used
+	 * after the provider rejected the cached token: OpenAI, for one, revokes
+	 * ChatGPT access tokens early when the account signs in elsewhere, so the
+	 * recorded `expires` cannot be trusted on its own.
+	 */
+	forceRefresh?: boolean;
+};
+
+/**
+ * A token this close to its recorded expiry is refreshed before use so a
+ * request dispatched with it does not lapse mid-flight.
+ */
+export const OAUTH_REFRESH_SKEW_MS = 60_000;
+
 export async function getOAuthApiKey(
 	providerId: OAuthProviderId,
 	credentials: Record<string, OAuthCredentials>,
+	options: GetOAuthApiKeyOptions = {},
 ): Promise<{ newCredentials: OAuthCredentials; apiKey: string } | null> {
 	const provider = getOAuthProvider(providerId);
 	if (!provider) {
@@ -122,8 +139,8 @@ export async function getOAuthApiKey(
 		return null;
 	}
 
-	// Refresh if expired
-	if (Date.now() >= creds.expires) {
+	// Refresh if expired, about to expire, or explicitly rejected upstream.
+	if (options.forceRefresh || Date.now() + OAUTH_REFRESH_SKEW_MS >= creds.expires) {
 		try {
 			creds = await provider.refreshToken(creds);
 		} catch (error) {

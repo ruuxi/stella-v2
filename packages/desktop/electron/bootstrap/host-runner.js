@@ -228,7 +228,9 @@ export const createHostRunnerHandlers = (context, options) => ({
         }
         const value = request.kind === "api-key"
             ? getLocalLlmCredential(stellaDataDir, request.provider)
-            : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider);
+            : await getLocalLlmOAuthApiKey(stellaDataDir, request.provider, {
+                forceRefresh: request.forceRefresh === true,
+            });
         return { ok: true, value };
     },
     requestConnectorTokenStore: async (request) => {

@@ -66,11 +66,12 @@ export const layer = Layer.effect(
           });
           return value.ok && "value" in value ? value.value : null;
         },
-        getOAuthApiKey: async (provider) => {
+        getOAuthApiKey: async (provider, options) => {
           const value = await requestHostLlmCredentials({
             operation: "get",
             kind: "oauth-api-key",
             provider,
+            ...(options?.forceRefresh ? { forceRefresh: true } : {}),
           });
           return value.ok && "value" in value ? value.value : null;
         },

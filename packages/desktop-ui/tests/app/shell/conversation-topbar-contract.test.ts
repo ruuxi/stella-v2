@@ -11,8 +11,6 @@ import {
   resolveHistoryDeleteActivation,
   resolveConversationTabShortcut,
   shouldMarkConversationUnread,
-  shouldRenderNewChatLabel,
-  shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
 import { ConvexError } from "convex/values";
 import enCatalog from "../../../src/shared/i18n/locales/en.json";
@@ -23,12 +21,11 @@ const SOURCE_ROOT = path.resolve(
 );
 
 /**
- * The New chat label used to be literal JSX text. It is now a `t()` key,
- * so the contract is checked in two halves: the source renders the key in
- * the right slot, and the English catalog still maps that key to the copy
- * this contract is about. Checking only the key would let the copy drift
- * silently; checking only the copy would miss the label being moved to a
- * different control.
+ * The New chat label is a `t()` key, so the contract is checked in two
+ * halves: the source renders the key in the right slot, and the English
+ * catalog still maps that key to the copy this contract is about. Checking
+ * only the key would let the copy drift silently; checking only the copy
+ * would miss the label being moved to a different control.
  */
 const englishFor = (key: string): string => {
   const value = key
@@ -72,14 +69,7 @@ describe("conversation top-bar contracts", () => {
       "second",
     );
 
-  it("labels New chat only until multiple tabs are open", () => {
-    expect(shouldRenderNewChatLabel(0)).toBe(true);
-    expect(shouldRenderNewChatLabel(1)).toBe(true);
-    expect(shouldRenderNewChatLabel(2)).toBe(false);
-    expect(shouldRenderNewChatLabel(12)).toBe(false);
-  });
-
-  it("always offers New chat in the top bar and never in History", () => {
+  it("offers New chat as the first History row and nowhere else in the top bar", () => {
     const source = fs.readFileSync(
       path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
       "utf8",
@@ -87,12 +77,23 @@ describe("conversation top-bar contracts", () => {
 
     expect(source).not.toContain("shouldRenderNewChatControl");
     expect(source).not.toContain("shouldRenderHistoryNewChat");
-    expect(source).not.toContain("showNewChatControl");
-    expect(source).not.toContain("showHistoryNewChat");
+    expect(source).not.toContain("shouldRenderNewChatLabel");
+    expect(source).not.toContain("conversation-topbar__plus");
+    expect(source).not.toContain("conversation-topbar__new-label");
     expect(source).toContain(
-      'className="shell-topbar-icon-btn conversation-topbar__plus"',
+      'className="conversation-history-popover__new-chat"',
     );
-    expect(source).not.toContain("conversation-history-popover__new-chat");
+    expect(source).toContain(
+      'className="conversation-history-popover__separator"',
+    );
+    // The New chat row sits above the list, mirroring the mobile history menu.
+    expect(
+      source.indexOf('className="conversation-history-popover__new-chat"'),
+    ).toBeLessThan(source.indexOf("<LegendList<ConversationSummary>"));
+    expect(englishFor("shell.topbar.conversation.newChat")).toBe("New chat");
+    expect(source).toMatch(
+      /conversation-history-popover__new-chat-label"\s*>\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}/,
+    );
     expect(
       resolveConversationTabShortcut(
         {
@@ -207,9 +208,20 @@ describe("conversation top-bar contracts", () => {
     ).toBe(true);
   });
 
-  it("replaces a sole tab with the Home launcher", () => {
-    expect(shouldRenderConversationHomeLauncher(1)).toBe(true);
-    expect(shouldRenderConversationHomeLauncher(2)).toBe(false);
+  it("keeps a sole tab in the strip with no Home launcher and no close shortcut", () => {
+    const source = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+      "utf8",
+    );
+    const catalog = enCatalog as {
+      shell: { topbar: { conversation: Record<string, unknown> } };
+    };
+
+    expect(source).not.toContain("shouldRenderConversationHomeLauncher");
+    expect(source).not.toContain("conversation-topbar__home");
+    expect(source).not.toContain("dispatchShowHome");
+    expect(source).not.toContain("<House");
+    expect(catalog.shell.topbar.conversation).not.toHaveProperty("home");
     expect(
       resolveConversationTabShortcut(
         {
@@ -340,33 +352,14 @@ describe("conversation top-bar contracts", () => {
     expect(source).toContain("window.requestAnimationFrame");
     expect(source).toContain("new ResizeObserver");
     expect(source).toContain(
-      'className="shell-topbar-icon-btn conversation-topbar__home"',
-    );
-    expect(source).toContain("onClick={dispatchShowHome}");
-    expect(source).not.toContain("conversation-topbar__home-label");
-    expect(englishFor("shell.topbar.conversation.newChat")).toBe("New chat");
-    // Whitespace-tolerant: prettier reflows the span across lines once the
-    // literal becomes a t() call.
-    expect(source).toMatch(
-      /<span className="conversation-topbar__new-label">\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}\s*<\/span>/,
-    );
-    expect(source).toContain(
-      'data-compact={!showNewChatLabel ? "true" : undefined}',
-    );
-    expect(source).toContain(
       'aria-label={t("shell.topbar.conversation.newChat")}',
     );
-    expect(source).toMatch(
-      /<House[\s\S]*?size=\{16\}[\s\S]*?strokeWidth=\{1\.85\}/,
-    );
+    // History is the only 16px/1.85 control left in the bar.
     expect(
       source.match(/size=\{16\}[\s\S]*?strokeWidth=\{1\.85\}/g),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
     expect(source).not.toContain(
       'className="conversation-history-popover__header"',
-    );
-    expect(source).not.toContain(
-      'className="conversation-history-popover__new-chat"',
     );
     expect(source).toContain(
       'className="conversation-history-popover__delete"',
@@ -395,38 +388,23 @@ describe("conversation top-bar contracts", () => {
       /\.conversation-topbar__tabs\s*\{[^}]*width:\s*max-content;/,
     );
     expect(css).toMatch(
-      /\.conversation-topbar__history,[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;/,
+      /\.conversation-topbar__history\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*color:\s*var\(--text-muted\)/,
     );
-    expect(css).toMatch(
-      /\.conversation-topbar__plus\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*76px;[^}]*height:\s*28px;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__plus\s*\{[^}]*padding:\s*0 17px 0 10px;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__plus\[data-compact="true"\]\s*\{[^}]*width:\s*28px;[^}]*min-width:\s*28px;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__new-label\s*\{[^}]*white-space:\s*nowrap;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__history,[\s\S]*?\.conversation-topbar__home\s*\{[^}]*color:\s*var\(--text-muted\)/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__plus\s*\{[^}]*color:\s*var\(--text-muted\)/,
-    );
+    expect(css).not.toContain(".conversation-topbar__plus");
+    expect(css).not.toContain(".conversation-topbar__new-label");
+    expect(css).not.toContain(".conversation-topbar__home");
     expect(css).toMatch(
       /\.conversation-topbar__viewport::before,[\s\S]*?width:\s*24px;/,
     );
     expect(css).not.toContain("scroll-snap-type");
     expect(css).toMatch(
-      /\.conversation-topbar__home\s*\{[^}]*background:\s*transparent/,
+      /\.conversation-topbar__history:hover\s*\{[^}]*background:\s*color-mix\(/,
     );
     expect(css).toMatch(
-      /\.conversation-topbar__home\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/,
+      /\.conversation-history-popover__new-chat\s*\{[^}]*height:\s*34px;/,
     );
     expect(css).toMatch(
-      /\.conversation-topbar__history:hover,[\s\S]*?\.conversation-topbar__home:hover,[\s\S]*?\.conversation-topbar__plus:hover\s*\{[^}]*background:\s*color-mix\(/,
+      /\.conversation-history-popover__separator\s*\{[^}]*height:\s*1px;/,
     );
     expect(css).toMatch(
       /\.conversation-topbar__control-icon\s*\{[^}]*transform:\s*translateY\(1px\)/,
@@ -464,7 +442,7 @@ describe("conversation top-bar contracts", () => {
     expect(root.match(/<ChatRuntimeProvider/g)).toHaveLength(1);
     expect(root.match(/<ChatColumn/g)).toHaveLength(1);
   });
-  it("keeps the top bar as the only New Chat entry point", () => {
+  it("keeps the History New chat row as the only New Chat entry point", () => {
     const topBar = fs.readFileSync(
       path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
       "utf8",

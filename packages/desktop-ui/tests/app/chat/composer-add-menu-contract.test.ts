@@ -90,16 +90,19 @@ describe("composer add-menu contract", () => {
     expect(sidebarComposer.match(/<ComposerAddMenu/g)).toHaveLength(2);
   });
 
-  it("leaves the labeled top-bar New chat control canonical", () => {
+  it("leaves the labeled History New chat row canonical", () => {
     const source = readSource("shell/topbar/ConversationTopBar.tsx");
 
     expect(englishFor("shell.topbar.conversation.newChat")).toBe("New chat");
     expect(source).toContain(
       'aria-label={t("shell.topbar.conversation.newChat")}',
     );
-    expect(source).toContain('className="conversation-topbar__new-label"');
-    expect(source).toMatch(
-      /conversation-topbar__new-label"\s*>\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}/,
+    expect(source).toContain(
+      'className="conversation-history-popover__new-chat-label"',
     );
+    expect(source).toMatch(
+      /conversation-history-popover__new-chat-label"\s*>\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}/,
+    );
+    expect(source).not.toContain("conversation-topbar__plus");
   });
 });

@@ -1735,7 +1735,6 @@
       "conversation": {
         "newChat": "新しいチャット",
         "newChatConfirm": "Click again to confirm",
-        "home": "ホーム",
         "history": "会話の履歴",
         "historyEmpty": "会話はまだありません",
         "historyRetry": "会話を読み込めませんでした。もう一度試す",

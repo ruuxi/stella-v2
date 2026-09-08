@@ -41,19 +41,8 @@ import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conve
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { showToast } from "@/ui/toast";
 import { Popover } from "@/ui/popover";
-import {
-  Check,
-  History,
-  House,
-  MessageSquare,
-  Plus,
-  Trash2,
-  X,
-} from "@/ui/icons";
-import {
-  dispatchEnterChat,
-  dispatchShowHome,
-} from "@/shared/lib/stella-orb-chat";
+import { Check, History, MessageSquare, Plus, Trash2, X } from "@/ui/icons";
+import { dispatchEnterChat } from "@/shared/lib/stella-orb-chat";
 import { useT } from "@/shared/i18n";
 import "./conversation-topbar.css";
 
@@ -88,11 +77,6 @@ export const isConfirmedConversationCreateRejection = (
 export const isConversationTabTitleOverflowing = (
   element: Pick<HTMLElement, "scrollWidth" | "clientWidth">,
 ): boolean => element.scrollWidth > element.clientWidth + 1;
-
-export const shouldRenderConversationHomeLauncher = (tabCount: number) =>
-  tabCount === 1;
-
-export const shouldRenderNewChatLabel = (tabCount: number) => tabCount <= 1;
 
 export const resolveHistoryDeleteActivation = (
   armedConversationId: string | null,
@@ -294,13 +278,12 @@ export function ConversationTopBar() {
   );
   const createCloudConversation = useMutation(cloudApi.createMyConversation);
   const deleteCloudConversation = useAction(cloudApi.deleteMyConversation);
-  const showNewChatLabel = shouldRenderNewChatLabel(tabs.length);
   const activeConversationId = chat.conversation.conversationId;
   const activeConversationIsRecent = Boolean(
     activeConversationId &&
-      scopedRecentCloudConversations.some(
-        (conversation) => conversation.conversationId === activeConversationId,
-      ),
+    scopedRecentCloudConversations.some(
+      (conversation) => conversation.conversationId === activeConversationId,
+    ),
   );
   const activeCloudConversation = useQuery(
     cloudApi.getMyConversation,
@@ -392,7 +375,8 @@ export function ConversationTopBar() {
 
   /**
    * History is in-place navigation: the current tab becomes the selected
-   * session. New Chat (+) is the only action that appends a tab.
+   * session. New chat (the first History row, or Cmd/Ctrl+T) is the only
+   * action that appends a tab.
    */
   const openHistoryConversation = useCallback(
     (
@@ -451,9 +435,7 @@ export function ConversationTopBar() {
       createRequestRef.current = null;
       const optimisticTabStillExists = conversationTabs
         .getSnapshot()
-        .tabs.some(
-          (tab) => tab.conversationId === requestedConversationId,
-        );
+        .tabs.some((tab) => tab.conversationId === requestedConversationId);
       if (
         created.conversationId !== requestedConversationId &&
         optimisticTabStillExists
@@ -472,7 +454,10 @@ export function ConversationTopBar() {
         created.conversationId === requestedConversationId &&
         optimisticTabStillExists
       ) {
-        conversationTabs.openConversation(created.conversationId, created.title);
+        conversationTabs.openConversation(
+          created.conversationId,
+          created.title,
+        );
       }
     } catch (error) {
       if (
@@ -1065,8 +1050,6 @@ export function ConversationTopBar() {
       history.length * 34 + (historyLoading || historyError ? 44 : 0) + 10,
     ),
   );
-  const showHomeLauncher = shouldRenderConversationHomeLauncher(tabs.length);
-
   return (
     <div
       className="conversation-topbar"
@@ -1127,6 +1110,32 @@ export function ConversationTopBar() {
             }
           }}
         >
+          <button
+            type="button"
+            className="conversation-history-popover__new-chat"
+            onMouseDown={(event) => {
+              if (event.button !== 0) return;
+              disarmHistoryDelete();
+              setHistoryOpen(false);
+              void createConversation();
+            }}
+            onClick={(event) => {
+              if (!isKeyboardClick(event)) return;
+              disarmHistoryDelete();
+              setHistoryOpen(false);
+              void createConversation();
+            }}
+            aria-label={t("shell.topbar.conversation.newChat")}
+          >
+            <Plus size={14} strokeWidth={1.85} aria-hidden="true" />
+            <span className="conversation-history-popover__new-chat-label">
+              {t("shell.topbar.conversation.newChat")}
+            </span>
+          </button>
+          <div
+            className="conversation-history-popover__separator"
+            role="separator"
+          />
           <LegendList<ConversationSummary>
             className="conversation-history-popover__list"
             data={history}
@@ -1165,197 +1174,152 @@ export function ConversationTopBar() {
             }
             contentContainerStyle={{ padding: 5 }}
             style={{
-              height: `min(${historyListHeight}px, calc(100vh - 78px))`,
+              height: `min(${historyListHeight}px, calc(100vh - 118px))`,
               width: "100%",
             }}
           />
         </ConversationHistoryPopoverContent>
       </Popover>
 
-      {showHomeLauncher ? (
-        <button
-          type="button"
-          className="shell-topbar-icon-btn conversation-topbar__home"
-          onClick={dispatchShowHome}
-          aria-label={t("shell.topbar.conversation.home")}
-          title={t("shell.topbar.conversation.home")}
-        >
-          <House
-            className="conversation-topbar__control-icon"
-            size={16}
-            strokeWidth={1.85}
-            aria-hidden="true"
-          />
-        </button>
-      ) : (
+      <div
+        className="conversation-topbar__viewport"
+        data-overflow-left={overflow.left ? "true" : undefined}
+        data-overflow-right={overflow.right ? "true" : undefined}
+      >
         <div
-          className="conversation-topbar__viewport"
-          data-overflow-left={overflow.left ? "true" : undefined}
-          data-overflow-right={overflow.right ? "true" : undefined}
+          ref={stripRef}
+          className="conversation-topbar__tabs"
+          role="tablist"
+          aria-label={t("shell.topbar.conversation.openConversations")}
+          onScroll={scheduleOverflowMeasurement}
         >
-          <div
-            ref={stripRef}
-            className="conversation-topbar__tabs"
-            role="tablist"
-            aria-label={t("shell.topbar.conversation.openConversations")}
-            onScroll={scheduleOverflowMeasurement}
-          >
-            {tabs.map((tab) => {
-              const active = tab.conversationId === activeConversationId;
-              const unread = Boolean(tab.unread) && !active;
-              return (
-                <div
-                  key={tab.conversationId}
-                  data-conversation-id={tab.conversationId}
-                  ref={(element) => {
-                    if (element)
-                      tabRefs.current.set(tab.conversationId, element);
-                    else tabRefs.current.delete(tab.conversationId);
-                  }}
-                  className="conversation-topbar__tab"
-                  data-active={active ? "true" : undefined}
-                  data-unread={unread ? "true" : undefined}
-                  data-title-overflow={
-                    overflowingTitleIds.has(tab.conversationId)
-                      ? "true"
-                      : undefined
+          {tabs.map((tab) => {
+            const active = tab.conversationId === activeConversationId;
+            const unread = Boolean(tab.unread) && !active;
+            return (
+              <div
+                key={tab.conversationId}
+                data-conversation-id={tab.conversationId}
+                ref={(element) => {
+                  if (element) tabRefs.current.set(tab.conversationId, element);
+                  else tabRefs.current.delete(tab.conversationId);
+                }}
+                className="conversation-topbar__tab"
+                data-active={active ? "true" : undefined}
+                data-unread={unread ? "true" : undefined}
+                data-title-overflow={
+                  overflowingTitleIds.has(tab.conversationId)
+                    ? "true"
+                    : undefined
+                }
+                data-dragging={
+                  draggingConversationId === tab.conversationId
+                    ? "true"
+                    : undefined
+                }
+                title={tab.title}
+                onPointerDown={(event) =>
+                  beginTabPointerDrag(event, tab.conversationId)
+                }
+                onPointerEnter={scheduleOverflowMeasurement}
+                onPointerLeave={scheduleOverflowMeasurement}
+                onPointerMove={moveTabPointerDrag}
+                onPointerUp={finishTabPointerDrag}
+                onPointerCancel={finishTabPointerDrag}
+                onLostPointerCapture={() => {
+                  if (
+                    tabPointerDragRef.current?.conversationId ===
+                    tab.conversationId
+                  ) {
+                    tabPointerDragRef.current = null;
+                    setDraggingConversationId(null);
                   }
-                  data-dragging={
-                    draggingConversationId === tab.conversationId
-                      ? "true"
-                      : undefined
-                  }
-                  title={tab.title}
-                  onPointerDown={(event) =>
-                    beginTabPointerDrag(event, tab.conversationId)
-                  }
-                  onPointerEnter={scheduleOverflowMeasurement}
-                  onPointerLeave={scheduleOverflowMeasurement}
-                  onPointerMove={moveTabPointerDrag}
-                  onPointerUp={finishTabPointerDrag}
-                  onPointerCancel={finishTabPointerDrag}
-                  onLostPointerCapture={() => {
-                    if (
-                      tabPointerDragRef.current?.conversationId ===
-                      tab.conversationId
-                    ) {
-                      tabPointerDragRef.current = null;
-                      setDraggingConversationId(null);
+                }}
+                onMouseDown={(event) => {
+                  if (event.button !== 1) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onAuxClick={(event) => {
+                  if (event.button !== 1) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void closeConversation(tab.conversationId);
+                }}
+              >
+                <button
+                  type="button"
+                  className="conversation-topbar__tab-target"
+                  role="tab"
+                  aria-selected={active}
+                  aria-label={t("shell.topbar.conversation.openConversation", {
+                    title: tab.title,
+                  })}
+                  onMouseDown={(event) => {
+                    if (event.button === 0) {
+                      navigateToConversation(tab.conversationId, tab.title);
                     }
                   }}
-                  onMouseDown={(event) => {
-                    if (event.button !== 1) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onAuxClick={(event) => {
-                    if (event.button !== 1) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void closeConversation(tab.conversationId);
+                  onClick={(event) => {
+                    if (isKeyboardClick(event)) {
+                      navigateToConversation(tab.conversationId, tab.title);
+                    }
                   }}
                 >
-                  <button
-                    type="button"
-                    className="conversation-topbar__tab-target"
-                    role="tab"
-                    aria-selected={active}
-                    aria-label={t(
-                      "shell.topbar.conversation.openConversation",
-                      {
-                        title: tab.title,
-                      },
-                    )}
-                    onMouseDown={(event) => {
-                      if (event.button === 0) {
-                        navigateToConversation(tab.conversationId, tab.title);
+                  <MessageSquare
+                    className="conversation-topbar__tab-icon"
+                    size={16}
+                    strokeWidth={1.65}
+                    aria-hidden="true"
+                  />
+                  <span
+                    ref={(element) => {
+                      if (element) {
+                        titleRefs.current.set(tab.conversationId, element);
+                      } else {
+                        titleRefs.current.delete(tab.conversationId);
                       }
                     }}
-                    onClick={(event) => {
-                      if (isKeyboardClick(event)) {
-                        navigateToConversation(tab.conversationId, tab.title);
-                      }
-                    }}
+                    className="conversation-topbar__tab-title"
                   >
-                    <MessageSquare
-                      className="conversation-topbar__tab-icon"
-                      size={16}
-                      strokeWidth={1.65}
-                      aria-hidden="true"
-                    />
-                    <span
-                      ref={(element) => {
-                        if (element) {
-                          titleRefs.current.set(tab.conversationId, element);
-                        } else {
-                          titleRefs.current.delete(tab.conversationId);
-                        }
-                      }}
-                      className="conversation-topbar__tab-title"
-                    >
-                      {tab.title}
-                    </span>
-                  </button>
-                  {unread ? (
-                    <span
-                      className="conversation-topbar__tab-unread"
-                      role="img"
-                      aria-label={t("shell.topbar.conversation.unread")}
-                      title={t("shell.topbar.conversation.unread")}
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    className="conversation-topbar__tab-close"
-                    aria-label={t(
-                      "shell.topbar.conversation.closeConversation",
-                      {
-                        title: tab.title,
-                      },
-                    )}
-                    onMouseDown={(event) => {
-                      event.stopPropagation();
-                      event.preventDefault();
-                      if (event.button === 0) {
-                        void closeConversation(tab.conversationId);
-                      }
-                    }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (isKeyboardClick(event)) {
-                        void closeConversation(tab.conversationId);
-                      }
-                    }}
-                  >
-                    <X size={11} strokeWidth={1.8} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    {tab.title}
+                  </span>
+                </button>
+                {unread ? (
+                  <span
+                    className="conversation-topbar__tab-unread"
+                    role="img"
+                    aria-label={t("shell.topbar.conversation.unread")}
+                    title={t("shell.topbar.conversation.unread")}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  className="conversation-topbar__tab-close"
+                  aria-label={t("shell.topbar.conversation.closeConversation", {
+                    title: tab.title,
+                  })}
+                  onMouseDown={(event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    if (event.button === 0) {
+                      void closeConversation(tab.conversationId);
+                    }
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (isKeyboardClick(event)) {
+                      void closeConversation(tab.conversationId);
+                    }
+                  }}
+                >
+                  <X size={11} strokeWidth={1.8} />
+                </button>
+              </div>
+            );
+          })}
         </div>
-      )}
-
-      <button
-        type="button"
-        className="shell-topbar-icon-btn conversation-topbar__plus"
-        data-compact={!showNewChatLabel ? "true" : undefined}
-        onClick={() => void createConversation()}
-        aria-label={t("shell.topbar.conversation.newChat")}
-        title={t("shell.topbar.conversation.newChat")}
-      >
-        <Plus
-          className="conversation-topbar__control-icon"
-          size={16}
-          strokeWidth={1.85}
-          aria-hidden="true"
-        />
-        {showNewChatLabel ? (
-          <span className="conversation-topbar__new-label">
-            {t("shell.topbar.conversation.newChat")}
-          </span>
-        ) : null}
-      </button>
+      </div>
     </div>
   );
 }

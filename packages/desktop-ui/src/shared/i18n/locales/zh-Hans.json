@@ -1735,7 +1735,6 @@
       "conversation": {
         "newChat": "新对话",
         "newChatConfirm": "Click again to confirm",
-        "home": "首页",
         "history": "对话历史",
         "historyEmpty": "还没有对话",
         "historyRetry": "无法加载对话。请重试",

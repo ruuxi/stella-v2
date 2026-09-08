@@ -159,28 +159,14 @@ function CloudConversationStatusTail({
   const showConnection =
     state.status === "blocked" ||
     (state.status === "offline" && Boolean(state.statusMessage));
-  const showCached =
-    state.recordsSource === "cached-stale" && state.records.length > 0;
-  if (
-    !showConnection &&
-    !showCached &&
-    failed.length === 0 &&
-    !state.olderNotice
-  ) {
+  // Cached rows stay painted through a reconnect and the canonical delta
+  // merges into them in place. That is ordinary connection state, so the
+  // transcript never announces it; only a blocked/offline socket does.
+  if (!showConnection && failed.length === 0 && !state.olderNotice) {
     return null;
   }
   return (
     <div className="cloud-chat-status-tail">
-      {showCached ? (
-        <div
-          className="cloud-chat-status-tail__notice"
-          data-status="cached-stale"
-          role="status"
-        >
-          Showing saved history while reconnecting. New activity still requires
-          Stella&apos;s cloud.
-        </div>
-      ) : null}
       {showConnection ? (
         <div
           className="cloud-chat-status-tail__notice"

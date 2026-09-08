@@ -1786,7 +1786,6 @@
       "conversation": {
         "newChat": "Nowy czat",
         "newChatConfirm": "Click again to confirm",
-        "home": "Start",
         "history": "Historia rozmów",
         "historyEmpty": "Brak jeszcze rozmów",
         "historyRetry": "Nie udało się wczytać rozmów. Spróbuj ponownie",

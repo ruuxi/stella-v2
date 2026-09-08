@@ -145,6 +145,9 @@ function FocusPanel({
         aria-label={t("app.chat.focus.ariaLabel", { title: heading })}
       >
         <header className="conversation-focus__header">
+          <span className="conversation-focus__title" title={heading}>
+            {heading}
+          </span>
           {root.kind === "agent" && <TaskReportButton
             key={root.threadId}
             reference={{ kind: "agent", threadId: root.threadId, title: heading }}

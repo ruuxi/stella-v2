@@ -241,7 +241,7 @@ describe("reply reference storage", () => {
       type: "user_message",
       payload: { text: "What about the Arch package?" },
     });
-    store.appendEvent({
+    const lookingIntoIt = store.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "Looking into it.", userMessageId: asked._id },
@@ -279,8 +279,64 @@ describe("reply reference storage", () => {
     expect(lineage.hasOlder).toBe(false);
     expect(lineage.messages.map((message) => message._id)).toEqual([
       asked._id,
+      lookingIntoIt._id,
       answer._id,
     ]);
+  });
+
+  it("returns a message lineage that carries updates on the tasks its turn spawned", () => {
+    const { store } = createContext();
+    seedAgent(store, "pricing-research", "Pricing research");
+    const asked = store.appendEvent({
+      conversationId: CONVERSATION,
+      type: "user_message",
+      payload: { text: "Compare vendor pricing" },
+    });
+    const spawnReply = store.appendEvent({
+      conversationId: CONVERSATION,
+      type: "assistant_message",
+      payload: { text: "On it.", userMessageId: asked._id },
+    });
+    store.appendEvent({
+      conversationId: CONVERSATION,
+      type: "agent-started",
+      payload: {
+        agentId: "pricing-research",
+        description: "Pricing research",
+        agentType: "general",
+        rootRunId: "run-1",
+      },
+    });
+    const unrelatedUser = store.appendEvent({
+      conversationId: CONVERSATION,
+      type: "user_message",
+      payload: { text: "Something else" },
+    });
+    const unrelatedReply = store.appendEvent({
+      conversationId: CONVERSATION,
+      type: "assistant_message",
+      payload: { text: "Sure.", userMessageId: unrelatedUser._id },
+    });
+    const refs = store.resolveReplyRefs(CONVERSATION, [], {
+      fallbackAgentId: "pricing-research",
+    });
+    const completionReply = store.appendEvent({
+      conversationId: CONVERSATION,
+      type: "assistant_message",
+      payload: {
+        text: "Pricing research is done.",
+        metadata: { runtime: { replyRefs: refs } },
+      },
+    });
+    const lineage = store.listLineageMessages(CONVERSATION, {
+      root: { kind: "message", id: asked._id },
+    });
+    expect(lineage.messages.map((m) => m._id)).toEqual([
+      asked._id,
+      spawnReply._id,
+      completionReply._id,
+    ]);
+    expect(lineage.messages.map((m) => m._id)).not.toContain(unrelatedReply._id);
   });
 
   it("pages a lineage newest-first on beforeSequence", () => {

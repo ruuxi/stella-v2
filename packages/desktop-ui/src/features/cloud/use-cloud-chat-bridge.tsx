@@ -23,10 +23,6 @@ import {
   journalRecordsToMessageRecords,
   mergeCanonicalMessagesWithLocalCache,
 } from "./journal-message-records";
-import {
-  countReplyRefs,
-  provideReplyCounts,
-} from "@/features/chat/services/reply-counts-store";
 import { provideLineageSource } from "@/features/chat/services/lineage-messages-store";
 import {
   journalRecordsToCloudActivityEvents,
@@ -482,10 +478,10 @@ export function useCloudChatBridge({
 
   // Reply references in cloud mode resolve client-side from the loaded
   // journal window (there is no local `entry_ref` index for a cloud
-  // conversation), so the counts and focus lineage come from here.
+  // conversation), so the focus lineage comes from here. Reply counts need
+  // no feed: the timeline projection derives them from the rows it renders.
   useEffect(() => {
     if (!enabled || !conversationId) return;
-    provideReplyCounts(conversationId, countReplyRefs(persistedMessages));
     provideLineageSource(conversationId, {
       messages: persistedMessages,
       hasOlder: conversation.state.hasOlder,
@@ -493,7 +489,6 @@ export function useCloudChatBridge({
       tasks,
     });
     return () => {
-      provideReplyCounts(conversationId, null);
       provideLineageSource(conversationId, null);
     };
   }, [

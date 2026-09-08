@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { journalRecordsToMessageRecords } from "@/features/cloud/journal-message-records";
 import type { JournalRecord } from "@/features/cloud/conversation-protocol";
-import { countReplyRefs } from "@/features/chat/services/reply-counts-store";
+import { projectReplyContexts } from "@stella/contracts/reply-context";
 import { replyRefsFromPayload } from "@/features/chat/lib/reply-refs";
 
 const message = (
@@ -57,13 +57,21 @@ describe("cloud journal reply refs", () => {
         title: "",
       },
     ]);
-    expect(countReplyRefs(messages)).toEqual({
+    // Cited from a later exchange, so both references count as distant.
+    const projection = projectReplyContexts(
+      messages.map((record) => ({
+        id: record._id,
+        role: record.type === "user_message" ? "user" : "assistant",
+        refs: replyRefsFromPayload(record.payload),
+      })),
+    );
+    expect(projection.counts).toEqual({
       messages: { u1: 1 },
       agents: { "pricing-research": 1 },
     });
   });
 
-  it("falls back to the agent named in a hidden lifecycle prompt", () => {
+  it("falls back to the agent named in a hidden lifecycle prompt, titled from it", () => {
     const records: JournalRecord[] = [
       message(
         7,
@@ -81,7 +89,7 @@ describe("cloud journal reply refs", () => {
       {
         kind: "agent",
         threadId: "pricing-research",
-        title: "",
+        title: "Pricing research",
       },
     ]);
   });

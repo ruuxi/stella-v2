@@ -1,4 +1,4 @@
-import { projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
+import { lifecycleWakeTask, projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
 import { splitReplyRefs, toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
 import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
@@ -272,9 +272,21 @@ export const projectCloudConversationMessages = (args: {
         continue;
       }
       if (record.role !== "assistant" || record.hidden) continue;
+      const spawnedThreadIds: string[] = [];
+      const spawnedDescriptions: string[] = [];
       const tools: ToolStep[] = toolCalls(record).flatMap((call) => {
         const result = toolResults.get(call.id);
         if (!result) return [];
+        if (call.name === "spawn_agent" || call.name === "send_input") {
+          const details = result.payload.details;
+          const threadId = details && typeof details === "object" && "thread_id" in details ? details.thread_id : undefined;
+          const argThreadId = call.args && "thread_id" in call.args ? call.args.thread_id : undefined;
+          for (const candidate of [threadId, argThreadId]) {
+            if (typeof candidate === "string" && candidate && !spawnedThreadIds.includes(candidate)) spawnedThreadIds.push(candidate);
+          }
+          const description = call.name === "spawn_agent" && call.args && "description" in call.args ? call.args.description : undefined;
+          if (typeof description === "string" && description.trim() && !spawnedDescriptions.includes(description.trim())) spawnedDescriptions.push(description.trim());
+        }
         return [
           {
             id: call.id,
@@ -300,8 +312,8 @@ export const projectCloudConversationMessages = (args: {
       const replyRefs = storedRefs.length ? storedRefs : rawReplyRefs;
       if (!replyRefs.length) {
         const wake = turn.find(r => r.kind === "message" && r.role === "user" && r.hidden);
-        const threadId = wake?.kind === "message" ? /\(thread ([^)]+)\)/u.exec(messageText(wake.payload))?.[1] : undefined;
-        if (threadId) replyRefs.push({ kind: "agent", threadId, title: "" });
+        const task = wake?.kind === "message" ? lifecycleWakeTask(messageText(wake.payload)) : null;
+        if (task) replyRefs.push({ kind: "agent", threadId: task.threadId, title: task.description ?? "" });
       }
       const artifacts = [
         ...mapRouteArtifacts({
@@ -329,6 +341,8 @@ export const projectCloudConversationMessages = (args: {
         canonicalCreatedAt: record.createdAtMs,
         sequence: record.seq,
         ...(tools.length ? { toolSteps: tools } : {}),
+        ...(spawnedThreadIds.length ? { spawnedThreadIds } : {}),
+        ...(spawnedDescriptions.length ? { spawnedDescriptions } : {}),
         ...(artifacts.length ? { artifacts } : {}),
       });
     }

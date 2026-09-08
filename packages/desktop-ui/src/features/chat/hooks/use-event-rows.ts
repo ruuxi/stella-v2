@@ -1,4 +1,5 @@
 import { withReplyContext } from "../lib/reply-context";
+import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { parseReplyRefs } from "@/features/chat/lib/reply-refs";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
@@ -206,6 +207,68 @@ export const getBackgroundWork = (
  * `send_input` follow-up can share the same assistant row, but they are still
  * separate user-visible actions and must not be flattened into one card.
  */
+/**
+ * Agent threads a set of tool events started, for reply context. Unlike the
+ * inline card this needs no lifecycle event: a cloud journal spreads the
+ * `spawn_agent` / `send_input` result details (`thread_id`) onto the
+ * `tool_result` payload, and a local transcript carries `agent-started`.
+ * Either is enough to say "this exchange owns that task".
+ */
+export const getSpawnedThreadIds = (
+  events: readonly EventRecord[],
+): string[] => {
+  const ids: string[] = [];
+  const add = (id: unknown) => {
+    const value = asNonEmptyString(id);
+    if (value && !ids.includes(value)) ids.push(value);
+  };
+  for (const event of events) {
+    if (isAgentStartedEvent(event)) {
+      add(event.payload.agentId);
+      continue;
+    }
+    const payload = event.payload as
+      | { toolName?: unknown; thread_id?: unknown; result?: unknown; args?: { thread_id?: unknown } }
+      | undefined;
+    if (payload?.toolName !== "spawn_agent" && payload?.toolName !== "send_input") continue;
+    if (event.type === "tool_request") {
+      // `send_input` names the thread it steers in its arguments.
+      add(payload.args?.thread_id);
+      continue;
+    }
+    if (event.type !== "tool_result") continue;
+    add(payload.thread_id);
+    const result = payload.result;
+    if (result && typeof result === "object" && "thread_id" in result) {
+      add((result as { thread_id?: unknown }).thread_id);
+    }
+  }
+  return ids;
+};
+
+/**
+ * Descriptions of the tasks a set of tool events spawned. A locally executed
+ * turn mirrored into the cloud journal keeps neither a lifecycle card nor a
+ * structured spawn result, so the `spawn_agent` request's description is the
+ * only durable handle; reply context matches it against the task titles that
+ * later reports cite (the same match the focus lineage uses).
+ */
+export const getSpawnedDescriptions = (
+  events: readonly EventRecord[],
+): string[] => {
+  const descriptions: string[] = [];
+  for (const event of events) {
+    if (event.type !== "tool_request") continue;
+    const payload = event.payload as
+      | { toolName?: unknown; args?: { description?: unknown } }
+      | undefined;
+    if (payload?.toolName !== "spawn_agent") continue;
+    const description = asNonEmptyString(payload.args?.description);
+    if (description && !descriptions.includes(description)) descriptions.push(description);
+  }
+  return descriptions;
+};
+
 export const getBackgroundWorks = (
   events: readonly EventRecord[],
 ): NonNullable<ReturnType<typeof getBackgroundWork>>[] => {
@@ -272,6 +335,8 @@ const getCwd = (events: readonly EventRecord[]): string | undefined => {
 type UseEventRowsOptions = {
   messages: MessageRecord[];
   maxItems?: number;
+  /** Task titles by thread id (runtime Activity list), for reply context. */
+  agentTitles?: ReadonlyMap<string, string>;
 };
 
 type UseEventRowsResult = {
@@ -479,7 +544,7 @@ const coalesceVoiceSessionRows = (
 export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
   const developerResourcePreviewsEnabled =
     useDeveloperResourcePreviewsEnabled();
-  const { messages, maxItems } = opts;
+  const { messages, maxItems, agentTitles } = opts;
 
   const displayMessages = useMemo(
     () => filterMessagesForUiDisplay(messages),
@@ -683,11 +748,22 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           contextMetadata.quotedText.trim()
             ? contextMetadata.quotedText.trim()
             : undefined;
+        const userSpawnedThreadIds = getSpawnedThreadIds(message.toolEvents);
+        const userSpawnedDescriptions = getSpawnedDescriptions(message.toolEvents);
         const row: UserRowViewModel = {
           kind: "user",
           id: message._id,
           text: getDisplayUserText(message),
           timestampMs: message.timestamp,
+          ...(isUiHiddenChatMessagePayload(message.payload ?? null)
+            ? { hidden: true }
+            : {}),
+          ...(userSpawnedThreadIds.length > 0
+            ? { spawnedThreadIds: userSpawnedThreadIds }
+            : {}),
+          ...(userSpawnedDescriptions.length > 0
+            ? { spawnedDescriptions: userSpawnedDescriptions }
+            : {}),
           ...(windowLabel ? { windowLabel } : {}),
           ...(windowPreviewImageUrl ? { windowPreviewImageUrl } : {}),
           ...(appSelectionLabels.length > 0 ? { appSelectionLabels } : {}),
@@ -783,6 +859,8 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const voiceSession = payload?.metadata?.voiceSession;
         const backgroundWorks = buildBackgroundWorks(toolEvents);
         const backgroundWork = backgroundWorks[0];
+        const spawnedThreadIds = getSpawnedThreadIds(toolEvents);
+        const spawnedDescriptions = getSpawnedDescriptions(toolEvents);
         const agentCompletionSections = projectAgentCompletionSections(
           toolEvents,
           lifecycleIndex,
@@ -816,6 +894,8 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(sourceDiffPayloads.length > 0 ? { sourceDiffPayloads } : {}),
           ...(voiceSession ? { voiceSession } : {}),
           ...(backgroundWork ? { backgroundWork } : {}),
+          ...(spawnedThreadIds.length > 0 ? { spawnedThreadIds } : {}),
+          ...(spawnedDescriptions.length > 0 ? { spawnedDescriptions } : {}),
           ...(agentCompletionSections.length > 0
             ? { agentCompletion: { sections: agentCompletionSections } }
             : {}),
@@ -1034,8 +1114,11 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         ? computed.filter((_, index) => !droppedRowIndices.has(index))
         : computed;
 
-    return withReplyContext(coalesceVoiceSessionRows(coalesceInlineImageRows(deduped)));
-  }, [developerResourcePreviewsEnabled, displayMessages, lifecycleIndex]);
+    return withReplyContext(
+      coalesceVoiceSessionRows(coalesceInlineImageRows(deduped)),
+      { agentTitles },
+    );
+  }, [agentTitles, developerResourcePreviewsEnabled, displayMessages, lifecycleIndex]);
 
   const rowsStableRef = useRef<StableTurnRowsState<EventRowViewModel> | null>(
     null,

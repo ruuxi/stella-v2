@@ -39,6 +39,21 @@ export type UserRowViewModel = {
   quotedText?: string;
   attachments: Attachment[];
   channelEnvelope?: ChannelEnvelope;
+  /**
+   * Distant replies that cite this message (see
+   * `@stella/contracts/reply-context`). Drives the "N replies" badge under
+   * the bubble; adjacent answers are not counted.
+   */
+  replyCount?: number;
+  /**
+   * Runtime wake prompt (`[Agent completed]` and friends) that renders no
+   * bubble. It must not start a new exchange for reply context.
+   */
+  hidden?: boolean;
+  /** Agent threads whose spawn was anchored on this message's tool events. */
+  spawnedThreadIds?: string[];
+  /** Descriptions of `spawn_agent` requests anchored here (see assistant rows). */
+  spawnedDescriptions?: string[];
 };
 
 export type AssistantRowViewModel = {
@@ -88,6 +103,18 @@ export type AssistantRowViewModel = {
   replyRefs?: ReplyRef[];
   /** User turn this assistant row belongs to (for inline-image coalescing). */
   replyToUserMessageId?: string;
+  /**
+   * Agent threads this row's tool events started (`agent-started`, or a
+   * `spawn_agent` / `send_input` result naming its thread). Feeds reply
+   * context even when no inline card is drawn for the spawn.
+   */
+  spawnedThreadIds?: string[];
+  /**
+   * Descriptions of the `spawn_agent` requests on this row. When the journal
+   * carries no thread id for a spawn, reply context matches these against
+   * the task titles later reports cite.
+   */
+  spawnedDescriptions?: string[];
   officePreviewRef?: OfficePreviewRef;
   resourcePayload?: DisplayPayload;
   /** Orchestrator image_gen inline cards — one group per tool call. */

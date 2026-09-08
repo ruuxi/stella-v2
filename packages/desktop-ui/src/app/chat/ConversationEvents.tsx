@@ -16,6 +16,7 @@ import {
 import type { LegendListRef } from "@legendapp/list/react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { useEventRows } from "@/features/chat/hooks/use-event-rows";
+import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
 import { ChatTimeline } from "./ChatTimeline";
 import type { InlineWorkingIndicatorMountProps } from "./InlineWorkingIndicator";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
@@ -173,9 +174,26 @@ export const ConversationEvents = memo(function ConversationEvents({
   alignItemsAtEnd,
   reserveTailSpace,
 }: Props) {
+  // Task titles from the runtime's Activity list give reply context the
+  // thread behind a spawn whose journal row only recorded a description.
+  // Keyed on ids and titles only, so status churn never re-projects rows.
+  const activity = useThreadActivity(conversationId);
+  const agentTitlesKey = activity.records
+    .map((record) => `${record.threadId}\u001f${record.description ?? ""}`)
+    .join("\u001e");
+  const agentTitles = useMemo(() => {
+    const titles = new Map<string, string>();
+    if (!agentTitlesKey) return titles;
+    for (const entry of agentTitlesKey.split("\u001e")) {
+      const [threadId, title] = entry.split("\u001f");
+      if (threadId && title) titles.set(threadId, title);
+    }
+    return titles;
+  }, [agentTitlesKey]);
   const { rows: projectedRows } = useEventRows({
     messages,
     maxItems,
+    agentTitles,
   });
 
   const justSentCandidates = useMemo(

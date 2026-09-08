@@ -1,9 +1,41 @@
 import type { ReplyRef } from "@stella/contracts/reply-refs";
+import {
+  projectReplyContexts,
+  replyRefKey,
+  titleNamesThread,
+  type ReplyContextProjection,
+  type ReplyContextRow,
+} from "@stella/contracts/reply-context";
 import type { ChatMessage, ChatArtifact } from "../types";
 import type { JournalRecord } from "./cloud-conversation-protocol";
 
+const WAKE_THREAD_RE = /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?(?:^thread_id:\s*(\S+)|\(thread ([^)]+)\))/mu;
+const WAKE_DESCRIPTION_RE = /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^description:\s*(.+)$/mu;
+
+/**
+ * The task named by a hidden lifecycle wake prompt (`[Agent completed]` and
+ * friends): its thread id and, when carried, its description. A locally
+ * executed turn mirrored into the journal has no lifecycle card, so this is
+ * where a cited task's title comes from.
+ */
+export function lifecycleWakeTask(text: string): { threadId: string; description?: string } | null {
+  const match = WAKE_THREAD_RE.exec(text);
+  const threadId = (match?.[1] ?? match?.[2])?.trim();
+  if (!threadId) return null;
+  const description = WAKE_DESCRIPTION_RE.exec(text)?.[1]?.trim();
+  return description ? { threadId, description } : { threadId };
+}
+
 export function projectMobileLifecycle(messages: ChatMessage[], records: readonly JournalRecord[], conversationId: string): ChatMessage[] {
   const titles = new Map<string, string>();
+  for (const record of records) {
+    if (record.kind !== "message" || record.role !== "user" || !record.hidden) continue;
+    const content = record.payload.content;
+    const text = typeof content === "string" ? content
+      : Array.isArray(content) ? content.map(block => block && typeof block === "object" && "text" in block && typeof block.text === "string" ? block.text : "").join("\n") : "";
+    const task = lifecycleWakeTask(text);
+    if (task?.description && !titles.has(task.threadId)) titles.set(task.threadId, task.description);
+  }
   const starts = new Map<string, ChatArtifact>();
   const messagesById = new Map(messages.map(message => [message.id, message]));
   const latestAssistantByTurn = new Map<string, ChatMessage>();
@@ -39,35 +71,118 @@ export function projectMobileLifecycle(messages: ChatMessage[], records: readonl
   } : {}) }));
 }
 
-const key = (ref: ReplyRef) => ref.kind === "agent" ? `a:${ref.threadId}` : `m:${ref.id}`;
-export function mobileReplyContexts(messages: readonly ChatMessage[]): ReadonlyMap<string, ReplyRef> {
-  let context = new Set<string>();
-  const result = new Map<string, ReplyRef>();
+/** Lifecycle state of a task as the transcript's work cards last saw it. */
+export type MobileAgentState = "running" | "completed" | "error";
+
+export type MobileReplyContexts = ReplyContextProjection & {
+  /** Latest known state per agent thread, for the quoted task's status glyph. */
+  agentStates: ReadonlyMap<string, MobileAgentState>;
+};
+
+const agentIdsOf = (message: ChatMessage): string[] => {
+  const ids: string[] = [...(message.spawnedThreadIds ?? [])];
+  for (const artifact of message.artifacts ?? []) {
+    if (artifact.payload.kind === "agent-work") {
+      for (const id of artifact.payload.agentIds ?? []) if (!ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+};
+
+/**
+ * Apply the shared reply-context rule (`@stella/contracts/reply-context`) to
+ * the mobile transcript. Same outcome as desktop: one quotable reference per
+ * assistant row that reaches outside its exchange, and a distant-reply count
+ * per original message for the "N replies" badge.
+ */
+/**
+ * Agent threads each row owns: spawned by thread id, or by a spawn
+ * description matched to a task title the transcript knows (a cited title,
+ * a work card, or the thread id's slug). One rule for reply context and the
+ * focused chain, so the badge and the chain agree.
+ */
+export function mobileOwnedAgentIds(messages: readonly ChatMessage[]): (message: ChatMessage) => string[] {
+  const threadIdsByTitle = new Map<string, string[]>();
+  const citedThreadIds = new Set<string>();
+  const learn = (title: string | undefined, threadId: string) => {
+    const key = title?.trim();
+    if (!key) return;
+    const known = threadIdsByTitle.get(key) ?? [];
+    if (!known.includes(threadId)) known.push(threadId);
+    threadIdsByTitle.set(key, known);
+  };
   for (const message of messages) {
-    if (message.role === "user") { context = new Set([`m:${message.id}`, `m:${message.canonicalId ?? message.id}`]); continue; }
-    const refs = message.replyRefs ?? [];
-    const candidates = refs.some(ref => ref.kind === "agent") ? refs.filter(ref => ref.kind === "agent") : refs;
-    const visible = candidates.find(ref => !context.has(key(ref)));
-    if (visible) result.set(message.id, visible);
-    const next = new Set(refs.map(key));
-    next.add(`m:${message.id}`);
-    if (message.requestId) {
-      next.add(`m:${message.requestId}`);
-      if (context.has(`m:${message.requestId}`)) for (const k of context) next.add(k);
+    for (const ref of message.replyRefs ?? []) {
+      if (ref.kind !== "agent") continue;
+      citedThreadIds.add(ref.threadId);
+      learn(ref.title, ref.threadId);
     }
     for (const artifact of message.artifacts ?? []) {
-      if (artifact.payload.kind === "agent-work") for (const id of artifact.payload.agentIds ?? []) next.add(`a:${id}`);
+      if (artifact.payload.kind !== "agent-work") continue;
+      for (const id of artifact.payload.agentIds ?? []) learn(artifact.payload.title, id);
     }
-    context = next;
   }
-  return result;
+  return (message: ChatMessage) => {
+    const owned = agentIdsOf(message);
+    for (const title of message.spawnedDescriptions ?? []) {
+      for (const id of threadIdsByTitle.get(title.trim()) ?? []) if (!owned.includes(id)) owned.push(id);
+      // Last resort: the thread id is the description's slug.
+      for (const id of citedThreadIds) if (!owned.includes(id) && titleNamesThread(title, id)) owned.push(id);
+    }
+    return owned;
+  };
 }
 
+export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileReplyContexts {
+  const agentStates = new Map<string, MobileAgentState>();
+  const ownedAgents = mobileOwnedAgentIds(messages);
+  const rows: ReplyContextRow[] = messages.map(message => {
+    const aliasIds = message.canonicalId ? [message.canonicalId] : undefined;
+    if (message.role === "user") return { id: message.id, role: "user", ...(aliasIds ? { aliasIds } : {}) };
+    for (const artifact of message.artifacts ?? []) {
+      if (artifact.payload.kind !== "agent-work") continue;
+      const state: MobileAgentState = artifact.payload.state === "running" ? "running" : artifact.payload.failed ? "error" : "completed";
+      for (const id of artifact.payload.agentIds ?? []) agentStates.set(id, state);
+    }
+    const ownsAgentIds = ownedAgents(message);
+    return {
+      id: message.id,
+      role: "assistant",
+      ...(aliasIds ? { aliasIds } : {}),
+      ...(message.replyRefs ? { refs: message.replyRefs } : {}),
+      ...(message.requestId ? { answersMessageIds: [message.requestId] } : {}),
+      ...(ownsAgentIds.length ? { ownsAgentIds } : {}),
+    };
+  });
+  const projection = projectReplyContexts(rows);
+  return { ...projection, agentStates };
+}
+
+/**
+ * The focused chain for one root. A task root: the turn that spawned it and
+ * every reply citing it. A message root: the ask, its own turn's replies,
+ * every reply citing it, and every update on the tasks that turn spawned.
+ */
 export function mobileReplyLineage(messages: readonly ChatMessage[], root: ReplyRef): ChatMessage[] {
+  const isRootMessage = (message: ChatMessage) => root.kind === "message" && (message.id === root.id || message.canonicalId === root.id);
+  const rootIds = new Set<string>();
+  if (root.kind === "message") {
+    rootIds.add(root.id);
+    for (const message of messages) if (isRootMessage(message)) { rootIds.add(message.id); if (message.canonicalId) rootIds.add(message.canonicalId); }
+  }
+  const turnOf = (message: ChatMessage) => root.kind === "message" && Boolean(message.requestId) && rootIds.has(message.requestId!);
+  const ownAgentIds = new Set<string>();
+  if (root.kind === "message") {
+    const ownedAgents = mobileOwnedAgentIds(messages);
+    for (const message of messages) if (turnOf(message)) for (const id of ownedAgents(message)) ownAgentIds.add(id);
+  }
+  const cites = (ref: ReplyRef) => root.kind === "agent"
+    ? replyRefKey(ref) === replyRefKey(root)
+    : (ref.kind === "message" && rootIds.has(ref.id)) || (ref.kind === "agent" && ownAgentIds.has(ref.threadId));
   const owns = (message: ChatMessage) => root.kind === "agent"
     ? message.artifacts?.some(a => a.payload.kind === "agent-work" && a.payload.agentIds?.includes(root.threadId))
-    : message.id === root.id || message.canonicalId === root.id;
-  const selected = messages.filter(m => owns(m) || m.replyRefs?.some(ref => key(ref) === key(root)));
+    : isRootMessage(message) || turnOf(message);
+  const selected = messages.filter(m => owns(m) || m.replyRefs?.some(cites));
   const userIds = new Set(selected.filter(m => owns(m)).map(m => m.requestId));
   const selectedIds = new Set(selected.map(message => message.id));
   return messages.filter(m => selectedIds.has(m.id) || userIds.has(m.id) || (Boolean(m.canonicalId) && userIds.has(m.canonicalId)));

@@ -2237,9 +2237,12 @@ export class ChatLog {
 
   /**
    * The lineage of one message or one agent thread: the root itself, the
-   * turn that spawned the agent, and every reply that cited either. Newest
-   * first, keyset-paged on `beforeSequence`, so a long-lived thread the user
-   * keeps steering pages exactly like the main timeline.
+   * turn that spawned the agent, and every reply that cited either. A
+   * message root also carries its own turn's replies and every update on
+   * the tasks that turn spawned — from the user's side the task is the ask,
+   * and completions cite the task rather than the message. Newest first,
+   * keyset-paged on `beforeSequence`, so a long-lived thread the user keeps
+   * steering pages exactly like the main timeline.
    */
   listLineageMessages(
     conversationId: string,
@@ -2269,6 +2272,30 @@ export class ChatLog {
         | undefined;
       if (!row) return { messages: [], visibleMessageCount: 0, hasOlder: false };
       rootSeqs.push(row.seq);
+      const turnRows = this.db
+        .prepare(
+          `SELECT seq FROM entry
+           WHERE conversation_id = ? AND turn_seq = ? AND visible = 1
+             AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})`,
+        )
+        .all(conversationId, row.seq, ...CHAT_MESSAGE_TYPES) as Array<{ seq: number }>;
+      for (const turnRow of turnRows) lineageSeqs.add(turnRow.seq);
+      const spawned = this.db
+        .prepare(
+          `SELECT DISTINCT json_extract(payload, '$.agentId') AS agentId FROM entry
+           WHERE conversation_id = ? AND type = 'agent-started' AND turn_seq = ?`,
+        )
+        .all(conversationId, row.seq) as Array<{ agentId: string | null }>;
+      for (const { agentId } of spawned) {
+        if (!agentId) continue;
+        const agentRefs = this.db
+          .prepare(
+            `SELECT entry_seq AS seq FROM entry_ref
+             WHERE conversation_id = ? AND target_kind = 'agent' AND target_key = ?`,
+          )
+          .all(conversationId, agentId) as Array<{ seq: number }>;
+        for (const ref of agentRefs) lineageSeqs.add(ref.seq);
+      }
     } else {
       const threadId = args.root.threadId;
       const starts = this.db

@@ -1,33 +1,118 @@
-import type { EventRowViewModel } from "../conversation-row-types";
-import type { ReplyRef } from "@stella/contracts/reply-refs";
+import type { EventRowViewModel, UserRowViewModel } from "../conversation-row-types";
+import {
+  projectReplyContexts,
+  replyCountFor,
+  titleNamesThread,
+  type ReplyContextRow,
+} from "@stella/contracts/reply-context";
 
-const refKey = (ref: ReplyRef) => ref.kind === "agent" ? `a:${ref.threadId}` : `m:${ref.id}`;
+export type ReplyContextOptions = {
+  /**
+   * Task titles by thread id from the runtime's Activity list. The
+   * authoritative source when the transcript itself carries no title for a
+   * spawn (a locally executed turn mirrored into the cloud journal).
+   */
+  agentTitles?: ReadonlyMap<string, string>;
+};
 
-/** Keep navigation only when a reply returns to work outside the current exchange.
- * Persisted references stay intact for lineage; this changes display rows only. */
-export function withReplyContext(rows: EventRowViewModel[]): EventRowViewModel[] {
-  let context = new Set<string>();
-  return rows.map(row => {
+/**
+ * A user row that paints nothing (a runtime wake prompt whose text is
+ * withheld, with no attachments or context chips) is not a new ask.
+ */
+const rendersNothing = (row: UserRowViewModel): boolean =>
+  !row.text.trim() &&
+  row.attachments.length === 0 &&
+  !row.windowLabel &&
+  !row.quotedText &&
+  !(row.pastedTexts?.length) &&
+  !(row.appSelectionLabels?.length) &&
+  !row.activityLabel;
+
+/**
+ * Apply the shared reply-context rule (`@stella/contracts/reply-context`) to
+ * the projected timeline. Persisted references stay intact for lineage and
+ * focus; this changes display rows only:
+ *   - an assistant row keeps at most one quotable reference, and only when
+ *     it reaches outside the exchange the reader is already in;
+ *   - a user row learns how many distant replies cite it, for the
+ *     "N replies" badge that opens its chain.
+ */
+export function withReplyContext(
+  rows: EventRowViewModel[],
+  options: ReplyContextOptions = {},
+): EventRowViewModel[] {
+  // Task titles the timeline knows, so a spawn that only recorded its
+  // description (a local turn mirrored to the cloud journal) still owns the
+  // thread a later report cites by that same title.
+  const threadIdsByTitle = new Map<string, string[]>();
+  const citedThreadIds = new Set<string>();
+  const learn = (title: string | undefined, threadId: string) => {
+    const key = title?.trim();
+    if (!key) return;
+    const known = threadIdsByTitle.get(key);
+    if (!known) threadIdsByTitle.set(key, [threadId]);
+    else if (!known.includes(threadId)) known.push(threadId);
+  };
+  for (const [threadId, title] of options.agentTitles ?? []) learn(title, threadId);
+  for (const row of rows) {
+    if (row.kind !== "assistant") continue;
+    for (const ref of row.replyRefs ?? []) {
+      if (ref.kind !== "agent") continue;
+      citedThreadIds.add(ref.threadId);
+      learn(ref.title, ref.threadId);
+    }
+    for (const [threadId, title] of Object.entries(row.backgroundWork?.descriptions ?? {})) {
+      learn(title, threadId);
+    }
+  }
+  const ownedAgents = (ids: readonly string[] | undefined, titles: readonly string[] | undefined) => {
+    const owned = [...(ids ?? [])];
+    for (const title of titles ?? []) {
+      for (const threadId of threadIdsByTitle.get(title.trim()) ?? []) {
+        if (!owned.includes(threadId)) owned.push(threadId);
+      }
+      // Last resort: the thread id is the description's slug.
+      for (const threadId of citedThreadIds) {
+        if (!owned.includes(threadId) && titleNamesThread(title, threadId)) owned.push(threadId);
+      }
+    }
+    return owned;
+  };
+  const input: ReplyContextRow[] = rows.map((row) => {
     if (row.kind === "user") {
-      context = new Set([`m:${row.id}`]);
-      return row;
+      const owns = ownedAgents(row.spawnedThreadIds, row.spawnedDescriptions);
+      return {
+        id: row.id,
+        role: "user",
+        ...(row.hidden || rendersNothing(row) ? { hidden: true } : {}),
+        ...(owns.length ? { ownsAgentIds: owns } : {}),
+      };
     }
-    if (row.kind !== "assistant") return row;
-    const refs = row.replyRefs ?? [];
-    // A task reference is more specific than the user message quoted beside it.
-    const candidates = refs.some(ref => ref.kind === "agent")
-      ? refs.filter(ref => ref.kind === "agent") : refs;
-    const visible = candidates.find(ref => !context.has(refKey(ref)));
-    const next = new Set<string>();
-    for (const ref of refs) next.add(refKey(ref));
-    if (row.replyToUserMessageId) next.add(`m:${row.replyToUserMessageId}`);
-    if (row.sourceMessageId) next.add(`m:${row.sourceMessageId}`);
-    for (const id of row.backgroundWork?.threadIds ?? []) next.add(`a:${id}`);
-    // Same-turn preambles and their answers share the work they introduced.
-    if (row.isIntraTurn || (row.replyToUserMessageId && context.has(`m:${row.replyToUserMessageId}`))) {
-      for (const key of context) next.add(key);
+    if (row.kind !== "assistant") return { id: row.id, role: "assistant" };
+    const answers: string[] = [];
+    if (row.replyToUserMessageId) answers.push(row.replyToUserMessageId);
+    if (row.sourceMessageId) answers.push(row.sourceMessageId);
+    const ownsAgentIds = ownedAgents(
+      [...(row.backgroundWork?.threadIds ?? []), ...(row.spawnedThreadIds ?? [])],
+      row.spawnedDescriptions,
+    );
+    return {
+      id: row.id,
+      role: "assistant",
+      ...(row.replyRefs ? { refs: row.replyRefs } : {}),
+      ...(answers.length ? { answersMessageIds: answers } : {}),
+      ...(ownsAgentIds.length ? { ownsAgentIds } : {}),
+    };
+  });
+  const { contexts, counts } = projectReplyContexts(input);
+  return rows.map((row) => {
+    if (row.kind === "user") {
+      const replyCount = replyCountFor(counts, [row.id]);
+      if (replyCount === (row.replyCount ?? 0)) return row;
+      return { ...row, replyCount };
     }
-    context = next;
-    return refs.length ? { ...row, replyRefs: visible ? [visible] : [] } : row;
+    if (row.kind !== "assistant" || !row.replyRefs?.length) return row;
+    const visible = contexts.get(row.id);
+    return { ...row, replyRefs: visible ? [visible] : [] };
   });
 }

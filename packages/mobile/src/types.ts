@@ -226,6 +226,18 @@ export type ComposerQuote = {
 export type ChatMessage = {
   /** Durable reply relationships; UI hides adjacent context. */
   replyRefs?: ReplyRef[];
+  /**
+   * Agent threads this row's `spawn_agent` / `send_input` calls started, from
+   * the tool result details. Feeds reply context (the exchange owns the
+   * task) even when no lifecycle card reached the transcript.
+   */
+  spawnedThreadIds?: string[];
+  /**
+   * Descriptions of `spawn_agent` requests on this row. When the journal
+   * carries no thread id for a spawn, reply context matches these against
+   * the task titles later reports cite.
+   */
+  spawnedDescriptions?: string[];
   id: string;
   /**
    * Desktop-local message id this row reconciled to. Mobile keeps `id` stable

@@ -1,7 +1,9 @@
 import { BubbleMorphProvider, MorphingAssistantBubble } from "./BubbleMorph";
-import type { ReplyRef } from "@stella/contracts/reply-refs";
-import { ReplyFocus, replyTitle } from "./ReplyFocus";
-import { mobileReplyContexts } from "../lib/mobile-reply-context";
+import { toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
+import { replyCountFor } from "@stella/contracts/reply-context";
+import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
+import { ReplyCountBadge, ReplyPreview, type ReplyAgentStatus } from "./ReplyPreview";
+import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
 import {
   type ReactNode,
   memo,
@@ -1442,7 +1444,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onAskStella,
   onOpenAgentActivity,
   contextRef,
+  contextStatus,
+  replyCount,
   onOpenReply,
+  onOpenReport,
   desktopAccess,
 }: {
   item: ChatMessage;
@@ -1464,8 +1469,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onAskStella: (text: string) => void;
   /** Opens the activity hub — the tap-through target for agent rows. */
   onOpenAgentActivity?: () => void;
+  /** The one reference worth quoting above this reply (shared reply-context rule). */
   contextRef?: ReplyRef;
+  /** Live state of the quoted task, for its status glyph. */
+  contextStatus?: ReplyAgentStatus;
+  /** Distant replies that cite this user message; drives the "N replies" badge. */
+  replyCount?: number;
   onOpenReply?: (ref: ReplyRef) => void;
+  onOpenReport?: (ref: AgentReplyRef) => void;
   desktopAccess?: StoredPhoneAccess | null;
 }) {
   // The user bubble lifts (scales up + rises) while its long-press menu is open,
@@ -1680,6 +1691,23 @@ const ChatMessageRow = memo(function ChatMessageRow({
               {item.queued ? "Queued" : "Stopped"}
             </Text>
           ) : null}
+          {replyCount && replyCount > 0 && onOpenReply ? (
+            // "N replies" opens focus on this ask plus every distant reply
+            // that came back to it. References cite the canonical id.
+            <ReplyCountBadge
+              count={replyCount}
+              colors={colors}
+              onOpen={() =>
+                onOpenReply({
+                  kind: "message",
+                  id: item.canonicalId ?? item.id,
+                  sequence: item.sequence ?? 0,
+                  role: "user",
+                  preview: toReplyPreview(item.text),
+                })
+              }
+            />
+          ) : null}
         </View>
       </View>
     );
@@ -1741,10 +1769,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
   };
   return (
     <View style={styles.assistantRow}>
-      {contextRef && onOpenReply && <Pressable accessibilityRole="button" accessibilityLabel={`Open ${replyTitle(contextRef)} conversation`} onPress={() => onOpenReply(contextRef)} style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, alignSelf: "flex-start", maxWidth: "100%" }}>
-        <Text numberOfLines={1} style={{ color: colors.textMuted, fontSize: 12, flexShrink: 1 }}>{replyTitle(contextRef)}</Text>
-        <Icon name="chevron-right" size={12} color={colors.textMuted} />
-      </Pressable>}
+      {contextRef && onOpenReply ? (
+        <ReplyPreview
+          reference={contextRef}
+          status={contextStatus}
+          colors={colors}
+          onOpen={() => onOpenReply(contextRef)}
+          onOpenReport={
+            onOpenReport && contextRef.kind === "agent"
+              ? () => onOpenReport(contextRef)
+              : undefined
+          }
+        />
+      ) : null}
       {hasText ? (
         <MorphingAssistantBubble
           style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
@@ -3077,9 +3114,19 @@ export function ChatPane({
     initialScrollAtEndRef.current = visibleMessages.length > 0;
   }
   const [replyFocus, setReplyFocus] = useState<ReplyRef | null>(null);
+  const [reportRef, setReportRef] = useState<AgentReplyRef | null>(null);
   const replyContexts = useMemo(() => mobileReplyContexts(visibleMessages), [visibleMessages]);
   const closeReplyFocus = useCallback(() => setReplyFocus(null), []);
-  useEffect(() => setReplyFocus(null), [conversationId]);
+  const closeReport = useCallback(() => setReportRef(null), []);
+  useEffect(() => {
+    setReplyFocus(null);
+    setReportRef(null);
+  }, [conversationId]);
+  const contextStatusFor = useCallback(
+    (contexts: MobileReplyContexts, ref: ReplyRef | undefined): ReplyAgentStatus | undefined =>
+      ref?.kind === "agent" ? contexts.agentStates.get(ref.threadId) : undefined,
+    [],
+  );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
   const scroll = useChatScroll(
     listTrailingSlackPx,
@@ -4026,7 +4073,10 @@ export function ChatPane({
             onAskStella={quoteMessage}
             onOpenAgentActivity={onOpenActivity}
             onOpenReply={setReplyFocus}
-            contextRef={replyContexts.get(item.id)}
+            onOpenReport={setReportRef}
+            contextRef={replyContexts.contexts.get(item.id)}
+            contextStatus={contextStatusFor(replyContexts, replyContexts.contexts.get(item.id))}
+            replyCount={replyCountFor(replyContexts.counts, [item.id, item.canonicalId])}
             desktopAccess={desktopAccess}
           />
         </FadeInMessage>
@@ -4034,6 +4084,7 @@ export function ChatPane({
     },
     [
       replyContexts,
+      contextStatusFor,
       lastMessage?.id,
       historyLoading,
       styles,
@@ -4385,15 +4436,29 @@ export function ChatPane({
         {replyFocus && <ReplyFocus
           key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
           root={replyFocus} messages={visibleMessages} conversationId={conversationId ?? ""}
-          colors={colors} onClose={closeReplyFocus} hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
-          renderMessage={(item, contextRef) => <ChatMessageRow item={item} animate={false} styles={styles} colors={colors}
+          colors={colors} onClose={closeReplyFocus} onOpenReport={setReportRef}
+          hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
+          // Inside focus the chain is already open, so rows carry no reply
+          // count; a quote still appears for a link to *other* work.
+          renderMessage={(item, contexts) => <ChatMessageRow item={item} animate={false} styles={styles} colors={colors}
             menuActive={false} isSelecting={false} anySelecting={false}
             onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
             onAskStella={quoteMessage}
-            onOpenReply={setReplyFocus} contextRef={contextRef}
+            onOpenReply={setReplyFocus} onOpenReport={setReportRef}
+            contextRef={contexts.contexts.get(item.id)}
+            contextStatus={contextStatusFor(contexts, contexts.contexts.get(item.id))}
             desktopAccess={desktopAccess} />}
         />}
+        {reportRef && conversationId ? (
+          <AgentReportSheet
+            key={reportRef.threadId}
+            reference={reportRef}
+            conversationId={conversationId}
+            colors={colors}
+            onClose={closeReport}
+          />
+        ) : null}
         {/* Floating glass controls (scroll-to-bottom FAB + computer-options
             button) sit in a pass-through absolute overlay. This MUST be a plain
             View, not a GlassGroup/GlassContainer: the native glass container is
@@ -4402,8 +4467,13 @@ export function ChatPane({
             glass layer beneath the in-tree menu popovers, triggers Apple's
             glass-on-glass suppression that renders those menus clear. A plain
             `box-none` View passes touches through to the list and lets each
-            button — and the popovers — keep their own Liquid Glass. */}
-        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+            button — and the popovers — keep their own Liquid Glass. While a
+            focused chain is open they hide: its glass backdrop would sit over
+            them and, being glass over glass, render them clear. */}
+        <View
+          pointerEvents={replyFocus ? "none" : "box-none"}
+          style={[StyleSheet.absoluteFill, replyFocus ? styles.hiddenWhileFocused : null]}
+        >
           {!searchOpen ? (
             <CatchUpPill
               visible={catchUpVisible}
@@ -4873,6 +4943,7 @@ const makeStyles = (colors: Colors) =>
     },
 
     viewport: { flex: 1, minHeight: 0, position: "relative" },
+    hiddenWhileFocused: { display: "none" },
     messageList: { flex: 1 },
     topTaper: {
       height: EDGE_FADE,

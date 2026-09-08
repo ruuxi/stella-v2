@@ -17,6 +17,23 @@ const userEventId = (record: JournalMessageRecord): string =>
 
 const LIFECYCLE_THREAD_RE =
   /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^thread_id:\s*(\S+)/m;
+const LIFECYCLE_DESCRIPTION_RE =
+  /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^description:\s*(.+)$/m;
+
+/**
+ * The task named by a hidden lifecycle wake prompt (`[Agent completed]`
+ * and friends): its thread id and, when the prompt carries one, its
+ * description. A locally executed turn mirrored into the journal has no
+ * lifecycle card, so this prompt is where the task's title comes from.
+ */
+export const lifecycleWakeTask = (
+  text: string,
+): { threadId: string; description?: string } | null => {
+  const threadId = LIFECYCLE_THREAD_RE.exec(text)?.[1]?.trim();
+  if (!threadId) return null;
+  const description = LIFECYCLE_DESCRIPTION_RE.exec(text)?.[1]?.trim();
+  return description ? { threadId, description } : { threadId };
+};
 
 /**
  * Resolve the citations an assistant journal record carried against the
@@ -69,13 +86,12 @@ export const resolveJournalReplyRefs = (args: {
     });
   }
   if (refs.length === 0 && args.turnUserRecord?.hidden) {
-    const match = LIFECYCLE_THREAD_RE.exec(messageText(args.turnUserRecord.payload));
-    const threadId = match?.[1]?.trim();
-    if (threadId)
+    const wake = lifecycleWakeTask(messageText(args.turnUserRecord.payload));
+    if (wake)
       push({
         kind: "agent",
-        threadId,
-        title: args.agentTitles?.get(threadId) ?? "",
+        threadId: wake.threadId,
+        title: args.agentTitles?.get(wake.threadId) ?? wake.description ?? "",
       });
   }
   return refs;
@@ -221,6 +237,12 @@ export const journalRecordsToMessageRecords = (
     ) {
       const { agentId, description } = record.card.event.payload;
       if (description.trim()) agentTitles.set(agentId, description.trim());
+    }
+    if (record.kind === "message" && record.role === "user" && record.hidden) {
+      const wake = lifecycleWakeTask(messageText(record.payload));
+      if (wake?.description && !agentTitles.has(wake.threadId)) {
+        agentTitles.set(wake.threadId, wake.description);
+      }
     }
     if (record.kind === "message" && record.role === "toolResult") {
       const details = asRecord(record.payload.details);

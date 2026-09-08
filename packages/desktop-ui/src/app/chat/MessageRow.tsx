@@ -54,6 +54,8 @@ import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
+import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
+import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
@@ -441,7 +443,7 @@ type UserRowProps = {
 };
 
 export const UserMessageRow = memo(
-  function UserMessageRow({ row }: UserRowProps) {
+  function UserMessageRow({ row, conversationId }: UserRowProps) {
     const t = useT();
     const messageActions = useUserMessageActions();
     const actionsBusy = useUserMessageActionsBusy();
@@ -455,6 +457,17 @@ export const UserMessageRow = memo(
       [forkAction, row],
     );
     const { text, windowLabel, attachments, channelEnvelope } = row;
+    const replyCount = row.replyCount ?? 0;
+    // "N replies" opens focus on this message: the ask plus every distant
+    // reply that came back to it, without scrolling the whole timeline.
+    const openReplies = useCallback(() => {
+      if (!conversationId) return;
+      openConversationFocus({
+        conversationId,
+        root: { kind: "message", id: row.id },
+        title: text,
+      });
+    }, [conversationId, row.id, text]);
     // Attachment the Copy action falls back to when the message has no text
     // (image → clipboard image; other file → path as text). Memoized so the
     // memoized action row isn't re-rendered by busy-state toggles.
@@ -600,6 +613,9 @@ export const UserMessageRow = memo(
             copyAttachment={copyAttachment ?? undefined}
           />
         )}
+        {replyCount > 0 && conversationId ? (
+          <ReplyCountBadge count={replyCount} onOpen={openReplies} align="end" />
+        ) : null}
       </div>
     );
   },

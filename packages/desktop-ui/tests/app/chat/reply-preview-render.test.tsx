@@ -2,10 +2,10 @@
 /**
  * Rendered-output contract for the iMessage-style reply preview:
  *   - one muted bubble per reference, message previews quote the text;
- *   - an agent preview shows the task title and live status, and its
- *     "Report" button fetches the full report on hover intent and opens it
- *     in a floating panel that its close button dismisses;
- *   - clicking a preview opens focus on that target.
+ *   - an agent preview shows a status glyph and the task title, and its
+ *     "More" button opens the full report in a floating panel;
+ *   - clicking a preview opens focus on that target;
+ *   - more than three references fold behind a "+N more" button.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -99,12 +99,32 @@ describe("work context navigation", () => {
     Object.defineProperty(window, "electronAPI", { configurable: true, value: { localChat: { getAgentReport } } });
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
-  it("shows one compact task label without status, quotation, or Report", () => {
+  it("quotes a task as a bubble with a status glyph, a More action, and a focus target", () => {
+    activityRecords.set("a1", { status: "running", description: "Pricing research" });
     act(() => root.render(withI18n(<ReplyPreview conversationId="c1" refs={[{ kind: "agent", threadId: "a1", title: "Research" }]} />)));
-    expect(container.textContent).toBe("Research");
-    expect(container.querySelectorAll("button")).toHaveLength(1);
-    act(() => container.querySelector("button")!.click());
-    expect(openConversationFocus).toHaveBeenCalledWith({ conversationId: "c1", root: { kind: "agent", threadId: "a1" }, title: "Research" });
+    expect(container.querySelector(".reply-preview__bubble--agent")).not.toBeNull();
+    expect(container.querySelector(".reply-preview__agent-title")?.textContent).toBe("Pricing research");
+    expect(container.querySelector(".reply-preview__agent-status")).toBeNull();
+    expect(container.querySelector(".reply-preview__agent-icon")?.getAttribute("aria-label")).toBe("Working");
+    expect(container.querySelector(".reply-preview__report-toggle")?.textContent).toBe("More");
+    expect(container.querySelector(".reply-preview__connector")).not.toBeNull();
+    act(() => (container.querySelector(".reply-preview__agent-head") as HTMLButtonElement).click());
+    expect(openConversationFocus).toHaveBeenCalledWith({ conversationId: "c1", root: { kind: "agent", threadId: "a1" }, title: "Pricing research" });
+  });
+  it("quotes a cited user message with a label and its excerpt", () => {
+    act(() => root.render(withI18n(<ReplyPreview conversationId="c1" refs={[{ kind: "message", id: "u1", sequence: 1, role: "user", preview: "Compare vendor pricing" }]} />)));
+    const bubble = container.querySelector(".reply-preview__bubble--user") as HTMLButtonElement;
+    expect(bubble.querySelector(".reply-preview__label")?.textContent).toBe("Replying to you");
+    expect(bubble.querySelector(".reply-preview__text")?.textContent).toBe("Compare vendor pricing");
+    act(() => bubble.click());
+    expect(openConversationFocus).toHaveBeenCalledWith({ conversationId: "c1", root: { kind: "message", id: "u1" }, title: "Compare vendor pricing" });
+  });
+  it("stacks several references and folds the overflow behind a more button", () => {
+    const refs = [1, 2, 3, 4].map((n) => ({ kind: "message" as const, id: `u${n}`, sequence: n, role: "user" as const, preview: `Ask ${n}` }));
+    act(() => root.render(withI18n(<ReplyPreview conversationId="c1" refs={refs} />)));
+    expect(container.querySelectorAll(".reply-preview__bubble")).toHaveLength(3);
+    act(() => (container.querySelector(".reply-preview__more") as HTMLButtonElement).click());
+    expect(container.querySelectorAll(".reply-preview__bubble")).toHaveLength(4);
   });
   it("keeps the full cloud report available in the focus action and refreshes it", async () => {
     getAgentReport.mockResolvedValue(null);

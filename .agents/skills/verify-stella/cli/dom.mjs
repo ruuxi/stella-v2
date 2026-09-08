@@ -47,18 +47,22 @@ export function createDomTools() {
   const components = () => [...document.querySelectorAll(controls)].filter(visible).map(describe);
   const chat = (text, conversationId) => {
     const surfaces = [...document.querySelectorAll('[data-testid="chat-surface"]')]
-      .filter((el) => visible(el) && el.getAttribute('data-conversation-id') === conversationId);
+      .filter((el) => el.getAttribute('data-conversation-id') === conversationId);
     if (surfaces.length !== 1) return { surfaceFound: false, matchingMessageIds: [], notices: [], composerCleared: false };
     const surface = surfaces[0];
+    const home = surface.parentElement?.querySelector('.full-body-home-overlay');
+    const composerSurface = home && visible(home) ? home : surface;
+    if (!visible(composerSurface)) return { surfaceFound: false, matchingMessageIds: [], notices: [], composerCleared: false };
     // Include mounted offscreen rows in the baseline, but only visible rows as evidence.
     const rows = [...surface.querySelectorAll('.event-row--user[data-chat-row-id]')];
     const matching = rows.filter((row) => (row.querySelector('.event-item.user')?.textContent || '').trim() === text.trim());
-    const composers = [...surface.querySelectorAll('textarea.composer-input')].filter(visible);
+    const composers = [...composerSurface.querySelectorAll('textarea.composer-input')].filter(visible);
     return { surfaceFound: true,
+      composerScope: composerSurface === home ? '.full-body-home-overlay' : `[data-testid="chat-surface"][data-conversation-id=${JSON.stringify(conversationId)}]`,
       matchingMessageIds: matching.filter(visible).map((row) => row.getAttribute('data-chat-row-id')),
       mountedMatchingMessageIds: matching.map((row) => row.getAttribute('data-chat-row-id')),
       composerCleared: composers.length === 1 && composers[0].value.length === 0,
-      notices: [...surface.querySelectorAll('[role="alert"], [data-testid="composer-notice"]')]
+      notices: [...composerSurface.querySelectorAll('[role="alert"], [data-testid="composer-notice"]')]
         .filter(visible).map((el) => ({ role: el.getAttribute('role'), text: (el.innerText || el.textContent || '').trim().slice(0, 2000) })),
     };
   };

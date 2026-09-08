@@ -1,6 +1,6 @@
 # Account, models, and billing
 
-The top-bar account and model controls expose authentication state, execution target, provider/model choice, usage, subscription, and billing entry points.
+The top-bar account menu and bottom-right model controls expose authentication state, execution target, provider/model choice, usage, subscription, and billing entry points.
 
 ## Sub-features
 
@@ -25,7 +25,7 @@ Preconditions:
 
 - **Discover state.** Run `inspect components` and `inspect state`; record whether account, target, and model controls are present.
 - **Account menu.** Open the visible identity control with `drive click` and assert the menu items appropriate to signed-in or signed-out state.
-- **Target/model.** Select a visible option, close the menu, and read the selected label back from the control.
+- **Target/model.** Select a visible execution target and read its label from the closed control. For a model, reopen Models and inspect the selected option; the trigger always says Models.
 - **Usage/billing.** Open the destination and require its route/dialog heading. Stop before paid checkout unless completing it is explicitly in scope.
 - **Adjacent destinations.** Open Connectors or feedback from the visible menu and capture the resulting route/dialog.
 

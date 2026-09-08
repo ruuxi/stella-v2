@@ -1335,6 +1335,10 @@ const cmdChatNew = async () => {
   const startedAt = Date.now();
   const run = requireRun();
   const before = await readShellState(run);
+  if (!before.historyOpen) {
+    await clickQuery(run, { role: "button", name: "Conversation history" });
+  }
+  await waitQuery(run, { role: "button", name: "New chat" });
   await clickQuery(run, { role: "button", name: "New chat" });
   const after = await waitForState(
     run,
@@ -1370,7 +1374,7 @@ const cmdChatSend = async (options, positionals) => {
     `(${DOM_TOOLS_JS}).chat(${JSON.stringify(text)}, ${JSON.stringify(before.activeConversationId)})`));
   const baseline = await observe();
   if (!baseline.surfaceFound) fail("The active chat surface could not be identified.");
-  const within = `[data-testid="chat-surface"][data-conversation-id=${JSON.stringify(before.activeConversationId)}]`;
+  const within = baseline.composerScope;
   await fillQuery(run, { within, selector: "textarea.composer-input" }, text);
   await dispatchKey(run, KEY_CODES.Enter);
   const deadline = Date.now() + timeoutMs;
@@ -1420,7 +1424,9 @@ const cmdNavHome = async () => {
   const run = requireRun();
   const before = await readShellState(run);
   if (!before.homeOpen) {
-    await clickQuery(run, { role: "button", name: "Home" });
+    fail("Home appears automatically in empty chats; there is no Home launcher. Use `chat new` to create an empty conversation.", 2, {
+      errorCode: "APP_NOT_READY", recovery: "Use `chat new` if a new conversation is intended.", retryable: false,
+    });
   }
   const state = await waitForState(run, (value) => value.homeOpen);
   emitSuccess("nav.home", state, run, startedAt);
@@ -1447,7 +1453,7 @@ const cmdNavDestination = async (command, name) => {
 const ensureSettingsOpen = async (run) => {
   let state = await readShellState(run);
   if (!state.settingsOpen) {
-    await clickQuery(run, { role: "button", name: "Settings" });
+    await clickQuery(run, { selector: 'button[aria-label="Settings"], button[aria-label^="Account,"]' });
     await waitQuery(run, { role: "menuitem", name: "Settings" });
     await clickQuery(run, { role: "menuitem", name: "Settings" });
     await waitQuery(run, { role: "tab", name: "General" });

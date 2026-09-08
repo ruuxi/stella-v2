@@ -21,7 +21,7 @@ Browser surfaces let Stella show web content, while cloud-browser intervention a
 
 Preconditions:
 
-- The verifier is healthy. External pages require network access.
+- The verifier is healthy. Navigation requires the Electron browser bridge and a connected browser/profile, plus network access for external pages. A disconnected extension shows setup or retry instructions.
 - Takeover requires a real pending intervention for the current account/conversation.
 
 - **Open.** Run `node .agents/skills/verify-stella/control-stella.mjs nav browser` and require a selected Browser surface.

@@ -5,7 +5,7 @@ The workspace display is Stella's right-side surface for files, browser views, a
 ## Sub-features
 
 - `display-open` opens a payload as a right-side tab.
-- `display-tabs` selects, reorders, and closes tabs.
+- `display-tabs` selects and closes tabs.
 - `display-topbar` exposes controls appropriate to the active tab.
 - `display-collapse` hides or restores the display without losing its tab model.
 
@@ -26,6 +26,7 @@ Preconditions:
 - **Select.** Run `drive click --role tab --name "<visible tab>"` and require `aria-selected=true` in `inspect aria`.
 - **Top bar.** Capture `inspect components` and assert only controls applicable to the active payload.
 - **Close.** Use the named close control discovered for the active tab. Require another tab to activate or the display to hide cleanly.
+- **Collapse.** Choose **Close panel**, then **Open panel**. Require the selected tab and conversation id to remain unchanged.
 - **Proof.** Capture the full shell so chat and the right-side content are visible together.
 
 ## Gotchas

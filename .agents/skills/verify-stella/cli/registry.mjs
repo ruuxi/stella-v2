@@ -15,7 +15,7 @@ export const COMMANDS = [
   command("chat", "new", "chat-new", "Create and select a new conversation", ["new-session"]),
   command("chat", "send", "chat-send", "Send text through the real composer", ["send"]),
   command("chat", "state", "chat-state", "Inspect conversation and composer state"),
-  command("nav", "home", "nav-home", "Open the current Home overlay", ["home"]),
+  command("nav", "home", "nav-home", "Check the current automatic Home overlay", ["home"]),
   command("nav", "history", "nav-history", "Open Conversation history", ["history"]),
   command("nav", "quick-chat", "nav-quick-chat", "Open Quick chat from New tab"),
   command("nav", "files", "nav-files", "Open Files from New tab"),

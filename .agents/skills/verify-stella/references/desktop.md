@@ -70,7 +70,7 @@ node .agents/skills/verify-stella/control-stella.mjs inspect components
 node .agents/skills/verify-stella/control-stella.mjs drive click --role button --name "New tab"
 node .agents/skills/verify-stella/control-stella.mjs drive fill --placeholder "Do anything" --value "draft"
 node .agents/skills/verify-stella/control-stella.mjs drive press --key Shift+Enter
-node .agents/skills/verify-stella/control-stella.mjs drive press --key Meta+KeyN
+node .agents/skills/verify-stella/control-stella.mjs drive press --key Control+KeyT
 node .agents/skills/verify-stella/control-stella.mjs drive settle
 ```
 
@@ -112,6 +112,8 @@ Cleanup targets only the recorded Electron and Vite PIDs, verifier pointer, and 
 
 `drive click` and `drive fill` require a unique visible match. On ambiguity they return `AMBIGUOUS_TARGET`, the total match count, and up to 20 candidates with labels and geometry. Narrow the target with `--within <CSS scope>` or `--selector`; inspection and targeting share name/role handling. `drive wait` checks existence and permits multiple matches.
 
-`chat send` reports `action: enter-dispatched`, plus `observation: new-user-message`, `new-notice`, or `no-new-evidence`. It compares message IDs and notices in the active conversation against the pre-send state. Timeout returns observations with exit code 2. A new notice is not classified as a provider error; a visible user message does not prove backend acceptance or assistant completion. `responseCompletion` is explicitly `not-assessed`.
+`nav home` checks the automatic empty-chat overlay. If it is closed, the command explains how to create a new chat without creating one implicitly. `chat new` opens Conversation history before choosing New chat.
+
+`chat send` uses the Home composer while the chat layer is obscured and observes new messages after the overlay closes. It reports `action: enter-dispatched`, plus `observation: new-user-message`, `new-notice`, or `no-new-evidence`. It compares message IDs and notices in the active conversation against the pre-send state. Timeout returns observations with exit code 2. A new notice is not classified as a provider error; a visible user message does not prove backend acceptance or assistant completion. `responseCompletion` is explicitly `not-assessed`.
 
 `apps open` and `apps state` return bounded surface text with `classification: not-assessed`; the previous inferred `state` field is removed. `chat send` no longer returns the broad page-text `providerErrorVisible` guess. `ok` means the command ran, not that the feature passed. Text redaction is best-effort and screenshots are unredacted; review artifacts before sharing.

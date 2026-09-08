@@ -14,7 +14,7 @@ Chat is Stella's primary desktop surface. A user opens or creates a conversation
 ## How to get to it (user POV)
 
 - Launch Stella. Electron creates or restores the active conversation and exposes its id on the conversation top bar; the full-window URL may remain `index.html?window=full`.
-- Choose **New chat** in the conversation top bar.
+- Choose **Conversation history**, then **New chat**.
 - Enter text in **Do anything** and press Enter.
 
 ## Driving it with control-stella
@@ -23,12 +23,13 @@ Preconditions:
 
 - `node .agents/skills/verify-stella/control-stella.mjs session doctor` reports healthy.
 - No dialog or sidebar popover covers the composer.
+- New chat requires a ready cloud conversation session. Dictation requires microphone input and permission.
 
 - **Ready.** Run `node .agents/skills/verify-stella/control-stella.mjs chat ready`. Require `ready: true`, a non-empty conversation id, and an enabled visible composer.
 - **Inspect.** Run `node .agents/skills/verify-stella/control-stella.mjs chat state`. Record the conversation id and route without exposing message contents.
 - **Draft.** Run `node .agents/skills/verify-stella/control-stella.mjs drive fill --placeholder "Do anything" --value "hello from verify-stella"`, then capture `inspect aria` and `inspect screenshot` artifacts.
 - **Send.** Run `node .agents/skills/verify-stella/control-stella.mjs chat send --text "hello from verify-stella"`. Require the user message or a bounded visible provider/runtime error. Do not wait indefinitely for model output.
-- **Cloud working state.** Select Cloud in the workspace panel and send a turn that delegates a delayed task. Require Stop while Stella is responding, then no Stop or trailing working indicator after its acknowledgment, even while the background task runs. Require the same idle state after the task completion reply and after reloading. During another active cloud response, press Stop and require the turn to settle.
+- **Cloud working state.** Select Cloud from the execution control beside Models at the bottom of the workspace panel and send a turn that delegates a delayed task. Require Stop while Stella is responding, then no Stop or trailing working indicator after its acknowledgment, even while the background task runs. Require the same idle state after the task completion reply and after reloading. During another active cloud response, press Stop and require the turn to settle.
 - **New conversation.** Run `node .agents/skills/verify-stella/control-stella.mjs chat new`. Require a conversation id different from the recorded id.
 - **Dictation.** Activate the visible microphone with a signed-in cloud session,
   speak a short sentence, and require words to appear before stopping. Continue
@@ -38,6 +39,6 @@ Preconditions:
 ## Gotchas
 
 - A plain Vite browser tab lacks the Electron bridge and can paint while the composer remains disabled.
-- Enter sends and Shift+Enter inserts a newline. `drive press` accepts chords such as `Shift+Enter` and `Meta+KeyN`.
+- Enter sends and Shift+Enter inserts a newline. `drive press` accepts chords such as `Shift+Enter` and `Control+KeyT` on Linux or `Meta+KeyT` on macOS.
 - A live assistant reply depends on configured providers. The user turn or explicit error is sufficient for the submission path.
 - Do not assert a conversation title immediately. Cloud history and title generation can update asynchronously.

@@ -233,7 +233,7 @@
 }
 
 /* Secondary row text wraps to two lines rather than clipping mid-sentence —
-   these lines carry the actual claim on /storage and /voice. */
+   these lines carry the actual claim on /voice. */
 .rowSub {
   display: -webkit-box;
   min-width: 0;

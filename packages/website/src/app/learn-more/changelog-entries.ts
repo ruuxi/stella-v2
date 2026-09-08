@@ -103,7 +103,7 @@ export const changelogEntries: ChangelogEntry[] = [
     highlights: [
       "Dictation now sets up its local speech model quietly in the background, with cloud transcription ready while the download finishes.",
       "Home groups conversations by when you used them — Today, Yesterday, the previous week, the previous month, and older.",
-      "Local chats and settings now live in Stella's durable home folder, separate from replaceable app and browser-session data.",
+      "Settings now live in Stella's durable home folder, separate from replaceable app and browser-session data.",
     ],
     more: [
       "Realtime voice recovers more reliably around interruptions, tool use, and longer conversations.",
@@ -136,7 +136,7 @@ export const changelogEntries: ChangelogEntry[] = [
     date: "August 6, 2026",
     tags: ["New"],
     highlights: [
-      "Stella v2 is the new local-first desktop foundation: the agent runtime, conversations, apps, and workspace state run from your computer while cloud models remain available when needed.",
+      "Stella v2 introduces a redesigned desktop app with a new agent runtime and workspace.",
       "Start a live voice conversation straight from the composer and keep talking while Stella works with tools.",
       "Conversation tabs and history make it easy to keep several chats open and move between them without losing your place.",
     ],
@@ -767,7 +767,7 @@ export const changelogEntries: ChangelogEntry[] = [
     ],
     more: [
       "Chat feels steadier: fewer message flashes, better queued-message cleanup, fewer resize loops, and no double-jump after follow-ups.",
-      "Streaming text and emoji rendering are smoother and stay local.",
+      "Streaming text and emoji rendering are smoother.",
       "The working indicator no longer gets stuck after resuming.",
       "Onboarding completion now persists correctly.",
       "Updates refresh native helpers and stop chasing personal skill state.",
@@ -1035,7 +1035,7 @@ export const changelogEntries: ChangelogEntry[] = [
       "Dictation sound controls in settings.",
       "Launcher shows a recovery view when desktop fails to start, plus an option to revert a bad Stella update.",
       { text: "Launcher, Backend, and Mobile split into their own repositories — the foundation for shipping each on its own schedule.", product: "Launcher" },
-      { text: "iPhone got an in-app QR scanner for desktop pairing, persistent local computer-chat messages, push token registration, and a polished pair/account screen.", product: "Mobile" },
+      { text: "iPhone got an in-app QR scanner for desktop pairing, persistent computer-chat messages, push token registration, and a polished pair/account screen.", product: "Mobile" },
     ],
     more: [
       "Chronicle (screen memory) is now a paid feature.",
@@ -1502,7 +1502,7 @@ export const changelogEntries: ChangelogEntry[] = [
     more: [
       "Wake-word pipeline removed (Stella moved away from always-listening).",
       "Bundled Stella browser binary refreshed.",
-      "Local chat now pages by visible messages for performance.",
+      "Chat now pages by visible messages for performance.",
     ],
   },
   {
@@ -1551,7 +1551,7 @@ export const changelogEntries: ChangelogEntry[] = [
       "Self-mod history is now auto-tracked.",
     ],
     more: [
-      "Faster local data storage.",
+      "Faster data storage.",
       "Refreshed Stella brand assets across desktop, launcher, and mobile.",
       "Mobile privacy paperwork added for iOS.",
     ],

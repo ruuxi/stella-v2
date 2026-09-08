@@ -72,14 +72,8 @@ reaches the same assistant on your computer.
 Ask once. Stella creates editable reports, spreadsheets, decks, and PDFs ready
 for the apps you already use (Word, Excel, PowerPoint, PDF).
 
-## Local-first and flexible
-Stella keeps its main desktop database and local files on your computer and
-works with your agents, providers, keys, and models. Features such as managed
-AI, media generation, search, mobile access, and connected services send the
-data needed to provide them to Stella and its service providers.
-
-- **Local workspace** — Your normal desktop chat database, files, and settings are stored on your device.
-- **Bring your own** — Your harness, your provider, your keys, your model. No lock-in, ever.
+## Choose your tools
+Work with your preferred agents, providers, keys, and models.
 
 Agents & harnesses: Claude Code, Codex, Cursor, OpenClaw, Hermes Agent.
 Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
@@ -88,7 +82,6 @@ Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
 - Learn More: ${abs("/learn-more.md")}
 - One chat: ${abs("/one-chat.md")}
 - Voice: ${abs("/voice.md")}
-- Storage: ${abs("/storage.md")}
 - Pricing: ${abs("/pricing.md")}
 - What's New: ${abs("/learn-more/whats-new.md")}
 `;
@@ -171,46 +164,6 @@ your speech into text is never gated. See ${abs("/pricing.md")}.
 `;
 
 /* ------------------------------------------------------------------ */
-/*  Storage — /storage.md                                              */
-/* ------------------------------------------------------------------ */
-
-const STORAGE_MD = `${header(
-  "Storage — where Stella keeps your data",
-  "/storage",
-  "Stella keeps its main desktop database on your computer. Cloud and provider-backed features process the data needed to fulfill your request.",
-)}
-## Your conversations live on your laptop
-Your normal desktop chat history is saved in a database on your computer.
-Content needed for model calls, media generation, search, mobile access,
-connected services, and other cloud features may be sent to Stella and the
-providers that fulfill those requests.
-
-## Backups stay off until you ask
-If you ever want a safety copy, you can turn backups on. They get locked tight
-before they leave your computer, and they come with a paid plan. Backups are off
-until you turn them on.
-
-## Messages run through your own machine
-Connect Stella to your texts or chat apps and the work happens on your computer
-— it reads the message, does the task, and sends the reply. Stella's backend
-processes delivery and routing data needed to connect the service to your
-machine.
-
-## Your phone talks straight to your desktop
-Use the app to drive your computer from anywhere. It connects right to your
-desktop through a secure connection. Stella's backend may process and
-temporarily store request content and delivery state to route and complete the
-work.
-
-## Local and cloud data are separate
-Your main desktop database remains local unless you enable a feature that stores
-content in the cloud. Stella stores account, billing, usage, device, pairing,
-and connected-service data needed to operate the service. Third-party AI,
-media, and search providers may process and retain submitted data under their
-own terms and configurations. See ${abs("/privacy.md")} for details.
-`;
-
-/* ------------------------------------------------------------------ */
 /*  Pricing — /pricing.md                                              */
 /* ------------------------------------------------------------------ */
 
@@ -254,9 +207,7 @@ independent work and report progress inline without making you manage separate
 threads.
 
 ## A desktop app, not just a chat box
-Stella lives with your files, apps, browser, and local state, so it can help
-with the real work on your machine instead of only answering questions in a web
-tab. You can use Stella for research, writing, spreadsheets, PDFs, Word
+Stella works with your files, apps, and browser to help you get things done. You can use Stella for research, writing, spreadsheets, PDFs, Word
 documents, browser tasks, computer control, image generation, video and 3D
 workflows, media prompts, scheduling, reminders, dictation, realtime voice, and
 connected apps. Those capabilities belong in one personal desktop app, one
@@ -276,7 +227,7 @@ conversation instead of becoming the project manager for your assistant.
 - **Work with files** — Read, write, organize, summarize, and transform documents, spreadsheets, PDFs, presentations, images, and generated outputs.
 - **Create media** — Help make images, video, audio, 3D assets, small apps, games, mockups, and visual artifacts. Image, video, 3D, and voice generation come with the Pro plan.
 - **Listen and speak** — Use in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word activation is optional. Dictation and wake word are on every tier; read-aloud and realtime voice come with the Pro plan.
-- **Run routines** — Create reminders, recurring check-ins, scheduled work, and local automations from plain English.
+- **Run routines** — Create reminders, recurring check-ins, scheduled work, and automations from plain English.
 - **Connect apps** — Use supported services, including the Stella mobile app, Google Workspace, and Store-backed integrations.
 - **Choose your model** — Use Stella's managed provider, bring your own keys, use local models, pick OpenRouter-style options where supported, or select Claude Code as the engine.
 
@@ -288,32 +239,9 @@ conversation instead of becoming the project manager for your assistant.
 - **Phone** — Pair the mobile app with your desktop so your phone can message the Stella running on your computer.
 - **Messaging apps** — Message Stella from supported apps. Full desktop-powered execution depends on pairing, connection settings, and your desktop being available.
 
-## Local-first, with clear exceptions
-Your normal desktop chat history, files, memories, generated local artifacts,
-and app state live on your computer. Cloud-backed features can process relevant
-content without uploading the local database as a whole.
-
-Some features need a backend: sign-in, billing, plan limits, managed model
-access, connected app setup, mobile pairing, Store catalog data, push
-notifications, and optional cloud features. The important boundary is that
-Stella does not need a cloud copy of your whole desktop life to work.
-
-### What we store
-- **Account and billing records** — Sign-in identity, billing profile state, Stripe customer and subscription references, usage credit records, and payment metadata needed to run paid plans.
-- **Usage metadata** — For managed model calls: owner ID, model, agent type, token counts, duration, success or failure, estimated cost, billing plan, and timestamps.
-- **Anonymous limit counters** — A salted hash of the device or client identifier, request count, first request time, and last request time. Current retention is seven days after last use.
-- **Device and pairing metadata** — Device IDs, device names where provided, platform, presence timestamps, mobile pairing records, pairing secret hashes, push tokens, and bridge registration URLs.
-- **Connected app metadata** — The minimum connection records needed to know which account is linked to which Stella user and provider. Some connection secrets are encrypted.
-- **Remote delivery state** — When you message Stella from a phone or connector, the backend may store request text, delivery metadata, request state, and routing info so the desktop can claim, cancel, complete, and deliver the work.
-- **Optional cloud content** — Cloud backups, Store publishing, social or collaboration surfaces, and other hosted features store the data required to provide those features.
-- **Provider processing** — Model, media, and search providers process submitted prompts, files, outputs, queries, and metadata. Their retention depends on provider policies and Stella's configuration.
-
-### Data ordinarily kept local
-- Your local desktop files merely because they exist on your device.
-- Your normal local desktop chat database as a whole.
-- Your local memory markdown and runtime state unless submitted to a cloud-backed feature.
-- Your local provider API keys.
-- BYOK model traffic when the model call goes directly from your device to your provider.
+## Your privacy
+Read our Privacy Policy for details on how Stella handles your information
+and the choices available to you: ${abs("/privacy.md")}
 
 ## Use Stella, BYOK, local models, or Claude Code
 Stella has a managed path for convenience and a provider-control path for people
@@ -328,12 +256,9 @@ You can also add your own provider credentials, use local runtimes, and use
 Claude Code directly as the assistant engine. In those paths, Stella is acting
 as the desktop app and runtime you control, not as the model vendor.
 
-## A packaged, local-first desktop app
-Stella installs like a normal desktop app and keeps its runtime, conversations,
-settings, and project state on your computer. Signed macOS packages and Windows
-installers include the runtime and native helpers they need. Projects Stella
-creates are ordinary local web apps under its workspace, kept separate from the
-packaged application itself.
+## A desktop app
+Stella installs like a normal desktop app. Signed macOS packages and Windows
+installers include the runtime and native helpers they need.
 
 ## A running changelog
 Stella ships small, frequent releases. The full log, grouped by release with
@@ -439,13 +364,6 @@ export const AGENT_PAGES: AgentPage[] = [
     label: "Voice",
     description: "Dictation, wake word, and live voice conversation.",
     markdown: VOICE_MD,
-  },
-  {
-    route: "/storage",
-    mdPath: "/storage.md",
-    label: "Storage",
-    description: "Where your data lives and what leaves your machine.",
-    markdown: STORAGE_MD,
   },
   {
     route: "/learn-more/whats-new",

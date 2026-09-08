@@ -9,7 +9,7 @@ import { LearnSidebar } from "./learn-sidebar";
 export const metadata: Metadata = {
   title: "Learn More",
   description:
-    "Learn what Stella is, how the desktop app works, what stays local, what the backend stores, and what changed recently.",
+    "Learn what Stella can do, how to use it, and what changed recently.",
   alternates: { canonical: "/learn-more" },
 };
 
@@ -36,7 +36,7 @@ const capabilities = [
   },
   {
     title: "Run routines",
-    body: "Create reminders, recurring check-ins, scheduled work, and local automations from plain English.",
+    body: "Create reminders, recurring check-ins, scheduled work, and automations from plain English.",
   },
   {
     title: "Connect apps",
@@ -73,49 +73,6 @@ const accessMethods = [
     title: "Mobile app",
     body: "Message Stella from the mobile app. Full desktop-powered execution depends on pairing with your desktop, which stays available.",
   },
-];
-
-const storedItems = [
-  {
-    title: "Account and billing records",
-    body: "Sign-in identity, billing profile state, Stripe customer and subscription references, usage credit records, and payment metadata needed to run paid plans.",
-  },
-  {
-    title: "Usage metadata",
-    body: "For managed model calls: owner ID, model, agent type, token counts, duration, success or failure, estimated cost, billing plan, and timestamps.",
-  },
-  {
-    title: "Anonymous limit counters",
-    body: "A salted hash of the device or client identifier, request count, first request time, and last request time. Current retention is seven days after last use.",
-  },
-  {
-    title: "Device and pairing metadata",
-    body: "Device IDs, device names where provided, platform, presence timestamps, mobile pairing records, pairing secret hashes, push tokens, and bridge registration URLs.",
-  },
-  {
-    title: "Connected app metadata",
-    body: "The minimum connection records needed to know which account is linked to which Stella user and provider. Some connection secrets are encrypted.",
-  },
-  {
-    title: "Remote delivery state",
-    body: "When you message Stella from a paired phone, the backend may store request text, delivery metadata, request state, and routing info so the desktop can claim, cancel, complete, and deliver the work.",
-  },
-  {
-    title: "Optional cloud content",
-    body: "Cloud backups, Store publishing, social or collaboration surfaces, and other hosted features store the data required to provide those features.",
-  },
-  {
-    title: "Provider processing",
-    body: "Model, media, and search providers process submitted prompts, files, outputs, queries, and metadata. Their retention depends on provider policies and Stella's configuration.",
-  },
-];
-
-const notStoredItems = [
-  "Your local desktop files merely because they exist on your device.",
-  "Your normal local desktop chat database as a whole.",
-  "Your local memory markdown and runtime state unless submitted to a cloud-backed feature.",
-  "Your local provider API keys.",
-  "BYOK model traffic when the model call goes directly from your device to your provider.",
 ];
 
 function SectionHeader({
@@ -171,9 +128,8 @@ export default function LearnMore() {
           <section id="what-stella-is" className="learn-section section-border">
             <SectionHeader eyebrow="What Stella is" title="A desktop app, not just a chat box">
               <p>
-                Stella lives with your files, apps, browser, and local state, so
-                it can help with the real work on your machine instead of only
-                answering questions in a web tab.
+                Stella works with your files, apps, and browser to help you
+                get things done.
               </p>
             </SectionHeader>
             <div className="learn-prose">
@@ -235,42 +191,13 @@ export default function LearnMore() {
           </section>
 
           <section id="privacy" className="learn-section section-border">
-            <SectionHeader eyebrow="Privacy" title="Local-first, with clear exceptions">
+            <SectionHeader eyebrow="Privacy" title="Your privacy">
               <p>
-                Your normal desktop chat history, files, memories, generated
-                local artifacts, and app state live on your computer. We do not
-                do not routinely upload your local database as a whole.
+                Read our <Link href="/privacy">Privacy Policy</Link> for details
+                on how Stella handles your information and the choices available
+                to you.
               </p>
             </SectionHeader>
-
-            <div className="learn-callout">
-              <p>
-                Some features need a backend: sign-in, billing, plan limits,
-                managed model access, connected app setup, mobile pairing, push
-                notifications, and optional cloud features. Third-party model,
-                media, and search providers process submitted content under
-                their own policies and configurations.
-                The important boundary is that Stella does not need a cloud copy
-                of your whole desktop life to work.
-              </p>
-            </div>
-
-            <h3 className="learn-subheading">What we store</h3>
-            <div className="learn-grid learn-grid--storage">
-              {storedItems.map((item) => (
-                <section key={item.title} className="learn-storage">
-                  <h4>{item.title}</h4>
-                  <p>{item.body}</p>
-                </section>
-              ))}
-            </div>
-
-            <h3 className="learn-subheading">Data ordinarily kept local</h3>
-            <ul className="learn-checklist">
-              {notStoredItems.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
           </section>
 
           <section id="models" className="learn-section section-border">

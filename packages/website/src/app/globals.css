@@ -1082,7 +1082,7 @@ html[data-embedded="true"] .site-header {
    section heading. Cormorant italic, quiet ink, no badge chrome — the same
    display voice as the hero and the download button, one step below the H2
    it sits above. Page-level variants (.learn-eyebrow, .fix-eyebrow,
-   .go-eyebrow, the agents/storage/voice module eyebrows) share these rules;
+   .go-eyebrow, the agents/voice module eyebrows) share these rules;
    only margins differ. */
 .site-kicker,
 .home-atlas-kicker {

@@ -347,7 +347,7 @@ const sitelinks = [
   ["How Stella Works", "https://stella.sh/learn-more", "See what Stella can do", "Browser, files, apps and more"],
   ["AI Agents", "https://stella.sh/agents", "Delegate complete tasks", "Keep background work moving"],
   ["Voice", "https://stella.sh/voice", "Talk and dictate naturally", "Cloud dictation on Mac and Windows"],
-  ["Data and Privacy", "https://stella.sh/storage", "See what is stored locally", "Understand cloud processing"],
+  ["Privacy Policy", "https://stella.sh/privacy", "Read our privacy policy", "Understand how data is used"],
 ];
 for (const [text, url, description1, description2] of sitelinks) {
   assertLength("Sitelink text", text, 25);

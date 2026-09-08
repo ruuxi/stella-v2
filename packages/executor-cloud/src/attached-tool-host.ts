@@ -54,7 +54,11 @@ import {
   hydrateDriveForAgentTurn,
   prepareCloudToolFilesystem,
 } from "./agent-turn.js";
-import { collectProducedFiles, reportProducedFiles } from "./produced-files.js";
+import {
+  collectProducedFiles,
+  reportProducedFiles,
+  toDriveFile,
+} from "./produced-files.js";
 import {
   takeTurnBrokerHandoff,
   TurnCredentialBrokerClient,
@@ -551,6 +555,16 @@ export const runAttachedToolHost = (
       ): Promise<AttachedToolHostReport> => {
         await toolHost.shutdown();
         await pushWorldProjection({ root: workspaceRoot, access: input.world });
+        // A file the turn wrote through the Durable Object's own Write/Edit
+        // tools is in the world but not yet on this disk. Bring the world
+        // down before reading the linked paths, or a reply that links such a
+        // file delivers nothing.
+        await pullWorldProjection({
+          root: workspaceRoot,
+          access: input.world,
+        }).catch((error) => {
+          console.error(`world pull failed: ${asError(error).message}`);
+        });
         const collected = await collectProducedFiles({
           workspaceRoot: driveWorkspace.root,
           linked: linkedPaths,
@@ -560,7 +574,13 @@ export const runAttachedToolHost = (
             ...CLOUD_TOOL_PROCESS_IDENTITY,
             home: CLOUD_TOOL_HOME,
           },
-        }).catch(() => null);
+        }).catch((error) => {
+          // Delivery is best-effort, but a swallowed failure here is the
+          // difference between a file the user can open and one that
+          // silently never reaches the chat.
+          console.error(`produced files failed: ${asError(error).message}`);
+          return null;
+        });
         const files = collected?.files ?? [];
         if (files.length === 0) {
           return { bootNotices, deliveredFiles: [] };
@@ -573,10 +593,39 @@ export const runAttachedToolHost = (
           post: postJson,
         });
         const refused = new Set(delivery.skipped.map((entry) => entry.path));
+        const renamedBy = new Map(
+          delivery.renamed.map((entry) => [entry.from, entry.to]),
+        );
+        const delivered = files
+          .filter((file) => !refused.has(file.path))
+          .map((file) => {
+            const to = renamedBy.get(file.path);
+            return to
+              ? { ...file, path: to, name: to.slice(to.lastIndexOf("/") + 1) }
+              : file;
+          });
+        // The container path announces its deliverables with an
+        // `output_files` event, which is what the outbox turns into the
+        // conversation's files card. The attached path must announce them
+        // the same way, or a resident turn's files stay drive-only.
+        await postJson("/api/cloud/events", {
+          turnId: input.turnId,
+          attemptGeneration: input.attemptGeneration,
+          sessionId: input.threadId,
+          seq: "auto",
+          kind: "output_files",
+          payload: {
+            files: delivered.map((file) => ({
+              ...toDriveFile(file),
+              stored: delivery.stored.has(file.path),
+            })),
+          },
+        }).catch((error) => {
+          console.error(`event output_files failed: ${asError(error).message}`);
+        });
         return {
           bootNotices,
-          deliveredFiles: files
-            .filter((file) => !refused.has(file.path))
+          deliveredFiles: delivered
             .slice(0, ATTACHED_TOOL_MAX_DELIVERED_FILES)
             .map((file) => file.path),
         };

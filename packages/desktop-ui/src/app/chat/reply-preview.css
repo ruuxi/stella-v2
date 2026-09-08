@@ -86,14 +86,25 @@
 }
 
 /* Agent previews are a compact task row: status glyph, title, and a More
-   action that opens the task's full result in a floating panel. */
+   action that opens the task's full result in a floating panel. When the
+   bubble quotes a completed task, its produced files hang under that row
+   as pills, inside the same bubble. */
 .reply-preview__bubble--agent {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  cursor: default;
+  padding: 0;
+  overflow: hidden;
+}
+
+.reply-preview__agent-main {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 2px;
-  cursor: default;
-  padding: 0 4px 0 0;
-  overflow: hidden;
+  min-width: 0;
+  padding-right: 4px;
 }
 
 .reply-preview__agent-head {

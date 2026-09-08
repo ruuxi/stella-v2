@@ -8,14 +8,18 @@
  * Whether a bubble appears at all is decided upstream by the shared
  * reply-context rule (`@stella/contracts/reply-context`).
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
 import type { MobileAgentState } from "../lib/mobile-reply-context";
-import { Icon } from "./Icon";
+import type { ChatArtifact } from "../types";
+import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
+import { AGENT_ACTIVITY_INK, deriveFilePillRow } from "../lib/agent-activity-presentation";
+import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import { Icon, type IconName } from "./Icon";
 
 export type ReplyAgentStatus = MobileAgentState;
 
@@ -35,6 +39,8 @@ export function ReplyPreview({
   colors,
   onOpen,
   onOpenReport,
+  files,
+  onOpenArtifact,
 }: {
   reference: ReplyRef;
   status?: ReplyAgentStatus;
@@ -42,9 +48,15 @@ export function ReplyPreview({
   onOpen: () => void;
   /** Agent references only: opens the task's full report. */
   onOpenReport?: () => void;
+  /** A relayed completion's produced files, as pills inside the task bubble. */
+  files?: ChatArtifact[];
+  onOpenArtifact?: (artifact: ChatArtifact) => void;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [pillsExpanded, setPillsExpanded] = useState(false);
   const title = replyTitle(reference);
+  const showPills = Boolean(onOpenArtifact) && (files?.length ?? 0) > 0;
+  const pillRow = showPills ? deriveFilePillRow(files ?? [], pillsExpanded) : null;
   return (
     <View style={styles.stack}>
       {reference.kind === "message" ? (
@@ -67,6 +79,7 @@ export function ReplyPreview({
         </Pressable>
       ) : (
         <View style={[styles.bubble, styles.bubbleAgent]}>
+          <View style={styles.agentMain}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Show this task and its updates: ${title}, ${statusLabel(status)}`}
@@ -99,6 +112,45 @@ export function ReplyPreview({
             >
               <Text style={styles.reportToggleText}>More</Text>
             </Pressable>
+          ) : null}
+          </View>
+          {pillRow ? (
+            <View style={styles.pills}>
+              {pillRow.visible.map((artifact) => (
+                <Pressable
+                  key={artifact.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${artifactTitle(artifact.payload)}`}
+                  onPress={() => onOpenArtifact?.(artifact)}
+                  style={({ pressed }) => [styles.pill, pressed ? styles.pillPressed : null]}
+                >
+                  <Icon
+                    name={artifactIconName(artifact.payload) as IconName}
+                    size={13}
+                    color={colors.textMuted}
+                  />
+                  <Text
+                    style={styles.pillLabel}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {artifactTitle(artifact.payload)}
+                  </Text>
+                </Pressable>
+              ))}
+              {pillRow.hiddenCount > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show ${pillRow.hiddenCount} more files`}
+                  onPress={() => setPillsExpanded(true)}
+                  style={({ pressed }) => [styles.pill, pressed ? styles.pillPressed : null]}
+                >
+                  <Text style={styles.pillLabel} maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}>
+                    +{pillRow.hiddenCount} more
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
           ) : null}
         </View>
       )}
@@ -183,12 +235,47 @@ const makeStyles = (colors: Colors) =>
       opacity: 0.8,
     },
     bubbleAgent: {
-      flexDirection: "row",
-      alignItems: "center",
+      flexDirection: "column",
+      alignItems: "stretch",
       paddingVertical: 0,
       paddingHorizontal: 0,
-      paddingRight: 4,
+      gap: 0,
       overflow: "hidden",
+    },
+    agentMain: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingRight: 4,
+      minWidth: 0,
+    },
+    pills: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      paddingLeft: 12,
+      paddingRight: 10,
+      paddingBottom: 8,
+      maxWidth: "100%",
+    },
+    pill: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 5,
+      maxWidth: "100%",
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors[AGENT_ACTIVITY_INK.pillBorderInk],
+      backgroundColor: colors.surface,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    pillPressed: { opacity: 0.72 },
+    pillLabel: {
+      color: colors.text,
+      flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
     },
     agentHead: {
       flexDirection: "row",

@@ -119,4 +119,16 @@ describe("desktop-executed turns mirrored into the journal", () => {
     expect(starts).toHaveLength(1);
     expect(starts[0]!._id).toBe("cloud:t1:call-1:agent-started");
   });
+
+  test("projects a blank unflagged prompt (an older mirrored wake) as hidden", () => {
+    const records: JournalRecord[] = [
+      message(0, "desktop:t9", "user", { content: [{ type: "text", text: "" }] }, { clientMsgId: "message:old-wake" }),
+      message(1, "desktop:t9", "assistant", { content: [{ type: "text", text: "done" }] }),
+    ];
+    const [prompt] = journalRecordsToMessageRecords(records);
+    expect(prompt?._id).toBe("message:old-wake");
+    expect(
+      (prompt?.payload as { metadata?: { ui?: { visibility?: string } } })?.metadata?.ui?.visibility,
+    ).toBe("hidden");
+  });
 });

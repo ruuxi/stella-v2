@@ -26,6 +26,22 @@ const projectedMessageId = (record: JournalMessageRecord): string => {
     record.clientMsgId || `cloud:${record.turnId}:message:${record.seq}`;
 };
 
+const isBlankUserRecord = (
+  record: Extract<JournalRecord, { kind: "message" }>,
+): boolean => {
+  if (record.role !== "user") return false;
+  const content = record.payload.content;
+  if (typeof content === "string") return content.trim().length === 0;
+  if (!Array.isArray(content)) return true;
+  return content.every(
+    (block) =>
+      block &&
+      typeof block === "object" &&
+      (block as { type?: unknown }).type === "text" &&
+      !String((block as { text?: unknown }).text ?? "").trim(),
+  );
+};
+
 const timestampOf = (record: JournalMessageRecord): number =>
   typeof record.payload.timestamp === "number" &&
   Number.isFinite(record.payload.timestamp)
@@ -260,7 +276,9 @@ export const projectCloudConversationMessages = (args: {
       const createdAt = timestampOf(record);
       if (record.role === "user") {
         userMessageId = projectedMessageId(record);
-        if (record.hidden) continue;
+        // A prompt with nothing to show (older desktop turns mirrored their
+        // lifecycle wake as an empty, unflagged user record) is a hidden one.
+        if (record.hidden || isBlankUserRecord(record)) continue;
         messages.push({
           id: userMessageId,
           canonicalId: `cloud:${turnId}:message:${record.seq}`,

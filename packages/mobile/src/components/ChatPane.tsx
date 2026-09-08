@@ -70,12 +70,12 @@ import { AssistantTextSelection } from "./AssistantTextSelection";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import {
   resolveCloudDriveFileUri,
   useCloudDriveFileUri,
 } from "../lib/use-cloud-drive-file-uri";
 import { AgentWorkCard } from "./AgentWorkCard";
-import { AgentCompletionCard } from "./AgentCompletionCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { RunningTasksPill, runningTaskCount } from "./RunningTasksPill";
 import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
@@ -1747,6 +1747,52 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // bridge text offsets still describe event chronology, but must never become
   // character-level insertion points that split prose (or markdown) in two.
   const groupAgentWorkArtifacts = agentWorkArtifacts;
+  // Desktop parity: a task whose result this reply relays is quoted ABOVE
+  // the bubble the iMessage way, with its produced files as pills inside
+  // that quote. It is the only completion presentation; the settled spawn
+  // row below the text is gone. A settled follow-up keeps its spawn row.
+  const completionQuotes = groupAgentWorkArtifacts.flatMap((artifact) => {
+    if (
+      artifact.payload.state !== "done" ||
+      artifact.payload.followUp === true ||
+      artifact.payload.completion !== true
+    ) {
+      return [];
+    }
+    const sections = inlineAgentWorkCardSections(artifact) ?? [];
+    const filesByAgent = new Map(
+      sections.flatMap((section) => (section.agentId ? [[section.agentId, section.files] as const] : [])),
+    );
+    const agents =
+      artifact.payload.agents && artifact.payload.agents.length > 0
+        ? artifact.payload.agents.map((agent) => ({
+            agentId: agent.agentId,
+            title: agent.title,
+            files: filesByAgent.get(agent.agentId) ?? [],
+          }))
+        : (artifact.payload.agentIds ?? []).slice(0, 1).map((agentId) => ({
+            agentId,
+            title: artifact.payload.title,
+            files: [] as ChatArtifact[],
+          }));
+    // Files the reply itself links join the quote's pills (desktop parity).
+    const linked = extractLocalFileLinkPaths(item.text ?? "").map((path) =>
+      stellaFileChatArtifact(path, artifact.conversationId),
+    );
+    return agents.flatMap((agent) => {
+      if (!agent.agentId) return [];
+      const seen = new Set(agent.files.map((file) => file.id));
+      const files = [...agent.files, ...linked.filter((file) => !seen.has(file.id))];
+      return [{
+        key: `${artifact.id}:${agent.agentId}`,
+        artifactId: artifact.id,
+        ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
+        files,
+      }];
+    });
+  });
+  const quotedArtifactIds = new Set(completionQuotes.map((quote) => quote.artifactId));
+  const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
   const renderAssistantMarkdown = (text: string) => {
     const markdown = (
       <AssistantMarkdown
@@ -1769,7 +1815,27 @@ const ChatMessageRow = memo(function ChatMessageRow({
   };
   return (
     <View style={styles.assistantRow}>
-      {contextRef && onOpenReply ? (
+      {onOpenReply
+        ? completionQuotes.map((quote) => (
+            <ReplyPreview
+              key={quote.key}
+              reference={quote.ref}
+              status={
+                contextRef?.kind === "agent" && contextRef.threadId === quote.ref.threadId
+                  ? contextStatus
+                  : "completed"
+              }
+              colors={colors}
+              onOpen={() => onOpenReply(quote.ref)}
+              onOpenReport={onOpenReport ? () => onOpenReport(quote.ref) : undefined}
+              files={quote.files}
+              onOpenArtifact={onOpenArtifact}
+            />
+          ))
+        : null}
+      {contextRef &&
+      onOpenReply &&
+      !(contextRef.kind === "agent" && quotedThreadIds.has(contextRef.threadId)) ? (
         <ReplyPreview
           reference={contextRef}
           status={contextStatus}
@@ -1803,30 +1869,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {groupAgentWorkArtifacts.map((artifact) => {
-            // Desktop parity: the settled completion presentation REPLACES
-            // the spawn row in its slot — per-agent check rows when the
-            // bridge shipped sections, otherwise the settled spawn row
-            // itself. A settled follow-up keeps the spawn row so its arrow
-            // tell survives. Rows carry the description only; produced files
-            // and result excerpts live in the activity hub.
-            const completionSections =
-              artifact.payload.state === "done" &&
-              artifact.payload.followUp !== true
-                ? (inlineAgentWorkCardSections(artifact) ?? [])
-                : [];
-            return completionSections.length > 0 ? (
-              <AgentCompletionCard
-                key={`${artifact.id}:completion`}
-                sections={completionSections}
-                colors={colors}
-                onOpenAgent={onOpenReply ? (threadId, title) => onOpenReply({ kind: "agent", threadId, title }) : undefined}
-                {...((onOpenReply && artifact.payload.agentIds?.[0])
-                  ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
-                  : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
-                {...(onOpenArtifact ? { onOpenArtifact } : {})}
-              />
-            ) : (
+          {groupAgentWorkArtifacts.map((artifact) =>
+            quotedArtifactIds.has(artifact.id) ? null : (
               <AgentWorkCard
                 key={artifact.id}
                 payload={artifact.payload}
@@ -1835,8 +1879,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
                   ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
                   : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
               />
-            );
-          })}
+            ),
+          )}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (
                 <MapRouteCard

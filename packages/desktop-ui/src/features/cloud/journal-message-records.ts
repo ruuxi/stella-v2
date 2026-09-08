@@ -426,11 +426,21 @@ export const journalRecordsToMessageRecords = (
         turnUserRecord = record;
         userMessageId =
           record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
+        const userText = messageText(record.payload);
+        // A prompt with nothing to show (older desktop turns mirrored their
+        // lifecycle wake as an empty, unflagged user record) renders like a
+        // hidden one: no bubble, no slot.
+        const blank =
+          !userText.trim() &&
+          !contentBlocks(record.payload).some((block) => block.type !== "text");
         events.push({
           _id: userMessageId,
           timestamp,
           type: "user_message",
-          payload: textPayload(record, messageText(record.payload)),
+          payload: textPayload(
+            blank && !record.hidden ? { ...record, hidden: true } : record,
+            userText,
+          ),
         });
         // The wake's completion precedes the reply that relays it, so the
         // grouping hands it to that reply.

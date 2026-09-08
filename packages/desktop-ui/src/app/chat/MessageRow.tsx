@@ -51,7 +51,7 @@ import { MapRouteCards } from "@/app/chat/MapRouteCard";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
-import { AgentCompletionCard, FilePills } from "@/app/chat/AgentCompletionCard";
+import { FilePills } from "@/app/chat/FilePills";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
 import { ReplyCountBadge } from "@/app/chat/ReplyCountBadge";
@@ -664,8 +664,13 @@ export const AssistantMessageRow = memo(
           {hasVoiceSession && row.voiceSession && (
             <VoiceSessionCard durationMs={row.voiceSession.durationMs} />
           )}
-          {row.replyRefs && row.replyRefs.length > 0 && conversationId ? (
-            <ReplyPreview refs={row.replyRefs} conversationId={conversationId} />
+          {conversationId &&
+          ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
+            <ReplyPreview
+              refs={row.replyRefs ?? []}
+              completions={row.agentCompletion?.sections}
+              conversationId={conversationId}
+            />
           ) : null}
           {hasText && (
             <AssistantBubble animate={Boolean(row.justArrived)}>
@@ -698,13 +703,6 @@ export const AssistantMessageRow = memo(
               conversationId={conversationId ?? ""}
             />
           ) : null}
-          {hasAgentCompletion && row.agentCompletion && (
-            <AgentCompletionCard
-              sections={row.agentCompletion.sections}
-              conversationId={conversationId ?? ""}
-              modelConfigByThread={agentModelConfigByThread}
-            />
-          )}
           {hasWebSearchResults && row.webSearchResults && (
             <WebSearchResultsStrip results={row.webSearchResults} />
           )}

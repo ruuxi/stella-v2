@@ -6,7 +6,7 @@
    title shimmer carries the running motion, a quiet grey check once done,
    an arrow for `send_input` follow-ups) and a trailing chevron as the
    click-through affordance. Shared by BackgroundWorkCard and
-   AgentCompletionCard.
+   the task quote bubble (ReplyPreview) and FilePills.
    ============================================================ */
 
 /* Several completions at one timeline slot stack as sibling rows. */
@@ -164,6 +164,13 @@
   margin: 4px 0 2px;
   padding-left: 24px;
   min-width: 0;
+}
+
+/* Inside the task quote bubble the strip hangs under the head row with the
+   bubble's own padding; no under-row indent. */
+.agent-activity-files--inline {
+  margin: 0;
+  padding: 0 10px 8px 12px;
 }
 
 .agent-activity-files__pills {

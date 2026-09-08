@@ -1,3 +1,11 @@
+import {
+  cloudOfflineNoticeDueAt,
+  idleCloudOfflineWindow,
+  nextCloudOfflineWindow,
+  shouldShowCloudOfflineNotice,
+  type CloudOfflineWindow,
+  type CloudSocketStatus,
+} from "@stella/contracts/cloud-connection-notice";
 import { journalWorkingActivity } from "@stella/contracts/journal-working-activity";
 import {
   useCallback,
@@ -148,6 +156,35 @@ const nextLocalCloudTaskOverlayExpiry = (
   return next;
 };
 
+/**
+ * True only after the socket has been continuously unhealthy for
+ * `CLOUD_OFFLINE_NOTICE_DELAY_MS`. Reconnect attempts in between keep the
+ * window open; a successful `live` closes it.
+ */
+const useSustainedCloudOffline = (status: CloudSocketStatus): boolean => {
+  const [offlineWindow, setOfflineWindow] = useState<CloudOfflineWindow>(
+    idleCloudOfflineWindow,
+  );
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    setOfflineWindow((current) =>
+      nextCloudOfflineWindow(current, status, Date.now()),
+    );
+  }, [status]);
+  useEffect(() => {
+    const dueAt = cloudOfflineNoticeDueAt(offlineWindow, status);
+    if (dueAt === null) return;
+    const now = Date.now();
+    if (now >= dueAt) {
+      setNowMs((current) => (current >= dueAt ? current : now));
+      return;
+    }
+    const timer = setTimeout(() => setNowMs(Date.now()), dueAt - now + 1);
+    return () => clearTimeout(timer);
+  }, [offlineWindow, status]);
+  return shouldShowCloudOfflineNotice(offlineWindow, status, nowMs);
+};
+
 function CloudConversationStatusTail({
   conversation,
 }: {
@@ -156,9 +193,13 @@ function CloudConversationStatusTail({
   const { state, pending, retryConnection, retrySend, dismissSend } =
     conversation;
   const failed = pending.filter((entry) => Boolean(entry.error));
+  const sustainedOffline = useSustainedCloudOffline(state.status);
+  // A blocked socket has stopped on its own and needs the user. A plain
+  // `offline` is the automatic reconnect in progress; it only earns a notice
+  // once it has failed for a while, so a foreground blip never flashes one.
   const showConnection =
     state.status === "blocked" ||
-    (state.status === "offline" && Boolean(state.statusMessage));
+    (state.status === "offline" && sustainedOffline);
   // Cached rows stay painted through a reconnect and the canonical delta
   // merges into them in place. That is ordinary connection state, so the
   // transcript never announces it; only a blocked/offline socket does.

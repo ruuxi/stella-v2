@@ -1,4 +1,12 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import {
+  cloudOfflineNoticeDueAt,
+  idleCloudOfflineWindow,
+  nextCloudOfflineWindow,
+  shouldShowCloudOfflineNotice,
+  type CloudOfflineWindow,
+  type CloudSocketStatus,
+} from "@stella/contracts/cloud-connection-notice";
 import { makeFunctionReference } from "convex/server";
 import {
   useCallback,
@@ -318,6 +326,35 @@ const collectArtifacts = (messages: readonly ChatMessage[]): ChatArtifact[] =>
  * transcript row. The base hook's SQLite rows are used only as an optimistic
  * outbox overlay and are never accepted as historical authority.
  */
+/**
+ * True only after the socket has been continuously unhealthy for
+ * `CLOUD_OFFLINE_NOTICE_DELAY_MS`. Reconnect attempts in between keep the
+ * window open; a successful `live` closes it.
+ */
+const useSustainedCloudOffline = (status: CloudSocketStatus): boolean => {
+  const [offlineWindow, setOfflineWindow] = useState<CloudOfflineWindow>(
+    idleCloudOfflineWindow,
+  );
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    setOfflineWindow((current) =>
+      nextCloudOfflineWindow(current, status, Date.now()),
+    );
+  }, [status]);
+  useEffect(() => {
+    const dueAt = cloudOfflineNoticeDueAt(offlineWindow, status);
+    if (dueAt === null) return;
+    const now = Date.now();
+    if (now >= dueAt) {
+      setNowMs((current) => (current >= dueAt ? current : now));
+      return;
+    }
+    const timer = setTimeout(() => setNowMs(Date.now()), dueAt - now + 1);
+    return () => clearTimeout(timer);
+  }, [offlineWindow, status]);
+  return shouldShowCloudOfflineNotice(offlineWindow, status, nowMs);
+};
+
 export const useCloudCanonicalChatThread = (
   authority: CloudConversationAuthority,
   options?: {
@@ -681,6 +718,7 @@ export const useCloudCanonicalChatThread = (
     },
     [authority.accountScope, authority.conversationId],
   );
+  const sustainedOffline = useSustainedCloudOffline(state.status);
   const socketIssue = useMemo<CloudAuthorityIssue | null>(() => {
     if (state.status === "blocked") {
       return {
@@ -690,7 +728,11 @@ export const useCloudCanonicalChatThread = (
         retryable: state.statusRetryable,
       };
     }
-    if (state.status === "offline") {
+    // A transient reconnect is not an issue: `catchingUp` drives the pane's
+    // delayed indicator, and a banner here would shift the whole transcript
+    // on every foreground. Only an outage the backoff has failed to clear
+    // for a while earns the offline notice.
+    if (state.status === "offline" && sustainedOffline) {
       return {
         message:
           state.statusMessage ??
@@ -698,11 +740,13 @@ export const useCloudCanonicalChatThread = (
         retryable: true,
       };
     }
-    // A transient reconnect is not an issue: `catchingUp` drives the pane's
-    // delayed indicator, and a banner here would shift the whole transcript
-    // on every foreground.
     return null;
-  }, [state.status, state.statusMessage, state.statusRetryable]);
+  }, [
+    state.status,
+    state.statusMessage,
+    state.statusRetryable,
+    sustainedOffline,
+  ]);
   const issue =
     placementIssue ??
     (local.authorityIssue

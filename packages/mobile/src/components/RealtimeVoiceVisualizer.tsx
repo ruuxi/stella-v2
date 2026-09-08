@@ -8,16 +8,13 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withTiming,
-  type SharedValue,
 } from "react-native-reanimated";
 import { STELLA_STAR_PATH } from "./stella-mark/geometry";
 import { MarkLayer } from "./stella-mark/MarkLayer";
 import { StellaFace } from "./stella-mark/StellaFace";
 import { CLOCK_SPAN_MS, clamp01 } from "./stella-mark/motion";
 import {
-  RING_COUNT,
   voiceBodyMotion,
-  voiceRingMotion,
   type VoiceCharacterPhase,
 } from "./stella-mark/voice-motion";
 import { useAppVisible } from "../lib/use-app-visible";
@@ -39,9 +36,8 @@ type Props = {
 const ENERGY_RAMP_MS = 90;
 /** How long a phase hand-off takes; motion cross-fades rather than snapping. */
 const PHASE_BLEND_MS = 320;
-/** Fraction of the stage the body occupies; the rest is room for the rings. */
-const BODY_FRACTION = 0.58;
-const RING_COLOR = "#4878db";
+/** Fraction of the stage the body occupies. */
+const BODY_FRACTION = 0.62;
 
 /**
  * Collapse the session snapshot into the character's phase. Assistant speech
@@ -89,43 +85,6 @@ const PHASE_ORDER: VoiceCharacterPhase[] = [
   "talking",
   "error",
 ];
-
-function SonarRing({
-  index,
-  size,
-  phase,
-  clock,
-  energy,
-  blend,
-}: {
-  index: number;
-  size: number;
-  phase: SharedValue<number>;
-  clock: SharedValue<number>;
-  energy: SharedValue<number>;
-  blend: SharedValue<number>;
-}) {
-  const style = useAnimatedStyle(() => {
-    const current = PHASE_ORDER[Math.round(phase.value)] ?? "listening";
-    const frame = voiceRingMotion(index, current, clock.value, energy.value);
-    return {
-      opacity: frame.opacity * blend.value,
-      transform: [{ scale: frame.scale }],
-    };
-  });
-  const box = useMemo(
-    () => ({
-      borderRadius: size / 2,
-      height: size,
-      left: 0,
-      position: "absolute" as const,
-      top: 0,
-      width: size,
-    }),
-    [size],
-  );
-  return <Animated.View style={[styles.ring, box, style]} />;
-}
 
 /**
  * The voice overlay's character: the Stella mark with eyes, animated per
@@ -250,21 +209,6 @@ export function RealtimeVoiceVisualizer({
 
   return (
     <View style={stage} pointerEvents="none">
-      {!reduceMotion ? (
-        <View style={bodyBox}>
-          {Array.from({ length: RING_COUNT }, (_, index) => (
-            <SonarRing
-              key={index}
-              index={index}
-              size={bodySize}
-              phase={phaseIndex}
-              clock={clock}
-              energy={energy}
-              blend={blend}
-            />
-          ))}
-        </View>
-      ) : null}
       <Animated.View style={[bodyBox, bodyStyle]}>
         <MarkLayer
           d={STELLA_STAR_PATH}
@@ -283,10 +227,6 @@ export function RealtimeVoiceVisualizer({
 }
 
 const styles = StyleSheet.create({
-  ring: {
-    borderColor: RING_COLOR,
-    borderWidth: 2,
-  },
   stage: {
     alignItems: "center",
     justifyContent: "center",

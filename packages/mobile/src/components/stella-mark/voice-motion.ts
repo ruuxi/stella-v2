@@ -9,12 +9,11 @@
  * the same. Each phase now has its own read-at-a-glance behaviour:
  *
  * - connecting: a slow, dim breathe — the character is not awake yet.
- * - listening: an alert, upright breathe with a gentle head sway and soft
- *   sonar rings drifting outward.
- * - hearing (the user is speaking): leans in, holds still, and rings converge
- *   inward — sound is arriving.
+ * - listening: an alert, upright breathe with a gentle head sway.
+ * - hearing (the user is speaking): leans in and holds still — sound is
+ *   arriving.
  * - talking (Stella is speaking): a syllabic squash-and-stretch with a bob and
- *   sway, rings pushing outward in time with the voice.
+ *   sway.
  * - error: droops and sits still.
  *
  * Real level, when it is above the floor, scales the amplitude of hearing and
@@ -47,18 +46,6 @@ export const TALK_PHRASE_MS = 1900;
 export const TALK_STRETCH = 0.075;
 /** How far the body leans in while the user speaks, in scale units. */
 export const HEARING_LEAN = 0.06;
-/** Number of sonar rings around the character. */
-export const RING_COUNT = 3;
-/** One full ring cycle per phase. */
-export const RING_PERIOD_MS: Record<VoiceCharacterPhase, number> = {
-  connecting: 0,
-  listening: 3600,
-  hearing: 1500,
-  talking: 1200,
-  error: 0,
-};
-/** Outer reach of a ring as a multiple of the body's box. */
-export const RING_REACH = 1.55;
 
 const TAU = Math.PI * 2;
 
@@ -162,45 +149,4 @@ export function voiceBodyMotion(
     scaleY: 1 + breathe + TALK_STRETCH * pulse,
     opacity: 1,
   };
-}
-
-export type VoiceRingMotion = {
-  scale: number;
-  opacity: number;
-};
-
-/**
- * One of the sonar rings. Listening and talking rings travel outward; hearing
- * rings travel inward. Phases without rings return an invisible ring so the
- * layer can stay mounted across transitions.
- */
-export function voiceRingMotion(
-  index: number,
-  phase: VoiceCharacterPhase,
-  timeMs: number,
-  energy: number,
-): VoiceRingMotion {
-  "worklet";
-  const period = RING_PERIOD_MS[phase];
-  if (period <= 0) return { scale: 1, opacity: 0 };
-  const progress = ((timeMs / period) % 1 + index / RING_COUNT) % 1;
-  const clampedEnergy = !Number.isFinite(energy)
-    ? 0
-    : energy <= 0
-      ? 0
-      : energy >= 1
-        ? 1
-        : energy;
-  const gain = 0.6 + 0.4 * clampedEnergy;
-  if (phase === "hearing") {
-    // Converging: born faint at the reach, brightest just before it lands.
-    const scale = RING_REACH - (RING_REACH - 1) * progress;
-    const opacity =
-      Math.sin(progress * Math.PI) * 0.34 * gain * (0.4 + 0.6 * progress);
-    return { scale, opacity };
-  }
-  const scale = 1 + (RING_REACH - 1) * progress;
-  const strength = phase === "talking" ? 0.5 * gain : 0.32;
-  const opacity = (1 - progress) * (1 - progress) * strength;
-  return { scale, opacity };
 }

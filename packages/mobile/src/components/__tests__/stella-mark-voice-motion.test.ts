@@ -1,14 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   HEARING_LEAN,
-  RING_COUNT,
-  RING_PERIOD_MS,
-  RING_REACH,
   TALK_STRETCH,
   levelGain,
   talkPulse,
   voiceBodyMotion,
-  voiceRingMotion,
   type VoiceCharacterPhase,
 } from "../stella-mark/voice-motion";
 
@@ -85,50 +81,5 @@ describe("voice character body motion", () => {
     expect(Math.min(...pulses)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...pulses)).toBeGreaterThan(0.7);
     expect(Math.min(...pulses)).toBeLessThan(0.1);
-  });
-});
-
-describe("voice character rings", () => {
-  test("phases without rings render nothing", () => {
-    expect(voiceRingMotion(0, "connecting", 500, 0.5).opacity).toBe(0);
-    expect(voiceRingMotion(0, "error", 500, 0.5).opacity).toBe(0);
-  });
-
-  test("listening and talking rings expand outward and fade", () => {
-    for (const phase of ["listening", "talking"] as const) {
-      const period = RING_PERIOD_MS[phase];
-      const early = voiceRingMotion(0, phase, period * 0.05, 0.5);
-      const late = voiceRingMotion(0, phase, period * 0.9, 0.5);
-      expect(early.scale).toBeLessThan(late.scale);
-      expect(early.opacity).toBeGreaterThan(late.opacity);
-      expect(late.scale).toBeLessThanOrEqual(RING_REACH);
-    }
-  });
-
-  test("hearing rings converge inward toward the body", () => {
-    const period = RING_PERIOD_MS.hearing;
-    const early = voiceRingMotion(0, "hearing", period * 0.05, 0.5);
-    const late = voiceRingMotion(0, "hearing", period * 0.9, 0.5);
-    expect(early.scale).toBeGreaterThan(late.scale);
-    expect(late.scale).toBeGreaterThanOrEqual(1);
-  });
-
-  test("rings are evenly staggered", () => {
-    const period = RING_PERIOD_MS.listening;
-    const scales = Array.from({ length: RING_COUNT }, (_, i) =>
-      voiceRingMotion(i, "listening", 0, 0.5).scale,
-    );
-    const sorted = [...scales].sort((a, b) => a - b);
-    for (let i = 1; i < sorted.length; i += 1) {
-      expect(sorted[i] - sorted[i - 1]).toBeCloseTo(
-        (RING_REACH - 1) / RING_COUNT,
-        5,
-      );
-    }
-    // One full period later every ring is back where it started.
-    expect(voiceRingMotion(1, "listening", period, 0.5).scale).toBeCloseTo(
-      scales[1],
-      5,
-    );
   });
 });

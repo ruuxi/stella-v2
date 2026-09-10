@@ -115,6 +115,34 @@ describe("activity hub artifact ownership", () => {
 });
 
 describe("activity hub source data", () => {
+  test("extracts cloud files instead of listing agent completion summaries", () => {
+    const file = {
+      kind: "markdown" as const,
+      filePath: "reports/result.md",
+      title: "Research task",
+      driveBacked: true,
+    };
+    const completion = {
+      id: "cloud-completion",
+      conversationId: "cloud-conversation",
+      payload: {
+        kind: "agent-work",
+        state: "done",
+        title: "Research task",
+        subtitle: "Finished",
+        total: 1,
+        completed: 1,
+        createdAt: 1000,
+        agents: [{ agentId: "agent-1", title: "Research task", files: [file] }],
+      },
+    } satisfies ChatArtifact;
+    const collected = collectActivityHubArtifacts([{ artifacts: [completion] }]);
+    expect(collected.map((entry) => entry.payload)).toEqual([file]);
+    expect(collectActivityHubArtifacts([{
+      artifacts: [{ ...completion, payload: { ...completion.payload, agents: [] } }],
+    }])).toEqual([]);
+  });
+
   test("keeps the full deduplicated artifact set available to search", () => {
     const artifacts = Array.from({ length: 25 }, (_, index) =>
       markdown(`file-${index}`, `/tmp/report-${index}.md`),

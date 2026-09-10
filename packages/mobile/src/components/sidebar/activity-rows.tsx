@@ -122,6 +122,7 @@ export function TaskRow({
           {artifacts.map((artifact) => (
             <ArtifactCard
               key={artifact.id}
+              compact
               artifact={artifact}
               colors={colors}
               onPress={onOpenArtifact}
@@ -238,39 +239,18 @@ export function ConversationFilesRow({
   styles: ActivityRowStyles;
   onOpenArtifact: (artifact: ChatArtifact) => void;
 }) {
-  const t = useT();
   if (artifacts.length === 0) return null;
   return (
     <View style={styles.taskGroup}>
-      <View style={styles.taskRow}>
-        <View style={styles.taskGlyph}>
-          <Icon name="message-square" size={14} color={colors.text} />
-        </View>
-        <View style={styles.taskText}>
-          <Text
-            style={styles.taskTitle}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {t("mobile.activityHub.conversation.title")}
-          </Text>
-          <Text
-            style={styles.taskSub}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {t("mobile.activityHub.conversation.subtitle")}
-          </Text>
-        </View>
-      </View>
-      <View style={styles.nestedFiles}>
-        {artifacts.map((artifact) => (
-          <ArtifactCard
-            key={artifact.id}
-            artifact={artifact}
-            colors={colors}
-            onPress={onOpenArtifact}
-          />
-        ))}
-      </View>
+      {artifacts.map((artifact) => (
+        <ArtifactCard
+          key={artifact.id}
+          compact
+          artifact={artifact}
+          colors={colors}
+          onPress={onOpenArtifact}
+        />
+      ))}
     </View>
   );
 }
@@ -460,7 +440,7 @@ export const makeActivityRowStyles = (colors: Colors) =>
     nestedFiles: {
       gap: 6,
       marginBottom: 6,
-      marginLeft: 30,
+      marginLeft: 0,
     },
     taskTitle: {
       color: colors.text,

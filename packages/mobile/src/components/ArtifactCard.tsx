@@ -4,6 +4,7 @@ import { Icon, type IconName } from "./Icon";
 import type { ChatArtifact } from "../types";
 import {
   artifactIconName,
+  artifactPrimaryFilePath,
   artifactSubtitle,
   artifactTitle,
 } from "../lib/mobile-artifacts";
@@ -16,12 +17,20 @@ type ArtifactCardProps = {
   artifact: ChatArtifact;
   colors: Colors;
   onPress: (artifact: ChatArtifact) => void;
+  compact?: boolean;
 };
 
-export function ArtifactCard({ artifact, colors, onPress }: ArtifactCardProps) {
+export function ArtifactCard({
+  artifact,
+  colors,
+  onPress,
+  compact = false,
+}: ArtifactCardProps) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const payload = artifact.payload;
-  const title = artifactTitle(payload);
+  const filePath = artifactPrimaryFilePath(payload);
+  const filename = filePath?.split(/[?#]/)[0]?.split(/[\\/]/).pop();
+  const title = compact && filename ? filename : artifactTitle(payload);
   const subtitle = artifactSubtitle(payload);
   const iconName = artifactIconName(payload) as IconName;
   // On-device PDFs open to a viewer with a save/share action, so hint that with
@@ -36,10 +45,11 @@ export function ArtifactCard({ artifact, colors, onPress }: ArtifactCardProps) {
       onPress={() => onPress(artifact)}
       style={({ pressed }) => [
         styles.card,
+        compact ? styles.compactCard : null,
         pressed ? styles.cardPressed : null,
       ]}
     >
-      <View style={styles.iconWrap}>
+      <View style={compact ? styles.compactIcon : styles.iconWrap}>
         <Icon name={iconName} size={18} color={colors.text} />
       </View>
       <View style={styles.textWrap}>
@@ -50,17 +60,22 @@ export function ArtifactCard({ artifact, colors, onPress }: ArtifactCardProps) {
         >
           {title}
         </Text>
-        <Text
-          style={styles.subtitle}
-          numberOfLines={1}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {subtitle}
-        </Text>
+        {!compact ? (
+          <Text
+            style={styles.subtitle}
+            numberOfLines={1}
+            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+          >
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
-      <Icon name={trailingIcon} size={18} color={colors.textMuted} />
+      {!compact ? (
+        <Icon name={trailingIcon} size={18} color={colors.textMuted} />
+      ) : null}
     </Pressable>
   );
+
 }
 
 const makeStyles = (colors: Colors) =>
@@ -77,6 +92,20 @@ const makeStyles = (colors: Colors) =>
       minHeight: 58,
       paddingHorizontal: 12,
       paddingVertical: 10,
+    },
+    compactCard: {
+      backgroundColor: "transparent",
+      borderWidth: 0,
+      borderRadius: 8,
+      minHeight: 44,
+      paddingHorizontal: 2,
+      paddingVertical: 6,
+    },
+    compactIcon: {
+      alignItems: "center",
+      justifyContent: "center",
+      width: 20,
+      height: 20,
     },
     cardPressed: {
       opacity: 0.72,

@@ -64,11 +64,11 @@ import {
   getAutomaticExecutionStatus,
   type AutomaticExecutionTarget,
 } from "./execution-placement";
-import { groupActivityArtifacts } from "./activity-hub-model";
+import { collectActivityHubArtifacts, groupActivityArtifacts } from "./activity-hub-model";
 import { canonicalWorkingState } from "./canonical-working-state";
 import { planCloudTranscriptDisplay } from "./cloud-transcript-display";
 import { useChatAttachmentPreviews } from "./use-chat-attachment-previews";
-import type { ChatArtifact, ChatMessage } from "../types";
+import type { ChatMessage } from "../types";
 import type { ChatThreadId } from "./offline-chat-storage";
 import type { StoredPhoneAccess } from "./phone-access";
 import {
@@ -317,9 +317,6 @@ const EMPTY_STATE: ConversationState = {
 };
 
 const emptySnapshot = () => EMPTY_STATE;
-
-const collectArtifacts = (messages: readonly ChatMessage[]): ChatArtifact[] =>
-  messages.flatMap((message) => message.artifacts ?? []).reverse();
 
 /**
  * Signed-in Chat: automatic execution for writes, DO journal for every visible
@@ -823,7 +820,7 @@ export const useCloudCanonicalChatThread = (
       local.workingIndicator, local.messages, state.live, state.records],
   );
   const conversationArtifacts = useMemo(
-    () => collectArtifacts(messages),
+    () => collectActivityHubArtifacts(messages),
     [messages],
   );
   // The activity hub groups files by owning task, and the journal projection —

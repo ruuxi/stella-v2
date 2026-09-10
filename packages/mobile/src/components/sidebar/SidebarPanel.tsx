@@ -66,8 +66,7 @@ import type { ChatArtifact, MobileTask } from "../../types";
 
 /**
  * Bottom tab bar entries. Activity carries the conversation's files too (they
- * nest under the agent that produced them, with a "This conversation" row for
- * the main thread's own), so there is no separate Files tab. Search is a mode
+ * appear as compact file rows), so there is no separate Files tab. Search is a mode
  * rather than a list of its own: selecting it reveals the search field and
  * narrows the activity + files list to matches.
  */

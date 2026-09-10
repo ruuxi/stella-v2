@@ -114,6 +114,7 @@ import {
 import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
+  canStartPostSendPlacement,
   consumeResponseSpacerHeight,
   resolvePostSendPlacement,
   resolveReplyOverflow,
@@ -490,6 +491,7 @@ function useChatScroll(
         }
       } else if (
         distFromBottom > nearBottomLimit &&
+        pendingSendAnchorRef.current === null &&
         followTargetOffsetRef.current === null &&
         !followRafRef.current &&
         Date.now() > followAnimatingUntilMsRef.current
@@ -517,7 +519,7 @@ function useChatScroll(
     // explicit tail action may re-arm that released latch.
     assistantLayoutBaselineRef.current = null;
     activeAssistantHeightRef.current = 0;
-    stopFollowLoop();
+    if (!pendingSendAnchorRef.current) stopFollowLoop();
   }, [stopFollowLoop]);
 
   const releaseFollow = useCallback(() => {
@@ -3262,10 +3264,13 @@ export function ChatPane({
   } | null>(null);
   useEffect(() => {
     const pending = pendingSendNudgeRef.current;
-    if (!pending || keyboardExtra > 0) return;
+    if (!pending) return;
+    // onSubmit can return before its optimistic row reaches this list. Starting
+    // placement against the previous tail discards the anchor before onLayout.
+    if (!canStartPostSendPlacement(pending.userMessageId, visibleMessages.map((message) => message.id), keyboardExtra)) return;
     pendingSendNudgeRef.current = null;
     scroll.nudgeAfterSend(pending.userMessageId);
-  }, [keyboardExtra, scroll.nudgeAfterSend]);
+  }, [keyboardExtra, visibleMessages, scroll.nudgeAfterSend]);
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
   // `streaming` is often still false at that render (always over the computer
@@ -3423,15 +3428,11 @@ export function ChatPane({
       });
       activateResponseSpacer(restingSpacerTargetPx - restingBottomInsetPx);
       setSendPinSuppressForId(submitted.userMessageId);
-      if (keyboardExtra > 0) {
-        // Defer the nudge until the keyboard-driven inset change commits
-        // (the `pendingSendNudgeRef` effect above).
-        pendingSendNudgeRef.current = {
-          userMessageId: submitted.userMessageId,
-        };
-      } else {
-        scroll.nudgeAfterSend(submitted.userMessageId);
-      }
+      // Always start from the committed message list, even with no keyboard.
+      // The effect also waits for the keyboard-down inset when needed.
+      pendingSendNudgeRef.current = {
+        userMessageId: submitted.userMessageId,
+      };
     } else if (submitted) {
       clearResponseSpacer();
       scroll.releaseFollow();

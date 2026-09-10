@@ -1,3 +1,4 @@
+import { canStartPostSendPlacement } from "../chat-response-spacer";
 import { describe, expect, test } from "bun:test";
 import {
   consumeResponseSpacerHeight,
@@ -220,3 +221,10 @@ describe("chat response spacer geometry", () => {
     ).toBe(false);
   });
 });
+
+ test("post-send placement waits for the submitted row and keyboard, including fast replies", () => {
+   expect(canStartPostSendPlacement("sent", ["previous"], 0)).toBe(false);
+   expect(canStartPostSendPlacement("sent", ["previous", "sent"], 300)).toBe(false);
+   expect(canStartPostSendPlacement("sent", ["previous", "sent"], 0)).toBe(true);
+   expect(canStartPostSendPlacement("sent", ["previous", "sent", "reply"], 0)).toBe(true);
+ });

@@ -135,3 +135,12 @@ export function resolvePostSendPlacement({
     responseSpacerHeightPx: trailingSlackPx,
   });
 }
+
+/** A send anchor needs both the submitted row and the resting keyboard inset. */
+export function canStartPostSendPlacement(
+  userMessageId: string,
+  renderedMessageIds: readonly string[],
+  keyboardExtra: number,
+): boolean {
+  return keyboardExtra <= 0 && renderedMessageIds.includes(userMessageId);
+}

@@ -1,3 +1,4 @@
+import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import type { Plugin } from "unified";
 import type { Link, Parent, Root, RootContent, Text } from "mdast";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
@@ -70,13 +71,18 @@ const textOfChildren = (parent: Parent): string => {
   return out;
 };
 
-const transformChildren = (parent: Parent): void => {
+const transformChildren = (parent: Parent, hiddenPaths: ReadonlySet<string>): void => {
 
   for (let index = parent.children.length - 1; index >= 0; index -= 1) {
     const child = parent.children[index]!;
     if (isLink(child as RootContent)) {
       const path = parseLocalFileLinkTarget((child as Link).url ?? "");
       if (path) {
+        const identity = cloudWorldDrivePath(path) ? `cloud:${cloudWorldDrivePath(path)}` : `local:${path}`;
+        if (hiddenPaths.has(identity)) {
+          parent.children.splice(index, 1);
+          continue;
+        }
         const label = textOfChildren(child as Parent);
         parent.children.splice(index, 1, buildStellaFileNode(path, label));
         continue;
@@ -97,13 +103,17 @@ const transformChildren = (parent: Parent): void => {
       continue;
     }
     if ("children" in child && Array.isArray((child as Parent).children)) {
-      transformChildren(child as Parent);
+      transformChildren(child as Parent, hiddenPaths);
+      if (["paragraph", "listItem", "list"].includes(type) &&
+          (child as Parent).children.every((node) => node.type === "text" && !(node as Text).value.trim())) {
+        parent.children.splice(index, 1);
+      }
     }
   }
 };
 
-export const remarkStellaFileLinks: Plugin<[], Root> = () => {
+export const remarkStellaFileLinks: Plugin<[(readonly string[])?], Root> = (hiddenPaths = []) => {
   return (tree) => {
-    transformChildren(tree as Parent);
+    transformChildren(tree as Parent, new Set(hiddenPaths));
   };
 };

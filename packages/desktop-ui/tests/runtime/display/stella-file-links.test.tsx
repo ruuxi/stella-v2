@@ -80,7 +80,7 @@ describe("displayPayloadForStellaFile", () => {
 
 describe("stella-file chat rendering round-trip", () => {
 
-  const render = (markdown: string) =>
+  const render = (markdown: string, hidden: string[] = []) =>
     renderToStaticMarkup(
       withI18n(
         createElement(
@@ -88,7 +88,7 @@ describe("stella-file chat rendering round-trip", () => {
           {
             remarkPlugins: [
               ...Object.values(defaultRemarkPlugins),
-              remarkStellaFileLinks,
+              [remarkStellaFileLinks, hidden],
             ],
             components: { [STELLA_FILE_TAG]: StellaFileLink },
             allowedTags: {
@@ -102,6 +102,15 @@ describe("stella-file chat rendering round-trip", () => {
         ),
       ),
     );
+
+  it("removes duplicate Drive links and their empty paragraph, preserving prose and other links", () => {
+    const html = render("Done.\n\n[file](/workspace/world/drive/result.md)\n\n[other](/tmp/result.md) [docs](https://example.com)", ["cloud:result.md"]);
+    expect(html).toContain("Done.");
+    expect(html).not.toContain("/workspace/world/drive/result.md");
+    expect(html).toContain("/tmp/result.md");
+    expect(html).toContain("https://example.com");
+    expect(html).not.toContain("<p></p>");
+  });
 
   it("renders an ordinary absolute-path Markdown link", () => {
     const html = render("Here's [the report](/Users/sam/report.pdf).");

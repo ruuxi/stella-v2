@@ -672,7 +672,12 @@ export const AssistantMessageRow = memo(
           ) : null}
           {hasText && (
             <AssistantBubble animate={Boolean(row.justArrived)}>
-              <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules />
+              <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
+                hiddenFilePaths={[
+                  ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
+                  ...(row.linkedFiles ?? []),
+                ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
+              />
             </AssistantBubble>
           )}
           {row.linkedFiles && row.linkedFiles.length > 0 ? (

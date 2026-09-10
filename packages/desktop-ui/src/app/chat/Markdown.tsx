@@ -37,6 +37,7 @@ interface MarkdownProps {
   /** Suppress GFM horizontal rules (`---`). Used in chat bubbles where
    *  models often append a trailing rule that reads as a message divider. */
   hideHorizontalRules?: boolean;
+  hiddenFilePaths?: readonly string[];
 }
 
 type MarkdownImageProps = ImgHTMLAttributes<HTMLImageElement> & {
@@ -57,7 +58,6 @@ type MarkdownImageProps = ImgHTMLAttributes<HTMLImageElement> & {
  * remain visible.
  */
 const DEFAULT_REMARK_PLUGINS = Object.values(defaultRemarkPlugins);
-const BASE_REMARK_PLUGINS = [...DEFAULT_REMARK_PLUGINS, remarkStellaFileLinks];
 
 /*
  * `stella://file/...` references are rewritten by `remarkStellaFileLinks`
@@ -108,6 +108,7 @@ const areMarkdownPropsEqual = (
   prev: MarkdownProps,
   next: MarkdownProps,
 ): boolean =>
+  prev.hiddenFilePaths?.join("\0") === next.hiddenFilePaths?.join("\0") &&
   prev.text === next.text &&
   prev.cacheKey === next.cacheKey &&
   prev.className === next.className &&
@@ -194,6 +195,7 @@ export const Markdown = memo(function Markdown({
   cacheKey,
   className,
   hideHorizontalRules = false,
+  hiddenFilePaths,
 }: MarkdownProps) {
   /*
    * Stable per-instance fallback when the caller didn't supply one,
@@ -211,13 +213,11 @@ export const Markdown = memo(function Markdown({
   );
   const [activeEmojiPack] = useActiveEmojiPack();
   const emojiSpritesEnabled = hasCompleteEmojiSpritePack(activeEmojiPack);
-  const remarkPlugins = useMemo(
-    () =>
-      emojiSpritesEnabled
-        ? [...BASE_REMARK_PLUGINS, remarkEmojiSprites]
-        : BASE_REMARK_PLUGINS,
-    [emojiSpritesEnabled],
-  );
+  const hiddenFileKey = hiddenFilePaths?.join("\0") ?? "";
+  const remarkPlugins = useMemo(() => {
+    const plugins = [...DEFAULT_REMARK_PLUGINS, [remarkStellaFileLinks, hiddenFileKey ? hiddenFileKey.split("\0") : []] as [typeof remarkStellaFileLinks, string[]]];
+    return emojiSpritesEnabled ? [...plugins, remarkEmojiSprites] : plugins;
+  }, [emojiSpritesEnabled, hiddenFileKey]);
   /*
    * `emojiVars` is memoized so the outer `<div>`'s `style` reference is
    * stable across renders when the active emoji pack hasn't changed.
@@ -235,7 +235,7 @@ export const Markdown = memo(function Markdown({
       ]),
     ) as CSSProperties;
   }, [activeEmojiPack, emojiSpritesEnabled]);
-  const streamdownKey = `${effectiveCacheKey}:${emojiSpritesEnabled ? "emoji" : "plain"}`;
+  const streamdownKey = `${effectiveCacheKey}:${emojiSpritesEnabled ? "emoji" : "plain"}:${hiddenFileKey}`;
   // Streamdown parsing is intentionally a hard-bounded main-thread task.
   // Parsing separate fragments changes document-level Markdown semantics
   // (references, lists), while one pathological paragraph or fence defeats

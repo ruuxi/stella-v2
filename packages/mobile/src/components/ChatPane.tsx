@@ -3292,18 +3292,20 @@ export function ChatPane({
     // becomes false. End-pinning here would scroll into reserved blank space.
     hasResponseSpacer: responseSpacerHeightPx > 0,
   });
+  const scrollOwnerRef = useRef(dataChangeScrollOwner);
+  scrollOwnerRef.current = dataChangeScrollOwner;
   const maintainVisibleContentPosition = useMemo(
     () => ({
-      // Native + Legend data and size anchoring are reserved for history.
-      // Even size-only anchoring enables native MVCP. Enabling it at
-      // the live tail would introduce a second writer beside the stream/send
-      // loop or Legend's end pin.
-      data: dataChangeScrollOwner === "history-anchor",
-      size: dataChangeScrollOwner === "history-anchor",
+      // Keep native MVCP enabled for the lifetime of the ScrollView. Toggling
+      // it during a drag lets iOS adjust from a stale pre-send native anchor.
+      // Legend's data restoration is still exclusive to history; the custom
+      // follow loop owns tail placement and streaming size changes.
+      data: true,
+      size: false,
+      shouldRestorePosition: () => scrollOwnerRef.current === "history-anchor",
     }),
-    [dataChangeScrollOwner],
+    [],
   );
-
   useEffect(() => {
     const grew = visibleMessages.length > prevLenRef.current;
     prevLenRef.current = visibleMessages.length;
@@ -4389,6 +4391,7 @@ export function ChatPane({
                   // Scrolling the transcript exits any active text selection
                   // before the drag runs (inline so it adds no new deps warning).
                   if (selectingMessageId != null) stopSelectingMessage();
+                  pendingSendNudgeRef.current = null;
                   scroll.onScrollBeginDrag();
                   historyPaging.beginDrag();
                   // A short page may already be at the boundary and never

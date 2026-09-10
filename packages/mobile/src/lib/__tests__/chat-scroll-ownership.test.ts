@@ -79,12 +79,19 @@ describe("chat data-change scroll ownership", () => {
     ).toBe("legend-tail");
   });
 
+  test("keeps native anchoring enabled and releases delayed send placement on drag", () => {
+    const config = chatPane.slice(chatPane.indexOf("const maintainVisibleContentPosition = useMemo"), chatPane.indexOf("const maintainVisibleContentPosition = useMemo") + 750);
+    expect(config).toContain("data: true");
+    expect(config).toContain("size: false");
+    expect(chatPane).toMatch(/pendingSendNudgeRef.current = null;\s*scroll.onScrollBeginDrag\(\)/);
+  });
+
   test("wires each owner to one list position writer", () => {
     expect(chatPane).toContain(
-      'data: dataChangeScrollOwner === "history-anchor"',
+      'shouldRestorePosition: () => scrollOwnerRef.current === "history-anchor"',
     );
     expect(chatPane).toContain(
-      'size: dataChangeScrollOwner === "history-anchor"',
+      'size: false',
     );
     expect(
       /maintainScrollAtEnd=\{\s*dataChangeScrollOwner === "legend-tail"\s*\? \{/.test(

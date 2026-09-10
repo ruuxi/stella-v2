@@ -5,10 +5,15 @@
  * The selected chain sits above the dimmed, blurred timeline in the same
  * chat column; the composer stays available below it. Three ways out: the
  * close button, a tap on the backdrop outside the chain, or the hardware
- * back gesture. A task root also offers its full report in a sheet.
+ * back gesture. Task descriptions open their full report in a separate sheet.
  */
 import { LegendList } from "@legendapp/list/react-native";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   BackHandler,
   Pressable,
@@ -22,7 +27,6 @@ import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { ChatMessage } from "../types";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
-import { fadeHex } from "../theme/oklch";
 import { getConvexClient } from "../lib/convex";
 import {
   mobileReplyContexts,
@@ -30,7 +34,8 @@ import {
   type MobileReplyContexts,
 } from "../lib/mobile-reply-context";
 import { AssistantMarkdown } from "./AssistantMarkdown";
-import { GlassSurface, liquidGlassSupported } from "./glass";
+import { GlassSurface } from "./glass";
+import { fadeHex } from "../theme/oklch";
 import { Icon } from "./Icon";
 import { replyTitle } from "./ReplyPreview";
 
@@ -45,11 +50,17 @@ const reportQuery = makeFunctionReference<
 >("cloud_apps:getMyAgentThread");
 
 /** Live text of a task's report, or a placeholder while it loads or runs. */
-function useAgentReport(conversationId: string, threadId: string): string | null {
+function useAgentReport(
+  conversationId: string,
+  threadId: string,
+): string | null {
   const [report, setReport] = useState<string | null>(null);
   useEffect(() => {
     setReport(null);
-    const watch = getConvexClient().watchQuery(reportQuery, { conversationId, threadId });
+    const watch = getConvexClient().watchQuery(reportQuery, {
+      conversationId,
+      threadId,
+    });
     const update = () => {
       try {
         const thread = watch.localQueryResult();
@@ -58,14 +69,24 @@ function useAgentReport(conversationId: string, threadId: string): string | null
         if (thread?.resultJson) {
           try {
             const parsed: unknown = JSON.parse(thread.resultJson);
-            if (parsed && typeof parsed === "object" && "finalText" in parsed && typeof parsed.finalText === "string") {
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              "finalText" in parsed &&
+              typeof parsed.finalText === "string"
+            ) {
               text = parsed.finalText;
             }
           } catch {
             text = thread.resultJson;
           }
         }
-        setReport(text || (thread?.status === "running" ? "Working…" : "No report is available yet."));
+        setReport(
+          text ||
+            (thread?.status === "running"
+              ? "Working…"
+              : "No report is available yet."),
+        );
       } catch {
         setReport("Couldn’t load the report. Close and reopen it to retry.");
       }
@@ -121,7 +142,10 @@ export function AgentReportSheet({
             <Icon name="x" size={16} color={colors.textMuted} />
           </Pressable>
         </View>
-        <ScrollView style={styles.reportBody} contentContainerStyle={styles.reportBodyContent}>
+        <ScrollView
+          style={styles.reportBody}
+          contentContainerStyle={styles.reportBodyContent}
+        >
           <AssistantMarkdown
             text={report ?? "Loading report…"}
             colors={colors}
@@ -136,28 +160,31 @@ export function AgentReportSheet({
 
 export function ReplyFocus({
   root,
+  bottomInset,
   messages,
-  conversationId,
   colors,
   onClose,
-  onOpenReport,
   renderMessage,
   onLoadOlder,
   hasOlder,
 }: {
   root: ReplyRef;
+  bottomInset: number;
   messages: readonly ChatMessage[];
-  conversationId: string;
   colors: Colors;
   onClose: () => void;
-  /** Opens the task's full report (agent roots only). */
-  onOpenReport?: (reference: AgentReplyRef) => void;
-  renderMessage: (message: ChatMessage, contexts: MobileReplyContexts) => ReactNode;
+  renderMessage: (
+    message: ChatMessage,
+    contexts: MobileReplyContexts,
+  ) => ReactNode;
   onLoadOlder?: () => unknown;
   hasOlder?: boolean;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const lineage = useMemo(() => mobileReplyLineage(messages, root), [messages, root]);
+  const lineage = useMemo(
+    () => mobileReplyLineage(messages, root),
+    [messages, root],
+  );
   const contexts = useMemo(() => mobileReplyContexts(lineage), [lineage]);
   useEffect(() => {
     const handler = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -166,12 +193,13 @@ export function ReplyFocus({
     });
     return () => handler.remove();
   }, [onClose]);
-  const title = replyTitle(root);
+  const [listSize, setListSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [listReady, setListReady] = useState(false);
   return (
-    <View style={styles.root} accessibilityViewIsModal>
-      {/* Backdrop: Liquid Glass blurs the timeline on iOS 26+; elsewhere a
-          strong tint stands in. Tapping it closes focus, like desktop's
-          click outside the chain. */}
+    <View style={[styles.root, { bottom: bottomInset }]} accessibilityViewIsModal>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Close focused conversation"
@@ -181,63 +209,68 @@ export function ReplyFocus({
         <GlassSurface
           glass="regular"
           radius={0}
+          tintColor={fadeHex(colors.background, 0.18)}
+          fallbackColor={fadeHex(colors.background, 0.44)}
           pointerEvents="none"
-          tintColor={liquidGlassSupported ? fadeHex(colors.background, 0.62) : undefined}
-          fallbackColor={fadeHex(colors.background, 0.92)}
           style={StyleSheet.absoluteFill}
         />
       </Pressable>
-      <View style={styles.header} pointerEvents="box-none">
-        <View style={styles.headerPill}>
-          <Text numberOfLines={1} style={styles.headerTitle} accessibilityRole="header">
-            {title}
-          </Text>
-          {root.kind === "agent" && onOpenReport ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="More: open the task's full report"
-              onPress={() => onOpenReport(root)}
-              hitSlop={6}
-              style={styles.reportButton}
-            >
-              <Text style={styles.reportButtonText}>More</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close focused conversation"
-            accessibilityHint="Back to the whole conversation"
-            onPress={onClose}
-            hitSlop={6}
-            style={styles.iconButton}
-          >
-            <Icon name="x" size={16} color={colors.textMuted} />
-          </Pressable>
-        </View>
-      </View>
-      <View style={styles.panel} pointerEvents="box-none">
-        <LegendList
-          style={styles.list}
-          data={lineage}
-          keyExtractor={(message) => message.id}
-          renderItem={({ item }) => (
-            <View style={styles.row}>{renderMessage(item, contexts)}</View>
-          )}
-          contentContainerStyle={styles.listContent}
-          alignItemsAtEnd
-          initialScrollAtEnd
-          ListHeaderComponent={
-            hasOlder ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => onLoadOlder?.()}
-                style={styles.loadOlder}
-              >
-                <Text style={styles.loadOlderText}>Load earlier messages</Text>
-              </Pressable>
-            ) : null
+      <View
+        style={styles.panel}
+        pointerEvents="box-none"
+        onLayout={({ nativeEvent: { layout } }) => {
+          if (layout.height > 0 && layout.width > 0) {
+            setListSize((previous) =>
+              previous?.width === layout.width &&
+              previous?.height === layout.height
+                ? previous
+                : { width: layout.width, height: layout.height },
+            );
           }
-        />
+        }}
+      >
+        {/* Initialize against measured bounds; reveal only after initial end alignment. */}
+        {listSize && (
+          <LegendList
+            style={[styles.list, !listReady && { opacity: 0 }]}
+            estimatedListSize={listSize}
+            estimatedItemSize={140}
+            onLoad={() => setListReady(true)}
+            maintainScrollAtEnd
+            data={lineage}
+            keyExtractor={(message) => message.id}
+            renderItem={({ item }) => (
+              <View style={styles.row}>{renderMessage(item, contexts)}</View>
+            )}
+            contentContainerStyle={styles.listContent}
+            alignItemsAtEnd
+            initialScrollAtEnd
+            ListHeaderComponent={
+              hasOlder ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onLoadOlder?.()}
+                  style={styles.loadOlder}
+                >
+                  <Text style={styles.loadOlderText}>
+                    Load earlier messages
+                  </Text>
+                </Pressable>
+              ) : null
+            }
+          />
+        )}
+      </View>
+      <View style={styles.footer} pointerEvents="box-none">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close focused conversation"
+          accessibilityHint="Back to the whole conversation"
+          onPress={onClose}
+          style={styles.focusClose}
+        >
+          <Icon name="x" size={18} color={colors.textMuted} />
+        </Pressable>
       </View>
     </View>
   );
@@ -245,40 +278,24 @@ export function ReplyFocus({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    root: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 30 },
-    header: {
+    root: {
       position: "absolute",
-      top: 8,
-      left: 16,
-      right: 16,
-      zIndex: 1,
-      flexDirection: "row",
-      justifyContent: "flex-end",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: 30,
     },
-    headerPill: {
-      flexDirection: "row",
+    footer: { alignItems: "center", paddingTop: 8, paddingBottom: 12 },
+    focusClose: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: "center",
-      gap: 4,
-      maxWidth: "100%",
-      paddingLeft: 12,
-      paddingRight: 4,
-      paddingVertical: 4,
-      borderRadius: 999,
+      justifyContent: "center",
       backgroundColor: colors.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-    },
-    headerTitle: {
-      flexShrink: 1,
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12.5,
-    },
-    reportButton: { paddingVertical: 6, paddingHorizontal: 8, borderRadius: 999 },
-    reportButtonText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 11.5,
     },
     iconButton: {
       width: 30,
@@ -287,9 +304,9 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       borderRadius: 999,
     },
-    panel: { flex: 1, paddingTop: 48 },
+    panel: { flex: 1 },
     list: { flex: 1 },
-    listContent: { paddingHorizontal: 16, paddingBottom: 12 },
+    listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
     row: { marginBottom: 14 },
     loadOlder: { padding: 12 },
     loadOlderText: {
@@ -297,8 +314,22 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.regular,
       fontSize: 12.5,
     },
-    reportRoot: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 40 },
-    reportBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(0,0,0,0.2)" },
+    reportRoot: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: 40,
+    },
+    reportBackdrop: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: "rgba(0,0,0,0.2)",
+    },
     reportPanel: {
       position: "absolute",
       top: 52,
@@ -326,5 +357,9 @@ const makeStyles = (colors: Colors) =>
       fontSize: 12.5,
     },
     reportBody: { flexShrink: 1 },
-    reportBodyContent: { paddingHorizontal: 14, paddingBottom: 12, paddingTop: 2 },
+    reportBodyContent: {
+      paddingHorizontal: 14,
+      paddingBottom: 12,
+      paddingTop: 2,
+    },
   });

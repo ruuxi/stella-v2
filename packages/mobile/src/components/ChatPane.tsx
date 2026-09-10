@@ -4479,8 +4479,9 @@ export function ChatPane({
         )}
         {replyFocus && <ReplyFocus
           key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
-          root={replyFocus} messages={visibleMessages} conversationId={conversationId ?? ""}
-          colors={colors} onClose={closeReplyFocus} onOpenReport={setReportRef}
+          bottomInset={footerHeight + keyboardExtra}
+          root={replyFocus} messages={visibleMessages}
+          colors={colors} onClose={closeReplyFocus}
           hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
           // Inside focus the chain is already open, so rows carry no reply
           // count; a quote still appears for a link to *other* work.

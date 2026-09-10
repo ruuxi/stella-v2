@@ -82,8 +82,8 @@ export function ReplyPreview({
           <View style={styles.agentMain}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Show this task and its updates: ${title}, ${statusLabel(status)}`}
-            onPress={onOpen}
+            accessibilityLabel={`Open task report: ${title}, ${statusLabel(status)}`}
+            onPress={onOpenReport ?? onOpen}
             style={({ pressed }) => [styles.agentHead, pressed && styles.bubblePressed]}
           >
             {/* The glyph alone carries the task's state (desktop parity). */}
@@ -105,12 +105,12 @@ export function ReplyPreview({
           {onOpenReport ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="More: open the task's full report"
-              onPress={onOpenReport}
+              accessibilityLabel="Replies: show this task and its updates"
+              onPress={onOpen}
               hitSlop={6}
               style={({ pressed }) => [styles.reportToggle, pressed && styles.bubblePressed]}
             >
-              <Text style={styles.reportToggleText}>More</Text>
+              <Text style={styles.reportToggleText}>Replies</Text>
             </Pressable>
           ) : null}
           </View>
@@ -192,12 +192,12 @@ const makeStyles = (colors: Colors) =>
       alignSelf: "flex-start",
       maxWidth: "85%",
       marginLeft: 14,
-      paddingBottom: 10,
+      paddingBottom: 18,
     },
     connector: {
       position: "absolute",
       left: -9,
-      bottom: -2,
+      bottom: 6,
       width: 14,
       height: 18,
       borderLeftWidth: 1.5,

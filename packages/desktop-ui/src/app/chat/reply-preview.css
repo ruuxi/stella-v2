@@ -85,8 +85,8 @@
   opacity: 0.8;
 }
 
-/* Agent previews are a compact task row: status glyph, title, and a More
-   action that opens the task's full result in a floating panel. When the
+/* Agent previews are a compact task row: status glyph, a title that
+   opens the full report, and a Replies action that opens the focused chain. When the
    bubble quotes a completed task, its produced files hang under that row
    as pills, inside the same bubble. */
 .reply-preview__bubble--agent {
@@ -313,4 +313,13 @@
   border-radius: 999px;
   background: currentColor;
   opacity: 0.6;
+}
+
+.reply-preview__agent-main > .task-report {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.reply-preview__agent-main > .task-report .reply-preview__agent-head {
+  width: 100%;
 }

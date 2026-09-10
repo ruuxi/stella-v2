@@ -1,4 +1,3 @@
-import { TaskReportButton } from "./TaskReportButton";
 /**
  * Focus (lineage) overlay — iMessage's thread view for the single chat.
  *
@@ -26,8 +25,8 @@ import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-
 import "./conversation-focus-overlay.css";
 
 const FOCUS_CONTENT_STYLE = {
-  paddingTop: 48,
-  paddingBottom: 30,
+  paddingTop: 16,
+  paddingBottom: 16,
   paddingLeft: 24,
   paddingRight: 24,
 } as const;
@@ -144,28 +143,6 @@ function FocusPanel({
         role="region"
         aria-label={t("app.chat.focus.ariaLabel", { title: heading })}
       >
-        <header className="conversation-focus__header">
-          <span className="conversation-focus__title" title={heading}>
-            {heading}
-          </span>
-          {root.kind === "agent" && <TaskReportButton
-            key={root.threadId}
-            reference={{ kind: "agent", threadId: root.threadId, title: heading }}
-            conversationId={conversationId}
-            status={activity.get(root.threadId)?.status}
-            liveTitle={heading}
-          />}
-          <button
-            ref={closeButtonRef}
-            type="button"
-            className="conversation-focus__close"
-            onClick={closeConversationFocus}
-            aria-label={t("app.chat.focus.close")}
-            title={t("app.chat.focus.closeHint")}
-          >
-            <X size={16} strokeWidth={2} aria-hidden="true" />
-          </button>
-        </header>
         <div className="conversation-focus__body">
           <div className="conversation-focus__surface">
             {lineage.error ? (
@@ -190,6 +167,18 @@ function FocusPanel({
             )}
           </div>
         </div>
+        <footer className="conversation-focus__footer">
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="conversation-focus__close"
+            onClick={closeConversationFocus}
+            aria-label={t("app.chat.focus.close")}
+            title={t("app.chat.focus.closeHint")}
+          >
+            <X size={16} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </footer>
       </section>
     </div>
   );

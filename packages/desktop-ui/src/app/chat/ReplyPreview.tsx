@@ -202,11 +202,11 @@ function AgentReplyPreview({
       }
     >
       <div className="reply-preview__agent-main">
-        <button
-          type="button"
-          className="reply-preview__agent-head"
-          onClick={open}
-          title={t("app.chat.replyPreview.openTask")}
+        <TaskReportButton
+          reference={reference}
+          conversationId={conversationId}
+          status={status}
+          liveTitle={title}
         >
           <span
             className="reply-preview__agent-icon"
@@ -218,13 +218,15 @@ function AgentReplyPreview({
             <AgentLifecycleStatusIcon status={status ?? "completed"} />
           </span>
           <span className="reply-preview__agent-title">{title}</span>
+        </TaskReportButton>
+        <button
+          type="button"
+          className="reply-preview__report-toggle"
+          onClick={open}
+          title={t("app.chat.replyPreview.openTask")}
+        >
+          Replies
         </button>
-        <TaskReportButton
-          reference={reference}
-          conversationId={conversationId}
-          status={status}
-          liveTitle={title}
-        />
       </div>
       {files && files.length > 0 ? (
         <FilePills files={[...files]} variant="inline" />

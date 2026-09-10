@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { LocalChatAgentReport } from "@stella/contracts/local-chat";
 import { Markdown } from "./Markdown";
@@ -39,11 +45,13 @@ export function TaskReportButton({
   conversationId,
   status,
   liveTitle,
+  children,
 }: {
   reference: Extract<ReplyRef, { kind: "agent" }>;
   conversationId: string;
   status?: "running" | "completed" | "error" | "canceled";
   liveTitle?: string;
+  children?: ReactNode;
 }) {
   const t = useT();
   const [reportOpen, setReportOpen] = useState(false);
@@ -52,8 +60,13 @@ export function TaskReportButton({
   );
   const requestedRef = useRef(false);
   const [reportRequested, setReportRequested] = useState(false);
-  const cloudReport = useCloudAgentReport(conversationId, reference.threadId, reportRequested);
-  const resolvedReport = cloudReport === undefined ? undefined : cloudReport ?? report;
+  const cloudReport = useCloudAgentReport(
+    conversationId,
+    reference.threadId,
+    reportRequested,
+  );
+  const resolvedReport =
+    cloudReport === undefined ? undefined : (cloudReport ?? report);
   const title =
     liveTitle?.trim() ||
     (reference.title !== reference.threadId ? reference.title.trim() : "") ||
@@ -108,8 +121,15 @@ export function TaskReportButton({
     >
       <Popover open={reportOpen} onOpenChange={onReportOpenChange}>
         <Popover.Trigger asChild>
-          <button type="button" className="reply-preview__report-toggle">
-            {t("app.chat.replyPreview.showReport")}
+          <button
+            type="button"
+            className={
+              children
+                ? "reply-preview__agent-head"
+                : "reply-preview__report-toggle"
+            }
+          >
+            {children ?? t("app.chat.replyPreview.showReport")}
           </button>
         </Popover.Trigger>
         <Popover.Content

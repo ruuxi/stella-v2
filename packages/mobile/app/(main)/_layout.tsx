@@ -355,15 +355,13 @@ export default function MainLayout() {
         />
       ) : null}
       {onChatSurface && computer ? (
-        // Quiet unless there is something to say: a muted
-        // glyph while unpaired or asleep, a spinner while
-        // waking, and the green dot only once connected.
+        // Settings remains available while the computer connects. The dot
+        // indicates a connected computer without replacing the settings icon.
         <GlassIconButton
           icon="settings"
           size={TOP_BAR_BUTTON}
           iconSize={21}
           muted={computer.connection !== "connected"}
-          loading={computer.connection === "connecting"}
           dot={computer.connection === "connected" ? colors.ok : null}
           accessibilityLabel={`${t("mobile.nav.settings")}, ${computer.label}`}
           onPress={onPressComputer}

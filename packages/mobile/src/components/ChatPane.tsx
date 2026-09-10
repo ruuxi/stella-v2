@@ -1848,6 +1848,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
           }
         />
       ) : null}
+      {showFileArtifacts && onOpenArtifact
+        ? genericLooseFiles.filter((artifact) => artifact.payload.kind === "canvas-html").map((artifact) => (
+            <ArtifactCard key={artifact.id} artifact={artifact} colors={colors} onPress={onOpenArtifact} />
+          ))
+        : null}
       {hasText ? (
         <MorphingAssistantBubble
           style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
@@ -1904,7 +1909,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               })
             : null}
           {showFileArtifacts && onOpenArtifact
-            ? genericLooseFiles.map((artifact) => (
+            ? genericLooseFiles.filter((artifact) => artifact.payload.kind !== "canvas-html").map((artifact) => (
                 <ArtifactCard
                   key={artifact.id}
                   artifact={artifact}

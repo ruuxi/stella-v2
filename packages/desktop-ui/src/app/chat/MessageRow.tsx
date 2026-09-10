@@ -670,6 +670,9 @@ export const AssistantMessageRow = memo(
               conversationId={conversationId}
             />
           ) : null}
+          {row.resourcePayload?.kind === "canvas-html" ? (
+            <EndResourceCard payload={row.resourcePayload} />
+          ) : null}
           {hasText && (
             <AssistantBubble animate={Boolean(row.justArrived)}>
               <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
@@ -733,7 +736,7 @@ export const AssistantMessageRow = memo(
               batchId={row.id}
               payloads={row.sourceDiffPayloads}
             />
-          ) : row.resourcePayload ? (
+          ) : row.resourcePayload && row.resourcePayload.kind !== "canvas-html" ? (
             <EndResourceCard payload={row.resourcePayload} />
           ) : null}
           {row.customSlot ? row.customSlot : null}

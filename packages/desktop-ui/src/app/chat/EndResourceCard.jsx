@@ -1,3 +1,4 @@
+import { FilePills } from "./FilePills";
 /**
  * Per-turn "end-resource" pill rendered after the assistant content.
  *
@@ -179,6 +180,9 @@ export const EndResourceCard = ({ payload }) => {
     // stays stable across renders.
     if (payload.kind === "source-diff")
         return null;
+    if (payload.kind === "canvas-html") {
+        return <FilePills variant="standalone" files={[{ path: payload.filePath, timestamp: payload.createdAt, payload }]} />;
+    }
     const localFilePath = localFilePathForPayload(payload);
     const { category, format } = categoryAndFormatForPayload(payload);
     const categoryLabel = t(category);

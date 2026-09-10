@@ -75,7 +75,7 @@ export const FilePill = ({ entry }: { entry: ConversationFileEntry }) =>
     <FilePillView
       entry={entry}
       onOpen={() => openDisplayPayloadTab(entry.payload)}
-      localFilePath={localFilePathForPayload(entry.payload)}
+      localFilePath={entry.payload.kind === "canvas-html" && entry.payload.driveBacked ? null : localFilePathForPayload(entry.payload)}
     />
   );
 
@@ -88,7 +88,7 @@ export const FilePills = ({
 }: {
   files: ConversationFileEntry[];
   /** `inline`: inside a quote bubble, without the under-row indent. */
-  variant?: "row" | "inline";
+  variant?: "row" | "inline" | "standalone";
 }) => {
   const t = useT();
   const tPlural = useTPlural();
@@ -102,7 +102,7 @@ export const FilePills = ({
 
   return (
     <div
-      className={`agent-activity-files${variant === "inline" ? " agent-activity-files--inline" : ""}`}
+      className={`agent-activity-files${variant !== "row" ? ` agent-activity-files--${variant}` : ""}`}
     >
       <div className="agent-activity-files__pills">
         {head.map((entry) => (

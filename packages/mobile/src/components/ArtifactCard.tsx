@@ -30,7 +30,9 @@ export function ArtifactCard({
   const payload = artifact.payload;
   const filePath = artifactPrimaryFilePath(payload);
   const filename = filePath?.split(/[?#]/)[0]?.split(/[\\/]/).pop();
-  const title = compact && filename ? filename : artifactTitle(payload);
+  const pill = payload.kind === "canvas-html" && !compact;
+  const minimal = compact || pill;
+  const title = minimal && filename ? filename : artifactTitle(payload);
   const subtitle = artifactSubtitle(payload);
   const iconName = artifactIconName(payload) as IconName;
   // On-device PDFs open to a viewer with a save/share action, so hint that with
@@ -38,7 +40,7 @@ export function ArtifactCard({
   const trailingIcon: IconName =
     payload.kind === "pdf" && payload.localUri ? "share" : "chevron-right";
 
-  return (
+  const card = (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Open ${title}`}
@@ -46,21 +48,22 @@ export function ArtifactCard({
       style={({ pressed }) => [
         styles.card,
         compact ? styles.compactCard : null,
+        pill ? styles.pill : null,
         pressed ? styles.cardPressed : null,
       ]}
     >
-      <View style={compact ? styles.compactIcon : styles.iconWrap}>
+      <View style={minimal ? styles.compactIcon : styles.iconWrap}>
         <Icon name={iconName} size={18} color={colors.text} />
       </View>
-      <View style={styles.textWrap}>
+      <View style={[styles.textWrap, pill ? styles.pillText : null]}>
         <Text
-          style={styles.title}
+          style={[styles.title, pill ? styles.pillTitle : null]}
           numberOfLines={1}
           maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
         >
           {title}
         </Text>
-        {!compact ? (
+        {!minimal ? (
           <Text
             style={styles.subtitle}
             numberOfLines={1}
@@ -70,12 +73,17 @@ export function ArtifactCard({
           </Text>
         ) : null}
       </View>
-      {!compact ? (
+      {!minimal ? (
         <Icon name={trailingIcon} size={18} color={colors.textMuted} />
       ) : null}
     </Pressable>
   );
-
+  return pill ? (
+    <View style={styles.connectedPill}>
+      <View pointerEvents="none" accessible={false} style={styles.connector} />
+      {card}
+    </View>
+  ) : card;
 }
 
 const makeStyles = (colors: Colors) =>
@@ -93,6 +101,22 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 12,
       paddingVertical: 10,
     },
+    connectedPill: { marginLeft: 14, paddingBottom: 10, alignSelf: "flex-start", maxWidth: "94%" },
+    connector: {
+      position: "absolute", left: -9, bottom: -2, width: 14, height: 18,
+      borderLeftWidth: 1.5, borderBottomWidth: 1.5, borderBottomLeftRadius: 10,
+      borderColor: colors.border, opacity: 0.85,
+    },
+    pill: {
+      alignSelf: "flex-start",
+      maxWidth: "100%",
+      borderRadius: 22,
+      minHeight: 40,
+      paddingVertical: 8,
+      gap: 6,
+    },
+    pillText: { flex: 0, flexShrink: 1 },
+    pillTitle: { fontFamily: fonts.sans.regular },
     compactCard: {
       backgroundColor: "transparent",
       borderWidth: 0,

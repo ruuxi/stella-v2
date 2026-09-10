@@ -168,6 +168,27 @@
 
 /* Inside the task quote bubble the strip hangs under the head row with the
    bubble's own padding; no under-row indent. */
+.agent-activity-files--standalone {
+  position: relative;
+  margin-left: 14px;
+  padding-left: 0;
+  padding-bottom: 10px;
+}
+
+.agent-activity-files--standalone::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  bottom: -2px;
+  width: 14px;
+  height: 18px;
+  border-left: 1.5px solid var(--border-strong, var(--border));
+  border-bottom: 1.5px solid var(--border-strong, var(--border));
+  border-bottom-left-radius: 10px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 .agent-activity-files--inline {
   margin: 0;
   padding: 0 10px 8px 12px;

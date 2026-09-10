@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
-import { File, Paths } from "expo-file-system";
+import { Alert } from "react-native";
 import * as Crypto from "expo-crypto";
 import { env } from "../config/env";
 import { assert } from "./assert";
@@ -9,7 +9,6 @@ import { getConvexToken } from "./auth-token";
 import { configurePlaybackAudioSession } from "./mobile-audio-session";
 
 const READ_ALOUD_KEY = "stella-mobile.read-aloud-enabled";
-const TTS_PATH = "/api/voice/tts";
 const TTS_STREAM_PREPARE_PATH = "/api/voice/tts/stream/prepare";
 const TTS_STREAM_CANCEL_PATH = "/api/voice/tts/stream/cancel";
 // The mobile player streams a live HLS playlist so audio starts while Inworld
@@ -22,8 +21,7 @@ const ttsStreamHlsPlaylistPath = (ticket: string) =>
 // keeping mobile in lockstep with desktop. Only send an explicit value once
 // the user can pick a voice here. (Removed the pinned "Wendy" voice that had
 // drifted from the server default.)
-// Safety net: if progressive playback has not begun within this window we
-// abandon it and fall back to the one-shot buffered request.
+// Reload a stalled native player from the same session, never synthesize again.
 const STREAM_START_TIMEOUT_MS = 8000;
 // Progressive HLS playback is resilient to transient segment/playlist/network
 // failures. Native players (AVPlayer/ExoPlayer) give up on a segment fetch that
@@ -43,7 +41,6 @@ const HLS_PREMATURE_EPS_SEC = 1.5;
 let cachedReadAloudEnabled = false;
 const listeners = new Set<() => void>();
 let currentPlayer: AudioPlayer | null = null;
-let currentFile: File | null = null;
 // The active HLS session ticket, so `stop` can tell the backend to end the
 // single background synthesis early (metered as interrupted) instead of letting
 // it run to completion after the user has already stopped listening.
@@ -203,83 +200,6 @@ const readErrorMessage = async (response: Response) => {
   }
 };
 
-// Pick the file extension from the audio's magic bytes first, falling back to
-// the content-type. Inworld's one-shot endpoint labels MP3 output as
-// `audio/wav`, so trusting the header alone would write a `.wav` file the
-// native player cannot demux.
-const detectAudioExt = (
-  audio: ArrayBuffer,
-  contentType: string,
-): "mp3" | "wav" => {
-  const b = new Uint8Array(audio);
-  if (
-    b.length >= 4 &&
-    b[0] === 0x52 &&
-    b[1] === 0x49 &&
-    b[2] === 0x46 &&
-    b[3] === 0x46
-  ) {
-    return "wav"; // "RIFF"
-  }
-  if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
-    return "mp3"; // "ID3"
-  }
-  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) {
-    return "mp3"; // MPEG frame sync
-  }
-  return contentType.includes("mpeg") || contentType.includes("mp3")
-    ? "mp3"
-    : "wav";
-};
-
-const createAudioFile = (audio: ArrayBuffer, contentType: string) => {
-  const ext = detectAudioExt(audio, contentType);
-  const file = new File(
-    Paths.cache,
-    `stella-read-aloud-${Date.now()}-${playbackGeneration}.${ext}`,
-  );
-  file.create({ overwrite: true, intermediates: true });
-  file.write(new Uint8Array(audio));
-  return file;
-};
-
-async function fetchInworldReadAloudAudio(
-  text: string,
-  operationId: string,
-  signal: AbortSignal,
-) {
-  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
-  const token = await getConvexToken();
-  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-  const response = await fetchReadAloud(
-    `${env.convexSiteUrl}${TTS_PATH}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-        voiceProvider: "inworld",
-        operationId,
-      }),
-    },
-    signal,
-  );
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-
-  return {
-    audio: await response.arrayBuffer(),
-    contentType:
-      response.headers.get("content-type")?.split(";")[0]?.trim() ??
-      "audio/wav",
-  };
-}
-
 // Ask the backend to synthesize a read-aloud reply and hold it under an opaque
 // ticket, so the native audio player can progressively stream it from a GET
 // URL. The (long) assistant text is POSTed here and never appears in the URL.
@@ -342,6 +262,7 @@ function cancelStreamSession(ticket: string) {
 export function stopReadAloud() {
   playbackGeneration += 1;
   abortPlaybackWork();
+  disposeHlsPlayback?.();
   clearHlsWatchdog();
   hlsResume = null;
   setPlaybackState(null);
@@ -354,19 +275,13 @@ export function stopReadAloud() {
     try {
       player.pause();
       player.remove();
-      player.release();
     } catch {
       /* ignore */
     }
-  }
-
-  const file = currentFile;
-  currentFile = null;
-  if (file) {
     try {
-      file.delete();
+      player.release();
     } catch {
-      /* ignore */
+      /* already released */
     }
   }
 }
@@ -433,81 +348,21 @@ export async function speakReply(text: string, messageId?: string) {
   // new request instead of being treated as a pause/cancel.
   setPlaybackState({ messageId: id, status: "loading" });
 
-  // Prefer progressive streaming so audio starts before the whole reply is
-  // synthesized. Fall back to a one-shot buffered clip if streaming is
-  // unavailable or fails before any audio is audible.
+  // Generate once. Playback retries reuse the ticket's existing audio.
   try {
-    const streamed = await tryStreamReply(
-      spoken,
-      operationId,
-      id,
-      generation,
-      signal,
-    );
-    if (streamed) return;
+    await tryStreamReply(spoken, operationId, id, generation, signal);
   } catch (error) {
     if (generation !== playbackGeneration || signal.aborted) return;
-    console.warn("[read-aloud] streaming failed, falling back", error);
-  }
-  if (generation !== playbackGeneration || signal.aborted) return;
-
-  try {
-    const { audio, contentType } = await fetchInworldReadAloudAudio(
-      spoken,
-      operationId,
-      signal,
+    stopReadAloud();
+    console.warn("[read-aloud] could not start speech", error);
+    Alert.alert(
+      "Couldn’t read aloud",
+      "Speech could not be started. Please try again.",
     );
-    if (generation !== playbackGeneration || signal.aborted) return;
-
-    const file = createAudioFile(audio, contentType);
-    if (generation !== playbackGeneration || signal.aborted) {
-      try {
-        file.delete();
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    if (!(await configurePlaybackAudioSession())) {
-      try {
-        file.delete();
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-    if (generation !== playbackGeneration || signal.aborted) {
-      try {
-        file.delete();
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-    const player = createAudioPlayer({ uri: file.uri });
-    currentFile = file;
-    currentPlayer = player;
-    // Reset the playback state when the clip finishes on its own so the
-    // message's sound button flips back to play.
-    player.addListener("playbackStatusUpdate", (status) => {
-      if (generation !== playbackGeneration) return;
-      if (status.didJustFinish) setPlaybackState(null);
-    });
-    setPlaybackState({ messageId: id, status: "playing" });
-    player.play();
-  } catch (error) {
-    if (generation === playbackGeneration && !signal.aborted) {
-      setPlaybackState(null);
-      console.warn("[read-aloud] playback failed", error);
-    }
   }
 }
 
-// Attempt progressive playback. Resolves `true` when playback started (or the
-// request was superseded/cancelled — nothing left to do), and `false` when the
-// caller should fall back to the buffered path. Cleans up its own player on
-// the fall-back path so nothing lingers.
+// Start one generation session and play its growing playlist.
 async function tryStreamReply(
   text: string,
   operationId: string,
@@ -524,13 +379,15 @@ async function tryStreamReply(
   }
 
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  currentStreamTicket = ticket;
   const token = await getConvexToken();
   // A live HLS playlist that grows as Inworld generates, so playback begins on
   // the first segment instead of waiting for the whole clip.
   const uri = `${env.convexSiteUrl}${ttsStreamHlsPlaylistPath(ticket)}`;
 
   if (!(await configurePlaybackAudioSession())) {
-    cancelStreamSession(ticket);
+    if (generation === playbackGeneration) stopReadAloud();
+    else cancelStreamSession(ticket);
     return true;
   }
   if (generation !== playbackGeneration || signal.aborted) {
@@ -538,23 +395,13 @@ async function tryStreamReply(
     return true;
   }
 
-  currentStreamTicket = ticket;
   return await playHlsResilient(uri, token, id, generation, 0);
 }
 
-// Drive resilient progressive HLS playback for the life of one read-aloud.
-//
-// Native players give up on a segment/playlist fetch that keeps failing past
-// their small internal retry budget, which shows up as playback stalling and
-// then stopping partway through the message. This controller detects that (an
-// error state, a failed-to-finish, or a prolonged lack of progress) and
-// recovers by recreating the player and seeking back to the last played
-// position — reusing the server-cached segments, so there is no re-synthesis,
-// no restart from the beginning, and no double-counted cost. It also retries a
-// pre-audible failure (e.g. an empty first playlist while the first segment is
-// still being synthesized) before conceding to the buffered fallback, and
-// verifies an end-of-stream actually reached the known duration so a premature
-// stop is never presented as a clean finish.
+// A player is disposable; the generation session is not. Both startup and
+// mid-stream recovery load the same playlist and preserve the playback position.
+let disposeHlsPlayback: (() => void) | null = null;
+
 async function playHlsResilient(
   uri: string,
   token: string,
@@ -562,242 +409,192 @@ async function playHlsResilient(
   generation: number,
   startAt: number,
 ): Promise<boolean> {
+  disposeHlsPlayback?.();
   return await new Promise<boolean>((resolve) => {
-    let decided = false;
     let started = false;
     let finished = false;
     let recovering = false;
     let recoverAttempts = 0;
     let startRetries = 0;
-    let lastTime = 0;
+    let lastTime = startAt;
     let lastProgressAt = Date.now();
     let expectedDur = 0;
     let player: AudioPlayer | null = null;
-
+    let startTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const superseded = () => generation !== playbackGeneration;
 
-    const decide = (result: boolean) => {
-      if (decided) return;
-      decided = true;
-      clearTimeout(startTimer);
-      resolve(result);
-    };
-
-    // Release a player without touching the backend session (kept so a retry can
-    // re-fetch the still-cached segments).
-    const dropPlayer = (p: AudioPlayer | null) => {
-      if (!p) return;
+    const dropPlayer = () => {
+      const p = player;
+      player = null;
       if (currentPlayer === p) currentPlayer = null;
+      if (!p) return;
       try {
         p.pause();
+      } catch {
+        /* already released */
+      }
+      try {
         p.remove();
+      } catch {
+        /* already released */
+      }
+      // remove() unregisters the Expo player; release() tears down AVPlayer
+      // and its pending network/seek work immediately.
+      try {
         p.release();
       } catch {
-        /* ignore */
+        /* already released */
       }
     };
-
-    // Concede progressive playback before it ever became audible: end the
-    // background synthesis (so it does not keep spending unheard) and let the
-    // caller fall back to the one-shot buffered clip.
-    const fallback = () => {
-      clearHlsWatchdog();
-      const p = player;
-      player = null;
-      dropPlayer(p);
-      const t = currentStreamTicket;
-      currentStreamTicket = null;
-      if (t) cancelStreamSession(t);
-      decide(false);
+    const clearStartTimer = () => {
+      if (startTimer !== null) clearTimeout(startTimer);
+      startTimer = null;
     };
-
-    const finishOk = () => {
+    const dispose = () => {
       finished = true;
+      clearStartTimer();
+      if (retryTimer !== null) clearTimeout(retryTimer);
       clearHlsWatchdog();
-      hlsResume = null;
-      const p = player;
-      player = null;
-      dropPlayer(p);
-      if (!superseded()) setPlaybackState(null);
-      decide(true);
+      dropPlayer();
+      if (disposeHlsPlayback === dispose) disposeHlsPlayback = null;
+      resolve(true);
     };
+    disposeHlsPlayback = dispose;
 
     const giveUp = () => {
-      finished = true;
-      clearHlsWatchdog();
-      const p = player;
-      player = null;
-      dropPlayer(p);
-      if (!started) {
-        // Never became audible → let the caller fall back to the buffered clip.
-        fallback();
-        return;
-      }
-      // Started but could not be recovered. Surface a stopped (not finished)
-      // state and remember where we were so the user can resume from the cached
-      // segments, rather than the truncated clip being presented as complete.
-      if (!superseded()) {
-        hlsResume = { uri, token, id, at: Math.max(lastTime, 0) };
-        setPlaybackState({ messageId: id, status: "paused" });
-        console.warn(
-          `[read-aloud] progressive playback stopped at ${lastTime.toFixed(
-            1,
-          )}s of ${expectedDur.toFixed(1)}s after ${recoverAttempts} recovery attempts`,
-        );
-      }
-      decide(true);
+      dispose();
+      if (superseded()) return;
+      hlsResume = { uri, token, id, at: lastTime };
+      setPlaybackState({ messageId: id, status: "paused" });
+      console.warn(
+        `[read-aloud] playback stopped at ${lastTime.toFixed(1)}s after ${startRetries + recoverAttempts} retries`,
+      );
+      Alert.alert(
+        "Playback stopped",
+        "Couldn’t play this reply. Retry to continue from where it stopped.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Retry",
+            onPress: () => {
+              if (!superseded()) resumeReadAloud();
+            },
+          },
+        ],
+      );
     };
 
-    const scheduleAttach = (at: number, backoff: number) => {
-      setTimeout(() => {
-        recovering = false;
-        if (finished || superseded()) {
-          decide(true);
-          return;
-        }
-        lastProgressAt = Date.now();
-        attach(at);
-      }, backoff);
-    };
-
-    // A mid-stream stall/error: recreate the player and resume in place.
-    const recover = () => {
+    const retry = () => {
       if (finished || superseded() || recovering) return;
+      clearStartTimer();
       recovering = true;
-      const p = player;
-      player = null;
-      dropPlayer(p);
-      if (recoverAttempts >= HLS_MAX_RECOVER_ATTEMPTS) {
+      dropPlayer();
+      if (
+        started
+          ? recoverAttempts >= HLS_MAX_RECOVER_ATTEMPTS
+          : startRetries >= HLS_MAX_START_RETRIES
+      ) {
         giveUp();
         return;
       }
-      recoverAttempts += 1;
-      scheduleAttach(Math.max(lastTime, 0), HLS_RECOVER_BACKOFF_MS);
-    };
-
-    // A pre-audible failure (e.g. empty first playlist): retry a few times before
-    // conceding to the buffered fallback.
-    const retryStart = () => {
-      if (decided || started || finished || superseded() || recovering) return;
-      recovering = true;
-      const p = player;
-      player = null;
-      dropPlayer(p);
-      if (startRetries >= HLS_MAX_START_RETRIES) {
-        recovering = false;
-        fallback();
-        return;
-      }
-      startRetries += 1;
-      scheduleAttach(0, HLS_START_RETRY_BACKOFF_MS);
+      if (started) recoverAttempts += 1;
+      else startRetries += 1;
+      setPlaybackState({ messageId: id, status: "loading" });
+      retryTimer = setTimeout(
+        () => {
+          retryTimer = null;
+          recovering = false;
+          if (finished || superseded()) return;
+          attach(lastTime);
+        },
+        started ? HLS_RECOVER_BACKOFF_MS : HLS_START_RETRY_BACKOFF_MS,
+      );
     };
 
     const attach = (at: number) => {
-      if (finished || superseded()) {
-        decide(true);
-        return;
-      }
-      const p = createAudioPlayer({
-        uri,
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      player = p;
-      currentPlayer = p;
-      currentFile = null;
-      let seeked = at <= 0.25;
-      p.addListener("playbackStatusUpdate", (status) => {
-        if (player !== p) return; // stale listener from a replaced player
-        if (superseded()) {
-          clearHlsWatchdog();
-          return;
-        }
-        if (!seeked && (status.isLoaded || status.duration > 0)) {
-          seeked = true;
-          p.seekTo(at)
-            .then(() => p.play())
-            .catch(() => {
-              try {
-                p.play();
-              } catch {
-                /* ignore */
-              }
-            });
-        }
-        if (
-          typeof status.duration === "number" &&
-          status.duration > expectedDur
-        ) {
-          expectedDur = status.duration;
-        }
-        const t =
-          typeof status.currentTime === "number" ? status.currentTime : 0;
-        if (t > lastTime + 0.05) {
-          lastTime = t;
-          lastProgressAt = Date.now();
-        }
-        if (!started && (status.playing || t > 0.01)) {
-          started = true;
-          setPlaybackState({ messageId: id, status: "playing" });
-          decide(true);
-        }
-        if (status.didJustFinish) {
-          // Only a finish that actually reached the known end is a clean finish;
-          // a short one is a premature stop to recover from.
-          if (
-            expectedDur > 0 &&
-            lastTime < expectedDur - HLS_PREMATURE_EPS_SEC
-          ) {
-            recover();
-          } else {
-            finishOk();
+      if (finished || superseded()) return;
+      lastProgressAt = Date.now();
+      // Also covers native failures that never emit a playback error event.
+      startTimer = setTimeout(retry, STREAM_START_TIMEOUT_MS);
+      try {
+        const p = createAudioPlayer({
+          uri,
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        player = p;
+        currentPlayer = p;
+        let seeked = at <= 0.25;
+        let seeking = false;
+        p.addListener("playbackStatusUpdate", (status) => {
+          if (player !== p || finished || superseded()) return;
+          if (!seeked) {
+            if (!seeking && (status.isLoaded || status.duration > 0)) {
+              seeking = true;
+              void p
+                .seekTo(at)
+                .then(() => {
+                  if (player !== p || finished || superseded()) return;
+                  seeked = true;
+                  p.play();
+                })
+                .catch(() => {
+                  if (player === p) retry();
+                });
+            }
+            // Never mistake the pre-seek position for progress or completion.
+            return;
           }
-          return;
-        }
-        const stateStr = (status.playbackState ?? "").toLowerCase();
-        const errored =
-          stateStr.includes("error") ||
-          stateStr.includes("fail") ||
-          status.mediaServicesDidReset === true;
-        if (errored) {
-          if (started) recover();
-          else retryStart();
-        }
-      });
-      if (at <= 0.25) {
-        try {
-          p.play();
-        } catch {
-          /* ignore */
-        }
+          if (Number.isFinite(status.duration) && status.duration > expectedDur)
+            expectedDur = status.duration;
+          const t =
+            typeof status.currentTime === "number" ? status.currentTime : 0;
+          if (t > lastTime + 0.01) {
+            lastTime = t;
+            lastProgressAt = Date.now();
+            clearStartTimer();
+            started = true;
+            if (playbackState?.status !== "paused")
+              setPlaybackState({ messageId: id, status: "playing" });
+            resolve(true);
+          }
+          const state = (status.playbackState ?? "").toLowerCase();
+          if (
+            state.includes("error") ||
+            state.includes("fail") ||
+            status.mediaServicesDidReset === true
+          ) {
+            retry();
+          } else if (status.didJustFinish) {
+            if (
+              !started ||
+              (expectedDur > 0 &&
+                lastTime < expectedDur - HLS_PREMATURE_EPS_SEC)
+            ) {
+              retry();
+            } else {
+              dispose();
+              hlsResume = null;
+              currentStreamTicket = null;
+              setPlaybackState(null);
+            }
+          }
+        });
+        if (seeked) p.play();
+      } catch {
+        retry();
       }
     };
 
-    // Stall watchdog: if playback is expected to progress but has not for a
-    // while (and the user has not paused), recover.
-    clearHlsWatchdog();
     hlsWatchdog = setInterval(() => {
       if (finished || superseded() || !started || recovering) return;
       if (playbackState?.status === "paused") {
         lastProgressAt = Date.now();
         return;
       }
-      const stalledFor = Date.now() - lastProgressAt;
-      const moreExpected =
-        expectedDur === 0 || lastTime < expectedDur - HLS_PREMATURE_EPS_SEC;
-      if (stalledFor > HLS_STALL_TIMEOUT_MS && moreExpected) recover();
+      // Even a player stalled at its advertised duration must finish explicitly.
+      if (Date.now() - lastProgressAt > HLS_STALL_TIMEOUT_MS) retry();
     }, HLS_WATCHDOG_INTERVAL_MS);
-
-    const startTimer = setTimeout(() => {
-      if (superseded()) {
-        decide(true);
-        return;
-      }
-      if (!started) {
-        // Never became audible in time → tear down and fall back.
-        fallback();
-      }
-    }, STREAM_START_TIMEOUT_MS);
-
     attach(startAt);
   });
 }

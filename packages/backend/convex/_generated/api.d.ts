@@ -134,6 +134,7 @@ import type * as http_shared_cors from "../http_shared/cors.js";
 import type * as http_shared_request from "../http_shared/request.js";
 import type * as http_shared_sse from "../http_shared/sse.js";
 import type * as http_shared_test_accounts from "../http_shared/test_accounts.js";
+import type * as http_shared_tts_playlist from "../http_shared/tts_playlist.js";
 import type * as http_shared_webhook_controls from "../http_shared/webhook_controls.js";
 import type * as http_shared_xai_realtime from "../http_shared/xai_realtime.js";
 import type * as lib_agent_constants from "../lib/agent_constants.js";
@@ -460,6 +461,7 @@ declare const fullApi: ApiFromModules<{
   "http_shared/request": typeof http_shared_request;
   "http_shared/sse": typeof http_shared_sse;
   "http_shared/test_accounts": typeof http_shared_test_accounts;
+  "http_shared/tts_playlist": typeof http_shared_tts_playlist;
   "http_shared/webhook_controls": typeof http_shared_webhook_controls;
   "http_shared/xai_realtime": typeof http_shared_xai_realtime;
   "lib/agent_constants": typeof lib_agent_constants;

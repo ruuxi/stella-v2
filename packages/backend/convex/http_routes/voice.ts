@@ -16,6 +16,7 @@ import { requireSignedInAccountAction } from "../http_shared/auth";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import { buildXaiRealtimeClientSecretRequest } from "../http_shared/xai_realtime";
 import { acquireTtsProviderDispatchGuard } from "../lib/tts_dispatch_guard";
+import { waitForPlayableTtsPlaylist } from "../http_shared/tts_playlist";
 import { acquireVoiceProviderDispatchGuard } from "../lib/voice_dispatch_guard";
 
 // ---------------------------------------------------------------------------
@@ -2718,17 +2719,32 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         if (file === "playlist.m3u8") {
-          const playlist = await ctx.runQuery(
-            internal.tts_hls.readHlsPlaylist,
-            {
+          const playlist = await waitForPlayableTtsPlaylist(() =>
+            ctx.runQuery(internal.tts_hls.readHlsPlaylist, {
               ticket,
               ownerId: auth.ownerId,
               ownerGeneration,
               nowMs: Date.now(),
-            },
+            }),
           );
           if (!playlist) {
             return errorResponse(404, "Stream is invalid or expired", origin);
+          }
+          if (
+            playlist.status === "error" ||
+            (playlist.done && !playlist.segments.length)
+          ) {
+            return errorResponse(502, "Speech generation failed", origin);
+          }
+          if (!playlist.segments.length) {
+            const response = errorResponse(
+              503,
+              "Speech is still being generated",
+              origin,
+            );
+            response.headers.set("Retry-After", "1");
+            response.headers.set("Cache-Control", "no-store");
+            return response;
           }
           const body = buildHlsPlaylist(playlist.segments, playlist.done);
           return withCors(

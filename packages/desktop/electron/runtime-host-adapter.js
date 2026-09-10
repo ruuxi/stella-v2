@@ -1,8 +1,9 @@
+import { withConversationStorage } from "./cloud-conversation-mode.js";
 import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerminalType, } from "@stella/contracts/agent-runtime";
 import { StellaRuntimeHost, } from "@stella/runtime/host";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
-import { withCloudConversationStorage } from "./cloud-conversation-mode.js";
+
 const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED;
 /**
  * Worker recorder seqs are small (event count per run). Hidden→visible
@@ -433,10 +434,9 @@ export class RuntimeHostAdapter {
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
     }
-    setCloudSyncEnabled(_enabled) {
-        // Compatibility surface for older renderers. Conversation authority is
-        // cloud-only, including anonymous Better Auth sessions.
-        this.queueRuntimeConfigPatch({ cloudSyncEnabled: true });
+    setCloudSyncEnabled(enabled) {
+        // This affects future local work; in-flight turns retain their storage mode.
+        this.queueRuntimeConfigPatch({ cloudSyncEnabled: Boolean(enabled) });
     }
     setModelCatalogUpdatedAt(value) {
         this.queueRuntimeConfigPatch({
@@ -543,7 +543,7 @@ export class RuntimeHostAdapter {
             cleanupTimer: null,
         });
         try {
-            const result = await this.host.startChat(withCloudConversationStorage({
+            const result = await this.host.startChat(withConversationStorage({
                 ...payload,
                 requestId,
             }));

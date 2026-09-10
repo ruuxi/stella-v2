@@ -1,3 +1,4 @@
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import {
   cloudOfflineNoticeDueAt,
   idleCloudOfflineWindow,
@@ -325,6 +326,7 @@ export function useCloudChatBridge({
   localFiles: EventRecord[];
   localTasks: TaskItem[];
 }): CloudChatBridge {
+  const isPrivate = useChatStorageMode() === "local";
   const decoratePrompt = useCallback(
     (prompt: string, attachments: readonly CloudAttachment[]) =>
       withAttachmentPreamble(prompt, attachments),
@@ -375,8 +377,9 @@ export function useCloudChatBridge({
             mayUseLocalOverlay ? localMessages : EMPTY_MESSAGES,
             activeUserIds,
           )
-        : EMPTY_MESSAGES,
+        : isPrivate ? localMessages : EMPTY_MESSAGES,
     [
+      isPrivate,
       activeUserIds,
       canonicalMessages,
       enabled,
@@ -405,8 +408,9 @@ export function useCloudChatBridge({
             mayUseLocalOverlay ? localActivities : EMPTY_EVENTS,
             { nowMs: overlayNowMs },
           )
-        : EMPTY_EVENTS,
+        : isPrivate ? localActivities : EMPTY_EVENTS,
     [
+      isPrivate,
       canonicalActivities,
       enabled,
       localActivities,
@@ -422,8 +426,8 @@ export function useCloudChatBridge({
             mayUseLocalOverlay ? localFiles : EMPTY_EVENTS,
             { nowMs: overlayNowMs },
           )
-        : EMPTY_EVENTS,
-    [canonicalFiles, enabled, localFiles, mayUseLocalOverlay, overlayNowMs],
+        : isPrivate ? localFiles : EMPTY_EVENTS,
+    [isPrivate, canonicalFiles, enabled, localFiles, mayUseLocalOverlay, overlayNowMs],
   );
   const tasks = useMemo(
     () =>
@@ -436,8 +440,9 @@ export function useCloudChatBridge({
               overlayNowMs,
             ),
           )
-        : EMPTY_TASKS,
+        : isPrivate ? localTasks : EMPTY_TASKS,
     [
+      isPrivate,
       cloudActivity.hasLoaded,
       cloudActivity.tasks,
       conversation.state.status,

@@ -44,3 +44,29 @@ export const isMobileBridgeEventChannel = (
   channel: string,
 ): channel is MobileBridgeEventChannel =>
   MOBILE_BRIDGE_EVENT_CHANNEL_SET.has(channel);
+
+/** Local-history ids and tab titles must never enter paired-device traffic. */
+export const containsPrivateChatData = (value: unknown): boolean => {
+  if (typeof value === "string") return value.startsWith("local_");
+  if (
+    !value ||
+    typeof value !== "object" ||
+    ArrayBuffer.isView(value) ||
+    value instanceof ArrayBuffer
+  )
+    return false;
+  if (Array.isArray(value)) return value.some(containsPrivateChatData);
+  const record = value as Record<string, unknown>;
+  return (
+    (typeof record.conversationId === "string" &&
+      record.conversationId.startsWith("local_")) ||
+    Object.keys(record).some(
+      (key) =>
+        key === "stella.conversationTabs.v2:local" ||
+        key === "stella:private-active-conversation",
+    ) ||
+    Object.values(record).some(
+      (entry) => typeof entry === "object" && containsPrivateChatData(entry),
+    )
+  );
+};

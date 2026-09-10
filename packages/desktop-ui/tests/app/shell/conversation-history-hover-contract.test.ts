@@ -27,7 +27,7 @@ describe("conversation history interaction contract", () => {
     expect(source).toContain("frozenHistorySnapshot");
     expect(source).toContain("mergeCloudConversationHistory(");
     expect(source).toContain("paginatedHistory.loadMore(HISTORY_PAGE_SIZE)");
-    expect(source).not.toContain("listLocalConversations");
+    expect(source).toContain('isCloudConversationReady ? {} : "skip"');
     expect(source).toContain("<LegendList<ConversationSummary>");
     expect(source).toContain("recycleItems");
     expect(source).toContain("onEndReached={() => {");

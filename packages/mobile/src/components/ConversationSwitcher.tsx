@@ -33,14 +33,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "../theme/theme-context";
 
 type Conversation = { conversationId: string; title: string };
-const createConversation = makeFunctionReference<
-  "mutation",
-  {
-    clientCreateId: string;
-    expectedOwnerGeneration: string;
-  },
-  Conversation
->("cloud_apps:createMyConversation");
 const getConversation = makeFunctionReference<
   "query",
   { conversationId: string },
@@ -89,8 +81,8 @@ export function ConversationSwitcher({
   });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const busyRef = useRef(false);
-  const createId = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Conversation[]>([]);
   const pageRef = useRef<{
@@ -150,34 +142,18 @@ export function ConversationSwitcher({
     fontFamily: fonts.sans.medium,
   };
 
-  const startChat = useCallback(async () => {
+  const startChat = useCallback(() => {
     if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
+    // Selection is a local draft. Turn admission creates the saved chat when
+    // the user sends the first message.
+    selectConversation({ conversationId: randomUUID(), title: "" });
     setError(null);
-    try {
-      // Retain this identifier on failure so retry cannot create duplicates.
-      createId.current ??= `mobile-new-chat:${randomUUID()}`;
-      const conversation = await getConvexClient().mutation(
-        createConversation,
-        {
-          clientCreateId: createId.current,
-          expectedOwnerGeneration: authority.ownerGeneration,
-        },
-      );
-      createId.current = null;
-      selectConversation(conversation);
-      setOpen(false);
-    } catch {
-      setError(t("mobile.chat.createFailed"));
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  }, [authority.ownerGeneration, selectConversation, t]);
+    setOpen(false);
+  }, [selectConversation]);
   const loadHistory = useCallback(
     async (reset: boolean) => {
       if (busyRef.current) return;
+      setLoadingMore(!reset);
       busyRef.current = true;
       setBusy(true);
       setError(null);
@@ -202,6 +178,7 @@ export function ConversationSwitcher({
       } finally {
         busyRef.current = false;
         setBusy(false);
+        setLoadingMore(false);
       }
     },
     [t],
@@ -219,6 +196,7 @@ export function ConversationSwitcher({
       ...rows.filter((row) => !recentIds.has(row.conversationId)),
     ];
   }, [recentConversations, rows]);
+  const showHistoryLoading = busy && (visibleRows.length === 0 || loadingMore);
   const requestedHistoryKey = useRef("");
   useEffect(() => {
     if (restoring || busy || !historyWatermark || expandedHistory.current)
@@ -234,7 +212,16 @@ export function ConversationSwitcher({
       disabled: restoring,
       onPress: () => {
         setOpen(true);
-        void loadHistory(true);
+        // Reuse the warm page on repeated openings. The reactive watermark
+        // triggers a refresh only when the cloud history has changed.
+        if (
+          !pageRef.current ||
+          error ||
+          (historyWatermark &&
+            pageRef.current.snapshotUpdatedAt !==
+              historyWatermark.snapshotUpdatedAt)
+        )
+          void loadHistory(true);
       },
       items: [
         {
@@ -251,7 +238,7 @@ export function ConversationSwitcher({
           selected: row.conversationId === selected.conversationId,
           onPress: () => selectConversation(row),
         })),
-        ...(busy
+        ...(showHistoryLoading
           ? [
               {
                 id: "loading",
@@ -284,6 +271,8 @@ export function ConversationSwitcher({
     return () => publishHistoryControl(null);
   }, [
     busy,
+    showHistoryLoading,
+    historyWatermark,
     restoring,
     loadHistory,
     visibleRows,
@@ -390,7 +379,7 @@ export function ConversationSwitcher({
                   </View>
                 </Pressable>
               ))}
-              {busy ? (
+              {showHistoryLoading ? (
                 <ActivityIndicator
                   style={{ padding: 12 }}
                   color={colors.textMuted}

@@ -1,3 +1,4 @@
+import * as SessionStorage from "./storage.js";
 import { Context, Effect, Layer } from "effect";
 import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { VoiceRuntimeService } from "../../voice/service.js";
@@ -23,6 +24,7 @@ export const layer = Layer.effect(
     const hostBus = yield* HostBus.Service;
     const config = yield* SessionConfig.Service;
     const runnerCell = yield* RunnerCell.Service;
+    const storage = yield* SessionStorage.Service;
 
     const service = new VoiceRuntimeService({
       getRunner: () => runnerCell.get(),
@@ -31,11 +33,8 @@ export const layer = Layer.effect(
       emitAgentEvent: (payload) => {
         hostBus.notify(NOTIFICATION_NAMES.VOICE_AGENT_EVENT, payload);
       },
-      // The cloud worker session has no local SQLite chat store — voice
-      // transcripts flow through the runner into the canonical journal, so the
-      // optional local-echo store is absent here (the service guards null).
-      getChatStore: () => null,
-      onLocalChatUpdated: () => {},
+      getChatStore: () => storage.chatStore,
+      onLocalChatUpdated: () => storage.notifyLocalChatUpdated(),
     });
 
     return { service };

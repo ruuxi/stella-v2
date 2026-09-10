@@ -128,7 +128,9 @@ describe("conversation history storage", () => {
 
     expect(store.createNewDefaultConversationId()).toBe(emptyConversationId);
     expect(store.createNewDefaultConversationId()).toBe(emptyConversationId);
-    expect(db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get()).toEqual({
+    expect(
+      db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get(),
+    ).toEqual({
       count: 1,
     });
     expect(
@@ -425,4 +427,21 @@ describe("conversation history storage", () => {
         .conversations.some((item) => item.conversationId === id),
     ).toBe(true);
   });
+});
+
+it("reserves a private draft without saving history until its first message", () => {
+  const { store } = createContext();
+  const id = "local_draft-first-message";
+  store.setActiveDefaultConversationId(id);
+  expect(store.getOrCreateDefaultConversationId()).toBe(id);
+  expect(store.listConversationSummaries({}).conversations).toEqual([]);
+  store.appendEvent({
+    conversationId: id,
+    type: "user_message",
+    timestamp: Date.now(),
+    payload: { text: "First message" },
+  });
+  expect(store.listConversationSummaries({}).conversations).toMatchObject([
+    { conversationId: id, title: "First message" },
+  ]);
 });

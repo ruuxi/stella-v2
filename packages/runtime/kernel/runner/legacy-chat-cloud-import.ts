@@ -404,10 +404,11 @@ export const createLegacyChatCloudImporter = (args: {
     while (!stopped && args.hasAuthToken()) {
       const candidates = args.store.listLegacyChatCloudImportCandidates(
         MAX_CANDIDATES_PER_PASS,
-      );
+      ).filter((candidate) => !candidate.conversationId.startsWith("local_"));
       if (candidates.length === 0) return;
       for (const candidate of candidates) {
         if (stopped || !args.hasAuthToken()) return;
+        // Private desktop history never participates, even after cloud is re-enabled.
         await importCandidate(candidate);
       }
     }

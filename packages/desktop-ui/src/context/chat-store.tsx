@@ -1,3 +1,4 @@
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
@@ -14,12 +15,8 @@ export { LocalChatStoreProvider, useChatStore };
 export const ChatStoreProvider = ({ children }: { children: ReactNode }) => {
   const { isCloudConversationReady } = useCloudConversationSession();
 
-  // Conversation ownership is never a renderer preference. Every authenticated
-  // identity (including the automatically-created anonymous identity) owns a
-  // cloud conversation; Electron's SQLite is only a rebuildable execution
-  // cache for turns that run on this computer.
-  const cloudFeaturesEnabled = isCloudConversationReady;
-  const storageMode: ChatStorageMode = "cloud";
+  const storageMode: ChatStorageMode = useChatStorageMode();
+  const cloudFeaturesEnabled = storageMode === "cloud" && isCloudConversationReady;
   const isLocalStorage = Boolean(window.electronAPI?.localChat);
 
   const value = useMemo<ChatStoreContextValue>(

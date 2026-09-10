@@ -1,3 +1,9 @@
+import { useUiState } from "@/context/ui-state";
+import { useState } from "react";
+import {
+  useChatStorageMode,
+  setChatStorageMode,
+} from "@/features/chat/services/chat-storage-preference";
 import { lazy, Suspense } from "react";
 import { Select } from "@/ui/select";
 import { LanguageSettingsRow } from "@/global/settings/LanguageSettingsRow";
@@ -26,12 +32,37 @@ const NativePermissionSettings = lazy(() =>
 
 export function GeneralTab() {
   const t = useT();
+  const storageMode = useChatStorageMode();
+  const { state: uiState } = useUiState();
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [savingStorage, setSavingStorage] = useState(false);
   const memoryPreference = useCloudMemoryPreference();
   const { reduceMotion } = useInterfacePreferences();
 
   return (
     <div className="settings-tab-content">
       <LanguageSettingsRow />
+      {platformCapabilities.nativeSettings ? (
+        <SettingsToggleCard
+          title={t("settings.chatStorage.title")}
+          description={t("settings.chatStorage.description")}
+          checked={storageMode === "cloud"}
+          disabled={savingStorage || uiState.isVoiceRtcActive}
+          error={
+            storageError ??
+            (uiState.isVoiceRtcActive
+              ? t("settings.chatStorage.endVoice")
+              : null)
+          }
+          onChange={(enabled) => {
+            setSavingStorage(true);
+            setStorageError(null);
+            void setChatStorageMode(enabled ? "cloud" : "local")
+              .catch(() => setStorageError(t("settings.chatStorage.error")))
+              .finally(() => setSavingStorage(false));
+          }}
+        />
+      ) : null}
       <SettingsToggleCard
         title={t("settings.memory.title")}
         description={t("settings.memory.description")}

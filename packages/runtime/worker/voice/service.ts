@@ -203,7 +203,7 @@ export class VoiceRuntimeService {
     uiVisibility?: "visible" | "hidden";
     voiceSession?: { durationMs: number };
   }) {
-    if (this.storageMode() === "cloud") {
+    if (this.storageMode(payload.conversationId) === "cloud") {
       const eventId = payload.eventId?.trim();
       if (
         !eventId ||
@@ -337,7 +337,7 @@ export class VoiceRuntimeService {
   async executeTool(
     payload: RuntimeVoiceToolCallPayload,
   ): Promise<RuntimeVoiceToolCallResult> {
-    if (this.storageMode() === "cloud") {
+    if (this.storageMode(payload.conversationId) === "cloud") {
       return await this.executeCloudTool(payload);
     }
 
@@ -415,7 +415,8 @@ export class VoiceRuntimeService {
     return runner;
   }
 
-  private storageMode(): "cloud" | "local" {
+  private storageMode(conversationId: string): "cloud" | "local" {
+    if (conversationId.startsWith("local_")) return "local";
     return (
       this.options.storageMode ??
       (this.options.getChatStore ? "local" : "cloud")
@@ -744,7 +745,7 @@ export class VoiceRuntimeService {
             userMessageId: `voice:${payload.requestId}`,
             userPrompt: payload.message,
             agentType: "orchestrator",
-            storageMode: this.storageMode(),
+            storageMode: this.storageMode(payload.conversationId),
           },
           {
             // Assistant text arrives whole, one event per completed segment

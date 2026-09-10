@@ -13,7 +13,7 @@ import { encodeBridgeBinaryValues } from "./binary-codec.js";
 import { BRIDGE_CRYPTO_PROTOCOL, BRIDGE_FEATURE_DEFLATE, createBridgeKeyPair, createBridgeReplayGuard, decryptBridgeBytes, decryptBridgePayload, deriveBridgeCryptoSession, encryptBridgeBytes, encryptBridgePayload, isBridgeEncryptedEnvelope, } from "./crypto.js";
 import { getHandler, getOnHandlers } from "./handler-registry.js";
 import { guardMobileBridgeInvokeArgs } from "./invoke-guards.js";
-import { MOBILE_BRIDGE_SENDER_URL } from "./bridge-policy.js";
+import { MOBILE_BRIDGE_SENDER_URL, containsPrivateChatData } from "./bridge-policy.js";
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 import { resolveRendererRoot } from "../../renderer-location.js";
@@ -130,9 +130,13 @@ const dispatchCapturedIpc = async (channel, args, broadcastToMobile, options) =>
     // and rebuilt — or rejected — before the privileged handler runs.
     const spreadArgs = guardMobileBridgeInvokeArgs(channel, Array.isArray(args) ? args : [args]);
     if (handleHandler) {
+        const result = await handleHandler(fakeEvent, ...spreadArgs);
+        if (containsPrivateChatData(result)) {
+            throw new Error("This chat history is stored only on this computer.");
+        }
         return {
             kind: "handle",
-            result: await handleHandler(fakeEvent, ...spreadArgs),
+            result,
         };
     }
     for (const handler of onHandlerList) {
@@ -531,7 +535,7 @@ export class MobileBridgeService {
     }
     /** Broadcast an event to mobile WebSocket clients subscribed to a channel. */
     broadcastToMobile = (channel, data) => {
-        if (!isMobileBridgeEventChannel(channel)) {
+        if (!isMobileBridgeEventChannel(channel) || containsPrivateChatData(data)) {
             return;
         }
         if (channel === "display:update" &&

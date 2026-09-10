@@ -1,3 +1,4 @@
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 /**
  * The one hook the cloud chat surface consumes.
  *
@@ -320,8 +321,10 @@ export const useConversation = (
 ): CloudConversationView => {
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
-  const { isCloudConversationReady, accountScope, ownerSubject } =
+  const { isCloudConversationReady: authCloudReady, accountScope, ownerSubject } =
     useCloudConversationSession();
+  const storageMode = useChatStorageMode();
+  const isCloudConversationReady = authCloudReady && storageMode === "cloud";
   const webShell = isWebShell();
   const conversationIdentity = useQuery(
     cloudApi.getMyCloudConversationIdentity,

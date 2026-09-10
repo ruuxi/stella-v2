@@ -1,3 +1,4 @@
+import { isPrivateConversationId } from "@/features/chat/services/chat-storage-preference";
 import { useMemo } from "react";
 import { useQueries, type RequestForQueries } from "convex/react";
 import type { LocalChatAgentReport } from "@stella/contracts/local-chat";
@@ -12,7 +13,8 @@ export function useCloudAgentReport(
   threadId: string,
   enabled: boolean,
 ): LocalChatAgentReport | null | undefined {
-  const { isCloudConversationReady, ownerSubject } = useCloudConversationSession();
+  const { isCloudConversationReady: authCloudReady, ownerSubject } = useCloudConversationSession();
+  const isCloudConversationReady = authCloudReady && !isPrivateConversationId(conversationId);
   const queries = useMemo<RequestForQueries>(() => {
     const requests: RequestForQueries = {};
     if (enabled && isCloudConversationReady) {

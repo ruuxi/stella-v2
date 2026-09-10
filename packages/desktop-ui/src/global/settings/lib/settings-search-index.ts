@@ -69,6 +69,13 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   // ---------- General ----------
   {
     tab: "general",
+    availability: "native",
+    titleKey: "settings.chatStorage.title",
+    descriptionKey: "settings.chatStorage.description",
+    keywords: ["privacy", "local", "cloud", "history", "storage", "sync", "messages"],
+  },
+  {
+    tab: "general",
     titleKey: "settings.language.title",
     descriptionKey: "settings.language.description",
     keywords: [

@@ -603,6 +603,9 @@ export const handleSpawnAgent = async (
   // LocalAgentManager. Without a dispatch capability there is nowhere honest
   // to put the work — refuse rather than silently run it in the wrong place.
   const cloudPlacement = requestedPlacement === "cloud";
+  if (cloudPlacement && context.conversationId.startsWith("local_")) {
+    return { error: "This chat is stored only on this computer. Run the task on this computer." };
+  }
   if (cloudPlacement && !ctx.agentApi?.cloudDispatch) {
     return {
       error: `A cloud placement runs in Stella's cloud, and this runtime has no cloud connection. Use placement "computer" to run it on this machine instead.`,

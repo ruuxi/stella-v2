@@ -1,3 +1,4 @@
+import { isMobileBridgeIpcEvent } from "../services/mobile-bridge/bridge-policy.js";
 import { getFileLogger } from "@stella/runtime/observability/file-logger";
 import { ipcMain, webContents, } from "electron";
 import crypto from "node:crypto";
@@ -5,7 +6,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/contracts/agent-runtime";
 import { IPC_AGENT_ONE_SHOT_COMPLETION } from "@stella/contracts/desktop/ipc-channels";
-import { requireMatchingCloudConversationId, selectedCloudConversationId, withCloudConversationStorage, } from "../cloud-conversation-mode.js";
+import { requireMatchingCloudConversationId, selectedCloudConversationId, } from "../cloud-conversation-mode.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { stampAgentEventMainSeq, workerResumeLastSeq, } from "./agent-event-seq.js";
 const redactSensitiveLogText = (value) => value
@@ -172,7 +173,7 @@ export const registerAgentHandlers = (options) => {
         bufferConversationEvent(normalizedEvent.conversationId, normalizedEvent);
         pruneConversationEventBuffers();
         const broadcastToMobile = options.getBroadcastToMobile?.();
-        if (broadcastToMobile) {
+        if (broadcastToMobile && !normalizedEvent.conversationId?.startsWith("local_")) {
             broadcastToMobile("agent:event", normalizedEvent);
             lastMobileAgentBroadcastAt = Date.now();
         }
@@ -203,6 +204,7 @@ export const registerAgentHandlers = (options) => {
             return;
         }
         for (const activeRun of activeRunByConversation.values()) {
+            if (activeRun.conversationId.startsWith("local_")) continue;
             broadcastToMobile("agent:event", {
                 type: "keepalive",
                 runId: activeRun.runId,
@@ -518,7 +520,11 @@ export const registerAgentHandlers = (options) => {
         const ownerGeneration = typeof cloudAuthority?.ownerGeneration === "string"
             ? cloudAuthority.ownerGeneration.trim()
             : "";
-        if (!ownerGeneration) {
+        const isPrivate = !isMobileBridgeIpcEvent(event) && payload.storageMode === "local";
+        if (isPrivate !== conversationId.startsWith("local_")) {
+            throw new Error("The chat storage setting changed. Try again.");
+        }
+        if (!isPrivate && !ownerGeneration) {
             throw new Error("Cloud conversation authority is not ready. Refresh and try again.");
         }
         // Idempotent send: a client (e.g. mobile over a flaky tunnel) can retry
@@ -617,12 +623,13 @@ export const registerAgentHandlers = (options) => {
             preparationMs: Math.round(performance.now() - preparationAt),
         });
         const localChatStartPromise = stellaHostRunner
-            .handleLocalChat(withCloudConversationStorage({
+            .handleLocalChat({
             ...payload,
             conversationId,
             requestId,
-            ownerGeneration,
-        }), {
+            ownerGeneration: isPrivate ? undefined : ownerGeneration,
+            storageMode: isPrivate ? "local" : "cloud",
+        }, {
             onRunStarted: (ev) => {
                 if (ev.uiVisibility === "hidden") {
                     return;

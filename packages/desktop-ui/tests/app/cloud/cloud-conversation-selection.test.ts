@@ -1,7 +1,9 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { CloudConversation } from "../../../src/features/cloud/cloud-api";
 import {
   cloudConversationsForOwnerSubject,
+  createCloudConversationDraft,
+  acknowledgeCloudConversation,
   markCloudConversationCreated,
   resolveCloudConversationForShell,
   resolveCloudConversationRoute,
@@ -169,4 +171,32 @@ describe("resolveCloudConversationForShell", () => {
       }),
     ).toBeNull();
   });
+});
+
+test("an unsent draft survives the pending-create timeout and stays account scoped", () => {
+  const draft = createCloudConversationDraft("draft-owner");
+  const args = {
+    conversations: [],
+    routeConversationId: draft,
+    cachedConversationId: null,
+    accountScope: "draft-owner",
+    ownerSubject: OWNER_SUBJECT_A,
+  };
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+  try {
+    expect(resolveCloudConversationRoute(args)).toBe(draft);
+    expect(
+      resolveCloudConversationRoute({ ...args, accountScope: "another-owner" }),
+    ).toBeNull();
+    acknowledgeCloudConversation(draft, "draft-owner");
+    expect(resolveCloudConversationRoute(args)).toBeNull();
+    expect(
+      resolveCloudConversationRoute({
+        ...args,
+        conversations: [conversation(draft, 1)],
+      }),
+    ).toBe(draft);
+  } finally {
+    clock.mockRestore();
+  }
 });

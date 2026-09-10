@@ -25,6 +25,7 @@ export function SettingsToggleCard({
       <div className="settings-card-header">
         <h3 className="settings-card-title">{title}</h3>
         <Switch
+          aria-label={title}
           checked={checked}
           disabled={disabled}
           onCheckedChange={(next) => onChange(Boolean(next))}

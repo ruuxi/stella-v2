@@ -145,6 +145,22 @@ const makeService = () => {
 };
 
 describe("voice conversation ownership", () => {
+  test("keeps private transcripts out of the cloud journal even on a cloud-default service", async () => {
+    const { service, appended, cloudAppends } = makeService();
+    await service.persistTranscript({
+      conversationId: "local_private-voice",
+      role: "user",
+      text: "Private voice",
+    });
+    expect(cloudAppends).toHaveLength(0);
+    expect(appended).toEqual([
+      expect.objectContaining({
+        threadKey: "local_private-voice",
+        content: "Private voice",
+      }),
+    ]);
+  });
+
   test("queues realtime transcripts in canonical cloud history", async () => {
     const { service, appended, historyChanges, cloudAppends } = makeService();
 

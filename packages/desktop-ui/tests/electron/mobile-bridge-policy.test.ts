@@ -6,11 +6,18 @@ import {
   MOBILE_BRIDGE_REQUEST_CAPABILITIES,
 } from "@stella/desktop/electron/services/mobile-bridge/capabilities.js";
 import {
+  containsPrivateChatData,
   isMobileBridgeEventChannel,
   isMobileBridgeRequestChannel,
 } from "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js";
 
 describe("mobile bridge policy", () => {
+  it("blocks private history events, request arguments, and local tab titles", () => {
+    expect(containsPrivateChatData([{ conversationId: "local_secret", text: "private" }])).toBe(true);
+    expect(containsPrivateChatData({ "stella.conversationTabs.v2:local": "private titles" })).toBe(true);
+    expect(containsPrivateChatData({ conversationId: "cloud-id", text: "cloud message" })).toBe(false);
+  });
+
   it("allows the chat channels used by the mobile desktop WebView", () => {
     expect(isMobileBridgeRequestChannel("localChat:listMessages")).toBe(true);
     expect(isMobileBridgeRequestChannel("localChat:listMessagesBefore")).toBe(

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   requireMatchingCloudConversationId,
+  requireRequestedCloudConversationId,
   selectedCloudConversationId,
-  withCloudConversationStorage,
+  withConversationStorage,
 } from "@stella/desktop/electron/cloud-conversation-mode.js";
 import { toggleRealtimeVoice } from "@stella/desktop/electron/services/realtime-voice-control.js";
 
@@ -44,28 +45,36 @@ describe("desktop cloud conversation authority", () => {
   it("fails closed when selection is missing or has changed", () => {
     expect(() =>
       requireMatchingCloudConversationId("old-conversation", null),
-    ).toThrow("Select a cloud conversation");
+    ).toThrow("Select a conversation");
     expect(() =>
       requireMatchingCloudConversationId(
         "old-conversation",
         "new-conversation",
       ),
-    ).toThrow("active cloud conversation changed");
+    ).toThrow("active conversation changed");
   });
 
-  it("overrides legacy renderer storage requests without mutating the input", () => {
+  it("preserves explicit local storage without mutating the input", () => {
     const request = {
       conversationId: "conversation-1",
       userPrompt: "Hello",
       storageMode: "local" as const,
     };
 
-    expect(withCloudConversationStorage(request)).toEqual({
+    expect(withConversationStorage(request)).toEqual({
       conversationId: "conversation-1",
       userPrompt: "Hello",
-      storageMode: "cloud",
+      storageMode: "local",
     });
     expect(request.storageMode).toBe("local");
+  });
+
+  it("rejects private conversation ids at the paired phone boundary", () => {
+    expect(() => requireRequestedCloudConversationId("local_private", { ownerGeneration: "owner-1" })).toThrow();
+  });
+
+  it("defaults to cloud when no preference is provided", () => {
+    expect(withConversationStorage({})).toEqual({ storageMode: "cloud" });
   });
 
   it("does not activate realtime voice before cloud selection", () => {

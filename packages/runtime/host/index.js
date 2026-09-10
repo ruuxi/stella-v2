@@ -1943,7 +1943,9 @@ export class StellaRuntimeHost {
             this.connectorFollowupOutbox?.clearTarget(payload.conversationId);
             this.localConversationByRequestId.delete(priorConnectorTarget.requestId);
         }
-        const target = payload.executionTarget && typeof payload.executionTarget === "object"
+        const target = payload.storageMode === "local"
+            ? { mode: "automatic" }
+            : payload.executionTarget && typeof payload.executionTarget === "object"
             ? payload.executionTarget
             : { mode: "automatic" };
         if (target.mode === "cloud") {

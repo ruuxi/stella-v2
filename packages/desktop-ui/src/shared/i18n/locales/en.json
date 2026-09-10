@@ -91,6 +91,13 @@
     "newChat": "New chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Save chat history in the cloud",
+      "description": "Access your chats across devices. Turn off to keep a separate chat history only on this computer. Switching back won’t upload those chats. AI providers still process your messages.",
+      "endVoice": "End your voice conversation to change chat storage.",
+      "error": "Couldn’t change chat storage. Try again."
+    },
+
     "title": "Settings",
     "tabs": {
       "general": "General",

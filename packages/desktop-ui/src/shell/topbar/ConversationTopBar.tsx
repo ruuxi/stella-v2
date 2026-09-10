@@ -1,10 +1,16 @@
-import { useRouter } from "@tanstack/react-router";
+import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
 import {
-  useAction,
-  useMutation,
-  usePaginatedQuery,
-  useQuery,
-} from "convex/react";
+  useChatStorageMode,
+  createPrivateConversation,
+  isPrivateConversationId,
+} from "@/features/chat/services/chat-storage-preference";
+import {
+  listLocalConversations,
+  deleteLocalConversation,
+  subscribeToLocalChatUpdates,
+} from "@/features/chat/services/local-chat-store";
+import { useRouter } from "@tanstack/react-router";
+import { useAction, usePaginatedQuery, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import {
   LegendList,
@@ -34,8 +40,7 @@ import { cloudApi, type CloudConversation } from "@/features/cloud/cloud-api";
 import {
   cloudConversationBelongsToOwnerSubject,
   cloudConversationsForOwnerSubject,
-  discardPendingCloudConversation,
-  markCloudConversationCreated,
+  createCloudConversationDraft,
 } from "@/features/cloud/cloud-conversation-selection";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useChatRuntime } from "@/context/use-chat-runtime";
@@ -124,10 +129,12 @@ export const cloudConversationToSummary = (
  * above the walk's timestamp bound therefore stays discoverable without
  * perturbing or duplicating the cursor walk itself.
  */
-export const mergeCloudConversationHistory = (
-  frozen: readonly CloudConversation[],
-  recent: readonly CloudConversation[],
-): CloudConversation[] => {
+export const mergeCloudConversationHistory = <
+  T extends { conversationId: string; updatedAt: number },
+>(
+  frozen: readonly T[],
+  recent: readonly T[],
+): T[] => {
   const byId = new Map(
     frozen.map((conversation) => [conversation.conversationId, conversation]),
   );
@@ -228,8 +235,14 @@ export function ConversationTopBar() {
   const t = useT();
   const router = useRouter();
   const chat = useChatRuntime();
-  const { isCloudConversationReady, accountScope, ownerSubject } =
-    useCloudConversationSession();
+  const {
+    isCloudConversationReady: authCloudReady,
+    accountScope: cloudAccountScope,
+    ownerSubject,
+  } = useCloudConversationSession();
+  const isPrivate = useChatStorageMode() === "local";
+  const isCloudConversationReady = !isPrivate && authCloudReady;
+  const accountScope = isPrivate ? "local" : cloudAccountScope;
   const tabSnapshot = useConversationTabs();
   // A scope change clears the backing store in RootLayout's layout effect.
   // Filter during the transition too so a previous owner's ids cannot enter
@@ -257,9 +270,7 @@ export function ConversationTopBar() {
       : null;
   const historySnapshotCandidate = useQuery(
     cloudApi.getMyConversationHistorySnapshot,
-    isCloudConversationReady && historyOpen && frozenHistorySnapshot === null
-      ? {}
-      : "skip",
+    isCloudConversationReady ? {} : "skip",
   );
   const paginatedHistory = usePaginatedQuery(
     cloudApi.listMyConversationsPage,
@@ -276,14 +287,13 @@ export function ConversationTopBar() {
       ),
     [ownerSubject, recentCloudConversations],
   );
-  const createCloudConversation = useMutation(cloudApi.createMyConversation);
   const deleteCloudConversation = useAction(cloudApi.deleteMyConversation);
   const activeConversationId = chat.conversation.conversationId;
   const activeConversationIsRecent = Boolean(
     activeConversationId &&
-    scopedRecentCloudConversations.some(
-      (conversation) => conversation.conversationId === activeConversationId,
-    ),
+      scopedRecentCloudConversations.some(
+        (conversation) => conversation.conversationId === activeConversationId,
+      ),
   );
   const activeCloudConversation = useQuery(
     cloudApi.getMyConversation,
@@ -307,13 +317,19 @@ export function ConversationTopBar() {
   }>(() => ({ accountScope, items: [] }));
   const history =
     historyState.accountScope === accountScope ? historyState.items : [];
-  const historyHasMore =
-    paginatedHistory.status === "CanLoadMore" ||
-    paginatedHistory.status === "LoadingMore";
-  const historyLoading =
-    (historyOpen && frozenHistorySnapshot === null) ||
-    paginatedHistory.status === "LoadingFirstPage" ||
-    paginatedHistory.status === "LoadingMore";
+  const [privateHistoryHasMore, setPrivateHistoryHasMore] = useState(false);
+  const [privateHistoryLoading, setPrivateHistoryLoading] = useState(false);
+  const privateHistoryCursor = useRef<ConversationSummaryCursor | null>(null);
+  const historyHasMore = isPrivate
+    ? privateHistoryHasMore
+    : paginatedHistory.status === "CanLoadMore" ||
+      paginatedHistory.status === "LoadingMore";
+  const historyLoading = isPrivate
+    ? privateHistoryLoading
+    : (history.length === 0 &&
+        ((historyOpen && frozenHistorySnapshot === null) ||
+          paginatedHistory.status === "LoadingFirstPage")) ||
+      paginatedHistory.status === "LoadingMore";
   const historyError = false;
   const [historyDeleteArmedId, setHistoryDeleteArmedId] = useState<
     string | null
@@ -324,17 +340,9 @@ export function ConversationTopBar() {
   const [historyDeleteErrorId, setHistoryDeleteErrorId] = useState<
     string | null
   >(null);
-  const createRequestRef = useRef<{
-    id: string;
-    ownerGeneration: string;
-  } | null>(null);
   const createInFlightRef = useRef(false);
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
-  const activeOwnerGenerationRef = useRef(ownerGeneration);
-  activeOwnerGenerationRef.current = ownerGeneration;
-  const activeConversationIdRef = useRef(activeConversationId);
-  activeConversationIdRef.current = activeConversationId;
   const cloudUpdatedAtRef = useRef<{
     accountScope: string;
     values: Map<string, number>;
@@ -400,123 +408,76 @@ export function ConversationTopBar() {
   );
 
   const createConversation = useCallback(async () => {
+    if (isPrivate) {
+      if (createInFlightRef.current) return;
+      createInFlightRef.current = true;
+      try {
+        const id = await createPrivateConversation();
+        if (activeAccountScopeRef.current === "local")
+          navigateToConversation(id);
+      } catch (error) {
+        showToast({
+          title: "Couldn’t create a new chat",
+          description: String(error),
+          variant: "error",
+        });
+      } finally {
+        createInFlightRef.current = false;
+      }
+      return;
+    }
     if (
       !isCloudConversationReady ||
       !ownerGeneration ||
       createInFlightRef.current
     )
       return;
-    const prior = createRequestRef.current;
-    const request =
-      prior?.ownerGeneration === ownerGeneration
-        ? prior
-        : { id: crypto.randomUUID(), ownerGeneration };
-    const clientCreateId = request.id;
-    const requestedConversationId = request.id;
-    const previousConversationId = activeConversationId;
-    createRequestRef.current = request;
-    createInFlightRef.current = true;
-    markCloudConversationCreated(requestedConversationId, accountScope);
-    navigateToConversation(requestedConversationId);
-    try {
-      const created = await createCloudConversation({
-        clientCreateId,
-        requestedConversationId,
-        expectedOwnerGeneration: request.ownerGeneration,
-      });
-      if (
-        activeAccountScopeRef.current !== accountScope ||
-        activeOwnerGenerationRef.current !== request.ownerGeneration ||
-        createRequestRef.current !== request
-      ) {
-        return;
-      }
-      createInFlightRef.current = false;
-      createRequestRef.current = null;
-      const optimisticTabStillExists = conversationTabs
-        .getSnapshot()
-        .tabs.some((tab) => tab.conversationId === requestedConversationId);
-      if (
-        created.conversationId !== requestedConversationId &&
-        optimisticTabStillExists
-      ) {
-        discardPendingCloudConversation(requestedConversationId);
-        conversationTabs.replaceConversation(
-          requestedConversationId,
-          created.conversationId,
-          created.title,
-        );
-      }
-      markCloudConversationCreated(created.conversationId, accountScope);
-      if (activeConversationIdRef.current === requestedConversationId) {
-        navigateToConversation(created.conversationId, created.title);
-      } else if (
-        created.conversationId === requestedConversationId &&
-        optimisticTabStillExists
-      ) {
-        conversationTabs.openConversation(
-          created.conversationId,
-          created.title,
-        );
-      }
-    } catch (error) {
-      if (
-        activeAccountScopeRef.current !== accountScope ||
-        activeOwnerGenerationRef.current !== request.ownerGeneration ||
-        createRequestRef.current !== request
-      ) {
-        return;
-      }
-      if (isConfirmedConversationCreateRejection(error)) {
-        discardPendingCloudConversation(requestedConversationId);
-        conversationTabs.closeConversation(
-          requestedConversationId,
-          activeConversationIdRef.current,
-        );
-        createInFlightRef.current = false;
-        createRequestRef.current = null;
-        if (
-          activeConversationIdRef.current === requestedConversationId &&
-          previousConversationId
-        ) {
-          navigateToConversation(previousConversationId);
-        }
-      } else {
-        markCloudConversationCreated(requestedConversationId, accountScope);
-      }
-      showToast({
-        title: "Couldn’t create a new chat",
-        description:
-          error instanceof Error && error.message.trim()
-            ? error.message
-            : "Try again in a moment.",
-        variant: "error",
-      });
-    } finally {
-      if (
-        activeAccountScopeRef.current === accountScope &&
-        activeOwnerGenerationRef.current === request.ownerGeneration &&
-        createRequestRef.current === request
-      ) {
-        createInFlightRef.current = false;
-      }
-    }
+    navigateToConversation(createCloudConversationDraft(accountScope));
   }, [
     accountScope,
-    activeConversationId,
+    isPrivate,
     isCloudConversationReady,
-    createCloudConversation,
     navigateToConversation,
     ownerGeneration,
   ]);
 
   const loadHistory = useCallback(
     async (_cursor: unknown, replace: boolean) => {
+      if (isPrivate) {
+        if (replace || privateHistoryLoading || !privateHistoryHasMore) return;
+        setPrivateHistoryLoading(true);
+        try {
+          const page = await listLocalConversations({
+            limit: HISTORY_PAGE_SIZE,
+            cursor: privateHistoryCursor.current,
+          });
+          if (activeAccountScopeRef.current !== "local") return;
+          const items = page.conversations.filter((item: ConversationSummary) =>
+            isPrivateConversationId(item.conversationId),
+          );
+          setHistoryState((current) => ({
+            accountScope: "local",
+            items: [
+              ...new Map(
+                [...current.items, ...items].map((item) => [
+                  item.conversationId,
+                  item,
+                ]),
+              ).values(),
+            ],
+          }));
+          privateHistoryCursor.current = page.nextCursor ?? null;
+          setPrivateHistoryHasMore(page.hasMore);
+        } finally {
+          setPrivateHistoryLoading(false);
+        }
+        return;
+      }
       if (!replace && paginatedHistory.status === "CanLoadMore") {
         paginatedHistory.loadMore(HISTORY_PAGE_SIZE);
       }
     },
-    [paginatedHistory],
+    [paginatedHistory, isPrivate, privateHistoryLoading, privateHistoryHasMore],
   );
 
   const historyFromServer = useMemo(() => {
@@ -531,13 +492,18 @@ export function ConversationTopBar() {
   }, [ownerSubject, paginatedHistory.results, scopedRecentCloudConversations]);
 
   useEffect(() => {
-    if (!historyOpen) {
-      // Reopening is the explicit refresh boundary: it obtains a new server
-      // clock anchor and starts a new cursor walk.
-      setHistorySnapshot(null);
+    // Keep the cursor walk alive across hover/close. Refresh its watermark in
+    // the background while closed, but freeze it while the user is paging.
+    // The live recent slice supplies new chats without disturbing that walk.
+    if (!historySnapshotCandidate) return;
+    if (!frozenHistorySnapshot && !historyOpen) return;
+    if (
+      frozenHistorySnapshot &&
+      (historyOpen ||
+        frozenHistorySnapshot.snapshotUpdatedAt ===
+          historySnapshotCandidate.snapshotUpdatedAt)
+    )
       return;
-    }
-    if (!historySnapshotCandidate || frozenHistorySnapshot !== null) return;
     setHistorySnapshot({
       accountScope,
       snapshotUpdatedAt: historySnapshotCandidate.snapshotUpdatedAt,
@@ -561,7 +527,6 @@ export function ConversationTopBar() {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    createRequestRef.current = null;
     createInFlightRef.current = false;
     cloudUpdatedAtRef.current = { accountScope, values: new Map() };
     setHistorySnapshot(null);
@@ -573,13 +538,61 @@ export function ConversationTopBar() {
   }, [accountScope, ownerGeneration]);
 
   useEffect(() => {
-    setHistoryState({ accountScope, items: historyFromServer });
+    if (isPrivate) return;
+    // A new watermark may briefly put the first page back in flight. Keep
+    // the visible rows until it arrives, while still applying live titles.
+    setHistoryState((previous) => ({
+      accountScope,
+      items:
+        paginatedHistory.status === "LoadingFirstPage" &&
+        previous.accountScope === accountScope
+          ? mergeCloudConversationHistory(
+              previous.items,
+              scopedRecentCloudConversations.map(cloudConversationToSummary),
+            )
+          : historyFromServer,
+    }));
     conversationTabs.mergeSummaries(historyFromServer);
     // `ownerGeneration` can resolve after the server list. The authority-reset
     // effect above deliberately clears prior-generation rows; rerun this
     // owner-filtered projection in the same commit so initial resolution does
     // not strand History empty until a later server mutation.
-  }, [accountScope, historyFromServer, ownerGeneration]);
+  }, [
+    accountScope,
+    historyFromServer,
+    ownerGeneration,
+    isPrivate,
+    paginatedHistory.status,
+    scopedRecentCloudConversations,
+  ]);
+
+  useEffect(() => {
+    if (!isPrivate) return;
+    let canceled = false;
+    const refresh = async () => {
+      const page = await listLocalConversations({ limit: 100 });
+      if (canceled) return;
+      const items = page.conversations.filter((item: ConversationSummary) =>
+        isPrivateConversationId(item.conversationId),
+      );
+      setHistoryState({ accountScope: "local", items });
+      privateHistoryCursor.current = page.nextCursor ?? null;
+      setPrivateHistoryHasMore(page.hasMore);
+      conversationTabs.mergeSummaries(items);
+    };
+    const refreshSafely = () => {
+      void refresh().catch(() => {
+        if (!canceled)
+          showToast({ title: "Couldn’t load chat history", variant: "error" });
+      });
+    };
+    refreshSafely();
+    const unsubscribe = subscribeToLocalChatUpdates(refreshSafely);
+    return () => {
+      canceled = true;
+      unsubscribe();
+    };
+  }, [isPrivate, historyOpen, activeConversationId]);
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -769,9 +782,11 @@ export function ConversationTopBar() {
       setHistoryDeletingId(summary.conversationId);
       const operationAccountScope = accountScope;
       try {
-        const deleted = await deleteCloudConversation({
-          conversationId: summary.conversationId,
-        });
+        const deleted = isPrivate
+          ? { ok: await deleteLocalConversation(summary.conversationId) }
+          : await deleteCloudConversation({
+              conversationId: summary.conversationId,
+            });
         if (activeAccountScopeRef.current !== operationAccountScope) return;
         if (!deleted.ok) {
           throw new Error("The cloud conversation was not deleted.");
@@ -805,6 +820,7 @@ export function ConversationTopBar() {
       clearHistoryDeleteTimer,
       closeConversation,
       deleteCloudConversation,
+      isPrivate,
       historyDeleteArmedId,
       accountScope,
     ],
@@ -941,6 +957,8 @@ export function ConversationTopBar() {
 
   const renderHistoryItem = useCallback(
     ({ item: summary }: LegendListRenderItemProps<ConversationSummary>) => {
+      const displayTitle =
+        summary.title.trim() || t("shell.topbar.conversation.newChat");
       const deleteArmed = historyDeleteArmedId === summary.conversationId;
       const deleting = historyDeletingId === summary.conversationId;
       const deleteFailed = historyDeleteErrorId === summary.conversationId;
@@ -976,11 +994,11 @@ export function ConversationTopBar() {
               setHistoryOpen(false);
             }}
             aria-label={t("shell.topbar.conversation.openConversation", {
-              title: summary.title,
+              title: displayTitle,
             })}
           >
             <span className="conversation-history-popover__title">
-              {summary.title}
+              {displayTitle}
             </span>
             <span className="conversation-history-popover__time">
               {formatHistoryTime(summary.latestMessageAt ?? summary.updatedAt)}
@@ -993,14 +1011,14 @@ export function ConversationTopBar() {
             aria-label={
               deleteFailed
                 ? t("shell.topbar.conversation.deleteFailedFor", {
-                    title: summary.title,
+                    title: displayTitle,
                   })
                 : deleteArmed
                   ? t("shell.topbar.conversation.deleteConfirmFor", {
-                      title: summary.title,
+                      title: displayTitle,
                     })
                   : t("shell.topbar.conversation.delete", {
-                      title: summary.title,
+                      title: displayTitle,
                     })
             }
             title={
@@ -1009,7 +1027,7 @@ export function ConversationTopBar() {
                 : deleteArmed
                   ? t("shell.topbar.conversation.deleteConfirm")
                   : t("shell.topbar.conversation.delete", {
-                      title: summary.title,
+                      title: displayTitle,
                     })
             }
             onKeyDown={(event) => {

@@ -1,4 +1,8 @@
 import {
+  useChatStorageMode,
+  selectPrivateConversation,
+} from "@/features/chat/services/chat-storage-preference";
+import {
   createRootRoute,
   Outlet,
   useMatchRoute,
@@ -34,6 +38,7 @@ import {
   cloudConversationsForOwnerSubject,
   isOwnedCloudConversation,
   markCloudConversationCreated,
+  createCloudConversationDraft,
   resolveCloudConversationForShell,
   resolveCloudConversationRoute,
 } from "@/features/cloud/cloud-conversation-selection";
@@ -170,8 +175,18 @@ function CloudStartupFailure({
  */
 function RootLayout() {
   const { state, setConversationId } = useUiState();
+  const storageMode = useChatStorageMode();
+  const isPrivate = storageMode === "local";
+  const [privateSelectionError, setPrivateSelectionError] = useState<
+    string | null
+  >(null);
+  const [privateSelectionAttempt, setPrivateSelectionAttempt] = useState(0);
+  const [privateSelection, setPrivateSelection] = useState<{
+    intent: string;
+    id: string;
+  } | null>(null);
   const {
-    isCloudConversationReady,
+    isCloudConversationReady: authCloudReady,
     error: authBootstrapError,
     authBootstrapStatus,
     isLoading: isAuthLoading,
@@ -179,6 +194,7 @@ function RootLayout() {
     ownerSubject,
     retryAuthBootstrap,
   } = useCloudConversationSession();
+  const isCloudConversationReady = !isPrivate && authCloudReady;
   const matchRoute = useMatchRoute();
   const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
   const routerConversationId = useRouterState({
@@ -189,6 +205,44 @@ function RootLayout() {
   });
   const router = useRouter();
   const routeIntent = `${isOnChatRoute ? "chat" : "other"}:${routerConversationId ?? ""}`;
+  useEffect(() => {
+    if (!isPrivate) {
+      setPrivateSelection(null);
+      return;
+    }
+    let canceled = false;
+    setPrivateSelectionError(null);
+    void selectPrivateConversation(routerConversationId)
+      .then((id) => {
+        if (canceled) return;
+        setPrivateSelection({ intent: routeIntent, id });
+        if (isOnChatRoute && routerConversationId !== id) {
+          void router.navigate({
+            to: "/chat",
+            search: { c: id },
+            replace: true,
+          });
+        }
+      })
+      .catch((error) => {
+        if (!canceled)
+          setPrivateSelectionError(
+            error instanceof Error
+              ? error.message
+              : "Couldn’t open chat history on this computer.",
+          );
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [
+    isPrivate,
+    routeIntent,
+    routerConversationId,
+    isOnChatRoute,
+    router,
+    privateSelectionAttempt,
+  ]);
   const activeRouteIntentRef = useRef(routeIntent);
   activeRouteIntentRef.current = routeIntent;
   const ownershipMigration = useQuery(
@@ -202,7 +256,7 @@ function RootLayout() {
     isCloudConversationReady,
   );
   const canQueryOwnershipFencedCloudData =
-    ownershipMigrationGate.canSelectConversation;
+    !isPrivate && ownershipMigrationGate.canSelectConversation;
   const cloudConversations = useQuery(
     cloudApi.listMyConversations,
     canQueryOwnershipFencedCloudData ? {} : "skip",
@@ -215,7 +269,6 @@ function RootLayout() {
     conversationIdentity?.ownerId === ownerSubject
       ? conversationIdentity.ownerGeneration
       : null;
-  const createCloudConversation = useMutation(cloudApi.createMyConversation);
   const retryOwnershipMigrationMutation = useMutation(
     cloudApi.retryMyLatestFailedOwnershipMigration,
   );
@@ -329,10 +382,13 @@ function RootLayout() {
     ownershipMigrationGate.isFailed ||
     cloudConversations === undefined ||
     (isOnChatRoute ? routeOwnershipIsLoading : cachedOwnershipIsLoading);
-  const conversationId =
-    !isAuthLoading &&
-    ownershipMigrationGate.canSelectConversation &&
-    !shellConversationSelectionIsLoading
+  const conversationId = isPrivate
+    ? privateSelection?.intent === routeIntent
+      ? privateSelection.id
+      : null
+    : !isAuthLoading &&
+        ownershipMigrationGate.canSelectConversation &&
+        !shellConversationSelectionIsLoading
       ? resolveCloudConversationForShell({
           isOnChatRoute,
           conversations: ownedCloudConversationCandidates,
@@ -372,11 +428,12 @@ function RootLayout() {
     retireCloudExecutionClientAuthority(accountScope);
     cloudAttachmentsStore.clear();
     conversationTabs.setAccountScope(
-      isCloudConversationReady ? accountScope : null,
+      isPrivate ? "local" : isCloudConversationReady ? accountScope : null,
     );
     setConversationId(null);
   }, [
     accountScope,
+    isPrivate,
     clearCloudCreateRetryTimer,
     isCloudConversationReady,
     setConversationId,
@@ -464,7 +521,7 @@ function RootLayout() {
     }
     if (cloudConversations === undefined || routeOwnershipIsLoading) return;
     for (const item of scopedCloudConversations) {
-      acknowledgeCloudConversation(item.conversationId);
+      acknowledgeCloudConversation(item.conversationId, accountScope);
     }
 
     if (routeIsOwnedCloudConversation && routerConversationId) {
@@ -525,10 +582,11 @@ function RootLayout() {
     // Conversation ids are minted on the client; the create id doubles as
     // the conversation id so the route, the socket and the first turn all
     // agree before Convex has projected the row.
-    void createCloudConversation({
-      clientCreateId,
-      requestedConversationId: clientCreateId,
-      expectedOwnerGeneration: request.ownerGeneration,
+    void Promise.resolve({
+      conversationId: createCloudConversationDraft(
+        accountScope,
+        clientCreateId,
+      ),
     })
       .then((created) => {
         const current = cloudCreateRequestRef.current;
@@ -590,7 +648,6 @@ function RootLayout() {
     ownerGeneration,
     ownerSubject,
     isCloudConversationReady,
-    createCloudConversation,
     routeIntent,
     scopedCloudConversations,
     scopedExactCachedCloudConversation,
@@ -658,7 +715,16 @@ function RootLayout() {
     if (shouldDismissLaunchSplash) dismissLaunchSplash();
   }, [shouldDismissLaunchSplash]);
 
-  if (authBootstrapError) {
+  if (isPrivate && privateSelectionError) {
+    return (
+      <CloudStartupFailure
+        message={privateSelectionError}
+        onRetry={() => setPrivateSelectionAttempt((attempt) => attempt + 1)}
+      />
+    );
+  }
+
+  if (!isPrivate && authBootstrapError) {
     return (
       <CloudStartupFailure
         message={authBootstrapError}
@@ -667,7 +733,7 @@ function RootLayout() {
     );
   }
 
-  if (ownershipMigrationGate.isFailed) {
+  if (!isPrivate && ownershipMigrationGate.isFailed) {
     return (
       <CloudStartupFailure
         message={

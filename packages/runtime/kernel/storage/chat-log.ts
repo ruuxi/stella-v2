@@ -183,8 +183,9 @@ export class ChatLog {
    * GLOB in every listing query.
    */
   static conversationKind(conversationId: string): "chat" | "derived" {
-    return conversationId.length === 26 &&
-      /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]+$/.test(conversationId)
+    return conversationId.startsWith("local_") ||
+      (conversationId.length === 26 &&
+        /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]+$/.test(conversationId))
       ? "chat"
       : "derived";
   }
@@ -195,6 +196,7 @@ export class ChatLog {
         `INSERT INTO conversation (id, kind, title, status, next_seq, created_at, updated_at)
          VALUES (?, ?, '', 'active', 1, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           kind = excluded.kind,
            updated_at = CASE
              WHEN excluded.updated_at > updated_at THEN excluded.updated_at
              ELSE updated_at
@@ -262,7 +264,7 @@ export class ChatLog {
     const existing = this.getSetting(DEFAULT_CONVERSATION_SETTING_KEY);
     if (existing) {
       this.tx.immediate(() => {
-        this.ensureConversation(existing, Date.now());
+        if (!existing.startsWith("local_")) this.ensureConversation(existing, Date.now());
       });
       return existing;
     }
@@ -322,7 +324,9 @@ export class ChatLog {
   setActiveDefaultConversationId(conversationId: string): void {
     const now = Date.now();
     this.tx.immediate(() => {
-      this.ensureConversation(conversationId, now);
+      // Selecting a private draft reserves its id without adding a history row.
+      // appendMessage/appendEvent materializes it with the first message.
+      if (!conversationId.startsWith("local_")) this.ensureConversation(conversationId, now);
       this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, conversationId);
     });
   }
@@ -891,7 +895,9 @@ export class ChatLog {
          ORDER BY entry.seq ASC`,
       )
       .all(conversationId, ...CHAT_MESSAGE_TYPES, cursor.sequence) as EntryRow[];
-    const newConversationId = generateLocalId();
+    const newConversationId = conversationId.startsWith("local_")
+      ? `local_${generateLocalId()}`
+      : generateLocalId();
     const createdAt = Date.now();
     const idMap = new Map<string, string>();
     for (const row of rows) {

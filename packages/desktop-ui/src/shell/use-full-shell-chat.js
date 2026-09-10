@@ -1,3 +1,4 @@
+import { truncateLocalConversation, forkLocalConversation } from "@/features/chat/services/local-chat-store";
 import {
   useCallback,
   useEffect,
@@ -112,7 +113,7 @@ export function useFullShellChat({
   traceEnabled,
   navigateToConversation,
 }) {
-  const { cloudFeaturesEnabled, isLocalStorage } = useChatStore();
+  const { cloudFeaturesEnabled, isLocalStorage, storageMode } = useChatStore();
   const { accountScope } = useCloudConversationSession();
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
@@ -152,7 +153,7 @@ export function useFullShellChat({
     setChatContext(null);
     setSelectedText(null);
     cloudAttachmentsStore.clear();
-  }, [accountScope, setChatContext, setMessage, setSelectedText]);
+  }, [accountScope, storageMode, setChatContext, setMessage, setSelectedText]);
   useEffect(() => {
     const previousConversationId = previousComposerConversationIdRef.current;
     if (previousConversationId === activeConversationId) return;
@@ -212,15 +213,18 @@ export function useFullShellChat({
       }),
     [],
   );
-  const { messages: localPersistedMessages } = useConversationMessages(
+  const localMessageFeed = useConversationMessages(
     activeConversationId ?? undefined,
   );
-  const { activities: localActivities } = useConversationActivity(
+  const { messages: localPersistedMessages } = localMessageFeed;
+  const localActivityFeed = useConversationActivity(
     activeConversationId ?? undefined,
   );
-  const { files: localPersistedFiles } = useConversationFiles(
+  const { activities: localActivities } = localActivityFeed;
+  const localFileFeed = useConversationFiles(
     activeConversationId ?? undefined,
   );
+  const { files: localPersistedFiles } = localFileFeed;
   const { records: threadActivityRecords } = useThreadActivity(
     activeConversationId ?? undefined,
   );
@@ -338,22 +342,49 @@ export function useFullShellChat({
   const cancelCurrentStream = useCloudRun
     ? cloudChat.cancelCurrentStream
     : localCancelCurrentStream;
-  // The DO window is the only history authority. SQLite page cursors are
-  // deliberately not consulted even on desktop.
-  const hasOlderMessages = cloudChat.conversation.state.hasOlder;
-  const hasNewerMessages = false;
-  const isLoadingOlderMessages = cloudChat.conversation.state.loadingOlder;
-  const isLoadingNewerMessages = false;
-  const isInitialLoadingMessages = cloudChat.isInitialLoading;
-  const loadOlderMessages = cloudChat.conversation.loadOlder;
-  const loadNewerMessages = NO_NEWER_CLOUD_MESSAGES;
-  const loadLatestMessages = NO_NEWER_CLOUD_MESSAGES;
-  const hasOlderActivity = cloudChat.hasOlderActivity;
-  const isLoadingOlderActivity = cloudChat.isLoadingOlderActivity;
-  const loadOlderActivity = cloudChat.loadOlderActivity;
-  const hasOlderFiles = cloudChat.conversation.state.hasOlder;
-  const isLoadingOlderFiles = cloudChat.conversation.state.loadingOlder;
-  const loadOlderFiles = cloudChat.conversation.loadOlder;
+  // Page only the selected history; local and cloud cursors never mix.
+  const hasOlderMessages = storageMode === "local"
+    ? localMessageFeed.hasOlderMessages
+    : cloudChat.conversation.state.hasOlder;
+  const hasNewerMessages = storageMode === "local"
+    ? localMessageFeed.hasNewerMessages
+    : false;
+  const isLoadingOlderMessages = storageMode === "local"
+    ? localMessageFeed.isLoadingOlder
+    : cloudChat.conversation.state.loadingOlder;
+  const isLoadingNewerMessages = storageMode === "local"
+    ? localMessageFeed.isLoadingNewer
+    : false;
+  const isInitialLoadingMessages = storageMode === "local"
+    ? localMessageFeed.isInitialLoading
+    : cloudChat.isInitialLoading;
+  const loadOlderMessages = storageMode === "local"
+    ? localMessageFeed.loadOlder
+    : cloudChat.conversation.loadOlder;
+  const loadNewerMessages = storageMode === "local"
+    ? localMessageFeed.loadNewer
+    : NO_NEWER_CLOUD_MESSAGES;
+  const loadLatestMessages = storageMode === "local"
+    ? localMessageFeed.loadLatest
+    : NO_NEWER_CLOUD_MESSAGES;
+  const hasOlderActivity = storageMode === "local"
+    ? localActivityFeed.hasOlderActivity
+    : cloudChat.hasOlderActivity;
+  const isLoadingOlderActivity = storageMode === "local"
+    ? localActivityFeed.isLoadingOlder
+    : cloudChat.isLoadingOlderActivity;
+  const loadOlderActivity = storageMode === "local"
+    ? localActivityFeed.loadOlder
+    : cloudChat.loadOlderActivity;
+  const hasOlderFiles = storageMode === "local"
+    ? localFileFeed.hasOlderFiles
+    : cloudChat.conversation.state.hasOlder;
+  const isLoadingOlderFiles = storageMode === "local"
+    ? localFileFeed.isLoadingOlder
+    : cloudChat.conversation.state.loadingOlder;
+  const loadOlderFiles = storageMode === "local"
+    ? localFileFeed.loadOlder
+    : cloudChat.conversation.loadOlder;
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
   // synthetic overlays (optimistic users, in-memory streaming
   // assistants, scheduler-pending) that drop off as their persisted
@@ -706,6 +737,7 @@ export function useFullShellChat({
   messageActionsStateRef.current = {
     activeConversationId,
     accountScope,
+    storageMode,
     isStreaming,
     cloudRecords: cloudChat.records,
     cloudState: cloudChat.conversation.state,
@@ -726,6 +758,19 @@ export function useFullShellChat({
     if (state.isStreaming || conversationEditInFlightRef.current) return;
     const conversationId = state.activeConversationId;
     if (!conversationId || !row?.id) return;
+    if (state.storageMode === "local") {
+      conversationEditInFlightRef.current = true;
+      const draft = composerDraftFromUserRow(row);
+      void truncateLocalConversation(conversationId, row.id).then(() => {
+        if (activeConversationIdRef.current !== conversationId) return;
+        state.setMessage(draft.message);
+        state.setChatContext(draft.chatContext);
+        state.setSelectedText(null);
+        state.requestFocus();
+      }).catch((error) => showToast({ title: "Couldn’t rewind this message", description: String(error), variant: "error" }))
+        .finally(() => { conversationEditInFlightRef.current = false; });
+      return;
+    }
     const boundary = cloudPrefixBoundaryForUserMessage(
       state.cloudRecords,
       row.id,
@@ -838,6 +883,19 @@ export function useFullShellChat({
     // Never mint a branch we can't navigate to — that would strand the
     // user on the original chat with an orphan conversation in the store.
     if (!state.navigateToConversation) return;
+    if (state.storageMode === "local") {
+      conversationEditInFlightRef.current = true;
+      const draft = composerDraftFromUserRow(row);
+      void forkLocalConversation(conversationId, row.id).then((id) => {
+        if (!id || activeConversationIdRef.current !== conversationId) return;
+        state.navigateToConversation(id);
+        setBoundedTabMemory(composerMemoryByConversationRef.current, id, {
+          message: draft.message, chatContext: draft.chatContext, selectedText: null,
+        });
+      }).catch((error) => showToast({ title: "Couldn’t fork this message", description: String(error), variant: "error" }))
+        .finally(() => { conversationEditInFlightRef.current = false; });
+      return;
+    }
     const boundary = cloudPrefixBoundaryForUserMessage(
       state.cloudRecords,
       row.id,

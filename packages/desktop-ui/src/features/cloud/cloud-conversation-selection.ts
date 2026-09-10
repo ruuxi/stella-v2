@@ -6,6 +6,36 @@
  */
 
 import type { CloudConversation } from "./cloud-api";
+import { uiState } from "@/platform/ui-state";
+
+const draftKey = (scope: string) => `stella:cloud-chat-drafts:${scope}`;
+const readDrafts = (scope: string): string[] => {
+  try {
+    const value: unknown = JSON.parse(uiState.getItem(draftKey(scope)) ?? "[]");
+    return Array.isArray(value)
+      ? value.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+/** Reserve a route locally; the first accepted turn creates the cloud row. */
+export const createCloudConversationDraft = (
+  accountScope: string,
+  conversationId: string = crypto.randomUUID(),
+): string => {
+  uiState.setItem(
+    draftKey(accountScope),
+    JSON.stringify(
+      [
+        ...readDrafts(accountScope).filter((id) => id !== conversationId),
+        conversationId,
+      ].slice(-100),
+    ),
+  );
+  return conversationId;
+};
 
 const PENDING_CREATE_TTL_MS = 30_000;
 type PendingCreatedConversation = {
@@ -56,7 +86,18 @@ export const markCloudConversationCreated = (
   });
 };
 
-export const acknowledgeCloudConversation = (conversationId: string): void => {
+export const acknowledgeCloudConversation = (
+  conversationId: string,
+  accountScope?: string,
+): void => {
+  if (accountScope) {
+    const drafts = readDrafts(accountScope);
+    if (drafts.includes(conversationId))
+      uiState.setItem(
+        draftKey(accountScope),
+        JSON.stringify(drafts.filter((id) => id !== conversationId)),
+      );
+  }
   pendingCreatedConversations.delete(conversationId);
 };
 
@@ -72,8 +113,9 @@ export const isPendingCloudConversation = (
 ): boolean => {
   prune();
   return (
+    readDrafts(accountScope).includes(conversationId) ||
     pendingCreatedConversations.get(conversationId)?.accountScope ===
-    accountScope
+      accountScope
   );
 };
 

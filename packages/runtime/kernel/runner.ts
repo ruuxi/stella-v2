@@ -636,8 +636,7 @@ export const createStellaHostRunner = (
     },
     cancelLocalAgent: taskOrchestration.cancelLocalAgent,
     cancelBlockingLocalAgent: taskOrchestration.cancelBlockingLocalAgent,
-    cancelPlacementAutomation:
-      orchestratorController.cancelPlacementAutomation,
+    cancelPlacementAutomation: orchestratorController.cancelPlacementAutomation,
     cancelLocalChat: orchestratorController.cancelLocalChat,
     cancelLocalChatByConversation:
       orchestratorController.cancelLocalChatByConversation,
@@ -679,8 +678,9 @@ export const createStellaHostRunner = (
       const agentType = AGENT_IDS.ORCHESTRATOR;
       const runId = `voice-session:${Date.now()}`;
       const resolved = await resolveAgentModelRoute(context, agentType);
-      const cloudHistory =
-        await context.cloudTranscript.history(conversationId);
+      const cloudHistory = conversationId.startsWith("local_")
+        ? null
+        : await context.cloudTranscript.history(conversationId);
       const agentContext = {
         ...(await buildAgentContext(context, {
           conversationId,
@@ -688,7 +688,9 @@ export const createStellaHostRunner = (
           runId,
           ...resolved,
         })),
-        threadHistory: parseCanonicalCloudHistory(cloudHistory.history),
+        ...(cloudHistory
+          ? { threadHistory: parseCanonicalCloudHistory(cloudHistory.history) }
+          : {}),
       };
       const instructions = await buildRuntimeSystemPrompt({
         executionHost: "device",

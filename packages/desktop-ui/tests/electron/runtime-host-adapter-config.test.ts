@@ -47,7 +47,7 @@ describe("RuntimeHostAdapter config batching", () => {
     });
   });
 
-  it("keeps cloud sync enabled when an older renderer requests local mode", async () => {
+  it("honors the local storage preference", async () => {
     const adapter = createAdapter();
     const anyAdapter = adapter as any;
     anyAdapter.started = true;
@@ -57,7 +57,7 @@ describe("RuntimeHostAdapter config batching", () => {
     adapter.setCloudSyncEnabled(false);
     await Promise.resolve();
 
-    expect(configure).toHaveBeenCalledWith({ cloudSyncEnabled: true });
+    expect(configure).toHaveBeenCalledWith({ cloudSyncEnabled: false });
   });
 
   it("does not mark a completed startChat result as the active run", async () => {

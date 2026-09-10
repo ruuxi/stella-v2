@@ -388,6 +388,7 @@ export class SessionStore {
       LEFT JOIN legacy_chat_cloud_import AS legacy_import
         ON legacy_import.local_conversation_id = conversation.id
       WHERE conversation.kind = 'chat'
+        AND conversation.id NOT GLOB 'local_*'
         AND (
           legacy_import.status IS NULL
           OR legacy_import.status = 'pending'

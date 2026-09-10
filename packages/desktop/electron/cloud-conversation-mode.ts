@@ -3,9 +3,9 @@ type StorageModeCarrier = {
 };
 
 /**
- * Main-process UI state is populated only after the renderer has selected an
- * owner-validated cloud conversation. Empty state means selection is still
- * booting; it must never be replaced with a SQLite conversation id.
+ * Main-process UI state mirrors the selected conversation in the current
+ * storage mode. Empty state means selection is still booting; callers must
+ * not substitute a conversation from the other history.
  */
 export const selectedCloudConversationId = (
   value: string | null | undefined,
@@ -22,13 +22,13 @@ export const requireMatchingCloudConversationId = (
 ): string => {
   const selectedId = selectedCloudConversationId(selectedValue);
   if (!selectedId) {
-    throw new Error("Select a cloud conversation before continuing.");
+    throw new Error("Select a conversation before continuing.");
   }
   if (
     typeof requestedValue !== "string" ||
     selectedCloudConversationId(requestedValue) !== selectedId
   ) {
-    throw new Error("The active cloud conversation changed. Try again.");
+    throw new Error("The active conversation changed. Try again.");
   }
   return selectedId;
 };
@@ -49,7 +49,7 @@ export const requireRequestedCloudConversationId = (
     typeof requestedValue === "string"
       ? selectedCloudConversationId(requestedValue)
       : null;
-  if (!requestedId) {
+  if (!requestedId || requestedId.startsWith("local_")) {
     throw new Error("A cloud conversation id is required.");
   }
   if (!authority?.ownerGeneration?.trim()) {
@@ -60,14 +60,11 @@ export const requireRequestedCloudConversationId = (
   return requestedId;
 };
 
-/**
- * Electron's ordinary chat boundary is cloud-only. Keep this override in main
- * as well as the runtime so an older renderer cannot revive local transcript
- * ownership by sending `storageMode: "local"`.
- */
-export const withCloudConversationStorage = <T extends StorageModeCarrier>(
+/** Preserve explicit local ownership; omission continues to mean cloud. */
+export const withConversationStorage = <T extends StorageModeCarrier>(
   payload: T,
-): Omit<T, "storageMode"> & { storageMode: "cloud" } => ({
+) => ({
   ...payload,
-  storageMode: "cloud",
+  storageMode:
+    payload.storageMode === "local" ? ("local" as const) : ("cloud" as const),
 });

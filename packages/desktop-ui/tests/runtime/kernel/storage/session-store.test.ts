@@ -57,6 +57,39 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("keeps private history and forks local and excludes both from cloud migration", () => {
+    const { store } = createTestContext();
+    const id = "local_private-history";
+    store.setActiveDefaultConversationId(id);
+    store.appendEvent({
+      conversationId: id,
+      eventId: "first",
+      type: "user_message",
+      timestamp: 100,
+      payload: { text: "Private first" },
+    });
+    store.appendEvent({
+      conversationId: id,
+      eventId: "second",
+      type: "user_message",
+      timestamp: 200,
+      payload: { text: "Private second" },
+    });
+    expect(store.getOrCreateDefaultConversationId()).toBe(id);
+    expect(
+      store
+        .listConversationSummaries({})
+        .conversations.some((item) => item.conversationId === id),
+    ).toBe(true);
+    const fork = store.forkConversationBeforeEvent(id, "second");
+    expect(fork?.conversationId).toMatch(/^local_/);
+    expect(store.listMessages(fork!.conversationId, {}).messages).toHaveLength(
+      1,
+    );
+    expect(store.listMessages(id, {}).messages).toHaveLength(2);
+    expect(store.listLegacyChatCloudImportCandidates()).toEqual([]);
+  });
+
   it("does not arm an Other Threads roster when a child summary changes", () => {
     const { store } = createTestContext();
     const { threadId } = store.resolveOrCreateActiveThread({

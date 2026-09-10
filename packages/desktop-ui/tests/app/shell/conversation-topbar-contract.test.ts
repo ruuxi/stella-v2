@@ -110,7 +110,7 @@ describe("conversation top-bar contracts", () => {
     ).toEqual({ type: "new" });
   });
 
-  it("routes a client-owned conversation before durable creation resolves", () => {
+  it("opens a locally reserved draft without creating a saved conversation", () => {
     const source = fs.readFileSync(
       path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
       "utf8",
@@ -121,13 +121,10 @@ describe("conversation top-bar contracts", () => {
     const createEnd = source.indexOf("const loadHistory", createStart);
     const createSource = source.slice(createStart, createEnd);
 
-    expect(createSource.indexOf("markCloudConversationCreated(")).toBeLessThan(
-      createSource.indexOf("await createCloudConversation("),
+    expect(createSource).toContain(
+      "navigateToConversation(createCloudConversationDraft(accountScope))",
     );
-    expect(createSource.indexOf("navigateToConversation(")).toBeLessThan(
-      createSource.indexOf("await createCloudConversation("),
-    );
-    expect(createSource).toContain("requestedConversationId");
+    expect(createSource).not.toContain("createCloudConversation(");
   });
 
   it("distinguishes durable create rejection from an ambiguous transport failure", () => {
@@ -451,13 +448,8 @@ describe("conversation top-bar contracts", () => {
       path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
       "utf8",
     );
-    expect(topBar).toContain("useMutation(cloudApi.createMyConversation)");
-    expect(topBar).toContain("await createCloudConversation({");
-    expect(topBar).toContain("clientCreateId,");
-    expect(topBar).toContain(
-      "expectedOwnerGeneration: request.ownerGeneration",
-    );
-    expect(topBar).toContain("markCloudConversationCreated(");
+    expect(topBar).toContain("createCloudConversationDraft(accountScope)");
+    expect(topBar).not.toContain("useMutation(cloudApi.createMyConversation)");
     expect(topBar).not.toContain("createNewLocalConversationId");
     expect(fullChat).not.toContain("createNewLocalConversationId");
     expect(fullChat).not.toContain("startNewChat");

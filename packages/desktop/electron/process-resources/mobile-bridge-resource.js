@@ -66,7 +66,8 @@ export const createMobileBridgeResource = (options) => {
         const originalSend = window.webContents.send.bind(window.webContents);
         window.webContents.send = ((channel, ...args) => {
             originalSend(channel, ...args);
-            if (isMobileBridgeEventChannel(channel)) {
+            if (isMobileBridgeEventChannel(channel) &&
+                !args.some((arg) => arg?.conversationId?.startsWith("local_"))) {
                 bridge?.broadcastToMobile(channel, args.length === 1 ? args[0] : args);
             }
         });

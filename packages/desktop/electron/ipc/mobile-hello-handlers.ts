@@ -56,6 +56,9 @@ export const waitForSelectedCloudConversation = async (
     const conversationId = selectedCloudConversationId(
       getActiveConversationId(),
     );
+    if (conversationId?.startsWith("local_")) {
+      throw new Error("This chat history is stored only on this computer.");
+    }
     if (conversationId) return conversationId;
     if (Date.now() >= deadline) {
       throw new Error(

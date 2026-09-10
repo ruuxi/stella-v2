@@ -1,3 +1,4 @@
+import { containsPrivateChatData } from "./bridge-policy.js";
 /**
  * Field-level narrowing for client-supplied invoke payloads.
  *
@@ -89,6 +90,9 @@ export const guardMobileBridgeInvokeArgs = (
   channel: string,
   args: unknown[],
 ): unknown[] => {
+  if (containsPrivateChatData(args)) {
+    throw new Error("This chat history is stored only on this computer.");
+  }
   const guard = INVOKE_GUARDS[channel];
   return guard ? guard(args) : args;
 };

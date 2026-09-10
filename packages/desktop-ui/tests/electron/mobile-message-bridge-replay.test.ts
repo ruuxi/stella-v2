@@ -179,7 +179,7 @@ describe("mobile bridge replay end to end", () => {
       staleResponse,
     );
     expect(staleResponse.statusCode).toBe(500);
-    expect(staleResponse.body).toContain("active cloud conversation changed");
+    expect(staleResponse.body).toContain("active conversation changed");
     expect(runtimeStarts).toBe(1);
     history.close();
   });

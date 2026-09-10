@@ -1,3 +1,4 @@
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import type { ReactNode } from "react";
 import { canBootstrapAnonymous } from "@stella/contracts/auth-session";
 import {
@@ -247,16 +248,16 @@ function DesktopAuthRuntimeEffects({
     setAuthBootstrapState,
   ]);
 
+  const chatStorageMode = useChatStorageMode();
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
     if (!systemApi?.setCloudSyncEnabled) {
       return;
     }
 
-    // Conversations are cloud-owned for anonymous and connected identities.
-    // Older desktop hosts still consume this compatibility flag.
-    void systemApi.setCloudSyncEnabled({ enabled: true });
-  }, []);
+    // Restore the device preference when the authenticated runtime becomes available.
+    void systemApi.setCloudSyncEnabled({ enabled: chatStorageMode === "cloud" });
+  }, [chatStorageMode]);
 
   // Main pushes this when a background retry reaches a new verdict. Drop the
   // cached Convex JWT and re-read the snapshot so the shell converges without

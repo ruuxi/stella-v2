@@ -1,3 +1,4 @@
+import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
@@ -28,7 +29,9 @@ import { platformCapabilities } from "@/platform/capabilities";
 const DEVICE_POLL_INTERVAL_MS = 15_000;
 
 export function GlobalExecutionTargetControl() {
-  const { isCloudConversationReady } = useCloudConversationSession();
+  const isPrivate = useChatStorageMode() === "local";
+  const { isCloudConversationReady: authCloudReady } = useCloudConversationSession();
+  const isCloudConversationReady = !isPrivate && authCloudReady;
   const { hasConnectedAccount } = useAuthSessionState();
   const [open, setOpen] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
@@ -115,6 +118,8 @@ export function GlobalExecutionTargetControl() {
     executionTargetStore.set(next);
     setOpen(false);
   };
+
+  if (isPrivate) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

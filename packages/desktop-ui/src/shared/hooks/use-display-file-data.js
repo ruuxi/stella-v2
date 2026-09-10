@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { DisplayFileSourceContext } from "./display-file-source";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { useOptionalUiState } from "@/context/ui-state";
 const isDisplayFileApiAvailable = () => typeof window !== "undefined" &&
     typeof window.electronAPI?.display?.readFile === "function";
@@ -61,11 +62,11 @@ const finalizeEvict = (filePath, entry) => {
     if (cache.get(filePath) === entry)
         cache.delete(filePath);
 };
-const acquire = (filePath, unavailableMessage, conversationId, version, maxBytes) => {
+const acquire = (filePath, unavailableMessage, conversationId, version, maxBytes, source) => {
     const cacheKey = displayFileCacheKey(filePath, conversationId, version, maxBytes);
     let entry = cache.get(cacheKey);
     if (!entry) {
-        const promise = readDisplayFileRaw(filePath, unavailableMessage, conversationId, maxBytes);
+        const promise = source ? source.read(filePath, maxBytes) : readDisplayFileRaw(filePath, unavailableMessage, conversationId, maxBytes);
         entry = {
             promise,
             resolved: null,
@@ -124,8 +125,9 @@ const release = (filePath, entry) => {
  * the in-flight or already-resolved entry.
  */
 export function useDisplayFileBytes(filePath, unavailableMessage, conversationIdOverride, version, maxBytes) {
+    const source = useContext(DisplayFileSourceContext);
     const uiState = useOptionalUiState();
-    const conversationId = conversationIdOverride !== undefined
+    const conversationId = source ? source.key : conversationIdOverride !== undefined
         ? conversationIdOverride
         : (uiState?.state.conversationId ?? null);
     const [bytes, setBytes] = useState(null);
@@ -141,7 +143,7 @@ export function useDisplayFileBytes(filePath, unavailableMessage, conversationId
         setTruncated(false);
         setBytes(null);
         const cacheKey = displayFileCacheKey(filePath, conversationId, version, maxBytes);
-        const entry = acquire(filePath, unavailableMessage, conversationId, version, maxBytes);
+        const entry = acquire(filePath, unavailableMessage, conversationId, version, maxBytes, source);
         void entry.promise
             .then((result) => {
             if (cancelled)
@@ -166,12 +168,13 @@ export function useDisplayFileBytes(filePath, unavailableMessage, conversationId
             cancelled = true;
             release(cacheKey, entry);
         };
-    }, [conversationId, filePath, maxBytes, unavailableMessage, version]);
+    }, [conversationId, filePath, maxBytes, unavailableMessage, version, source]);
     return { bytes, error, loading, missing, truncated };
 }
 export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationIdOverride) {
+    const source = useContext(DisplayFileSourceContext);
     const uiState = useOptionalUiState();
-    const conversationId = conversationIdOverride !== undefined
+    const conversationId = source ? source.key : conversationIdOverride !== undefined
         ? conversationIdOverride
         : (uiState?.state.conversationId ?? null);
     const [files, setFiles] = useState(() => filePaths.map(() => null));
@@ -184,7 +187,7 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
         let cancelled = false;
         const acquired = filePaths.map((filePath) => ({
             cacheKey: displayFileCacheKey(filePath, conversationId),
-            entry: acquire(filePath, unavailableMessage, conversationId),
+            entry: acquire(filePath, unavailableMessage, conversationId, undefined, undefined, source),
         }));
         // Synchronous fast-path: when every requested file is already
         // resolved in the cache, seed state directly instead of blanking to
@@ -263,6 +266,6 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
             for (const { cacheKey, entry } of acquired)
                 release(cacheKey, entry);
         };
-    }, [key, unavailableMessage]);
+    }, [key, unavailableMessage, source]);
     return { files, error, loading, missing };
 }

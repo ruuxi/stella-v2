@@ -1,3 +1,4 @@
+import { CloudFileSource } from "@/features/cloud/CloudFileSource";
 /**
  * Bridge from the `DisplayPayload` IPC contract (one-payload-at-a-time,
  * used by the media materializer and a few other channels) to the
@@ -271,6 +272,7 @@ const indexInFiles = (
   payload: DisplayTabPayload,
   filePath?: string,
 ): DisplayTabSpec => {
+  if (payload.cloudDrivePath) return spec;
   recordArtifactFileEntry({
     id: spec.id,
     kind: spec.kind,
@@ -285,7 +287,7 @@ const indexInFiles = (
   return rememberInFiles(spec);
 };
 
-export const payloadToTabSpec = (
+const localPayloadToTabSpec = (
   payload: DisplayTabPayload,
 ): DisplayTabSpec => {
   const title = getDisplayPayloadTitle(payload);
@@ -428,6 +430,11 @@ export const payloadToTabSpec = (
       };
 
     case "media": {
+      if (payload.cloudDrivePath) {
+        const item: GeneratedMediaItem = { id: idForMediaPayload(payload), asset: payload.asset, createdAt: payload.createdAt };
+        return { id: item.id, kind: displayTabKindForPayload(payload), title: titleForMediaItem(item),
+          render: () => createElement(MediaTabContent, { item }) };
+      }
       const items = addGeneratedMediaItem(payload);
       // A multi-image job lands as several entries; the tab points at the
       // first, which is the one the user clicked through to.
@@ -448,6 +455,17 @@ export const payloadToTabSpec = (
       });
     }
   }
+};
+
+export const payloadToTabSpec = (payload: DisplayTabPayload): DisplayTabSpec => {
+  const spec = localPayloadToTabSpec(payload);
+  if (!payload.cloudDrivePath) return spec;
+  const path = payload.cloudDrivePath;
+  const cloudSpec = { ...spec, id: `drive:${spec.id}`, render: () =>
+    createElement(CloudFileSource, { path, children: spec.render() }) };
+  recordArtifactFileEntry({ id: cloudSpec.id, kind: cloudSpec.kind, title: cloudSpec.title,
+    filePath: path, createdAt: ("createdAt" in payload ? payload.createdAt : null) ?? Date.now(), payload });
+  return rememberInFiles(cloudSpec);
 };
 
 registerWorkspaceDisplayPayloadAdapter({

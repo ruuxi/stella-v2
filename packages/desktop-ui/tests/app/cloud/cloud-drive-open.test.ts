@@ -1,6 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { ConversationFileEntry } from "../../../src/features/workspace-display/derive-conversation-files";
-import { conversationFileOpenKind } from "../../../src/features/cloud/use-cloud-drive-open";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { conversationFileOpenKind, useOpenConversationFile } from "../../../src/features/cloud/use-cloud-drive-open";
 
 const fileEntry = (
   cloudDriveFile?: ConversationFileEntry["cloudDriveFile"],
@@ -51,4 +53,15 @@ describe("conversation file open authority", () => {
       ),
     ).toBe("cloud-not-stored");
   });
+});
+
+const openPayload = vi.hoisted(() => vi.fn());
+vi.mock("@/features/workspace-display/open-payload", () => ({ openDisplayPayloadTab: openPayload }));
+test("opens cloud files in the sidebar with their Drive source", async () => {
+  const entry = fileEntry({ path: "reports/result.pdf", name: "result.pdf", sizeBytes: 100, contentType: "application/pdf" });
+  let open!: ReturnType<typeof useOpenConversationFile>;
+  function Probe() { open = useOpenConversationFile(); return null; }
+  renderToString(createElement(Probe));
+  expect(await open(entry)).toBe(true);
+  expect(openPayload).toHaveBeenCalledWith({ ...entry.payload, cloudDrivePath: "reports/result.pdf" });
 });

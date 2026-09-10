@@ -31,7 +31,10 @@ export type DisplayFileArtifactKind =
  * The IPC channel `display:update` carries structured, tab-compatible
  * `DisplayPayload` objects.
  */
-export type DisplayPayload =
+export type DisplayPayload = {
+  /** Owner-scoped Drive source for sidebar file reads. Never a local path. */
+  cloudDrivePath?: string;
+} & (
   | {
       kind: "canvas-html";
       filePath: string;
@@ -103,7 +106,8 @@ export type DisplayPayload =
       /** Mobile chat insertion position within the owning assistant segment. */
       textOffset?: number;
       createdAt: number;
-    };
+    }
+);
 
 /**
  * All current display payload kinds can render in the workspace panel as a

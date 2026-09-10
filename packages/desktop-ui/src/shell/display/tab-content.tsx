@@ -1,3 +1,4 @@
+import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
 /**
  * Per-kind viewer components used by the workspace panel's tab manager.
  *
@@ -11,7 +12,7 @@
  * lives in `./media-tab/`.
  */
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useContext, useEffect, useMemo, useState } from "react";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
 import { useT } from "@/shared/i18n";
@@ -150,6 +151,7 @@ export const OfficeFileTabContent = ({
   refreshToken?: number;
 }) => {
   const t = useT();
+  const cloudSource = useContext(DisplayFileSourceContext);
   const [previewRef, setPreviewRef] = useState<OfficePreviewRef | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -157,6 +159,10 @@ export const OfficeFileTabContent = ({
     let cancelled = false;
     setPreviewRef(null);
     setError(null);
+    if (cloudSource) {
+      setError("Office previews for Drive files are not available yet.");
+      return;
+    }
     void startOfficePreviewForPath(filePath)
       .then((ref) => {
         if (!cancelled) setPreviewRef(title ? { ...ref, title } : ref);
@@ -169,7 +175,7 @@ export const OfficeFileTabContent = ({
     return () => {
       cancelled = true;
     };
-  }, [filePath, title, refreshToken]);
+  }, [filePath, title, refreshToken, cloudSource]);
 
   if (previewRef) {
     return <OfficeTabContent previewRef={previewRef} />;

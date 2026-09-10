@@ -1,0 +1,50 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "http://localhost:3000"
+        ],
+        "methods": [
+          "GET"
+        ]
+      }
+    },
+    {
+      "allowed": {
+        "origins": [
+          "https://stella.sh",
+          "http://localhost:57314",
+          "http://127.0.0.1:57314"
+        ],
+        "methods": [
+          "PUT",
+          "GET",
+          "HEAD"
+        ],
+        "headers": [
+          "content-type"
+        ]
+      }
+    },
+    {
+      "allowed": {
+        "origins": [
+          "*"
+        ],
+        "methods": [
+          "GET",
+          "HEAD"
+        ],
+        "headers": [
+          "range"
+        ]
+      },
+      "exposeHeaders": [
+        "Accept-Ranges",
+        "Content-Range",
+        "ETag"
+      ]
+    }
+  ]
+}

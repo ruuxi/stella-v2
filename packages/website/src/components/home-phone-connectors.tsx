@@ -546,8 +546,8 @@ export function HomePhoneConnectors() {
             The Stella app
           </span>
           <p>
-            Text Stella from the mobile app. Every message reaches the same
-            assistant on your computer.
+            Take Stella with you. Chat and keep up with your tasks from
+            the mobile app, wherever you are.
           </p>
           <div className={styles.storeLinks}>
             <StoreLink

@@ -5,13 +5,13 @@ export const LEGAL_TITLES: Record<LegalDocument, string> = {
   privacy: "Privacy Policy",
 };
 
-export const LEGAL_LAST_UPDATED = "September 8, 2026";
-export const PRIVACY_LAST_UPDATED = "September 8, 2026";
+export const LEGAL_LAST_UPDATED = "September 10, 2026";
+export const PRIVACY_LAST_UPDATED = "September 10, 2026";
 
 export const TERMS_OF_SERVICE = `Stella — FromYou LLC
 Last updated: ${LEGAL_LAST_UPDATED}
 
-These Terms of Service ("Terms") govern your use of Stella, including the desktop application, mobile companion app, backend services, and any related websites or APIs (collectively, the "Service"), operated by FromYou LLC, a Delaware limited liability company ("FromYou," "we," "us," or "our").
+These Terms of Service ("Terms") govern your use of Stella, including the browser experience, desktop application, mobile app, backend services, and any related websites or APIs (collectively, the "Service"), operated by FromYou LLC, a Delaware limited liability company ("FromYou," "we," "us," or "our").
 
 By accessing or using the Service, you agree to be bound by these Terms. If you do not agree, do not use the Service.
 
@@ -52,7 +52,7 @@ Mobile and Connector Delivery — When you use Stella from the mobile app or a c
 
 Discovery Signals — During onboarding, Stella may optionally collect signals from your device (browser bookmarks, installed applications, development environment, etc.) to personalize your experience. Discovery data may be processed and stored by the Service to personalize your experience. Contact information and personal identifiers are pseudonymized locally before use. Discovery categories involving sensitive data (messages, notes) are opt-in and disabled by default.
 
-Stella Mobile App — When you pair the Stella mobile app with your desktop, messages are routed to your desktop when available. Pairing and routing metadata, request content, delivery state, and related records may be processed or stored on our backend as needed to provide mobile access.
+Stella Mobile App — You can use Stella from the mobile app without a paired computer. If you connect the desktop app, Stella can also route tasks to that computer when available. Our backend processes and stores conversation content and the records needed to provide these features as described in the Privacy Policy.
 
 
 6. Computer Use and Agent Autonomy
@@ -171,7 +171,7 @@ Email: contact@fromyou.ai`;
 export const PRIVACY_POLICY = `Stella — FromYou LLC
 Last updated: ${PRIVACY_LAST_UPDATED}
 
-This Privacy Policy describes how FromYou LLC ("FromYou," "we," "us," or "our") handles information when you use Stella, including the desktop application, mobile companion app, backend services, and related websites or APIs (collectively, the "Service").
+This Privacy Policy describes how FromYou LLC ("FromYou," "we," "us," or "our") handles information when you use Stella, including the browser experience, desktop application, mobile app, backend services, and related websites or APIs (collectively, the "Service").
 
 Stella stores messages, conversation history, and related content in our cloud infrastructure. We and our service providers process information to respond to your requests, run agents, maintain your conversation, and operate the Service.
 

@@ -50,28 +50,28 @@ const capabilities = [
 
 const accessMethods = [
   {
-    title: "Full desktop window",
-    body: "Chat, display, settings, history, Store, media, files, and everything else in one place.",
+    title: "Browser",
+    body: "Open Stella in your browser to chat, start tasks, and work with files. No installation needed.",
   },
   {
-    title: "Quick access",
-    body: "Capture, chat, add context, or start voice from the app or page you are already using.",
-  },
-  {
-    title: "Mini window",
-    body: "Keep a smaller Stella surface nearby for fast asks without taking over your screen.",
-  },
-  {
-    title: "Voice and dictation",
-    body: "Dictate into Stella, dictate into other apps when enabled, or talk to Stella in realtime.",
-  },
-  {
-    title: "Phone",
-    body: "Pair the mobile app with your desktop so your phone can message the Stella running on your computer.",
+    title: "Desktop app",
+    body: "Use Stella on macOS, Windows, or Linux, with access to your computer and desktop apps.",
   },
   {
     title: "Mobile app",
-    body: "Message Stella from the mobile app. Full desktop-powered execution depends on pairing with your desktop, which stays available.",
+    body: "Chat and manage tasks from your phone. Connect the desktop app when you want Stella to work on that computer.",
+  },
+  {
+    title: "Quick access on desktop",
+    body: "Capture, chat, add context, or start voice from the app or page you are already using.",
+  },
+  {
+    title: "Mini window on desktop",
+    body: "Keep a smaller Stella window nearby for quick asks without taking over your screen.",
+  },
+  {
+    title: "Voice and dictation",
+    body: "Dictate into Stella or talk in realtime. The desktop app also supports dictation into other apps.",
   },
 ];
 
@@ -106,16 +106,17 @@ export default function LearnMore() {
                 Stella, <span className="learn-hero__accent">in detail</span>.
               </h1>
               <p>
-                A desktop app that gives you one ongoing chat for your
-                computer. Ask once, keep talking, and Stella figures out which
-                agent, app, file, browser, model, or tool should handle the
-                work.
+                Your personal AI assistant, available in your browser,
+                desktop app, and mobile app. Ask once, keep talking, and Stella
+                figures out which agent, app, file, browser, model, or tool
+                should handle the work.
               </p>
               <p>
                 Background agents can handle independent work and report
                 progress inline without making you manage separate threads.
               </p>
               <div className="learn-hero__actions">
+                <Link className="button button--primary" href="/chat">Open Stella</Link>
                 <DownloadButton />
               </div>
               <WindowsInstallNote />
@@ -126,7 +127,7 @@ export default function LearnMore() {
           </section>
 
           <section id="what-stella-is" className="learn-section section-border">
-            <SectionHeader eyebrow="What Stella is" title="A desktop app, not just a chat box">
+            <SectionHeader eyebrow="What Stella is" title="One assistant, wherever you are">
               <p>
                 Stella works with your files, apps, and browser to help you
                 get things done.
@@ -140,9 +141,8 @@ export default function LearnMore() {
                 reminders, dictation, realtime voice, and connected apps.
               </p>
               <p>
-                Those capabilities belong in one personal desktop app, one chat,
-                and a consistent interface instead of a maze of separate tools
-                and modes.
+                Keep your work in one conversation, whether you use Stella
+                in your browser, on your desktop, or on your phone.
               </p>
             </div>
           </section>
@@ -209,7 +209,7 @@ export default function LearnMore() {
             </SectionHeader>
             <div className="learn-prose">
               <p>
-                Stella Provider lets you install the app and start using strong
+                Stella Provider lets you start using strong
                 models without setting up accounts everywhere. Requests pass
                 through Stella&apos;s infrastructure so billing and limits can
                 work. Responses may be buffered briefly for stream recovery,
@@ -218,8 +218,7 @@ export default function LearnMore() {
               <p>
                 You can also add your own provider credentials, use local
                 runtimes, and use Claude Code directly as the assistant engine.
-                In those paths, Stella is acting as the desktop app and runtime
-                you control, not as the model vendor.
+                Provider and engine options depend on the client you use.
               </p>
             </div>
           </section>
@@ -242,9 +241,12 @@ export default function LearnMore() {
           </section>
 
           <section className="learn-cta">
-            <h2>Stella is your desktop app.</h2>
-            <p>Ready to work across your computer.</p>
-            <DownloadButton />
+            <h2>Your assistant, wherever you need it.</h2>
+            <p>Use Stella in your browser, desktop app, or mobile app.</p>
+            <div className="learn-hero__actions">
+              <Link className="button button--primary" href="/chat">Open Stella</Link>
+              <DownloadButton />
+            </div>
             <p className="download-reassurance">
               Free. No credit card, no trial.
             </p>

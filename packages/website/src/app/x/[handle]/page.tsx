@@ -85,7 +85,7 @@ export default async function XHandlePage({
           <p className={styles.lede}>
             You asked about this on X. Here is what handing it to Stella looks
             like, and the prompt to paste in once it is installed. Stella is a
-            free desktop assistant that works inside your apps, browser, files,
+            free AI assistant that works inside your apps, browser, files,
             and terminal, and asks before anything that matters.
           </p>
           <div className={styles.actions}>

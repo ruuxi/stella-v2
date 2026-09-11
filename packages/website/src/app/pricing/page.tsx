@@ -61,11 +61,11 @@ const plans: {
 ];
 
 const included = [
-  "Runs on your computer",
+  "Browser, desktop, and mobile access",
   "Coding, assistant and research in one app",
   "Dictation and wake word on every tier",
   "Customizable interface",
-  "Desktop and mobile access",
+  "Work with files and apps",
   "Bring your own models and keys",
 ];
 
@@ -151,8 +151,8 @@ export default function Pricing() {
           <div className="pr-article">
             <h2>Every plan includes</h2>
             <p className="pr-note">
-              Every tier includes the desktop app — the assistant, research,
-              browser, and file tools — with different usage limits.
+              Every tier includes browser, desktop, and mobile access, with
+              different usage limits for assistant, research, browser, and file tools.
             </p>
             <ul className="pr-included">
               {included.map((item) => (

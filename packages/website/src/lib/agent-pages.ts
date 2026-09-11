@@ -52,9 +52,9 @@ const HOME_MD = `${header(
   "/",
   "Give Stella a task and keep moving. It can work with your computer, browser, files, and apps.",
 )}
-Stella is your personal AI assistant that lives on your computer. One ongoing
-chat handles your computer, files, browser, apps, and media while Stella routes
-the work to the right agents and tools.
+Stella is your personal AI assistant, available in your browser, desktop app,
+and mobile app. Keep one ongoing conversation while Stella routes work to
+background agents and tools.
 
 ## One chat for everything
 No more juggling threads. Fire off a plan, a file, a message, and a background
@@ -65,8 +65,8 @@ Keep working in one window while Stella moves through another — clicking,
 typing, and finishing real tasks in your actual apps.
 
 ## Text Stella
-Text Stella from the mobile app. Every message
-reaches the same assistant on your computer.
+Take Stella with you. Chat and keep up with your tasks from the mobile app,
+wherever you are.
 
 ## Files are first-class work
 Ask once. Stella creates editable reports, spreadsheets, decks, and PDFs ready
@@ -137,17 +137,14 @@ const VOICE_MD = `${header(
   "Speak instead of type, or just say \u201cHey Stella.\u201d Your words turn into text the moment you stop talking.",
 )}
 ## Your voice becomes text instantly
-Press the key and talk. On a modern Mac it all happens right on your computer,
-so your words show up the moment you finish — fast, and even when you're
-offline.
+Start dictation and talk. Your words appear in the composer as you speak.
 
 ## Talk to type in any app
 Dictation isn't just for Stella. Use it in any app on your computer and the
 words drop straight into whatever you're typing — email, notes, chat, anywhere.
 
 ## It works on every computer
-No modern Mac? No problem. On other computers your voice is turned into text in
-the cloud, so dictation feels the same everywhere — Windows and Mac alike.
+Use dictation in the desktop app on Windows and Mac.
 
 ## Just say "Hey Stella"
 Flip on the wake word and start talking with no clicking and no keyboard. It
@@ -178,14 +175,13 @@ const PRICING_MD = `${header(
 - **Pro** — $15/mo. The highest usage limits, image, video, 3D and voice generation, and multiple agents working together.
 
 ## Every plan includes
-Every tier includes the desktop app and support for your own models and API
-keys.
+Every tier includes browser, desktop, and mobile access, with different usage limits.
 
-- Runs on your computer
+- Browser, desktop, and mobile access
 - Coding, assistant, and research in one app
 - Dictation and wake word on every tier
 - Customizable interface
-- Desktop and mobile access
+- Work with files and apps
 - Bring your own models and keys
 
 ## Choose Stella and get started
@@ -200,18 +196,18 @@ const LEARN_MORE_MD = `${header(
   "Learn More — Stella, in detail",
   "/learn-more",
 )}
-A desktop app that gives you one ongoing chat for your computer. Ask once, keep
+Your personal AI assistant, available in your browser, desktop app, and mobile app. Ask once, keep
 talking, and Stella figures out which agent, app, file,
 browser, model, or tool should handle the work. Background agents can handle
 independent work and report progress inline without making you manage separate
 threads.
 
-## A desktop app, not just a chat box
+## One assistant, wherever you are
 Stella works with your files, apps, and browser to help you get things done. You can use Stella for research, writing, spreadsheets, PDFs, Word
 documents, browser tasks, computer control, image generation, video and 3D
 workflows, media prompts, scheduling, reminders, dictation, realtime voice, and
-connected apps. Those capabilities belong in one personal desktop app, one
-chat, and a consistent interface instead of a maze of separate tools and modes.
+connected apps. Keep your work in one conversation, whether you use Stella in your browser,
+on your desktop, or on your phone.
 
 ## You keep talking in the same place
 Most agent products make you choose a mode, start a new thread, pick a
@@ -232,12 +228,12 @@ conversation instead of becoming the project manager for your assistant.
 - **Choose your model** — Use Stella's managed provider, bring your own keys, use local models, pick OpenRouter-style options where supported, or select Claude Code as the engine.
 
 ## Ways to reach Stella
-- **Full desktop window** — Chat, display, settings, history, Store, media, files, and everything else in one place.
-- **Quick access** — Capture, chat, add context, or start voice from the app or page you are already using.
-- **Mini window** — Keep a smaller Stella surface nearby for fast asks without taking over your screen.
-- **Voice and dictation** — Dictate into Stella, dictate into other apps when enabled, or talk to Stella in realtime.
-- **Phone** — Pair the mobile app with your desktop so your phone can message the Stella running on your computer.
-- **Messaging apps** — Message Stella from supported apps. Full desktop-powered execution depends on pairing, connection settings, and your desktop being available.
+- **Browser** — Open Stella in your browser to chat, start tasks, and work with files. No installation needed.
+- **Desktop app** — Use Stella on macOS, Windows, or Linux, with access to your computer and desktop apps.
+- **Mobile app** — Chat and manage tasks from your phone. Connect the desktop app when you want Stella to work on that computer.
+- **Quick access on desktop** — Capture, chat, add context, or start voice from the app or page you are already using.
+- **Mini window on desktop** — Keep a smaller Stella window nearby for quick asks without taking over your screen.
+- **Voice and dictation** — Dictate into Stella or talk in realtime. The desktop app also supports dictation into other apps.
 
 ## Your privacy
 Read our Privacy Policy for details on how Stella handles your information
@@ -245,20 +241,18 @@ and the choices available to you: ${abs("/privacy.md")}
 
 ## Use Stella, BYOK, local models, or Claude Code
 Stella has a managed path for convenience and a provider-control path for people
-who want to bring their own providers. Stella Provider lets you install the app
-and start using strong models without setting up accounts everywhere. Requests
+who want to bring their own providers. Stella Provider lets you start using strong models without setting up accounts everywhere. Requests
 pass through Stella's infrastructure in transit so billing and limits can work,
 and responses may be buffered briefly to support stream recovery. The model
 providers that fulfill requests may process and retain submitted data under
 their own policies and Stella's configuration.
 
 You can also add your own provider credentials, use local runtimes, and use
-Claude Code directly as the assistant engine. In those paths, Stella is acting
-as the desktop app and runtime you control, not as the model vendor.
+Claude Code directly as the assistant engine. Provider and engine options depend on the client you use.
 
-## A desktop app
-Stella installs like a normal desktop app. Signed macOS packages and Windows
-installers include the runtime and native helpers they need.
+## Get started
+Open Stella in your browser at ${abs("/chat")}, download the desktop app, or
+use the mobile app.
 
 ## A running changelog
 Stella ships small, frequent releases. The full log, grouped by release with
@@ -393,7 +387,7 @@ export function renderLlmsTxt(): string {
   const lines = [
     "# Stella",
     "",
-    "> Stella is a desktop AI assistant. One ongoing chat",
+    "> Stella is a personal AI assistant for browser, desktop, and mobile. One ongoing chat",
     "> coordinates work across your computer, files, browser, apps, and media.",
     "> Each page below has a clean markdown version for agents.",
     "",

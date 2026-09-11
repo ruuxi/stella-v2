@@ -14,7 +14,7 @@ Every public claim on this page should be checked against the current Stella mon
 
 ## Verified Facts
 
-- Stella is a desktop app for macOS and Windows. The public launcher is a small installed app that sets up and starts the local desktop runtime.
+- Stella is a personal AI assistant available in the browser, desktop app, and mobile app.
 - The launcher downloads the current desktop release archive and native helpers, writes the local environment file and launch script, installs what is needed, initializes the local repo state, and starts the desktop with `bun run electron:dev`.
 - The installed desktop is a local repo-style runtime that can be edited, updated, and repaired.
 - Stella has a single main chat surface. The orchestrator keeps the conversation going and delegates work to specialized agents instead of making the user manage many threads.
@@ -23,7 +23,7 @@ Every public claim on this page should be checked against the current Stella mon
 - Stella's managed model provider routes prompts and responses through Stella infrastructure and third-party providers. Stella does not intentionally retain provider request content as a model-training product, but may temporarily buffer responses and retains usage metadata for billing, limits, security, and reliability. Providers may retain submitted data under their own policies and configurations.
 - BYOK and local model paths avoid the Stella managed model proxy for those model calls. Local credentials are stored locally in encrypted form.
 - Anonymous managed-model usage is limited server-side with a salted hash of a device or client identifier plus request counts. Current retention for that anonymous usage row is seven days from last use.
-- The Stella mobile app pairs with your desktop to reach the same assistant. Some remote-delivery rows are transient, and relayed media is scheduled for deletion after delivery windows.
+- The mobile app works without a paired computer. Pairing enables tasks on that computer.
 
 ## Public Page Copy
 
@@ -31,15 +31,15 @@ Every public claim on this page should be checked against the current Stella mon
 
 # Learn More
 
-Stella is a desktop app that gives you one ongoing chat for your computer. Ask once, keep talking, and Stella figures out which agent, app, file, browser, model, or tool should handle the work.
+Stella is your personal AI assistant, available in your browser, desktop app, and mobile app. Ask once, keep talking, and Stella figures out which agent, app, file, browser, model, or tool should handle the work.
 
 The unusual part is not just that Stella can use your computer. It is that the desktop app itself can change. Stella can learn your preferences, adjust the interface, add workflows, and turn the app into something closer to your own operating space.
 
 ### What Stella Is
 
-Stella is a desktop assistant for macOS and Windows. It works with your files, apps, and browser to help you get things done.
+Use Stella in your browser, on desktop, or on mobile. It works with your files, apps, and browser to help you get things done.
 
-You can use Stella for normal assistant work: research, writing, spreadsheets, PDFs, Word documents, browser tasks, computer control, image generation, video and 3D workflows, media prompts, scheduling, reminders, dictation, realtime voice, and connected apps. Those capabilities are table stakes now. Stella's bigger bet is that all of this belongs in one personal desktop app, one chat, and one interface that can keep adapting.
+You can use Stella for normal assistant work: research, writing, spreadsheets, PDFs, Word documents, browser tasks, computer control, image generation, video and 3D workflows, media prompts, scheduling, reminders, dictation, realtime voice, and connected apps. Those capabilities are table stakes now. Stella's bigger bet is that all of this belongs in one personal assistant, one chat, and one interface that can keep adapting.
 
 ### One Chat, Many Agents
 
@@ -75,9 +75,9 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Voice and dictation.** You can dictate into Stella or, when enabled, into other apps. Realtime voice is for talking to Stella in a live back-and-forth.
 
-**Phone.** The mobile app can pair with your desktop. When paired, your phone is another way to message the Stella running on your computer.
+**Browser.** Open Stella in your browser to chat, start tasks, and work with files. No installation needed.
 
-**Mobile app.** The Stella mobile app lets you message Stella from your phone. It depends on pairing with your desktop, which stays available for full desktop-powered execution.
+**Mobile app.** Use Stella from your phone without a paired computer. Connect the desktop app for tasks on that computer.
 
 ### Privacy
 
@@ -136,4 +136,4 @@ Stella now has a simpler composer model picker for normal use, more detailed mod
 
 ### Short Positioning
 
-Stella is a desktop app that can use your computer, keep one continuous conversation, and reshape its own interface around how you work.
+Stella is your personal AI assistant in your browser, desktop app, and mobile app. Keep one conversation while background agents handle the work.

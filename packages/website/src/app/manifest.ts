@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Stella — Personal AI assistant for your computer",
+    name: "Stella — Your personal AI assistant",
     short_name: "Stella",
     description:
       "Your personal AI assistant. Chat, voice, automation, and a fully customizable interface — all in one place.",

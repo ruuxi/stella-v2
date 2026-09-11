@@ -6,7 +6,7 @@ import "../legal.css";
 export const metadata: Metadata = {
   title: LEGAL_TITLES.terms,
   description:
-    "Terms governing your use of Stella, including the desktop application, mobile companion app, backend services, and related websites or APIs.",
+    "Terms governing your use of Stella, including the browser experience, desktop application, mobile app, backend services, and related websites or APIs.",
   alternates: {
     canonical: "/terms",
   },

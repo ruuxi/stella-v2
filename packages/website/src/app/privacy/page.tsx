@@ -6,7 +6,7 @@ import "../legal.css";
 export const metadata: Metadata = {
   title: LEGAL_TITLES.privacy,
   description:
-    "How FromYou LLC handles information when you use Stella, including the desktop app, mobile companion, backend services, and related websites or APIs.",
+    "How FromYou LLC handles information when you use Stella, including the browser experience, desktop app, mobile app, backend services, and related websites or APIs.",
   alternates: {
     canonical: "/privacy",
   },

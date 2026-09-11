@@ -366,7 +366,7 @@ for (const [text, url, description1, description2] of sitelinks) {
 for (const callout of [
   "AI That Takes Action",
   "$5 First Month",
-  "Local Desktop Database",
+  "Browser, Desktop, Mobile",
   "Bring Your Own Models",
   "Mac and Windows",
   "Browser and Computer Use",

@@ -163,7 +163,7 @@ export const FIX_PAGES: FixPage[] = [
       "Stop retyping bank statements. Drop the PDFs on Stella — every transaction extracted, categorized, and filed into a clean spreadsheet. Statements never leave your computer.",
     headline: "Bank statement PDFs,",
     headlineAccent: "typed for you.",
-    lede: "Stop retyping transactions line by line. Drop the PDFs on Stella — it extracts every transaction, categorizes them, and files a clean spreadsheet. And because Stella runs on your computer, your statements never get uploaded to some converter website.",
+    lede: "Stop retyping transactions line by line. Drop the PDFs on Stella — it extracts every transaction, categorizes them, and files a clean spreadsheet. Review the results and open the spreadsheet in the app you prefer.",
     symptoms: [
       "convert bank statement pdf to excel",
       "bank statement to csv",

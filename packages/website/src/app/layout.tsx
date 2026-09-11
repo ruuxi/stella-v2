@@ -13,7 +13,7 @@ import "./globals.css";
 
 const siteUrl = getSiteUrl();
 const description =
-  "Stella is your personal AI assistant that lives on your computer. Chat, voice, scheduling, and a fully customizable interface.";
+  "Stella is your personal AI assistant, available in your browser, desktop app, and mobile app. Chat, create, and get work done with background agents.";
 const sans = Manrope({
   variable: "--font-sans",
   subsets: ["latin"],
@@ -50,7 +50,7 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   metadataBase: siteUrl,
   title: {
-    default: "Stella — Personal AI assistant for your computer",
+    default: "Stella — Your personal AI assistant",
     template: "%s | Stella",
   },
   description,
@@ -85,7 +85,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Stella — your personal AI assistant, on your computer.",
+        alt: "Stella — your personal AI assistant in your browser, on desktop, and on mobile.",
       },
     ],
   },

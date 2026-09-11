@@ -14,7 +14,7 @@ import "./fix.css";
 export const metadata: Metadata = {
   title: "Things Stella just fixes",
   description:
-    "Broken apps, full disks, mod chaos, spreadsheet drudgery — Stella is a desktop AI agent that works your computer and just fixes it.",
+    "Broken apps, full disks, mod chaos, spreadsheet drudgery — Stella is an AI assistant that can work with your apps and files to help fix it.",
   alternates: { canonical: "/fix" },
 };
 
@@ -33,7 +33,7 @@ export default function FixIndexPage() {
               Whatever broke, <span>tell Stella.</span>
             </h1>
             <p className="fix-lede">
-              Stella is a desktop AI agent that can actually use your computer
+              Stella is an AI assistant that can use your computer through the desktop app
               — apps, browser, files. Pick your problem below, or just
               download it and describe what&apos;s wrong in your own words.
             </p>

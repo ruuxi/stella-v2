@@ -298,6 +298,11 @@ export function ComputerSettingsSheet({
   };
 
   const showModelLoading = loading || (Boolean(runtime) && runtimeLoading);
+  // Stella-managed models never expose a thinking control: the backend owns
+  // their effort. Engines and BYOK models keep theirs.
+  const showEffortControl =
+    runtime !== null ||
+    (selectedModelId !== "" && !selectedModelId.startsWith("stella/"));
 
   const renderModelRow = (model: RuntimeModelOption) => {
     const selected = isRowSelected(model.id);
@@ -404,34 +409,38 @@ export function ComputerSettingsSheet({
             })}
           </View>
 
-          <Text style={styles.sectionLabel}>Thinking</Text>
-          <View style={styles.segmentRow}>
-            {REASONING_OPTIONS.map((option) => {
-              const active = option.id === selectedEffort;
-              return (
-                <Pressable
-                  key={option.id}
-                  onPress={() => onSelectEffort(option.id)}
-                  disabled={loading || saving || !snapshot}
-                  accessibilityLabel={`Thinking ${option.label}`}
-                  style={({ pressed }) => [
-                    styles.effortSegment,
-                    active && styles.segmentActive,
-                    pressed && styles.segmentPressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      active && styles.segmentTextActive,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {showEffortControl ? (
+            <>
+              <Text style={styles.sectionLabel}>Thinking</Text>
+              <View style={styles.segmentRow}>
+                {REASONING_OPTIONS.map((option) => {
+                  const active = option.id === selectedEffort;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      onPress={() => onSelectEffort(option.id)}
+                      disabled={loading || saving || !snapshot}
+                      accessibilityLabel={`Thinking ${option.label}`}
+                      style={({ pressed }) => [
+                        styles.effortSegment,
+                        active && styles.segmentActive,
+                        pressed && styles.segmentPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          active && styles.segmentTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
 
           {showModelLoading ? (
             <>

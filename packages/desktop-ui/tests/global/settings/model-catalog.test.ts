@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  STELLA_PRESET_FALLBACK_MODELS,
   getStellaResolvedModelName,
   groupCatalogModelsByProvider,
   listLocalCatalogModels,
@@ -9,7 +8,6 @@ import {
   normalizeRuntimeCatalogModels,
   normalizeStellaCatalogModels,
   searchCatalogModels,
-  withStellaPresetFallbacks,
 } from "../../../src/global/settings/lib/model-catalog";
 import {
   buildModelDefaultsMap,
@@ -18,13 +16,7 @@ import {
 } from "../../../src/global/settings/lib/model-defaults";
 
 describe("settings model catalog", () => {
-  it("scaffolds only the Muse default while the backend catalog loads", () => {
-    expect(STELLA_PRESET_FALLBACK_MODELS.map((model) => model.id)).toEqual([
-      "stella/meta/muse-spark-1.3-contributor",
-    ]);
-  });
-
-  it("replaces the offline fallback instead of listing it beside the fetched model", () => {
+  it("lists the fetched Stella models sorted by name", () => {
     const fetched = normalizeStellaCatalogModels([
       {
         id: "stella/meta/muse-spark-1.3-contributor",
@@ -40,17 +32,13 @@ describe("settings model catalog", () => {
       },
     ]);
 
-    expect(withStellaPresetFallbacks([]).map((model) => model.id)).toEqual([
-      "stella/meta/muse-spark-1.3-contributor",
-    ]);
     const pickerGroups = groupCatalogModelsByProvider(
-      mergeCatalogModels(withStellaPresetFallbacks(fetched), []),
+      mergeCatalogModels(fetched, []),
     );
     const stellaRows = pickerGroups.find(
       (group) => group.provider === "stella",
     )?.models;
 
-    expect(withStellaPresetFallbacks(fetched)).toEqual(fetched);
     expect(stellaRows?.map((model) => model.id)).toEqual([
       "stella/crof/deepseek-v4-flash-0731",
       "stella/meta/muse-spark-1.3-contributor",

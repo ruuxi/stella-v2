@@ -30,10 +30,8 @@ import {
   GATEWAY_BUDGET_UNLIMITED,
   type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
-import {
-  validateManagedCloudBinding,
-  validateManagedReasoningBinding,
-} from "@stella/model-catalog/cloud-binding";
+import { validateManagedCloudBinding } from "@stella/model-catalog/cloud-binding";
+import { getManagedReasoningEffort } from "@stella/model-catalog/model";
 import {
   getManagedGatewayConfig,
   resolveManagedGatewayApiKeyFromEnv,
@@ -279,6 +277,7 @@ export const shapeUpstreamRequest = (args: {
       resolvedModel: args.route.resolvedModel,
       upstreamModel: args.route.upstreamModel,
       serviceTier: args.route.config.serviceTier,
+      managedReasoningEffort: getManagedReasoningEffort(args.route.config),
     },
     args.route.provider,
     shapingRequest,
@@ -504,7 +503,8 @@ export const handleManagedRelay = async (args: {
   // limiter, reservation or provider request, so it can rebuild the adapter
   // and reapply context transforms to the original, unpruned messages.
   let predictedRequestJson:
-    Awaited<ReturnType<typeof readJsonObject>> | undefined;
+    | Awaited<ReturnType<typeof readJsonObject>>
+    | undefined;
   const predictedRevision = request.headers.get(GATEWAY_MODEL_REVISION_HEADER);
   if (predictedRevision !== null) {
     predictedRequestJson = await readJsonObject(request);
@@ -703,23 +703,6 @@ export const handleManagedRelay = async (args: {
         `Model "${route.requestedModel}" speaks ${route.protocol}; this relay path carries ${protocol}.`,
       );
     }
-    if (claims.turn && claims.turn.execution.engine === "stella") {
-      const reasoningError = validateManagedReasoningBinding({
-        execution: claims.turn.execution,
-        relayProvider: route.provider,
-        resolvedModel: route.resolvedModel,
-        reasoningCapable: true,
-        requestJson,
-      });
-      if (reasoningError) {
-        throw new GatewayError(
-          reasoningError.status,
-          reasoningError.status === 403 ? "execution_mismatch" : "bad_request",
-          reasoningError.message,
-        );
-      }
-    }
-
     const configResult = await configWork;
     if (!configResult.ok) throw configResult.error;
     const config = configResult.value;

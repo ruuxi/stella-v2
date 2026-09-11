@@ -67,7 +67,7 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain('HIDDEN_CATALOG_PROVIDERS = ["openai-codex"]');
     expect(picker).toContain('role="radiogroup"');
     // Reasoning effort rides under the selected row, not a footer.
-    expect(picker).toContain("selectedRowExtra={reasoningControl}");
+    expect(picker).toContain("selectedRowExtra={showReasoningControl ? reasoningControl : null}");
     expect(picker).toContain(
       "selectedRowExtra={claudeCodeSelectionControls}",
     );

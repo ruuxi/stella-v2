@@ -13,7 +13,7 @@
  * Backend (`stella_provider/request.ts`) silently coerces the model in
  * either case — this is purely a UX notice.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { router } from "@/router";
 import {
   getModelRestrictionActionLabel,
@@ -22,6 +22,7 @@ import {
   type ManagedModelAudience,
 } from "@/global/billing/audience";
 import { useCapabilityAccess } from "@/global/billing/use-capability-access";
+import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { BYOK_TOAST_ACTION } from "@/global/billing/byok-action";
 import {
   resolveTierRestrictedModelNotice,
@@ -49,6 +50,21 @@ export function useTierRestrictedModelToast() {
   const audienceRef = useRef<ManagedModelAudience | null>(audience);
   audienceRef.current = audience;
 
+  // Which Stella picks the backend honors for this plan comes from the
+  // catalog rows, so the notice can never drift from the enforcement.
+  const { models } = useModelCatalog();
+  const allowedStellaModelIds = useMemo(() => {
+    const stellaRows = models.filter((model) => model.provider === "stella");
+    if (stellaRows.length === 0) return null;
+    return new Set(
+      stellaRows
+        .filter((model) => model.allowedForAudience !== false)
+        .map((model) => model.id),
+    );
+  }, [models]);
+  const allowedRef = useRef(allowedStellaModelIds);
+  allowedRef.current = allowedStellaModelIds;
+
   // Reset dedupe set whenever audience changes — re-upgrading should clear
   // prior toasts so a re-downgrade re-notifies.
   const seenRef = useRef<Set<string>>(new Set());
@@ -71,6 +87,7 @@ export function useTierRestrictedModelToast() {
       audience,
       agentRuntimeEngine: preferences?.agentRuntimeEngine,
       modelOverrides: preferences?.modelOverrides,
+      allowedStellaModelIds: allowedRef.current,
     });
     if (!notice) return;
 

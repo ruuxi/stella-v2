@@ -15,6 +15,8 @@ import {
   DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
   DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
   GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
+  getManagedReasoningEffort,
+  getModeConfig,
   isPaidManagedAudience,
   isStellaModelAllowedForAudience,
   MANAGED_MODEL_AUDIENCES,
@@ -75,6 +77,17 @@ describe("parseStellaModelSelection", () => {
   it("returns null for non-Stella model ids", () => {
     expect(parseStellaModelSelection("openai/gpt-5.5")).toBeNull();
     expect(parseStellaModelSelection("stella")).toBeNull();
+  });
+});
+
+describe("managed reasoning effort", () => {
+  it("reads the backend-owned effort and omits absent values", () => {
+    expect(getManagedReasoningEffort(getModeConfig("light", "pro"))).toBe(
+      "xhigh",
+    );
+    expect(
+      getManagedReasoningEffort({ model: "google/gemini-3.1-flash-lite" }),
+    ).toBeUndefined();
   });
 });
 
@@ -276,6 +289,7 @@ describe("audience allowlist", () => {
           name: "DeepSeek V4 Flash 0731",
           provider: "stella",
           upstreamModel: DEEPSEEK_V4_FLASH_CROF_MODEL,
+          api: "openai-completions",
           type: "language",
           allowedForAudience: audience === "pro",
         },
@@ -284,6 +298,7 @@ describe("audience allowlist", () => {
           name: "DeepSeek V4 Flash 0731 Fast",
           provider: "stella",
           upstreamModel: DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
+          api: "openai-completions",
           type: "language",
           allowedForAudience: audience === "pro",
         },
@@ -292,6 +307,7 @@ describe("audience allowlist", () => {
           name: "Muse Spark 1.3 Contributor",
           provider: "stella",
           upstreamModel: MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
+          api: "openai-responses",
           type: "language",
           allowedForAudience: audience === "pro",
         },

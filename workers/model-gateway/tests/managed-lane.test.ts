@@ -492,28 +492,46 @@ describe("managed lane: authorization matrix", () => {
     expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
   });
 
-  test("turn capability asking for more reasoning than admitted -> 403 execution_mismatch", async () => {
-    const { token } = await signTurn({
-      turn: {
-        turnId: "t",
-        conversationId: "c",
-        execution: {
-          engine: "stella",
-          provider: "stella",
-          model: MUSE_ALIAS,
-          reasoningEffort: "low",
-        },
+  test("uses Muse's catalog effort with and without a client effort", async () => {
+    for (const clientBody of [
+      {
+        model: MUSE_ALIAS,
+        input: [{ role: "user", content: "hi" }],
+        reasoning_effort: "low",
+        max_output_tokens: 1024,
       },
-    });
-    const response = await ctx.run(
-      relayRequest("/v1/relay/responses", {
-        token,
-        body: museBody({ reasoning: { effort: "xhigh" } }),
-        headers: agentHeaders(),
-      }),
-    );
-    expect(response.status).toBe(403);
-    expect((await readError(response)).error.code).toBe("execution_mismatch");
+      {
+        model: MUSE_ALIAS,
+        input: [{ role: "user", content: "hi" }],
+        max_output_tokens: 1024,
+      },
+    ]) {
+      const caseContext = setup();
+      const { token } = await signTurn({
+        turn: {
+          turnId: "t",
+          conversationId: "c",
+          execution: {
+            engine: "stella",
+            provider: "stella",
+            model: MUSE_ALIAS,
+            reasoningEffort: "low",
+          },
+        },
+      });
+      const response = await caseContext.run(
+        relayRequest("/v1/relay/responses", {
+          token,
+          body: clientBody,
+          headers: agentHeaders(),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const upstream = caseContext.fetchMock.callsTo("openrouter.ai")[0]!;
+      const sent = JSON.parse(upstream.body ?? "{}") as Record<string, unknown>;
+      expect(sent.reasoning).toEqual({ effort: "xhigh" });
+      expect(sent.reasoning_effort).toBeUndefined();
+    }
   });
 
   test("stream: true -> 400 stream_unsupported", async () => {
@@ -686,6 +704,7 @@ describe("managed lane: completion, metering, replay", () => {
     const sent = JSON.parse(upstream.body ?? "{}") as Record<string, unknown>;
     expect(sent.stream).toBe(true);
     expect(sent.model).toBe(MUSE_RESOLVED);
+    expect(sent.reasoning).toEqual({ effort: "xhigh" });
 
     await ctx.harness.flush();
     expect(ctx.harness.usageEvents).toHaveLength(1);

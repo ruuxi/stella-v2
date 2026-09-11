@@ -3,7 +3,6 @@ import type {
   RuntimeModelCatalogModel,
   RuntimeModelCatalogSnapshot,
 } from "@stella/contracts/model-catalog";
-import { STELLA_DEFAULT_UPSTREAM_MODEL } from "@/shared/stella-api";
 // Provider display names live in a shared, browser-safe runtime module so the
 // model picker and the runtime route-error toasts can't drift apart.
 import { getProviderDisplayName } from "@stella/contracts/provider-display";
@@ -76,49 +75,6 @@ export type CatalogApiResponse = {
 };
 
 export { getProviderDisplayName };
-
-/**
- * Always-present fallback for Stella's single managed model. This keeps the
- * picker usable while `/api/models` is loading or temporarily unavailable;
- * the fetched row replaces it with authoritative metadata.
- */
-const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
-  id: string;
-  modelId: string;
-  name: string;
-  upstreamModel: string;
-}> = [
-  {
-    id: `stella/${STELLA_DEFAULT_UPSTREAM_MODEL}`,
-    modelId: STELLA_DEFAULT_UPSTREAM_MODEL,
-    name: "Muse Spark 1.3 Contributor",
-    upstreamModel: STELLA_DEFAULT_UPSTREAM_MODEL,
-  },
-];
-
-export const STELLA_PRESET_FALLBACK_MODELS: readonly CatalogModel[] =
-  STELLA_PRESET_FALLBACK_DEFS.map(({ id, modelId, name, upstreamModel }) => ({
-    id,
-    modelId,
-    name,
-    provider: "stella",
-    providerName: getProviderDisplayName("stella"),
-    source: "stella" as const,
-    upstreamModel,
-  }));
-
-/**
- * Use the fixed fallback only until the authoritative catalog has loaded.
- * Merging both sources by id leaks a retired fallback whenever the backend
- * switches a model's upstream id, producing two picker rows for one model.
- */
-export function withStellaPresetFallbacks(
-  stellaModels: readonly CatalogModel[],
-): CatalogModel[] {
-  return stellaModels.length > 0
-    ? [...stellaModels]
-    : [...STELLA_PRESET_FALLBACK_MODELS];
-}
 
 function compareCatalogModels(a: CatalogModel, b: CatalogModel): number {
   if (a.provider === "stella" && b.provider !== "stella") return -1;
@@ -315,55 +271,12 @@ export function getStellaSubtitle(model: CatalogModel): string | null {
   return tail;
 }
 
-const STELLA_UPSTREAM_MODEL_NAMES = new Map<string, string>([
-  ["meta/muse-spark-1.3-contributor", "Muse Spark 1.3 Contributor"],
-  ["deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"],
-  ["crof/deepseek-v4-flash-0731", "DeepSeek V4 Flash 0731"],
-  ["wafer/deepseek-v4-flash-0731-fast", "DeepSeek V4 Flash 0731 Fast"],
-  [
-    "accounts/fireworks/models/deepseek-v4-flash-0731",
-    "DeepSeek V4 Flash 0731",
-  ],
-  ["openrouter/x-ai/grok-4.5", "Grok 4.5"],
-  ["accounts/fireworks/models/kimi-k2p7-code", "Kimi K2P7 Code"],
-  ["openai/gpt-5.5", "GPT-5.5"],
-  ["anthropic/claude-opus-4.8", "Claude Opus 4.8"],
-  ["google/gemini-3-flash-preview", "Gemini 3 Flash Preview"],
-]);
-
-const humanizeModelSlug = (slug: string): string => {
-  const parts = slug.split("-").filter(Boolean);
-  if (parts.length === 0) return slug;
-  const words = parts.map((part) => {
-    const normalized = part.toLowerCase();
-    if (normalized === "deepseek") return "DeepSeek";
-    if (normalized === "gpt") return "GPT";
-    if (normalized === "kimi") return "Kimi";
-    if (/^v\d/i.test(part)) return part.toUpperCase();
-    if (/^k\d/i.test(part)) return part.toUpperCase();
-    if (/^\d/.test(part)) return part;
-    return `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
-  });
-  if (words[0] === "GPT" && /^\d/.test(words[1] ?? "")) {
-    return [`GPT-${words[1]}`, ...words.slice(2)].join(" ");
-  }
-  return words.join(" ");
-};
-
 /**
  * Single-line name for a Stella picker row. Curated Stella aliases are routing
  * presets, so their visible name should be the model they currently resolve
  * to rather than the alias ("Stella Light", "Stella Max", and so on).
  */
 export function getStellaResolvedModelName(model: CatalogModel): string {
-  if (model.provider !== "stella") return model.name;
-  const upstreamModel = model.upstreamModel?.trim();
-  if (upstreamModel) {
-    const curatedName = STELLA_UPSTREAM_MODEL_NAMES.get(upstreamModel);
-    if (curatedName) return curatedName;
-    const slug = getStellaSubtitle(model);
-    if (slug) return humanizeModelSlug(slug);
-  }
   return getStellaDisplayName(model);
 }
 

@@ -20,7 +20,7 @@ const route = (
   provider: ManagedGatewayProvider,
   resolvedModel: string,
   protocol: GatewayProtocol,
-  serviceTier?: string,
+  options: { serviceTier?: string; reasoningEffort?: string } = {},
 ): ManagedRoute => ({
   requestedModel: `stella/${resolvedModel}`,
   resolvedModel,
@@ -30,7 +30,14 @@ const route = (
   config: {
     model: resolvedModel,
     managedGatewayProvider: provider,
-    serviceTier,
+    serviceTier: options.serviceTier,
+    ...(options.reasoningEffort
+      ? {
+          providerOptions: {
+            openai: { reasoningEffort: options.reasoningEffort },
+          },
+        }
+      : {}),
   },
 });
 
@@ -56,6 +63,7 @@ const shape = (
   requestJson: Record<string, unknown>,
   options: {
     serviceTier?: string;
+    reasoningEffort?: string;
     headers?: Record<string, string>;
     audience?: "anonymous" | "free" | "go" | "pro";
   } = {},
@@ -63,7 +71,7 @@ const shape = (
   const shaped = shapeUpstreamRequest({
     request: request(path, options.headers),
     protocol,
-    route: route(provider, resolvedModel, protocol, options.serviceTier),
+    route: route(provider, resolvedModel, protocol, options),
     requestJson,
     apiKey: "upstream-key",
     audience: options.audience ?? "pro",
@@ -152,6 +160,7 @@ describe("body shaping parity: deepseek", () => {
         service_tier: "priority",
         metadata: { a: 1 },
       },
+      { reasoningEffort: "medium" },
     );
     expect(url).toBe("https://api.deepseek.com/responses");
     expect(json.model).toBe("deepseek-v4-flash");
@@ -190,6 +199,7 @@ describe("body shaping parity: deepseek", () => {
         max_output_tokens: 256,
         reasoning: { effort: "xhigh" },
       },
+      { reasoningEffort: "xhigh" },
     );
     expect(url).toBe("https://api.deepseek.com/chat/completions");
     expect(json.input).toBeUndefined();
@@ -230,6 +240,7 @@ describe("body shaping parity: crof", () => {
         reasoning: { effort: "xhigh" },
         thinking: { type: "enabled" },
       },
+      { reasoningEffort: "xhigh" },
     );
     expect(url).toBe("https://crof.ai/v1/chat/completions");
     expect(headers.get("authorization")).toBe("Bearer upstream-key");
@@ -253,6 +264,7 @@ describe("body shaping parity: crof", () => {
         text: { format: { type: "json_object" } },
         reasoning: { effort: "none" },
       },
+      { reasoningEffort: "none" },
     );
     expect(json.messages).toEqual([{ role: "user", content: "hi" }]);
     expect(json.response_format).toEqual({ type: "json_object" });
@@ -271,16 +283,25 @@ describe("body shaping parity: openrouter", () => {
       audience: "pro",
     });
     expect(descriptor.supportsImages).toBe(true);
-    const input = [{
-      role: "user",
-      content: [
-        { type: "input_text", text: "What color is this image?" },
-        { type: "input_image", detail: "auto", image_url: "data:image/png;base64,aW1hZ2U=" },
-      ],
-    }];
+    const input = [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "What color is this image?" },
+          {
+            type: "input_image",
+            detail: "auto",
+            image_url: "data:image/png;base64,aW1hZ2U=",
+          },
+        ],
+      },
+    ];
     const { json } = shape(
-      "openrouter", "meta/muse-spark-1.3-contributor", "openai-responses",
-      "/v1/relay/responses", { model, input },
+      "openrouter",
+      "meta/muse-spark-1.3-contributor",
+      "openai-responses",
+      "/v1/relay/responses",
+      { model, input },
     );
     expect(json.input).toEqual(input);
   });
@@ -310,6 +331,7 @@ describe("body shaping parity: openrouter", () => {
         response_format: { type: "json_object" },
         reasoning_effort: "none",
       },
+      { reasoningEffort: "xhigh" },
     );
     expect(url).toBe("https://openrouter.ai/api/v1/responses");
     expect(headers.get("HTTP-Referer")).toBe("https://stella.sh");
@@ -332,7 +354,7 @@ describe("body shaping parity: openrouter", () => {
     ]);
     expect(json.max_output_tokens).toBe(1024);
     expect(json.text).toEqual({ format: { type: "json_object" } });
-    expect(json.reasoning).toEqual({ effort: "low" });
+    expect(json.reasoning).toEqual({ effort: "xhigh" });
     expect(json.reasoning_effort).toBeUndefined();
     expect(json.store).toBeUndefined();
     expect(json.stream).toBe(true);
@@ -348,6 +370,7 @@ describe("body shaping parity: openrouter", () => {
         model: "stella/x-ai/grok-4.5",
         messages: [{ role: "user", content: "hi" }],
       },
+      { reasoningEffort: "low" },
     );
     expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(json.reasoning).toEqual({ effort: "low" });
@@ -421,8 +444,6 @@ describe("body shaping parity: anthropic", () => {
           ],
         },
       ],
-      thinking: { type: "adaptive" },
-      output_config: { effort: "high" },
       tools: [{ name: "get_weather", input_schema: { type: "object" } }],
       stream: true,
     });
@@ -438,7 +459,11 @@ describe("body shaping: google and fireworks", () => {
       "/v1/relay/v1beta/models/stella%2Fgoogle%2Fgemini-3.6-flash:generateContent",
       {
         contents: [{ role: "user", parts: [{ text: "hi" }] }],
-        generationConfig: { maxOutputTokens: 100 },
+        generationConfig: {
+          maxOutputTokens: 100,
+          thinkingConfig: { thinkingLevel: "HIGH" },
+        },
+        thinkingConfig: { thinkingBudget: 8_192 },
       },
     );
     expect(url).toBe(
@@ -448,6 +473,8 @@ describe("body shaping: google and fireworks", () => {
     expect(json.model).toBeUndefined();
     expect(json.stream).toBeUndefined();
     expect(json.contents).toEqual([{ role: "user", parts: [{ text: "hi" }] }]);
+    expect(json.generationConfig).toEqual({ maxOutputTokens: 100 });
+    expect(json.thinkingConfig).toBeUndefined();
   });
 
   test("Fireworks receives the authorized service tier and store: true", () => {
@@ -461,11 +488,12 @@ describe("body shaping: google and fireworks", () => {
         input: [{ role: "user", content: "hi" }],
         service_tier: "caller-chosen",
       },
-      { serviceTier: "priority" },
+      { serviceTier: "priority", reasoningEffort: "medium" },
     );
     expect(url).toBe("https://api.fireworks.ai/inference/v1/responses");
     expect(json.service_tier).toBe("priority");
     expect(json.store).toBe(true);
+    expect(json.reasoning).toEqual({ effort: "medium" });
     expect(json.stream).toBe(true);
   });
 });

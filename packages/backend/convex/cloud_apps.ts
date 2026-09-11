@@ -1567,8 +1567,9 @@ export const runCloudTurnInternal = internalAction({
     }
     let execution: CloudExecutionSelection;
     try {
-      execution =
-        args.execution ?? (await resolveOwnerExecution(ctx, args.ownerId));
+      execution = args.execution
+        ? normalizeCloudExecutionSelection(args.execution)
+        : await resolveOwnerExecution(ctx, args.ownerId);
     } catch (error) {
       console.error(
         JSON.stringify({

@@ -11,7 +11,6 @@ import {
   normalizeRuntimeCatalogSnapshot,
   normalizeStellaCatalogModels,
   searchCatalogModels,
-  withStellaPresetFallbacks,
   type CatalogApiResponse,
   type CatalogDefaultModel,
   type CatalogModel,
@@ -208,13 +207,7 @@ export function useModelCatalog() {
   const managedPayload = managedQuery.data ?? EMPTY_MANAGED;
 
   const localModels = useMemo(() => isWebsiteHost() ? [] : listLocalCatalogModels(), []);
-  // The curated Stella preset modes always render from a local fallback, so the
-  // compact picker is never blank while the catalog loads / on a fetch failure.
-  // Fetched entries override the fallbacks with authoritative metadata.
-  const stellaModels = useMemo(
-    () => withStellaPresetFallbacks(stellaPayload.models),
-    [stellaPayload.models],
-  );
+  const stellaModels = stellaPayload.models;
   const directModels = useMemo(
     () => mergeCatalogModels(localModels, managedPayload.directModels),
     [managedPayload.directModels, localModels],

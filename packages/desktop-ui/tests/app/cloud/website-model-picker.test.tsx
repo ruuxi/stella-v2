@@ -61,7 +61,8 @@ describe("website model selection", () => {
     expect(container.querySelector("button")!.disabled).toBe(true);
     expect(getCloudExecutionSelectionSnapshot()).toBeNull();
     await act(async () => saved());
-    const expected = { ...mocks.execution, model: "stella/second" };
+    // Stella-managed picks never carry a user effort: the backend owns it.
+    const expected = { ...mocks.execution, model: "stella/second", reasoningEffort: "default" };
     expect(mocks.save).toHaveBeenCalledWith({ execution: expected });
     expect(getCloudExecutionSelectionSnapshot()).toEqual(expected);
     expect(container.textContent).toBe("stella/second");

@@ -49,7 +49,8 @@ export function WebsiteModelPicker({
         engine: "stella" as const,
         provider: "stella" as const,
         model,
-        reasoningEffort: execution?.reasoningEffort ?? "default",
+        // Stella-managed models take their effort from the backend config.
+        reasoningEffort: "default" as const,
       };
       await setExecution({ execution: next });
       publishCloudExecutionSelection(next);

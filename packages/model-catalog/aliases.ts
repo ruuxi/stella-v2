@@ -13,7 +13,12 @@ import {
   type ModelConfig,
   type ModelMode,
 } from "./model";
-import { inferManagedGatewayProviderFromModel } from "./managed-gateway";
+import {
+  inferManagedGatewayProviderFromModel,
+  resolveManagedGatewayProvider,
+  resolveManagedProtocol,
+  type ManagedProtocol,
+} from "./managed-gateway";
 
 export const STELLA_PROVIDER = "stella";
 // Opaque "let the backend pick" sentinel. The concrete model is chosen per
@@ -34,6 +39,7 @@ export type StellaCatalogModel = {
   name: string;
   provider: typeof STELLA_PROVIDER;
   upstreamModel: string;
+  api: ManagedProtocol;
   type: "language" | "multimodal";
   /**
    * Whether the requesting audience may pick this model. The catalog
@@ -93,6 +99,22 @@ const listUpstreamManagedModels = (): string[] => {
       isStellaModelAllowedForAudience(toStellaModelId(model), "pro"),
     )
     .sort((a, b) => deriveDisplayName(a).localeCompare(deriveDisplayName(b)));
+};
+
+const catalogApiForModel = (upstreamModel: string): ManagedProtocol => {
+  const { config } = resolveStellaModelConfigForSelection(
+    toStellaModelId(upstreamModel),
+    "general",
+    "pro",
+  );
+  const provider = resolveManagedGatewayProvider({
+    model: config.model,
+    configuredProvider: config.managedGatewayProvider,
+  });
+  return resolveManagedProtocol({
+    provider,
+    configuredApi: config.api,
+  });
 };
 
 export const toStellaModelId = (upstreamModel: string): string =>
@@ -242,6 +264,7 @@ export const listStellaCatalogModels = (
     name: deriveDisplayName(upstreamModel),
     provider: STELLA_PROVIDER,
     upstreamModel,
+    api: catalogApiForModel(upstreamModel),
     type: "language",
     allowedForAudience: isStellaModelAllowedForAudience(
       toStellaModelId(upstreamModel),

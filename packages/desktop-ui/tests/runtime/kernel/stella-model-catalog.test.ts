@@ -192,6 +192,7 @@ describe("Stella model catalog metadata", () => {
               id: "stella/soda",
               name: "Soda",
               provider: "stella",
+              api: "openai-completions",
               upstreamModel: "openai/gpt-5.5",
             },
           ],
@@ -215,6 +216,7 @@ describe("Stella model catalog metadata", () => {
     });
 
     expect(enriched.model.id).toBe("stella/soda");
+    expect(enriched.model.api).toBe("openai-completions");
     expect(enriched.toolPolicyModel?.id).toBe("openai/gpt-5.5");
     expect(
       getFileEditToolFamily({
@@ -342,9 +344,27 @@ describe("Stella model catalog metadata", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("classifies explicit Stella passthrough ids without fetching catalog once the gateway is known", async () => {
+  it("uses catalog protocol for explicit Stella passthrough ids when the gateway is known", async () => {
     rememberStellaGatewayOrigin("https://stella.example.test", GATEWAY);
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            gateway: { origin: GATEWAY },
+            data: [
+              {
+                id: "stella/anthropic/claude-opus-4.6",
+                name: "Claude Opus 4.6",
+                provider: "stella",
+                api: "openai-completions",
+                upstreamModel: "anthropic/claude-opus-4.6",
+              },
+            ],
+            defaults: [],
+          }),
+          { status: 200 },
+        ),
+    );
     globalThis.fetch = fetchMock as typeof fetch;
 
     const route = resolveLlmRoute({
@@ -360,7 +380,8 @@ describe("Stella model catalog metadata", () => {
       deviceId: "device-a",
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(enriched.model.api).toBe("openai-completions");
     expect(enriched.toolPolicyModel).toMatchObject({
       id: "anthropic/claude-opus-4.6",
       provider: "anthropic",

@@ -119,6 +119,9 @@ export function useCloudModelSettings(active: boolean) {
     refresh,
     label: execution ? stellaModelLabel(catalog, execution.model) : "Stella",
     effort: execution?.reasoningEffort ?? "default",
+    // Stella-managed cloud runs take their effort from the backend config;
+    // only the Anthropic / Codex cloud engines expose one.
+    supportsEffortSelection: Boolean(execution && execution.engine !== "stella"),
     models: catalog.models.filter((model) => model.allowedForAudience).map((model) => ({
       id: model.id,
       label: model.name,

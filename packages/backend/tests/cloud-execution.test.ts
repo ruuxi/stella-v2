@@ -35,4 +35,27 @@ describe("cloud execution defaults", () => {
     );
     expect(DEFAULT_CLOUD_CODEX_EXECUTION.model).toBe("gpt-5.6-sol");
   });
+
+  test("forces managed executions to the backend-owned effort", () => {
+    expect(
+      normalizeCloudExecutionSelection({
+        engine: "stella",
+        provider: "stella",
+        model: "stella/meta/muse-spark-1.3-contributor",
+        reasoningEffort: "low",
+      }),
+    ).toEqual({
+      engine: "stella",
+      provider: "stella",
+      model: "stella/meta/muse-spark-1.3-contributor",
+      reasoningEffort: "default",
+    });
+
+    expect(
+      normalizeCloudExecutionSelection({
+        ...DEFAULT_CLOUD_ANTHROPIC_EXECUTION,
+        reasoningEffort: "high",
+      }).reasoningEffort,
+    ).toBe("high");
+  });
 });

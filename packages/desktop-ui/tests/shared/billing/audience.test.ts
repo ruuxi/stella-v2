@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   getRestrictionActionKind,
-  isRestrictedAudienceAllowedStellaModelId,
   isRestrictedModelOverrideAudience,
   resolveFreeAllowance,
   toCapabilityAudience,
@@ -16,41 +15,6 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("go_fallback")).toBe(true);
     expect(isRestrictedModelOverrideAudience("pro")).toBe(false);
     expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
-  });
-
-  it("lets restricted audiences pick the supported Stella catalog models", () => {
-    expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
-    expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/meta/muse-spark-1.3-contributor",
-      ),
-    ).toBe(true);
-    expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/crof/deepseek-v4-flash-0731",
-      ),
-    ).toBe(true);
-    expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/wafer/deepseek-v4-flash-0731-fast",
-      ),
-    ).toBe(true);
-    expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-      ),
-    ).toBe(true);
-    expect(
-      isRestrictedAudienceAllowedStellaModelId("stella/openai/gpt-5.6-luna"),
-    ).toBe(false);
-    expect(isRestrictedAudienceAllowedStellaModelId("stella/standard")).toBe(
-      false,
-    );
-    expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/accounts/fireworks/models/deepseek-v4-pro",
-      ),
-    ).toBe(false);
   });
 });
 

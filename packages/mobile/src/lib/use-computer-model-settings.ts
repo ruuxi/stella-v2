@@ -219,6 +219,17 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
       : stellaSelectedEffort(snapshot)
     : "default";
 
+  // Stella-managed models never expose an effort: the backend owns it. The
+  // Codex / Claude Code engines and BYOK models keep theirs.
+  const supportsEffortSelection = snapshot
+    ? snapshot.agentRuntimeEngine === "codex_cli" ||
+      snapshot.agentRuntimeEngine === "claude_code_local" ||
+      (() => {
+        const selected = stellaSelectedModelId(snapshot);
+        return selected !== "" && !selected.startsWith("stella/");
+      })()
+    : false;
+
   const selectEffort = useCallback(
     (effort: ReasoningEffort) => {
       if (!snapshot) return;
@@ -311,6 +322,7 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     selectedEffort,
     selectedModelLabel,
     selectEffort,
+    supportsEffortSelection,
     selectRecentModel,
     snapshot,
     syncFromSnapshot,

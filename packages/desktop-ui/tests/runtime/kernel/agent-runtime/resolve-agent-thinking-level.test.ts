@@ -27,19 +27,7 @@ const directRoute = (): ResolvedLlmRoute =>
 const stellaRoute = (): ResolvedLlmRoute =>
   ({
     route: "stella",
-    model: fakeModel,
-    getApiKey: async () => "stella-token",
-    refreshApiKey: async () => null,
-  }) as unknown as ResolvedLlmRoute;
-
-const deepSeekFlashRoute = (): ResolvedLlmRoute =>
-  ({
-    route: "stella",
-    model: {
-      ...fakeModel,
-      id: "stella/default",
-      upstreamModelId: "accounts/fireworks/models/deepseek-v4-flash-0731",
-    },
+    model: { ...fakeModel, id: "stella/default" },
     getApiKey: async () => "stella-token",
     refreshApiKey: async () => null,
   }) as unknown as ResolvedLlmRoute;
@@ -74,49 +62,26 @@ describe("resolveAgentThinkingLevel", () => {
     ).toBe("medium");
   });
 
-  it("falls back to medium on default Stella-routed runs", () => {
+  it("turns reasoning controls off on Stella-routed runs", () => {
     expect(
       resolveAgentThinkingLevel({
         resolvedLlm: stellaRoute(),
         agentContextReasoningEffort: "default",
       }),
-    ).toBe("medium");
+    ).toBe("off");
     expect(
       resolveAgentThinkingLevel({
         resolvedLlm: stellaRoute(),
       }),
-    ).toBe("medium");
+    ).toBe("off");
   });
 
-  it("uses explicit effort on Stella-routed runs", () => {
+  it("ignores explicit effort on Stella-routed runs", () => {
     expect(
       resolveAgentThinkingLevel({
         resolvedLlm: stellaRoute(),
-        agentContextReasoningEffort: "high",
+        agentContextReasoningEffort: "xhigh",
       }),
-    ).toBe("high");
-  });
-
-  it("defaults DeepSeek V4 Flash to xhigh", () => {
-    expect(
-      resolveAgentThinkingLevel({
-        resolvedLlm: deepSeekFlashRoute(),
-        agentContextReasoningEffort: "default",
-      }),
-    ).toBe("xhigh");
-    expect(
-      resolveAgentThinkingLevel({
-        resolvedLlm: deepSeekFlashRoute(),
-      }),
-    ).toBe("xhigh");
-  });
-
-  it("preserves an explicit DeepSeek V4 Flash effort override", () => {
-    expect(
-      resolveAgentThinkingLevel({
-        resolvedLlm: deepSeekFlashRoute(),
-        agentContextReasoningEffort: "low",
-      }),
-    ).toBe("low");
+    ).toBe("off");
   });
 });

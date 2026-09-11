@@ -64,10 +64,7 @@ import {
   extractAssistantText,
   getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
-import {
-  createCloudRelayModel,
-  resolveCloudThinkingLevel,
-} from "./relay-model.js";
+import { createCloudRelayModel } from "./relay-model.js";
 import { pruneAgentHistory } from "./prune-history.js";
 import {
   emptyDriveSync,
@@ -1041,10 +1038,6 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
           initialState: {
             systemPrompt: cloudSystemPrompt,
             model,
-            thinkingLevel: resolveCloudThinkingLevel(
-              model,
-              input.execution.reasoningEffort,
-            ),
             tools,
             messages: history,
           },

@@ -118,7 +118,12 @@ export const normalizeCloudExecutionSelection = (
       "Cloud execution model must be a canonical model id of 1–192 safe characters.",
     );
   }
-  return { ...input, model };
+  return {
+    ...input,
+    model,
+    reasoningEffort:
+      input.engine === "stella" ? "default" : input.reasoningEffort,
+  };
 };
 
 export const defaultCloudExecutionForEngine = (

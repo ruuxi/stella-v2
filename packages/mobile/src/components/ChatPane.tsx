@@ -3915,7 +3915,9 @@ export function ChatPane({
     const disabled = Boolean(
       composerModelPicker.loading || composerModelPicker.saving,
     );
-    const options: PlusMenuOption[] = [
+    // No effort options means the selection's effort is backend-owned
+    // (Stella-managed models), so the thinking entry is hidden entirely.
+    const thinkingOptions: PlusMenuOption[] = composerModelPicker.effortOptions.length === 0 ? [] : [
       {
         id: "model-thinking",
         label: t("app.chat.miniModelPicker.reasoningEffortLabel"),
@@ -3933,6 +3935,9 @@ export function ChatPane({
         })),
         onSelect: () => undefined,
       },
+    ];
+    const options: PlusMenuOption[] = [
+      ...thinkingOptions,
       ...composerModelPicker.recentModels.map((model) => ({
         id: `model-recent-${model.id}`,
         label: model.label,

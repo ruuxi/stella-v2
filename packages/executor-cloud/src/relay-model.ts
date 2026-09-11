@@ -25,8 +25,6 @@ import {
   STELLA_DEFAULT_UPSTREAM_MODEL,
   STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
   STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL,
-  isDeepSeekV4FlashModel,
-  isMuseSpark13ContributorModel,
 } from "@stella/contracts/stella-api";
 import {
   getLoadedModelRegistry,
@@ -44,15 +42,9 @@ import {
   type GatewayProvider,
   type GatewayResolveRequest,
 } from "@stella/contracts/gateway/api";
-import { clampThinkingLevel } from "@stella/runtime/ai/thinking-levels.js";
-import type {
-  Api,
-  Model,
-  ModelThinkingLevel,
-} from "@stella/runtime/ai/types.js";
+import type { Api, Model } from "@stella/runtime/ai/types.js";
 import { CLOUD_MODEL_DIAGNOSTIC_SENTINELS } from "@stella/contracts/cloud-model-diagnostic";
 import { findModelCandidate } from "@stella/runtime/kernel/model-registry-view.js";
-import type { ThinkingLevel } from "@stella/runtime/kernel/agent-core/types.js";
 
 /**
  * Selects an owner-connected subscription on the gateway's native lane. The
@@ -410,43 +402,14 @@ export const createResolvedManagedRelayModel = (args: {
       name: args.execution.model.replace(/^stella\//, ""),
       provider: registryModel?.provider ?? relayProvider,
       api,
+      // Managed effort belongs to the gateway. Mark this transport model as
+      // non-reasoning so runtime adapters cannot synthesize an effort field.
+      reasoning: false,
       ...(resolution.contextWindow !== undefined
         ? { contextWindow: resolution.contextWindow }
         : {}),
       ...(resolution.maxOutputTokens !== undefined
         ? { maxTokens: resolution.maxOutputTokens }
-        : {}),
-      ...(isDeepSeekV4FlashModel(resolution.resolvedModel)
-        ? {
-            thinkingLevelMap: {
-              ...registryModel?.thinkingLevelMap,
-              ...(relayProvider === "crof" || relayProvider === "wafer"
-                ? {
-                    minimal: "low",
-                    low: "low",
-                    medium: "medium",
-                    high: "high",
-                    xhigh: "high",
-                    off: "none",
-                  }
-                : {
-                    minimal: "low",
-                    low: "low",
-                    medium: "high",
-                    high: "max",
-                    xhigh: "max",
-                    off: "none",
-                  }),
-            },
-          }
-        : {}),
-      ...(isMuseSpark13ContributorModel(resolution.resolvedModel)
-        ? {
-            thinkingLevelMap: {
-              ...registryModel?.thinkingLevelMap,
-              xhigh: "xhigh",
-            } as NonNullable<Model<Api>["thinkingLevelMap"]>,
-          }
         : {}),
       headers: {
         ...(registryModel?.headers ?? {}),
@@ -605,22 +568,6 @@ export const createCloudRelayModel = async (
   } catch {
     throw new Error(CLOUD_MODEL_DIAGNOSTIC_SENTINELS.model_response_invalid);
   }
-};
-
-/**
- * Resolve the requested reasoning effort to the closest level the exact model
- * supports. `none` is an explicit off request; `default` preserves Stella's
- * normal medium/off behavior.
- */
-export const resolveCloudThinkingLevel = (
-  model: Model<Api>,
-  requested: AgentModelReasoningEffort,
-): ThinkingLevel => {
-  if (requested === "default") {
-    return model.reasoning ? "medium" : "off";
-  }
-  const desired: ModelThinkingLevel = requested === "none" ? "off" : requested;
-  return clampThinkingLevel(model, desired);
 };
 
 export type CloudRelayContextTransform = (
@@ -790,15 +737,11 @@ export const createCloudRelaySession = async (
             : rawContext;
           options?.signal?.throwIfAborted();
           args.signal?.throwIfAborted();
-          const thinking = resolveCloudThinkingLevel(
-            attemptModel,
-            streamOptions.reasoningEffort,
-          );
           const inner = streamSimple(attemptModel, context, {
             ...options,
             signal,
-            reasoning: thinking === "off" ? undefined : thinking,
-            disableReasoning: thinking === "off",
+            reasoning: undefined,
+            disableReasoning: undefined,
           });
           // Managed replies already arrive as one complete JSON response. Hold
           // only this adapter attempt's events so a refused request never enters

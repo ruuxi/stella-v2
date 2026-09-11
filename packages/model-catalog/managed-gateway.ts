@@ -198,3 +198,27 @@ export function resolveManagedGatewayConfig(args: {
 }): ManagedGatewayConfig {
   return getManagedGatewayConfig(resolveManagedGatewayProvider(args));
 }
+
+/** Resolve the wire protocol for a managed route from its provider and config. */
+export const resolveManagedProtocol = (args: {
+  provider: ManagedGatewayProvider;
+  configuredApi?: ManagedProtocol;
+}): ManagedProtocol => {
+  if (args.configuredApi) return args.configuredApi;
+  switch (args.provider) {
+    case "fireworks":
+    case "deepseek":
+    case "xai":
+    case "openai":
+      return "openai-responses";
+    case "anthropic":
+      return "anthropic-messages";
+    case "google":
+      return "google-generative-ai";
+    case "crof":
+    case "wafer":
+    case "openrouter":
+    case "meta":
+      return "openai-completions";
+  }
+};

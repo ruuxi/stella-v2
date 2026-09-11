@@ -16,6 +16,7 @@ import {
 } from "@stella/contracts/gateway/dpop";
 
 import { createStellaRoute } from "@stella/runtime/kernel/model-routing-stella";
+import { resolveAgentThinkingLevel } from "@stella/runtime/kernel/agent-runtime/shared";
 import {
   rememberStellaGatewayOrigin,
   resetGatewaySessionState,
@@ -402,50 +403,40 @@ describe("Stella gateway route shape", () => {
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("retired Stella aliases resolve to the Muse route", () => {
+  it("keeps retired Stella aliases opaque without catalog metadata", () => {
     const route = makeRoute("stella/designer");
     const model = route!.model;
-    expect(model.api).toBe("openai-responses");
+    expect(model.api).toBe("openai-completions");
     expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.3-contributor");
+    ).toBe("stella/designer");
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Stella alias (light) resolves to the Muse route", () => {
+  it("keeps the light alias opaque without catalog metadata", () => {
     const route = makeRoute("stella/light");
     const model = route!.model;
-    expect(model.api).toBe("openai-responses");
+    expect(model.api).toBe("openai-completions");
     expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.3-contributor");
+    ).toBe("stella/light");
     expect(model.baseUrl).toBe(RELAY);
   });
 
-  it("Stella default resolves to Muse Spark 1.3 Contributor on OpenRouter", () => {
+  it("keeps the default alias opaque without catalog metadata", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
     expect(model.provider).toBe("openrouter");
-    expect(model.api).toBe("openai-responses");
+    expect(model.api).toBe("openai-completions");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.3-contributor");
+    ).toBe("stella/default");
     expect(model.baseUrl).toBe(RELAY);
-  });
-
-  it("Muse route: Responses transport keeps xhigh effort", () => {
-    const route = makeRoute("stella/default");
-    const model = route!.model;
-    // xhigh is Stella's default rung for Muse; the model's thinkingLevelMap
-    // must keep it from being clamped to high by the Responses adapter.
-    expect(model.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
   });
 
   it("the explicit DeepSeek V4 Flash pick still routes to the CrofAI provider", () => {
-    // The previous default stays fully routable: its canonical CrofAI id
-    // keeps the CrofAI completions transport and effort ladder.
     const route = makeRoute("stella/crof/deepseek-v4-flash-0731");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
@@ -453,15 +444,6 @@ describe("Stella gateway route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("deepseek-v4-flash-0731");
-    // CrofAI accepts none | low | medium | high.
-    expect(model.thinkingLevelMap).toMatchObject({
-      minimal: "low",
-      low: "low",
-      medium: "medium",
-      high: "high",
-      xhigh: "high",
-      off: "none",
-    });
   });
 
   it("the Wafer Fast variant routes to the Wafer provider", () => {
@@ -472,25 +454,16 @@ describe("Stella gateway route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("deepseek-v4-flash-0731-fast");
-    // Wafer shares CrofAI's effort ladder via the gateway's body normalization.
-    expect(model.thinkingLevelMap).toMatchObject({
-      minimal: "low",
-      low: "low",
-      medium: "medium",
-      high: "high",
-      xhigh: "high",
-      off: "none",
-    });
   });
 
-  it("Stella standard compatibility alias resolves to the Muse route", () => {
+  it("keeps the standard alias opaque without catalog metadata", () => {
     const route = makeRoute("stella/standard");
     const model = route!.model;
-    expect(model.api).toBe("openai-responses");
+    expect(model.api).toBe("openai-completions");
     expect(model.provider).toBe("openrouter");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("meta/muse-spark-1.3-contributor");
+    ).toBe("stella/standard");
     expect(model.baseUrl).toBe(RELAY);
   });
 
@@ -553,6 +526,8 @@ describe("Stella gateway auth (baseUrl-based detection)", () => {
       unknown
     >;
     expect(body.stream).toBe(false);
+    expect(body).not.toHaveProperty("thinking");
+    expect(body).not.toHaveProperty("output_config");
   });
 
   it("Google adapter forwards Authorization: Bearer <capability> and calls generateContent", async () => {
@@ -599,11 +574,57 @@ describe("Stella gateway auth (baseUrl-based detection)", () => {
     expect(relayCall!.headers.get("x-stella-request-id")).toMatch(
       /^[0-9a-f-]{36}$/u,
     );
+    const body = JSON.parse(String(relayCall!.init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(body)).not.toContain("thinkingConfig");
+  });
+
+  it("OpenAI completions omits every reasoning control on Stella routes", async () => {
+    const calls = captureRequest(() =>
+      jsonResponse({
+        id: "chatcmpl_1",
+        object: "chat.completion",
+        created: 1,
+        model: "deepseek-v4-flash-0731",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "hi" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    );
+    const route = makeRoute("stella/crof/deepseek-v4-flash-0731")!;
+    const apiKey = (await route.getApiKey()) ?? "";
+
+    const result = await streamSimple(route.model, userContext("hi"), {
+      apiKey,
+      reasoning: "xhigh",
+    }).result();
+
+    expect(result.stopReason).toBe("stop");
+    const relayCall = calls.find((call) =>
+      call.url.endsWith("/chat/completions"),
+    );
+    expect(relayCall).toBeDefined();
+    const body = JSON.parse(String(relayCall!.init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("reasoning");
+    expect(body).not.toHaveProperty("thinking");
+    expect(body).not.toHaveProperty("enable_thinking");
+    expect(body).not.toHaveProperty("chat_template_kwargs");
   });
 });
 
-describe("Stella Muse Responses transport", () => {
-  it("posts the default model to responses with xhigh reasoning and parses usage", async () => {
+describe("Stella Responses transport", () => {
+  it("ignores a saved xhigh effort while non-Stella routing still honors it", async () => {
     const calls = captureRequest(() =>
       jsonResponse({
         id: "resp_muse",
@@ -632,12 +653,25 @@ describe("Stella Muse Responses transport", () => {
       }),
     );
 
-    const route = makeRoute("stella/default")!;
+    const route = createStellaRoute({
+      site,
+      agentType: "general",
+      modelId: "stella/default",
+      resolvedModelId: "meta/muse-spark-1.3-contributor",
+      api: "openai-responses",
+    })!;
     const apiKey = (await route.getApiKey()) ?? "";
+    const managedThinkingLevel = resolveAgentThinkingLevel({
+      resolvedLlm: route,
+      agentContextReasoningEffort: "xhigh",
+    });
+    expect(managedThinkingLevel).toBe("off");
     const result = await streamSimple(route.model, userContext("hi"), {
       apiKey,
       maxTokens: 2048,
-      reasoning: "xhigh",
+      ...(managedThinkingLevel === "off"
+        ? {}
+        : { reasoning: managedThinkingLevel }),
     }).result();
 
     expect(result.stopReason).toBe("stop");
@@ -662,7 +696,43 @@ describe("Stella Muse Responses transport", () => {
       { role: "user", content: [{ type: "input_text", text: "hi" }] },
     ]);
     expect(body.max_output_tokens).toBe(2048);
-    expect(body.reasoning).toMatchObject({ effort: "xhigh" });
+    expect(body).not.toHaveProperty("reasoning");
+
+    const nonStellaModel: Model<"openai-responses"> = {
+      ...route.model,
+      id: "gpt-5.5",
+      name: "GPT-5.5",
+      api: "openai-responses",
+      provider: "openai",
+      baseUrl: RELAY,
+    };
+    const directThinkingLevel = resolveAgentThinkingLevel({
+      resolvedLlm: { model: nonStellaModel },
+      agentContextReasoningEffort: "xhigh",
+    });
+    expect(directThinkingLevel).toBe("xhigh");
+    const directResult = await streamSimple(
+      nonStellaModel,
+      userContext("direct"),
+      {
+        apiKey: "native-capability",
+        reasoning: directThinkingLevel,
+      },
+    ).result();
+    expect(directResult.stopReason).toBe("stop");
+    const directCall = calls.find((candidate) => {
+      if (!candidate.url.endsWith("/responses")) return false;
+      const candidateBody = JSON.parse(String(candidate.init?.body)) as {
+        model?: unknown;
+      };
+      return candidateBody.model === "gpt-5.5";
+    });
+    expect(directCall).toBeDefined();
+    const directBody = JSON.parse(String(directCall!.init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(directBody.reasoning).toMatchObject({ effort: "xhigh" });
   });
 });
 

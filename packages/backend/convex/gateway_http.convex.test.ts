@@ -1063,12 +1063,17 @@ describe("GET /api/stella/models", () => {
     const response = await t.fetch("/api/stella/models", { method: "GET" });
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      data: unknown[];
+      data: Array<{ id: string; api: string }>;
       gateway: { origin: string };
       updatedAt: number;
     };
     expect(body.gateway).toEqual({ origin: "https://gateway.test" });
     expect(body.data.length).toBeGreaterThan(0);
+    expect(
+      body.data.find(
+        (model) => model.id === "stella/meta/muse-spark-1.3-contributor",
+      )?.api,
+    ).toBe("openai-responses");
   });
 
   it("fails in production when the gateway origin is unset", async () => {

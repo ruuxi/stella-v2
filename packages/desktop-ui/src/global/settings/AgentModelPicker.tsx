@@ -6,15 +6,11 @@ import { EngineScopedModelList } from "@/global/settings/EngineScopedModelList";
 import { ProviderOnlyPicker, type ProviderOption, } from "@/global/settings/ProviderOnlyPicker";
 import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
 import { coerceRealtimeVoiceProvider, type ReadAloudVoiceProvider, type RealtimeVoicePreferences, type RealtimeVoiceUnderlyingProvider, } from "@stella/contracts/local-preferences";
-import {
-  isDeepSeekV4FlashModel,
-  isMuseSpark13ContributorModel,
-} from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelPickerDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
-import { REASONING_EFFORT_OPTIONS, listReasoningEffortOptions, type ReasoningEffortOptionId, } from "@/global/settings/lib/reasoning-effort-options";
+import { listReasoningEffortOptions, supportsReasoningEffortSelection, type ReasoningEffortOptionId, } from "@/global/settings/lib/reasoning-effort-options";
 import { recordRecentModel } from "@/global/settings/lib/recent-models";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
@@ -900,22 +896,11 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
                     preferences?.reasoningEfforts?.general ??
                     "default")
                 : (preferences?.reasoningEfforts?.[activeAgent] ?? "default");
-    const reportedDefaultReasoningEffort = null;
-    const selectedStellaModelId = current || defaultModelId;
-    const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
-        model.upstreamModel === selectedStellaModelId);
-    const selectedModelDefaultsToXhigh = committedEngine === "default" &&
-        ((isDeepSeekV4FlashModel(selectedStellaModelId) ||
-            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel)) ||
-            (isMuseSpark13ContributorModel(selectedStellaModelId) ||
-                isMuseSpark13ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
-    const effectiveDefaultReasoningEffort = REASONING_EFFORT_OPTIONS.some((option) => option.id === reportedDefaultReasoningEffort)
-        ? reportedDefaultReasoningEffort
-        : selectedModelDefaultsToXhigh
-            ? "xhigh"
-            : "medium";
+    // Stella-managed models never show an effort control: the backend owns
+    // their effort. BYOK / local models and the engines default to medium.
+    const showReasoningControl = supportsReasoningEffortSelection(committedEngine, current);
     const currentReasoningEffort = savedReasoningEffort === "default"
-        ? effectiveDefaultReasoningEffort
+        ? "medium"
         : savedReasoningEffort;
     const reasoningEffortOptions = listReasoningEffortOptions(committedEngine);
     const reasoningDisabled = pendingAgent !== null ||
@@ -1018,7 +1003,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
             <ProviderOnlyPicker providers={voiceProviderOptions} value={current || "stella"} onSelect={(key) => void handleVoiceProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.voiceProviderAriaLabel")}/>
             <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} disabled={!preferences || pendingAgent !== null}/>
           </>) : (<>
-            <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={reasoningControl} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} catalogError={catalogError} refreshing={refreshing ||
+            <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={showReasoningControl ? reasoningControl : null} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} catalogError={catalogError} refreshing={refreshing ||
                 ((claudeCodeSectionOpen || committedEngine === "claude_code_local") &&
                     claudeCodeModelsLoading)} extraSections={[
                 {

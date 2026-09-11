@@ -50,7 +50,7 @@ import {
   hasCopilotVisionInput,
 } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
-import { isGatewayRelayBaseUrl, newGatewayRequestId } from "./model-gateway.js";
+import { isGatewayRelayBaseUrl, isManagedStellaRelayModel, newGatewayRequestId } from "./model-gateway.js";
 import { buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -877,25 +877,27 @@ export function buildOpenAICompletionsParams(
     params.tool_choice = options.toolChoice;
   }
 
-  if (compat.thinkingFormat === "zai" && model.reasoning) {
+  const configureReasoning =
+    model.reasoning && !isManagedStellaRelayModel(model);
+  if (compat.thinkingFormat === "zai" && configureReasoning) {
     (params as any).enable_thinking = !!options?.reasoningEffort;
-  } else if (compat.thinkingFormat === "qwen" && model.reasoning) {
+  } else if (compat.thinkingFormat === "qwen" && configureReasoning) {
     (params as any).enable_thinking = !!options?.reasoningEffort;
   } else if (
     compat.thinkingFormat === "qwen-chat-template" &&
-    model.reasoning
+    configureReasoning
   ) {
     (params as any).chat_template_kwargs = {
       ...buildChatTemplateKwargs(model, options, compat),
       enable_thinking: !!options?.reasoningEffort,
       preserve_thinking: true,
     };
-  } else if (compat.thinkingFormat === "chat-template" && model.reasoning) {
+  } else if (compat.thinkingFormat === "chat-template" && configureReasoning) {
     const chatTemplateKwargs = buildChatTemplateKwargs(model, options, compat);
     if (chatTemplateKwargs) {
       (params as any).chat_template_kwargs = chatTemplateKwargs;
     }
-  } else if (compat.thinkingFormat === "deepseek" && model.reasoning) {
+  } else if (compat.thinkingFormat === "deepseek" && configureReasoning) {
     (params as any).thinking = {
       type: options?.reasoningEffort ? "enabled" : "disabled",
     };
@@ -904,7 +906,7 @@ export function buildOpenAICompletionsParams(
         model.thinkingLevelMap?.[options.reasoningEffort] ??
         options.reasoningEffort;
     }
-  } else if (compat.thinkingFormat === "openrouter" && model.reasoning) {
+  } else if (compat.thinkingFormat === "openrouter" && configureReasoning) {
     // OpenRouter normalizes reasoning across providers via a nested reasoning object.
     const openRouterParams = params as typeof params & {
       reasoning?: { effort?: string };
@@ -922,7 +924,7 @@ export function buildOpenAICompletionsParams(
     }
   } else if (
     options?.reasoningEffort &&
-    model.reasoning &&
+    configureReasoning &&
     compat.supportsReasoningEffort
   ) {
     // OpenAI-style reasoning_effort
@@ -931,7 +933,7 @@ export function buildOpenAICompletionsParams(
       options.reasoningEffort;
   } else if (
     !options?.reasoningEffort &&
-    model.reasoning &&
+    configureReasoning &&
     compat.supportsReasoningEffort
   ) {
     const offValue = model.thinkingLevelMap?.off;

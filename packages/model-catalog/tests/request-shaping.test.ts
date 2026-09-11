@@ -43,11 +43,13 @@ const makeAuthorized = (
     model: "stella/google/gemini-3.6-flash",
     contents: [{ role: "user", parts: [{ text: "hi" }] }],
   },
+  managedReasoningEffort?: string,
 ): RelayRequestShape => ({
   requestJson,
   resolvedModel: RESOLVED_MODELS[provider],
   upstreamModel: UPSTREAM_MODELS[provider],
   serviceTier: "priority",
+  ...(managedReasoningEffort ? { managedReasoningEffort } : {}),
 });
 
 const requestFor = (path: string, headers?: Record<string, string>): Request =>
@@ -57,10 +59,11 @@ const shaped = (
   provider: ManagedGatewayProvider,
   path: string,
   requestJson?: RelayRequestShape["requestJson"],
+  managedReasoningEffort?: string,
 ) =>
   JSON.parse(
     bodyForUpstream(
-      makeAuthorized(provider, requestJson),
+      makeAuthorized(provider, requestJson, managedReasoningEffort),
       provider,
       requestFor(path),
     ),
@@ -389,29 +392,38 @@ describe("bodyForUpstream: deepseek", () => {
     expect(body.service_tier).toBeUndefined();
   });
 
-  it("clamps Stella's effort ladder onto DeepSeek's low/high/max", () => {
-    const effortFor = (requested: Record<string, unknown>) =>
-      shaped("deepseek", "/api/stella/deepseek/v1/responses", {
-        model: "stella/default",
-        input: [{ role: "user", content: "hi" }],
-        ...requested,
-      }).reasoning;
+  it("clamps the managed config effort onto DeepSeek's low/high/max", () => {
+    const effortFor = (
+      managedReasoningEffort: string | undefined,
+      requested: Record<string, unknown> = {},
+    ) =>
+      shaped(
+        "deepseek",
+        "/api/stella/deepseek/v1/responses",
+        {
+          model: "stella/default",
+          input: [{ role: "user", content: "hi" }],
+          ...requested,
+        },
+        managedReasoningEffort,
+      ).reasoning;
 
-    expect(effortFor({ reasoning: { effort: "minimal" } })).toEqual({
+    expect(effortFor("minimal", { reasoning: { effort: "xhigh" } })).toEqual({
       effort: "low",
     });
-    expect(effortFor({ reasoning: { effort: "medium" } })).toEqual({
+    expect(effortFor("medium", { reasoning_effort: "low" })).toEqual({
       effort: "high",
     });
-    expect(effortFor({ reasoning_effort: "xhigh" })).toEqual({ effort: "max" });
-    expect(effortFor({ reasoning: { effort: "off" } })).toEqual({
+    expect(effortFor("xhigh")).toEqual({ effort: "max" });
+    expect(effortFor("off", { reasoning: { effort: "high" } })).toEqual({
       effort: "none",
     });
-    expect(effortFor({ reasoning: { effort: "high" } })).toEqual({
+    expect(effortFor("high")).toEqual({
       effort: "max",
     });
-    // Absent or unrecognized efforts land on max, not DeepSeek's own default.
-    expect(effortFor({})).toEqual({ effort: "max" });
+    expect(
+      effortFor(undefined, { reasoning: { effort: "high" } }),
+    ).toBeUndefined();
   });
 
   it("uses DeepSeek's thinking object on the chat-completions path", () => {
@@ -424,6 +436,7 @@ describe("bodyForUpstream: deepseek", () => {
         reasoning: { effort: "medium" },
         stream: true,
       },
+      "medium",
     );
 
     expect(body.model).toBe("deepseek-v4-flash");
@@ -446,19 +459,24 @@ describe("bodyForUpstream: deepseek", () => {
       { role: "user", content: [{ type: "text", text: "hi" }] },
     ]);
     expect(body.max_completion_tokens).toBe(256);
-    expect(body.thinking).toEqual({ type: "disabled" });
+    expect(body.thinking).toBeUndefined();
     expect(body.reasoning_effort).toBeUndefined();
   });
 });
 
 describe("bodyForUpstream: crof", () => {
   it("uses chat completions, the dated model slug, and Crof reasoning levels", () => {
-    const body = shaped("crof", "/api/stella/crof/v1/chat/completions", {
-      model: "stella/default",
-      messages: [{ role: "user", content: "hi" }],
-      reasoning: { effort: "xhigh" },
-      stream: true,
-    });
+    const body = shaped(
+      "crof",
+      "/api/stella/crof/v1/chat/completions",
+      {
+        model: "stella/default",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning: { effort: "xhigh" },
+        stream: true,
+      },
+      "xhigh",
+    );
     expect(body.model).toBe("deepseek-v4-flash-0731");
     expect(body.reasoning_effort).toBe("high");
     expect(body.reasoning).toBeUndefined();
@@ -467,12 +485,17 @@ describe("bodyForUpstream: crof", () => {
   });
 
   it("normalizes Wafer bodies like Crof with the exact upstream casing", () => {
-    const body = shaped("wafer", "/api/stella/wafer/v1/chat/completions", {
-      model: "stella/wafer/deepseek-v4-flash-0731-fast",
-      messages: [{ role: "user", content: "hi" }],
-      reasoning: { effort: "xhigh" },
-      stream: true,
-    });
+    const body = shaped(
+      "wafer",
+      "/api/stella/wafer/v1/chat/completions",
+      {
+        model: "stella/wafer/deepseek-v4-flash-0731-fast",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning: { effort: "xhigh" },
+        stream: true,
+      },
+      "xhigh",
+    );
     expect(body.model).toBe("DeepSeek-V4-Flash-0731-Fast");
     expect(body.reasoning_effort).toBe("high");
     expect(body.reasoning).toBeUndefined();
@@ -482,26 +505,31 @@ describe("bodyForUpstream: crof", () => {
 
 describe("bodyForUpstream: openrouter responses", () => {
   it("normalizes chat-shaped bodies for the OpenRouter Responses path", () => {
-    const body = shaped("openrouter", "/api/stella/relay/responses", {
-      model: "stella/standard",
-      messages: [
-        { role: "developer", content: "Follow the policy." },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "hi" },
-            {
-              type: "image_url",
-              image_url: { url: "data:image/png;base64,abc" },
-            },
-          ],
-        },
-      ],
-      max_completion_tokens: 1024,
-      response_format: { type: "json_object" },
-      stream_options: { include_usage: true },
-      stream: true,
-    });
+    const body = shaped(
+      "openrouter",
+      "/api/stella/relay/responses",
+      {
+        model: "stella/standard",
+        messages: [
+          { role: "developer", content: "Follow the policy." },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "hi" },
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,abc" },
+              },
+            ],
+          },
+        ],
+        max_completion_tokens: 1024,
+        response_format: { type: "json_object" },
+        stream_options: { include_usage: true },
+        stream: true,
+      },
+      "low",
+    );
 
     expect(body.model).toBe("x-ai/grok-4.5");
     expect(body.messages).toBeUndefined();
@@ -510,7 +538,7 @@ describe("bodyForUpstream: openrouter responses", () => {
     expect(body.response_format).toBeUndefined();
     expect(body.stream_options).toBeUndefined();
     expect(body.text).toEqual({ format: { type: "json_object" } });
-    // Reasoning is mandatory for Grok: none/off collapse to low, nested only.
+    // The catalog value wins and Responses keeps only the nested form.
     expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.reasoning_effort).toBeUndefined();
     expect(body.input).toEqual([
@@ -531,23 +559,35 @@ describe("bodyForUpstream: openrouter responses", () => {
     expect(body.store).toBeUndefined();
   });
 
-  it("keeps an explicit xhigh reasoning effort", () => {
-    const body = shaped("openrouter", "/api/stella/relay/responses", {
-      model: "stella/standard",
-      input: [{ role: "user", content: [{ type: "input_text", text: "hi" }] }],
-      reasoning: { effort: "xhigh" },
-    });
+  it("keeps the catalog's xhigh reasoning effort", () => {
+    const body = shaped(
+      "openrouter",
+      "/api/stella/relay/responses",
+      {
+        model: "stella/standard",
+        input: [
+          { role: "user", content: [{ type: "input_text", text: "hi" }] },
+        ],
+        reasoning: { effort: "xhigh" },
+      },
+      "xhigh",
+    );
     expect(body.reasoning).toEqual({ effort: "xhigh" });
     expect(body.reasoning_effort).toBeUndefined();
   });
 
-  it("adds mandatory Grok reasoning for OpenRouter chat bodies", () => {
-    const body = shaped("openrouter", "/api/stella/relay/chat/completions", {
-      model: "stella/standard",
-      messages: [{ role: "user", content: "hi" }],
-      reasoning: { effort: "none" },
-      stream: true,
-    });
+  it("adds the catalog effort for OpenRouter chat bodies", () => {
+    const body = shaped(
+      "openrouter",
+      "/api/stella/relay/chat/completions",
+      {
+        model: "stella/standard",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning: { effort: "none" },
+        stream: true,
+      },
+      "low",
+    );
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
     expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.reasoning_effort).toBeUndefined();
@@ -565,6 +605,7 @@ describe("bodyForUpstream: anthropic", () => {
       messages: [{ role: "user", content: "hi" }],
       max_tokens: 256,
       thinking: { type: "adaptive" },
+      output_config: { effort: "high" },
       stream: true,
     });
 
@@ -573,7 +614,6 @@ describe("bodyForUpstream: anthropic", () => {
       system: "be brief",
       messages: [{ role: "user", content: "hi" }],
       max_tokens: 256,
-      thinking: { type: "adaptive" },
       stream: true,
     });
   });
@@ -644,42 +684,62 @@ describe("bodyForUpstream: other providers", () => {
   });
 
   it("uses xAI's top-level reasoning_effort for chat and nested reasoning for Responses", () => {
-    const chat = shaped("xai", "/api/stella/xai/v1/chat/completions", {
-      model: "stella/standard",
-      messages: [{ role: "user", content: "hi" }],
-      reasoning: { effort: "none" },
-      stream: true,
-    });
+    const chat = shaped(
+      "xai",
+      "/api/stella/xai/v1/chat/completions",
+      {
+        model: "stella/standard",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning: { effort: "none" },
+        stream: true,
+      },
+      "low",
+    );
     expect(chat.model).toBe("grok-4.5");
     expect(chat.reasoning_effort).toBe("low");
     expect(chat.reasoning).toBeUndefined();
 
-    const responses = shaped("xai", "/api/stella/xai/v1/responses", {
-      model: "stella/standard",
-      input: [{ role: "user", content: "hi" }],
-      reasoning_effort: "high",
-    });
+    const responses = shaped(
+      "xai",
+      "/api/stella/xai/v1/responses",
+      {
+        model: "stella/standard",
+        input: [{ role: "user", content: "hi" }],
+        reasoning_effort: "high",
+      },
+      "high",
+    );
     expect(responses.reasoning_effort).toBeUndefined();
     expect(responses.reasoning).toEqual({ effort: "high" });
     expect(responses.store).toBe(true);
   });
 
-  it("coerces Muse Spark's mandatory reasoning to low on the Meta gateway", () => {
-    const chat = shaped("meta", "/api/stella/meta/v1/chat/completions", {
-      model: "stella/meta/muse-spark-1.1",
-      messages: [{ role: "user", content: "hi" }],
-      reasoning: { effort: "none" },
-      stream: true,
-    });
+  it("uses the catalog's low effort on the Meta gateway", () => {
+    const chat = shaped(
+      "meta",
+      "/api/stella/meta/v1/chat/completions",
+      {
+        model: "stella/meta/muse-spark-1.1",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning: { effort: "none" },
+        stream: true,
+      },
+      "low",
+    );
     expect(chat.model).toBe("muse-spark-1.1");
     expect(chat.reasoning_effort).toBe("low");
     expect(chat.reasoning).toBeUndefined();
 
-    const responses = shaped("meta", "/api/stella/meta/v1/responses", {
-      model: "stella/meta/muse-spark-1.1",
-      input: [{ role: "user", content: "hi" }],
-      reasoning_effort: "none",
-    });
+    const responses = shaped(
+      "meta",
+      "/api/stella/meta/v1/responses",
+      {
+        model: "stella/meta/muse-spark-1.1",
+        input: [{ role: "user", content: "hi" }],
+        reasoning_effort: "none",
+      },
+      "low",
+    );
     expect(responses.reasoning_effort).toBeUndefined();
     expect(responses.reasoning).toEqual({ effort: "low" });
   });

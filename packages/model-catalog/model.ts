@@ -54,6 +54,16 @@ export type ModelConfig = {
   fallbackProviderOptions?: Record<string, Record<string, JSONValue>>;
 };
 
+/** The backend-owned reasoning effort for a managed model route. */
+export const getManagedReasoningEffort = (
+  config: ModelConfig,
+): string | undefined => {
+  const effort = config.providerOptions?.openai?.reasoningEffort;
+  return typeof effort === "string" && effort.trim()
+    ? effort.trim()
+    : undefined;
+};
+
 // `MANAGED_MODEL_AUDIENCES` / `ManagedModelAudience` are owned by
 // `@stella/contracts/gateway/capability` and re-exported above.
 

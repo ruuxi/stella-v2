@@ -35,7 +35,7 @@ import {
 	withModelFetch,
 } from "./google-shared.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
-import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl } from "./model-gateway.js";
+import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl, isManagedStellaRelayModel } from "./model-gateway.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 
 export interface GoogleOptions extends StreamOptions {
@@ -433,7 +433,7 @@ function buildParams(
 		config.toolConfig = undefined;
 	}
 
-	if (options.thinking?.enabled && model.reasoning) {
+	if (options.thinking?.enabled && model.reasoning && !isManagedStellaRelayModel(model)) {
 		const thinkingConfig: ThinkingConfig = { includeThoughts: true };
 		if (options.thinking.level !== undefined) {
 			// Cast to any since our GoogleThinkingLevel mirrors Google's ThinkingLevel enum values
@@ -442,7 +442,12 @@ function buildParams(
 			thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
 		}
 		config.thinkingConfig = thinkingConfig;
-	} else if (model.reasoning && options.thinking && !options.thinking.enabled) {
+	} else if (
+		model.reasoning &&
+		options.thinking &&
+		!options.thinking.enabled &&
+		!isManagedStellaRelayModel(model)
+	) {
 		config.thinkingConfig = getDisabledThinkingConfig(model);
 	}
 

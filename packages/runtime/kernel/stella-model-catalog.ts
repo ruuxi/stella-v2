@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { formatLlmRouteFailure } from "@stella/contracts/llm-route-failure";
+import type { GatewayProtocol } from "@stella/contracts/gateway/api";
 import type { Api, Model } from "../ai/types.js";
 import {
   STELLA_DEFAULT_MODEL,
@@ -35,6 +36,7 @@ type CatalogModel = {
   id: string;
   name: string;
   provider: string;
+  api?: GatewayProtocol;
   upstreamModel?: string;
 };
 
@@ -49,6 +51,7 @@ type CatalogApiModel = {
   name?: string;
   provider?: string;
   type?: string;
+  api?: unknown;
   upstreamModel?: string;
 };
 
@@ -75,6 +78,18 @@ const inFlightCatalogRequests = new Map<
   Promise<StellaModelCatalog | null>
 >();
 const lastCatalogFetchAttemptAtMs = new Map<string, number>();
+
+const parseCatalogApi = (value: unknown): GatewayProtocol | undefined => {
+  switch (value) {
+    case "openai-completions":
+    case "openai-responses":
+    case "anthropic-messages":
+    case "google-generative-ai":
+      return value;
+    default:
+      return undefined;
+  }
+};
 
 /**
  * The one module-level ManagedRuntime for the Stella model catalog (M5
@@ -124,6 +139,7 @@ const publishCatalogToModelRuntime = async (
           model.upstreamModel ??
           resolveOfflineStellaModelId(model.id) ??
           undefined,
+        ...(model.api ? { api: model.api } : {}),
         gatewayOrigin: catalog.gateway.origin,
       }),
     )
@@ -167,6 +183,8 @@ const isCatalogModel = (value: unknown): value is CatalogModel => {
     typeof candidate.id === "string" &&
     typeof candidate.name === "string" &&
     typeof candidate.provider === "string" &&
+    (candidate.api === undefined ||
+      parseCatalogApi(candidate.api) !== undefined) &&
     (candidate.upstreamModel === undefined ||
       typeof candidate.upstreamModel === "string")
   );
@@ -386,12 +404,16 @@ const fetchCatalogFromNetwork = (
       const catalog: StellaModelCatalog = {
         models: (data.data ?? [])
           .filter((model) => !model.type || model.type === "language")
-          .map((model) => ({
-            id: model.id,
-            name: model.name ?? model.id,
-            provider: model.provider ?? STELLA_PROVIDER,
-            upstreamModel: model.upstreamModel,
-          })),
+          .map((model) => {
+            const api = parseCatalogApi(model.api);
+            return {
+              id: model.id,
+              name: model.name ?? model.id,
+              provider: model.provider ?? STELLA_PROVIDER,
+              ...(api ? { api } : {}),
+              upstreamModel: model.upstreamModel,
+            };
+          }),
         defaults: data.defaults ?? [],
         gateway: { origin: gatewayOrigin },
       };
@@ -524,6 +546,11 @@ const modelIdentityFromId = (modelId: string): ModelIdentity => {
   };
 };
 
+type CatalogModelResolution = {
+  resolvedModelId: string;
+  api?: GatewayProtocol;
+};
+
 const resolveStellaModelAliasEffect = (args: {
   route: ResolvedLlmRoute;
   agentType: string;
@@ -531,7 +558,7 @@ const resolveStellaModelAliasEffect = (args: {
   deviceId?: string;
   modelCatalogUpdatedAt?: number | null;
   stellaDataDir?: string;
-}): Effect.Effect<string | null, unknown> =>
+}): Effect.Effect<CatalogModelResolution | null, unknown> =>
   Effect.gen(function* () {
     if (args.route.route !== "stella") {
       return null;
@@ -540,17 +567,19 @@ const resolveStellaModelAliasEffect = (args: {
     const modelId = args.route.model.id.trim();
     const passthrough = getStellaVerbatimUpstreamModel(modelId);
     if (passthrough) {
-      // Verbatim ids need no alias lookup, but the route still needs the
-      // gateway origin the catalog advertises; fetch it once per site.
-      if (!getRememberedStellaGatewayOrigin(args.site.baseUrl)) {
-        yield* fetchStellaModelCatalogEffect({
-          site: args.site,
-          deviceId: args.deviceId,
-          modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
-          stellaDataDir: args.stellaDataDir,
-        });
-      }
-      return passthrough;
+      const catalog = yield* fetchStellaModelCatalogEffect({
+        site: args.site,
+        deviceId: args.deviceId,
+        modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
+        stellaDataDir: args.stellaDataDir,
+      });
+      const catalogModel = catalog?.models.find(
+        (model) => model.id === modelId || model.upstreamModel === passthrough,
+      );
+      return {
+        resolvedModelId: passthrough,
+        ...(catalogModel?.api ? { api: catalogModel.api } : {}),
+      };
     }
 
     const catalog = yield* fetchStellaModelCatalogEffect({
@@ -564,16 +593,25 @@ const resolveStellaModelAliasEffect = (args: {
     }
 
     if (modelId === STELLA_DEFAULT_MODEL) {
-      return (
-        catalog.defaults.find((entry) => entry.agentType === args.agentType)
-          ?.resolvedModel ?? null
+      const resolvedModelId = catalog.defaults.find(
+        (entry) => entry.agentType === args.agentType,
+      )?.resolvedModel;
+      if (!resolvedModelId) return null;
+      const catalogModel = catalog.models.find(
+        (model) => model.upstreamModel === resolvedModelId,
       );
+      return {
+        resolvedModelId,
+        ...(catalogModel?.api ? { api: catalogModel.api } : {}),
+      };
     }
 
-    return (
-      catalog.models.find((model) => model.id === modelId)?.upstreamModel ??
-      null
-    );
+    const catalogModel = catalog.models.find((model) => model.id === modelId);
+    if (!catalogModel?.upstreamModel) return null;
+    return {
+      resolvedModelId: catalogModel.upstreamModel,
+      ...(catalogModel.api ? { api: catalogModel.api } : {}),
+    };
   });
 
 export const withStellaModelCatalogMetadata = (args: {
@@ -591,8 +629,8 @@ export const withStellaModelCatalogMetadata = (args: {
         return args.route;
       }
 
-      const resolvedModelId = yield* resolveStellaModelAliasEffect(args);
-      if (!resolvedModelId) {
+      const resolution = yield* resolveStellaModelAliasEffect(args);
+      if (!resolution) {
         if (resolveOfflineStellaModelId(args.route.model.id) === null) {
           const suggestedModel = getEngineNativeStellaModelAlternative(
             args.route.model.id,
@@ -624,6 +662,7 @@ export const withStellaModelCatalogMetadata = (args: {
       }
 
       const gatewayOrigin = yield* requireGatewayOrigin(args.site);
+      const { resolvedModelId } = resolution;
       const lookup = getManagedStellaRegistryLookup(resolvedModelId);
       const registryModel =
         findRegistryModel(lookup.provider, lookup.candidates) ??
@@ -640,6 +679,7 @@ export const withStellaModelCatalogMetadata = (args: {
         modelId: args.route.model.id,
         resolvedModelId,
         registryModel,
+        ...(resolution.api ? { api: resolution.api } : {}),
         gatewayOrigin,
       });
 

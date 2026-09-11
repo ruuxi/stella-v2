@@ -5,6 +5,7 @@
  */
 import {
   getManagedGatewayConfig,
+  resolveManagedProtocol,
   type ManagedGatewayProvider,
   type ManagedProtocol,
 } from "./managed-gateway";
@@ -21,6 +22,7 @@ export { isInternalRelayRequestHeader } from "./native-relay";
 export type RelayRequestShape = NativeRelayRequest & {
   resolvedModel: string;
   serviceTier?: string;
+  managedReasoningEffort?: string;
 };
 
 const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
@@ -59,25 +61,11 @@ export function toProviderNativeModel(
 export const resolveCloudManagedProtocol = (args: {
   relayProvider: ManagedGatewayProvider;
   configuredApi?: ManagedProtocol;
-}): ManagedProtocol => {
-  if (args.configuredApi) return args.configuredApi;
-  switch (args.relayProvider) {
-    case "fireworks":
-    case "deepseek":
-    case "xai":
-    case "openai":
-      return "openai-responses";
-    case "anthropic":
-      return "anthropic-messages";
-    case "google":
-      return "google-generative-ai";
-    case "crof":
-    case "wafer":
-    case "openrouter":
-    case "meta":
-      return "openai-completions";
-  }
-};
+}): ManagedProtocol =>
+  resolveManagedProtocol({
+    provider: args.relayProvider,
+    configuredApi: args.configuredApi,
+  });
 
 export const cloneForwardHeaders = (
   request: Request,
@@ -391,10 +379,7 @@ const normalizeChatTools = (tools: unknown): unknown => {
   });
 };
 
-export const normalizeChatReasoning = (
-  body: Record<string, unknown>,
-  resolvedModel: string,
-): void => {
+export const normalizeChatReasoning = (body: Record<string, unknown>): void => {
   const reasoning =
     body.reasoning &&
     typeof body.reasoning === "object" &&
@@ -402,48 +387,64 @@ export const normalizeChatReasoning = (
       ? (body.reasoning as Record<string, unknown>)
       : null;
   const effort = reasoning?.effort;
-  // Accept either incoming representation. The endpoint-specific normalization
-  // below keeps only the wire shape that the selected Meta API accepts.
   const topLevelEffort = body.reasoning_effort;
-
-  if (resolvedModel === "x-ai/grok-4.5") {
-    const raw =
-      typeof effort === "string"
-        ? effort
-        : typeof topLevelEffort === "string"
-          ? topLevelEffort
-          : undefined;
-    const safe = raw && raw !== "none" && raw !== "off" ? raw : "low";
-    body.reasoning_effort = safe;
-    body.reasoning = { effort: safe };
-    return;
-  }
-
-  // Muse Spark always reasons: `reasoning_effort: "none"` 400s. Map Stella's
-  // "none"/"off" efforts (and missing effort) to a safe default of "low".
-  if (
-    resolvedModel.startsWith("meta/muse-spark") ||
-    resolvedModel.startsWith("muse-spark")
-  ) {
-    const raw =
-      typeof effort === "string"
-        ? effort
-        : typeof topLevelEffort === "string"
-          ? topLevelEffort
-          : undefined;
-    const safe = raw && raw !== "none" && raw !== "off" ? raw : "low";
-    // Materialize both forms here so endpoint-specific normalization can retain
-    // the one accepted by its upstream API.
-    body.reasoning_effort = safe;
-    body.reasoning = { effort: safe };
-    return;
-  }
-
-  if (effort !== undefined) {
-    body.reasoning = { effort };
-  } else {
+  const normalized =
+    typeof effort === "string"
+      ? effort.trim()
+      : typeof topLevelEffort === "string"
+        ? topLevelEffort.trim()
+        : "";
+  if (!normalized) {
     delete body.reasoning;
+    delete body.reasoning_effort;
+    return;
   }
+  body.reasoning_effort = normalized;
+  body.reasoning = { effort: normalized };
+};
+
+const stripNestedField = (
+  body: Record<string, unknown>,
+  containerKey: string,
+  fields: readonly string[],
+): void => {
+  const value = body[containerKey];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const next = { ...(value as Record<string, unknown>) };
+  for (const field of fields) delete next[field];
+  if (Object.keys(next).length > 0) body[containerKey] = next;
+  else delete body[containerKey];
+};
+
+/** Remove every client-controlled reasoning form before managed shaping. */
+export const stripManagedReasoningControls = (
+  body: Record<string, unknown>,
+): void => {
+  delete body.reasoning_effort;
+  delete body.reasoning;
+  delete body.thinking;
+  delete body.thinkingConfig;
+  delete body.thinking_config;
+  stripNestedField(body, "output_config", ["effort"]);
+  stripNestedField(body, "generationConfig", [
+    "thinkingConfig",
+    "thinking_config",
+  ]);
+  stripNestedField(body, "generation_config", [
+    "thinkingConfig",
+    "thinking_config",
+  ]);
+};
+
+const applyManagedReasoningEffort = (
+  body: Record<string, unknown>,
+  provider: ManagedGatewayProvider,
+  effort: string | undefined,
+): void => {
+  stripManagedReasoningControls(body);
+  if (!effort || provider === "anthropic" || provider === "google") return;
+  body.reasoning_effort = effort;
+  body.reasoning = { effort };
 };
 
 /**
@@ -467,15 +468,10 @@ export const DEEPSEEK_IGNORED_PARAMS = [
 
 /**
  * DeepSeek V4 Flash's native effort ladder is `low | high | max`, so Stella's
- * wider set has to be clamped. This runs on the relay rather than only in the
- * client's `thinkingLevelMap` because already-shipped desktop builds send
- * efforts (`"medium"`, `"xhigh"`) that are not in DeepSeek's ladder.
- *
- * Stella runs this model at `max` unless the caller asked for something
- * cheaper, so anything unspecified or unrecognized lands there rather than on
- * DeepSeek's own `high` default.
+ * wider set has to be clamped. The gateway applies this to the catalog-owned
+ * effort after removing every client-supplied reasoning control.
  */
-export const deepSeekReasoningEffort = (raw: unknown): string => {
+export const deepSeekReasoningEffort = (raw: unknown): string | undefined => {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   switch (value) {
     case "none":
@@ -486,13 +482,16 @@ export const deepSeekReasoningEffort = (raw: unknown): string => {
       return "low";
     case "medium":
       return "high";
-    default:
-      // "high", "xhigh", "max", and anything unrecognized or absent.
+    case "high":
+    case "xhigh":
+    case "max":
       return "max";
+    default:
+      return undefined;
   }
 };
 
-export const crofReasoningEffort = (raw: unknown): string => {
+export const crofReasoningEffort = (raw: unknown): string | undefined => {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   switch (value) {
     case "none":
@@ -503,8 +502,12 @@ export const crofReasoningEffort = (raw: unknown): string => {
       return "low";
     case "medium":
       return "medium";
-    default:
+    case "high":
+    case "xhigh":
+    case "max":
       return "high";
+    default:
+      return undefined;
   }
 };
 
@@ -515,9 +518,11 @@ export const normalizeCrofBody = (body: Record<string, unknown>): void => {
     !Array.isArray(body.reasoning)
       ? (body.reasoning as Record<string, unknown>)
       : null;
-  body.reasoning_effort = crofReasoningEffort(
+  const effort = crofReasoningEffort(
     reasoning?.effort ?? body.reasoning_effort,
   );
+  if (effort) body.reasoning_effort = effort;
+  else delete body.reasoning_effort;
   delete body.reasoning;
   delete body.thinking;
 };
@@ -541,8 +546,15 @@ export const normalizeDeepSeekBody = (
   );
 
   if (isResponses) {
-    // `summary` is accepted but never generated; sending it is noise.
-    body.reasoning = { effort };
+    if (effort) body.reasoning = { effort };
+    else delete body.reasoning;
+    delete body.reasoning_effort;
+    return;
+  }
+
+  if (!effort) {
+    delete body.thinking;
+    delete body.reasoning;
     delete body.reasoning_effort;
     return;
   }
@@ -560,7 +572,6 @@ export const normalizeDeepSeekBody = (
 
 export const normalizeChatCompletionsBody = (
   body: Record<string, unknown>,
-  resolvedModel: string,
 ): void => {
   if (body.messages === undefined && body.input !== undefined) {
     body.messages = responsesInputToChatMessages(body.input);
@@ -586,7 +597,7 @@ export const normalizeChatCompletionsBody = (
       body.response_format = format;
     }
   }
-  normalizeChatReasoning(body, resolvedModel);
+  normalizeChatReasoning(body);
   delete body.input;
   delete body.max_output_tokens;
   delete body.prompt_cache_key;
@@ -624,8 +635,17 @@ export const bodyForUpstream = (
   if (provider === "fireworks" && authorized.serviceTier !== undefined) {
     body.service_tier = authorized.serviceTier;
   }
+  applyManagedReasoningEffort(
+    body,
+    provider,
+    authorized.managedReasoningEffort,
+  );
   if (isResponsesRequest(provider, request)) {
     normalizeResponsesBody(body);
+    if (provider !== "deepseek") {
+      normalizeChatReasoning(body);
+      delete body.reasoning_effort;
+    }
     if (provider !== "deepseek" && provider !== "openrouter") {
       // Keep provider-side response state available for Responses
       // continuations. DeepSeek is stateless and ignores `store` entirely;
@@ -641,42 +661,28 @@ export const bodyForUpstream = (
   const isChatCompletions = pathIsChatCompletions;
   if (provider === "deepseek") {
     if (pathIsChatCompletions) {
-      normalizeChatCompletionsBody(body, authorized.resolvedModel);
+      normalizeChatCompletionsBody(body);
     }
     normalizeDeepSeekBody(body, !pathIsChatCompletions);
   } else if (provider === "crof" || provider === "wafer") {
     // Wafer serves the same DeepSeek V4 Flash family over an OpenAI-
     // compatible chat completions API, so it shares Crof's effort ladder
     // and body normalization.
-    normalizeChatCompletionsBody(body, authorized.resolvedModel);
+    normalizeChatCompletionsBody(body);
     normalizeCrofBody(body);
-  } else if (provider === "openrouter" && !pathIsChatCompletions) {
-    // OpenRouter Responses (Muse Spark 1.3 Contributor): nested `reasoning`
-    // only, same as Meta/xAI Responses. `normalizeChatReasoning` keeps the
-    // model's mandatory reasoning present (mapping none/off to a safe low)
-    // and materializes both wire forms; drop the chat-only one.
-    normalizeChatReasoning(body, authorized.resolvedModel);
-    delete body.reasoning_effort;
   } else if (
-    provider === "openrouter" ||
-    ((provider === "meta" || provider === "xai") && pathIsChatCompletions)
+    (provider === "openrouter" && pathIsChatCompletions) ||
+    ((provider === "meta" || provider === "xai" || provider === "openai") &&
+      pathIsChatCompletions)
   ) {
-    normalizeChatCompletionsBody(body, authorized.resolvedModel);
-    if (provider === "meta" || provider === "xai") {
+    normalizeChatCompletionsBody(body);
+    if (provider === "meta" || provider === "xai" || provider === "openai") {
       // Direct Meta/xAI chat completions accept top-level `reasoning_effort`.
       delete body.reasoning;
     } else {
       // OpenRouter uses its normalized nested reasoning object.
       delete body.reasoning_effort;
     }
-  } else if (
-    (provider === "meta" || provider === "xai") &&
-    !pathIsChatCompletions
-  ) {
-    // Meta/xAI Responses use nested `reasoning`, not top-level
-    // `reasoning_effort`.
-    normalizeChatReasoning(body, authorized.resolvedModel);
-    delete body.reasoning_effort;
   }
   if (body.stream === true && isChatCompletions) {
     const streamOptions =

@@ -8,16 +8,14 @@ import {
 } from "./model-routing-matching.js";
 import {
   STELLA_DEFAULT_MODEL,
-  STELLA_DEFAULT_UPSTREAM_MODEL,
   STELLA_RELAY_PROVIDERS,
   STELLA_STANDARD_MODEL,
-  isDeepSeekV4FlashModel,
-  isMuseSpark13ContributorModel,
   type StellaRelayProvider,
 } from "@stella/contracts/stella-api";
 import {
   GATEWAY_REQUEST_ID_HEADER,
   gatewayRelayBaseUrl,
+  type GatewayProtocol,
 } from "@stella/contracts/gateway/api";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 import {
@@ -139,8 +137,8 @@ const managedUpstreamForBareStellaModel = (
 };
 
 export const resolveOfflineStellaModelId = (modelId: string): string | null => {
-  // Offline fallback for legacy aliases when the server catalog metadata is
-  // unavailable. All aliases now resolve to Stella's single supported model.
+  // Keep backend-owned aliases opaque when catalog metadata is unavailable.
+  // The gateway resolves them using the current backend configuration.
   switch (modelId) {
     case "stella/light":
     case "stella/priority":
@@ -150,7 +148,7 @@ export const resolveOfflineStellaModelId = (modelId: string): string | null => {
     case "stella/max":
     case STELLA_STANDARD_MODEL:
     case STELLA_DEFAULT_MODEL:
-      return STELLA_DEFAULT_UPSTREAM_MODEL;
+      return modelId;
     default: {
       const upstream = getStellaVerbatimUpstreamModel(modelId);
       if (upstream) return upstream;
@@ -215,7 +213,6 @@ const registryProviderForRelay = (provider: ManagedGatewayProvider): string =>
 const apiForRelay = (
   provider: ManagedGatewayProvider,
   registryModel: Model<Api> | null,
-  resolvedModelId?: string,
 ): Api => {
   switch (provider) {
     case "anthropic":
@@ -231,11 +228,7 @@ const apiForRelay = (
       // Wafer is OpenAI-compatible chat completions only.
       return "openai-completions";
     case "openrouter":
-      // OpenRouter hosts a mix of protocols. Muse Spark 1.3 Contributor uses
-      // Responses; every other OpenRouter model stays on Chat Completions.
-      return resolvedModelId && isMuseSpark13ContributorModel(resolvedModelId)
-        ? "openai-responses"
-        : "openai-completions";
+      return "openai-completions";
     case "openai":
       return registryModel?.api ?? "openai-responses";
     default: {
@@ -269,6 +262,7 @@ const createRelayModel = (args: {
   requestedModelId: string;
   resolvedModelId: string;
   provider: ManagedGatewayProvider;
+  api?: GatewayProtocol;
   agentType: string;
   registryModel?: Model<Api> | null;
   fetch?: typeof fetch;
@@ -287,7 +281,7 @@ const createRelayModel = (args: {
       id: nativeId,
       name: nativeId,
       provider: args.provider,
-      api: apiForRelay(args.provider, null),
+      api: args.api ?? apiForRelay(args.provider, null),
       reasoning: true,
       input: ["text", "image"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -297,47 +291,10 @@ const createRelayModel = (args: {
     id: args.requestedModelId,
     name: modelName(args.requestedModelId),
     provider: registryModel?.provider ?? args.provider,
-    api: apiForRelay(args.provider, registryModel, args.resolvedModelId),
+    api: args.api ?? apiForRelay(args.provider, registryModel),
     baseUrl: gatewayRelayBaseUrl(
       args.gatewayOrigin ?? STELLA_GATEWAY_ORIGIN_PENDING,
     ),
-    ...(isDeepSeekV4FlashModel(args.resolvedModelId)
-      ? {
-          thinkingLevelMap: {
-            ...registryModel?.thinkingLevelMap,
-            ...(args.provider === "crof" || args.provider === "wafer"
-              ? {
-                  // CrofAI and Wafer accept none | low | medium | high.
-                  minimal: "low",
-                  low: "low",
-                  medium: "medium",
-                  high: "high",
-                  xhigh: "high",
-                  off: "none",
-                }
-              : {
-                  // DeepSeek's native ladder is low | high | max. The relay
-                  // applies the same clamp for older builds without this map.
-                  minimal: "low",
-                  low: "low",
-                  medium: "high",
-                  high: "max",
-                  xhigh: "max",
-                  off: "none",
-                }),
-          },
-        }
-      : {}),
-    ...(isMuseSpark13ContributorModel(args.resolvedModelId)
-      ? {
-          // Muse accepts xhigh on the Responses API and reasoning is
-          // mandatory. Without this map the runtime clamps xhigh to high.
-          thinkingLevelMap: {
-            ...registryModel?.thinkingLevelMap,
-            xhigh: "xhigh",
-          } as NonNullable<Model<Api>["thinkingLevelMap"]>,
-        }
-      : {}),
     headers: {
       ...(registryModel?.headers ?? {}),
       // `X-Stella-Agent-Type` lets the gateway validate the capability's
@@ -507,6 +464,7 @@ export const createStellaRoute = (args: {
   modelId: string;
   resolvedModelId?: string;
   registryModel?: Model<Api> | null;
+  api?: GatewayProtocol;
   /**
    * Gateway origin advertised by the model catalog. Defaults to the origin
    * remembered from the last catalog fetch for this site; a route built
@@ -568,6 +526,7 @@ export const createStellaRoute = (args: {
       requestedModelId: args.modelId,
       resolvedModelId,
       provider: relayProvider,
+      ...(args.api ? { api: args.api } : {}),
       agentType: args.agentType,
       registryModel: args.registryModel,
       fetch: sessionCapabilityFetch(session),

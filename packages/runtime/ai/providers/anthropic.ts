@@ -41,7 +41,7 @@ import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 
 import { resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
-import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl } from "./model-gateway.js";
+import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl, isManagedStellaRelayModel } from "./model-gateway.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { adjustMaxTokensForThinking, buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
@@ -1359,7 +1359,7 @@ function buildParams(
 
 	// Configure thinking mode: adaptive (Opus 4.6+ and Sonnet 4.6),
 	// budget-based (older models), or explicitly disabled.
-	if (model.reasoning) {
+	if (model.reasoning && !isManagedStellaRelayModel(model)) {
 		if (options?.thinkingEnabled) {
 			// Default to "summarized" so Opus 4.7 and Mythos Preview behave like
 			// older Claude 4 models (whose API default is also "summarized").

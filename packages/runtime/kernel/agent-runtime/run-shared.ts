@@ -9,7 +9,6 @@
 
 import type { Agent } from "../agent-core/agent.js";
 import type { AgentMessage, ThinkingLevel } from "../agent-core/types.js";
-import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
 import { selectRecentByTokenBudget } from "../storage/history-selection.js";
 import { estimateRuntimeTokens } from "../runtime-threads.js";
 import { normalizeLegacyCodeHistory } from "../tools/code-tool.js";
@@ -31,7 +30,6 @@ export type ModelRouteLike = {
     contextWindow?: number;
     reasoning?: boolean;
     id?: string;
-    upstreamModelId?: string;
   };
 };
 
@@ -263,18 +261,14 @@ export const resolveAgentThinkingLevel = (args: {
   resolvedLlm: ModelRouteLike;
   agentContextReasoningEffort?: Exclude<ThinkingLevel, "off"> | "default";
 }): ThinkingLevel => {
+  if (args.resolvedLlm.model.id?.startsWith("stella/")) {
+    return "off";
+  }
   if (
     args.agentContextReasoningEffort &&
     args.agentContextReasoningEffort !== "default"
   ) {
     return args.agentContextReasoningEffort;
-  }
-  const model = args.resolvedLlm.model;
-  if (
-    isDeepSeekV4FlashModel(model.id) ||
-    isDeepSeekV4FlashModel(model.upstreamModelId)
-  ) {
-    return "xhigh";
   }
   return args.resolvedLlm.model.reasoning ? "medium" : "off";
 };

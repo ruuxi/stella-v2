@@ -35,6 +35,7 @@ import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { postGatewayJson } from "./gateway-json-request.js";
 import {
   isGatewayRelayBaseUrl,
+  isManagedStellaRelayModel,
   isPerRequestIdentityHeader,
 } from "./model-gateway.js";
 import {
@@ -496,7 +497,7 @@ function buildParams(
     params.tools = convertResponsesTools(uniqueTools);
   }
 
-  if (model.reasoning) {
+  if (model.reasoning && !isManagedStellaRelayModel(model)) {
     if (options?.reasoningEffort || options?.reasoningSummary) {
       const effort = options?.reasoningEffort
         ? (model.thinkingLevelMap?.[options.reasoningEffort] ??

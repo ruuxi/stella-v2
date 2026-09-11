@@ -13,8 +13,15 @@ import {
   GATEWAY_UPSTREAM_MAX_DURATION_MS,
   isGatewayRelayBaseUrl,
 } from "@stella/contracts/gateway/api";
+import type { Api, Model } from "../types.js";
 
 export { isGatewayRelayBaseUrl };
+
+/** True only for Stella-managed model traffic, never the native relay lane. */
+export const isManagedStellaRelayModel = (
+  model: Pick<Model<Api>, "baseUrl" | "id">,
+): boolean =>
+  model.id.startsWith("stella/") && isGatewayRelayBaseUrl(model.baseUrl);
 
 /**
  * Explicit per-request timeout for a gateway completion. The gateway holds

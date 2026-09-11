@@ -1,12 +1,10 @@
 /**
  * Desktop-side mirror of the backend's `ManagedModelAudience` notion.
  *
- * Source of truth for the audience values, restriction set, and plan label
- * mapping lives in `backend/convex/agent/model.ts`. Keep these constants in
- * sync when the backend changes — the desktop uses them to surface a "this
- * model isn't allowed on your plan" toast at picker time, since the backend
- * silently coerces the model on restricted tiers and we don't want users to
- * wonder why their selection wasn't honored.
+ * Source of truth for the audience values and plan label mapping lives in
+ * `backend/convex/agent/model.ts`. Which Stella models a restricted audience
+ * may pick is NOT mirrored here: the `/api/stella/models` catalog reports
+ * `allowedForAudience` per row and the UI reads that.
  */
 
 /**
@@ -39,32 +37,6 @@ export const isRestrictedModelOverrideAudience = (
   audience !== null &&
   audience !== undefined &&
   RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
-
-/**
- * Desktop-side mirror of the backend's
- * `RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS`.
- *
- * Restricted audiences cannot freely override Stella-managed models. The
- * OpenRouter Muse default, raw DeepSeek V4 Flash (CrofAI), and the Wafer
- * Fast variant are the public choices; the Light alias and the older
- * Fireworks/DeepSeek spellings remain valid for saved preferences. Keep in sync with
- * `isStellaModelAllowedForAudience` in `backend/convex/agent/model.ts`.
- */
-const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS = new Set<string>([
-  "stella/light",
-  "stella/meta/muse-spark-1.3-contributor",
-  "stella/crof/deepseek-v4-flash-0731",
-  "stella/wafer/deepseek-v4-flash-0731-fast",
-  "stella/deepseek/deepseek-v4-flash",
-  "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-]);
-
-export const isRestrictedAudienceAllowedStellaModelId = (
-  modelId: string | null | undefined,
-): boolean =>
-  Boolean(
-    modelId && RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId.trim()),
-  );
 
 const PLAN_LABELS: Record<ManagedModelAudience, string> = {
   anonymous: "Free",

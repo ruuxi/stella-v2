@@ -4,7 +4,6 @@
  * it enforces and can be tested without React, Convex, or the IPC bridge.
  */
 import {
-  isRestrictedAudienceAllowedStellaModelId,
   isRestrictedModelOverrideAudience,
   type ManagedModelAudience,
 } from "@/global/billing/audience";
@@ -48,10 +47,17 @@ export const resolveTierRestrictedModelNotice = (args: {
   audience: ManagedModelAudience | null | undefined;
   agentRuntimeEngine: NoticeRuntimeEngine | undefined;
   modelOverrides: Record<string, string> | undefined;
+  /**
+   * Stella model ids the catalog reports as `allowedForAudience` for the
+   * current plan. `null` while the catalog has not loaded: the backend
+   * coerces the model either way, so an unknown allowlist raises no notice.
+   */
+  allowedStellaModelIds: ReadonlySet<string> | null;
 }): TierRestrictedModelNotice | null => {
   const audience = args.audience;
   if (!audience || !isRestrictedModelOverrideAudience(audience)) return null;
   if ((args.agentRuntimeEngine ?? "default") !== "default") return null;
+  if (!args.allowedStellaModelIds) return null;
 
   const overrides = args.modelOverrides ?? {};
   for (const agent of ORCHESTRATOR_AND_GENERAL) {
@@ -62,10 +68,9 @@ export const resolveTierRestrictedModelNotice = (args: {
     // runtime, …) run on the user's own key and are unaffected by
     // Stella plan limits, so don't toast on them.
     if (!override.startsWith("stella/")) continue;
-    // The opaque default sentinel is never a restricted pick, and restricted
-    // tiers may still select the Standard / Light modes.
+    // The opaque default sentinel is never a restricted pick.
     if (override === "stella/default") continue;
-    if (isRestrictedAudienceAllowedStellaModelId(override)) continue;
+    if (args.allowedStellaModelIds.has(override)) continue;
     // One toast per send is enough — don't stack two if both orchestrator
     // and general have non-default overrides.
     return { agent, model: override, modelLabel: getModelToastLabel(override) };

@@ -633,7 +633,7 @@ describe("resolveLlmRoute", () => {
 
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
-    expect(resolved.model.api).toBe("openai-responses");
+    expect(resolved.model.api).toBe("openai-completions");
     expect(resolved.model.provider).toBe("openrouter");
   });
 

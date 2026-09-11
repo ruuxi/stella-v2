@@ -545,13 +545,15 @@ function ChatSurface(props: {
         effortLabel: cloudModelSettings.effort === "default"
           ? t("settings.agentModelPicker.default")
           : t(`settings.reasoningEffort.${cloudModelSettings.effort}`),
-        effortOptions: REASONING_OPTIONS.map((option) => ({
-          ...option,
-          label: option.id === "default"
-            ? t("settings.agentModelPicker.default")
-            : t(`settings.reasoningEffort.${option.id}`),
-          selected: option.id === cloudModelSettings.effort,
-        })),
+        effortOptions: cloudModelSettings.supportsEffortSelection
+          ? REASONING_OPTIONS.map((option) => ({
+              ...option,
+              label: option.id === "default"
+                ? t("settings.agentModelPicker.default")
+                : t(`settings.reasoningEffort.${option.id}`),
+              selected: option.id === cloudModelSettings.effort,
+            }))
+          : [],
         recentModels: cloudModelSettings.models,
         onOpen: () => { void cloudModelSettings.refresh(); },
         onSelectEffort: (id: string) => cloudModelSettings.selectEffort(id as ReasoningEffort),
@@ -570,10 +572,12 @@ function ChatSurface(props: {
         REASONING_OPTIONS.find(
           (option) => option.id === modelSettings.selectedEffort,
         )?.label ?? "Auto",
-      effortOptions: REASONING_OPTIONS.map((option) => ({
-        ...option,
-        selected: option.id === modelSettings.selectedEffort,
-      })),
+      effortOptions: modelSettings.supportsEffortSelection
+        ? REASONING_OPTIONS.map((option) => ({
+            ...option,
+            selected: option.id === modelSettings.selectedEffort,
+          }))
+        : [],
       recentModels: modelSettings.recentModels,
       onOpen: () => {
         void modelSettings.refresh().catch(() => undefined);

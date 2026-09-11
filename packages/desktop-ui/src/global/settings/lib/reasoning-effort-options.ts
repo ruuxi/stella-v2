@@ -47,3 +47,18 @@ export function listReasoningEffortOptions(
     (option) => engine !== "claude_code_local" || option.id !== "minimal",
   );
 }
+
+/**
+ * Whether the user may choose a reasoning effort for the current selection.
+ * Stella-managed models never expose one: the backend owns their effort and
+ * the model gateway ignores any client-sent value. The Codex / Claude Code
+ * engines and BYOK / local models keep their own effort setting.
+ */
+export function supportsReasoningEffortSelection(
+  engine: string,
+  selectedModelId: string | null | undefined,
+): boolean {
+  if (engine === "codex_cli" || engine === "claude_code_local") return true;
+  const trimmed = selectedModelId?.trim() ?? "";
+  return trimmed.length > 0 && !trimmed.startsWith("stella/");
+}

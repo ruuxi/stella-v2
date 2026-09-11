@@ -135,6 +135,7 @@ export const stellaModels = httpAction(async (ctx, request) =>
           provider: model.provider,
           type: model.type,
           upstreamModel: model.upstreamModel,
+          api: model.api,
           allowedForAudience: model.allowedForAudience,
         })),
         defaults: listStellaDefaultSelections(audience),
@@ -153,5 +154,9 @@ export const registerStellaModelRoutes = (http: HttpRouter) => {
     method: "OPTIONS",
     handler: httpAction(async (_ctx, request) => corsPreflightHandler(request)),
   });
-  http.route({ path: STELLA_MODELS_PATH, method: "GET", handler: stellaModels });
+  http.route({
+    path: STELLA_MODELS_PATH,
+    method: "GET",
+    handler: stellaModels,
+  });
 };

@@ -164,8 +164,8 @@ describe("OpenAI Responses gateway transport", () => {
     const body = await request!.clone().json();
     expect(body.stream).toBe(false);
     expect(body.model).toBe("stella/default");
-    expect(body.reasoning).toEqual({ effort: "xhigh", summary: "auto" });
-    expect(body.include).toEqual(["reasoning.encrypted_content"]);
+    expect(body).not.toHaveProperty("reasoning");
+    expect(body).not.toHaveProperty("include");
     expect(JSON.stringify(body.input)).toContain("input_image");
     expect(JSON.stringify(body.tools)).toContain("read_file");
     expect(onPayload).toHaveBeenCalledTimes(1);

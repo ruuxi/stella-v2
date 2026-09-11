@@ -17,15 +17,11 @@ import { Lightbulb, SlidersHorizontal } from "@/ui/icons";
 import { BrandIcon } from "@/ui/brand-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { openModelPicker } from "@/features/workspace-display/default-tabs";
-import {
-  isDeepSeekV4FlashModel,
-  isMuseSpark13ContributorModel,
-} from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getLocalModelDefaults, getModelPickerDisplayLabel, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
 import { buildEngineReasoningPatch, buildRecentModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, } from "@/global/settings/lib/engine-model-routing";
-import { listReasoningEffortOptions } from "@/global/settings/lib/reasoning-effort-options";
+import { listReasoningEffortOptions, supportsReasoningEffortSelection, } from "@/global/settings/lib/reasoning-effort-options";
 import { buildRecentModelRows, createKnownModelIdPredicate, readRecentModels, recordRecentModel, } from "@/global/settings/lib/recent-models";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
@@ -145,24 +141,11 @@ export function MiniModelPicker() {
             : (preferences?.reasoningEfforts?.orchestrator ??
                 preferences?.reasoningEfforts?.general ??
                 "default");
-    const reportedDefaultReasoningEffort = null;
-    const selectedStellaModelId = currentId || defaultModelId;
-    const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
-        model.upstreamModel === selectedStellaModelId);
-    const selectedModelDefaultsToXhigh = committedEngine === "default" &&
-        ((isDeepSeekV4FlashModel(selectedStellaModelId) ||
-            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel)) ||
-            (isMuseSpark13ContributorModel(selectedStellaModelId) ||
-                isMuseSpark13ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
-    // Mirrors the sidebar picker's `effectiveDefaultReasoningEffort`: a
-    // live-reported ChatGPT default wins when it maps to a known option.
-    const effectiveDefaultReasoningEffort = reasoningEffortOptions.some((option) => option.id === reportedDefaultReasoningEffort)
-        ? reportedDefaultReasoningEffort
-        : selectedModelDefaultsToXhigh
-            ? "xhigh"
-            : "medium";
+    // Stella-managed models never show an effort control: the backend owns
+    // their effort. BYOK / local models and the engines default to medium.
+    const showReasoningControl = supportsReasoningEffortSelection(committedEngine, currentId);
     const currentReasoningEffort = savedReasoningEffort === "default"
-        ? effectiveDefaultReasoningEffort
+        ? "medium"
         : savedReasoningEffort;
     const isKnownModelId = useMemo(() => createKnownModelIdPredicate(new Set(allModels.map((model) => model.id))), [allModels]);
     const recentRows = useMemo(() => buildRecentModelRows({
@@ -229,14 +212,14 @@ export function MiniModelPicker() {
         </button>
       </PopoverTrigger>
       <PopoverContent side="top" align="end" sideOffset={8} className="mini-model-picker-popover" aria-label={t("app.chat.miniModelPicker.popoverLabel")}>
-        <div className="mini-model-picker-reasoning">
+        {showReasoningControl ? (<div className="mini-model-picker-reasoning">
           <Lightbulb size={14} strokeWidth={1.75} className="mini-model-picker-reasoning-icon" aria-hidden/>
           <div className="mini-model-picker-reasoning-options" role="radiogroup" aria-label={t("app.chat.miniModelPicker.reasoningEffortLabel")}>
             {reasoningEffortOptions.map((option) => (<button key={option.id} type="button" role="radio" aria-checked={currentReasoningEffort === option.id} data-active={currentReasoningEffort === option.id || undefined} disabled={!preferences || pending} onClick={() => handleReasoningEffortSelect(option.id)}>
                 {option.label}
               </button>))}
           </div>
-        </div>
+        </div>) : null}
         {recentRows.length > 0 ? (<div className="mini-model-picker-rows" role="listbox" aria-label={t("app.chat.miniModelPicker.modelsLabel")}>
             {recentRows.map((row) => {
                 const selected = row.id === currentId;

@@ -1,3 +1,7 @@
+import {
+  LegendList,
+  type LegendListRenderItemProps,
+} from "@legendapp/list/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,31 +14,12 @@ import {
   TextInput,
   View,
 } from "react-native";
-import {
-  LegendList,
-  type LegendListRenderItemProps,
-} from "@legendapp/list/react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
 } from "react-native-reanimated";
-import { GlassSurface } from "../glass";
-import { Icon, type IconName } from "../Icon";
-import {
-  ConversationFilesRow,
-  ScheduleRow,
-  TaskGroupRow,
-  TaskRow,
-  makeActivityRowStyles,
-  type GroupSubagent,
-} from "./activity-rows";
-import { SidebarTabBar } from "./SidebarTabBar";
-import {
-  SIDEBAR_TAB_BAR_HEIGHT,
-  type SidebarTabItem,
-} from "./sidebar-tab-bar-types";
-import { filterHubArtifacts, filterHubTasks } from "../../lib/activity-hub-search";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useT } from "../../i18n";
 import {
   activityHubGroupRowKey,
   activityHubTaskRowKey,
@@ -45,6 +30,10 @@ import {
   rebaseActivityWindow,
   sortHubTasksByRecency,
 } from "../../lib/activity-hub-model";
+import {
+  filterHubArtifacts,
+  filterHubTasks,
+} from "../../lib/activity-hub-search";
 import { authClient } from "../../lib/auth-client";
 import {
   fetchMobileSchedules,
@@ -57,12 +46,26 @@ import { isGuest } from "../../lib/guest-mode";
 import { tapLight } from "../../lib/haptics";
 import { useActivityHub } from "../../lib/main-shell-store";
 import { CONTENT_MAX_FONT_SCALE } from "../../lib/setup-text-defaults";
-import { useT } from "../../i18n";
 import type { Colors } from "../../theme/colors";
-import { useColors } from "../../theme/theme-context";
 import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
+import { useColors } from "../../theme/theme-context";
 import type { ChatArtifact, MobileTask } from "../../types";
+import { GlassSurface } from "../glass";
+import { Icon, type IconName } from "../Icon";
+import {
+  ConversationFilesRow,
+  ScheduleRow,
+  TaskGroupRow,
+  TaskRow,
+  makeActivityRowStyles,
+  type GroupSubagent,
+} from "./activity-rows";
+import {
+  SIDEBAR_TAB_BAR_HEIGHT,
+  type SidebarTabItem,
+} from "./sidebar-tab-bar-types";
+import { SidebarTabBar } from "./SidebarTabBar";
 
 /**
  * Bottom tab bar entries. Activity carries the conversation's files too (they
@@ -80,7 +83,12 @@ const TAB_META: Record<SidebarTab, { labelKey: string; icon: IconName }> = {
   search: { labelKey: "mobile.activityHub.tabs.search", icon: "search" },
 };
 
-export type SidebarDestination = "/chat" | "/settings" | "/account" | "/login";
+export type SidebarDestination =
+  | "/apps"
+  | "/chat"
+  | "/settings"
+  | "/account"
+  | "/login";
 
 type ActivityListRow =
   | {
@@ -507,8 +515,7 @@ export function SidebarPanel({
 
   // The bar's height is the platform control's own; it reports it back.
   const [tabBarHeight, setTabBarHeight] = useState(SIDEBAR_TAB_BAR_HEIGHT);
-  const dockHeight =
-    tabBarHeight + (searchOpen ? SEARCH_HEIGHT + DOCK_GAP : 0);
+  const dockHeight = tabBarHeight + (searchOpen ? SEARCH_HEIGHT + DOCK_GAP : 0);
   const listBottomPadding = dockHeight + insets.bottom + 28 + keyboardExtra;
   const listContentStyle = useMemo(
     () => [styles.listContent, { paddingBottom: listBottomPadding }],
@@ -602,7 +609,10 @@ export function SidebarPanel({
           )
         }
         ListEmptyComponent={
-          <Text style={styles.empty} maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}>
+          <Text
+            style={styles.empty}
+            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+          >
             {emptyActivityText}
           </Text>
         }
@@ -621,7 +631,9 @@ export function SidebarPanel({
     );
   };
 
-  const accountLabel = signedIn ? t("mobile.nav.account") : t("mobile.nav.signIn");
+  const accountLabel = signedIn
+    ? t("mobile.nav.account")
+    : t("mobile.nav.signIn");
   const tabItems = useMemo<SidebarTabItem<SidebarTab>[]>(
     () =>
       TAB_ORDER.map((entry) => {
@@ -669,6 +681,14 @@ export function SidebarPanel({
           >
             <Text style={styles.wordmark}>{t("common.appName")}</Text>
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Apps"
+            onPress={() => onNavigate("/apps")}
+            style={{ padding: 12 }}
+          >
+            <Text style={{ color: colors.text }}>Apps</Text>
+          </Pressable>
           {/* Account access remains in its own glass capsule. */}
           <GlassSurface
             glass="regular"
@@ -687,7 +707,12 @@ export function SidebarPanel({
                 pressed && styles.pressed,
               ]}
             >
-              <Icon name="user" size={15} color={colors.text} weight="semibold" />
+              <Icon
+                name="user"
+                size={15}
+                color={colors.text}
+                weight="semibold"
+              />
               <Text
                 style={styles.headerAccountLabel}
                 numberOfLines={1}
@@ -725,7 +750,10 @@ export function SidebarPanel({
               fallbackColor={colors.surface}
               style={styles.searchGlass}
             >
-              <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.searchRing]} />
+              <View
+                pointerEvents="none"
+                style={[StyleSheet.absoluteFill, styles.searchRing]}
+              />
               <Icon name="search" size={15} color={colors.textMuted} />
               <TextInput
                 ref={searchInputRef}

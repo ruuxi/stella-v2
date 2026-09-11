@@ -34,8 +34,8 @@ const cloud = vi.hoisted(() => ({
         ownerId: "owner-one",
         slug: "shared",
         title: "Shared cloud",
-        status: "active",
-        activeBuildId: "build-one",
+        status: "ready",
+        revision: "1",
         createdAt: 1,
         updatedAt: 2,
       },
@@ -67,18 +67,13 @@ vi.mock("@/features/cloud/CloudAppPanel", () => ({
 }));
 
 const { AppsSection } = await import("@/shell/sidebar-sections/AppsSection");
-const { SidebarTopNav } = await import(
-  "@/shell/sidebar-sections/SidebarTopNav"
-);
-const { sidebarSections } = await import(
-  "@/features/workspace-display/sidebar-sections"
-);
-const { displayTabs } = await import(
-  "@/features/workspace-display/tab-store"
-);
-const { cloudAppTitles } = await import(
-  "@/features/cloud/cloud-app-title-store"
-);
+const { SidebarTopNav } =
+  await import("@/shell/sidebar-sections/SidebarTopNav");
+const { sidebarSections } =
+  await import("@/features/workspace-display/sidebar-sections");
+const { displayTabs } = await import("@/features/workspace-display/tab-store");
+const { cloudAppTitles } =
+  await import("@/features/cloud/cloud-app-title-store");
 
 describe("cloud app discovery in the modern Apps section", () => {
   let container: HTMLDivElement;
@@ -97,8 +92,8 @@ describe("cloud app discovery in the modern Apps section", () => {
           ownerId: "owner-one",
           slug: "shared",
           title: "Shared cloud",
-          status: "active",
-          activeBuildId: "build-one",
+          status: "ready",
+          revision: "1",
           createdAt: 1,
           updatedAt: 2,
         },
@@ -154,7 +149,9 @@ describe("cloud app discovery in the modern Apps section", () => {
     act(() => refreshedCloudButton?.click());
     expect(sidebarSections.getActiveTab()?.location).toBe("cloud:shared");
     expect(container.textContent).toContain("Shared cloud");
-    expect(container.querySelector('[data-testid="cloud-frame-shared"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="cloud-frame-shared"]'),
+    ).not.toBeNull();
 
     act(() => sidebarSections.openLocation("browser", null));
     const retainedFrame = container
@@ -180,7 +177,9 @@ describe("cloud app discovery in the modern Apps section", () => {
     };
     render();
 
-    expect(container.querySelector('[data-testid="cloud-frame-shared"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="cloud-frame-shared"]'),
+    ).toBeNull();
     expect(
       sidebarSections
         .getSnapshot()
@@ -188,4 +187,3 @@ describe("cloud app discovery in the modern Apps section", () => {
     ).toBe(false);
   });
 });
-

@@ -1,3 +1,8 @@
+import {
+  mintWorkspaceAppAccess,
+  serveWorkspaceApp,
+} from "../workspace-app-access.js";
+import { worldName } from "../workspace.js";
 /**
  * The Worker's request router: every HTTP entry point the cloud builder
  * exposes, plus the route helpers only it uses.
@@ -11,44 +16,44 @@
 
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
-import { BUILDER_OWNER_SNAPSHOT_CHANGED_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
-import { MEMORY_POLICY_CHANGE_PATH, parseMemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
-import { MemoryPolicyError } from "../memory-policy.js";
-import { withBrowserCors } from "../browser-cors.js";
+import {
+  MEMORY_POLICY_CHANGE_PATH,
+  parseMemoryPolicyChange,
+} from "@stella/contracts/turn-plane/memory-policy";
 import type {
   OwnerSnapshot,
   OwnerSnapshotChangedRequest,
 } from "@stella/contracts/turn-plane/owner-snapshot";
+import { BUILDER_OWNER_SNAPSHOT_CHANGED_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   buildMobilePairingChallenge,
   canonicalDispatchPayloadJson,
   hasMobilePairingProofHeaders,
-  readMobilePairingProofHeaders,
   sha256Hex as pairingSha256Hex,
+  readMobilePairingProofHeaders,
   verifyMobilePairingProof,
 } from "@stella/contracts/turn-plane/pairing-proof";
+import type { DispatchSubmitRequest } from "@stella/contracts/turn-plane/placement";
 import {
   DEVICES_PATH,
   DISPATCH_SUBMIT_PATH,
   PLACEMENT_PROTOCOL,
 } from "@stella/contracts/turn-plane/placement";
-import type { DispatchSubmitRequest } from "@stella/contracts/turn-plane/placement";
 import {
   CONVERSATION_ID_PATTERN,
   TURN_OWNER_GENERATION_HEADER,
   TURN_OWNER_ID_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
-import {
-  isOwnerAppBuildPrefix,
-  ownerAppBuildPrefix,
-} from "../app-build-artifacts.js";
+import { classifyNetwork } from "../../../shared/network-class.js";
+import { isOwnerAppBuildPrefix } from "../app-build-artifacts.js";
 import { verifyConvexToken } from "../auth-jwt.js";
 import {
   BoundedBodyError,
   readBoundedRequestText,
   readBoundedResponseBytes,
 } from "../bounded-body.js";
-import { handleUserCloudHomeRoute } from "../cloud-home-routes.js";
+import { withBrowserCors } from "../browser-cors.js";
+import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
 import { parseConversationEditRequest } from "../conversation-edit-protocol.js";
 import {
   conversationEditErrorResponse,
@@ -71,19 +76,20 @@ import {
   CLOSE_INTERNAL,
   CLOSE_UNAUTHENTICATED,
 } from "../conversation-types.js";
+import { convexSiteBase } from "../convex-site.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import {
   dispatchErrorResponse,
   parseDispatchSubmitRequest,
 } from "../dispatch-policy.js";
 import { sha256Hex } from "../hash.js";
+import { MemoryPolicyError } from "../memory-policy.js";
 import {
   MEMORY_WIPE_PROTOCOL_VERSION,
   MEMORY_WIPE_TARGET_COUNT,
   sweepMemoryWipePage,
 } from "../memory-wipe.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
-import { classifyNetwork } from "../../../shared/network-class.js";
 import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
 import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
@@ -109,6 +115,7 @@ import {
 } from "../request-ingress.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
+import type { TurnAuthKind } from "../turn-start-request.js";
 import {
   HEADER_TURN_AUTH_KIND,
   parseCloudAgentTurnStartRequest,
@@ -116,14 +123,9 @@ import {
   serviceOnlyTurnFields,
   turnStartErrorResponse,
 } from "../turn-start-request.js";
-import type { TurnAuthKind } from "../turn-start-request.js";
-import {
-  previewSafeRequestLogPath,
-  verifyPreviewAccessRouteCapability,
-} from "../vite-preview-access.js";
+import { previewSafeRequestLogPath } from "../vite-preview-access.js";
 import {
   abortTransferCoordinator,
-  APP_SLUG_PATTERN,
   beginOwnerPurge,
   boundedIngressRequest,
   callOwnerFence,
@@ -144,7 +146,6 @@ import type { Env } from "./shared/env.js";
 import {
   OwnerProductTransferConfigurationError,
   OwnerProductTransferConflictError,
-  OwnerPurgeFenceError,
 } from "./shared/errors.js";
 import {
   conversationName,
@@ -152,7 +153,6 @@ import {
   HEADER_BUILD_SESSION_NAME,
   HEADER_CONVERSATION_ID,
   HEADER_PREVIEW_BASE_URL,
-  HEADER_PREVIEW_CAPABILITY,
   HEADER_TURN_BROKER_ENDPOINT,
   json,
   log,
@@ -165,7 +165,6 @@ import type {
   OwnerPurgeReport,
   OwnerPurgeRequest,
 } from "./shared/types.js";
-import { convexSiteBase } from "../convex-site.js";
 
 // ---------------------------------------------------------------------------
 // The user-authenticated conversation surfaces
@@ -864,7 +863,9 @@ const router = {
     log("info", "request_started", {
       requestId,
       method: request.method,
-      path: previewSafeRequestLogPath(url.pathname),
+      path: url.pathname.startsWith("/workspace-apps/")
+        ? "/workspace-apps/[session]"
+        : previewSafeRequestLogPath(url.pathname),
     });
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json({ ok: true, service: "stella-v2-cloud-builder" });
@@ -911,36 +912,42 @@ const router = {
       });
     }
 
-    const vitePreviewMatch = url.pathname.match(
-      /^\/internal\/previews\/([A-Za-z0-9._~-]{1,128})\/(pv1\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{43})(\/.*)?$/,
-    );
-    if (vitePreviewMatch) {
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return json({ error: "Method not allowed." }, 405);
-      }
-      const routing = await verifyPreviewAccessRouteCapability({
-        capability: vitePreviewMatch[2]!,
-        secret: env.BUILDER_SERVICE_SECRET,
-        expectedBuildSessionName: vitePreviewMatch[1]!,
-        now: Date.now(),
-      }).catch(() => ({ ok: false as const, code: "bad_signature" as const }));
-      if (!routing.ok) {
-        return json({ error: "Preview access was rejected." }, 403);
-      }
-      const forwardedHeaders = new Headers();
-      for (const name of ["accept", "accept-language", "range"]) {
-        const value = request.headers.get(name);
-        if (value) forwardedHeaders.set(name, value);
-      }
-      forwardedHeaders.set(HEADER_PREVIEW_CAPABILITY, vitePreviewMatch[2]!);
-      const suffix = vitePreviewMatch[3] || "/";
-      return await env.BUILD_SESSIONS.getByName(vitePreviewMatch[1]!).fetch(
-        `https://build-session/vite-preview${suffix}${url.search}`,
-        {
-          method: request.method,
-          headers: forwardedHeaders,
+    if (url.pathname.startsWith("/workspace-apps/"))
+      return await serveWorkspaceApp(request, env);
+    if (
+      url.pathname === "/owners/me/apps" ||
+      /^\/owners\/me\/apps\/[a-z][a-z0-9-]{0,31}\/session$/.test(url.pathname)
+    ) {
+      if (
+        request.method !== (url.pathname === "/owners/me/apps" ? "GET" : "POST")
+      )
+        return json({ error: "Method not allowed" }, 405);
+      const auth = await authenticateConversationCaller(
+        request,
+        env,
+        false,
+        requestId,
+      );
+      if (!auth.ok) return auth.response;
+      const world = env.WORLDS.getByName(await worldName(auth.caller.ownerId));
+      const generation = await ownerAccess(env, auth.caller.ownerId);
+      const apps = await cloudHomeLeaseRunner(env)(
+        auth.caller.ownerId,
+        generation,
+        `apps:${requestId}`,
+        async (assertActive) => {
+          await assertActive();
+          return world.listWorkspaceApps();
         },
       );
+      if (url.pathname === "/owners/me/apps" && request.method === "GET")
+        return json({ apps });
+      const slug = url.pathname.split("/")[4]!;
+      if (request.method !== "POST")
+        return json({ error: "Method not allowed" }, 405);
+      if (!apps.some((app) => app.slug === slug && app.status === "ready"))
+        return json({ error: "App not found" }, 404);
+      return json(await mintWorkspaceAppAccess(env, auth.caller.ownerId, slug));
     }
 
     // ── User-authenticated routes ─────────────────────────────────────────
@@ -1753,14 +1760,6 @@ const router = {
         body: JSON.stringify({ attempt }),
       });
     }
-    if (request.method === "POST" && url.pathname === "/m0/echo") {
-      return env.BUILD_SESSIONS.getByName("m0-echo").fetch(
-        "https://build-session/echo",
-        {
-          method: "POST",
-        },
-      );
-    }
     const turnMatch = url.pathname.match(/^\/sessions\/([^/]+)\/turns$/);
     if (request.method === "POST" && turnMatch) {
       const buildSessionName = turnMatch[1]!;
@@ -1818,25 +1817,60 @@ const router = {
         },
       );
     }
-    if (request.method === "POST" && url.pathname === "/internal/owners/home-context/changed") {
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/owners/home-context/changed"
+    ) {
       const body: unknown = await request.json().catch(() => null);
-      if (!body || typeof body !== "object" || !("ownerId" in body) || typeof body.ownerId !== "string" || !body.ownerId || body.ownerId.length > 512 ||
-          !("ownerGeneration" in body) || typeof body.ownerGeneration !== "string" || !body.ownerGeneration || body.ownerGeneration.length > 128 ||
-          !("revision" in body) || typeof body.revision !== "number" || !Number.isSafeInteger(body.revision) || body.revision < 1) {
+      if (
+        !body ||
+        typeof body !== "object" ||
+        !("ownerId" in body) ||
+        typeof body.ownerId !== "string" ||
+        !body.ownerId ||
+        body.ownerId.length > 512 ||
+        !("ownerGeneration" in body) ||
+        typeof body.ownerGeneration !== "string" ||
+        !body.ownerGeneration ||
+        body.ownerGeneration.length > 128 ||
+        !("revision" in body) ||
+        typeof body.revision !== "number" ||
+        !Number.isSafeInteger(body.revision) ||
+        body.revision < 1
+      ) {
         return json({ error: "Invalid context revision." }, 400);
       }
-      await env.OWNER_GATES.getByName(body.ownerId).homeContextChanged(body.ownerGeneration, body.revision);
+      await env.OWNER_GATES.getByName(body.ownerId).homeContextChanged(
+        body.ownerGeneration,
+        body.revision,
+      );
       return json({ ok: true });
     }
-    if (request.method === "POST" && url.pathname === MEMORY_POLICY_CHANGE_PATH) {
-      const change = parseMemoryPolicyChange(await request.json().catch(() => null));
+    if (
+      request.method === "POST" &&
+      url.pathname === MEMORY_POLICY_CHANGE_PATH
+    ) {
+      const change = parseMemoryPolicyChange(
+        await request.json().catch(() => null),
+      );
       if (!change) return json({ error: "Invalid memory policy change." }, 400);
       try {
-        const result = await env.OWNER_GATES.getByName(change.ownerId).changeMemoryPolicy(change);
-        return result.ok ? json({ ok: true }) : json({ error: result.code }, result.status);
+        const result = await env.OWNER_GATES.getByName(
+          change.ownerId,
+        ).changeMemoryPolicy(change);
+        return result.ok
+          ? json({ ok: true })
+          : json({ error: result.code }, result.status);
       } catch (error) {
-        return json({ error: error instanceof MemoryPolicyError ? error.code : "MEMORY_POLICY_UNAVAILABLE" },
-          error instanceof MemoryPolicyError ? error.status : 503);
+        return json(
+          {
+            error:
+              error instanceof MemoryPolicyError
+                ? error.code
+                : "MEMORY_POLICY_UNAVAILABLE",
+          },
+          error instanceof MemoryPolicyError ? error.status : 503,
+        );
       }
     }
     // Convex learned an owner's plan, generation, engines or pairing changed.
@@ -2284,152 +2318,6 @@ const router = {
       });
       return json(report);
     }
-    if (request.method === "POST" && url.pathname === "/routes/activate") {
-      const body = (await request.json()) as {
-        slug: string;
-        appId: string;
-        ownerId: string;
-        ownerGeneration: string;
-        buildId: string;
-        artifactPrefix: string;
-      };
-      const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
-      let expectedArtifactPrefix: string;
-      try {
-        if (
-          typeof body.ownerId !== "string" ||
-          !body.ownerId ||
-          body.ownerId.length > 512 ||
-          typeof body.appId !== "string" ||
-          !body.appId ||
-          body.appId.length > 512 ||
-          typeof body.slug !== "string" ||
-          !APP_SLUG_PATTERN.test(body.slug) ||
-          typeof body.buildId !== "string" ||
-          typeof body.artifactPrefix !== "string" ||
-          !ownerGeneration
-        ) {
-          throw new Error("Invalid route activation.");
-        }
-        expectedArtifactPrefix = ownerAppBuildPrefix(
-          await sha256Hex(body.ownerId),
-          body.buildId,
-        );
-      } catch {
-        return json({ error: "Malformed app route." }, 400);
-      }
-      if (body.artifactPrefix !== expectedArtifactPrefix) {
-        return json({ error: "App route artifact owner does not match." }, 400);
-      }
-      try {
-        await withOwnerActivityLease(
-          env,
-          body.ownerId,
-          ownerGeneration,
-          requestId,
-          async (generation, leaseId) => {
-            await env.APP_ROUTES.put(
-              `app:${body.slug}`,
-              JSON.stringify({
-                slug: body.slug,
-                appId: body.appId,
-                ownerId: body.ownerId,
-                buildId: body.buildId,
-                artifactPrefix: body.artifactPrefix,
-                suspended: false,
-                updatedAt: Date.now(),
-              }),
-            );
-            const fenced = await callOwnerFence(env, body.ownerId, "assert", {
-              generation,
-              leaseId,
-              ownerGeneration,
-            });
-            if (!fenced.ok) throw new OwnerPurgeFenceError();
-          },
-        );
-      } catch (error) {
-        if (error instanceof OwnerPurgeFenceError) {
-          return json({ error: "Owner cloud activity is being purged." }, 409);
-        }
-        throw error;
-      }
-      log("info", "route_activated", {
-        requestId,
-        slug: body.slug,
-        appId: body.appId,
-        buildId: body.buildId,
-      });
-      return json({ ok: true });
-    }
-    if (request.method === "POST" && url.pathname === "/routes/suspend") {
-      const body = (await request.json()) as {
-        slug: string;
-        appId: string;
-        ownerId: string;
-        ownerGeneration: string;
-      };
-      const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
-      if (
-        typeof body.ownerId !== "string" ||
-        !body.ownerId ||
-        body.ownerId.length > 512 ||
-        typeof body.appId !== "string" ||
-        !body.appId ||
-        body.appId.length > 512 ||
-        typeof body.slug !== "string" ||
-        !APP_SLUG_PATTERN.test(body.slug) ||
-        !ownerGeneration
-      ) {
-        return json({ error: "Malformed app route." }, 400);
-      }
-      const route = await env.APP_ROUTES.get<Record<string, unknown>>(
-        `app:${body.slug}`,
-        "json",
-      );
-      if (
-        !route ||
-        route.appId !== body.appId ||
-        route.ownerId !== body.ownerId
-      ) {
-        return json({ error: "App route not found." }, 404);
-      }
-      try {
-        await withOwnerActivityLease(
-          env,
-          body.ownerId,
-          ownerGeneration,
-          requestId,
-          async (generation, leaseId) => {
-            await env.APP_ROUTES.put(
-              `app:${body.slug}`,
-              JSON.stringify({
-                ...route,
-                suspended: true,
-                updatedAt: Date.now(),
-              }),
-            );
-            const fenced = await callOwnerFence(env, body.ownerId, "assert", {
-              generation,
-              leaseId,
-              ownerGeneration,
-            });
-            if (!fenced.ok) throw new OwnerPurgeFenceError();
-          },
-        );
-      } catch (error) {
-        if (error instanceof OwnerPurgeFenceError) {
-          return json({ error: "Owner cloud activity is being purged." }, 409);
-        }
-        throw error;
-      }
-      log("info", "route_suspended", {
-        requestId,
-        slug: body.slug,
-        appId: body.appId,
-      });
-      return json({ ok: true });
-    }
     return json({ error: "Not found." }, 404);
   },
 
@@ -2443,11 +2331,25 @@ const router = {
     // polls the owner gate, while transcript events are projected to Convex.
     try {
       for (const { body } of batch.messages) {
-        if (!isOutboxEvent(body) || body.kind !== "turn.event" || !body.terminal) continue;
+        if (
+          !isOutboxEvent(body) ||
+          body.kind !== "turn.event" ||
+          !body.terminal
+        )
+          continue;
         const outcome = body.terminalStatus;
-        if (outcome !== "completed" && outcome !== "failed" && outcome !== "canceled") continue;
-        await env.OWNER_GATES.getByName(body.ownerId).recordCloudDispatchTerminal({
-          ownerGeneration: body.ownerGeneration, turnId: body.turnId, outcome,
+        if (
+          outcome !== "completed" &&
+          outcome !== "failed" &&
+          outcome !== "canceled"
+        )
+          continue;
+        await env.OWNER_GATES.getByName(
+          body.ownerId,
+        ).recordCloudDispatchTerminal({
+          ownerGeneration: body.ownerGeneration,
+          turnId: body.turnId,
+          outcome,
           ...(body.resultJson ? { resultJson: body.resultJson } : {}),
           ...(body.errorMessage ? { errorMessage: body.errorMessage } : {}),
         });

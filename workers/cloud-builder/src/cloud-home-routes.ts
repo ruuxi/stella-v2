@@ -1,3 +1,4 @@
+import { BoundedBodyError, readBoundedRequestJson } from "./bounded-body.js";
 import {
   CloudHomeProtocolError,
   CloudHomeStore,
@@ -6,10 +7,6 @@ import {
   utf8Bytes,
   utf8Text,
 } from "./cloud-home-store.js";
-import {
-  BoundedBodyError,
-  readBoundedRequestJson,
-} from "./bounded-body.js";
 import { convexSiteBase } from "./convex-site.js";
 
 type CloudHomeRouteEnv = {
@@ -60,7 +57,7 @@ const requireBucket = (env: CloudHomeRouteEnv): R2Bucket => {
   return env.AGENT_HOME;
 };
 
-const ownerAccess = async (
+export const ownerAccess = async (
   env: CloudHomeRouteEnv,
   ownerId: string,
 ): Promise<string> => {

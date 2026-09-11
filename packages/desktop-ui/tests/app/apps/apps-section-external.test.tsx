@@ -48,6 +48,16 @@ vi.mock("@/app/apps/PersistentUserAppsHost", () => ({
   PersistentUserAppsHost: () => <div data-testid="apps-host" />,
 }));
 
+vi.mock("@/features/cloud/use-cloud-apps", () => ({
+  useCloudApps: () => ({
+    accountScope: "test",
+    phase: "disabled",
+    apps: [],
+    error: null,
+    httpOrigin: null,
+  }),
+}));
+
 vi.mock("@/features/cloud/CloudAppsLibrary", () => ({
   CloudAppsLibrary: () => <div data-testid="cloud-apps-library" />,
 }));
@@ -57,9 +67,8 @@ vi.mock("@/features/cloud/PersistentCloudAppsHost", () => ({
 }));
 
 const { AppsSection } = await import("@/shell/sidebar-sections/AppsSection");
-const { sidebarSections } = await import(
-  "@/features/workspace-display/sidebar-sections"
-);
+const { sidebarSections } =
+  await import("@/features/workspace-display/sidebar-sections");
 const { displayTabs } = await import("@/features/workspace-display/tab-store");
 
 const ledger = {

@@ -1,13 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
+import { WorkspaceApps } from "./workspace-apps.js";
 import { WorldSqlStore } from "./world/store.js";
 import type { WorldListingEntry, WorldToolCall } from "./world/types.js";
 
 export class WorldStore extends DurableObject<Env> {
   private readonly world: WorldSqlStore;
+  private readonly apps: WorkspaceApps;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.world = new WorldSqlStore(ctx.storage.sql, env.WORLDS_BUCKET);
+    this.apps = new WorkspaceApps(this.world, ctx, env);
     void ctx.blockConcurrencyWhile(() => {
       this.world.initialize();
       return Promise.resolve();
@@ -77,10 +80,34 @@ export class WorldStore extends DurableObject<Env> {
     );
   }
 
-  tool(call: WorldToolCall) {
-    return call.name === "Read" || call.name === "Grep" || call.name === "glob"
+  async tool(call: WorldToolCall) {
+    const result = await (call.name === "Read" ||
+    call.name === "Grep" ||
+    call.name === "glob"
       ? this.world.tool(call)
-      : this.ctx.blockConcurrencyWhile(() => this.world.tool(call));
+      : this.ctx.blockConcurrencyWhile(() => this.world.tool(call)));
+    if (
+      result.ok &&
+      (!call.fork || call.fork === "shared") &&
+      call.name !== "Read" &&
+      call.name !== "Grep" &&
+      call.name !== "glob" &&
+      JSON.stringify(call.arguments).includes("stella.app.json")
+    ) {
+      const apps = await this.apps.reconcile();
+      return {
+        ...result,
+        output: result.output + "\nApp build status: " + JSON.stringify(apps),
+      };
+    }
+    return result;
+  }
+
+  listWorkspaceApps() {
+    return this.apps.reconcile();
+  }
+  fetchWorkspaceApp(slug: string, request: Request) {
+    return this.apps.fetch(slug, request);
   }
 
   async checkpoint(options: { historyCursor: string; fork?: string }) {
@@ -114,12 +141,20 @@ export class WorldStore extends DurableObject<Env> {
     return this.world.diff(listing, options);
   }
 
-  pushDiff(input: {
+  async pushDiff(input: {
     entries: WorldListingEntry[];
     deleted: string[];
     fork?: string;
   }) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.pushDiff(input));
+    const result = await this.ctx.blockConcurrencyWhile(() =>
+      this.world.pushDiff(input),
+    );
+    if (
+      (!input.fork || input.fork === "shared") &&
+      input.entries.some((e) => e.path.endsWith("/stella.app.json"))
+    )
+      await this.apps.reconcile();
+    return result;
   }
 
   changesSince(revision: number, options: { fork?: string } = {}) {
@@ -138,8 +173,16 @@ export class WorldStore extends DurableObject<Env> {
     return this.ctx.blockConcurrencyWhile(() => this.world.fork(input));
   }
 
-  merge(input: { from: string; into?: string; strategy: "last_writer_wins" }) {
-    return this.ctx.blockConcurrencyWhile(() => this.world.merge(input));
+  async merge(input: {
+    from: string;
+    into?: string;
+    strategy: "last_writer_wins";
+  }) {
+    const result = await this.ctx.blockConcurrencyWhile(() =>
+      this.world.merge(input),
+    );
+    if (!input.into || input.into === "shared") await this.apps.reconcile();
+    return result;
   }
 
   forkStatus(forkId: string) {

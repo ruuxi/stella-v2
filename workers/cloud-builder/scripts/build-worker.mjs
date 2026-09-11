@@ -2,7 +2,14 @@
 
 import { build } from "esbuild";
 import { builtinModules } from "node:module";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,6 +34,18 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
     format: "esm",
     target: "es2022",
     platform: "browser",
+    loader: { ".md": "text" },
+    plugins: [
+      {
+        name: "worker-wasm",
+        setup(build) {
+          build.onResolve({ filter: /esbuild\.wasm$/ }, () => ({
+            path: "./esbuild.wasm",
+            external: true,
+          }));
+        },
+      },
+    ],
     conditions: ["workerd", "worker", "browser"],
     // nodejs_compat supplies built-ins at runtime. Never replace native
     // subscription dependencies with stubs to shrink the Worker.
@@ -88,6 +107,13 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
     path.join(path.dirname(outdir), ".worker-build-"),
   );
   try {
+    await copyFile(
+      path.join(
+        workerRoot,
+        "node_modules/@cloudflare/worker-bundler/dist/esbuild.wasm",
+      ),
+      path.join(staging, "esbuild.wasm"),
+    );
     await Promise.all(
       result.outputFiles.map(async (file) => {
         const relative = path.relative(outdir, file.path);

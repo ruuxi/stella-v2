@@ -36,12 +36,10 @@ mock.module("@cloudflare/sandbox", () => ({
   Sandbox: class {},
   ContainerProxy: class {},
 }));
-const { OrchestratorSessionObject: OrchestratorSession } = await import(
-  "../src/orchestrator-session-object.js"
-);
-const { BuildSessionObject: BuildSession } = await import(
-  "../src/build-session/object.js"
-);
+const { OrchestratorSessionObject: OrchestratorSession } =
+  await import("../src/orchestrator-session-object.js");
+const { BuildSessionObject: BuildSession } =
+  await import("../src/build-session/object.js");
 mock.restore();
 
 const request = (
@@ -2008,174 +2006,11 @@ describe("execution-placement exact cloud turn cancellation", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
-      error: "App turns require appId, conversationId, and sessionId.",
+      error: "Unsupported turn kind.",
     });
     expect(startCalls).toBe(0);
     expect(harness.values.has("turn")).toBe(false);
     expect(harness.values.has("turnId")).toBe(false);
-  });
-
-  test("a Stop at the remote-authority barrier prevents app sandbox admission", async () => {
-    const harness = buildSessionHarness();
-    const current = {
-      ...appTurn("app-stop-at-authority"),
-      ownerPurgeGeneration: "purge-generation-1",
-      ownerPurgeLeaseId: "lease:app-stop-at-authority",
-    };
-    let release!: () => void;
-    let started!: () => void;
-    const authorityStarted = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    const barrier = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    harness.instance["sandbox"] = () => ({});
-    harness.instance["assertTurnWritable"] = async () => {
-      started();
-      await barrier;
-    };
-    const execution = {
-      signal: new AbortController().signal,
-      assertActive: () => undefined,
-    };
-    const run = (BuildSession.prototype as unknown as Record<string, unknown>)[
-      "runTurn"
-    ] as (
-      this: BuildSession & Record<string, unknown>,
-      input: typeof current,
-      context: typeof execution,
-    ) => Promise<Response>;
-    const outcome = run.call(harness.instance, current, execution).then(
-      () => null,
-      (error: unknown) => error,
-    );
-    await authorityStarted;
-    await harness.storage.put("terminal", true);
-    release();
-
-    expect(await outcome).toBeInstanceOf(Error);
-    expect(harness.values.has("sandboxId")).toBe(false);
-    expect(harness.values.get("turn")).toEqual(current);
-    expect(harness.values.get("terminal")).toBe(true);
-    expect(harness.values.has("appTurnAdmissionClaim")).toBe(false);
-  });
-
-  test("a successor at the remote-authority barrier cannot be overwritten by the stale app", async () => {
-    const harness = buildSessionHarness();
-    const stale = {
-      ...appTurn("app-staged-stale", "generation-old"),
-      ownerPurgeGeneration: "purge-generation-old",
-      ownerPurgeLeaseId: "lease:stale",
-    };
-    const successor = {
-      ...appTurn("app-staged-successor", "generation-new"),
-      ownerPurgeGeneration: "purge-generation-new",
-      ownerPurgeLeaseId: "lease:successor",
-    };
-    let release!: () => void;
-    let started!: () => void;
-    const authorityStarted = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    const barrier = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    harness.instance["sandbox"] = () => ({});
-    harness.instance["assertTurnWritable"] = async () => {
-      started();
-      await barrier;
-    };
-    const execution = {
-      signal: new AbortController().signal,
-      assertActive: () => undefined,
-    };
-    const run = (BuildSession.prototype as unknown as Record<string, unknown>)[
-      "runTurn"
-    ] as (
-      this: BuildSession & Record<string, unknown>,
-      input: typeof stale,
-      context: typeof execution,
-    ) => Promise<Response>;
-    const outcome = run.call(harness.instance, stale, execution).then(
-      () => null,
-      (error: unknown) => error,
-    );
-    await authorityStarted;
-    await harness.storage.put({
-      turn: successor,
-      turnId: successor.turnId,
-      terminal: false,
-      sandboxId: "sandbox:successor",
-    });
-    release();
-
-    expect(await outcome).toBeInstanceOf(Error);
-    expect(harness.values.get("turn")).toEqual(successor);
-    expect(harness.values.get("sandboxId")).toBe("sandbox:successor");
-  });
-
-  test("a paused stale app replay cannot replace its successor watchdog", async () => {
-    const harness = buildSessionHarness();
-    const previous = {
-      ...appTurn("app-replay-a", "owner-generation-a"),
-      ownerPurgeGeneration: "purge-generation-a",
-      ownerPurgeLeaseId: "lease-a",
-    };
-    harness.values.set("turn", previous);
-    harness.values.set("turnId", previous.turnId);
-    harness.values.set("terminal", false);
-    let releaseAuthority!: () => void;
-    let authorityStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      authorityStarted = resolve;
-    });
-    const gate = new Promise<void>((resolve) => {
-      releaseAuthority = resolve;
-    });
-    // The owner-purge fence is the replay path's one remote barrier now that
-    // the Convex authority round trip is gone.
-    let gated = false;
-    harness.instance["assertTurnWritable"] = async () => {
-      if (gated) return;
-      gated = true;
-      authorityStarted();
-      await gate;
-    };
-    const dispatch = { ...previous } as Partial<typeof previous>;
-    delete dispatch.ownerPurgeGeneration;
-    delete dispatch.ownerPurgeLeaseId;
-    const replay = harness.instance.fetch(turnRequest(dispatch));
-    await started;
-
-    const successor = {
-      ...appTurn("app-replay-b", "owner-generation-b"),
-      ownerPurgeGeneration: "purge-generation-b",
-      ownerPurgeLeaseId: "lease-b",
-    };
-    harness.values.clear();
-    await harness.storage.put({
-      turn: successor,
-      turnId: successor.turnId,
-      terminal: false,
-      terminalDelivered: false,
-      sandboxId: "sandbox-b",
-    });
-    const successorAlarm = Date.now() + 600_000;
-    await harness.storage.setAlarm(successorAlarm);
-    releaseAuthority();
-
-    const response = await replay;
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      accepted: false,
-      replayed: true,
-      reason: "superseded",
-    });
-    expect(harness.values.get("turn")).toEqual(successor);
-    expect(harness.values.get("terminal")).toBe(false);
-    expect(harness.values.has("pendingTerminal")).toBe(false);
-    expect(await harness.storage.getAlarm()).toBe(successorAlarm);
   });
 
   test("a fired predecessor alarm cannot delete successor state", async () => {
@@ -2397,94 +2232,6 @@ describe("execution-placement exact cloud turn cancellation", () => {
     });
     expect(registrations).toBe(0);
     expect(harness.values.get("turn")).toEqual(persisted);
-  });
-
-  test("owner purge does not acknowledge a running normal cloud turn before it joins", async () => {
-    const harness = buildSessionHarness();
-    const current = {
-      ...turn("app-owner-purge-running"),
-      appId: "app-1",
-      ownerPurgeGeneration: "purge-generation-1",
-      ownerPurgeLeaseId: "lease:app-owner-purge-running",
-    };
-    harness.values.set("turn", current);
-    harness.values.set("terminal", false);
-    let releaseSetup!: () => void;
-    let observeSetup!: () => void;
-    const setupStarted = new Promise<void>((resolve) => {
-      observeSetup = resolve;
-    });
-    const setupGate = new Promise<void>((resolve) => {
-      releaseSetup = resolve;
-    });
-    let lateWork = 0;
-    harness.instance["runTurn"] = async (
-      _turn: unknown,
-      execution: { assertActive: () => void },
-    ) => {
-      observeSetup();
-      await setupGate;
-      execution.assertActive();
-      lateWork += 1;
-      return Response.json({ ok: true });
-    };
-    let observeDestroy!: () => void;
-    const destroyed = new Promise<void>((resolve) => {
-      observeDestroy = resolve;
-    });
-    let destroyCalls = 0;
-    harness.instance["terminateCurrentAgentSession"] = async () => {
-      destroyCalls += 1;
-      observeDestroy();
-    };
-    harness.instance["cleanupTransientWrites"] = async () => undefined;
-    harness.instance["callOwnerFence"] = async () =>
-      Response.json({ ok: true });
-    const appTurn = (
-      harness.instance["startAppTurn"] as (
-        turn: typeof current,
-      ) => Promise<Response>
-    )(current);
-    const appOutcome = appTurn.then(
-      () => null,
-      (error: unknown) => error,
-    );
-    await setupStarted;
-
-    let acknowledged = false;
-    const purge = harness.instance
-      .fetch(
-        new Request("https://build-session/owner-purge-cancel", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            ownerId: current.ownerId,
-            ownerGeneration: current.ownerGeneration,
-            turnId: current.turnId,
-            generation: current.ownerPurgeGeneration,
-            leaseId: current.ownerPurgeLeaseId,
-          }),
-        }),
-      )
-      .then((response) => {
-        acknowledged = true;
-        return response;
-      });
-    await destroyed;
-    await Promise.resolve();
-    expect(acknowledged).toBe(false);
-    releaseSetup();
-
-    const response = await purge;
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      canceled: true,
-      turnId: current.turnId,
-      unregistered: true,
-    });
-    expect(await appOutcome).toBeInstanceOf(Error);
-    expect(destroyCalls).toBe(2);
-    expect(lateWork).toBe(0);
   });
 
   test("owner purge interrupts and joins orchestrator setup before unregistering", async () => {
@@ -4342,7 +4089,9 @@ describe("execution-placement exact cloud turn cancellation", () => {
       last_active_at: "2023-11-14T22:13:21.000Z",
       result: "ORCHID-517",
     });
-    expect(finished.content[0]?.text).toContain("Report for this attempt:\nORCHID-517");
+    expect(finished.content[0]?.text).toContain(
+      "Report for this attempt:\nORCHID-517",
+    );
 
     // Corrupt/legacy oversized stored reports cannot produce unbounded output.
     await remember({
@@ -4352,8 +4101,13 @@ describe("execution-placement exact cloud turn cancellation", () => {
       status: "completed",
       lifecycleReport: "x".repeat(8_001),
     });
-    const bounded = await status.execute("tool-status-bounded", { thread_id: "thread-status-1" });
-    expect(bounded.details).toMatchObject({ result: "x".repeat(8_000), result_truncated: true });
+    const bounded = await status.execute("tool-status-bounded", {
+      thread_id: "thread-status-1",
+    });
+    expect(bounded.details).toMatchObject({
+      result: "x".repeat(8_000),
+      result_truncated: true,
+    });
     expect(bounded.content[0]?.text).toContain("[Report truncated]");
 
     // A new attempt must not inherit a previous attempt's completed report.
@@ -4363,9 +4117,13 @@ describe("execution-placement exact cloud turn cancellation", () => {
       threadUpdatedAt: 1_700_000_003_000,
       status: "running",
     });
-    const nextAttempt = await status.execute("tool-status-next", { thread_id: "thread-status-1" });
+    const nextAttempt = await status.execute("tool-status-next", {
+      thread_id: "thread-status-1",
+    });
     expect(nextAttempt.details).not.toHaveProperty("result");
-    expect(nextAttempt.content[0]?.text).not.toContain("Report for this attempt");
+    expect(nextAttempt.content[0]?.text).not.toContain(
+      "Report for this attempt",
+    );
 
     // Another conversation's agent is not this one's to see.
     await expect(
@@ -5240,9 +4998,8 @@ test("reusing a registered owner lease does not add a durable write barrier", as
 
 describe("fresh chat admission reuse", () => {
   test("only a matching immediate permit skips remote assertion; a retired local receipt still refuses", async () => {
-    const { createTurnRetryCancellation } = await import(
-      "../src/turn-cancellation.js"
-    );
+    const { createTurnRetryCancellation } =
+      await import("../src/turn-cancellation.js");
     for (const mode of [
       "fresh",
       "recovered",

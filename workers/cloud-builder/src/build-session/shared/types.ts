@@ -25,7 +25,7 @@ export type Execution = {
 
 export type TurnRequest = {
   // "agent" runs a spawned general agent against a persistent workspace;
-  // absent/anything else is the legacy app-build turn.
+  // other kinds are rejected at admission.
   kind?: string;
   ownerId: string;
   appId: string;

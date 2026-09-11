@@ -217,7 +217,7 @@ crons.interval(
 );
 
 crons.interval(
-  "cloud app failure spike detection",
+  "cloud turn failure spike detection",
   { minutes: 5 },
   internal.cloud_apps.scanFailureSpikes,
   {},

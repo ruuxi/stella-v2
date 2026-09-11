@@ -1,10 +1,8 @@
 import { AppWindowMac, LoaderCircle } from "@/ui/icons";
 import { openCloudAppPanel } from "./open-cloud-app-panel";
-import { useCloudApps } from "./use-cloud-apps";
+import type { CloudAppsState } from "./use-cloud-apps";
 
-export function CloudAppsLibrary() {
-  const state = useCloudApps();
-
+export function CloudAppsLibrary({ state }: { state: CloudAppsState }) {
   if (state.phase === "disabled") return null;
   if (state.phase === "loading") {
     return (
@@ -15,7 +13,7 @@ export function CloudAppsLibrary() {
           strokeWidth={2}
           aria-hidden="true"
         />
-        <span>Loading cloud apps…</span>
+        <span>Loading apps…</span>
       </div>
     );
   }
@@ -31,7 +29,7 @@ export function CloudAppsLibrary() {
   return (
     <section className="cloud-apps-library" aria-labelledby="cloud-apps-title">
       <div className="cloud-apps-library__heading">
-        <span id="cloud-apps-title">Cloud apps</span>
+        <span id="cloud-apps-title">Apps</span>
         <span>{state.apps.length}</span>
       </div>
       <ul className="apps-section__grid cloud-apps-library__grid">
@@ -49,7 +47,6 @@ export function CloudAppsLibrary() {
                 aria-hidden="true"
               />
               <span className="apps-section__card-label">{app.title}</span>
-              <span className="cloud-apps-library__badge">Cloud</span>
             </button>
           </li>
         ))}

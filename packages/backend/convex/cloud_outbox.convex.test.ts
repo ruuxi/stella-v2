@@ -1,16 +1,14 @@
 /// <reference types="vite/client" />
 
-import { createHash } from "node:crypto";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
-import { convexTest } from "convex-test";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { DispatchSummary } from "@stella/contracts/turn-plane/placement";
 import {
   CONVEX_OUTBOX_PATH,
   type OutboxBatchResult,
   type OutboxEvent,
 } from "@stella/contracts/turn-plane/outbox";
-import { components } from "./_generated/api";
+import type { DispatchSummary } from "@stella/contracts/turn-plane/placement";
+import { convexTest } from "convex-test";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import betterAuthSchema from "./betterAuth/schema";
 import schema from "./schema";
 
@@ -586,85 +584,19 @@ describe("thread projections", () => {
   });
 });
 
-describe("build projections", () => {
-  it("records an app build once and rejects a mismatched owner", async () => {
+describe("retired build receipts", () => {
+  it("acknowledges old receipts without recreating app registry rows", async () => {
     const t = await createTest();
-    const appId = "app-outbox-build";
-    const turnId = "build-turn-1";
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_apps", {
-        appId,
-        ownerId: OWNER_ID,
-        slug: "orbit-outbox",
-        title: "New app",
-        status: "building",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("agent_turns", {
-        turnId,
-        sessionId: "cloud-build",
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        appId,
-        prompt: "build",
-        status: "running",
-        kind: "build",
-        lane: "build",
-        createdAt: 1,
-        updatedAt: 1,
-      });
+    const recorded = event("build.recorded", {
+      buildId: "old-build",
+      payload: {},
     });
-    const ownerHash = createHash("sha256")
-      .update(OWNER_ID, "utf8")
-      .digest("hex");
-    const buildId = "build-0001";
-    const payload = {
-      buildId,
-      appId,
-      ownerId: OWNER_ID,
-      ownerGeneration: GENERATION,
-      turnId,
-      artifactPrefix: `builds/${ownerHash}/${buildId}`,
-      previewUrl: "https://preview.stella.test/orbit-outbox",
-      metrics: { files: 3, uploadedBytes: 1024 },
-      slug: "orbit-outbox",
-      title: "Orbit",
-    };
-    const recorded = event("build.recorded", { buildId, payload });
     expect(await ingest(t, [recorded])).toMatchObject({
-      applied: [recorded.key],
-    });
-    expect(
-      await ingest(t, [{ ...recorded, key: "build:again" }]),
-    ).toMatchObject({
-      duplicate: ["build:again"],
-    });
-    const foreign = event("build.recorded", {
-      key: "build:foreign",
-      buildId,
-      payload: { ...payload, ownerId: OTHER_OWNER_ID },
-      ownerId: OTHER_OWNER_ID,
-    });
-    expect(await ingest(t, [foreign])).toMatchObject({
-      rejected: [
-        { kind: "build.recorded", key: "build:foreign", reason: "invalid" },
-      ],
+      duplicate: [recorded.key],
     });
     await t.run(async (ctx) => {
-      const builds = await ctx.db.query("cloud_app_builds").collect();
-      expect(builds).toHaveLength(1);
-      expect(builds[0]).toMatchObject({
-        buildId,
-        appId,
-        turnId,
-        callbackTitle: "Orbit",
-      });
-      const app = await ctx.db
-        .query("cloud_apps")
-        .withIndex("by_appId", (q) => q.eq("appId", appId))
-        .unique();
-      expect(app?.title).toBe("Orbit");
+      expect(await ctx.db.query("cloud_apps").collect()).toEqual([]);
+      expect(await ctx.db.query("cloud_app_builds").collect()).toEqual([]);
     });
   });
 });

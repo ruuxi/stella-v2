@@ -64,7 +64,6 @@ import {
   loadAcceptanceDriverContext,
   writeAcceptanceDriverEvidence,
 } from "./cloud-canonical-acceptance-driver-contract.mjs";
-import { runAppsHostWorkerdAcceptance } from "../../apps-host/scripts/workerd-runtime-acceptance.mjs";
 import {
   beginRenderedProductMagicLinkLogin,
   completeRenderedProductMagicLinkLogin,
@@ -13525,8 +13524,8 @@ const stepOwnerResetMemoryReimport = async ({
   });
   const preResetSandboxTerminalVerified = Boolean(
     sandboxProbe.turnId === sandbox.turnId &&
-      (sandboxProbe.status === "completed" ||
-        sandboxProbe.turnStatus === "completed"),
+    (sandboxProbe.status === "completed" ||
+      sandboxProbe.turnStatus === "completed"),
   );
   assert(
     preResetSandboxTerminalVerified,
@@ -14479,107 +14478,10 @@ const stepOwnerResetMemoryReimport = async ({
     throw error;
   }
 };
-
-const stepAppsHostWorkerdRuntime = async ({
-  context,
-  paths,
-  rawLog,
-  checkpoint,
-}) => {
-  const stateDirectory = assertNarrowIsolatedPath(
-    path.join(paths.stateDirectory, "apps-host-workerd"),
-    paths.root,
-    "Apps Host workerd state",
+const stepAppsHostWorkerdRuntime = async () => {
+  throw new Error(
+    "The legacy app-host acceptance step is retired. Verify workspace apps with workspace-apps-workerd.test.ts and the live Apps surface.",
   );
-  await checkpoint({
-    appsHostWorkerd: {
-      stateDirectorySha256: sha256(stateDirectory),
-      cleanupPending: true,
-    },
-  });
-  const result = requireRecord(
-    await runAppsHostWorkerdAcceptance({
-      stateDirectory,
-      runId: context.runId,
-    }),
-    "Apps Host Workerd acceptance result",
-  );
-  const observations = requireRecord(
-    result.observations,
-    "Apps Host Workerd observations",
-  );
-  assert(
-    Array.isArray(result.receipts) && result.receipts.length >= 11,
-    "Apps Host Workerd acceptance omitted required raw runtime receipts.",
-  );
-  for (const entry of result.receipts) {
-    const checked = requireRecord(entry, "Apps Host Workerd raw receipt");
-    assert(
-      checked.surface === "apps-host-workerd" &&
-        checked.mocked === false &&
-        checked.synthetic === false,
-      "Apps Host Workerd receipt did not attest to the real runtime surface.",
-    );
-    rawLog.push(checked);
-  }
-  assert(
-    observations.workerName === REQUIRED_APPS_HOST_WORKER_NAME &&
-      observations.deploymentIdentity === REQUIRED_CONVEX.deployment &&
-      observations.runtimeEngine === "workerd" &&
-      observations.wranglerVersion === "4.127.1",
-    "Apps Host Workerd acceptance used an unreviewed runtime identity.",
-  );
-  for (const field of [
-    "bundleSha256",
-    "routeSetSha256",
-    "appAssetSha256",
-    "blockedProxyResponseSha256",
-    "receiptChainSha256",
-  ]) {
-    requireSha256(observations[field], `Apps Host ${field}`);
-  }
-  requireInteger(observations.bundleBytes, "Apps Host bundle bytes", 1);
-  for (const [field, expected] of [
-    ["healthStatus", 200],
-    ["appAssetStatus", 200],
-    ["appHeadStatus", 200],
-    ["blockedProxyStatus", 401],
-    ["invalidConfigStatus", 503],
-  ]) {
-    assert(
-      observations[field] === expected,
-      `Apps Host ${field} must be ${expected}.`,
-    );
-  }
-  for (const field of [
-    "productionBundleBuilt",
-    "workerdRuntimeStarted",
-    "realKvBindingUsed",
-    "realR2BindingUsed",
-    "strictHostedContentSecurityPolicy",
-    "unauthenticatedProxyBlockedBeforeFetch",
-    "invalidConfigurationFailedClosed",
-    "runtimeDisposed",
-    "isolatedStateRemoved",
-  ]) {
-    requireBoolean(observations[field], true, `Apps Host ${field}`);
-  }
-  assert(
-    !(await pathExists(stateDirectory)),
-    "Apps Host Workerd acceptance left local runtime state behind.",
-  );
-  return {
-    observations,
-    patch: {
-      appsHostWorkerd: {
-        stateDirectorySha256: sha256(stateDirectory),
-        bundleSha256: observations.bundleSha256,
-        receiptChainSha256: observations.receiptChainSha256,
-        cleanupPending: false,
-        isolatedStateRemoved: true,
-      },
-    },
-  };
 };
 
 const deleteConversation = async (context, secrets, conversationId, rawLog) => {
@@ -15032,7 +14934,7 @@ const stepCleanup = async ({
     sandboxTerminalBeforePurge = Boolean(
       (exact &&
         (exact.status === "completed" || exact.turnStatus === "completed")) ||
-        (!exact && state.ownerReset?.preResetSandboxTerminalVerified === true),
+      (!exact && state.ownerReset?.preResetSandboxTerminalVerified === true),
     );
     if (!sandboxTerminalBeforePurge) {
       failures.push({

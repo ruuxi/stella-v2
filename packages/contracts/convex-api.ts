@@ -63,10 +63,7 @@ export type PublicApiType = {
     "listMyConversations": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getMyConversationHistorySnapshot": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "listMyConversationsPage": FunctionReference<'query', 'public', { snapshotUpdatedAt: number; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-    "listMyApps": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getCloudRealtimeConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "listMyAppBuilds": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
-    "startAppBuildTurn": FunctionReference<'mutation', 'public', { attachments?: string[] | undefined; execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; clientMsgId?: string | undefined; locale?: string | undefined; prompt: string; appId: string; expectedOwnerGeneration: string; }, any, string | undefined>;
     "deleteMyConversation": FunctionReference<'action', 'public', { conversationId: string; }, any, string | undefined>;
     "spawnCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; originDeviceId?: string | undefined; originConversationId?: string | undefined; ownerGeneration: string; description: string; prompt: string; clientMsgId: string; }, any, string | undefined>;
     "continueMyCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; description: string; prompt: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; expectedTerminalUpdatedAt: number; controlRequestId: string; }, any, string | undefined>;
@@ -79,12 +76,6 @@ export type PublicApiType = {
     "listMyRecentAgentThreads": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
     "listMyDeviceAgentThreads": FunctionReference<'query', 'public', { limit?: number | undefined; sinceUpdatedAt?: number | undefined; ownerGeneration: string; originDeviceId: string; }, any, string | undefined>;
     "acknowledgeMyDeviceAgentThreadDelivery": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; attemptGeneration: number; originDeviceId: string; terminalUpdatedAt: number; }, any, string | undefined>;
-    "applyMyBuild": FunctionReference<'action', 'public', { buildId: string; }, any, string | undefined>;
-    "deleteMyApp": FunctionReference<'action', 'public', { appId: string; }, any, string | undefined>;
-    "publishMyAppOperations": FunctionReference<'mutation', 'public', { appId: string; manifestJson: string; }, any, string | undefined>;
-    "listPendingOpInvocations": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
-    "claimOpInvocation": FunctionReference<'mutation', 'public', { invocationId: string; }, any, string | undefined>;
-    "completeOpInvocation": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorMessage?: string | undefined; ok: boolean; invocationId: string; }, any, string | undefined>;
   };
   "cloud_browser": {
     "listMyPendingBrowserInteractions": FunctionReference<'query', 'public', {}, any, string | undefined>;

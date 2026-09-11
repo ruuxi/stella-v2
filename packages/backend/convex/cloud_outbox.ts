@@ -1,12 +1,9 @@
-import { ConvexError, v } from "convex/values";
-import { internalMutation, type MutationCtx } from "./_generated/server";
-import { internal } from "./_generated/api";
 import type {
+  BuildRecordedEvent,
   ConversationCreatedEvent,
-  DispatchUpdatedEvent,
   ConversationDeletedEvent,
   ConversationIndexEvent,
-  BuildRecordedEvent,
+  DispatchUpdatedEvent,
   OutboxEvent,
   OutboxRejectReason,
   ThreadCompletedEvent,
@@ -14,6 +11,9 @@ import type {
   TurnEventEvent,
   TurnStartedEvent,
 } from "@stella/contracts/turn-plane/outbox";
+import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import {
   CHAT_TITLE_MAX,
   appendTurnEventProjection,
@@ -21,11 +21,9 @@ import {
   collectThreadOutputFiles,
   completeAgentThread,
   conversationTombstoned,
-  recordBuild,
   tombstoneConversation,
   upsertConversationIndex,
 } from "./cloud_apps";
-import { parseCloudBuildCallback } from "./lib/cloud_build_callback";
 import { cloudAgentSandboxLeaseExpiresAt } from "./lib/computer_agent_thread";
 import { parseOutboxEvent } from "./lib/outbox_events";
 import { assertOwnerDataWriteAllowed } from "./owner_lifecycle";
@@ -379,18 +377,9 @@ const applyBuildRecorded = async (
   event: BuildRecordedEvent,
   now: number,
 ): Promise<OutboxApplyResult> => {
-  let callback: ReturnType<typeof parseCloudBuildCallback>;
-  try {
-    callback = parseCloudBuildCallback(event.payload);
-  } catch {
-    return rejected("invalid");
-  }
-  if (callback.buildId !== event.buildId) return rejected("invalid");
-  if (callback.ownerId !== event.ownerId) return rejected("owner_mismatch");
-  if (callback.ownerGeneration !== event.ownerGeneration) {
-    return rejected("generation_stale");
-  }
-  return (await recordBuild(ctx, { ...callback, now })) ? applied : duplicate;
+  // The sandbox-build publisher is retired. Acknowledge historical queue
+  // receipts without recreating the removed app registry.
+  return duplicate;
 };
 
 /**

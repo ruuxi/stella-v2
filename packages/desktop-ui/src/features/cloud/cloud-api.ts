@@ -1,9 +1,9 @@
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import {
   makeFunctionReference,
   type PaginationOptions,
   type PaginationResult,
 } from "convex/server";
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 
 export type CloudConversation = {
   conversationId: string;
@@ -16,29 +16,7 @@ export type CloudConversation = {
   activity?: string;
 };
 
-export type CloudApp = {
-  appId: string;
-  ownerId: string;
-  slug: string;
-  title: string;
-  status: string;
-  activeBuildId?: string;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type CloudBuild = {
-  buildId: string;
-  appId: string;
-  ownerId: string;
-  status: string;
-  artifactPrefix?: string;
-  previewUrl?: string;
-  slug?: string;
-  createdAt: number;
-  updatedAt: number;
-};
-
+export type { WorkspaceApp as CloudApp } from "@stella/contracts/workspace-apps";
 export type CloudEngineConnections = {
   chatEngine: string;
   execution: CloudExecutionSelection;
@@ -163,9 +141,6 @@ export const cloudApi = {
     { conversationId: string },
     CloudConversation | null
   >("cloud_apps:getMyConversation"),
-  listMyApps: makeFunctionReference<"query", Record<string, never>, CloudApp[]>(
-    "cloud_apps:listMyApps",
-  ),
   // The transcript is not a Convex table any more: it lives in the
   // conversation's Durable Object and reaches the client over a WebSocket.
   // This query only says where that socket is, so mobile and web both learn
@@ -230,51 +205,6 @@ export const cloudApi = {
       replayed: boolean;
     }
   >("cloud_conversation_edits:rewindMyConversation"),
-  listMyAppBuilds: makeFunctionReference<
-    "query",
-    { appId: string },
-    CloudBuild[]
-  >("cloud_apps:listMyAppBuilds"),
-  applyMyBuild: makeFunctionReference<
-    "action",
-    { buildId: string },
-    { ok: boolean; buildId: string }
-  >("cloud_apps:applyMyBuild"),
-  deleteMyApp: makeFunctionReference<
-    "action",
-    { appId: string },
-    { ok: boolean }
-  >("cloud_apps:deleteMyApp"),
-  publishMyAppOperations: makeFunctionReference<
-    "mutation",
-    { appId: string; manifestJson: string },
-    { operationCount: number }
-  >("cloud_apps:publishMyAppOperations"),
-  listPendingOpInvocations: makeFunctionReference<
-    "query",
-    { appId: string },
-    Array<{
-      invocationId: string;
-      name: string;
-      argsJson: string;
-      createdAt: number;
-    }>
-  >("cloud_apps:listPendingOpInvocations"),
-  claimOpInvocation: makeFunctionReference<
-    "mutation",
-    { invocationId: string },
-    { claimed: boolean }
-  >("cloud_apps:claimOpInvocation"),
-  completeOpInvocation: makeFunctionReference<
-    "mutation",
-    {
-      invocationId: string;
-      ok: boolean;
-      resultJson?: string;
-      errorMessage?: string;
-    },
-    null
-  >("cloud_apps:completeOpInvocation"),
   listMyEngineConnections: makeFunctionReference<
     "query",
     Record<string, never>,

@@ -11,6 +11,15 @@
  * This file is types only: it must never be imported with a value import, or
  * esbuild would stop erasing it and couple every module back to `index.ts`.
  */
+import type { ExecutionSession } from "@cloudflare/sandbox";
+import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import type {
+  TurnBrokerTurnStateCheckpointReceipt,
+  TurnBrokerTurnStateCheckpointRequest,
+} from "@stella/contracts/turn-credential-broker";
+import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import type {
   PersistedAgentCompute,
   createAgentComputeLadder,
@@ -55,21 +64,11 @@ import type {
   BuildOwnerFenceLeaseReceipt,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
-  PendingAppBuildPublication,
   PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
   TurnStateCheckpointOperation,
 } from "./shared/types.js";
-import type { ExecutionSession } from "@cloudflare/sandbox";
-import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
-import type {
-  TurnBrokerTurnStateCheckpointReceipt,
-  TurnBrokerTurnStateCheckpointRequest,
-} from "@stella/contracts/turn-credential-broker";
-import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
-import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
-import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 
 export interface BuildSessionInternals {
   readonly ctx: DurableObjectState;
@@ -142,7 +141,6 @@ export interface BuildSessionInternals {
     sandboxId: string | undefined,
   ): Promise<void>;
   abortResidentAgent(turn: TurnRequest): void;
-  startAppTurn(turn: TurnRequest): Promise<Response>;
   callOwnerFence(
     ownerId: string,
     path: string,
@@ -330,10 +328,6 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     error: unknown,
   ): Promise<boolean>;
-  advanceAppBuildPublication(
-    turn: TurnRequest,
-    pending: PendingAppBuildPublication,
-  ): Promise<"completed" | "failed" | "retrying" | "superseded">;
   ownsExactTurn(turn: TurnRequest): Promise<boolean>;
   mutateExactTurn(
     turn: TurnRequest,
@@ -444,8 +438,6 @@ export interface BuildSessionInternals {
   ): Response;
   projectAgentTurnStart(turn: TurnRequest): Promise<void>;
   acceptAgentTurn(turn: TurnRequest): Promise<Response>;
-  runEcho(): Promise<Response>;
-  proxyVitePreview(request: Request): Promise<Response>;
   runAgentTurn(
     turn: TurnRequest,
     sandboxId: string | undefined,
@@ -564,8 +556,4 @@ export interface BuildSessionInternals {
     coldContainerStartMs: number;
     restoreMs: number;
   }>;
-  runTurn(
-    turn: TurnRequest,
-    turnExecution: TurnExecutionContext,
-  ): Promise<Response>;
 }

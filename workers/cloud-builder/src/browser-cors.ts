@@ -4,11 +4,17 @@ const BROWSER_ORIGINS = new Set([
   "http://localhost:57314",
   "http://127.0.0.1:57314",
 ]);
-const ALLOWED_HEADERS = new Set(["authorization", "content-type", "x-stella-expected-subject"]);
+const ALLOWED_HEADERS = new Set([
+  "authorization",
+  "content-type",
+  "x-stella-expected-subject",
+]);
 
 const isBrowserRoute = (path: string): boolean =>
-  /^\/conversations\/[^/]+\/(turns|history|socket|journal|local-turns\/(begin|finish))$/u.test(path) ||
-  /^\/owners\/me\/(devices|dispatches)(\/|$)/u.test(path) ||
+  /^\/conversations\/[^/]+\/(turns|history|socket|journal|local-turns\/(begin|finish))$/u.test(
+    path,
+  ) ||
+  /^\/owners\/me\/(devices|dispatches|apps)(\/|$)/u.test(path) ||
   path.startsWith("/cloud-home/");
 
 /** CORS grants browser access only; the router still authenticates every operation. */
@@ -17,14 +23,32 @@ export async function withBrowserCors(
   handle: () => Promise<Response>,
 ): Promise<Response> {
   const origin = request.headers.get("origin");
-  if (!origin || !isBrowserRoute(new URL(request.url).pathname)) return handle();
-  const allowed = BROWSER_ORIGINS.has(origin);
+  if (!origin || !isBrowserRoute(new URL(request.url).pathname))
+    return handle();
+  const appRoute = /^\/owners\/me\/apps(\/|$)/.test(
+    new URL(request.url).pathname,
+  );
+  // Packaged Electron has an opaque file origin; isolated dev runs use random
+  // loopback ports. These routes require a bearer JWT and never use cookies.
+  const allowed =
+    BROWSER_ORIGINS.has(origin) ||
+    (appRoute &&
+      (origin === "null" ||
+        /^http:\/\/(localhost|127\.0\.0\.1):[0-9]+$/.test(origin)));
   if (request.method === "OPTIONS") {
     const method = request.headers.get("access-control-request-method");
-    const headers = (request.headers.get("access-control-request-headers") ?? "")
-      .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
-    if (!allowed || !method || !["GET", "POST"].includes(method) ||
-        headers.some((header) => !ALLOWED_HEADERS.has(header))) {
+    const headers = (
+      request.headers.get("access-control-request-headers") ?? ""
+    )
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (
+      !allowed ||
+      !method ||
+      !["GET", "POST"].includes(method) ||
+      headers.some((header) => !ALLOWED_HEADERS.has(header))
+    ) {
       return new Response(null, { status: 403, headers: { Vary: "Origin" } });
     }
     return new Response(null, {

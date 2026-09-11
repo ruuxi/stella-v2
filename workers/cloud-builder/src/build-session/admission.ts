@@ -1,9 +1,3 @@
-import {
-  TURN_PLANE_PROTOCOL,
-  type CloudAgentTurnStartRequest,
-  type CloudAgentTurnStartResponse,
-  type CloudTurnSource,
-} from "@stella/contracts/turn-plane/turn-start";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   OutboxEvent,
@@ -11,6 +5,12 @@ import type {
   TurnStartedEvent,
 } from "@stella/contracts/turn-plane/outbox";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import {
+  TURN_PLANE_PROTOCOL,
+  type CloudAgentTurnStartRequest,
+  type CloudAgentTurnStartResponse,
+  type CloudTurnSource,
+} from "@stella/contracts/turn-plane/turn-start";
 import { mintTurnCapabilities } from "../capability-signer.js";
 import type { ExactTurnCancellation } from "../execution-placement-turn-cancellation.js";
 import {
@@ -77,7 +77,6 @@ export type AdmissionHost = Pick<
   | "runAgentTurn"
   | "runContainerAgentTurn"
   | "runResidentAgentTurn"
-  | "runTurn"
   | "startAgentTurn"
   | "terminateCurrentAgentSession"
   | "trackTurn"
@@ -171,31 +170,6 @@ const abortResidentAgent = (host: AdmissionHost, turn: TurnRequest): void => {
       message: errorMessage(error),
     });
   }
-};
-
-export const startAppTurn = (
-  host: AdmissionHost,
-  turn: TurnRequest,
-): Promise<Response> => {
-  const existing = host.appTurnExecutions.get(turn.turnId);
-  if (existing) return existing.settled;
-  const execution = startTurnExecution({
-    work: (context) => host.runTurn(turn, context),
-    // A pending platform createSession may materialize after the first
-    // destroy. Interrupt closes the local admission latch; the second sweep
-    // runs only after the underlying app-turn promise has unwound.
-    onInterrupt: () => host.terminateCurrentAgentSession(turn),
-    afterInterrupt: () => host.terminateCurrentAgentSession(turn),
-  });
-  host.appTurnExecutions.set(turn.turnId, execution);
-  const tracked = host.trackTurn(turn.turnId, execution.settled);
-  const clear = () => {
-    if (host.appTurnExecutions.get(turn.turnId) === execution) {
-      host.appTurnExecutions.delete(turn.turnId);
-    }
-  };
-  void tracked.then(clear, clear);
-  return tracked;
 };
 
 export const admittedResidentPlacement = async (

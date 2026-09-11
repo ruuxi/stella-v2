@@ -23,6 +23,7 @@ import {
   type SandboxTarget,
 } from "../sandbox-lifecycle.js";
 import type { BuildSessionInternals } from "./host.js";
+import { validBuilderFallbackMessages } from "./public-helpers.js";
 import {
   AgentTurnAuthorityLostError,
   OwnerPurgeFenceError,
@@ -48,7 +49,6 @@ import {
   pendingAppBuildPublicationKey,
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
-import { validBuilderFallbackMessages } from "./public-helpers.js";
 import type {
   AgentComputeRecoveryClaim,
   AgentExecutionMarker,
@@ -71,7 +71,6 @@ export type AlarmsRecoveryHost = Pick<
   | "abortUnpublishedTurnStateOperation"
   | "acknowledgeExactCancellationFromAlarm"
   | "admittedResidentPlacement"
-  | "advanceAppBuildPublication"
   | "advanceBuilderFallback"
   | "appendThreadTranscript"
   | "assertAgentTurnIdentity"
@@ -290,51 +289,6 @@ export const runAlarm = async (
   turn: TurnRequest,
 ): Promise<void> => {
   if (!(await host.ownsExactTurn(turn))) return;
-  let appPublication = await host.ctx.storage.get<PendingAppBuildPublication>(
-    pendingAppBuildPublicationKey(turn.turnId),
-  );
-  const transientBuild = await host.ctx.storage.get<string>(
-    `transientBuild:${turn.turnId}`,
-  );
-  if (!appPublication && transientBuild && turn.kind !== "agent") {
-    // The watchdog/cancel may land during upload, before the callback replay
-    // record exists. Fence further R2/KV writes first, then turn the bare
-    // marker into durable cleanup work before any deleteAll can erase it.
-    appPublication = {
-      turnId: turn.turnId,
-      phase: "cleanup",
-      artifactPrefix: transientBuild,
-      callbackBody: {},
-      completionSeq: "auto",
-      completionResult: {},
-      failureMessage: "The app-build turn ended before publication.",
-    };
-    if (
-      !(await host.mutateExactTurn(turn, async (txn) => {
-        await txn.put({
-          terminal: true,
-          [pendingAppBuildPublicationKey(turn.turnId)]: appPublication!,
-        });
-      }))
-    ) {
-      return;
-    }
-  }
-  if (appPublication?.turnId === turn.turnId) {
-    const outcome = await host.advanceAppBuildPublication(turn, appPublication);
-    if (outcome !== "retrying" && (await host.ownsExactTurn(turn))) {
-      const target = await host.currentSandboxTarget();
-      if (await host.ownsExactTurn(turn)) {
-        if (target) {
-          await host
-            .destroySandboxDurably(target, "app_publication_alarm")
-            .catch(() => undefined);
-        }
-      }
-      await host.retireTerminalAppTurnStorage(turn);
-    }
-    return;
-  }
   const browserSuspension =
     await host.ctx.storage.get<PendingBrowserSuspension>(
       PENDING_BROWSER_SUSPENSION_KEY,

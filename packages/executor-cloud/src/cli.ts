@@ -1,23 +1,22 @@
-import { Effect } from "effect";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import "@stella/runtime/ai/utils/http-proxy.js";
 import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
+import "@stella/runtime/ai/utils/http-proxy.js";
 import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
+import { Effect } from "effect";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { runStubTurn } from "./stub-turn.js";
-import { runAppTurn } from "./app-turn.js";
-import { runAgentTurn } from "./agent-turn.js";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "./agent-turn-result-file.js";
-import { attachedToolPathsForDirectory } from "./attached-tool-protocol.js";
+import { runAgentTurn } from "./agent-turn.js";
+import {
+  attachedToolClientPaths,
+  runAttachedToolClient,
+} from "./attached-tool-client.js";
 import {
   parseAttachedToolHostInput,
   runAttachedToolHost,
   writeAttachedToolDaemonIdentity,
 } from "./attached-tool-host.js";
-import {
-  attachedToolClientPaths,
-  runAttachedToolClient,
-} from "./attached-tool-client.js";
+import { attachedToolPathsForDirectory } from "./attached-tool-protocol.js";
+import { runStubTurn } from "./stub-turn.js";
 
 await loadModelRegistry();
 registerBuiltInApiProviders();
@@ -82,15 +81,11 @@ const result = process.argv.includes("--stub")
   ? await Effect.runPromise(
       runStubTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace"),
     )
-  : process.argv.includes("--app-turn")
-    ? await Effect.runPromise(
-        runAppTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace/app"),
-      )
-    : agentTurn
-      ? await Effect.runPromise(runAgentTurn())
-      : (() => {
-          throw new Error("executor-cloud requires a supported command.");
-        })();
+  : agentTurn
+    ? await Effect.runPromise(runAgentTurn())
+    : (() => {
+        throw new Error("executor-cloud requires a supported command.");
+      })();
 const serialized = JSON.stringify(result);
 if (agentTurn) {
   await writeFile(CLOUD_AGENT_TURN_RESULT_PATH, `${serialized}\n`, {

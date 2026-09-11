@@ -6,7 +6,10 @@
   "no_bundle": true,
   "find_additional_modules": true,
   "base_dir": ".wrangler/worker-build",
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js"], "fallthrough": true }],
+  "rules": [
+    { "type": "ESModule", "globs": ["**/*.js"], "fallthrough": true },
+    { "type": "CompiledWasm", "fallthrough": false, "globs": ["**/*.wasm"] },
+  ],
   "build": {
     "command": "node scripts/build-worker.mjs",
     "watch_dir": [

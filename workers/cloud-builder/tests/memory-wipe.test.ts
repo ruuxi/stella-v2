@@ -279,7 +279,9 @@ describe("memory-only R2 wipe", () => {
       },
       assertActive: () => undefined,
     });
-    const materializedRoot = materialized.entries[0]!.root;
+    const materializedRoot = materialized.entries.find(
+      (entry) => entry.slug === "calendar-imported",
+    )!.root;
     expect(writes.get(`${materializedRoot}/SKILL.md`)).toEqual(skillBytes);
     expect(writes.get(`${materializedRoot}/memories/MEMORY.md`)).toEqual(
       referenceBytes,

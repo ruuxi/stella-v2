@@ -1,14 +1,14 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   sidebarSections,
   useSidebarOpenTabs,
   useSidebarSectionLocation,
 } from "@/features/workspace-display/sidebar-sections";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CloudAppPanel } from "./CloudAppPanel";
 import { CloudBoundary } from "./CloudBoundary";
 import { cloudAppTitles } from "./cloud-app-title-store";
 import { cloudAppIdFromLocation } from "./open-cloud-app-panel";
-import { useCloudApps, type CloudAppsState } from "./use-cloud-apps";
+import type { CloudAppsState } from "./use-cloud-apps";
 
 function AccountScopedCloudAppsHost({ state }: { state: CloudAppsState }) {
   const openLocation = useSidebarSectionLocation("apps");
@@ -58,9 +58,7 @@ function AccountScopedCloudAppsHost({ state }: { state: CloudAppsState }) {
           role={state.phase === "error" ? "alert" : "status"}
         >
           <strong>
-            {state.phase === "error"
-              ? "Cloud apps are unavailable"
-              : "Opening cloud app…"}
+            {state.phase === "error" ? "Apps are unavailable" : "Opening app…"}
           </strong>
           {state.error ? <span>{state.error}</span> : null}
         </div>
@@ -86,7 +84,7 @@ function AccountScopedCloudAppsHost({ state }: { state: CloudAppsState }) {
             <CloudBoundary
               fallback={
                 <div className="persistent-user-app-status" role="alert">
-                  <strong>Cloud app unavailable</strong>
+                  <strong>App unavailable</strong>
                   <span>Close this tab and try opening it again.</span>
                 </div>
               }
@@ -100,10 +98,6 @@ function AccountScopedCloudAppsHost({ state }: { state: CloudAppsState }) {
   );
 }
 
-export function PersistentCloudAppsHost() {
-  const state = useCloudApps();
-  return (
-    <AccountScopedCloudAppsHost key={state.accountScope} state={state} />
-  );
+export function PersistentCloudAppsHost({ state }: { state: CloudAppsState }) {
+  return <AccountScopedCloudAppsHost key={state.accountScope} state={state} />;
 }
-

@@ -23,9 +23,8 @@ function CloudAppDeepLink() {
   return (
     <main className="apps-screen apps-screen--status" role="status">
       {cloudApps.phase === "error"
-        ? "Cloud apps are unavailable right now."
+        ? "Apps are unavailable right now."
         : "Opening app…"}
     </main>
   );
 }
-

@@ -1,8 +1,8 @@
+import { APP_INTEGRITY_HEADER } from "@stella/contracts/app-integrity";
+import { AUTH_CAPTCHA_HEADER } from "@stella/contracts/auth-challenge";
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
-import { AUTH_CAPTCHA_HEADER } from "@stella/contracts/auth-challenge";
-import { APP_INTEGRITY_HEADER } from "@stella/contracts/app-integrity";
 import { corsPreflightHandler } from "./http_shared/cors";
 
 // Route modules
@@ -12,23 +12,22 @@ import { registerMediaRoutes } from "./http_routes/media";
 import { registerMobileRoutes } from "./http_routes/mobile";
 import { registerNativeOAuthRoutes } from "./http_routes/native_oauth";
 
+import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
+import { registerCloudAgentRoutes } from "./http_routes/cloud_agent";
+import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
+import { registerCloudConnectorConnectRoutes } from "./http_routes/cloud_connector_connect";
+import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
+import { registerCloudHomeRoutes } from "./http_routes/cloud_home";
+import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
+import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
+import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerMusicRoutes } from "./http_routes/music";
+import { registerOutboxRoutes } from "./http_routes/outbox";
 import { registerStripeRoutes } from "./http_routes/stripe";
 import { registerSynthesisRoutes } from "./http_routes/synthesis";
 import { registerVoiceRoutes } from "./http_routes/voice";
-import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
 import { registerXBotRoutes } from "./http_routes/x_bot";
-import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
-import { registerOutboxRoutes } from "./http_routes/outbox";
-import { registerCloudAgentRoutes } from "./http_routes/cloud_agent";
-import { registerCloudHomeRoutes } from "./http_routes/cloud_home";
-import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
-import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
-import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
-import { registerCloudConnectorConnectRoutes } from "./http_routes/cloud_connector_connect";
-import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
-import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
 import { registerGatewayRoutes } from "./http_routes/gateway";
@@ -79,7 +78,6 @@ registerCloudDriveRoutes(http);
 registerCloudProjectRoutes(http);
 registerCloudIntegrationRoutes(http);
 registerCloudConnectorConnectRoutes(http);
-registerAppsSdkRoutes(http);
 registerAppIntegrityRoutes(http);
 
 registerStripeRoutes(http);

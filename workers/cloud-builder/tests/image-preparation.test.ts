@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
+import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "bun:test";
 
 const workerRoot = path.resolve(import.meta.dir, "..");
 const prepareScript = path.join(workerRoot, "scripts", "prepare-image.mjs");
@@ -66,8 +66,6 @@ describe("Sandbox image preparation", () => {
       };
       expect(Object.keys(parsedLock.workspaces)).toEqual([
         "",
-        "packages/app-template",
-        "packages/apps-sdk",
         "packages/contracts",
         "packages/executor-cloud",
         "packages/model-catalog",

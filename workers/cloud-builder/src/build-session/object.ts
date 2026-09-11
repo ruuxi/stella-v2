@@ -1,5 +1,5 @@
-import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
+import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
@@ -19,7 +19,6 @@ import {
   agentTurnAccepted,
   runAgentTurn,
   startAgentTurn,
-  startAppTurn,
   turnRequestFromAgentStart,
 } from "../build-session/admission.js";
 import {
@@ -33,12 +32,6 @@ import {
   runAlarmWithLease,
   runScheduledTurnAlarm,
 } from "../build-session/alarms-recovery.js";
-import {
-  advanceAppBuildPublication,
-  proxyVitePreview,
-  runEcho,
-  runTurn,
-} from "../build-session/app-build.js";
 import {
   attachAgentWorld,
   clearUnattachedAgentSandboxTuple,
@@ -123,7 +116,6 @@ import {
   OwnerPurgeFenceError,
 } from "../build-session/shared/errors.js";
 import {
-  bindObservedBrowserSuspensionToCanonicalCodeCall,
   builderFallbackTranscriptKey,
   HEADER_BUILD_SESSION_NAME,
   HEADER_PREVIEW_BASE_URL,
@@ -136,7 +128,6 @@ import type {
   BuilderFallbackInput,
   BuilderFallbackTranscript,
   BuildOwnerFenceLeaseReceipt,
-  PendingAppBuildPublication,
   PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
@@ -166,13 +157,13 @@ import {
   resolveAgentTurnState,
 } from "../build-session/turn-broker.js";
 import type { CloudAgentDispatchDependencies } from "../cloud-agent-dispatch.js";
-import {
-  ExactTurnCancellationLedger,
-  parseExactTurnCancellationRequest,
-} from "../execution-placement-turn-cancellation.js";
 import type {
   ExactTurnCancellation,
   ExactTurnCancellationRequest,
+} from "../execution-placement-turn-cancellation.js";
+import {
+  ExactTurnCancellationLedger,
+  parseExactTurnCancellationRequest,
 } from "../execution-placement-turn-cancellation.js";
 import type {
   GeneralAgentTurnPlan,
@@ -353,11 +344,6 @@ export class BuildSessionObject extends DurableObject<Env> {
     sandboxId: string | undefined,
   ): Promise<void> {
     return startAgentTurn(this.self, turn, sandboxId);
-  }
-
-  /** @see src/build-session/admission.ts */
-  private startAppTurn(turn: TurnRequest): Promise<Response> {
-    return startAppTurn(this.self, turn);
   }
 
   /** @see src/build-session/session-core.ts */
@@ -794,14 +780,6 @@ export class BuildSessionObject extends DurableObject<Env> {
     return releaseAgentSessionResources(this.self, target);
   }
 
-  /** @see src/build-session/app-build.ts */
-  private advanceAppBuildPublication(
-    turn: TurnRequest,
-    pending: PendingAppBuildPublication,
-  ): Promise<"completed" | "failed" | "retrying" | "superseded"> {
-    return advanceAppBuildPublication(this.self, turn, pending);
-  }
-
   /** @see src/build-session/session-core.ts */
   private ownsExactTurn(turn: TurnRequest): Promise<boolean> {
     return ownsExactTurn(this.self, turn);
@@ -972,7 +950,7 @@ export class BuildSessionObject extends DurableObject<Env> {
       url.pathname === "/vite-preview" ||
       url.pathname.startsWith("/vite-preview/")
     ) {
-      return await this.proxyVitePreview(request);
+      return json({ error: "Not found." }, 404);
     }
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
@@ -1002,14 +980,13 @@ export class BuildSessionObject extends DurableObject<Env> {
           : "The agent was stopped.";
       return await this.cancelExactAgentTurn(cancellation, reason);
     }
-    if (url.pathname === "/echo") return this.runEcho();
+
     if (url.pathname !== "/turn") return json({ error: "Not found." }, 404);
     const raw = (await request.json().catch(() => null)) as unknown;
     // An agent attempt arrives in the turn-plane contract shape and is
     // validated by the same parser the public `/sessions/:id/turns` route
     // uses, so the orchestrator's direct dispatch and Convex's service call
-    // are admitted by one rule rather than two. The app-build lane keeps its
-    // own dispatch payload.
+    // are admitted by one rule.
     let turn: TurnRequest;
     if (
       raw &&
@@ -1021,7 +998,7 @@ export class BuildSessionObject extends DurableObject<Env> {
       if (!parsed.ok) return json({ error: parsed.message }, 400);
       turn = turnRequestFromAgentStart(parsed.request);
     } else {
-      turn = (raw ?? {}) as TurnRequest;
+      return json({ error: "Unsupported turn kind." }, 400);
     }
     // These fields come only from the authenticated outer gateway. Delete any
     // body-shaped values first so a service caller cannot choose where the
@@ -1287,8 +1264,7 @@ export class BuildSessionObject extends DurableObject<Env> {
         this.assertAgentTurnIdentity(turn);
         return await this.acceptAgentTurn(turn);
       }
-      this.assertAppTurnIdentity(turn);
-      return await this.startAppTurn(turn);
+      return json({ error: "Unsupported turn kind." }, 400);
     } catch (error) {
       await this.unregisterTurn(turn);
       if (admitted) await this.releaseOwnerGate(turn);
@@ -1336,16 +1312,6 @@ export class BuildSessionObject extends DurableObject<Env> {
   /** @see src/build-session/admission.ts */
   private acceptAgentTurn(turn: TurnRequest): Promise<Response> {
     return acceptAgentTurn(this.self, turn);
-  }
-
-  /** @see src/build-session/app-build.ts */
-  private runEcho(): Promise<Response> {
-    return runEcho(this.self);
-  }
-
-  /** @see src/build-session/app-build.ts */
-  private proxyVitePreview(request: Request): Promise<Response> {
-    return proxyVitePreview(this.self, request);
   }
 
   /** @see src/build-session/admission.ts */
@@ -1429,13 +1395,5 @@ export class BuildSessionObject extends DurableObject<Env> {
     args: Parameters<typeof runAgentAttempt>[1],
   ): ReturnType<typeof runAgentAttempt> {
     return runAgentAttempt(this.self, args);
-  }
-
-  /** @see src/build-session/app-build.ts */
-  private runTurn(
-    turn: TurnRequest,
-    turnExecution: TurnExecutionContext,
-  ): Promise<Response> {
-    return runTurn(this.self, turn, turnExecution);
   }
 }

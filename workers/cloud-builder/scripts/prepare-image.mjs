@@ -65,8 +65,6 @@ if (customOutput && !generatedRefreshRoot) {
 await mkdir(path.join(imageRoot, "packages"), { recursive: true });
 
 const imagePackages = [
-  "app-template",
-  "apps-sdk",
   "contracts",
   "runtime",
   "executor-cloud",

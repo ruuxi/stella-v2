@@ -12,8 +12,8 @@
  * and scroll position. Everything about where the host sits in this tree
  * exists to keep its DOM nodes still.
  */
-import { useEffect, useState, useSyncExternalStore } from "react";
 import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
+import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { listUserApps, useRequestUserApp } from "@/app/apps/user-app-library";
 import {
   getServerSnapshot,
@@ -22,10 +22,10 @@ import {
   stopUserApp,
   subscribe,
 } from "@/app/apps/user-apps-registry";
-import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { CloudAppsLibrary } from "@/features/cloud/CloudAppsLibrary";
 import { PersistentCloudAppsHost } from "@/features/cloud/PersistentCloudAppsHost";
 import { isCloudAppLocation } from "@/features/cloud/open-cloud-app-panel";
+import { useCloudApps } from "@/features/cloud/use-cloud-apps";
 import {
   sidebarSections,
   useActiveSidebarSection,
@@ -33,9 +33,10 @@ import {
   useSidebarSectionLocation,
 } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { AppWindowMac, LoaderCircle, Power } from "@/ui/icons";
-import "./apps-section.css";
 import { platformCapabilities } from "@/platform/capabilities";
+import { AppWindowMac, LoaderCircle, Power } from "@/ui/icons";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import "./apps-section.css";
 export function AppsSection() {
   const registry = useSyncExternalStore(
     subscribe,
@@ -43,6 +44,7 @@ export function AppsSection() {
     getServerSnapshot,
   );
   const apps = registry.apps;
+  const cloudApps = useCloudApps();
   const openSlug = useSidebarSectionLocation("apps");
   const sidebarTabs = useSidebarOpenTabs();
   const activeSection = useActiveSidebarSection();
@@ -81,19 +83,24 @@ export function AppsSection() {
       <div className="apps-section__body">
         {openApp || openCloudApp ? null : (
           <div className="apps-section__library">
-            <CloudAppsLibrary />
+            <CloudAppsLibrary state={cloudApps} />
             {platformCapabilities.localFiles ? (
-              <AppsLibrary registry={registry} />
+              <AppsLibrary
+                registry={registry}
+                hideEmpty={
+                  cloudApps.apps.length > 0 || cloudApps.phase === "loading"
+                }
+              />
             ) : null}
           </div>
         )}
-        <PersistentCloudAppsHost />
+        <PersistentCloudAppsHost state={cloudApps} />
         {platformCapabilities.localFiles ? <PersistentUserAppsHost /> : null}
       </div>
     </>
   );
 }
-function AppsLibrary({ registry }) {
+function AppsLibrary({ registry, hideEmpty }) {
   const requestUserApp = useRequestUserApp();
   const [stoppingSlugs, setStoppingSlugs] = useState(() => new Set());
   const { apps, error, phase, refreshing } = registry;
@@ -168,6 +175,7 @@ function AppsLibrary({ registry }) {
       </div>
     );
   }
+  if (apps.length === 0 && hideEmpty) return null;
   if (apps.length === 0) {
     return (
       <div className="apps-section__local-library sidebar-section__empty">

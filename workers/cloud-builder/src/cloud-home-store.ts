@@ -1,3 +1,8 @@
+import {
+  builtinCloudAppSkill,
+  CLOUD_APP_SKILL_ID,
+  cloudAppSkillSource,
+} from "./builtin-cloud-app-skill.js";
 import { sha256BytesHex, sha256Hex } from "./hash.js";
 
 const textEncoder = new TextEncoder();
@@ -995,7 +1000,9 @@ export class CloudHomeStore {
     if (!Array.isArray(payload)) {
       throw new CloudHomeProtocolError("Cloud skill catalog was invalid.");
     }
-    const parsed = payload.map(parseSkillEntry);
+    const parsed = payload
+      .map(parseSkillEntry)
+      .filter((entry) => entry.slug !== "create-stella-cloud-app");
     const identities = new Set<string>();
     const slugs = new Set<string>();
     const entries: CloudSkillCatalogEntry[] = [];
@@ -1028,7 +1035,11 @@ export class CloudHomeStore {
       ownerGeneration: this.endpoint.ownerGeneration,
       agentType,
       loadedAt: Date.now(),
-      entries: Object.freeze(entries.map((entry) => Object.freeze(entry))),
+      entries: Object.freeze(
+        [await builtinCloudAppSkill(), ...entries].map((entry) =>
+          Object.freeze(entry),
+        ),
+      ),
     });
   }
 
@@ -1080,6 +1091,8 @@ export class CloudHomeStore {
         "That file is not in the pinned mirrored skill version.",
       );
     }
+    if (entry.skillId === CLOUD_APP_SKILL_ID && safePath === "SKILL.md")
+      return new TextEncoder().encode(cloudAppSkillSource);
     return await this.verifyObject(file.r2Key, {
       sha256: file.sha256,
       sizeBytes: file.sizeBytes,

@@ -129,10 +129,7 @@ import {
   GATEWAY_PREPARE_PATH,
   GATEWAY_RESOLVE_PATH,
 } from "@stella/contracts/gateway/api";
-import {
-  createCloudRelaySession,
-  resolveCloudThinkingLevel,
-} from "@stella/executor-cloud/relay-model";
+import { createCloudRelaySession } from "@stella/executor-cloud/relay-model";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
@@ -5051,10 +5048,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         initialState: {
           systemPrompt: context.state.systemPrompt,
           model: relaySession.model,
-          thinkingLevel: resolveCloudThinkingLevel(
-            relaySession.model,
-            executionSelection.reasoningEffort,
-          ),
           tools: context.tools,
           messages: history,
         },

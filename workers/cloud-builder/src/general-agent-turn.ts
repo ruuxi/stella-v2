@@ -51,10 +51,7 @@ import {
   buildGeneralAgentPrompt,
   type GeneralAgentPromptSkills,
 } from "@stella/executor-cloud/general-agent-prompt";
-import {
-  createCloudRelayModel,
-  resolveCloudThinkingLevel,
-} from "@stella/executor-cloud/relay-model";
+import { createCloudRelayModel } from "@stella/executor-cloud/relay-model";
 import type {
   CanonicalTranscriptReceipt,
   GeneralAgentControlPlane,
@@ -874,10 +871,6 @@ export const runResidentStellaLoop = async (
           : {}),
       }),
       model,
-      thinkingLevel: resolveCloudThinkingLevel(
-        model,
-        input.execution.reasoningEffort,
-      ),
       tools: [...input.tools],
       messages: [...history, promptMessage, ...initialSteer],
     },

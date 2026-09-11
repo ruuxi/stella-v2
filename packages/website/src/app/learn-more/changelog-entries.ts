@@ -24,6 +24,240 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    "release": "v0.1.101",
+    "date": "September 10, 2026",
+    "tags": [
+      "Polish",
+      "Fixes"
+    ],
+    "highlights": [
+      "Files and connected-app actions appear as compact pills above Stella's replies, with fewer duplicate links and cards.",
+      "Open files from Stella Drive directly in the workspace panel.",
+      "Reply navigation and focused conversations are easier to follow across desktop and mobile."
+    ],
+    "more": [
+      "New chats enter your history after you send the first message, keeping unused empty chats out of the list.",
+      {
+        "text": "Scrolling stays steadier when you drag through a conversation while a reply arrives.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Read-aloud starts and recovers from interrupted playback more reliably.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Settings stays accessible while your computer connects, and activity lists show fewer duplicate file entries.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.94 – v0.1.100",
+    "date": "September 7–8, 2026",
+    "tags": [
+      "New",
+      "Fixes"
+    ],
+    "highlights": [
+      "Replies to earlier messages now include a quote you can follow back to the original ask. Open a focused conversation to read the exchange together.",
+      "When a background task finishes, its reply brings the task reference and produced files together.",
+      "Create a new chat from Conversation history. Empty chats show Home automatically."
+    ],
+    "more": [
+      "Brief connection interruptions no longer immediately show an offline notice.",
+      "ChatGPT connections recover expired sessions more reliably and show a reconnect notice when sign-in is needed.",
+      "Background tasks with similar descriptions keep their own identities and results.",
+      {
+        "text": "Conversation text stays visible while messages sync, and replies from your paired computer arrive in the right order.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Realtime voice starts more reliably and has updated character animations for each stage of the conversation.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Refined the composer, theme controls, and file links in completed task replies.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.86 – v0.1.93",
+    "date": "September 5–7, 2026",
+    "tags": [
+      "New",
+      "Polish"
+    ],
+    "highlights": [
+      "Use Stella across desktop, browser, and phone, with conversation history available across clients.",
+      "Background agents can work through hosted services as well as your computer, then bring their results back into your conversation.",
+      "Dictation shows listening feedback as you speak and handles interrupted recordings more reliably."
+    ],
+    "more": [
+      "Stella responds with working feedback sooner, and the indicator settles when the response is complete even if background tasks are still running.",
+      "File attachments keep the references agents need to read them, while internal attachment details stay out of your visible message.",
+      "Browser chat supports attachments and remembers your model choices.",
+      "Improved recovery for interrupted agent work and access to completed task reports.",
+      "Large conversation histories load in smaller portions to keep navigation responsive.",
+      {
+        "text": "Create chats, switch conversations, and choose a model without connecting to a computer.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Photos and files remain available in conversation history, and previews recover after your computer reconnects.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Updated menus, settings sheets, text selection, and screen spacing, with fixes for Android touch controls and guest sessions.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.82 – v0.1.85",
+    "date": "August 28–29, 2026",
+    "tags": [
+      "New",
+      "Polish"
+    ],
+    "highlights": [
+      "Desktop updates download in the background so they're ready for a one-click install.",
+      "Stella can run apps made of multiple processes, including projects with a separate frontend and server.",
+      "Connect a Link wallet from Stella and manage the connection in Settings."
+    ],
+    "more": [
+      "Working feedback now sits in a chat bubble with a cleaner transition into Stella's reply.",
+      "Model controls are available without enabling Developer mode.",
+      "Rewinding a conversation also clears leftover reply overlays.",
+      "Links in chat open in Stella's browser.",
+      "Improved Claude Code startup and delivery of follow-up instructions while an agent is working.",
+      {
+        "text": "Long chats load in portions and keep your reading position more reliably.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Animations pause while the app is in the background, and the onboarding character has a new face.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.72 – v0.1.81",
+    "date": "August 24–27, 2026",
+    "tags": [
+      "Polish",
+      "Fixes"
+    ],
+    "highlights": [
+      "Long conversations use less work to load and update, and large CSV previews are capped to keep the interface responsive.",
+      "Scheduling tools now handle recurring check-ins and edits alongside other scheduled work.",
+      "Windows releases are signed and verified, with fixes for dragging the desktop window."
+    ],
+    "more": [
+      "Working messages better follow the task Stella is performing.",
+      "Improved sign-in handoffs and session handling across the app.",
+      "The phone connection screen includes an Android download QR code.",
+      "Improved command-output handling so large or repeated output does not overwhelm a task.",
+      {
+        "text": "Selected assistant text keeps its formatting, and active agents take priority in the activity list.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Updated dictation and improved generated-image model selection.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.62 – v0.1.71",
+    "date": "August 20–22, 2026",
+    "tags": [
+      "New",
+      "Polish"
+    ],
+    "highlights": [
+      "Agent activity is easier to scan, with simpler status rows and file pills for completed work.",
+      "Long chats load older messages as you need them, while long user messages collapse to a short preview.",
+      "Rewind now removes the later conversation from the timeline and shows a visible confirmation."
+    ],
+    "more": [
+      "Improved recall of earlier conversations and custom OpenRouter model selection.",
+      "Stella can check on a background agent without interrupting its work.",
+      "Scheduled scripts can use your signed-in session more reliably.",
+      "Updated text-selection contrast and Linux onboarding layout.",
+      {
+        "text": "An activity hub brings agents and schedules together, with schedule changes appearing as they happen.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Fixed chat-sync and voice freezes, post-send scrolling jumps, and replies redrawing when they finish.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Starting dictation stops read-aloud immediately.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.50 – v0.1.61",
+    "date": "August 17–19, 2026",
+    "tags": [
+      "New",
+      "Fixes"
+    ],
+    "highlights": [
+      "Read-aloud begins playing before the full audio is ready, on desktop and mobile.",
+      "Each conversation remembers its model choice, and opening a chat from history restores its setup.",
+      "Windows updates use a Stella progress screen and handle the browser connection more reliably during restart."
+    ],
+    "more": [
+      "Long tasks better preserve your latest instruction when older context is condensed.",
+      "Cleaner working indicators hide raw command payloads and avoid blank space left by replaced replies.",
+      "Sidebar tabs recover when their underlying item is removed, and tab labels stay visible.",
+      "Browser extension setup has clearer connection states.",
+      {
+        "text": "Generated images are easier to share, with fixes for duplicate results and canceled jobs.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Read-aloud recovers from playback stalls, and dictation finishes without competing audio sessions.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Restored richer tool activity and separate cards for agent tasks.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
+    "release": "v0.1.43 – v0.1.49",
+    "date": "August 15–17, 2026",
+    "tags": [
+      "New",
+      "Fixes"
+    ],
+    "highlights": [
+      "Linux packaging now supports Arch and Omarchy.",
+      "The workspace panel has separate tabs for files, browser pages, and quick chats, with titles based on what you open.",
+      "Stella's browser keeps signed-in website sessions in sync more reliably."
+    ],
+    "more": [
+      "Switching models during a long conversation handles context limits more reliably.",
+      "Sending a message no longer clips its top or leaves it stranded halfway down the chat.",
+      "Agent rows open their transcripts, with a separate control for task details.",
+      "The phone connection dialog opens directly to pairing.",
+      {
+        "text": "Background task results appear as they finish, and activity cards stay in place while updates arrive.",
+        "product": "Mobile"
+      },
+      {
+        "text": "Improved message ordering and recovery when conversation sync falls behind.",
+        "product": "Mobile"
+      }
+    ]
+  },
+  {
     release: "v0.1.37 – v0.1.42",
     date: "August 14, 2026",
     tags: ["New", "Polish"],

@@ -7,6 +7,7 @@ import {
   usePathname,
   useRouter,
 } from "expo-router";
+import { PersistentAppsHost } from "../../src/components/PersistentAppsHost";
 import { AiConsentModal } from "../../src/components/AiConsentModal";
 import {
   grantAiConsent,
@@ -557,28 +558,32 @@ export default function MainLayout() {
  * the drawer's swipe-right owns the left edge on every route, as before.
  */
 function MainStack() {
+  const pathname = usePathname();
   return (
     <NavigationThemeProvider value={TRANSPARENT_NAVIGATION_THEME}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: "transparent" },
-          animation: "slide_from_right",
-          gestureEnabled: false,
-        }}
-      >
-        <Stack.Screen
-          name="settings"
-          options={{
-            presentation: "formSheet",
-            animation: "slide_from_bottom",
-            gestureEnabled: true,
-            sheetAllowedDetents: [0.9],
-            sheetGrabberVisible: true,
-            sheetCornerRadius: 28,
+      <View style={{ flex: 1 }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: "transparent" },
+            animation: "slide_from_right",
+            gestureEnabled: false,
           }}
-        />
-      </Stack>
+        >
+          <Stack.Screen
+            name="settings"
+            options={{
+              presentation: "formSheet",
+              animation: "slide_from_bottom",
+              gestureEnabled: true,
+              sheetAllowedDetents: [0.9],
+              sheetGrabberVisible: true,
+              sheetCornerRadius: 28,
+            }}
+          />
+        </Stack>
+        <PersistentAppsHost visible={pathname === "/apps"} />
+      </View>
     </NavigationThemeProvider>
   );
 }

@@ -3,6 +3,12 @@ import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 
 export type OwnerHomeContext = {
   revision: number;
+  /**
+   * Fingerprint of the skills the worker adds in code (not owner data), so a
+   * deploy that changes a built-in skill invalidates the durable snapshot.
+   * Convex never bumps `revision` for those: it only knows owner content.
+   */
+  builtins?: string;
   memory: Awaited<ReturnType<CloudHomeStore["getMemoryContext"]>>;
   skills: Awaited<ReturnType<CloudHomeStore["loadSkillCatalog"]>>;
 };
@@ -30,6 +36,8 @@ export class OwnerHomeContextCache {
 
   async load(args: {
     ownerGeneration: string;
+    /** Built-in skill fingerprint the caller expects; "" when none. */
+    builtins?: string;
     assertPolicy(policy: MemoryPolicy): Promise<void>;
     fetch(): Promise<Omit<OwnerHomeContext, "revision">>;
   }): Promise<OwnerHomeContext> {
@@ -41,7 +49,8 @@ export class OwnerHomeContextCache {
       if (
         cached &&
         cached.revision === revision &&
-        cached.memory.preference.ownerGeneration === args.ownerGeneration
+        cached.memory.preference.ownerGeneration === args.ownerGeneration &&
+        (cached.builtins ?? "") === (args.builtins ?? "")
       ) {
         try {
           await args.assertPolicy(cached.memory.preference);
@@ -57,7 +66,11 @@ export class OwnerHomeContextCache {
           // Reload only on policy/fence change. The fresh policy must pass too.
         }
       }
-      const loaded = { ...(await args.fetch()), revision };
+      const loaded = {
+        ...(await args.fetch()),
+        revision,
+        ...(args.builtins ? { builtins: args.builtins } : {}),
+      };
       await args.assertPolicy(loaded.memory.preference);
       if (
         ((await this.storage.get<number>(VERSION + args.ownerGeneration)) ??

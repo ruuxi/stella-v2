@@ -132,3 +132,23 @@ describe("owner context metadata", () => {
     expect((await f.cache().load(f.args)).revision).toBe(1);
   });
 });
+
+describe("built-in skill fingerprint", () => {
+  test("a deploy that changes built-in skills invalidates the durable snapshot", async () => {
+    const f = setup();
+    await f.cache().load({ ...f.args, builtins: "builtin-a" });
+    await f.cache().load({ ...f.args, builtins: "builtin-a" });
+    expect(f.reads()).toBe(1);
+    const reloaded = await f.cache().load({ ...f.args, builtins: "builtin-b" });
+    expect(reloaded.builtins).toBe("builtin-b");
+    expect(f.reads()).toBe(2);
+    await f.cache().load({ ...f.args, builtins: "builtin-b" });
+    expect(f.reads()).toBe(2);
+  });
+  test("a snapshot written before fingerprints existed is reloaded once", async () => {
+    const f = setup();
+    await f.cache().load(f.args);
+    await f.cache().load({ ...f.args, builtins: "builtin-a" });
+    expect(f.reads()).toBe(2);
+  });
+});

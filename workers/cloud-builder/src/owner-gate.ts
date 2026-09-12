@@ -1,4 +1,5 @@
 import { CloudHomeStore } from "./cloud-home-store.js";
+import { builtinCloudAppSkill } from "./builtin-cloud-app-skill.js";
 import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
 import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
 import { turnStartErrorResponse } from "./turn-start-request.js";
@@ -897,6 +898,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   async homeContext(ownerGeneration: string, fenceGeneration: string): Promise<OwnerHomeContext> {
     return await this.homeContextCache().load({
       ownerGeneration,
+      builtins: (await builtinCloudAppSkill()).versionId,
       assertPolicy: policy => this.memoryPolicy().assert(policy, fenceGeneration),
       fetch: async () => {
         if (!this.env.AGENT_HOME) throw new Error("Cloud home bucket unavailable");

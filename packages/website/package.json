@@ -11,6 +11,8 @@
     "build-google-ads-import": "bun scripts/build-google-ads-import.mjs",
     "start": "next start",
     "lint": "eslint",
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit",
     "optimize-canvas-demos": "bun scripts/optimize-canvas-screenshots.mjs"
   },
   "dependencies": {

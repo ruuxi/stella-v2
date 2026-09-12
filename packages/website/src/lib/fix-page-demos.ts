@@ -96,7 +96,8 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
     },
     {
       user: "Then launch it.",
-      reply: "Java 17 is pointed at the launcher, RAM is set, pack is up. You're in.",
+      reply:
+        "Java 17 is pointed at the launcher, RAM is set, pack is up. You're in.",
     },
   ],
   "obs-black-screen": [
@@ -107,7 +108,8 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
     },
     {
       user: "Scenes stay?",
-      reply: "Scenes and sources untouched. Test capture is live — no more black frame.",
+      reply:
+        "Scenes and sources untouched. Test capture is live — no more black frame.",
     },
   ],
   "missing-vst-plugins": [
@@ -130,7 +132,8 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
     },
     {
       user: "Leave anything that has no update.",
-      reply: "Quarantined one outdated script so the rest can run. Game starts clean.",
+      reply:
+        "Quarantined one outdated script so the rest can run. Game starts clean.",
     },
   ],
   "onedrive-moved-my-files": [
@@ -258,7 +261,8 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
     },
     {
       user: "Don't upload them anywhere.",
-      reply: "They never left your machine. 148 invoices, deduped, filed by year.",
+      reply:
+        "They never left your machine. 148 invoices, deduped, filed by year.",
     },
   ],
   "convert-mkv-to-mp4": [
@@ -269,7 +273,8 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
     },
     {
       user: "Whole folder.",
-      reply: "Batch is done. Outputs play — no upload, no DRM files in the set.",
+      reply:
+        "Batch is done. Outputs play — no upload, no DRM files in the set.",
     },
   ],
   "docker-wont-start": [
@@ -349,7 +354,9 @@ const missingDemos = FIX_PAGES.filter((page) => !FIX_PAGE_DEMOS[page.slug]).map(
   (page) => page.slug,
 );
 if (missingDemos.length > 0) {
-  throw new Error(`Missing /fix mini-chat demos for: ${missingDemos.join(", ")}`);
+  throw new Error(
+    `Missing /fix mini-chat demos for: ${missingDemos.join(", ")}`,
+  );
 }
 
 export function getFixPageDemo(slug: string): StellaMiniChatExchange[] {

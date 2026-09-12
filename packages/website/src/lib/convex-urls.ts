@@ -52,5 +52,7 @@ export const readConvexSiteUrl = (): string => {
 
 /** True when both Convex URLs are configured. Used to gate the auth provider. */
 export const isConvexConfigured = (): boolean => {
-  return tryReadConvexDeploymentUrl() !== null && tryReadConvexSiteUrl() !== null;
+  return (
+    tryReadConvexDeploymentUrl() !== null && tryReadConvexSiteUrl() !== null
+  );
 };

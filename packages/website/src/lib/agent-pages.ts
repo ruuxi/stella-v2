@@ -37,7 +37,11 @@ function abs(path: string): string {
 
 /** Standard doc header: H1 + a note pointing back to the canonical HTML page. */
 function header(title: string, route: string, ...taglines: string[]): string {
-  const lines = [`# ${title}`, "", `> Markdown version of ${abs(route)} for agents and LLMs.`];
+  const lines = [
+    `# ${title}`,
+    "",
+    `> Markdown version of ${abs(route)} for agents and LLMs.`,
+  ];
   for (const tagline of taglines) lines.push(`> ${tagline}`);
   lines.push("");
   return lines.join("\n");
@@ -335,7 +339,8 @@ export const AGENT_PAGES: AgentPage[] = [
     route: "/learn-more",
     mdPath: "/learn-more.md",
     label: "Learn More",
-    description: "Stella in detail: capabilities, access, privacy, models, and packaging.",
+    description:
+      "Stella in detail: capabilities, access, privacy, models, and packaging.",
     markdown: LEARN_MORE_MD,
   },
   {

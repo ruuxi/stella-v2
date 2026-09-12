@@ -744,6 +744,42 @@ html[data-embedded="true"] .site-header {
   backdrop-filter: blur(18px);
 }
 
+.download-menu__install {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.45rem;
+  background: var(--page-panel-strong);
+  color: var(--page-foreground);
+}
+
+.download-menu__install strong {
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.download-menu__install span {
+  color: var(--page-muted);
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.download-menu__install code {
+  overflow-x: auto;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--page-border-strong);
+  border-radius: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.download-menu__install .button--compact {
+  justify-self: start;
+}
+
 .download-menu__option {
   display: grid;
   gap: 0.18rem;

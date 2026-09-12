@@ -34,9 +34,7 @@ function probeWebGL(): WebGLProbe {
   try {
     const canvas = document.createElement("canvas");
     const gl = (canvas.getContext("webgl") ||
-      canvas.getContext(
-        "experimental-webgl",
-      )) as WebGLRenderingContext | null;
+      canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
     if (!gl) {
       cachedProbe = { tier: "none", reliableHighp: false };
       return cachedProbe;
@@ -56,8 +54,7 @@ function probeWebGL(): WebGLProbe {
       gl.FRAGMENT_SHADER,
       gl.HIGH_FLOAT,
     );
-    const reliableHighp =
-      !!fmt && fmt.precision >= 23 && fmt.rangeMax >= 127;
+    const reliableHighp = !!fmt && fmt.precision >= 23 && fmt.rangeMax >= 127;
 
     // Release the probe context immediately so we don't hold a GPU/context slot.
     gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -126,8 +123,7 @@ export function isLowPowerDevice(): boolean {
       ? (navigator as { deviceMemory?: number }).deviceMemory!
       : 0;
 
-  cachedLowPower =
-    (cores > 0 && cores <= 4) || (memory > 0 && memory <= 4);
+  cachedLowPower = (cores > 0 && cores <= 4) || (memory > 0 && memory <= 4);
   return cachedLowPower;
 }
 

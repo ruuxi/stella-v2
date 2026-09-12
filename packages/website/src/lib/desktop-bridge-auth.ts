@@ -17,10 +17,9 @@ const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
   const payload = token.split(".")[1];
   if (!payload) return null;
   try {
-    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as Record<
-      string,
-      unknown
-    >;
+    return JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    ) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -43,8 +42,9 @@ export function useDesktopBridgeAuthUser(): DesktopBridgeUser | null {
 
   useEffect(() => {
     let cancelled = false;
-    const bridge = (window as Window & { stellaDesktopStore?: DesktopStoreBridge })
-      .stellaDesktopStore;
+    const bridge = (
+      window as Window & { stellaDesktopStore?: DesktopStoreBridge }
+    ).stellaDesktopStore;
     if (!bridge?.getAuthToken) return;
 
     void bridge

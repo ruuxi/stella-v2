@@ -11,7 +11,11 @@ export type Scene = {
   /* Wait for the browser's next paint so visual updates land on real frames. */
   frame: () => Promise<number>;
   /* Type `text` through `onChar` at `ms` per character. */
-  type: (text: string, onChar: (typed: string) => void, ms?: number) => Promise<void>;
+  type: (
+    text: string,
+    onChar: (typed: string) => void,
+    ms?: number,
+  ) => Promise<void>;
 };
 
 /**
@@ -27,7 +31,10 @@ export function useSceneLoop(
   ref: RefObject<HTMLElement | null>,
   script: (scene: Scene) => Promise<void>,
   reset: () => void,
-  { threshold = 0.3, restartDelayMs = 900 }: { threshold?: number; restartDelayMs?: number } = {},
+  {
+    threshold = 0.3,
+    restartDelayMs = 900,
+  }: { threshold?: number; restartDelayMs?: number } = {},
 ) {
   const [running, setRunning] = useState(false);
   const [reduced, setReduced] = useState(false);

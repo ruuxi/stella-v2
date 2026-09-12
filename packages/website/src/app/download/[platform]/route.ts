@@ -13,16 +13,9 @@ import { NextResponse } from "next/server";
  * certificate, reducing SmartScreen friction for the still-unsigned build.
  */
 
-const R2_BASE =
-  "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable";
+import { RELEASE_ASSETS } from "@/lib/downloads";
 
-const ASSETS: Record<string, string> = {
-  windows: `${R2_BASE}/Stella.exe`,
-  "mac-arm64": `${R2_BASE}/Stella-darwin-arm64.dmg`,
-  "mac-x64": `${R2_BASE}/Stella-darwin-x64.dmg`,
-  linux: `${R2_BASE}/Stella-linux-x64.AppImage`,
-  arch: `${R2_BASE}/Stella-arch-x64.pkg.tar.xz`,
-};
+const ASSETS: Record<string, string> = RELEASE_ASSETS;
 
 export async function GET(
   request: Request,

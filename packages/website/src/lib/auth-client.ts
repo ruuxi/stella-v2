@@ -1,7 +1,10 @@
 "use client";
 
 import { createAuthClient } from "better-auth/react";
-import { convexClient, crossDomainClient } from "@convex-dev/better-auth/client/plugins";
+import {
+  convexClient,
+  crossDomainClient,
+} from "@convex-dev/better-auth/client/plugins";
 import { magicLinkClient } from "better-auth/client/plugins";
 import { readConvexSiteUrl } from "./convex-urls";
 
@@ -17,7 +20,9 @@ import { readConvexSiteUrl } from "./convex-urls";
  */
 const plugins = [convexClient(), crossDomainClient(), magicLinkClient()];
 
-type WebAuthClient = ReturnType<typeof createAuthClient<{ plugins: typeof plugins }>>;
+type WebAuthClient = ReturnType<
+  typeof createAuthClient<{ plugins: typeof plugins }>
+>;
 
 let _instance: WebAuthClient | null = null;
 

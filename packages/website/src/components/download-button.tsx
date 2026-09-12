@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { reportGoogleAdsDownload } from "@/components/google-ads-tag";
+import { INSTALL_COMMAND } from "@/lib/downloads";
 
 function AppleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -64,7 +65,7 @@ const ariaLabels: Record<Platform, string> = {
   macArm64: "Download for Mac",
   macX64: "Download for Mac",
   windows: "Download for Windows",
-  linux: "Choose a Linux download",
+  linux: "Install Stella for Linux",
 };
 
 type NavigatorUAData = {
@@ -103,6 +104,80 @@ export function usePlatform(): Platform {
     subscribeNoop,
     detectPlatform,
     () => "macArm64",
+  );
+}
+
+/**
+ * Linux install choices.
+ *
+ * The primary action is the copyable `curl … | sh` one-liner, the closest
+ * Linux equivalent of the Windows NSIS one-click installer: it installs the
+ * native pacman package on Arch/Omarchy and otherwise puts the AppImage on
+ * PATH with an application-menu entry and icon. The raw asset downloads stay
+ * available as secondary links, but they are no longer the default because
+ * both need manual steps (chmod +x, or a file manager that treats the
+ * pkg.tar.xz as a plain tarball).
+ *
+ * Exported separately from `DownloadButton` so it can be rendered — and
+ * asserted on — without user-agent platform detection.
+ */
+export function LinuxInstallOptions({
+  onSelectAsset,
+}: {
+  onSelectAsset?: (url: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyCommand() {
+    try {
+      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard denied (insecure context, permissions). The command is
+      // visible and selectable in the DOM either way.
+    }
+  }
+
+  return (
+    <>
+      <div className="download-menu__install">
+        <strong>One-line install</strong>
+        <span>Arch/Omarchy package, or AppImage with a menu entry.</span>
+        <code data-testid="linux-install-command">{INSTALL_COMMAND}</code>
+        <button
+          type="button"
+          className="button button--compact"
+          onClick={copyCommand}
+          aria-label="Copy the Stella install command"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+
+      <a
+        className="download-menu__option"
+        href={DOWNLOADS.linux}
+        onClick={(event) => {
+          event.preventDefault();
+          onSelectAsset?.(DOWNLOADS.linux);
+        }}
+      >
+        <strong>AppImage</strong>
+        <span>Direct download — you run chmod +x yourself</span>
+      </a>
+      <a
+        className="download-menu__option"
+        href={DOWNLOADS.arch}
+        onClick={(event) => {
+          event.preventDefault();
+          onSelectAsset?.(DOWNLOADS.arch);
+        }}
+      >
+        <strong>Arch / Omarchy package</strong>
+        <span>Direct .pkg.tar.xz for pacman -U</span>
+      </a>
+    </>
   );
 }
 
@@ -153,27 +228,14 @@ export function DownloadButton() {
           aria-label={ariaLabels.linux}
           title={ariaLabels.linux}
         >
-          Download Stella
+          Install Stella
           <LinuxIcon size={18} />
         </summary>
 
         <div className="download-menu__options">
-          <a
-            className="download-menu__option"
-            href={DOWNLOADS.linux}
-            onClick={(event) => handleClick(event, DOWNLOADS.linux)}
-          >
-            <strong>AppImage</strong>
-            <span>Works on most Linux distributions</span>
-          </a>
-          <a
-            className="download-menu__option"
-            href={DOWNLOADS.arch}
-            onClick={(event) => handleClick(event, DOWNLOADS.arch)}
-          >
-            <strong>Arch / Omarchy</strong>
-            <span>Native pacman package</span>
-          </a>
+          <LinuxInstallOptions
+            onSelectAsset={(url) => reportGoogleAdsDownload(url)}
+          />
         </div>
       </details>
     );

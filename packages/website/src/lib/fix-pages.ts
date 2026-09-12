@@ -244,7 +244,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "minecraft-modpack-crash",
-    cluster: "Minecraft modpack won't launch — Forge/Fabric crash, Java version mismatch",
+    cluster:
+      "Minecraft modpack won't launch — Forge/Fabric crash, Java version mismatch",
     eyebrow: "Fix it with Stella · Gaming",
     metaTitle: "Minecraft modpack crashing on launch? Stella reads the log",
     metaDescription:
@@ -274,7 +275,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "obs-black-screen",
-    cluster: "OBS Studio broken after update — black screen / no capture / audio desync",
+    cluster:
+      "OBS Studio broken after update — black screen / no capture / audio desync",
     eyebrow: "Fix it with Stella · Streaming",
     metaTitle: "OBS black screen after an update? No reinstall needed",
     metaDescription:
@@ -304,7 +306,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "missing-vst-plugins",
-    cluster: "DAW plugins vanished / VST scan crashes — FL Studio, Ableton, Reaper",
+    cluster:
+      "DAW plugins vanished / VST scan crashes — FL Studio, Ableton, Reaper",
     eyebrow: "Fix it with Stella · Music production",
     metaTitle: "Plugins missing after a DAW update? They're still there",
     metaDescription:
@@ -393,7 +396,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "organize-downloads-folder",
-    cluster: "'My Downloads folder is a swamp' — organize thousands of loose files",
+    cluster:
+      "'My Downloads folder is a swamp' — organize thousands of loose files",
     eyebrow: "Fix it with Stella · Files",
     metaTitle: "Organize a Downloads folder with thousands of files",
     metaDescription:
@@ -423,7 +427,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "plex-not-matching",
-    cluster: "Rename media so Plex/Jellyfin actually matches it (wrong poster / not showing)",
+    cluster:
+      "Rename media so Plex/Jellyfin actually matches it (wrong poster / not showing)",
     eyebrow: "Fix it with Stella · Media server",
     metaTitle: "Plex matching the wrong movie? Fix the naming, once",
     metaDescription:
@@ -483,7 +488,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "externally-managed-environment",
-    cluster: "Python environment hell outside AI — 'externally-managed-environment', venv/pip/conda conflicts",
+    cluster:
+      "Python environment hell outside AI — 'externally-managed-environment', venv/pip/conda conflicts",
     eyebrow: "Fix it with Stella · Dev environment",
     metaTitle: "'externally-managed-environment' pip error, fixed",
     metaDescription:
@@ -573,7 +579,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "git-disaster-recovery",
-    cluster: "Git disaster recovery — 'oh sh*t, git' (undo, merge conflicts, detached HEAD, wrong branch, lost work)",
+    cluster:
+      "Git disaster recovery — 'oh sh*t, git' (undo, merge conflicts, detached HEAD, wrong branch, lost work)",
     eyebrow: "Fix it with Stella · Dev tools",
     metaTitle: "Wrecked your git repo? Your work is still in there",
     metaDescription:
@@ -589,8 +596,7 @@ export const FIX_PAGES: FixPage[] = [
       "how to undo git pull that broke everything",
       "i deleted a branch how do i get my commits back git",
     ],
-    prompt:
-      "I ran git reset --hard and lost a day of work. Get it back.",
+    prompt: "I ran git reset --hard and lost a day of work. Get it back.",
     steps: [
       "Reads git status, log, and reflog to see what actually happened",
       "Finds your 'lost' commits and stashes — they're almost always recoverable",
@@ -603,7 +609,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "fix-music-tags",
-    cluster: "Fix a messy music library — ID3 tags, album art, rename & folder structure",
+    cluster:
+      "Fix a messy music library — ID3 tags, album art, rename & folder structure",
     eyebrow: "Fix it with Stella · Music library",
     metaTitle: "Fix MP3 tags and album art for your whole library",
     metaDescription:
@@ -693,7 +700,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "convert-mkv-to-mp4",
-    cluster: "“This file won't play” — convert MKV/AVI to MP4 your TV or phone accepts",
+    cluster:
+      "“This file won't play” — convert MKV/AVI to MP4 your TV or phone accepts",
     eyebrow: "Fix it with Stella · Video files",
     metaTitle: "MKV won't play on your TV? Converted to what it accepts",
     metaDescription:
@@ -723,7 +731,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "docker-wont-start",
-    cluster: "Docker & docker-compose won't start — permission-denied volumes, port already allocated, restart loops",
+    cluster:
+      "Docker & docker-compose won't start — permission-denied volumes, port already allocated, restart loops",
     eyebrow: "Fix it with Stella · Dev tools",
     metaTitle: "Docker compose won't start? Logs read, stack up green",
     metaDescription:
@@ -813,7 +822,8 @@ export const FIX_PAGES: FixPage[] = [
   },
   {
     slug: "microphone-not-working-windows",
-    cluster: "Windows microphone not working in Zoom, Discord, Teams, or recording apps",
+    cluster:
+      "Windows microphone not working in Zoom, Discord, Teams, or recording apps",
     eyebrow: "Fix it with Stella · Windows audio",
     metaTitle: "Microphone not working in Windows? Test and fix the real cause",
     metaDescription:

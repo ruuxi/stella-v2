@@ -181,6 +181,38 @@ repository, installed Stella app, or live v1 feed is read or modified by this
 verification. Its dedicated updater and ShipIt caches are removed when the run
 ends.
 
+## Linux install path
+
+Linux ships two artifacts from the same `--linux AppImage pacman --x64` build:
+`Stella-linux-x64.AppImage` and `Stella-arch-x64.pkg.tar.xz`. Only x64 is
+published, so anything else must fail loudly rather than download a binary that
+cannot run.
+
+Neither raw artifact is a one-click install on its own: an AppImage needs
+`chmod +x` and has no menu entry until its first run installs one (see
+`packages/desktop/electron/linux-desktop-integration.js`), and a file manager
+treats the pacman package as a plain tarball. The one-click-equivalent entry
+point is therefore the website installer script,
+`curl -fsSL https://stella.sh/install.sh | sh`
+(`packages/website/src/lib/install-script.ts`, served by
+`packages/website/src/app/install.sh/route.ts`). It is POSIX sh and idempotent:
+
+- Arch/Omarchy (pacman present, or `/etc/arch-release`): downloads the
+  `.pkg.tar.xz` and runs `pacman -U --noconfirm` through sudo when not root.
+  The package supplies its own desktop entry.
+- Every other distribution: installs the AppImage to `~/.local/bin`, marks it
+  executable, and writes `~/.local/share/applications/stella-v2.desktop` plus a
+  512x512 hicolor icon, then refreshes `update-desktop-database` and points
+  `x-scheme-handler/stella` at the entry. The entry is byte-identical to the one
+  the app writes on first run, so first launch is a no-op.
+- macOS keeps its existing architecture-matched DMG download.
+
+Release asset URLs for the script, the `/download/<platform>` redirects, and the
+website download button all come from `packages/website/src/lib/downloads.ts`;
+rename a stable alias in the release workflow and that file is the only place to
+update. Tests live in `packages/website/tests` (`bun run website:test`) and
+execute the script under `/bin/sh` with `uname`, `curl`, and `pacman` stubbed.
+
 ## Human release gates
 
 M4 stops locally. To run the real release:

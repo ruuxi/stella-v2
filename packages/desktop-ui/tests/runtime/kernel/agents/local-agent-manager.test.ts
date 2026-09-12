@@ -21,7 +21,7 @@ import {
   decorateTask,
   getTaskDecoration,
 } from "@/features/chat/streaming/task-decoration-store";
-import { waitForAgentSettled } from "../../../helpers/agent.js";
+import { waitForAgentSettled } from "../../../../../runtime/tests/helpers/agent.js";
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));

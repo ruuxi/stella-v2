@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   installTestSafeStorage,
   resetTestSafeStorage,
-} from "../helpers/protected-storage.js";
+} from "../../../runtime/tests/helpers/protected-storage.js";
 
 const electronMocks = vi.hoisted(() => ({
   isPackaged: false,

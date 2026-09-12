@@ -14,10 +14,9 @@ export function buildBaseOptions(
 ): StreamOptions {
   return {
     temperature: options?.temperature,
-    maxTokens: options?.omitMaxTokens
-      ? undefined
-      : (options?.maxTokens ??
-        (model.maxTokens > 0 ? Math.min(model.maxTokens, 32000) : undefined)),
+    // Catalog capacity is metadata, not a per-request output budget.
+    // Reasoning can exhaust an implicit cap before producing visible output.
+    maxTokens: options?.omitMaxTokens ? undefined : options?.maxTokens,
     signal: options?.signal,
     apiKey: apiKey || options?.apiKey,
     refreshApiKey: options?.refreshApiKey,

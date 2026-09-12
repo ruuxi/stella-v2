@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildOpenAICompletionsParams } from "@stella/runtime/ai/providers/openai-completions";
+import { buildBaseOptions } from "@stella/runtime/ai/providers/simple-options";
 import type {
   Context,
   Model,
@@ -51,6 +52,22 @@ const fireworksModel: Model<"openai-completions"> = {
   contextWindow: 1_000_000,
   maxTokens: 65_536,
 };
+
+describe("agent output limits", () => {
+  it.each([4096, 128000])("does not serialize catalog capacity %i as an output cap", (maxTokens) => {
+    const model = { ...fireworksModel, maxTokens };
+    const params = buildOpenAICompletionsParams(model, context, buildBaseOptions(model));
+    expect(params).not.toHaveProperty("max_tokens");
+    expect(params).not.toHaveProperty("max_completion_tokens");
+  });
+
+  it("preserves explicit per-call output limits", () => {
+    const params = buildOpenAICompletionsParams(
+      fireworksModel, context, buildBaseOptions(fireworksModel, { maxTokens: 900 }),
+    );
+    expect(params.max_completion_tokens).toBe(900);
+  });
+});
 
 describe("openai-completions chat template kwargs", () => {
   it("resolves scalar and thinking-derived kwargs without undefined values", () => {

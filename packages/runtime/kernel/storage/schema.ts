@@ -27,7 +27,7 @@ import {
   legacyTablesPresent,
 } from "./legacy-import.js";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const FTS_TOKENIZER = "'porter unicode61 remove_diacritics 2'";
 
@@ -494,6 +494,56 @@ BEGIN
 END;
 `;
 
+/**
+ * Recall's durable thread summaries are searched with the same FTS5 shape as
+ * the cloud transcript index (`workers/cloud-builder/src/transcript-search.ts`):
+ * a bm25-ranked MATCH over an external-content table, so the summary rows stay
+ * the single copy of the text. Mirror triggers keep the index in step with the
+ * upsert in `kernel/memory/thread-summary-store.ts`.
+ */
+export const THREAD_SUMMARY_FTS_TABLE = "durable_thread_summaries_fts";
+
+export const THREAD_SUMMARY_FTS_SCHEMA_SQL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS durable_thread_summaries_fts USING fts5(
+  "content",
+  thread_id,
+  run_id,
+  agent_type,
+  content='durable_thread_summaries',
+  content_rowid='id',
+  tokenize = ${FTS_TOKENIZER}
+);
+CREATE TRIGGER IF NOT EXISTS trg_durable_thread_summaries_fts_insert
+AFTER INSERT ON durable_thread_summaries
+BEGIN
+  INSERT INTO durable_thread_summaries_fts(
+    rowid, "content", thread_id, run_id, agent_type
+  )
+  VALUES (NEW.id, NEW.content, NEW.thread_id, NEW.run_id, NEW.agent_type);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_durable_thread_summaries_fts_delete
+AFTER DELETE ON durable_thread_summaries
+BEGIN
+  INSERT INTO durable_thread_summaries_fts(
+    durable_thread_summaries_fts, rowid, "content", thread_id, run_id, agent_type
+  )
+  VALUES ('delete', OLD.id, OLD.content, OLD.thread_id, OLD.run_id, OLD.agent_type);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_durable_thread_summaries_fts_update
+AFTER UPDATE OF content, thread_id, run_id, agent_type
+ON durable_thread_summaries
+BEGIN
+  INSERT INTO durable_thread_summaries_fts(
+    durable_thread_summaries_fts, rowid, "content", thread_id, run_id, agent_type
+  )
+  VALUES ('delete', OLD.id, OLD.content, OLD.thread_id, OLD.run_id, OLD.agent_type);
+  INSERT INTO durable_thread_summaries_fts(
+    rowid, "content", thread_id, run_id, agent_type
+  )
+  VALUES (NEW.id, NEW.content, NEW.thread_id, NEW.run_id, NEW.agent_type);
+END;
+`;
+
 const readUserVersion = (db: SqliteDatabase): number => {
   const row = db.prepare("PRAGMA user_version;").get() as
     | { user_version?: number }
@@ -543,16 +593,35 @@ const MIGRATIONS: Migration[] = [
       db.exec(ENTRY_REF_SCHEMA_SQL);
     },
   },
+  {
+    version: 3,
+    apply: (db) => {
+      // Same tolerance as migration 1: a SQLite build without FTS5 keeps the
+      // summaries table and falls back to the LIKE scan in ThreadSummaryStore.
+      try {
+        db.exec(THREAD_SUMMARY_FTS_SCHEMA_SQL);
+        // Backfill: the triggers only see writes made after this point.
+        db.exec(
+          "INSERT INTO durable_thread_summaries_fts(durable_thread_summaries_fts) VALUES ('rebuild');",
+        );
+      } catch {
+        /* Recall degrades to the LIKE path; summaries keep working */
+      }
+    },
+  },
 ];
 
 /**
- * Rebuild both external-content FTS indexes from their content tables.
+ * Rebuild every external-content FTS index from its content table.
  * The maintenance entry point for a corrupted or manually cleared index —
  * never part of the boot path.
  */
 export const rebuildSearchIndexes = (db: SqliteDatabase): void => {
   db.exec("INSERT INTO entry_fts(entry_fts) VALUES ('rebuild');");
   db.exec("INSERT INTO thread_fts(thread_fts) VALUES ('rebuild');");
+  db.exec(
+    "INSERT INTO durable_thread_summaries_fts(durable_thread_summaries_fts) VALUES ('rebuild');",
+  );
   db.prepare(
     `INSERT INTO meta (key, value, updated_at) VALUES ('fts_ready', '1', ?)
      ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`,

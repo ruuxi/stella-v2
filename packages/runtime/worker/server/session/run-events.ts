@@ -29,8 +29,8 @@ export interface Interface {
     SessionStorage.Interface["runEventLog"]["listBufferedRuns"]
   >;
   /**
-   * Close out runs the previous worker process left un-terminated, then
-   * start the background prune sweep. Runs post-ready.
+   * Close out runs the previous worker process left un-terminated, then start
+   * the background prune sweeps (run events, thread summaries). Runs post-ready.
    */
   readonly startupBackfill: () => void;
 }
@@ -43,7 +43,8 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const hostBus = yield* HostBus.Service;
-    const { runEventLog } = yield* SessionStorage.Service;
+    const { runEventLog, chatStore } = yield* SessionStorage.Service;
+    const threadSummaryStore = chatStore.threadSummaryStore;
 
     // This layer sits between RunnerHandle and CliBridge in the session
     // chain, so on teardown the log stops right after the runner does —
@@ -52,6 +53,7 @@ export const layer = Layer.effect(
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         runEventLog.stop();
+        threadSummaryStore.stopBackgroundSweep();
       }),
     );
 
@@ -99,6 +101,9 @@ export const layer = Layer.effect(
           });
         }
         runEventLog.startBackgroundSweep();
+        // Recall's durable summaries live in the main database and have their
+        // own retention bound; same post-ready slot as the run-event sweep.
+        threadSummaryStore.startBackgroundSweep();
       },
     };
   }),

@@ -1,6 +1,12 @@
 /** Durable delegated-thread summaries used by Recall. */
 
+import {
+  recallSearchPlan,
+  shouldBroadenRecall,
+} from "@stella/contracts/recall";
+
 import type { SqliteDatabase } from "../storage/shared.js";
+import { forkFixedRateFiber } from "../storage/effect-runtime.js";
 import { redactMemoryText } from "./redaction.js";
 
 export type ThreadSummaryRow = {
@@ -40,6 +46,30 @@ const ROW_COLUMNS = `
   source_updated_at
 `;
 
+/** The FTS join repeats every column name, so hits must qualify them. */
+const QUALIFIED_ROW_COLUMNS = `
+  s.id AS id,
+  s.source_key AS source_key,
+  s.thread_id AS thread_id,
+  s.run_id AS run_id,
+  s.agent_type AS agent_type,
+  s.content AS content,
+  s.source_updated_at AS source_updated_at
+`;
+
+const FTS_TABLE = "durable_thread_summaries_fts";
+
+/**
+ * Retention for Recall's durable summaries. Summaries are cheap but unbounded
+ * — a long-lived install would otherwise keep every delegated thread forever.
+ * Age and count both apply; each pass deletes at most one batch so the sweep
+ * never blocks the writer on a huge backlog.
+ */
+export const THREAD_SUMMARY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+export const THREAD_SUMMARY_MAX_ROWS = 5_000;
+export const THREAD_SUMMARY_SWEEP_BATCH = 500;
+export const THREAD_SUMMARY_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 const fromRow = (row: RawRow): ThreadSummaryRow => ({
   id: row.id,
   sourceKey: row.source_key,
@@ -54,6 +84,10 @@ const escapeLike = (value: string): string =>
   value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 
 export class ThreadSummaryStore {
+  /** Cancel thunk for the fixed-rate retention fiber. */
+  private cancelSweep: (() => void) | null = null;
+  private hasFts: boolean | undefined;
+
   constructor(private readonly db: SqliteDatabase) {}
 
   recordThreadSummary(args: RecordThreadSummaryArgs): void {
@@ -123,6 +157,24 @@ export class ThreadSummaryStore {
     ).map(fromRow);
   }
 
+  /** The FTS table is absent on SQLite builds without FTS5 (see schema.ts). */
+  ftsAvailable(): boolean {
+    if (this.hasFts === undefined) {
+      try {
+        this.hasFts = Boolean(
+          this.db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            )
+            .get(FTS_TABLE),
+        );
+      } catch {
+        this.hasFts = false;
+      }
+    }
+    return this.hasFts;
+  }
+
   searchThreadSummaries(
     queryTokens: readonly string[],
     args?: { limit?: number },
@@ -132,6 +184,50 @@ export class ThreadSummaryStore {
     ].slice(0, 12);
     const limit = Math.max(1, Math.min(args?.limit ?? 20, 100));
     if (tokens.length === 0) return this.listRecentThreadSummaries({ limit });
+    // Same plan the cloud transcript index runs: quoted phrases first, then a
+    // broadened word query when the phrase pass is too thin to be useful.
+    const plan = this.ftsAvailable() ? recallSearchPlan(tokens) : null;
+    if (plan) {
+      try {
+        const phraseHits = this.matchThreadSummaries(plan.phrase, limit);
+        return plan.broad !== plan.phrase &&
+          shouldBroadenRecall(phraseHits.length, limit)
+          ? this.matchThreadSummaries(plan.broad, limit)
+          : phraseHits;
+      } catch {
+        // A corrupt or missing index must not take Recall offline.
+        this.hasFts = false;
+      }
+    }
+    return this.searchThreadSummariesLike(tokens, limit);
+  }
+
+  private matchThreadSummaries(
+    query: string,
+    limit: number,
+  ): ThreadSummaryRow[] {
+    return (
+      this.db
+        .prepare(
+          `
+          SELECT ${QUALIFIED_ROW_COLUMNS}
+          FROM ${FTS_TABLE} AS f
+          JOIN durable_thread_summaries AS s ON s.id = f.rowid
+          WHERE ${FTS_TABLE} MATCH ?
+          ORDER BY bm25(${FTS_TABLE}) ASC,
+                   s.source_updated_at DESC,
+                   s.id DESC
+          LIMIT ?
+          `,
+        )
+        .all(query, limit) as RawRow[]
+    ).map(fromRow);
+  }
+
+  private searchThreadSummariesLike(
+    tokens: readonly string[],
+    limit: number,
+  ): ThreadSummaryRow[] {
     const matchClause = [
       "content LIKE ? ESCAPE '\\'",
       "thread_id LIKE ? ESCAPE '\\'",
@@ -180,5 +276,77 @@ export class ThreadSummaryStore {
       seen.add(row.thread_id);
       return [fromRow(row)];
     });
+  }
+
+  /**
+   * Bounded retention pass, modeled on the run-event-log sweep: drop summaries
+   * past `retentionMs`, then trim the tail beyond `maxRows`. Each statement is
+   * capped at `THREAD_SUMMARY_SWEEP_BATCH` rows so a backlog drains over
+   * several passes instead of one long write.
+   */
+  sweepThreadSummaries(args?: {
+    retentionMs?: number;
+    maxRows?: number;
+    batchSize?: number;
+    now?: number;
+  }): number {
+    const retentionMs = args?.retentionMs ?? THREAD_SUMMARY_RETENTION_MS;
+    const maxRows = Math.max(0, args?.maxRows ?? THREAD_SUMMARY_MAX_ROWS);
+    const batchSize = Math.max(
+      1,
+      args?.batchSize ?? THREAD_SUMMARY_SWEEP_BATCH,
+    );
+    const cutoff = (args?.now ?? Date.now()) - retentionMs;
+    const byAge = this.db
+      .prepare(
+        `
+        DELETE FROM durable_thread_summaries
+        WHERE id IN (
+          SELECT id FROM durable_thread_summaries
+          WHERE source_updated_at < ?
+          ORDER BY source_updated_at ASC, id ASC
+          LIMIT ?
+        )
+        `,
+      )
+      .run(cutoff, batchSize) as { changes?: number } | undefined;
+    const byCount = this.db
+      .prepare(
+        `
+        DELETE FROM durable_thread_summaries
+        WHERE id IN (
+          SELECT id FROM durable_thread_summaries
+          ORDER BY source_updated_at DESC, id DESC
+          LIMIT ? OFFSET ?
+        )
+        `,
+      )
+      .run(batchSize, maxRows) as { changes?: number } | undefined;
+    return Number(byAge?.changes ?? 0) + Number(byCount?.changes ?? 0);
+  }
+
+  /** Fixed-rate retention fiber; the cancel thunk is the old `clearInterval`. */
+  startBackgroundSweep(options?: {
+    intervalMs?: number;
+    retentionMs?: number;
+    maxRows?: number;
+  }): void {
+    if (this.cancelSweep) return;
+    this.cancelSweep = forkFixedRateFiber(
+      options?.intervalMs ?? THREAD_SUMMARY_SWEEP_INTERVAL_MS,
+      () => {
+        try {
+          this.sweepThreadSummaries(options);
+        } catch {
+          /* the next sweep retries */
+        }
+      },
+    );
+  }
+
+  stopBackgroundSweep(): void {
+    if (!this.cancelSweep) return;
+    this.cancelSweep();
+    this.cancelSweep = null;
   }
 }

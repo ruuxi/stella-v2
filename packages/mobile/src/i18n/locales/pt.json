@@ -1962,7 +1962,8 @@
       "closeLabel": "Fechar a navegação",
       "account": "Conta",
       "signIn": "Entrar",
-      "backToChat": "Voltar ao chat"
+      "backToChat": "Voltar ao chat",
+      "backToApps": "Voltar para os apps"
     },
     "search": {
       "placeholder": "Pesquisar mensagens",

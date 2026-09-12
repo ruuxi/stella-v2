@@ -1923,7 +1923,8 @@
       "closeLabel": "Tutup navigasi",
       "account": "Akun",
       "signIn": "Masuk",
-      "backToChat": "Kembali ke obrolan"
+      "backToChat": "Kembali ke obrolan",
+      "backToApps": "Kembali ke aplikasi"
     },
     "search": {
       "placeholder": "Cari pesan",

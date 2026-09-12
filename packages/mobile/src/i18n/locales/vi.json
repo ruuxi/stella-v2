@@ -1923,7 +1923,8 @@
       "closeLabel": "Đóng điều hướng",
       "account": "Tài khoản",
       "signIn": "Đăng nhập",
-      "backToChat": "Quay lại trò chuyện"
+      "backToChat": "Quay lại trò chuyện",
+      "backToApps": "Quay lại ứng dụng"
     },
     "search": {
       "placeholder": "Tìm tin nhắn",

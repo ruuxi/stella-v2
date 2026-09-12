@@ -1944,7 +1944,8 @@
       "closeLabel": "Gezinmeyi kapat",
       "account": "Hesap",
       "signIn": "Giriş yap",
-      "backToChat": "Sohbete dön"
+      "backToChat": "Sohbete dön",
+      "backToApps": "Uygulamalara dön"
     },
     "search": {
       "placeholder": "Mesajlarda ara",

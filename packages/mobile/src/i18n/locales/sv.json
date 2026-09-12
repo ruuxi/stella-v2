@@ -1944,7 +1944,8 @@
       "closeLabel": "Stäng navigeringen",
       "account": "Konto",
       "signIn": "Logga in",
-      "backToChat": "Tillbaka till chatten"
+      "backToChat": "Tillbaka till chatten",
+      "backToApps": "Tillbaka till appar"
     },
     "search": {
       "placeholder": "Sök i meddelanden",

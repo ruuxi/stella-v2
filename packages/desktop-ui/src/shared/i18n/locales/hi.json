@@ -1944,7 +1944,8 @@
       "closeLabel": "नेविगेशन बंद करें",
       "account": "खाता",
       "signIn": "साइन इन",
-      "backToChat": "चैट पर वापस जाएँ"
+      "backToChat": "चैट पर वापस जाएँ",
+      "backToApps": "ऐप्स पर वापस जाएँ"
     },
     "search": {
       "placeholder": "संदेश खोजें",

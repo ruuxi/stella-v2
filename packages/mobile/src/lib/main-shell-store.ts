@@ -39,13 +39,33 @@ export type HistoryControl = {
   items: NativeMenuItem[];
 };
 
+/**
+ * A route-owned replacement for the shell's top-left back control. A detail
+ * route that stacks its own in-place view (an open workspace app on the Apps
+ * route) publishes one so the single shell chevron unwinds that view first
+ * instead of popping the route, and Android hardware back does the same.
+ */
+export type BackOverride = {
+  /** Localized accessibility label for the chevron while the override holds. */
+  label: string;
+  onPress: () => void;
+};
+
 type ShellState = {
   activity: ActivityHubData | null;
   computer: ComputerControl | null;
   history: HistoryControl | null;
+  back: BackOverride | null;
 };
 
-let state: ShellState = { activity: null, computer: null, history: null };
+const EMPTY_STATE: ShellState = {
+  activity: null,
+  computer: null,
+  history: null,
+  back: null,
+};
+
+let state: ShellState = EMPTY_STATE;
 const listeners = new Set<() => void>();
 
 const emit = () => {
@@ -75,6 +95,17 @@ export function publishHistoryControl(next: HistoryControl | null): void {
   if (state.history === next) return;
   state = { ...state, history: next };
   emit();
+}
+
+export function publishBackOverride(next: BackOverride | null): void {
+  if (state.back === next) return;
+  state = { ...state, back: next };
+  emit();
+}
+
+const readBack = () => state.back;
+export function useBackOverride(): BackOverride | null {
+  return useSyncExternalStore(subscribe, readBack, readBack);
 }
 
 const readHistory = () => state.history;
@@ -117,7 +148,7 @@ export function subscribeSidebarOpenRequests(listener: () => void): () => void {
 
 /** Test hook: drop every subscriber and published value. */
 export function resetMainShellStore(): void {
-  state = { activity: null, computer: null, history: null };
+  state = EMPTY_STATE;
   listeners.clear();
   openRequestListeners.clear();
 }

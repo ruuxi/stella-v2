@@ -3,14 +3,22 @@ import {
   type WorkspaceApp as App,
 } from "@stella/contracts/workspace-apps";
 import { MainDetailSurface } from "../../src/components/MainScreenSurface";
-import { useEffect, useRef, useState } from "react";
+import { AppBackdrop } from "../../src/components/AppBackdrop";
+import { publishBackOverride } from "../../src/lib/main-shell-store";
+import { useT } from "../../src/i18n";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useConvexAuth, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { WebView } from "react-native-webview";
@@ -25,6 +33,8 @@ const configQuery = makeFunctionReference<
 
 export default function AppsScreen() {
   const colors = useColors();
+  const t = useT();
+  const insets = useSafeAreaInsets();
   const { isAuthenticated } = useConvexAuth();
   const { data: session } = authClient.useSession();
   const config = useQuery(configQuery, isAuthenticated ? {} : "skip");
@@ -36,6 +46,33 @@ export default function AppsScreen() {
     null,
   );
   const [loading, setLoading] = useState(true);
+  // While an app is open, the shell's single top-left chevron closes it
+  // instead of popping the route, and Android hardware back matches.
+  const frameOpen = frame !== null;
+  const backLabel = t("mobile.nav.backToApps");
+  useEffect(() => {
+    if (!frameOpen) return;
+    const close = () => setFrame(null);
+    publishBackOverride({ label: backLabel, onPress: close });
+    const hardware = BackHandler.addEventListener("hardwareBackPress", () => {
+      close();
+      return true;
+    });
+    return () => {
+      hardware.remove();
+      publishBackOverride(null);
+    };
+  }, [frameOpen, backLabel]);
+  const frameStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        root: { flex: 1, minHeight: 0 },
+        // Edge to edge: no detail-surface gutter, only the home indicator.
+        keyboard: { flex: 1, paddingBottom: insets.bottom },
+        web: { flex: 1, backgroundColor: "transparent" },
+      }),
+    [insets.bottom],
+  );
   useEffect(() => {
     scope.current++;
     setOpening(false);
@@ -104,26 +141,25 @@ export default function AppsScreen() {
       if (currentScope === scope.current) setOpening(false);
     }
   };
-  return (
-    <MainDetailSurface>
-      {frame ? (
-        <>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to apps"
-            onPress={() => setFrame(null)}
-            style={{ padding: 16 }}
-          >
-            <Text style={{ color: colors.text }}>‹ Apps · {frame.title}</Text>
-          </Pressable>
+  if (frame) {
+    return (
+      <View style={frameStyles.root}>
+        <AppBackdrop />
+        <KeyboardAvoidingView
+          style={frameStyles.keyboard}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
           <WebView
             key={frame.url}
             source={{ uri: frame.url }}
-            style={{ flex: 1 }}
+            style={frameStyles.web}
             javaScriptEnabled
             sharedCookiesEnabled={false}
             thirdPartyCookiesEnabled={false}
             setSupportMultipleWindows={false}
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
+            keyboardDisplayRequiresUserAction={false}
             onError={() => {
               setFrame(null);
               setError("App could not be loaded. Try opening it again.");
@@ -132,49 +168,52 @@ export default function AppsScreen() {
               request.url === "about:blank" || request.url.startsWith(frame.url)
             }
           />
-        </>
-      ) : (
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
-          <Text
-            accessibilityRole="header"
-            style={{ fontSize: 26, color: colors.text }}
-          >
-            Apps
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
+  return (
+    <MainDetailSurface>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+        <Text
+          accessibilityRole="header"
+          style={{ fontSize: 26, color: colors.text }}
+        >
+          Apps
+        </Text>
+        {loading || opening ? <ActivityIndicator /> : null}
+        {error ? (
+          <Text accessibilityRole="alert" style={{ color: colors.text }}>
+            {error}
           </Text>
-          {loading || opening ? <ActivityIndicator /> : null}
-          {error ? (
-            <Text accessibilityRole="alert" style={{ color: colors.text }}>
-              {error}
+        ) : null}
+        {!loading && apps.length === 0 && !error ? (
+          <Text style={{ color: colors.text }}>
+            Ask Stella to create an app.
+          </Text>
+        ) : null}
+        {apps.map((app) => (
+          <Pressable
+            key={app.slug}
+            accessibilityRole="button"
+            accessibilityLabel={app.title}
+            disabled={opening || app.status !== "ready"}
+            onPress={() => void open(app)}
+            style={{
+              padding: 16,
+              borderRadius: 12,
+              backgroundColor: colors.surface,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 17 }}>
+              {app.title}
             </Text>
-          ) : null}
-          {!loading && apps.length === 0 && !error ? (
-            <Text style={{ color: colors.text }}>
-              Ask Stella to create an app.
-            </Text>
-          ) : null}
-          {apps.map((app) => (
-            <Pressable
-              key={app.slug}
-              accessibilityRole="button"
-              accessibilityLabel={app.title}
-              disabled={opening || app.status !== "ready"}
-              onPress={() => void open(app)}
-              style={{
-                padding: 16,
-                borderRadius: 12,
-                backgroundColor: colors.surface,
-              }}
-            >
-              <Text style={{ color: colors.text, fontSize: 17 }}>
-                {app.title}
-              </Text>
-              {app.error ? (
-                <Text style={{ color: colors.text }}>{app.error}</Text>
-              ) : null}
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
+            {app.error ? (
+              <Text style={{ color: colors.text }}>{app.error}</Text>
+            ) : null}
+          </Pressable>
+        ))}
+      </ScrollView>
     </MainDetailSurface>
   );
 }

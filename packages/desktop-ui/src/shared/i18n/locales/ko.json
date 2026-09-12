@@ -1923,7 +1923,8 @@
       "closeLabel": "탐색 닫기",
       "account": "계정",
       "signIn": "로그인",
-      "backToChat": "채팅으로 돌아가기"
+      "backToChat": "채팅으로 돌아가기",
+      "backToApps": "앱으로 돌아가기"
     },
     "search": {
       "placeholder": "메시지 검색",

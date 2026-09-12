@@ -1944,7 +1944,8 @@
       "closeLabel": "Sulje navigointi",
       "account": "Tili",
       "signIn": "Kirjaudu sisään",
-      "backToChat": "Takaisin keskusteluun"
+      "backToChat": "Takaisin keskusteluun",
+      "backToApps": "Takaisin sovelluksiin"
     },
     "search": {
       "placeholder": "Hae viesteistä",

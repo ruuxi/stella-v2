@@ -1944,7 +1944,8 @@
       "closeLabel": "Navigáció bezárása",
       "account": "Fiók",
       "signIn": "Bejelentkezés",
-      "backToChat": "Vissza a csevegéshez"
+      "backToChat": "Vissza a csevegéshez",
+      "backToApps": "Vissza az alkalmazásokhoz"
     },
     "search": {
       "placeholder": "Keresés az üzenetekben",

@@ -1944,7 +1944,8 @@
       "closeLabel": "Navigatie sluiten",
       "account": "Account",
       "signIn": "Inloggen",
-      "backToChat": "Terug naar chat"
+      "backToChat": "Terug naar chat",
+      "backToApps": "Terug naar apps"
     },
     "search": {
       "placeholder": "Berichten zoeken",

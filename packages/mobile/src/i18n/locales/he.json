@@ -1962,7 +1962,8 @@
       "closeLabel": "סגירת הניווט",
       "account": "חשבון",
       "signIn": "התחברות",
-      "backToChat": "חזרה לצ׳אט"
+      "backToChat": "חזרה לצ׳אט",
+      "backToApps": "חזרה לאפליקציות"
     },
     "search": {
       "placeholder": "חיפוש בהודעות",

@@ -1980,7 +1980,8 @@
       "closeLabel": "Zavřít navigaci",
       "account": "Účet",
       "signIn": "Přihlásit se",
-      "backToChat": "Zpět do chatu"
+      "backToChat": "Zpět do chatu",
+      "backToApps": "Zpět na aplikace"
     },
     "search": {
       "placeholder": "Hledat ve zprávách",

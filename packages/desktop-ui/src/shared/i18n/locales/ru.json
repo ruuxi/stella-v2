@@ -1980,7 +1980,8 @@
       "closeLabel": "Закрыть навигацию",
       "account": "Аккаунт",
       "signIn": "Войти",
-      "backToChat": "Вернуться в чат"
+      "backToChat": "Вернуться в чат",
+      "backToApps": "Назад к приложениям"
     },
     "search": {
       "placeholder": "Поиск по сообщениям",

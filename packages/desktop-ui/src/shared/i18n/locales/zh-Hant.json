@@ -1923,7 +1923,8 @@
       "closeLabel": "關閉導覽",
       "account": "帳號",
       "signIn": "登入",
-      "backToChat": "返回聊天"
+      "backToChat": "返回聊天",
+      "backToApps": "返回應用程式"
     },
     "search": {
       "placeholder": "搜尋訊息",

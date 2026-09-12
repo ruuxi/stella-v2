@@ -1962,7 +1962,8 @@
       "closeLabel": "Închide navigarea",
       "account": "Cont",
       "signIn": "Conectează-te",
-      "backToChat": "Înapoi la chat"
+      "backToChat": "Înapoi la chat",
+      "backToApps": "Înapoi la aplicații"
     },
     "search": {
       "placeholder": "Caută în mesaje",

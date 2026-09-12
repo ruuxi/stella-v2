@@ -1923,7 +1923,8 @@
       "closeLabel": "ナビゲーションを閉じる",
       "account": "アカウント",
       "signIn": "サインイン",
-      "backToChat": "チャットに戻る"
+      "backToChat": "チャットに戻る",
+      "backToApps": "アプリに戻る"
     },
     "search": {
       "placeholder": "メッセージを検索",

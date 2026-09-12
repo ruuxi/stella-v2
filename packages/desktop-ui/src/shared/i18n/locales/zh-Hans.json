@@ -1923,7 +1923,8 @@
       "closeLabel": "关闭导航",
       "account": "账户",
       "signIn": "登录",
-      "backToChat": "返回聊天"
+      "backToChat": "返回聊天",
+      "backToApps": "返回应用"
     },
     "search": {
       "placeholder": "搜索消息",

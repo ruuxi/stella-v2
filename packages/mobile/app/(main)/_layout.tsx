@@ -61,6 +61,7 @@ import {
 import {
   subscribeSidebarOpenRequests,
   useActivityHub,
+  useBackOverride,
   useComputerControl,
   useHistoryControl,
 } from "../../src/lib/main-shell-store";
@@ -138,6 +139,7 @@ export default function MainLayout() {
   const onChatSurface = pathname === "/chat";
   const computer = useComputerControl();
   const history = useHistoryControl();
+  const backOverride = useBackOverride();
   const hubAccess = useActivityHub()?.access ?? null;
   const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(
     null,
@@ -201,6 +203,10 @@ export default function MainLayout() {
       return;
     }
     tapLight();
+    if (backOverride) {
+      backOverride.onPress();
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace("/chat");
   };
@@ -494,7 +500,8 @@ export default function MainLayout() {
                         accessibilityLabel={
                           onChatSurface
                             ? t("mobile.nav.openLabel")
-                            : t("mobile.nav.backToChat")
+                            : (backOverride?.label ??
+                              t("mobile.nav.backToChat"))
                         }
                         onPress={onPressTopLeft}
                       />

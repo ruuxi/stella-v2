@@ -1944,7 +1944,8 @@
       "closeLabel": "Lukk navigasjon",
       "account": "Konto",
       "signIn": "Logg inn",
-      "backToChat": "Tilbake til chat"
+      "backToChat": "Tilbake til chat",
+      "backToApps": "Tilbake til apper"
     },
     "search": {
       "placeholder": "Søk i meldinger",

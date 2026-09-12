@@ -1980,7 +1980,8 @@
       "closeLabel": "Zamknij nawigację",
       "account": "Konto",
       "signIn": "Zaloguj się",
-      "backToChat": "Powrót do czatu"
+      "backToChat": "Powrót do czatu",
+      "backToApps": "Wróć do aplikacji"
     },
     "search": {
       "placeholder": "Szukaj w wiadomościach",

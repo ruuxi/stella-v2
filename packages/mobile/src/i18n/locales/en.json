@@ -1944,7 +1944,8 @@
       "closeLabel": "Close navigation",
       "account": "Account",
       "signIn": "Sign in",
-      "backToChat": "Back to chat"
+      "backToChat": "Back to chat",
+      "backToApps": "Back to apps"
     },
     "search": {
       "placeholder": "Search messages",

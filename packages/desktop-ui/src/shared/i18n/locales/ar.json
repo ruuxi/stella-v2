@@ -2016,7 +2016,8 @@
       "closeLabel": "إغلاق التنقل",
       "account": "الحساب",
       "signIn": "تسجيل الدخول",
-      "backToChat": "العودة إلى المحادثة"
+      "backToChat": "العودة إلى المحادثة",
+      "backToApps": "العودة إلى التطبيقات"
     },
     "search": {
       "placeholder": "البحث في الرسائل",

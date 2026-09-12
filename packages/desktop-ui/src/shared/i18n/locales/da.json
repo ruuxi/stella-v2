@@ -1944,7 +1944,8 @@
       "closeLabel": "Luk navigationen",
       "account": "Konto",
       "signIn": "Log ind",
-      "backToChat": "Tilbage til chat"
+      "backToChat": "Tilbage til chat",
+      "backToApps": "Tilbage til apps"
     },
     "search": {
       "placeholder": "Søg i beskeder",

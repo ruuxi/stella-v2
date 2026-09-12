@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   publishActivityHub,
+  publishBackOverride,
   publishComputerControl,
   readMainShellState,
   requestOpenSidebar,
@@ -23,17 +24,34 @@ describe("main shell store", () => {
   });
 
   test("starts empty so chrome renders nothing before the chat publishes", () => {
-    expect(readMainShellState()).toEqual({ activity: null, computer: null, history: null });
+    expect(readMainShellState()).toEqual({
+      activity: null,
+      computer: null,
+      history: null,
+      back: null,
+    });
   });
 
   test("publishing replaces one slot without touching the other", () => {
     publishActivityHub(hub);
-    const control = { connection: "connected" as const, label: "x", onPress() {} };
+    const control = {
+      connection: "connected" as const,
+      label: "x",
+      onPress() {},
+    };
     publishComputerControl(control);
     expect(readMainShellState().activity).toBe(hub);
     expect(readMainShellState().computer).toBe(control);
     publishActivityHub(null);
     expect(readMainShellState().computer).toBe(control);
+  });
+
+  test("a route can own the back control and release it", () => {
+    const back = { label: "Back to apps", onPress() {} };
+    publishBackOverride(back);
+    expect(readMainShellState().back).toBe(back);
+    publishBackOverride(null);
+    expect(readMainShellState().back).toBeNull();
   });
 
   test("sidebar open requests reach every subscriber until they unsubscribe", () => {

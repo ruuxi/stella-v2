@@ -1923,7 +1923,8 @@
       "closeLabel": "ปิดเมนูนำทาง",
       "account": "บัญชี",
       "signIn": "เข้าสู่ระบบ",
-      "backToChat": "กลับไปที่แชต"
+      "backToChat": "กลับไปที่แชต",
+      "backToApps": "กลับไปที่แอป"
     },
     "search": {
       "placeholder": "ค้นหาข้อความ",

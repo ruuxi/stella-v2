@@ -1944,7 +1944,8 @@
       "closeLabel": "Navigation schließen",
       "account": "Konto",
       "signIn": "Anmelden",
-      "backToChat": "Zurück zum Chat"
+      "backToChat": "Zurück zum Chat",
+      "backToApps": "Zurück zu den Apps"
     },
     "search": {
       "placeholder": "Nachrichten durchsuchen",

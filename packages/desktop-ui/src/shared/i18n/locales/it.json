@@ -19,6 +19,18 @@
     "no": "No",
     "copy": "Copia"
   },
+  "cloudConnector": {
+    "titleOffer": "Connettere {name}?",
+    "titleWaiting": "In attesa di {name}",
+    "connecting": "Completa l'accesso a {name} nel browser. Stella proseguirà appena viene approvato.",
+    "connect": "Connetti",
+    "openAgain": "Apri di nuovo",
+    "notNow": "Non ora",
+    "errors": {
+      "decision": "Impossibile connettere {name}. Riprova.",
+      "open": "Impossibile aprire la pagina di accesso."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Nuova chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Salva la cronologia delle chat nel cloud",
+      "description": "Accedi alle tue chat da tutti i dispositivi. Disattiva per mantenere una cronologia separata solo su questo computer. Riattivandolo, quelle chat non verranno caricate. I fornitori di IA continuano a elaborare i tuoi messaggi.",
+      "endVoice": "Termina la conversazione vocale per cambiare l'archiviazione delle chat.",
+      "error": "Impossibile cambiare l'archiviazione delle chat. Riprova."
+    },
     "title": "Impostazioni",
     "tabs": {
       "general": "Generale",
@@ -1489,6 +1507,7 @@
     },
     "dictation": {
       "cancel": "Annulla la dettatura",
+      "listening": "In ascolto…",
       "stopAndTranscribe": "Ferma e trascrivi",
       "stopAndTranscribeLabel": "Ferma la dettatura e trascrivi",
       "stopTranscribeSend": "Ferma, trascrivi e invia",
@@ -1639,7 +1658,11 @@
         "copyFailed": "Impossibile copiare",
         "delete": "Elimina",
         "deleteConfirm": "Fai di nuovo clic per eliminare",
-        "itemActions": "Azioni dell'elemento"
+        "itemActions": "Azioni dell'elemento",
+        "missing": "File non più disponibile.",
+        "expand": "Espandi",
+        "expandPanel": "Espandi il pannello",
+        "revealInFinder": "Mostra nel Finder"
       },
       "url": {
         "eyebrow": "Anteprima dal vivo",
@@ -1739,6 +1762,10 @@
           "other": "{count} nuovi messaggi"
         },
         "showNewMessagesAria": "Mostra {countPhrase}"
+      },
+      "preview": {
+        "limited": "Anteprima limitata. Salva o apri il file originale per vedere tutto il contenuto.",
+        "unavailable": "Impossibile preparare questa anteprima."
       }
     },
     "sidebar": {
@@ -1783,6 +1810,24 @@
         "deleteFailed": "Impossibile eliminare questa conversazione",
         "deleteFailedFor": "Impossibile eliminare {title}"
       }
+    },
+    "browser": {
+      "connected": "Browser connesso",
+      "newTab": "Apri una nuova scheda",
+      "connecting": "In attesa dell'estensione…"
+    },
+    "quickChat": {
+      "title": "Chat rapida",
+      "newChat": "Nuova chat rapida"
+    },
+    "connectors": {
+      "title": "Connettori",
+      "searchPlaceholder": "Cerca",
+      "searchLabel": "Cerca connettori",
+      "loading": "Caricamento dei connettori…",
+      "desktopRequired": "I connettori sono disponibili nell'app desktop di Stella.",
+      "empty": "Nessun connettore disponibile per ora.",
+      "noMatches": "Nessun connettore corrisponde a questa ricerca."
     }
   },
   "global": {
@@ -2079,8 +2124,13 @@
         "soft": "Morbido",
         "flat": "Piatto"
       },
+      "backgroundColor": {
+        "relative": "Relativo",
+        "strong": "Intenso"
+      },
       "useAppearanceLabel": "Usa l'aspetto {name}",
       "useBackgroundLabel": "Usa lo sfondo {name}",
+      "useBackgroundColorLabel": "Usa il colore di sfondo {name}",
       "useThemeLabel": "Usa il tema {name}",
       "notificationsSection": "Notifiche",
       "pushToggleLabel": "Consenti le notifiche push",
@@ -2110,7 +2160,10 @@
       "deleteAccountLabel": "Elimina il tuo account Stella",
       "deleteConfirmTitle": "Elimina account",
       "deleteConfirmBody": "Questo elimina definitivamente il tuo account Stella e rimuove dai nostri server i dati nel cloud associati. Non può essere annullato.",
-      "deleteFailedTitle": "Impossibile eliminare l'account"
+      "deleteFailedTitle": "Impossibile eliminare l'account",
+      "chatStorage": {
+        "description": "Accedi alle tue chat da tutti i dispositivi. Disattiva per mantenere una cronologia separata solo su questo dispositivo. Riattivandolo, quelle chat non verranno caricate. I fornitori di IA continuano a elaborare i tuoi messaggi."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

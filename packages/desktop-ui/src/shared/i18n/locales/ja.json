@@ -19,6 +19,18 @@
     "no": "いいえ",
     "copy": "コピー"
   },
+  "cloudConnector": {
+    "titleOffer": "{name} を接続しますか？",
+    "titleWaiting": "{name} を待機中",
+    "connecting": "ブラウザで {name} へのサインインを完了してください。承認されると Stella が続行します。",
+    "connect": "接続",
+    "openAgain": "もう一度開く",
+    "notNow": "後で",
+    "errors": {
+      "decision": "{name} に接続できませんでした。もう一度お試しください。",
+      "open": "サインインページを開けませんでした。"
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "新しいチャット"
   },
   "settings": {
+    "chatStorage": {
+      "title": "チャット履歴をクラウドに保存",
+      "description": "すべてのデバイスからチャットを利用できます。オフにすると、このコンピュータだけに別のチャット履歴が保存されます。オンに戻しても、その履歴はアップロードされません。AI プロバイダーは引き続きメッセージを処理します。",
+      "endVoice": "チャットの保存先を変更するには、音声会話を終了してください。",
+      "error": "チャットの保存先を変更できませんでした。もう一度お試しください。"
+    },
     "title": "設定",
     "tabs": {
       "general": "基本",
@@ -1470,6 +1488,7 @@
     },
     "dictation": {
       "cancel": "音声入力をキャンセル",
+      "listening": "聞き取り中…",
       "stopAndTranscribe": "停止して文字起こし",
       "stopAndTranscribeLabel": "音声入力を停止して文字起こし",
       "stopTranscribeSend": "停止して文字起こしし、送信",
@@ -1614,7 +1633,11 @@
         "copyFailed": "コピーできませんでした",
         "delete": "削除",
         "deleteConfirm": "もう一度クリックして削除",
-        "itemActions": "項目の操作"
+        "itemActions": "項目の操作",
+        "missing": "ファイルは利用できなくなりました。",
+        "expand": "拡大",
+        "expandPanel": "パネルを拡大",
+        "revealInFinder": "Finder に表示"
       },
       "url": {
         "eyebrow": "ライブプレビュー",
@@ -1704,6 +1727,10 @@
           "other": "{count} 件の新しいメッセージ"
         },
         "showNewMessagesAria": "{countPhrase} を表示"
+      },
+      "preview": {
+        "limited": "プレビューは一部のみです。すべての内容を見るには、元のファイルを保存するか開いてください。",
+        "unavailable": "このプレビューを準備できません。"
       }
     },
     "sidebar": {
@@ -1748,6 +1775,24 @@
         "deleteFailed": "この会話を削除できませんでした",
         "deleteFailedFor": "{title} を削除できませんでした"
       }
+    },
+    "browser": {
+      "connected": "ブラウザに接続済み",
+      "newTab": "新しいタブを開く",
+      "connecting": "拡張機能を待機中…"
+    },
+    "quickChat": {
+      "title": "クイックチャット",
+      "newChat": "新しいクイックチャット"
+    },
+    "connectors": {
+      "title": "コネクタ",
+      "searchPlaceholder": "検索",
+      "searchLabel": "コネクタを検索",
+      "loading": "コネクタを読み込み中…",
+      "desktopRequired": "コネクタは Stella デスクトップアプリで利用できます。",
+      "empty": "利用できるコネクタはまだありません。",
+      "noMatches": "その検索に一致するコネクタはありません。"
     }
   },
   "global": {
@@ -2038,8 +2083,13 @@
         "soft": "ソフト",
         "flat": "フラット"
       },
+      "backgroundColor": {
+        "relative": "相対",
+        "strong": "強め"
+      },
       "useAppearanceLabel": "{name} の外観を使う",
       "useBackgroundLabel": "{name} の背景を使う",
+      "useBackgroundColorLabel": "{name} の背景色を使う",
       "useThemeLabel": "{name} のテーマを使う",
       "notificationsSection": "通知",
       "pushToggleLabel": "プッシュ通知を許可",
@@ -2069,7 +2119,10 @@
       "deleteAccountLabel": "Stella のアカウントを削除",
       "deleteConfirmTitle": "アカウントを削除",
       "deleteConfirmBody": "Stella のアカウントを完全に削除し、当社サーバー上の関連するクラウドデータも削除します。この操作は取り消せません。",
-      "deleteFailedTitle": "アカウントを削除できませんでした"
+      "deleteFailedTitle": "アカウントを削除できませんでした",
+      "chatStorage": {
+        "description": "すべてのデバイスからチャットを利用できます。オフにすると、このデバイスだけに別のチャット履歴が保存されます。オンに戻しても、その履歴はアップロードされません。AI プロバイダーは引き続きメッセージを処理します。"
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

@@ -19,6 +19,18 @@
     "no": "לא",
     "copy": "העתק"
   },
+  "cloudConnector": {
+    "titleOffer": "לחבר את {name}?",
+    "titleWaiting": "ממתין ל-{name}",
+    "connecting": "השלימו את ההתחברות ל-{name} בדפדפן. Stella תמשיך ברגע שהחיבור יאושר.",
+    "connect": "חיבור",
+    "openAgain": "פתיחה שוב",
+    "notNow": "לא עכשיו",
+    "errors": {
+      "decision": "לא ניתן היה לחבר את {name}. נסו שוב.",
+      "open": "לא ניתן היה לפתוח את דף ההתחברות."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "צ'אט חדש"
   },
   "settings": {
+    "chatStorage": {
+      "title": "שמירת היסטוריית הצ'אטים בענן",
+      "description": "גישה לצ'אטים שלכם מכל המכשירים. כבו כדי לשמור היסטוריית צ'אטים נפרדת במחשב הזה בלבד. בהפעלה מחדש הצ'אטים האלה לא יועלו. ספקי ה-AI עדיין מעבדים את ההודעות שלכם.",
+      "endVoice": "סיימו את שיחת הקול כדי לשנות את אחסון הצ'אטים.",
+      "error": "לא ניתן היה לשנות את אחסון הצ'אטים. נסו שוב."
+    },
     "title": "הגדרות",
     "tabs": {
       "general": "כללי",
@@ -1489,6 +1507,7 @@
     },
     "dictation": {
       "cancel": "בטל הכתבה",
+      "listening": "מקשיבה…",
       "stopAndTranscribe": "עצור ותמלל",
       "stopAndTranscribeLabel": "עצור את ההכתבה ותמלל",
       "stopTranscribeSend": "עצור, תמלל ושלח",
@@ -1639,7 +1658,11 @@
         "copyFailed": "לא ניתן היה להעתיק",
         "delete": "מחק",
         "deleteConfirm": "לחץ שוב כדי למחוק",
-        "itemActions": "פעולות על הפריט"
+        "itemActions": "פעולות על הפריט",
+        "missing": "הקובץ כבר לא זמין.",
+        "expand": "הרחבה",
+        "expandPanel": "הרחבת הפאנל",
+        "revealInFinder": "הצג ב-Finder"
       },
       "url": {
         "eyebrow": "תצוגה מקדימה חיה",
@@ -1739,6 +1762,10 @@
           "other": "{count} הודעות חדשות"
         },
         "showNewMessagesAria": "הצג {countPhrase}"
+      },
+      "preview": {
+        "limited": "התצוגה המקדימה מוגבלת. שמרו או פתחו את הקובץ המקורי כדי לראות את כל התוכן.",
+        "unavailable": "לא ניתן להכין את התצוגה המקדימה הזו."
       }
     },
     "sidebar": {
@@ -1783,6 +1810,24 @@
         "deleteFailed": "לא ניתן היה למחוק את השיחה הזו",
         "deleteFailedFor": "לא ניתן היה למחוק את {title}"
       }
+    },
+    "browser": {
+      "connected": "הדפדפן מחובר",
+      "newTab": "פתיחת לשונית חדשה",
+      "connecting": "ממתין להרחבה…"
+    },
+    "quickChat": {
+      "title": "צ'אט מהיר",
+      "newChat": "צ'אט מהיר חדש"
+    },
+    "connectors": {
+      "title": "מחברים",
+      "searchPlaceholder": "חיפוש",
+      "searchLabel": "חיפוש מחברים",
+      "loading": "טוען מחברים…",
+      "desktopRequired": "המחברים זמינים באפליקציית Stella למחשב.",
+      "empty": "אין עדיין מחברים זמינים.",
+      "noMatches": "אין מחברים שתואמים לחיפוש הזה."
     }
   },
   "global": {
@@ -2079,8 +2124,13 @@
         "soft": "רך",
         "flat": "שטוח"
       },
+      "backgroundColor": {
+        "relative": "יחסי",
+        "strong": "חזק"
+      },
       "useAppearanceLabel": "שימוש במראה {name}",
       "useBackgroundLabel": "שימוש ברקע {name}",
+      "useBackgroundColorLabel": "שימוש בצבע הרקע {name}",
       "useThemeLabel": "שימוש בערכת הנושא {name}",
       "notificationsSection": "התראות",
       "pushToggleLabel": "אפשרו התראות דחיפה",
@@ -2110,7 +2160,10 @@
       "deleteAccountLabel": "מחיקת חשבון ה-Stella שלכם",
       "deleteConfirmTitle": "מחיקת חשבון",
       "deleteConfirmBody": "פעולה זו מוחקת לצמיתות את חשבון ה-Stella שלכם ומסירה מהשרתים שלנו את נתוני הענן המשויכים אליו. אי אפשר לבטל אותה.",
-      "deleteFailedTitle": "לא ניתן היה למחוק את החשבון"
+      "deleteFailedTitle": "לא ניתן היה למחוק את החשבון",
+      "chatStorage": {
+        "description": "גישה לצ'אטים שלכם מכל המכשירים. כבו כדי לשמור היסטוריית צ'אטים נפרדת במכשיר הזה בלבד. בהפעלה מחדש הצ'אטים האלה לא יועלו. ספקי ה-AI עדיין מעבדים את ההודעות שלכם."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

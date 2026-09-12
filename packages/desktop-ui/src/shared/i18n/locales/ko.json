@@ -19,6 +19,18 @@
     "no": "아니요",
     "copy": "복사"
   },
+  "cloudConnector": {
+    "titleOffer": "{name}을(를) 연결할까요?",
+    "titleWaiting": "{name} 대기 중",
+    "connecting": "브라우저에서 {name} 로그인을 완료하세요. 승인되면 Stella가 계속 진행합니다.",
+    "connect": "연결",
+    "openAgain": "다시 열기",
+    "notNow": "나중에",
+    "errors": {
+      "decision": "{name}을(를) 연결하지 못했습니다. 다시 시도하세요.",
+      "open": "로그인 페이지를 열지 못했습니다."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "새 대화"
   },
   "settings": {
+    "chatStorage": {
+      "title": "대화 기록을 클라우드에 저장",
+      "description": "모든 기기에서 대화를 확인하세요. 끄면 이 컴퓨터에만 별도의 대화 기록이 저장됩니다. 다시 켜도 그 대화는 업로드되지 않습니다. AI 제공업체는 여전히 메시지를 처리합니다.",
+      "endVoice": "대화 저장 방식을 변경하려면 음성 대화를 종료하세요.",
+      "error": "대화 저장 방식을 변경하지 못했습니다. 다시 시도하세요."
+    },
     "title": "설정",
     "tabs": {
       "general": "기본",
@@ -1470,6 +1488,7 @@
     },
     "dictation": {
       "cancel": "받아쓰기 취소",
+      "listening": "듣는 중…",
       "stopAndTranscribe": "중지하고 전사",
       "stopAndTranscribeLabel": "받아쓰기를 중지하고 전사",
       "stopTranscribeSend": "중지, 전사, 보내기",
@@ -1614,7 +1633,11 @@
         "copyFailed": "복사할 수 없습니다",
         "delete": "삭제",
         "deleteConfirm": "삭제하려면 다시 클릭",
-        "itemActions": "항목 작업"
+        "itemActions": "항목 작업",
+        "missing": "파일을 더 이상 사용할 수 없습니다.",
+        "expand": "확대",
+        "expandPanel": "패널 확대",
+        "revealInFinder": "Finder에서 보기"
       },
       "url": {
         "eyebrow": "실시간 미리보기",
@@ -1704,6 +1727,10 @@
           "other": "새 메시지 {count}개"
         },
         "showNewMessagesAria": "{countPhrase} 보기"
+      },
+      "preview": {
+        "limited": "미리보기가 제한되었습니다. 전체 내용을 보려면 원본 파일을 저장하거나 여세요.",
+        "unavailable": "이 미리보기를 준비할 수 없습니다."
       }
     },
     "sidebar": {
@@ -1748,6 +1775,24 @@
         "deleteFailed": "이 대화를 삭제하지 못했습니다",
         "deleteFailedFor": "{title}을(를) 삭제하지 못했습니다"
       }
+    },
+    "browser": {
+      "connected": "브라우저 연결됨",
+      "newTab": "새 탭 열기",
+      "connecting": "확장 프로그램 대기 중…"
+    },
+    "quickChat": {
+      "title": "빠른 대화",
+      "newChat": "새 빠른 대화"
+    },
+    "connectors": {
+      "title": "커넥터",
+      "searchPlaceholder": "검색",
+      "searchLabel": "커넥터 검색",
+      "loading": "커넥터 불러오는 중…",
+      "desktopRequired": "커넥터는 Stella 데스크톱 앱에서 사용할 수 있습니다.",
+      "empty": "아직 사용할 수 있는 커넥터가 없습니다.",
+      "noMatches": "검색과 일치하는 커넥터가 없습니다."
     }
   },
   "global": {
@@ -2038,8 +2083,13 @@
         "soft": "부드럽게",
         "flat": "단색"
       },
+      "backgroundColor": {
+        "relative": "상대적",
+        "strong": "진하게"
+      },
       "useAppearanceLabel": "{name} 모양 사용",
       "useBackgroundLabel": "{name} 배경 사용",
+      "useBackgroundColorLabel": "{name} 배경색 사용",
       "useThemeLabel": "{name} 테마 사용",
       "notificationsSection": "알림",
       "pushToggleLabel": "푸시 알림 허용",
@@ -2069,7 +2119,10 @@
       "deleteAccountLabel": "Stella 계정 삭제",
       "deleteConfirmTitle": "계정 삭제",
       "deleteConfirmBody": "Stella 계정을 영구히 삭제하고, 당사 서버에 있는 관련 클라우드 데이터도 제거합니다. 되돌릴 수 없습니다.",
-      "deleteFailedTitle": "계정을 삭제할 수 없음"
+      "deleteFailedTitle": "계정을 삭제할 수 없음",
+      "chatStorage": {
+        "description": "모든 기기에서 대화를 확인하세요. 끄면 이 기기에만 별도의 대화 기록이 저장됩니다. 다시 켜도 그 대화는 업로드되지 않습니다. AI 제공업체는 여전히 메시지를 처리합니다."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

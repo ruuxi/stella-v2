@@ -19,6 +19,18 @@
     "no": "Không",
     "copy": "Sao chép"
   },
+  "cloudConnector": {
+    "titleOffer": "Kết nối {name}?",
+    "titleWaiting": "Đang chờ {name}",
+    "connecting": "Hoàn tất đăng nhập vào {name} trong trình duyệt của bạn. Stella sẽ tiếp tục ngay khi được chấp thuận.",
+    "connect": "Kết nối",
+    "openAgain": "Mở lại",
+    "notNow": "Để sau",
+    "errors": {
+      "decision": "Không thể kết nối {name}. Hãy thử lại.",
+      "open": "Không thể mở trang đăng nhập."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Cuộc trò chuyện mới"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Lưu lịch sử trò chuyện trên đám mây",
+      "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên máy tính này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn.",
+      "endVoice": "Hãy kết thúc cuộc trò chuyện bằng giọng nói để thay đổi nơi lưu trò chuyện.",
+      "error": "Không thể thay đổi nơi lưu trò chuyện. Hãy thử lại."
+    },
     "title": "Cài đặt",
     "tabs": {
       "general": "Chung",
@@ -1470,6 +1488,7 @@
     },
     "dictation": {
       "cancel": "Hủy đọc chính tả",
+      "listening": "Đang nghe…",
       "stopAndTranscribe": "Dừng và chuyển thành văn bản",
       "stopAndTranscribeLabel": "Dừng đọc chính tả và chuyển thành văn bản",
       "stopTranscribeSend": "Dừng, chuyển thành văn bản và gửi",
@@ -1614,7 +1633,11 @@
         "copyFailed": "Không thể sao chép",
         "delete": "Xóa",
         "deleteConfirm": "Nhấp lần nữa để xóa",
-        "itemActions": "Thao tác với mục"
+        "itemActions": "Thao tác với mục",
+        "missing": "Tệp không còn khả dụng.",
+        "expand": "Mở rộng",
+        "expandPanel": "Mở rộng bảng",
+        "revealInFinder": "Hiện trong Finder"
       },
       "url": {
         "eyebrow": "Xem trước trực tiếp",
@@ -1704,6 +1727,10 @@
           "other": "{count} tin nhắn mới"
         },
         "showNewMessagesAria": "Hiện {countPhrase}"
+      },
+      "preview": {
+        "limited": "Bản xem trước bị giới hạn. Hãy lưu hoặc mở tệp gốc để xem toàn bộ nội dung.",
+        "unavailable": "Không thể chuẩn bị bản xem trước này."
       }
     },
     "sidebar": {
@@ -1748,6 +1775,24 @@
         "deleteFailed": "Không xóa được cuộc trò chuyện này",
         "deleteFailedFor": "Không xóa được {title}"
       }
+    },
+    "browser": {
+      "connected": "Trình duyệt đã kết nối",
+      "newTab": "Mở tab mới",
+      "connecting": "Đang chờ tiện ích…"
+    },
+    "quickChat": {
+      "title": "Trò chuyện nhanh",
+      "newChat": "Cuộc trò chuyện nhanh mới"
+    },
+    "connectors": {
+      "title": "Trình kết nối",
+      "searchPlaceholder": "Tìm kiếm",
+      "searchLabel": "Tìm trình kết nối",
+      "loading": "Đang tải trình kết nối…",
+      "desktopRequired": "Trình kết nối có sẵn trong ứng dụng Stella trên máy tính.",
+      "empty": "Chưa có trình kết nối nào.",
+      "noMatches": "Không có trình kết nối nào khớp với tìm kiếm đó."
     }
   },
   "global": {
@@ -2038,8 +2083,13 @@
         "soft": "Mềm",
         "flat": "Phẳng"
       },
+      "backgroundColor": {
+        "relative": "Tương đối",
+        "strong": "Đậm"
+      },
       "useAppearanceLabel": "Dùng giao diện {name}",
       "useBackgroundLabel": "Dùng nền {name}",
+      "useBackgroundColorLabel": "Dùng màu nền {name}",
       "useThemeLabel": "Dùng chủ đề {name}",
       "notificationsSection": "Thông báo",
       "pushToggleLabel": "Cho phép thông báo đẩy",
@@ -2069,7 +2119,10 @@
       "deleteAccountLabel": "Xóa tài khoản Stella của bạn",
       "deleteConfirmTitle": "Xóa tài khoản",
       "deleteConfirmBody": "Thao tác này xóa vĩnh viễn tài khoản Stella của bạn và gỡ dữ liệu đám mây liên quan trên máy chủ của chúng tôi. Không thể hoàn tác.",
-      "deleteFailedTitle": "Không thể xóa tài khoản"
+      "deleteFailedTitle": "Không thể xóa tài khoản",
+      "chatStorage": {
+        "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên thiết bị này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

@@ -19,6 +19,18 @@
     "no": "Nej",
     "copy": "Kopiera"
   },
+  "cloudConnector": {
+    "titleOffer": "Anslut {name}?",
+    "titleWaiting": "Väntar på {name}",
+    "connecting": "Slutför inloggningen på {name} i din webbläsare. Stella fortsätter så snart den godkänts.",
+    "connect": "Anslut",
+    "openAgain": "Öppna igen",
+    "notNow": "Inte nu",
+    "errors": {
+      "decision": "Det gick inte att ansluta {name}. Försök igen.",
+      "open": "Det gick inte att öppna inloggningssidan."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Ny chatt"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Spara chatthistoriken i molnet",
+      "description": "Kom åt dina chattar på alla enheter. Stäng av för att behålla en separat chatthistorik bara på den här datorn. Om du slår på det igen laddas de chattarna inte upp. AI-leverantörer behandlar fortfarande dina meddelanden.",
+      "endVoice": "Avsluta röstsamtalet för att ändra chattlagringen.",
+      "error": "Det gick inte att ändra chattlagringen. Försök igen."
+    },
     "title": "Inställningar",
     "tabs": {
       "general": "Allmänt",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Avbryt diktering",
+      "listening": "Lyssnar …",
       "stopAndTranscribe": "Stoppa och transkribera",
       "stopAndTranscribeLabel": "Stoppa dikteringen och transkribera",
       "stopTranscribeSend": "Stoppa, transkribera och skicka",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Det gick inte att kopiera",
         "delete": "Radera",
         "deleteConfirm": "Klicka igen för att radera",
-        "itemActions": "Objektåtgärder"
+        "itemActions": "Objektåtgärder",
+        "missing": "Filen är inte längre tillgänglig.",
+        "expand": "Förstora",
+        "expandPanel": "Förstora panelen",
+        "revealInFinder": "Visa i Finder"
       },
       "url": {
         "eyebrow": "Live-förhandsvisning",
@@ -1723,6 +1746,10 @@
           "other": "{count} nya meddelanden"
         },
         "showNewMessagesAria": "Visa {countPhrase}"
+      },
+      "preview": {
+        "limited": "Begränsad förhandsvisning. Spara eller öppna originalfilen för att se allt innehåll.",
+        "unavailable": "Det gick inte att förbereda förhandsvisningen."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Det gick inte att radera den här konversationen",
         "deleteFailedFor": "Det gick inte att radera {title}"
       }
+    },
+    "browser": {
+      "connected": "Webbläsaren är ansluten",
+      "newTab": "Öppna en ny flik",
+      "connecting": "Väntar på tillägget …"
+    },
+    "quickChat": {
+      "title": "Snabbchatt",
+      "newChat": "Ny snabbchatt"
+    },
+    "connectors": {
+      "title": "Anslutningar",
+      "searchPlaceholder": "Sök",
+      "searchLabel": "Sök anslutningar",
+      "loading": "Laddar anslutningar …",
+      "desktopRequired": "Anslutningar finns i Stellas skrivbordsapp.",
+      "empty": "Inga anslutningar tillgängliga än.",
+      "noMatches": "Inga anslutningar matchar sökningen."
     }
   },
   "global": {
@@ -2061,8 +2106,13 @@
         "soft": "Mjuk",
         "flat": "Platt"
       },
+      "backgroundColor": {
+        "relative": "Relativ",
+        "strong": "Stark"
+      },
       "useAppearanceLabel": "Använd utseendet {name}",
       "useBackgroundLabel": "Använd bakgrunden {name}",
+      "useBackgroundColorLabel": "Använd bakgrundsfärgen {name}",
       "useThemeLabel": "Använd temat {name}",
       "notificationsSection": "Aviseringar",
       "pushToggleLabel": "Tillåt push-aviseringar",
@@ -2092,7 +2142,10 @@
       "deleteAccountLabel": "Radera ditt Stella-konto",
       "deleteConfirmTitle": "Radera konto",
       "deleteConfirmBody": "Detta raderar permanent ditt Stella-konto och tar bort tillhörande molndata från våra servrar. Detta kan inte ångras.",
-      "deleteFailedTitle": "Det gick inte att radera kontot"
+      "deleteFailedTitle": "Det gick inte att radera kontot",
+      "chatStorage": {
+        "description": "Kom åt dina chattar på alla enheter. Stäng av för att behålla en separat chatthistorik bara på den här enheten. Om du slår på det igen laddas de chattarna inte upp. AI-leverantörer behandlar fortfarande dina meddelanden."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

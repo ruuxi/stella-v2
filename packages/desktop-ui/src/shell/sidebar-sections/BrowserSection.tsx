@@ -324,7 +324,7 @@ function BrowserStatus({
           onClick={onConnect}
         >
           {connectingExtension
-            ? "Waiting for extension…"
+            ? t("shell.browser.connecting")
             : t("settings.browserExtension.action")}
         </button>
       </div>
@@ -339,7 +339,9 @@ function BrowserStatus({
       >
         <CheckCircle2 size={21} strokeWidth={1.8} />
       </span>
-      <p className="browser-section__status-title">Browser connected</p>
+      <p className="browser-section__status-title">
+        {t("shell.browser.connected")}
+      </p>
       {profileName ? (
         <p className="browser-section__status-body">{profileName}</p>
       ) : null}
@@ -348,7 +350,7 @@ function BrowserStatus({
         className="pill-btn pill-btn--primary"
         onClick={onCreateTab}
       >
-        Open a new tab
+        {t("shell.browser.newTab")}
       </button>
     </div>
   );

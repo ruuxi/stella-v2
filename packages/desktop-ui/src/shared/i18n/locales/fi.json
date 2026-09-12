@@ -19,6 +19,18 @@
     "no": "Ei",
     "copy": "Kopioi"
   },
+  "cloudConnector": {
+    "titleOffer": "Yhdistetäänkö {name}?",
+    "titleWaiting": "Odotetaan palvelua {name}",
+    "connecting": "Viimeistele kirjautuminen palveluun {name} selaimessa. Stella jatkaa heti, kun se on hyväksytty.",
+    "connect": "Yhdistä",
+    "openAgain": "Avaa uudelleen",
+    "notNow": "Ei nyt",
+    "errors": {
+      "decision": "Palvelua {name} ei voitu yhdistää. Yritä uudelleen.",
+      "open": "Kirjautumissivua ei voitu avata."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Uusi keskustelu"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Tallenna keskusteluhistoria pilveen",
+      "description": "Käytä keskustelujasi kaikilla laitteilla. Poista käytöstä, jos haluat pitää erillisen keskusteluhistorian vain tällä tietokoneella. Kun otat asetuksen takaisin käyttöön, näitä keskusteluja ei ladata pilveen. Tekoälypalvelut käsittelevät viestejäsi edelleen.",
+      "endVoice": "Lopeta puhekeskustelu, jotta voit muuttaa keskustelujen tallennusta.",
+      "error": "Keskustelujen tallennusta ei voitu muuttaa. Yritä uudelleen."
+    },
     "title": "Asetukset",
     "tabs": {
       "general": "Yleiset",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Peruuta sanelu",
+      "listening": "Kuuntelee…",
       "stopAndTranscribe": "Pysäytä ja litteroi",
       "stopAndTranscribeLabel": "Pysäytä sanelu ja litteroi",
       "stopTranscribeSend": "Pysäytä, litteroi ja lähetä",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Ei voitu kopioida",
         "delete": "Poista",
         "deleteConfirm": "Napsauta uudelleen poistaaksesi",
-        "itemActions": "Kohteen toiminnot"
+        "itemActions": "Kohteen toiminnot",
+        "missing": "Tiedosto ei ole enää saatavilla.",
+        "expand": "Laajenna",
+        "expandPanel": "Laajenna paneeli",
+        "revealInFinder": "Näytä Finderissa"
       },
       "url": {
         "eyebrow": "Live-esikatselu",
@@ -1723,6 +1746,10 @@
           "other": "{count} uutta viestiä"
         },
         "showNewMessagesAria": "Näytä: {countPhrase}"
+      },
+      "preview": {
+        "limited": "Esikatselu on rajattu. Tallenna tai avaa alkuperäinen tiedosto nähdäksesi koko sisällön.",
+        "unavailable": "Tätä esikatselua ei voitu valmistella."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Tätä keskustelua ei voitu poistaa",
         "deleteFailedFor": "Ei voitu poistaa: {title}"
       }
+    },
+    "browser": {
+      "connected": "Selain yhdistetty",
+      "newTab": "Avaa uusi välilehti",
+      "connecting": "Odotetaan laajennusta…"
+    },
+    "quickChat": {
+      "title": "Pikakeskustelu",
+      "newChat": "Uusi pikakeskustelu"
+    },
+    "connectors": {
+      "title": "Liitännät",
+      "searchPlaceholder": "Hae",
+      "searchLabel": "Hae liitäntöjä",
+      "loading": "Ladataan liitäntöjä…",
+      "desktopRequired": "Liitännät ovat käytettävissä Stellan työpöytäsovelluksessa.",
+      "empty": "Liitäntöjä ei ole vielä saatavilla.",
+      "noMatches": "Haku ei vastaa yhtään liitäntää."
     }
   },
   "global": {
@@ -2060,8 +2105,13 @@
         "soft": "Pehmeä",
         "flat": "Tasainen"
       },
+      "backgroundColor": {
+        "relative": "Suhteellinen",
+        "strong": "Voimakas"
+      },
       "useAppearanceLabel": "Käytä ulkoasua {name}",
       "useBackgroundLabel": "Käytä taustaa {name}",
+      "useBackgroundColorLabel": "Käytä taustaväriä {name}",
       "useThemeLabel": "Käytä teemaa {name}",
       "notificationsSection": "Ilmoitukset",
       "pushToggleLabel": "Salli push-ilmoitukset",
@@ -2091,7 +2141,10 @@
       "deleteAccountLabel": "Poista Stella-tilisi",
       "deleteConfirmTitle": "Poista tili",
       "deleteConfirmBody": "Tämä poistaa Stella-tilisi pysyvästi ja poistaa siihen liittyvät pilvitiedot palvelimiltamme. Tätä ei voi kumota.",
-      "deleteFailedTitle": "Tiliä ei voitu poistaa"
+      "deleteFailedTitle": "Tiliä ei voitu poistaa",
+      "chatStorage": {
+        "description": "Käytä keskustelujasi kaikilla laitteilla. Poista käytöstä, jos haluat pitää erillisen keskusteluhistorian vain tällä laitteella. Kun otat asetuksen takaisin käyttöön, näitä keskusteluja ei ladata pilveen. Tekoälypalvelut käsittelevät viestejäsi edelleen."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

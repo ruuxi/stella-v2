@@ -19,6 +19,18 @@
     "no": "Tidak",
     "copy": "Salin"
   },
+  "cloudConnector": {
+    "titleOffer": "Hubungkan {name}?",
+    "titleWaiting": "Menunggu {name}",
+    "connecting": "Selesaikan proses masuk ke {name} di browser Anda. Stella akan melanjutkan setelah disetujui.",
+    "connect": "Hubungkan",
+    "openAgain": "Buka lagi",
+    "notNow": "Nanti saja",
+    "errors": {
+      "decision": "Tidak dapat menghubungkan {name}. Coba lagi.",
+      "open": "Tidak dapat membuka halaman masuk."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Obrolan baru"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Simpan riwayat obrolan di cloud",
+      "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di komputer ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda.",
+      "endVoice": "Akhiri percakapan suara untuk mengubah penyimpanan obrolan.",
+      "error": "Tidak dapat mengubah penyimpanan obrolan. Coba lagi."
+    },
     "title": "Pengaturan",
     "tabs": {
       "general": "Umum",
@@ -1470,6 +1488,7 @@
     },
     "dictation": {
       "cancel": "Batalkan dikte",
+      "listening": "Mendengarkan…",
       "stopAndTranscribe": "Berhenti dan transkripsikan",
       "stopAndTranscribeLabel": "Hentikan dikte dan transkripsikan",
       "stopTranscribeSend": "Berhenti, transkripsikan, dan kirim",
@@ -1614,7 +1633,11 @@
         "copyFailed": "Tidak dapat menyalin",
         "delete": "Hapus",
         "deleteConfirm": "Klik lagi untuk menghapus",
-        "itemActions": "Tindakan item"
+        "itemActions": "Tindakan item",
+        "missing": "Berkas tidak tersedia lagi.",
+        "expand": "Perbesar",
+        "expandPanel": "Perbesar panel",
+        "revealInFinder": "Tampilkan di Finder"
       },
       "url": {
         "eyebrow": "Pratinjau langsung",
@@ -1704,6 +1727,10 @@
           "other": "{count} pesan baru"
         },
         "showNewMessagesAria": "Tampilkan {countPhrase}"
+      },
+      "preview": {
+        "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
+        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
       }
     },
     "sidebar": {
@@ -1748,6 +1775,24 @@
         "deleteFailed": "Tidak dapat menghapus percakapan ini",
         "deleteFailedFor": "Tidak dapat menghapus {title}"
       }
+    },
+    "browser": {
+      "connected": "Browser terhubung",
+      "newTab": "Buka tab baru",
+      "connecting": "Menunggu ekstensi…"
+    },
+    "quickChat": {
+      "title": "Obrolan cepat",
+      "newChat": "Obrolan cepat baru"
+    },
+    "connectors": {
+      "title": "Konektor",
+      "searchPlaceholder": "Cari",
+      "searchLabel": "Cari konektor",
+      "loading": "Memuat konektor…",
+      "desktopRequired": "Konektor tersedia di aplikasi desktop Stella.",
+      "empty": "Belum ada konektor yang tersedia.",
+      "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu."
     }
   },
   "global": {
@@ -2038,8 +2083,13 @@
         "soft": "Lembut",
         "flat": "Polos"
       },
+      "backgroundColor": {
+        "relative": "Relatif",
+        "strong": "Tegas"
+      },
       "useAppearanceLabel": "Gunakan tampilan {name}",
       "useBackgroundLabel": "Gunakan latar {name}",
+      "useBackgroundColorLabel": "Gunakan warna latar {name}",
       "useThemeLabel": "Gunakan tema {name}",
       "notificationsSection": "Notifikasi",
       "pushToggleLabel": "Izinkan notifikasi push",
@@ -2069,7 +2119,10 @@
       "deleteAccountLabel": "Hapus akun Stella Anda",
       "deleteConfirmTitle": "Hapus akun",
       "deleteConfirmBody": "Tindakan ini menghapus akun Stella Anda secara permanen dan membuang data cloud terkait di server kami. Tidak bisa dibatalkan.",
-      "deleteFailedTitle": "Tidak bisa menghapus akun"
+      "deleteFailedTitle": "Tidak bisa menghapus akun",
+      "chatStorage": {
+        "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di perangkat ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

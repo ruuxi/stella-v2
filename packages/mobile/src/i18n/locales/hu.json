@@ -19,6 +19,18 @@
     "no": "Nem",
     "copy": "Másolás"
   },
+  "cloudConnector": {
+    "titleOffer": "Csatlakoztatod: {name}?",
+    "titleWaiting": "Várakozás erre: {name}",
+    "connecting": "Fejezd be a bejelentkezést a(z) {name} szolgáltatásba a böngésződben. A Stella folytatja, amint jóváhagytad.",
+    "connect": "Csatlakoztatás",
+    "openAgain": "Megnyitás újra",
+    "notNow": "Most nem",
+    "errors": {
+      "decision": "Nem sikerült csatlakoztatni: {name}. Próbáld újra.",
+      "open": "Nem sikerült megnyitni a bejelentkezési oldalt."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Új beszélgetés"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Beszélgetési előzmények mentése a felhőbe",
+      "description": "Érd el a beszélgetéseidet minden eszközödön. Kikapcsolva külön beszélgetési előzmény marad csak ezen a számítógépen. Visszakapcsoláskor ezek a beszélgetések nem töltődnek fel. Az MI-szolgáltatók továbbra is feldolgozzák az üzeneteidet.",
+      "endVoice": "Fejezd be a hangbeszélgetést a beszélgetéstárolás módosításához.",
+      "error": "Nem sikerült módosítani a beszélgetéstárolást. Próbáld újra."
+    },
     "title": "Beállítások",
     "tabs": {
       "general": "Általános",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Diktálás megszakítása",
+      "listening": "Hallgatom…",
       "stopAndTranscribe": "Leállítás és átírás",
       "stopAndTranscribeLabel": "Diktálás leállítása és átírás",
       "stopTranscribeSend": "Leállítás, átírás és küldés",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Nem sikerült másolni",
         "delete": "Törlés",
         "deleteConfirm": "Kattints újra a törléshez",
-        "itemActions": "Elem műveletei"
+        "itemActions": "Elem műveletei",
+        "missing": "A fájl már nem érhető el.",
+        "expand": "Kibontás",
+        "expandPanel": "Panel kibontása",
+        "revealInFinder": "Megjelenítés a Finderben"
       },
       "url": {
         "eyebrow": "Élő előnézet",
@@ -1723,6 +1746,10 @@
           "other": "{count} új üzenet"
         },
         "showNewMessagesAria": "Megjelenítés: {countPhrase}"
+      },
+      "preview": {
+        "limited": "Az előnézet korlátozott. Mentsd vagy nyisd meg az eredeti fájlt a teljes tartalomhoz.",
+        "unavailable": "Ezt az előnézetet nem sikerült előkészíteni."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Nem sikerült törölni ezt a beszélgetést",
         "deleteFailedFor": "Nem sikerült törölni: {title}"
       }
+    },
+    "browser": {
+      "connected": "Böngésző csatlakoztatva",
+      "newTab": "Új lap megnyitása",
+      "connecting": "Várakozás a bővítményre…"
+    },
+    "quickChat": {
+      "title": "Gyors beszélgetés",
+      "newChat": "Új gyors beszélgetés"
+    },
+    "connectors": {
+      "title": "Összekötők",
+      "searchPlaceholder": "Keresés",
+      "searchLabel": "Összekötők keresése",
+      "loading": "Összekötők betöltése…",
+      "desktopRequired": "Az összekötők a Stella asztali alkalmazásában érhetők el.",
+      "empty": "Még nincs elérhető összekötő.",
+      "noMatches": "Egy összekötő sem felel meg a keresésnek."
     }
   },
   "global": {
@@ -2060,8 +2105,13 @@
         "soft": "Lágy",
         "flat": "Sima"
       },
+      "backgroundColor": {
+        "relative": "Relatív",
+        "strong": "Erős"
+      },
       "useAppearanceLabel": "Megjelenés használata: {name}",
       "useBackgroundLabel": "Háttér használata: {name}",
+      "useBackgroundColorLabel": "Háttérszín használata: {name}",
       "useThemeLabel": "Téma használata: {name}",
       "notificationsSection": "Értesítések",
       "pushToggleLabel": "Push-értesítések engedélyezése",
@@ -2091,7 +2141,10 @@
       "deleteAccountLabel": "A Stella-fiókod törlése",
       "deleteConfirmTitle": "Fiók törlése",
       "deleteConfirmBody": "Ez véglegesen törli a Stella-fiókodat, és eltávolítja a hozzá tartozó felhőadatokat a szervereinkről. Ezt nem lehet visszavonni.",
-      "deleteFailedTitle": "A fiókot nem sikerült törölni"
+      "deleteFailedTitle": "A fiókot nem sikerült törölni",
+      "chatStorage": {
+        "description": "Érd el a beszélgetéseidet minden eszközödön. Kikapcsolva külön beszélgetési előzmény marad csak ezen az eszközön. Visszakapcsoláskor ezek a beszélgetések nem töltődnek fel. Az MI-szolgáltatók továbbra is feldolgozzák az üzeneteidet."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

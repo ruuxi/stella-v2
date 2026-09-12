@@ -14,6 +14,7 @@ import {
 import { copyImageBlob } from "@/shell/media-clipboard";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 import { AudioPlayer } from "@/shell/AudioPlayer";
+import { useT } from "@/shared/i18n";
 
 type MediaPreviewCardProps = {
   asset: MediaAsset;
@@ -134,6 +135,7 @@ const ImageGallery = ({
   inDialog?: boolean;
   initialIndex?: number;
 }) => {
+  const t = useT();
   const { files, error, missing } = useDisplayFileBlobs(
     filePaths,
     "Media preview requires the Electron host runtime.",
@@ -161,7 +163,7 @@ const ImageGallery = ({
               className="display-media__action-btn"
               onClick={expandDisplayPanel}
             >
-              Expand
+              {t("shell.display.media.expand")}
             </button>
           ) : undefined
         }
@@ -171,7 +173,7 @@ const ImageGallery = ({
           type="button"
           className="display-media__primary-btn"
           onClick={inDialog ? undefined : expandDisplayPanel}
-          aria-label="Expand panel"
+          aria-label={t("shell.display.media.expandPanel")}
         >
           <img
             src={active.url}
@@ -225,6 +227,7 @@ const VideoCard = ({
   capability?: string;
   inDialog?: boolean;
 }) => {
+  const t = useT();
   const { files, error, missing } = useDisplayFileBlobs(
     [filePath],
     "Media preview requires the Electron host runtime.",
@@ -261,7 +264,7 @@ const VideoCard = ({
               className="display-media__action-btn"
               onClick={expandDisplayPanel}
             >
-              Expand
+              {t("shell.display.media.expand")}
             </button>
           ) : undefined
         }
@@ -282,6 +285,7 @@ const AudioCard = ({
   capability?: string;
   inDialog?: boolean;
 }) => {
+  const t = useT();
   const { files, error, missing } = useDisplayFileBlobs(
     [filePath],
     "Media preview requires the Electron host runtime.",
@@ -294,7 +298,9 @@ const AudioCard = ({
       {error && <p className="display-media__error">{error}</p>}
       <div className="display-media__audio-card">
         {isMissing ? (
-          <div className="display-media__missing">File no longer available.</div>
+          <div className="display-media__missing">
+            {t("shell.display.media.missing")}
+          </div>
         ) : (
           <AudioPlayer key={file?.url ?? "audio-loading"} src={file?.url ?? null} />
         )}
@@ -310,7 +316,7 @@ const AudioCard = ({
               className="display-media__action-btn"
               onClick={expandDisplayPanel}
             >
-              Expand
+              {t("shell.display.media.expand")}
             </button>
           ) : undefined
         }
@@ -334,6 +340,7 @@ const DownloadCard = ({
   variant: "model3d" | "download";
   inDialog?: boolean;
 }) => {
+  const t = useT();
   const handleReveal = useCallback(() => {
     window.electronAPI?.system?.showItemInFolder?.(filePath);
   }, [filePath]);
@@ -363,7 +370,7 @@ const DownloadCard = ({
                     className="display-media__action-btn"
                     onClick={expandDisplayPanel}
                   >
-                    Expand
+                    {t("shell.display.media.expand")}
                   </button>
                 )}
                 <button
@@ -371,7 +378,7 @@ const DownloadCard = ({
                   className="display-media__action-btn"
                   onClick={handleReveal}
                 >
-                  Reveal in Finder
+                  {t("shell.display.media.revealInFinder")}
                 </button>
               </>
             }

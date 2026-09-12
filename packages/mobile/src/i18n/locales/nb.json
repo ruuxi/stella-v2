@@ -19,6 +19,18 @@
     "no": "Nei",
     "copy": "Kopier"
   },
+  "cloudConnector": {
+    "titleOffer": "Vil du koble til {name}?",
+    "titleWaiting": "Venter på {name}",
+    "connecting": "Fullfør innloggingen på {name} i nettleseren. Stella fortsetter så snart det er godkjent.",
+    "connect": "Koble til",
+    "openAgain": "Åpne igjen",
+    "notNow": "Ikke nå",
+    "errors": {
+      "decision": "Kunne ikke koble til {name}. Prøv igjen.",
+      "open": "Kunne ikke åpne innloggingssiden."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Ny samtale"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Lagre samtalehistorikk i skyen",
+      "description": "Få tilgang til samtalene dine på alle enheter. Slå av for å beholde en egen samtalehistorikk bare på denne datamaskinen. Når du slår på igjen, lastes ikke de samtalene opp. KI-leverandører behandler fortsatt meldingene dine.",
+      "endVoice": "Avslutt samtalen med stemme for å endre lagring av samtaler.",
+      "error": "Kunne ikke endre lagring av samtaler. Prøv igjen."
+    },
     "title": "Innstillinger",
     "tabs": {
       "general": "Generelt",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Avbryt diktering",
+      "listening": "Lytter …",
       "stopAndTranscribe": "Stopp og transkriber",
       "stopAndTranscribeLabel": "Stopp dikteringen og transkriber",
       "stopTranscribeSend": "Stopp, transkriber og send",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Kunne ikke kopiere",
         "delete": "Slett",
         "deleteConfirm": "Klikk igjen for å slette",
-        "itemActions": "Elementhandlinger"
+        "itemActions": "Elementhandlinger",
+        "missing": "Filen er ikke lenger tilgjengelig.",
+        "expand": "Utvid",
+        "expandPanel": "Utvid panelet",
+        "revealInFinder": "Vis i Finder"
       },
       "url": {
         "eyebrow": "Direkte forhåndsvisning",
@@ -1723,6 +1746,10 @@
           "other": "{count} nye meldinger"
         },
         "showNewMessagesAria": "Vis {countPhrase}"
+      },
+      "preview": {
+        "limited": "Begrenset forhåndsvisning. Lagre eller åpne originalfilen for å se alt innholdet.",
+        "unavailable": "Kunne ikke klargjøre denne forhåndsvisningen."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Kunne ikke slette denne samtalen",
         "deleteFailedFor": "Kunne ikke slette {title}"
       }
+    },
+    "browser": {
+      "connected": "Nettleser tilkoblet",
+      "newTab": "Åpne en ny fane",
+      "connecting": "Venter på utvidelsen …"
+    },
+    "quickChat": {
+      "title": "Hurtigsamtale",
+      "newChat": "Ny hurtigsamtale"
+    },
+    "connectors": {
+      "title": "Tilkoblinger",
+      "searchPlaceholder": "Søk",
+      "searchLabel": "Søk i tilkoblinger",
+      "loading": "Laster inn tilkoblinger …",
+      "desktopRequired": "Tilkoblinger er tilgjengelige i Stella-skrivebordsappen.",
+      "empty": "Ingen tilkoblinger tilgjengelige ennå.",
+      "noMatches": "Ingen tilkoblinger samsvarer med søket."
     }
   },
   "global": {
@@ -2061,8 +2106,13 @@
         "soft": "Mykt",
         "flat": "Flatt"
       },
+      "backgroundColor": {
+        "relative": "Relativ",
+        "strong": "Sterk"
+      },
       "useAppearanceLabel": "Bruk utseendet {name}",
       "useBackgroundLabel": "Bruk bakgrunnen {name}",
+      "useBackgroundColorLabel": "Bruk bakgrunnsfargen {name}",
       "useThemeLabel": "Bruk temaet {name}",
       "notificationsSection": "Varsler",
       "pushToggleLabel": "Tillat push-varsler",
@@ -2092,7 +2142,10 @@
       "deleteAccountLabel": "Slett Stella-kontoen din",
       "deleteConfirmTitle": "Slett konto",
       "deleteConfirmBody": "Dette sletter Stella-kontoen din permanent og fjerner skydata knyttet til den på serverne våre. Dette kan ikke angres.",
-      "deleteFailedTitle": "Kunne ikke slette kontoen"
+      "deleteFailedTitle": "Kunne ikke slette kontoen",
+      "chatStorage": {
+        "description": "Få tilgang til samtalene dine på alle enheter. Slå av for å beholde en egen samtalehistorikk bare på denne enheten. Når du slår på igjen, lastes ikke de samtalene opp. KI-leverandører behandler fortsatt meldingene dine."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

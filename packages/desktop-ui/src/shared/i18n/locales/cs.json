@@ -19,6 +19,18 @@
     "no": "Ne",
     "copy": "Kopírovat"
   },
+  "cloudConnector": {
+    "titleOffer": "Připojit {name}?",
+    "titleWaiting": "Čekání na {name}",
+    "connecting": "Dokončete přihlášení k {name} v prohlížeči. Stella bude pokračovat, jakmile to schválíte.",
+    "connect": "Připojit",
+    "openAgain": "Otevřít znovu",
+    "notNow": "Teď ne",
+    "errors": {
+      "decision": "Nepodařilo se připojit {name}. Zkuste to znovu.",
+      "open": "Nepodařilo se otevřít přihlašovací stránku."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Nový chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Ukládat historii chatů do cloudu",
+      "description": "Mějte chaty po ruce na všech zařízeních. Vypnutím zachováte samostatnou historii chatů jen na tomto počítači. Po opětovném zapnutí se tyto chaty nenahrají. Poskytovatelé AI vaše zprávy nadále zpracovávají.",
+      "endVoice": "Ukončete hlasový hovor, abyste mohli změnit ukládání chatů.",
+      "error": "Ukládání chatů se nepodařilo změnit. Zkuste to znovu."
+    },
     "title": "Nastavení",
     "tabs": {
       "general": "Obecné",
@@ -1498,6 +1516,7 @@
     },
     "dictation": {
       "cancel": "Zrušit diktování",
+      "listening": "Poslouchám…",
       "stopAndTranscribe": "Zastavit a přepsat",
       "stopAndTranscribeLabel": "Zastavit diktování a přepsat",
       "stopTranscribeSend": "Zastavit, přepsat a odeslat",
@@ -1651,7 +1670,11 @@
         "copyFailed": "Nepodařilo se zkopírovat",
         "delete": "Smazat",
         "deleteConfirm": "Klikněte znovu pro smazání",
-        "itemActions": "Akce položky"
+        "itemActions": "Akce položky",
+        "missing": "Soubor už není k dispozici.",
+        "expand": "Rozbalit",
+        "expandPanel": "Rozbalit panel",
+        "revealInFinder": "Zobrazit ve Finderu"
       },
       "url": {
         "eyebrow": "Živý náhled",
@@ -1755,6 +1778,10 @@
           "other": "{count} nových zpráv"
         },
         "showNewMessagesAria": "Zobrazit {countPhrase}"
+      },
+      "preview": {
+        "limited": "Náhled je omezený. Uložte nebo otevřete původní soubor, abyste viděli celý obsah.",
+        "unavailable": "Tento náhled se nepodařilo připravit."
       }
     },
     "sidebar": {
@@ -1799,6 +1826,24 @@
         "deleteFailed": "Tuto konverzaci se nepodařilo smazat",
         "deleteFailedFor": "Nepodařilo se smazat {title}"
       }
+    },
+    "browser": {
+      "connected": "Prohlížeč připojen",
+      "newTab": "Otevřít novou kartu",
+      "connecting": "Čekání na rozšíření…"
+    },
+    "quickChat": {
+      "title": "Rychlý chat",
+      "newChat": "Nový rychlý chat"
+    },
+    "connectors": {
+      "title": "Konektory",
+      "searchPlaceholder": "Hledat",
+      "searchLabel": "Hledat konektory",
+      "loading": "Načítání konektorů…",
+      "desktopRequired": "Konektory jsou dostupné v desktopové aplikaci Stella.",
+      "empty": "Zatím nejsou k dispozici žádné konektory.",
+      "noMatches": "Hledání neodpovídá žádnému konektoru."
     }
   },
   "global": {
@@ -2097,8 +2142,13 @@
         "soft": "Jemné",
         "flat": "Ploché"
       },
+      "backgroundColor": {
+        "relative": "Relativní",
+        "strong": "Výrazné"
+      },
       "useAppearanceLabel": "Použít vzhled {name}",
       "useBackgroundLabel": "Použít pozadí {name}",
+      "useBackgroundColorLabel": "Použít barvu pozadí {name}",
       "useThemeLabel": "Použít motiv {name}",
       "notificationsSection": "Oznámení",
       "pushToggleLabel": "Povolit push oznámení",
@@ -2128,7 +2178,10 @@
       "deleteAccountLabel": "Smazat váš účet Stella",
       "deleteConfirmTitle": "Smazat účet",
       "deleteConfirmBody": "Tímto trvale smažete svůj účet Stella a odstraníte související cloudová data z našich serverů. Tuto akci nelze vrátit zpět.",
-      "deleteFailedTitle": "Účet se nepodařilo smazat"
+      "deleteFailedTitle": "Účet se nepodařilo smazat",
+      "chatStorage": {
+        "description": "Mějte chaty po ruce na všech zařízeních. Vypnutím zachováte samostatnou historii chatů jen na tomto zařízení. Po opětovném zapnutí se tyto chaty nenahrají. Poskytovatelé AI vaše zprávy nadále zpracovávají."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

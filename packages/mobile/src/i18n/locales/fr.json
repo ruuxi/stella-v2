@@ -19,6 +19,18 @@
     "no": "Non",
     "copy": "Copier"
   },
+  "cloudConnector": {
+    "titleOffer": "Connecter {name} ?",
+    "titleWaiting": "En attente de {name}",
+    "connecting": "Terminez la connexion à {name} dans votre navigateur. Stella poursuivra une fois l'accès approuvé.",
+    "connect": "Connecter",
+    "openAgain": "Rouvrir",
+    "notNow": "Pas maintenant",
+    "errors": {
+      "decision": "Impossible de connecter {name}. Réessayez.",
+      "open": "Impossible d'ouvrir la page de connexion."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Nouvelle conversation"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Enregistrer l'historique des conversations dans le cloud",
+      "description": "Accédez à vos conversations sur tous vos appareils. Désactivez cette option pour conserver un historique distinct uniquement sur cet ordinateur. En réactivant, ces conversations ne seront pas envoyées. Les fournisseurs d'IA traitent toujours vos messages.",
+      "endVoice": "Terminez votre conversation vocale pour modifier le stockage des conversations.",
+      "error": "Impossible de modifier le stockage des conversations. Réessayez."
+    },
     "title": "Paramètres",
     "tabs": {
       "general": "Général",
@@ -1489,6 +1507,7 @@
     },
     "dictation": {
       "cancel": "Annuler la dictée",
+      "listening": "Écoute…",
       "stopAndTranscribe": "Arrêter et transcrire",
       "stopAndTranscribeLabel": "Arrêter la dictée et transcrire",
       "stopTranscribeSend": "Arrêter, transcrire et envoyer",
@@ -1639,7 +1658,11 @@
         "copyFailed": "Impossible de copier",
         "delete": "Supprimer",
         "deleteConfirm": "Cliquez à nouveau pour supprimer",
-        "itemActions": "Actions sur l’élément"
+        "itemActions": "Actions sur l’élément",
+        "missing": "Fichier non disponible.",
+        "expand": "Agrandir",
+        "expandPanel": "Agrandir le panneau",
+        "revealInFinder": "Afficher dans le Finder"
       },
       "url": {
         "eyebrow": "Aperçu en direct",
@@ -1739,6 +1762,10 @@
           "other": "{count} nouveaux messages"
         },
         "showNewMessagesAria": "Afficher {countPhrase}"
+      },
+      "preview": {
+        "limited": "Aperçu limité. Enregistrez ou ouvrez le fichier d'origine pour voir tout le contenu.",
+        "unavailable": "Impossible de préparer cet aperçu."
       }
     },
     "sidebar": {
@@ -1783,6 +1810,24 @@
         "deleteFailed": "Impossible de supprimer cette conversation",
         "deleteFailedFor": "Impossible de supprimer {title}"
       }
+    },
+    "browser": {
+      "connected": "Navigateur connecté",
+      "newTab": "Ouvrir un nouvel onglet",
+      "connecting": "En attente de l'extension…"
+    },
+    "quickChat": {
+      "title": "Conversation rapide",
+      "newChat": "Nouvelle conversation rapide"
+    },
+    "connectors": {
+      "title": "Connecteurs",
+      "searchPlaceholder": "Rechercher",
+      "searchLabel": "Rechercher des connecteurs",
+      "loading": "Chargement des connecteurs…",
+      "desktopRequired": "Les connecteurs sont disponibles dans l'app Stella pour ordinateur.",
+      "empty": "Aucun connecteur disponible pour l'instant.",
+      "noMatches": "Aucun connecteur ne correspond à cette recherche."
     }
   },
   "global": {
@@ -2079,8 +2124,13 @@
         "soft": "Doux",
         "flat": "Uni"
       },
+      "backgroundColor": {
+        "relative": "Relative",
+        "strong": "Intense"
+      },
       "useAppearanceLabel": "Utiliser l'apparence {name}",
       "useBackgroundLabel": "Utiliser le fond {name}",
+      "useBackgroundColorLabel": "Utiliser la couleur de fond {name}",
       "useThemeLabel": "Utiliser le thème {name}",
       "notificationsSection": "Notifications",
       "pushToggleLabel": "Autoriser les notifications push",
@@ -2110,7 +2160,10 @@
       "deleteAccountLabel": "Supprimer votre compte Stella",
       "deleteConfirmTitle": "Supprimer le compte",
       "deleteConfirmBody": "Cela supprime définitivement votre compte Stella et efface de nos serveurs les données cloud qui lui sont associées. Cette action est irréversible.",
-      "deleteFailedTitle": "Impossible de supprimer le compte"
+      "deleteFailedTitle": "Impossible de supprimer le compte",
+      "chatStorage": {
+        "description": "Accédez à vos conversations sur tous vos appareils. Désactivez cette option pour conserver un historique distinct uniquement sur cet appareil. En réactivant, ces conversations ne seront pas envoyées. Les fournisseurs d'IA traitent toujours vos messages."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

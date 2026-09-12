@@ -97,7 +97,6 @@
       "endVoice": "End your voice conversation to change chat storage.",
       "error": "Couldn’t change chat storage. Try again."
     },
-
     "title": "Settings",
     "tabs": {
       "general": "General",
@@ -1647,7 +1646,11 @@
         "copyFailed": "Could not copy",
         "delete": "Delete",
         "deleteConfirm": "Click again to delete",
-        "itemActions": "Item actions"
+        "itemActions": "Item actions",
+        "missing": "File no longer available.",
+        "expand": "Expand",
+        "expandPanel": "Expand panel",
+        "revealInFinder": "Reveal in Finder"
       },
       "url": {
         "eyebrow": "Live preview",
@@ -1743,6 +1746,10 @@
           "other": "{count} new messages"
         },
         "showNewMessagesAria": "Show {countPhrase}"
+      },
+      "preview": {
+        "limited": "Preview limited. Save or open the original file to view all content.",
+        "unavailable": "Unable to prepare this preview."
       }
     },
     "sidebar": {
@@ -1787,6 +1794,24 @@
         "deleteFailed": "Couldn’t delete this conversation",
         "deleteFailedFor": "Couldn’t delete {title}"
       }
+    },
+    "browser": {
+      "connected": "Browser connected",
+      "newTab": "Open a new tab",
+      "connecting": "Waiting for extension…"
+    },
+    "quickChat": {
+      "title": "Quick chat",
+      "newChat": "New quick chat"
+    },
+    "connectors": {
+      "title": "Connectors",
+      "searchPlaceholder": "Search",
+      "searchLabel": "Search connectors",
+      "loading": "Loading connectors…",
+      "desktopRequired": "Connectors are available in the Stella desktop app.",
+      "empty": "No connectors available yet.",
+      "noMatches": "No connectors match that search."
     }
   },
   "global": {
@@ -2116,7 +2141,10 @@
       "deleteAccountLabel": "Delete your Stella account",
       "deleteConfirmTitle": "Delete account",
       "deleteConfirmBody": "This permanently deletes your Stella account and removes cloud data associated with it on our servers. This cannot be undone.",
-      "deleteFailedTitle": "Could not delete account"
+      "deleteFailedTitle": "Could not delete account",
+      "chatStorage": {
+        "description": "Access your chats across devices. Turn off to keep a separate chat history only on this device. Switching back won’t upload those chats. AI providers still process your messages."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

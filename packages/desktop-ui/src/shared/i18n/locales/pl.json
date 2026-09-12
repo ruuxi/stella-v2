@@ -19,6 +19,18 @@
     "no": "Nie",
     "copy": "Kopiuj"
   },
+  "cloudConnector": {
+    "titleOffer": "Połączyć {name}?",
+    "titleWaiting": "Oczekiwanie na {name}",
+    "connecting": "Dokończ logowanie do {name} w przeglądarce. Stella będzie kontynuować po zatwierdzeniu.",
+    "connect": "Połącz",
+    "openAgain": "Otwórz ponownie",
+    "notNow": "Nie teraz",
+    "errors": {
+      "decision": "Nie udało się połączyć {name}. Spróbuj ponownie.",
+      "open": "Nie udało się otworzyć strony logowania."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Nowy czat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Zapisuj historię czatów w chmurze",
+      "description": "Korzystaj ze swoich czatów na wszystkich urządzeniach. Wyłącz, aby zachować osobną historię czatów tylko na tym komputerze. Po ponownym włączeniu te czaty nie zostaną przesłane. Dostawcy AI nadal przetwarzają Twoje wiadomości.",
+      "endVoice": "Zakończ rozmowę głosową, aby zmienić sposób zapisywania czatów.",
+      "error": "Nie udało się zmienić sposobu zapisywania czatów. Spróbuj ponownie."
+    },
     "title": "Ustawienia",
     "tabs": {
       "general": "Podstawowe",
@@ -1498,6 +1516,7 @@
     },
     "dictation": {
       "cancel": "Anuluj dyktowanie",
+      "listening": "Słucham…",
       "stopAndTranscribe": "Zatrzymaj i przepisz",
       "stopAndTranscribeLabel": "Zatrzymaj dyktowanie i przepisz",
       "stopTranscribeSend": "Zatrzymaj, przepisz i wyślij",
@@ -1651,7 +1670,11 @@
         "copyFailed": "Nie udało się skopiować",
         "delete": "Usuń",
         "deleteConfirm": "Kliknij ponownie, aby usunąć",
-        "itemActions": "Działania na elemencie"
+        "itemActions": "Działania na elemencie",
+        "missing": "Plik nie jest już dostępny.",
+        "expand": "Rozwiń",
+        "expandPanel": "Rozwiń panel",
+        "revealInFinder": "Pokaż w Finderze"
       },
       "url": {
         "eyebrow": "Podgląd na żywo",
@@ -1755,6 +1778,10 @@
           "other": "{count} nowej wiadomości"
         },
         "showNewMessagesAria": "Pokaż {countPhrase}"
+      },
+      "preview": {
+        "limited": "Podgląd ograniczony. Zapisz lub otwórz oryginalny plik, aby zobaczyć całą zawartość.",
+        "unavailable": "Nie można przygotować tego podglądu."
       }
     },
     "sidebar": {
@@ -1799,6 +1826,24 @@
         "deleteFailed": "Nie udało się usunąć tej rozmowy",
         "deleteFailedFor": "Nie udało się usunąć {title}"
       }
+    },
+    "browser": {
+      "connected": "Przeglądarka połączona",
+      "newTab": "Otwórz nową kartę",
+      "connecting": "Oczekiwanie na rozszerzenie…"
+    },
+    "quickChat": {
+      "title": "Szybki czat",
+      "newChat": "Nowy szybki czat"
+    },
+    "connectors": {
+      "title": "Łączniki",
+      "searchPlaceholder": "Szukaj",
+      "searchLabel": "Szukaj łączników",
+      "loading": "Ładowanie łączników…",
+      "desktopRequired": "Łączniki są dostępne w aplikacji Stella na komputer.",
+      "empty": "Brak dostępnych łączników.",
+      "noMatches": "Żaden łącznik nie pasuje do wyszukiwania."
     }
   },
   "global": {
@@ -2098,8 +2143,13 @@
         "soft": "Miękkie",
         "flat": "Płaskie"
       },
+      "backgroundColor": {
+        "relative": "Względne",
+        "strong": "Mocne"
+      },
       "useAppearanceLabel": "Użyj wyglądu {name}",
       "useBackgroundLabel": "Użyj tła {name}",
+      "useBackgroundColorLabel": "Użyj koloru tła {name}",
       "useThemeLabel": "Użyj motywu {name}",
       "notificationsSection": "Powiadomienia",
       "pushToggleLabel": "Zezwalaj na powiadomienia push",
@@ -2129,7 +2179,10 @@
       "deleteAccountLabel": "Usuń swoje konto Stella",
       "deleteConfirmTitle": "Usuń konto",
       "deleteConfirmBody": "To trwale usuwa twoje konto Stella oraz powiązane z nim dane w chmurze na naszych serwerach. Tej operacji nie można cofnąć.",
-      "deleteFailedTitle": "Nie udało się usunąć konta"
+      "deleteFailedTitle": "Nie udało się usunąć konta",
+      "chatStorage": {
+        "description": "Korzystaj ze swoich czatów na wszystkich urządzeniach. Wyłącz, aby zachować osobną historię czatów tylko na tym urządzeniu. Po ponownym włączeniu te czaty nie zostaną przesłane. Dostawcy AI nadal przetwarzają Twoje wiadomości."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

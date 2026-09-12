@@ -19,6 +19,18 @@
     "no": "नहीं",
     "copy": "कॉपी करें"
   },
+  "cloudConnector": {
+    "titleOffer": "{name} कनेक्ट करें?",
+    "titleWaiting": "{name} का इंतज़ार है",
+    "connecting": "अपने ब्राउज़र में {name} में साइन इन पूरा करें। मंज़ूरी मिलते ही Stella आगे बढ़ेगी।",
+    "connect": "कनेक्ट करें",
+    "openAgain": "दोबारा खोलें",
+    "notNow": "अभी नहीं",
+    "errors": {
+      "decision": "{name} कनेक्ट नहीं हो सका। दोबारा कोशिश करें।",
+      "open": "साइन-इन पेज नहीं खुल सका।"
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "नई चैट"
   },
   "settings": {
+    "chatStorage": {
+      "title": "चैट इतिहास क्लाउड में सेव करें",
+      "description": "अपनी चैट सभी डिवाइस पर देखें। बंद करने पर चैट इतिहास सिर्फ़ इसी कंप्यूटर पर अलग से रहेगा। दोबारा चालू करने पर वे चैट अपलोड नहीं होंगी। AI प्रदाता फिर भी आपके संदेश प्रोसेस करते हैं।",
+      "endVoice": "चैट स्टोरेज बदलने के लिए अपनी वॉइस बातचीत खत्म करें।",
+      "error": "चैट स्टोरेज नहीं बदला जा सका। दोबारा कोशिश करें।"
+    },
     "title": "सेटिंग्स",
     "tabs": {
       "general": "बुनियादी",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "श्रुतलेखन रद्द करें",
+      "listening": "सुन रही हूँ…",
       "stopAndTranscribe": "रोकें और लिखें",
       "stopAndTranscribeLabel": "श्रुतलेखन रोकें और लिखें",
       "stopTranscribeSend": "रोकें, लिखें और भेजें",
@@ -1627,7 +1646,11 @@
         "copyFailed": "कॉपी नहीं हो सका",
         "delete": "मिटाएँ",
         "deleteConfirm": "मिटाने के लिए फिर क्लिक करें",
-        "itemActions": "आइटम क्रियाएँ"
+        "itemActions": "आइटम क्रियाएँ",
+        "missing": "फ़ाइल अब उपलब्ध नहीं है।",
+        "expand": "बड़ा करें",
+        "expandPanel": "पैनल बड़ा करें",
+        "revealInFinder": "Finder में दिखाएँ"
       },
       "url": {
         "eyebrow": "लाइव पूर्वावलोकन",
@@ -1723,6 +1746,10 @@
           "other": "{count} नए संदेश"
         },
         "showNewMessagesAria": "{countPhrase} दिखाएँ"
+      },
+      "preview": {
+        "limited": "प्रीव्यू सीमित है। पूरा कॉन्टेंट देखने के लिए मूल फ़ाइल सेव करें या खोलें।",
+        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।"
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "यह वार्तालाप नहीं मिटाया जा सका",
         "deleteFailedFor": "{title} नहीं मिटाया जा सका"
       }
+    },
+    "browser": {
+      "connected": "ब्राउज़र कनेक्ट है",
+      "newTab": "नया टैब खोलें",
+      "connecting": "एक्सटेंशन का इंतज़ार…"
+    },
+    "quickChat": {
+      "title": "क्विक चैट",
+      "newChat": "नई क्विक चैट"
+    },
+    "connectors": {
+      "title": "कनेक्टर",
+      "searchPlaceholder": "खोजें",
+      "searchLabel": "कनेक्टर खोजें",
+      "loading": "कनेक्टर लोड हो रहे हैं…",
+      "desktopRequired": "कनेक्टर Stella डेस्कटॉप ऐप में उपलब्ध हैं।",
+      "empty": "अभी कोई कनेक्टर उपलब्ध नहीं है।",
+      "noMatches": "उस खोज से कोई कनेक्टर मेल नहीं खाता।"
     }
   },
   "global": {
@@ -2060,8 +2105,13 @@
         "soft": "सॉफ़्ट",
         "flat": "फ़्लैट"
       },
+      "backgroundColor": {
+        "relative": "सापेक्ष",
+        "strong": "गहरा"
+      },
       "useAppearanceLabel": "{name} दिखावट इस्तेमाल करें",
       "useBackgroundLabel": "{name} बैकग्राउंड इस्तेमाल करें",
+      "useBackgroundColorLabel": "{name} बैकग्राउंड रंग इस्तेमाल करें",
       "useThemeLabel": "{name} थीम इस्तेमाल करें",
       "notificationsSection": "सूचनाएँ",
       "pushToggleLabel": "पुश सूचनाएँ चालू करें",
@@ -2091,7 +2141,10 @@
       "deleteAccountLabel": "अपना Stella खाता हटाएँ",
       "deleteConfirmTitle": "खाता हटाएँ",
       "deleteConfirmBody": "इससे आपका Stella खाता हमेशा के लिए हट जाएगा और हमारे सर्वर पर उससे जुड़ा क्लाउड डेटा भी मिट जाएगा। इसे पलटा नहीं जा सकता।",
-      "deleteFailedTitle": "खाता नहीं हटाया जा सका"
+      "deleteFailedTitle": "खाता नहीं हटाया जा सका",
+      "chatStorage": {
+        "description": "अपनी चैट सभी डिवाइस पर देखें। बंद करने पर चैट इतिहास सिर्फ़ इसी डिवाइस पर अलग से रहेगा। दोबारा चालू करने पर वे चैट अपलोड नहीं होंगी। AI प्रदाता फिर भी आपके संदेश प्रोसेस करते हैं।"
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

@@ -19,6 +19,18 @@
     "no": "Nein",
     "copy": "Kopieren"
   },
+  "cloudConnector": {
+    "titleOffer": "{name} verbinden?",
+    "titleWaiting": "Warten auf {name}",
+    "connecting": "Schließe die Anmeldung bei {name} in deinem Browser ab. Stella macht weiter, sobald sie bestätigt ist.",
+    "connect": "Verbinden",
+    "openAgain": "Erneut öffnen",
+    "notNow": "Jetzt nicht",
+    "errors": {
+      "decision": "{name} konnte nicht verbunden werden. Versuch es erneut.",
+      "open": "Die Anmeldeseite konnte nicht geöffnet werden."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Neuer Chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Chatverlauf in der Cloud speichern",
+      "description": "Greife auf all deinen Geräten auf deine Chats zu. Deaktiviere die Option, um einen separaten Chatverlauf nur auf diesem Computer zu behalten. Beim Zurückschalten werden diese Chats nicht hochgeladen. KI-Anbieter verarbeiten deine Nachrichten weiterhin.",
+      "endVoice": "Beende dein Sprachgespräch, um den Chatspeicher zu ändern.",
+      "error": "Der Chatspeicher konnte nicht geändert werden. Versuch es erneut."
+    },
     "title": "Einstellungen",
     "tabs": {
       "general": "Allgemein",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Diktat abbrechen",
+      "listening": "Hört zu …",
       "stopAndTranscribe": "Stoppen und transkribieren",
       "stopAndTranscribeLabel": "Diktat stoppen und transkribieren",
       "stopTranscribeSend": "Stoppen, transkribieren und senden",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Kopieren nicht möglich",
         "delete": "Löschen",
         "deleteConfirm": "Zum Löschen erneut klicken",
-        "itemActions": "Objektaktionen"
+        "itemActions": "Objektaktionen",
+        "missing": "Datei nicht mehr verfügbar.",
+        "expand": "Erweitern",
+        "expandPanel": "Panel erweitern",
+        "revealInFinder": "Im Finder zeigen"
       },
       "url": {
         "eyebrow": "Live-Vorschau",
@@ -1723,6 +1746,10 @@
           "other": "{count} neue Nachrichten"
         },
         "showNewMessagesAria": "{countPhrase} anzeigen"
+      },
+      "preview": {
+        "limited": "Vorschau eingeschränkt. Speichere oder öffne die Originaldatei, um den gesamten Inhalt zu sehen.",
+        "unavailable": "Diese Vorschau kann nicht erstellt werden."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Diese Unterhaltung konnte nicht gelöscht werden",
         "deleteFailedFor": "{title} konnte nicht gelöscht werden"
       }
+    },
+    "browser": {
+      "connected": "Browser verbunden",
+      "newTab": "Neuen Tab öffnen",
+      "connecting": "Warten auf Erweiterung …"
+    },
+    "quickChat": {
+      "title": "Schnellchat",
+      "newChat": "Neuer Schnellchat"
+    },
+    "connectors": {
+      "title": "Connectors",
+      "searchPlaceholder": "Suchen",
+      "searchLabel": "Connectors durchsuchen",
+      "loading": "Connectors werden geladen …",
+      "desktopRequired": "Connectors sind in der Stella-Desktop-App verfügbar.",
+      "empty": "Noch keine Connectors verfügbar.",
+      "noMatches": "Keine Connectors passen zu dieser Suche."
     }
   },
   "global": {
@@ -2060,8 +2105,13 @@
         "soft": "Weich",
         "flat": "Flach"
       },
+      "backgroundColor": {
+        "relative": "Relativ",
+        "strong": "Kräftig"
+      },
       "useAppearanceLabel": "Erscheinungsbild {name} verwenden",
       "useBackgroundLabel": "Hintergrund {name} verwenden",
+      "useBackgroundColorLabel": "Hintergrundfarbe {name} verwenden",
       "useThemeLabel": "Theme {name} verwenden",
       "notificationsSection": "Benachrichtigungen",
       "pushToggleLabel": "Push-Benachrichtigungen erlauben",
@@ -2091,7 +2141,10 @@
       "deleteAccountLabel": "Dein Stella-Konto löschen",
       "deleteConfirmTitle": "Konto löschen",
       "deleteConfirmBody": "Dies löscht dein Stella-Konto dauerhaft und entfernt die zugehörigen Cloud-Daten von unseren Servern. Das kann nicht rückgängig gemacht werden.",
-      "deleteFailedTitle": "Konto konnte nicht gelöscht werden"
+      "deleteFailedTitle": "Konto konnte nicht gelöscht werden",
+      "chatStorage": {
+        "description": "Greife auf all deinen Geräten auf deine Chats zu. Deaktiviere die Option, um einen separaten Chatverlauf nur auf diesem Gerät zu behalten. Beim Zurückschalten werden diese Chats nicht hochgeladen. KI-Anbieter verarbeiten deine Nachrichten weiterhin."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

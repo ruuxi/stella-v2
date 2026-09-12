@@ -19,6 +19,18 @@
     "no": "Nee",
     "copy": "Kopiëren"
   },
+  "cloudConnector": {
+    "titleOffer": "{name} verbinden?",
+    "titleWaiting": "Wachten op {name}",
+    "connecting": "Rond het inloggen bij {name} af in je browser. Stella gaat verder zodra het is goedgekeurd.",
+    "connect": "Verbinden",
+    "openAgain": "Opnieuw openen",
+    "notNow": "Niet nu",
+    "errors": {
+      "decision": "Kan {name} niet verbinden. Probeer het opnieuw.",
+      "open": "Kan de inlogpagina niet openen."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Nieuwe chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Chatgeschiedenis in de cloud bewaren",
+      "description": "Bekijk je chats op al je apparaten. Schakel dit uit om een aparte chatgeschiedenis alleen op deze computer te houden. Bij het terugzetten worden die chats niet geüpload. AI-aanbieders verwerken je berichten nog steeds.",
+      "endVoice": "Beëindig je spraakgesprek om de chatopslag te wijzigen.",
+      "error": "Kan de chatopslag niet wijzigen. Probeer het opnieuw."
+    },
     "title": "Instellingen",
     "tabs": {
       "general": "Algemeen",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Dictee annuleren",
+      "listening": "Luisteren…",
       "stopAndTranscribe": "Stoppen en transcriberen",
       "stopAndTranscribeLabel": "Dictee stoppen en transcriberen",
       "stopTranscribeSend": "Stoppen, transcriberen en versturen",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Kon niet kopiëren",
         "delete": "Verwijderen",
         "deleteConfirm": "Klik nogmaals om te verwijderen",
-        "itemActions": "Itemacties"
+        "itemActions": "Itemacties",
+        "missing": "Bestand niet meer beschikbaar.",
+        "expand": "Uitvouwen",
+        "expandPanel": "Paneel uitvouwen",
+        "revealInFinder": "Tonen in Finder"
       },
       "url": {
         "eyebrow": "Live voorbeeld",
@@ -1723,6 +1746,10 @@
           "other": "{count} nieuwe berichten"
         },
         "showNewMessagesAria": "{countPhrase} tonen"
+      },
+      "preview": {
+        "limited": "Voorbeeld beperkt. Sla het originele bestand op of open het om alle inhoud te zien.",
+        "unavailable": "Kan dit voorbeeld niet voorbereiden."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Kon dit gesprek niet verwijderen",
         "deleteFailedFor": "Kon {title} niet verwijderen"
       }
+    },
+    "browser": {
+      "connected": "Browser verbonden",
+      "newTab": "Een nieuw tabblad openen",
+      "connecting": "Wachten op extensie…"
+    },
+    "quickChat": {
+      "title": "Snelle chat",
+      "newChat": "Nieuwe snelle chat"
+    },
+    "connectors": {
+      "title": "Connectors",
+      "searchPlaceholder": "Zoeken",
+      "searchLabel": "Connectors zoeken",
+      "loading": "Connectors laden…",
+      "desktopRequired": "Connectors zijn beschikbaar in de Stella-desktopapp.",
+      "empty": "Nog geen connectors beschikbaar.",
+      "noMatches": "Geen connectors komen overeen met die zoekopdracht."
     }
   },
   "global": {
@@ -2060,8 +2105,13 @@
         "soft": "Zacht",
         "flat": "Vlak"
       },
+      "backgroundColor": {
+        "relative": "Relatief",
+        "strong": "Sterk"
+      },
       "useAppearanceLabel": "Weergave {name} gebruiken",
       "useBackgroundLabel": "Achtergrond {name} gebruiken",
+      "useBackgroundColorLabel": "Achtergrondkleur {name} gebruiken",
       "useThemeLabel": "Thema {name} gebruiken",
       "notificationsSection": "Meldingen",
       "pushToggleLabel": "Pushmeldingen toestaan",
@@ -2091,7 +2141,10 @@
       "deleteAccountLabel": "Je Stella-account verwijderen",
       "deleteConfirmTitle": "Account verwijderen",
       "deleteConfirmBody": "Dit verwijdert je Stella-account definitief en wist de bijbehorende clouddata op onze servers. Dit kan niet ongedaan worden gemaakt.",
-      "deleteFailedTitle": "Kon account niet verwijderen"
+      "deleteFailedTitle": "Kon account niet verwijderen",
+      "chatStorage": {
+        "description": "Bekijk je chats op al je apparaten. Schakel dit uit om een aparte chatgeschiedenis alleen op dit apparaat te houden. Bij het terugzetten worden die chats niet geüpload. AI-aanbieders verwerken je berichten nog steeds."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

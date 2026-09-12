@@ -19,6 +19,18 @@
     "no": "Nu",
     "copy": "Copiază"
   },
+  "cloudConnector": {
+    "titleOffer": "Conectezi {name}?",
+    "titleWaiting": "Se așteaptă {name}",
+    "connecting": "Finalizează autentificarea la {name} în browser. Stella continuă imediat ce este aprobată.",
+    "connect": "Conectează",
+    "openAgain": "Deschide din nou",
+    "notNow": "Nu acum",
+    "errors": {
+      "decision": "Nu s-a putut conecta {name}. Încearcă din nou.",
+      "open": "Nu s-a putut deschide pagina de autentificare."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Conversație nouă"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Salvează istoricul conversațiilor în cloud",
+      "description": "Accesează-ți conversațiile pe toate dispozitivele. Dezactivează pentru a păstra un istoric separat doar pe acest computer. La reactivare, acele conversații nu vor fi încărcate. Furnizorii de IA îți procesează în continuare mesajele.",
+      "endVoice": "Încheie conversația vocală pentru a schimba stocarea conversațiilor.",
+      "error": "Nu s-a putut schimba stocarea conversațiilor. Încearcă din nou."
+    },
     "title": "Setări",
     "tabs": {
       "general": "General",
@@ -1489,6 +1507,7 @@
     },
     "dictation": {
       "cancel": "Anulează dictarea",
+      "listening": "Ascultă…",
       "stopAndTranscribe": "Oprește și transcrie",
       "stopAndTranscribeLabel": "Oprește dictarea și transcrie",
       "stopTranscribeSend": "Oprește, transcrie și trimite",
@@ -1639,7 +1658,11 @@
         "copyFailed": "Nu s-a putut copia",
         "delete": "Șterge",
         "deleteConfirm": "Dă clic din nou pentru a șterge",
-        "itemActions": "Acțiuni pentru element"
+        "itemActions": "Acțiuni pentru element",
+        "missing": "Fișierul nu mai este disponibil.",
+        "expand": "Extinde",
+        "expandPanel": "Extinde panoul",
+        "revealInFinder": "Afișează în Finder"
       },
       "url": {
         "eyebrow": "Previzualizare live",
@@ -1739,6 +1762,10 @@
           "other": "{count} de mesaje noi"
         },
         "showNewMessagesAria": "Arată {countPhrase}"
+      },
+      "preview": {
+        "limited": "Previzualizare limitată. Salvează sau deschide fișierul original pentru a vedea tot conținutul.",
+        "unavailable": "Această previzualizare nu a putut fi pregătită."
       }
     },
     "sidebar": {
@@ -1783,6 +1810,24 @@
         "deleteFailed": "Această conversație nu a putut fi ștearsă",
         "deleteFailedFor": "{title} nu a putut fi ștearsă"
       }
+    },
+    "browser": {
+      "connected": "Browser conectat",
+      "newTab": "Deschide o filă nouă",
+      "connecting": "Se așteaptă extensia…"
+    },
+    "quickChat": {
+      "title": "Conversație rapidă",
+      "newChat": "Conversație rapidă nouă"
+    },
+    "connectors": {
+      "title": "Conectori",
+      "searchPlaceholder": "Caută",
+      "searchLabel": "Caută conectori",
+      "loading": "Se încarcă conectorii…",
+      "desktopRequired": "Conectorii sunt disponibili în aplicația Stella pentru desktop.",
+      "empty": "Încă nu există conectori disponibili.",
+      "noMatches": "Niciun conector nu corespunde căutării."
     }
   },
   "global": {
@@ -2079,8 +2124,13 @@
         "soft": "Blând",
         "flat": "Plat"
       },
+      "backgroundColor": {
+        "relative": "Relativ",
+        "strong": "Intens"
+      },
       "useAppearanceLabel": "Folosește aspectul {name}",
       "useBackgroundLabel": "Folosește fundalul {name}",
+      "useBackgroundColorLabel": "Folosește culoarea de fundal {name}",
       "useThemeLabel": "Folosește tema {name}",
       "notificationsSection": "Notificări",
       "pushToggleLabel": "Permite notificările push",
@@ -2110,7 +2160,10 @@
       "deleteAccountLabel": "Șterge contul tău Stella",
       "deleteConfirmTitle": "Șterge contul",
       "deleteConfirmBody": "Aceasta șterge definitiv contul tău Stella și elimină de pe serverele noastre datele din cloud asociate cu el. Această acțiune nu poate fi anulată.",
-      "deleteFailedTitle": "Nu am putut șterge contul"
+      "deleteFailedTitle": "Nu am putut șterge contul",
+      "chatStorage": {
+        "description": "Accesează-ți conversațiile pe toate dispozitivele. Dezactivează pentru a păstra un istoric separat doar pe acest dispozitiv. La reactivare, acele conversații nu vor fi încărcate. Furnizorii de IA îți procesează în continuare mesajele."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

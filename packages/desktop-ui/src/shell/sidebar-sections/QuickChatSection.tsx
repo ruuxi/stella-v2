@@ -20,6 +20,7 @@ import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { createNewLocalConversationId } from "@/features/chat/services/local-chat-store";
 import { useDisplayPanelExpanded } from "@/features/workspace-display/tab-store";
 import type { ChatContext } from "@/shared/types/electron";
+import { useT } from "@/shared/i18n";
 import { SquarePen } from "@/ui/icons";
 import "./quick-chat-section.css";
 
@@ -32,6 +33,7 @@ function QuickChatConversation({
   conversationId: string;
   onNewChat: () => void;
 }) {
+  const t = useT();
   const panelExpanded = useDisplayPanelExpanded();
   const {
     messages: persistedMessages,
@@ -89,13 +91,13 @@ function QuickChatConversation({
   return (
     <div className="quick-chat">
       <div className="quick-chat__bar">
-        <span className="quick-chat__title">Quick chat</span>
+        <span className="quick-chat__title">{t("shell.quickChat.title")}</span>
         <button
           type="button"
           className="quick-chat__new"
           onClick={onNewChat}
-          aria-label="New quick chat"
-          title="New quick chat"
+          aria-label={t("shell.quickChat.newChat")}
+          title={t("shell.quickChat.newChat")}
         >
           <SquarePen size={15} strokeWidth={1.75} aria-hidden="true" />
         </button>

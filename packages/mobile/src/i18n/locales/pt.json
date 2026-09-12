@@ -19,6 +19,18 @@
     "no": "Não",
     "copy": "Copiar"
   },
+  "cloudConnector": {
+    "titleOffer": "Conectar {name}?",
+    "titleWaiting": "Aguardando {name}",
+    "connecting": "Conclua o login em {name} no seu navegador. A Stella continua assim que for aprovado.",
+    "connect": "Conectar",
+    "openAgain": "Abrir novamente",
+    "notNow": "Agora não",
+    "errors": {
+      "decision": "Não foi possível conectar {name}. Tente de novo.",
+      "open": "Não foi possível abrir a página de login."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Novo chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Salvar o histórico de conversas na nuvem",
+      "description": "Acesse suas conversas em todos os dispositivos. Desative para manter um histórico separado apenas neste computador. Ao reativar, essas conversas não serão enviadas. Os provedores de IA continuam processando suas mensagens.",
+      "endVoice": "Encerre a conversa por voz para alterar o armazenamento das conversas.",
+      "error": "Não foi possível alterar o armazenamento das conversas. Tente de novo."
+    },
     "title": "Configurações",
     "tabs": {
       "general": "Geral",
@@ -1489,6 +1507,7 @@
     },
     "dictation": {
       "cancel": "Cancelar o ditado",
+      "listening": "Ouvindo…",
       "stopAndTranscribe": "Parar e transcrever",
       "stopAndTranscribeLabel": "Parar o ditado e transcrever",
       "stopTranscribeSend": "Parar, transcrever e enviar",
@@ -1639,7 +1658,11 @@
         "copyFailed": "Não foi possível copiar",
         "delete": "Excluir",
         "deleteConfirm": "Clique de novo para excluir",
-        "itemActions": "Ações do item"
+        "itemActions": "Ações do item",
+        "missing": "Arquivo não está mais disponível.",
+        "expand": "Expandir",
+        "expandPanel": "Expandir o painel",
+        "revealInFinder": "Mostrar no Finder"
       },
       "url": {
         "eyebrow": "Prévia ao vivo",
@@ -1739,6 +1762,10 @@
           "other": "{count} mensagens novas"
         },
         "showNewMessagesAria": "Mostrar {countPhrase}"
+      },
+      "preview": {
+        "limited": "Pré-visualização limitada. Salve ou abra o arquivo original para ver todo o conteúdo.",
+        "unavailable": "Não foi possível preparar esta pré-visualização."
       }
     },
     "sidebar": {
@@ -1783,6 +1810,24 @@
         "deleteFailed": "Não foi possível excluir esta conversa",
         "deleteFailedFor": "Não foi possível excluir {title}"
       }
+    },
+    "browser": {
+      "connected": "Navegador conectado",
+      "newTab": "Abrir uma nova aba",
+      "connecting": "Aguardando a extensão…"
+    },
+    "quickChat": {
+      "title": "Conversa rápida",
+      "newChat": "Nova conversa rápida"
+    },
+    "connectors": {
+      "title": "Conectores",
+      "searchPlaceholder": "Pesquisar",
+      "searchLabel": "Pesquisar conectores",
+      "loading": "Carregando conectores…",
+      "desktopRequired": "Os conectores estão disponíveis no app da Stella para computador.",
+      "empty": "Nenhum conector disponível ainda.",
+      "noMatches": "Nenhum conector corresponde a essa pesquisa."
     }
   },
   "global": {
@@ -2079,8 +2124,13 @@
         "soft": "Suave",
         "flat": "Plano"
       },
+      "backgroundColor": {
+        "relative": "Relativo",
+        "strong": "Intenso"
+      },
       "useAppearanceLabel": "Usar a aparência {name}",
       "useBackgroundLabel": "Usar o fundo {name}",
+      "useBackgroundColorLabel": "Usar a cor de fundo {name}",
       "useThemeLabel": "Usar o tema {name}",
       "notificationsSection": "Notificações",
       "pushToggleLabel": "Permitir notificações push",
@@ -2110,7 +2160,10 @@
       "deleteAccountLabel": "Excluir sua conta da Stella",
       "deleteConfirmTitle": "Excluir conta",
       "deleteConfirmBody": "Isto exclui permanentemente sua conta da Stella e remove dos nossos servidores os dados na nuvem associados a ela. Isso não pode ser desfeito.",
-      "deleteFailedTitle": "Não foi possível excluir a conta"
+      "deleteFailedTitle": "Não foi possível excluir a conta",
+      "chatStorage": {
+        "description": "Acesse suas conversas em todos os dispositivos. Desative para manter um histórico separado apenas neste dispositivo. Ao reativar, essas conversas não serão enviadas. Os provedores de IA continuam processando suas mensagens."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

@@ -19,6 +19,18 @@
     "no": "ไม่",
     "copy": "คัดลอก"
   },
+  "cloudConnector": {
+    "titleOffer": "เชื่อมต่อ {name} ไหม",
+    "titleWaiting": "กำลังรอ {name}",
+    "connecting": "ลงชื่อเข้าใช้ {name} ให้เสร็จในเบราว์เซอร์ของคุณ Stella จะทำงานต่อเมื่อได้รับอนุมัติแล้ว",
+    "connect": "เชื่อมต่อ",
+    "openAgain": "เปิดอีกครั้ง",
+    "notNow": "ยังไม่ตอนนี้",
+    "errors": {
+      "decision": "เชื่อมต่อ {name} ไม่สำเร็จ ลองอีกครั้ง",
+      "open": "เปิดหน้าลงชื่อเข้าใช้ไม่สำเร็จ"
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "แชทใหม่"
   },
   "settings": {
+    "chatStorage": {
+      "title": "บันทึกประวัติแชทไว้บนคลาวด์",
+      "description": "เข้าถึงแชทของคุณได้จากทุกอุปกรณ์ ปิดเพื่อเก็บประวัติแชทแยกไว้เฉพาะบนคอมพิวเตอร์เครื่องนี้ เมื่อเปิดกลับมา แชทเหล่านั้นจะไม่ถูกอัปโหลด ผู้ให้บริการ AI ยังคงประมวลผลข้อความของคุณ",
+      "endVoice": "จบการสนทนาด้วยเสียงก่อนเพื่อเปลี่ยนการจัดเก็บแชท",
+      "error": "เปลี่ยนการจัดเก็บแชทไม่สำเร็จ ลองอีกครั้ง"
+    },
     "title": "การตั้งค่า",
     "tabs": {
       "general": "ทั่วไป",
@@ -1470,6 +1488,7 @@
     },
     "dictation": {
       "cancel": "ยกเลิกการบอกตามคำพูด",
+      "listening": "กำลังฟัง…",
       "stopAndTranscribe": "หยุดและถอดเสียง",
       "stopAndTranscribeLabel": "หยุดการบอกตามคำพูดและถอดเสียง",
       "stopTranscribeSend": "หยุด ถอดเสียง แล้วส่ง",
@@ -1614,7 +1633,11 @@
         "copyFailed": "คัดลอกไม่สำเร็จ",
         "delete": "ลบ",
         "deleteConfirm": "คลิกอีกครั้งเพื่อลบ",
-        "itemActions": "การดำเนินการกับรายการ"
+        "itemActions": "การดำเนินการกับรายการ",
+        "missing": "ไฟล์นี้ใช้ไม่ได้อีกต่อไป",
+        "expand": "ขยาย",
+        "expandPanel": "ขยายแผง",
+        "revealInFinder": "แสดงใน Finder"
       },
       "url": {
         "eyebrow": "ตัวอย่างแบบสด",
@@ -1704,6 +1727,10 @@
           "other": "{count} ข้อความใหม่"
         },
         "showNewMessagesAria": "แสดง {countPhrase}"
+      },
+      "preview": {
+        "limited": "ตัวอย่างแสดงได้จำกัด บันทึกหรือเปิดไฟล์ต้นฉบับเพื่อดูเนื้อหาทั้งหมด",
+        "unavailable": "ไม่สามารถเตรียมตัวอย่างนี้ได้"
       }
     },
     "sidebar": {
@@ -1748,6 +1775,24 @@
         "deleteFailed": "ลบการสนทนานี้ไม่สำเร็จ",
         "deleteFailedFor": "ลบ {title} ไม่สำเร็จ"
       }
+    },
+    "browser": {
+      "connected": "เชื่อมต่อเบราว์เซอร์แล้ว",
+      "newTab": "เปิดแท็บใหม่",
+      "connecting": "กำลังรอส่วนขยาย…"
+    },
+    "quickChat": {
+      "title": "แชทด่วน",
+      "newChat": "แชทด่วนใหม่"
+    },
+    "connectors": {
+      "title": "ตัวเชื่อมต่อ",
+      "searchPlaceholder": "ค้นหา",
+      "searchLabel": "ค้นหาตัวเชื่อมต่อ",
+      "loading": "กำลังโหลดตัวเชื่อมต่อ…",
+      "desktopRequired": "ตัวเชื่อมต่อใช้ได้ในแอป Stella บนเดสก์ท็อป",
+      "empty": "ยังไม่มีตัวเชื่อมต่อที่ใช้ได้",
+      "noMatches": "ไม่มีตัวเชื่อมต่อที่ตรงกับการค้นหานั้น"
     }
   },
   "global": {
@@ -2038,8 +2083,13 @@
         "soft": "นุ่มนวล",
         "flat": "เรียบ"
       },
+      "backgroundColor": {
+        "relative": "สัมพัทธ์",
+        "strong": "เข้ม"
+      },
       "useAppearanceLabel": "ใช้รูปลักษณ์{name}",
       "useBackgroundLabel": "ใช้พื้นหลัง{name}",
+      "useBackgroundColorLabel": "ใช้สีพื้นหลัง{name}",
       "useThemeLabel": "ใช้ธีม{name}",
       "notificationsSection": "การแจ้งเตือน",
       "pushToggleLabel": "อนุญาตการแจ้งเตือนแบบพุช",
@@ -2069,7 +2119,10 @@
       "deleteAccountLabel": "ลบบัญชี Stella ของคุณ",
       "deleteConfirmTitle": "ลบบัญชี",
       "deleteConfirmBody": "การทำเช่นนี้จะลบบัญชี Stella ของคุณอย่างถาวร และลบข้อมูลบนคลาวด์ที่เกี่ยวข้องออกจากเซิร์ฟเวอร์ของเรา ย้อนกลับไม่ได้",
-      "deleteFailedTitle": "ลบบัญชีไม่ได้"
+      "deleteFailedTitle": "ลบบัญชีไม่ได้",
+      "chatStorage": {
+        "description": "เข้าถึงแชทของคุณได้จากทุกอุปกรณ์ ปิดเพื่อเก็บประวัติแชทแยกไว้เฉพาะบนอุปกรณ์นี้ เมื่อเปิดกลับมา แชทเหล่านั้นจะไม่ถูกอัปโหลด ผู้ให้บริการ AI ยังคงประมวลผลข้อความของคุณ"
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

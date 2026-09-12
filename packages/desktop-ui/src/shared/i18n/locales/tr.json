@@ -19,6 +19,18 @@
     "no": "Hayır",
     "copy": "Kopyala"
   },
+  "cloudConnector": {
+    "titleOffer": "{name} bağlansın mı?",
+    "titleWaiting": "{name} bekleniyor",
+    "connecting": "Tarayıcınızda {name} oturum açma işlemini tamamlayın. Onaylandığında Stella devam edecek.",
+    "connect": "Bağlan",
+    "openAgain": "Yeniden aç",
+    "notNow": "Şimdi değil",
+    "errors": {
+      "decision": "{name} bağlanamadı. Tekrar deneyin.",
+      "open": "Oturum açma sayfası açılamadı."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Yeni sohbet"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Sohbet geçmişini bulutta sakla",
+      "description": "Sohbetlerinize tüm cihazlarınızdan erişin. Yalnızca bu bilgisayarda ayrı bir sohbet geçmişi tutmak için kapatın. Geri açtığınızda bu sohbetler yüklenmez. Yapay zekâ sağlayıcıları mesajlarınızı yine de işler.",
+      "endVoice": "Sohbet depolamasını değiştirmek için sesli görüşmenizi sonlandırın.",
+      "error": "Sohbet depolaması değiştirilemedi. Tekrar deneyin."
+    },
     "title": "Ayarlar",
     "tabs": {
       "general": "Genel",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Dikteyi iptal et",
+      "listening": "Dinleniyor…",
       "stopAndTranscribe": "Durdur ve yazıya dök",
       "stopAndTranscribeLabel": "Dikteyi durdur ve yazıya dök",
       "stopTranscribeSend": "Durdur, yazıya dök ve gönder",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Kopyalanamadı",
         "delete": "Sil",
         "deleteConfirm": "Silmek için tekrar tıklayın",
-        "itemActions": "Öge işlemleri"
+        "itemActions": "Öge işlemleri",
+        "missing": "Dosya artık kullanılamıyor.",
+        "expand": "Genişlet",
+        "expandPanel": "Paneli genişlet",
+        "revealInFinder": "Finder'da göster"
       },
       "url": {
         "eyebrow": "Canlı önizleme",
@@ -1723,6 +1746,10 @@
           "other": "{count} yeni mesaj"
         },
         "showNewMessagesAria": "{countPhrase} göster"
+      },
+      "preview": {
+        "limited": "Önizleme sınırlı. Tüm içeriği görmek için orijinal dosyayı kaydedin veya açın.",
+        "unavailable": "Bu önizleme hazırlanamadı."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Bu sohbet silinemedi",
         "deleteFailedFor": "{title} silinemedi"
       }
+    },
+    "browser": {
+      "connected": "Tarayıcı bağlandı",
+      "newTab": "Yeni sekme aç",
+      "connecting": "Uzantı bekleniyor…"
+    },
+    "quickChat": {
+      "title": "Hızlı sohbet",
+      "newChat": "Yeni hızlı sohbet"
+    },
+    "connectors": {
+      "title": "Bağlayıcılar",
+      "searchPlaceholder": "Ara",
+      "searchLabel": "Bağlayıcılarda ara",
+      "loading": "Bağlayıcılar yükleniyor…",
+      "desktopRequired": "Bağlayıcılar Stella masaüstü uygulamasında kullanılabilir.",
+      "empty": "Henüz kullanılabilir bağlayıcı yok.",
+      "noMatches": "Bu aramayla eşleşen bağlayıcı yok."
     }
   },
   "global": {
@@ -2060,8 +2105,13 @@
         "soft": "Yumuşak",
         "flat": "Düz"
       },
+      "backgroundColor": {
+        "relative": "Göreli",
+        "strong": "Güçlü"
+      },
       "useAppearanceLabel": "Şu görünümü kullan: {name}",
       "useBackgroundLabel": "Şu arka planı kullan: {name}",
+      "useBackgroundColorLabel": "Şu arka plan rengini kullan: {name}",
       "useThemeLabel": "Şu temayı kullan: {name}",
       "notificationsSection": "Bildirimler",
       "pushToggleLabel": "Anlık bildirimlere izin ver",
@@ -2091,7 +2141,10 @@
       "deleteAccountLabel": "Stella hesabınızı silin",
       "deleteConfirmTitle": "Hesabı sil",
       "deleteConfirmBody": "Bu işlem Stella hesabınızı kalıcı olarak siler ve sunucularımızdaki ilgili bulut verilerini kaldırır. Bu işlem geri alınamaz.",
-      "deleteFailedTitle": "Hesap silinemedi"
+      "deleteFailedTitle": "Hesap silinemedi",
+      "chatStorage": {
+        "description": "Sohbetlerinize tüm cihazlarınızdan erişin. Yalnızca bu cihazda ayrı bir sohbet geçmişi tutmak için kapatın. Geri açtığınızda bu sohbetler yüklenmez. Yapay zekâ sağlayıcıları mesajlarınızı yine de işler."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

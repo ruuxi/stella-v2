@@ -19,6 +19,18 @@
     "no": "Nej",
     "copy": "Kopiér"
   },
+  "cloudConnector": {
+    "titleOffer": "Vil du forbinde {name}?",
+    "titleWaiting": "Venter på {name}",
+    "connecting": "Gør login på {name} færdigt i din browser. Stella fortsætter, så snart det er godkendt.",
+    "connect": "Forbind",
+    "openAgain": "Åbn igen",
+    "notNow": "Ikke nu",
+    "errors": {
+      "decision": "{name} kunne ikke forbindes. Prøv igen.",
+      "open": "Login-siden kunne ikke åbnes."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "Ny chat"
   },
   "settings": {
+    "chatStorage": {
+      "title": "Gem chathistorik i skyen",
+      "description": "Få adgang til dine chats på alle enheder. Slå fra for at beholde en separat chathistorik kun på denne computer. Når du slår til igen, uploades de chats ikke. AI-udbydere behandler stadig dine beskeder.",
+      "endVoice": "Afslut stemmesamtalen for at ændre chatlagringen.",
+      "error": "Chatlagringen kunne ikke ændres. Prøv igen."
+    },
     "title": "Indstillinger",
     "tabs": {
       "general": "Generelt",
@@ -1480,6 +1498,7 @@
     },
     "dictation": {
       "cancel": "Annuller diktering",
+      "listening": "Lytter …",
       "stopAndTranscribe": "Stop og transskriber",
       "stopAndTranscribeLabel": "Stop dikteringen, og transskriber",
       "stopTranscribeSend": "Stop, transskriber og send",
@@ -1627,7 +1646,11 @@
         "copyFailed": "Kunne ikke kopiere",
         "delete": "Slet",
         "deleteConfirm": "Klik igen for at slette",
-        "itemActions": "Handlinger for emnet"
+        "itemActions": "Handlinger for emnet",
+        "missing": "Filen er ikke længere tilgængelig.",
+        "expand": "Udvid",
+        "expandPanel": "Udvid panelet",
+        "revealInFinder": "Vis i Finder"
       },
       "url": {
         "eyebrow": "Direkte forhåndsvisning",
@@ -1723,6 +1746,10 @@
           "other": "{count} nye beskeder"
         },
         "showNewMessagesAria": "Vis {countPhrase}"
+      },
+      "preview": {
+        "limited": "Begrænset forhåndsvisning. Gem eller åbn den originale fil for at se alt indhold.",
+        "unavailable": "Denne forhåndsvisning kunne ikke forberedes."
       }
     },
     "sidebar": {
@@ -1767,6 +1794,24 @@
         "deleteFailed": "Kunne ikke slette denne samtale",
         "deleteFailedFor": "Kunne ikke slette {title}"
       }
+    },
+    "browser": {
+      "connected": "Browser forbundet",
+      "newTab": "Åbn et nyt faneblad",
+      "connecting": "Venter på udvidelsen …"
+    },
+    "quickChat": {
+      "title": "Hurtig chat",
+      "newChat": "Ny hurtig chat"
+    },
+    "connectors": {
+      "title": "Forbindelser",
+      "searchPlaceholder": "Søg",
+      "searchLabel": "Søg i forbindelser",
+      "loading": "Indlæser forbindelser …",
+      "desktopRequired": "Forbindelser er tilgængelige i Stella-skrivebordsappen.",
+      "empty": "Ingen forbindelser tilgængelige endnu.",
+      "noMatches": "Ingen forbindelser matcher den søgning."
     }
   },
   "global": {
@@ -2061,8 +2106,13 @@
         "soft": "Blød",
         "flat": "Flad"
       },
+      "backgroundColor": {
+        "relative": "Relativ",
+        "strong": "Kraftig"
+      },
       "useAppearanceLabel": "Brug udseendet {name}",
       "useBackgroundLabel": "Brug baggrunden {name}",
+      "useBackgroundColorLabel": "Brug baggrundsfarven {name}",
       "useThemeLabel": "Brug temaet {name}",
       "notificationsSection": "Notifikationer",
       "pushToggleLabel": "Tillad push-notifikationer",
@@ -2092,7 +2142,10 @@
       "deleteAccountLabel": "Slet din Stella-konto",
       "deleteConfirmTitle": "Slet konto",
       "deleteConfirmBody": "Dette sletter din Stella-konto permanent og fjerner de tilhørende clouddata på vores servere. Dette kan ikke fortrydes.",
-      "deleteFailedTitle": "Kunne ikke slette kontoen"
+      "deleteFailedTitle": "Kunne ikke slette kontoen",
+      "chatStorage": {
+        "description": "Få adgang til dine chats på alle enheder. Slå fra for at beholde en separat chathistorik kun på denne enhed. Når du slår til igen, uploades de chats ikke. AI-udbydere behandler stadig dine beskeder."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

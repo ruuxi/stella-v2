@@ -19,6 +19,18 @@
     "no": "لا",
     "copy": "نسخ"
   },
+  "cloudConnector": {
+    "titleOffer": "توصيل {name}؟",
+    "titleWaiting": "في انتظار {name}",
+    "connecting": "أكمل تسجيل الدخول إلى {name} في متصفحك. ستتابع Stella بمجرد الموافقة.",
+    "connect": "توصيل",
+    "openAgain": "فتح مرة أخرى",
+    "notNow": "ليس الآن",
+    "errors": {
+      "decision": "تعذّر توصيل {name}. حاول مرة أخرى.",
+      "open": "تعذّر فتح صفحة تسجيل الدخول."
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "محادثة جديدة"
   },
   "settings": {
+    "chatStorage": {
+      "title": "حفظ سجل المحادثات في السحابة",
+      "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الكمبيوتر فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك.",
+      "endVoice": "أنهِ المحادثة الصوتية لتغيير طريقة حفظ المحادثات.",
+      "error": "تعذّر تغيير طريقة حفظ المحادثات. حاول مرة أخرى."
+    },
     "title": "الإعدادات",
     "tabs": {
       "general": "عام",
@@ -1516,6 +1534,7 @@
     },
     "dictation": {
       "cancel": "ألغِ الإملاء",
+      "listening": "جارٍ الاستماع…",
       "stopAndTranscribe": "أوقف وانسخ",
       "stopAndTranscribeLabel": "أوقف الإملاء وانسخ النص",
       "stopTranscribeSend": "أوقف وانسخ وأرسل",
@@ -1675,7 +1694,11 @@
         "copyFailed": "تعذّر النسخ",
         "delete": "حذف",
         "deleteConfirm": "انقر مرة أخرى للحذف",
-        "itemActions": "إجراءات العنصر"
+        "itemActions": "إجراءات العنصر",
+        "missing": "الملف لم يعد متاحًا.",
+        "expand": "توسيع",
+        "expandPanel": "توسيع اللوحة",
+        "revealInFinder": "أظهِر في Finder"
       },
       "url": {
         "eyebrow": "معاينة مباشرة",
@@ -1787,6 +1810,10 @@
           "other": "{count} رسالة جديدة"
         },
         "showNewMessagesAria": "اعرض {countPhrase}"
+      },
+      "preview": {
+        "limited": "المعاينة محدودة. احفظ الملف الأصلي أو افتحه لعرض المحتوى كاملاً.",
+        "unavailable": "تعذّر تجهيز هذه المعاينة."
       }
     },
     "sidebar": {
@@ -1831,6 +1858,24 @@
         "deleteFailed": "تعذّر حذف هذه المحادثة",
         "deleteFailedFor": "تعذّر حذف {title}"
       }
+    },
+    "browser": {
+      "connected": "المتصفح متصل",
+      "newTab": "فتح علامة تبويب جديدة",
+      "connecting": "في انتظار الإضافة…"
+    },
+    "quickChat": {
+      "title": "محادثة سريعة",
+      "newChat": "محادثة سريعة جديدة"
+    },
+    "connectors": {
+      "title": "الموصلات",
+      "searchPlaceholder": "بحث",
+      "searchLabel": "البحث في الموصلات",
+      "loading": "جارٍ تحميل الموصلات…",
+      "desktopRequired": "الموصلات متاحة في تطبيق Stella لسطح المكتب.",
+      "empty": "لا توجد موصلات متاحة بعد.",
+      "noMatches": "لا توجد موصلات مطابقة لهذا البحث."
     }
   },
   "global": {
@@ -2135,8 +2180,13 @@
         "soft": "ناعم",
         "flat": "مسطّح"
       },
+      "backgroundColor": {
+        "relative": "نسبي",
+        "strong": "قوي"
+      },
       "useAppearanceLabel": "استخدام مظهر {name}",
       "useBackgroundLabel": "استخدام خلفية {name}",
+      "useBackgroundColorLabel": "استخدام لون خلفية {name}",
       "useThemeLabel": "استخدام سِمة {name}",
       "notificationsSection": "الإشعارات",
       "pushToggleLabel": "السماح بالإشعارات الفورية",
@@ -2166,7 +2216,10 @@
       "deleteAccountLabel": "حذف حسابك في Stella",
       "deleteConfirmTitle": "حذف الحساب",
       "deleteConfirmBody": "سيؤدي هذا إلى حذف حسابك في Stella نهائيًا وإزالة البيانات السحابية المرتبطة به من خوادمنا. لا يمكن التراجع عن ذلك.",
-      "deleteFailedTitle": "تعذّر حذف الحساب"
+      "deleteFailedTitle": "تعذّر حذف الحساب",
+      "chatStorage": {
+        "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الجهاز فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك."
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

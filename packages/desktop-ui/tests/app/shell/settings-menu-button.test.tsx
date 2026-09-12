@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
+import { LocalI18nProvider } from "@/shared/i18n";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,10 +83,10 @@ describe("settings gear menu", () => {
     root = createRoot(container);
     await act(async () => {
       root.render(
-        <>
+        <LocalI18nProvider>
           <SettingsMenuButton className="shell-topbar-account-settings" />
           <SettingsDialogHost />
-        </>,
+        </LocalI18nProvider>,
       );
     });
   });

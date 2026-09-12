@@ -19,6 +19,18 @@
     "no": "否",
     "copy": "複製"
   },
+  "cloudConnector": {
+    "titleOffer": "要連接 {name} 嗎？",
+    "titleWaiting": "正在等待 {name}",
+    "connecting": "請在瀏覽器中完成 {name} 的登入。獲得核准後 Stella 會繼續。",
+    "connect": "連接",
+    "openAgain": "重新開啟",
+    "notNow": "暫不",
+    "errors": {
+      "decision": "無法連接 {name}。請重試。",
+      "open": "無法開啟登入頁面。"
+    }
+  },
   "cloudBrowser": {
     "errors": {
       "decision": "That didn't go through. Try again.",
@@ -79,6 +91,12 @@
     "newChat": "新對話"
   },
   "settings": {
+    "chatStorage": {
+      "title": "將聊天記錄儲存到雲端",
+      "description": "在所有裝置上存取你的聊天。關閉後，聊天記錄只會單獨保存在這台電腦上。重新開啟時，那些聊天不會上傳。AI 供應商仍會處理你的訊息。",
+      "endVoice": "結束語音對話後才能變更聊天儲存方式。",
+      "error": "無法變更聊天儲存方式。請重試。"
+    },
     "title": "設定",
     "tabs": {
       "general": "一般",
@@ -1470,6 +1488,7 @@
     },
     "dictation": {
       "cancel": "取消聽寫",
+      "listening": "正在聆聽…",
       "stopAndTranscribe": "停止並轉錄",
       "stopAndTranscribeLabel": "停止聽寫並轉錄",
       "stopTranscribeSend": "停止、轉錄並傳送",
@@ -1614,7 +1633,11 @@
         "copyFailed": "無法複製",
         "delete": "刪除",
         "deleteConfirm": "再次點擊以刪除",
-        "itemActions": "項目操作"
+        "itemActions": "項目操作",
+        "missing": "檔案已無法使用。",
+        "expand": "展開",
+        "expandPanel": "展開面板",
+        "revealInFinder": "在 Finder 中顯示"
       },
       "url": {
         "eyebrow": "即時預覽",
@@ -1704,6 +1727,10 @@
           "other": "{count} 則新訊息"
         },
         "showNewMessagesAria": "顯示{countPhrase}"
+      },
+      "preview": {
+        "limited": "預覽內容有限。請儲存或開啟原始檔案以檢視全部內容。",
+        "unavailable": "無法準備此預覽。"
       }
     },
     "sidebar": {
@@ -1748,6 +1775,24 @@
         "deleteFailed": "無法刪除此對話",
         "deleteFailedFor": "無法刪除 {title}"
       }
+    },
+    "browser": {
+      "connected": "瀏覽器已連接",
+      "newTab": "開啟新分頁",
+      "connecting": "正在等待擴充功能…"
+    },
+    "quickChat": {
+      "title": "快速對話",
+      "newChat": "新增快速對話"
+    },
+    "connectors": {
+      "title": "連接器",
+      "searchPlaceholder": "搜尋",
+      "searchLabel": "搜尋連接器",
+      "loading": "正在載入連接器…",
+      "desktopRequired": "連接器可在 Stella 桌面應用程式中使用。",
+      "empty": "尚無可用的連接器。",
+      "noMatches": "沒有符合該搜尋的連接器。"
     }
   },
   "global": {
@@ -2038,8 +2083,13 @@
         "soft": "柔和",
         "flat": "純色"
       },
+      "backgroundColor": {
+        "relative": "相對",
+        "strong": "濃烈"
+      },
       "useAppearanceLabel": "使用{name}外觀",
       "useBackgroundLabel": "使用{name}背景",
+      "useBackgroundColorLabel": "使用{name}背景色",
       "useThemeLabel": "使用{name}主題",
       "notificationsSection": "通知",
       "pushToggleLabel": "允許推播通知",
@@ -2069,7 +2119,10 @@
       "deleteAccountLabel": "刪除您的 Stella 帳號",
       "deleteConfirmTitle": "刪除帳號",
       "deleteConfirmBody": "此操作會永久刪除您的 Stella 帳號，並移除我們伺服器上與其相關的雲端資料。無法復原。",
-      "deleteFailedTitle": "無法刪除帳號"
+      "deleteFailedTitle": "無法刪除帳號",
+      "chatStorage": {
+        "description": "在所有裝置上存取你的聊天。關閉後，聊天記錄只會單獨保存在這台裝置上。重新開啟時，那些聊天不會上傳。AI 供應商仍會處理你的訊息。"
+      }
     },
     "cloudHome": {
       "settingsSection": "Cloud Home",

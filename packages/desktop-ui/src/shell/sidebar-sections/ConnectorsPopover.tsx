@@ -15,6 +15,7 @@ import {
   type ReactElement,
 } from "react";
 import type { ElectronNativeIntegration } from "@/shared/types/electron";
+import { useT } from "@/shared/i18n";
 import {
   Popover,
   PopoverBody,
@@ -39,6 +40,7 @@ export function ConnectorsPopover({
   side?: "top" | "bottom";
   align?: "start" | "center" | "end";
 }) {
+  const t = useT();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
@@ -120,15 +122,17 @@ export function ConnectorsPopover({
       >
         <PopoverBody>
           <div className="connectors-popover__head">
-            <span className="connectors-popover__title">Connectors</span>
+            <span className="connectors-popover__title">
+              {t("shell.connectors.title")}
+            </span>
             <label className="connectors-popover__search">
               <Search size={13} strokeWidth={1.75} aria-hidden="true" />
               <input
                 type="text"
                 value={query}
                 onChange={(event) => setQuery(event.currentTarget.value)}
-                placeholder="Search"
-                aria-label="Search connectors"
+                placeholder={t("shell.connectors.searchPlaceholder")}
+                aria-label={t("shell.connectors.searchLabel")}
                 disabled={phase !== "ready"}
               />
             </label>
@@ -141,19 +145,19 @@ export function ConnectorsPopover({
                 strokeWidth={2}
                 aria-hidden="true"
               />
-              Loading connectors…
+              {t("shell.connectors.loading")}
             </div>
           ) : phase === "error" ? (
             <div className="connectors-popover__status" role="alert">
-              Connectors are available in the Stella desktop app.
+              {t("shell.connectors.desktopRequired")}
             </div>
           ) : connectors.length === 0 ? (
             <div className="connectors-popover__status">
-              No connectors available yet.
+              {t("shell.connectors.empty")}
             </div>
           ) : visibleConnectors.length === 0 ? (
             <div className="connectors-popover__status">
-              No connectors match that search.
+              {t("shell.connectors.noMatches")}
             </div>
           ) : (
             <ul className="connectors-popover__list">

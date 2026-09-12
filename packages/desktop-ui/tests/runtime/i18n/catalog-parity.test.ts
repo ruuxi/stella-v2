@@ -231,6 +231,18 @@ describe("i18n catalog parity", () => {
     expect(empty).toEqual([]);
   });
 
+  it("keeps the mobile chat-storage copy device-shaped, not computer-shaped", () => {
+    // `settings.chatStorage.description` is written for the desktop app and
+    // says "this computer". Mobile renders its own override so a phone never
+    // tells the user about a computer; if the override is ever deleted the
+    // desktop wording silently leaks back into the app.
+    const mobile = englishLeaves.get("mobile.settings.chatStorage.description")
+      ?.value as string | undefined;
+    expect(typeof mobile).toBe("string");
+    expect(mobile).toMatch(/this device/);
+    expect(mobile).not.toMatch(/computer/i);
+  });
+
   it("pins the cloud-authority memory description in English", () => {
     expect(
       englishLeaves.get("settings.memory.description")?.value,

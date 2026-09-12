@@ -205,11 +205,14 @@ export const OfficeFileTabContent = ({
 
 const textDecoder = new TextDecoder("utf-8");
 
-const PreviewLimitNotice = () => (
-  <div className="display-preview-limit" role="status">
-    Preview limited. Save or open the original file to view all content.
-  </div>
-);
+const PreviewLimitNotice = () => {
+  const t = useT();
+  return (
+    <div className="display-preview-limit" role="status">
+      {t("shell.display.preview.limited")}
+    </div>
+  );
+};
 
 export const DelimitedTableTabContent = ({
   filePath,

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { useState, useCallback } from "react";
+import { Modal } from "@/ui/modal";
 import type { ChatContext } from "@/shared/types/electron";
 import { useT } from "@/shared/i18n";
 
@@ -9,15 +9,6 @@ export function useScreenshotPreview(chatContext: ChatContext | null) {
   const screenshot =
     index !== null ? (chatContext?.regionScreenshots?.[index] ?? null) : null;
   const effectiveIndex = screenshot ? index : null;
-
-  useEffect(() => {
-    if (effectiveIndex === null) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIndex(null);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [effectiveIndex]);
 
   const setPreviewIndex = useCallback((next: number | null) => {
     setIndex(next);
@@ -36,10 +27,14 @@ export function ScreenshotPreviewOverlay({
   onClose: () => void;
 }) {
   const t = useT();
-  return createPortal(
-    <div
-      onClick={onClose}
-      style={{
+  return (
+    <Modal
+      onClose={onClose}
+      container={document.body}
+      // The alt text already names this surface exactly; a second string
+      // would only be the same sentence in a different catalog entry.
+      label={t("app.chat.screenshotPreview.alt", { index: index + 1 })}
+      backdropStyle={{
         position: "fixed",
         inset: 0,
         zIndex: 9000,
@@ -49,11 +44,11 @@ export function ScreenshotPreviewOverlay({
         background: "rgba(0, 0, 0, 0.72)",
         padding: "24px",
       }}
+      style={{ display: "flex", outline: "none" }}
     >
       <img
         src={screenshot.dataUrl}
         alt={t("app.chat.screenshotPreview.alt", { index: index + 1 })}
-        onClick={(event) => event.stopPropagation()}
         style={{
           maxWidth: "92vw",
           maxHeight: "92vh",
@@ -62,7 +57,6 @@ export function ScreenshotPreviewOverlay({
           boxShadow: "var(--shadow-xl)",
         }}
       />
-    </div>,
-    document.body,
+    </Modal>
   );
 }

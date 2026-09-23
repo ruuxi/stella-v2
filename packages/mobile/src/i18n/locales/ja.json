@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI の音声",
         "xai": "Grok の音声",
-        "inworld": "Inworld の音声"
+        "inworld": "Inworld の音声",
+        "gemini": "Gemini の音声"
       },
       "previousVoice": "前の音声",
       "nextVoice": "次の音声",
@@ -420,7 +421,7 @@
         "label": "読み上げ",
         "ariaLabel": "読み上げの音声プロバイダ",
         "openaiTitle": "OpenAI TTS で返信を読み上げます",
-        "inworldTitle": "Inworld TTS で返信を読み上げます",
+        "geminiTitle": "Gemini TTS で返信を読み上げます",
         "description": "このプロバイダの音声で返信を読み上げます。"
       }
     },

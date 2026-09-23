@@ -709,9 +709,18 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
     }, [patchRealtimeVoice, preferences, t]);
     const handleReadAloudProviderSelect = useCallback((provider: ReadAloudVoiceProvider) => {
         const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
-        if ((previous.readAloudProvider ?? "inworld") === provider)
+        if ((previous.readAloudProvider ?? "gemini") === provider)
             return;
         void patchRealtimeVoice({ ...previous, readAloudProvider: provider }, t("settings.agentModelPicker.errors.updateReadAloud"));
+    }, [patchRealtimeVoice, preferences, t]);
+    const handleReadAloudVoiceSelect = useCallback((voiceId: string) => {
+        const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
+        if (previous.voices?.gemini === voiceId)
+            return;
+        void patchRealtimeVoice({
+            ...previous,
+            voices: { ...(previous.voices ?? {}), gemini: voiceId },
+        }, t("settings.agentModelPicker.errors.updateVoice"));
     }, [patchRealtimeVoice, preferences, t]);
     const handleVoiceProviderSelect = useCallback(async (providerKey: string) => {
         if (!preferences || pendingAgent)
@@ -1001,7 +1010,7 @@ function DesktopAgentModelPicker({ active = true, onSelected, className, surface
 
         {activeImage ? (<ProviderOnlyPicker providers={imageProviderOptions} value={current || "stella"} onSelect={(key) => void handleImageProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.imageProviderAriaLabel")}/>) : activeVoice ? (<>
             <ProviderOnlyPicker providers={voiceProviderOptions} value={current || "stella"} onSelect={(key) => void handleVoiceProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.voiceProviderAriaLabel")}/>
-            <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} disabled={!preferences || pendingAgent !== null}/>
+            <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} onSelectReadAloudVoice={(voiceId) => void handleReadAloudVoiceSelect(voiceId)} disabled={!preferences || pendingAgent !== null}/>
           </>) : (<>
             <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={showReasoningControl ? reasoningControl : null} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} catalogError={catalogError} refreshing={refreshing ||
                 ((claudeCodeSectionOpen || committedEngine === "claude_code_local") &&

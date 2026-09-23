@@ -409,7 +409,8 @@
       "source": {
         "openai": "أصوات OpenAI",
         "xai": "أصوات Grok",
-        "inworld": "أصوات Inworld"
+        "inworld": "أصوات Inworld",
+        "gemini": "أصوات Gemini"
       },
       "previousVoice": "الصوت السابق",
       "nextVoice": "الصوت التالي",
@@ -420,7 +421,7 @@
         "label": "القراءة بصوت عالٍ",
         "ariaLabel": "مزوّد صوت القراءة بصوت عالٍ",
         "openaiTitle": "اقرأ الردود بصوت عالٍ باستخدام OpenAI TTS",
-        "inworldTitle": "اقرأ الردود بصوت عالٍ باستخدام Inworld TTS",
+        "geminiTitle": "اقرأ الردود بصوت عالٍ باستخدام Gemini TTS",
         "description": "ينطق الردود بصوت عالٍ باستخدام صوت هذا المزوّد."
       }
     },

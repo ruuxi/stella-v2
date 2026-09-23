@@ -175,6 +175,7 @@ import type * as lib_email_templates from "../lib/email_templates.js";
 import type * as lib_error_classification from "../lib/error_classification.js";
 import type * as lib_expo_oauth_proxy from "../lib/expo_oauth_proxy.js";
 import type * as lib_gate_and_meter from "../lib/gate_and_meter.js";
+import type * as lib_gemini_tts from "../lib/gemini_tts.js";
 import type * as lib_google_ads_mutations from "../lib/google_ads_mutations.js";
 import type * as lib_handoff_crypto from "../lib/handoff_crypto.js";
 import type * as lib_http_utils from "../lib/http_utils.js";
@@ -500,6 +501,7 @@ declare const fullApi: ApiFromModules<{
   "lib/error_classification": typeof lib_error_classification;
   "lib/expo_oauth_proxy": typeof lib_expo_oauth_proxy;
   "lib/gate_and_meter": typeof lib_gate_and_meter;
+  "lib/gemini_tts": typeof lib_gemini_tts;
   "lib/google_ads_mutations": typeof lib_google_ads_mutations;
   "lib/handoff_crypto": typeof lib_handoff_crypto;
   "lib/http_utils": typeof lib_http_utils;

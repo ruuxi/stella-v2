@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI sesleri",
         "xai": "Grok sesleri",
-        "inworld": "Inworld sesleri"
+        "inworld": "Inworld sesleri",
+        "gemini": "Gemini sesleri"
       },
       "previousVoice": "Önceki ses",
       "nextVoice": "Sonraki ses",
@@ -420,7 +421,7 @@
         "label": "Sesli oku",
         "ariaLabel": "Sesli okuma ses sağlayıcısı",
         "openaiTitle": "Yanıtları OpenAI TTS ile sesli oku",
-        "inworldTitle": "Yanıtları Inworld TTS ile sesli oku",
+        "geminiTitle": "Yanıtları Gemini TTS ile sesli oku",
         "description": "Yanıtları bu sağlayıcının sesiyle sesli okur."
       }
     },

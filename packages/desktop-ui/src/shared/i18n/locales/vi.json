@@ -409,7 +409,8 @@
       "source": {
         "openai": "Giọng nói OpenAI",
         "xai": "Giọng nói Grok",
-        "inworld": "Giọng nói Inworld"
+        "inworld": "Giọng nói Inworld",
+        "gemini": "Giọng nói Gemini"
       },
       "previousVoice": "Giọng trước",
       "nextVoice": "Giọng tiếp theo",
@@ -420,7 +421,7 @@
         "label": "Đọc to",
         "ariaLabel": "Nhà cung cấp giọng đọc to",
         "openaiTitle": "Đọc to câu trả lời bằng OpenAI TTS",
-        "inworldTitle": "Đọc to câu trả lời bằng Inworld TTS",
+        "geminiTitle": "Đọc to câu trả lời bằng Gemini TTS",
         "description": "Đọc to câu trả lời bằng giọng của nhà cung cấp này."
       }
     },

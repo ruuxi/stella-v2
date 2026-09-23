@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI-röster",
         "xai": "Grok-röster",
-        "inworld": "Inworld-röster"
+        "inworld": "Inworld-röster",
+        "gemini": "Gemini-röster"
       },
       "previousVoice": "Föregående röst",
       "nextVoice": "Nästa röst",
@@ -420,7 +421,7 @@
         "label": "Läs upp",
         "ariaLabel": "Röstleverantör för uppläsning",
         "openaiTitle": "Läs upp svar med OpenAI TTS",
-        "inworldTitle": "Läs upp svar med Inworld TTS",
+        "geminiTitle": "Läs upp svar med Gemini TTS",
         "description": "Läser upp svar med den här leverantörens röst."
       }
     },

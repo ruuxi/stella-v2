@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI 음성",
         "xai": "Grok 음성",
-        "inworld": "Inworld 음성"
+        "inworld": "Inworld 음성",
+        "gemini": "Gemini 음성"
       },
       "previousVoice": "이전 음성",
       "nextVoice": "다음 음성",
@@ -420,7 +421,7 @@
         "label": "소리 내어 읽기",
         "ariaLabel": "소리 내어 읽기 음성 제공업체",
         "openaiTitle": "OpenAI TTS로 답변을 소리 내어 읽기",
-        "inworldTitle": "Inworld TTS로 답변을 소리 내어 읽기",
+        "geminiTitle": "Gemini TTS로 답변을 소리 내어 읽기",
         "description": "이 제공업체의 음성으로 답변을 소리 내어 읽습니다."
       }
     },

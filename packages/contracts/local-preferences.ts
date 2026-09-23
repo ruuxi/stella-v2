@@ -19,10 +19,10 @@ export type RealtimeVoiceProvider = "stella" | "openai" | "xai" | "inworld";
 export type RealtimeVoiceUnderlyingProvider = "openai" | "xai" | "inworld";
 
 /**
- * Providers that expose a non-realtime ("one-shot") TTS endpoint used by
- * the Read-aloud feature. xAI has no such endpoint, so it's excluded.
+ * TTS families used by the Read-aloud feature. Gemini is Stella's default
+ * read-aloud voice; OpenAI reuses the user's OpenAI voice selection.
  */
-export type ReadAloudVoiceProvider = "openai" | "inworld";
+export type ReadAloudVoiceProvider = "gemini" | "openai";
 
 /**
  * Per-underlying-provider voice id selection. Stored per provider (rather
@@ -34,6 +34,8 @@ export type RealtimeVoiceSelections = {
   openai?: string;
   xai?: string;
   inworld?: string;
+  /** Read-aloud only: Gemini TTS has no realtime counterpart. */
+  gemini?: string;
 };
 
 export type RealtimeVoicePreferences = {
@@ -53,11 +55,9 @@ export type RealtimeVoicePreferences = {
    */
   inworldSpeed?: number;
   /**
-   * Voice family used for the "Read aloud" feature (one-shot TTS of
-   * finalized assistant replies). Independent from the realtime voice
-   * agent above so the user can run, e.g., OpenAI live voice but Inworld
-   * read-aloud. Only "openai" and "inworld" expose a non-realtime TTS
-   * endpoint. Defaults to "inworld" when unset.
+   * Voice family used for the "Read aloud" feature (TTS of finalized
+   * assistant replies). Independent from the realtime voice agent above.
+   * Defaults to "gemini" when unset.
    */
   readAloudProvider?: ReadAloudVoiceProvider;
 };
@@ -96,12 +96,12 @@ export const hasRealtimeVoiceSessionRouteChanged = (
 
 /**
  * Resolve the TTS family used by the Read-aloud feature. Independent
- * from the realtime voice agent's provider; defaults to Inworld.
+ * from the realtime voice agent's provider; defaults to Gemini.
  */
 export const resolveReadAloudProvider = (
   prefs: Pick<RealtimeVoicePreferences, "readAloudProvider">,
 ): ReadAloudVoiceProvider =>
-  prefs.readAloudProvider === "openai" ? "openai" : "inworld";
+  prefs.readAloudProvider === "openai" ? "openai" : "gemini";
 
 const REALTIME_VOICE_PROVIDERS: readonly RealtimeVoiceProvider[] = [
   "stella",

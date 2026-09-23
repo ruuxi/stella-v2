@@ -409,7 +409,8 @@
       "source": {
         "openai": "เสียง OpenAI",
         "xai": "เสียง Grok",
-        "inworld": "เสียง Inworld"
+        "inworld": "เสียง Inworld",
+        "gemini": "เสียง Gemini"
       },
       "previousVoice": "เสียงก่อนหน้า",
       "nextVoice": "เสียงถัดไป",
@@ -420,7 +421,7 @@
         "label": "อ่านออกเสียง",
         "ariaLabel": "ผู้ให้บริการเสียงสำหรับอ่านออกเสียง",
         "openaiTitle": "อ่านคำตอบออกเสียงด้วย OpenAI TTS",
-        "inworldTitle": "อ่านคำตอบออกเสียงด้วย Inworld TTS",
+        "geminiTitle": "อ่านคำตอบออกเสียงด้วย Gemini TTS",
         "description": "อ่านคำตอบออกเสียงโดยใช้เสียงของผู้ให้บริการนี้"
       }
     },

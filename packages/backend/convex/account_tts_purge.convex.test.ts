@@ -77,7 +77,6 @@ const functions = internal as unknown as {
         text: string;
         voice: string;
         model: string;
-        speed: number | null;
         conversationId: Id<"conversations"> | null;
         expiresAt: number;
       }
@@ -98,29 +97,6 @@ const functions = internal as unknown as {
     >;
   };
   tts_stream: {
-    readTicket: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        ticket: string;
-        ownerId: string;
-        ownerGeneration: string;
-        attemptId: string;
-        nowMs: number;
-      },
-      null | { state: string }
-    >;
-    failTicketAudio: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        ticket: string;
-        ownerId: string;
-        ownerGeneration: string;
-        attemptId: string;
-      },
-      boolean
-    >;
     purgeExpired: FunctionReference<
       "mutation",
       "internal",
@@ -171,12 +147,11 @@ describe("TTS account purge", () => {
         ownerId,
         ownerGeneration: "legacy",
         text: "private speech",
-        voice: "Brooke",
-        model: "inworld-tts-2-flash",
+        voice: "Kore",
+        model: "gemini-3.8-flash-lite-tts",
         hlsStatus: "synthesizing",
         hlsAttemptId: "attempt-before-delete",
         hlsLeaseExpiresAt: Date.now() + 60_000,
-        synthesisTransport: "hls",
         hlsSegments: [],
         hlsDone: false,
         createdAt: 1,
@@ -217,9 +192,8 @@ describe("TTS account purge", () => {
           ownerId,
           ownerGeneration: "legacy",
           text: "x",
-          voice: "Brooke",
-          model: "inworld-tts-2-flash",
-          audio: "YQ==",
+          voice: "Kore",
+          model: "gemini-3.8-flash-lite-tts",
           createdAt: index,
           expiresAt: 100_000,
         });
@@ -249,8 +223,8 @@ describe("TTS account purge", () => {
         ownerId,
         ownerGeneration: "legacy",
         text: "recover me",
-        voice: "Brooke",
-        model: "inworld-tts-2-flash",
+        voice: "Kore",
+        model: "gemini-3.8-flash-lite-tts",
         hlsStatus: "pending",
         hlsSegments: [],
         hlsDone: false,
@@ -318,8 +292,8 @@ describe("TTS account purge", () => {
           ownerId: "expiry-owner",
           ownerGeneration: "legacy",
           text: "expired",
-          voice: "Brooke",
-          model: "inworld-tts-2-flash",
+          voice: "Kore",
+          model: "gemini-3.8-flash-lite-tts",
           createdAt: index,
           expiresAt: expiredAt,
         });
@@ -359,45 +333,6 @@ describe("TTS account purge", () => {
     expect(counts).toEqual({ segments: 0, tickets: 2 });
   });
 
-  it("makes a failed buffered claim terminal instead of spending again", async () => {
-    const t = createTest();
-    const ownerId = "buffer-failure-owner";
-    const now = Date.now();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("tts_stream_tickets", {
-        ticket: "failed-buffer",
-        ownerId,
-        ownerGeneration: "legacy",
-        text: "do not retry",
-        voice: "Brooke",
-        model: "inworld-tts-2-flash",
-        bufferStatus: "synthesizing",
-        bufferAttemptId: "failed-attempt",
-        bufferLeaseExpiresAt: now + 60_000,
-        synthesisTransport: "buffered",
-        createdAt: now,
-        expiresAt: now + 60_000,
-      });
-    });
-    await expect(
-      t.mutation(functions.tts_stream.failTicketAudio, {
-        ticket: "failed-buffer",
-        ownerId,
-        ownerGeneration: "legacy",
-        attemptId: "failed-attempt",
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      t.mutation(functions.tts_stream.readTicket, {
-        ticket: "failed-buffer",
-        ownerId,
-        ownerGeneration: "legacy",
-        attemptId: "retry-attempt",
-        nowMs: now + 1,
-      }),
-    ).resolves.toMatchObject({ state: "unavailable" });
-  });
-
   it("reset purges transient TTS rows while preserving spend audit", async () => {
     const t = createTest();
     const ownerId = "reset-tts-owner";
@@ -407,17 +342,17 @@ describe("TTS account purge", () => {
         ownerId,
         ownerGeneration: "legacy",
         text: "reset me",
-        voice: "Brooke",
-        model: "inworld-tts-2-flash",
+        voice: "Kore",
+        model: "gemini-3.8-flash-lite-tts",
         createdAt: 1,
         expiresAt: 100_000,
       });
       await ctx.db.insert("internal_tts_usage", {
         ownerId,
         ownerGeneration: "legacy",
-        provider: "inworld",
-        model: "inworld-tts-2-flash",
-        voice: "Brooke",
+        provider: "gemini",
+        model: "gemini-3.8-flash-lite-tts",
+        voice: "Kore",
         streaming: false,
         status: "completed",
         requestChars: 8,

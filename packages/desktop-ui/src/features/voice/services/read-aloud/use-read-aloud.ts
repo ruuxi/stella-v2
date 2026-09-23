@@ -128,16 +128,15 @@ export function useReadAloud(messages: readonly MessageRecord[]): void {
           const prefs = await resolveReadAloudVoicePrefs();
           if (!enabledRef.current) return;
 
-          // Prefer progressive Inworld streaming; fall back to one-shot for
+          // Prefer progressive Gemini streaming; fall back to one-shot for
           // the OpenAI voice family, unsupported runtimes, or a stream that
           // fails before any audio arrives.
-          if (prefs.family === "inworld" && canStreamReadAloud()) {
+          if (prefs.family === "gemini" && canStreamReadAloud()) {
             try {
               const response = await openReadAloudStream({
                 operationId,
                 text: clean,
                 voice: prefs.voice,
-                speed: prefs.speed,
               });
               if (!enabledRef.current) {
                 await response.body?.cancel().catch(() => undefined);
@@ -159,7 +158,6 @@ export function useReadAloud(messages: readonly MessageRecord[]): void {
             text: clean,
             voiceProvider: prefs.family,
             voice: prefs.voice,
-            speed: prefs.speed,
           });
           if (!enabledRef.current) return;
           await playReadAloud(audio);

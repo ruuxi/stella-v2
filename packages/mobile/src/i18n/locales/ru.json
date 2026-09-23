@@ -409,7 +409,8 @@
       "source": {
         "openai": "Голоса OpenAI",
         "xai": "Голоса Grok",
-        "inworld": "Голоса Inworld"
+        "inworld": "Голоса Inworld",
+        "gemini": "Голоса Gemini"
       },
       "previousVoice": "Предыдущий голос",
       "nextVoice": "Следующий голос",
@@ -420,7 +421,7 @@
         "label": "Читать вслух",
         "ariaLabel": "Провайдер голоса для чтения вслух",
         "openaiTitle": "Читать ответы вслух с помощью OpenAI TTS",
-        "inworldTitle": "Читать ответы вслух с помощью Inworld TTS",
+        "geminiTitle": "Читать ответы вслух с помощью Gemini TTS",
         "description": "Произносит ответы вслух голосом этого провайдера."
       }
     },

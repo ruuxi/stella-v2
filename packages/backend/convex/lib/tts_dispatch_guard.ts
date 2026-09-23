@@ -7,10 +7,9 @@ import type {
 } from "../tts_dispatch";
 
 export type TtsProviderDispatchKind =
-  | "buffered"
   | "desktop_stream"
   | "hls"
-  | "oneshot_inworld"
+  | "oneshot_gemini"
   | "oneshot_openai";
 
 const DISPATCH_POLL_MS = 2_000;

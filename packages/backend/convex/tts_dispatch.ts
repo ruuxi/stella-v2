@@ -19,10 +19,7 @@ import {
   ttsProviderDispatchStateValidator,
 } from "./schema/billing";
 import { ownerPurgeModeValidator } from "./schema/owner_lifecycle";
-import {
-  computeInworldTtsCostMicroCents,
-  computeTtsUsageCostMicroCents,
-} from "./lib/billing_money";
+import { computeTtsUsageCostMicroCents } from "./lib/billing_money";
 
 /**
  * Workers must heartbeat more frequently than this. Missing the soft deadline
@@ -53,7 +50,7 @@ export type TtsProviderDispatchOutcome =
   | "may_have_dispatched";
 
 export type TtsDispatchUsageEnvelope = {
-  provider: "inworld" | "openai";
+  provider: "gemini" | "openai";
   model: string;
   voice?: string;
   conversationId?: Doc<"conversations">["_id"];
@@ -103,7 +100,7 @@ const pollResultValidator = v.object({
 });
 
 const usageEnvelopeValidator = v.object({
-  provider: v.union(v.literal("inworld"), v.literal("openai")),
+  provider: v.union(v.literal("gemini"), v.literal("openai")),
   model: v.string(),
   voice: v.optional(v.string()),
   conversationId: v.optional(v.id("conversations")),
@@ -220,22 +217,15 @@ const normalizeUsageEnvelope = (
 });
 
 const usageCostMicroCents = (args: {
-  provider: "inworld" | "openai";
   model: string;
-  synthesizedChars: number;
   textInputTokens: number;
   audioOutputTokens: number;
 }): number =>
-  args.provider === "inworld"
-    ? computeInworldTtsCostMicroCents({
-        model: args.model,
-        chars: args.synthesizedChars,
-      })
-    : computeTtsUsageCostMicroCents({
-        model: args.model,
-        textInputTokens: args.textInputTokens,
-        audioOutputTokens: args.audioOutputTokens,
-      });
+  computeTtsUsageCostMicroCents({
+    model: args.model,
+    textInputTokens: args.textInputTokens,
+    audioOutputTokens: args.audioOutputTokens,
+  });
 
 const updateUsageReceipt = async (
   ctx: MutationCtx,
@@ -299,9 +289,7 @@ const updateUsageReceipt = async (
       textInputTokens,
       audioOutputTokens,
       costMicroCents: usageCostMicroCents({
-        provider: usage.provider,
         model: usage.model,
-        synthesizedChars,
         textInputTokens,
         audioOutputTokens,
       }),
@@ -343,9 +331,7 @@ const updateUsageReceipt = async (
     textInputTokens,
     audioOutputTokens,
     costMicroCents: usageCostMicroCents({
-      provider: usage.provider,
       model: usage.model,
-      synthesizedChars,
       textInputTokens,
       audioOutputTokens,
     }),
@@ -609,9 +595,7 @@ export const markTtsProviderDispatchMayHaveStartedInternal = internalMutation({
       textInputTokens,
       audioOutputTokens,
       costMicroCents: usageCostMicroCents({
-        provider: usage.provider,
         model: usage.model,
-        synthesizedChars,
         textInputTokens,
         audioOutputTokens,
       }),

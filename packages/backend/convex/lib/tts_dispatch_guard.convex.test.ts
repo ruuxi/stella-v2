@@ -10,8 +10,8 @@ type RunMutation = (
 ) => Promise<unknown>;
 
 const usage = {
-  provider: "inworld" as const,
-  model: "inworld-tts-1.5-max",
+  provider: "gemini" as const,
+  model: "gemini-3.8-flash-lite-tts",
   voice: "voice-a",
   streaming: true,
   requestChars: 40,

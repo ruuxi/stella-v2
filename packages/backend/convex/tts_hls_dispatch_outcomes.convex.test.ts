@@ -41,8 +41,8 @@ const seedHlsTicket = async (
       ownerId: OWNER_ID,
       ownerGeneration: OWNER_GENERATION,
       text,
-      voice: "Brooke",
-      model: "inworld-tts-2-flash",
+      voice: "Kore",
+      model: "gemini-3.8-flash-lite-tts",
       hlsStatus: "pending",
       hlsSegments: [],
       hlsDone: false,
@@ -52,6 +52,30 @@ const seedHlsTicket = async (
   });
   return text;
 };
+
+// One Gemini SSE `step.delta` event carrying a second of silent 24 kHz PCM:
+// enough samples for the MP3 encoder to emit frames immediately.
+const geminiPcmEvent = () =>
+  `event: step.delta\ndata: ${JSON.stringify({
+    index: 0,
+    event_type: "step.delta",
+    delta: {
+      mime_type: "audio/l16",
+      data: Buffer.alloc(48_000).toString("base64"),
+    },
+  })}\n\n`;
+
+const geminiCompletedEvent = () =>
+  `event: interaction.complete\ndata: ${JSON.stringify({
+    event_type: "interaction.complete",
+    interaction: {
+      status: "completed",
+      usage: {
+        total_input_tokens: 5,
+        output_tokens_by_modality: [{ modality: "audio", tokens: 39 }],
+      },
+    },
+  })}\n\n`;
 
 const runHlsSynthesis = async (t: ReturnType<typeof createTest>) => {
   await t.action(functions.tts_hls.synthesizeHls, {
@@ -146,14 +170,13 @@ describe("HLS TTS provider dispatch outcomes", () => {
   });
 
   it("settles a fully consumed successful stream before publishing HLS completion", async () => {
-    vi.stubEnv("INWORLD_API_KEY", "test-inworld-key");
+    vi.stubEnv("GOOGLE_AI_API_KEY", "test-gemini-key");
     const t = createTest();
     const text = await seedHlsTicket(t);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        `${JSON.stringify({ result: { audioContent: "AQID" } })}\n`,
-        { status: 200 },
-      ),
+      new Response(`${geminiPcmEvent()}${geminiCompletedEvent()}`, {
+        status: 200,
+      }),
     );
 
     await runHlsSynthesis(t);
@@ -162,21 +185,27 @@ describe("HLS TTS provider dispatch outcomes", () => {
     expect(state.lease).toBeNull();
     expect(state.usage).toHaveLength(1);
     expect(state.usage[0]).toMatchObject({
-      provider: "inworld",
-      model: "inworld-tts-2-flash",
-      voice: "Brooke",
+      provider: "gemini",
+      model: "gemini-3.8-flash-lite-tts",
+      voice: "Kore",
       streaming: true,
       requestChars: text.length,
       providerDispatchOutcome: "settled",
       status: "completed",
       synthesizedChars: text.length,
-      audioBytes: 3,
+      textInputTokens: 5,
+      audioOutputTokens: 39,
     });
+    expect(state.usage[0]?.audioBytes).toBeGreaterThan(0);
+    const segments = await t.run(
+      async (ctx) => await ctx.db.query("tts_hls_segments").collect(),
+    );
+    expect(segments.length).toBeGreaterThan(0);
     expect(state.ticket).toMatchObject({ hlsStatus: "done", hlsDone: true });
   });
 
   it("settles a fully consumed non-OK response with conservative full-request usage", async () => {
-    vi.stubEnv("INWORLD_API_KEY", "test-inworld-key");
+    vi.stubEnv("GOOGLE_AI_API_KEY", "test-gemini-key");
     const t = createTest();
     const text = await seedHlsTicket(t);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -198,7 +227,7 @@ describe("HLS TTS provider dispatch outcomes", () => {
   });
 
   it("retains ambiguous spend debt when the provider fetch loses its response", async () => {
-    vi.stubEnv("INWORLD_API_KEY", "test-inworld-key");
+    vi.stubEnv("GOOGLE_AI_API_KEY", "test-gemini-key");
     const t = createTest();
     const text = await seedHlsTicket(t);
     vi.spyOn(globalThis, "fetch").mockRejectedValue(
@@ -227,7 +256,7 @@ describe("HLS TTS provider dispatch outcomes", () => {
   });
 
   it("retains partial ambiguous spend when the provider body resets before EOF", async () => {
-    vi.stubEnv("INWORLD_API_KEY", "test-inworld-key");
+    vi.stubEnv("GOOGLE_AI_API_KEY", "test-gemini-key");
     const t = createTest();
     const text = await seedHlsTicket(t);
     const encoder = new TextEncoder();
@@ -238,11 +267,7 @@ describe("HLS TTS provider dispatch outcomes", () => {
           pull(controller) {
             if (pullCount === 0) {
               pullCount += 1;
-              controller.enqueue(
-                encoder.encode(
-                  `${JSON.stringify({ result: { audioContent: "AQID" } })}\n`,
-                ),
-              );
+              controller.enqueue(encoder.encode(geminiPcmEvent()));
               return;
             }
             controller.error(new Error("provider body reset"));
@@ -264,13 +289,13 @@ describe("HLS TTS provider dispatch outcomes", () => {
       status: "partial",
       requestChars: text.length,
       synthesizedChars: text.length,
-      audioBytes: 3,
     });
+    expect(state.usage[0]?.audioBytes).toBeGreaterThan(0);
     expect(state.ticket).toMatchObject({ hlsStatus: "error", hlsDone: true });
   });
 
   it("cancels a hung body after reset fencing and preserves ambiguous debt", async () => {
-    vi.stubEnv("INWORLD_API_KEY", "test-inworld-key");
+    vi.stubEnv("GOOGLE_AI_API_KEY", "test-gemini-key");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const t = createTest();
     const text = await seedHlsTicket(t);

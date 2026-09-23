@@ -2,14 +2,15 @@
  * Stella-backend TTS client for the read-aloud surface.
  *
  * Two modes, both keeping the provider API keys server-side:
- *   - `openReadAloudStream` — progressive Inworld synthesis proxied back as a
+ *   - `openReadAloudStream` — progressive Gemini synthesis proxied back as a
  *     chunked `audio/mpeg` stream so playback can begin early.
  *   - `fetchReadAloudAudio` — one-shot synthesis (mp3 for OpenAI, wav for
- *     Inworld), the graceful fallback when streaming is unavailable.
+ *     Gemini), the graceful fallback when streaming is unavailable.
  */
+import type { ReadAloudVoiceProvider } from "@stella/contracts/local-preferences";
 import { createServiceRequest } from "@/platform/http/service-request";
 
-export type ReadAloudVoiceFamily = "openai" | "inworld";
+export type ReadAloudVoiceFamily = ReadAloudVoiceProvider;
 
 export type ReadAloudRequest = {
   /** Stable for one read invocation, including stream-to-buffered fallback. */
@@ -17,7 +18,6 @@ export type ReadAloudRequest = {
   text: string;
   voice?: string;
   voiceProvider: ReadAloudVoiceFamily;
-  speed?: number;
   signal?: AbortSignal;
 };
 
@@ -33,7 +33,7 @@ const TTS_STREAM_PATH = "/api/voice/tts/stream";
 export const createReadAloudOperationId = (): string => crypto.randomUUID();
 
 /**
- * Open a progressive Inworld TTS stream. Resolves with the raw streaming
+ * Open a progressive Gemini TTS stream. Resolves with the raw streaming
  * `Response` (an `audio/mpeg` body) so the player can feed it into Media
  * Source Extensions. Throws on a non-OK response so the caller can fall back
  * to one-shot synthesis.
@@ -49,9 +49,6 @@ export async function openReadAloudStream(
     operationId: req.operationId,
   };
   if (req.voice) body.voice = req.voice;
-  if (typeof req.speed === "number" && Number.isFinite(req.speed)) {
-    body.speed = req.speed;
-  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers,
@@ -79,9 +76,6 @@ export async function fetchReadAloudAudio(
     operationId: req.operationId,
   };
   if (req.voice) body.voice = req.voice;
-  if (typeof req.speed === "number" && Number.isFinite(req.speed)) {
-    body.speed = req.speed;
-  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers,

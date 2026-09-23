@@ -409,7 +409,8 @@
       "source": {
         "openai": "Hlasy OpenAI",
         "xai": "Hlasy Grok",
-        "inworld": "Hlasy Inworld"
+        "inworld": "Hlasy Inworld",
+        "gemini": "Hlasy Gemini"
       },
       "previousVoice": "Předchozí hlas",
       "nextVoice": "Další hlas",
@@ -420,7 +421,7 @@
         "label": "Číst nahlas",
         "ariaLabel": "Poskytovatel hlasu pro čtení nahlas",
         "openaiTitle": "Číst odpovědi nahlas pomocí OpenAI TTS",
-        "inworldTitle": "Číst odpovědi nahlas pomocí Inworld TTS",
+        "geminiTitle": "Číst odpovědi nahlas pomocí Gemini TTS",
         "description": "Předčítá odpovědi nahlas hlasem tohoto poskytovatele."
       }
     },

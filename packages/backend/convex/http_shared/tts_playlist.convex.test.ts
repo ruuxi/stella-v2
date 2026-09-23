@@ -82,7 +82,7 @@ describe("HLS playlist HTTP response", () => {
           ownerGeneration: "legacy",
           text: "test",
           voice: "Brooke",
-          model: "inworld-tts-2-flash",
+          model: "gemini-3.8-flash-lite-tts",
           hlsStatus: status,
           hlsSegments: [...segments],
           hlsDone: status !== "synthesizing",

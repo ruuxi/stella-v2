@@ -18,10 +18,9 @@ export const billingUsageModeValidator = v.union(
 );
 
 export const ttsProviderDispatchKindValidator = v.union(
-  v.literal("buffered"),
   v.literal("desktop_stream"),
   v.literal("hls"),
-  v.literal("oneshot_inworld"),
+  v.literal("oneshot_gemini"),
   v.literal("oneshot_openai"),
 );
 
@@ -1242,18 +1241,12 @@ export const billingSchema = {
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
     .index("by_quiescentAfterAt", ["quiescentAfterAt"]),
 
-  // Short-lived, single-use tickets that bridge a POSTed read-aloud request
-  // to a GET audio stream. Mobile's native audio player (AVPlayer/ExoPlayer)
-  // fetches a seekable resource and issues multiple (ranged) requests per
-  // playback, and the assistant text is far too long to place in a query
-  // string — so the client POSTs the text to `/api/voice/tts/stream/prepare`,
-  // receives an opaque ticket, and the player GETs
-  // `/api/voice/tts/stream/audio/reply.mp3?ticket=…`. Rows are owner-bound,
-  // expire in ~2 minutes, are reusable within that window (so the player's
-  // range requests all succeed), and are swept by a cron — so the assistant
-  // text never lands in a URL, log, or long-lived store. `audio` caches the
-  // synthesized MP3 (base64) after the first request so the player's follow-up
-  // range requests are served from cache instead of re-synthesizing.
+  // Short-lived tickets that bridge a POSTed read-aloud request to the mobile
+  // HLS stream. The assistant text is far too long for a query string, so the
+  // client POSTs it to `/api/voice/tts/stream/prepare`, receives an opaque
+  // ticket, and plays `/api/voice/tts/stream/hls/<ticket>/playlist.m3u8`. Rows
+  // are owner-bound, short-lived, and swept by a cron, so the assistant text
+  // never lands in a URL, log, or long-lived store.
   tts_stream_tickets: defineTable({
     ticket: v.string(),
     ownerId: v.string(),
@@ -1266,11 +1259,9 @@ export const billingSchema = {
     text: v.string(),
     voice: v.string(),
     model: v.string(),
-    speed: v.optional(v.number()),
     conversationId: v.optional(v.id("conversations")),
-    audio: v.optional(v.string()),
     // HLS progressive-playback session state (mobile). A background action
-    // streams Inworld once and appends MP3 segments to `tts_hls_segments`; this
+    // streams Gemini once and appends MP3 segments to `tts_hls_segments`; this
     // row holds the live playlist manifest so a `playlist.m3u8` read never has
     // to load segment audio. `hlsStatus` walks pending → synthesizing → done
     // (or error). `hlsSegments` grows as segments land; the playlist gains
@@ -1295,20 +1286,6 @@ export const billingSchema = {
     // this hard lease expires; the previous action's attempt id then fences
     // every delayed append/finalizer.
     hlsLeaseExpiresAt: v.optional(v.number()),
-    synthesisTransport: v.optional(
-      v.union(v.literal("hls"), v.literal("buffered")),
-    ),
-    bufferStatus: v.optional(
-      v.union(
-        v.literal("pending"),
-        v.literal("synthesizing"),
-        v.literal("done"),
-        v.literal("error"),
-      ),
-    ),
-    bufferAttemptId: v.optional(v.string()),
-    bufferLeaseExpiresAt: v.optional(v.number()),
-    bufferTooLarge: v.optional(v.boolean()),
     createdAt: v.number(),
     expiresAt: v.number(),
   })
@@ -1354,7 +1331,12 @@ export const billingSchema = {
     attemptId: v.optional(v.string()),
     leaseId: v.optional(v.string()),
     providerDispatchOutcome: v.optional(ttsProviderDispatchOutcomeValidator),
-    provider: v.union(v.literal("inworld"), v.literal("openai")),
+    // `inworld` only on historical ledger rows from before Gemini read-aloud.
+    provider: v.union(
+      v.literal("gemini"),
+      v.literal("inworld"),
+      v.literal("openai"),
+    ),
     model: v.string(),
     voice: v.optional(v.string()),
     conversationId: v.optional(v.id("conversations")),

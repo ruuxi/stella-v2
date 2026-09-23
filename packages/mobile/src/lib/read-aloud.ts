@@ -11,13 +11,13 @@ import { configurePlaybackAudioSession } from "./mobile-audio-session";
 const READ_ALOUD_KEY = "stella-mobile.read-aloud-enabled";
 const TTS_STREAM_PREPARE_PATH = "/api/voice/tts/stream/prepare";
 const TTS_STREAM_CANCEL_PATH = "/api/voice/tts/stream/cancel";
-// The mobile player streams a live HLS playlist so audio starts while Inworld
+// The mobile player streams a live HLS playlist so audio starts while Gemini
 // is still generating. The ticket authorizes the session; the playlist and its
 // segments live under this prefix.
 const ttsStreamHlsPlaylistPath = (ticket: string) =>
   `/api/voice/tts/stream/hls/${encodeURIComponent(ticket)}/playlist.m3u8`;
 // Voice and model for read-aloud are server-authoritative: the client omits
-// them so the backend applies its default (Brooke / inworld-tts-2-flash),
+// them so the backend applies its default (Kore / gemini-3.8-flash-lite-tts),
 // keeping mobile in lockstep with desktop. Only send an explicit value once
 // the user can pick a voice here. (Removed the pinned "Wendy" voice that had
 // drifted from the server default.)
@@ -203,7 +203,7 @@ const readErrorMessage = async (response: Response) => {
 // Ask the backend to synthesize a read-aloud reply and hold it under an opaque
 // ticket, so the native audio player can progressively stream it from a GET
 // URL. The (long) assistant text is POSTed here and never appears in the URL.
-async function prepareInworldReadAloudStream(
+async function prepareReadAloudStream(
   text: string,
   operationId: string,
   signal: AbortSignal,
@@ -221,7 +221,6 @@ async function prepareInworldReadAloudStream(
       },
       body: JSON.stringify({
         text,
-        voiceProvider: "inworld",
         operationId,
       }),
     },
@@ -370,7 +369,7 @@ async function tryStreamReply(
   generation: number,
   signal: AbortSignal,
 ): Promise<boolean> {
-  const ticket = await prepareInworldReadAloudStream(text, operationId, signal);
+  const ticket = await prepareReadAloudStream(text, operationId, signal);
   if (generation !== playbackGeneration || signal.aborted) {
     // Superseded before playback began — end the background synthesis so it
     // does not run to completion unheard.
@@ -381,7 +380,7 @@ async function tryStreamReply(
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   currentStreamTicket = ticket;
   const token = await getConvexToken();
-  // A live HLS playlist that grows as Inworld generates, so playback begins on
+  // A live HLS playlist that grows as Gemini generates, so playback begins on
   // the first segment instead of waiting for the whole clip.
   const uri = `${env.convexSiteUrl}${ttsStreamHlsPlaylistPath(ticket)}`;
 

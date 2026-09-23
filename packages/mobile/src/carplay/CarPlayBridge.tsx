@@ -12,7 +12,7 @@
  *     bridge never races the tab's queue.
  *   • dictation        → {@link useDictation} (the same realtime stream
  *     push-to-talk recorder the composer mic uses).
- *   • text-to-speech   → {@link speakReply} from read-aloud (the same Inworld
+ *   • text-to-speech   → {@link speakReply} from read-aloud (the same Gemini
  *     TTS the chat "read aloud" button uses), so replies sound identical.
  *
  * Account-free use has a Better Auth anonymous owner, so both anonymous and

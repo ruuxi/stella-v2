@@ -14,11 +14,14 @@
  *     underlying provider is `inworld`. Persists to
  *     `realtimeVoice.inworldSpeed` so the user's chosen speed survives
  *     provider switches.
+ *   - Read-aloud provider toggle (Gemini / OpenAI). Gemini read-aloud has
+ *     its own voice stepper, stored at `realtimeVoice.voices.gemini`;
+ *     OpenAI read-aloud reuses the OpenAI voice above.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, ChevronDown } from "@/ui/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
-import { DEFAULT_INWORLD_REALTIME_SPEED, getDefaultRealtimeVoice, getRealtimeVoiceCatalog, } from "@stella/contracts/realtime-voice-catalog";
+import { DEFAULT_GEMINI_TTS_VOICE, DEFAULT_INWORLD_REALTIME_SPEED, GEMINI_TTS_VOICES, getDefaultRealtimeVoice, getRealtimeVoiceCatalog, } from "@stella/contracts/realtime-voice-catalog";
 import { resolveReadAloudProvider, resolveRealtimeUnderlyingProvider, } from "@stella/contracts/local-preferences";
 import { useT } from "@/shared/i18n";
 import "./VoiceCatalogPicker.css";
@@ -47,7 +50,67 @@ const sliderPositionToSpeed = (position) => {
     // Snap to 0.05 so the displayed value stays clean.
     return Math.round(raw * 20) / 20;
 };
-export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedVoices, inworldSpeed, onSelectVoice, onSelectStellaSubProvider, onSelectInworldSpeed, readAloudProvider, onSelectReadAloudProvider, disabled = false, }) {
+/**
+ * Chevron stepper + dropdown over one voice catalog. `activeVoiceId` is
+ * display-only when it is a fallback: the server applies the real default.
+ */
+function VoiceStepper({ catalog, activeVoiceId, sourceLabel, onPick, disabled }) {
+    const t = useT();
+    const activeIndex = useMemo(() => {
+        const idx = catalog.findIndex((entry) => entry.id === activeVoiceId);
+        return idx === -1 ? 0 : idx;
+    }, [catalog, activeVoiceId]);
+    const activeEntry = catalog[activeIndex] ?? catalog[0];
+    const cycleBy = useCallback((delta) => {
+        if (disabled || catalog.length === 0)
+            return;
+        const next = (activeIndex + delta + catalog.length) % catalog.length;
+        onPick(catalog[next].id);
+    }, [activeIndex, catalog, disabled, onPick]);
+    const handleDropdownPick = useCallback((voiceId) => {
+        if (disabled)
+            return;
+        onPick(voiceId);
+    }, [disabled, onPick]);
+    return (<div className="voice-catalog-stepper-wrap">
+        <div className="voice-catalog-stepper" role="group" aria-label={t("settings.voiceCatalog.label")}>
+          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(-1)} disabled={disabled || catalog.length < 2} aria-label={t("settings.voiceCatalog.previousVoice")}>
+            <ChevronLeft size={14} strokeWidth={2}/>
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="voice-catalog-stepper-current" disabled={disabled}>
+                <span className="voice-catalog-stepper-name">
+                  {activeEntry?.label ?? "—"}
+                </span>
+                <ChevronDown size={12} strokeWidth={2}/>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="center" sideOffset={6} className="voice-catalog-menu" aria-label={t("settings.voiceCatalog.menuAriaLabel", { source: sourceLabel })}>
+              {catalog.map((voice) => {
+            const selected = voice.id === activeVoiceId;
+            return (<DropdownMenuItem key={voice.id} onSelect={() => handleDropdownPick(voice.id)} disabled={disabled} data-selected={selected || undefined} className="voice-catalog-menu-item">
+                    <span className="voice-catalog-menu-item-text">
+                      <span className="voice-catalog-menu-item-name">
+                        {voice.label}
+                      </span>
+                      <span className="voice-catalog-menu-item-desc">
+                        {voice.description}
+                      </span>
+                    </span>
+                    {selected ? (<Check size={13} className="voice-catalog-menu-item-check"/>) : null}
+                  </DropdownMenuItem>);
+        })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(1)} disabled={disabled || catalog.length < 2} aria-label={t("settings.voiceCatalog.nextVoice")}>
+            <ChevronRight size={14} strokeWidth={2}/>
+          </button>
+        </div>
+        {activeEntry?.description ? (<p className="voice-catalog-stepper-desc">{activeEntry.description}</p>) : null}
+      </div>);
+}
+export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedVoices, inworldSpeed, onSelectVoice, onSelectStellaSubProvider, onSelectInworldSpeed, readAloudProvider, onSelectReadAloudProvider, onSelectReadAloudVoice, disabled = false, }) {
     const t = useT();
     // For BYOK modes this is pinned to the provider; for Stella mode it
     // follows the user's sub-family choice (default "openai").
@@ -63,11 +126,6 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
     // If it drifts from the server default, only the badge is wrong, not audio.
     const fallback = getDefaultRealtimeVoice(underlyingProvider);
     const activeVoiceId = selectedVoices?.[underlyingProvider]?.trim() || fallback;
-    const activeIndex = useMemo(() => {
-        const idx = catalog.findIndex((entry) => entry.id === activeVoiceId);
-        return idx === -1 ? 0 : idx;
-    }, [catalog, activeVoiceId]);
-    const activeEntry = catalog[activeIndex] ?? catalog[0];
     const showSubToggle = voiceProvider === "stella";
     const showSpeed = underlyingProvider === "inworld";
     const activeSpeed = inworldSpeed ?? DEFAULT_INWORLD_REALTIME_SPEED;
@@ -91,17 +149,13 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
             return;
         onSelectInworldSpeed(value);
     }, [activeSpeed, onSelectInworldSpeed]);
-    const cycleBy = useCallback((delta) => {
-        if (disabled || catalog.length === 0)
-            return;
-        const next = (activeIndex + delta + catalog.length) % catalog.length;
-        onSelectVoice(underlyingProvider, catalog[next].id);
-    }, [activeIndex, catalog, disabled, onSelectVoice, underlyingProvider]);
-    const handleDropdownPick = useCallback((voiceId) => {
-        if (disabled)
-            return;
+    const handleVoicePick = useCallback((voiceId) => {
         onSelectVoice(underlyingProvider, voiceId);
-    }, [disabled, onSelectVoice, underlyingProvider]);
+    }, [onSelectVoice, underlyingProvider]);
+    const handleReadAloudVoicePick = useCallback((voiceId) => {
+        onSelectReadAloudVoice?.(voiceId);
+    }, [onSelectReadAloudVoice]);
+    const activeReadAloudVoiceId = selectedVoices?.gemini?.trim() || DEFAULT_GEMINI_TTS_VOICE;
     const handleSubToggle = useCallback((sub) => {
         if (disabled || !showSubToggle)
             return;
@@ -151,43 +205,7 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
           </span>)}
       </div>
 
-      <div className="voice-catalog-stepper-wrap">
-        <div className="voice-catalog-stepper" role="group" aria-label={t("settings.voiceCatalog.label")}>
-          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(-1)} disabled={disabled || catalog.length < 2} aria-label={t("settings.voiceCatalog.previousVoice")}>
-            <ChevronLeft size={14} strokeWidth={2}/>
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button type="button" className="voice-catalog-stepper-current" disabled={disabled}>
-                <span className="voice-catalog-stepper-name">
-                  {activeEntry?.label ?? "—"}
-                </span>
-                <ChevronDown size={12} strokeWidth={2}/>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="center" sideOffset={6} className="voice-catalog-menu" aria-label={t("settings.voiceCatalog.menuAriaLabel", { source: labelSourceText })}>
-              {catalog.map((voice) => {
-            const selected = voice.id === activeVoiceId;
-            return (<DropdownMenuItem key={voice.id} onSelect={() => handleDropdownPick(voice.id)} disabled={disabled} data-selected={selected || undefined} className="voice-catalog-menu-item">
-                    <span className="voice-catalog-menu-item-text">
-                      <span className="voice-catalog-menu-item-name">
-                        {voice.label}
-                      </span>
-                      <span className="voice-catalog-menu-item-desc">
-                        {voice.description}
-                      </span>
-                    </span>
-                    {selected ? (<Check size={13} className="voice-catalog-menu-item-check"/>) : null}
-                  </DropdownMenuItem>);
-        })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(1)} disabled={disabled || catalog.length < 2} aria-label={t("settings.voiceCatalog.nextVoice")}>
-            <ChevronRight size={14} strokeWidth={2}/>
-          </button>
-        </div>
-        {activeEntry?.description ? (<p className="voice-catalog-stepper-desc">{activeEntry.description}</p>) : null}
-      </div>
+      <VoiceStepper catalog={catalog} activeVoiceId={activeVoiceId} sourceLabel={labelSourceText} onPick={handleVoicePick} disabled={disabled}/>
 
       {showSpeed ? (<div className="voice-catalog-speed">
           <div className="voice-catalog-speed-header">
@@ -208,14 +226,15 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
           <div className="voice-catalog-picker-label">
             <span>{t("settings.voiceCatalog.readAloud.label")}</span>
             <div className="voice-catalog-subtoggle" role="tablist" aria-label={t("settings.voiceCatalog.readAloud.ariaLabel")}>
+              <button type="button" role="tab" aria-selected={activeReadAloud === "gemini"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "gemini" || undefined} onClick={() => handleReadAloudPick("gemini")} disabled={disabled} title={t("settings.voiceCatalog.readAloud.geminiTitle")}>
+                Gemini
+              </button>
               <button type="button" role="tab" aria-selected={activeReadAloud === "openai"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "openai" || undefined} onClick={() => handleReadAloudPick("openai")} disabled={disabled} title={t("settings.voiceCatalog.readAloud.openaiTitle")}>
                 OpenAI
               </button>
-              <button type="button" role="tab" aria-selected={activeReadAloud === "inworld"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "inworld" || undefined} onClick={() => handleReadAloudPick("inworld")} disabled={disabled} title={t("settings.voiceCatalog.readAloud.inworldTitle")}>
-                Inworld
-              </button>
             </div>
           </div>
+          {activeReadAloud === "gemini" ? (<VoiceStepper catalog={GEMINI_TTS_VOICES} activeVoiceId={activeReadAloudVoiceId} sourceLabel={t("settings.voiceCatalog.source.gemini")} onPick={handleReadAloudVoicePick} disabled={disabled || !onSelectReadAloudVoice}/>) : null}
           <p className="voice-catalog-readaloud-desc">
             {t("settings.voiceCatalog.readAloud.description")}
           </p>

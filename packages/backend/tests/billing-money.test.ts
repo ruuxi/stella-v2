@@ -109,6 +109,16 @@ describe("billing money", () => {
     expect(costMicroCents).toBe(1_260_000_000);
   });
 
+  it("prices Gemini Flash-Lite TTS text input and audio output", () => {
+    expect(
+      computeTtsUsageCostMicroCents({
+        model: "gemini-3.8-flash-lite-tts",
+        textInputTokens: 1_000_000,
+        audioOutputTokens: 1_000_000,
+      }),
+    ).toBe(1_300_000_000);
+  });
+
   it("prices dated OpenAI voice snapshots through their base model rates", () => {
     expect(
       computeRealtimeUsageCostMicroCents({

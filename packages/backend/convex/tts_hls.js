@@ -10,30 +10,31 @@ import {
   hasOwnerMigrationWriteFence,
 } from "./auth";
 import { acquireTtsProviderDispatchGuard } from "./lib/tts_dispatch_guard";
+import {
+  buildGeminiTtsRequest,
+  createGeminiTtsStreamPipeline,
+  estimateGeminiTtsUsage,
+  resolveGeminiTtsUsage,
+} from "./lib/gemini_tts";
 
 // ---------------------------------------------------------------------------
 // Mobile HLS progressive read-aloud transport.
 //
 // Native players (AVPlayer/ExoPlayer) cannot progressively consume a chunked,
 // length-less `audio/mpeg` stream — they need either a seekable resource or an
-// HLS playlist. The buffered GET path solved the "seekable" case but only by
-// synthesizing the WHOLE clip before serving any bytes, so audio never began
-// until Inworld had finished generating.
+// HLS playlist.
 //
 // This module makes mobile genuinely progressive: `prepare` schedules ONE
-// background synthesis (`synthesizeHls`) that streams Inworld once, cuts the
-// CBR MP3 into short HLS "packed audio" segments as bytes arrive, and appends
+// background synthesis (`synthesizeHls`) that streams Gemini once, encodes its
+// PCM to CBR MP3, cuts that into short HLS "packed audio" segments, and appends
 // them to `tts_hls_segments`. The client plays a live `#EXT-X-PLAYLIST-TYPE:
 // EVENT` playlist that grows as segments land, so the first segment is audible
-// within a second — while Inworld is still generating the rest. The org key
+// within a second — while Gemini is still generating the rest. The org key
 // never leaves this action; provider spend is metered once to the internal
 // ledger; a cooperative cancel beacon ends spend early on stop.
 // ---------------------------------------------------------------------------
 
-const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
-
-// HLS sessions live longer than the 2-minute buffered ticket because a long
-// clip is played back in real time (a ~3-minute clip must still resolve its
+// HLS sessions outlive synthesis because a long clip is played back in real time (a ~3-minute clip must still resolve its
 // tail segments near the end of playback). Bounded and swept by the cron.
 const HLS_TTL_MS = 15 * 60 * 1000;
 // The upstream fetch is capped below this lease. A scheduled recovery may
@@ -82,28 +83,6 @@ const concatBytes = (chunks) => {
     offset += c.length;
   }
   return out;
-};
-
-// Pull the decoded MP3 bytes out of one Inworld NDJSON line.
-const extractInworldAudioChunk = (line) => {
-  let obj;
-  try {
-    obj = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  const b64 =
-    obj && obj.result && typeof obj.result.audioContent === "string"
-      ? obj.result.audioContent
-      : obj && typeof obj.audioContent === "string"
-        ? obj.audioContent
-        : null;
-  if (!b64) return null;
-  try {
-    return decodeBase64ToBytes(b64);
-  } catch {
-    return null;
-  }
 };
 
 // ---------------------------------------------------------------------------
@@ -266,7 +245,7 @@ export const discardOwnerTtsSessionsForMigrationInternal = internalMutation({
 });
 
 // Create the HLS ticket row and schedule the single background synthesis. Used
-// by the mobile `prepare` route in place of the buffered `storeTicket`.
+// by the mobile `prepare` route.
 export const startHlsSession = internalMutation({
   args: {
     ticket: v.string(),
@@ -276,7 +255,6 @@ export const startHlsSession = internalMutation({
     text: v.string(),
     voice: v.string(),
     model: v.string(),
-    speed: v.optional(v.number()),
     conversationId: v.optional(v.id("conversations")),
   },
   returns: v.null(),
@@ -297,16 +275,12 @@ export const startHlsSession = internalMutation({
       text: args.text.slice(0, MAX_TEXT_CHARS),
       voice: args.voice,
       model: args.model,
-      ...(typeof args.speed === "number" && Number.isFinite(args.speed)
-        ? { speed: args.speed }
-        : {}),
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       createdAt: now,
       expiresAt: now + HLS_TTL_MS,
       hlsStatus: "pending",
       hlsSegments: [],
       hlsDone: false,
-      bufferStatus: "pending",
     });
     await ctx.scheduler.runAfter(0, internal.tts_hls.synthesizeHls, {
       ticket: args.ticket,
@@ -334,7 +308,6 @@ export const claimHlsSynthesis = internalMutation({
       text: v.string(),
       voice: v.string(),
       model: v.string(),
-      speed: v.union(v.number(), v.null()),
       conversationId: v.union(v.id("conversations"), v.null()),
       providerDispatchId: v.union(v.string(), v.null()),
       expiresAt: v.number(),
@@ -362,7 +335,6 @@ export const claimHlsSynthesis = internalMutation({
       row.expiresAt <= args.nowMs ||
       row.hlsCanceledAt ||
       row.hlsDone ||
-      row.synthesisTransport === "buffered" ||
       !recoverableClaim
     ) {
       return null;
@@ -374,7 +346,6 @@ export const claimHlsSynthesis = internalMutation({
         row.expiresAt,
         args.nowMs + HLS_ACTION_LEASE_MS,
       ),
-      synthesisTransport: "hls",
     });
     await ctx.scheduler.runAfter(
       HLS_ACTION_LEASE_MS,
@@ -389,7 +360,6 @@ export const claimHlsSynthesis = internalMutation({
       text: row.text,
       voice: row.voice,
       model: row.model,
-      speed: typeof row.speed === "number" ? row.speed : null,
       conversationId: row.conversationId ?? null,
       providerDispatchId: row.providerDispatchId ?? null,
       expiresAt: row.expiresAt,
@@ -690,7 +660,7 @@ export const synthesizeHls = internalAction({
     });
     if (!job) return null;
 
-    const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
+    const apiKey = process.env.GOOGLE_AI_API_KEY ?? null;
     const requestChars = job.text.length;
     const startedAt = Date.now();
 
@@ -700,12 +670,13 @@ export const synthesizeHls = internalAction({
       dispatchId: job.providerDispatchId ?? `hls:${args.ticket}`,
       kind: "hls",
       usage: {
-        provider: "inworld",
+        provider: "gemini",
         model: job.model,
         voice: job.voice,
         ...(job.conversationId ? { conversationId: job.conversationId } : {}),
         streaming: true,
         requestChars,
+        ...estimateGeminiTtsUsage(requestChars),
       },
     });
     if (!dispatch) {
@@ -725,6 +696,7 @@ export const synthesizeHls = internalAction({
     let providerAudioBytes = 0;
     let providerDisposed = false;
     let hlsFinished = false;
+    const pipeline = createGeminiTtsStreamPipeline();
 
     const usageSettlement = (ambiguous) => {
       const completed =
@@ -742,6 +714,13 @@ export const synthesizeHls = internalAction({
         // estimate unless authoritative billed units say otherwise.
         synthesizedChars: ambiguous || providerReachedEof ? requestChars : 0,
         audioBytes: providerAudioBytes,
+        ...(ambiguous
+          ? {}
+          : resolveGeminiTtsUsage({
+              reported: pipeline.usage,
+              requestChars,
+              pcmBytes: pipeline.pcmBytes,
+            })),
         durationMs: Date.now() - startedAt,
       };
     };
@@ -781,7 +760,7 @@ export const synthesizeHls = internalAction({
     };
 
     try {
-      if (!inworldApiKey) {
+      if (!apiKey) {
         await disposeProvider();
         await finishHls("error");
         return null;
@@ -794,23 +773,15 @@ export const synthesizeHls = internalAction({
         await dispatch.markMayHaveDispatched();
         providerMarked = true;
         upstream = await dispatch.race(
-          fetch(INWORLD_TTS_STREAM_URL, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${inworldApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
+          fetch(
+            ...buildGeminiTtsRequest({
+              apiKey,
               text: job.text,
-              voiceId: job.voice,
-              modelId: job.model,
-              audioConfig: {
-                audioEncoding: "MP3",
-                ...(job.speed !== null ? { speakingRate: job.speed } : {}),
-              },
+              voice: job.voice,
+              stream: true,
+              signal: dispatch.signal,
             }),
-            signal: dispatch.signal,
-          }),
+          ),
         );
         if (dispatch.signal.aborted) {
           throw (
@@ -821,7 +792,7 @@ export const synthesizeHls = internalAction({
         providerResponseOk = upstream.ok;
       } catch (error) {
         console.error(
-          "[voice/tts/hls] Failed to contact Inworld:",
+          "[voice/tts/hls] Failed to contact Gemini:",
           error && error.message ? error.message : String(error),
         );
         await disposeProvider();
@@ -845,11 +816,11 @@ export const synthesizeHls = internalAction({
           providerReachedEof = true;
         } catch (error) {
           console.error(
-            "[voice/tts/hls] Failed while consuming Inworld error response:",
+            "[voice/tts/hls] Failed while consuming Gemini error response:",
             error && error.message ? error.message : String(error),
           );
         }
-        console.error("[voice/tts/hls] Inworld TTS failed:", upstream.status);
+        console.error("[voice/tts/hls] Gemini TTS failed:", upstream.status);
         await disposeProvider();
         await finishHls("error");
         return null;
@@ -892,8 +863,6 @@ export const synthesizeHls = internalAction({
 
       // ---- Streaming segmenter ------------------------------------------------
       const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      let textBuffer = "";
       let mp3 = new Uint8Array(0); // unparsed MP3 bytes
       let aligned = false;
       let segFrames = [];
@@ -976,9 +945,8 @@ export const synthesizeHls = internalAction({
         await drainFrames();
       };
 
-      const takeLine = async (line) => {
-        const chunk = extractInworldAudioChunk(line);
-        if (chunk && chunk.length > 0) {
+      const takeAudio = async (chunk) => {
+        if (chunk.length > 0) {
           providerAudioBytes += chunk.length;
           await ingest(chunk);
         }
@@ -1001,13 +969,7 @@ export const synthesizeHls = internalAction({
             providerReachedEof = true;
             break;
           }
-          if (value) textBuffer += decoder.decode(value, { stream: true });
-          let nl;
-          while ((nl = textBuffer.indexOf("\n")) >= 0) {
-            const line = textBuffer.slice(0, nl).trim();
-            textBuffer = textBuffer.slice(nl + 1);
-            if (line) await takeLine(line);
-          }
+          if (value) await takeAudio(pipeline.push(value));
           // Poll the cooperative stop beacon between network chunks.
           const flag = await ctx.runQuery(internal.tts_hls.readHlsCancelFlag, {
             ticket: args.ticket,
@@ -1036,9 +998,10 @@ export const synthesizeHls = internalAction({
           }
         }
         if (providerReachedEof) {
-          textBuffer += decoder.decode();
-          const rest = textBuffer.trim();
-          if (rest) await takeLine(rest);
+          await takeAudio(pipeline.finish());
+          if (pipeline.error) {
+            console.error("[voice/tts/hls] Gemini stream error:", pipeline.error);
+          }
         }
       } catch (error) {
         errored = true;

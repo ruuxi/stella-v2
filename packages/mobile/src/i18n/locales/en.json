@@ -414,7 +414,8 @@
       "source": {
         "openai": "OpenAI voices",
         "xai": "Grok voices",
-        "inworld": "Inworld voices"
+        "inworld": "Inworld voices",
+        "gemini": "Gemini voices"
       },
       "previousVoice": "Previous voice",
       "nextVoice": "Next voice",
@@ -425,7 +426,7 @@
         "label": "Read aloud",
         "ariaLabel": "Read aloud voice provider",
         "openaiTitle": "Read replies aloud with OpenAI TTS",
-        "inworldTitle": "Read replies aloud with Inworld TTS",
+        "geminiTitle": "Read replies aloud with Gemini TTS",
         "description": "Speaks replies out loud using this provider's voice."
       }
     },

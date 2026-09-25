@@ -5,6 +5,8 @@ const state = {
   handshakes: 0,
   settlements: [] as Record<string, unknown>[],
   preparedSessionIds: [] as string[],
+  prepareFinishedAt: 0,
+  handshakeAt: 0,
   providerSessionIds: [] as string[],
 };
 const originalFetch = globalThis.fetch;
@@ -24,6 +26,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         sessionId?: string;
       };
       if (body.sessionId) state.preparedSessionIds.push(body.sessionId);
+      if (body.ownerId === "owner-slow-prepare")
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      state.prepareFinishedAt = Date.now();
       if (body.ownerId === "owner-exhausted")
         return Response.json(
           { error: "Your Stella usage allowance is exhausted." },
@@ -76,6 +81,7 @@ const providerResponse = () => {
         provider.close(1000, "done");
       } else {
         state.handshakes += 1;
+        state.handshakeAt = Date.now();
       }
     }
   });

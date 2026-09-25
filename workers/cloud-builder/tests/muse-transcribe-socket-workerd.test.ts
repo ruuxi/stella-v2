@@ -219,7 +219,20 @@ describe("Muse PCM relay in real Workerd", () => {
     expect(result.code).toBe(1008);
   });
 
-  test("opens the provider during prepare but sends nothing until it commits", async () => {
+  test("sends the provider handshake while prepare is still running", async () => {
+    const result = await exchange(
+      dev.origin,
+      "/relay?case=slow-prepare",
+      [new Uint8Array([9, 0]), JSON.stringify({ type: "endStream" })],
+      ["stella.v1"],
+    );
+    expect(result.code).toBe(1000);
+    const state = (await (await fetch(`${dev.origin}/state`)).json()) as any;
+    expect(state.handshakeAt).toBeGreaterThan(0);
+    expect(state.handshakeAt).toBeLessThan(state.prepareFinishedAt);
+  });
+
+  test("opens the provider during prepare but sends it no audio unless it commits", async () => {
     const before = (await (await fetch(`${dev.origin}/state`)).json()) as any;
     const result = await exchange(
       dev.origin,
@@ -239,10 +252,9 @@ describe("Muse PCM relay in real Workerd", () => {
     // Prepare reserved the same id the provider upgrade carried.
     expect(state.preparedSessionIds.at(-1)).toBe(sessionId);
     expect(sessionId).toMatch(/^muse_[0-9a-f-]{36}$/u);
-    // A refused reservation never reaches the provider: no key, no audio.
+    // A refused reservation sends the provider no audio.
     await new Promise((resolve) => setTimeout(resolve, 200));
     state = await (await fetch(`${dev.origin}/state`)).json();
-    expect(state.handshakes).toBe(before.handshakes);
     expect(state.providerFrames).toEqual(before.providerFrames);
   });
 

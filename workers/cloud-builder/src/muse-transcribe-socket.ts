@@ -131,6 +131,8 @@ const startupTiming = (args: MuseRelayArgs, startedAt: number): StartupTiming =>
   };
 };
 
+type EarlyUpstreamFrame = { data: ArrayBuffer | string; at: number };
+
 type ProviderStart =
   | {
       ok: true;
@@ -141,41 +143,74 @@ type ProviderStart =
         durationMs: number,
         success: boolean,
       ) => Promise<void>;
+      handshakeSentAt: number;
+      /** Provider frames (the handshake ack) that arrived during prepare. */
+      early: EarlyUpstreamFrame[];
+      /** Stop buffering provider frames; the bridge takes over. */
+      detach: () => void;
     }
   | { ok: false; usageMessage?: string; status: number; message: string };
 
 /**
- * Reserve a Stella session and open the provider socket. The provider upgrade
- * carries no credentials (the key rides in the first message), so it runs
- * while Convex reserves the session instead of after. Nothing is sent
- * upstream here; the caller sends the handshake once this resolves.
+ * Reserve a Stella session and start the provider session in parallel. The
+ * upgrade and the handshake go out while Convex reserves the session, so the
+ * provider's session setup overlaps the reservation instead of following it.
+ * No audio is forwarded until the reservation has committed (the bridge only
+ * starts after this resolves), and a refused reservation closes the provider
+ * session having sent it nothing but the handshake.
  */
 const startProvider = async (
   args: MuseRelayArgs,
+  apiKey: string,
   timing: StartupTiming,
 ): Promise<ProviderStart> => {
   const sessionId = `muse_${crypto.randomUUID()}`;
   const upstreamUrl = new URL(MUSE_SOCKET_URL);
   upstreamUrl.searchParams.set("sessionId", sessionId);
+  let prepareFailed = false;
+  let upstreamClosed = false;
+  let handshakeSentAt = 0;
+  const early: EarlyUpstreamFrame[] = [];
+  const onEarlyMessage = (event: MessageEvent) => {
+    early.push({ data: event.data as ArrayBuffer | string, at: Date.now() });
+  };
+  const onEarlyClose = () => {
+    upstreamClosed = true;
+  };
   // Aborting a fetch after its 101 response also disconnects the upgraded
   // socket. Bound only the upgrade; the session has its own deadline below.
-  const upstreamPending = runToolEffect(
+  const upstreamReady = runToolEffect(
     Effect.tryPromise((signal) =>
       fetch(upstreamUrl, {
         headers: { Upgrade: "websocket" },
         signal,
       }),
     ).pipe(Effect.timeout(10_000)),
-  ).catch(() => null);
+  )
+    .catch(() => null)
+    .then((response) => {
+      const socket =
+        response?.status === 101 ? (response.webSocket ?? null) : null;
+      if (!socket) return { response, socket: null };
+      socket.accept();
+      if (prepareFailed) {
+        closeSocket(socket, 1000, "Dictation not started");
+        return { response, socket: null };
+      }
+      socket.addEventListener("message", onEarlyMessage);
+      socket.addEventListener("close", onEarlyClose);
+      socket.addEventListener("error", onEarlyClose);
+      socket.send(JSON.stringify(createMuseHandshake(apiKey)));
+      handshakeSentAt = Date.now();
+      return { response, socket };
+    });
   const discardUpstream = () => {
+    prepareFailed = true;
     args.waitUntil(
-      upstreamPending.then(async (response) => {
-        if (response?.webSocket) {
-          response.webSocket.accept();
-          closeSocket(response.webSocket, 1000, "Dictation not started");
-        } else {
+      upstreamReady.then(async ({ response, socket }) => {
+        if (socket) closeSocket(socket, 1000, "Dictation not started");
+        else if (!response?.webSocket)
           await response?.body?.cancel().catch(() => undefined);
-        }
       }),
     );
   };
@@ -239,14 +274,11 @@ const startProvider = async (
       }
     }
   };
-  const upstreamResponse = await upstreamPending;
+  const { response: upstreamResponse, socket: upstream } = await upstreamReady;
   timing.lap("upstreamUpgradeMs");
-  if (
-    !upstreamResponse ||
-    upstreamResponse.status !== 101 ||
-    !upstreamResponse.webSocket
-  ) {
-    await upstreamResponse?.body?.cancel().catch(() => undefined);
+  if (!upstream || upstreamClosed) {
+    if (upstream) closeSocket(upstream, 1011, "Muse transcription failed");
+    else await upstreamResponse?.body?.cancel().catch(() => undefined);
     args.waitUntil(reportUsage(0, 0, false));
     return {
       ok: false,
@@ -254,9 +286,19 @@ const startProvider = async (
       message: "Muse transcription is unavailable.",
     };
   }
-  const upstream = upstreamResponse.webSocket;
-  upstream.accept();
-  return { ok: true, prepared, upstream, reportUsage };
+  return {
+    ok: true,
+    prepared,
+    upstream,
+    reportUsage,
+    handshakeSentAt,
+    early,
+    detach: () => {
+      upstream.removeEventListener("message", onEarlyMessage);
+      upstream.removeEventListener("close", onEarlyClose);
+      upstream.removeEventListener("error", onEarlyClose);
+    },
+  };
 };
 
 /**
@@ -266,7 +308,6 @@ const startProvider = async (
  */
 const bridge = (
   args: MuseRelayArgs,
-  apiKey: string,
   gateway: WebSocket,
   start: Extract<ProviderStart, { ok: true }>,
   timing: StartupTiming,
@@ -339,18 +380,18 @@ const bridge = (
   gateway.addEventListener("message", (event) =>
     onClientFrame(event.data as ArrayBuffer | string),
   );
-  let handshakeSentAt = 0;
-  upstream.addEventListener("message", (event) => {
-    if (handshakeSentAt) {
-      timing.fields.handshakeAckMs = Date.now() - handshakeSentAt;
-      timing.fields.totalToAckMs = Date.now() - timing.startedAt;
-      handshakeSentAt = 0;
+  let awaitingAck = true;
+  const onUpstreamFrame = (data: ArrayBuffer | string, at = Date.now()) => {
+    if (awaitingAck) {
+      awaitingAck = false;
+      timing.fields.handshakeAckMs = at - start.handshakeSentAt;
+      timing.fields.totalToAckMs = at - timing.startedAt;
       log("info", "dictation_socket_timing", timing.fields);
     }
     if (settled || closing) return;
-    if (typeof event.data === "string") {
+    if (typeof data === "string") {
       try {
-        const frame = JSON.parse(event.data) as {
+        const frame = JSON.parse(data) as {
           type?: unknown;
           final?: unknown;
         };
@@ -362,8 +403,12 @@ const bridge = (
         // Forward provider frames unchanged; clients ignore unknown payloads.
       }
     }
-    gateway.send(event.data);
-  });
+    gateway.send(data);
+  };
+  start.detach();
+  upstream.addEventListener("message", (event) =>
+    onUpstreamFrame(event.data as ArrayBuffer | string),
+  );
   upstream.addEventListener("close", (event) => {
     settle(
       !closing &&
@@ -381,8 +426,9 @@ const bridge = (
     closeSocket(upstream, event.code, event.reason);
   });
 
-  upstream.send(JSON.stringify(createMuseHandshake(apiKey)));
-  handshakeSentAt = Date.now();
+  // The handshake went out during prepare; replay what the provider sent
+  // meanwhile, then audio the client sent before the provider was ready.
+  for (const frame of start.early.splice(0)) onUpstreamFrame(frame.data, frame.at);
   for (const frame of pending) onClientFrame(frame);
 };
 
@@ -439,7 +485,7 @@ const handleDeferredStart = (
   const run = async () => {
     const timing = startupTiming(args, Date.now());
     timing.fields.deferred = 1;
-    const start = await startProvider(args, timing);
+    const start = await startProvider(args, apiKey, timing);
     if (!start.ok) {
       if (phase === "closed") return;
       phase = "closed";
@@ -466,7 +512,7 @@ const handleDeferredStart = (
     }
     phase = "live";
     gateway.removeEventListener("message", onPreStartFrame);
-    bridge(args, apiKey, gateway, start, timing, pending.splice(0));
+    bridge(args, gateway, start, timing, pending.splice(0));
   };
 
   const onPreStartFrame = (event: MessageEvent) => {
@@ -511,7 +557,7 @@ export const handleMuseTranscribeSocket = async (
   }
 
   const timing = startupTiming(args, args.timing?.receivedAt ?? Date.now());
-  const start = await startProvider(args, timing);
+  const start = await startProvider(args, apiKey, timing);
   if (!start.ok) {
     if (start.usageMessage) {
       const { gateway, response } = acceptClientSocket();
@@ -522,6 +568,6 @@ export const handleMuseTranscribeSocket = async (
     return new Response(start.message, { status: start.status });
   }
   const { gateway, response } = acceptClientSocket();
-  bridge(args, apiKey, gateway, start, timing);
+  bridge(args, gateway, start, timing);
   return response;
 };

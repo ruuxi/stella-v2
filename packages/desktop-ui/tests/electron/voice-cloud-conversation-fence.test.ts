@@ -91,7 +91,7 @@ describe("voice IPC cloud conversation fence", () => {
     expect(runner.persistVoiceTranscript).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
       "[voice] Rejected stale transcript:",
-      expect.stringContaining("active cloud conversation changed"),
+      expect.stringContaining("The active conversation changed"),
     );
   });
 
@@ -128,7 +128,7 @@ describe("voice IPC cloud conversation fence", () => {
         conversationId: "cloud-old",
         message: "hello",
       }),
-    ).rejects.toThrow("active cloud conversation changed");
+    ).rejects.toThrow("The active conversation changed");
     await expect(
       electron.handles.get(IPC_VOICE_EXECUTE_MOBILE_TOOL)?.({}, {
         conversationId: "cloud-old",
@@ -137,7 +137,7 @@ describe("voice IPC cloud conversation fence", () => {
         name: "search",
         args: {},
       }),
-    ).rejects.toThrow("active cloud conversation changed");
+    ).rejects.toThrow("The active conversation changed");
 
     expect(runner.handleVoiceChat).not.toHaveBeenCalled();
     expect(runner.executeVoiceTool).not.toHaveBeenCalled();

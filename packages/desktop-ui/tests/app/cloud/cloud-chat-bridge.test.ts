@@ -163,8 +163,17 @@ describe("cloud chat bridge authority", () => {
     expect(source).toContain("expectedLastSeq: head.headSeq");
     expect(source).toContain('activeTurnPolicy: "conflict"');
     expect(source).toContain("refreshAfterCanonicalMutation()");
-    expect(source).not.toContain("forkLocalConversation");
-    expect(source).not.toContain("truncateLocalConversation");
+    // Local chats fork and rewind in their own store; a cloud chat never
+    // reaches those calls. Each local branch returns before the cloud path.
+    const localBranch =
+      /if \(state\.storageMode === "local"\) \{[\s\S]*?\n {6}return;\n {4}\}/g;
+    const branches = source.match(localBranch) ?? [];
+    expect(branches).toHaveLength(2);
+    expect(branches.join("\n")).toContain("truncateLocalConversation(");
+    expect(branches.join("\n")).toContain("forkLocalConversation(");
+    const cloudOnly = source.replace(localBranch, "");
+    expect(cloudOnly).not.toContain("forkLocalConversation(");
+    expect(cloudOnly).not.toContain("truncateLocalConversation(");
   });
 
   test("pages complete cloud Activity history through the visible Home search", () => {
@@ -185,11 +194,12 @@ describe("cloud chat bridge authority", () => {
     expect(bridge).toContain(
       "isLoadingOlderActivity: cloudActivity.isLoadingOlder",
     );
-    expect(shell).toContain(
-      "const hasOlderActivity = cloudChat.hasOlderActivity",
+    // Local chats page their own feed; cloud chats page the cloud bridge.
+    expect(shell).toMatch(
+      /const hasOlderActivity = storageMode === "local"\s*\? localActivityFeed\.hasOlderActivity\s*: cloudChat\.hasOlderActivity;/,
     );
-    expect(shell).toContain(
-      "const loadOlderActivity = cloudChat.loadOlderActivity",
+    expect(shell).toMatch(
+      /const loadOlderActivity = storageMode === "local"\s*\?[^:]+: cloudChat\.loadOlderActivity;/,
     );
     expect(work).toContain(
       "!query || !activity.hasOlder || activity.isLoadingOlder",
@@ -560,7 +570,10 @@ describe("cloud chat bridge authority", () => {
       "activeAccountScopeRef.current !== operation.accountScope",
     );
     expect(root).toContain("activeRouteIntentRef.current !== routeIntent");
-    expect(root).toContain("requestedConversationId: clientCreateId,");
+    // The client create id is the conversation id.
+    expect(root).toMatch(
+      /createCloudConversationDraft\(\s*accountScope,\s*clientCreateId,?\s*\)/,
+    );
     expect(root).toContain("cloudApi.getMyCloudConversationIdentity");
     expect(root).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
     expect(root).toContain(
@@ -568,7 +581,10 @@ describe("cloud chat bridge authority", () => {
     );
     expect(root).toContain("retireCloudExecutionClientAuthority(accountScope)");
     expect(root).toContain("ownershipMigrationRetryRef.current !== operation");
-    expect(topbar).toContain("activeAccountScopeRef.current !== accountScope");
+    expect(topbar).toContain("const operationAccountScope = accountScope;");
+    expect(topbar).toContain(
+      "activeAccountScopeRef.current !== operationAccountScope",
+    );
     expect(topbar).toContain("cloudApi.getMyCloudConversationIdentity");
     expect(topbar).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
   });

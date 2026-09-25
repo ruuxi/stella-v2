@@ -88,7 +88,7 @@ describe("RootLayout ownership migration query gate", () => {
     // screen, because it needs the retry action.
     expect(ROOT_SOURCE).not.toContain("CloudStartupPending");
     const failedGuard = sourceBetween(
-      "if (ownershipMigrationGate.isFailed)",
+      "if (!isPrivate && ownershipMigrationGate.isFailed)",
       "<RootChrome conversationId={conversationId} />",
     );
     expect(failedGuard).toContain("onRetry={retryOwnershipMigration}");

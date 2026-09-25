@@ -4,10 +4,10 @@
  *
  * The reply that relays a task's result quotes the task the iMessage way:
  * one muted bubble above the reply with the status glyph, the task title,
- * a More action, and the task's produced files as pills INSIDE the bubble.
+ * a Replies action, and the task's produced files as pills INSIDE the bubble.
  * There is no separate completion row under the reply, no card chrome, no
  * result excerpt in the stream. These tests pin that shape:
- *   - the bubble carries glyph, title, More, and the pills;
+ *   - the bubble carries glyph, title, Replies, and the pills;
  *   - pills cap at PILL_CAP with a "+N more" overflow and open the file;
  *   - a bare citation of the same thread is not drawn twice;
  *   - the excerpt never renders;
@@ -15,6 +15,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
+import type React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
 
@@ -32,9 +33,13 @@ vi.mock("@/features/chat/hooks/use-thread-activity-records", () => ({
 vi.mock("@/features/cloud/use-cloud-agent-report", () => ({
   useCloudAgentReport: () => null,
 }));
+// The report popover is out of scope; keep its trigger, which wraps the
+// glyph and title the bubble passes in.
 vi.mock("@/app/chat/TaskReportButton", () => ({
-  TaskReportButton: () => (
-    <button type="button" className="reply-preview__report-toggle">More</button>
+  TaskReportButton: ({ children }: { children?: React.ReactNode }) => (
+    <button type="button" className="reply-preview__agent-head">
+      {children}
+    </button>
   ),
 }));
 
@@ -102,7 +107,9 @@ describe("relayed completion preview", () => {
       "write evening memo",
     );
     expect(bubble.querySelector(".reply-preview__agent-icon")).not.toBeNull();
-    expect(bubble.querySelector(".reply-preview__report-toggle")?.textContent).toBe("More");
+    expect(bubble.querySelector(".reply-preview__report-toggle")?.textContent).toBe(
+      "Replies",
+    );
     const pills = bubble.querySelectorAll(".agent-activity-files__pill");
     expect(pills).toHaveLength(1);
     expect(pills[0]?.textContent).toContain("evening-memo.md");

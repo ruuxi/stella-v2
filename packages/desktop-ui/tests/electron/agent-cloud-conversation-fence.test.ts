@@ -86,7 +86,7 @@ describe("agent IPC cloud conversation fence", () => {
         threadId: "thread-1",
         message: "continue",
       }),
-    ).rejects.toThrow("active cloud conversation changed");
+    ).rejects.toThrow("The active conversation changed");
     expect(runner.sendAgentInput).not.toHaveBeenCalled();
   });
 
@@ -113,7 +113,7 @@ describe("agent IPC cloud conversation fence", () => {
 
     await expect(
       handler?.(event, { conversationId: "cloud-old", lastSeq: 0 }),
-    ).rejects.toThrow("active cloud conversation changed");
+    ).rejects.toThrow("The active conversation changed");
     expect(runner.listActiveRuns).not.toHaveBeenCalled();
   });
 

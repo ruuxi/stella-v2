@@ -6,6 +6,34 @@ const MAX_PCM_FRAME_BYTES = 16_000 * 2;
 
 type RealtimeConfig = { relayOrigin: string; modelId: string };
 
+/** The relay origin only changes with a deploy; re-check it now and then. */
+const CONFIG_TTL_MS = 10 * 60_000;
+let cachedConfig: { value: Promise<RealtimeConfig>; at: number } | null = null;
+
+/**
+ * The realtime config is a round trip on the path to the socket. Reuse it
+ * across presses so a press only waits on the (cached) token and the socket.
+ */
+export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
+  if (cachedConfig && Date.now() - cachedConfig.at < CONFIG_TTL_MS) {
+    return cachedConfig.value;
+  }
+  const entry = {
+    value: postJson("/api/dictation/realtime-config", {}) as Promise<RealtimeConfig>,
+    at: Date.now(),
+  };
+  cachedConfig = entry;
+  entry.value.catch(() => {
+    if (cachedConfig === entry) cachedConfig = null;
+  });
+  return entry.value;
+};
+
+/** Drop the cached config (tests, and after a relay origin change). */
+export const clearDictationRealtimeConfigCache = (): void => {
+  cachedConfig = null;
+};
+
 /**
  * Provider error frames are forwarded verbatim by the relay. Reword the ones
  * a person cannot act on; the pacer in `dictation-pacer.ts` exists to keep the
@@ -76,11 +104,11 @@ export class DictationStream {
 
   async open(): Promise<void> {
     const [config, token] = await Promise.all([
-      postJson("/api/dictation/realtime-config", {}),
+      loadDictationRealtimeConfig(),
       getConvexToken(),
     ]);
     if (this.cancelled) throw new Error("Dictation cancelled.");
-    const relayOrigin = (config as RealtimeConfig).relayOrigin;
+    const relayOrigin = config.relayOrigin;
     const url = new URL("/dictation/socket", relayOrigin);
     if (url.protocol === "https:") url.protocol = "wss:";
     else if (url.protocol === "http:") url.protocol = "ws:";

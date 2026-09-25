@@ -14,7 +14,8 @@ test("dictation opening closes rejected and cancelled sockets without starting a
     import { mock } from "bun:test";
     import assert from "node:assert/strict";
     let config = async () => ({ relayOrigin: "https://relay.example" });
-    mock.module(${JSON.stringify(resolve(lib, "http.ts"))}, () => ({ postJson: () => config() }));
+    let configCalls = 0;
+    mock.module(${JSON.stringify(resolve(lib, "http.ts"))}, () => ({ postJson: () => { configCalls++; return config(); } }));
     mock.module(${JSON.stringify(resolve(lib, "auth-token.ts"))}, () => ({ getConvexToken: async () => "fixture-token" }));
     class Socket {
       static OPEN = 1;
@@ -29,7 +30,7 @@ test("dictation opening closes rejected and cancelled sockets without starting a
       receive(frame) { this.onmessage?.({ data: JSON.stringify(frame) }); }
     }
     globalThis.WebSocket = Socket;
-    const { DictationStream } = await import(${JSON.stringify(resolve(lib, "dictation-stream.ts"))});
+    const { DictationStream, clearDictationRealtimeConfigCache } = await import(${JSON.stringify(resolve(lib, "dictation-stream.ts"))});
     const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 
     const failed = new DictationStream();
@@ -209,7 +210,10 @@ test("dictation opening closes rejected and cancelled sockets without starting a
     batching.cancel();
 
     let releaseConfig;
+    // Every earlier open reused one config fetch.
+    assert.equal(configCalls, 1);
     config = () => new Promise(resolve => { releaseConfig = resolve; });
+    clearDictationRealtimeConfigCache();
     const beforeConfig = new DictationStream();
     const pendingConfig = beforeConfig.open();
     const beforeCount = Socket.instances.length;

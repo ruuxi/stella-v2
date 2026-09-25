@@ -14,6 +14,7 @@ import {
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import { THREAD_KEY_TAIL_LENGTH } from "@stella/runtime/kernel/storage/thread-log";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
@@ -119,6 +120,10 @@ describe("slugify", () => {
   });
 });
 
+/** A minted key: the hint's slug plus a random base-36 tail. */
+const mintedKey = (base: string) =>
+  new RegExp(`^${base}-[0-9a-z]{${THREAD_KEY_TAIL_LENGTH}}$`);
+
 describe("slug-based thread naming", () => {
   it("mints the thread key from the nameHint slug and stores the hint as name", () => {
     const { store } = createTestContext();
@@ -128,7 +133,7 @@ describe("slug-based thread naming", () => {
       conversationId,
       "Compare flight prices Tokyo",
     );
-    expect(result.threadId).toBe("compare-flight-prices-tokyo");
+    expect(result.threadId).toMatch(mintedKey("compare-flight-prices-tokyo"));
     expect(result.reused).toBe(false);
     const record = store
       .listActiveThreads(conversationId)
@@ -144,31 +149,31 @@ describe("slug-based thread naming", () => {
       conversationId,
       "  Compare   flight\tprices  ",
     );
-    expect(result.threadId).toBe("compare-flight-prices");
+    expect(result.threadId).toMatch(mintedKey("compare-flight-prices"));
     const record = store
       .listActiveThreads(conversationId)
       .find((thread) => thread.threadId === result.threadId);
     expect(record?.name).toBe("Compare flight prices");
   });
 
-  it("suffixes colliding thread keys with -2, -3", () => {
+  it("gives identical descriptions distinct keys", () => {
     const { store } = createTestContext();
     const conversationId = "conv-collide";
-    const first = spawnThread(store, conversationId, "Compare flight prices");
-    const second = spawnThread(store, conversationId, "Compare flight prices");
-    const third = spawnThread(store, conversationId, "Compare flight prices");
-    expect(first.threadId).toBe("compare-flight-prices");
-    expect(second.threadId).toBe("compare-flight-prices-2");
-    expect(third.threadId).toBe("compare-flight-prices-3");
+    const ids = [1, 2, 3].map(
+      () => spawnThread(store, conversationId, "Compare flight prices").threadId,
+    );
+    for (const id of ids) expect(id).toMatch(mintedKey("compare-flight-prices"));
+    expect(new Set(ids).size).toBe(3);
   });
 
-  it("falls back to task-N ordinals when the hint slugs to nothing", () => {
+  it("falls back to task keys when the hint slugs to nothing", () => {
     const { store } = createTestContext();
     const conversationId = "conv-emoji";
     const first = spawnThread(store, conversationId, "🔥🚀✨");
     const second = spawnThread(store, conversationId, "💡");
-    expect(first.threadId).toBe("task-1");
-    expect(second.threadId).toBe("task-2");
+    expect(first.threadId).toMatch(mintedKey("task"));
+    expect(second.threadId).toMatch(mintedKey("task"));
+    expect(second.threadId).not.toBe(first.threadId);
     // The display name still keeps the raw (trimmed) hint.
     const record = store
       .listActiveThreads(conversationId)
@@ -182,7 +187,7 @@ describe("slug-based thread naming", () => {
     const { store } = createTestContext();
     const conversationId = "conv-grp-hint";
     const result = spawnThread(store, conversationId, "GRP rollout plan");
-    expect(result.threadId).toBe("grp-rollout-plan");
+    expect(result.threadId).toMatch(mintedKey("grp-rollout-plan"));
   });
 });
 
@@ -566,22 +571,20 @@ describe("buildActiveThreadsPrompt", () => {
 describe("review-fix regressions", () => {
   it("searchThreads excludes implicit ::subagent:: transcript rows", () => {
     const { store } = createTestContext();
-    spawnThread(store, "conv-x", "Real flight research");
+    const real = spawnThread(store, "conv-x", "Real flight research");
     // Simulate an ephemeral workflow agent's implicit transcript row.
     store.updateThreadSummary(
       "conv-x::subagent::general::wf-research-a1",
       "internal transcript",
     );
     const results = store.searchThreads({ conversationId: "conv-x" });
-    expect(results.map((thread) => thread.threadId)).toEqual([
-      "real-flight-research",
-    ]);
+    expect(results.map((thread) => thread.threadId)).toEqual([real.threadId]);
   });
 
 
   it("thread slugs never land in the legacy- feature-id namespace", () => {
     const { store } = createTestContext();
     const created = spawnThread(store, "conv-legacy", "Legacy data import");
-    expect(created.threadId).toBe("task-1");
+    expect(created.threadId).toMatch(mintedKey("task"));
   });
 });

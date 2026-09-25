@@ -150,6 +150,9 @@ jobs:
       - name: Typecheck runtime
         run: bun run runtime:typecheck
 
+      - name: Hydrate pinned OfficeCLI binary for integration tests
+        run: bun run stella-office:download
+
       - name: Test runtime
         run: bun run runtime:test
 

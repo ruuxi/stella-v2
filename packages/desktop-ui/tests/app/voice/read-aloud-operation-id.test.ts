@@ -27,9 +27,8 @@ vi.mock("@/features/voice/services/read-aloud/read-aloud-player", () => ({
 }));
 vi.mock("@/features/voice/services/read-aloud/read-aloud-voice-prefs", () => ({
   resolveReadAloudVoicePrefs: async () => ({
-    family: "inworld",
-    voice: "Brooke",
-    speed: 1,
+    family: "gemini",
+    voice: "Puck",
   }),
 }));
 
@@ -65,13 +64,13 @@ describe("read-aloud logical operation identity", () => {
     await openReadAloudStream({
       operationId,
       text: "Read this once",
-      voice: "Brooke",
+      voice: "Puck",
     });
     await fetchReadAloudAudio({
       operationId,
       text: "Read this once",
-      voiceProvider: "inworld",
-      voice: "Brooke",
+      voiceProvider: "gemini",
+      voice: "Puck",
     });
 
     const streamBody = JSON.parse(

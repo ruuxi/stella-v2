@@ -93,6 +93,49 @@ export const INWORLD_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   { id: "Theodore", label: "Theodore", description: "English male, older." },
 ];
 
+/**
+ * Gemini TTS prebuilt voices, used by Read aloud only. The backend owns
+ * the default and falls back to it for any id not in this list.
+ */
+export const GEMINI_TTS_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
+  { id: "Zephyr", label: "Zephyr", description: "Bright." },
+  { id: "Puck", label: "Puck", description: "Upbeat." },
+  { id: "Charon", label: "Charon", description: "Informative." },
+  { id: "Kore", label: "Kore", description: "Firm." },
+  { id: "Fenrir", label: "Fenrir", description: "Excitable." },
+  { id: "Leda", label: "Leda", description: "Youthful." },
+  { id: "Orus", label: "Orus", description: "Firm." },
+  { id: "Aoede", label: "Aoede", description: "Breezy." },
+  { id: "Callirrhoe", label: "Callirrhoe", description: "Easy-going." },
+  { id: "Autonoe", label: "Autonoe", description: "Bright." },
+  { id: "Enceladus", label: "Enceladus", description: "Breathy." },
+  { id: "Iapetus", label: "Iapetus", description: "Clear." },
+  { id: "Umbriel", label: "Umbriel", description: "Easy-going." },
+  { id: "Algieba", label: "Algieba", description: "Smooth." },
+  { id: "Despina", label: "Despina", description: "Smooth." },
+  { id: "Erinome", label: "Erinome", description: "Clear." },
+  { id: "Algenib", label: "Algenib", description: "Gravelly." },
+  { id: "Rasalgethi", label: "Rasalgethi", description: "Informative." },
+  { id: "Laomedeia", label: "Laomedeia", description: "Upbeat." },
+  { id: "Achernar", label: "Achernar", description: "Soft." },
+  { id: "Alnilam", label: "Alnilam", description: "Firm." },
+  { id: "Schedar", label: "Schedar", description: "Even." },
+  { id: "Gacrux", label: "Gacrux", description: "Mature." },
+  { id: "Pulcherrima", label: "Pulcherrima", description: "Forward." },
+  { id: "Achird", label: "Achird", description: "Friendly." },
+  { id: "Zubenelgenubi", label: "Zubenelgenubi", description: "Casual." },
+  { id: "Vindemiatrix", label: "Vindemiatrix", description: "Gentle." },
+  { id: "Sadachbia", label: "Sadachbia", description: "Lively." },
+  { id: "Sadaltager", label: "Sadaltager", description: "Knowledgeable." },
+  { id: "Sulafat", label: "Sulafat", description: "Warm." },
+];
+
+export const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.8-flash-lite-tts";
+export const DEFAULT_GEMINI_TTS_VOICE = "Kore";
+
+export const isGeminiTtsVoice = (voice: string): boolean =>
+  GEMINI_TTS_VOICES.some((entry) => entry.id === voice);
+
 /** Default Inworld LLM router model id. Must match `provider/modelName`. */
 export const DEFAULT_INWORLD_REALTIME_MODEL = "xai/grok-4.3-latest";
 /** Default Inworld TTS model id. `inworld-tts-2-flash` is their lower-latency variant. */

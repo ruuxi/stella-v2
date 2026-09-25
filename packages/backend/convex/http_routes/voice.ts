@@ -16,6 +16,16 @@ import { requireSignedInAccountAction } from "../http_shared/auth";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import { buildXaiRealtimeClientSecretRequest } from "../http_shared/xai_realtime";
 import { acquireTtsProviderDispatchGuard } from "../lib/tts_dispatch_guard";
+import {
+  buildGeminiTtsRequest,
+  createGeminiTtsStreamPipeline,
+  estimateGeminiTtsUsage,
+  GEMINI_TTS_MODEL,
+  parseGeminiTtsUnaryResponse,
+  resolveGeminiTtsUsage,
+  resolveGeminiTtsVoice,
+} from "../lib/gemini_tts";
+import { DEFAULT_INWORLD_REALTIME_TTS_MODEL } from "@stella/contracts/realtime-voice-catalog";
 import { waitForPlayableTtsPlaylist } from "../http_shared/tts_playlist";
 import { acquireVoiceProviderDispatchGuard } from "../lib/voice_dispatch_guard";
 
@@ -348,9 +358,6 @@ const estimateTtsAudioOutputTokens = (
 // Read-aloud streaming TTS
 // ---------------------------------------------------------------------------
 
-const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
-const DEFAULT_INWORLD_TTS_MODEL = "inworld-tts-2-flash";
-const DEFAULT_INWORLD_TTS_VOICE = "Brooke";
 const TTS_MAX_INPUT_CHARS = 8000;
 const TTS_RATE_LIMIT = 20;
 const TTS_OPERATION_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
@@ -359,7 +366,6 @@ type TtsSynthesisParams = {
   text: string;
   voice: string;
   model: string;
-  speed?: number;
 };
 
 type ParsedTtsRequest =
@@ -400,21 +406,11 @@ const ttsQuotaResponse = (origin: string | null, retryAt: number): Response => {
   return response;
 };
 
-const normalizeTtsSpeed = (value: unknown): number | undefined =>
-  typeof value === "number" &&
-  Number.isFinite(value) &&
-  value >= 0.25 &&
-  value <= 4
-    ? value
-    : undefined;
-
 const resolveTtsRequest = async (
   ctx: ActionCtx,
   raw: {
     text?: unknown;
     voice?: unknown;
-    model?: unknown;
-    speed?: unknown;
     conversationId?: unknown;
     operationId?: unknown;
   },
@@ -428,15 +424,9 @@ const resolveTtsRequest = async (
     text.length > TTS_MAX_INPUT_CHARS
       ? text.slice(0, TTS_MAX_INPUT_CHARS)
       : text;
-  const voice =
-    typeof raw.voice === "string" && raw.voice.trim().length > 0
-      ? raw.voice.trim()
-      : DEFAULT_INWORLD_TTS_VOICE;
-  const model =
-    typeof raw.model === "string" && raw.model.trim().length > 0
-      ? raw.model.trim()
-      : DEFAULT_INWORLD_TTS_MODEL;
-  const speed = normalizeTtsSpeed(raw.speed);
+  // Voice and model are backend-owned; unknown voice ids fall back to the
+  // default.
+  const voice = resolveGeminiTtsVoice(raw.voice);
   const rawOperationId =
     typeof raw.operationId === "string" ? raw.operationId.trim() : "";
   if (
@@ -462,7 +452,7 @@ const resolveTtsRequest = async (
 
   return {
     ok: true,
-    params: { text: truncated, voice, model, ...(speed ? { speed } : {}) },
+    params: { text: truncated, voice, model: GEMINI_TTS_MODEL },
     ...(conversationId ? { conversationId } : {}),
     ...(rawOperationId ? { operationId: rawOperationId } : {}),
   };
@@ -484,324 +474,6 @@ const decodeBase64ToBytes = (b64: string): Uint8Array => {
   }
   return bytes;
 };
-
-// Inworld's streaming TTS returns newline-delimited JSON: one object per line,
-// each carrying a base64 audio chunk under `result.audioContent` (the
-// non-streaming endpoint uses a bare `audioContent`). Return the decoded audio
-// bytes for a line, or null when the line has no audio.
-const extractInworldAudioChunk = (line: string): Uint8Array | null => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object") return null;
-  const obj = parsed as {
-    audioContent?: unknown;
-    result?: { audioContent?: unknown } | null;
-  };
-  const b64 =
-    obj.result &&
-    typeof obj.result === "object" &&
-    typeof obj.result.audioContent === "string"
-      ? obj.result.audioContent
-      : typeof obj.audioContent === "string"
-        ? obj.audioContent
-        : null;
-  if (!b64) return null;
-  try {
-    return decodeBase64ToBytes(b64);
-  } catch {
-    return null;
-  }
-};
-
-const buildInworldTtsStreamBody = (params: TtsSynthesisParams): string =>
-  JSON.stringify({
-    text: params.text,
-    voiceId: params.voice,
-    modelId: params.model,
-    audioConfig: {
-      audioEncoding: "MP3",
-      ...(params.speed !== undefined ? { speakingRate: params.speed } : {}),
-    },
-  });
-
-const bytesToBase64 = (bytes: Uint8Array): string => {
-  let binary = "";
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + step));
-  }
-  return btoa(binary);
-};
-
-// Cap the per-ticket audio cache so a doc stays well under Convex's 1 MiB
-// limit; longer clips simply re-synthesize on a range request (rare for
-// read-aloud).
-const MAX_TICKET_AUDIO_CACHE_BYTES = 700_000;
-
-type BufferedTtsResult =
-  | { ok: true; bytes: Uint8Array }
-  | { ok: false; status: number; message: string };
-
-/**
- * Synthesize a full Inworld MP3 into a single buffer.
- *
- * Used for the mobile GET transport: native players (AVPlayer/ExoPlayer)
- * fetch a seekable resource and issue several ranged requests, which a
- * chunked, length-less stream cannot satisfy — so the GET serves a complete,
- * range-capable body instead. Internally this still consumes Inworld's fast
- * streaming endpoint (so the buffer fills quickly); the org key never leaves
- * the action, and spend is metered once to the internal ledger.
- */
-const synthesizeInworldTtsBuffered = async (
-  ctx: ActionCtx,
-  params: TtsSynthesisParams,
-  meta: {
-    ownerId: string;
-    ownerGeneration: string;
-    dispatchId: string;
-    conversationId?: Id<"conversations">;
-  },
-): Promise<BufferedTtsResult> => {
-  const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
-  if (!inworldApiKey) {
-    return {
-      ok: false,
-      status: 503,
-      message: "Stella Inworld voice is not configured yet.",
-    };
-  }
-  const requestChars = params.text.length;
-  const startedAt = Date.now();
-  const dispatch = await acquireTtsProviderDispatchGuard(ctx, {
-    ownerId: meta.ownerId,
-    ownerGeneration: meta.ownerGeneration,
-    dispatchId: meta.dispatchId,
-    kind: "buffered",
-    usage: {
-      provider: "inworld",
-      model: params.model,
-      voice: params.voice,
-      ...(meta.conversationId ? { conversationId: meta.conversationId } : {}),
-      streaming: false,
-      requestChars,
-    },
-  });
-  if (!dispatch) {
-    return {
-      ok: false,
-      status: 409,
-      message: "TTS synthesis is already in progress.",
-    };
-  }
-
-  type CloseOptions = Parameters<typeof dispatch.release>[0];
-  let marked = false;
-  let closed = false;
-  let terminal: CloseOptions | undefined;
-  let closePromise: Promise<void> | undefined;
-  let observedAudioBytes = 0;
-  const close = async (options: CloseOptions): Promise<void> => {
-    terminal ??= options;
-    if (closed) return;
-    if (closePromise) return await closePromise;
-    const pending = dispatch.release(terminal);
-    closePromise = pending;
-    try {
-      await pending;
-      closed = true;
-    } finally {
-      if (closePromise === pending) closePromise = undefined;
-    }
-  };
-
-  try {
-    let upstream: Response;
-    try {
-      await dispatch.markMayHaveDispatched();
-      marked = true;
-      upstream = await dispatch.race(
-        fetch(INWORLD_TTS_STREAM_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${inworldApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: buildInworldTtsStreamBody(params),
-          signal: dispatch.signal,
-        }),
-      );
-    } catch (error) {
-      await close({
-        outcome: marked ? "may_have_dispatched" : "not_dispatched",
-        ...(marked
-          ? {
-              settlement: {
-                status: "interrupted",
-                synthesizedChars: 0,
-                audioBytes: observedAudioBytes,
-                durationMs: Date.now() - startedAt,
-              },
-              abort: true,
-            }
-          : {}),
-      });
-      console.error(
-        "[voice/tts/stream] Failed to contact Inworld:",
-        (error as Error).message,
-      );
-      return {
-        ok: false,
-        status: 502,
-        message: "Failed to reach Inworld TTS",
-      };
-    }
-    if (!upstream.ok || !upstream.body) {
-      try {
-        await dispatch.race(
-          upstream.text(),
-          async (reason) => await upstream.body?.cancel(reason),
-        );
-      } catch (error) {
-        await close({
-          outcome: "may_have_dispatched",
-          settlement: {
-            status: "interrupted",
-            synthesizedChars: 0,
-            audioBytes: 0,
-            durationMs: Date.now() - startedAt,
-          },
-          abort: true,
-        });
-        console.error(
-          "[voice/tts/stream] Failed to drain Inworld response:",
-          (error as Error).message,
-        );
-        return {
-          ok: false,
-          status: 502,
-          message: "Inworld TTS response was interrupted",
-        };
-      }
-      console.error("[voice/tts/stream] Inworld TTS failed:", upstream.status);
-      await close({
-        outcome: "settled",
-        settlement: {
-          status: "failed",
-          synthesizedChars: requestChars,
-          audioBytes: 0,
-          durationMs: Date.now() - startedAt,
-        },
-      });
-      const status =
-        upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
-      return { ok: false, status, message: "Inworld TTS failed" };
-    }
-
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    const parts: Uint8Array[] = [];
-    let total = 0;
-    const takeLine = (line: string) => {
-      const chunk = extractInworldAudioChunk(line);
-      if (chunk && chunk.length > 0) {
-        parts.push(chunk);
-        total += chunk.length;
-      }
-    };
-    try {
-      while (true) {
-        const { done, value } = await dispatch.race(
-          reader.read(),
-          async (reason) => await reader.cancel(reason),
-        );
-        if (done) break;
-        if (value) buffer += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (line) takeLine(line);
-        }
-      }
-      buffer += decoder.decode();
-      const rest = buffer.trim();
-      if (rest) takeLine(rest);
-    } catch (error) {
-      await reader.cancel().catch(() => undefined);
-      observedAudioBytes = total;
-      await close({
-        outcome: "may_have_dispatched",
-        settlement: {
-          status: total > 0 ? "partial" : "interrupted",
-          synthesizedChars: total > 0 ? requestChars : 0,
-          audioBytes: total,
-          durationMs: Date.now() - startedAt,
-        },
-        abort: true,
-      });
-      console.error(
-        "[voice/tts/stream] Buffered relay failed:",
-        (error as Error).message,
-      );
-      return {
-        ok: false,
-        status: 502,
-        message: "Inworld TTS response was interrupted",
-      };
-    }
-
-    observedAudioBytes = total;
-    const deliveryAllowed = await dispatch.checkAllowed();
-    await close({
-      outcome: "settled",
-      settlement: {
-        status: total > 0 ? "completed" : "failed",
-        synthesizedChars: requestChars,
-        audioBytes: total,
-        durationMs: Date.now() - startedAt,
-      },
-    });
-    if (total === 0) {
-      return { ok: false, status: 502, message: "Inworld returned no audio" };
-    }
-    if (!deliveryAllowed) {
-      return { ok: false, status: 409, message: "TTS synthesis was canceled" };
-    }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const part of parts) {
-      bytes.set(part, offset);
-      offset += part.length;
-    }
-    return { ok: true, bytes };
-  } finally {
-    if (!closed) {
-      await close(
-        terminal ?? {
-          outcome: marked ? "may_have_dispatched" : "not_dispatched",
-          ...(marked
-            ? {
-                settlement: {
-                  status: observedAudioBytes > 0 ? "partial" : "interrupted",
-                  synthesizedChars: observedAudioBytes > 0 ? requestChars : 0,
-                  audioBytes: observedAudioBytes,
-                  durationMs: Date.now() - startedAt,
-                },
-                abort: true,
-              }
-            : {}),
-        },
-      );
-    }
-  }
-};
-
-const AUDIO_RANGE_RE = /^bytes=(\d*)-(\d*)$/;
 
 // Build a live HLS media playlist for a mobile read-aloud session. Uses an
 // EVENT playlist (segments are only ever appended) so the player keeps
@@ -831,7 +503,9 @@ const buildHlsPlaylist = (
   return `${lines.join("\n")}\n`;
 };
 
-// Serve a complete MP3 buffer with byte-range support so native players can
+const AUDIO_RANGE_RE = /^bytes=(\d*)-(\d*)$/;
+
+// Serve an MP3 buffer (an HLS segment) with byte-range support so native players can
 // probe and seek. Answers `Range` with 206 + `Content-Range`; otherwise 200 +
 // `Content-Length`. Always advertises `Accept-Ranges: bytes`.
 const serveAudioWithRange = (
@@ -883,15 +557,15 @@ const serveAudioWithRange = (
 };
 
 /**
- * Proxy Inworld's streaming TTS back to the caller as a single progressive
- * `audio/mpeg` stream. The org Inworld key never leaves this action — the
- * client only ever sees decoded MP3 bytes. Provider spend (including
- * cancellations and partial synthesis) is finalized in the same durable
- * receipt transaction that releases the exact provider lease. This never
- * charges the user or grants plan entitlement. Downstream cancellation
- * promptly cancels the upstream read.
+ * Proxy Gemini's streaming TTS back to the caller as a single progressive
+ * `audio/mpeg` stream (PCM re-encoded to MP3 as it arrives). The org Gemini
+ * key never leaves this action — the client only ever sees MP3 bytes.
+ * Provider spend (including cancellations and partial synthesis) is finalized
+ * in the same durable receipt transaction that releases the exact provider
+ * lease. This never charges the user or grants plan entitlement. Downstream
+ * cancellation promptly cancels the upstream read.
  */
-const streamInworldTts = async (
+const streamGeminiTts = async (
   ctx: ActionCtx,
   origin: string | null,
   params: TtsSynthesisParams,
@@ -902,13 +576,9 @@ const streamInworldTts = async (
     operationId?: string;
   },
 ): Promise<Response> => {
-  const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
-  if (!inworldApiKey) {
-    return errorResponse(
-      503,
-      "Stella Inworld voice is not configured yet.",
-      origin,
-    );
+  const apiKey = process.env.GOOGLE_AI_API_KEY ?? null;
+  if (!apiKey) {
+    return errorResponse(503, "Stella read-aloud is not configured yet.", origin);
   }
 
   const requestChars = params.text.length;
@@ -919,12 +589,13 @@ const streamInworldTts = async (
     dispatchId: ttsOperationDispatchId(meta.operationId, "desktop-stream"),
     kind: "desktop_stream",
     usage: {
-      provider: "inworld",
+      provider: "gemini",
       model: params.model,
       voice: params.voice,
       ...(meta.conversationId ? { conversationId: meta.conversationId } : {}),
       streaming: true,
       requestChars,
+      ...estimateGeminiTtsUsage(requestChars),
     },
   });
   if (!dispatch) {
@@ -938,6 +609,7 @@ const streamInworldTts = async (
   let terminal: CloseOptions | undefined;
   let closePromise: Promise<void> | undefined;
   let audioBytes = 0;
+  const pipeline = createGeminiTtsStreamPipeline();
   const close = async (options: CloseOptions): Promise<void> => {
     terminal ??= options;
     if (closed) return;
@@ -958,20 +630,47 @@ const streamInworldTts = async (
       await close(options);
     }
   };
+  const disposition = (): CloseOptions =>
+    providerEof
+      ? {
+          outcome: "settled",
+          settlement: {
+            status: audioBytes > 0 ? "completed" : "failed",
+            synthesizedChars: requestChars,
+            audioBytes,
+            ...resolveGeminiTtsUsage({
+              reported: pipeline.usage,
+              requestChars,
+              pcmBytes: pipeline.pcmBytes,
+            }),
+            durationMs: Date.now() - startedAt,
+          },
+        }
+      : {
+          outcome: "may_have_dispatched",
+          settlement: {
+            status: audioBytes > 0 ? "partial" : "interrupted",
+            synthesizedChars: audioBytes > 0 ? requestChars : 0,
+            audioBytes,
+            durationMs: Date.now() - startedAt,
+          },
+          abort: true,
+        };
+
   let upstream: Response;
   try {
     await dispatch.markMayHaveDispatched();
     marked = true;
     upstream = await dispatch.race(
-      fetch(INWORLD_TTS_STREAM_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${inworldApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: buildInworldTtsStreamBody(params),
-        signal: dispatch.signal,
-      }),
+      fetch(
+        ...buildGeminiTtsRequest({
+          apiKey,
+          text: params.text,
+          voice: params.voice,
+          stream: true,
+          signal: dispatch.signal,
+        }),
+      ),
     );
   } catch (error) {
     await close({
@@ -989,10 +688,10 @@ const streamInworldTts = async (
         : {}),
     });
     console.error(
-      "[voice/tts/stream] Failed to contact Inworld:",
+      "[voice/tts/stream] Failed to contact Gemini:",
       (error as Error).message,
     );
-    return errorResponse(502, "Failed to reach Inworld TTS", origin);
+    return errorResponse(502, "Failed to reach Gemini TTS", origin);
   }
 
   if (!upstream.ok || !upstream.body) {
@@ -1015,12 +714,12 @@ const streamInworldTts = async (
         abort: true,
       });
       console.error(
-        "[voice/tts/stream] Failed to drain Inworld response:",
+        "[voice/tts/stream] Failed to drain Gemini response:",
         (error as Error).message,
       );
-      return errorResponse(502, "Inworld TTS response was interrupted", origin);
+      return errorResponse(502, "Gemini TTS response was interrupted", origin);
     }
-    console.error("[voice/tts/stream] Inworld TTS failed:", upstream.status);
+    console.error("[voice/tts/stream] Gemini TTS failed:", upstream.status);
     await close({
       outcome: "settled",
       settlement: {
@@ -1032,63 +731,56 @@ const streamInworldTts = async (
     });
     const status =
       upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
-    return errorResponse(status, "Inworld TTS failed", origin);
+    return errorResponse(status, "Gemini TTS failed", origin);
   }
 
   const reader = upstream.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let sawAudio = false;
-  let upstreamDone = false;
+  // Gemini emits many small deltas. A heartbeat write per chunk contends with
+  // the guard's own monitor heartbeat on the same lease row until the mutation
+  // exhausts its OCC retries, so re-check authority at most once a second; the
+  // monitor still aborts `dispatch.signal` on cancellation in between.
+  let lastAllowedCheckAt = 0;
+  const stillAllowed = async (): Promise<boolean> => {
+    if (dispatch.signal.aborted) return false;
+    if (Date.now() - lastAllowedCheckAt < 1_000) return true;
+    lastAllowedCheckAt = Date.now();
+    return await dispatch.checkAllowed();
+  };
+  const enqueueAudio = async (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    chunk: Uint8Array,
+  ): Promise<boolean> => {
+    if (chunk.length === 0) return false;
+    if (!(await stillAllowed())) {
+      throw new Error("TTS provider dispatch was canceled.");
+    }
+    audioBytes += chunk.length;
+    controller.enqueue(chunk);
+    return true;
+  };
 
-  // Pull the next decoded audio chunk out of the NDJSON buffer, reading more
-  // from Inworld only as the downstream consumer asks for it (backpressure →
-  // bounded buffering).
+  // Read from Gemini only as the downstream consumer asks for more
+  // (backpressure → bounded buffering). A pull returns as soon as it has
+  // produced at least one MP3 chunk.
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         while (true) {
-          let nl: number;
-          while ((nl = buffer.indexOf("\n")) >= 0) {
-            const line = buffer.slice(0, nl).trim();
-            buffer = buffer.slice(nl + 1);
-            if (!line) continue;
-            const chunk = extractInworldAudioChunk(line);
-            if (chunk && chunk.length > 0) {
-              if (!(await dispatch.checkAllowed())) {
-                throw new Error("TTS provider dispatch was canceled.");
-              }
-              audioBytes += chunk.length;
-              sawAudio = true;
-              controller.enqueue(chunk);
-              return;
-            }
-          }
-          if (upstreamDone) {
-            const rest = buffer.trim();
-            buffer = "";
-            if (rest) {
-              const chunk = extractInworldAudioChunk(rest);
-              if (chunk && chunk.length > 0) {
-                if (!(await dispatch.checkAllowed())) {
-                  throw new Error("TTS provider dispatch was canceled.");
-                }
-                audioBytes += chunk.length;
-                sawAudio = true;
-                controller.enqueue(chunk);
-                return;
-              }
+          const { done, value } = await dispatch.race(
+            reader.read(),
+            async (reason) => await reader.cancel(reason),
+          );
+          if (done) {
+            providerEof = true;
+            await enqueueAudio(controller, pipeline.finish());
+            if (pipeline.error) {
+              console.error(
+                "[voice/tts/stream] Gemini stream error:",
+                pipeline.error,
+              );
             }
             const deliveryAllowed = await dispatch.checkAllowed();
-            await closeWithRetry({
-              outcome: "settled",
-              settlement: {
-                status: sawAudio ? "completed" : "failed",
-                synthesizedChars: requestChars,
-                audioBytes,
-                durationMs: Date.now() - startedAt,
-              },
-            });
+            await closeWithRetry(disposition());
             if (deliveryAllowed) {
               controller.close();
             } else {
@@ -1098,17 +790,9 @@ const streamInworldTts = async (
             }
             return;
           }
-          const { done, value } = await dispatch.race(
-            reader.read(),
-            async (reason) => await reader.cancel(reason),
-          );
-          if (done) {
-            providerEof = true;
-            upstreamDone = true;
-            buffer += decoder.decode();
-            continue;
+          if (value && (await enqueueAudio(controller, pipeline.push(value)))) {
+            return;
           }
-          if (value) buffer += decoder.decode(value, { stream: true });
         }
       } catch (error) {
         console.error(
@@ -1116,28 +800,7 @@ const streamInworldTts = async (
           (error as Error).message,
         );
         await reader.cancel(error).catch(() => undefined);
-        await closeWithRetry(
-          providerEof
-            ? {
-                outcome: "settled",
-                settlement: {
-                  status: sawAudio ? "completed" : "failed",
-                  synthesizedChars: requestChars,
-                  audioBytes,
-                  durationMs: Date.now() - startedAt,
-                },
-              }
-            : {
-                outcome: "may_have_dispatched",
-                settlement: {
-                  status: sawAudio ? "partial" : "interrupted",
-                  synthesizedChars: sawAudio ? requestChars : 0,
-                  audioBytes,
-                  durationMs: Date.now() - startedAt,
-                },
-                abort: true,
-              },
-        );
+        await closeWithRetry(disposition());
         try {
           controller.error(error);
         } catch {
@@ -1146,33 +809,10 @@ const streamInworldTts = async (
       }
     },
     async cancel(reason) {
-      // Client went away — stop pulling from Inworld and record the
-      // interrupted outcome. (On platforms that drain the response server-side
-      // this may resolve as "completed", which is the correct spend since the
-      // provider meters the full submitted text.)
+      // Client went away — stop pulling from Gemini and record the
+      // interrupted outcome.
       await reader.cancel(reason).catch(() => undefined);
-      await closeWithRetry(
-        providerEof
-          ? {
-              outcome: "settled",
-              settlement: {
-                status: sawAudio ? "completed" : "failed",
-                synthesizedChars: requestChars,
-                audioBytes,
-                durationMs: Date.now() - startedAt,
-              },
-            }
-          : {
-              outcome: "may_have_dispatched",
-              settlement: {
-                status: sawAudio ? "partial" : "interrupted",
-                synthesizedChars: sawAudio ? requestChars : 0,
-                audioBytes,
-                durationMs: Date.now() - startedAt,
-              },
-              abort: true,
-            },
-      );
+      await closeWithRetry(disposition());
     },
   });
 
@@ -1504,7 +1144,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           const inworldTtsModel =
             typeof body.ttsModel === "string" && body.ttsModel.trim().length > 0
               ? body.ttsModel.trim()
-              : DEFAULT_INWORLD_TTS_MODEL;
+              : DEFAULT_INWORLD_REALTIME_TTS_MODEL;
           const lease = (await ctx.runMutation(
             internal.billing.prepareVoiceRealtimeLease,
             {
@@ -2433,7 +2073,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
   });
 
   // ── Read-aloud streaming TTS (desktop) ───────────────────────────
-  // Progressive text-to-speech: proxies Inworld's streaming synthesis back
+  // Progressive text-to-speech: proxies Gemini's streaming synthesis back
   // as a single `audio/mpeg` stream so playback can begin before the whole
   // reply is synthesized. Read-aloud is FREE on every plan, so — unlike
   // realtime voice — there is deliberately no capability or managed-usage
@@ -2477,7 +2117,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           parsed.params.text.length,
         );
         if (!quota.allowed) return ttsQuotaResponse(origin, quota.retryAt);
-        return streamInworldTts(ctx, origin, parsed.params, {
+        return streamGeminiTts(ctx, origin, parsed.params, {
           ownerId: auth.ownerId,
           ownerGeneration,
           ...(parsed.conversationId
@@ -2494,8 +2134,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
   // the assistant text is too long for a query string. The client POSTs the
   // text here and gets back a short-lived opaque ticket; it then plays the live
   // HLS playlist at `/api/voice/tts/stream/hls/<ticket>/playlist.m3u8`. This
-  // schedules ONE background synthesis that streams Inworld and appends MP3
-  // segments as they are produced, so audio begins while Inworld is still
+  // schedules ONE background synthesis that streams Gemini and appends MP3
+  // segments as they are produced, so audio begins while Gemini is still
   // generating. The text never appears in a URL, log, or client-visible store.
   http.route({
     path: "/api/voice/tts/stream/prepare",
@@ -2550,9 +2190,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           text: parsed.params.text,
           voice: parsed.params.voice,
           model: parsed.params.model,
-          ...(parsed.params.speed !== undefined
-            ? { speed: parsed.params.speed }
-            : {}),
           ...(parsed.conversationId
             ? { conversationId: parsed.conversationId }
             : {}),
@@ -2562,129 +2199,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: serve a ticketed clip (mobile GET) ──
-  // Registered as a prefix so the request URL can carry a `.mp3` suffix (which
-  // nudges native players to treat the response as an MP3) without a dot in the
-  // registered route path. Native players (AVPlayer/ExoPlayer) fetch a seekable
-  // resource and issue several ranged requests per playback, so — unlike the
-  // desktop POST stream — this serves a complete, `Range`-capable MP3 from a
-  // reusable, owner-bound ticket. The first request synthesizes and caches the
-  // audio; the player's follow-up range requests are served from that cache.
-  // Auth is still enforced (Bearer header). GET has no side effects the browser
-  // needs to preflight, so there is no CORS OPTIONS route for this path.
-  http.route({
-    pathPrefix: "/api/voice/tts/stream/audio/",
-    method: "GET",
-    handler: httpAction(async (ctx, request) =>
-      handleCorsRequest(request, async (origin) => {
-        const auth = await requireSignedInAccountAction(ctx, origin, {
-          message: "Sign in to Stella to use text to speech.",
-          realm: "stella-voice",
-        });
-        if (!auth.ok) return auth.response;
-        const { generation: ownerGeneration } =
-          await assertOwnerDataAccessActive(ctx, auth.ownerId);
-
-        const ticket = new URL(request.url).searchParams.get("ticket")?.trim();
-        if (!ticket) {
-          return errorResponse(400, "ticket is required", origin);
-        }
-
-        const attemptId = crypto.randomUUID();
-        const consumed = await ctx.runMutation(internal.tts_stream.readTicket, {
-          ticket,
-          ownerId: auth.ownerId,
-          ownerGeneration,
-          attemptId,
-          nowMs: Date.now(),
-        });
-        if (!consumed) {
-          return errorResponse(
-            404,
-            "Stream ticket is invalid or expired",
-            origin,
-          );
-        }
-
-        const rangeHeader = request.headers.get("range");
-
-        // Serve the cached clip if a prior request already synthesized it.
-        if (consumed.state === "cached" && consumed.audio) {
-          try {
-            return serveAudioWithRange(
-              decodeBase64ToBytes(consumed.audio),
-              rangeHeader,
-              origin,
-            );
-          } catch {
-            // A cached row has no live claim. Never fall through to a second
-            // provider dispatch; leave the terminal ticket for bounded TTL
-            // cleanup and make the client prepare a fresh one.
-            return errorResponse(500, "Cached audio is invalid", origin);
-          }
-        }
-        if (consumed.state === "busy") {
-          return errorResponse(
-            409,
-            "Audio synthesis is already in progress",
-            origin,
-          );
-        }
-        if (consumed.state === "unavailable") {
-          return errorResponse(
-            410,
-            "Use the HLS stream for this ticket",
-            origin,
-          );
-        }
-
-        const result = await synthesizeInworldTtsBuffered(
-          ctx,
-          {
-            text: consumed.text,
-            voice: consumed.voice,
-            model: consumed.model,
-            ...(typeof consumed.speed === "number"
-              ? { speed: consumed.speed }
-              : {}),
-          },
-          {
-            ownerId: auth.ownerId,
-            ownerGeneration: consumed.ownerGeneration,
-            dispatchId: `buffered:${ticket}`,
-            ...(consumed.conversationId
-              ? { conversationId: consumed.conversationId }
-              : {}),
-          },
-        );
-        if (!result.ok) {
-          await ctx
-            .runMutation(internal.tts_stream.failTicketAudio, {
-              ticket,
-              ownerId: auth.ownerId,
-              ownerGeneration: consumed.ownerGeneration,
-              attemptId,
-            })
-            .catch(() => undefined);
-          return errorResponse(result.status, result.message, origin);
-        }
-        const cacheable =
-          result.bytes.byteLength <= MAX_TICKET_AUDIO_CACHE_BYTES;
-        await ctx.runMutation(internal.tts_stream.finishTicketAudio, {
-          ticket,
-          ownerId: auth.ownerId,
-          ownerGeneration: consumed.ownerGeneration,
-          attemptId,
-          ...(cacheable ? { audio: bytesToBase64(result.bytes) } : {}),
-          tooLarge: !cacheable,
-        });
-        return serveAudioWithRange(result.bytes, rangeHeader, origin);
-      }),
-    ),
-  });
-
   // ── Read-aloud streaming TTS: mobile HLS transport (playlist + segments) ──
-  // The mobile player streams a live HLS playlist so audio begins while Inworld
+  // The mobile player streams a live HLS playlist so audio begins while Gemini
   // is still generating. One prefix serves both the growing `playlist.m3u8`
   // (built from the ticket's manifest — no audio loaded) and each `<seq>.mp3`
   // packed-audio segment. Auth is enforced per request (Bearer header, which
@@ -2830,7 +2346,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
   // ── Read-aloud TTS (non-streamed fallback) ───────────────────────
   // One-shot text-to-speech for the renderer's "read assistant replies
   // aloud" toggle. Returns binary audio (mp3 for OpenAI, wav for
-  // Inworld) so the renderer can decode + play through Web Audio API
+  // Gemini) so the renderer can decode + play through Web Audio API
   // without an extra JSON unwrap. Kept as the graceful fallback for when
   // true streaming is unavailable (e.g. the OpenAI voice family, or a
   // client that cannot consume a progressive stream). Free on every plan.
@@ -2865,7 +2381,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           voice?: string;
           model?: string;
           conversationId?: string;
-          voiceProvider?: "openai" | "inworld";
+          voiceProvider?: "openai" | "gemini" | "inworld";
           speed?: number;
           operationId?: string;
         };
@@ -2896,8 +2412,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         );
         if (!quota.allowed) return ttsQuotaResponse(origin, quota.retryAt);
 
-        const voiceProvider: "openai" | "inworld" =
-          body?.voiceProvider === "inworld" ? "inworld" : "openai";
+        // Desktop builds from before Gemini read-aloud still send "inworld".
+        const voiceProvider: "openai" | "gemini" =
+          body?.voiceProvider === "gemini" || body?.voiceProvider === "inworld"
+            ? "gemini"
+            : "openai";
 
         let conversationId: Id<"conversations"> | undefined;
         const parsedConversationId = await normalizeConversationId(
@@ -2913,33 +2432,34 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
         }
 
-        if (voiceProvider === "inworld") {
-          const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
-          if (!inworldApiKey) {
+        if (voiceProvider === "gemini") {
+          const geminiApiKey = process.env.GOOGLE_AI_API_KEY ?? null;
+          if (!geminiApiKey) {
             return errorResponse(
               503,
-              "Stella Inworld voice is not configured yet.",
+              "Stella read-aloud is not configured yet.",
               origin,
             );
           }
-          const voiceId = body?.voice?.trim() || "Brooke";
-          const modelId = body?.model?.trim() || "inworld-tts-2-flash";
+          const voiceId = resolveGeminiTtsVoice(body?.voice);
+          const modelId = GEMINI_TTS_MODEL;
           const startedAt = Date.now();
           const dispatch = await acquireTtsProviderDispatchGuard(ctx, {
             ownerId: identity.tokenIdentifier,
             ownerGeneration,
             dispatchId: ttsOperationDispatchId(
               rawOperationId,
-              "oneshot-inworld",
+              "oneshot-gemini",
             ),
-            kind: "oneshot_inworld",
+            kind: "oneshot_gemini",
             usage: {
-              provider: "inworld",
+              provider: "gemini",
               model: modelId,
               voice: voiceId,
               ...(conversationId ? { conversationId } : {}),
               streaming: false,
               requestChars: truncated.length,
+              ...estimateGeminiTtsUsage(truncated.length),
             },
           });
           if (!dispatch) {
@@ -2969,28 +2489,20 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             }
           };
           try {
-            let inworldResponse: Response;
+            let geminiResponse: Response;
             try {
               await dispatch.markMayHaveDispatched();
               marked = true;
-              inworldResponse = await dispatch.race(
-                fetch("https://api.inworld.ai/tts/v1/voice", {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${inworldApiKey}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
+              geminiResponse = await dispatch.race(
+                fetch(
+                  ...buildGeminiTtsRequest({
+                    apiKey: geminiApiKey,
                     text: truncated,
-                    voiceId,
-                    modelId,
-                    ...(typeof body?.speed === "number" &&
-                    Number.isFinite(body.speed)
-                      ? { audioConfig: { speakingRate: body.speed } }
-                      : {}),
+                    voice: voiceId,
+                    stream: false,
+                    signal: dispatch.signal,
                   }),
-                  signal: dispatch.signal,
-                }),
+                ),
               );
             } catch (error) {
               await close({
@@ -3008,16 +2520,16 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                   : {}),
               });
               console.error(
-                "[voice/tts] Failed to contact Inworld:",
+                "[voice/tts] Failed to contact Gemini:",
                 (error as Error).message,
               );
-              return errorResponse(502, "Failed to reach Inworld TTS", origin);
+              return errorResponse(502, "Failed to reach Gemini TTS", origin);
             }
             let raw: string;
             try {
               raw = await dispatch.race(
-                inworldResponse.text(),
-                async (reason) => await inworldResponse.body?.cancel(reason),
+                geminiResponse.text(),
+                async (reason) => await geminiResponse.body?.cancel(reason),
               );
               bodyConsumed = true;
             } catch (error) {
@@ -3032,19 +2544,19 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 abort: true,
               });
               console.error(
-                "[voice/tts] Inworld response read failed:",
+                "[voice/tts] Gemini response read failed:",
                 (error as Error).message,
               );
               return errorResponse(
                 502,
-                "Inworld TTS response was interrupted",
+                "Gemini TTS response was interrupted",
                 origin,
               );
             }
-            if (!inworldResponse.ok) {
+            if (!geminiResponse.ok) {
               console.error(
-                "[voice/tts] Inworld TTS failed:",
-                inworldResponse.status,
+                "[voice/tts] Gemini TTS failed:",
+                geminiResponse.status,
                 raw,
               );
               await close({
@@ -3057,22 +2569,14 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 },
               });
               return errorResponse(
-                inworldResponse.status,
-                "Inworld TTS failed",
+                geminiResponse.status,
+                "Gemini TTS failed",
                 origin,
               );
             }
-            // Inworld returns JSON { audioContent: <base64 wav> }.
-            let audioBase64: string | null = null;
-            try {
-              const parsed = JSON.parse(raw) as { audioContent?: string };
-              if (typeof parsed.audioContent === "string") {
-                audioBase64 = parsed.audioContent;
-              }
-            } catch {
-              audioBase64 = null;
-            }
-            if (!audioBase64) {
+            // Unary Gemini returns the WAV inline in the interaction JSON.
+            const unary = parseGeminiTtsUnaryResponse(raw);
+            if (!unary) {
               await close({
                 outcome: "settled",
                 settlement: {
@@ -3082,13 +2586,10 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                   durationMs: Date.now() - startedAt,
                 },
               });
-              return errorResponse(502, "Inworld returned no audio", origin);
+              return errorResponse(502, "Gemini returned no audio", origin);
             }
-            // Decode base64 → bytes for the response body.
             try {
-              const bytes = Uint8Array.from(atob(audioBase64), (c) =>
-                c.charCodeAt(0),
-              );
+              const bytes = unary.audio;
               const deliveryAllowed = await dispatch.checkAllowed();
               await close({
                 outcome: "settled",
@@ -3096,6 +2597,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                   status: "completed",
                   synthesizedChars: truncated.length,
                   audioBytes: bytes.byteLength,
+                  ...resolveGeminiTtsUsage({
+                    reported: unary.usage,
+                    requestChars: truncated.length,
+                    // WAV payload minus its 44-byte header is 24 kHz PCM.
+                    pcmBytes: Math.max(0, bytes.byteLength - 44),
+                  }),
                   durationMs: Date.now() - startedAt,
                 },
               });
@@ -3103,7 +2610,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 return errorResponse(409, "TTS synthesis was canceled", origin);
               }
               return withCors(
-                new Response(bytes, {
+                new Response(bytes as BodyInit, {
                   status: 200,
                   headers: { "Content-Type": "audio/wav" },
                 }),
@@ -3122,7 +2629,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               });
               return errorResponse(
                 502,
-                "Inworld returned invalid audio",
+                "Gemini returned invalid audio",
                 origin,
               );
             }

@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI आवाज़ें",
         "xai": "Grok आवाज़ें",
-        "inworld": "Inworld आवाज़ें"
+        "inworld": "Inworld आवाज़ें",
+        "gemini": "Gemini आवाज़ें"
       },
       "previousVoice": "पिछली आवाज़",
       "nextVoice": "अगली आवाज़",
@@ -420,7 +421,7 @@
         "label": "ज़ोर से पढ़ें",
         "ariaLabel": "ज़ोर से पढ़ने का प्रदाता",
         "openaiTitle": "OpenAI TTS से उत्तर ज़ोर से पढ़ें",
-        "inworldTitle": "Inworld TTS से उत्तर ज़ोर से पढ़ें",
+        "geminiTitle": "Gemini TTS से उत्तर ज़ोर से पढ़ें",
         "description": "इस प्रदाता की आवाज़ से उत्तर ज़ोर से बोलता है।"
       }
     },

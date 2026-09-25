@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI-äänet",
         "xai": "Grok-äänet",
-        "inworld": "Inworld-äänet"
+        "inworld": "Inworld-äänet",
+        "gemini": "Gemini-äänet"
       },
       "previousVoice": "Edellinen ääni",
       "nextVoice": "Seuraava ääni",
@@ -420,7 +421,7 @@
         "label": "Lue ääneen",
         "ariaLabel": "Ääneen lukemisen palveluntarjoaja",
         "openaiTitle": "Lue vastaukset ääneen OpenAI TTS:llä",
-        "inworldTitle": "Lue vastaukset ääneen Inworld TTS:llä",
+        "geminiTitle": "Lue vastaukset ääneen Gemini TTS:llä",
         "description": "Puhuu vastaukset ääneen tämän palveluntarjoajan äänellä."
       }
     },

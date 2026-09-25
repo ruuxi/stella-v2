@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI-stemmen",
         "xai": "Grok-stemmen",
-        "inworld": "Inworld-stemmen"
+        "inworld": "Inworld-stemmen",
+        "gemini": "Gemini-stemmen"
       },
       "previousVoice": "Vorige stem",
       "nextVoice": "Volgende stem",
@@ -420,7 +421,7 @@
         "label": "Voorlezen",
         "ariaLabel": "Voorleesprovider",
         "openaiTitle": "Antwoorden voorlezen met OpenAI TTS",
-        "inworldTitle": "Antwoorden voorlezen met Inworld TTS",
+        "geminiTitle": "Antwoorden voorlezen met Gemini TTS",
         "description": "Leest antwoorden hardop voor met de stem van deze provider."
       }
     },

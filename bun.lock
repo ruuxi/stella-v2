@@ -98,6 +98,7 @@
       "dependencies": {
         "@aws-sdk/client-s3": "3.1106.0",
         "@better-auth/expo": "1.6.11",
+        "@breezystack/lamejs": "1.2.7",
         "@convex-dev/better-auth": "^0.12.5",
         "@convex-dev/r2": "^0.10.2",
         "@convex-dev/rate-limiter": "^0.3.2",
@@ -724,6 +725,8 @@
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
 
     "@bramus/specificity": ["@bramus/specificity@2.4.2", "", { "dependencies": { "css-tree": "^3.0.0" }, "bin": { "specificity": "bin/cli.js" } }, "sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw=="],
+
+    "@breezystack/lamejs": ["@breezystack/lamejs@1.2.7", "", {}, "sha512-6wc7ck65ctA75Hq7FYHTtTvGnYs6msgdxiSUICQ+A01nVOWg6rqouZB8IdyteRlfpYYiFovkf67dIeOgWIUzTA=="],
 
     "@cloudflare/codemode": ["@cloudflare/codemode@0.5.1", "", { "dependencies": { "@types/json-schema": "^7.0.15", "acorn": "^8.17.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.0", "@tanstack/ai": ">=0.8.0 <1.0.0", "ai": "^6.0.0 || ^7.0.0", "zod": "^4.0.0" }, "optionalPeers": ["@modelcontextprotocol/sdk", "@tanstack/ai", "ai", "zod"] }, "sha512-PcX5+qAvupi8p1bMLKhqvPHziZpDubbrxDIvVH+iuuNUaFyOxxWNS9HplfFqIULqUzDPdFf1w7IiSCKHp7GDgg=="],
 

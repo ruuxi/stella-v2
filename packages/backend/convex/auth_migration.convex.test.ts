@@ -2648,8 +2648,8 @@ describe("crash-safe ownership migration lifecycle", () => {
     });
     await t.run(async (ctx) => {
       const receipt = {
-        provider: "inworld" as const,
-        model: "inworld-tts-1",
+        provider: "gemini" as const,
+        model: "gemini-3.8-flash-lite-tts",
         voice: "Ashley",
         streaming: true,
         status: "interrupted" as const,
@@ -2755,8 +2755,8 @@ describe("crash-safe ownership migration lifecycle", () => {
           attemptId: "tts-conflict-attempt",
           leaseId: "tts-conflict-lease",
           providerDispatchOutcome: "settled",
-          provider: "inworld",
-          model: "inworld-tts-1",
+          provider: "gemini",
+          model: "gemini-3.8-flash-lite-tts",
           streaming: true,
           status: "completed",
           requestChars: 80,
@@ -2809,7 +2809,7 @@ describe("crash-safe ownership migration lifecycle", () => {
           providerDispatchId: `migration-tts-logical-${suffix}`,
           text: "Transient text",
           voice: "voice",
-          model: "inworld-tts-1",
+          model: "gemini-3.8-flash-lite-tts",
           hlsStatus: "pending",
           createdAt: 1,
           expiresAt: 10_000,
@@ -2893,8 +2893,8 @@ describe("crash-safe ownership migration lifecycle", () => {
           ...(providerState === "may_have_dispatched"
             ? { providerDispatchOutcome: providerState }
             : {}),
-          provider: "inworld",
-          model: "inworld-tts-1",
+          provider: "gemini",
+          model: "gemini-3.8-flash-lite-tts",
           streaming: true,
           status:
             providerState === "may_have_dispatched" ? "interrupted" : "failed",
@@ -2918,7 +2918,7 @@ describe("crash-safe ownership migration lifecycle", () => {
           dispatchId,
           attemptId,
           leaseId,
-          kind: "buffered",
+          kind: "hls",
           state: "active",
           providerState,
           usageId,

@@ -4,10 +4,10 @@
  *
  * Two playback paths sit behind one "at most one active playback" invariant:
  *   - `playReadAloud(buffer)` — one-shot: decode a complete encoded buffer and
- *     play via Web Audio (OpenAI mp3, Inworld wav, or the streaming fallback).
+ *     play via Web Audio (OpenAI mp3, Gemini wav, or the streaming fallback).
  *   - `playReadAloudStream(response)` — progressive: play a chunked
  *     `audio/mpeg` response through Media Source Extensions so speech starts
- *     before Inworld has finished synthesizing the whole reply.
+ *     before Gemini has finished synthesizing the whole reply.
  *
  * Either path cancels the other so a fresh assistant turn never overlaps the
  * previous one's audio. `stop()` cancels playback without queuing anything;

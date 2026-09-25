@@ -139,7 +139,7 @@ export type LocalPreferences = {
   /**
    * Reads finalized assistant messages aloud via one-shot TTS. Off by
    * default — the user opts in from a speaker toggle in the chat UI. The
-   * provider is `realtimeVoice.readAloudProvider` (defaults to Inworld),
+   * provider is `realtimeVoice.readAloudProvider` (defaults to Gemini),
    * independent from the realtime voice agent.
    */
   readAloudEnabled: boolean;
@@ -950,6 +950,7 @@ const normalizeRealtimeVoiceSelections = (
     openai?: unknown;
     xai?: unknown;
     inworld?: unknown;
+    gemini?: unknown;
   };
   const out: RealtimeVoiceSelections = {};
   if (typeof record.openai === "string" && record.openai.trim().length > 0) {
@@ -960,6 +961,9 @@ const normalizeRealtimeVoiceSelections = (
   }
   if (typeof record.inworld === "string" && record.inworld.trim().length > 0) {
     out.inworld = record.inworld.trim();
+  }
+  if (typeof record.gemini === "string" && record.gemini.trim().length > 0) {
+    out.gemini = record.gemini.trim();
   }
   return Object.keys(out).length > 0 ? out : undefined;
 };
@@ -1015,7 +1019,7 @@ export const normalizeRealtimeVoicePreferences = (
       : undefined;
   const readAloudProvider =
     record.readAloudProvider === "openai" ||
-    record.readAloudProvider === "inworld"
+    record.readAloudProvider === "gemini"
       ? record.readAloudProvider
       : undefined;
 

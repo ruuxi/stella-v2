@@ -86,17 +86,16 @@ export async function toggleManualReadAloud(
     const prefs = await resolveReadAloudVoicePrefs();
     if (token !== requestToken) return;
 
-    // Prefer progressive Inworld streaming so audio starts before the whole
+    // Prefer progressive Gemini streaming so audio starts before the whole
     // reply is synthesized. Fall back to one-shot synthesis for the OpenAI
     // voice family, unsupported runtimes, or a stream that fails before any
     // audio arrives.
-    if (prefs.family === "inworld" && canStreamReadAloud()) {
+    if (prefs.family === "gemini" && canStreamReadAloud()) {
       try {
         const response = await openReadAloudStream({
           operationId,
           text: clean,
           voice: prefs.voice,
-          speed: prefs.speed,
         });
         if (token !== requestToken) {
           await response.body?.cancel().catch(() => undefined);
@@ -119,7 +118,6 @@ export async function toggleManualReadAloud(
       text: clean,
       voiceProvider: prefs.family,
       voice: prefs.voice,
-      speed: prefs.speed,
     });
     if (token !== requestToken) return;
     setState({ key, status: "playing" });

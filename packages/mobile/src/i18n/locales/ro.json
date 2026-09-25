@@ -409,7 +409,8 @@
       "source": {
         "openai": "Voci OpenAI",
         "xai": "Voci Grok",
-        "inworld": "Voci Inworld"
+        "inworld": "Voci Inworld",
+        "gemini": "Voci Gemini"
       },
       "previousVoice": "Vocea anterioară",
       "nextVoice": "Vocea următoare",
@@ -420,7 +421,7 @@
         "label": "Citește cu voce tare",
         "ariaLabel": "Furnizor pentru citirea cu voce tare",
         "openaiTitle": "Citește răspunsurile cu voce tare folosind OpenAI TTS",
-        "inworldTitle": "Citește răspunsurile cu voce tare folosind Inworld TTS",
+        "geminiTitle": "Citește răspunsurile cu voce tare folosind Gemini TTS",
         "description": "Rostește răspunsurile cu voce tare folosind vocea acestui furnizor."
       }
     },

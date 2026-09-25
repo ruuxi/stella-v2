@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI hangok",
         "xai": "Grok hangok",
-        "inworld": "Inworld hangok"
+        "inworld": "Inworld hangok",
+        "gemini": "Gemini hangok"
       },
       "previousVoice": "Előző hang",
       "nextVoice": "Következő hang",
@@ -420,7 +421,7 @@
         "label": "Felolvasás",
         "ariaLabel": "Felolvasás szolgáltatója",
         "openaiTitle": "Válaszok felolvasása OpenAI TTS-sel",
-        "inworldTitle": "Válaszok felolvasása Inworld TTS-sel",
+        "geminiTitle": "Válaszok felolvasása Gemini TTS-sel",
         "description": "Felolvassa a válaszokat ennek a szolgáltatónak a hangján."
       }
     },

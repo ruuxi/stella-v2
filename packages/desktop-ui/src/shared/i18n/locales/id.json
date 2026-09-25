@@ -409,7 +409,8 @@
       "source": {
         "openai": "Suara OpenAI",
         "xai": "Suara Grok",
-        "inworld": "Suara Inworld"
+        "inworld": "Suara Inworld",
+        "gemini": "Suara Gemini"
       },
       "previousVoice": "Suara sebelumnya",
       "nextVoice": "Suara berikutnya",
@@ -420,7 +421,7 @@
         "label": "Bacakan",
         "ariaLabel": "Penyedia suara untuk bacakan",
         "openaiTitle": "Bacakan balasan dengan OpenAI TTS",
-        "inworldTitle": "Bacakan balasan dengan Inworld TTS",
+        "geminiTitle": "Bacakan balasan dengan Gemini TTS",
         "description": "Membacakan balasan dengan suara dari penyedia ini."
       }
     },

@@ -409,7 +409,8 @@
       "source": {
         "openai": "Φωνές OpenAI",
         "xai": "Φωνές Grok",
-        "inworld": "Φωνές Inworld"
+        "inworld": "Φωνές Inworld",
+        "gemini": "Φωνές Gemini"
       },
       "previousVoice": "Προηγούμενη φωνή",
       "nextVoice": "Επόμενη φωνή",
@@ -420,7 +421,7 @@
         "label": "Ανάγνωση φωναχτά",
         "ariaLabel": "Πάροχος ανάγνωσης φωναχτά",
         "openaiTitle": "Ανάγνωση απαντήσεων φωναχτά με OpenAI TTS",
-        "inworldTitle": "Ανάγνωση απαντήσεων φωναχτά με Inworld TTS",
+        "geminiTitle": "Ανάγνωση απαντήσεων φωναχτά με Gemini TTS",
         "description": "Εκφωνεί τις απαντήσεις με τη φωνή αυτού του παρόχου."
       }
     },

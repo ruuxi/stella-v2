@@ -24,14 +24,13 @@ const reserve = async (
     attemptId: string;
     leaseId: string;
     kind:
-      | "buffered"
       | "desktop_stream"
       | "hls"
-      | "oneshot_inworld"
+      | "oneshot_gemini"
       | "oneshot_openai";
     now: number;
     usage: {
-      provider: "inworld" | "openai";
+      provider: "gemini" | "openai";
       model: string;
       voice?: string;
       streaming: boolean;
@@ -47,13 +46,13 @@ const reserve = async (
     dispatchId: overrides.dispatchId ?? "dispatch-a",
     attemptId: overrides.attemptId ?? "attempt-a",
     leaseId: overrides.leaseId ?? "lease-a",
-    kind: overrides.kind ?? "buffered",
+    kind: overrides.kind ?? "hls",
     usage: overrides.usage ?? {
-      provider: overrides.kind === "oneshot_openai" ? "openai" : "inworld",
+      provider: overrides.kind === "oneshot_openai" ? "openai" : "gemini",
       model:
         overrides.kind === "oneshot_openai"
           ? "gpt-4o-mini-tts"
-          : "inworld-tts-1.5-max",
+          : "gemini-3.8-flash-lite-tts",
       voice: "voice-a",
       streaming:
         overrides.kind === "desktop_stream" || overrides.kind === "hls",
@@ -148,7 +147,7 @@ describe("TTS provider dispatch leases", () => {
       dispatchId: "dispatch-a",
       attemptId: "attempt-a",
       leaseId: "lease-a",
-      provider: "inworld",
+      provider: "gemini",
       status: "failed",
       requestChars: 400,
       synthesizedChars: 0,
@@ -434,7 +433,7 @@ describe("TTS provider dispatch leases", () => {
       dispatchId: "fenced-dispatch",
       attemptId: "fenced-attempt",
       leaseId: "fenced-lease",
-      kind: "oneshot_inworld",
+      kind: "oneshot_gemini",
     });
     const purge = await beginAndClaimCorePurge(t, "fenced-owner", "reset");
 
@@ -485,7 +484,7 @@ describe("TTS provider dispatch leases", () => {
       dispatchId: "ambiguous-dispatch",
       attemptId: "ambiguous-attempt",
       leaseId: "ambiguous-lease",
-      kind: "buffered",
+      kind: "hls",
     });
     await expect(
       t.mutation(
@@ -579,7 +578,7 @@ describe("TTS provider dispatch leases", () => {
         dispatchId,
         attemptId: "oneshot-attempt",
         leaseId: "oneshot-lease",
-        kind: "oneshot_inworld",
+        kind: "oneshot_gemini",
         now: TEST_NOW + 3,
       }),
     ).resolves.toMatchObject({ acquired: false, status: "canceled" });
@@ -589,7 +588,7 @@ describe("TTS provider dispatch leases", () => {
       dispatchId,
       attemptId: "oneshot-attempt",
       leaseId: "oneshot-lease",
-      kind: "oneshot_inworld",
+      kind: "oneshot_gemini",
       now: first.quiescentAfterAt,
     });
     expect(fallback).toMatchObject({ acquired: true, status: "reserved" });

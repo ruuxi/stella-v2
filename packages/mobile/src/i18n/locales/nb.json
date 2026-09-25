@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI-stemmer",
         "xai": "Grok-stemmer",
-        "inworld": "Inworld-stemmer"
+        "inworld": "Inworld-stemmer",
+        "gemini": "Gemini-stemmer"
       },
       "previousVoice": "Forrige stemme",
       "nextVoice": "Neste stemme",
@@ -420,7 +421,7 @@
         "label": "Les opp",
         "ariaLabel": "Leverandør for opplesing",
         "openaiTitle": "Les opp svar med OpenAI TTS",
-        "inworldTitle": "Les opp svar med Inworld TTS",
+        "geminiTitle": "Les opp svar med Gemini TTS",
         "description": "Leser svar høyt med stemmen til denne leverandøren."
       }
     },

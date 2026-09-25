@@ -409,7 +409,8 @@
       "source": {
         "openai": "Voix OpenAI",
         "xai": "Voix Grok",
-        "inworld": "Voix Inworld"
+        "inworld": "Voix Inworld",
+        "gemini": "Voix Gemini"
       },
       "previousVoice": "Voix précédente",
       "nextVoice": "Voix suivante",
@@ -420,7 +421,7 @@
         "label": "Lecture à voix haute",
         "ariaLabel": "Fournisseur de lecture à voix haute",
         "openaiTitle": "Lire les réponses à voix haute avec OpenAI TTS",
-        "inworldTitle": "Lire les réponses à voix haute avec Inworld TTS",
+        "geminiTitle": "Lire les réponses à voix haute avec Gemini TTS",
         "description": "Énonce les réponses à voix haute avec la voix de ce fournisseur."
       }
     },

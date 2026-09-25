@@ -409,7 +409,8 @@
       "source": {
         "openai": "קולות OpenAI",
         "xai": "קולות Grok",
-        "inworld": "קולות Inworld"
+        "inworld": "קולות Inworld",
+        "gemini": "קולות Gemini"
       },
       "previousVoice": "הקול הקודם",
       "nextVoice": "הקול הבא",
@@ -420,7 +421,7 @@
         "label": "הקראה",
         "ariaLabel": "ספק הקול להקראה",
         "openaiTitle": "הקרא תשובות באמצעות OpenAI TTS",
-        "inworldTitle": "הקרא תשובות באמצעות Inworld TTS",
+        "geminiTitle": "הקרא תשובות באמצעות Gemini TTS",
         "description": "מקריא תשובות בקול באמצעות הקול של ספק זה."
       }
     },

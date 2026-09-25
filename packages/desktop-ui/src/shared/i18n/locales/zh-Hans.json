@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI 语音",
         "xai": "Grok 语音",
-        "inworld": "Inworld 语音"
+        "inworld": "Inworld 语音",
+        "gemini": "Gemini 语音"
       },
       "previousVoice": "上一个语音",
       "nextVoice": "下一个语音",
@@ -420,7 +421,7 @@
         "label": "朗读",
         "ariaLabel": "朗读语音提供商",
         "openaiTitle": "使用 OpenAI TTS 朗读回复",
-        "inworldTitle": "使用 Inworld TTS 朗读回复",
+        "geminiTitle": "使用 Gemini TTS 朗读回复",
         "description": "使用此提供商的语音朗读回复。"
       }
     },

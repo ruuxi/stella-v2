@@ -409,7 +409,8 @@
       "source": {
         "openai": "OpenAI-Stimmen",
         "xai": "Grok-Stimmen",
-        "inworld": "Inworld-Stimmen"
+        "inworld": "Inworld-Stimmen",
+        "gemini": "Gemini-Stimmen"
       },
       "previousVoice": "Vorherige Stimme",
       "nextVoice": "Nächste Stimme",
@@ -420,7 +421,7 @@
         "label": "Vorlesen",
         "ariaLabel": "Anbieter für Vorlesen",
         "openaiTitle": "Antworten mit OpenAI TTS vorlesen",
-        "inworldTitle": "Antworten mit Inworld TTS vorlesen",
+        "geminiTitle": "Antworten mit Gemini TTS vorlesen",
         "description": "Liest Antworten mit der Stimme dieses Anbieters vor."
       }
     },

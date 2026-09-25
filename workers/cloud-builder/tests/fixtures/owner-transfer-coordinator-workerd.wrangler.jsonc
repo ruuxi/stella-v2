@@ -1,6 +1,9 @@
 {
   "name": "stella-owner-transfer-coordinator-workerd-acceptance",
   "main": "./owner-transfer-coordinator-workerd-worker.ts",
+  // The built-in cloud app skill imports its SKILL.md as text, as the
+  // production build does with esbuild's ".md" text loader.
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {

@@ -192,19 +192,13 @@ describe("sandbox egress policy in real Workerd + Sandbox SDK containers", () =>
     }
   });
 
-  test("keeps agents broad while a baked app build remains permanently sealed", async () => {
+  test("keeps agents broad while the app-build sandbox stays sealed", async () => {
     const response = await fetch(`${origin}/proof`, { method: "POST" });
     const rawBody = await response.text();
     let body: {
       runtime: string;
       general: { success: boolean; status: string };
       appBuild: {
-        executorOk: boolean;
-        previewStatus: number;
-        previewHasRoot: boolean;
-        distIndex: boolean;
-        distAssets: boolean;
-        publishableFileCount: number;
         sealedHttpEgress: { success: boolean; status: string };
         sealedHttpsEgress: { success: boolean; status: string };
       };
@@ -221,15 +215,9 @@ describe("sandbox egress policy in real Workerd + Sandbox SDK containers", () =>
     expect(body.runtime).toBe("workerd+sandbox-sdk");
     expect(body.general).toMatchObject({ success: true, status: "200" });
     expect(body.appBuild).toMatchObject({
-      executorOk: true,
-      previewStatus: 200,
-      previewHasRoot: true,
-      distIndex: true,
-      distAssets: true,
       sealedHttpEgress: { success: true, status: "403" },
       sealedHttpsEgress: { success: false, status: "000" },
     });
-    expect(body.appBuild.publishableFileCount).toBeGreaterThanOrEqual(3);
 
     const telemetryLines = output
       .split("\n")

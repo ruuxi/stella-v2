@@ -675,6 +675,8 @@ function AccountScopedChatPanelTab({
                               isTranscribing={dictation.isTranscribing}
                               disabled={dictation.isTranscribing}
                               onClick={dictation.toggle}
+                              onPointerEnter={dictation.prewarm}
+                              onFocus={dictation.prewarm}
                               title={
                                 dictation.error
                                   ? t("shell.chatSidebar.dictationError", {

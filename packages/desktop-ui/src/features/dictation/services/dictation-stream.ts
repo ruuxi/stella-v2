@@ -42,6 +42,17 @@ export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
   return entry.value;
 };
 
+/**
+ * Fetch what a press needs before the socket (relay config and a fresh Convex
+ * token) so the press itself goes straight to the handshake. Both are cached,
+ * so calling this on hover, focus, or mount is cheap.
+ */
+export const prewarmDictation = (): void => {
+  void Promise.all([loadDictationRealtimeConfig(), getConvexToken()]).catch(
+    () => undefined,
+  );
+};
+
 const exactBuffer = (pcm: Int16Array): ArrayBuffer =>
   pcm.buffer.slice(
     pcm.byteOffset,

@@ -738,6 +738,9 @@ const cmdLaunch = async (options) => {
   if (options.reuse && accountMode !== "anonymous")
     fail("--reuse applies to anonymous launches only; test accounts are minted per run.");
 
+  const fakeMic = options["fake-mic"] ? path.resolve(options["fake-mic"]) : null;
+  if (fakeMic && !existsSync(fakeMic)) fail(`--fake-mic file not found: ${fakeMic}`);
+
   const runId = randomUUID().slice(0, 8);
   const runDir = path.join(skillRoot, ".run", runId);
   let minted = null;
@@ -844,6 +847,15 @@ const cmdLaunch = async (options) => {
           "--ozone-platform=x11",
         );
       }
+    }
+    if (fakeMic) {
+      // Chromium plays the WAV as the only microphone, looping, and grants
+      // capture without a prompt. Used to drive dictation end to end.
+      electronArgs.push(
+        "--use-fake-device-for-media-stream",
+        "--use-fake-ui-for-media-stream",
+        `--use-file-for-fake-audio-capture=${fakeMic}`,
+      );
     }
     electronArgs.push("--remote-allow-origins=*");
     electronArgs.push(repoRoot, "--dev");

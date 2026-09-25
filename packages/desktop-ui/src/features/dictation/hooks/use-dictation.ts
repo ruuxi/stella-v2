@@ -24,7 +24,7 @@ import {
   isDictationSuperFastEnabled,
   type DictationSessionState,
 } from "@/features/dictation/services/dictation-session";
-import { loadDictationRealtimeConfig } from "@/features/dictation/services/dictation-stream";
+import { prewarmDictation } from "@/features/dictation/services/dictation-stream";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import {
   createDictationTranscriptPreview,
@@ -71,6 +71,8 @@ interface UseDictationOptions {
 }
 
 interface UseDictationResult {
+  /** Warm the dictation connection prerequisites; wire to mic hover/focus. */
+  prewarm: () => void;
   isRecording: boolean;
   isRecordingVisible: boolean;
   isTranscribing: boolean;
@@ -167,11 +169,14 @@ export const useDictation = ({
 
   stateRef.current = state;
 
-  // Warm the relay config while the composer is up so the first press only
-  // pays for the socket handshake.
+  // Keep the relay config and auth token warm while the composer is up, and
+  // again whenever the window regains focus (the token lasts ~30 minutes), so
+  // a press only pays for the socket handshake.
   useEffect(() => {
     if (disabled) return;
-    void loadDictationRealtimeConfig().catch(() => undefined);
+    prewarmDictation();
+    window.addEventListener("focus", prewarmDictation);
+    return () => window.removeEventListener("focus", prewarmDictation);
   }, [disabled]);
 
   // While listening, tick a 4-Hz timer for the visible mm:ss display.
@@ -409,6 +414,7 @@ export const useDictation = ({
     showControls,
     state,
     toggle,
+    prewarm: prewarmDictation,
     cancel,
     commitAndSend,
     levels,

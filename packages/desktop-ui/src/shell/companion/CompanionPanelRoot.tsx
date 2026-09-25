@@ -349,6 +349,8 @@ export function CompanionPanelRoot() {
                 : "companion.arc.dictate",
             )}
             onClick={dictation.toggle}
+            onPointerEnter={dictation.prewarm}
+            onFocus={dictation.prewarm}
           >
             <Mic size={17} strokeWidth={1.75} />
           </button>

@@ -26,7 +26,7 @@
  * provider attempt owns one durable receipt, preventing an admitted request
  * from escaping or duplicating its charge across a crash or lifecycle fence.
  */
-import { v } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import {
   internalMutation,
   type ActionCtx,
@@ -54,7 +54,7 @@ import { capabilityRequiredResponse } from "../http_shared/capability";
 
 export type ManagedGateStep = "rate" | "capability" | "usage";
 
-type GateFailure =
+export type GateFailure =
   | { ok: false; gate: "rate"; retryAfterMs: number }
   | { ok: false; gate: "capability"; denial: CapabilityDenial }
   | { ok: false; gate: "usage"; message: string; retryAfterMs: number };
@@ -138,6 +138,29 @@ const collapseAudience = (
   audience: ManagedModelAccessResult["modelAudience"],
 ): CapabilityAudience => toCapabilityAudience(audience) ?? "free";
 
+const enforceManagedGateArgs = {
+  ownerId: v.string(),
+  order: v.array(
+    v.union(v.literal("rate"), v.literal("capability"), v.literal("usage")),
+  ),
+  isAnonymous: v.optional(v.boolean()),
+  rateLimit: v.optional(
+    v.object({
+      scope: v.string(),
+      key: v.string(),
+      limit: v.number(),
+      windowMs: v.number(),
+      blockMs: v.optional(v.number()),
+    }),
+  ),
+  capability: v.optional(v.string()),
+  usage: v.optional(
+    v.object({
+      minimumRemainingMicroCents: v.optional(v.number()),
+    }),
+  ),
+};
+
 /**
  * Runs the usage-limit + rate-limit (+ optional capability) gates for a
  * managed HTTP route in ONE transaction. Reads billing at most once per gate
@@ -145,95 +168,79 @@ const collapseAudience = (
  * first failure short-circuits, so response precedence matches the legacy
  * serial flow exactly.
  */
-export const enforceManagedGate = internalMutation({
-  args: {
-    ownerId: v.string(),
-    order: v.array(
-      v.union(v.literal("rate"), v.literal("capability"), v.literal("usage")),
-    ),
-    isAnonymous: v.optional(v.boolean()),
-    rateLimit: v.optional(
-      v.object({
-        scope: v.string(),
-        key: v.string(),
-        limit: v.number(),
-        windowMs: v.number(),
-        blockMs: v.optional(v.number()),
-      }),
-    ),
-    capability: v.optional(v.string()),
-    usage: v.optional(
-      v.object({
-        minimumRemainingMicroCents: v.optional(v.number()),
-      }),
-    ),
-  },
-  returns: managedGateResultValidator,
-  handler: async (ctx: MutationCtx, args): Promise<ManagedGateResult> => {
-    // Capture the lifecycle generation in the gate transaction. The action
-    // carries this through final provider dispatch and asynchronous metering,
-    // so an account reset cannot be followed by a delayed write into its
-    // reopened generation.
-    const { generation: ownerGeneration } =
-      await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
-    let access: ManagedModelAccessResult | null = null;
-    const ensureAccess = async (): Promise<ManagedModelAccessResult> => {
-      if (!access) {
-        access = await runResolveManagedModelAccess(ctx, {
-          ownerId: args.ownerId,
-          ownerGeneration,
-          ...(args.isAnonymous !== undefined
-            ? { isAnonymous: args.isAnonymous }
-            : {}),
-        });
-      }
-      return access;
-    };
+export const runEnforceManagedGate = async (
+  ctx: MutationCtx,
+  args: ObjectType<typeof enforceManagedGateArgs>,
+): Promise<ManagedGateResult> => {
+  // Capture the lifecycle generation in the gate transaction. The action
+  // carries this through final provider dispatch and asynchronous metering,
+  // so an account reset cannot be followed by a delayed write into its
+  // reopened generation.
+  const { generation: ownerGeneration } =
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
+  let access: ManagedModelAccessResult | null = null;
+  const ensureAccess = async (): Promise<ManagedModelAccessResult> => {
+    if (!access) {
+      access = await runResolveManagedModelAccess(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration,
+        ...(args.isAnonymous !== undefined
+          ? { isAnonymous: args.isAnonymous }
+          : {}),
+      });
+    }
+    return access;
+  };
 
-    for (const step of args.order) {
-      if (step === "rate") {
-        if (!args.rateLimit) continue;
-        const rate = await runConsumeWebhookRateLimit(ctx, args.rateLimit);
-        if (!rate.allowed) {
-          return { ok: false, gate: "rate", retryAfterMs: rate.retryAfterMs };
-        }
-      } else if (step === "capability") {
-        if (!args.capability) continue;
-        const capability = args.capability as Capability;
-        const resolved = await ensureAccess();
-        const audience = collapseAudience(resolved.modelAudience);
-        if (!hasCapability(audience, capability)) {
-          return {
-            ok: false,
-            gate: "capability",
-            denial: buildCapabilityDenial(capability, audience),
-          };
-        }
-      } else if (step === "usage") {
-        if (!args.usage) continue;
-        const usage = await runEnforceManagedUsageLimit(ctx, {
-          ownerId: args.ownerId,
-          ownerGeneration,
-          ...(args.usage.minimumRemainingMicroCents !== undefined
-            ? {
-                minimumRemainingMicroCents:
-                  args.usage.minimumRemainingMicroCents,
-              }
-            : {}),
-        });
-        if (!usage.allowed) {
-          return {
-            ok: false,
-            gate: "usage",
-            message: usage.message,
-            retryAfterMs: usage.retryAfterMs,
-          };
-        }
+  for (const step of args.order) {
+    if (step === "rate") {
+      if (!args.rateLimit) continue;
+      const rate = await runConsumeWebhookRateLimit(ctx, args.rateLimit);
+      if (!rate.allowed) {
+        return { ok: false, gate: "rate", retryAfterMs: rate.retryAfterMs };
+      }
+    } else if (step === "capability") {
+      if (!args.capability) continue;
+      const capability = args.capability as Capability;
+      const resolved = await ensureAccess();
+      const audience = collapseAudience(resolved.modelAudience);
+      if (!hasCapability(audience, capability)) {
+        return {
+          ok: false,
+          gate: "capability",
+          denial: buildCapabilityDenial(capability, audience),
+        };
+      }
+    } else if (step === "usage") {
+      if (!args.usage) continue;
+      const usage = await runEnforceManagedUsageLimit(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration,
+        ...(args.usage.minimumRemainingMicroCents !== undefined
+          ? {
+              minimumRemainingMicroCents:
+                args.usage.minimumRemainingMicroCents,
+            }
+          : {}),
+      });
+      if (!usage.allowed) {
+        return {
+          ok: false,
+          gate: "usage",
+          message: usage.message,
+          retryAfterMs: usage.retryAfterMs,
+        };
       }
     }
+  }
 
-    return { ok: true, access, ownerGeneration };
-  },
+  return { ok: true, access, ownerGeneration };
+};
+
+export const enforceManagedGate = internalMutation({
+  args: enforceManagedGateArgs,
+  returns: managedGateResultValidator,
+  handler: runEnforceManagedGate,
 });
 
 export type ManagedGateSpec = {
@@ -294,31 +301,34 @@ export const runManagedGate = async (
       ownerGeneration: result.ownerGeneration,
     };
   }
+  return {
+    ok: false,
+    response: managedGateFailureResponse(
+      result,
+      origin,
+      spec.capabilityOptions,
+    ),
+  };
+};
 
+/** The exact `Response` a route returns for a failed managed gate. */
+export const managedGateFailureResponse = (
+  result: GateFailure,
+  origin: string | null,
+  capabilityOptions?: ManagedGateSpec["capabilityOptions"],
+): Response => {
   switch (result.gate) {
     case "rate":
-      return {
-        ok: false,
-        response: withCors(rateLimitResponse(result.retryAfterMs), origin),
-      };
+      return withCors(rateLimitResponse(result.retryAfterMs), origin);
     case "capability":
-      return {
-        ok: false,
-        response: capabilityRequiredResponse(
-          result.denial,
-          origin,
-          spec.capabilityOptions,
-        ),
-      };
+      return capabilityRequiredResponse(
+        result.denial,
+        origin,
+        capabilityOptions,
+      );
     case "usage":
-      return {
-        ok: false,
-        response: errorResponse(429, result.message, origin),
-      };
+      return errorResponse(429, result.message, origin);
     default:
-      return {
-        ok: false,
-        response: errorResponse(500, "Managed access gate failed.", origin),
-      };
+      return errorResponse(500, "Managed access gate failed.", origin);
   }
 };

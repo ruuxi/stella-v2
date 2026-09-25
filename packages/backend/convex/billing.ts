@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { makeFunctionReference } from "convex/server";
-import { ConvexError, v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer, type ObjectType } from "convex/values";
 import {
   action,
   internalAction,
@@ -4317,119 +4317,126 @@ export const finalizeManagedDispatchBillingFromReceipt = async (
 };
 
 /** Reserve one exact physical managed-provider request. */
-export const acquireManagedProviderDispatchInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    executionId: v.string(),
-    attemptId: v.string(),
-    leaseId: v.string(),
-    billing: v.optional(managedDispatchBillingEnvelopeValidator),
-    providerTimeoutMs: v.optional(v.number()),
-    now: v.number(),
-  },
-  returns: managedDispatchTimingValidator,
-  handler: async (ctx, args) => {
-    const providerTimeoutMs =
-      args.providerTimeoutMs ?? MANAGED_PROVIDER_DISPATCH_DEADLINE_MS;
+const acquireManagedProviderDispatchArgs = {
+  ownerId: v.string(),
+  ownerGeneration: v.string(),
+  executionId: v.string(),
+  attemptId: v.string(),
+  leaseId: v.string(),
+  billing: v.optional(managedDispatchBillingEnvelopeValidator),
+  providerTimeoutMs: v.optional(v.number()),
+  now: v.number(),
+};
+
+export const runAcquireManagedProviderDispatch = async (
+  ctx: MutationCtx,
+  args: ObjectType<typeof acquireManagedProviderDispatchArgs>,
+): Promise<Infer<typeof managedDispatchTimingValidator>> => {
+  const providerTimeoutMs =
+    args.providerTimeoutMs ?? MANAGED_PROVIDER_DISPATCH_DEADLINE_MS;
+  if (
+    !Number.isSafeInteger(providerTimeoutMs) ||
+    providerTimeoutMs <= 0 ||
+    providerTimeoutMs > 60 * 60_000
+  ) {
+    throw new Error("Managed provider timeout must be between 1 ms and 1 hour.");
+  }
+  const executionId = requireManagedDispatchId(
+    args.executionId,
+    "execution id",
+  );
+  const attemptId = requireManagedDispatchId(args.attemptId, "attempt id");
+  const leaseId = requireManagedDispatchId(args.leaseId, "lease id");
+  const billing = args.billing
+    ? normalizeManagedDispatchBillingEnvelope(args.billing)
+    : undefined;
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
+
+  const existing = await ctx.db
+    .query("billing_managed_dispatch_leases")
+    .withIndex("by_attemptId", (q) => q.eq("attemptId", attemptId))
+    .unique();
+  if (existing) {
     if (
-      !Number.isSafeInteger(providerTimeoutMs) ||
-      providerTimeoutMs <= 0 ||
-      providerTimeoutMs > 60 * 60_000
+      existing.ownerId !== args.ownerId ||
+      existing.ownerGeneration !== args.ownerGeneration ||
+      existing.executionId !== executionId ||
+      existing.leaseId !== leaseId ||
+      !managedDispatchBillingEnvelopeMatches(existing, billing) ||
+      existing.providerDeadlineAt - existing.createdAt !== providerTimeoutMs
     ) {
-      throw new Error("Managed provider timeout must be between 1 ms and 1 hour.");
+      throw new Error("Managed provider attempt id was reused.");
     }
-    const executionId = requireManagedDispatchId(
-      args.executionId,
-      "execution id",
-    );
-    const attemptId = requireManagedDispatchId(args.attemptId, "attempt id");
-    const leaseId = requireManagedDispatchId(args.leaseId, "lease id");
-    const billing = args.billing
-      ? normalizeManagedDispatchBillingEnvelope(args.billing)
-      : undefined;
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-
-    const existing = await ctx.db
-      .query("billing_managed_dispatch_leases")
-      .withIndex("by_attemptId", (q) => q.eq("attemptId", attemptId))
-      .unique();
-    if (existing) {
-      if (
-        existing.ownerId !== args.ownerId ||
-        existing.ownerGeneration !== args.ownerGeneration ||
-        existing.executionId !== executionId ||
-        existing.leaseId !== leaseId ||
-        !managedDispatchBillingEnvelopeMatches(existing, billing) ||
-        existing.providerDeadlineAt - existing.createdAt !== providerTimeoutMs
-      ) {
-        throw new Error("Managed provider attempt id was reused.");
-      }
-      if (existing.state !== "active") {
-        throw new Error("Managed provider attempt is already terminal.");
-      }
-      return {
-        providerDeadlineAt: existing.providerDeadlineAt,
-        leaseExpiresAt: existing.leaseExpiresAt,
-        quiescentAfterAt: existing.quiescentAfterAt,
-      };
+    if (existing.state !== "active") {
+      throw new Error("Managed provider attempt is already terminal.");
     }
+    return {
+      providerDeadlineAt: existing.providerDeadlineAt,
+      leaseExpiresAt: existing.leaseExpiresAt,
+      quiescentAfterAt: existing.quiescentAfterAt,
+    };
+  }
 
-    const activeForExecution = await ctx.db
-      .query("billing_managed_dispatch_leases")
-      .withIndex("by_ownerId_and_executionId_and_state_and_createdAt", (q) =>
-        q
-          .eq("ownerId", args.ownerId)
-          .eq("executionId", executionId)
-          .eq("state", "active"),
-      )
-      .first();
-    if (activeForExecution) {
-      throw new Error("Managed provider execution already has an active try.");
-    }
+  const activeForExecution = await ctx.db
+    .query("billing_managed_dispatch_leases")
+    .withIndex("by_ownerId_and_executionId_and_state_and_createdAt", (q) =>
+      q
+        .eq("ownerId", args.ownerId)
+        .eq("executionId", executionId)
+        .eq("state", "active"),
+    )
+    .first();
+  if (activeForExecution) {
+    throw new Error("Managed provider execution already has an active try.");
+  }
 
-    const providerDeadlineAt = args.now + providerTimeoutMs;
-    const leaseExpiresAt =
-      providerDeadlineAt +
-      (MANAGED_PROVIDER_DISPATCH_LEASE_MS - MANAGED_PROVIDER_DISPATCH_DEADLINE_MS);
-    const quiescentAfterAt =
-      leaseExpiresAt + MANAGED_PROVIDER_DISPATCH_QUIESCENCE_MS;
-    await ctx.db.insert("billing_managed_dispatch_leases", {
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      executionId,
-      attemptId,
-      leaseId,
-      state: "active",
-      providerDeadlineAt,
-      leaseExpiresAt,
+  const providerDeadlineAt = args.now + providerTimeoutMs;
+  const leaseExpiresAt =
+    providerDeadlineAt +
+    (MANAGED_PROVIDER_DISPATCH_LEASE_MS - MANAGED_PROVIDER_DISPATCH_DEADLINE_MS);
+  const quiescentAfterAt =
+    leaseExpiresAt + MANAGED_PROVIDER_DISPATCH_QUIESCENCE_MS;
+  await ctx.db.insert("billing_managed_dispatch_leases", {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    executionId,
+    attemptId,
+    leaseId,
+    state: "active",
+    providerDeadlineAt,
+    leaseExpiresAt,
+    quiescentAfterAt,
+    cleanupAt: quiescentAfterAt,
+    ...(billing
+      ? {
+          billing: {
+            ...billing,
+            providerState: "reserved" as const,
+            billingState: "pending" as const,
+          },
+        }
+      : {}),
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  if (billing) {
+    await ctx.scheduler.runAt(
       quiescentAfterAt,
-      cleanupAt: quiescentAfterAt,
-      ...(billing
-        ? {
-            billing: {
-              ...billing,
-              providerState: "reserved" as const,
-              billingState: "pending" as const,
-            },
-          }
-        : {}),
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
-    if (billing) {
-      await ctx.scheduler.runAt(
-        quiescentAfterAt,
-        internal.billing.finalizeManagedProviderDispatchBillingInternal,
-        { attemptId, leaseId },
-      );
-    }
-    return { providerDeadlineAt, leaseExpiresAt, quiescentAfterAt };
-  },
+      internal.billing.finalizeManagedProviderDispatchBillingInternal,
+      { attemptId, leaseId },
+    );
+  }
+  return { providerDeadlineAt, leaseExpiresAt, quiescentAfterAt };
+};
+
+export const acquireManagedProviderDispatchInternal = internalMutation({
+  args: acquireManagedProviderDispatchArgs,
+  returns: managedDispatchTimingValidator,
+  handler: runAcquireManagedProviderDispatch,
 });
 
 /**
@@ -4438,103 +4445,110 @@ export const acquireManagedProviderDispatchInternal = internalMutation({
  * `may_have_dispatched` marker; after this point a crash is conservatively
  * billable because Stella can no longer prove the request stayed local.
  */
+const markManagedProviderDispatchMayHaveStartedArgs = {
+  ownerId: v.string(),
+  ownerGeneration: v.string(),
+  executionId: v.string(),
+  attemptId: v.string(),
+  leaseId: v.string(),
+  billing: managedDispatchBillingEnvelopeValidator,
+  turnAuthority: v.optional(v.object({ turnId: v.string() })),
+  now: v.number(),
+};
+
+export const runMarkManagedProviderDispatchMayHaveStarted = async (
+  ctx: MutationCtx,
+  args: ObjectType<typeof markManagedProviderDispatchMayHaveStartedArgs>,
+): Promise<boolean> => {
+  const billing = normalizeManagedDispatchBillingEnvelope(args.billing);
+  const row = await ctx.db
+    .query("billing_managed_dispatch_leases")
+    .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
+    .unique();
+  if (!row) return false;
+  if (
+    row.ownerId !== args.ownerId ||
+    row.ownerGeneration !== args.ownerGeneration ||
+    row.executionId !== args.executionId ||
+    row.leaseId !== args.leaseId ||
+    !managedDispatchBillingEnvelopeMatches(row, billing)
+  ) {
+    throw new Error(
+      "Managed provider dispatch marker lost exact authority.",
+    );
+  }
+  if (row.state !== "active" || row.billing?.billingState !== "pending") {
+    throw new Error("Managed provider dispatch marker is already closed.");
+  }
+  if (row.billing.providerState === "may_have_dispatched") return true;
+
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
+  if (args.turnAuthority) {
+    // The turn capability authenticated the caller; the projected turn
+    // row, once it exists, is the only thing that can say the turn ended.
+    const turn = await ctx.db
+      .query("agent_turns")
+      .withIndex("by_turnId", (q) =>
+        q.eq("turnId", args.turnAuthority!.turnId),
+      )
+      .unique();
+    if (
+      turn &&
+      (turn.ownerId !== args.ownerId ||
+        turn.status !== "running" ||
+        turn.terminalKind)
+    ) {
+      throw new ConvexError({
+        code: "TURN_NOT_ACTIVE",
+        message: "Cloud turn is no longer active.",
+      });
+    }
+  }
+  const admission = await runEnforceManagedUsageLimit(ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    minimumRemainingMicroCents:
+      billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND
+        ? billing.chargeMicroCents
+        : billing.fallbackCostMicroCents,
+  });
+  if (!admission.allowed) {
+    throw new ConvexError({
+      code: "USAGE_LIMIT_REACHED",
+      message: admission.message,
+      retryAfterMs: admission.retryAfterMs,
+    });
+  }
+  const reservedMicroCents =
+    billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND
+      ? billing.chargeMicroCents
+      : billing.fallbackCostMicroCents;
+  await adjustManagedUsageReservationAuthorized(ctx, {
+    ownerId: row.ownerId,
+    deltaMicroCents: reservedMicroCents,
+    now: args.now,
+  });
+  await ctx.db.patch(row._id, {
+    usageReservationState: "active",
+    usageReservedMicroCents: reservedMicroCents,
+    billing: {
+      ...row.billing,
+      providerState: "may_have_dispatched",
+    },
+    updatedAt: args.now,
+  });
+  return true;
+};
+
 export const markManagedProviderDispatchMayHaveStartedInternal =
   internalMutation({
-    args: {
-      ownerId: v.string(),
-      ownerGeneration: v.string(),
-      executionId: v.string(),
-      attemptId: v.string(),
-      leaseId: v.string(),
-      billing: managedDispatchBillingEnvelopeValidator,
-      turnAuthority: v.optional(v.object({ turnId: v.string() })),
-      now: v.number(),
-    },
+    args: markManagedProviderDispatchMayHaveStartedArgs,
     returns: v.boolean(),
-    handler: async (ctx, args) => {
-      const billing = normalizeManagedDispatchBillingEnvelope(args.billing);
-      const row = await ctx.db
-        .query("billing_managed_dispatch_leases")
-        .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
-        .unique();
-      if (!row) return false;
-      if (
-        row.ownerId !== args.ownerId ||
-        row.ownerGeneration !== args.ownerGeneration ||
-        row.executionId !== args.executionId ||
-        row.leaseId !== args.leaseId ||
-        !managedDispatchBillingEnvelopeMatches(row, billing)
-      ) {
-        throw new Error(
-          "Managed provider dispatch marker lost exact authority.",
-        );
-      }
-      if (row.state !== "active" || row.billing?.billingState !== "pending") {
-        throw new Error("Managed provider dispatch marker is already closed.");
-      }
-      if (row.billing.providerState === "may_have_dispatched") return true;
-
-      await assertOwnerMigrationWriteAllowed(
-        ctx,
-        args.ownerId,
-        args.ownerGeneration,
-      );
-      if (args.turnAuthority) {
-        // The turn capability authenticated the caller; the projected turn
-        // row, once it exists, is the only thing that can say the turn ended.
-        const turn = await ctx.db
-          .query("agent_turns")
-          .withIndex("by_turnId", (q) =>
-            q.eq("turnId", args.turnAuthority!.turnId),
-          )
-          .unique();
-        if (
-          turn &&
-          (turn.ownerId !== args.ownerId ||
-            turn.status !== "running" ||
-            turn.terminalKind)
-        ) {
-          throw new ConvexError({
-            code: "TURN_NOT_ACTIVE",
-            message: "Cloud turn is no longer active.",
-          });
-        }
-      }
-      const admission = await runEnforceManagedUsageLimit(ctx, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        minimumRemainingMicroCents:
-          billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND
-            ? billing.chargeMicroCents
-            : billing.fallbackCostMicroCents,
-      });
-      if (!admission.allowed) {
-        throw new ConvexError({
-          code: "USAGE_LIMIT_REACHED",
-          message: admission.message,
-          retryAfterMs: admission.retryAfterMs,
-        });
-      }
-      const reservedMicroCents =
-        billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND
-          ? billing.chargeMicroCents
-          : billing.fallbackCostMicroCents;
-      await adjustManagedUsageReservationAuthorized(ctx, {
-        ownerId: row.ownerId,
-        deltaMicroCents: reservedMicroCents,
-        now: args.now,
-      });
-      await ctx.db.patch(row._id, {
-        usageReservationState: "active",
-        usageReservedMicroCents: reservedMicroCents,
-        billing: {
-          ...row.billing,
-          providerState: "may_have_dispatched",
-        },
-        updatedAt: args.now,
-      });
-      return true;
-    },
+    handler: runMarkManagedProviderDispatchMayHaveStarted,
   });
 
 /**

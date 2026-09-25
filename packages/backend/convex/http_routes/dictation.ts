@@ -7,7 +7,6 @@
  * audio after the stream closes.
  */
 import type { HttpRouter } from "convex/server";
-import { ConvexError } from "convex/values";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
@@ -18,39 +17,22 @@ import {
 } from "../http_shared/cors";
 import { authRequiredResponse } from "../http_shared/auth";
 import { dollarsToMicroCents } from "../lib/billing_money";
-import type { ManagedDispatchBillingEnvelope } from "../lib/managed_dispatch";
-import { runManagedGate } from "../lib/gate_and_meter";
+import { managedGateFailureResponse } from "../lib/gate_and_meter";
+import {
+  MUSE_DICTATION_MODEL,
+  MUSE_MAX_SESSION_MS,
+  MUSE_STT_USD_PER_SECOND,
+  PCM_BYTES_PER_SECOND,
+  SESSION_ID_PATTERN,
+  sessionAuthority,
+  sessionBilling,
+} from "../dictation_sessions";
 
-const DICTATION_RATE_LIMIT = 30;
-const DICTATION_RATE_WINDOW_MS = 60_000;
-const PCM_BYTES_PER_SECOND = 16_000 * 2;
-const SESSION_ID_PATTERN = /^muse_[0-9a-f-]{36}$/u;
-
-export const MUSE_DICTATION_MODEL = "muse-voice-transcribe-1.0";
-export const MUSE_STT_USD_PER_SECOND = 0.18 / 3600;
-export const MUSE_MAX_SESSION_MS = 60 * 60_000;
-
-const sessionAuthority = (
-  ownerId: string,
-  ownerGeneration: string,
-  sessionId: string,
-) => ({
-  ownerId,
-  ownerGeneration,
-  executionId: sessionId,
-  attemptId: sessionId,
-  leaseId: sessionId,
-});
-const sessionBilling = (
-  sessionId: string,
-  fallbackCostMicroCents: number,
-): ManagedDispatchBillingEnvelope => ({
-  kind: "managed_usage",
-  requestFingerprint: `dictation:${sessionId}`,
-  agentType: "service:dictation",
-  model: MUSE_DICTATION_MODEL,
-  fallbackCostMicroCents,
-});
+export {
+  MUSE_DICTATION_MODEL,
+  MUSE_MAX_SESSION_MS,
+  MUSE_STT_USD_PER_SECOND,
+} from "../dictation_sessions";
 
 const hasBuilderAuthorization = (request: Request): boolean => {
   const secret = process.env.BUILDER_SERVICE_SECRET?.trim();
@@ -108,6 +90,7 @@ export const registerDictationRoutes = (http: HttpRouter) => {
       }
       const body = (await request.json().catch(() => null)) as {
         ownerId?: unknown;
+        sessionId?: unknown;
       } | null;
       const ownerId =
         typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
@@ -115,93 +98,42 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         return Response.json({ error: "ownerId required" }, { status: 400 });
       }
 
-      const gate = await runManagedGate(ctx, null, {
+      // The relay may choose the session id so it can open the provider
+      // socket while this runs; the handshake still waits for the commit.
+      const requestedSessionId =
+        typeof body?.sessionId === "string" ? body.sessionId : undefined;
+      if (
+        requestedSessionId !== undefined &&
+        !SESSION_ID_PATTERN.test(requestedSessionId)
+      ) {
+        return Response.json({ error: "Invalid sessionId" }, { status: 400 });
+      }
+      const prepared = await ctx.runMutation(internal.dictation_sessions.prepare, {
         ownerId,
-        order: ["usage", "rate"],
-        usage: {},
-        rateLimit: {
-          scope: "dictation_transcribe",
-          key: ownerId,
-          limit: DICTATION_RATE_LIMIT,
-          windowMs: DICTATION_RATE_WINDOW_MS,
-          blockMs: DICTATION_RATE_WINDOW_MS,
-        },
+        sessionId: requestedSessionId ?? `muse_${crypto.randomUUID()}`,
+        now: Date.now(),
       });
-      if (!gate.ok) return gate.response;
-
-      const remaining = await ctx.runQuery(
-        internal.dictation_sessions.remainingAllowance,
-        {
-          ownerId,
-          ownerGeneration: gate.ownerGeneration,
-        },
-      );
-      const costPerSecond = dollarsToMicroCents(MUSE_STT_USD_PER_SECOND);
-      const maxSeconds =
-        remaining === null
-          ? MUSE_MAX_SESSION_MS / 1000
-          : Math.min(
-              MUSE_MAX_SESSION_MS / 1000,
-              Math.floor(remaining / costPerSecond),
-            );
-      if (maxSeconds < 1)
-        return Response.json(
-          {
-            error: "Your Stella usage allowance is too low to start dictation.",
-            code: "usage_limit_reached",
-          },
-          { status: 429 },
-        );
-      const maxSessionMs = maxSeconds * 1000;
-
-      const sessionId = `muse_${crypto.randomUUID()}`;
-      const authority = sessionAuthority(
-        ownerId,
-        gate.ownerGeneration,
-        sessionId,
-      );
-      const billing = sessionBilling(sessionId, maxSeconds * costPerSecond);
-      const timing = await ctx.runMutation(
-        internal.billing.acquireManagedProviderDispatchInternal,
-        {
-          ...authority,
-          billing,
-          providerTimeoutMs: maxSessionMs,
-          now: Date.now(),
-        },
-      );
-      // Commit the reservation before the relay may open the provider socket.
-      let marked: boolean;
-      try {
-        marked = await ctx.runMutation(
-          internal.billing.markManagedProviderDispatchMayHaveStartedInternal,
-          {
-            ...authority,
-            billing,
-            now: Date.now(),
-          },
-        );
-      } catch (error) {
-        const data = error instanceof ConvexError ? error.data : null;
-        if (
-          data &&
-          typeof data === "object" &&
-          data.code === "USAGE_LIMIT_REACHED"
-        )
+      if (prepared.ok) {
+        const { ok: _ok, ...session } = prepared;
+        return Response.json(session);
+      }
+      switch (prepared.reason) {
+        case "rate":
+          return managedGateFailureResponse(
+            { ok: false, gate: "rate", retryAfterMs: prepared.retryAfterMs },
+            null,
+          );
+        case "usage":
           return Response.json(
-            { error: data.message, code: "usage_limit_reached" },
+            { error: prepared.message, code: "usage_limit_reached" },
             { status: 429 },
           );
-        throw error;
+        default:
+          return Response.json(
+            { error: "Session unavailable" },
+            { status: 409 },
+          );
       }
-      if (!marked)
-        return Response.json({ error: "Session unavailable" }, { status: 409 });
-      return Response.json({
-        sessionId,
-        ownerGeneration: gate.ownerGeneration,
-        providerDeadlineAt: timing.providerDeadlineAt,
-        maxAudioBytes: maxSeconds * PCM_BYTES_PER_SECOND,
-      });
     }),
   });
 

@@ -224,6 +224,24 @@ describe("Muse realtime dictation", () => {
       ).toBe(1);
     },
   );
+  it("reserves the session id the relay chose and rejects malformed ones", async () => {
+    const t = createTest();
+    const sessionId = `muse_${crypto.randomUUID()}`;
+    const response = await post(t, "prepare", { ownerId, sessionId });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ sessionId });
+    expect(
+      await t.run((ctx) =>
+        ctx.db.query("billing_managed_dispatch_leases").first(),
+      ),
+    ).toMatchObject({
+      attemptId: sessionId,
+      billing: { providerState: "may_have_dispatched" },
+    });
+    expect(
+      (await post(t, "prepare", { ownerId, sessionId: "muse_nope" })).status,
+    ).toBe(400);
+  });
   it("rejects provider leases beyond one hour", async () => {
     const t = createTest();
     await expect(

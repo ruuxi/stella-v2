@@ -109,9 +109,10 @@ UiState (which is Main-owned).
 Cloud is the default. The desktop preference persists on this computer and
 is mirrored into `ChatStoreProvider` and runtime configuration. Local chats
 use a separate `local_` conversation namespace, active selection, and tab
-scope. Their SQLite transcripts are excluded from the legacy cloud importer;
-switching modes never migrates history. Each run retains its own storage mode
-so background work can finish safely after the displayed history changes.
+scope. Existing SQLite transcripts remain on this computer. Startup, sign-in,
+and switching modes never upload or migrate history. Each run retains its own
+storage mode so background work can finish safely after the displayed history
+changes.
 
 ### Workspace
 

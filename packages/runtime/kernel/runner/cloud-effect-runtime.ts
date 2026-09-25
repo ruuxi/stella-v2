@@ -1,8 +1,8 @@
 /**
  * The one module-level ManagedRuntime for the runner's cloud journal/retry
  * writers (M5 kernel/runner cloud pass: cloud-transcript-write,
- * cloud-agent-lifecycle, cloud-spawn-dispatch, computer-agent-cloud-records,
- * legacy-chat-cloud-import), plus the small Effect combinators they share.
+ * cloud-agent-lifecycle, cloud-spawn-dispatch, computer-agent-cloud-records),
+ * plus the small Effect combinators they share.
  *
  * House conventions (docs/effect-architecture.md, kernel/tools/effect-runtime.ts,
  * kernel/connectors/effect-runtime.ts):

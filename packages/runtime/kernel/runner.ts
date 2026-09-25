@@ -15,7 +15,6 @@ import { createRuntimeInitialization } from "./runner/runtime-initialization.js"
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { createCloudAgentLifecycleMonitor } from "./runner/cloud-agent-lifecycle.js";
 import { createComputerAgentCloudRecords } from "./runner/computer-agent-cloud-records.js";
-import { createLegacyChatCloudImporter } from "./runner/legacy-chat-cloud-import.js";
 import { parseCanonicalCloudHistory } from "./runner/orchestrator-launch.js";
 import { buildRuntimeSystemPrompt } from "./agent-runtime/run-preparation.js";
 import { decorateUserTranscriptContent } from "./agent-runtime/transcript-decoration.js";
@@ -179,12 +178,10 @@ export const createStellaHostRunner = (
 ): RunnerPublicApi => {
   const context = createRunnerContext(options);
   let restartCloudAgentLifecycle = () => {};
-  let resumeLegacyChatCloudImport = () => {};
   let resumeComputerAgentCloudRecords = () => {};
   const convexSession = createConvexSession(context, {
     onAuthTokenSet: () => {
       restartCloudAgentLifecycle();
-      resumeLegacyChatCloudImport();
       resumeComputerAgentCloudRecords();
     },
   });
@@ -212,83 +209,8 @@ export const createStellaHostRunner = (
   }
   context.state.webSearch = convexSession.webSearch;
 
-  const requireConvexClient = () => {
-    const client = convexSession.ensureConvexClient();
-    if (!client) {
-      throw new Error("Cloud conversation migration is not configured.");
-    }
-    return client;
-  };
-  const legacyChatCloudImporter = createLegacyChatCloudImporter({
-    deviceId: context.deviceId,
-    store: context.runtimeStore,
-    cloudTranscript: context.cloudTranscript,
-    hasAuthToken: () => Boolean(context.state.authToken?.trim()),
-    cloud: {
-      getOwnerGeneration: async () => {
-        const identity = (await (requireConvexClient() as any).query(
-          (
-            context.convexApi as {
-              execution_placement: {
-                getMyExecutionPlacementIdentity: unknown;
-              };
-            }
-          ).execution_placement.getMyExecutionPlacementIdentity,
-          {},
-        )) as { ownerGeneration?: unknown } | null;
-        if (typeof identity?.ownerGeneration !== "string") {
-          throw new Error("Cloud owner generation is unavailable.");
-        }
-        return identity.ownerGeneration;
-      },
-      getOwnershipMigrationStatus: async () =>
-        (await (requireConvexClient() as any).query(
-          (
-            context.convexApi as {
-              auth_migration: {
-                getMyOwnershipMigrationStatus: unknown;
-              };
-            }
-          ).auth_migration.getMyOwnershipMigrationStatus,
-          {},
-        )) as {
-          status: "pending" | "running" | "failed" | "complete";
-        } | null,
-      getConversation: async (conversationId) =>
-        (await (requireConvexClient() as any).query(
-          (
-            context.convexApi as {
-              cloud_apps: { getMyConversation: unknown };
-            }
-          ).cloud_apps.getMyConversation,
-          { conversationId },
-        )) as { conversationId: string } | null,
-      createConversation: async ({
-        clientCreateId,
-        expectedOwnerGeneration,
-        title,
-      }) =>
-        (await (requireConvexClient() as any).mutation(
-          (
-            context.convexApi as {
-              cloud_apps: { createMyConversation: unknown };
-            }
-          ).cloud_apps.createMyConversation,
-          {
-            clientCreateId,
-            expectedOwnerGeneration,
-            ...(title ? { title } : {}),
-          },
-        )) as { conversationId: string },
-    },
-    onLog: (level, event, fields) => {
-      const message = `[runner] ${event}`;
-      if (level === "error") console.warn(message, fields);
-      else console.info(message, fields);
-    },
-  });
-  resumeLegacyChatCloudImport = legacyChatCloudImporter.resume;
-  legacyChatCloudImporter.resume();
+  // Local history stays on this device. Authentication and startup must not
+  // upload existing transcripts or wait for a history transfer.
 
   const computerAgentCloudRecords = createComputerAgentCloudRecords({
     convexApi: context.convexApi,
@@ -578,7 +500,6 @@ export const createStellaHostRunner = (
     start: runtimeInitialization.start,
     stop: async () => {
       cloudAgentLifecycle.stop();
-      legacyChatCloudImporter.stop();
       await runtimeInitialization.stop();
     },
     waitUntilInitialized: async () => {

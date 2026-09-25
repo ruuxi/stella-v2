@@ -24,7 +24,10 @@ import {
   isDictationSuperFastEnabled,
   type DictationSessionState,
 } from "@/features/dictation/services/dictation-session";
-import { prewarmDictation } from "@/features/dictation/services/dictation-stream";
+import {
+  prewarmDictation,
+  prewarmDictationSocket,
+} from "@/features/dictation/services/dictation-stream";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import {
   createDictationTranscriptPreview,
@@ -71,7 +74,7 @@ interface UseDictationOptions {
 }
 
 interface UseDictationResult {
-  /** Warm the dictation connection prerequisites; wire to mic hover/focus. */
+  /** Connect ahead of a likely press; wire to mic hover and focus. */
   prewarm: () => void;
   isRecording: boolean;
   isRecordingVisible: boolean;
@@ -414,7 +417,7 @@ export const useDictation = ({
     showControls,
     state,
     toggle,
-    prewarm: prewarmDictation,
+    prewarm: prewarmDictationSocket,
     cancel,
     commitAndSend,
     levels,

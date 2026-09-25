@@ -53,6 +53,103 @@ export const prewarmDictation = (): void => {
   );
 };
 
+/** A likely press: also connect the relay socket ahead of it. */
+export const prewarmDictationSocket = (): void => {
+  prewarmDictation();
+  warmDictationSocket();
+};
+
+/**
+ * Open an authenticated relay socket in deferred-start mode: the relay
+ * accepts it without reserving anything until the client sends `start`.
+ */
+const connectRelay = async (): Promise<WebSocket> => {
+  const [config, token] = await Promise.all([
+    loadDictationRealtimeConfig(),
+    getConvexToken(),
+  ]);
+  if (!token) throw new Error("Sign in to Stella to use dictation.");
+  const base = getStellaInteriorBridge()?.gatewayOrigin ?? config.relayOrigin;
+  const url = new URL("/dictation/socket", base);
+  url.searchParams.set("start", "deferred");
+  if (url.protocol === "https:") url.protocol = "wss:";
+  else if (url.protocol === "http:") url.protocol = "ws:";
+
+  return await new Promise<WebSocket>((resolve, reject) => {
+    const socket = new WebSocket(url.toString(), [
+      "stella.v1",
+      `stella.token.${token}`,
+    ]);
+    socket.binaryType = "arraybuffer";
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error("Dictation took too long to connect."));
+    }, OPEN_TIMEOUT_MS);
+    socket.onopen = () => {
+      clearTimeout(timer);
+      socket.onopen = null;
+      socket.onclose = null;
+      resolve(socket);
+    };
+    socket.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("Could not connect to dictation."));
+    };
+    socket.onclose = () => {
+      clearTimeout(timer);
+      reject(new Error("Could not connect to dictation."));
+    };
+  });
+};
+
+/** Close an unused warm socket before the relay's 60 s idle limit. */
+const WARM_SOCKET_TTL_MS = 50_000;
+let warmSocket: { socket: Promise<WebSocket>; expiresAt: number } | null =
+  null;
+
+/**
+ * Connect ahead of a likely press (mic hover or focus). The socket holds no
+ * reservation and no provider session until a press sends `start`.
+ */
+export const warmDictationSocket = (): void => {
+  if (warmSocket && Date.now() < warmSocket.expiresAt) return;
+  const entry = {
+    socket: connectRelay(),
+    expiresAt: Date.now() + WARM_SOCKET_TTL_MS,
+  };
+  warmSocket = entry;
+  entry.socket.then(
+    (socket) => {
+      socket.onclose = () => {
+        if (warmSocket === entry) warmSocket = null;
+      };
+      setTimeout(() => {
+        if (warmSocket !== entry) return;
+        warmSocket = null;
+        socket.close(1000, "Dictation idle");
+      }, Math.max(0, entry.expiresAt - Date.now()));
+    },
+    () => {
+      if (warmSocket === entry) warmSocket = null;
+    },
+  );
+};
+
+/** Claim the warm socket if one is usable, else fall back to a fresh one. */
+const takeWarmSocket = (): Promise<WebSocket> | null => {
+  const entry = warmSocket;
+  warmSocket = null;
+  if (!entry || Date.now() >= entry.expiresAt) {
+    void entry?.socket.then((socket) => socket.close(1000), () => undefined);
+    return null;
+  }
+  return entry.socket.then(
+    (socket) =>
+      socket.readyState === WebSocket.OPEN ? socket : connectRelay(),
+    () => connectRelay(),
+  );
+};
+
 const exactBuffer = (pcm: Int16Array): ArrayBuffer =>
   pcm.buffer.slice(
     pcm.byteOffset,
@@ -67,58 +164,52 @@ export class DictationStream {
   private finishResolve: ((value: string) => void) | null = null;
   private finishReject: ((reason: Error) => void) | null = null;
   private cancelled = false;
+  private failed = false;
 
-  constructor(private readonly onPartial?: (text: string) => void) {}
+  constructor(
+    private readonly onPartial?: (text: string) => void,
+    /** The relay ended the session while recording (not while finishing). */
+    private readonly onFailure?: (error: Error) => void,
+  ) {}
+
+  private fail(error: Error): void {
+    if (this.failed || this.cancelled) return;
+    this.failed = true;
+    this.onFailure?.(error);
+  }
 
   async open(): Promise<void> {
-    const [config, token] = await Promise.all([
-      loadDictationRealtimeConfig(),
-      getConvexToken(),
-    ]);
-    if (this.cancelled) throw new Error("Dictation cancelled.");
-    if (!token) throw new Error("Sign in to Stella to use dictation.");
-    const base = getStellaInteriorBridge()?.gatewayOrigin ?? config.relayOrigin;
-    const url = new URL("/dictation/socket", base);
-    if (url.protocol === "https:") url.protocol = "wss:";
-    else if (url.protocol === "http:") url.protocol = "ws:";
-
-    await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(url.toString(), [
-        "stella.v1",
-        `stella.token.${token}`,
-      ]);
-      this.socket = socket;
-      const timer = setTimeout(() => {
-        socket.close();
-        reject(new Error("Dictation took too long to connect."));
-      }, OPEN_TIMEOUT_MS);
-      socket.binaryType = "arraybuffer";
-      socket.onopen = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      socket.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error("Could not connect to dictation."));
-      };
-      socket.onmessage = (event) => this.handleMessage(event.data);
-      socket.onclose = (event) => {
-        this.socket = null;
-        if (this.finishReject && this.streamError) {
-          this.finishReject(this.streamError);
-        } else if (
-          this.finishResolve &&
-          (event.code === 1000 || this.finalTranscript)
-        ) {
-          this.finishResolve(this.finalTranscript || this.transcript);
-        } else if (this.finishReject) {
-          this.finishReject(
+    const socket = await (takeWarmSocket() ?? connectRelay());
+    if (this.cancelled) {
+      socket.close(1000, "Cancelled");
+      throw new Error("Dictation cancelled.");
+    }
+    this.socket = socket;
+    socket.onerror = null;
+    socket.onmessage = (event) => this.handleMessage(event.data);
+    socket.onclose = (event) => {
+      this.socket = null;
+      if (this.finishReject && this.streamError) {
+        this.finishReject(this.streamError);
+      } else if (
+        this.finishResolve &&
+        (event.code === 1000 || this.finalTranscript)
+      ) {
+        this.finishResolve(this.finalTranscript || this.transcript);
+      } else if (this.finishReject) {
+        this.finishReject(
+          new Error(event.reason || "Dictation disconnected."),
+        );
+      } else if (!this.cancelled) {
+        this.fail(
+          this.streamError ??
             new Error(event.reason || "Dictation disconnected."),
-          );
-        }
-        this.clearFinishHandlers();
-      };
-    });
+        );
+      }
+      this.clearFinishHandlers();
+    };
+    // The relay reserves the session and opens the provider only now.
+    socket.send(JSON.stringify({ type: "start" }));
   }
 
   send(pcm: Int16Array): void {
@@ -191,7 +282,8 @@ export class DictationStream {
           ? frame.message
           : "Dictation failed.",
       );
-      this.finishReject?.(this.streamError);
+      if (this.finishReject) this.finishReject(this.streamError);
+      else this.fail(this.streamError);
       this.clearFinishHandlers();
       return;
     }

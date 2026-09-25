@@ -229,8 +229,15 @@ export class DictationSession {
     );
     this.bufferedSamples = this.totalSamples;
 
-    const stream = new DictationStream((text) =>
-      this.callbacks.onPartialTranscript?.(text),
+    const stream = new DictationStream(
+      (text) => this.callbacks.onPartialTranscript?.(text),
+      (error) => {
+        if (this.dictationStream !== stream) return;
+        this.streamFailure = error;
+        if (this.state === "listening" && !this.cancelled) {
+          void this.failWhileListening(error);
+        }
+      },
     );
     this.dictationStream = stream;
     this.streamOpened = stream.open().then(

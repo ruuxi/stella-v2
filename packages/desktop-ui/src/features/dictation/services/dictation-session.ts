@@ -34,6 +34,10 @@ const LEVEL_EMIT_INTERVAL_MS = 80;
  *  for the waveform without immediately clipping at the top. */
 const LEVEL_GAIN = 6;
 const SUPER_FAST_PRE_ROLL_MS = 450;
+/** Audio held while the relay connects. Meta closes a session with more than
+ *  five seconds queued ahead of real time, so a flush must stay well under
+ *  that; a connect slower than this is failing anyway. */
+const CONNECT_PRE_ROLL_MAX_SAMPLES = 4 * TARGET_SAMPLE_RATE;
 
 export const resolveDictationPcmWorkletUrl = (rendererHref: string): string =>
   new URL(PCM_WORKLET_FILE, rendererHref).href;
@@ -188,6 +192,12 @@ export class DictationSession {
   private pcmChunks: Int16Array[] = [];
   private totalSamples = 0;
   private dictationStream: DictationStream | null = null;
+  /** Settles once the relay connection has opened or failed. */
+  private streamOpened: Promise<void> = Promise.resolve();
+  private streamReady = false;
+  private streamFailure: Error | null = null;
+  /** Samples held in `pcmChunks` until the relay is connected. */
+  private bufferedSamples = 0;
   private durationLimitTimer: ReturnType<typeof setTimeout> | null = null;
   private cancelled = false;
   /** Peak RMS seen since the last `onLevel` emit, reset every tick. */
@@ -198,10 +208,18 @@ export class DictationSession {
     return this.state === "listening" || this.state === "transcribing";
   }
 
+  /**
+   * The microphone and the relay connection start together. The relay
+   * handshake (Convex gate, then the Meta upgrade) takes far longer than
+   * opening the mic, so recording shows as soon as the mic is live. Audio
+   * captured while connecting is held in `pcmChunks` and flushed on connect.
+   */
   async start(callbacks: DictationCallbacks): Promise<void> {
     if (this.isActive()) return;
     this.callbacks = callbacks;
     this.cancelled = false;
+    this.streamReady = false;
+    this.streamFailure = null;
     this.pcmChunks = isDictationSuperFastEnabled()
       ? warmCapture.snapshot()
       : [];
@@ -209,24 +227,42 @@ export class DictationSession {
       (sum, chunk) => sum + chunk.length,
       0,
     );
+    this.bufferedSamples = this.totalSamples;
 
-    this.dictationStream = new DictationStream((text) =>
+    const stream = new DictationStream((text) =>
       this.callbacks.onPartialTranscript?.(text),
     );
-    try {
-      await this.dictationStream.open();
-      for (const chunk of this.pcmChunks) this.dictationStream.send(chunk);
-      this.pcmChunks = [];
-    } catch (error) {
-      this.dictationStream = null;
-      this.setState("error", (error as Error).message);
-      throw error;
-    }
+    this.dictationStream = stream;
+    this.streamOpened = stream.open().then(
+      () => {
+        if (this.dictationStream !== stream) return;
+        for (const chunk of this.pcmChunks) stream.send(chunk);
+        this.pcmChunks = [];
+        this.bufferedSamples = 0;
+        this.streamReady = true;
+      },
+      (error: unknown) => {
+        if (this.dictationStream !== stream) return;
+        const failure =
+          error instanceof Error ? error : new Error(String(error));
+        this.streamFailure = failure;
+        // Failure while recording: tear down and surface it. Before that,
+        // start() reads the failure; after, stop() does.
+        if (this.state === "listening" && !this.cancelled) {
+          void this.failWhileListening(failure);
+        }
+      },
+    );
 
     let lease: SharedMicrophoneLease;
     try {
       lease = await acquireSharedMicrophone();
     } catch (err) {
+      if (this.cancelled) {
+        await this.cleanup();
+        this.setState("idle");
+        return;
+      }
       console.error("[dictation] failed to acquire microphone:", err);
       this.setState("error", (err as Error).message);
       await this.cleanup();
@@ -235,7 +271,14 @@ export class DictationSession {
     this.micLease = lease;
 
     try {
-      await this.setupAudioPipeline(lease.stream);
+      if (!this.cancelled) await this.setupAudioPipeline(lease.stream);
+      if (this.cancelled) {
+        await this.cleanup();
+        this.setState("idle");
+        return;
+      }
+      // The relay may already have refused while the mic was starting.
+      if (this.streamFailure) throw this.streamFailure;
       this.durationLimitTimer = setTimeout(() => {
         console.warn("[dictation] hit max segment duration, auto-stopping");
         void this.stop();
@@ -244,11 +287,20 @@ export class DictationSession {
       this.setState("listening");
       console.log("[dictation] listening (capturing PCM)");
     } catch (err) {
-      console.error("[dictation] failed to start audio pipeline:", err);
+      console.error("[dictation] failed to start dictation:", err);
       this.setState("error", (err as Error).message);
       await this.cleanup();
       throw err;
     }
+  }
+
+  private async failWhileListening(error: Error): Promise<void> {
+    console.error("[dictation] relay failed while recording:", error);
+    await this.cleanup();
+    this.pcmChunks = [];
+    this.bufferedSamples = 0;
+    this.totalSamples = 0;
+    this.setState("error", error.message);
   }
 
   async stop(): Promise<void> {
@@ -283,6 +335,7 @@ export class DictationSession {
       this.dictationStream?.cancel();
       this.dictationStream = null;
       this.pcmChunks = [];
+      this.bufferedSamples = 0;
       this.totalSamples = 0;
       this.setState("idle");
       return;
@@ -291,6 +344,8 @@ export class DictationSession {
     const totalSamples = this.totalSamples;
     if (totalSamples === 0) {
       console.log("[dictation] no audio captured, skipping upload");
+      this.dictationStream?.cancel();
+      this.dictationStream = null;
       this.setState("idle");
       return;
     }
@@ -302,7 +357,12 @@ export class DictationSession {
     );
 
     try {
+      // A short recording can end before the relay connects; its audio is
+      // still buffered and goes out the moment the socket opens.
+      await this.streamOpened;
+      if (this.streamFailure) throw this.streamFailure;
       this.pcmChunks = [];
+      this.bufferedSamples = 0;
       const stream = this.dictationStream;
       if (!stream) throw new Error("Dictation stream is unavailable.");
       const transcript = await stream.finish();
@@ -370,11 +430,23 @@ export class DictationSession {
           : resampleLinear(samples, sourceRate, TARGET_SAMPLE_RATE);
       const pcm = floatToInt16Pcm(resampled);
       this.totalSamples += pcm.length;
-      this.dictationStream?.send(pcm);
+      if (this.streamReady) this.dictationStream?.send(pcm);
+      else this.bufferWhileConnecting(pcm);
     };
     this.workletNode = worklet;
 
     source.connect(worklet);
+  }
+
+  private bufferWhileConnecting(pcm: Int16Array): void {
+    this.pcmChunks.push(pcm);
+    this.bufferedSamples += pcm.length;
+    while (
+      this.bufferedSamples > CONNECT_PRE_ROLL_MAX_SAMPLES &&
+      this.pcmChunks.length > 1
+    ) {
+      this.bufferedSamples -= this.pcmChunks.shift()!.length;
+    }
   }
 
   private tearDownAudioPipeline(): void {

@@ -15,6 +15,33 @@ const OPEN_TIMEOUT_MS = 10_000;
 const FINAL_TIMEOUT_MS = 15_000;
 const REPLAY_TIMEOUT_MS = 90_000;
 
+/** The relay origin only changes with a deploy; re-check it now and then. */
+const CONFIG_TTL_MS = 10 * 60_000;
+let cachedConfig: { value: Promise<RealtimeConfig>; at: number } | null = null;
+
+/**
+ * The realtime config (and the auth check behind it) is a Convex round trip
+ * on the path to the socket. Reuse it across presses, and let callers warm it
+ * before the user presses the mic.
+ */
+export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
+  if (cachedConfig && Date.now() - cachedConfig.at < CONFIG_TTL_MS) {
+    return cachedConfig.value;
+  }
+  const entry = {
+    value: postServiceJson<RealtimeConfig>(
+      "/api/dictation/realtime-config",
+      {},
+    ),
+    at: Date.now(),
+  };
+  cachedConfig = entry;
+  entry.value.catch(() => {
+    if (cachedConfig === entry) cachedConfig = null;
+  });
+  return entry.value;
+};
+
 const exactBuffer = (pcm: Int16Array): ArrayBuffer =>
   pcm.buffer.slice(
     pcm.byteOffset,
@@ -28,14 +55,16 @@ export class DictationStream {
   private streamError: Error | null = null;
   private finishResolve: ((value: string) => void) | null = null;
   private finishReject: ((reason: Error) => void) | null = null;
+  private cancelled = false;
 
   constructor(private readonly onPartial?: (text: string) => void) {}
 
   async open(): Promise<void> {
     const [config, token] = await Promise.all([
-      postServiceJson<RealtimeConfig>("/api/dictation/realtime-config", {}),
+      loadDictationRealtimeConfig(),
       getConvexToken(),
     ]);
+    if (this.cancelled) throw new Error("Dictation cancelled.");
     if (!token) throw new Error("Sign in to Stella to use dictation.");
     const base = getStellaInteriorBridge()?.gatewayOrigin ?? config.relayOrigin;
     const url = new URL("/dictation/socket", base);
@@ -131,6 +160,7 @@ export class DictationStream {
   }
 
   cancel(): void {
+    this.cancelled = true;
     this.clearFinishHandlers();
     this.socket?.close(1000, "Cancelled");
     this.socket = null;

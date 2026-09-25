@@ -24,6 +24,7 @@ import {
   isDictationSuperFastEnabled,
   type DictationSessionState,
 } from "@/features/dictation/services/dictation-session";
+import { loadDictationRealtimeConfig } from "@/features/dictation/services/dictation-stream";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import {
   createDictationTranscriptPreview,
@@ -165,6 +166,13 @@ export const useDictation = ({
   }, []);
 
   stateRef.current = state;
+
+  // Warm the relay config while the composer is up so the first press only
+  // pays for the socket handshake.
+  useEffect(() => {
+    if (disabled) return;
+    void loadDictationRealtimeConfig().catch(() => undefined);
+  }, [disabled]);
 
   // While listening, tick a 4-Hz timer for the visible mm:ss display.
   // The initial 0:00 paint is set in `start()` before the session begins

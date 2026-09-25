@@ -157,6 +157,33 @@ describe("Muse PCM relay in real Workerd", () => {
     },
   );
 
+  test("opens the provider during prepare but sends nothing until it commits", async () => {
+    const before = (await (await fetch(`${dev.origin}/state`)).json()) as any;
+    const result = await exchange(
+      dev.origin,
+      "/relay?case=exhausted",
+      [],
+      ["stella.v1"],
+    );
+    expect(result.code).toBe(1008);
+    let state: any;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      state = await (await fetch(`${dev.origin}/state`)).json();
+      if (state.providerSessionIds.length > before.providerSessionIds.length)
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const sessionId = state.providerSessionIds.at(-1);
+    // Prepare reserved the same id the provider upgrade carried.
+    expect(state.preparedSessionIds.at(-1)).toBe(sessionId);
+    expect(sessionId).toMatch(/^muse_[0-9a-f-]{36}$/u);
+    // A refused reservation never reaches the provider: no key, no audio.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    state = await (await fetch(`${dev.origin}/state`)).json();
+    expect(state.handshakes).toBe(before.handshakes);
+    expect(state.providerFrames).toEqual(before.providerFrames);
+  });
+
   test("returns actionable exhausted-allowance errors over the socket", async () => {
     const result = await exchange(
       dev.origin,

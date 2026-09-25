@@ -4,6 +4,7 @@ import {
 } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import * as Effect from "effect/Effect";
 import { SUBPROTOCOL } from "./conversation-hub.js";
+import { log } from "./build-session/shared/keys.js";
 
 const MUSE_MODEL = "muse-voice-transcribe-1.0";
 const MUSE_SOCKET_URL = "https://api.meta.ai/v1/asr/realtime";
@@ -103,19 +104,61 @@ export const handleMuseTranscribeSocket = async (args: {
   env: MuseRelayEnv;
   ownerId: string;
   waitUntil: (promise: Promise<unknown>) => void;
+  /** Startup timings for the `dictation_socket_timing` log line. */
+  timing?: { requestId: string; receivedAt: number; authMs: number };
 }): Promise<Response> => {
+  const timing: Record<string, number | string> = {
+    requestId: args.timing?.requestId ?? "",
+    authMs: args.timing?.authMs ?? 0,
+  };
+  const phaseStart = { at: Date.now() };
+  const lap = (name: string) => {
+    const at = Date.now();
+    timing[name] = at - phaseStart.at;
+    phaseStart.at = at;
+  };
   const apiKey = args.env.META_MODEL_API_KEY?.trim();
   if (!apiKey)
     return new Response("Muse transcription is unavailable.", { status: 503 });
+
+  // The provider upgrade carries no credentials (the key rides in the first
+  // message), so open it while Convex reserves the session instead of after.
+  // Nothing is sent upstream until that reservation has committed.
+  const sessionId = `muse_${crypto.randomUUID()}`;
+  const upstreamUrl = new URL(MUSE_SOCKET_URL);
+  upstreamUrl.searchParams.set("sessionId", sessionId);
+  // Aborting a fetch after its 101 response also disconnects the upgraded
+  // socket. Bound only the upgrade; the session has its own deadline below.
+  const upstreamPending = runToolEffect(
+    Effect.tryPromise((signal) =>
+      fetch(upstreamUrl, {
+        headers: { Upgrade: "websocket" },
+        signal,
+      }),
+    ).pipe(Effect.timeout(10_000)),
+  ).catch(() => null);
+  const discardUpstream = () => {
+    args.waitUntil(
+      upstreamPending.then(async (response) => {
+        if (response?.webSocket) {
+          response.webSocket.accept();
+          closeSocket(response.webSocket, 1000, "Dictation not started");
+        } else {
+          await response?.body?.cancel().catch(() => undefined);
+        }
+      }),
+    );
+  };
 
   let prepared: PreparedSession;
   try {
     prepared = await callControlPlane<PreparedSession>(
       args.env,
       "/api/cloud/dictation/prepare",
-      { ownerId: args.ownerId },
+      { ownerId: args.ownerId, sessionId },
     );
   } catch (error) {
+    discardUpstream();
     if (error instanceof DictationUsageError) {
       const pair = new WebSocketPair();
       pair[1].accept();
@@ -130,10 +173,12 @@ export const handleMuseTranscribeSocket = async (args: {
     return new Response("Muse transcription is unavailable.", { status: 503 });
   }
 
+  lap("prepareMs");
   if (
     !Number.isFinite(prepared.providerDeadlineAt) ||
     prepared.providerDeadlineAt <= Date.now()
   ) {
+    discardUpstream();
     return new Response("Muse transcription session expired.", { status: 503 });
   }
   const reportUsage = async (
@@ -159,22 +204,8 @@ export const handleMuseTranscribeSocket = async (args: {
       }
     }
   };
-  const upstreamUrl = new URL(MUSE_SOCKET_URL);
-  upstreamUrl.searchParams.set("sessionId", prepared.sessionId);
-  // Aborting a fetch after its 101 response also disconnects the upgraded
-  // socket. Bound only the upgrade; the session has its own deadline below.
-  const upstreamResponse = await runToolEffect(
-    Effect.tryPromise((signal) =>
-      fetch(upstreamUrl, {
-        headers: { Upgrade: "websocket" },
-        signal,
-      }),
-    ).pipe(
-      Effect.timeout(
-        Math.max(1, Math.min(10_000, prepared.providerDeadlineAt - Date.now())),
-      ),
-    ),
-  ).catch(() => null);
+  const upstreamResponse = await upstreamPending;
+  lap("upstreamUpgradeMs");
   if (
     !upstreamResponse ||
     upstreamResponse.status !== 101 ||
@@ -261,7 +292,14 @@ export const handleMuseTranscribeSocket = async (args: {
     }
     closeBoth(1008, "Invalid transcription frame");
   });
+  let handshakeSentAt = 0;
   upstream.addEventListener("message", (event) => {
+    if (handshakeSentAt) {
+      timing.handshakeAckMs = Date.now() - handshakeSentAt;
+      timing.totalToAckMs = Date.now() - (args.timing?.receivedAt ?? startedAt);
+      handshakeSentAt = 0;
+      log("info", "dictation_socket_timing", timing);
+    }
     if (settled || closing) return;
     if (typeof event.data === "string") {
       try {
@@ -297,6 +335,7 @@ export const handleMuseTranscribeSocket = async (args: {
   });
 
   upstream.send(JSON.stringify(createMuseHandshake(apiKey)));
+  handshakeSentAt = Date.now();
 
   return new Response(null, {
     status: 101,

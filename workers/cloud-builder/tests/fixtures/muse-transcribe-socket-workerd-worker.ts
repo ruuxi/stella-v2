@@ -4,9 +4,14 @@ const state = {
   providerFrames: [] as number[][],
   handshakes: 0,
   settlements: [] as Record<string, unknown>[],
+  preparedSessionIds: [] as string[],
+  providerSessionIds: [] as string[],
 };
 const originalFetch = globalThis.fetch;
 let fixtureOrigin = "";
+// The relay opens the provider upgrade while prepare runs, so a hanging
+// provider is chosen per relay request rather than by the prepared session.
+let hangProvider = false;
 // Only external services are faked. Every binary event below is delivered by
 // real Workerd WebSocketPair transport, including the production relay pair.
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -14,7 +19,11 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(request.url);
   if (url.hostname === "control.fixture") {
     if (url.pathname.endsWith("/prepare")) {
-      const body = (await request.json()) as { ownerId: string };
+      const body = (await request.json()) as {
+        ownerId: string;
+        sessionId?: string;
+      };
+      if (body.sessionId) state.preparedSessionIds.push(body.sessionId);
       if (body.ownerId === "owner-exhausted")
         return Response.json(
           { error: "Your Stella usage allowance is exhausted." },
@@ -33,11 +42,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     return Response.json({ ok: true });
   }
   if (url.hostname === "api.meta.ai") {
+    state.providerSessionIds.push(url.searchParams.get("sessionId") ?? "");
     // Use native fetch over a real upgrade, so its AbortSignal has Workerd's
     // actual post-upgrade lifetime semantics rather than a mock's behavior.
     return await originalFetch(
       new Request(
-        `${fixtureOrigin}/provider${url.searchParams.get("sessionId") === "muse-hanging" ? "?hang=1" : ""}`,
+        `${fixtureOrigin}/provider${hangProvider ? "?hang=1" : ""}`,
         request,
       ),
     );
@@ -101,6 +111,7 @@ export default {
     }
     if (path === "/relay") {
       fixtureOrigin = new URL(request.url).origin;
+      hangProvider = new URL(request.url).searchParams.has("hang");
       return await handleMuseTranscribeSocket({
         request,
         ownerId: new URL(request.url).searchParams.has("hang")

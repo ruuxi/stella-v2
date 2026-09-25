@@ -960,6 +960,7 @@ const router = {
       if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
         return json({ error: "This endpoint speaks WebSocket only." }, 426);
       }
+      const receivedAt = Date.now();
       const auth = await authenticateConversationCaller(
         request,
         env,
@@ -972,6 +973,7 @@ const router = {
         env,
         ownerId: auth.caller.ownerId,
         waitUntil: (promise) => ctx.waitUntil(promise),
+        timing: { requestId, receivedAt, authMs: Date.now() - receivedAt },
       });
     }
     const presenceMatch = url.pathname.match(

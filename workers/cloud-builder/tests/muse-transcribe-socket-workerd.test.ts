@@ -157,6 +157,68 @@ describe("Muse PCM relay in real Workerd", () => {
     },
   );
 
+  test("a deferred socket reserves nothing until start, then relays and settles", async () => {
+    const state = async () =>
+      (await (await fetch(`${dev.origin}/state`)).json()) as any;
+    const before = await state();
+    const audio = new Uint8Array([7, 0, 8, 0]);
+    // A warm socket that never starts reserves nothing.
+    await new Promise<void>((resolve) => {
+      const idle = new WebSocket(
+        dev.origin.replace("http:", "ws:") +
+          "/relay?start=deferred&case=deferred-idle",
+        ["stella.v1"],
+      );
+      idle.addEventListener("open", () =>
+        setTimeout(() => {
+          idle.close(1000);
+          resolve();
+        }, 300),
+      );
+    });
+    expect((await state()).preparedSessionIds).toHaveLength(
+      before.preparedSessionIds.length,
+    );
+    const result = await exchange(
+      dev.origin,
+      "/relay?start=deferred&case=deferred",
+      [
+        200,
+        JSON.stringify({ type: "start" }),
+        audio,
+        JSON.stringify({ type: "endStream" }),
+      ],
+      ["stella.v1"],
+    );
+    expect(result.messages).toEqual([
+      { type: "transcript", final: true, text: "binary audio accepted" },
+    ]);
+    let settlement: any;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      settlement = (await state()).settlements.find(
+        (row: any) => row.ownerId === "owner-deferred",
+      );
+      if (settlement) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(settlement).toMatchObject({ audioBytes: 4, success: true });
+    const after = await state();
+    expect(after.preparedSessionIds).toHaveLength(
+      before.preparedSessionIds.length + 1,
+    );
+    expect(after.providerFrames.at(-1)).toEqual([...audio]);
+  });
+
+  test("a deferred socket rejects audio before start", async () => {
+    const result = await exchange(
+      dev.origin,
+      "/relay?start=deferred",
+      [new Uint8Array([1, 0])],
+      ["stella.v1"],
+    );
+    expect(result.code).toBe(1008);
+  });
+
   test("opens the provider during prepare but sends nothing until it commits", async () => {
     const before = (await (await fetch(`${dev.origin}/state`)).json()) as any;
     const result = await exchange(

@@ -99,31 +99,61 @@ const callControlPlane = async <T>(
   return (await response.json()) as T;
 };
 
-export const handleMuseTranscribeSocket = async (args: {
+type MuseRelayArgs = {
   request: Request;
   env: MuseRelayEnv;
   ownerId: string;
   waitUntil: (promise: Promise<unknown>) => void;
   /** Startup timings for the `dictation_socket_timing` log line. */
   timing?: { requestId: string; receivedAt: number; authMs: number };
-}): Promise<Response> => {
-  const timing: Record<string, number | string> = {
+};
+
+type StartupTiming = {
+  fields: Record<string, number | string>;
+  startedAt: number;
+  lap: (name: string) => void;
+};
+
+const startupTiming = (args: MuseRelayArgs, startedAt: number): StartupTiming => {
+  const fields: Record<string, number | string> = {
     requestId: args.timing?.requestId ?? "",
     authMs: args.timing?.authMs ?? 0,
   };
-  const phaseStart = { at: Date.now() };
-  const lap = (name: string) => {
-    const at = Date.now();
-    timing[name] = at - phaseStart.at;
-    phaseStart.at = at;
+  let phaseStart = Date.now();
+  return {
+    fields,
+    startedAt,
+    lap: (name) => {
+      const at = Date.now();
+      fields[name] = at - phaseStart;
+      phaseStart = at;
+    },
   };
-  const apiKey = args.env.META_MODEL_API_KEY?.trim();
-  if (!apiKey)
-    return new Response("Muse transcription is unavailable.", { status: 503 });
+};
 
-  // The provider upgrade carries no credentials (the key rides in the first
-  // message), so open it while Convex reserves the session instead of after.
-  // Nothing is sent upstream until that reservation has committed.
+type ProviderStart =
+  | {
+      ok: true;
+      prepared: PreparedSession;
+      upstream: WebSocket;
+      reportUsage: (
+        audioBytes: number,
+        durationMs: number,
+        success: boolean,
+      ) => Promise<void>;
+    }
+  | { ok: false; usageMessage?: string; status: number; message: string };
+
+/**
+ * Reserve a Stella session and open the provider socket. The provider upgrade
+ * carries no credentials (the key rides in the first message), so it runs
+ * while Convex reserves the session instead of after. Nothing is sent
+ * upstream here; the caller sends the handshake once this resolves.
+ */
+const startProvider = async (
+  args: MuseRelayArgs,
+  timing: StartupTiming,
+): Promise<ProviderStart> => {
   const sessionId = `muse_${crypto.randomUUID()}`;
   const upstreamUrl = new URL(MUSE_SOCKET_URL);
   upstreamUrl.searchParams.set("sessionId", sessionId);
@@ -160,26 +190,31 @@ export const handleMuseTranscribeSocket = async (args: {
   } catch (error) {
     discardUpstream();
     if (error instanceof DictationUsageError) {
-      const pair = new WebSocketPair();
-      pair[1].accept();
-      pair[1].send(JSON.stringify({ type: "error", message: error.message }));
-      pair[1].close(1008, "Dictation usage limit reached");
-      return new Response(null, {
-        status: 101,
-        webSocket: pair[0],
-        headers: { "sec-websocket-protocol": SUBPROTOCOL },
-      });
+      return {
+        ok: false,
+        usageMessage: error.message,
+        status: 429,
+        message: error.message,
+      };
     }
-    return new Response("Muse transcription is unavailable.", { status: 503 });
+    return {
+      ok: false,
+      status: 503,
+      message: "Muse transcription is unavailable.",
+    };
   }
 
-  lap("prepareMs");
+  timing.lap("prepareMs");
   if (
     !Number.isFinite(prepared.providerDeadlineAt) ||
     prepared.providerDeadlineAt <= Date.now()
   ) {
     discardUpstream();
-    return new Response("Muse transcription session expired.", { status: 503 });
+    return {
+      ok: false,
+      status: 503,
+      message: "Muse transcription session expired.",
+    };
   }
   const reportUsage = async (
     audioBytes: number,
@@ -205,7 +240,7 @@ export const handleMuseTranscribeSocket = async (args: {
     }
   };
   const upstreamResponse = await upstreamPending;
-  lap("upstreamUpgradeMs");
+  timing.lap("upstreamUpgradeMs");
   if (
     !upstreamResponse ||
     upstreamResponse.status !== 101 ||
@@ -213,19 +248,31 @@ export const handleMuseTranscribeSocket = async (args: {
   ) {
     await upstreamResponse?.body?.cancel().catch(() => undefined);
     args.waitUntil(reportUsage(0, 0, false));
-    return new Response("Muse transcription is unavailable.", { status: 502 });
+    return {
+      ok: false,
+      status: 502,
+      message: "Muse transcription is unavailable.",
+    };
   }
-
-  const pair = new WebSocketPair();
-  const client = pair[0];
-  const gateway = pair[1];
   const upstream = upstreamResponse.webSocket;
-  // Current Workers compatibility dates deliver binary frames as Blob by
-  // default. Keep PCM frames synchronous and ordered for the relay below.
-  gateway.binaryType = "arraybuffer";
-  gateway.accept();
   upstream.accept();
+  return { ok: true, prepared, upstream, reportUsage };
+};
 
+/**
+ * Relay an accepted client socket to a started provider session: meter and
+ * cap audio, forward transcripts, and settle usage once. `pending` frames the
+ * client sent before the provider was ready are replayed in order.
+ */
+const bridge = (
+  args: MuseRelayArgs,
+  apiKey: string,
+  gateway: WebSocket,
+  start: Extract<ProviderStart, { ok: true }>,
+  timing: StartupTiming,
+  pending: readonly (ArrayBuffer | string)[] = [],
+): void => {
+  const { prepared, upstream, reportUsage } = start;
   let audioBytes = 0;
   let settled = false;
   let closing = false;
@@ -266,39 +313,39 @@ export const handleMuseTranscribeSocket = async (args: {
     prepared.maxAudioBytes ?? MAX_AUDIO_BYTES,
   );
 
-  gateway.addEventListener("message", (event) => {
+  const onClientFrame = (data: ArrayBuffer | string) => {
     if (settled || closing || inputEnded) return;
     if (Date.now() >= prepared.providerDeadlineAt) {
       endInput();
       return;
     }
-    if (event.data instanceof ArrayBuffer) {
-      if (
-        event.data.byteLength === 0 ||
-        event.data.byteLength > MAX_FRAME_BYTES
-      ) {
+    if (data instanceof ArrayBuffer) {
+      if (data.byteLength === 0 || data.byteLength > MAX_FRAME_BYTES) {
         closeBoth(1008, "Invalid audio frame");
         return;
       }
-      const frame = event.data.slice(0, maxAudioBytes - audioBytes);
+      const frame = data.slice(0, maxAudioBytes - audioBytes);
       audioBytes += frame.byteLength;
       upstream.send(frame);
       if (audioBytes === maxAudioBytes) endInput();
       return;
     }
-    if (isMuseEndStreamFrame(event.data)) {
+    if (isMuseEndStreamFrame(data)) {
       endInput();
       return;
     }
     closeBoth(1008, "Invalid transcription frame");
-  });
+  };
+  gateway.addEventListener("message", (event) =>
+    onClientFrame(event.data as ArrayBuffer | string),
+  );
   let handshakeSentAt = 0;
   upstream.addEventListener("message", (event) => {
     if (handshakeSentAt) {
-      timing.handshakeAckMs = Date.now() - handshakeSentAt;
-      timing.totalToAckMs = Date.now() - (args.timing?.receivedAt ?? startedAt);
+      timing.fields.handshakeAckMs = Date.now() - handshakeSentAt;
+      timing.fields.totalToAckMs = Date.now() - timing.startedAt;
       handshakeSentAt = 0;
-      log("info", "dictation_socket_timing", timing);
+      log("info", "dictation_socket_timing", timing.fields);
     }
     if (settled || closing) return;
     if (typeof event.data === "string") {
@@ -336,10 +383,145 @@ export const handleMuseTranscribeSocket = async (args: {
 
   upstream.send(JSON.stringify(createMuseHandshake(apiKey)));
   handshakeSentAt = Date.now();
+  for (const frame of pending) onClientFrame(frame);
+};
 
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-    headers: { "sec-websocket-protocol": SUBPROTOCOL },
+const acceptClientSocket = () => {
+  const pair = new WebSocketPair();
+  const gateway = pair[1];
+  // Current Workers compatibility dates deliver binary frames as Blob by
+  // default. Keep PCM frames synchronous and ordered for the relay.
+  gateway.binaryType = "arraybuffer";
+  gateway.accept();
+  return {
+    gateway,
+    response: new Response(null, {
+      status: 101,
+      webSocket: pair[0],
+      headers: { "sec-websocket-protocol": SUBPROTOCOL },
+    }),
+  };
+};
+
+/** A warm socket must send `start` within this long or it is closed. */
+const DEFERRED_START_IDLE_MS = 60_000;
+/** Client frames held while a deferred start reaches the provider. */
+const DEFERRED_START_MAX_PENDING_BYTES = 8 * PCM_BYTES_PER_SECOND;
+
+const isStartFrame = (value: unknown): boolean => {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = JSON.parse(value) as { type?: unknown };
+    return parsed.type === "start" && Object.keys(parsed).length === 1;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * `?start=deferred`: accept the client socket right away and reserve nothing
+ * until the client sends `{"type":"start"}`. Clients open this on mic hover
+ * or focus, so a press skips the connection, TLS, and auth round trips. Audio
+ * sent after `start` is held until the provider session is live.
+ */
+const handleDeferredStart = (
+  args: MuseRelayArgs,
+  apiKey: string,
+): Response => {
+  const { gateway, response } = acceptClientSocket();
+  let phase: "idle" | "starting" | "live" | "closed" = "idle";
+  const pending: (ArrayBuffer | string)[] = [];
+  let pendingBytes = 0;
+  const cancelIdle = forkAbortTimer(DEFERRED_START_IDLE_MS, () => {
+    if (phase === "idle") closeSocket(gateway, 1000, "Dictation idle");
   });
+
+  const run = async () => {
+    const timing = startupTiming(args, Date.now());
+    timing.fields.deferred = 1;
+    const start = await startProvider(args, timing);
+    if (!start.ok) {
+      if (phase === "closed") return;
+      phase = "closed";
+      gateway.send(
+        JSON.stringify({
+          type: "error",
+          message: start.usageMessage ?? start.message,
+        }),
+      );
+      closeSocket(
+        gateway,
+        start.usageMessage ? 1008 : 1011,
+        start.usageMessage
+          ? "Dictation usage limit reached"
+          : "Muse transcription is unavailable",
+      );
+      return;
+    }
+    if (phase === "closed") {
+      // The client left while the session started: nothing was sent.
+      closeSocket(start.upstream, 1000, "Dictation cancelled");
+      args.waitUntil(start.reportUsage(0, 0, false));
+      return;
+    }
+    phase = "live";
+    gateway.removeEventListener("message", onPreStartFrame);
+    bridge(args, apiKey, gateway, start, timing, pending.splice(0));
+  };
+
+  const onPreStartFrame = (event: MessageEvent) => {
+    if (phase === "idle") {
+      if (!isStartFrame(event.data)) {
+        phase = "closed";
+        closeSocket(gateway, 1008, "Send start first");
+        return;
+      }
+      phase = "starting";
+      cancelIdle();
+      args.waitUntil(run());
+      return;
+    }
+    if (phase !== "starting") return;
+    const data = event.data as ArrayBuffer | string;
+    pendingBytes += typeof data === "string" ? data.length : data.byteLength;
+    if (pendingBytes > DEFERRED_START_MAX_PENDING_BYTES) {
+      phase = "closed";
+      closeSocket(gateway, 1011, "Transcription took too long to start");
+      return;
+    }
+    pending.push(data);
+  };
+  gateway.addEventListener("message", onPreStartFrame);
+  gateway.addEventListener("close", () => {
+    cancelIdle();
+    if (phase !== "live") phase = "closed";
+  });
+  return response;
+};
+
+export const handleMuseTranscribeSocket = async (
+  args: MuseRelayArgs,
+): Promise<Response> => {
+  const apiKey = args.env.META_MODEL_API_KEY?.trim();
+  if (!apiKey)
+    return new Response("Muse transcription is unavailable.", { status: 503 });
+
+  if (new URL(args.request.url).searchParams.get("start") === "deferred") {
+    return handleDeferredStart(args, apiKey);
+  }
+
+  const timing = startupTiming(args, args.timing?.receivedAt ?? Date.now());
+  const start = await startProvider(args, timing);
+  if (!start.ok) {
+    if (start.usageMessage) {
+      const { gateway, response } = acceptClientSocket();
+      gateway.send(JSON.stringify({ type: "error", message: start.usageMessage }));
+      gateway.close(1008, "Dictation usage limit reached");
+      return response;
+    }
+    return new Response(start.message, { status: start.status });
+  }
+  const { gateway, response } = acceptClientSocket();
+  bridge(args, apiKey, gateway, start, timing);
+  return response;
 };

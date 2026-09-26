@@ -75,7 +75,7 @@ export const DEFAULT_CLOUD_ANTHROPIC_EXECUTION: CloudExecutionSelection = {
 export const DEFAULT_CLOUD_CODEX_EXECUTION: CloudExecutionSelection = {
   engine: "openai-codex",
   provider: "openai-codex",
-  model: "gpt-5.6-sol",
+  model: "gpt-6-sol",
   reasoningEffort: "default",
 };
 

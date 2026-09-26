@@ -2,7 +2,7 @@ export type AgentRuntimeEngine = "default" | "claude_code_local" | "codex_cli";
 
 export const DEFAULT_AGENT_RUNTIME_ENGINE: AgentRuntimeEngine = "default";
 /** Saved Codex/ChatGPT model preference. Kept even when not in the live catalog. */
-export const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 /** ChatGPT/Codex service tier selected in Stella's model picker. */
 export type CodexServiceTier = "standard" | "fast";
 export const DEFAULT_CODEX_SERVICE_TIER: CodexServiceTier = "standard";

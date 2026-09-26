@@ -64,7 +64,9 @@ const FULL_CHAT_CONTENT_STYLE = {
   paddingLeft: 24,
   paddingRight: 24,
   paddingTop: 112,
-  paddingBottom: 30,
+  // The last row's gap above the composer. Matches the bottom mask fade on
+  // `.session-content` so the resting last row is never faded.
+  paddingBottom: 16,
 } as const;
 
 export const ChatColumn = memo(function ChatColumn({

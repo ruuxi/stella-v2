@@ -17,11 +17,6 @@
   --chat-text-line-height: 1.5;
   --chat-text-color: var(--text-strong);
 
-  /* Resting footer floor. The scroll hook expands this to the viewport-derived
-     response area only for an accepted latest-turn placement, then consumes
-     that synthetic space as the user scrolls away. */
-  --chat-response-spacer-height: 160px;
-
   /* ------------------------------------------------------------
    * Vertical rhythm contract (see also the ROW_GAP family of
    * constants in ChatTimeline.tsx — the BETWEEN-rows half of the
@@ -40,11 +35,6 @@
    * default, the assistant variant zeroes the vertical component.
    * ------------------------------------------------------------ */
   --chat-item-part-gap: 8px;
-}
-
-.chat-viewport-region--sidebar,
-.chat-viewport-region--orb {
-  --chat-response-spacer-height: 120px;
 }
 
 /* Fallback wrapper used only by the empty / loading-history states in
@@ -136,41 +126,8 @@
   font-variant-ligatures: none;
 }
 
-/*
- * Trailing region: renders as the LegendList footer underneath every
- * virtualized row. Hosts any surface-specific `extraTail` node and a
- * turn-scoped response spacer so a freshly-sent user bubble settles near the
- * top with room for the assistant to stream beneath it. The scroll hook grows
- * `--chat-response-spacer-height` from this real footer floor on accepted send,
- * then consumes the extra space as the user scrolls upward. Pre-virtualization
- * this lived on a synthetic "tail"
- * list item that wrapped the latest user + assistant rows; that caused
- * the rows to migrate between virtualized contexts on send, losing
- * their measured sizes and producing a visible upward scroll jump back
- * to the top of the previous assistant reply.
- */
-.event-list-trailing-region {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-height: var(--chat-response-spacer-height, 160px);
-}
-
-.chat-viewport-region--sidebar .event-list-trailing-region,
-.chat-viewport-region--orb .event-list-trailing-region {
-  min-height: var(--chat-response-spacer-height, 120px);
-}
-
-/* The queued virtual item owns the normal trailing floor and bottom-aligns
-   its bubble inside it. Once that item exists, the footer only supplies the
-   small physical gap between the bubble and composer. This preserves total
-   scroll geometry while moving the empty space above the queued state. */
-.event-list-trailing-region--after-queue,
-.chat-viewport-region--sidebar .event-list-trailing-region--after-queue,
-.chat-viewport-region--orb .event-list-trailing-region--after-queue {
-  min-height: 12px;
-}
-
+/* Surface-specific `extraTail` node, rendered as the LegendList footer below
+   every virtualized row (or inside the empty-state fallback). */
 .event-list-extra-tail {
   display: flex;
   flex-direction: column;
@@ -182,18 +139,10 @@
    normal user messages while waiting for its turn. */
 .composer-queued-stack {
   width: 100%;
-  padding-top: 148px;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  justify-content: flex-end;
   gap: 6px;
-}
-
-.chat-viewport-region--sidebar .composer-queued-stack,
-.chat-viewport-region--orb .composer-queued-stack {
-  padding-top: 108px;
 }
 
 .composer-queued-message {

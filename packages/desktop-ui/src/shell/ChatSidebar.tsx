@@ -62,7 +62,7 @@ const SIDEBAR_CONTENT_STYLE = {
   paddingLeft: 10,
   paddingRight: 10,
   paddingTop: 8,
-  paddingBottom: 4,
+  paddingBottom: 12,
 } as const;
 
 /** Centered column when the display panel owns the full content area. */
@@ -73,7 +73,7 @@ const WIDE_PANEL_CONTENT_STYLE = {
   paddingLeft: 24,
   paddingRight: 24,
   paddingTop: 16,
-  paddingBottom: 4,
+  paddingBottom: 16,
 } as const;
 
 interface ChatSidebarOpenOptions {
@@ -419,28 +419,19 @@ function AccountScopedChatPanelTab({
       selectedText,
     });
     if (!canSubmit) return;
-    // The placement gate subtracts the synthetic response spacer before
-    // applying Codex's 300px near-bottom threshold, so a visually-bottomed
-    // short reply still reframes while deliberate scrollback stays put.
-    const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
+    // Follow to the bottom when the user is within the 300px send gate;
+    // deliberate scrollback stays put. Mid-stream, the send lands as the
+    // queued follow-up item at the end of the list, so the same follow
+    // frames it.
+    const shouldFollowSend = sidebarScroll.getShouldFollowSend();
     const accepted = await onSend(
       trimmedMessage,
       chatContext,
       selectedText,
       () => {
-        if (isStreaming) {
-          // Queued follow-up — no new user row lands in the event
-          // list, just a chip in the trailing region. Keep that footer
-          // stack framed without falling through to the prior turn's
-          // user bubble.
-          if (shouldNudgeAfterSend) {
-            sidebarScroll.nudgeQueuedMessagesIntoView();
-          }
-        } else if (shouldNudgeAfterSend) {
-          // Place the newest user turn above the viewport-derived response
-          // spacer, using the same gentle loop as stream-follow.
-          sidebarScroll.nudgeAfterSend();
-        } else {
+        if (shouldFollowSend) {
+          sidebarScroll.followAfterSend();
+        } else if (!isStreaming) {
           sidebarScroll.releaseFollow();
         }
       },

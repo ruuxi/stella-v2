@@ -28,9 +28,9 @@
  *    by the gap between the real assistant height and the estimate. The
  *    browser then clamped `scrollTop` up to the new max — visible as a
  *    jump back to the top of the previous assistant reply just before
- *    the post-send nudge animated back down. The fixed bottom-floor
- *    `min-height` lives on the `ListFooterComponent`; the collapsed queue is
- *    one keyed list item after every active assistant slot.
+ *    the post-send nudge animated back down. The collapsed queue is one
+ *    keyed list item after every active assistant slot; the footer only
+ *    hosts `extraTail`.
  *  - Older-history pagination is driven by the scroll hook's native input
  *    listener, not Legend's data-sensitive `onStartReached` callback.
  *
@@ -92,9 +92,9 @@ type ChatTimelineProps = {
    */
   onCancelQueued?: (message: QueuedUserMessage) => void;
   /**
-   * Claude-style working/agent indicator. Rendered on its own line at the
-   * top of the trailing region — directly below the streaming/last
-   * assistant message and above any queued user messages. Toggling
+   * Claude-style working/agent indicator. Rendered as its own keyed list
+   * item directly below the streaming/last assistant message and above any
+   * queued user messages. Toggling
    * `active` false plays the hold + grow-out exit; the indicator collapses
    * to nothing when fully idle and re-enters under the next pending turn.
    */
@@ -122,7 +122,6 @@ type ChatTimelineProps = {
    * the top of the empty viewport. Default true.
    */
   alignItemsAtEnd?: boolean;
-  reserveTailSpace?: boolean;
   /**
    * Estimated row height — Legend uses this for first-render layout
    * before measuring real items. ~120px matches the average chat row
@@ -326,7 +325,6 @@ export const ChatTimeline = memo(function ChatTimeline({
   listRef,
   recycleItems = true,
   alignItemsAtEnd = false,
-  reserveTailSpace = true,
   estimatedItemSize = 120,
   className,
   contentContainerStyle,
@@ -340,6 +338,9 @@ export const ChatTimeline = memo(function ChatTimeline({
     });
     return items.map((item, index) => {
       const next = items[index + 1];
+      // Legend renders the separator after the final item too; the list's
+      // bottom padding is the only gap between the tail and the composer.
+      if (!next) return { ...item, gapAfter: 0 };
       if (item.type === "message") {
         const nextRow = next?.type === "message" ? next.row : undefined;
         return { ...item, gapAfter: gapAfterRow(item.row, nextRow) };
@@ -382,9 +383,6 @@ export const ChatTimeline = memo(function ChatTimeline({
   );
 
   const keyExtractor = useCallback((item: TimelineListItem) => item.id, []);
-  const hasQueuedTimelineItem = listItems.some(
-    (item) => item.type === "queued-users",
-  );
   const drawDistance = useChatDrawDistance(
     rows.length > 0 ? (conversationId ?? listItems[0]?.id ?? null) : null,
   );
@@ -403,39 +401,18 @@ export const ChatTimeline = memo(function ChatTimeline({
   }, [hasOlderEvents, isLoadingOlder]);
 
   /**
-   * Footer: any surface-specific `extraTail` node and a bottom-floor
-   * `min-height`. Working state and the collapsed queue are keyed list data
-   * directly above this footer so a growing/new assistant slot cannot paint
-   * below them. The min-height pre-allocates the empty reading
-   * area below the just-sent user bubble (and below short streaming
-   * replies) without reserving the full viewport. Living here — rather
-   * than wrapping the latest user/assistant rows in a re-keyed synthetic
-   * list item — means rows never migrate between virtualized contexts on
-   * send, so their measured sizes don't collapse into `estimatedItemSize`
-   * for a frame and `scrollHeight` doesn't dip back below the user's
-   * current `scrollTop`.
+   * Footer: only the surface-specific `extraTail` node. Working state and the
+   * collapsed queue are keyed list data directly above it so a growing/new
+   * assistant slot cannot paint below them. No empty floor is reserved: the
+   * last item sits on the content container's own bottom padding, just above
+   * the composer.
    */
   const ListFooter = useMemo(
     () =>
-      !reserveTailSpace ? (
-        extraTail ? (
-          <>{extraTail}</>
-        ) : null
-      ) : (
-        <div
-          className={
-            "event-list-trailing-region" +
-            (hasQueuedTimelineItem
-              ? " event-list-trailing-region--after-queue"
-              : "")
-          }
-        >
-          {extraTail && (
-            <div className="event-list-extra-tail">{extraTail}</div>
-          )}
-        </div>
-      ),
-    [extraTail, hasQueuedTimelineItem, reserveTailSpace],
+      extraTail ? (
+        <div className="event-list-extra-tail">{extraTail}</div>
+      ) : null,
+    [extraTail],
   );
 
   if (isLoadingHistory && rows.length === 0) {

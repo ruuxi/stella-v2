@@ -1,44 +1,34 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import {
+  adoptChatFrameSource,
+  CHAT_APP_PATH,
+  CHAT_FRAME_ID,
+} from "./chat-frame-source";
 
 type ChatFrameProps = {
   className: string;
 };
 
-const CHAT_APP_PATH = "/chat-app/index.html";
-
 /**
- * OAuth returns a short-lived one-time token in the URL fragment. Fragments
- * never reach Next, so transfer that credential once into the same-origin
- * renderer iframe and immediately erase it from the public address bar.
+ * The page's inline boot script normally sets the frame source during HTML
+ * parse. Client-side navigations into /chat never run that script, so the
+ * hydrated component finishes the job when the source is still unset.
  */
 export function ChatFrame({ className }: ChatFrameProps) {
-  const frameRef = useRef<HTMLIFrameElement>(null);
-
   useEffect(() => {
-    const rawFragment = window.location.hash.replace(/^#\??/, "");
-    const containsHandoff =
-      rawFragment.length > 0 && new URLSearchParams(rawFragment).has("ott");
-    frameRef.current?.setAttribute(
-      "src",
-      `${CHAT_APP_PATH}${containsHandoff ? window.location.hash : ""}`,
-    );
-    if (containsHandoff) {
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `${window.location.pathname}${window.location.search}`,
-      );
-    }
+    adoptChatFrameSource(CHAT_FRAME_ID, CHAT_APP_PATH);
   }, []);
 
   return (
     <iframe
-      ref={frameRef}
+      id={CHAT_FRAME_ID}
       className={className}
       title="Stella chat"
       allow="microphone; clipboard-read; clipboard-write"
+      // The boot script adds `src` before hydration.
+      suppressHydrationWarning
     />
   );
 }

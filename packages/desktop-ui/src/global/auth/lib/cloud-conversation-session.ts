@@ -34,6 +34,22 @@ export type OwnershipMigrationStatus =
   | "failed"
   | "complete";
 
+/**
+ * The root layout subscribes to the migration status as soon as Convex holds
+ * a token, in parallel with the session identity confirmation. Only a
+ * confirmed session may act on the result: until then it reads as not yet
+ * loaded, and a query failure throws only once the session is confirmed,
+ * exactly when a subscription gated on readiness would have thrown.
+ */
+export const readPrefetchedOwnershipMigration = <T>(
+  result: T | Error | undefined,
+  isCloudConversationReady: boolean,
+): T | undefined => {
+  if (!isCloudConversationReady) return undefined;
+  if (result instanceof Error) throw result;
+  return result;
+};
+
 export const resolveOwnershipMigrationGate = (
   status: OwnershipMigrationStatus | null | undefined,
   isCloudConversationReady: boolean,

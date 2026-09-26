@@ -80,10 +80,56 @@ describe("mobile cloud canonical hydration", () => {
     });
     expect(calls).toEqual([
       "confirm:user-1:4",
-      "ensure",
       "config",
+      "ensure",
       "generation",
     ]);
+  });
+
+  // Ratchet: the handshake holds the native splash, so every serial round
+  // trip is launch latency. It was four (confirm → ensure → config →
+  // generation); the deployment config now rides alongside the identity chain.
+  test("the handshake costs three serial round trips", async () => {
+    const inFlight: (() => void)[] = [];
+    const port =
+      <T,>(value: T) =>
+      () =>
+        new Promise<T>((resolve) => inFlight.push(() => resolve(value)));
+    let settled = false;
+    const handshake = loadCloudConversationAuthority(identity, {
+      confirmIdentity: port(true),
+      ensureConversation: port("conversation-stable"),
+      getRealtimeConfig: port({
+        httpOrigin: "https://builder.example",
+        socketOrigin: "wss://builder.example",
+        protocol: 1,
+      }),
+      getOwnerGeneration: port("owner-generation-1"),
+    }).finally(() => {
+      settled = true;
+    });
+    let roundTrips = 0;
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (settled || inFlight.length === 0) break;
+      roundTrips += 1;
+      for (const respond of inFlight.splice(0)) respond();
+    }
+    expect((await handshake).conversationId).toBe("conversation-stable");
+    expect(roundTrips).toBe(3);
+  });
+
+  test("an unconfirmed identity still fails first even if the config fails", async () => {
+    await expect(
+      loadCloudConversationAuthority(identity, {
+        confirmIdentity: async () => false,
+        ensureConversation: async () => "conversation-stable",
+        getRealtimeConfig: async () => {
+          throw new Error("config down");
+        },
+        getOwnerGeneration: async () => "owner-generation-1",
+      }),
+    ).rejects.toThrow("Stella is still securing this account. Try again in a moment.");
   });
 
   test("cache deletion rebuilds the same projection without a new identity", async () => {

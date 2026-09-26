@@ -531,10 +531,9 @@ function ChatSurface(props: {
     composerModelPinned,
   ]);
 
-  const canSubmit =
-    (thread.draft.trim().length > 0 ||
-      thread.attachments.length > 0 ||
-      thread.quotes.length > 0) &&
+  // Content (typed text, an attachment or a quote) is checked by the pane, so
+  // this screen never reads the draft and a keystroke never re-renders it.
+  const sendReady =
     // A turn is only sendable once every attachment has a drive path. Until
     // then the chip is still uploading or has failed, and sending would drop it.
     attachmentsSettled(thread.attachments) &&
@@ -645,10 +644,9 @@ function ChatSurface(props: {
         historyPageLoading={thread.historyPageLoading}
         onLoadOlderHistory={thread.loadOlderMessages}
         onLoadNewerHistory={thread.loadNewerMessages}
-        draft={thread.draft}
-        onChangeDraft={thread.setDraft}
+        draftStore={thread.draftStore}
         {...(composerModelPicker ? { composerModelPicker } : {})}
-        canSubmit={canSubmit}
+        sendReady={sendReady}
         onSubmit={thread.send}
         onStop={thread.stop}
         realtimeVoiceConversationId={thread.conversationId}

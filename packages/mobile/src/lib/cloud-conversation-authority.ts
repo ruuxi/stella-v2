@@ -48,6 +48,12 @@ export const loadCloudConversationAuthority = async (
   identity: CloudConversationIdentity,
   ports: CloudAuthorityPorts,
 ): Promise<CloudConversationAuthority> => {
+  // The realtime config is deployment-wide and read-only, so it rides along
+  // with the identity chain instead of adding its own round trip to the
+  // splash-held handshake. Its result (or failure) is only read below, in the
+  // same place as before, so error precedence is unchanged.
+  const configRequest = Promise.resolve().then(() => ports.getRealtimeConfig());
+  configRequest.catch(() => undefined);
   const confirmed = await ports.confirmIdentity({
     expectedSubject: identity.expectedSubject,
     identityRevision: identity.revision,
@@ -65,7 +71,7 @@ export const loadCloudConversationAuthority = async (
       true,
     );
   }
-  const config = await ports.getRealtimeConfig();
+  const config = await configRequest;
   const ownerGeneration = (await ports.getOwnerGeneration()).trim();
   if (!ownerGeneration) {
     throw new CloudAuthorityError(

@@ -33,6 +33,7 @@ import { saveChatMessages } from "../src/lib/offline-chat-storage";
 import { useCloudCanonicalChatThread } from "../src/lib/use-cloud-canonical-chat-thread";
 import type { CloudConversationAuthority } from "../src/lib/cloud-conversation-authority";
 import type { ChatThread } from "../src/lib/use-chat-thread";
+import { useChatDraft } from "../src/lib/chat-draft-store";
 
 type AcceptancePhase =
   | "enqueue_response_loss"
@@ -247,6 +248,7 @@ const mountSurface = async (
     authority: CloudConversationAuthority;
   }) => {
     const thread = useCloudCanonicalChatThread(authority);
+    const draft = useChatDraft(thread.draftStore);
     currentThread = thread;
     useEffect(() => {
       snapshots.push({
@@ -259,7 +261,7 @@ const mountSurface = async (
         messageStateSha256: hashMessages(thread),
         queuedCount: thread.messages.filter((message) => message.queued).length,
         messageCount: thread.messages.length,
-        draftSha256: sha256(thread.draft),
+        draftSha256: sha256(draft),
       });
     });
     return (
@@ -267,7 +269,7 @@ const mountSurface = async (
         <TextInput
           testID="acceptance-prompt"
           accessibilityLabel="Acceptance prompt"
-          value={thread.draft}
+          value={draft}
           onChangeText={thread.setDraft}
         />
         <Pressable
@@ -342,7 +344,7 @@ const enterPrompt = async (
     );
   });
   await waitFor(
-    () => surface.current().draft === prompt,
+    () => surface.current().draftStore.get() === prompt,
     "RN Web composer update",
     timeoutMs,
   );
@@ -362,7 +364,7 @@ const enterPromptAndSend = async (
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
   await waitFor(
-    () => surface.current().draft === "",
+    () => surface.current().draftStore.get() === "",
     "RN Web send interaction",
     timeoutMs,
   );
@@ -791,7 +793,7 @@ const runReplayReconnectSwitch = async (
     "Cloud outage dispatched through a fallback transport.",
   );
   assert(
-    surface.current().draft === outagePrompt,
+    surface.current().draftStore.get() === outagePrompt,
     "Blocked cloud send consumed the user's nonempty draft.",
   );
 
@@ -847,7 +849,7 @@ const runReplayReconnectSwitch = async (
     noLocalFallback: {
       explicitIssueSha256: outageIssueSha256,
       attemptedPromptSha256: sha256(outagePrompt),
-      blockedSendPreservedDraft: surface.current().draft === outagePrompt,
+      blockedSendPreservedDraft: surface.current().draftStore.get() === outagePrompt,
       localFallbackCount,
       fallbackNetworkCount: submitCountAfterOutage - submitCountBeforeOutage,
     },

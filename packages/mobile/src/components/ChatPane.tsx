@@ -6,6 +6,7 @@ import { ReplyCountBadge, ReplyPreview, type ReplyAgentStatus } from "./ReplyPre
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
 import {
   type ReactNode,
+  type Ref,
   memo,
   useCallback,
   useEffect,
@@ -35,6 +36,7 @@ import {
   Text,
   type TextLayoutEventData,
   TextInput,
+  type TextInputProps,
   UIManager,
   useWindowDimensions,
   View,
@@ -57,6 +59,11 @@ import {
   type PickedAttachment,
 } from "../lib/chat-attachments";
 import { useT } from "../i18n";
+import {
+  useChatDraft,
+  useChatDraftSelector,
+  type ChatDraftStore,
+} from "../lib/chat-draft-store";
 import Reanimated, {
   KeyboardState,
   useAnimatedKeyboard,
@@ -260,6 +267,11 @@ const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
 const POST_SEND_REANCHOR_WINDOW_MS = 1500;
 
 const EDGE_FADE = 48;
+/** LegendList's data-change tail pin, hoisted so it keeps one identity. */
+const LEGEND_TAIL_SCROLL_AT_END = {
+  animated: false,
+  on: { dataChange: true, itemLayout: false, layout: false },
+} as const;
 const MESSAGE_LIST_GAP = 20;
 /**
  * Fixed reading-area floor below the last message (desktop's
@@ -1960,6 +1972,32 @@ const ChatMessageRow = memo(function ChatMessageRow({
   );
 });
 
+const isDraftEmpty = (draft: string) => draft.length === 0;
+const draftHasText = (draft: string) => draft.trim().length > 0;
+
+/**
+ * The composer's text input — the only component a keystroke re-renders. It
+ * subscribes to the draft store for its value and writes edits straight back.
+ */
+function ComposerTextInput({
+  draftStore,
+  ref,
+  ...props
+}: Omit<TextInputProps, "value" | "onChangeText"> & {
+  draftStore: ChatDraftStore;
+  ref?: Ref<TextInput>;
+}) {
+  const value = useChatDraft(draftStore);
+  return (
+    <TextInput
+      ref={ref}
+      {...props}
+      value={value}
+      onChangeText={draftStore.set}
+    />
+  );
+}
+
 /**
  * Submit button that springs between enabled/disabled states like the
  * desktop `motion.button` in `ComposerPrimitives.tsx`:
@@ -2866,10 +2904,11 @@ export type ChatPaneProps = {
   onLoadOlderHistory?: () => Promise<void> | void;
   onLoadNewerHistory?: () => Promise<void> | void;
 
-  /** Composer input value. */
-  draft: string;
-  /** Composer input change handler. */
-  onChangeDraft: (next: string) => void;
+  /**
+   * The composer text. Only the input subscribes to the full value, so a
+   * keystroke re-renders the input rather than this whole pane.
+   */
+  draftStore: ChatDraftStore;
   /** Whether the composer accepts text (typing + sending). */
   composerEnabled?: boolean;
   /**
@@ -2883,8 +2922,12 @@ export type ChatPaneProps = {
   /** Owner-approved intervention pinned immediately above the composer. */
   composerIntervention?: ReactNode;
 
-  /** Computed once per parent re-render; controls submit button enabled. */
-  canSubmit: boolean;
+  /**
+   * Everything except content that gates sending (uploads settled, hydrated,
+   * online, authority ready). The pane adds the content check itself: typed
+   * text, an attachment, or a quote.
+   */
+  sendReady: boolean;
   /** Triggered by the send button or `return` key. */
   onSubmit: () => { userMessageId: string } | null;
   /**
@@ -3013,13 +3056,12 @@ export function ChatPane({
   historyPageLoading = false,
   onLoadOlderHistory,
   onLoadNewerHistory,
-  draft,
-  onChangeDraft,
+  draftStore,
   composerEnabled = true,
   composerModelPicker,
   placeholder,
   composerIntervention,
-  canSubmit,
+  sendReady,
   onSubmit,
   onStop,
   realtimeVoiceConversationId = null,
@@ -3349,13 +3391,18 @@ export function ChatPane({
   const [expanded, setExpanded] = useState(false);
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
 
+  // Derived draft flags: these re-render the pane only when they flip, not on
+  // every keystroke.
+  const draftEmpty = useChatDraftSelector(draftStore, isDraftEmpty);
+  const hasText = useChatDraftSelector(draftStore, draftHasText);
+
   // When the parent clears draft after send, collapse back to pill shape.
   useEffect(() => {
-    if (expanded && draft.length === 0) {
+    if (expanded && draftEmpty) {
       LayoutAnimation.configureNext(LAYOUT_SPRING);
       setExpanded(false);
     }
-  }, [draft, expanded]);
+  }, [draftEmpty, expanded]);
 
   // Expansion is one-way while the user is typing: the pill and expanded
   // shapes give the text different widths, so a 2-line pill can re-flow to
@@ -3379,14 +3426,14 @@ export function ChatPane({
       // it again, and the two LayoutAnimation springs ping-pong — the composer
       // (and the working indicator stacked above it) shake violently. An empty
       // composer is never expanded, so there is nothing to grow for here.
-      if (draft.length === 0) return;
+      if (draftStore.get().length === 0) return;
       const h = e.nativeEvent.contentSize.height;
       if (h > EXPAND_THRESHOLD) {
         LayoutAnimation.configureNext(LAYOUT_SPRING);
         setExpanded(true);
       }
     },
-    [expanded, draft],
+    [expanded, draftStore],
   );
 
   const submit = useCallback(() => {
@@ -3419,13 +3466,6 @@ export function ChatPane({
     [dictationHeaders],
   );
 
-  // Use a ref so the dictation transcript callback always sees the latest
-  // draft, even when a transcription chunk lands after the parent re-renders.
-  const draftRef = useRef(draft);
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
-
   // Auto-send-after-dictation coordination (see `stopAndSendVoice` below).
   // When a voice-send is armed we stash the exact draft the transcript produces
   // so the send effect can wait for the draft state to actually reflect it,
@@ -3437,12 +3477,14 @@ export function ChatPane({
 
   const appendTranscript = useCallback(
     (text: string) => {
-      const trimmedPrev = draftRef.current.trimEnd();
+      // The store is read synchronously, so a transcription chunk always
+      // appends to the latest text.
+      const trimmedPrev = draftStore.get().trimEnd();
       const next = trimmedPrev ? `${trimmedPrev} ${text}` : text;
       if (pendingVoiceSendRef.current) voiceSendTargetRef.current = next;
-      onChangeDraft(next);
+      draftStore.set(next);
     },
-    [onChangeDraft],
+    [draftStore],
   );
 
   const dictation = useDictation({
@@ -3563,7 +3605,7 @@ export function ChatPane({
         armed: pendingVoiceSendRef.current,
         resultReady: voiceSendResultReadyRef.current,
         status: dictation.status,
-        draft,
+        draft: draftStore.get(),
         target,
         attachmentCount: attachments?.length ?? 0,
       })
@@ -3574,7 +3616,7 @@ export function ChatPane({
     voiceSendResultReadyRef.current = false;
     voiceSendTargetRef.current = null;
     submit();
-  }, [dictation.status, draft, attachments, submit, voiceSendResultVersion]);
+  }, [dictation.status, draftStore, attachments, submit, voiceSendResultVersion]);
 
   const attachmentLimit = maxAttachments ?? CHAT_ATTACHMENT_MAX_COUNT;
   const acceptPicked = useCallback(
@@ -3968,14 +4010,14 @@ export function ChatPane({
         onAddQuote(trimmed);
       } else {
         const quoted = quoteMessageText(trimmed);
-        const current = draftRef.current;
-        onChangeDraft(
+        const current = draftStore.get();
+        draftStore.set(
           current.trim() ? `${quoted}\n\n${current}` : `${quoted}\n\n`,
         );
       }
       setTimeout(() => inputRef.current?.focus(), 0);
     },
-    [onAddQuote, onChangeDraft],
+    [draftStore, onAddQuote],
   );
 
   // Long-press action menu for USER messages (assistant long-press does native
@@ -4032,6 +4074,45 @@ export function ChatPane({
     return options;
   }, [messageMenu, quoteMessage, startSelectingMessage]);
 
+  // The list's handlers are stable so a composer keystroke — which re-renders
+  // this pane — leaves the memoized LegendList (and its rows) alone.
+  const selectingMessageIdRef = useRef<string | null>(null);
+  selectingMessageIdRef.current = selectingMessageId;
+  const handleListScrollBeginDrag = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      // Scrolling the transcript exits any active text selection before the
+      // drag runs.
+      if (selectingMessageIdRef.current != null) stopSelectingMessage();
+      pendingSendNudgeRef.current = null;
+      scroll.onScrollBeginDrag();
+      historyPaging.beginDrag();
+      // A short page may already be at the boundary and never cross a list
+      // threshold. The drag itself requests one page.
+      requestHistoryNearPosition(e.nativeEvent);
+    },
+    [
+      historyPaging,
+      requestHistoryNearPosition,
+      scroll.onScrollBeginDrag,
+      stopSelectingMessage,
+    ],
+  );
+  const handleListScrollEndDrag = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      historyPaging.endDrag(e.nativeEvent.velocity?.y);
+      handleListScrollSettle();
+    },
+    [handleListScrollSettle, historyPaging],
+  );
+  const handleListMomentumScrollBegin = useCallback(
+    () => historyPaging.beginMomentum(),
+    [historyPaging],
+  );
+  const handleListMomentumScrollEnd = useCallback(() => {
+    historyPaging.endScroll();
+    handleListScrollSettle();
+  }, [handleListScrollSettle, historyPaging]);
+
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
   // The in-flight turn's reply row: appended empty on dispatch, then grown by
   // whole message segments. It owns the autoscroll follow so a landing message
@@ -4058,6 +4139,21 @@ export function ChatPane({
         : undefined,
     [onOpenArtifact, conversationId],
   );
+  // The scroll owner's layout handlers change with the reserved bottom inset
+  // (keyboard, composer height). Route rows through stable forwarders so those
+  // changes do not invalidate every mounted row.
+  const scrollLayoutRef = useRef(scroll);
+  scrollLayoutRef.current = scroll;
+  const onActiveAssistantLayout = useCallback(
+    (event: LayoutChangeEvent) =>
+      scrollLayoutRef.current.onActiveAssistantLayout(event),
+    [],
+  );
+  const onLatestUserLayout = useCallback(
+    (id: string, event: LayoutChangeEvent) =>
+      scrollLayoutRef.current.onLatestUserLayout(id, event),
+    [],
+  );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isActiveAssistant = item.id === activeAssistantId;
@@ -4072,9 +4168,9 @@ export function ChatPane({
           animate={animate && item.role !== "assistant"}
           onLayout={
             isActiveAssistant
-              ? scroll.onActiveAssistantLayout
+              ? onActiveAssistantLayout
               : isLatestUser
-                ? (event) => scroll.onLatestUserLayout(item.id, event)
+                ? (event) => onLatestUserLayout(item.id, event)
                 : undefined
           }
         >
@@ -4112,25 +4208,25 @@ export function ChatPane({
       onOpenArtifact,
       onOpenStellaFile,
       latestUserMessageId,
-      scroll.onLatestUserLayout,
-      scroll.onActiveAssistantLayout,
+      onLatestUserLayout,
+      onActiveAssistantLayout,
       activeAssistantId,
       activeMenuMessageId,
       selectingMessageId,
-      startSelectingMessage,
       stopSelectingMessage,
       quoteMessage,
       onOpenActivity,
       desktopAccess,
     ],
   );
-  // Recycled rows also depend on focus and the current palette. Invalidate
-  // them when either changes so native attributed text receives new colors
-  // even when the message data itself has not changed.
-  const listExtraData = useMemo(
-    () => ({ activeMenuMessageId, selectingMessageId, colors }),
-    [activeMenuMessageId, selectingMessageId, colors],
-  );
+  // Legend re-renders a mounted row only when its item or `extraData`
+  // changes, never when `renderItem` does. Everything a row closes over —
+  // focus and selection, the palette (native attributed text needs new
+  // colors), reply quotes and "N replies" counts that change when *other*
+  // messages land, the latest-turn layout wiring, paired-computer access —
+  // is a `renderItem` dependency, so its identity is the invalidation key.
+  // Rows whose props did not change still bail out in `ChatMessageRow`'s memo.
+  const listExtraData = renderItem;
   const renderSeparator = useCallback(
     () => <View style={styles.itemSeparator} />,
     [styles],
@@ -4220,8 +4316,10 @@ export function ChatPane({
   );
 
   const empty = visibleMessages.length === 0;
-  const hasText = draft.trim().length > 0;
-  const composerHasContent = draft.length > 0 || (attachments?.length ?? 0) > 0;
+  const composerHasContent = !draftEmpty || (attachments?.length ?? 0) > 0;
+  const canSubmit =
+    sendReady &&
+    (hasText || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0);
   const dictationInline = isListening && !hasText;
   const dictationBelow = isListening && hasText;
 
@@ -4319,6 +4417,37 @@ export function ChatPane({
     () => [styles.list, { paddingBottom: listBottomInsetPx }],
     [styles.list, listBottomInsetPx],
   );
+  // Built once per geometry: the backdrop mask would otherwise re-render with
+  // every composer keystroke.
+  const topTaper = useMemo(
+    () => (
+      <View style={styles.topTaper} pointerEvents="none" collapsable={false}>
+        <MaskedView
+          style={StyleSheet.absoluteFill}
+          maskElement={
+            <LinearGradient
+              colors={["#000", "rgba(0,0,0,0)"]}
+              locations={[0, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+          }
+        >
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: -(insets.top + TOP_BAR_BAR_HEIGHT),
+              height: screenHeight,
+            }}
+          >
+            <AppBackdrop />
+          </View>
+        </MaskedView>
+      </View>
+    ),
+    [insets.top, screenHeight, styles.topTaper],
+  );
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
       <View style={styles.viewport}>
@@ -4355,26 +4484,10 @@ export function ChatPane({
                 ItemSeparatorComponent={renderSeparator}
                 ListFooterComponent={listFooter}
                 onScroll={handleListScroll}
-                onScrollBeginDrag={(e) => {
-                  // Scrolling the transcript exits any active text selection
-                  // before the drag runs (inline so it adds no new deps warning).
-                  if (selectingMessageId != null) stopSelectingMessage();
-                  pendingSendNudgeRef.current = null;
-                  scroll.onScrollBeginDrag();
-                  historyPaging.beginDrag();
-                  // A short page may already be at the boundary and never
-                  // cross a list threshold. The drag itself requests one page.
-                  requestHistoryNearPosition(e.nativeEvent);
-                }}
-                onScrollEndDrag={(e) => {
-                  historyPaging.endDrag(e.nativeEvent.velocity?.y);
-                  handleListScrollSettle();
-                }}
-                onMomentumScrollBegin={() => historyPaging.beginMomentum()}
-                onMomentumScrollEnd={() => {
-                  historyPaging.endScroll();
-                  handleListScrollSettle();
-                }}
+                onScrollBeginDrag={handleListScrollBeginDrag}
+                onScrollEndDrag={handleListScrollEndDrag}
+                onMomentumScrollBegin={handleListMomentumScrollBegin}
+                onMomentumScrollEnd={handleListMomentumScrollEnd}
                 onContentSizeChange={handleListContentSizeChange}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
@@ -4405,14 +4518,7 @@ export function ChatPane({
                 // placement, and this pin owns only ordinary live-tail appends.
                 maintainScrollAtEnd={
                   dataChangeScrollOwner === "legend-tail"
-                    ? {
-                        animated: false,
-                        on: {
-                          dataChange: true,
-                          itemLayout: false,
-                          layout: false,
-                        },
-                      }
+                    ? LEGEND_TAIL_SCROLL_AT_END
                     : false
                 }
               />
@@ -4427,30 +4533,7 @@ export function ChatPane({
             {/* Android's native MaskedView does not implement pointerEvents.
                 Keep touch exclusion on a real RN View around the whole mask,
                 including its screen-height backdrop child. */}
-            <View style={styles.topTaper} pointerEvents="none" collapsable={false}>
-              <MaskedView
-                style={StyleSheet.absoluteFill}
-                maskElement={
-                  <LinearGradient
-                    colors={["#000", "rgba(0,0,0,0)"]}
-                    locations={[0, 1]}
-                    style={StyleSheet.absoluteFill}
-                  />
-                }
-              >
-                <View
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    top: -(insets.top + TOP_BAR_BAR_HEIGHT),
-                    height: screenHeight,
-                  }}
-                >
-                  <AppBackdrop />
-                </View>
-              </MaskedView>
-            </View>
+            {topTaper}
           </>
         )}
         {replyFocus && <ReplyFocus
@@ -4761,11 +4844,11 @@ export function ChatPane({
                     }
                   >
                     {isExpandedComposed ? null : plusButton}
-                    <TextInput
+                    <ComposerTextInput
                       ref={inputRef}
+                      draftStore={draftStore}
                       multiline
                       scrollEnabled={isExpandedComposed}
-                      onChangeText={onChangeDraft}
                       onContentSizeChange={handleContentSizeChange}
                       onFocus={() => {
                         // Focusing the composer (keyboard opening) exits any
@@ -4785,10 +4868,9 @@ export function ChatPane({
                       underlineColorAndroid="transparent"
                       style={
                         isExpandedComposed
-                          ? [styles.inputExpanded, draft.length === 0 && styles.inputExpandedEmpty]
+                          ? [styles.inputExpanded, draftEmpty && styles.inputExpandedEmpty]
                           : styles.inputPill
                       }
-                      value={draft}
                       editable={composerEnabled}
                     />
                     {isExpandedComposed ? null : canSubmit ? (

@@ -23,8 +23,10 @@ export function useChatAttachmentPreviews(
   authorityScope: string,
 ): ChatMessage[] {
   // A stable path key avoids restarting requests for unrelated streamed rows.
-  const pathKey = JSON.stringify([...new Set(messages.flatMap((message) =>
-    message.attachmentPaths ?? []))].sort());
+  // Derived per transcript rather than per render: composer keystrokes
+  // re-render this hook without touching `messages`.
+  const pathKey = useMemo(() => JSON.stringify([...new Set(messages.flatMap((message) =>
+    message.attachmentPaths ?? []))].sort()), [messages]);
   const paths = useMemo(() => JSON.parse(pathKey) as string[], [pathKey]);
   const cacheRef = useRef({ scope: authorityScope, entries: new Map<string, DrivePreview>() });
   if (cacheRef.current.scope !== authorityScope) {

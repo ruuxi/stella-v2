@@ -39,14 +39,13 @@ import {
   setComposerModelPinned,
   useComposerModelPinned,
 } from "../../src/lib/composer-model-pin";
-import { useComputerModelSettings } from "../../src/lib/use-computer-model-settings";
 import { useCloudModelSettings } from "../../src/lib/use-cloud-model-settings";
 import { usesCloudModelSettings } from "../../src/lib/cloud-model-selection";
 import { resolveRealtimeVoiceRoute } from "../../src/lib/realtime-voice-routing";
 import {
   REASONING_OPTIONS,
   type ReasoningEffort,
-} from "../../src/lib/desktop-model-prefs";
+} from "../../src/lib/stella-model-catalog";
 import { attachmentsSettled } from "../../src/lib/chat-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
@@ -157,7 +156,8 @@ function SignedInCanonicalChat(props: {
   }, []);
 
   const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
-  const cloudModelSettings = useCloudModelSettings(cloudModelsActive);
+  // One account-wide selection for cloud and computer turns alike.
+  const cloudModelSettings = useCloudModelSettings(true);
   const thread = useCloudCanonicalChatThread(props.authority, {
     reloadAuthority: props.reloadAuthority,
     access,
@@ -270,7 +270,6 @@ function ChatSurface(props: {
   const isFocused = useIsFocused();
   const composerModelPinned = useComposerModelPinned();
   const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
-  const modelSettings = useComputerModelSettings(cloudModelsActive ? null : access);
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
@@ -479,22 +478,9 @@ function ChatSurface(props: {
   // new every render) so streaming doesn't re-render Settings per token.
   const connecting = status.checking || waking;
   const showWake = !status.checking && !status.available && !waking;
-  const modelHidden = !access || modelSettings.developerModeEnabled === false;
-  const {
-    selectedModelLabel: modelLabel,
-    catalog: modelCatalog,
-    syncFromSnapshot,
-  } = modelSettings;
   const computerModel = useMemo(
-    () =>
-      modelHidden
-        ? null
-        : {
-            label: modelLabel,
-            catalog: modelCatalog,
-            onApplied: syncFromSnapshot,
-          },
-    [modelHidden, modelLabel, modelCatalog, syncFromSnapshot],
+    () => ({ label: cloudModelSettings.label, settings: cloudModelSettings }),
+    [cloudModelSettings],
   );
   useEffect(() => {
     if (!pairingResolved) return;
@@ -558,58 +544,33 @@ function ChatSurface(props: {
     [access, executionTarget, pairedDesktops],
   );
 
-  const composerModelPicker = useMemo(() => {
-    if (cloudModelsActive) {
-      return {
-        pinned: composerModelPinned,
-        label: cloudModelSettings.label,
-        loading: cloudModelSettings.loading && !cloudModelSettings.execution,
-        saving: cloudModelSettings.saving,
-        effortLabel: cloudModelSettings.effort === "default"
-          ? t("settings.agentModelPicker.default")
-          : t(`settings.reasoningEffort.${cloudModelSettings.effort}`),
-        effortOptions: cloudModelSettings.supportsEffortSelection
-          ? REASONING_OPTIONS.map((option) => ({
-              ...option,
-              label: option.id === "default"
-                ? t("settings.agentModelPicker.default")
-                : t(`settings.reasoningEffort.${option.id}`),
-              selected: option.id === cloudModelSettings.effort,
-            }))
-          : [],
-        recentModels: cloudModelSettings.models,
-        onOpen: () => { void cloudModelSettings.refresh(); },
-        onSelectEffort: (id: string) => cloudModelSettings.selectEffort(id as ReasoningEffort),
-        onSelectModel: cloudModelSettings.selectModel,
-      };
-    }
-    if (!access) return undefined;
-    return {
+  const composerModelPicker = useMemo(
+    () => ({
       // One pin for both cloud and computer chats: off by default, and only
       // the user's own "Show in composer" toggle turns it on.
       pinned: composerModelPinned,
-      label: modelSettings.selectedModelLabel,
-      loading: modelSettings.loading && !modelSettings.snapshot,
-      saving: modelSettings.saving,
-      effortLabel:
-        REASONING_OPTIONS.find(
-          (option) => option.id === modelSettings.selectedEffort,
-        )?.label ?? "Auto",
-      effortOptions: modelSettings.supportsEffortSelection
+      label: cloudModelSettings.label,
+      loading: cloudModelSettings.loading && !cloudModelSettings.execution,
+      saving: cloudModelSettings.saving,
+      effortLabel: cloudModelSettings.effort === "default"
+        ? t("settings.agentModelPicker.default")
+        : t(`settings.reasoningEffort.${cloudModelSettings.effort}`),
+      effortOptions: cloudModelSettings.supportsEffortSelection
         ? REASONING_OPTIONS.map((option) => ({
             ...option,
-            selected: option.id === modelSettings.selectedEffort,
+            label: option.id === "default"
+              ? t("settings.agentModelPicker.default")
+              : t(`settings.reasoningEffort.${option.id}`),
+            selected: option.id === cloudModelSettings.effort,
           }))
         : [],
-      recentModels: modelSettings.recentModels,
-      onOpen: () => {
-        void modelSettings.refresh().catch(() => undefined);
-      },
-      onSelectEffort: (id: string) =>
-        modelSettings.selectEffort(id as ReasoningEffort),
-      onSelectModel: modelSettings.selectRecentModel,
-    };
-  }, [access, cloudModelsActive, cloudModelSettings, composerModelPinned, modelSettings, t]);
+      recentModels: cloudModelSettings.models,
+      onOpen: () => { void cloudModelSettings.refresh(); },
+      onSelectEffort: (id: string) => cloudModelSettings.selectEffort(id as ReasoningEffort),
+      onSelectModel: cloudModelSettings.selectModel,
+    }),
+    [cloudModelSettings, composerModelPinned, t],
+  );
 
   return (
     <View style={styles.screen}>

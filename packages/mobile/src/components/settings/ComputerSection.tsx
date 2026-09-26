@@ -330,9 +330,7 @@ export function ComputerSection({
             <ComputerSettingsSheet
               visible={modelSheetOpen}
               onClose={() => setModelSheetOpen(false)}
-              access={control.access}
-              catalog={control.model.catalog}
-              onApplied={control.model.onApplied}
+              settings={control.model.settings}
               composerModelPinned={control.composerModelPinned}
               onComposerModelPinnedChange={
                 control.onComposerModelPinnedChange

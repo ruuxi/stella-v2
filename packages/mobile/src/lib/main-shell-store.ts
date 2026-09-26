@@ -1,10 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { AutomaticExecutionTarget } from "./execution-placement";
 import type { StoredPhoneAccess } from "./phone-access";
-import type {
-  DesktopModelSnapshot,
-  StellaCatalog,
-} from "./desktop-model-prefs";
+import type { ModelSettings } from "./use-cloud-model-settings";
 import type { ChatArtifact, MobileTask } from "../types";
 
 /**
@@ -46,11 +43,10 @@ export type ComputerControl = {
   onRepaired: (access: StoredPhoneAccess) => void;
   executionTarget: AutomaticExecutionTarget;
   onExecutionTargetChange: (target: AutomaticExecutionTarget) => void;
-  /** The paired desktop's model, or `null` when its controls are hidden. */
+  /** The account's model selection, or `null` when its controls are hidden. */
   model: {
     label: string;
-    catalog: StellaCatalog;
-    onApplied: (snapshot: DesktopModelSnapshot) => void;
+    settings: ModelSettings;
   } | null;
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;

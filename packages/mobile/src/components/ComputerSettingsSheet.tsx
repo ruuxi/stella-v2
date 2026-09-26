@@ -1,5 +1,4 @@
-import { withDesktopBridgeRecovery } from "../lib/desktop-bridge-chat";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -16,328 +15,78 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
-import { notifyError } from "../lib/haptics";
-import { userFacingError } from "../lib/user-facing-error";
-import { type StoredPhoneAccess } from "../lib/phone-access";
-import { type DesktopBridgeConnection } from "../lib/desktop-bridge-chat";
+import { REASONING_OPTIONS } from "../lib/stella-model-catalog";
 import {
-  ENGINE_OPTIONS,
-  REASONING_OPTIONS,
-  STELLA_DEFAULT_MODEL,
-  buildRuntimeAssignPatch,
-  buildRuntimeSetEffortPatch,
-  buildStellaAssignPatch,
-  buildStellaClearPatch,
-  buildStellaProviderGroups,
-  buildStellaSetEffortPatch,
-  fetchDirectProviderModels,
-  getDesktopModelPrefs,
-  listDesktopConnectedProviders,
-  listDesktopRuntimeModels,
-  runtimeSelectedEffort,
-  runtimeSelectedModelId,
-  setDesktopModelPrefs,
-  stellaSelectedEffort,
-  stellaSelectedModelId,
-  type AgentRuntimeEngine,
-  type DesktopModelSnapshot,
-  type ProviderModelGroup,
-  type ReasoningEffort,
-  type RuntimeEngine,
-  type RuntimeModelOption,
-  type StellaCatalog,
-} from "../lib/desktop-model-prefs";
+  MODEL_ENGINE_OPTIONS,
+  type ModelOption,
+  type ModelSettings,
+} from "../lib/use-cloud-model-settings";
 
 type Props = {
   visible: boolean;
   onClose: () => void;
-  access: StoredPhoneAccess | null;
-  catalog: StellaCatalog;
-  /** Called whenever the desktop snapshot changes, so the quick menu label can stay in sync. */
-  onApplied?: (snapshot: DesktopModelSnapshot) => void;
+  settings: ModelSettings;
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;
 };
 
-const isRuntimeEngine = (engine: AgentRuntimeEngine): engine is RuntimeEngine =>
-  engine === "codex_cli" || engine === "claude_code_local";
-
-/** Which provider tab a selected Stella-engine model belongs to. */
-const providerKeyForModel = (modelId: string): string => {
-  if (!modelId || modelId.startsWith("stella/")) return "stella";
-  const slash = modelId.indexOf("/");
-  return slash > 0 ? modelId.slice(0, slash) : "stella";
-};
-
 /**
- * Advanced model picker for the Computer chat — mirrors the desktop
- * display-sidebar engine/model picker and writes the paired desktop's real
- * local model preferences over the bridge. Opens as an iOS page sheet like
- * the pairing sheet.
+ * Engine and model picker. Lists and the saved choice come from the server,
+ * so it never waits on a paired computer; the computer mirrors the saved
+ * choice for its own turns.
  */
 export function ComputerSettingsSheet({
   visible,
   onClose,
-  access,
-  catalog,
-  onApplied,
+  settings,
   composerModelPinned,
   onComposerModelPinnedChange,
 }: Props) {
   const colors = useColors();
   const styles = makeStyles(colors);
+  const { refresh } = settings;
 
-  const bridgeRef = useRef<DesktopBridgeConnection | null>(null);
-  const [snapshot, setSnapshot] = useState<DesktopModelSnapshot | null>(null);
-  const [engine, setEngine] = useState<AgentRuntimeEngine>("default");
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [runtimeModels, setRuntimeModels] = useState<
-    Partial<Record<RuntimeEngine, RuntimeModelOption[]>>
-  >({});
-  const [runtimeLoading, setRuntimeLoading] = useState(false);
-  const [connectedProviders, setConnectedProviders] = useState<string[]>([]);
-  const [directModels, setDirectModels] = useState<
-    Record<string, RuntimeModelOption[]>
-  >({});
-  // Active provider tab within the Stella engine (null = follow selection).
-  const [activeProviderKey, setActiveProviderKey] = useState<string | null>(
-    null,
-  );
-
-  const loadRuntimeModels = useCallback(
-    async (target: RuntimeEngine) => {
-      const bridge = bridgeRef.current;
-      if (!bridge || runtimeModels[target]) return;
-      setRuntimeLoading(true);
-      try {
-        const models = await listDesktopRuntimeModels(bridge, target);
-        setRuntimeModels((prev) => ({ ...prev, [target]: models }));
-      } catch (e) {
-        setError(userFacingError(e));
-      } finally {
-        setRuntimeLoading(false);
-      }
-    },
-    [runtimeModels],
-  );
-
-  // Resolve the bridge and load the live desktop snapshot when the sheet opens.
   useEffect(() => {
-    if (!visible) {
-      bridgeRef.current = null;
-      setSnapshot(null);
-      setRuntimeModels({});
-      setConnectedProviders([]);
-      setActiveProviderKey(null);
-      setError(null);
-      return;
-    }
-    if (!access) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    // models.dev catalog (BYOK model lists) is plain HTTP — load independently.
-    void fetchDirectProviderModels().then((models) => {
-      if (!cancelled) setDirectModels(models);
-    });
-    void (async () => {
-      try {
-        const { bridge, next } = await withDesktopBridgeRecovery(
-          access,
-          async (bridge) => ({
-            bridge,
-            next: await getDesktopModelPrefs(bridge),
-          }),
-        );
-        if (cancelled) return;
-        bridgeRef.current = bridge;
-        setSnapshot(next);
-        setEngine(next.agentRuntimeEngine);
-        onApplied?.(next);
-        if (isRuntimeEngine(next.agentRuntimeEngine)) {
-          void loadRuntimeModels(next.agentRuntimeEngine);
-        }
-        void listDesktopConnectedProviders(bridge).then((providers) => {
-          if (!cancelled) setConnectedProviders(providers);
-        });
-      } catch (e) {
-        if (!cancelled) setError(userFacingError(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Re-run only when the sheet opens / the device changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, access]);
+    if (visible) void refresh();
+  }, [visible, refresh]);
 
-  const apply = useCallback(
-    async (patch: Parameters<typeof setDesktopModelPrefs>[1]) => {
-      if (!access || !bridgeRef.current) return;
-      setSaving(true);
-      setError(null);
-      try {
-        const next = await withDesktopBridgeRecovery(access, async (bridge) => {
-          const updated = await setDesktopModelPrefs(bridge, patch);
-          bridgeRef.current = bridge;
-          return updated;
-        });
-        setSnapshot(next);
-        setEngine(next.agentRuntimeEngine);
-        onApplied?.(next);
-      } catch (e) {
-        notifyError();
-        setError(userFacingError(e));
-      } finally {
-        setSaving(false);
-      }
-    },
-    [access, onApplied],
-  );
+  const ready = settings.execution !== null;
+  const engine = settings.engine;
+  const rows = settings.modelsFor(engine);
+  const cloudDisconnected =
+    engine !== "stella" &&
+    settings.connectedProviders !== undefined &&
+    !settings.connectedProviders.includes(engine);
 
-  const onSelectEngine = useCallback(
-    (next: AgentRuntimeEngine) => {
-      if (next === engine || saving) return;
-      setEngine(next);
-      if (isRuntimeEngine(next)) void loadRuntimeModels(next);
-      void apply({ agentRuntimeEngine: next });
-    },
-    [apply, engine, loadRuntimeModels, saving],
-  );
-
-  const onSelectModel = useCallback(
-    (modelId: string) => {
-      if (!snapshot || saving) return;
-      if (isRuntimeEngine(engine)) {
-        void apply(
-          buildRuntimeAssignPatch(
-            snapshot,
-            engine,
-            catalog.agentKeys,
-            modelId,
-            runtimeSelectedEffort(snapshot, engine),
-          ),
-        );
-        return;
-      }
-      if (modelId === STELLA_DEFAULT_MODEL) {
-        void apply(buildStellaClearPatch(snapshot, catalog.agentKeys));
-        return;
-      }
-      void apply(
-        buildStellaAssignPatch(
-          snapshot,
-          catalog.agentKeys,
-          modelId,
-          stellaSelectedEffort(snapshot),
-        ),
-      );
-    },
-    [apply, catalog.agentKeys, engine, saving, snapshot],
-  );
-
-  const onSelectEffort = useCallback(
-    (effort: ReasoningEffort) => {
-      if (!snapshot || saving) return;
-      if (isRuntimeEngine(engine)) {
-        void apply(buildRuntimeSetEffortPatch(engine, effort));
-        return;
-      }
-      void apply(
-        buildStellaSetEffortPatch(snapshot, catalog.agentKeys, effort),
-      );
-    },
-    [apply, catalog.agentKeys, engine, saving, snapshot],
-  );
-
-  const runtime = isRuntimeEngine(engine) ? engine : null;
-  const selectedModelId = snapshot
-    ? runtime
-      ? runtimeSelectedModelId(snapshot, runtime)
-      : stellaSelectedModelId(snapshot)
-    : "";
-  const selectedEffort: ReasoningEffort = snapshot
-    ? runtime
-      ? runtimeSelectedEffort(snapshot, runtime)
-      : stellaSelectedEffort(snapshot)
-    : "default";
-
-  const runtimeRows: RuntimeModelOption[] = runtime
-    ? (runtimeModels[runtime] ?? [])
-    : [];
-  // Stella engine groups models by provider: Stella always, then each
-  // connected BYOK provider (Anthropic, OpenRouter, …) with its models.
-  const stellaGroups: ProviderModelGroup[] = runtime
-    ? []
-    : buildStellaProviderGroups(catalog, connectedProviders, directModels);
-
-  // Default the provider tab to whichever provider owns the selected model;
-  // a user tap (activeProviderKey) overrides until it's no longer valid.
-  const selectedProviderKey = providerKeyForModel(selectedModelId);
-  const activeProvider =
-    activeProviderKey &&
-    stellaGroups.some((group) => group.key === activeProviderKey)
-      ? activeProviderKey
-      : selectedProviderKey;
-  const activeGroup =
-    stellaGroups.find((group) => group.key === activeProvider) ??
-    stellaGroups[0] ??
-    null;
-
-  const isRowSelected = (rowId: string) => {
-    if (rowId === selectedModelId) return true;
-    // No Stella override means the desktop is on its default model.
-    if (!runtime && selectedModelId === "" && rowId === STELLA_DEFAULT_MODEL) {
-      return true;
-    }
-    return false;
-  };
-
-  const showModelLoading = loading || (Boolean(runtime) && runtimeLoading);
-  // Stella-managed models never expose a thinking control: the backend owns
-  // their effort. Engines and BYOK models keep theirs.
-  const showEffortControl =
-    runtime !== null ||
-    (selectedModelId !== "" && !selectedModelId.startsWith("stella/"));
-
-  const renderModelRow = (model: RuntimeModelOption) => {
-    const selected = isRowSelected(model.id);
-    const disabled = !model.allowedForAudience || loading || saving;
-    return (
-      <Pressable
-        key={model.id}
-        onPress={() => {
-          if (model.allowedForAudience) onSelectModel(model.id);
-        }}
-        disabled={disabled}
-        accessibilityLabel={`Use ${model.name}`}
-        style={({ pressed }) => [
-          styles.modelRow,
-          selected && styles.modelRowSelected,
-          pressed && styles.modelRowPressed,
-          !model.allowedForAudience && styles.modelRowDisabled,
-        ]}
-      >
-        <View style={styles.modelText}>
-          <Text style={styles.modelName} numberOfLines={1}>
-            {model.name}
+  const renderModelRow = (model: ModelOption) => (
+    <Pressable
+      key={model.id}
+      onPress={() => settings.selectEngineModel(engine, model.id)}
+      disabled={!ready || !model.available}
+      accessibilityLabel={`Use ${model.label}`}
+      accessibilityState={{ selected: model.selected }}
+      style={({ pressed }) => [
+        styles.modelRow,
+        model.selected && styles.modelRowSelected,
+        pressed && styles.modelRowPressed,
+        !model.available && styles.modelRowDisabled,
+      ]}
+    >
+      <View style={styles.modelText}>
+        <Text style={styles.modelName} numberOfLines={1}>
+          {model.label}
+        </Text>
+        {model.description ? (
+          <Text style={styles.modelSub} numberOfLines={1}>
+            {model.description}
           </Text>
-          {model.subtitle ? (
-            <Text style={styles.modelSub} numberOfLines={1}>
-              {model.subtitle}
-            </Text>
-          ) : null}
-        </View>
-        {selected ? (
-          <Icon name="check" size={16} color={colors.accent} />
         ) : null}
-      </Pressable>
-    );
-  };
+      </View>
+      {model.selected ? (
+        <Icon name="check" size={16} color={colors.accent} />
+      ) : null}
+    </Pressable>
+  );
 
   return (
     <Modal
@@ -350,7 +99,7 @@ export function ComputerSettingsSheet({
         <View style={styles.sheetHandle} />
         <View style={styles.sheetHeader}>
           <Text style={styles.sheetTitle}>Models</Text>
-          {saving ? (
+          {settings.saving ? (
             <ActivityIndicator size="small" color={colors.textMuted} />
           ) : null}
           <Pressable
@@ -378,18 +127,17 @@ export function ComputerSettingsSheet({
           contentContainerStyle={styles.sheetContent}
           keyboardShouldPersistTaps="handled"
         >
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
           <Text style={styles.sectionLabel}>Engine</Text>
           <View style={styles.segmentRow}>
-            {ENGINE_OPTIONS.map((option) => {
+            {MODEL_ENGINE_OPTIONS.map((option) => {
               const active = option.id === engine;
               return (
                 <Pressable
                   key={option.id}
-                  onPress={() => onSelectEngine(option.id)}
-                  disabled={loading || saving}
+                  onPress={() => settings.selectEngine(option.id)}
+                  disabled={!ready}
                   accessibilityLabel={`Use ${option.label} engine`}
+                  accessibilityState={{ selected: active }}
                   style={({ pressed }) => [
                     styles.segment,
                     active && styles.segmentActive,
@@ -409,18 +157,19 @@ export function ComputerSettingsSheet({
             })}
           </View>
 
-          {showEffortControl ? (
+          {settings.supportsEffortSelection ? (
             <>
               <Text style={styles.sectionLabel}>Thinking</Text>
               <View style={styles.segmentRow}>
                 {REASONING_OPTIONS.map((option) => {
-                  const active = option.id === selectedEffort;
+                  const active = option.id === settings.effort;
                   return (
                     <Pressable
                       key={option.id}
-                      onPress={() => onSelectEffort(option.id)}
-                      disabled={loading || saving || !snapshot}
+                      onPress={() => settings.selectEffort(option.id)}
+                      disabled={!ready}
                       accessibilityLabel={`Thinking ${option.label}`}
+                      accessibilityState={{ selected: active }}
                       style={({ pressed }) => [
                         styles.effortSegment,
                         active && styles.segmentActive,
@@ -442,72 +191,24 @@ export function ComputerSettingsSheet({
             </>
           ) : null}
 
-          {showModelLoading ? (
-            <>
-              <Text style={styles.sectionLabel}>Model</Text>
-              <View style={styles.modelLoading}>
-                <ActivityIndicator size="small" color={colors.textMuted} />
-              </View>
-            </>
-          ) : runtime ? (
-            <>
-              <Text style={styles.sectionLabel}>Model</Text>
-              {runtimeRows.length === 0 ? (
-                <Text style={styles.emptyText}>
-                  No models available. Make sure this engine is installed on
-                  your computer.
-                </Text>
-              ) : (
-                <View style={styles.modelList}>
-                  {runtimeRows.map(renderModelRow)}
-                </View>
-              )}
-            </>
+          <Text style={styles.sectionLabel}>Model</Text>
+          {!ready ? (
+            <View style={styles.modelLoading}>
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            </View>
+          ) : rows.length === 0 ? (
+            <Text style={styles.emptyText}>No models available.</Text>
           ) : (
-            <>
-              {stellaGroups.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.providerTabs}
-                >
-                  {stellaGroups.map((group) => {
-                    const active = group.key === activeProvider;
-                    return (
-                      <Pressable
-                        key={group.key}
-                        onPress={() => setActiveProviderKey(group.key)}
-                        accessibilityLabel={`${group.name} models`}
-                        style={({ pressed }) => [
-                          styles.providerTab,
-                          active && styles.segmentActive,
-                          pressed && styles.segmentPressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.segmentText,
-                            active && styles.segmentTextActive,
-                          ]}
-                        >
-                          {group.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                <Text style={styles.sectionLabel}>Model</Text>
-              )}
-              {activeGroup && activeGroup.models.length > 0 ? (
-                <View style={styles.modelList}>
-                  {activeGroup.models.map(renderModelRow)}
-                </View>
-              ) : (
-                <Text style={styles.emptyText}>No models available.</Text>
-              )}
-            </>
+            <View style={styles.modelList}>{rows.map(renderModelRow)}</View>
           )}
+          {ready && cloudDisconnected ? (
+            <Text style={styles.emptyText}>
+              Your computer uses its own{" "}
+              {engine === "anthropic" ? "Claude Code" : "Codex"} login. To run
+              this engine in the cloud, connect{" "}
+              {engine === "anthropic" ? "Claude" : "ChatGPT"} in Settings.
+            </Text>
+          ) : null}
         </ScrollView>
       </SafeAreaView>
     </Modal>
@@ -585,12 +286,6 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 24,
       paddingTop: 16,
     },
-    errorText: {
-      color: colors.danger,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      lineHeight: 20,
-    },
     sectionLabel: {
       color: colors.textMuted,
       fontFamily: fonts.sans.medium,
@@ -637,20 +332,6 @@ const makeStyles = (colors: Colors) =>
     },
     segmentTextActive: {
       color: colors.text,
-    },
-    providerTabs: {
-      flexDirection: "row",
-      gap: 8,
-      paddingVertical: 2,
-    },
-    providerTab: {
-      alignItems: "center",
-      borderColor: colors.border,
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      justifyContent: "center",
-      minHeight: 36,
-      paddingHorizontal: 14,
     },
     modelLoading: {
       alignItems: "center",

@@ -462,7 +462,26 @@ pub async fn resolve_element_object_id<'a>(
 
             if let Ok(r) = result {
                 if let Some(oid) = r.object.object_id {
-                    return Ok((oid, session_id));
+                    // Chrome can still resolve a detached node while its
+                    // Runtime object is retained. Only reuse cached nodes
+                    // that remain connected to the current document.
+                    let connected: EvaluateResult = client
+                        .send_command_typed(
+                            "Runtime.callFunctionOn",
+                            &CallFunctionOnParams {
+                                function_declaration: "function() { return this.isConnected; }"
+                                    .to_string(),
+                                object_id: Some(oid.clone()),
+                                arguments: None,
+                                return_by_value: Some(true),
+                                await_promise: Some(false),
+                            },
+                            Some(session_id),
+                        )
+                        .await?;
+                    if connected.result.value == Some(Value::Bool(true)) {
+                        return Ok((oid, session_id));
+                    }
                 }
             }
             // backend_node_id is stale; re-query the accessibility tree below

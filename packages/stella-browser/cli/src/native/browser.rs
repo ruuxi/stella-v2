@@ -99,6 +99,11 @@ fn is_internal_chrome_target(url: &str) -> bool {
 /// Converts common error messages into AI-friendly, actionable descriptions.
 pub fn to_ai_friendly_error(error: &str) -> String {
     let lower = error.to_lowercase();
+    // Resolver errors already identify the locator and may explain
+    // unreachable frames. Keep those details instead of generic guidance.
+    if lower.starts_with("no element found with ") || lower.starts_with("element not found: ") {
+        return error.to_string();
+    }
     if lower.contains("strict mode violation") {
         return "Element matched multiple results. Use a more specific selector.".to_string();
     }
@@ -392,6 +397,10 @@ impl BrowserManager {
                 owner_tabs: OwnerTabRegistry::default(),
             };
             manager.discover_and_attach_targets().await?;
+            // Fresh Chrome may expose only its internal new-tab page, which
+            // discovery deliberately excludes. A locally launched browser
+            // needs a usable page before applying per-page launch settings.
+            manager.ensure_page().await?;
             manager
         };
 

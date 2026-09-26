@@ -66,7 +66,7 @@ export type DesktopUpdaterOptions = {
   };
 };
 
-const DEFAULT_STARTUP_DELAY_MS = 6_000;
+export const DEFAULT_UPDATE_STARTUP_DELAY_MS = 6_000;
 const DEFAULT_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
 // Squirrel hands the install off to a helper process and then terminates the
 // app, so a healthy restart never gets to run this timer. If it does fire we
@@ -146,7 +146,7 @@ export class DesktopUpdater {
     this.feedUrl = resolveDesktopUpdateFeedUrl();
     this.autoInstallOnAppQuit = options.autoInstallOnAppQuit ?? true;
     this.autoDownload = options.autoDownload ?? true;
-    this.startupDelayMs = options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
+    this.startupDelayMs = options.startupDelayMs ?? DEFAULT_UPDATE_STARTUP_DELAY_MS;
     this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
     this.restartStallMs = options.restartStallMs ?? DEFAULT_RESTART_STALL_MS;
     this.onStateChanged = options.onStateChanged;

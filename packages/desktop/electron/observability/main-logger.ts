@@ -1,4 +1,5 @@
 import { app } from "electron";
+import { getCompileCacheDir } from "node:module";
 import {
   getFileLogger,
   initFileLogger,
@@ -44,6 +45,10 @@ export const initMainProcessLogging = (stellaAppDir: string): FileLogger => {
     platform: process.platform,
     arch: process.arch,
     packaged: app.isPackaged,
+    // Process launch to bootstrap: dominated by compiling and evaluating the
+    // main bundle, which the V8 compile cache (see launch.ts) exists to cut.
+    startupMs: Math.round(process.uptime() * 1000),
+    compileCache: safe(() => (getCompileCacheDir() ? "on" : "off")),
   });
 
   app.on("ready", () => {

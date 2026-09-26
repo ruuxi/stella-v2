@@ -252,8 +252,8 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         cancelConnectorCredential: (payload) => services.connectorCredentialService.cancelCredential(payload),
         respondConnectorConnect: (payload) => services.connectorConnectService.respond(payload),
         getBroadcastToMobile: lazyMobileBroadcast,
-        startPhoneAccessSession: () => {
-            startMobileBridge(context);
+        startPhoneAccessSession: async () => {
+            await startMobileBridge(context);
             return { ok: true };
         },
         stopPhoneAccessSession: async () => {

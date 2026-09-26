@@ -17,7 +17,6 @@ import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, rea
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { getModels } from "@stella/runtime/ai/models";
 import { getSupportedThinkingLevels } from "@stella/runtime/ai/thinking-levels";
-import { listClaudeCodeModels } from "@stella/runtime/kernel/integrations/claude-code-session-runtime";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
@@ -1152,6 +1151,10 @@ export const registerSystemHandlers = (options) => {
         const oauthToken = stellaAppDir
             ? await getLocalLlmOAuthApiKey(stellaAppDir, "anthropic")
             : null;
+        // Loaded on first use: the Claude Code runtime pulls in the MCP SDK,
+        // turndown/domino and the local tool dispatch graph, which otherwise
+        // evaluate on every launch before the window opens.
+        const { listClaudeCodeModels } = await import("@stella/runtime/kernel/integrations/claude-code-session-runtime");
         return listClaudeCodeModels({ apiKey, oauthToken }, stellaAppDir ?? undefined);
     });
     ipcMain.handle(IPC_PREFERENCES_LIST_MODELS, async (event, payload) => {

@@ -9,7 +9,7 @@
     "packages/backend/workers/*",
     "workers/*"
   ],
-  "main": "packages/desktop/dist-electron/electron/main.js",
+  "main": "packages/desktop/dist-electron/electron/launch.js",
   "scripts": {
     "dev": "cd packages/desktop-ui && vite",
     "preview": "cd packages/desktop-ui && vite preview",

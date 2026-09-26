@@ -86,6 +86,10 @@ const electronStaticAssetCopies = [
   },
 ];
 const electronRuntimeEntryPoints = {
+  // `launch` is the package.json entry: it enables the V8 compile cache, then
+  // imports the `main` bundle through a computed specifier so it stays a
+  // separate output instead of being inlined.
+  "electron/launch": "packages/desktop/electron/launch.ts",
   "electron/main": "packages/desktop/electron/main.ts",
   "electron/cloud-conversation-cache-worker": "packages/desktop/electron/services/cloud-conversation-cache-worker.ts",
   ...(includeLocalUpdateVerification
@@ -231,6 +235,8 @@ const createBuildOptions = () => [
       js: 'import { createRequire as __stellaCreateRequire } from "node:module"; import { fileURLToPath as __stellaFileURLToPath } from "node:url"; import { dirname as __stellaDirname } from "node:path"; const require = __stellaCreateRequire(import.meta.url); const __filename = __stellaFileURLToPath(import.meta.url); const __dirname = __stellaDirname(__filename);',
     },
     format: "esm",
+    // Consumed by assertMainBundleStartupBoundary after each build.
+    metafile: true,
     logLevel: "warning",
     plugins: [pruneDependencyPackageMetadataPlugin],
     outdir: path.join("packages", "desktop", outdir),
@@ -315,6 +321,98 @@ const assertWorkerBundleBoundary = (metafile) => {
       `Electron-only module(s) bundled into the Bun worker: ${violations.join(", ")}. ` +
         "Import pure path helpers from runtime/kernel/home/stella-paths.ts instead of " +
         "stella-home.ts, or move the shared code into a runtime-safe module.",
+    );
+  }
+};
+
+/**
+ * Cold-start boundary for electron-main. esbuild hoists every external
+ * `import` statement to the top of the ESM bundle, so a static import of one
+ * of these anywhere in the graph — however deep or lazily initialized its
+ * importer — is loaded on every launch before `ready`. They are loaded on
+ * first use instead (see ipc/updates-handlers.ts, input/mouse-hook.js).
+ */
+export const mainStartupDeferredExternals = ["electron-updater", "uiohook-napi"];
+/**
+ * Bundled modules that must stay behind a dynamic `import()`: statically
+ * reachable from the startup roots, their whole subgraph evaluates before the
+ * window is created. `bootstrap.ts` counts as a root because main.ts loads it
+ * immediately.
+ */
+export const mainStartupDeferredInputs = [
+  "packages/runtime/kernel/integrations/claude-code-session-runtime.js",
+  "packages/desktop/electron/process-resources/mobile-bridge-resource.js",
+];
+const mainStartupRootInputs = [
+  "packages/desktop/electron/main.ts",
+  "packages/desktop/electron/bootstrap.ts",
+];
+const launchEntryInput = "packages/desktop/electron/launch.ts";
+
+const collectStaticallyReachableInputs = (metafile, roots) => {
+  const reached = new Set();
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const input = pending.pop();
+    if (reached.has(input)) {
+      continue;
+    }
+    reached.add(input);
+    for (const imported of metafile?.inputs?.[input]?.imports ?? []) {
+      if (!imported.external && imported.kind !== "dynamic-import") {
+        pending.push(toPosix(imported.path));
+      }
+    }
+  }
+  return reached;
+};
+
+/**
+ * Fails the build when electron-main's cold-start work regresses: a deferred
+ * external imported statically again, a deferred bundled module pulled back
+ * into the startup graph, or `launch.js` (which must enable the
+ * V8 compile cache before the bundle is compiled) inlining the bundle it is
+ * meant to load.
+ */
+export const assertMainBundleStartupBoundary = (metafile) => {
+  const violations = [];
+  for (const [outputPath, output] of Object.entries(metafile?.outputs ?? {})) {
+    const outputPosix = toPosix(outputPath);
+    if (outputPosix.endsWith("/electron/launch.js")) {
+      const inlined = Object.keys(output.inputs ?? {})
+        .map((input) => toPosix(input))
+        .filter((input) => input !== launchEntryInput);
+      if (inlined.length > 0) {
+        violations.push(`electron/launch.js inlines ${inlined.join(", ")}`);
+      }
+    }
+    if (outputPosix.endsWith("/electron/main.js")) {
+      for (const imported of output.imports ?? []) {
+        if (
+          imported.kind === "import-statement" &&
+          mainStartupDeferredExternals.includes(imported.path)
+        ) {
+          violations.push(
+            `electron/main.js statically imports ${imported.path}`,
+          );
+        }
+      }
+    }
+  }
+  const startupInputs = collectStaticallyReachableInputs(
+    metafile,
+    mainStartupRootInputs,
+  );
+  for (const input of mainStartupDeferredInputs) {
+    if (startupInputs.has(input)) {
+      violations.push(`${input} is statically reachable from startup`);
+    }
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      `Electron main cold-start boundary violated: ${violations.join("; ")}. ` +
+        "Load deferred externals on first use (createRequire / dynamic import) " +
+        "and keep launch.ts importing the bundle through a computed specifier.",
     );
   }
 };
@@ -461,6 +559,13 @@ export const buildElectronBundles = async () => {
         )
       ];
     assertWorkerBundleBoundary(workerResult.metafile);
+    const mainResult =
+      results[
+        optionsList.findIndex(
+          (options) => options.entryPoints === electronRuntimeEntryPoints,
+        )
+      ];
+    assertMainBundleStartupBoundary(mainResult.metafile);
     const changedOutputs = [];
     for (const result of results) {
       for (const file of result.outputFiles ?? []) {
@@ -566,6 +671,7 @@ const writeBundleFingerprint = (fingerprint) => {
 export const requiredOutputsExist = () => {
   const outBase = path.join(desktopDir, outdir);
   return (
+    existsSync(path.join(outBase, "electron", "launch.js")) &&
     existsSync(path.join(outBase, "electron", "main.js")) &&
     existsSync(path.join(outBase, "electron", "preload.js")) &&
     // A tree built before the catalog copy existed looks otherwise complete,

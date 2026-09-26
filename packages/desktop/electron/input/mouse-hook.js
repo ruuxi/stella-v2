@@ -1,5 +1,15 @@
-import { uIOhook } from 'uiohook-napi';
+import { createRequire } from 'node:module';
 import { areGlobalShortcutsSuspended } from '../ipc/global-shortcuts.js';
+// uiohook-napi is a native addon (node-gyp-build prebuild probing + dlopen).
+// A static import loaded it before `ready` on every launch and platform, yet
+// the hook only ever starts on macOS with Accessibility granted, after the
+// window is up. Load it on first start instead.
+const requireFromMain = createRequire(import.meta.url);
+let uiohookInstance = null;
+const getUiohook = () => {
+    uiohookInstance ??= requireFromMain('uiohook-napi').uIOhook;
+    return uiohookInstance;
+};
 const LEFT_ALT = 56;
 const RIGHT_ALT = 3640;
 const ALT_KEYCODES = new Set([LEFT_ALT, RIGHT_ALT]);
@@ -30,15 +40,15 @@ export class MouseHookManager {
         if (this.started)
             return;
         this.started = true;
-        this.attachUiohookListeners();
-        if (!this.uiohookStarted) {
-            try {
-                uIOhook.start();
+        try {
+            this.attachUiohookListeners();
+            if (!this.uiohookStarted) {
+                getUiohook().start();
                 this.uiohookStarted = true;
             }
-            catch (error) {
-                console.error('[mouse-hook] Failed to start input hook:', error.message);
-            }
+        }
+        catch (error) {
+            console.error('[mouse-hook] Failed to start input hook:', error.message);
         }
     }
     stop() {
@@ -49,7 +59,7 @@ export class MouseHookManager {
         this.pressedKeycodes.clear();
         if (this.uiohookStarted) {
             try {
-                uIOhook.stop();
+                getUiohook().stop();
             }
             catch (error) {
                 console.warn('[mouse-hook] Failed to stop input hook:', error.message);
@@ -64,18 +74,20 @@ export class MouseHookManager {
     attachUiohookListeners() {
         if (this.uiohookListenersAttached)
             return;
+        const uiohook = getUiohook();
         this.uiohookListenersAttached = true;
-        uIOhook.on('keydown', this.handleKeydown);
-        uIOhook.on('keyup', this.handleKeyup);
-        uIOhook.on('mousedown', this.handleMousedown);
+        uiohook.on('keydown', this.handleKeydown);
+        uiohook.on('keyup', this.handleKeyup);
+        uiohook.on('mousedown', this.handleMousedown);
     }
     detachUiohookListeners() {
         if (!this.uiohookListenersAttached)
             return;
         this.uiohookListenersAttached = false;
-        uIOhook.off('keydown', this.handleKeydown);
-        uIOhook.off('keyup', this.handleKeyup);
-        uIOhook.off('mousedown', this.handleMousedown);
+        const uiohook = getUiohook();
+        uiohook.off('keydown', this.handleKeydown);
+        uiohook.off('keyup', this.handleKeyup);
+        uiohook.off('mousedown', this.handleMousedown);
     }
     handleKeydown = (event) => {
         if (!this.started)

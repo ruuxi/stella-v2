@@ -2,13 +2,34 @@ import path from "path";
 import { getDevServerUrl } from "../renderer-location.js";
 import { buildMobileBridgeBootstrap } from "../services/mobile-bridge/bootstrap-payload.js";
 import { createStellaBrowserBridgeResource } from "../process-resources/browser-bridge-resource.js";
-import { createMobileBridgeResource } from "../process-resources/mobile-bridge-resource.js";
 import { broadcastStellaBrowserBridgeStatus, } from "./context.js";
 const readMobileBridgeBootstrap = async (context) => {
     return buildMobileBridgeBootstrap(context.state.uiStateKvStore?.snapshot() ?? {});
 };
-export const startMobileBridge = (context) => {
+// The mobile bridge (bridge service, crypto, cloudflared tunnel installer) only
+// runs once the user starts a phone-access session, so its module graph loads
+// on that first start instead of with bootstrap.
+let mobileBridgeModulePromise = null;
+// Bumped by stopMobileBridge so a stop that lands while the first start is
+// still loading the module wins, as it did when the start was synchronous.
+let mobileBridgeStopEpoch = 0;
+const loadMobileBridgeModule = () => {
+    mobileBridgeModulePromise ??= import("../process-resources/mobile-bridge-resource.js");
+    return mobileBridgeModulePromise;
+};
+export const startMobileBridge = async (context) => {
     try {
+        if (context.state.mobileBridgeResource) {
+            context.state.mobileBridgeResource.start();
+            return;
+        }
+        const stopEpoch = mobileBridgeStopEpoch;
+        const { createMobileBridgeResource } = await loadMobileBridgeModule();
+        if (stopEpoch !== mobileBridgeStopEpoch || context.state.isQuitting) {
+            return;
+        }
+        // A concurrent start may have created the resource while this one
+        // awaited the module.
         if (context.state.mobileBridgeResource) {
             context.state.mobileBridgeResource.start();
             return;
@@ -38,6 +59,7 @@ export const startMobileBridge = (context) => {
     }
 };
 export const stopMobileBridge = async (context) => {
+    mobileBridgeStopEpoch += 1;
     if (!context.state.mobileBridgeResource) {
         return;
     }

@@ -13,7 +13,6 @@ import { GlassToggle } from "./glass";
 import { Icon, type IconName } from "./Icon";
 import { PrimaryButton } from "./PrimaryButton";
 import { SubscriptionSection } from "./SubscriptionSection";
-import { ComputerSection } from "./settings/ComputerSection";
 import {
   makeSettingsStyles,
   type SettingsStyles,
@@ -26,7 +25,6 @@ import { clearAccountChatData } from "../lib/chat-account-cleanup";
 import { isGuest } from "../lib/guest-mode";
 import { useCloudBrowserActions } from "../lib/cloud-browser";
 import { tapLight } from "../lib/haptics";
-import { useComputerControl } from "../lib/main-shell-store";
 import { unregisterForPushNotifications } from "../lib/notifications";
 import {
   getNotificationsMuted,
@@ -51,6 +49,7 @@ import {
 import { resolveThemeColors } from "@stella/theme";
 import { fonts } from "../theme/fonts";
 import { useT } from "../i18n";
+import { SegmentedControl } from "./SegmentedControl";
 
 const APPEARANCE_OPTIONS: { value: ThemePreference; labelKey: string }[] = [
   { value: "system", labelKey: "mobile.settings.appearance.system" },
@@ -111,7 +110,6 @@ export function SettingsContent() {
   const bottomInset = useShellBottomInset();
   const session = authClient.useSession();
   const guest = isGuest();
-  const computer = useComputerControl();
   const [isResettingCloudBrowser, setIsResettingCloudBrowser] = useState(false);
   const { resetProfile: resetCloudBrowserProfile } = useCloudBrowserActions();
   const [notificationsMuted, setMutedLocal] = useState(() =>
@@ -314,30 +312,46 @@ export function SettingsContent() {
               {t("mobile.settings.loadingSession")}
             </Text>
           ) : (
-            <View style={styles.signInBlock}>
-              <Text style={styles.identityName}>
-                {t("mobile.settings.signInTitle")}
-              </Text>
-              <PrimaryButton
-                label={t("mobile.settings.signIn")}
-                onPress={() => router.replace("/login")}
-                accessibilityLabel={t("mobile.settings.signInTitle")}
-                style={styles.signInButton}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.settings.signInTitle")}
+              onPress={() => {
+                tapLight();
+                router.replace("/login");
+              }}
+              style={({ pressed }) => [
+                settingsStyles.row,
+                pressed && settingsStyles.rowPressed,
+              ]}
+            >
+              <Icon
+                name="user"
+                size={18}
+                color={colors.accent}
+                style={settingsStyles.rowIcon}
               />
-            </View>
+              {/* The page's main action while signed out, so it takes the
+                  accent like the subscribe button. */}
+              <Text
+                style={[
+                  settingsStyles.rowLabel,
+                  styles.flex,
+                  { color: colors.accent },
+                ]}
+              >
+                {t("mobile.settings.signIn")}
+              </Text>
+              <Icon name="chevron-right" size={16} color={colors.textMuted} />
+            </Pressable>
           )}
         </View>
       </View>
 
-      <View style={settingsStyles.section}>
-        <SubscriptionSection />
-      </View>
-
-      <ComputerSection
-        control={computer}
-        signedIn={isSignedIn}
-        styles={settingsStyles}
-      />
+      {isSignedIn ? (
+        <View style={settingsStyles.section}>
+          <SubscriptionSection />
+        </View>
+      ) : null}
 
       {isSignedIn ? (
         <View style={settingsStyles.section}>
@@ -391,115 +405,24 @@ export function SettingsContent() {
       ) : null}
 
       <View style={settingsStyles.section}>
-        <Text style={settingsStyles.sectionLabel}>
-          {t("mobile.settings.appearanceSection")}
-        </Text>
-        <View style={styles.themeRow}>
-          {APPEARANCE_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.value}
-              accessibilityRole="button"
-              accessibilityState={{ selected: preference === opt.value }}
-              onPress={() => {
+        <View style={styles.appearanceHeader}>
+          <Text style={[settingsStyles.sectionLabel, styles.appearanceLabel]}>
+            {t("mobile.settings.appearanceSection")}
+          </Text>
+          <View style={styles.modeControl}>
+            <SegmentedControl<ThemePreference>
+              accessibilityLabel="Mode"
+              value={preference}
+              onChange={(next) => {
                 tapLight();
-                setPreference(opt.value);
+                setPreference(next);
               }}
-              accessibilityLabel={t("mobile.settings.useAppearanceLabel", {
-                name: t(opt.labelKey),
-              })}
-              style={[
-                styles.themeOption,
-                preference === opt.value && styles.themeOptionActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.themeOptionText,
-                  preference === opt.value && styles.themeOptionTextActive,
-                ]}
-              >
-                {t(opt.labelKey)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <View style={styles.themeRow}>
-          {GRADIENT_OPTIONS.map((opt) => {
-            const isSelected = gradientLocked
-              ? opt.value === "flat"
-              : gradientPreference === opt.value;
-            const disabled = gradientLocked && opt.value !== "flat";
-            return (
-              <Pressable
-                key={opt.value}
-                onPress={() => {
-                  if (disabled) return;
-                  tapLight();
-                  setGradientPreference(opt.value);
-                }}
-                disabled={disabled}
-                accessibilityLabel={t("mobile.settings.useBackgroundLabel", {
-                  name: t(opt.labelKey),
-                })}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected, disabled }}
-                style={[
-                  styles.themeOption,
-                  isSelected && styles.themeOptionActive,
-                  disabled && styles.themeOptionDisabled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.themeOptionText,
-                    isSelected && styles.themeOptionTextActive,
-                  ]}
-                >
-                  {t(opt.labelKey)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.themeRow}>
-          {GRADIENT_COLOR_OPTIONS.map((opt) => {
-            const isSelected = !gradientLocked && gradientColor === opt.value;
-            // Like desktop, the color choice is inert while the surface is flat.
-            const disabled = gradientLocked;
-            return (
-              <Pressable
-                key={opt.value}
-                onPress={() => {
-                  if (disabled) return;
-                  tapLight();
-                  setGradientColor(opt.value);
-                }}
-                disabled={disabled}
-                accessibilityLabel={t(
-                  "mobile.settings.useBackgroundColorLabel",
-                  { name: t(opt.labelKey) },
-                )}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected, disabled }}
-                style={[
-                  styles.themeOption,
-                  isSelected && styles.themeOptionActive,
-                  disabled && styles.themeOptionDisabled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.themeOptionText,
-                    isSelected && styles.themeOptionTextActive,
-                  ]}
-                >
-                  {t(opt.labelKey)}
-                </Text>
-              </Pressable>
-            );
-          })}
+              options={APPEARANCE_OPTIONS.map((opt) => ({
+                value: opt.value,
+                label: t(opt.labelKey),
+              }))}
+            />
+          </View>
         </View>
 
         <View style={styles.themeDots}>
@@ -543,6 +466,40 @@ export function SettingsContent() {
               </Pressable>
             );
           })}
+        </View>
+
+        {/* Secondary surface options, below the themes they tint. */}
+        <View style={styles.surfaceControls}>
+          <View style={styles.surfaceControl}>
+            <SegmentedControl<GradientMode>
+              accessibilityLabel="Background"
+              disabled={gradientLocked}
+              value={gradientLocked ? "flat" : gradientPreference}
+              onChange={(next) => {
+                tapLight();
+                setGradientPreference(next);
+              }}
+              options={GRADIENT_OPTIONS.map((opt) => ({
+                value: opt.value,
+                label: t(opt.labelKey),
+              }))}
+            />
+          </View>
+          <View style={styles.surfaceControl}>
+            <SegmentedControl<GradientColor>
+              accessibilityLabel="Background color"
+              disabled={gradientLocked}
+              value={gradientColor}
+              onChange={(next) => {
+                tapLight();
+                setGradientColor(next);
+              }}
+              options={GRADIENT_COLOR_OPTIONS.map((opt) => ({
+                value: opt.value,
+                label: t(opt.labelKey),
+              }))}
+            />
+          </View>
         </View>
       </View>
 
@@ -724,13 +681,6 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       width: 28,
     },
-    signInBlock: {
-      gap: 10,
-      padding: 16,
-    },
-    signInButton: {
-      alignSelf: "flex-start",
-    },
     dimmed: {
       opacity: 0.6,
     },
@@ -738,43 +688,23 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       textAlign: "center",
     },
-    themeRow: {
-      flexDirection: "row",
-      padding: 4,
-      borderRadius: 24,
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderWidth: StyleSheet.hairlineWidth,
-      marginBottom: 12,
-    },
-    themeOption: {
-      flex: 1,
+    appearanceHeader: {
       alignItems: "center",
-      borderRadius: 20,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
+      flexDirection: "row",
+      gap: 12,
+      marginBottom: 14,
     },
-    themeOptionActive: {
-      backgroundColor: colors.accent,
-      borderColor: colors.accent,
-    },
-    themeOptionDisabled: {
-      opacity: 0.4,
-    },
-    themeOptionText: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 14,
-      letterSpacing: -0.2,
-    },
-    themeOptionTextActive: {
-      color: colors.accentForeground,
-    },
+    // The label shares the row with the mode switch, so it drops its own
+    // bottom gap and centres against the control.
+    appearanceLabel: { flex: 1, marginBottom: 0 },
+    modeControl: { width: 220 },
+    surfaceControls: { flexDirection: "row", gap: 10, marginTop: 26 },
+    surfaceControl: { flex: 1 },
+    flex: { flex: 1 },
     themeDots: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 12,
-      marginTop: 4,
     },
     themeDotOuter: {
       alignItems: "center",

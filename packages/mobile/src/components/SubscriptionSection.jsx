@@ -60,6 +60,8 @@ export function SubscriptionSection() {
   const checkout = useMobileCheckout();
 
   const [justSubscribedPlan, setJustSubscribedPlan] = useState(null);
+  // Free accounts see one "Plan" row; the plan choices open under it.
+  const [plansOpen, setPlansOpen] = useState(false);
   const startedPlanRef = useRef(null);
   // Dev-only cycle through US -> non-US -> unknown to exercise both branches
   // in the simulator. Guarded by __DEV__ in the hook; a no-op in release.
@@ -120,53 +122,57 @@ export function SubscriptionSection() {
     return null;
   }
 
-  // Signed out.
-  if (!signedIn) {
-    if (!eligible) return null; // fail closed: no purchase surface off the US storefront
-    return (
-      <View style={styles.section}>
-        {header}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{t("billing.mobile.chooseHeading")}</Text>
-          <Text style={styles.cardSubtitle}>{t("billing.subtitle")}</Text>
-          {PAID_PLANS.map((key) => renderPlanRow(key, { subscribe: false }))}
-          <PrimaryButton
-            label={t("billing.mobile.signInToSubscribe")}
-            onPress={() => {
-              tapLight();
-              router.replace("/login");
-            }}
-            style={styles.cta}
-          />
-          <Text style={styles.footnote}>{t("billing.mobile.footnote")}</Text>
-        </View>
-      </View>
-    );
-  }
+  // Signed out: Account's sign-in row is the one entry point, so the plans
+  // wait until there is an account to put them on.
+  if (!signedIn) return null;
 
-  // Signed in.
+  // Signed in. A checkout in flight or just finished keeps the plans open so
+  // its progress and result stay visible.
+  const canExpand = !isPaid && eligible;
+  const showPlans =
+    canExpand &&
+    (plansOpen ||
+      checkoutPhase !== "idle" ||
+      justSubscribedPlan !== null);
   return (
     <View style={styles.section}>
       {header}
       <View style={styles.card}>
         {/* Current plan */}
-        <View style={styles.currentPlanRow}>
+        <Pressable
+          disabled={!canExpand}
+          accessibilityRole={canExpand ? "button" : undefined}
+          accessibilityState={canExpand ? { expanded: showPlans } : undefined}
+          onPress={() => {
+            tapLight();
+            setPlansOpen((open) => !open);
+          }}
+          style={({ pressed }) => [
+            styles.currentPlanRow,
+            pressed && styles.rowPressed,
+          ]}
+        >
           <Text style={styles.currentPlanLabel}>
             {t("billing.mobile.currentPlanLabel")}
           </Text>
           <Text style={styles.currentPlanValue}>
             {t("billing.mobile.planValue", { plan: planLabel(plan) })}
           </Text>
-        </View>
+          {canExpand ? (
+            <Text style={[styles.chevron, showPlans && styles.chevronOpen]}>
+              ›
+            </Text>
+          ) : null}
+        </Pressable>
         {isPaid ? renderRenewal() : null}
 
         {justSubscribedPlan ? renderSuccess() : null}
 
         {isPaid
           ? renderManage()
-          : eligible
+          : showPlans
             ? renderPurchase()
-            : null /* non-US free: current plan only, no promotion */}
+            : null /* collapsed, or non-US free: current plan only */}
       </View>
     </View>
   );
@@ -354,7 +360,7 @@ const makeStyles = (colors) => ({
   currentPlanRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 8,
   },
   currentPlanLabel: {
     color: colors.textMuted,
@@ -362,6 +368,7 @@ const makeStyles = (colors) => ({
     fontSize: 14,
   },
   currentPlanValue: {
+    marginLeft: "auto",
     color: colors.text,
     fontFamily: fonts.sans.semiBold,
     fontSize: 16,
@@ -427,6 +434,9 @@ const makeStyles = (colors) => ({
   chevron: {
     color: colors.textMuted,
     fontSize: 20,
+  },
+  chevronOpen: {
+    transform: [{ rotate: "90deg" }],
   },
   banner: {
     borderRadius: 12,

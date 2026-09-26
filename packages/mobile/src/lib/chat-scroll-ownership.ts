@@ -15,14 +15,12 @@ export function resolveChatDataChangeScrollOwner({
   isFollowingLatest,
   isStreaming,
   postSendPlacementPending,
-  hasResponseSpacer = false,
 }: {
   isFollowingLatest: boolean;
   isStreaming: boolean;
   postSendPlacementPending: boolean;
-  hasResponseSpacer?: boolean;
 }): ChatDataChangeScrollOwner {
   if (!isFollowingLatest) return "history-anchor";
-  if (isStreaming || postSendPlacementPending || hasResponseSpacer) return "custom-follow";
+  if (isStreaming || postSendPlacementPending) return "custom-follow";
   return "legend-tail";
 }

@@ -465,9 +465,18 @@ function useChatScroll(
       };
       contentHeightRef.current = contentSize.height;
 
+      // iOS rubber-band: after overscrolling past the tail the list springs
+      // back upward. That return is not a scrollback and must not block
+      // re-arming, or follow stays released while the user sits at the end.
+      const maxOffsetY = Math.max(
+        0,
+        contentSize.height - layoutMeasurement.height,
+      );
+      const bouncingBackFromTail = previousOffsetY > maxOffsetY + 0.5;
+
       if (manualScrollActiveRef.current) {
         scheduleManualScrollSettle();
-        if (offsetDelta < -0.5) {
+        if (offsetDelta < -0.5 && !bouncingBackFromTail) {
           followRearmBlockedRef.current = true;
           onConsumeResponseSpacer(-offsetDelta);
         } else if (offsetDelta > 0.5) {
@@ -556,10 +565,15 @@ function useChatScroll(
     scheduleManualScrollSettle();
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    if (distFromBottom <= atBottomLimit && !followRearmBlockedRef.current) {
+    // Coming to rest anywhere inside the near-bottom band re-arms follow —
+    // the same band `onScroll` uses to release it. Re-arming only at the
+    // exact tail left a dead zone where the user was visibly at the bottom
+    // but new messages never scrolled into view.
+    if (distFromBottom <= nearBottomLimit) {
+      followRearmBlockedRef.current = false;
       setFollowArmed(true);
     }
-  }, [atBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
+  }, [nearBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
 
   /** Call when assistant text grows, before layout measures the new height. */
   const prepareAssistantLayoutFollow = useCallback(() => {

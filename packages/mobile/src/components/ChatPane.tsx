@@ -58,8 +58,11 @@ import {
 } from "../lib/chat-attachments";
 import { useT } from "../i18n";
 import Reanimated, {
+  KeyboardState,
   useAnimatedKeyboard,
+  useAnimatedReaction,
   useAnimatedStyle,
+  useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShellBottomInset } from "../lib/shell-bottom-inset";
@@ -305,6 +308,8 @@ const CHAT_HORIZONTAL_INSET = 12;
 function useKeyboardInset() {
   const bottomInset = useShellBottomInset();
   const [height, setHeight] = useState(0);
+  // The height the keyboard is heading to, for the composer's UI-thread lift.
+  const targetHeight = useSharedValue(0);
 
   useEffect(() => {
     const showEvent =
@@ -313,6 +318,7 @@ function useKeyboardInset() {
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
     const onShow = (e: { endCoordinates: { height: number } }) => {
+      targetHeight.value = e.endCoordinates.height;
       setHeight(e.endCoordinates.height);
     };
     const onHide = () => setHeight(0);
@@ -324,7 +330,7 @@ function useKeyboardInset() {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [targetHeight]);
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
@@ -335,7 +341,7 @@ function useKeyboardInset() {
   // with no per-state padding swap to animate.
   const composerBottomPad = 6 + bottomInset;
 
-  return { height, open, composerBottomPad };
+  return { height, open, composerBottomPad, targetHeight };
 }
 
 // ---------------------------------------------------------------------------
@@ -3051,19 +3057,37 @@ export function ChatPane({
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
-  const { height: keyboardHeight, composerBottomPad } = useKeyboardInset();
+  const {
+    height: keyboardHeight,
+    composerBottomPad,
+    targetHeight: keyboardTargetHeight,
+  } = useKeyboardInset();
   // UI-thread keyboard frame. Drives the composer's lift directly so it tracks
   // the keyboard exactly — both rising and falling — instead of chasing it via
   // a JS-scheduled layout animation that the OS curve always out-runs.
   const keyboard = useAnimatedKeyboard();
+  // Once the keyboard settles, its height is the travel for the next close
+  // and open, including a height change while it's up (QuickType, emoji).
+  useAnimatedReaction(
+    () =>
+      keyboard.state.value === KeyboardState.OPEN ? keyboard.height.value : -1,
+    (settled) => {
+      if (settled > 0) keyboardTargetHeight.value = settled;
+    },
+  );
   // The composer rests at `composerBottomPad` (the shell's bottom band) above
-  // the screen bottom. Lift it by the keyboard height *minus* that already-
-  // reserved band so its content lands a constant gap above the keyboard.
-  const composerKeyboardStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: -Math.max(0, keyboard.height.value - bottomInset) },
-    ],
-  }));
+  // the screen bottom, and must end a constant gap above the keyboard, so it
+  // travels the keyboard height *minus* that band. Spread that travel over
+  // the keyboard's whole motion rather than waiting for the keyboard to climb
+  // past the band: the composer starts moving on the keyboard's first frame
+  // and the two land together, in both directions.
+  const composerKeyboardStyle = useAnimatedStyle(() => {
+    const height = keyboard.height.value;
+    const travel = Math.max(keyboardTargetHeight.value, height);
+    const lift =
+      travel > 0 ? (height / travel) * Math.max(0, travel - bottomInset) : 0;
+    return { transform: [{ translateY: -lift }] };
+  });
   // Extra reading area the message list must reserve below its content while the
   // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
   const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);

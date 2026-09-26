@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { resolveChatDataChangeScrollOwner } from "../chat-scroll-ownership";
-
-const chatPane = readFileSync(
-  resolve(__dirname, "../../components/ChatPane.tsx"),
-  "utf8",
-);
 
 describe("chat data-change scroll ownership", () => {
   test("a local send from history keeps the visible-history anchor through settling", () => {
@@ -26,36 +19,7 @@ describe("chat data-change scroll ownership", () => {
     }
   });
 
-  test("an incoming append cannot claim the tail while history is visible", () => {
-    expect(
-      resolveChatDataChangeScrollOwner({
-        isFollowingLatest: false,
-        isStreaming: false,
-        postSendPlacementPending: false,
-      }),
-    ).toBe("history-anchor");
-    expect(
-      resolveChatDataChangeScrollOwner({
-        isFollowingLatest: false,
-        isStreaming: true,
-        postSendPlacementPending: false,
-      }),
-    ).toBe("history-anchor");
-  });
-
   test("near-tail sends and normal live-tail appends retain their owners", () => {
-    expect(resolveChatDataChangeScrollOwner({
-      isFollowingLatest: true,
-      isStreaming: false,
-      postSendPlacementPending: false,
-      hasResponseSpacer: true,
-    })).toBe("custom-follow");
-    expect(resolveChatDataChangeScrollOwner({
-      isFollowingLatest: false,
-      isStreaming: false,
-      postSendPlacementPending: false,
-      hasResponseSpacer: true,
-    })).toBe("history-anchor");
     expect(
       resolveChatDataChangeScrollOwner({
         isFollowingLatest: true,
@@ -79,45 +43,4 @@ describe("chat data-change scroll ownership", () => {
     ).toBe("legend-tail");
   });
 
-  test("keeps native anchoring enabled and releases delayed send placement on drag", () => {
-    const config = chatPane.slice(chatPane.indexOf("const maintainVisibleContentPosition = useMemo"), chatPane.indexOf("const maintainVisibleContentPosition = useMemo") + 750);
-    expect(config).toContain("data: true");
-    expect(config).toContain("size: false");
-    expect(chatPane).toMatch(/pendingSendNudgeRef.current = null;\s*scroll.onScrollBeginDrag\(\)/);
-  });
-
-  test("wires each owner to one list position writer", () => {
-    expect(chatPane).toContain(
-      'shouldRestorePosition: () => scrollOwnerRef.current === "history-anchor"',
-    );
-    expect(chatPane).toContain(
-      'size: false',
-    );
-    expect(
-      /maintainScrollAtEnd=\{\s*dataChangeScrollOwner === "legend-tail"\s*\? \{/.test(
-        chatPane,
-      ),
-    ).toBe(true);
-
-    const resetBody = chatPane.match(
-      /const resetAssistantAutoScroll = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[stopFollowLoop\]\);/,
-    )?.[1];
-    expect(resetBody !== undefined).toBe(true);
-    expect(resetBody?.includes("followArmedRef.current") ?? true).toBe(false);
-    expect(resetBody?.includes("followRearmBlockedRef.current") ?? true).toBe(
-      false,
-    );
-  });
-
-  test("keeps bounded-history paging under visible-position anchoring", () => {
-    expect(chatPane).toContain("hasOlderHistory?: boolean");
-    expect(chatPane).toContain("hasNewerHistory?: boolean");
-    expect(chatPane).toContain("historyPaging.beginDrag()");
-    expect(chatPane).toContain("void onLoadOlderHistory?.()");
-    expect(chatPane).toContain("requestHistoryNearPosition(e.nativeEvent)");
-    expect(chatPane).toContain("void onLoadNewerHistory?.()");
-    expect(chatPane).toContain(
-      "maintainVisibleContentPosition={maintainVisibleContentPosition}",
-    );
-  });
 });

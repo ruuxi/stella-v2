@@ -46,15 +46,6 @@ describe("task tool activity sanitization", () => {
 });
 
 describe("LocalAgentManager lifecycle observability", () => {
-  it("has no restart-time descendant completion replay API", () => {
-    expect(
-      "repairInterruptedDescendantBoundaries" in LocalAgentManager.prototype,
-    ).toBe(false);
-    expect("markParentWakeDelivered" in LocalAgentManager.prototype).toBe(
-      false,
-    );
-  });
-
   it("emits lifecycle events without unconditional stderr traces", async () => {
     const stderrWrite = vi
       .spyOn(process.stderr, "write")

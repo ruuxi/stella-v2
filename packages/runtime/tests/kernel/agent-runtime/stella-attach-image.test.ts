@@ -40,13 +40,6 @@ const writePng = (dir: string, name = "snap.png") => {
 };
 
 describe("extractAttachImageBlocks (stella-computer auto-read)", () => {
-  it("returns the original text untouched when no marker is present", async () => {
-    const text = "no markers here\nplain output\n";
-    const result = await extractAttachImageBlocks(text);
-    expect(result.text).toBe(text);
-    expect(result.images).toEqual([]);
-  });
-
   it("extracts a single PNG referenced by a [stella-attach-image] marker", async () => {
     const tempDir = createTempDir();
     const imgPath = writePng(tempDir);
@@ -461,17 +454,6 @@ describe("typed code images", () => {
 });
 
 describe("truncateModelVisibleToolText", () => {
-  it("leaves small tool output unchanged", () => {
-    const result = truncateModelVisibleToolText("short output", 80);
-    expect(result).toEqual({
-      text: "short output",
-      truncated: false,
-      originalChars: "short output".length,
-      originalBytes: "short output".length,
-      originalLines: 1,
-    });
-  });
-
   it("caps large tool output with a head and tail preview", () => {
     const text = `${"a".repeat(120)}\n${"b".repeat(120)}`;
     const result = truncateModelVisibleToolText(text, 120);

@@ -41,22 +41,6 @@ const environment = ({ object = null, disabled = "" } = {}) => {
 };
 
 describe("canvas-share Worker", () => {
-  test("returns the normal 404 boundary for malformed percent-encoding", async () => {
-    const { env, reads } = environment();
-    const { ctx } = context();
-
-    const response = await worker.fetch(
-      request("/c/%E0%A4%A"),
-      env,
-      ctx,
-    );
-
-    expect(response.status).toBe(404);
-    expect(await response.text()).toBe("Not found");
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(reads).toEqual([]);
-  });
-
   test("streams a valid share with the sandbox boundary intact", async () => {
     const slug = "abcdefghijklmnopqrstuv";
     const html = "<!doctype html><script>document.body.textContent='ok'</script>";

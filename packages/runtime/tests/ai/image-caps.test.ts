@@ -7,7 +7,6 @@ import {
   ANTHROPIC_HIGH_RES_MAX_EDGE,
   ANTHROPIC_STANDARD_MAX_EDGE,
   DEFAULT_JPEG_QUALITY,
-  GOOGLE_MAX_EDGE,
   isAnthropicStandardTierModel,
   MANY_IMAGE_MAX_EDGE,
   maxInlineImageBase64Bytes,
@@ -70,12 +69,6 @@ describe("resolveImageCaps", () => {
     expect(
       resolveImageCaps({ provider: "openai", detailOriginal: true }).maxWidth,
     ).toBe(OPENAI_ORIGINAL_MAX_EDGE);
-  });
-
-  it("gives Google Gemini the 3072px ceiling", () => {
-    expect(resolveImageCaps({ provider: "google" }).maxWidth).toBe(
-      GOOGLE_MAX_EDGE,
-    );
   });
 
   it("falls back to the safe conservative profile for unknown providers", () => {

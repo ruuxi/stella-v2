@@ -8,7 +8,6 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -19,11 +18,6 @@ import {
 } from "@stella/runtime/kernel/home/skills-sync";
 
 const roots = new Set<string>();
-const REPO_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../..",
-);
-const SEED_SKILLS_DIR = path.join(REPO_ROOT, "packages", "home-seed", "skills");
 const MANIFEST_FILE = ".bundled-manifest.json";
 
 type BundledManifest = {
@@ -63,15 +57,6 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
   roots.clear();
-});
-
-describe("bundled skills seed", () => {
-  it("excludes removed defaults from the product seed", async () => {
-    const seeded = await readdir(SEED_SKILLS_DIR);
-
-    expect(seeded).not.toContain("crates-io-client");
-    expect(seeded).not.toContain("hackernews-client");
-  });
 });
 
 describe("reconcileBundledSkills", () => {

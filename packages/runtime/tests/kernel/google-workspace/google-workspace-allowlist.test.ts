@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  GOOGLE_WORKSPACE_TOOL_ALLOWLIST,
   isAllowedGoogleWorkspaceTool,
   toGoogleWorkspaceToolRegistrationName,
 } from "@stella/runtime/kernel/google-workspace/tool-allowlist";
@@ -17,10 +16,6 @@ describe("google-workspace-allowlist", () => {
     expect(isAllowedGoogleWorkspaceTool("chat.sendMessage")).toBe(false);
     expect(isAllowedGoogleWorkspaceTool("calendar.deleteEvent")).toBe(false);
     expect(isAllowedGoogleWorkspaceTool("drive.trashFile")).toBe(false);
-  });
-
-  it("has a stable non-empty list", () => {
-    expect(GOOGLE_WORKSPACE_TOOL_ALLOWLIST.length).toBeGreaterThan(10);
   });
 
   it("creates provider-safe registration names", () => {

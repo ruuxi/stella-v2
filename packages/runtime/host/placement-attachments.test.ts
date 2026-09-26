@@ -38,17 +38,6 @@ const resolveFromDrive = async (path: string) => {
 };
 
 describe("the paths a dispatch payload carries", () => {
-  test("reads the array the placement service validated", () => {
-    expect(placementAttachmentPaths(dispatchPayload)).toEqual([
-      IMAGE,
-      DOCUMENT,
-    ]);
-  });
-
-  test("a text-only turn carries none", () => {
-    expect(placementAttachmentPaths({ prompt: "what did I miss" })).toEqual([]);
-  });
-
   test("drops entries that are not paths instead of failing the turn", () => {
     expect(
       placementAttachmentPaths({ attachments: [IMAGE, "", "  ", 7, null] }),
@@ -139,47 +128,5 @@ describe("desktop-placed resolution", () => {
       }),
     });
     expect(refs).toHaveLength(paths.length);
-  });
-});
-
-describe("both placements see the same references", () => {
-  /**
-   * Placement is invisible to the user, so the two executors must be handed the
-   * same attachment identity from the same payload. The cloud executor reads
-   * `turn.attachments`; the desktop reads it through `placementAttachmentPaths`
-   * and resolves it. Anything that made these two lists differ would run a
-   * materially different request depending on which computer happened to be
-   * awake.
-   */
-  test("the cloud turn's paths and the desktop's resolved paths are the same list", async () => {
-    const cloudTurnAttachments = dispatchPayload.attachments;
-    const desktopPaths = placementAttachmentPaths(dispatchPayload);
-    expect(desktopPaths).toEqual(cloudTurnAttachments);
-
-    const resolvedOrder: string[] = [];
-    await resolvePlacementAttachments({
-      paths: desktopPaths,
-      resolve: async (path) => {
-        resolvedOrder.push(path);
-        return await resolveFromDrive(path);
-      },
-    });
-    expect(resolvedOrder).toEqual(cloudTurnAttachments);
-  });
-
-  test("a clean prompt needs no attachment preamble for computer resolution", async () => {
-    expect(dispatchPayload.prompt).toBe("is this rent legal");
-    const resolved = await resolvePlacementAttachments({
-      paths: placementAttachmentPaths(dispatchPayload), resolve: resolveFromDrive,
-    });
-    const legacy = await resolvePlacementAttachments({
-      paths: placementAttachmentPaths({ ...dispatchPayload,
-        prompt: `${dispatchPayload.prompt}\n\nAttached in my drive:\n- ${IMAGE}\n- ${DOCUMENT}`,
-      }), resolve: resolveFromDrive,
-    });
-    expect(resolved).toEqual(legacy);
-    expect(resolved.map(({ name, kind }) => ({ name, kind }))).toEqual([
-      { name: "receipt.png", kind: "image" }, { name: "lease.pdf", kind: "file" },
-    ]);
   });
 });

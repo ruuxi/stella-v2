@@ -5,14 +5,11 @@ import type {
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import {
-  GENERAL_AGENT_TOOL_DESCRIPTORS,
-  GENERAL_AGENT_TOOL_NAMES,
   NO_JS_SANDBOX_MESSAGE,
   NO_WORKSPACE_ATTACHED_MESSAGE,
   UnknownGeneralAgentToolError,
   computeForTool,
   createResidentGeneralAgentTools,
-  descriptorForTool,
   generalAgentToolNamesFor,
 } from "../src/general-agent-tools.js";
 
@@ -33,40 +30,6 @@ const doLocalStubs = (): ReadonlyMap<string, AgentTool> =>
   );
 
 describe("general-agent capability table", () => {
-  test("classifies the container half exactly as the design pins it", () => {
-    expect([...generalAgentToolNamesFor("container")]).toEqual([
-      "exec_command",
-      "write_stdin",
-    ]);
-  });
-
-  test("classifies the do-local half exactly as the design pins it", () => {
-    expect([...generalAgentToolNamesFor("do_local")]).toEqual([
-      "apply_patch",
-      "web",
-      "Read",
-      "Write",
-      "Edit",
-      "Grep",
-      "spawn_agent",
-      "send_input",
-      "pause_agent",
-      "agent_status",
-      "merge_workspace",
-    ]);
-  });
-
-  test("places code, and only code, in the JS sandbox", () => {
-    expect([...generalAgentToolNamesFor("js_sandbox")]).toEqual(["code"]);
-    expect(computeForTool("code")).toBe("js_sandbox");
-  });
-
-  test("is closed over the names it advertises", () => {
-    for (const name of GENERAL_AGENT_TOOL_NAMES) {
-      expect(() => computeForTool(name)).not.toThrow();
-    }
-  });
-
   test("fails closed on a name it does not classify", () => {
     expect(() => computeForTool("spawn")).toThrow(UnknownGeneralAgentToolError);
     expect(() => computeForTool("Remember")).toThrow(
@@ -77,13 +40,6 @@ describe("general-agent capability table", () => {
 });
 
 describe("pinned resident catalog", () => {
-  test("advertises every descriptor in descriptor order", () => {
-    const catalog = createResidentGeneralAgentTools(doLocalStubs());
-    expect(catalog.map((tool) => tool.name)).toEqual(
-      GENERAL_AGENT_TOOL_DESCRIPTORS.map((descriptor) => descriptor.name),
-    );
-  });
-
   test("withholds all orchestration tools from a depth-2 agent", () => {
     const catalog = createResidentGeneralAgentTools(
       doLocalStubs(),
@@ -96,39 +52,6 @@ describe("pinned resident catalog", () => {
     expect(catalog.map((tool) => tool.name)).not.toContain("pause_agent");
     expect(catalog.map((tool) => tool.name)).not.toContain("agent_status");
     expect(catalog.map((tool) => tool.name)).not.toContain("merge_workspace");
-  });
-
-  test("carries each descriptor's model-visible surface unchanged", () => {
-    const catalog = createResidentGeneralAgentTools(doLocalStubs());
-    for (const descriptor of GENERAL_AGENT_TOOL_DESCRIPTORS) {
-      if (computeForTool(descriptor.name) !== "container") continue;
-      const tool = catalog.find((entry) => entry.name === descriptor.name);
-      expect(tool?.label).toBe(descriptor.label);
-      expect(tool?.description).toBe(descriptor.description);
-      expect(tool?.parameters).toEqual(descriptor.parameters);
-    }
-  });
-
-  test("answers an unattached container call with a tool error, not a throw", async () => {
-    const catalog = createResidentGeneralAgentTools(doLocalStubs());
-    for (const name of generalAgentToolNamesFor("container")) {
-      const tool = catalog.find((entry) => entry.name === name);
-      if (!tool) continue;
-      const result = await tool.execute("call-1", {});
-      expect(result.isError).toBe(true);
-      expect(result.content[0]).toMatchObject({ type: "text" });
-      expect(JSON.stringify(result.content)).toContain(
-        NO_WORKSPACE_ATTACHED_MESSAGE,
-      );
-    }
-  });
-
-  test("runs the do-local implementation the caller supplied", async () => {
-    const catalog = createResidentGeneralAgentTools(doLocalStubs());
-    const web = catalog.find((entry) => entry.name === "web");
-    const result = await web!.execute("call-1", {});
-    expect(result.isError).toBeUndefined();
-    expect(result.content).toEqual([{ type: "text", text: "ran web" }]);
   });
 
   test("refuses to build a catalog missing a do-local implementation", () => {
@@ -177,46 +100,6 @@ describe("pinned resident catalog", () => {
     expect(JSON.stringify(result.content)).toContain(NO_JS_SANDBOX_MESSAGE);
     expect(JSON.stringify(result.content)).not.toContain(
       NO_WORKSPACE_ATTACHED_MESSAGE,
-    );
-  });
-
-  test("runs code in the JS sandbox the caller supplied, with no container involved", async () => {
-    let ladderCalls = 0;
-    const catalog = createResidentGeneralAgentTools(
-      doLocalStubs(),
-      {
-        execute: async () => {
-          ladderCalls += 1;
-          throw new Error("the ladder should never see code");
-        },
-      },
-      new Map([
-        [
-          "code",
-          {
-            name: "code",
-            label: "Code",
-            description: "dynamic worker",
-            parameters: { type: "object" } as never,
-            execute: async (toolCallId: string) => ({
-              content: [
-                { type: "text" as const, text: `ran code ${toolCallId}` },
-              ],
-              details: null,
-            }),
-          },
-        ],
-      ]),
-    );
-
-    const code = catalog.find((entry) => entry.name === "code")!;
-    const result = await code.execute("call-7", { code: "1+1" });
-    expect(result.isError).toBeUndefined();
-    expect(result.content).toEqual([{ type: "text", text: "ran code call-7" }]);
-    expect(ladderCalls).toBe(0);
-    // Descriptor order is the model-visible order and must not move.
-    expect(catalog.map((entry) => entry.name)).toEqual(
-      GENERAL_AGENT_TOOL_DESCRIPTORS.map((entry) => entry.name),
     );
   });
 

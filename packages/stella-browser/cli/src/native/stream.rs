@@ -653,11 +653,4 @@ mod tests {
         assert!(!is_allowed_origin(Some("http://evil.com")));
     }
 
-    #[test]
-    fn test_frame_metadata_default() {
-        let meta = FrameMetadata::default();
-        assert_eq!(meta.device_width, 1280);
-        assert_eq!(meta.device_height, 720);
-        assert_eq!(meta.page_scale_factor, 1.0);
-    }
 }

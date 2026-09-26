@@ -121,7 +121,13 @@ describe("assistant project metadata", () => {
     expect(result.error).toBeUndefined();
     expect(result.data.devProjects).toHaveLength(8);
     expect(result.data.devProjects[0].name).toBe("app-11");
-    expect(result.data.devProjects.filter((row: { path: string }) => row.path.startsWith(repo))).toHaveLength(1);
+    const canonicalRepo = await fs.realpath(repo);
+    const repoPaths = result.data.devProjects
+      .filter((row: { path: string }) =>
+        row.path === canonicalRepo || row.path.startsWith(`${canonicalRepo}${path.sep}`),
+      )
+      .map((row: { path: string }) => row.path);
+    expect(repoPaths).toEqual([canonicalRepo]);
     expect(result.data.devProjects.some((row: { name: string }) => row.name === "app-10")).toBe(true);
     expect(result.data.shell).toEqual({ topCommands: [], projectPaths: [], toolsUsed: [] });
     expect(result.data.devEnvironment).toBeUndefined();

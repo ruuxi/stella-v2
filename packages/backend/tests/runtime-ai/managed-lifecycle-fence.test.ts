@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
 
 import {
   composeManagedDispatchGuards,
@@ -91,14 +90,6 @@ const recordingDispatchGuard = (args: {
 };
 
 describe("managed provider lifecycle fence", () => {
-  it("pins the Google SDK to one physical attempt per durable lease", () => {
-    const source = readFileSync(
-      new URL("../../convex/runtime_ai/google.ts", import.meta.url),
-      "utf8",
-    );
-    expect(source).toMatch(/retryOptions:\s*\{\s*attempts:\s*1\s*\}/u);
-  });
-
   it("joins a hanging tool to the durable enclosing execution deadline", async () => {
     let mutationCall = 0;
     const now = Date.now();

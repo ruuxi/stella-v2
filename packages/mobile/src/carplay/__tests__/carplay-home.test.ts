@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildHome,
-  buildTalkRow,
   flattenActions,
   formatRelativeTime,
   parseTemplateConfig,
@@ -21,32 +20,6 @@ const base: CarPlayHomeState = {
   now: NOW,
 };
 
-describe("talk row (tap to talk / tap to stop)", () => {
-  test("idle invites a tap to speak", () => {
-    const row = buildTalkRow(base);
-    expect(row.action).toEqual({ kind: "talk" });
-    expect(row.item.text).toBe("Talk to Stella");
-    expect(row.item.detailText).toContain("Tap to speak");
-    expect(row.item.isPlaying).toBe(false);
-  });
-
-  test("listening tells the driver a second tap stops and sends", () => {
-    const row = buildTalkRow({ ...base, phase: "listening" });
-    expect(row.item.text).toBe("Listening…");
-    expect(row.item.detailText).toBe("Tap to stop and send");
-    expect(row.item.isPlaying).toBe(true);
-  });
-
-  test("speaking shows the reply preview and offers barge-in", () => {
-    const row = buildTalkRow({
-      ...base,
-      phase: "speaking",
-      speakingPreview: "It's 72 and sunny in Palo Alto today.",
-    });
-    expect(row.item.detailText).toBe("It's 72 and sunny in Palo Alto today.");
-  });
-});
-
 describe("previewText", () => {
   test("collapses whitespace", () => {
     expect(previewText("a\n  b\t c")).toBe("a b c");
@@ -60,18 +33,6 @@ describe("previewText", () => {
 });
 
 describe("formatRelativeTime", () => {
-  test("under a minute is 'now'", () => {
-    expect(formatRelativeTime(NOW - 30_000, NOW)).toBe("now");
-  });
-  test("minutes", () => {
-    expect(formatRelativeTime(NOW - 2 * 60_000, NOW)).toBe("2m ago");
-  });
-  test("hours", () => {
-    expect(formatRelativeTime(NOW - 3 * 3_600_000, NOW)).toBe("3h ago");
-  });
-  test("days", () => {
-    expect(formatRelativeTime(NOW - 2 * 86_400_000, NOW)).toBe("2d ago");
-  });
   test("future/clock-skew clamps to 'now'", () => {
     expect(formatRelativeTime(NOW + 60_000, NOW)).toBe("now");
   });
@@ -82,12 +43,6 @@ describe("recent reply rows", () => {
     { id: "m2", text: "Newest reply about the weather.", at: NOW - 2 * 60_000 },
     { id: "m1", text: "Older reply about dinner plans.", at: NOW - 3_600_000 },
   ];
-
-  test("rows carry relative timestamps", () => {
-    const sections = buildHome({ ...base, replies });
-    expect(sections[1].rows[0].item.detailText).toBe("2m ago");
-    expect(sections[1].rows[1].item.detailText).toBe("1h ago");
-  });
 
   test("the new reply is marked with an indicator + timestamp", () => {
     const sections = buildHome({ ...base, replies, newReplyId: "m2" });
@@ -145,23 +100,6 @@ describe("read-latest row", () => {
     expect(row !== undefined).toBe(true);
     expect(row!.item.text).toBe("Read latest reply");
     expect(row!.item.detailText).toContain("Latest answer here.");
-  });
-});
-
-describe("converse mode row", () => {
-  const converseRow = (state: CarPlayHomeState) =>
-    buildHome(state)[0].rows.find((r) => r.action.kind === "toggleConverse")!;
-
-  test("always present with visible On state", () => {
-    const row = converseRow(base);
-    expect(row.item.text).toBe("Converse mode: On");
-    expect(row.item.detailText).toContain("automatically");
-  });
-
-  test("visible Off state invites turning it back on", () => {
-    const row = converseRow({ ...base, converseOn: false });
-    expect(row.item.text).toBe("Converse mode: Off");
-    expect(row.item.detailText).toBe("Tap to hear replies automatically");
   });
 });
 

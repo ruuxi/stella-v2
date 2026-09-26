@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   isConversationTabTitleOverflowing,
@@ -13,33 +10,6 @@ import {
   shouldMarkConversationUnread,
 } from "@/shell/topbar/ConversationTopBar";
 import { ConvexError } from "convex/values";
-import enCatalog from "../../../src/shared/i18n/locales/en.json";
-
-const SOURCE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../src",
-);
-
-/**
- * The New chat label is a `t()` key, so the contract is checked in two
- * halves: the source renders the key in the right slot, and the English
- * catalog still maps that key to the copy this contract is about. Checking
- * only the key would let the copy drift silently; checking only the copy
- * would miss the label being moved to a different control.
- */
-const englishFor = (key: string): string => {
-  const value = key
-    .split(".")
-    .reduce<unknown>(
-      (node, segment) =>
-        node && typeof node === "object"
-          ? (node as Record<string, unknown>)[segment]
-          : undefined,
-      enCatalog,
-    );
-  expect(typeof value, `${key} missing from en.json`).toBe("string");
-  return value as string;
-};
 
 describe("conversation top-bar contracts", () => {
   const tabs = [
@@ -68,64 +38,6 @@ describe("conversation top-bar contracts", () => {
       tabs,
       "second",
     );
-
-  it("offers New chat as the first History row and nowhere else in the top bar", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-
-    expect(source).not.toContain("shouldRenderNewChatControl");
-    expect(source).not.toContain("shouldRenderHistoryNewChat");
-    expect(source).not.toContain("shouldRenderNewChatLabel");
-    expect(source).not.toContain("conversation-topbar__plus");
-    expect(source).not.toContain("conversation-topbar__new-label");
-    expect(source).toContain(
-      'className="conversation-history-popover__new-chat"',
-    );
-    expect(source).toContain(
-      'className="conversation-history-popover__separator"',
-    );
-    // The New chat row sits above the list, mirroring the mobile history menu.
-    expect(
-      source.indexOf('className="conversation-history-popover__new-chat"'),
-    ).toBeLessThan(source.indexOf("<LegendList<ConversationSummary>"));
-    expect(englishFor("shell.topbar.conversation.newChat")).toBe("New chat");
-    expect(source).toMatch(
-      /conversation-history-popover__new-chat-label"\s*>\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}/,
-    );
-    expect(
-      resolveConversationTabShortcut(
-        {
-          key: "t",
-          altKey: false,
-          ctrlKey: false,
-          metaKey: true,
-          shiftKey: false,
-          target: document.body,
-        },
-        tabs,
-        "second",
-      ),
-    ).toEqual({ type: "new" });
-  });
-
-  it("opens a locally reserved draft without creating a saved conversation", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const createStart = source.indexOf(
-      "const createConversation = useCallback(async () =>",
-    );
-    const createEnd = source.indexOf("const loadHistory", createStart);
-    const createSource = source.slice(createStart, createEnd);
-
-    expect(createSource).toContain(
-      "navigateToConversation(createCloudConversationDraft(accountScope))",
-    );
-    expect(createSource).not.toContain("createCloudConversation(");
-  });
 
   it("distinguishes durable create rejection from an ambiguous transport failure", () => {
     expect(
@@ -205,36 +117,6 @@ describe("conversation top-bar contracts", () => {
     ).toBe(true);
   });
 
-  it("keeps a sole tab in the strip with no Home launcher and no close shortcut", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const catalog = enCatalog as {
-      shell: { topbar: { conversation: Record<string, unknown> } };
-    };
-
-    expect(source).not.toContain("shouldRenderConversationHomeLauncher");
-    expect(source).not.toContain("conversation-topbar__home");
-    expect(source).not.toContain("dispatchShowHome");
-    expect(source).not.toContain("<House");
-    expect(catalog.shell.topbar.conversation).not.toHaveProperty("home");
-    expect(
-      resolveConversationTabShortcut(
-        {
-          key: "w",
-          altKey: false,
-          ctrlKey: false,
-          metaKey: true,
-          shiftKey: false,
-          target: document.body,
-        },
-        [{ conversationId: "only" }],
-        "only",
-      ),
-    ).toBeNull();
-  });
-
   it("flags only background conversations with a persisted assistant reply", () => {
     const update = (type: string, conversationId: string) => ({
       conversationId,
@@ -304,180 +186,9 @@ describe("conversation top-bar contracts", () => {
     ]);
   });
 
-  it("renders the unread dot only on inactive tabs", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const css = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/conversation-topbar.css"),
-      "utf8",
-    );
-
-    expect(source).toContain("const unread = Boolean(tab.unread) && !active;");
-    expect(source).toContain('data-unread={unread ? "true" : undefined}');
-    expect(source).toContain("conversationTabs.markUnread");
-    expect(source).toContain("conversationTabs.markRead");
-    expect(englishFor("shell.topbar.conversation.unread")).toBe(
-      "Unread messages",
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__tab-unread\s*\{[^}]*width:\s*6px;[^}]*height:\s*6px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--primary\);/,
-    );
-    // The dot and the close button share one slot, so hover must swap them.
-    expect(css).toMatch(
-      /\.conversation-topbar__tab:hover \.conversation-topbar__tab-unread,[\s\S]*?opacity:\s*0;/,
-    );
-  });
-
   it("requires two activations on the same history row to delete", () => {
     expect(resolveHistoryDeleteActivation(null, "first")).toBe("arm");
     expect(resolveHistoryDeleteActivation("first", "second")).toBe("arm");
     expect(resolveHistoryDeleteActivation("first", "first")).toBe("delete");
-  });
-
-  it("keeps OpenCode tab geometry and overflow work on animation frames", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const css = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/conversation-topbar.css"),
-      "utf8",
-    );
-
-    expect(source).toContain("window.requestAnimationFrame");
-    expect(source).toContain("new ResizeObserver");
-    expect(source).toContain(
-      'aria-label={t("shell.topbar.conversation.newChat")}',
-    );
-    // History is the only 16px/1.85 control left in the bar.
-    expect(
-      source.match(/size=\{16\}[\s\S]*?strokeWidth=\{1\.85\}/g),
-    ).toHaveLength(1);
-    expect(source).not.toContain(
-      'className="conversation-history-popover__header"',
-    );
-    expect(source).toContain(
-      'className="conversation-history-popover__delete"',
-    );
-    expect(source).toContain("extraData=");
-    expect(source).toContain('role="tablist"');
-    expect(source).toContain("onMouseDown");
-    expect(source).toContain("onAuxClick");
-    expect(source).toContain("TAB_DRAG_ACTIVATION_DISTANCE = 4");
-    expect(source).toContain('behavior: "auto"');
-    expect(css).toMatch(
-      /\.conversation-topbar__tab\s*\{[^}]*min-width:\s*28px;[^}]*max-width:\s*224px;[^}]*height:\s*calc\(var\(--shell-topbar-height, 38px\) - 5px\);/,
-    );
-    expect(css).toMatch(/\.conversation-topbar\s*\{[^}]*gap:\s*4px;/);
-    expect(css).toMatch(/\.conversation-topbar__tabs\s*\{[^}]*gap:\s*0;/);
-    expect(css).toMatch(
-      /\.conversation-topbar__tab-close\s*\{[^}]*top:\s*9px;[^}]*width:\s*20px;[^}]*height:\s*20px;/,
-    );
-    expect(css).toContain("@container (max-width: 64px)");
-    expect(css).toMatch(
-      /\.conversation-topbar__tab \+ \.conversation-topbar__tab\s*\{[^}]*margin-left:\s*-1px;/,
-    );
-    expect(css).toContain("mask-image: linear-gradient(");
-    expect(css).toContain('[data-title-overflow="true"]');
-    expect(css).toMatch(
-      /\.conversation-topbar__tabs\s*\{[^}]*width:\s*max-content;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__history\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*color:\s*var\(--text-muted\)/,
-    );
-    expect(css).not.toContain(".conversation-topbar__plus");
-    expect(css).not.toContain(".conversation-topbar__new-label");
-    expect(css).not.toContain(".conversation-topbar__home");
-    expect(css).toMatch(
-      /\.conversation-topbar__viewport::before,[\s\S]*?width:\s*24px;/,
-    );
-    expect(css).not.toContain("scroll-snap-type");
-    expect(css).toMatch(
-      /\.conversation-topbar__history:hover\s*\{[^}]*background:\s*color-mix\(/,
-    );
-    expect(css).toMatch(
-      /\.conversation-history-popover__new-chat\s*\{[^}]*height:\s*34px;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-history-popover__separator\s*\{[^}]*height:\s*1px;/,
-    );
-    expect(css).toMatch(
-      /\.conversation-topbar__control-icon\s*\{[^}]*transform:\s*translateY\(1px\)/,
-    );
-    expect(css).toMatch(
-      /\.conversation-history-popover__delete\s*\{[^}]*position:\s*absolute/,
-    );
-    expect(css).toContain('[data-delete-armed="true"]');
-  });
-
-  it("keeps tabs metadata-only and one chat runtime mounted", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const root = fs.readFileSync(
-      path.join(SOURCE_ROOT, "routes/__root.tsx"),
-      "utf8",
-    );
-    const store = fs.readFileSync(
-      path.join(
-        SOURCE_ROOT,
-        "features/chat/services/conversation-tabs-store.ts",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain("const HISTORY_PAGE_SIZE = 50");
-    expect(source).toContain("conversationTabs.mergeSummaries(");
-    expect(source).not.toContain("ChatMessagesContext");
-    expect(source).not.toContain("useConversationMessages");
-    expect(source).toContain("<LegendList<ConversationSummary>");
-    expect(source).not.toContain("history.map(");
-    expect(store).not.toContain("activeConversationId:");
-    expect(root.match(/<ChatRuntimeProvider/g)).toHaveLength(1);
-    expect(root.match(/<ChatColumn/g)).toHaveLength(1);
-  });
-  it("keeps the History New chat row as the only New Chat entry point", () => {
-    const topBar = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const fullChat = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
-      "utf8",
-    );
-    expect(topBar).toContain("createCloudConversationDraft(accountScope)");
-    expect(topBar).not.toContain("useMutation(cloudApi.createMyConversation)");
-    expect(topBar).not.toContain("createNewLocalConversationId");
-    expect(fullChat).not.toContain("createNewLocalConversationId");
-    expect(fullChat).not.toContain("startNewChat");
-    expect(fullChat).not.toContain("onNewChat");
-    expect(topBar).not.toContain("createNewDefaultConversationId");
-    expect(fullChat).not.toContain("createNewDefaultConversationId");
-  });
-
-  it("opens history in the current tab and only appends from New chat", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
-      "utf8",
-    );
-    const store = fs.readFileSync(
-      path.join(
-        SOURCE_ROOT,
-        "features/chat/services/conversation-tabs-store.ts",
-      ),
-      "utf8",
-    );
-
-    expect(source).toContain("const openHistoryConversation = useCallback(");
-    expect(source).toContain("conversationTabs.replaceConversation(");
-    expect(source).toContain("openHistoryConversation(summary.conversationId");
-    expect(source).toContain("conversationModelSelections.delete");
-    expect(source).not.toMatch(
-      /onMouseDown=\{[\s\S]*navigateToConversation\(summary\.conversationId/,
-    );
-    expect(store).toContain("replaceConversation(");
   });
 });

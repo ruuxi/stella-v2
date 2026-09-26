@@ -3,8 +3,6 @@ import { describe, test } from "node:test";
 import {
   DEFAULT_CLOUD_ANTHROPIC_EXECUTION,
   DEFAULT_CLOUD_CODEX_EXECUTION,
-  DEFAULT_CLOUD_EXECUTION,
-  defaultCloudExecutionForEngine,
   normalizeCloudExecutionSelection,
   type CloudExecutionSelectionInput,
 } from "../packages/backend/convex/lib/cloud_execution";
@@ -22,7 +20,8 @@ describe("cloud execution selection", () => {
         engine: "stella",
         provider: "stella",
         model: "stella/openai/gpt-5.6-sol",
-        reasoningEffort: "high",
+        // Managed models own their reasoning setting; the request cannot override it.
+        reasoningEffort: "default",
       },
     );
     assert.deepEqual(
@@ -38,13 +37,13 @@ describe("cloud execution selection", () => {
         engine: "anthropic",
         provider: "anthropic",
         model: "sonnet[1m]",
-        reasoningEffort: "default",
+        reasoningEffort: "high",
       }),
       {
         engine: "anthropic",
         provider: "anthropic",
         model: "sonnet[1m]",
-        reasoningEffort: "default",
+        reasoningEffort: "high",
       },
     );
   });
@@ -92,21 +91,6 @@ describe("cloud execution selection", () => {
           reasoningEffort: "default",
         }),
       /canonical model id/,
-    );
-  });
-
-  test("has deterministic legacy defaults for every engine", () => {
-    assert.deepEqual(
-      defaultCloudExecutionForEngine("stella"),
-      DEFAULT_CLOUD_EXECUTION,
-    );
-    assert.deepEqual(
-      defaultCloudExecutionForEngine("anthropic"),
-      DEFAULT_CLOUD_ANTHROPIC_EXECUTION,
-    );
-    assert.deepEqual(
-      defaultCloudExecutionForEngine("openai-codex"),
-      DEFAULT_CLOUD_CODEX_EXECUTION,
     );
   });
 });

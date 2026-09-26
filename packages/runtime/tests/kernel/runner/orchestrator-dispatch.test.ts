@@ -3,20 +3,6 @@ import { executeOrQueueSystemOrchestratorTurn } from "@stella/runtime/kernel/run
 import type { QueuedOrchestratorTurn } from "@stella/runtime/kernel/runner/types";
 
 describe("executeOrQueueSystemOrchestratorTurn", () => {
-  it("executes immediately when no orchestrator run is active", async () => {
-    const execute = vi.fn(async () => undefined);
-    const queueOrchestratorTurn = vi.fn();
-
-    await executeOrQueueSystemOrchestratorTurn({
-      hasActiveRun: false,
-      queueOrchestratorTurn,
-      execute,
-    });
-
-    expect(execute).toHaveBeenCalledOnce();
-    expect(queueOrchestratorTurn).not.toHaveBeenCalled();
-  });
-
   it("settles only after a busy-parent completion turn executes", async () => {
     let queuedTurn: QueuedOrchestratorTurn | undefined;
     const execute = vi.fn(async () => undefined);

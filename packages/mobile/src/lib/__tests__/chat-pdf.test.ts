@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  pdfArtifactFor,
   pdfFileName,
   renderMarkdownBody,
   renderPdfHtml,
-  summarizePdf,
 } from "../chat-pdf";
 import { isMobileDisplayPayload, parseChatArtifacts } from "../mobile-artifacts";
 
@@ -69,7 +67,7 @@ describe("renderPdfHtml", () => {
   });
 });
 
-describe("pdf artifact + summary", () => {
+describe("pdf artifact validation", () => {
   const payload = {
     kind: "pdf" as const,
     filePath: "trip-itinerary.pdf",
@@ -77,20 +75,6 @@ describe("pdf artifact + summary", () => {
     localUri: "file:///cache/trip-itinerary.pdf",
     sizeBytes: 20480,
   };
-
-  test("summary names the file and invites open/save/share", () => {
-    const summary = summarizePdf(payload);
-    expect(summary).toContain("Trip Itinerary");
-    expect(summary).toContain("share");
-  });
-
-  test("artifact id keys off the local file uri", () => {
-    const artifact = pdfArtifactFor(payload, "offline-chat");
-    expect(artifact.id).toBe(
-      "offline-chat:pdf:file:///cache/trip-itinerary.pdf",
-    );
-    expect(artifact.payload.kind).toBe("pdf");
-  });
 
   test("the payload validates and round-trips through parseChatArtifacts", () => {
     expect(isMobileDisplayPayload(payload)).toBe(true);

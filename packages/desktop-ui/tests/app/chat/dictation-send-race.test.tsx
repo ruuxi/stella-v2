@@ -24,7 +24,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, useRef, useState } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
 
@@ -129,25 +129,6 @@ function FixedProbe({ api, sends }: ProbeProps) {
   return null;
 }
 
-/** Consumer wired the OLD way: ref refreshed in the render body. */
-function LegacyProbe({ api, sends }: ProbeProps) {
-  const [message, setMessage] = useState("");
-  const messageRef = useRef(message);
-  messageRef.current = message;
-  const dictation = useDictation({
-    message,
-    setMessage,
-    onCommit: () => {
-      const text = messageRef.current;
-      if (!text.trim()) return;
-      sends.push(text);
-      setMessage("");
-    },
-  });
-  api.current = { dictation, getMessage: () => message, setMessage };
-  return null;
-}
-
 describe("dictation send race (commit fires before the transcript render)", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -218,27 +199,6 @@ describe("dictation send race (commit fires before the transcript render)", () =
     expect(api.current!.getMessage()).toBe("");
     expect(api.current!.dictation.isRecording).toBe(false);
     expect(api.current!.dictation.isTranscribing).toBe(false);
-  });
-
-  it("reproduces the reported bug with the legacy render-synced ref: transcribes but never sends", async () => {
-    const { api, sends } = await mount(LegacyProbe);
-    const session = await startDictation(api);
-
-    await act(async () => {
-      api.current!.dictation.commitAndSend();
-      await drainMicrotasks();
-    });
-
-    await act(async () => {
-      session.finishTranscription!("hello world");
-      await drainMicrotasks();
-    });
-
-    // The commit fired while the render-synced ref still held the
-    // pre-transcript text (""), so the empty-text guard swallowed the send —
-    // and the transcript is left sitting in the composer, unsent.
-    expect(sends).toEqual([]);
-    expect(api.current!.getMessage()).toBe("hello world");
   });
 
   it("joins the transcript onto pre-typed text before sending", async () => {

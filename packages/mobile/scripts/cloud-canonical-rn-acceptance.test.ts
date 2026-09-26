@@ -1,15 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS,
   assertBun14,
   assertHashOnlyAcceptanceResult,
   minimalChildSystemEnvironment,
   stableJson,
 } from "./cloud-canonical-rn-acceptance.mjs";
-
-const source = (name: string) =>
-  Bun.file(new URL(name, import.meta.url)).text();
 
 describe("mounted mobile cloud-canonical acceptance contract", () => {
   test("fails closed outside the acceptance Bun 1.4 runtime", () => {
@@ -86,71 +82,4 @@ describe("mounted mobile cloud-canonical acceptance contract", () => {
     );
   });
 
-  test("mounts the real hook and storage/lifecycle adapters without replacing product authority", async () => {
-    const [live, preload] = await Promise.all([
-      source("./cloud-canonical-rn-acceptance.live.test.tsx"),
-      source("./cloud-canonical-rn-acceptance.preload.ts"),
-    ]);
-    expect(live).toContain("useCloudCanonicalChatThread(authority)");
-    expect(live).toContain("enqueueDesktopChatOutbox");
-    expect(live).toContain("loadDesktopChatOutbox");
-    expect(live).toContain("saveChatMessages");
-    expect(live).toContain('setVisibility("hidden")');
-    expect(live).toContain('setVisibility("visible")');
-    expect(live).toContain("dropLatestSocket()");
-    expect(preload).toContain("new RealWebSocket(url, protocols)");
-    expect(preload).toContain("DurableWebStorage implements Storage");
-    expect(preload).toContain('mock.module("react-native"');
-    expect(preload).not.toContain(
-      'mock.module("@react-native-async-storage/async-storage"',
-    );
-    expect(preload).not.toContain("FakeWebSocket");
-    expect(preload).not.toContain("mockFetch");
-    expect(preload).not.toContain('auth-token.ts",');
-    expect(preload).toContain('phase: "status-terminal"');
-    expect(preload).toContain('phase: "response-released"');
-  });
-
-  test("uses fresh child processes, a response-after-commit fault, and a live reset barrier", async () => {
-    const [orchestrator, live] = await Promise.all([
-      source("./cloud-canonical-rn-acceptance.mjs"),
-      source("./cloud-canonical-rn-acceptance.live.test.tsx"),
-    ]);
-    for (const phase of [
-      "enqueue_response_loss",
-      "replay_reconnect_switch",
-      "clean_hydrate",
-      "generation_rotation",
-    ]) {
-      expect(orchestrator + live).toContain(phase);
-    }
-    expect(orchestrator).toContain("spawn(\n    process.execPath");
-    expect(orchestrator).not.toContain("...process.env");
-    expect(MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS).toBe(3 * 60_000);
-    expect(orchestrator).toContain(
-      'STELLA_MOBILE_RN_ACCEPTANCE_MODE?.trim() || "phase"',
-    );
-    expect(orchestrator).toContain("const runSinglePhase");
-    expect(orchestrator).not.toContain("const runFull");
-    expect(orchestrator).toContain(
-      "!timedOut && outcome.finishedAt <= deadlineAt",
-    );
-    expect(orchestrator).not.toContain("detached: CHILD_PROCESS_GROUPS");
-    expect(live).toContain("sha256(`${runId}:${process.pid}`)");
-    expect(live).not.toContain("${process.pid}:${runId}:");
-    expect(orchestrator).toContain("actualProductScreenMounted: false");
-    expect(orchestrator).toContain("nativeAsyncStorageBackendProved: false");
-    expect(orchestrator).toContain('executor: "bun-jsdom-react-native-web"');
-    expect(live).toContain("serverCommittedBeforeResponseLoss: true");
-    expect(live).toContain("asyncStorageWriteCompletedBeforeNetwork: true");
-    expect(live).toContain("recoveredRecordCount > 0");
-    expect(live).toContain("terminalAcknowledgement.ordinal >");
-    expect(live).toContain("blockedSendPreservedDraft:");
-    expect(live).toContain("STELLA_MOBILE_ACCEPTANCE_ROTATION_BARRIER_DIR");
-    expect(live).toContain("serverAdmissionResponseHeldAcrossReset: true");
-    expect(live).toContain("oldRowsAfterRotation.length === 0");
-    expect(live).toContain("newRowsAfterOldCallback.some");
-    expect(live).not.toContain("oldGenerationOutboxPurged: true");
-    expect(live).not.toContain("staleCallbackDropCount: 1");
-  });
 });

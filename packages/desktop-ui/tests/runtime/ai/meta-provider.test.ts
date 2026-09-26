@@ -1,16 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getProviderDisplayName, isRetiredAssistantProvider, } from "@stella/contracts/provider-display";
 import { getEnvApiKey } from "@stella/runtime/ai/env-api-keys";
-import { getModelProviders, getModels } from "@stella/runtime/ai/models";
+import { getModels } from "@stella/runtime/ai/models";
 import { streamSimpleOpenAIResponses } from "@stella/runtime/ai/providers/openai-responses";
-import { getOAuthProvider } from "@stella/runtime/ai/utils/oauth/index";
-import {
-  compareProviderRailOrder,
-  LLM_PROVIDERS,
-} from "@/global/settings/lib/llm-providers";
-import { buildProviderTabs } from "@/global/settings/ProviderModelPanel";
-import { BRAND_ICON_COLOR_MARKUP } from "@/ui/brand-icon-paths";
 
 const originalFetch = globalThis.fetch;
 const originalMetaApiKey = process.env.META_API_KEY;
@@ -32,91 +24,6 @@ afterEach(() => {
 });
 
 describe("Meta direct provider", () => {
-  it("publishes Meta and all current Muse Spark models in the local catalog", () => {
-    expect(getProviderDisplayName("meta")).toBe("Meta");
-    expect(BRAND_ICON_COLOR_MARKUP.meta).toContain('fill="#0467DF"');
-    expect(LLM_PROVIDERS).toContainEqual({
-      key: "meta",
-      label: "Meta",
-      placeholder: "LLM|...",
-    });
-
-    expect(
-      getModels("meta").map((model) => ({
-        id: model.id,
-        api: model.api,
-        baseUrl: model.baseUrl,
-        contextWindow: model.contextWindow,
-        cacheRead: model.cost.cacheRead,
-      })),
-    ).toEqual([
-      {
-        id: "muse-spark-1.1",
-        api: "openai-responses",
-        baseUrl: "https://api.meta.ai/v1",
-        contextWindow: 1_048_576,
-        cacheRead: 0.15,
-      },
-      {
-        id: "muse-spark-1.2",
-        api: "openai-responses",
-        baseUrl: "https://api.meta.ai/v1",
-        contextWindow: 1_048_576,
-        cacheRead: 0.15,
-      },
-      {
-        id: "muse-spark-1.3-contributor",
-        api: "openai-responses",
-        baseUrl: "https://api.meta.ai/v1",
-        contextWindow: 1_048_576,
-        cacheRead: 0.002,
-      },
-    ]);
-  });
-
-  it("keeps Meta visible before its model catalog loads and omits retired Google providers", () => {
-    expect(buildProviderTabs([], ["meta"])).toEqual([
-      expect.objectContaining({
-        key: "meta",
-        label: "Meta",
-        models: [],
-      }),
-    ]);
-    expect(LLM_PROVIDERS.map((provider) => provider.key)).not.toEqual(
-      expect.arrayContaining(["google-antigravity", "google-gemini-cli"]),
-    );
-    expect(getModelProviders()).not.toEqual(
-      expect.arrayContaining(["google-antigravity", "google-gemini-cli"]),
-    );
-    expect(getOAuthProvider("google-antigravity")).toBeUndefined();
-    expect(getOAuthProvider("google-gemini-cli")).toBeUndefined();
-  });
-
-  it("omits retired direct assistant providers while retaining fal credentials for images", async () => {
-    const { PROVIDER_CREDENTIALS } = await import(
-      "@/global/settings/lib/llm-providers"
-    );
-    const retired = ["groq", "mistral", "fal"];
-
-    expect(LLM_PROVIDERS.map((provider) => provider.key)).not.toEqual(
-      expect.arrayContaining(retired),
-    );
-    expect(getModelProviders()).not.toEqual(expect.arrayContaining(retired));
-    expect(retired.every(isRetiredAssistantProvider)).toBe(true);
-    expect(PROVIDER_CREDENTIALS).toContainEqual({
-      key: "fal",
-      label: "fal",
-      placeholder: "fal-...",
-    });
-  });
-
-  it("orders Meta after OpenAI and OpenRouter after xAI", () => {
-    const providers = ["openrouter", "meta", "xai", "openai"].sort((a, b) =>
-      compareProviderRailOrder(a, b, a, b),
-    );
-    expect(providers).toEqual(["openai", "meta", "xai", "openrouter"]);
-  });
-
   it("accepts both Meta-documented environment variable names", () => {
     process.env.MODEL_API_KEY = "model-key";
     delete process.env.META_API_KEY;

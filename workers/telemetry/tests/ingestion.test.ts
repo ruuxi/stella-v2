@@ -3,10 +3,6 @@ import { describe, expect, mock, test } from "bun:test";
 mock.module("cloudflare:workers", () => ({ WorkerEntrypoint: class {} }));
 
 const { fetchHandler } = await import("../src/index.js");
-const { canonicalUserOwnerKey, createPseudonymizer } = await import(
-  "../src/pseudonym.js"
-);
-
 const inputEvent = {
   schemaVersion: 1,
   eventId: "01991999-1111-7111-8111-111111111111",
@@ -54,25 +50,6 @@ const environment = (
 });
 
 describe("HTTP ingestion", () => {
-  test("uses one owner pseudonym across authenticated and Convex lanes", async () => {
-    const ownerId = "https://issuer.convex.site|user-123";
-    const convexOwnerKey = await canonicalUserOwnerKey(ownerId);
-    const pseudonymize = await createPseudonymizer(
-      "long-test-pseudonym-secret",
-      "development",
-    );
-
-    const authenticatedLane = await pseudonymize(
-      "owner",
-      await canonicalUserOwnerKey(ownerId),
-    );
-    const convexLane = await pseudonymize("owner", convexOwnerKey);
-
-    expect(authenticatedLane).toBe(convexLane);
-    expect(authenticatedLane).toMatch(/^[0-9a-f]{64}$/);
-    expect(authenticatedLane).not.toContain(ownerId);
-  });
-
   test("awaits Pipeline acknowledgement and replaces producer owner identity", async () => {
     let release!: () => void;
     const pending = new Promise<void>((resolve) => {

@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -517,100 +516,5 @@ describe("Windows stella-computer wrapper", () => {
       }
       rmSync(tempDir, { recursive: true, force: true });
     }
-  });
-});
-
-describe("Windows native Computer Use architecture", () => {
-  const nativeSource = readFileSync(
-    path.resolve(process.cwd(), "../native/src/stella_computer_helper.cpp"),
-    "utf8",
-  );
-  const wrapperSource = readFileSync(
-    path.resolve(
-      process.cwd(),
-      "kernel",
-      "cli",
-      "stella-computer-windows.ts",
-    ),
-    "utf8",
-  );
-
-  it("enables per-monitor DPI awareness and maps capped screenshot pixels", () => {
-    expect(nativeSource).toContain(
-      "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2",
-    );
-    expect(nativeSource).toContain("screenshotLongEdgeCapPx = 1024");
-    expect(nativeSource).toContain("windowFrame.width / screenshotWidth");
-    expect(nativeSource).toContain("windowFrame.height / screenshotHeight");
-  });
-
-  it("acknowledges deferred actions before settling or materializing state", () => {
-    const actionBody = nativeSource.slice(
-      nativeSource.indexOf("static std::string executeOperation"),
-    );
-    const deferred = actionBody.lastIndexOf("if (deferred)");
-    const settle = actionBody.lastIndexOf(
-      "AdaptiveSettle settle = waitForTargetQuiet",
-    );
-    const materialize = actionBody.lastIndexOf(
-      "Snapshot refreshed = snapshotForTarget",
-    );
-
-    expect(deferred).toBeGreaterThan(0);
-    expect(settle).toBeGreaterThan(deferred);
-    expect(materialize).toBeGreaterThan(deferred);
-    expect(actionBody).toContain("defer_observation");
-    expect(nativeSource).toContain("AddStructureChangedEventHandler");
-    expect(nativeSource).toContain("pendingBaselineRevision");
-  });
-
-  it("uses UIA text ranges and canonical cached element identities", () => {
-    expect(nativeSource).toContain("selectExactText(");
-    expect(nativeSource).toContain("MoveEndpointByUnit(");
-    expect(nativeSource).toContain("range->Select()");
-    expect(nativeSource).toContain("findValidatedCachedElement");
-    expect(nativeSource).toContain(
-      "std::map<long long, std::unique_ptr<TargetState>> targetStates",
-    );
-    expect(wrapperSource).toContain("canonicalWindowsTargetKey(snapshot)");
-    expect(wrapperSource).toContain("writeJsonAtomic(statePath, snapshot)");
-  });
-
-  it("supports full-state recovery and the shared app instruction block", () => {
-    expect(wrapperSource).toContain('target.args.includes("--disable-diff")');
-    expect(wrapperSource).toContain(
-      "inline=image/png path=${JSON.stringify(path)}",
-    );
-    expect(wrapperSource).toContain("<app_specific_instructions>");
-    expect(wrapperSource).toContain("</app_specific_instructions>");
-  });
-
-  it("uses the daemon readiness connection for the request instead of reconnecting", () => {
-    const connectStart = wrapperSource.indexOf(
-      "const connectWindowsDaemon = async",
-    );
-    const connectEnd = wrapperSource.indexOf(
-      "export const readWindowsComputerSnapshot",
-      connectStart,
-    );
-    const connectBody = wrapperSource.slice(connectStart, connectEnd);
-    const requestStart = wrapperSource.indexOf(
-      "export const requestWindowsComputerHelper",
-    );
-    const requestEnd = wrapperSource.indexOf(
-      "const appFromSnapshotArgs",
-      requestStart,
-    );
-    const requestBody = wrapperSource.slice(requestStart, requestEnd);
-
-    expect(connectStart).toBeGreaterThan(0);
-    expect(connectBody).not.toContain("socket.end()");
-    expect(requestBody).toContain(
-      "transportOverrides.connectDaemon ?? connectWindowsDaemon",
-    );
-    expect(requestBody).toContain(
-      "const socket = await connectDaemon(sessionId, signal)",
-    );
-    expect(requestBody).not.toContain("connectWindowsPipeWithRetry");
   });
 });

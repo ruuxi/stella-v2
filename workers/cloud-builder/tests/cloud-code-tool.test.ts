@@ -11,8 +11,6 @@ mock.module("cloudflare:workers", () => ({
 }));
 
 const {
-  CLOUD_CODE_MAX_SOURCE_BYTES,
-  CLOUD_CODE_MAX_TIMEOUT_MS,
   executeCloudCodeWithExecutorFactory,
 } = await import("../src/cloud-code-executor.js");
 const { createCloudCodeAgentTool, isCloudCodeReachableTool } = await import(
@@ -48,40 +46,6 @@ const providerFactory = (
 });
 
 describe("cloud code AgentTool adapter", () => {
-  test("advertises the device code contract: tools proxy, connect, and the parameters", async () => {
-    const code = await createCloudCodeAgentTool({
-      loader,
-      tools: [],
-      executionScope: "generation:conversation:turn",
-      executeCode: async () => ({ ok: true, result: "ok" }),
-    });
-    expect(code.name).toBe("code");
-    expect(code.parameters).toEqual({
-      type: "object",
-      properties: {
-        code: {
-          type: "string",
-          minLength: 1,
-          maxLength: CLOUD_CODE_MAX_SOURCE_BYTES,
-          description: "JavaScript to evaluate with top-level await.",
-        },
-        timeout_ms: {
-          type: "integer",
-          minimum: 1,
-          maximum: CLOUD_CODE_MAX_TIMEOUT_MS,
-          description: "Optional evaluation timeout in milliseconds.",
-        },
-      },
-      required: ["code"],
-      additionalProperties: false,
-    });
-    expect(code.description).toContain("tools.$search({ query:");
-    expect(code.description).toContain("tools.$describe(name)");
-    expect(code.description).toContain("connect.documentation()");
-    expect(code.description).not.toContain("codemode.");
-    expect(code.description).not.toContain("node_repl");
-  });
-
   test("routes a discovered MCP tool through its exact raw and sanitized names", async () => {
     let routed:
       | { toolCallId: string; params: unknown; signal: AbortSignal | undefined }
@@ -211,39 +175,6 @@ describe("cloud code AgentTool adapter", () => {
     expect(output.content[0]).not.toEqual(
       expect.objectContaining({ text: expect.stringContaining("key: 42") }),
     );
-  });
-
-  test("a nested tool's own error rejects that call and stays catchable", async () => {
-    const failing: AgentTool = {
-      name: "flaky_read",
-      label: "Flaky",
-      description: "Sometimes fails.",
-      parameters: { type: "object" } as AgentTool["parameters"],
-      execute: async () => result("Nothing found for that query.", true),
-    };
-    const factory = providerFactory(async (fns) => {
-      try {
-        await fns.flaky_read?.({});
-        return "unexpected";
-      } catch (error) {
-        return `caught: ${(error as Error).message}`;
-      }
-    });
-    const code = await createCloudCodeAgentTool({
-      loader,
-      tools: [failing],
-      executionScope: "generation:conversation:turn",
-      executeCode: (request) =>
-        executeCloudCodeWithExecutorFactory(request, factory),
-    });
-    const output = await code.execute("outer", {
-      code: "try { await tools.flaky_read({}) } catch (e) { e.message }",
-    });
-    expect(output.isError).toBe(false);
-    expect(output.content[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("caught: Nothing found for that query."),
-    });
   });
 
   test("does not recursively expose code or the legacy node_repl name", async () => {

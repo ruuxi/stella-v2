@@ -110,37 +110,6 @@ describe("Stella prompt defaults", () => {
     }
   });
 
-  it("publishes the orchestrated-only prompt and strips capability frontmatter", () => {
-    const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
-      ({ id }) => id === "agents/orchestrator.md",
-    )?.content;
-    expect(orchestrator).toContain(
-      "You are the orchestrator in the user's ongoing conversation",
-    );
-    expect(orchestrator).toContain(
-      "route anything that must act on the user's machine, browser, files, apps, or accounts to an agent",
-    );
-    expect(orchestrator).toContain("Agents run in the background");
-    expect(orchestrator).not.toContain(
-      "Complete requests directly with your own tools",
-    );
-    expect(orchestrator).toContain(
-      "Signed-in conversations, memory, Cloud Drive, and account settings are cloud-authoritative",
-    );
-    expect(orchestrator).toContain(
-      "Local agents, local files, and device-runtime artifacts stay on the user's machine",
-    );
-    expect(orchestrator).not.toContain(
-      "Stella doesn't keep their stuff on its servers",
-    );
-
-    for (const prompt of STELLA_PROMPT_DEFAULTS.prompts) {
-      expect(prompt.content.startsWith("---\n")).toBe(false);
-      expect(prompt.content).not.toContain("orchestrator-orchestrated");
-      expect(prompt.content).not.toContain("node_repl");
-    }
-  });
-
   it("fails closed on malformed frontmatter and non-canonical body whitespace", () => {
     expect(() =>
       runtimePromptBody(

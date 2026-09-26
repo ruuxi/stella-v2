@@ -419,29 +419,6 @@ mod tests {
     }
 
     #[test]
-    fn test_auth_profile_serialization() {
-        let profile = AuthProfile {
-            name: "test".to_string(),
-            url: "https://example.com".to_string(),
-            username: "user".to_string(),
-            password: "pass".to_string(),
-            username_selector: None,
-            password_selector: None,
-            submit_selector: Some("button[type=submit]".to_string()),
-            created_at: None,
-            last_login_at: None,
-        };
-        let json = serde_json::to_string(&profile).unwrap();
-        let parsed: AuthProfile = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.name, "test");
-        assert_eq!(
-            parsed.submit_selector,
-            Some("button[type=submit]".to_string())
-        );
-        assert!(parsed.username_selector.is_none());
-    }
-
-    #[test]
     fn test_encrypt_decrypt_roundtrip() {
         with_test_key(|| {
             let profile = AuthProfile {

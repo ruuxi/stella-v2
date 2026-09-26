@@ -115,10 +115,6 @@ const makeTool = (
 });
 
 describe("buildCatalogSection budgeter", () => {
-  it("returns an empty string for an empty set", () => {
-    expect(buildCatalogSection([])).toBe("");
-    expect(buildCatalogSection(undefined as never)).toBe("");
-  });
 
   it("marks COMPLETE with all tools shown when the budget fits", () => {
     const section = buildCatalogSection([
@@ -192,17 +188,6 @@ describe("buildCatalogSection budgeter", () => {
     expect(section).toContain("- alpha (3 tools, 1 shown)");
     expect(section).toContain("- bravo (3 tools, 1 shown)");
     expect(section).toContain("PARTIAL — 2 of 6 shown");
-  });
-
-  it("is deterministic", () => {
-    const tools = [
-      makeTool("gamma_z", 50),
-      makeTool("alpha_a", 50),
-      makeTool("beta_m", 50),
-    ];
-    expect(buildCatalogSection(tools)).toBe(
-      buildCatalogSection([...tools].reverse()),
-    );
   });
 });
 

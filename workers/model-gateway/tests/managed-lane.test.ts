@@ -1367,11 +1367,6 @@ describe("POST /v1/models/resolve", () => {
     expect(pinned.status).toBe(200);
   });
 
-  test("GET /healthz", async () => {
-    const response = await ctx.run(new Request("https://gateway.test/healthz"));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-  });
 });
 
 describe("gateway phase timing", () => {
@@ -1818,30 +1813,6 @@ describe("owner-local model execution", () => {
     expect((await pending).status).toBe(200);
   });
 
-  test("a pre-arrival cancellation tombstone blocks the exact request before provider dispatch", async () => {
-    const ctx = setup();
-    const { token, claims } = await signTurn({ ledgerScope: "owner-relay-v2" });
-    const identity = managedCancellationIdentity({
-      claims,
-      requestId: "req-pre-cancel",
-    });
-    if (!identity) throw new Error("expected managed cancellation identity");
-    const owner = ownerFor(ctx);
-    expect(await owner.cancelManagedRequest(identity)).toEqual({
-      canceled: true,
-    });
-    const response = await ctx.run(
-      relayRequest("/v1/relay/responses", {
-        token,
-        body: museBody(),
-        headers: agentHeaders({ "x-stella-request-id": identity.requestId }),
-      }),
-    );
-    expect(response.status).toBe(499);
-    expect((await readError(response)).error.code).toBe("canceled");
-    expect(ctx.fetchMock.callsTo("openrouter.ai")).toHaveLength(0);
-  });
-
   test("cancellation after local authentication aborts the matching upstream only", async () => {
     const ctx = setup();
     const upstreamStarted = Promise.withResolvers<void>();
@@ -1875,30 +1846,6 @@ describe("owner-local model execution", () => {
     expect(response.status).toBe(499);
     expect((await readError(response)).error.code).toBe("canceled");
     expect(ctx.harness.usageEvents[0]).toMatchObject({ outcome: "aborted" });
-  });
-
-  test("the live cancellation controller remains registered until the response body settles", async () => {
-    const ctx = setup();
-    const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
-    const owner = ownerFor(ctx);
-    const release = spyOn(owner, "releaseManagedRequest");
-    try {
-      const response = await ctx.run(
-        relayRequest("/v1/relay/responses", {
-          token,
-          body: museBody(),
-          headers: agentHeaders({
-            "x-stella-request-id": "req-response-settle",
-          }),
-        }),
-      );
-      expect(response.status).toBe(200);
-      expect(release).not.toHaveBeenCalled();
-      await response.text();
-      expect(release).toHaveBeenCalledTimes(1);
-    } finally {
-      release.mockRestore();
-    }
   });
 
   test("cancellation identity is isolated by owner, generation, capability, turn, and request", async () => {

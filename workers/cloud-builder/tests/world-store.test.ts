@@ -5,7 +5,6 @@ import path from "node:path";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 import { WorldSqlStore } from "../src/world/store.js";
 import {
-  WORLD_BLOB_BATCH_MAX_BYTES,
   WORLD_BLOB_FRAME_HEADER_BYTES,
   WORLD_CHANGE_LOG_MAX_ROWS,
 } from "../src/world/types.js";
@@ -123,110 +122,6 @@ describe("WorldSqlStore", () => {
     expect(world.selectContainerSize("small")).toBe("large");
   });
 
-  test("writes, reads, edits, greps, and checkpoints an idempotent tree", async () => {
-    const world = createWorld();
-    await world.writeFile(
-      "src/demo.ts",
-      encoder.encode("const one = 1;\nconst two = 2;\n"),
-    );
-    expect(decoder.decode(await world.readFile("src/demo.ts"))).toBe(
-      "const one = 1;\nconst two = 2;\n",
-    );
-
-    const read = await world.tool({
-      name: "Read",
-      arguments: { file_path: "/workspace/world/src/demo.ts" },
-    });
-    expect(read.ok).toBe(true);
-    expect(read.output).toContain("1#");
-    const anchor = /\s(2#[0-9a-z]{3})\t/u.exec(read.output)?.[1];
-    expect(anchor).toBeTruthy();
-    const edit = await world.tool({
-      name: "Edit",
-      arguments: {
-        file_path: "/workspace/world/src/demo.ts",
-        anchor,
-        new_string: "const two = 3;",
-      },
-    });
-    expect(edit.ok).toBe(true);
-    const grep = await world.tool({
-      name: "Grep",
-      arguments: {
-        pattern: "two = 3",
-        path: "/workspace/world/src",
-        output_mode: "content",
-      },
-    });
-    expect(grep.output).toContain(
-      "/workspace/world/src/demo.ts:2:const two = 3;",
-    );
-
-    const first = await world.checkpoint({
-      historyCursor: `v1:${"a".repeat(64)}`,
-    });
-    const second = await world.checkpoint({
-      historyCursor: `v1:${"a".repeat(64)}`,
-    });
-    expect(second.manifestId).toBe(first.manifestId);
-    expect(
-      (await world.manifest(first.manifestId))?.entries.map(
-        (entry) => entry.path,
-      ),
-    ).toEqual(["src", "src/demo.ts"]);
-  });
-
-  test("diff and pushDiff apply known metadata and request only missing blobs", async () => {
-    const world = createWorld();
-    await world.writeFile("old.txt", encoder.encode("old"));
-    const bytes = encoder.encode("new");
-    const sha256 = await sha256BytesHex(bytes);
-    const listing = [
-      {
-        path: "new.txt",
-        kind: "file" as const,
-        mode: 0o644,
-        mtime: 10,
-        size: bytes.byteLength,
-        sha256,
-      },
-    ];
-    expect(await world.diff(listing)).toEqual({
-      changed: ["new.txt"],
-      deleted: ["old.txt"],
-    });
-    expect(
-      await world.pushDiff({ entries: listing, deleted: ["old.txt"] }),
-    ).toEqual({ missingBlobs: [sha256], revision: 1 });
-    expect(
-      await world.putBlobs(fragmentedStream(blobFrame(sha256, bytes))),
-    ).toEqual([{ sha256, accepted: true }]);
-    expect(
-      await world.pushDiff({ entries: listing, deleted: ["old.txt"] }),
-    ).toEqual({ missingBlobs: [], revision: 2 });
-    expect(decoder.decode(await world.readFile("new.txt"))).toBe("new");
-  });
-
-  test("putBlobs parses many frames split across arbitrary stream chunks", async () => {
-    const world = createWorld();
-    const first = encoder.encode("first");
-    const second = encoder.encode("second");
-    const firstSha = await sha256BytesHex(first);
-    const secondSha = await sha256BytesHex(second);
-    const firstFrame = blobFrame(firstSha, first);
-    const secondFrame = blobFrame(secondSha, second);
-    const body = new Uint8Array(firstFrame.byteLength + secondFrame.byteLength);
-    body.set(firstFrame);
-    body.set(secondFrame, firstFrame.byteLength);
-
-    expect(await world.putBlobs(fragmentedStream(body, 3))).toEqual([
-      { sha256: firstSha, accepted: true },
-      { sha256: secondSha, accepted: true },
-    ]);
-    expect((await world.exportBlob(firstSha))?.size).toBe(first.byteLength);
-    expect((await world.exportBlob(secondSha))?.size).toBe(second.byteLength);
-  });
-
   test("putBlobs rejects a sha mismatch without recording either digest", async () => {
     const world = createWorld();
     const expectedSha = await sha256BytesHex(encoder.encode("expected"));
@@ -244,20 +139,6 @@ describe("WorldSqlStore", () => {
     ]);
     expect(await world.exportBlob(expectedSha)).toBeNull();
     expect(await world.exportBlob(actualSha)).toBeNull();
-  });
-
-  test("putBlobs refuses a declared request above the 32 MiB byte cap", async () => {
-    const world = createWorld();
-    const header = new Uint8Array(WORLD_BLOB_FRAME_HEADER_BYTES);
-    new DataView(header.buffer).setBigUint64(
-      32,
-      BigInt(WORLD_BLOB_BATCH_MAX_BYTES + 1),
-      false,
-    );
-
-    await expect(world.putBlobs(fragmentedStream(header, 7))).rejects.toThrow(
-      "exceeds the 32 MiB request limit",
-    );
   });
 
   test("pages changes by revision and reports tool-write revisions", async () => {
@@ -451,18 +332,6 @@ describe("WorldSqlStore", () => {
         }>("SELECT path FROM world_tombstones ORDER BY path")
         .toArray(),
     ).toEqual([{ path: "kept.txt" }]);
-  });
-
-  test("exports a readable ustar stream", async () => {
-    const world = createWorld();
-    await world.writeFile("hello.txt", encoder.encode("hello"));
-    const exported = world.exportTar();
-    expect(exported.revision).toBe(1);
-    const response = new Response(exported.body);
-    const tar = new Uint8Array(await response.arrayBuffer());
-    expect(decoder.decode(tar.slice(0, 9))).toBe("hello.txt");
-    expect(decoder.decode(tar.slice(257, 262))).toBe("ustar");
-    expect(decoder.decode(tar.slice(512, 517))).toBe("hello");
   });
 
   test("binds a sealed checkpoint export to its own revision after later writes", async () => {

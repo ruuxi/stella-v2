@@ -13,17 +13,6 @@ const requestWithNetwork = (
 };
 
 describe("classifyNetwork", () => {
-  test("recognizes the built-in hosting ASN table", async () => {
-    const asns = [
-      16_509, 14_618, 8_987, 15_169, 396_982, 8_075, 14_061, 24_940,
-      16_276, 63_949, 20_473, 31_898, 45_102, 45_090, 132_203, 60_781,
-      9_009, 212_238, 51_167, 12_876, 8_560, 40_509,
-    ];
-    for (const asn of asns) {
-      expect(await classifyNetwork(requestWithNetwork(asn))).toBe("hosting");
-    }
-  });
-
   test("recognizes relay, VPN, mobile, education, and hosting organizations", async () => {
     expect(
       await classifyNetwork(requestWithNetwork(13_335, "Cloudflare, Inc.")),

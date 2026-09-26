@@ -1,6 +1,5 @@
 import os from "node:os";
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -80,21 +79,5 @@ describe("resolveDesktopStellaDataDirPath", () => {
         homeDir: HOME,
       }),
     ).toBe(path.resolve("relative-dir"));
-  });
-
-  it("takes the process lock before bootstrap services can open SQLite", async () => {
-    const bootstrapSource = await readFile(
-      new URL("../../../desktop/electron/bootstrap.ts", import.meta.url),
-      "utf8",
-    );
-    const lockIndex = bootstrapSource.indexOf(
-      "app.requestSingleInstanceLock()",
-    );
-    const serviceConstructionIndex = bootstrapSource.indexOf(
-      "createBootstrapContext({",
-    );
-
-    expect(lockIndex).toBeGreaterThan(-1);
-    expect(serviceConstructionIndex).toBeGreaterThan(lockIndex);
   });
 });

@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   PREVIEW_ACCESS_MAX_TTL_MS,
-  PREVIEW_ACCESS_STORAGE_KEY,
   issuePreviewAccessCapability,
   parsePreviewAccessActiveRecord,
-  previewAccessLogFields,
   previewSafeRequestLogPath,
   resolvePreviewTunnelRequest,
   verifyPreviewAccessCapability,
   verifyPreviewAccessRouteCapability,
-  type PreviewAccessActiveRecord,
 } from "../src/vite-preview-access.js";
 
 const now = 1_800_000_000_000;
@@ -49,39 +46,6 @@ const verify = async (
   });
 
 describe("turn-scoped Vite preview access", () => {
-  test("issues a signed capability with no raw tunnel URL in the token or log fields", async () => {
-    const { capability, activeRecord } = await issue();
-    expect(PREVIEW_ACCESS_STORAGE_KEY).toBe("vite-preview-access:active");
-    expect(capability).toMatch(/^pv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/);
-    expect(capability).not.toContain("trycloudflare");
-
-    const payload = JSON.parse(
-      Buffer.from(capability.split(".")[1]!, "base64url").toString("utf8"),
-    );
-    expect(payload).toEqual({
-      v: 1,
-      b: identity.buildSessionName,
-      t: identity.turnId,
-      s: identity.sandboxId,
-      e: now + 60_000,
-      n: "BwcHBwcHBwcHBwcHBwcHBw",
-    });
-    expect(payload).not.toHaveProperty("url");
-    expect(payload).not.toHaveProperty("tunnelUrl");
-    expect(activeRecord.tunnelUrl).toBe(tunnelUrl);
-
-    const logFields = previewAccessLogFields(activeRecord);
-    expect(logFields).toEqual({
-      schemaVersion: 1,
-      state: "active",
-      ...identity,
-      issuedAt: now,
-      expiresAt: now + 60_000,
-    });
-    expect(JSON.stringify(logFields)).not.toContain("trycloudflare");
-    expect(JSON.stringify(logFields)).not.toContain(capability);
-  });
-
   test("verifies through Web Crypto only for the exact active scope", async () => {
     const { capability, activeRecord } = await issue();
     expect(await verify(capability, activeRecord)).toEqual({

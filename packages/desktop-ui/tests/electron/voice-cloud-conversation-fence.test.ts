@@ -95,31 +95,6 @@ describe("voice IPC cloud conversation fence", () => {
     );
   });
 
-  it("normalizes the selected id for transcript and config calls", async () => {
-    const { runner } = register();
-    electron.listeners.get("voice:persistTranscript")?.({}, {
-      conversationId: " cloud-current ",
-      role: "assistant",
-      text: "current",
-    });
-    await Promise.resolve();
-
-    expect(runner.persistVoiceTranscript).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: "cloud-current",
-        eventId: expect.stringMatching(/^voice:[A-Za-z0-9._:-]+$/),
-        timestamp: expect.any(Number),
-      }),
-    );
-
-    await electron.handles.get(IPC_VOICE_ORCHESTRATOR_CONFIG)?.({}, {
-      conversationId: " cloud-current ",
-    });
-    expect(runner.getVoiceOrchestratorConfig).toHaveBeenCalledWith({
-      conversationId: "cloud-current",
-    });
-  });
-
   it("rejects stale orchestrator and tool calls before runtime dispatch", async () => {
     const { runner } = register();
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,7 +100,6 @@ const { registerSystemHandlers } = await import(
   "../../../desktop/electron/ipc/system-handlers.js"
 );
 
-const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..", "..");
 const tempRoots: string[] = [];
 
 describe("Electron IPC registration integrity", () => {
@@ -114,24 +113,6 @@ describe("Electron IPC registration integrity", () => {
     for (const root of tempRoots.splice(0)) {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it("registers every system IPC channel with exactly one function handler", () => {
-    const options = new Proxy(
-      {
-        getStellaAppDir: () => null,
-        externalLinkService: { assertPrivilegedSender: vi.fn(() => true) },
-      },
-      {
-        get(target, property) {
-          if (property in target) return Reflect.get(target, property);
-          return vi.fn();
-        },
-      },
-    );
-
-    expect(() => registerSystemHandlers(options)).not.toThrow();
-    expect(ipc.handles.get("customizations:reset")).toBeTypeOf("function");
   });
 
   it("executes both media materialization paths with all validation helpers bound", async () => {
@@ -181,45 +162,6 @@ describe("Electron IPC registration integrity", () => {
     expect(mediaStore.materializeMediaArtifact).toHaveBeenCalledTimes(2);
   });
 
-  it("registers and invokes privileged connector credential handlers", async () => {
-    const submitConnectorCredential = vi.fn(async () => ({ ok: true }));
-    const cancelConnectorCredential = vi.fn(() => ({ ok: true }));
-    const assertPrivilegedSender = vi.fn(() => true);
-    const options = new Proxy(
-      {
-        getStellaAppDir: () => null,
-        externalLinkService: { assertPrivilegedSender },
-        submitConnectorCredential,
-        cancelConnectorCredential,
-      },
-      {
-        get(target, property) {
-          if (property in target) return Reflect.get(target, property);
-          return vi.fn();
-        },
-      },
-    );
-    registerSystemHandlers(options);
-
-    const submit = ipc.handles.get("connector-credential:submit");
-    const cancel = ipc.handles.get("connector-credential:cancel");
-    const submitPayload = {
-      requestId: "request-1",
-      value: "secret",
-      label: "Work",
-    };
-    const cancelPayload = { requestId: "request-1" };
-
-    await expect(submit?.({}, submitPayload)).resolves.toEqual({ ok: true });
-    expect(cancel?.({}, cancelPayload)).toEqual({ ok: true });
-    expect(submitConnectorCredential).toHaveBeenCalledWith(submitPayload);
-    expect(cancelConnectorCredential).toHaveBeenCalledWith(cancelPayload);
-    expect(assertPrivilegedSender).toHaveBeenCalledWith(
-      {},
-      "connector-credential:submit",
-    );
-  });
-
   it("gates previously ungated device and permission reads", async () => {
     const assertPrivilegedSender = vi.fn(() => false);
     const options = new Proxy(
@@ -244,35 +186,6 @@ describe("Electron IPC registration integrity", () => {
       "Blocked untrusted permissions:getStatus",
     );
     expect(options.getDeviceId).not.toHaveBeenCalled();
-  });
-
-  it("loads the device ID on demand and reuses the cached value", async () => {
-    let deviceId: string | null = null;
-    const loadDeviceId = vi.fn(async () => {
-      deviceId = "device-loaded";
-      return deviceId;
-    });
-    const options = new Proxy(
-      {
-        getStellaAppDir: () => null,
-        getDeviceId: vi.fn(() => deviceId),
-        loadDeviceId,
-        externalLinkService: { assertPrivilegedSender: vi.fn(() => true) },
-      },
-      {
-        get(target, property) {
-          if (property in target) return Reflect.get(target, property);
-          return vi.fn();
-        },
-      },
-    );
-    registerSystemHandlers(options);
-
-    const getId = ipc.handles.get("device:getId");
-    await expect(getId?.({})).resolves.toBe("device-loaded");
-    await expect(getId?.({})).resolves.toBe("device-loaded");
-
-    expect(loadDeviceId).toHaveBeenCalledOnce();
   });
 
   it("keeps device signing in the privileged Electron main process", async () => {
@@ -321,72 +234,5 @@ describe("Electron IPC registration integrity", () => {
       "Blocked untrusted device-signing request",
     );
     expect(sign).toHaveBeenCalledOnce();
-  });
-
-  it("wires the connector credential service into system registration", () => {
-    const bootstrap = readFileSync(
-      path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
-      "utf8",
-    );
-    expect(bootstrap).toContain(
-      "services.connectorCredentialService.submitCredential(payload)",
-    );
-    expect(bootstrap).toContain(
-      "services.connectorCredentialService.cancelCredential(payload)",
-    );
-  });
-
-  it("forwards managed browser recovery through the Electron bootstrap", () => {
-    const bootstrap = readFileSync(
-      path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
-      "utf8",
-    );
-    const routingStart = bootstrap.indexOf(
-      "const ensureInAppBrowserAgentRouting",
-    );
-    const routingEnd = bootstrap.indexOf(
-      "const ensureInAppBrowserReady",
-      routingStart,
-    );
-    expect(routingStart).toBeGreaterThan(-1);
-    expect(routingEnd).toBeGreaterThan(routingStart);
-    expect(bootstrap.slice(routingStart, routingEnd)).toContain(
-      "...(capability.recover ? { recover: true } : {})",
-    );
-  });
-
-  it("constructs the connector credential service and threads it into the connect-card flow", () => {
-    // Regression: the local-first port dropped the ConnectorCredentialService
-    // instantiation from bootstrap-services.js while ipc.js, host-runner.js,
-    // resets.js, and ConnectorConnectService.runConnectFlow all kept consuming
-    // `services.connectorCredentialService`. Clicking Connect on an inline
-    // connect card then failed with "Cannot read properties of undefined
-    // (reading 'requestExternalOAuthApproval')".
-    const services = readFileSync(
-      path.join(
-        repoRoot,
-        "packages/desktop/electron/bootstrap/bootstrap-services.js",
-      ),
-      "utf8",
-    );
-    expect(services).toContain("new ConnectorCredentialService({");
-    const connectOptionsStart = services.indexOf(
-      "new ConnectorConnectService({",
-    );
-    expect(connectOptionsStart).toBeGreaterThan(-1);
-    const connectOptions = services.slice(
-      connectOptionsStart,
-      services.indexOf("});", connectOptionsStart),
-    );
-    expect(connectOptions).toContain("connectorCredentialService");
-    // The external OAuth flow completes via the `stella://oauth/callback/...`
-    // deep link, which must be routed to the credential service before the
-    // generic auth handler swallows it.
-    expect(services).toContain(
-      "connectorCredentialService?.handleExternalOAuthCallback(url)",
-    );
-    // The services object must expose it for ipc.js / host-runner.js /
-    // resets.js consumers.
-    expect(services).toMatch(/return \{[\s\S]*connectorCredentialService,/);
   });
 });

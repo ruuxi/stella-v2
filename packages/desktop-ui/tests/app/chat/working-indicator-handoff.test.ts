@@ -6,7 +6,6 @@ import {
 import {
   buildInlineWorkingIndicatorProps,
   getInlineWorkingIndicatorActive,
-  WORKING_INDICATOR_HANDOFF_MS,
 } from "@/features/chat/working-indicator-state";
 
 const started = streamStoreReducer(initialStoreState, {
@@ -98,10 +97,5 @@ describe("working indicator handoff", () => {
     expect(props.active).toBe(false);
     expect(props.exitImmediately).toBe(true);
     expect(props.handoff).toBeUndefined();
-  });
-
-  // The bubble morph and fallback indicator exit share one duration.
-  it("pins the morph duration to the indicator exit duration", () => {
-    expect(WORKING_INDICATOR_HANDOFF_MS).toBe(240);
   });
 });

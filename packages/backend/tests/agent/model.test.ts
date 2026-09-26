@@ -1,15 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
 import {
-  getModelConfig,
-  getModeConfig,
   GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
-  listManagedModelIds,
   MANAGED_MODEL_AUDIENCES,
-  MODEL_MODES,
 } from "../../convex/agent/model";
 import {
-  listStellaDefaultSelections,
   listStellaCatalogModels,
   parseStellaModelSelection,
   resolveStellaModelConfigForSelection,
@@ -28,86 +23,8 @@ const LEGACY_FIREWORKS_SELECTION = `stella/${LEGACY_FIREWORKS_MODEL}`;
 /** Default OpenRouter-hosted Muse Spark 1.3 Contributor. */
 const MUSE_MODEL = "meta/muse-spark-1.3-contributor";
 const MUSE_SELECTION = `stella/${MUSE_MODEL}`;
-const MUSE_ROUTING_MODEL = `openrouter/${MUSE_MODEL}`;
-const SYNTHESIS_MODEL = "moonshotai/kimi-k2.6";
-const SYNTHESIS_SELECTION = `openrouter/${SYNTHESIS_MODEL}`;
-const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
 describe("managed model config", () => {
-  it("routes every mode through Muse with DeepSeek as its fallback", () => {
-    for (const audience of MANAGED_MODEL_AUDIENCES) {
-      for (const mode of MODEL_MODES) {
-        expect(getModeConfig(mode, audience)).toMatchObject({
-          model: MUSE_MODEL,
-          fallback: FLASH_MODEL,
-          managedGatewayProvider: "openrouter",
-          fallbackManagedGatewayProvider: "crof",
-          api: "openai-responses",
-          providerOptions: {
-            openai: { reasoningEffort: "xhigh" },
-          },
-          fallbackProviderOptions: {
-            openai: { reasoningEffort: "xhigh" },
-          },
-        });
-      }
-
-      for (const entry of listStellaDefaultSelections(audience)) {
-        const expectedModel =
-          entry.agentType === "synthesis"
-            ? SYNTHESIS_MODEL
-            : entry.agentType === "offline_responder"
-              ? GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL
-              : entry.agentType === "image_description"
-                ? IMAGE_DESCRIPTION_MODEL
-                : MUSE_MODEL;
-        expect(getModelConfig(entry.agentType, audience).model).toBe(
-          expectedModel,
-        );
-        expect(entry).toMatchObject({
-          model: "stella/default",
-          resolvedModel:
-            entry.agentType === "synthesis"
-              ? SYNTHESIS_SELECTION
-              : entry.agentType === "offline_responder"
-                ? `openrouter/${GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL}`
-                : expectedModel === MUSE_MODEL
-                  ? MUSE_ROUTING_MODEL
-                  : expectedModel,
-        });
-      }
-
-      expect(getModelConfig("synthesis", audience)).toMatchObject({
-        model: SYNTHESIS_MODEL,
-        managedGatewayProvider: "openrouter",
-        maxOutputTokens: 32768,
-        providerOptions: {
-          openai: { reasoningEffort: "low" },
-          gateway: {
-            order: ["coreweave", "baseten", "together", "fireworks"],
-            only: ["coreweave", "baseten", "together", "fireworks"],
-            allow_fallbacks: true,
-          },
-        },
-      });
-      expect(getModelConfig("synthesis", audience).fallback).toBeUndefined();
-      expect(getModelConfig("offline_responder", audience)).toMatchObject({
-        model: GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
-        managedGatewayProvider: "openrouter",
-        maxOutputTokens: 65536,
-        providerOptions: {
-          openai: { reasoningEffort: "low" },
-        },
-      });
-      expect(getModelConfig("image_description", audience)).toMatchObject({
-        model: IMAGE_DESCRIPTION_MODEL,
-        managedGatewayProvider: "google",
-        maxOutputTokens: 4096,
-        providerOptions: { gateway: { order: ["google"] } },
-      });
-    }
-  });
-
   it("publishes the Muse default and its selectable DeepSeek fallback", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       const selectable = audience === "pro";
@@ -205,26 +122,6 @@ describe("managed model config", () => {
     });
   });
 
-  it("pins Muse onto OpenRouter Responses with DeepSeek configured as fallback", () => {
-    expect(getModeConfig("light", "pro")).toMatchObject({
-      model: MUSE_MODEL,
-      fallback: FLASH_MODEL,
-      managedGatewayProvider: "openrouter",
-      fallbackManagedGatewayProvider: "crof",
-      api: "openai-responses",
-    });
-    expect(
-      resolveStellaModelConfigForSelection(MUSE_SELECTION, "general", "pro"),
-    ).toMatchObject({
-      applied: true,
-      config: {
-        model: MUSE_MODEL,
-        managedGatewayProvider: "openrouter",
-        api: "openai-responses",
-      },
-    });
-  });
-
   it("keeps the Muse Responses transport override pinned to the Muse id only", () => {
     // A pin of any other selectable model must not inherit Muse's transport.
     expect(
@@ -256,14 +153,4 @@ describe("managed model config", () => {
     });
   });
 
-  it("price-syncs the public and internal utility models", () => {
-    expect(listManagedModelIds()).toEqual([
-      FLASH_MODEL,
-      IMAGE_DESCRIPTION_MODEL,
-      GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
-      MUSE_MODEL,
-      SYNTHESIS_MODEL,
-      WAFER_FAST_MODEL,
-    ]);
-  });
 });

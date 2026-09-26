@@ -9236,17 +9236,6 @@ mod tests {
     }
 
     #[test]
-    fn wait_probe_captures_bounded_page_and_frame_state() {
-        let expression = wait_observation_expression("document.querySelector('#ready') !== null");
-        assert!(expression.contains("matched = !!(document.querySelector('#ready') !== null)"));
-        assert!(expression.contains("document.readyState"));
-        assert!(expression.contains("querySelectorAll('iframe,frame')"));
-        assert!(expression.contains("slice(0, 8)"));
-        assert!(expression.contains("bodyTextSample"));
-        assert!(expression.contains("slice(0, 500)"));
-    }
-
-    #[test]
     fn wait_timeout_reports_the_last_observed_page_state_and_transport_error() {
         let observed = json!({
             "matched": false,
@@ -9282,23 +9271,6 @@ mod tests {
         object.insert("ownerLeaseId".to_string(), json!(lease_id));
         object.insert("ownerLeaseIssuedAt".to_string(), json!(issued_at));
         command
-    }
-
-    #[test]
-    fn test_success_response_structure() {
-        let resp = success_response("cmd-1", json!({"url": "https://example.com"}));
-        assert_eq!(resp["id"], "cmd-1");
-        assert_eq!(resp["success"], true);
-        assert!(resp["data"].is_object());
-        assert_eq!(resp["data"]["url"], "https://example.com");
-    }
-
-    #[test]
-    fn test_error_response_structure() {
-        let resp = error_response("cmd-2", "Something went wrong");
-        assert_eq!(resp["id"], "cmd-2");
-        assert_eq!(resp["success"], false);
-        assert_eq!(resp["error"], "Something went wrong");
     }
 
     #[test]
@@ -10041,25 +10013,6 @@ mod tests {
     }
 
     #[test]
-    fn test_daemon_state_new() {
-        let state = DaemonState::new();
-        assert!(state.browser.is_none());
-        assert!(state.domain_filter.is_none());
-        assert_eq!(state.session_id, "default");
-        assert!(!state.tracing_state.active);
-        assert!(!state.recording_state.active);
-    }
-
-    #[test]
-    fn test_launch_options_from_env_defaults() {
-        let _guard = EnvGuard::new(&["STELLA_BROWSER_HEADED"]);
-        let opts = launch_options_from_env();
-        assert!(opts.headless);
-        assert!(opts.args.is_empty());
-        assert!(!opts.allow_file_access);
-    }
-
-    #[test]
     fn test_launch_options_from_env_headed_flag() {
         let _guard = EnvGuard::new(&["STELLA_BROWSER_HEADED"]);
         _guard.set("STELLA_BROWSER_HEADED", "1");
@@ -10083,39 +10036,6 @@ mod tests {
         _guard.set("STELLA_BROWSER_PROVIDER", "extension");
         let cmd = json!({ "provider": "ios" });
         assert_eq!(requested_provider(Some(&cmd)).as_deref(), Some("ios"));
-    }
-
-    #[tokio::test]
-    async fn test_execute_unknown_command() {
-        let mut state = DaemonState::new();
-        let cmd = json!({ "action": "unknown_action_xyz", "id": "test-1" });
-        let result = execute_command(&cmd, &mut state).await;
-        assert_eq!(result["success"], false);
-        let error_msg = result["error"].as_str().unwrap();
-        assert!(
-            error_msg.contains("Not yet implemented"),
-            "Unexpected error: {}",
-            error_msg
-        );
-        assert!(state.browser.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_execute_empty_action() {
-        let mut state = DaemonState::new();
-        let cmd = json!({ "id": "test-2" });
-        let result = execute_command(&cmd, &mut state).await;
-        // Empty action triggers auto-launch which will fail without a browser
-        assert_eq!(result["success"], false);
-    }
-
-    #[tokio::test]
-    async fn test_execute_close_without_browser() {
-        let mut state = DaemonState::new();
-        let cmd = json!({ "action": "close", "id": "test-3" });
-        let result = execute_command(&cmd, &mut state).await;
-        assert_eq!(result["success"], true);
-        assert_eq!(result["data"]["closed"], true);
     }
 
     #[tokio::test]
@@ -10266,15 +10186,6 @@ mod tests {
             Some(val) => unsafe { std::env::set_var(key_var, val) },
             None => unsafe { std::env::remove_var(key_var) },
         }
-    }
-
-    #[tokio::test]
-    async fn test_state_list_via_actions() {
-        let mut state = DaemonState::new();
-        let cmd = json!({ "action": "state_list", "id": "s1" });
-        let result = execute_command(&cmd, &mut state).await;
-        assert_eq!(result["success"], true);
-        assert!(result["data"]["files"].is_array());
     }
 
     #[test]

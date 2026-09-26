@@ -45,12 +45,6 @@ const stringLeaves = (
 };
 
 describe("mobile memory settings copy", () => {
-  test("English pins the cloud-authority disclosure", () => {
-    expect(catalogs.get(DEFAULT_LOCALE)?.settings?.memory?.description).toBe(
-      CLOUD_AUTHORITY_MEMORY_DESCRIPTION,
-    );
-  });
-
   const englishCloudHome = stringLeaves(
     catalogs.get(DEFAULT_LOCALE)?.mobile?.cloudHome,
     "mobile.cloudHome",

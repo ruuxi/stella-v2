@@ -430,11 +430,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_lightpanda_returns_none_when_missing() {
-        let _ = find_lightpanda();
-    }
-
-    #[test]
     fn test_lightpanda_launch_error_no_logs() {
         let logs = LaunchLogBuffer::default();
         let msg = lightpanda_launch_error("Lightpanda exited", &logs, None);
@@ -450,14 +445,6 @@ mod tests {
         assert!(msg.contains("stdout line"));
         assert!(msg.contains("stderr line"));
         assert!(msg.contains("Last probe error: connect failed"));
-    }
-
-    #[test]
-    fn test_default_options() {
-        let opts = LightpandaLaunchOptions::default();
-        assert!(opts.executable_path.is_none());
-        assert!(opts.proxy.is_none());
-        assert!(opts.port.is_none());
     }
 
     #[test]

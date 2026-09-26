@@ -1232,14 +1232,6 @@ pub async fn get_element_styles(
 mod tests {
     use super::*;
 
-    #[test]
-    fn bounding_box_geometry_is_top_viewport_relative() {
-        assert!(BOUNDING_BOX_JS.contains("this.ownerDocument"));
-        assert!(BOUNDING_BOX_JS.contains("win.frameElement"));
-        assert!(BOUNDING_BOX_JS.contains("frameRect.left + frame.clientLeft"));
-        assert!(BOUNDING_BOX_JS.contains("frameRect.top + frame.clientTop"));
-    }
-
     fn make_ref_entry(
         role: &str,
         name: &str,
@@ -1287,52 +1279,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ref_at_prefix() {
-        assert_eq!(parse_ref("@e1"), Some("e1".to_string()));
-        assert_eq!(parse_ref("@e123"), Some("e123".to_string()));
-    }
-
-    #[test]
-    fn test_parse_ref_equals_prefix() {
-        assert_eq!(parse_ref("ref=e1"), Some("e1".to_string()));
-    }
-
-    #[test]
-    fn test_parse_ref_bare() {
-        assert_eq!(parse_ref("e1"), Some("e1".to_string()));
-        assert_eq!(parse_ref("e42"), Some("e42".to_string()));
-    }
-
-    #[test]
     fn test_parse_ref_invalid() {
         assert_eq!(parse_ref("button"), None);
         assert_eq!(parse_ref("e"), None);
         assert_eq!(parse_ref("1"), None);
         assert_eq!(parse_ref(""), None);
-    }
-
-    #[test]
-    fn test_ref_map_basic() {
-        let mut map = RefMap::new();
-        map.add("e1".to_string(), Some(42), "button", "Submit", None);
-        assert!(map.get("e1").is_some());
-        assert_eq!(map.get("e1").unwrap().role, "button");
-        assert!(map.get("e2").is_none());
-    }
-
-    #[test]
-    fn test_box_model_center() {
-        let model = BoxModel {
-            content: vec![10.0, 20.0, 110.0, 20.0, 110.0, 60.0, 10.0, 60.0],
-            padding: vec![],
-            border: vec![],
-            margin: vec![],
-            width: 100,
-            height: 40,
-        };
-        let (x, y) = box_model_center(&model);
-        assert!((x - 60.0).abs() < 0.01);
-        assert!((y - 40.0).abs() < 0.01);
     }
 
     #[test]

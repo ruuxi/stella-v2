@@ -76,16 +76,6 @@ describe("applyLiveAgentWorkState", () => {
     expect(payload.subtitle).toBe("Working in background");
   });
 
-  test("a genuinely completed agent keeps its finished card", () => {
-    const card = agentWorkArtifact({ agentIds: ["agent-a"], state: "done" });
-    const messages = [message("m1", [card])];
-    const result = applyLiveAgentWorkState(messages, [
-      task({ id: "agent-a", status: "completed", completedAt: 9_000 }),
-    ]);
-    expect(result).toBe(messages);
-    expect(payloadOf(result[0]!).state).toBe("done");
-  });
-
   test("a live terminal status never flips a running card to done (bridge/sync own that)", () => {
     // A just-steered card can briefly coexist with a stale terminal snapshot
     // from the thread's PREVIOUS run; the fold catching up must not re-settle

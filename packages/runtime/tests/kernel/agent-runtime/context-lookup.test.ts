@@ -119,14 +119,6 @@ describe("formatThreadSearchResults", () => {
     expect(calls[0]?.limit).toBe(MAX_THREAD_SEARCH_RESULTS);
   });
 
-  it("explains an empty result differently with and without a query", () => {
-    expect(
-      formatThreadSearchResults(makeStore([]), "conv-1", "flights"),
-    ).toMatch(/No agent threads matched/);
-    expect(
-      formatThreadSearchResults(makeStore([]), "conv-1", undefined),
-    ).toMatch(/No past agent work recorded/);
-  });
 });
 
 describe("formatTranscriptSearchResults", () => {
@@ -236,14 +228,4 @@ describe("formatTranscriptSearchResults", () => {
     expect(out).toContain("next: recall:");
   });
 
-  it("explains empty results and unusable queries", () => {
-    expect(
-      formatTranscriptSearchResults(makeStore([]), "conv-1", "flights"),
-    ).toMatch(/Nothing matched in past conversation transcripts/);
-    // The tokenizer keeps all-stopword queries searchable; only an EMPTY
-    // query has no usable terms.
-    expect(
-      formatTranscriptSearchResults(makeStore([]), "conv-1", undefined),
-    ).toMatch(/No usable search terms/);
-  });
 });

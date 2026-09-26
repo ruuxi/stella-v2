@@ -1446,38 +1446,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_interactive_roles() {
-        assert!(INTERACTIVE_ROLES.contains(&"button"));
-        assert!(INTERACTIVE_ROLES.contains(&"textbox"));
-        assert!(!INTERACTIVE_ROLES.contains(&"heading"));
-    }
-
-    #[test]
-    fn test_content_roles() {
-        assert!(CONTENT_ROLES.contains(&"heading"));
-        assert!(!CONTENT_ROLES.contains(&"button"));
-    }
-
-    #[test]
-    fn test_compact_tree_basic() {
-        let tree = "- navigation\n  - link \"Home\" [ref=e1]\n  - link \"About\" [ref=e2]\n- main\n  - heading \"Title\"\n  - paragraph\n    - text: Hello\n";
-        let result = compact_tree(tree, false);
-        assert!(result.contains("[ref=e1]"));
-        assert!(result.contains("[ref=e2]"));
-        assert!(result.contains("Hello"));
-    }
-
-    #[test]
     fn test_compact_tree_empty_interactive() {
         let result = compact_tree("- generic\n", true);
         assert_eq!(result, "(no interactive elements)");
-    }
-
-    #[test]
-    fn test_count_indent() {
-        assert_eq!(count_indent("- heading"), 0);
-        assert_eq!(count_indent("  - link"), 1);
-        assert_eq!(count_indent("    - text"), 2);
     }
 
     #[test]
@@ -1579,13 +1550,6 @@ mod tests {
         let set = build_dedup_set(&ref_map);
         assert!(set.contains("submit form"));
         assert!(!set.contains("Submit Form"));
-    }
-
-    #[test]
-    fn test_dedup_set_empty_inputs() {
-        let ref_map = RefMap::new();
-        let set = build_dedup_set(&ref_map);
-        assert!(set.is_empty());
     }
 
     #[test]

@@ -397,13 +397,4 @@ mod tests {
         assert_eq!(domains, vec!["a.com", "b.com", "*.c.com"]);
     }
 
-    #[test]
-    fn test_event_tracker() {
-        let mut tracker = EventTracker::new();
-        tracker.add_console("log", "hello");
-        tracker.add_error("oops", Some("test.js"), Some(1), Some(5));
-
-        assert_eq!(tracker.console_entries.len(), 1);
-        assert_eq!(tracker.error_entries.len(), 1);
-    }
 }

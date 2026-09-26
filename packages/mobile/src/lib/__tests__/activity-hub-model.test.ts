@@ -226,13 +226,6 @@ describe("activity hub source data", () => {
 });
 
 describe("activity hub paging window", () => {
-  test("opens on exactly the first 16 ordered entries", () => {
-    expect(initialActivityWindow(50)).toEqual({
-      start: 0,
-      end: ACTIVITY_PAGE_SIZE,
-    });
-  });
-
   test("loads older and newer pages in 16-entry steps with a bounded window", () => {
     let window = initialActivityWindow(100);
     window = loadOlderActivityWindow(window, 100);

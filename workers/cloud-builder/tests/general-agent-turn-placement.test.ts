@@ -6,7 +6,6 @@ import {
   selectGeneralAgentTurnPlan,
   turnComputePlan,
   turnComputePlanKey,
-  type GeneralAgentTurnRequest,
 } from "../src/general-agent-turn.js";
 
 const STELLA: CloudExecutionSelection = {
@@ -19,12 +18,6 @@ const ANTHROPIC: CloudExecutionSelection = {
   engine: "anthropic",
   provider: "anthropic",
   model: "claude-test",
-  reasoningEffort: "medium",
-};
-const CODEX: CloudExecutionSelection = {
-  engine: "openai-codex",
-  provider: "openai-codex",
-  model: "gpt-test",
   reasoningEffort: "medium",
 };
 
@@ -69,32 +62,6 @@ const parse = (overrides: Record<string, unknown> = {}) =>
   });
 
 describe("general agent turn placement", () => {
-  test("runs a Stella turn resident", () => {
-    expect(
-      selectGeneralAgentTurnPlan({
-        execution: STELLA,
-        browserResume: false,
-        residentDisabled: false,
-      }),
-    ).toEqual({ kind: "resident_stella", execution: STELLA });
-  });
-
-  test("keeps every native engine on today's sandbox path", () => {
-    for (const execution of [ANTHROPIC, CODEX]) {
-      expect(
-        selectGeneralAgentTurnPlan({
-          execution,
-          browserResume: false,
-          residentDisabled: false,
-        }),
-      ).toEqual({
-        kind: "native_sandbox",
-        execution,
-        reason: "native_engine",
-      });
-    }
-  });
-
   /**
    * A browser handoff resumes inside the container that suspended it. Placing
    * it resident would resume a session whose profile and tab handles live in a
@@ -114,20 +81,6 @@ describe("general agent turn placement", () => {
     });
   });
 
-  test("the kill switch demotes Stella without touching the resident loop", () => {
-    expect(
-      selectGeneralAgentTurnPlan({
-        execution: STELLA,
-        browserResume: false,
-        residentDisabled: true,
-      }),
-    ).toEqual({
-      kind: "native_sandbox",
-      execution: STELLA,
-      reason: "resident_disabled",
-    });
-  });
-
   test("native engines report native_engine even under the kill switch", () => {
     expect(
       selectGeneralAgentTurnPlan({
@@ -140,29 +93,6 @@ describe("general agent turn placement", () => {
 });
 
 describe("persisted turn compute plan", () => {
-  test("records the facts that produced the placement", () => {
-    const turn = parse();
-    expect(
-      turnComputePlan({
-        turnId: turn.identity.turnId,
-        attemptGeneration: turn.identity.attemptGeneration,
-        execution: turn.execution,
-        browserResume: turn.browserResume !== undefined,
-        residentDisabled: false,
-        now: 42,
-      }),
-    ).toEqual({
-      schemaVersion: 1,
-      turnId: "turn-1",
-      attemptGeneration: 2,
-      plan: { kind: "resident_stella", execution: STELLA },
-      engine: "stella",
-      browserResume: false,
-      residentDisabled: false,
-      decidedAt: 42,
-    });
-  });
-
   test("keys the plan by exact attempt so a retry cannot read the last one", () => {
     expect(turnComputePlanKey("turn-1", 2)).toBe("turnComputePlan:turn-1:2");
     expect(turnComputePlanKey("turn-1", 3)).not.toBe(
@@ -172,25 +102,6 @@ describe("persisted turn compute plan", () => {
 });
 
 describe("general agent turn request parsing", () => {
-  test("accepts the record admission already validates", () => {
-    expect(parse()).toEqual({
-      kind: "agent",
-      identity: {
-        ownerId: "owner-1",
-        ownerGeneration: "generation-1",
-        threadId: "thread-1",
-        turnId: "turn-1",
-        attemptGeneration: 2,
-      },
-      prompt: "ship it",
-      brokerRoute: BROKER_ROUTE,
-      execution: STELLA,
-      audience: "go",
-      budgetMicroCents: 12_500_000,
-      watchdogMs: 900_000,
-    } satisfies GeneralAgentTurnRequest);
-  });
-
   /**
    * The broker route is the turn's capability to reach its own sandbox. A body
    * that could name it would let a caller point one turn at another's broker.

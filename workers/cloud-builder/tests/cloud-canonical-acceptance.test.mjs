@@ -1407,11 +1407,6 @@ describe("cloud canonical acceptance manifest", () => {
   });
 
   test("declares both external-inbox pauses separately from automatic steps", async () => {
-    const runnerSource = await readFile(script, "utf8");
-    expect(runnerSource).toContain(
-      "full machine or app-process death requires restarting the acceptance run",
-    );
-    expect(runnerSource).toContain("no resumable credential is persisted");
     const missingStorageHandoff = await checkManifest((root) => {
       const manifest = makeManifest(root);
       manifest.steps.find(

@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  artifactSubtitle,
-  artifactTitle,
   isMobileDisplayPayload,
   parseChatArtifacts,
 } from "../mobile-artifacts";
@@ -51,12 +49,4 @@ describe("map-route mobile artifacts", () => {
     ).toBe(false);
   });
 
-  test("labels route and pin cards", () => {
-    expect(artifactTitle(routeMap as never)).toBe(
-      "Ferry Building → Golden Gate Bridge",
-    );
-    expect(artifactSubtitle(routeMap as never)).toBe("Route · 8.7 km · 19 min");
-    expect(artifactTitle(pinsMap as never)).toBe("Blue Bottle Coffee");
-    expect(artifactSubtitle(pinsMap as never)).toBe("Map · 1 place");
-  });
 });

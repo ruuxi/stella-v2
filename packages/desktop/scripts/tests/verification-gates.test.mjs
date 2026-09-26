@@ -285,21 +285,6 @@ test("packaged runtime asset contract copies and validates the OAuth catalog", a
   );
 });
 
-test("electron-builder ships the assembled runtime tree beside app.asar", () => {
-  const rootPackage = JSON.parse(
-    readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"),
-  );
-
-  assert.ok(
-    rootPackage.build.extraResources.some(
-      (entry) =>
-        entry.from === "packages/desktop/dist-electron/runtime" &&
-        entry.to === "runtime" &&
-        entry.filter?.includes("**/*"),
-    ),
-  );
-});
-
 test("packaged runtime verification fails clearly when the OAuth catalog is missing", async () => {
   const outputRoot = mkdtempSync(
     path.join(os.tmpdir(), "stella-runtime-assets-missing-"),

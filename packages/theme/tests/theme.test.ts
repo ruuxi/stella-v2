@@ -86,14 +86,6 @@ describe("color-mix semantics", () => {
 describe("tokens", () => {
   const themes = getThemesSnapshot();
 
-  test("catalog has Default and Custom, and no retired ids", () => {
-    const ids = themes.map((t) => t.id);
-    expect(ids).toContain("default");
-    expect(ids).toContain("custom");
-    expect(ids).not.toContain("pearl");
-    expect(ids).not.toContain("noir");
-  });
-
   test("user bubble snaps out of the mid band and text flips with it", () => {
     const { colors, flat } = resolveThemeColors(
       themes.find((t) => t.id === "default")!,
@@ -116,23 +108,6 @@ describe("tokens", () => {
     const ot = deriveTokens(o.colors, true, { flat: o.flat });
     expect(ot.chatAssistantBubbleFillTop).toBe(ot.panelSurfaceBgTop);
     expect(ot.panelSurfaceBgTop).toMatch(/^rgba\(/);
-  });
-
-  test("every theme × mode derives the pinned token set", () => {
-    const all: Record<string, unknown> = {};
-    for (const theme of themes) {
-      for (const isDark of [false, true]) {
-        const r = resolveThemeColors(theme, isDark);
-        all[`${theme.id}:${isDark ? "dark" : "light"}`] = deriveTokens(
-          r.colors,
-          isDark,
-          {
-            flat: r.flat,
-          },
-        );
-      }
-    }
-    expect(all).toMatchSnapshot();
   });
 });
 

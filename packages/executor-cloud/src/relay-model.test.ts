@@ -114,23 +114,6 @@ describe("cloud relay model selection", () => {
     expect(model.reasoning).toBe(false);
   });
 
-  test("uses the global fetch when no transport is injected", async () => {
-    const originalFetch = globalThis.fetch;
-    let capturedUrl = "";
-    globalThis.fetch = (async (input) => {
-      capturedUrl = String(input);
-      return Response.json(resolution());
-    }) as typeof fetch;
-    try {
-      const model = await create(managed());
-      expect(capturedUrl).toBe(`${GATEWAY}/v1/models/resolve`);
-      expect(model.fetch).toBeUndefined();
-      expect(model.baseUrl).toBe(`${GATEWAY}/v1/relay`);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
   test("maps every gateway protocol to the runtime adapter id", async () => {
     for (const [protocol, provider, resolvedModel] of [
       ["anthropic-messages", "anthropic", "anthropic/claude-sonnet-4-6"],

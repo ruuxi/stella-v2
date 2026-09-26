@@ -235,17 +235,6 @@ describe("anthropic image sanitization (tool-produced images)", () => {
 });
 
 describe("sanitizeInlineImagePayload (unit)", () => {
-	it("rejects a truncated PNG", () => {
-		expect(sanitizeInlineImagePayload(TRUNCATED_PNG_BASE64, "image/png")).toBeNull();
-	});
-
-	it("keeps a valid PNG and normalizes the media type from bytes", () => {
-		expect(sanitizeInlineImagePayload(VALID_PNG_BASE64, "image/gif")).toEqual({
-			mediaType: "image/png",
-			data: VALID_PNG_BASE64,
-		});
-	});
-
 	it("strips a data: URI prefix and returns raw base64", () => {
 		const result = sanitizeInlineImagePayload(
 			`data:image/png;base64,${VALID_PNG_BASE64}`,

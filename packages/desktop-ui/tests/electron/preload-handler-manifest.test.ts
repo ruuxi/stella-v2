@@ -2,8 +2,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { buildMobileBridgeCapabilityManifest } from "../../../desktop/electron/services/mobile-bridge/capabilities.js";
-import { IPC_PAYLOAD_CONTRACT } from "../../../desktop/electron/services/mobile-bridge/ipc-payload-contract.generated.js";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..", "..");
 
@@ -180,57 +178,6 @@ const collectRegisteredInvokeHandlers = (): Set<string> => {
 };
 
 describe("preload IPC handler manifest", () => {
-  it("builds payload-bearing capabilities from the generated contract", () => {
-    const manifest = buildMobileBridgeCapabilityManifest();
-    expect(manifest.version).toBe(1);
-    expect(
-      manifest.capabilities.find(
-        (capability) => capability.path === "browser.fetchJson",
-      ),
-    ).toMatchObject({
-      channel: "browser:fetchJson",
-      payload: { kind: "object", fields: ["url", "init"] },
-    });
-  });
-
-  it("keeps dead window-attach and dictation trigger invokes out of preload", () => {
-    const preload = readFileSync(
-      path.join(repoRoot, "packages/desktop/electron/preload.ts"),
-      "utf8",
-    );
-    const electronTypes = readFileSync(
-      path.join(repoRoot, "packages/desktop-ui/src/shared/types/electron.d.ts"),
-      "utf8",
-    );
-    const rendererChannels = readFileSync(
-      path.join(
-        repoRoot,
-        "packages/desktop-ui/src/shared/contracts/ipc-channels.ts",
-      ),
-      "utf8",
-    );
-    const contractChannels = readFileSync(
-      path.join(repoRoot, "packages/contracts/desktop/ipc-channels.ts"),
-      "utf8",
-    );
-
-    expect(preload).not.toContain('invoke("capture:beginWindowAttach")');
-    expect(preload).not.toContain('invoke("dictation:trigger")');
-    expect(preload).not.toContain('send("windowAttach:click"');
-    expect(preload).not.toContain('send("windowAttach:cancel"');
-    expect(electronTypes).not.toContain(
-      "trigger: () => Promise<{ ok: boolean }>;",
-    );
-    expect(electronTypes).not.toContain(
-      "Programmatically trigger the same toggle",
-    );
-    expect(rendererChannels).not.toContain("IPC_DICTATION_TRIGGER");
-    expect(contractChannels).not.toContain("IPC_DICTATION_TRIGGER");
-    expect(IPC_PAYLOAD_CONTRACT).not.toHaveProperty(
-      "capture:beginWindowAttach",
-    );
-    expect(IPC_PAYLOAD_CONTRACT).not.toHaveProperty("dictation:trigger");
-  });
 
   it("registers a main-process handler for every preload invoke channel", () => {
     const preloadInvokes = collectPreloadInvokes(

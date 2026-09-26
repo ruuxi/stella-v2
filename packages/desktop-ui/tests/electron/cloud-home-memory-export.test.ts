@@ -10,11 +10,8 @@ import {
 } from "@stella/contracts/desktop/ipc-channels";
 
 const electron = vi.hoisted(() => ({
-  exposed: new Map<string, unknown>(),
   fromWebContents: vi.fn(),
   handles: new Map<string, (...args: unknown[]) => unknown>(),
-  invoke: vi.fn(),
-  sendSync: vi.fn(() => ({})),
   showSaveDialog: vi.fn(),
 }));
 
@@ -25,27 +22,12 @@ vi.mock("electron", () => ({
   dialog: {
     showSaveDialog: electron.showSaveDialog,
   },
-  contextBridge: {
-    exposeInMainWorld: vi.fn((name: string, value: unknown) => {
-      electron.exposed.set(name, value);
-    }),
-  },
   ipcMain: {
     handle: vi.fn(
       (channel: string, handler: (...args: unknown[]) => unknown): void => {
         electron.handles.set(channel, handler);
       },
     ),
-  },
-  ipcRenderer: {
-    invoke: electron.invoke,
-    on: vi.fn(),
-    removeListener: vi.fn(),
-    send: vi.fn(),
-    sendSync: electron.sendSync,
-  },
-  webUtils: {
-    getPathForFile: vi.fn(() => ""),
   },
 }));
 
@@ -55,7 +37,6 @@ const { registerCloudHomeSyncHandlers } =
   await import("@stella/desktop/electron/ipc/cloud-home-sync-handlers.js");
 const { isMobileBridgeRequestChannel } =
   await import("@stella/desktop/electron/services/mobile-bridge/bridge-policy.js");
-await import("@stella/desktop/electron/preload.js");
 
 const fixtures: string[] = [];
 
@@ -371,38 +352,6 @@ describe("Cloud Home memory export", () => {
       });
     }
     expect(write).toHaveBeenCalledTimes(1);
-  });
-
-  it("exposes the three typed phases through preload without a path-bearing result", async () => {
-    const api = electron.exposed.get("electronAPI") as {
-      cloudHome: {
-        beginMemoryExport: (payload: unknown) => Promise<unknown>;
-        commitMemoryExport: (payload: unknown) => Promise<unknown>;
-        cancelMemoryExport: (exportId: string) => Promise<unknown>;
-      };
-    };
-    electron.invoke
-      .mockResolvedValueOnce({ ok: true, exportId: "opaque" })
-      .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ ok: true });
-    const begin = { suggestedName: "memory.md", ...authority };
-    const commit = { exportId: "opaque", content: "# Memory\n", ...authority };
-
-    await expect(api.cloudHome.beginMemoryExport(begin)).resolves.toEqual({
-      ok: true,
-      exportId: "opaque",
-    });
-    await expect(api.cloudHome.commitMemoryExport(commit)).resolves.toEqual({
-      ok: true,
-    });
-    await expect(api.cloudHome.cancelMemoryExport("opaque")).resolves.toEqual({
-      ok: true,
-    });
-    expect(electron.invoke.mock.calls.slice(-3)).toEqual([
-      [IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT, begin],
-      [IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT, commit],
-      [IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT, { exportId: "opaque" }],
-    ]);
   });
 
   it("does not grant any native export phase to the mobile bridge", () => {

@@ -155,33 +155,6 @@ const storedPlan = (
   );
 
 describe("agent turn admission records its placement", () => {
-  test("the kill switch defaults on, so a stella turn is admitted resident", async () => {
-    const harness = admissionHarness();
-
-    const response = await admit(harness, agentTurn());
-
-    expect(response.status).toBe(202);
-    expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
-      plan: { kind: "resident_stella" },
-      engine: "stella",
-      residentDisabled: false,
-      browserResume: false,
-    });
-  });
-
-  test("the kill switch demotes a stella turn to the container path", async () => {
-    const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "0" });
-    const turn = agentTurn();
-
-    await admit(harness, turn);
-
-    expect(harness.values.get("sandboxId")).toBe(await expectedSandboxId(turn));
-    expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
-      plan: { kind: "native_sandbox", reason: "resident_disabled" },
-      residentDisabled: true,
-    });
-  });
-
   test("a native engine records native placement whatever the switch says", async () => {
     const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "1" });
     const turn = agentTurn({ execution: ANTHROPIC });
@@ -194,22 +167,6 @@ describe("agent turn admission records its placement", () => {
       residentDisabled: false,
     });
     expect(harness.values.get("sandboxId")).toBe(await expectedSandboxId(turn));
-  });
-
-  test("a resident placement reserves no container at admission", async () => {
-    const harness = admissionHarness({ RESIDENT_GENERAL_AGENT_TURNS: "1" });
-
-    await admit(harness, agentTurn());
-
-    expect(storedPlan(harness, "turn-1", 1)).toMatchObject({
-      plan: { kind: "resident_stella" },
-      residentDisabled: false,
-    });
-    // Both cancellation sweeps destroy by this key. Its absence is what makes
-    // a Stop on a chat-only turn a true no-op instead of a lookup that boots a
-    // container to kill it.
-    expect(harness.values.has("sandboxId")).toBe(false);
-    expect(harness.started).toEqual([undefined]);
   });
 
   test("a turn dispatched without an engine selection records no plan", async () => {

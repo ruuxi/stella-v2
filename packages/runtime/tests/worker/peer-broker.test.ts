@@ -109,16 +109,4 @@ describe("WorkerPeerBroker", () => {
     await expect(resultPromise).resolves.toBe("second");
   });
 
-  it("fires client-attached and client-detached events", () => {
-    const broker = new WorkerPeerBroker();
-    const events: string[] = [];
-    broker.on("client-attached", () => events.push("attached"));
-    broker.on("client-detached", () => events.push("detached"));
-
-    const { peerA } = createConnectedPair();
-    broker.attach(peerA);
-    broker.detach(peerA);
-
-    expect(events).toEqual(["attached", "detached"]);
-  });
 });

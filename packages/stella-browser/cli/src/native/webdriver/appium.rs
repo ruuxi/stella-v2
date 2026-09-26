@@ -207,12 +207,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_appium_constants() {
-        assert_eq!(APPIUM_DEFAULT_PORT, 4723);
-        assert_eq!(APPIUM_STARTUP_TIMEOUT_SECS, 30);
-    }
-
-    #[test]
     fn test_ios_capabilities_use_vendor_prefix() {
         let caps = AppiumManager::build_ios_capabilities(
             Some("TEST-UDID-123"),

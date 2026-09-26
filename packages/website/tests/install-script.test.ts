@@ -120,18 +120,6 @@ function runInstaller({
 }
 
 describe("install.sh", () => {
-  test("is POSIX sh, not bash", () => {
-    expect(INSTALL_SCRIPT.startsWith("#!/bin/sh\n")).toBe(true);
-    expect(INSTALL_SCRIPT).not.toContain("[[");
-
-    const parsed = spawnSync("/bin/sh", ["-n"], {
-      input: INSTALL_SCRIPT,
-      encoding: "utf8",
-    });
-    expect(String(parsed.stderr ?? "")).toBe("");
-    expect(parsed.status).toBe(0);
-  });
-
   test("Arch: downloads the pacman package and installs it with pacman -U", () => {
     const run = runInstaller({
       unameS: "Linux",

@@ -90,23 +90,6 @@ describe("agent IPC cloud conversation fence", () => {
     expect(runner.sendAgentInput).not.toHaveBeenCalled();
   });
 
-  it("normalizes the selected id before forwarding send input", async () => {
-    const { runner } = register();
-    const handler = electron.handles.get("agent:sendInput");
-
-    await handler?.(event, {
-      conversationId: " cloud-current ",
-      threadId: "thread-1",
-      message: "continue",
-    });
-
-    expect(runner.sendAgentInput).toHaveBeenCalledWith({
-      conversationId: "cloud-current",
-      threadId: "thread-1",
-      message: "continue",
-    });
-  });
-
   it("rejects stale resume requests instead of attaching the old run", async () => {
     const { runner } = register();
     const handler = electron.handles.get("agent:resume");

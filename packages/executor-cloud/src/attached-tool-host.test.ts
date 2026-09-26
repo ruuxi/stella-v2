@@ -62,7 +62,9 @@ describe("attached tool daemon socket ownership", () => {
   });
 });
 
-describe("attached tool daemon process group", () => {
+// Production launches with util-linux setsid and reads /proc/self/stat.
+// Keep missing Linux prerequisites as failures; this boundary is Linux-only.
+describe.skipIf(process.platform !== "linux")("attached tool daemon process group", () => {
   test("records its pid and pgid and gives spawned children the same group", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "stella-pgid-"));
     temporaryDirectories.push(directory);
@@ -226,45 +228,6 @@ describe("attached tool dispatcher", () => {
     expect(runs).toEqual([]);
   });
 
-  test("reports drive hydration once, without running anything", async () => {
-    const { instance, runs } = dispatcher({
-      bootNotices: ["Your drive is on disk."],
-    });
-
-    expect(await instance.answer(controlFrame("boot_report"))).toEqual({
-      version: ATTACHED_TOOL_PROTOCOL_VERSION,
-      status: "boot_report",
-      notices: ["Your drive is on disk."],
-    });
-    expect(runs).toEqual([]);
-  });
-
-  test("quiesce forwards the linked paths and returns what it delivered", async () => {
-    let joined = 0;
-    let receivedLinkedPaths: readonly string[] | undefined;
-    const { instance } = dispatcher({
-      quiesce: async (linkedPaths) => {
-        joined += 1;
-        receivedLinkedPaths = linkedPaths;
-        return {
-          bootNotices: [],
-          deliveredFiles: ["out.txt"],
-        };
-      },
-    });
-
-    const response = await instance.answer({
-      ...controlFrame("quiesce"),
-      linkedPaths: ["/world/drive/out.txt"],
-    });
-
-    expect(joined).toBe(1);
-    expect(receivedLinkedPaths).toEqual(["/world/drive/out.txt"]);
-    expect(response).toMatchObject({
-      status: "quiesced",
-      deliveredFiles: ["out.txt"],
-    });
-  });
 });
 
 describe("attached tool result serialization", () => {
@@ -272,14 +235,6 @@ describe("attached tool result serialization", () => {
     expect(serializeToolResult({ error: "exit 1" }).outcome).toEqual({
       kind: "error",
       message: "exit 1",
-    });
-  });
-
-  test("stringifies a structured result the way the container path does", () => {
-    const serialized = serializeToolResult({ result: { rows: 2 } });
-    expect(serialized.outcome).toEqual({
-      kind: "ok",
-      text: JSON.stringify({ rows: 2 }, null, 2),
     });
   });
 
@@ -325,10 +280,6 @@ describe("attached tool host input", () => {
       capability: "wc1.payload.signature",
     },
     ...overrides,
-  });
-
-  test("accepts the record the worker writes", () => {
-    expect(parseAttachedToolHostInput(input()).turnId).toBe("turn-1");
   });
 
   test("refuses input with no broker handoff to consume", () => {

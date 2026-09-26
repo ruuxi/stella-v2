@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   buildSubagentPromptMessages,
-  buildSystemPrompt,
   buildHistorySource,
   buildStartupPromptMessages,
 } from "@stella/runtime/kernel/agent-runtime/thread-memory.js";
@@ -14,42 +13,6 @@ import {
   buildResidentFold,
   parseResidentFold,
 } from "@stella/runtime/kernel/agent-runtime/resident-context.js";
-
-describe("buildSystemPrompt", () => {
-  const platformPrompt =
-    process.platform === "win32"
-      ? "You are running on Windows."
-      : process.platform === "darwin"
-        ? "You are running on macOS."
-        : "You are running on Linux.";
-
-  it("adds structured file-editing guidance when apply_patch is available", () => {
-    const prompt = buildSystemPrompt({
-      systemPrompt: "system",
-      dynamicContext: "",
-      maxAgentDepth: 1,
-      threadHistory: [],
-      toolsAllowlist: ["exec_command", "apply_patch"],
-    });
-
-    expect(prompt).toContain("Prefer `apply_patch`");
-    expect(prompt).toContain("Do not use shell heredocs");
-    expect(prompt).toContain(platformPrompt);
-  });
-
-  it("omits file-editing guidance when apply_patch is unavailable", () => {
-    const prompt = buildSystemPrompt({
-      systemPrompt: "system",
-      dynamicContext: "",
-      maxAgentDepth: 1,
-      threadHistory: [],
-      toolsAllowlist: ["exec_command"],
-    });
-
-    expect(prompt).not.toContain("Prefer `apply_patch`");
-    expect(prompt).toContain(platformPrompt);
-  });
-});
 
 describe("buildStartupPromptMessages", () => {
   it("does not resurrect the legacy registry startup doc when explicitly requested", async () => {

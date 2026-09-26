@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LinuxInstallOptions } from "@/components/download-button";
-import { INSTALL_COMMAND, RELEASE_ASSETS } from "@/lib/downloads";
+import { INSTALL_COMMAND } from "@/lib/downloads";
 
 describe("Linux download options", () => {
   const markup = renderToStaticMarkup(<LinuxInstallOptions />);
@@ -24,10 +24,5 @@ describe("Linux download options", () => {
     expect(markup).toContain('href="/download/arch"');
     expect(markup).toContain("AppImage");
     expect(markup).toContain("Arch / Omarchy package");
-  });
-
-  test("the secondary links point at the published release aliases", () => {
-    expect(RELEASE_ASSETS.linux).toContain("Stella-linux-x64.AppImage");
-    expect(RELEASE_ASSETS.arch).toContain("Stella-arch-x64.pkg.tar.xz");
   });
 });

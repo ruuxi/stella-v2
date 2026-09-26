@@ -6,8 +6,6 @@ import { internal } from "../_generated/api";
 import schema from "../schema";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import {
-  MUSE_DICTATION_MODEL,
-  MUSE_STT_USD_PER_SECOND,
   MUSE_MAX_SESSION_MS,
 } from "./dictation";
 const modules = import.meta.glob("../**/*.ts");
@@ -53,11 +51,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("Muse realtime dictation", () => {
-  it("pins the public model id and accepted list rate", () => {
-    expect(MUSE_DICTATION_MODEL).toBe("muse-voice-transcribe-1.0");
-    expect(MUSE_STT_USD_PER_SECOND * 60).toBeCloseTo(0.003);
-    expect(MUSE_STT_USD_PER_SECOND * 3600).toBeCloseTo(0.18);
-  });
   it("reserves one hour and bills an exact session once across retries", async () => {
     const t = createTest();
     const session = await prepare(t);

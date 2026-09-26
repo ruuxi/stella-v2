@@ -4,15 +4,9 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  PANEL_SIDEBAR_SECTIONS,
-  SIDEBAR_SECTIONS,
   resolveSidebarSection,
   sidebarSections,
 } from "@/features/workspace-display/sidebar-sections";
-import {
-  HOME_LAUNCHER_SECTIONS,
-  SIDEBAR_SECTION_META,
-} from "@/shell/sidebar-sections/section-meta";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 import { uiState } from "@/platform/ui-state";
 import { FileSidebarTabExistenceReconciler } from "@/shell/sidebar-sections/FileSidebarTabExistenceReconciler";
@@ -24,34 +18,6 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     sidebarSections.reset();
     displayTabs.reset();
-  });
-
-  it("exposes Home + Quick chat as real panel sections", () => {
-    expect(SIDEBAR_SECTIONS).toEqual([
-      "home",
-      "quickchat",
-      "files",
-      "apps",
-      "browser",
-      "takeover",
-    ]);
-    // Every section, Home included, now renders inside the panel body.
-    expect(PANEL_SIDEBAR_SECTIONS).toContain("home");
-    expect(PANEL_SIDEBAR_SECTIONS).toContain("quickchat");
-  });
-
-  it("offers Quick chat / Files / Apps / Browser as launcher options (search excluded)", () => {
-    expect(HOME_LAUNCHER_SECTIONS).toEqual([
-      "quickchat",
-      "files",
-      "apps",
-      "browser",
-    ]);
-    expect(HOME_LAUNCHER_SECTIONS).not.toContain("home");
-    expect(SIDEBAR_SECTION_META.quickchat.label).toBe("Quick chat");
-    expect(SIDEBAR_SECTION_META.files.label).toBe("Files");
-    expect(SIDEBAR_SECTION_META.home.label).toBe("Home");
-    expect(HOME_LAUNCHER_SECTIONS).not.toContain("takeover");
   });
 
   it("keeps legacy ids mapping to Home", () => {

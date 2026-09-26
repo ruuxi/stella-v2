@@ -23,6 +23,11 @@ import {
   WORLD_BLOB_BATCH_MAX_COUNT,
 } from "./world-sync.js";
 
+// Push/pull deliberately use the Linux container's /usr/bin/flock, not a
+// portable in-process substitute. Run those integration paths on Linux so
+// missing production dependencies still fail there.
+const linuxTest = test.skipIf(process.platform !== "linux");
+
 const roots: string[] = [];
 const originalFetch = globalThis.fetch;
 const access = {
@@ -140,7 +145,9 @@ describe("world projection sync", () => {
     ).toBe("file");
   });
 
-  test("fails explicitly for overlong paths and unsupported filesystem entries", async () => {
+  // macOS PATH_MAX prevents constructing a fixture beyond the world protocol
+  // limit; Linux can create it and exercise the application-level rejection.
+  linuxTest("fails explicitly for overlong paths", async () => {
     const root = await fixture();
     const segments = Array.from(
       { length: 11 },
@@ -151,8 +158,10 @@ describe("world projection sync", () => {
     await expect(listWorldProjection(root)).rejects.toThrow(
       "World path exceeds 1024 UTF-8 bytes",
     );
+  });
 
-    await rm(path.join(root, segments[0]!), { recursive: true });
+  test("fails explicitly for unsupported filesystem entries", async () => {
+    const root = await fixture();
     const fifo = path.join(root, "user-data.fifo");
     const process = Bun.spawn(["mkfifo", fifo], {
       stdout: "ignore",
@@ -164,7 +173,7 @@ describe("world projection sync", () => {
     );
   });
 
-  test("posts, uploads requested blobs, and repeats until no blob is missing", async () => {
+  linuxTest("posts, uploads requested blobs, and repeats until no blob is missing", async () => {
     const root = await fixture();
     const calls: Array<{
       contentType: string;
@@ -258,7 +267,7 @@ describe("world projection sync", () => {
     expect(batches[4].blobs).toHaveLength(1);
   });
 
-  test("retries one failed batch once before advancing the marker", async () => {
+  linuxTest("retries one failed batch once before advancing the marker", async () => {
     const root = await fixture();
     let listingCalls = 0;
     let uploadCalls = 0;
@@ -300,7 +309,7 @@ describe("world projection sync", () => {
     expect((await readWorldMarker(root)).revision).toBe(2);
   });
 
-  test("does not advance its index or marker unless every blob is accepted", async () => {
+  linuxTest("does not advance its index or marker unless every blob is accepted", async () => {
     const root = await fixture();
     let uploadCalls = 0;
     globalThis.fetch = (async (
@@ -342,7 +351,7 @@ describe("world projection sync", () => {
     expect((await readWorldMarker(root)).revision).toBe(0);
   });
 
-  test("reuses indexed hashes until size or mtime changes", async () => {
+  linuxTest("reuses indexed hashes until size or mtime changes", async () => {
     const root = await fixture();
     let revision = 0;
     globalThis.fetch = (async () =>
@@ -369,7 +378,7 @@ describe("world projection sync", () => {
     expect(hashed.map((file) => path.basename(file))).toEqual(["source.txt"]);
   });
 
-  test("addresses an isolated fork on every world sync request", async () => {
+  linuxTest("addresses an isolated fork on every world sync request", async () => {
     const root = await fixture();
     const fork = `fork-${crypto.randomUUID()}`;
     const urls: URL[] = [];
@@ -400,7 +409,7 @@ describe("world projection sync", () => {
     );
   });
 
-  test("pull applies upserts and deletions without following symlinks", async () => {
+  linuxTest("pull applies upserts and deletions without following symlinks", async () => {
     const root = await fixture(1);
     await writeFile(path.join(root, "projects", "example", "gone.txt"), "gone");
     const bytes = new TextEncoder().encode("from world");
@@ -467,7 +476,7 @@ describe("world projection sync", () => {
     expect((await readWorldMarker(root)).revision).toBe(2);
   });
 
-  test("refuses an authoritative push when an old restored world has unclassified node_modules and no index", async () => {
+  linuxTest("refuses an authoritative push when an old restored world has unclassified node_modules and no index", async () => {
     const root = await fixture(7);
     await mkdir(path.join(root, "project", "node_modules", "dependency"), {
       recursive: true,
@@ -494,7 +503,7 @@ describe("world projection sync", () => {
     expect(requests).toBe(0);
   });
 
-  test("preserves historical node_modules restored by a full export on the next push", async () => {
+  linuxTest("preserves historical node_modules restored by a full export on the next push", async () => {
     const root = await fixture();
     const exportBase = await mkdtemp(
       path.join(tmpdir(), "stella-world-export-"),
@@ -558,7 +567,7 @@ describe("world projection sync", () => {
     ).toBe(true);
   });
 
-  test("serializes every daemon through the container-wide flock", async () => {
+  linuxTest("serializes every daemon through the container-wide flock", async () => {
     const root = await fixture();
     const events: string[] = [];
     let releaseFirst!: () => void;

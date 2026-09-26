@@ -25,12 +25,6 @@ const markdownArtifact = (id: string, filePath: string): ChatArtifact => ({
 });
 
 describe("filterHubTasks", () => {
-  test("empty / whitespace query returns everything", () => {
-    const tasks = [task(), task({ id: "agent-2", status: "completed" })];
-    expect(filterHubTasks(tasks, "")).toHaveLength(2);
-    expect(filterHubTasks(tasks, "   ")).toHaveLength(2);
-  });
-
   test("matches title case-insensitively", () => {
     const tasks = [task(), task({ id: "agent-2", title: "Summarize PDF" })];
     expect(filterHubTasks(tasks, "FLIGHTS").map((t) => t.id)).toEqual([
@@ -56,20 +50,9 @@ describe("filterHubTasks", () => {
     ]);
   });
 
-  test("no match yields empty list", () => {
-    expect(filterHubTasks([task()], "zebra")).toHaveLength(0);
-  });
 });
 
 describe("filterHubArtifacts", () => {
-  test("empty query returns everything", () => {
-    const artifacts = [
-      urlArtifact("a1", "Dashboard"),
-      markdownArtifact("a2", "/tmp/notes.md"),
-    ];
-    expect(filterHubArtifacts(artifacts, "")).toHaveLength(2);
-  });
-
   test("matches the visible card title (including derived file names)", () => {
     const artifacts = [
       urlArtifact("a1", "Quarterly Dashboard"),

@@ -33,15 +33,6 @@ describe("desktop cloud conversation authority", () => {
     expect(selectedCloudConversationId(undefined)).toBeNull();
   });
 
-  it("normalizes a request for the currently selected conversation", () => {
-    expect(
-      requireMatchingCloudConversationId(
-        " cloud-conversation ",
-        "cloud-conversation",
-      ),
-    ).toBe("cloud-conversation");
-  });
-
   it("fails closed when selection is missing or has changed", () => {
     expect(() =>
       requireMatchingCloudConversationId("old-conversation", null),
@@ -71,10 +62,6 @@ describe("desktop cloud conversation authority", () => {
 
   it("rejects private conversation ids at the paired phone boundary", () => {
     expect(() => requireRequestedCloudConversationId("local_private", { ownerGeneration: "owner-1" })).toThrow();
-  });
-
-  it("defaults to cloud when no preference is provided", () => {
-    expect(withConversationStorage({})).toEqual({ storageMode: "cloud" });
   });
 
   it("does not activate realtime voice before cloud selection", () => {

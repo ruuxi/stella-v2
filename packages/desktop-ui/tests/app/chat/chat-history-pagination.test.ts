@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   captureChatPrependAnchor,
@@ -338,44 +335,5 @@ describe("prepend anchor preservation", () => {
       globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
       viewport.remove();
     }
-  });
-});
-
-describe("chat timeline pagination wiring", () => {
-  it("keeps the native listener performance fix and does not use Legend data-change re-entry", () => {
-    const desktopRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../..",
-    );
-    const timeline = fs.readFileSync(
-      path.join(desktopRoot, "src/app/chat/ChatTimeline.tsx"),
-      "utf8",
-    );
-    const hook = fs.readFileSync(
-      path.join(desktopRoot, "src/shell/use-chat-scroll-management.ts"),
-      "utf8",
-    );
-
-    expect(timeline).not.toMatch(/\bonStartReached=/);
-    expect(timeline).not.toContain("onScroll={");
-    expect(hook).toMatch(
-      /addEventListener\(["']scroll["'], handlePaginationScroll, \{\s*passive: true,?\s*\}\)/,
-    );
-  });
-
-  it("combines manual-scroll deferral with the deliberate upward pagination action", () => {
-    const desktopRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../..",
-    );
-    const hook = fs.readFileSync(
-      path.join(desktopRoot, "src/shell/use-chat-scroll-management.ts"),
-      "utf8",
-    );
-
-    expect(hook).toMatch(
-      /const handleWheel = \(event: WheelEvent\) => \{\s*noteManualScroll\(\)[\s\S]*?attemptHistoryLoad\(wheelActionId, direction, ["']wheel["']\)/,
-    );
-    expect(hook).toContain("cancelPendingAnchorForUserScroll()");
   });
 });

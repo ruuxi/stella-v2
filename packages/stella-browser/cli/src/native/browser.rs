@@ -2191,11 +2191,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_launch_options_valid() {
-        assert!(validate_launch_options(None, false, None, None, false, None,).is_ok());
-    }
-
-    #[test]
     fn test_to_ai_friendly_error_strict_mode() {
         assert_eq!(
             to_ai_friendly_error("Strict mode violation: multiple elements"),

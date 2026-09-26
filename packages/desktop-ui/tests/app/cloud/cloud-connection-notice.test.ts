@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   CLOUD_OFFLINE_NOTICE_DELAY_MS,
@@ -74,32 +71,5 @@ describe("cloud offline notice gate", () => {
     expect(
       cloudOfflineNoticeDueAt(idleCloudOfflineWindow, "offline"),
     ).toBeNull();
-  });
-});
-
-describe("transcript reconnect notices", () => {
-  const read = (relative: string) =>
-    fs.readFileSync(
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), relative),
-      "utf8",
-    );
-
-  it("gate the offline notice on both platforms and never announce cached history", () => {
-    const desktop = read(
-      "../../../src/features/cloud/use-cloud-chat-bridge.tsx",
-    );
-    const mobile = read(
-      "../../../../mobile/src/lib/use-cloud-canonical-chat-thread.ts",
-    );
-    for (const source of [desktop, mobile]) {
-      expect(source).toContain("useSustainedCloudOffline(state.status)");
-      expect(source).toContain(
-        'state.status === "offline" && sustainedOffline',
-      );
-      expect(source).not.toContain("Showing saved history");
-      expect(source).not.toContain(
-        "Reconnecting to cloud conversation history",
-      );
-    }
   });
 });

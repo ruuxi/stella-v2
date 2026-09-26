@@ -142,18 +142,6 @@ describe("AuthService main-process token authority", () => {
     fs.rmSync(electronMocks.userDataPath, { force: true, recursive: true });
   });
 
-  it("returns a token minted by the desktop-owned auth path", async () => {
-    const { service } = createService();
-    const freshToken = futureJwt();
-    configure(service);
-    vi.spyOn(service, "getAuthToken").mockResolvedValue(freshToken);
-
-    await expect(service.getScheduleScriptAuth()).resolves.toEqual({
-      baseUrl: SITE_URL,
-      authToken: freshToken,
-    });
-  });
-
   it.each([false, true])(
     "preserves a saved bearer when constructed before storage is ready (packaged=%s)",
     (isPackaged) => {

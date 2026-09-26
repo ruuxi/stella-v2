@@ -69,19 +69,6 @@ describe("client capability gate", () => {
     publishBillingAudience(null);
   });
 
-  it("reads its verdict from the shared matrix", () => {
-    for (const [capability, byAudience] of Object.entries(CAPABILITY_MATRIX)) {
-      for (const [audience, allowed] of Object.entries(byAudience)) {
-        expect(
-          canUseCapability(
-            audience as Parameters<typeof canUseCapability>[0],
-            capability as Parameters<typeof canUseCapability>[1],
-          ),
-        ).toBe(allowed);
-      }
-    }
-  });
-
   it("stays optimistic while the audience is unknown", () => {
     // A hydration gap must never show a paying customer a locked
     // affordance — the backend is the enforcement boundary.

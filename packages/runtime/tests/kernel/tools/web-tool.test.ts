@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  createWebTool,
-  WEB_TOOL_PARAMETERS,
-} from "@stella/runtime/kernel/tools/defs/web";
+import { createWebTool } from "@stella/runtime/kernel/tools/defs/web";
 
 vi.mock("@stella/runtime/kernel/tools/local-tool-overrides", () => ({
   localWebFetch: vi.fn(async (args: Record<string, unknown>) =>
@@ -12,24 +9,6 @@ vi.mock("@stella/runtime/kernel/tools/local-tool-overrides", () => ({
 }));
 
 describe("unified web tool", () => {
-  it("publishes the XOR search/fetch schema and canonical fetch formats", () => {
-    expect(WEB_TOOL_PARAMETERS).toMatchObject({
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        category: {
-          enum: ["company", "people", "research paper"],
-          description:
-            "Optional focus hint when using query. Most searches should omit it.",
-        },
-        format: { enum: ["text", "markdown", "html"] },
-      },
-      oneOf: [
-        { required: ["query"], not: { required: ["url"] } },
-        { required: ["url"], not: { required: ["query"] } },
-      ],
-    });
-  });
 
   it("rejects invalid modes and search-only fetch options", async () => {
     const tool = createWebTool({

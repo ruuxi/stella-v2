@@ -284,19 +284,6 @@ describe("OrchestratorSession", () => {
     }
   });
 
-  it("forwards the image description service to prompt execution", async () => {
-    const session = new OrchestratorSession("conversation-1");
-    const describeImages = vi.fn(async () => "A terminal window.");
-
-    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "done" });
-
-    await session.runTurn(createOptions({ describeImages }));
-
-    expect(executeRuntimeAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ describeImages }),
-    );
-  });
-
   it("describes image-bearing tool results for a text-only model", async () => {
     const session = new OrchestratorSession("conversation-1");
     const describeImages = vi.fn(async () => "A browser error page.");
@@ -498,53 +485,6 @@ describe("OrchestratorSession", () => {
 describe("SubagentSession", () => {
   beforeEach(() => {
     executeRuntimeAgentPrompt.mockReset();
-  });
-
-  it("forwards the image description service to prompt execution", async () => {
-    const session = new SubagentSession(
-      "image-thread",
-      "conversation-1",
-      "general",
-    );
-    const describeImages = vi.fn(async () => "A terminal window.");
-    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "done" });
-
-    await session.runTurn({
-      runId: "image-run",
-      conversationId: "conversation-1",
-      userMessageId: "image-user",
-      agentId: "image-thread",
-      agentType: "general",
-      userPrompt: "What is shown?",
-      agentContext: {
-        systemPrompt: "General prompt",
-        dynamicContext: "",
-        maxAgentDepth: 1,
-        threadHistory: [],
-      },
-      toolCatalog: [],
-      toolExecutor: vi.fn(async () => ({ result: "ok" })),
-      deviceId: "device-1",
-      stellaDataDir: "/tmp/stella",
-      stellaAppDir: "/tmp/stella",
-      resolvedLlm: {
-        model,
-        route: "direct-provider",
-        getApiKey: () => undefined,
-      },
-      describeImages,
-      store: {
-        recordRunEvent: vi.fn(),
-        appendThreadCustomMessage: vi.fn(),
-        loadThreadMessages: vi.fn(() => []),
-      } as never,
-      callbacks: {},
-      compactionScheduler: new BackgroundCompactionScheduler(),
-    } satisfies SubagentRunOptions);
-
-    expect(executeRuntimeAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ describeImages }),
-    );
   });
 
   it("describes image-bearing tool results for a text-only subagent", async () => {

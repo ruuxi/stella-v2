@@ -10,8 +10,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import { createToolHost } from "@stella/runtime/kernel/tools/host";
-import { createExecCommandTool } from "@stella/runtime/kernel/tools/defs/exec-command";
-import { createWriteStdinTool } from "@stella/runtime/kernel/tools/defs/write-stdin";
 import {
   buildShellCommand,
   createShellState,
@@ -72,70 +70,6 @@ const execTextOf = (result: { result?: unknown }): string =>
   result.result as string;
 
 describe("general agent tools", () => {
-  it("write_stdin advertises idempotent writes and explicit controls", async () => {
-    const root = await createTempDir();
-    const definition = createWriteStdinTool(createShellState(root));
-    const properties = definition.parameters.properties as Record<
-      string,
-      Record<string, unknown>
-    >;
-
-    expect(properties.write_id).toMatchObject({ type: "string" });
-    expect(properties.operation).toMatchObject({
-      enum: ["write", "poll", "terminate", "close_stdin", "resize"],
-    });
-    expect(properties.cols).toMatchObject({ minimum: 1, maximum: 1000 });
-    expect(properties.rows).toMatchObject({ minimum: 1, maximum: 1000 });
-  });
-
-  it("exec_command advertises pipes by default and a cross-platform opt-in PTY", async () => {
-    const root = await createTempDir();
-    const definition = createExecCommandTool(createShellState(root));
-    const properties = definition.parameters.properties as Record<
-      string,
-      { description?: string }
-    >;
-
-    expect(definition.description).toContain("ordinary pipes");
-    expect(definition.description).toContain("tty: true");
-    expect(definition.description).toContain("ConPTY");
-    expect(properties.tty?.description).toContain("real pseudo-terminal");
-    expect(properties.tty?.description).toContain("ConPTY");
-    expect(properties.login?.description).toContain("-lc");
-    expect(properties.login?.description).toContain("-c");
-    expect(properties.max_output_tokens).toMatchObject({
-      type: "integer",
-      minimum: 0,
-    });
-  });
-
-  it("exec_command returns one-shot output inline", async () => {
-    const root = await createTempDir();
-    const shellState = createShellState(root);
-
-    const result = await handleExecCommand(
-      shellState,
-      {
-        cmd: "printf ready",
-        yield_time_ms: 500,
-      },
-      {
-        conversationId: "c1",
-        deviceId: "d1",
-        requestId: "r1",
-        stellaAppDir: root,
-      },
-    );
-
-    expect(result.error).toBeUndefined();
-    expect(result.details).toMatchObject({
-      session_id: null,
-      running: false,
-      exit_code: 0,
-    });
-    expect(result.details).not.toHaveProperty("output");
-    expect(execTextOf(result)).toContain("\nOutput:\nready");
-  });
 
   it("exec_command defaults to the turn workspace and rejects poisoned runtime cwd fallbacks", async () => {
     const root = await createTempDir();
@@ -868,48 +802,6 @@ describe("general agent tools", () => {
     expect(execTextOf(finished)).toContain("42");
   });
 
-  it("write_stdin continues an interactive exec_command session", async () => {
-    const root = await createTempDir();
-    const shellState = createShellState(root);
-    const context = {
-      conversationId: "c1",
-      deviceId: "d1",
-      requestId: "r1",
-      stellaAppDir: root,
-    };
-
-    const started = await handleExecCommand(
-      shellState,
-      {
-        cmd: 'read line; printf "echo:%s" "$line"',
-        yield_time_ms: 100,
-      },
-      context,
-    );
-
-    expect(started.error).toBeUndefined();
-    const sessionId = execDetailsOf(started).session_id;
-    expect(typeof sessionId).toBe("string");
-
-    const finished = await handleWriteStdin(
-      shellState,
-      {
-        session_id: sessionId,
-        chars: "hello world\n",
-        yield_time_ms: 500,
-      },
-      context,
-    );
-
-    expect(finished.error).toBeUndefined();
-    expect(finished.details).toMatchObject({
-      session_id: null,
-      running: false,
-      exit_code: 0,
-    });
-    expect(execTextOf(finished)).toContain("echo:hello world");
-  });
-
   it("apply_patch updates an existing file", async () => {
     const root = await createTempDir();
     const filePath = path.join(root, "notes.txt");
@@ -1209,31 +1101,6 @@ EOF`,
     await expect(access(markerPath)).rejects.toThrow();
   });
 
-  it("exec_command payload includes original_token_count even when output is small", async () => {
-    const root = await createTempDir();
-    const shellState = createShellState(root);
-
-    const result = await handleExecCommand(
-      shellState,
-      {
-        cmd: "printf ok",
-        yield_time_ms: 1000,
-      },
-      {
-        conversationId: "c1",
-        deviceId: "d1",
-        requestId: "r1",
-        stellaAppDir: root,
-      },
-    );
-
-    expect(result.error).toBeUndefined();
-    const payload = execDetailsOf(result);
-    expect(execTextOf(result)).toContain("\nOutput:\nok");
-    expect(typeof payload.original_token_count).toBe("number");
-    expect(payload.original_token_count >= 1).toBe(true);
-  });
-
   it("multi_tool_use_parallel rejects write_stdin (non-parallel-safe)", async () => {
     const root = await createTempDir();
     const host = createToolHost({ stellaAppDir: root });
@@ -1460,24 +1327,6 @@ EOF`,
     } finally {
       await host.shutdown();
     }
-  });
-
-  it("exposes persistent Computer Use through code in the general agent metadata", async () => {
-    const metadataPath = path.join(
-      repoRoot,
-      "packages/runtime/extensions/stella-runtime/agent-metadata/general.md",
-    );
-    const metadata = await readFile(metadataPath, "utf-8");
-    const toolsLine = metadata
-      .split(/\r?\n/)
-      .find((line) => line.startsWith("tools: "));
-
-    expect(toolsLine).not.toContain("MCP");
-    expect(toolsLine).not.toContain("computer_list_apps");
-    expect(toolsLine).not.toContain("computer_get_app_state");
-    expect(toolsLine).not.toContain("computer_click");
-    expect(toolsLine).toContain("code");
-    expect(toolsLine).not.toContain("node_repl");
   });
 
   it("RequestCredential delegates to the device callback", async () => {

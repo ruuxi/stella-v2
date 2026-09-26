@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  cloudWorldDriveName,
   cloudWorldDrivePath,
 } from "@stella/contracts/cloud-world-paths";
 
@@ -22,8 +21,4 @@ describe("cloudWorldDrivePath", () => {
     expect(cloudWorldDrivePath("C:/workspace/world/drive/a.md")).toBeNull();
   });
 
-  it("names a drive path by its last segment", () => {
-    expect(cloudWorldDriveName("reports/q3/a.pdf")).toBe("a.pdf");
-    expect(cloudWorldDriveName("a.pdf")).toBe("a.pdf");
-  });
 });

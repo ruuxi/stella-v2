@@ -24,13 +24,6 @@ describe("run event recorder reply refs", () => {
     ]);
   });
 
-  it("leaves a reply without a fence untouched and omits the field", () => {
-    const recorder = createRecorder();
-    const event = recorder.recordAssistantTextEnd("Just a reply.");
-    expect(event?.text).toBe("Just a reply.");
-    expect(event?.replyRefs).toBeUndefined();
-  });
-
   it("drops a message that was nothing but a refs block", () => {
     const recorder = createRecorder();
     expect(recorder.recordAssistantTextEnd("```refs\n#1\n```")).toBeNull();

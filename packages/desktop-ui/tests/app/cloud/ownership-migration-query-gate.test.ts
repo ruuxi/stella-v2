@@ -1,24 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { resolveOwnershipMigrationGate } from "../../../src/global/auth/lib/cloud-conversation-session";
-
-const ROOT_SOURCE = fs.readFileSync(
-  path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../../../src/routes/__root.tsx",
-  ),
-  "utf8",
-);
-
-const sourceBetween = (start: string, end: string) => {
-  const startIndex = ROOT_SOURCE.indexOf(start);
-  const endIndex = ROOT_SOURCE.indexOf(end, startIndex + start.length);
-  expect(startIndex).toBeGreaterThanOrEqual(0);
-  expect(endIndex).toBeGreaterThan(startIndex);
-  return ROOT_SOURCE.slice(startIndex, endIndex);
-};
 
 describe("RootLayout ownership migration query gate", () => {
   test("blocks fenced queries for loading, pending, running, and failed migrations", () => {

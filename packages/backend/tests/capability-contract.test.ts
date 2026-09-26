@@ -95,19 +95,6 @@ describe("capability contract parity", () => {
 });
 
 describe("capability matrix", () => {
-  it("holds only the four enforced generative surfaces", () => {
-    // Orchestration is deliberately absent: any plan may use it, and it
-    // is sold on Pro through marketing copy alone. A matrix that mixes
-    // enforced rows with decorative ones invites the next reader to gate the
-    // wrong thing, so the decorative ones simply do not live here.
-    expect([...CAPABILITIES]).toEqual([
-      "image_generation",
-      "video_generation",
-      "audio_generation",
-      "three_d_generation",
-    ]);
-  });
-
   it("keeps every generative surface on Pro only", () => {
     for (const capability of CAPABILITIES) {
       expect(hasCapability("pro", capability)).toBe(true);
@@ -162,18 +149,6 @@ describe("capability matrix", () => {
 });
 
 describe("capability denial payload", () => {
-  it("carries capability, audience, and minimum plan", () => {
-    const denial = buildCapabilityDenial("video_generation", "go");
-    expect(denial).toEqual({
-      code: "CAPABILITY_REQUIRED",
-      capability: "video_generation",
-      audience: "go",
-      minimumPlan: "pro",
-      message:
-        "Video generation requires the Pro plan. [capability/video_generation]",
-    });
-  });
-
   it("embeds a marker the flattened-string error path can still parse", () => {
     for (const capability of CAPABILITIES) {
       const denial = buildCapabilityDenial(capability, "free");

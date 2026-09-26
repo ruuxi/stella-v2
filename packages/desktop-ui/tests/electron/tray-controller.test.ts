@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -63,17 +63,5 @@ describe("Windows tray icon resolution", () => {
     expect(
       resolveTrayIconPath(electronDir, path.join(root, "missing-resources")),
     ).toBe(iconPath);
-  });
-
-  it("ships the resolved packaged ICO through electron-builder", () => {
-    const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..", "..");
-    const packageJson = JSON.parse(
-      readFileSync(path.join(repoRoot, "package.json"), "utf8"),
-    );
-
-    expect(packageJson.build.extraResources).toContainEqual({
-      from: "packages/desktop/build/icon.ico",
-      to: "stella-tray.ico",
-    });
   });
 });

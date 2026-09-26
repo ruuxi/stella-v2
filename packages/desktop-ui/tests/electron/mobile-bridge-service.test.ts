@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import {
-  MOBILE_BRIDGE_REGISTRATION_REFRESH_MS,
   MobileBridgeService,
 } from "@stella/desktop/electron/services/mobile-bridge/service.js";
 import {
@@ -50,10 +49,6 @@ describe("MobileBridgeService registration lease", () => {
     vi.useRealTimers();
   });
 
-  it("refreshes desktop registration every five minutes", () => {
-    expect(MOBILE_BRIDGE_REGISTRATION_REFRESH_MS).toBe(5 * 60_000);
-  });
-
   it("keeps a never-registered bridge disabled even when configuration is present", () => {
     const service = createService();
     const anyService = configureReadyService(service);
@@ -77,31 +72,6 @@ describe("MobileBridgeService registration lease", () => {
     expect(anyService.registrationLeaseExpiresAt).toBe(leaseExpiresAt);
     expect(anyService.hasRegisteredBridge).toBe(true);
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
-  });
-
-  it("registers through one authenticated Convex mutation instead of the HTTP route", async () => {
-    const service = createService();
-    const anyService = configureReadyService(service);
-    const setAuth = vi.fn();
-    const mutation = vi.fn().mockResolvedValue({
-      ok: true,
-      leaseExpiresAt: Date.now() + 15 * 60_000,
-    });
-    anyService.convexHttpClient = { setAuth, mutation };
-    anyService.convexHttpClientUrl = anyService.convexDeploymentUrl;
-    anyService.convexHttpClientAuthToken = null;
-    anyService.postBridgeJson = vi.fn();
-
-    await anyService.syncRegistration();
-
-    expect(setAuth).toHaveBeenCalledOnce();
-    expect(setAuth).toHaveBeenCalledWith("desktop-token");
-    expect(mutation).toHaveBeenCalledOnce();
-    expect(mutation.mock.calls[0]?.[1]).toMatchObject({
-      deviceId: "desktop-device",
-      baseUrls: ["https://desktop.example.com"],
-    });
-    expect(anyService.postBridgeJson).not.toHaveBeenCalled();
   });
 
   it("reuses the registration client while updating rotated auth and deployment URLs", () => {

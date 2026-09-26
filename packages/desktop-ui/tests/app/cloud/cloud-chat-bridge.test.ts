@@ -1,7 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
 import {
   activateCloudConversationClientAuthority,
@@ -77,10 +74,6 @@ const emptySubmission = (
   locale: null,
   execution: null,
 });
-const SOURCE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../src",
-);
 
 beforeEach(() => {
   setCloudConversationOutboxStorageForTests(new MemoryStorage());
@@ -313,59 +306,6 @@ describe("cloud chat bridge authority", () => {
     // owner generation is no longer a request field.
     expect(firstAttempt).not.toHaveProperty("conversationId");
     expect(firstAttempt).not.toHaveProperty("expectedOwnerGeneration");
-  });
-
-  test("routes hosted sends and Stop through placement and desktop sends to the builder turn route", () => {
-    const conversationSource = fs.readFileSync(
-      path.join(SOURCE_ROOT, "features/cloud/use-conversation.ts"),
-      "utf8",
-    );
-    const bridgeSource = fs.readFileSync(
-      path.join(SOURCE_ROOT, "features/cloud/use-cloud-chat-bridge.tsx"),
-      "utf8",
-    );
-    expect(conversationSource).toContain("await submitDispatch({");
-    expect(conversationSource).toContain("socketOrigin: placementOrigin,");
-    expect(conversationSource).toContain(
-      "cloudApi.getMyCloudConversationIdentity",
-    );
-    expect(conversationSource).not.toContain(
-      "cloudApi.getMyExecutionPlacementIdentity",
-    );
-    expect(conversationSource).toContain("await browserExecutionSubmitArgs({");
-    expect(conversationSource).toContain(
-      "__STELLA_RENDERED_ACCEPTANCE_BEFORE_BROWSER_DISPATCH__",
-    );
-    expect(conversationSource).toContain(
-      "await waitForRenderedAcceptanceBrowserDispatch(",
-    );
-    expect(conversationSource).toContain(
-      "__STELLA_RENDERED_ACCEPTANCE_AFTER_BROWSER_DISPATCH__",
-    );
-    expect(conversationSource).toContain('"owner_generation_rejected"');
-    expect(conversationSource).toContain(
-      "__STELLA_RENDERED_ACCEPTANCE_AUTHORITY__",
-    );
-    expect(conversationSource).toContain("getDispatchStatus({");
-    expect(conversationSource).toContain(
-      "...browserExecutionCancelArgs(dispatchId),",
-    );
-    expect(conversationSource).not.toContain("cloudApi.getExecutionDispatchStatus");
-    expect(conversationSource).not.toContain("cloudApi.cancelExecutionDispatch");
-    expect(conversationSource).toContain("if (!webShell)");
-    expect(conversationSource).toContain("await startCloudTurn({");
-    expect(conversationSource).toContain(
-      "conversationId: targetConversationId,",
-    );
-    expect(conversationSource).toContain(
-      "getToken: (options) => getConvexToken(options ?? {}),",
-    );
-    expect(conversationSource).toContain(
-      "conversationId ?? (webShell ? null : newCloudConversationId())",
-    );
-    expect(conversationSource).not.toContain("startLegacyTurn");
-    expect(conversationSource).not.toContain("cloudApi.startCloudChat");
-    expect(bridgeSource).toContain("conversation.cancelPending(");
   });
 
   test("classifies browser dispatch rejection only from the exact structured code", async () => {

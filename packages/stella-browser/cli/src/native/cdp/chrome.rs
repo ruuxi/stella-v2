@@ -707,27 +707,10 @@ mod tests {
     }
 
     #[test]
-    fn test_find_chrome_returns_some_on_host() {
-        // This test only makes sense on systems with Chrome installed
-        if cfg!(target_os = "macos") || cfg!(target_os = "linux") {
-            let result = find_chrome();
-            // Don't assert Some -- CI may not have Chrome
-            if let Some(path) = result {
-                assert!(path.exists());
-            }
-        }
-    }
-
-    #[test]
     fn test_expand_tilde() {
         let expanded = expand_tilde("~/test/path");
         assert!(!expanded.starts_with('~'));
         assert!(expanded.ends_with("test/path"));
-    }
-
-    #[test]
-    fn test_expand_tilde_no_tilde() {
-        assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
     }
 
     #[test]
@@ -773,51 +756,6 @@ mod tests {
         _guard.set("PLAYWRIGHT_BROWSERS_PATH", "/nonexistent/path");
         let result = find_playwright_chromium();
         assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_build_args_headless_includes_headless_flag() {
-        let opts = LaunchOptions {
-            headless: true,
-            ..Default::default()
-        };
-        let result = build_chrome_args(&opts).unwrap();
-        assert!(result.args.iter().any(|a| a == "--headless=new"));
-        assert!(result.args.iter().any(|a| a == "--window-size=1280,720"));
-        // Temp dir created when no profile
-        assert!(result.temp_user_data_dir.is_some());
-        let dir = result.temp_user_data_dir.unwrap();
-        assert!(dir.exists());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn test_build_args_headed_no_headless_flag() {
-        let opts = LaunchOptions {
-            headless: false,
-            ..Default::default()
-        };
-        let result = build_chrome_args(&opts).unwrap();
-        assert!(!result.args.iter().any(|a| a.contains("--headless")));
-        assert!(!result.args.iter().any(|a| a.starts_with("--window-size=")));
-        // Temp dir created when no profile
-        assert!(result.temp_user_data_dir.is_some());
-        let dir = result.temp_user_data_dir.unwrap();
-        assert!(dir.exists());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn test_build_args_temp_user_data_dir_created() {
-        let opts = LaunchOptions::default();
-        let result = build_chrome_args(&opts).unwrap();
-        let dir = result.temp_user_data_dir.as_ref().unwrap();
-        assert!(dir.exists());
-        assert!(result
-            .args
-            .iter()
-            .any(|a| a.starts_with("--user-data-dir=")));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

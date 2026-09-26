@@ -667,9 +667,9 @@ function RootLayout() {
     writeActiveCloudConversationIdCache(accountScope, conversationId);
   }, [accountScope, isCloudConversationReady, conversationId, isAuthLoading]);
 
-  // Opens + navigates to a conversation (tab strip + router). Mirrors the
-  // top bar's new-chat navigation and is handed to the chat runtime so the
-  // Fork action can jump to the newly branched conversation.
+  // Opens + navigates to a conversation (tab store + router). Handed to the
+  // chat runtime so the Fork action can jump to the newly branched
+  // conversation.
   const navigateToConversation = useCallback(
     (targetConversationId: string, title?: string) => {
       conversationTabs.openConversation(targetConversationId, title);

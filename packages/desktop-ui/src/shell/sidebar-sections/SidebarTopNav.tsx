@@ -6,9 +6,8 @@
  * "Quick chat", the empty launcher "Home", and the (shared) browser "Browser".
  * Click a tab to switch, X to close, and "+" opens a NEW empty Home tab.
  *
- * Selected-tab styling mirrors the main chat's conversation tabs
- * (`shell/topbar/conversation-topbar.css`): overlapping borders with the active
- * tab going borderless/transparent so it melts into the panel below.
+ * Selected-tab styling uses overlapping borders with the active tab going
+ * borderless/transparent so it melts into the panel below.
  */
 import { useSyncExternalStore } from "react";
 import {

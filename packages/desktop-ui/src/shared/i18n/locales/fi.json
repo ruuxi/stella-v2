@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Peruuta jonossa oleva viesti",
-        "cancelAndEdit": "Peruuta ja muokkaa",
-        "cancelIndexed": "Peruuta jonossa oleva viesti {index}",
-        "previewLabel": "{label}. Esikatsele jonossa olevia viestejä",
-        "queuedCount": {
-          "one": "{count} viesti jonossa",
-          "other": "{count} viestiä jonossa"
-        }
+        "cancelAndEdit": "Peruuta ja muokkaa"
       },
       "replyCount": {
         "label": {

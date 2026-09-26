@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Sorba állított üzenet visszavonása",
-        "cancelAndEdit": "Visszavonás és szerkesztés",
-        "cancelIndexed": "Sorba állított üzenet visszavonása: {index}",
-        "previewLabel": "{label}. Sorba állított üzenetek előnézete",
-        "queuedCount": {
-          "one": "{count} üzenet sorba állítva",
-          "other": "{count} üzenet sorba állítva"
-        }
+        "cancelAndEdit": "Visszavonás és szerkesztés"
       },
       "replyCount": {
         "label": {

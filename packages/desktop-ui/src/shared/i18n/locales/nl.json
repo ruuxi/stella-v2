@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Bericht in wachtrij annuleren",
-        "cancelAndEdit": "Annuleren en bewerken",
-        "cancelIndexed": "Bericht {index} in wachtrij annuleren",
-        "previewLabel": "{label}. Berichten in wachtrij bekijken",
-        "queuedCount": {
-          "one": "{count} bericht in wachtrij",
-          "other": "{count} berichten in wachtrij"
-        }
+        "cancelAndEdit": "Annuleren en bewerken"
       },
       "replyCount": {
         "label": {

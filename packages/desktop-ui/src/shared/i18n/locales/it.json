@@ -1292,14 +1292,7 @@
       },
       "queuedMessages": {
         "cancel": "Annulla il messaggio in coda",
-        "cancelAndEdit": "Annulla e modifica",
-        "cancelIndexed": "Annulla il messaggio in coda {index}",
-        "previewLabel": "{label}. Vedi i messaggi in coda",
-        "queuedCount": {
-          "one": "{count} messaggio in coda",
-          "many": "{count} messaggi in coda",
-          "other": "{count} messaggi in coda"
-        }
+        "cancelAndEdit": "Annulla e modifica"
       },
       "replyCount": {
         "label": {

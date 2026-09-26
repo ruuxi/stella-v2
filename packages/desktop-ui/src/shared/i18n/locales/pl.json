@@ -1299,15 +1299,7 @@
       },
       "queuedMessages": {
         "cancel": "Anuluj wiadomość z kolejki",
-        "cancelAndEdit": "Anuluj i edytuj",
-        "cancelIndexed": "Anuluj wiadomość z kolejki {index}",
-        "previewLabel": "{label}. Podejrzyj wiadomości w kolejce",
-        "queuedCount": {
-          "one": "{count} wiadomość w kolejce",
-          "few": "{count} wiadomości w kolejce",
-          "many": "{count} wiadomości w kolejce",
-          "other": "{count} wiadomości w kolejce"
-        }
+        "cancelAndEdit": "Anuluj i edytuj"
       },
       "replyCount": {
         "label": {

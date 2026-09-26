@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "キューのメッセージをキャンセル",
-        "cancelAndEdit": "キャンセルして編集",
-        "cancelIndexed": "キューのメッセージ {index} をキャンセル",
-        "previewLabel": "{label}。キューのメッセージをプレビュー",
-        "queuedCount": {
-          "other": "{count} 件のメッセージをキューに追加"
-        }
+        "cancelAndEdit": "キャンセルして編集"
       },
       "replyCount": {
         "label": {

@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Ακύρωση μηνύματος σε αναμονή",
-        "cancelAndEdit": "Ακύρωση και επεξεργασία",
-        "cancelIndexed": "Ακύρωση μηνύματος σε αναμονή {index}",
-        "previewLabel": "{label}. Προεπισκόπηση μηνυμάτων σε αναμονή",
-        "queuedCount": {
-          "one": "{count} μήνυμα σε αναμονή",
-          "other": "{count} μηνύματα σε αναμονή"
-        }
+        "cancelAndEdit": "Ακύρωση και επεξεργασία"
       },
       "replyCount": {
         "label": {

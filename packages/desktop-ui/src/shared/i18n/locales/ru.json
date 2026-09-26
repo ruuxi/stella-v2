@@ -1299,15 +1299,7 @@
       },
       "queuedMessages": {
         "cancel": "Отменить сообщение из очереди",
-        "cancelAndEdit": "Отменить и изменить",
-        "cancelIndexed": "Отменить сообщение из очереди {index}",
-        "previewLabel": "{label}. Посмотреть сообщения в очереди",
-        "queuedCount": {
-          "one": "{count} сообщение в очереди",
-          "few": "{count} сообщения в очереди",
-          "many": "{count} сообщений в очереди",
-          "other": "{count} сообщения в очереди"
-        }
+        "cancelAndEdit": "Отменить и изменить"
       },
       "replyCount": {
         "label": {

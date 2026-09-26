@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "Batalkan pesan dalam antrean",
-        "cancelAndEdit": "Batalkan dan edit",
-        "cancelIndexed": "Batalkan pesan dalam antrean {index}",
-        "previewLabel": "{label}. Pratinjau pesan dalam antrean",
-        "queuedCount": {
-          "other": "{count} pesan dalam antrean"
-        }
+        "cancelAndEdit": "Batalkan dan edit"
       },
       "replyCount": {
         "label": {

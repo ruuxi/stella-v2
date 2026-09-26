@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "取消排队的消息",
-        "cancelAndEdit": "取消并编辑",
-        "cancelIndexed": "取消排队的消息 {index}",
-        "previewLabel": "{label}。预览排队的消息",
-        "queuedCount": {
-          "other": "{count} 条消息排队中"
-        }
+        "cancelAndEdit": "取消并编辑"
       },
       "replyCount": {
         "label": {

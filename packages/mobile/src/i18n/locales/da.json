@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Annuller besked i kø",
-        "cancelAndEdit": "Annuller og rediger",
-        "cancelIndexed": "Annuller besked {index} i kø",
-        "previewLabel": "{label}. Se beskeder i kø",
-        "queuedCount": {
-          "one": "{count} besked i kø",
-          "other": "{count} beskeder i kø"
-        }
+        "cancelAndEdit": "Annuller og rediger"
       },
       "replyCount": {
         "label": {

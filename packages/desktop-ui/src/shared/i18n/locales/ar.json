@@ -1313,17 +1313,7 @@
       },
       "queuedMessages": {
         "cancel": "ألغِ الرسالة المنتظرة",
-        "cancelAndEdit": "إلغاء وتعديل",
-        "cancelIndexed": "ألغِ الرسالة المنتظرة {index}",
-        "previewLabel": "{label}. معاينة الرسائل المنتظرة",
-        "queuedCount": {
-          "zero": "{count} رسالة في الانتظار",
-          "one": "{count} رسالة في الانتظار",
-          "two": "{count} رسالتان في الانتظار",
-          "few": "{count} رسائل في الانتظار",
-          "many": "{count} رسالة في الانتظار",
-          "other": "{count} رسالة في الانتظار"
-        }
+        "cancelAndEdit": "إلغاء وتعديل"
       },
       "replyCount": {
         "label": {

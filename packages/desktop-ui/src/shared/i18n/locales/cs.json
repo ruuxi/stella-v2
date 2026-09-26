@@ -1299,15 +1299,7 @@
       },
       "queuedMessages": {
         "cancel": "Zrušit zprávu ve frontě",
-        "cancelAndEdit": "Zrušit a upravit",
-        "cancelIndexed": "Zrušit zprávu ve frontě {index}",
-        "previewLabel": "{label}. Zobrazit zprávy ve frontě",
-        "queuedCount": {
-          "one": "{count} zpráva ve frontě",
-          "few": "{count} zprávy ve frontě",
-          "many": "{count} zprávy ve frontě",
-          "other": "{count} zpráv ve frontě"
-        }
+        "cancelAndEdit": "Zrušit a upravit"
       },
       "replyCount": {
         "label": {

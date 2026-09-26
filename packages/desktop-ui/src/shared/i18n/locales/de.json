@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Wartende Nachricht abbrechen",
-        "cancelAndEdit": "Abbrechen und bearbeiten",
-        "cancelIndexed": "Wartende Nachricht {index} abbrechen",
-        "previewLabel": "{label}. Wartende Nachrichten ansehen",
-        "queuedCount": {
-          "one": "{count} Nachricht in Warteschlange",
-          "other": "{count} Nachrichten in Warteschlange"
-        }
+        "cancelAndEdit": "Abbrechen und bearbeiten"
       },
       "replyCount": {
         "label": {

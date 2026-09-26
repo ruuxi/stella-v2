@@ -1292,14 +1292,7 @@
       },
       "queuedMessages": {
         "cancel": "Annuler le message en file d’attente",
-        "cancelAndEdit": "Annuler et modifier",
-        "cancelIndexed": "Annuler le message en file d’attente {index}",
-        "previewLabel": "{label}. Aperçu des messages en file d’attente",
-        "queuedCount": {
-          "one": "{count} message en file d’attente",
-          "many": "{count} messages en file d’attente",
-          "other": "{count} messages en file d’attente"
-        }
+        "cancelAndEdit": "Annuler et modifier"
       },
       "replyCount": {
         "label": {

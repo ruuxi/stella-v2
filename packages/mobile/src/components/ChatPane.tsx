@@ -1640,10 +1640,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 onPress={anySelecting ? onEndSelecting : undefined}
                 delayLongPress={350}
                 accessibilityLabel="Long press for message actions"
-                style={[
-                  styles.userBubble,
-                  item.queued && styles.userBubbleQueued,
-                ]}
+                style={styles.userBubble}
               >
                 {attachmentPreviews.length > 0 ? (
                   <View style={[styles.userThumbStrip, showText && styles.userThumbsAbove]}>
@@ -1709,12 +1706,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
               </Pressable>
             </Animated.View>
           )}
-          {item.queued || item.stopped ? (
+          {item.stopped ? (
             <Text
-              style={item.queued ? styles.queuedTag : styles.stoppedTag}
+              style={styles.stoppedTag}
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             >
-              {item.queued ? "Queued" : "Stopped"}
+              Stopped
             </Text>
           ) : null}
           {replyCount && replyCount > 0 && onOpenReply ? (
@@ -5226,16 +5223,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 18,
       borderBottomRightRadius: 4,
       padding: 12,
-    },
-    userBubbleQueued: { opacity: 0.55 },
-    queuedTag: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 11,
-      letterSpacing: 0.4,
-      marginTop: 4,
-      marginRight: 4,
-      textTransform: "uppercase",
     },
     stoppedTag: {
       color: colors.textMuted,

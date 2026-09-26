@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Avbryt meddelande i kö",
-        "cancelAndEdit": "Avbryt och redigera",
-        "cancelIndexed": "Avbryt meddelande {index} i kön",
-        "previewLabel": "{label}. Förhandsvisa meddelanden i kön",
-        "queuedCount": {
-          "one": "{count} meddelande i kö",
-          "other": "{count} meddelanden i kö"
-        }
+        "cancelAndEdit": "Avbryt och redigera"
       },
       "replyCount": {
         "label": {

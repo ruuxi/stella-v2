@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "取消排入佇列的訊息",
-        "cancelAndEdit": "取消並編輯",
-        "cancelIndexed": "取消排入佇列的訊息 {index}",
-        "previewLabel": "{label}。預覽排入佇列的訊息",
-        "queuedCount": {
-          "other": "{count} 則訊息在佇列中"
-        }
+        "cancelAndEdit": "取消並編輯"
       },
       "replyCount": {
         "label": {

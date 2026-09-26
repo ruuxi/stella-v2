@@ -1292,14 +1292,7 @@
       },
       "queuedMessages": {
         "cancel": "Cancelar a mensagem na fila",
-        "cancelAndEdit": "Cancelar e editar",
-        "cancelIndexed": "Cancelar a mensagem {index} da fila",
-        "previewLabel": "{label}. Ver as mensagens na fila",
-        "queuedCount": {
-          "one": "{count} mensagem na fila",
-          "many": "{count} mensagens na fila",
-          "other": "{count} mensagens na fila"
-        }
+        "cancelAndEdit": "Cancelar e editar"
       },
       "replyCount": {
         "label": {

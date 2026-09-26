@@ -1175,7 +1175,7 @@ export function useChatThread(opts: {
       // Fresh turn — clear any activity left over from the previous reply so
       // the indicator starts from the pre-tool "thinking" state.
       setWorkingActivity(IDLE_WORKING_ACTIVITY);
-      // Promote the queued bubble out of the dimmed state and add an empty
+      // Mark the queued bubble dispatched and add an empty
       // assistant placeholder beside it.
       const dispatchedAt = Date.now();
       updateMessages((m) => {

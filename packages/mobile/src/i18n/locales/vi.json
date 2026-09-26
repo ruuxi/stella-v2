@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "Hủy tin nhắn trong hàng đợi",
-        "cancelAndEdit": "Hủy và chỉnh sửa",
-        "cancelIndexed": "Hủy tin nhắn {index} trong hàng đợi",
-        "previewLabel": "{label}. Xem trước tin nhắn trong hàng đợi",
-        "queuedCount": {
-          "other": "{count} tin nhắn trong hàng đợi"
-        }
+        "cancelAndEdit": "Hủy và chỉnh sửa"
       },
       "replyCount": {
         "label": {

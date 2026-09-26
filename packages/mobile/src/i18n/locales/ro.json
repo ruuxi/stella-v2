@@ -1292,14 +1292,7 @@
       },
       "queuedMessages": {
         "cancel": "Anulează mesajul din coadă",
-        "cancelAndEdit": "Anulează și editează",
-        "cancelIndexed": "Anulează mesajul {index} din coadă",
-        "previewLabel": "{label}. Previzualizează mesajele din coadă",
-        "queuedCount": {
-          "one": "{count} mesaj în coadă",
-          "few": "{count} mesaje în coadă",
-          "other": "{count} de mesaje în coadă"
-        }
+        "cancelAndEdit": "Anulează și editează"
       },
       "replyCount": {
         "label": {

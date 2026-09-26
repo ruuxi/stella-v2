@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "ยกเลิกข้อความที่เข้าคิว",
-        "cancelAndEdit": "ยกเลิกและแก้ไข",
-        "cancelIndexed": "ยกเลิกข้อความที่เข้าคิว {index}",
-        "previewLabel": "{label} ดูตัวอย่างข้อความที่เข้าคิว",
-        "queuedCount": {
-          "other": "{count} ข้อความอยู่ในคิว"
-        }
+        "cancelAndEdit": "ยกเลิกและแก้ไข"
       },
       "replyCount": {
         "label": {

@@ -1292,14 +1292,7 @@
       },
       "queuedMessages": {
         "cancel": "בטל הודעה בתור",
-        "cancelAndEdit": "בטל וערוך",
-        "cancelIndexed": "בטל את ההודעה בתור {index}",
-        "previewLabel": "{label}. הצג את ההודעות שבתור",
-        "queuedCount": {
-          "one": "הודעה {count} בתור",
-          "two": "{count} הודעות בתור",
-          "other": "{count} הודעות בתור"
-        }
+        "cancelAndEdit": "בטל וערוך"
       },
       "replyCount": {
         "label": {

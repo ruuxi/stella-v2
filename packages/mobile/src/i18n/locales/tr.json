@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "Sıradaki mesajı iptal et",
-        "cancelAndEdit": "İptal et ve düzenle",
-        "cancelIndexed": "Sıradaki {index} numaralı mesajı iptal et",
-        "previewLabel": "{label}. Sıradaki mesajları önizle",
-        "queuedCount": {
-          "one": "{count} mesaj sırada",
-          "other": "{count} mesaj sırada"
-        }
+        "cancelAndEdit": "İptal et ve düzenle"
       },
       "replyCount": {
         "label": {

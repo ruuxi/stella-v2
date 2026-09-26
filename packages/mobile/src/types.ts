@@ -342,7 +342,7 @@ export type ChatMessage = {
   quotedText?: string;
   /**
    * User message: the message is queued behind an in-flight reply and has
-   * not been dispatched yet. Renders dimmed with a small "Queued" label.
+   * not been dispatched yet. Renders exactly like a sent message.
    */
   queued?: boolean;
   /**

@@ -1278,12 +1278,7 @@
       },
       "queuedMessages": {
         "cancel": "대기 중인 메시지 취소",
-        "cancelAndEdit": "취소하고 편집",
-        "cancelIndexed": "대기 중인 메시지 {index} 취소",
-        "previewLabel": "{label}. 대기 중인 메시지 미리보기",
-        "queuedCount": {
-          "other": "메시지 {count}개 대기 중"
-        }
+        "cancelAndEdit": "취소하고 편집"
       },
       "replyCount": {
         "label": {

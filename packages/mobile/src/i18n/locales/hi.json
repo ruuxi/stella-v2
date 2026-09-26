@@ -1285,13 +1285,7 @@
       },
       "queuedMessages": {
         "cancel": "कतार में लगा संदेश रद्द करें",
-        "cancelAndEdit": "रद्द करें और संपादित करें",
-        "cancelIndexed": "कतार में लगा संदेश {index} रद्द करें",
-        "previewLabel": "{label}. कतार में लगे संदेशों का पूर्वावलोकन करें",
-        "queuedCount": {
-          "one": "{count} संदेश कतार में",
-          "other": "{count} संदेश कतार में"
-        }
+        "cancelAndEdit": "रद्द करें और संपादित करें"
       },
       "replyCount": {
         "label": {

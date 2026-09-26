@@ -10,21 +10,13 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import {
-  useConvexAuth,
-  useMutation,
-  useQueries,
-  useQuery,
-  type RequestForQueries,
-} from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { useMutation } from "convex/react";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -36,26 +28,18 @@ import { ChatColumn } from "@/app/chat/ChatColumn";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
+import { useShellConversationSource } from "@/global/auth/hooks/use-shell-conversation-source";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
-import {
-  readPrefetchedOwnershipMigration,
-  resolveOwnershipMigrationGate,
-} from "@/global/auth/lib/cloud-conversation-session";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   acknowledgeCloudConversation,
   cloudConversationBelongsToOwnerSubject,
-  cloudConversationsForOwnerSubject,
-  isOwnedCloudConversation,
   markCloudConversationCreated,
   createCloudConversationDraft,
   resolveCloudConversationForShell,
   resolveCloudConversationRoute,
 } from "@/features/cloud/cloud-conversation-selection";
-import {
-  readActiveCloudConversationIdCache,
-  writeActiveCloudConversationIdCache,
-} from "@/features/cloud/cloud-conversation-cache";
+import { writeActiveCloudConversationIdCache } from "@/features/cloud/cloud-conversation-cache";
 import { retireCloudConversationClientAuthority } from "@/features/cloud/conversation-store";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { retireCloudExecutionClientAuthority } from "@/features/cloud/cloud-execution-store";
@@ -195,16 +179,14 @@ function RootLayout() {
     intent: string;
     id: string;
   } | null>(null);
+  const cloudSession = useCloudConversationSession();
   const {
-    isCloudConversationReady: authCloudReady,
     error: authBootstrapError,
     authBootstrapStatus,
-    isLoading: isAuthLoading,
     accountScope,
     ownerSubject,
     retryAuthBootstrap,
-  } = useCloudConversationSession();
-  const isCloudConversationReady = !isPrivate && authCloudReady;
+  } = cloudSession;
   const matchRoute = useMatchRoute();
   const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
   const routerConversationId = useRouterState({
@@ -255,50 +237,29 @@ function RootLayout() {
   ]);
   const activeRouteIntentRef = useRef(routeIntent);
   activeRouteIntentRef.current = routeIntent;
-  // Subscribe to the migration status as soon as Convex holds a token, in
-  // parallel with the session identity confirmation, rather than one round
-  // trip after it: it gates conversation selection, so that trip sat on the
-  // launch path. `useQueries` keeps an early failure from throwing, and
-  // `readPrefetchedOwnershipMigration` exposes the result only once the
-  // identity is confirmed.
-  const { isAuthenticated: convexIsAuthenticated } = useConvexAuth();
-  const ownershipMigrationRequest = useMemo<RequestForQueries>(() => {
-    const queries: RequestForQueries = {};
-    if (!isPrivate && convexIsAuthenticated) {
-      queries.status = {
-        query: cloudApi.getMyOwnershipMigrationStatus,
-        args: {},
-      };
-    }
-    return queries;
-  }, [convexIsAuthenticated, isPrivate]);
-  const ownershipMigration = readPrefetchedOwnershipMigration(
-    useQueries(ownershipMigrationRequest).status as
-      | FunctionReturnType<typeof cloudApi.getMyOwnershipMigrationStatus>
-      | Error
-      | undefined,
+  // Everything conversation selection reads from Convex arrives in one
+  // self-certifying query (the identity proof, migration status, list, owner
+  // generation and route/cached ownership), so selection is one round trip
+  // after Convex auth. The shell's readiness comes from that query, not from
+  // the separate identity confirmation other surfaces use.
+  const {
     isCloudConversationReady,
-  );
-  const ownershipMigrationGate = resolveOwnershipMigrationGate(
-    ownershipMigration === undefined
-      ? undefined
-      : (ownershipMigration?.status ?? null),
-    isCloudConversationReady,
-  );
-  const canQueryOwnershipFencedCloudData =
-    !isPrivate && ownershipMigrationGate.canSelectConversation;
-  const cloudConversations = useQuery(
-    cloudApi.listMyConversations,
-    canQueryOwnershipFencedCloudData ? {} : "skip",
-  );
-  const conversationIdentity = useQuery(
-    cloudApi.getMyCloudConversationIdentity,
-    canQueryOwnershipFencedCloudData ? {} : "skip",
-  );
-  const ownerGeneration =
-    conversationIdentity?.ownerId === ownerSubject
-      ? conversationIdentity.ownerGeneration
-      : null;
+    isLoading: isAuthLoading,
+    ownershipMigration,
+    ownershipMigrationGate,
+    cloudConversations,
+    scopedCloudConversations,
+    ownerGeneration,
+    cachedCloudConversationId,
+    routeIsListedOrPendingCloudConversation,
+    exactCloudConversation,
+    cachedConversationIsListed,
+    exactCachedCloudConversation,
+  } = useShellConversationSource({
+    session: cloudSession,
+    isPrivate,
+    routeConversationId: routerConversationId,
+  });
   const retryOwnershipMigrationMutation = useMutation(
     cloudApi.retryMyLatestFailedOwnershipMigration,
   );
@@ -328,44 +289,6 @@ function RootLayout() {
   const [ownershipMigrationRetryFailure, setOwnershipMigrationRetryFailure] =
     useState<string | null>(null);
 
-  const scopedCloudConversations = useMemo(
-    () =>
-      cloudConversationsForOwnerSubject(cloudConversations ?? [], ownerSubject),
-    [cloudConversations, ownerSubject],
-  );
-  const cachedCloudConversationId = isCloudConversationReady
-    ? readActiveCloudConversationIdCache(accountScope)
-    : null;
-  const routeIsListedOrPendingCloudConversation = isOwnedCloudConversation(
-    scopedCloudConversations,
-    routerConversationId,
-    accountScope,
-    ownerSubject,
-  );
-  const exactCloudConversation = useQuery(
-    cloudApi.getMyConversation,
-    canQueryOwnershipFencedCloudData &&
-      routerConversationId &&
-      !routeIsListedOrPendingCloudConversation
-      ? { conversationId: routerConversationId }
-      : "skip",
-  );
-  const cachedConversationIsListed = Boolean(
-    cachedCloudConversationId &&
-      scopedCloudConversations.some(
-        (conversation) =>
-          conversation.conversationId === cachedCloudConversationId,
-      ),
-  );
-  const exactCachedCloudConversation = useQuery(
-    cloudApi.getMyConversation,
-    canQueryOwnershipFencedCloudData &&
-      cachedCloudConversationId &&
-      cachedCloudConversationId !== routerConversationId &&
-      !cachedConversationIsListed
-      ? { conversationId: cachedCloudConversationId }
-      : "skip",
-  );
   const routeOwnershipIsLoading = Boolean(
     isCloudConversationReady &&
       routerConversationId &&

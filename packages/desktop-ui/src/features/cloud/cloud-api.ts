@@ -82,6 +82,34 @@ export type CloudProject = {
   updatedAt: number;
 };
 
+/** `auth_migration:getMyOwnershipMigrationStatus` (null: nothing to move). */
+export type CloudOwnershipMigrationStatus = {
+  status: "pending" | "running" | "failed" | "complete";
+  updatedAt: number;
+  error?: string;
+} | null;
+
+/**
+ * `cloud_apps:getMyShellBootstrap`: the shell's conversation-selection reads
+ * in one query. `ready` is only returned once the Convex connection holds
+ * `expectedOwnerId`; `selection` is null while an account-link transfer
+ * blocks selection.
+ */
+export type CloudShellBootstrap =
+  | { status: "identity_pending" }
+  | {
+      status: "ready";
+      ownerId: string;
+      migration: CloudOwnershipMigrationStatus;
+      selection: {
+        ownerGeneration: string;
+        conversations: CloudConversation[];
+        /** Owner-scoped `getMyConversation` projections of the looked-up ids. */
+        routeConversation: CloudConversation | null;
+        cachedConversation: CloudConversation | null;
+      } | null;
+    };
+
 export const cloudApi = {
   confirmMySessionIdentity: makeFunctionReference<
     "query",
@@ -99,12 +127,19 @@ export const cloudApi = {
   getMyOwnershipMigrationStatus: makeFunctionReference<
     "query",
     Record<string, never>,
-    {
-      status: "pending" | "running" | "failed" | "complete";
-      updatedAt: number;
-      error?: string;
-    } | null
+    CloudOwnershipMigrationStatus
   >("auth_migration:getMyOwnershipMigrationStatus"),
+  getMyShellBootstrap: makeFunctionReference<
+    "query",
+    {
+      expectedSubject: string;
+      expectedOwnerId: string;
+      identityRevision: number;
+      routeConversationId?: string;
+      cachedConversationId?: string;
+    },
+    CloudShellBootstrap
+  >("cloud_apps:getMyShellBootstrap"),
   retryMyLatestFailedOwnershipMigration: makeFunctionReference<
     "mutation",
     Record<string, never>,

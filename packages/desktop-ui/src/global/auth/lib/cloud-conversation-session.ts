@@ -1,14 +1,19 @@
-export const resolveCloudConversationSession = (args: {
+export type CloudConversationSessionGate = {
   hasSession: boolean;
   sessionIsLoading: boolean;
   convexIsAuthenticated: boolean;
   convexIsLoading: boolean;
   hasExpectedSubject: boolean;
-  identityConfirmed: boolean;
-  identityIsLoading: boolean;
   authBootstrapReady: boolean;
   authBootstrapFailed: boolean;
-}): { isCloudConversationReady: boolean; isLoading: boolean } => {
+};
+
+export const resolveCloudConversationSession = (
+  args: CloudConversationSessionGate & {
+    identityConfirmed: boolean;
+    identityIsLoading: boolean;
+  },
+): { isCloudConversationReady: boolean; isLoading: boolean } => {
   const isCloudConversationReady =
     args.authBootstrapReady &&
     !args.authBootstrapFailed &&

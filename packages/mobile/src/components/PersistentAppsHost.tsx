@@ -8,8 +8,6 @@ import {
   ActivityIndicator,
   AppState,
   BackHandler,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,6 +24,8 @@ import { useT } from "../i18n";
 import { MainDetailSurface } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
 import { getConvexTokenForSubject } from "../lib/auth-token";
+import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
 import {
   appListCacheKey,
@@ -39,6 +39,36 @@ const configQuery = makeFunctionReference<
   Record<string, never>,
   { httpOrigin: string | null }
 >("cloud_apps:getCloudRealtimeConfig");
+
+/**
+ * Agent-authored apps are raw web pages. Pin them to a device-width, unzoomable
+ * viewport and stop the document itself from overscrolling so an app scrolls
+ * like a native screen instead of panning the whole page. Injected scripts run
+ * outside the app's CSP sandbox.
+ */
+const NATIVE_FEEL_SCRIPT = `(() => {
+  const viewport = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+  const apply = () => {
+    const head = document.head || document.documentElement;
+    if (!head) return;
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "viewport";
+      head.prepend(meta);
+    }
+    meta.content = viewport;
+    if (!document.getElementById("stella-native-feel")) {
+      const style = document.createElement("style");
+      style.id = "stella-native-feel";
+      style.textContent = "html,body{overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%}html{touch-action:manipulation;-webkit-tap-highlight-color:transparent}";
+      head.prepend(style);
+    }
+  };
+  apply();
+  document.addEventListener("DOMContentLoaded", apply, { once: true });
+})();
+true;`;
 
 /** Owned by the shell: navigating away must not discard the library or WebViews. */
 export function PersistentAppsHost({ visible }: { visible: boolean }) {
@@ -79,6 +109,7 @@ function AppsHost({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const t = useT();
   const [apps, setApps] = useState<WorkspaceApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -294,13 +325,23 @@ function AppsHost({
         <MainDetailSurface>
           <ScrollView
             style={{ display: frame ? "none" : "flex" }}
-            contentContainerStyle={{ padding: 20, gap: 16 }}
+            contentContainerStyle={{
+              gap: 16,
+              paddingBottom: bottomInset + 24,
+              paddingTop: 4,
+            }}
+            showsVerticalScrollIndicator={false}
           >
             <Text
               accessibilityRole="header"
-              style={{ fontSize: 26, color: colors.text }}
+              style={{
+                color: colors.text,
+                fontFamily: fonts.display.regular,
+                fontSize: 32,
+                letterSpacing: -1.2,
+              }}
             >
-              Apps
+              {t("mobile.nav.apps")}
             </Text>
             {apps === null && !error ? <ActivityIndicator /> : null}
             {error ? (
@@ -339,10 +380,11 @@ function AppsHost({
           </ScrollView>
         </MainDetailSurface>
       </View>
+      {/* No KeyboardAvoidingView: the WebView already scrolls a focused field
+          into view, and padding on top of that shifted the page twice. */}
       {frames.map((entry) => (
-        <KeyboardAvoidingView
+        <View
           key={entry.url}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{
             flex: 1,
             display: selected === entry.slug ? "flex" : "none",
@@ -358,6 +400,11 @@ function AppsHost({
             style={{ flex: 1, backgroundColor: "transparent" }}
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
+            injectedJavaScriptBeforeContentLoaded={NATIVE_FEEL_SCRIPT}
+            bounces={false}
+            overScrollMode="never"
+            setBuiltInZoomControls={false}
+            allowsLinkPreview={false}
             keyboardDisplayRequiresUserAction={false}
             javaScriptEnabled
             cacheEnabled
@@ -374,7 +421,7 @@ function AppsHost({
               event.url === "about:blank" || event.url.startsWith(entry.url)
             }
           />
-        </KeyboardAvoidingView>
+        </View>
       ))}
     </View>
   );

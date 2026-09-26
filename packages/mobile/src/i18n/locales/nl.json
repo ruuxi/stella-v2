@@ -1941,6 +1941,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Instellingen",
+      "apps": "Apps",
       "openLabel": "Navigatie openen",
       "closeLabel": "Navigatie sluiten",
       "account": "Account",
@@ -2051,7 +2052,8 @@
       },
       "files": {
         "empty": "Nog geen bestanden. Alles wat Stella maakt verschijnt hier.",
-        "emptyFiltered": "Geen bestanden gevonden."
+        "emptyFiltered": "Geen bestanden gevonden.",
+        "searchPlaceholder": "Bestanden zoeken"
       },
       "activity": {
         "empty": "Nog geen achtergrondwerk.",
@@ -2098,6 +2100,7 @@
       "showEmailLabel": "E-mailadres tonen",
       "hideEmailLabel": "E-mailadres verbergen",
       "appearanceSection": "Weergave",
+      "computerSection": "Computer",
       "appearance": {
         "system": "Systeem",
         "light": "Licht",
@@ -2130,6 +2133,7 @@
       "forgetConfirmTitle": "{name} vergeten?",
       "forgetConfirmBody": "Deze telefoon maakt geen verbinding meer met die computer totdat je hem opnieuw koppelt.",
       "carPlayDiagnostics": "CarPlay-diagnostiek",
+      "aboutSection": "Over",
       "openCarPlayDiagnosticsLabel": "CarPlay-diagnostiek openen",
       "termsOfService": "Servicevoorwaarden",
       "openTermsLabel": "Servicevoorwaarden openen",

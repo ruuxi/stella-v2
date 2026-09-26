@@ -1920,6 +1920,7 @@
     "nav": {
       "chat": "聊天",
       "settings": "设置",
+      "apps": "应用",
       "openLabel": "打开导航",
       "closeLabel": "关闭导航",
       "account": "账户",
@@ -2029,7 +2030,8 @@
       },
       "files": {
         "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
-        "emptyFiltered": "没有匹配的文件。"
+        "emptyFiltered": "没有匹配的文件。",
+        "searchPlaceholder": "搜索文件"
       },
       "activity": {
         "empty": "还没有后台工作。",
@@ -2076,6 +2078,7 @@
       "showEmailLabel": "显示邮箱",
       "hideEmailLabel": "隐藏邮箱",
       "appearanceSection": "外观",
+      "computerSection": "电脑",
       "appearance": {
         "system": "系统",
         "light": "浅色",
@@ -2108,6 +2111,7 @@
       "forgetConfirmTitle": "忽略 {name}？",
       "forgetConfirmBody": "在您重新配对之前，这台手机将不再连接那台电脑。",
       "carPlayDiagnostics": "CarPlay 诊断",
+      "aboutSection": "关于",
       "openCarPlayDiagnosticsLabel": "打开 CarPlay 诊断",
       "termsOfService": "服务条款",
       "openTermsLabel": "打开服务条款",

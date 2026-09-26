@@ -1920,6 +1920,7 @@
     "nav": {
       "chat": "Obrolan",
       "settings": "Pengaturan",
+      "apps": "Aplikasi",
       "openLabel": "Buka navigasi",
       "closeLabel": "Tutup navigasi",
       "account": "Akun",
@@ -2029,7 +2030,8 @@
       },
       "files": {
         "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
-        "emptyFiltered": "Tidak ada file yang cocok."
+        "emptyFiltered": "Tidak ada file yang cocok.",
+        "searchPlaceholder": "Cari file"
       },
       "activity": {
         "empty": "Belum ada pekerjaan latar belakang.",
@@ -2076,6 +2078,7 @@
       "showEmailLabel": "Tampilkan email",
       "hideEmailLabel": "Sembunyikan email",
       "appearanceSection": "Tampilan",
+      "computerSection": "Komputer",
       "appearance": {
         "system": "Sistem",
         "light": "Terang",
@@ -2108,6 +2111,7 @@
       "forgetConfirmTitle": "Lupakan {name}?",
       "forgetConfirmBody": "Ponsel ini tidak akan terhubung lagi ke komputer itu sampai Anda memasangkannya kembali.",
       "carPlayDiagnostics": "Diagnostik CarPlay",
+      "aboutSection": "Tentang",
       "openCarPlayDiagnosticsLabel": "Buka diagnostik CarPlay",
       "termsOfService": "Ketentuan Layanan",
       "openTermsLabel": "Buka Ketentuan Layanan",

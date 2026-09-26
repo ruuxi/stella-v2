@@ -1959,6 +1959,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Paramètres",
+      "apps": "Apps",
       "openLabel": "Ouvrir la navigation",
       "closeLabel": "Fermer la navigation",
       "account": "Compte",
@@ -2070,7 +2071,8 @@
       },
       "files": {
         "empty": "Aucun fichier pour l’instant. Tout ce que Stella produit apparaît ici.",
-        "emptyFiltered": "Aucun fichier ne correspond."
+        "emptyFiltered": "Aucun fichier ne correspond.",
+        "searchPlaceholder": "Rechercher des fichiers"
       },
       "activity": {
         "empty": "Aucun travail en arrière-plan pour l’instant.",
@@ -2117,6 +2119,7 @@
       "showEmailLabel": "Afficher l'e-mail",
       "hideEmailLabel": "Masquer l'e-mail",
       "appearanceSection": "Apparence",
+      "computerSection": "Ordinateur",
       "appearance": {
         "system": "Système",
         "light": "Clair",
@@ -2149,6 +2152,7 @@
       "forgetConfirmTitle": "Oublier {name} ?",
       "forgetConfirmBody": "Ce téléphone cessera de se reconnecter à cet ordinateur jusqu'à ce que vous l'associez de nouveau.",
       "carPlayDiagnostics": "Diagnostics CarPlay",
+      "aboutSection": "À propos",
       "openCarPlayDiagnosticsLabel": "Ouvrir les diagnostics CarPlay",
       "termsOfService": "Conditions d'utilisation",
       "openTermsLabel": "Ouvrir les Conditions d'utilisation",

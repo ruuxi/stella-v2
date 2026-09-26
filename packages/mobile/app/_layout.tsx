@@ -31,7 +31,10 @@ import { signInMobileAnonymous } from "../src/lib/anonymous-sign-in";
 import { loadAiConsent } from "../src/lib/ai-consent";
 import { loadNotificationsMuted } from "../src/lib/notifications-prefs";
 import { hasSeenOnboarding, loadOnboardingSeen } from "../src/lib/onboarding";
-import { loadLastMainTabHref } from "../src/lib/last-main-tab";
+import {
+  enterMainShell,
+  loadLastMainTabHref,
+} from "../src/lib/last-main-tab";
 import { observeCloudConversationIdentity } from "../src/lib/cloud-conversation-auth";
 import {
   primeCloudConversationAuthority,
@@ -262,10 +265,14 @@ function AuthenticatedLayout() {
     const onLogin = pathname === "/login";
     const onIndex = pathname === "/" || pathname === "";
     const onOnboarding = pathname === "/onboarding";
-    const onMain =
-      pathname.startsWith("/chat") ||
-      pathname.startsWith("/settings") ||
-      pathname.startsWith("/account");
+    const onMain = [
+      "/chat",
+      "/schedule",
+      "/apps",
+      "/files",
+      "/settings",
+      "/cloud-home",
+    ].some((route) => pathname.startsWith(route));
 
     if (onOnboarding) {
       return;
@@ -286,7 +293,7 @@ function AuthenticatedLayout() {
         return;
       }
       if (onLogin || onIndex) {
-        router.replace(initialMainHref);
+        enterMainShell(router, initialMainHref);
       }
       return;
     }
@@ -301,7 +308,7 @@ function AuthenticatedLayout() {
         return;
       }
       if (onIndex) {
-        router.replace(initialMainHref);
+        enterMainShell(router, initialMainHref);
       }
       return;
     }

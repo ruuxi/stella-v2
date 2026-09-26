@@ -1941,6 +1941,7 @@
     "nav": {
       "chat": "Chatt",
       "settings": "Inställningar",
+      "apps": "Appar",
       "openLabel": "Öppna navigeringen",
       "closeLabel": "Stäng navigeringen",
       "account": "Konto",
@@ -2052,7 +2053,8 @@
       },
       "files": {
         "empty": "Inga filer ännu. Allt Stella skapar visas här.",
-        "emptyFiltered": "Inga filer matchar."
+        "emptyFiltered": "Inga filer matchar.",
+        "searchPlaceholder": "Sök filer"
       },
       "activity": {
         "empty": "Inget bakgrundsarbete ännu.",
@@ -2099,6 +2101,7 @@
       "showEmailLabel": "Visa e-postadressen",
       "hideEmailLabel": "Dölj e-postadressen",
       "appearanceSection": "Utseende",
+      "computerSection": "Dator",
       "appearance": {
         "system": "System",
         "light": "Ljust",
@@ -2131,6 +2134,7 @@
       "forgetConfirmTitle": "Glömma {name}?",
       "forgetConfirmBody": "Den här telefonen slutar återansluta till den datorn tills du parkopplar den igen.",
       "carPlayDiagnostics": "CarPlay-diagnostik",
+      "aboutSection": "Om",
       "openCarPlayDiagnosticsLabel": "Öppna CarPlay-diagnostiken",
       "termsOfService": "Användarvillkor",
       "openTermsLabel": "Öppna Användarvillkoren",

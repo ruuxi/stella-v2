@@ -462,13 +462,12 @@ export function useFullShellChat({
     isUserScrolling,
     noteManualScroll,
     getIsFollowing,
-    getShouldPlaceLatestTurn,
+    getShouldFollowSend,
     getIsEffectivelyAtBottom,
     showScrollButton,
     scrollToBottom,
     releaseFollow,
-    nudgeAfterSend,
-    nudgeQueuedMessagesIntoView,
+    followAfterSend,
     thumbRef,
   } = useChatScrollManagement({
     hasOlderEvents: hasOlderMessages,
@@ -559,31 +558,17 @@ export function useFullShellChat({
     scrollToBottom,
   ]);
   const handleSend = useCallback(async () => {
-    // The placement gate subtracts the synthetic response spacer before
-    // applying Codex's 300px near-bottom threshold. That keeps a visually
-    // bottomed short reply eligible without pulling deliberate scrollback
-    // forward.
+    // Follow the send to the bottom whenever the freshest turn is on
+    // screen — near/at bottom OR meaningfully scrolled up but still within
+    // the 300px send gate. `getIsEffectivelyAtBottom` is distance-based
+    // (latch-independent), so a stray upward nudge near the bottom still
+    // follows. Only a genuine read-history position (neither) stays put.
     //
-    // While a stream is already in flight, the send queues as a
-    // follow-up chip at the keyed tail of the event list (not yet a sent
-    // user row). The normal latest-user-row nudge is still skipped:
-    // it would fall through to the prior turn's user bubble and scroll
-    // *backwards* to re-frame it. The streaming branch below uses a
-    // footer-tail target instead.
-    // Frame the just-sent turn (place the new user message near the top,
-    // with the response spacer as the reading area below it) whenever the
-    // freshest turn is on screen — near/at bottom OR meaningfully scrolled
-    // up but still within the placement window. `getIsEffectivelyAtBottom`
-    // is distance-based (latch-independent), so a stray upward nudge near
-    // the bottom still frames-to-top rather than falling through to a plain
-    // scroll. Only a genuine read-history position (neither) stays put. The
-    // spacer is settled+frozen for the placement in the scroll hook, so the
-    // nudge target can't be yanked mid-animation.
-    const shouldKeepTailFramed =
-      showHomeContent ||
-      getIsEffectivelyAtBottom() ||
-      getShouldPlaceLatestTurn();
-    const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
+    // While a stream is already in flight, the send queues as a follow-up
+    // chip at the keyed tail of the event list (not yet a sent user row).
+    // That item is the end of content too, so the same follow frames it.
+    const shouldFollowSend =
+      showHomeContent || getIsEffectivelyAtBottom() || getShouldFollowSend();
     const submittedConversationId = activeConversationId;
     const submittedMessage = latestMessageRef.current;
     const submittedSelectedText = selectedText;
@@ -616,23 +601,11 @@ export function useFullShellChat({
         if (activeConversationIdRef.current !== submittedConversationId) return;
         enterChatSurfaceForInteraction();
         resetIdleTimer();
-        // Frame the optimistic row before runtime acceptance. Waiting for
+        // Follow the optimistic row before runtime acceptance. Waiting for
         // sendMessage here makes the viewport lag behind the visible message.
-        if (isStreaming) {
-          // Queued follow-up — no new user row lands in the event list.
-          // The streaming assistant row's own auto-follow keeps the reply
-          // framed, but repeated queued chips live below that row in the
-          // virtualized tail and can drift under the viewport without their own
-          // target.
-          if (shouldKeepTailFramed) {
-            nudgeQueuedMessagesIntoView();
-          }
-        } else if (shouldNudgeAfterSend) {
-          // Places the newest user turn near the top of the readable area,
-          // above the (now settled) response spacer. The gentle loop keeps
-          // that reframe continuous with the assistant stream-follow.
-          nudgeAfterSend();
-        } else {
+        if (shouldFollowSend) {
+          followAfterSend();
+        } else if (!isStreaming) {
           releaseFollow();
         }
       },
@@ -678,12 +651,11 @@ export function useFullShellChat({
     chatContext,
     enterChatSurfaceForInteraction,
     getIsFollowing,
-    getShouldPlaceLatestTurn,
+    getShouldFollowSend,
     getIsEffectivelyAtBottom,
     isStreaming,
     latestMessageRef,
-    nudgeAfterSend,
-    nudgeQueuedMessagesIntoView,
+    followAfterSend,
     releaseFollow,
     resetIdleTimer,
     selectedText,

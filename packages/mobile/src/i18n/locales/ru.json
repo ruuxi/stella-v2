@@ -1977,6 +1977,7 @@
     "nav": {
       "chat": "Чат",
       "settings": "Настройки",
+      "apps": "Приложения",
       "openLabel": "Открыть навигацию",
       "closeLabel": "Закрыть навигацию",
       "account": "Аккаунт",
@@ -2089,7 +2090,8 @@
       },
       "files": {
         "empty": "Файлов пока нет. Всё, что создаёт Stella, появится здесь.",
-        "emptyFiltered": "Нет подходящих файлов."
+        "emptyFiltered": "Нет подходящих файлов.",
+        "searchPlaceholder": "Поиск файлов"
       },
       "activity": {
         "empty": "Фоновой работы пока нет.",
@@ -2136,6 +2138,7 @@
       "showEmailLabel": "Показать эл. почту",
       "hideEmailLabel": "Скрыть эл. почту",
       "appearanceSection": "Оформление",
+      "computerSection": "Компьютер",
       "appearance": {
         "system": "Системная",
         "light": "Светлая",
@@ -2168,6 +2171,7 @@
       "forgetConfirmTitle": "Забыть устройство {name}?",
       "forgetConfirmBody": "Этот телефон перестанет подключаться к тому компьютеру, пока вы не свяжете их снова.",
       "carPlayDiagnostics": "Диагностика CarPlay",
+      "aboutSection": "О приложении",
       "openCarPlayDiagnosticsLabel": "Открыть диагностику CarPlay",
       "termsOfService": "Условия использования",
       "openTermsLabel": "Открыть Условия использования",

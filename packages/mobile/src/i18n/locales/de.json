@@ -1941,6 +1941,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Einstellungen",
+      "apps": "Apps",
       "openLabel": "Navigation öffnen",
       "closeLabel": "Navigation schließen",
       "account": "Konto",
@@ -2051,7 +2052,8 @@
       },
       "files": {
         "empty": "Noch keine Dateien. Alles, was Stella erstellt, erscheint hier.",
-        "emptyFiltered": "Keine passenden Dateien."
+        "emptyFiltered": "Keine passenden Dateien.",
+        "searchPlaceholder": "Dateien durchsuchen"
       },
       "activity": {
         "empty": "Noch keine Hintergrundarbeit.",
@@ -2098,6 +2100,7 @@
       "showEmailLabel": "E-Mail-Adresse anzeigen",
       "hideEmailLabel": "E-Mail-Adresse ausblenden",
       "appearanceSection": "Erscheinungsbild",
+      "computerSection": "Computer",
       "appearance": {
         "system": "System",
         "light": "Hell",
@@ -2130,6 +2133,7 @@
       "forgetConfirmTitle": "{name} entfernen?",
       "forgetConfirmBody": "Dieses Handy verbindet sich nicht mehr mit diesem Computer, bis du ihn erneut koppelst.",
       "carPlayDiagnostics": "CarPlay-Diagnose",
+      "aboutSection": "Über",
       "openCarPlayDiagnosticsLabel": "CarPlay-Diagnose öffnen",
       "termsOfService": "Nutzungsbedingungen",
       "openTermsLabel": "Nutzungsbedingungen öffnen",

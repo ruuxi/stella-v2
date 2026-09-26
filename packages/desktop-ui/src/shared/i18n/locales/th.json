@@ -1920,6 +1920,7 @@
     "nav": {
       "chat": "แชท",
       "settings": "การตั้งค่า",
+      "apps": "แอป",
       "openLabel": "เปิดเมนูนำทาง",
       "closeLabel": "ปิดเมนูนำทาง",
       "account": "บัญชี",
@@ -2029,7 +2030,8 @@
       },
       "files": {
         "empty": "ยังไม่มีไฟล์ ทุกอย่างที่ Stella สร้างจะแสดงที่นี่",
-        "emptyFiltered": "ไม่มีไฟล์ที่ตรงกัน"
+        "emptyFiltered": "ไม่มีไฟล์ที่ตรงกัน",
+        "searchPlaceholder": "ค้นหาไฟล์"
       },
       "activity": {
         "empty": "ยังไม่มีงานเบื้องหลัง",
@@ -2076,6 +2078,7 @@
       "showEmailLabel": "แสดงอีเมล",
       "hideEmailLabel": "ซ่อนอีเมล",
       "appearanceSection": "รูปลักษณ์",
+      "computerSection": "คอมพิวเตอร์",
       "appearance": {
         "system": "ระบบ",
         "light": "สว่าง",
@@ -2108,6 +2111,7 @@
       "forgetConfirmTitle": "ลืม {name} ไหม?",
       "forgetConfirmBody": "มือถือเครื่องนี้จะหยุดเชื่อมต่อกับคอมพิวเตอร์เครื่องนั้นจนกว่าคุณจะจับคู่ใหม่",
       "carPlayDiagnostics": "การวินิจฉัย CarPlay",
+      "aboutSection": "เกี่ยวกับ",
       "openCarPlayDiagnosticsLabel": "เปิดการวินิจฉัย CarPlay",
       "termsOfService": "ข้อกำหนดการให้บริการ",
       "openTermsLabel": "เปิดข้อกำหนดการให้บริการ",

@@ -1920,6 +1920,7 @@
     "nav": {
       "chat": "聊天",
       "settings": "設定",
+      "apps": "應用程式",
       "openLabel": "開啟導覽",
       "closeLabel": "關閉導覽",
       "account": "帳號",
@@ -2029,7 +2030,8 @@
       },
       "files": {
         "empty": "還沒有檔案。Stella 產生的所有內容都會顯示在這裡。",
-        "emptyFiltered": "沒有相符的檔案。"
+        "emptyFiltered": "沒有相符的檔案。",
+        "searchPlaceholder": "搜尋檔案"
       },
       "activity": {
         "empty": "還沒有背景工作。",
@@ -2076,6 +2078,7 @@
       "showEmailLabel": "顯示電子郵件",
       "hideEmailLabel": "隱藏電子郵件",
       "appearanceSection": "外觀",
+      "computerSection": "電腦",
       "appearance": {
         "system": "系統",
         "light": "淺色",
@@ -2108,6 +2111,7 @@
       "forgetConfirmTitle": "要忘記 {name} 嗎？",
       "forgetConfirmBody": "在您重新配對之前，這支手機將不再連線到那台電腦。",
       "carPlayDiagnostics": "CarPlay 診斷",
+      "aboutSection": "關於",
       "openCarPlayDiagnosticsLabel": "開啟 CarPlay 診斷",
       "termsOfService": "服務條款",
       "openTermsLabel": "開啟服務條款",

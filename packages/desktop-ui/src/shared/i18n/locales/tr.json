@@ -1941,6 +1941,7 @@
     "nav": {
       "chat": "Sohbet",
       "settings": "Ayarlar",
+      "apps": "Uygulamalar",
       "openLabel": "Gezinmeyi aç",
       "closeLabel": "Gezinmeyi kapat",
       "account": "Hesap",
@@ -2051,7 +2052,8 @@
       },
       "files": {
         "empty": "Henüz dosya yok. Stella'nın ürettiği her şey burada görünür.",
-        "emptyFiltered": "Eşleşen dosya yok."
+        "emptyFiltered": "Eşleşen dosya yok.",
+        "searchPlaceholder": "Dosyalarda ara"
       },
       "activity": {
         "empty": "Henüz arka plan çalışması yok.",
@@ -2098,6 +2100,7 @@
       "showEmailLabel": "E-postayı göster",
       "hideEmailLabel": "E-postayı gizle",
       "appearanceSection": "Görünüm",
+      "computerSection": "Bilgisayar",
       "appearance": {
         "system": "Sistem",
         "light": "Açık",
@@ -2130,6 +2133,7 @@
       "forgetConfirmTitle": "Şu unutulsun mu: {name}?",
       "forgetConfirmBody": "Bu telefon, yeniden eşleştirene kadar o bilgisayara bağlanmayı bırakacak.",
       "carPlayDiagnostics": "CarPlay tanılama",
+      "aboutSection": "Hakkında",
       "openCarPlayDiagnosticsLabel": "CarPlay tanılamayı aç",
       "termsOfService": "Hizmet Koşulları",
       "openTermsLabel": "Hizmet Koşullarını aç",

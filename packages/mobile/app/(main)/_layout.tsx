@@ -22,16 +22,18 @@ import {
 } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
-import { NativeMenu } from "../../src/components/NativeMenu";
 import { GlassIconButton } from "../../src/components/GlassIconButton";
 import {
   AppBackdrop,
   TOP_BAR_BAR_HEIGHT,
 } from "../../src/components/AppBackdrop";
+import { SidebarPanel } from "../../src/components/sidebar/SidebarPanel";
+import { ShellTabBar } from "../../src/components/shell-tab-bar/ShellTabBar";
 import {
-  SidebarPanel,
-  type SidebarDestination,
-} from "../../src/components/sidebar/SidebarPanel";
+  SHELL_TAB_BAR_RESERVE,
+  shellTabBarBase,
+  type ShellTabItem,
+} from "../../src/components/shell-tab-bar/shell-tab-bar-types";
 import {
   Keyboard,
   Pressable,
@@ -56,26 +58,52 @@ import { fadeHex } from "../../src/theme/oklch";
 import { useChatSearch } from "../../src/lib/chat-search";
 import { tapLight } from "../../src/lib/haptics";
 import {
+  MAIN_TAB_HREFS,
   readMainTabFromPath,
   saveLastMainTab,
+  takePendingMainTab,
+  type MainTabId,
 } from "../../src/lib/last-main-tab";
 import {
   subscribeSidebarOpenRequests,
   useActivityHub,
   useBackOverride,
-  useComputerControl,
-  useHistoryControl,
 } from "../../src/lib/main-shell-store";
+import { ShellBottomInsetProvider } from "../../src/lib/shell-bottom-inset";
 import { useT } from "../../src/i18n";
 import type { ChatArtifact } from "../../src/types";
 
 /**
- * The chat is the base of the `(main)` stack. Settings, Account, and Cloud
- * Home push over it, and a deep link or a restored last-tab of `/settings`
- * still gets the chat inserted underneath, so "back" always has somewhere to
- * go and the chat never has to remount for a visit to a detail page.
+ * The chat is the base of the `(main)` stack. The other tabs (Schedule, Apps,
+ * Files, Settings) sit one level over it and swap in place, and a deep link or
+ * a restored last tab still gets the chat inserted underneath, so the chat
+ * never has to remount for a visit to another tab and keeps publishing what
+ * those tabs show (files, the paired computer).
  */
 export const unstable_settings = { anchor: "chat" };
+
+/** The bottom tab bar, in order. Settings stays rightmost. */
+const TAB_ORDER: readonly MainTabId[] = [
+  "chat",
+  "schedule",
+  "apps",
+  "files",
+  "settings",
+];
+const TAB_ICONS = {
+  chat: "chat",
+  schedule: "clock",
+  apps: "apps",
+  files: "artifacts",
+  settings: "user",
+} as const satisfies Record<MainTabId, ShellTabItem<MainTabId>["icon"]>;
+const TAB_LABEL_KEYS: Record<MainTabId, string> = {
+  chat: "mobile.nav.chat",
+  schedule: "mobile.activityHub.tabs.schedule",
+  apps: "mobile.nav.apps",
+  files: "mobile.activityHub.tabs.files",
+  settings: "mobile.nav.settings",
+};
 
 const SIDEBAR_WIDTH = 320;
 /** How far the foreground slides right when the drawer opens. Decoupled
@@ -138,8 +166,10 @@ export default function MainLayout() {
 
   const activeTab = readMainTabFromPath(pathname);
   const onChatSurface = pathname === "/chat";
-  const computer = useComputerControl();
-  const history = useHistoryControl();
+  // A tab's own page (not a page pushed from one, like Cloud Home).
+  const onTabRoot = Object.values(MAIN_TAB_HREFS).some(
+    (href) => href === pathname,
+  );
   const backOverride = useBackOverride();
   const hubAccess = useActivityHub()?.access ?? null;
   const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(
@@ -161,6 +191,31 @@ export default function MainLayout() {
     }
   }, [activeTab]);
 
+  // A restored tab opens over the chat once the chat is on screen.
+  useEffect(() => {
+    if (!onChatSurface) return;
+    const pending = takePendingMainTab();
+    if (pending) router.push(MAIN_TAB_HREFS[pending]);
+  }, [onChatSurface, router]);
+
+  // The bar shows on the tab pages themselves. Pages pushed from a tab and a
+  // route's own in-place view (an open app) take the full screen behind the
+  // top-left back control instead.
+  const tabBarVisible = onTabRoot && !backOverride;
+  const backVisible = !onChatSurface && (!onTabRoot || Boolean(backOverride));
+  const shellBottomInset = tabBarVisible
+    ? shellTabBarBase(insets.bottom) + SHELL_TAB_BAR_RESERVE
+    : null;
+  const tabItems = useMemo(
+    () =>
+      TAB_ORDER.map((key) => ({
+        key,
+        label: t(TAB_LABEL_KEYS[key]),
+        icon: TAB_ICONS[key],
+      })),
+    [t],
+  );
+
   const openSidebar = () => {
     Keyboard.dismiss();
     tapLight();
@@ -178,26 +233,27 @@ export default function MainLayout() {
     drawerProgress.value = withSpring(0, DRAWER_SPRING);
   };
 
-  // Detail pages push over the chat rather than replacing it, so the chat
-  // keeps its mount (scroll position, draft, journal socket) and coming back
-  // is a pop, not a cold remount behind the authority spinner.
-  const navigate = (destination: SidebarDestination) => {
+  // Tabs push over the chat rather than replacing it, so the chat keeps its
+  // mount (scroll position, draft, journal socket) and coming back is a pop,
+  // not a cold remount behind the authority spinner. Another tab swaps in
+  // place, so the stack is never deeper than the chat plus one tab (the bar
+  // is hidden on pages pushed from a tab, so a switch never starts there).
+  const selectTab = (tab: MainTabId) => {
+    const destination = MAIN_TAB_HREFS[tab];
+    if (destination === pathname) return;
     tapLight();
+    Keyboard.dismiss();
     if (destination === "/chat") {
-      if (!onChatSurface) router.dismissTo("/chat");
-    } else if (destination === "/login") {
-      router.replace("/login");
+      router.dismissTo("/chat");
     } else if (onChatSurface) {
       router.push(destination);
-    } else if (pathname !== destination) {
-      // Already on a detail page: swap it so the stack stays chat + one page.
+    } else {
       router.replace(destination);
     }
-    closeSidebar(false);
   };
 
-  // Settings and Account are detail pages off the one chat, so the top-left
-  // control reads as "back" there and as the drawer reveal on the chat.
+  // The top-left control is the drawer reveal on the chat and "back" on a
+  // page pushed from a tab (or a route's in-place view, like an open app).
   const onPressTopLeft = () => {
     if (onChatSurface) {
       openSidebar();
@@ -210,13 +266,6 @@ export default function MainLayout() {
     }
     if (router.canGoBack()) router.back();
     else router.replace("/chat");
-  };
-
-  const onPressComputer = () => {
-    if (!computer) return;
-    tapLight();
-    Keyboard.dismiss();
-    computer.onPress();
   };
 
   useEffect(() => {
@@ -239,13 +288,14 @@ export default function MainLayout() {
     setViewerArtifact(artifact);
   }, []);
 
-  // -- Gesture: swipe right anywhere on the app to open --
+  // -- Gesture: swipe right anywhere on the chat to open --
   // `Keyboard.dismiss` is a method on the native Keyboard module and isn't
   // serializable into the Worklets UI runtime, so wrap it in a plain JS
   // function before handing it to `runOnJS`.
   const dismissKeyboard = () => Keyboard.dismiss();
+  // The sidebar is the chat's activity, so only the chat reveals it.
   const openPan = Gesture.Pan()
-    .enabled(!sidebarOpen)
+    .enabled(!sidebarOpen && onChatSurface)
     .activeOffsetX(15)
     .failOffsetY([-20, 20])
     .onStart(() => {
@@ -347,35 +397,13 @@ export default function MainLayout() {
     opacity: drawerProgress.value * 0.18,
   }));
 
-  const chatControls = (
-    <View style={styles.topBarRight}>
-      {onChatSurface && history ? (
-        <NativeMenu
-          label={<Icon name="history" size={21} color={colors.text} />}
-          circular
-          width={TOP_BAR_BUTTON}
-          height={TOP_BAR_BUTTON}
-          accessibilityLabel={t("shell.topbar.conversation.history")}
-          disabled={history.disabled}
-          items={history.items}
-          onFallbackPress={history.onPress}
-        />
-      ) : null}
-      {onChatSurface && computer ? (
-        // Settings remains available while the computer connects. The dot
-        // indicates a connected computer without replacing the settings icon.
-        <GlassIconButton
-          icon="settings"
-          size={TOP_BAR_BUTTON}
-          iconSize={21}
-          muted={computer.connection !== "connected"}
-          dot={computer.connection === "connected" ? colors.ok : null}
-          accessibilityLabel={`${t("mobile.nav.settings")}, ${computer.label}`}
-          onPress={onPressComputer}
-        />
-      ) : null}
-    </View>
-  );
+  // Constant on every route (like the empty nav bar over an iOS large title),
+  // so the chat underneath never reflows as tabs swap over it.
+  const topBarHeight = insets.top + TOP_BAR_BAR_HEIGHT;
+
+  const tabBar = tabBarVisible ? (
+    <ShellTabBar tabs={tabItems} value={activeTab ?? "chat"} onSelect={selectTab} />
+  ) : null;
 
   return (
     // edges=[] disables SafeAreaView's auto-padding so every layer below
@@ -390,27 +418,29 @@ export default function MainLayout() {
         <>
           <AppBackdrop />
           <View style={styles.wideLayout}>
-            <SidebarPanel
-              open
-              width={SIDEBAR_WIDTH}
-              onNavigate={navigate}
-              onOpenArtifact={openArtifact}
-            />
+            <SidebarPanel width={SIDEBAR_WIDTH} onOpenArtifact={openArtifact} />
             <View style={styles.content}>
-              <View
-                style={[
-                  styles.topBar,
-                  {
-                    height: insets.top + TOP_BAR_BAR_HEIGHT,
-                    justifyContent: "flex-end",
-                  },
-                ]}
-              >
-                {chatControls}
+              <View style={[styles.topBar, { height: topBarHeight }]}>
+                {backVisible ? (
+                  <View style={styles.topBarSide}>
+                    <GlassIconButton
+                      icon="chevron-left"
+                      size={TOP_BAR_BUTTON}
+                      iconSize={20}
+                      accessibilityLabel={
+                        backOverride?.label ?? t("mobile.common.back")
+                      }
+                      onPress={onPressTopLeft}
+                    />
+                  </View>
+                ) : null}
               </View>
               <View style={styles.contentSlot}>
-                <MainStack />
+                <ShellBottomInsetProvider value={shellBottomInset}>
+                  <MainStack />
+                </ShellBottomInsetProvider>
               </View>
+              {tabBar}
             </View>
           </View>
         </>
@@ -430,10 +460,8 @@ export default function MainLayout() {
             style={[styles.sidebarLayer, sidebarStyle]}
           >
             <SidebarPanel
-              open={sidebarOpen}
               width={SIDEBAR_WIDTH}
               contentInsetRight={SIDEBAR_WIDTH - DRAWER_REVEAL}
-              onNavigate={navigate}
               onOpenArtifact={openArtifact}
             />
           </Animated.View>
@@ -449,12 +477,7 @@ export default function MainLayout() {
                   sidebar stays hidden) instead of being covered by a flat
                   fill. Clipped to the rounded corners via overflow:hidden. */}
               <AppBackdrop />
-              <View
-                style={[
-                  styles.topBar,
-                  { height: insets.top + TOP_BAR_BAR_HEIGHT },
-                ]}
-              >
+              <View style={[styles.topBar, { height: topBarHeight }]}>
                 {search.isOpen ? (
                   <View style={styles.searchRow}>
                     <View style={styles.searchField}>
@@ -492,7 +515,7 @@ export default function MainLayout() {
                     </Pressable>
                   </View>
                 ) : (
-                  <>
+                  onChatSurface || backVisible ? (
                     <View style={styles.topBarSide}>
                       <GlassIconButton
                         icon="chevron-left"
@@ -501,21 +524,24 @@ export default function MainLayout() {
                         accessibilityLabel={
                           onChatSurface
                             ? t("mobile.nav.openLabel")
-                            : (backOverride?.label ??
-                              t("mobile.nav.backToChat"))
+                            : (backOverride?.label ?? t("mobile.common.back"))
                         }
                         onPress={onPressTopLeft}
                       />
                     </View>
-                    <View style={{ flex: 1 }} />
-                    {chatControls}
-                  </>
+                  ) : null
                 )}
               </View>
 
               <View style={styles.content}>
-                <MainStack />
+                <ShellBottomInsetProvider value={shellBottomInset}>
+                  <MainStack />
+                </ShellBottomInsetProvider>
               </View>
+
+              {/* The tab bar floats over the page's bottom edge and travels
+                  with the foreground, under the scrim, when the drawer opens. */}
+              {tabBar}
 
               {/* Scrim — sits on top of the foreground while the drawer is
                   open. Tap anywhere on the visible app area to close. */}
@@ -570,23 +596,20 @@ function MainStack() {
             gestureEnabled: false,
           }}
         >
-          <Stack.Screen
-            name="settings"
-            options={{
-              presentation: "formSheet",
-              animation: "slide_from_bottom",
-              gestureEnabled: true,
-              sheetAllowedDetents: [0.9],
-              sheetGrabberVisible: true,
-              sheetCornerRadius: 28,
-            }}
-          />
+          {/* Tabs cross-fade like a tab switch; pages pushed from a tab
+              (Cloud Home) keep the slide. */}
+          <Stack.Screen name="schedule" options={TAB_SCREEN_OPTIONS} />
+          <Stack.Screen name="apps" options={TAB_SCREEN_OPTIONS} />
+          <Stack.Screen name="files" options={TAB_SCREEN_OPTIONS} />
+          <Stack.Screen name="settings" options={TAB_SCREEN_OPTIONS} />
         </Stack>
         <PersistentAppsHost visible={pathname === "/apps"} />
       </View>
     </NavigationThemeProvider>
   );
 }
+
+const TAB_SCREEN_OPTIONS = { animation: "fade" } as const;
 
 /**
  * React Navigation paints `colors.background` beneath every stack screen, and
@@ -636,13 +659,6 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       width: 44,
     },
-    // Right-side action cluster (search + chat/computer toggle).
-    topBarRight: {
-      gap: 8,
-      alignItems: "center",
-      flexDirection: "row",
-      height: 44,
-    },
     // Expanded search field that replaces the top-bar contents.
     searchRow: {
       alignItems: "center",
@@ -681,10 +697,6 @@ const makeStyles = (colors: Colors) =>
       color: colors.accent,
       fontFamily: fonts.sans.medium,
       fontSize: 15,
-    },
-    wideChatHeader: {
-      alignItems: "center",
-      marginBottom: 8,
     },
     contentSlot: {
       flex: 1,

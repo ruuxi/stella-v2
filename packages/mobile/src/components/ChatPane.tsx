@@ -58,10 +58,14 @@ import {
 } from "../lib/chat-attachments";
 import { useT } from "../i18n";
 import Reanimated, {
+  KeyboardState,
   useAnimatedKeyboard,
+  useAnimatedReaction,
   useAnimatedStyle,
+  useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -115,12 +119,9 @@ import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
   canStartPostSendPlacement,
-  consumeResponseSpacerHeight,
   resolvePostSendPlacement,
-  resolveReplyOverflow,
-  resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
-} from "../lib/chat-response-spacer";
+} from "../lib/chat-post-send-placement";
 import { resolveChatDataChangeScrollOwner } from "../lib/chat-scroll-ownership";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
@@ -186,7 +187,7 @@ const LAYOUT_SPRING = {
 };
 
 /**
- * Extra breathing room beyond the list's trailing slack (`EDGE_FADE` +
+ * Extra breathing room beyond the list's trailing slack (the chat tail +
  * measured composer height). The slack is empty scrollable padding so messages
  * can sit above the overlay — without adding it, "near bottom" never engages
  * in the normal reading position (desktop `followRearmThreshold` does the same).
@@ -305,8 +306,10 @@ const CHAT_HORIZONTAL_INSET = 12;
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
-  const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const [height, setHeight] = useState(0);
+  // The height the keyboard is heading to, for the composer's UI-thread lift.
+  const targetHeight = useSharedValue(0);
 
   useEffect(() => {
     const showEvent =
@@ -315,6 +318,7 @@ function useKeyboardInset() {
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
     const onShow = (e: { endCoordinates: { height: number } }) => {
+      targetHeight.value = e.endCoordinates.height;
       setHeight(e.endCoordinates.height);
     };
     const onHide = () => setHeight(0);
@@ -326,17 +330,18 @@ function useKeyboardInset() {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [targetHeight]);
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
-  // home-indicator safe area. When the keyboard is up the composer is lifted
-  // clear of it by `composerKeyboardStyle` (by `keyboardHeight - insets.bottom`),
-  // so that reserved band lands inside the keyboard region — a constant 6pt gap
-  // sits above the keyboard either way, with no per-state padding swap to animate.
-  const composerBottomPad = 6 + insets.bottom;
+  // shell's bottom band (the tab bar and home indicator). When the keyboard is
+  // up the composer is lifted clear of it by `composerKeyboardStyle` (by
+  // `keyboardHeight - bottomInset`), so that reserved band lands inside the
+  // keyboard region — a constant 6pt gap sits above the keyboard either way,
+  // with no per-state padding swap to animate.
+  const composerBottomPad = 6 + bottomInset;
 
-  return { height, open, composerBottomPad };
+  return { height, open, composerBottomPad, targetHeight };
 }
 
 // ---------------------------------------------------------------------------
@@ -346,16 +351,11 @@ function useKeyboardInset() {
 
 function useChatScroll(
   listTrailingSlackPx: number,
-  responseSpacerHeightPx: number,
   trailingMessageId: string | null,
-  onConsumeResponseSpacer: (distanceDeltaPx: number) => void,
-  onClearResponseSpacer: () => void,
 ) {
   const listRef = useRef<LegendListRef>(null);
   const listTrailingSlackRef = useRef(listTrailingSlackPx);
   listTrailingSlackRef.current = listTrailingSlackPx;
-  const responseSpacerHeightRef = useRef(responseSpacerHeightPx);
-  responseSpacerHeightRef.current = responseSpacerHeightPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const nearBottomLimit = SCROLL_NEAR_BOTTOM_BASE_PX + listTrailingSlackPx;
   const atBottomLimit = SCROLL_AT_BOTTOM_THRESHOLD + listTrailingSlackPx;
@@ -391,7 +391,7 @@ function useChatScroll(
   const assistantLayoutBaselineRef = useRef<number | null>(null);
   /** True while the user's finger is actively dragging the list. */
   const isDraggingRef = useRef(false);
-  /** Holds through drag momentum so the spacer keeps consuming after release. */
+  /** Holds through drag momentum so an upward fling still blocks re-arming. */
   const manualScrollActiveRef = useRef(false);
   const manualScrollSettleTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -463,11 +463,19 @@ function useChatScroll(
       };
       contentHeightRef.current = contentSize.height;
 
+      // iOS rubber-band: after overscrolling past the tail the list springs
+      // back upward. That return is not a scrollback and must not block
+      // re-arming, or follow stays released while the user sits at the end.
+      const maxOffsetY = Math.max(
+        0,
+        contentSize.height - layoutMeasurement.height,
+      );
+      const bouncingBackFromTail = previousOffsetY > maxOffsetY + 0.5;
+
       if (manualScrollActiveRef.current) {
         scheduleManualScrollSettle();
-        if (offsetDelta < -0.5) {
+        if (offsetDelta < -0.5 && !bouncingBackFromTail) {
           followRearmBlockedRef.current = true;
-          onConsumeResponseSpacer(-offsetDelta);
         } else if (offsetDelta > 0.5) {
           followRearmBlockedRef.current = false;
         }
@@ -506,7 +514,6 @@ function useChatScroll(
       atBottomLimit,
       awayFromBottomLimit,
       nearBottomLimit,
-      onConsumeResponseSpacer,
       scheduleManualScrollSettle,
       setFollowArmed,
       stopFollowLoop,
@@ -554,10 +561,15 @@ function useChatScroll(
     scheduleManualScrollSettle();
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    if (distFromBottom <= atBottomLimit && !followRearmBlockedRef.current) {
+    // Coming to rest anywhere inside the near-bottom band re-arms follow —
+    // the same band `onScroll` uses to release it. Re-arming only at the
+    // exact tail left a dead zone where the user was visibly at the bottom
+    // but new messages never scrolled into view.
+    if (distFromBottom <= nearBottomLimit) {
+      followRearmBlockedRef.current = false;
       setFollowArmed(true);
     }
-  }, [atBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
+  }, [nearBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
 
   /** Call when assistant text grows, before layout measures the new height. */
   const prepareAssistantLayoutFollow = useCallback(() => {
@@ -733,11 +745,7 @@ function useChatScroll(
     const contentHeight = contentHeightRef.current;
     const rowBottom = Math.max(0, contentHeight - listTrailingSlackPx);
     const rowTop = Math.max(0, rowBottom - assistantHeight);
-    const desiredScrollTop = resolveReplyOverflow({
-      contentHeightPx: contentHeight,
-      viewportHeightPx: layoutHeight,
-      responseSpacerHeightPx: responseSpacerHeightRef.current,
-    });
+    const desiredScrollTop = Math.max(0, contentHeight - layoutHeight);
     const pinnedTop = Math.max(0, rowTop - FOLLOW_TOP_PEEK_PX);
     setFollowTarget(Math.min(pinnedTop, desiredScrollTop));
   }, [listTrailingSlackPx, setFollowTarget]);
@@ -760,12 +768,11 @@ function useChatScroll(
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = false;
     setFollowArmed(true);
-    onClearResponseSpacer();
     resetAssistantAutoScroll();
     requestAnimationFrame(() =>
       listRef.current?.scrollToEnd({ animated: true }),
     );
-  }, [onClearResponseSpacer, resetAssistantAutoScroll, setFollowArmed]);
+  }, [resetAssistantAutoScroll, setFollowArmed]);
 
   const getShouldPlaceLatestTurn = useCallback(() => {
     const { offsetY, layoutHeight } = metricsRef.current;
@@ -775,14 +782,13 @@ function useChatScroll(
     );
     return shouldPlaceLatestTurn({
       distanceFromBottomPx,
-      responseSpacerHeightPx: responseSpacerHeightRef.current,
       isFollowingLatest: followArmedRef.current,
     });
   }, []);
 
   /**
-   * Place the newest user row above the current trailing slack (response
-   * spacer + reserved bottom inset). The same gentle loop owns
+   * Place the newest user row above the current trailing slack (chat tail +
+   * reserved bottom inset). The same gentle loop owns
    * this motion and streaming follow, so the two movements blend if reply text
    * arrives before placement settles.
    */
@@ -842,10 +848,11 @@ function useChatScroll(
 
   const onListContentSizeChange = useCallback(
     (_width: number, height: number) => {
+      const previousHeight = contentHeightRef.current;
       contentHeightRef.current = height;
       metricsRef.current.contentHeight = height;
 
-      // Composer collapse and footer/spacer changes can settle after the user
+      // Composer collapse and footer changes can settle after the user
       // row measures. Re-anchor from this committed geometry as well.
       const pending = pendingSendAnchorRef.current;
       if (
@@ -860,7 +867,14 @@ function useChatScroll(
 
       const baseline = assistantLayoutBaselineRef.current;
       if (baseline === null || height <= baseline) {
-        followActiveAssistantRow();
+        if (activeAssistantHeightRef.current > 0) {
+          followActiveAssistantRow();
+        } else if (previousHeight > 0 && height > previousHeight) {
+          // A settled append at the live tail (a reply that lands whole as the
+          // turn ends, a synced message, a row finishing its layout): keep
+          // the new end in view. Released follow ignores this.
+          setFollowTarget(Math.max(0, height - metricsRef.current.layoutHeight));
+        }
         return;
       }
 
@@ -868,11 +882,9 @@ function useChatScroll(
       if (activeAssistantHeightRef.current > 0) {
         followActiveAssistantRow();
       } else {
-        setFollowTarget(resolveReplyOverflow({
-          contentHeightPx: height,
-          viewportHeightPx: metricsRef.current.layoutHeight,
-          responseSpacerHeightPx: responseSpacerHeightRef.current,
-        }));
+        setFollowTarget(
+          Math.max(0, height - metricsRef.current.layoutHeight),
+        );
       }
     },
     [followActiveAssistantRow, schedulePlaceLatestTurn, setFollowTarget],
@@ -3041,25 +3053,44 @@ export function ChatPane({
   const t = useT();
   const readAloud = useReadAloudPreference();
   const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
-  const { height: keyboardHeight, composerBottomPad } = useKeyboardInset();
+  const {
+    height: keyboardHeight,
+    composerBottomPad,
+    targetHeight: keyboardTargetHeight,
+  } = useKeyboardInset();
   // UI-thread keyboard frame. Drives the composer's lift directly so it tracks
   // the keyboard exactly — both rising and falling — instead of chasing it via
   // a JS-scheduled layout animation that the OS curve always out-runs.
   const keyboard = useAnimatedKeyboard();
-  // The composer rests at `composerBottomPad` (home-indicator safe area) above
-  // the screen bottom. Lift it by the keyboard height *minus* that already-
-  // reserved band so its content lands a constant gap above the keyboard.
-  const composerKeyboardStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: -Math.max(0, keyboard.height.value - insets.bottom) },
-    ],
-  }));
+  // Once the keyboard settles, its height is the travel for the next close
+  // and open, including a height change while it's up (QuickType, emoji).
+  useAnimatedReaction(
+    () =>
+      keyboard.state.value === KeyboardState.OPEN ? keyboard.height.value : -1,
+    (settled) => {
+      if (settled > 0) keyboardTargetHeight.value = settled;
+    },
+  );
+  // The composer rests at `composerBottomPad` (the shell's bottom band) above
+  // the screen bottom, and must end a constant gap above the keyboard, so it
+  // travels the keyboard height *minus* that band. Spread that travel over
+  // the keyboard's whole motion rather than waiting for the keyboard to climb
+  // past the band: the composer starts moving on the keyboard's first frame
+  // and the two land together, in both directions.
+  const composerKeyboardStyle = useAnimatedStyle(() => {
+    const height = keyboard.height.value;
+    const travel = Math.max(keyboardTargetHeight.value, height);
+    const lift =
+      travel > 0 ? (height / travel) * Math.max(0, travel - bottomInset) : 0;
+    return { transform: [{ translateY: -lift }] };
+  });
   // Extra reading area the message list must reserve below its content while the
   // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
-  const keyboardExtra = Math.max(0, keyboardHeight - insets.bottom);
+  const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);
 
   // The composer + working indicator overlay the bottom of the chat. We
   // measure their actual height so the list can reserve matching
@@ -3068,51 +3099,10 @@ export function ChatPane({
   // clipped by it. The composer's keyboard lift is a transform, so this
   // measured height stays constant across keyboard show/hide.
   const [footerHeight, setFooterHeight] = useState(0);
-  const [listViewportHeight, setListViewportHeight] = useState(0);
-  const [chatTailHeightPx, setChatTailHeightPx] = useState(CHAT_TAIL_GAP);
-  const listBottomInsetPx = EDGE_FADE + footerHeight + keyboardExtra;
-  // The target is viewport-derived, but the current tail starts at its real
-  // working-indicator floor. An accepted send expands it; upward user scroll
-  // consumes it one-for-one until only that floor remains.
-  const responseSpacerTargetHeightPx = resolveResponseSpacerHeight({
-    viewportHeight: listViewportHeight,
-    bottomInsetPx: listBottomInsetPx,
-    minimumHeightPx: listBottomInsetPx + CHAT_TAIL_GAP,
-  });
-  const chatTailTargetHeightPx = Math.max(
-    CHAT_TAIL_GAP,
-    responseSpacerTargetHeightPx - listBottomInsetPx,
-  );
-  const listTrailingSlackPx = listBottomInsetPx + chatTailHeightPx;
-  const responseSpacerHeightPx = Math.max(0, chatTailHeightPx - CHAT_TAIL_GAP);
-  // Accepts an explicit chat-tail height: a send activates the spacer against
-  // the keyboard-DOWN inset (it dismisses the keyboard in the same breath), so
-  // it cannot use this render's keyboard-inflated `chatTailTargetHeightPx`.
-  const activateResponseSpacer = useCallback((chatTailPx: number) => {
-    setChatTailHeightPx(Math.max(CHAT_TAIL_GAP, chatTailPx));
-  }, []);
-  const clearResponseSpacer = useCallback(() => {
-    setChatTailHeightPx(CHAT_TAIL_GAP);
-  }, []);
-  const consumeResponseSpacer = useCallback((distanceDeltaPx: number) => {
-    setChatTailHeightPx((currentHeightPx) =>
-      consumeResponseSpacerHeight({
-        currentHeightPx,
-        minimumHeightPx: CHAT_TAIL_GAP,
-        distanceDeltaPx,
-      }),
-    );
-  }, []);
-  // A viewport/keyboard shrink may cap the current spacer, but growing the
-  // viewport never recreates space the user already consumed.
-  useEffect(() => {
-    setChatTailHeightPx((current) =>
-      Math.max(CHAT_TAIL_GAP, Math.min(current, chatTailTargetHeightPx)),
-    );
-  }, [chatTailTargetHeightPx]);
-  const onViewportLayout = useCallback((event: LayoutChangeEvent) => {
-    setListViewportHeight(Math.round(event.nativeEvent.layout.height));
-  }, []);
+  // The list runs under the composer, so its reserved inset is exactly the
+  // overlay; the chat tail supplies the gap between the last row and it.
+  const listBottomInsetPx = footerHeight + keyboardExtra;
+  const listTrailingSlackPx = listBottomInsetPx + CHAT_TAIL_GAP;
 
   // The footer (working indicator + composer) re-measures on every frame of any
   // layout animation it runs. Each measurement re-renders the list padding and
@@ -3179,13 +3169,7 @@ export function ChatPane({
     [],
   );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
-  const scroll = useChatScroll(
-    listTrailingSlackPx,
-    responseSpacerHeightPx,
-    lastMessage?.id ?? null,
-    consumeResponseSpacer,
-    clearResponseSpacer,
-  );
+  const scroll = useChatScroll(listTrailingSlackPx, lastMessage?.id ?? null);
 
   const [unread, setUnread] = useState(false);
   const prevLenRef = useRef(0);
@@ -3274,11 +3258,9 @@ export function ChatPane({
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
   // `streaming` is often still false at that render (always over the computer
-  // bridge) — and scrolls to the literal content end, full response spacer
-  // included, fighting the custom post-send nudge that owns the tail. Suppress
-  // it while a send-nudge is in flight; streaming or the next appended row
-  // releases this identity latch. The custom owner remains active for the
-  // reserved response space, including the final idle answer append.
+  // bridge) — and scrolls to the literal content end, fighting the custom
+  // post-send nudge that owns the tail. Suppress it while a send-nudge is in
+  // flight; streaming or the next appended row releases this identity latch.
   const [sendPinSuppressForId, setSendPinSuppressForId] = useState<
     string | null
   >(null);
@@ -3293,9 +3275,6 @@ export function ChatPane({
     isFollowingLatest: scroll.isFollowingLatest,
     isStreaming: streaming,
     postSendPlacementPending: sendPinSuppressForId !== null,
-    // Completion can append the final answer in the same render that busy
-    // becomes false. End-pinning here would scroll into reserved blank space.
-    hasResponseSpacer: responseSpacerHeightPx > 0,
   });
   const scrollOwnerRef = useRef(dataChangeScrollOwner);
   scrollOwnerRef.current = dataChangeScrollOwner;
@@ -3415,36 +3394,20 @@ export function ChatPane({
     const shouldPlaceLatestTurn = scroll.getShouldPlaceLatestTurn();
     const submitted = onSubmit();
     if (submitted && shouldPlaceLatestTurn) {
-      // Spacer and scroll anchor are computed against the keyboard-DOWN
-      // inset: `Keyboard.dismiss()` below collapses `keyboardExtra` a few
-      // frames from now, and a target derived from the inflated inset would
-      // be left ~keyboard-height past the content end once the padding
-      // shrinks.
-      const restingBottomInsetPx = EDGE_FADE + footerHeight;
-      const restingSpacerTargetPx = resolveResponseSpacerHeight({
-        viewportHeight: listViewportHeight,
-        bottomInsetPx: restingBottomInsetPx,
-        minimumHeightPx: restingBottomInsetPx + CHAT_TAIL_GAP,
-      });
-      activateResponseSpacer(restingSpacerTargetPx - restingBottomInsetPx);
       setSendPinSuppressForId(submitted.userMessageId);
       // Always start from the committed message list, even with no keyboard.
-      // The effect also waits for the keyboard-down inset when needed.
+      // The effect waits for the keyboard-down inset: `Keyboard.dismiss()`
+      // below collapses `keyboardExtra` a few frames from now, and a target
+      // derived from the inflated inset would land past the content end.
       pendingSendNudgeRef.current = {
         userMessageId: submitted.userMessageId,
       };
     } else if (submitted) {
-      clearResponseSpacer();
       scroll.releaseFollow();
     }
     Keyboard.dismiss();
   }, [
     onSubmit,
-    activateResponseSpacer,
-    clearResponseSpacer,
-    footerHeight,
-    keyboardExtra,
-    listViewportHeight,
     scroll.getShouldPlaceLatestTurn,
     scroll.nudgeAfterSend,
     scroll.releaseFollow,
@@ -4175,12 +4138,11 @@ export function ChatPane({
   const getItemType = useCallback((item: ChatMessage) => item.role, []);
 
   // The working indicator rides at the tail of the chat (desktop-style) instead
-  // of floating above the composer. Its viewport-derived tail reserves the
-  // response area below the latest turn; the indicator itself keeps a stable
-  // slot, so fading it in or out never changes the footer's height.
+  // of floating above the composer. It keeps a stable slot, so fading it in or
+  // out never changes the footer's height.
   const listFooter = useMemo(
     () => (
-      <View style={[styles.chatTail, { minHeight: chatTailHeightPx }]}>
+      <View style={styles.chatTail}>
         <WorkingIndicator
           active={workingIndicator?.active ?? streaming}
           exitImmediately={workingIndicator?.exitImmediately}
@@ -4190,7 +4152,7 @@ export function ChatPane({
         />
       </View>
     ),
-    [chatTailHeightPx, streaming, workingIndicator, styles.chatTail],
+    [streaming, workingIndicator, styles.chatTail],
   );
 
   // Search shows a separate results menu that overlays the chat (the chat
@@ -4359,7 +4321,7 @@ export function ChatPane({
   );
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
-      <View style={styles.viewport} onLayout={onViewportLayout}>
+      <View style={styles.viewport}>
         {historyLoading ? (
           // Hold a stable blank surface while history hydrates so the empty
           // state never flashes during a tab transition.
@@ -5103,7 +5065,6 @@ const makeStyles = (colors: Colors) =>
     list: {
       paddingHorizontal: CHAT_HORIZONTAL_INSET,
       paddingTop: 80,
-      paddingBottom: EDGE_FADE,
     },
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working
@@ -5489,9 +5450,9 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
-      minHeight: 56,
+      minHeight: 50,
       paddingHorizontal: 8,
-      paddingVertical: 11,
+      paddingVertical: 8,
     },
     expandedInputBlock: { flexDirection: "column" },
 

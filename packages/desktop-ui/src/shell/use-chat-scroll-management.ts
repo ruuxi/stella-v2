@@ -23,8 +23,8 @@
  *     ourselves means the user's wheel always wins — the loop yields
  *     immediately on any user input and only resumes when the user is
  *     near the bottom again.
- *   - **post-send scroll** routed through the same lerp loop so the
- *     user-message reveal blends with any concurrent stream-follow
+ *   - **post-send follow** to the end of content, routed through the
+ *     same lerp loop so it blends with any concurrent stream-follow
  *     motion rather than fighting it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,13 +32,7 @@ import type { LegendListRef } from "@legendapp/list/react";
 import { subscribeChatContentGrowth } from "@/shell/chat-scroll-follow";
 import {
   AT_BOTTOM_TOLERANCE_PX,
-  CHAT_VIEWPORT_BOTTOM_FADE_PX,
-  POST_SEND_USER_MESSAGE_BREATHING_PX,
-  consumeResponseSpacerHeight,
-  resolveIdleTailTarget,
-  resolvePostSendTarget,
-  resolveResponseSpacerHeight,
-  shouldPlaceLatestTurn,
+  shouldFollowSend,
 } from "@/shell/chat-follow-target";
 import {
   captureChatPrependAnchor,
@@ -94,14 +88,14 @@ const FOLLOW_MAX_FRAME_MS = 48;
 const FOLLOW_DEFAULT_FRAME_MS = 16;
 const FOLLOW_HARD_SNAP_PX = 240;
 /**
- * Gentle one-shot motion profile for the post-send nudge.
+ * Gentle one-shot motion profile for the post-send follow.
  *
- * The post-send reframe is a single settle into the reading position with
+ * The post-send follow is a single settle to the end of content with
  * no streaming pressure, so it reads better as a slow ease-out rather than
  * the spring's stream-tuned glide. A low constant factor gives an
  * exponential ease-out that decelerates into the target over ~20–30
  * frames, and it skips the hard snap entirely so even a tall just-sent
- * bubble eases instead of teleporting. If a stream chunk arrives mid-nudge
+ * bubble eases instead of teleporting. If a stream chunk arrives mid-follow
  * its (non-gentle) `setTarget` clears the gentle flag and the spring takes
  * over — the two motions blend on the same loop instead of fighting.
  */
@@ -115,22 +109,11 @@ const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
  */
 const FOLLOW_MIN_STEP_PX = 0.5;
 
-// Where the follow lands — breathing margin, bottom-fade inset, top peek —
-// lives in `chat-follow-target` as pure geometry. This module owns the motion
-// that gets there.
+// Every follow lands at the literal end of content; the distance bands that
+// gate it live in `chat-follow-target`. This module owns the motion.
 
-/** Matches `.event-list-trailing-region` min-heights in full-shell.chat.css */
-const TRAILING_REGION_MIN_PX = {
-  full: 160,
-  compact: 120,
-} as const;
-
-/** Extra slack beyond the trailing-region min-height for follow re-arm (less than post-send breathing). */
-const FOLLOW_REARM_EXTRA_PX = 24;
-
-/** Re-arm stream auto-follow after scroll-up within the footer stack below the last message. */
-const followRearmThresholdPx = (trailingRegionMinPx: number): number =>
-  trailingRegionMinPx + FOLLOW_REARM_EXTRA_PX;
+/** Re-arm stream auto-follow once a toward-bottom scroll settles this close to the end. */
+const FOLLOW_REARM_THRESHOLD_PX = 24;
 
 const isTextEditingTarget = (target: EventTarget | null): boolean =>
   target instanceof Element &&
@@ -140,7 +123,7 @@ const isTextEditingTarget = (target: EventTarget | null): boolean =>
     ),
   );
 
-type ChatScrollSurface = keyof typeof TRAILING_REGION_MIN_PX;
+type ChatScrollSurface = "full" | "compact";
 
 type ChatScrollManagementOptions = {
   hasOlderEvents?: boolean;
@@ -151,15 +134,13 @@ type ChatScrollManagementOptions = {
   onLoadNewer?: () => boolean | void | Promise<boolean>;
   onLoadLatest?: () => boolean | void | Promise<boolean>;
   paginationKey?: string | null;
-  /** Compact chat surfaces use the compact trailing-region min-height. */
+  /** Labels this surface in pagination debug events. */
   surface?: ChatScrollSurface;
 };
 
 type FollowTargetOptions = {
-  /** Post-send positioning may scroll up to reveal a tall user bubble. */
-  allowBackward?: boolean;
   /**
-   * Use the slow ease-out motion profile (post-send nudge) instead of
+   * Use the slow ease-out motion profile (post-send follow) instead of
    * the snappy stream-follow lerp. Cleared automatically when a later
    * non-gentle `setTarget` (e.g. a streaming chunk) retargets the loop.
    */
@@ -171,14 +152,8 @@ type FollowApi = {
   setTarget: (target: number, options?: FollowTargetOptions) => void;
   /** Bump the current target (or scrollTop if idle) by `delta` px. */
   nudgeBy: (delta: number) => void;
-  /** Scroll the latest user row into view with trailing reading space. */
-  scrollLatestUserMessageIntoView: () => void;
-  /** Scroll the active queued follow-up stack into view during streaming. */
-  scrollQueuedMessagesIntoView: () => void;
-  /** Expand the turn-scoped response area to its current viewport target. */
-  activateResponseSpacer: () => void;
-  /** Return the response area to the surface's real footer floor. */
-  clearResponseSpacer: () => void;
+  /** Gently settle to the live end of content. */
+  followToEnd: () => void;
   /** Stop the lerp loop and drop the pending target. */
   cancel: () => void;
 };
@@ -194,10 +169,6 @@ export function useChatScrollManagement({
   paginationKey = null,
   surface = "full",
 }: ChatScrollManagementOptions = {}) {
-  const trailingRegionMinPx = TRAILING_REGION_MIN_PX[surface];
-  const followRearmThreshold = followRearmThresholdPx(trailingRegionMinPx);
-  const responseSpacerBottomInsetPx =
-    surface === "full" ? CHAT_VIEWPORT_BOTTOM_FADE_PX : 0;
   const onListRefChange = useRef<(() => void) | null>(null);
   // Keep the object-ref API used by scroll consumers, but notify on Legend's
   // mount/unmount commits instead of polling its DOM node while idle.
@@ -215,9 +186,6 @@ export function useChatScrollManagement({
   }, []);
   const attachedScrollNodeRef = useRef<HTMLElement | null>(null);
   const mountedRef = useRef(false);
-  const responseSpacerHeightRef = useRef<number>(trailingRegionMinPx);
-  const responseSpacerTargetHeightRef = useRef<number>(trailingRegionMinPx);
-  const responseSpacerExpandedRef = useRef(false);
   const paginationGateRef = useRef(new ChatHistoryPaginationGate());
   const newerPaginationGateRef = useRef(new ChatHistoryPaginationGate("end"));
   const paginationActionIdRef = useRef(0);
@@ -266,12 +234,11 @@ export function useChatScrollManagement({
   }, [paginationKey]);
   /**
    * A generous "at bottom" flag: true while the freshest turn is still on
-   * screen (distance from the readable bottom within `AT_BOTTOM_TOLERANCE_PX`,
-   * the response spacer discounted). Unlike `isFollowingLatest` — the motion
-   * latch that drops the instant the user nudges upward — this stays true
-   * through a barely-there scroll, so UI decisions gated on "is the user
-   * genuinely scrolled up?" (the streaming reply peek) don't fire when the
-   * user can still see the latest messages.
+   * screen (distance from the end within `AT_BOTTOM_TOLERANCE_PX`). Unlike
+   * `isFollowingLatest` — the motion latch that drops the instant the user
+   * nudges upward — this stays true through a barely-there scroll, so UI
+   * decisions gated on "is the user genuinely scrolled up?" (the streaming
+   * reply peek) don't fire when the user can still see the latest messages.
    */
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [isFollowingLatest, setIsFollowingLatest] = useState(true);
@@ -327,9 +294,9 @@ export function useChatScrollManagement({
    */
   const followRef = useRef(true);
   const isFollowingLatestRef = useRef(true);
-  // An upward gesture keeps follow released even if consuming the synthetic
-  // spacer leaves the DOM at its literal end. Only a toward-bottom gesture or
-  // an explicit latest-turn action may re-arm it.
+  // An upward gesture keeps follow released even while the viewport is still
+  // inside the re-arm band near the end. Only a toward-bottom gesture or an
+  // explicit latest-turn action may re-arm it.
   const followRearmBlockedRef = useRef(false);
 
   const setFollow = useCallback((following: boolean) => {
@@ -349,7 +316,7 @@ export function useChatScrollManagement({
    * Imperative bridge to the per-scroll-element follow loop. Populated
    * by the setup effect once Legend's scrollable node is attached, and
    * cleared on cleanup. Surfaces drive it indirectly through
-   * `nudgeAfterSend` / `releaseFollow` / `scrollToBottom`.
+   * `followAfterSend` / `releaseFollow` / `scrollToBottom`.
    */
   const followApi = useRef<FollowApi | null>(null);
 
@@ -417,15 +384,7 @@ export function useChatScrollManagement({
       const { scroll, scrollLength, contentLength, isAtEnd } = state;
       const distFromEnd = Math.max(0, contentLength - scrollLength - scroll);
       const shouldShowScrollButton = distFromEnd > SCROLL_BUTTON_THRESHOLD;
-      // Discount the synthetic response spacer that inflates the physical end
-      // during a turn, so "near bottom" tracks the readable content, not the
-      // blank reading gutter below it.
-      const spacerOveragePx = Math.max(
-        0,
-        responseSpacerHeightRef.current - trailingRegionMinPx,
-      );
-      const nearBottom =
-        isAtEnd || distFromEnd - spacerOveragePx <= AT_BOTTOM_TOLERANCE_PX;
+      const nearBottom = isAtEnd || distFromEnd <= AT_BOTTOM_TOLERANCE_PX;
 
       if (isAtBottomRef.current !== isAtEnd) {
         isAtBottomRef.current = isAtEnd;
@@ -441,31 +400,22 @@ export function useChatScrollManagement({
       }
       updateThumb(scroll, scrollLength, contentLength);
 
-      // Re-arm follow when back in the normal reading position above the
-      // off-screen trailing footer (not only at the literal scroll end).
+      // Re-arm follow when back at (or within a small settle of) the end.
       if (
         !followRearmBlockedRef.current &&
-        (isAtEnd || distFromEnd <= followRearmThreshold)
+        (isAtEnd || distFromEnd <= FOLLOW_REARM_THRESHOLD_PX)
       ) {
         setFollow(true);
       }
     });
-  }, [
-    listRef,
-    followRearmThreshold,
-    setFollow,
-    trailingRegionMinPx,
-    updateThumb,
-  ]);
+  }, [listRef, setFollow, updateThumb]);
 
   const scrollToBottom = useCallback(
     (behavior: "instant" | "smooth" = "smooth") => {
-      responseSpacerExpandedRef.current = false;
       setFollow(true);
       // Legend's own scrollToEnd owns this motion; cancel any lerp
       // so we don't write scrollTop on the same frame Legend does.
       followApi.current?.cancel();
-      followApi.current?.clearResponseSpacer();
       const history = historyOptionsRef.current;
       if (history.hasNewerEvents) {
         if (!history.onLoadLatest) return;
@@ -506,19 +456,17 @@ export function useChatScrollManagement({
   /**
    * Reads the follow latch — true while content growth should pull
    * the viewport along with new content. This is the right signal
-   * for "should I auto-nudge on the next send?" because the latch
-   * survives the gap between when a short assistant reply finishes
-   * (leaving the user above the absolute end with the trailing footer
-   * off-screen) and when the next user message lands.
+   * for "should I follow on the next send?" because the latch survives
+   * the gap between when a short assistant reply finishes and when the
+   * next user message lands.
    */
   const getIsFollowing = useCallback(() => followRef.current, []);
 
   /**
-   * Snapshot whether a new turn should be placed in the Codex-style reading
-   * position. The physical end includes the synthetic response spacer, so
-   * subtract it before applying the 300px scrollback gate.
+   * Snapshot whether a send should follow to the bottom: the follow latch is
+   * armed and the user is within the scrollback gate of the end.
    */
-  const getShouldPlaceLatestTurn = useCallback(() => {
+  const getShouldFollowSend = useCallback(() => {
     const node =
       attachedScrollNodeRef.current ?? listRef.current?.getScrollableNode();
     if (!node) return followRef.current;
@@ -526,23 +474,18 @@ export function useChatScrollManagement({
       0,
       node.scrollHeight - node.clientHeight - node.scrollTop,
     );
-    return shouldPlaceLatestTurn({
+    return shouldFollowSend({
       distanceFromBottomPx,
-      responseSpacerHeightPx: Math.max(
-        0,
-        responseSpacerHeightRef.current - trailingRegionMinPx,
-      ),
       isFollowingLatest: followRef.current,
     });
-  }, [listRef, trailingRegionMinPx]);
+  }, [listRef]);
 
   /**
    * Snapshot whether the user is effectively at the bottom — the freshest turn
    * still on screen — regardless of the motion follow latch (a stray upward
    * nudge releases the latch but does not scroll the latest messages out of
    * view). Used by the send handler to treat a near-bottom send as an
-   * at-bottom send: pin to the newest content rather than reframe the just-sent
-   * message near the top. Purely distance-based, the response spacer discounted.
+   * at-bottom send and follow to the newest content. Purely distance-based.
    */
   const getIsEffectivelyAtBottom = useCallback(() => {
     const node =
@@ -552,12 +495,8 @@ export function useChatScrollManagement({
       0,
       node.scrollHeight - node.clientHeight - node.scrollTop,
     );
-    const spacerOveragePx = Math.max(
-      0,
-      responseSpacerHeightRef.current - trailingRegionMinPx,
-    );
-    return distanceFromBottomPx - spacerOveragePx <= AT_BOTTOM_TOLERANCE_PX;
-  }, [listRef, trailingRegionMinPx]);
+    return distanceFromBottomPx <= AT_BOTTOM_TOLERANCE_PX;
+  }, [listRef]);
 
   // Clear observers and animation work owned outside the attach lifecycle.
   useEffect(() => {
@@ -741,28 +680,24 @@ export function useChatScrollManagement({
    * growth auto-scrolls the user to the bottom even though they were
    * up in history. Paired with `scrollToBottom` (the existing arm-
    * the-latch op) so the send handler can express the user's intent
-   * directly: nudge-to-bottom + arm follow, or stay-put + release
+   * directly: follow-to-bottom + arm follow, or stay-put + release
    * follow.
    */
   const releaseFollow = useCallback(() => {
-    responseSpacerExpandedRef.current = false;
     followRearmBlockedRef.current = true;
     setFollow(false);
     followApi.current?.cancel();
-    followApi.current?.clearResponseSpacer();
   }, [setFollow]);
 
   /**
-   * Smooth one-shot latest-turn placement used by send handlers when the
-   * user fires a message from near the bottom. Routes through the same
-   * lerp loop as the streaming auto-follow so the two motions blend
-   * (nudge → stream-follow as the assistant reply arrives) rather
-   * than fighting via separate concurrent rAF tweens writing
-   * scrollTop on alternating frames.
+   * Bump the follow target by `delta` px through the same lerp loop as
+   * the streaming auto-follow, so the two motions blend rather than
+   * fighting via separate concurrent rAF tweens writing scrollTop on
+   * alternating frames.
    *
-   * The two-rAF wait lets the optimistic user-message row lay out
-   * and grow `scrollHeight` before we bump, so the target lands at
-   * a real position rather than getting clamped to the old maxScroll.
+   * The two-rAF wait lets freshly rendered rows lay out and grow
+   * `scrollHeight` before we bump, so the target lands at a real
+   * position rather than getting clamped to the old maxScroll.
    */
   const nudgeBy = useCallback(
     (delta: number) => {
@@ -777,35 +712,18 @@ export function useChatScrollManagement({
   );
 
   /**
-   * After send, scroll so the latest user bubble is fully visible and
-   * the footer trailing region (empty reading area for the assistant)
-   * sits below it — not just a fixed ~48px bump that leaves tall bubbles
-   * clipped at the top while empty space exists off-screen below.
+   * After an accepted send, arm follow and settle to the end of content.
+   * The just-sent user row (or, mid-stream, the queued follow-up item) is
+   * the last list item, so the end frames it just above the composer; the
+   * reply then arrives below it and the content-growth follow keeps the
+   * viewport at the end. The two-rAF wait lets the optimistic row lay out
+   * before the loop starts chasing the end.
    */
-  const nudgeAfterSend = useCallback(() => {
-    responseSpacerExpandedRef.current = true;
+  const followAfterSend = useCallback(() => {
     setFollow(true);
-    followApi.current?.activateResponseSpacer();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        followApi.current?.scrollLatestUserMessageIntoView();
-      });
-    });
-  }, [setFollow]);
-
-  /**
-   * While a stream is active, additional sends render as queued chips in
-   * the footer instead of as new event rows. Keep those chips in frame
-   * without reusing the latest-user-row nudge, which would target the
-   * previous turn and can scroll backward.
-   */
-  const nudgeQueuedMessagesIntoView = useCallback(() => {
-    responseSpacerExpandedRef.current = true;
-    setFollow(true);
-    followApi.current?.activateResponseSpacer();
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        followApi.current?.scrollQueuedMessagesIntoView();
+        followApi.current?.followToEnd();
       });
     });
   }, [setFollow]);
@@ -847,83 +765,6 @@ export function useChatScrollManagement({
       cleanup();
       attached = node;
       attachedScrollNodeRef.current = node;
-
-      const writeResponseSpacerHeight = (height: number) => {
-        if (!attached) return;
-        const clamped = Math.max(trailingRegionMinPx, height);
-        responseSpacerHeightRef.current = clamped;
-        attached.style.setProperty(
-          "--chat-response-spacer-height",
-          `${clamped}px`,
-        );
-      };
-      const syncResponseSpacerTargetHeight = () => {
-        if (!attached) return;
-        const target = resolveResponseSpacerHeight({
-          viewportHeight: attached.clientHeight,
-          bottomInsetPx: responseSpacerBottomInsetPx,
-          minimumHeightPx: trailingRegionMinPx,
-        });
-        responseSpacerTargetHeightRef.current = target;
-        // While a latest-turn placement is live (`responseSpacerExpandedRef`),
-        // the spacer height is exactly what the post-send nudge target is
-        // measured against, so it must stay put. An incidental resize /
-        // re-measure pass during the send (the composer clearing, virtualized
-        // rows settling) would otherwise shrink it mid-nudge — dropping
-        // `maxScroll`, clamping `scrollTop`, and stranding the just-sent row in
-        // the middle of the viewport. So during a placement never shrink it;
-        // only grow toward the (fresh) target if we somehow sit below it. The
-        // user scrolling up (`consumeResponseSpacer`) or a scroll-to-bottom /
-        // release still collapses it, and a fresh send re-establishes it.
-        if (responseSpacerExpandedRef.current) {
-          if (responseSpacerHeightRef.current < target) {
-            writeResponseSpacerHeight(target);
-          }
-          return;
-        }
-        // Not placed: match Codex resize behavior — cap an existing spacer when
-        // the viewport shrinks, but do not regrow consumed space on resize.
-        writeResponseSpacerHeight(
-          Math.min(responseSpacerHeightRef.current, target),
-        );
-      };
-      const activateResponseSpacer = () => {
-        if (!attached) return;
-        responseSpacerExpandedRef.current = true;
-        // Settle the spacer to its FINAL height for this placement up front,
-        // measured from the CURRENT viewport (the composer has usually just
-        // cleared), so the nudge target computed a couple of frames later lands
-        // against a stable bottom-space and the row can reach the top in one
-        // motion. Freezing above then keeps this height put through the nudge.
-        const target = resolveResponseSpacerHeight({
-          viewportHeight: attached.clientHeight,
-          bottomInsetPx: responseSpacerBottomInsetPx,
-          minimumHeightPx: trailingRegionMinPx,
-        });
-        responseSpacerTargetHeightRef.current = target;
-        writeResponseSpacerHeight(target);
-      };
-      const clearResponseSpacer = () => {
-        responseSpacerExpandedRef.current = false;
-        writeResponseSpacerHeight(trailingRegionMinPx);
-      };
-      const consumeResponseSpacer = (distanceDeltaPx: number) => {
-        const next = consumeResponseSpacerHeight({
-          currentHeightPx: responseSpacerHeightRef.current,
-          minimumHeightPx: trailingRegionMinPx,
-          distanceDeltaPx,
-        });
-        writeResponseSpacerHeight(next);
-        if (next <= trailingRegionMinPx) {
-          responseSpacerExpandedRef.current = false;
-        }
-      };
-      syncResponseSpacerTargetHeight();
-      const responseSpacerResizeObserver =
-        typeof ResizeObserver === "undefined"
-          ? null
-          : new ResizeObserver(syncResponseSpacerTargetHeight);
-      responseSpacerResizeObserver?.observe(node);
 
       emitChatHistoryPaginationDebug({
         type: "scroll-node-attached",
@@ -1215,21 +1056,22 @@ export function useChatScrollManagement({
           attached.scrollHeight - attached.clientHeight,
         );
         const clamped = Math.max(0, Math.min(maxScroll, newTarget));
-        // Don't follow backwards during stream-follow (would scroll the
-        // user up against their intent). Post-send positioning opts in.
-        if (!options.allowBackward && clamped <= attached.scrollTop + 0.5) {
-          return;
-        }
+        // Never follow backwards (would scroll the user up against their
+        // intent).
+        if (clamped <= attached.scrollTop + 0.5) return;
         const gentle = Boolean(options.gentle);
         // Scroll placement is functional continuity rather than decorative
-        // motion. Always use the same gentle send/turn reframe on every OS;
+        // motion. Always use the same gentle send follow on every OS;
         // letting Windows' system animation setting replace this with a direct
         // scrollTop write made sends feel rigid compared with macOS.
         // Switching from a warm spring glide into a gentle one-shot (or
         // vice versa) shouldn't carry stale velocity between the two
         // motion profiles.
         if (gentle !== followGentle) followVel = 0;
-        followTarget = clamped;
+        // Stored unclamped: `stepFollow` re-clamps against the live
+        // `maxScroll` every frame, so a target at or past the end keeps
+        // chasing the end while late rows measure in.
+        followTarget = Math.max(0, newTarget);
         followGentle = gentle;
         // Mark content growth so the spring loop stays warm between the
         // irregular gaps in a slow stream (gentle nudges don't extend it).
@@ -1244,127 +1086,41 @@ export function useChatScrollManagement({
         setTarget(base + delta, options);
       };
 
-      const scrollLatestUserMessageIntoView = () => {
-        if (!attached) return;
-        if (!followRef.current) return;
-        const userRow = attached.querySelector<HTMLElement>(
-          ".event-row--user--just-sent",
-        );
-        if (!userRow) {
-          // The optimistic just-sent row isn't in the DOM. This happens
-          // when the user is parked far up in history (follow latch still
-          // armed — e.g. they were following a reply taller than the
-          // viewport, pinned near its top) and the new user row
-          // virtualized off the bottom. We must NOT fall back to the last
-          // *rendered* user row: that's an earlier turn's bubble up in the
-          // current viewport, and framing it scrolls the viewport
-          // *backward* — the "send scrolled me further up" bug. Instead
-          // settle forward toward the end so the just-sent bubble (and the
-          // assistant reply about to stream below it) come into view.
-          const maxScroll = Math.max(
-            0,
-            attached.scrollHeight - attached.clientHeight,
-          );
-          setTarget(maxScroll, { gentle: true });
-          return;
-        }
-        // Use offsetTop/offsetHeight (layout geometry) rather than
-        // getBoundingClientRect (post-transform). The just-sent bubble
-        // is mid-`user-message-enter` animation here (translateY 10→0,
-        // scale 0.97→1, 360ms), so its rendered rect sits a few px
-        // below its final layout position. Measuring the rect would
-        // bake that transient offset into a static lerp target — the
-        // bubble would end ~5–7px higher in the viewport than intended
-        // and the residual transform would visibly settle after the
-        // scroll lerp finished, reading as a tiny jagged "double
-        // motion" right after send.
-        let rowTop = 0;
-        let node: HTMLElement | null = userRow;
-        while (node && node !== attached) {
-          rowTop += node.offsetTop;
-          node = node.offsetParent as HTMLElement | null;
-        }
-        const rowBottom = rowTop + userRow.offsetHeight;
-        const target = resolvePostSendTarget({
-          rowTop,
-          rowBottom,
-          viewportHeight: attached.clientHeight,
-          responseSpacerHeightPx: responseSpacerHeightRef.current,
-        });
-        setTarget(target, { allowBackward: true, gentle: true });
-      };
-
-      const scrollQueuedMessagesIntoView = () => {
-        if (!attached) return;
-        if (!followRef.current) return;
-        const queuedMessages = attached.querySelectorAll<HTMLElement>(
-          ".composer-queued-message:not(.composer-queued-message--leaving)",
-        );
-        const queuedMessage =
-          queuedMessages.length > 0
-            ? queuedMessages[queuedMessages.length - 1]!
-            : null;
-        if (!queuedMessage) return;
-        const messageRect = queuedMessage.getBoundingClientRect();
-        const containerRect = attached.getBoundingClientRect();
-        const messageBottom =
-          messageRect.bottom - containerRect.top + attached.scrollTop;
-        const target =
-          messageBottom -
-          attached.clientHeight +
-          POST_SEND_USER_MESSAGE_BREATHING_PX;
-        setTarget(target);
+      // Target the live end: `setTarget` keeps the target unclamped, so the
+      // loop follows `maxScroll` as the just-sent row and its reply measure in.
+      const followToEnd = () => {
+        setTarget(Number.POSITIVE_INFINITY, { gentle: true });
       };
 
       followApi.current = {
         setTarget,
         nudgeBy,
-        scrollLatestUserMessageIntoView,
-        scrollQueuedMessagesIntoView,
-        activateResponseSpacer,
-        clearResponseSpacer,
+        followToEnd,
         cancel: stopLoop,
       };
 
       /**
-       * Follow content growth that no streaming row anchors — an agent
-       * completion card mounting (or the spawn card settling into its taller
-       * completed form) after the run ended, and the working indicator coming
-       * up under an assistant slot that has already locked while a tool runs.
-       * Both cases have no `.event-row--streaming` to key off, so settle toward
-       * the new end of content (the trailing footer's top), the same reading
-       * position a stream-follow would have landed on.
+       * Follow content growth that no streaming row anchors — a reply
+       * arriving whole, an agent completion card mounting (or the spawn card
+       * settling into its taller completed form) after the run ended, and the
+       * working indicator coming up under an assistant slot that has already
+       * locked while a tool runs. Settle to the new end of content.
        */
       const followIdleContentGrowth = () => {
         if (!attached || !followRef.current) return;
-        const trailing = attached.querySelector<HTMLElement>(
-          ".event-list-trailing-region",
-        );
-        const containerRect = attached.getBoundingClientRect();
-        const contentBottom = trailing
-          ? trailing.getBoundingClientRect().top -
-            containerRect.top +
-            attached.scrollTop
-          : attached.scrollHeight;
-        const target = resolveIdleTailTarget({
-          contentBottom,
-          clientHeight: attached.clientHeight,
-        });
-        const distFromTarget = target - attached.scrollTop;
-        if (distFromTarget <= 0) return;
-        // The follow latch alone isn't enough of a gate here: it also stays
-        // armed while the user is pinned near the top of a taller-than-
-        // viewport reply. Only chase idle growth when the user is effectively
+        const distFromEnd =
+          attached.scrollHeight - attached.clientHeight - attached.scrollTop;
+        if (distFromEnd <= 0) return;
+        // The follow latch alone isn't enough of a gate here: it can stay
+        // armed while the viewport sits well above the end (no upward gesture
+        // released it). Only chase idle growth when the user is effectively
         // at the end — either Legend still reports at-end (scroll events
         // don't fire on pure content growth, so this reflects the pre-growth
-        // position) or the reading target is within half a viewport.
-        if (
-          !isAtBottomRef.current &&
-          distFromTarget > attached.clientHeight / 2
-        ) {
+        // position) or the end is within half a viewport.
+        if (!isAtBottomRef.current && distFromEnd > attached.clientHeight / 2) {
           return;
         }
-        setTarget(target, { gentle: true });
+        followToEnd();
       };
       let idleGrowthRaf = 0;
       const scheduleFollowIdleContentGrowth = () => {
@@ -1517,7 +1273,6 @@ export function useChatScrollManagement({
         }
         if (direction === "up" && intent?.direction === "up") {
           releaseLocalFollow();
-          consumeResponseSpacer(-delta);
           attemptHistoryLoad(intent.id, direction, "native-scroll");
         } else if (direction === "down" && intent?.direction === "down") {
           followRearmBlockedRef.current = false;
@@ -1563,12 +1318,10 @@ export function useChatScrollManagement({
       // 42px range); with no custom write Legend's MVCP held it smoothly (0
       // reversals, 21px monotonic settle). So we let MVCP own scroll position
       // across width reflows and write scrollTop only for the explicit motions
-      // (send nudge, stream follow, scroll-to-bottom button).
+      // (send follow, stream follow, scroll-to-bottom button).
 
       cleanup = () => {
         if (!attached) return;
-        responseSpacerResizeObserver?.disconnect();
-        attached.style.removeProperty("--chat-response-spacer-height");
         unsubscribeGrowth();
         if (idleGrowthRaf) {
           cancelAnimationFrame(idleGrowthRaf);
@@ -1616,11 +1369,9 @@ export function useChatScrollManagement({
   }, [
     listRef,
     noteManualScroll,
-    responseSpacerBottomInsetPx,
     scheduleScrollStateUpdate,
     setFollow,
     surface,
-    trailingRegionMinPx,
   ]);
 
   return {
@@ -1633,11 +1384,10 @@ export function useChatScrollManagement({
     showScrollButton: showScrollButton || hasNewerEvents,
     scrollToBottom,
     releaseFollow,
-    nudgeAfterSend,
-    nudgeQueuedMessagesIntoView,
+    followAfterSend,
     nudgeBy,
     getIsFollowing,
-    getShouldPlaceLatestTurn,
+    getShouldFollowSend,
     getIsEffectivelyAtBottom,
     thumbRef: setThumbRef,
   };

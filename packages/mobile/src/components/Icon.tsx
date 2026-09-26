@@ -60,7 +60,10 @@ export type IconName =
   | "rotate-ccw"
   | "text-cursor"
   | "quote"
-  | "alert-circle";
+  | "alert-circle"
+  | "chat"
+  | "apps"
+  | "artifacts";
 
 const FEATHER_NAMES: Record<
   IconName,
@@ -122,6 +125,10 @@ const FEATHER_NAMES: Record<
   "text-cursor": "type",
   quote: "corner-up-left",
   "alert-circle": "alert-circle",
+  chat: "message-circle",
+  // Feather has no round dot grid; its square grid is the nearest glyph.
+  apps: "grid",
+  artifacts: "layers",
 };
 
 const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
@@ -177,6 +184,9 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   "text-cursor": "textformat",
   quote: "text.quote",
   "alert-circle": "exclamationmark.circle",
+  chat: "bubble.left",
+  apps: "circle.grid.2x2",
+  artifacts: "photo.on.rectangle.angled",
 };
 
 type IconProps = {

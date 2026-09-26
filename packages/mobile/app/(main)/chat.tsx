@@ -47,7 +47,6 @@ import {
   REASONING_OPTIONS,
   type ReasoningEffort,
 } from "../../src/lib/desktop-model-prefs";
-import { type DesktopConnection } from "../../src/lib/top-bar-status";
 import { attachmentsSettled } from "../../src/lib/chat-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
@@ -58,14 +57,12 @@ import {
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
-import { ConversationSwitcher } from "../../src/components/ConversationSwitcher";
 import { mainContentStyles } from "../../src/components/MainScreenSurface";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "../../src/components/CloudConnectorConnectCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { CloudBoundary } from "../../src/components/CloudBoundary";
-import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
@@ -113,16 +110,12 @@ function SignedInChatScreen() {
           }
         />
       ) : (
-        <ConversationSwitcher
-          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}`}
+        // One conversation per account: there is no switching or new chat.
+        <SignedInCanonicalChat
+          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
           authority={authority.authority}
-        >
-          {(selectedAuthority) => <SignedInCanonicalChat
-            key={selectedAuthority.conversationId}
-            authority={selectedAuthority}
-            reloadAuthority={authority.retry}
-          />}
-        </ConversationSwitcher>
+          reloadAuthority={authority.retry}
+        />
       )}
     </View>
   );
@@ -281,7 +274,6 @@ function ChatSurface(props: {
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
-  const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
   const [appActive, setAppActive] = useState(
     () =>
       AppState.currentState !== "background" &&
@@ -438,33 +430,6 @@ function ChatSurface(props: {
     }
   }, [access, isFocused, offline, status.available, triggerWake, waking]);
 
-  const connection: DesktopConnection =
-    status.checking || waking
-      ? "connecting"
-      : status.available
-        ? "connected"
-        : "disconnected";
-
-  // The top bar's computer button is chrome owned by the layout above this
-  // route, so its state and tap handler travel through the shell store.
-  const openComputer = useCallback(() => {
-    setDeviceSheetOpen(true);
-  }, []);
-  const computerLabel = !access
-    ? t("mobile.computer.pairLabel")
-    : connection === "connecting"
-      ? t("mobile.computer.connectingLabel")
-      : connection === "connected"
-        ? t("mobile.computer.connectedLabel")
-        : t("mobile.computer.disconnectedLabel");
-  useEffect(() => {
-    publishComputerControl({
-      connection: access ? connection : null,
-      label: computerLabel,
-      onPress: openComputer,
-    });
-  }, [access, pairingResolved, connection, computerLabel, openComputer]);
-
   // The sidebar shows this conversation's background work, so it reads the
   // same rows the retired activity sheet did, published as they change.
   const {
@@ -506,6 +471,65 @@ function ChatSurface(props: {
       : status.available
         ? t("mobile.computer.statusConnected")
         : t("mobile.computer.statusAsleep");
+
+  // The Settings tab shows the paired computer and where turns run, but that
+  // state lives here, so it travels through the shell store. The chat stays
+  // mounted under every tab, so what Settings shows stays live. Built from
+  // the fields Settings reads (not the whole model-settings object, which is
+  // new every render) so streaming doesn't re-render Settings per token.
+  const connecting = status.checking || waking;
+  const showWake = !status.checking && !status.available && !waking;
+  const modelHidden = !access || modelSettings.developerModeEnabled === false;
+  const {
+    selectedModelLabel: modelLabel,
+    catalog: modelCatalog,
+    syncFromSnapshot,
+  } = modelSettings;
+  const computerModel = useMemo(
+    () =>
+      modelHidden
+        ? null
+        : {
+            label: modelLabel,
+            catalog: modelCatalog,
+            onApplied: syncFromSnapshot,
+          },
+    [modelHidden, modelLabel, modelCatalog, syncFromSnapshot],
+  );
+  useEffect(() => {
+    if (!pairingResolved) return;
+    publishComputerControl({
+      access,
+      pairedDesktops,
+      platformLabel,
+      statusLabel,
+      statusAvailable: status.available,
+      connecting,
+      showWake,
+      onWake: wake,
+      onRepaired: onAccessChange,
+      executionTarget,
+      onExecutionTargetChange,
+      model: computerModel,
+      composerModelPinned,
+      onComposerModelPinnedChange: setComposerModelPinned,
+    });
+  }, [
+    pairingResolved,
+    access,
+    pairedDesktops,
+    platformLabel,
+    statusLabel,
+    status.available,
+    connecting,
+    showWake,
+    wake,
+    onAccessChange,
+    executionTarget,
+    onExecutionTargetChange,
+    computerModel,
+    composerModelPinned,
+  ]);
 
   const canSubmit =
     (thread.draft.trim().length > 0 ||
@@ -662,24 +686,6 @@ function ChatSurface(props: {
         activityTasks={thread.conversationTasks}
         onOpenActivity={requestOpenSidebar}
         catchingUp={thread.catchingUp}
-      />
-      <ComputerDeviceSheet
-        visible={deviceSheetOpen}
-        onClose={() => setDeviceSheetOpen(false)}
-        access={access}
-        platformLabel={platformLabel}
-        statusLabel={statusLabel}
-        statusAvailable={status.available}
-        connecting={status.checking || waking}
-        showWake={!status.checking && !status.available && !waking}
-        onWake={wake}
-        onRepaired={onAccessChange}
-        pairedDesktops={pairedDesktops}
-        executionTarget={executionTarget}
-        onExecutionTargetChange={onExecutionTargetChange}
-        modelSettings={modelSettings}
-        composerModelPinned={composerModelPinned}
-        onComposerModelPinnedChange={setComposerModelPinned}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}

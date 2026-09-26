@@ -1920,6 +1920,7 @@
     "nav": {
       "chat": "채팅",
       "settings": "설정",
+      "apps": "앱",
       "openLabel": "탐색 열기",
       "closeLabel": "탐색 닫기",
       "account": "계정",
@@ -2029,7 +2030,8 @@
       },
       "files": {
         "empty": "아직 파일이 없습니다. Stella가 만든 모든 것이 여기에 표시됩니다.",
-        "emptyFiltered": "일치하는 파일이 없습니다."
+        "emptyFiltered": "일치하는 파일이 없습니다.",
+        "searchPlaceholder": "파일 검색"
       },
       "activity": {
         "empty": "아직 백그라운드 작업이 없습니다.",
@@ -2076,6 +2078,7 @@
       "showEmailLabel": "이메일 표시",
       "hideEmailLabel": "이메일 숨기기",
       "appearanceSection": "모양",
+      "computerSection": "컴퓨터",
       "appearance": {
         "system": "시스템",
         "light": "라이트",
@@ -2108,6 +2111,7 @@
       "forgetConfirmTitle": "{name}을(를) 해제할까요?",
       "forgetConfirmBody": "다시 페어링할 때까지 이 휴대폰은 해당 컴퓨터에 다시 연결하지 않습니다.",
       "carPlayDiagnostics": "CarPlay 진단",
+      "aboutSection": "정보",
       "openCarPlayDiagnosticsLabel": "CarPlay 진단 열기",
       "termsOfService": "서비스 약관",
       "openTermsLabel": "서비스 약관 열기",

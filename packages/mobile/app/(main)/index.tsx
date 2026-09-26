@@ -1,15 +1,16 @@
-import { Redirect } from "expo-router";
-import { useEffect, useState } from "react";
-import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
+import { useRouter } from "expo-router";
+import { useEffect } from "react";
+import {
+  enterMainShell,
+  loadLastMainTabHref,
+} from "../../src/lib/last-main-tab";
 
 export default function MainIndex() {
-  const [href, setHref] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    void loadLastMainTabHref().then(setHref);
-  }, []);
+    void loadLastMainTabHref().then((href) => enterMainShell(router, href));
+  }, [router]);
 
-  if (!href) return null;
-
-  return <Redirect href={href} />;
+  return null;
 }

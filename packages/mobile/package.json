@@ -97,6 +97,12 @@
     "typescript": "~5.9.2"
   },
   "private": true,
+  "reanimated": {
+    "staticFeatureFlags": {
+      "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true,
+      "ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
+  },
   "patchedDependencies": {
     "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
     "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",

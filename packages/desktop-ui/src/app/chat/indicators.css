@@ -136,8 +136,7 @@
 /* Timeline slot for the indicator: a small line of breathing room above so
  * it sits a touch below the assistant message rather than flush against
  * it. When the inner indicator has fully exited (`--vacated`) the slot is
- * removed from flow entirely so an idle chat carries no ghost gutter — the
- * trailing region's own `min-height` keeps the reading area. */
+ * removed from flow entirely so an idle chat carries no ghost gutter. */
 .event-list-working-indicator {
   padding-top: 4px;
 }

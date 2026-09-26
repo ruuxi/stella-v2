@@ -1,10 +1,9 @@
 /* Right-sidebar top bar navigation — see `SidebarTopNav.tsx`.
 
-   A genuine browser-tab strip whose selected-tab treatment mirrors the main
-   chat's conversation tabs (`shell/topbar/conversation-topbar.css`): tabs share
-   an overlapping hairline border, first/last (and the active tab's neighbours)
-   round their bottom corners, and the active tab goes borderless + transparent
-   so it melts seamlessly into the panel below. */
+   A genuine browser-tab strip: tabs share an overlapping hairline border,
+   first/last (and the active tab's neighbours) round their bottom corners,
+   and the active tab goes borderless + transparent so it melts seamlessly
+   into the panel below. */
 
 .sidebar-top-nav {
   display: flex;

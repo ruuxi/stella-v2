@@ -144,7 +144,6 @@ function FocusPanel({
               contentContainerStyle={FOCUS_CONTENT_STYLE}
               estimatedItemSize={140}
               alignItemsAtEnd
-              reserveTailSpace={false}
             />
           )}
         </div>

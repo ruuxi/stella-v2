@@ -1,187 +1,35 @@
 /**
- * Where auto-follow parks the live tail of the chat.
+ * Distance bands that decide how the chat treats the user's scroll position.
  *
  * `useChatScrollManagement` owns the motion (the spring loop, the manual-scroll
- * release); this module owns the *destination* — pure arithmetic over measured
- * geometry, so the framing rules can be pinned by tests without a layout engine.
- *
- * Two things make the destination less obvious than "bottom of the streaming
- * row minus a margin":
- *
- *  1. The streaming row is not the bottom of the live tail. The working
- *     indicator is its own timeline item *below* the row, and a card row can be
- *     appended mid-turn. They occupy real space, so framing the row alone parks
- *     them under the viewport edge — visible only as a sliver, which is exactly
- *     the "indicator clipped below the fold" bug.
- *  2. The scroll viewport's bottom band is not readable. `.session-content`
- *     carries a mask that fades its last `CHAT_VIEWPORT_BOTTOM_FADE_PX` to
- *     transparent, so content sitting in that band is technically inside
- *     `clientHeight` but visually gone. Breathing space measured from the raw
- *     viewport bottom is spent on the fade before any of it reads as empty
- *     space, which is why the deliberate bottom gutter never appeared.
- *
- * Both are handled by framing `resolveLiveTailBottom()` against
- * `followBottomInsetPx()` rather than the row bottom against the raw edge.
+ * release), and every follow settles at the literal end of content — the last
+ * row sits just above the composer with only the list's own bottom padding
+ * below it. This module owns the pure thresholds over the measured distance
+ * from that end, so the rules can be pinned by tests without a layout engine.
  */
 
-/**
- * Height of the bottom mask fade on `.session-content` (see the `mask-image`
- * rule in `shell/full-shell.layout.css`). Content inside this band is painted
- * at partial-to-zero opacity, so "fully visible" means clearing it. Keep in
- * sync with the CSS.
- */
-export const CHAT_VIEWPORT_BOTTOM_FADE_PX = 56;
-
-/**
- * Empty space kept below the live tail, *above* the fade band, while
- * auto-following. This is the gutter the chat is supposed to always show:
- * the latest content never sits flush against the readable bottom edge.
- *
- * It doubles as the follow loop's lag budget — the effective visible margin is
- * `FOLLOW_BREATHING_PX - lerp_lag`, and 72px keeps that positive for any
- * per-frame growth up to ~100px, which covers everything short of the rare
- * hundreds-of-px post-tool burst that the follow loop's hard snap catches.
- */
-export const FOLLOW_BREATHING_PX = 72;
-
-/**
- * Gap left above the streaming assistant row's top edge when auto-follow pins
- * to the top. Once a reply grows taller than the viewport, follow stops here
- * instead of chasing the bottom forever — the user gets a stable reading area
- * with a small peek of the prior message above so the conversation reads as
- * continuous rather than chopped.
- */
-export const FOLLOW_TOP_PEEK_PX = 56;
-
-/**
- * Height of the *top* mask fade on `.session-content` (see the `mask-image`
- * rule in `shell/full-shell.layout.css`: `transparent 0% → black 24px`).
- * Content inside this band is painted at partial-to-zero opacity, so a row
- * whose top sits here reads as clipped. Mirror of the bottom fade; keep in
- * sync with the CSS.
- */
-export const CHAT_VIEWPORT_TOP_FADE_PX = 24;
-
-/**
- * Margin kept above the just-sent user row's top edge when the send auto-scroll
- * frames it near the top. Clears the top fade band (so the whole bubble is
- * readable and never clipped by the viewport's top edge) and leaves a small
- * peek of the previous turn above it for context. Sized to the top fade plus a
- * readable sliver, which lands it at the same visual gap as `FOLLOW_TOP_PEEK_PX`.
- */
-export const POST_SEND_TOP_MARGIN_PX = CHAT_VIEWPORT_TOP_FADE_PX + 32;
-
-/** Breathing room between the user bubble's bottom edge and the footer. */
-export const POST_SEND_USER_MESSAGE_BREATHING_PX = 48;
-
-/** Portion of the readable viewport reserved below a freshly-sent turn. */
-export const RESPONSE_SPACER_VIEWPORT_RATIO = 1 / 2;
-/** Keep this much readable room for the latest turn above the spacer. */
-export const RESPONSE_SPACER_CONTENT_FLOOR_PX = 240;
 /** Do not pull a submit out of scrollback when the user is reading history. */
-export const LATEST_TURN_PLACEMENT_THRESHOLD_PX = 300;
+export const SEND_FOLLOW_THRESHOLD_PX = 300;
 
 /**
- * Distance from the readable bottom — with the synthetic response spacer
- * already subtracted — within which the freshest turn is still on screen, so
+ * Distance from the end within which the freshest turn is still on screen, so
  * the user is treated as "at the bottom" for the UI decisions that must not
  * fire on a barely-there nudge: the streaming reply peek and the post-send
- * placement. A single wheel tick off the end drops the motion follow latch
- * (that yields to the user immediately, by design), but should NOT read as
+ * follow. A single wheel tick off the end drops the motion follow latch (that
+ * yields to the user immediately, by design), but should NOT read as
  * "scrolled up" for these two decisions. Generous on purpose — if the latest
- * messages are visible, sending pins to the bottom and no peek appears. Kept
- * below LATEST_TURN_PLACEMENT_THRESHOLD_PX so the two bands stay ordered:
- * within this = at-bottom, up to the placement threshold = meaningfully
- * scrolled up, beyond = reading history.
+ * messages are visible, sending follows to the bottom and no peek appears.
+ * Kept below SEND_FOLLOW_THRESHOLD_PX so the two bands stay ordered: within
+ * this = at-bottom, up to the send threshold = meaningfully scrolled up,
+ * beyond = reading history.
  */
 export const AT_BOTTOM_TOLERANCE_PX = 200;
 
-/**
- * Distance from the raw viewport bottom at which content is both fully opaque
- * and carrying the intended gutter beneath it.
- */
-export const followBottomInsetPx = (): number =>
-  CHAT_VIEWPORT_BOTTOM_FADE_PX + FOLLOW_BREATHING_PX;
-
-export const resolveResponseSpacerHeight = ({
-  viewportHeight,
-  bottomInsetPx = CHAT_VIEWPORT_BOTTOM_FADE_PX,
-  minimumHeightPx = 0,
-}: {
-  viewportHeight: number;
-  bottomInsetPx?: number;
-  minimumHeightPx?: number;
-}): number => {
-  const readableHeight = Math.max(0, viewportHeight - bottomInsetPx);
-  const blankResponseArea = Math.max(
-    0,
-    Math.min(
-      readableHeight * RESPONSE_SPACER_VIEWPORT_RATIO,
-      readableHeight - RESPONSE_SPACER_CONTENT_FLOOR_PX,
-    ),
-  );
-  return Math.max(minimumHeightPx, bottomInsetPx + blankResponseArea);
-};
-
-export const consumeResponseSpacerHeight = ({
-  currentHeightPx,
-  minimumHeightPx,
-  distanceDeltaPx,
-}: {
-  currentHeightPx: number;
-  minimumHeightPx: number;
-  distanceDeltaPx: number;
-}): number =>
-  Math.max(minimumHeightPx, currentHeightPx - Math.max(0, distanceDeltaPx));
-
-export const shouldPlaceLatestTurn = ({
+export const shouldFollowSend = ({
   distanceFromBottomPx,
-  responseSpacerHeightPx,
   isFollowingLatest,
 }: {
   distanceFromBottomPx: number;
-  responseSpacerHeightPx: number;
   isFollowingLatest: boolean;
 }): boolean =>
-  isFollowingLatest &&
-  distanceFromBottomPx - responseSpacerHeightPx <=
-    LATEST_TURN_PLACEMENT_THRESHOLD_PX;
-
-export const resolvePostSendTarget = ({
-  rowTop,
-  rowBottom,
-  viewportHeight,
-  responseSpacerHeightPx,
-}: {
-  rowTop: number;
-  rowBottom: number;
-  viewportHeight: number;
-  responseSpacerHeightPx: number;
-}): number => {
-  const rowHeight = Math.max(0, rowBottom - rowTop);
-  const availableForRow = Math.max(0, viewportHeight - responseSpacerHeightPx);
-  const framed =
-    rowHeight <= availableForRow
-      ? rowBottom - viewportHeight + responseSpacerHeightPx
-      : rowTop;
-  // Never scroll so far that the row's top reaches (or passes) the viewport's
-  // top edge — the top fade would clip it. Cap the target so the row's top
-  // keeps `POST_SEND_TOP_MARGIN_PX` of space above it: the whole bubble clears
-  // the fade and a sliver of the previous turn peeks in for context. This also
-  // covers the tall-message case (`framed === rowTop`), which would otherwise
-  // pin the top flush to y=0. (`setTarget` clamps the result to `[0, maxScroll]`,
-  // so the very first turn near the top of content still resolves sanely.)
-  return Math.min(framed, rowTop - POST_SEND_TOP_MARGIN_PX);
-};
-
-/**
- * Destination `scrollTop` for late content growth — a completion card
- * mounting, an inline image resolving, or the working indicator taking its
- * slot. `contentBottom` is the end of laid-out content (the trailing footer's
- * top). All offsets are in scroll-container coordinates (`scrollTop`-relative).
- */
-export const resolveIdleTailTarget = (args: {
-  contentBottom: number;
-  clientHeight: number;
-}): number =>
-  Math.max(0, args.contentBottom - args.clientHeight + followBottomInsetPx());
+  isFollowingLatest && distanceFromBottomPx <= SEND_FOLLOW_THRESHOLD_PX;

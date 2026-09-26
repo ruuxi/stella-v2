@@ -28,6 +28,7 @@
  * root route (`?c=`) alone.
  */
 
+import { memo } from "react";
 import { getPlatform } from "@/platform/electron/platform";
 import {
   displayTabs,
@@ -53,7 +54,7 @@ type ShellTopBarFullProps = {
   onSignIn?: () => void;
 };
 
-export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
+export const ShellTopBarFull = memo(function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
   const t = useT();
   const platform = getPlatform();
   const isMac = platform === "darwin";
@@ -100,4 +101,4 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
       </div>
     </header>
   );
-}
+});

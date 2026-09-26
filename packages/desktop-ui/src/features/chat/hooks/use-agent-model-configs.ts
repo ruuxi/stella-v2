@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 
@@ -22,7 +22,10 @@ const signatureForTasks = (tasks: readonly TaskItem[]): string =>
 export const useAgentModelConfigs = (
   tasks: readonly TaskItem[],
 ): AgentModelConfigsByThread => {
-  const signature = signatureForTasks(tasks);
+  // Keyed on the list identity: the chat surfaces re-render on every
+  // timeline update and composer keystroke, and the signature stringifies
+  // every task's model snapshot.
+  const signature = useMemo(() => signatureForTasks(tasks), [tasks]);
   const cached = useRef<{
     signature: string;
     value: AgentModelConfigsByThread;

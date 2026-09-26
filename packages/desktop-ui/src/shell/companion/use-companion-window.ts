@@ -61,3 +61,34 @@ export const useDocumentVisible = (): boolean => {
   }, []);
   return visible;
 };
+
+/**
+ * Whether the companion is shown, per main's visibility broadcast.
+ *
+ * The companion windows run with `backgroundThrottling: false` (so the mark
+ * keeps animating over fullscreen apps), and Electron then reports
+ * `document.visibilityState` as "visible" even while the window is hidden —
+ * `useDocumentVisible` alone never flips when the user hides the companion.
+ */
+export const useCompanionVisible = (initial = true): boolean => {
+  const [visible, setVisible] = useState(initial);
+  useEffect(() => {
+    const api = window.electronAPI?.companion;
+    if (!api) return;
+    let cancelled = false;
+    void api
+      .getVisible()
+      .then((result) => {
+        if (!cancelled) setVisible(result.visible);
+      })
+      .catch(() => undefined);
+    const unsubscribe = api.onVisibleChanged((result) => {
+      if (!cancelled) setVisible(result.visible);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+  return visible;
+};

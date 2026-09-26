@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
   displayTabs,
   useDisplayPanelExpanded,
@@ -9,7 +10,7 @@ import { SidebarTopNav } from "@/shell/sidebar-sections/SidebarTopNav";
 import { PanelRight } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 
-export function DisplayPanelTopBar() {
+export const DisplayPanelTopBar = memo(function DisplayPanelTopBar() {
   const t = useT();
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
@@ -52,4 +53,4 @@ export function DisplayPanelTopBar() {
       </button>
     </header>
   );
-}
+});

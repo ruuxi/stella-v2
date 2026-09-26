@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, memo, Suspense } from 'react'
 
 /**
  * Auth and Connect render as URL-driven dialogs (`?dialog=auth|connect`).
@@ -27,7 +27,7 @@ type FullShellDialogsProps = {
   onDialogOpenChange: (open: boolean) => void
 }
 
-export function FullShellDialogs({
+export const FullShellDialogs = memo(function FullShellDialogs({
   activeDialog,
   onDialogOpenChange,
 }: FullShellDialogsProps) {
@@ -45,4 +45,4 @@ export function FullShellDialogs({
       )}
     </>
   )
-}
+});

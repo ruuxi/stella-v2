@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { getLatestAssistantPreview } from "@/features/chat/lib/latest-assistant-preview";
 
@@ -38,9 +38,13 @@ export function useAssistantReplyPeek({
   const [baselineId, setBaselineId] = useState<string | null>(latestId);
   const [dismissedId, setDismissedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isFollowingLatest || isNearBottom) setBaselineId(latestId);
-  }, [isFollowingLatest, isNearBottom, latestId]);
+  // Adjusted during render rather than in an effect: an effect re-rendered
+  // and re-committed the whole chat column after every new message that
+  // landed while following. While at the tail the peek is hidden either way,
+  // so the baseline only has to be current by the time the user scrolls away.
+  if ((isFollowingLatest || isNearBottom) && baselineId !== latestId) {
+    setBaselineId(latestId);
+  }
 
   const dismiss = useCallback(() => {
     if (latestId) setDismissedId(latestId);

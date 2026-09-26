@@ -3,7 +3,7 @@
  * toast CTAs) go through `settingsDialog` so exactly one dialog exists no
  * matter how many triggers are on screen.
  */
-import { lazy, Suspense, useCallback } from "react";
+import { lazy, memo, Suspense, useCallback } from "react";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { secureSignOut } from "@/global/auth/services/auth";
 import {
@@ -22,7 +22,7 @@ const SettingsScreen = lazy(() =>
   })),
 );
 
-export function SettingsDialogHost() {
+export const SettingsDialogHost = memo(function SettingsDialogHost() {
   const open = useSettingsDialogOpen();
   const handleSignOut = useCallback(() => {
     settingsDialog.close();
@@ -52,4 +52,4 @@ export function SettingsDialogHost() {
       </DialogContent>
     </Dialog>
   );
-}
+});

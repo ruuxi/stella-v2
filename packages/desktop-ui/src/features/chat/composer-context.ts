@@ -18,8 +18,11 @@ type ComposerContextState = {
 type SetChatContext = Dispatch<SetStateAction<ChatContext | null>>;
 type SetSelectedText = Dispatch<SetStateAction<string | null>>;
 
-type DeriveComposerStateOptions = {
-  message: string;
+type DeriveComposerStateOptions = (
+  | { message: string; hasMessage?: never }
+  /** For owners that track only whether the draft has non-blank text. */
+  | { hasMessage: boolean; message?: never }
+) & {
   chatContext?: ChatContext | null;
   selectedText?: string | null;
   conversationId?: string | null;
@@ -166,14 +169,15 @@ const resolveComposerPlaceholder = ({
 
 export const deriveComposerState = ({
   message,
+  hasMessage: hasMessageOption,
   chatContext = null,
   selectedText = null,
   conversationId = null,
   requireConversationId = false,
 }: DeriveComposerStateOptions) => {
   const contextState = resolveComposerContextState(chatContext, selectedText);
-  const trimmedMessage = message.trim();
-  const hasMessage = Boolean(trimmedMessage);
+  const trimmedMessage = message?.trim() ?? "";
+  const hasMessage = hasMessageOption ?? Boolean(trimmedMessage);
   const hasConversation = !requireConversationId || Boolean(conversationId);
   const canSubmit = Boolean(
     hasConversation && (hasMessage || contextState.hasSubmittableContext),

@@ -13,7 +13,7 @@
  * both the home full-chat composer and the sidebar composer can reuse it
  * without threading a `onAdd` callback through the chat-column types.
  */
-import { useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import { Camera, File, Paperclip } from "@/ui/icons";
 import {
@@ -75,7 +75,12 @@ function truncateFileName(
   return `${name.slice(0, max - 1)}…`;
 }
 
-export function ComposerAddMenu({
+/*
+ * Memoized: the composer re-renders on every keystroke, and this menu's
+ * Radix dropdown tree (~25 components, rendered up to twice per composer)
+ * has no dependency on the draft text. All props are stable across typing.
+ */
+export const ComposerAddMenu = memo(function ComposerAddMenu({
   setChatContext,
   className,
   title,
@@ -217,7 +222,7 @@ export function ComposerAddMenu({
       />
     </>
   );
-}
+});
 
 function FileGlyphIcon() {
   return <File size={16} strokeWidth={1.75} aria-hidden />;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EMPTY_ACTIVITY_EXPANSION,
   activityExpansionStore,
@@ -45,6 +45,32 @@ describe("activity expansion store", () => {
       EMPTY_ACTIVITY_EXPANSION,
     );
     expect(activityExpansionStore.load("conv-9")).toMatchObject(snapshot("9"));
+  });
+
+  it("skips the shared-file write when the newest entry is unchanged", () => {
+    activityExpansionStore.save("conv-a", snapshot("a"));
+    const setItem = vi.spyOn(uiState, "setItem");
+    try {
+      // Task-list churn with identical expansion sets: nothing to persist.
+      activityExpansionStore.save("conv-a", snapshot("a"));
+      expect(setItem).not.toHaveBeenCalled();
+
+      activityExpansionStore.save("conv-a", {
+        ...snapshot("a"),
+        seenTaskIds: ["task-a", "task-a2"],
+      });
+      expect(setItem).toHaveBeenCalledTimes(1);
+
+      // An unchanged but older entry is still re-stamped so LRU order holds.
+      activityExpansionStore.save("conv-b", snapshot("b"));
+      activityExpansionStore.save("conv-a", {
+        ...snapshot("a"),
+        seenTaskIds: ["task-a", "task-a2"],
+      });
+      expect(setItem).toHaveBeenCalledTimes(3);
+    } finally {
+      setItem.mockRestore();
+    }
   });
 
   it("ignores malformed persisted payloads", () => {

@@ -12,6 +12,7 @@
  * returns when the right sidebar or a narrow-width breakpoint hides it.
  */
 
+import { memo } from "react";
 import {
   AssistantReplyPeek,
   type AssistantReplyPeekProps,
@@ -25,7 +26,7 @@ type ComposerLeadRowProps = {
   showActivityPill?: boolean;
 };
 
-export function ComposerLeadRow({
+export const ComposerLeadRow = memo(function ComposerLeadRow({
   replyPeek,
   showActivityPill = false,
 }: ComposerLeadRowProps) {
@@ -37,4 +38,4 @@ export function ComposerLeadRow({
       </div>
     </div>
   );
-}
+});

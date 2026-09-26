@@ -22,6 +22,7 @@ import {
   useActiveEmojiPack,
 } from "./emoji-sprites/active-emoji-pack";
 import { remarkEmojiSprites } from "./emoji-sprites/remark-emoji-sprites";
+import { remarkMarkdownRenderCache } from "./markdown-render-cache";
 import { shouldUseBoundedMarkdownPlaintext } from "@/features/chat/streaming/markdown-chunks";
 import {
   cellToRowCol,
@@ -104,6 +105,12 @@ const LINK_SAFETY = { enabled: false } as const;
 // existing unbounded chat layout instead of introducing nested scrolling.
 const UNBOUNDED_STREAMDOWN_HEIGHT = Number.POSITIVE_INFINITY;
 
+// Streamdown always splits the text into blocks with a full `marked` lex, but
+// static mode renders the whole document in one pass and never reads those
+// blocks (they feed streaming-mode block memoization and `dir="auto"`, neither
+// of which chat uses). Skip the discarded lex on every row mount.
+const NO_BLOCK_SPLIT = (): string[] => [];
+
 const areMarkdownPropsEqual = (
   prev: MarkdownProps,
   next: MarkdownProps,
@@ -181,12 +188,16 @@ const MarkdownLink = ({
   />
 );
 
-const buildComponents = (hideHorizontalRules: boolean) => ({
-  ...(hideHorizontalRules ? { hr: () => null } : {}),
+const HiddenHorizontalRule = () => null;
+
+// Module-level so every row shares the same component map (and Streamdown's
+// merged map stays referentially stable per surface).
+const COMPONENTS = {
   a: MarkdownLink,
   img: MarkdownImage,
   [STELLA_FILE_TAG]: StellaFileLink,
-});
+};
+const COMPONENTS_WITHOUT_RULES = { ...COMPONENTS, hr: HiddenHorizontalRule };
 
 let nextAnonCacheKey = 0;
 
@@ -207,15 +218,24 @@ export const Markdown = memo(function Markdown({
     anonCacheKeyRef.current = `markdown-anon-${nextAnonCacheKey++}`;
   }
   const effectiveCacheKey = cacheKey ?? anonCacheKeyRef.current;
-  const components = useMemo(
-    () => buildComponents(hideHorizontalRules),
-    [hideHorizontalRules],
-  );
+  const components = hideHorizontalRules
+    ? COMPONENTS_WITHOUT_RULES
+    : COMPONENTS;
   const [activeEmojiPack] = useActiveEmojiPack();
   const emojiSpritesEnabled = hasCompleteEmojiSpritePack(activeEmojiPack);
   const hiddenFileKey = hiddenFilePaths?.join("\0") ?? "";
   const remarkPlugins = useMemo(() => {
-    const plugins = [...DEFAULT_REMARK_PLUGINS, [remarkStellaFileLinks, hiddenFileKey ? hiddenFileKey.split("\0") : []] as [typeof remarkStellaFileLinks, string[]]];
+    // The cache scope names every input besides the text that shapes the
+    // parsed tree: the emoji pass and the hidden file-link set.
+    const cacheScope = `${emojiSpritesEnabled ? "emoji" : "plain"}\0${hiddenFileKey}`;
+    const plugins = [
+      [remarkMarkdownRenderCache, cacheScope] as [
+        typeof remarkMarkdownRenderCache,
+        string,
+      ],
+      ...DEFAULT_REMARK_PLUGINS,
+      [remarkStellaFileLinks, hiddenFileKey ? hiddenFileKey.split("\0") : []] as [typeof remarkStellaFileLinks, string[]],
+    ];
     return emojiSpritesEnabled ? [...plugins, remarkEmojiSprites] : plugins;
   }, [emojiSpritesEnabled, hiddenFileKey]);
   /*
@@ -259,6 +279,7 @@ export const Markdown = memo(function Markdown({
           components={components}
           allowedTags={ALLOWED_TAGS}
           linkSafety={LINK_SAFETY}
+          parseMarkdownIntoBlocksFn={NO_BLOCK_SPLIT}
         >
           {text}
         </Streamdown>

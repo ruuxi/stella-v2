@@ -14,7 +14,10 @@ import { useConversationActivity } from "@/features/chat/hooks/use-conversation-
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
 import { useConversationFiles } from "@/features/chat/hooks/use-conversation-files";
 import { useConversationMessages } from "@/features/chat/hooks/use-conversation-messages";
-import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
+import {
+  useComposerMessageSelector,
+  useComposerMessageStore,
+} from "@/features/chat/hooks/use-composer-message-state";
 import { takePendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
 import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
@@ -49,6 +52,7 @@ const MAX_RETAINED_TAB_STATE = 20;
 const OPEN_BOTTOM_SETTLE_MS = 600;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
 const EMPTY_STREAMING_ASSISTANTS = [];
+const hasNonWhitespaceText = (text) => text.trim().length > 0;
 const setBoundedTabMemory = (memory, conversationId, value) => {
   memory.delete(conversationId);
   memory.set(conversationId, value);
@@ -125,11 +129,20 @@ export function useFullShellChat({
   // the render body would still hold the pre-transcript text at that point,
   // so the send would go out empty (and silently no-op), leaving the
   // transcript sitting in the composer unsent. See use-composer-message-state.
+  //
+  // The text lives in a store rather than this hook's state: this hook owns
+  // the whole chat runtime, so state here re-rendered the provider and every
+  // runtime consumer (root chrome, sidebars, bridges) on each keystroke. Only
+  // the composer leaf subscribes to the text; this hook reads derived facts.
   const {
-    message,
+    store: composerMessageStore,
     setMessage,
     messageRef: latestMessageRef,
-  } = useComposerMessageState();
+  } = useComposerMessageStore();
+  const hasComposerText = useComposerMessageSelector(
+    composerMessageStore,
+    hasNonWhitespaceText,
+  );
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const { chatContext, setChatContext, selectedText, setSelectedText } =
     useCapturedChatContext();
@@ -182,11 +195,13 @@ export function useFullShellChat({
       const pendingDraft = remembered?.message
         ? null
         : takePendingComposerDraft();
+      // Arm the hand-off before writing the text so the auto-send readiness
+      // subscription below observes both in the same store notification.
+      pendingAutoSendTextRef.current =
+        pendingDraft?.send ? pendingDraft.text : null;
       setMessage(remembered?.message ?? pendingDraft?.text ?? "");
       setChatContext(remembered?.chatContext ?? null);
       setSelectedText(remembered?.selectedText ?? null);
-      pendingAutoSendTextRef.current =
-        pendingDraft?.send ? pendingDraft.text : null;
     }
     previousComposerConversationIdRef.current = activeConversationId;
   }, [
@@ -667,7 +682,7 @@ export function useFullShellChat({
     showHomeContent,
   ]);
   const { canSubmit } = deriveComposerState({
-    message,
+    hasMessage: hasComposerText,
     chatContext,
     selectedText,
     conversationId: activeConversationId,
@@ -676,13 +691,25 @@ export function useFullShellChat({
   // Submit the onboarding hand-off once the composer is live with that exact
   // text. A rejected send restores the text through the normal path, so the
   // user still sees their draft rather than losing it.
+  const autoSendDraftReady = useComposerMessageSelector(
+    composerMessageStore,
+    (text) =>
+      pendingAutoSendTextRef.current !== null &&
+      text === pendingAutoSendTextRef.current,
+  );
   useEffect(() => {
     const text = pendingAutoSendTextRef.current;
     if (!text || !canSubmit || isStreaming) return;
     if (latestMessageRef.current !== text) return;
     pendingAutoSendTextRef.current = null;
     void handleSend();
-  }, [canSubmit, handleSend, isStreaming, latestMessageRef, message]);
+  }, [
+    autoSendDraftReady,
+    canSubmit,
+    handleSend,
+    isStreaming,
+    latestMessageRef,
+  ]);
   // Per-conversation model selection: mirror the global model preferences
   // to whichever conversation is active so each tab remembers its own
   // engine/model/reasoning pick. Cloud and local conversations both retain
@@ -1036,7 +1063,7 @@ export function useFullShellChat({
   );
   const chatColumnComposer = useMemo(
     () => ({
-      message,
+      messageStore: composerMessageStore,
       setMessage,
       chatContext,
       setChatContext,
@@ -1049,7 +1076,7 @@ export function useFullShellChat({
       onStop: cancelCurrentStream,
     }),
     [
-      message,
+      composerMessageStore,
       setMessage,
       chatContext,
       setChatContext,

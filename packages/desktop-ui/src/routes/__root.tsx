@@ -10,7 +10,14 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import {
+  useConvexAuth,
+  useMutation,
+  useQueries,
+  useQuery,
+  type RequestForQueries,
+} from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import {
   lazy,
   Suspense,
@@ -30,7 +37,10 @@ import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action"
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
-import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-conversation-session";
+import {
+  readPrefetchedOwnershipMigration,
+  resolveOwnershipMigrationGate,
+} from "@/global/auth/lib/cloud-conversation-session";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   acknowledgeCloudConversation,
@@ -112,7 +122,7 @@ import { ModelCatalogUpdatedAtProvider } from "@/global/settings/hooks/model-cat
 import { useRestrictedStellaModelReset } from "@/global/settings/hooks/use-restricted-stella-model-reset";
 import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivityNotificationsBridge";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
-import { useCompanionBridge } from "@/shell/companion/use-companion-bridge";
+import { CompanionBridge } from "@/shell/companion/use-companion-bridge";
 import { useDisplayPayloadRouting } from "@/shell/root-chrome/use-display-payload-routing";
 import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-restore";
 import { usePersistLastLocation } from "@/shell/root-chrome/use-persist-last-location";
@@ -245,9 +255,29 @@ function RootLayout() {
   ]);
   const activeRouteIntentRef = useRef(routeIntent);
   activeRouteIntentRef.current = routeIntent;
-  const ownershipMigration = useQuery(
-    cloudApi.getMyOwnershipMigrationStatus,
-    isCloudConversationReady ? {} : "skip",
+  // Subscribe to the migration status as soon as Convex holds a token, in
+  // parallel with the session identity confirmation, rather than one round
+  // trip after it: it gates conversation selection, so that trip sat on the
+  // launch path. `useQueries` keeps an early failure from throwing, and
+  // `readPrefetchedOwnershipMigration` exposes the result only once the
+  // identity is confirmed.
+  const { isAuthenticated: convexIsAuthenticated } = useConvexAuth();
+  const ownershipMigrationRequest = useMemo<RequestForQueries>(() => {
+    const queries: RequestForQueries = {};
+    if (!isPrivate && convexIsAuthenticated) {
+      queries.status = {
+        query: cloudApi.getMyOwnershipMigrationStatus,
+        args: {},
+      };
+    }
+    return queries;
+  }, [convexIsAuthenticated, isPrivate]);
+  const ownershipMigration = readPrefetchedOwnershipMigration(
+    useQueries(ownershipMigrationRequest).status as
+      | FunctionReturnType<typeof cloudApi.getMyOwnershipMigrationStatus>
+      | Error
+      | undefined,
+    isCloudConversationReady,
   );
   const ownershipMigrationGate = resolveOwnershipMigrationGate(
     ownershipMigration === undefined
@@ -1007,7 +1037,6 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
   });
 
   useDictationToggleBridge();
-  useCompanionBridge(conversationId);
 
   useWorkspacePanelEvents({
     rightSidebarRef,
@@ -1161,6 +1190,8 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
 
   return (
     <>
+      {/* A leaf, so its timeline subscription never re-renders this chrome. */}
+      <CompanionBridge conversationId={conversationId} />
       {platformCapabilities.phoneAccess ? (
         <MobileActivityNotificationsBridge />
       ) : null}

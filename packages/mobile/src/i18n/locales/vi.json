@@ -1919,6 +1919,7 @@
     "nav": {
       "chat": "Trò chuyện",
       "settings": "Cài đặt",
+      "apps": "Ứng dụng",
       "openLabel": "Mở điều hướng",
       "closeLabel": "Đóng điều hướng",
       "account": "Tài khoản",
@@ -2028,7 +2029,8 @@
       },
       "files": {
         "empty": "Chưa có tệp nào. Mọi thứ Stella tạo ra sẽ hiện ở đây.",
-        "emptyFiltered": "Không có tệp nào khớp."
+        "emptyFiltered": "Không có tệp nào khớp.",
+        "searchPlaceholder": "Tìm tệp"
       },
       "activity": {
         "empty": "Chưa có công việc nền nào.",
@@ -2075,6 +2077,7 @@
       "showEmailLabel": "Hiện email",
       "hideEmailLabel": "Ẩn email",
       "appearanceSection": "Giao diện",
+      "computerSection": "Máy tính",
       "appearance": {
         "system": "Hệ thống",
         "light": "Sáng",
@@ -2107,6 +2110,7 @@
       "forgetConfirmTitle": "Quên {name}?",
       "forgetConfirmBody": "Điện thoại này sẽ ngừng kết nối lại với máy tính đó cho tới khi bạn ghép nối lần nữa.",
       "carPlayDiagnostics": "Chẩn đoán CarPlay",
+      "aboutSection": "Giới thiệu",
       "openCarPlayDiagnosticsLabel": "Mở chẩn đoán CarPlay",
       "termsOfService": "Điều khoản dịch vụ",
       "openTermsLabel": "Mở Điều khoản dịch vụ",

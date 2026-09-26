@@ -2012,6 +2012,7 @@
     "nav": {
       "chat": "الدردشة",
       "settings": "الإعدادات",
+      "apps": "التطبيقات",
       "openLabel": "فتح التنقل",
       "closeLabel": "إغلاق التنقل",
       "account": "الحساب",
@@ -2125,7 +2126,8 @@
       },
       "files": {
         "empty": "لا توجد ملفات بعد. كل ما تنتجه Stella يظهر هنا.",
-        "emptyFiltered": "لا توجد ملفات مطابقة."
+        "emptyFiltered": "لا توجد ملفات مطابقة.",
+        "searchPlaceholder": "البحث في الملفات"
       },
       "activity": {
         "empty": "لا يوجد عمل في الخلفية بعد.",
@@ -2172,6 +2174,7 @@
       "showEmailLabel": "إظهار البريد الإلكتروني",
       "hideEmailLabel": "إخفاء البريد الإلكتروني",
       "appearanceSection": "المظهر",
+      "computerSection": "الكمبيوتر",
       "appearance": {
         "system": "النظام",
         "light": "فاتح",
@@ -2204,6 +2207,7 @@
       "forgetConfirmTitle": "نسيان {name}؟",
       "forgetConfirmBody": "سيتوقف هذا الهاتف عن إعادة الاتصال بذلك الكمبيوتر إلى أن تُقرِنه من جديد.",
       "carPlayDiagnostics": "تشخيصات CarPlay",
+      "aboutSection": "حول",
       "openCarPlayDiagnosticsLabel": "فتح تشخيصات CarPlay",
       "termsOfService": "شروط الخدمة",
       "openTermsLabel": "فتح شروط الخدمة",

@@ -1958,6 +1958,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Impostazioni",
+      "apps": "App",
       "openLabel": "Apri la navigazione",
       "closeLabel": "Chiudi la navigazione",
       "account": "Account",
@@ -2069,7 +2070,8 @@
       },
       "files": {
         "empty": "Ancora nessun file. Tutto ciò che Stella produce compare qui.",
-        "emptyFiltered": "Nessun file corrisponde."
+        "emptyFiltered": "Nessun file corrisponde.",
+        "searchPlaceholder": "Cerca file"
       },
       "activity": {
         "empty": "Ancora nessun lavoro in background.",
@@ -2116,6 +2118,7 @@
       "showEmailLabel": "Mostra l'email",
       "hideEmailLabel": "Nascondi l'email",
       "appearanceSection": "Aspetto",
+      "computerSection": "Computer",
       "appearance": {
         "system": "Sistema",
         "light": "Chiaro",
@@ -2148,6 +2151,7 @@
       "forgetConfirmTitle": "Dimenticare {name}?",
       "forgetConfirmBody": "Questo telefono smetterà di riconnettersi a quel computer finché non lo associ di nuovo.",
       "carPlayDiagnostics": "Diagnostica CarPlay",
+      "aboutSection": "Informazioni",
       "openCarPlayDiagnosticsLabel": "Apri la diagnostica CarPlay",
       "termsOfService": "Termini di servizio",
       "openTermsLabel": "Apri i Termini di servizio",

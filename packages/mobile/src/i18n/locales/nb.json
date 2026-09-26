@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Innstillinger",
+      "apps": "Apper",
       "openLabel": "Åpne navigasjon",
       "closeLabel": "Lukk navigasjon",
       "account": "Konto",
@@ -2051,7 +2052,8 @@
       },
       "files": {
         "empty": "Ingen filer ennå. Alt Stella lager dukker opp her.",
-        "emptyFiltered": "Ingen filer samsvarer."
+        "emptyFiltered": "Ingen filer samsvarer.",
+        "searchPlaceholder": "Søk i filer"
       },
       "activity": {
         "empty": "Ingen bakgrunnsarbeid ennå.",
@@ -2098,6 +2100,7 @@
       "showEmailLabel": "Vis e-post",
       "hideEmailLabel": "Skjul e-post",
       "appearanceSection": "Utseende",
+      "computerSection": "Datamaskin",
       "appearance": {
         "system": "System",
         "light": "Lyst",
@@ -2130,6 +2133,7 @@
       "forgetConfirmTitle": "Glemme {name}?",
       "forgetConfirmBody": "Denne telefonen vil slutte å koble seg til den datamaskinen til du kobler den til på nytt.",
       "carPlayDiagnostics": "CarPlay-diagnostikk",
+      "aboutSection": "Om",
       "openCarPlayDiagnosticsLabel": "Åpne CarPlay-diagnostikk",
       "termsOfService": "Vilkår for bruk",
       "openTermsLabel": "Åpne Vilkår for bruk",

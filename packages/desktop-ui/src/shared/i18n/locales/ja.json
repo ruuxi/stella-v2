@@ -1919,6 +1919,7 @@
     "nav": {
       "chat": "チャット",
       "settings": "設定",
+      "apps": "アプリ",
       "openLabel": "ナビゲーションを開く",
       "closeLabel": "ナビゲーションを閉じる",
       "account": "アカウント",
@@ -2028,7 +2029,8 @@
       },
       "files": {
         "empty": "ファイルはまだありません。Stellaが作成したものがここに表示されます。",
-        "emptyFiltered": "一致するファイルはありません。"
+        "emptyFiltered": "一致するファイルはありません。",
+        "searchPlaceholder": "ファイルを検索"
       },
       "activity": {
         "empty": "バックグラウンド作業はまだありません。",
@@ -2075,6 +2077,7 @@
       "showEmailLabel": "メールアドレスを表示",
       "hideEmailLabel": "メールアドレスを非表示",
       "appearanceSection": "外観",
+      "computerSection": "コンピュータ",
       "appearance": {
         "system": "システム",
         "light": "ライト",
@@ -2107,6 +2110,7 @@
       "forgetConfirmTitle": "{name} を解除しますか？",
       "forgetConfirmBody": "再度ペアリングするまで、この携帯はそのコンピュータに再接続しなくなります。",
       "carPlayDiagnostics": "CarPlay 診断",
+      "aboutSection": "情報",
       "openCarPlayDiagnosticsLabel": "CarPlay 診断を開く",
       "termsOfService": "利用規約",
       "openTermsLabel": "利用規約を開く",

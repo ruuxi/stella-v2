@@ -1976,6 +1976,7 @@
     "nav": {
       "chat": "Czat",
       "settings": "Ustawienia",
+      "apps": "Aplikacje",
       "openLabel": "Otwórz nawigację",
       "closeLabel": "Zamknij nawigację",
       "account": "Konto",
@@ -2088,7 +2089,8 @@
       },
       "files": {
         "empty": "Nie ma jeszcze plików. Wszystko, co utworzy Stella, pojawi się tutaj.",
-        "emptyFiltered": "Żaden plik nie pasuje."
+        "emptyFiltered": "Żaden plik nie pasuje.",
+        "searchPlaceholder": "Szukaj plików"
       },
       "activity": {
         "empty": "Nie ma jeszcze pracy w tle.",
@@ -2135,6 +2137,7 @@
       "showEmailLabel": "Pokaż e-mail",
       "hideEmailLabel": "Ukryj e-mail",
       "appearanceSection": "Wygląd",
+      "computerSection": "Komputer",
       "appearance": {
         "system": "Systemowy",
         "light": "Jasny",
@@ -2167,6 +2170,7 @@
       "forgetConfirmTitle": "Zapomnieć urządzenie {name}?",
       "forgetConfirmBody": "Ten telefon przestanie łączyć się z tym komputerem, dopóki nie sparujesz go ponownie.",
       "carPlayDiagnostics": "Diagnostyka CarPlay",
+      "aboutSection": "Informacje",
       "openCarPlayDiagnosticsLabel": "Otwórz diagnostykę CarPlay",
       "termsOfService": "Warunki korzystania",
       "openTermsLabel": "Otwórz Warunki korzystania",

@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Settings",
+      "apps": "Apps",
       "openLabel": "Open navigation",
       "closeLabel": "Close navigation",
       "account": "Account",
@@ -2050,7 +2051,8 @@
       },
       "files": {
         "empty": "No files yet. Anything Stella produces shows up here.",
-        "emptyFiltered": "No files match."
+        "emptyFiltered": "No files match.",
+        "searchPlaceholder": "Search files"
       },
       "activity": {
         "empty": "No background work yet.",
@@ -2097,6 +2099,7 @@
       "showEmailLabel": "Show email",
       "hideEmailLabel": "Hide email",
       "appearanceSection": "Appearance",
+      "computerSection": "Computer",
       "appearance": {
         "system": "System",
         "light": "Light",
@@ -2129,6 +2132,7 @@
       "forgetConfirmTitle": "Forget {name}?",
       "forgetConfirmBody": "This phone will stop reconnecting to that computer until you pair it again.",
       "carPlayDiagnostics": "CarPlay diagnostics",
+      "aboutSection": "About",
       "openCarPlayDiagnosticsLabel": "Open CarPlay diagnostics",
       "termsOfService": "Terms of Service",
       "openTermsLabel": "Open Terms of Service",

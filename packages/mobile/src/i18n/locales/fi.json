@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "Keskustelu",
       "settings": "Asetukset",
+      "apps": "Sovellukset",
       "openLabel": "Avaa navigointi",
       "closeLabel": "Sulje navigointi",
       "account": "Tili",
@@ -2050,7 +2051,8 @@
       },
       "files": {
         "empty": "Ei vielä tiedostoja. Kaikki Stellan tuottama näkyy täällä.",
-        "emptyFiltered": "Mikään tiedosto ei vastaa hakua."
+        "emptyFiltered": "Mikään tiedosto ei vastaa hakua.",
+        "searchPlaceholder": "Hae tiedostoja"
       },
       "activity": {
         "empty": "Ei vielä taustatyötä.",
@@ -2097,6 +2099,7 @@
       "showEmailLabel": "Näytä sähköposti",
       "hideEmailLabel": "Piilota sähköposti",
       "appearanceSection": "Ulkoasu",
+      "computerSection": "Tietokone",
       "appearance": {
         "system": "Järjestelmä",
         "light": "Vaalea",
@@ -2129,6 +2132,7 @@
       "forgetConfirmTitle": "Unohdetaanko laite {name}?",
       "forgetConfirmBody": "Tämä puhelin lakkaa yhdistämästä kyseiseen tietokoneeseen, kunnes pariliität sen uudelleen.",
       "carPlayDiagnostics": "CarPlay-diagnostiikka",
+      "aboutSection": "Tietoja",
       "openCarPlayDiagnosticsLabel": "Avaa CarPlay-diagnostiikka",
       "termsOfService": "Käyttöehdot",
       "openTermsLabel": "Avaa käyttöehdot",

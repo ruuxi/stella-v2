@@ -1958,6 +1958,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Setări",
+      "apps": "Aplicații",
       "openLabel": "Deschide navigarea",
       "closeLabel": "Închide navigarea",
       "account": "Cont",
@@ -2069,7 +2070,8 @@
       },
       "files": {
         "empty": "Încă nu există fișiere. Tot ce produce Stella apare aici.",
-        "emptyFiltered": "Niciun fișier nu se potrivește."
+        "emptyFiltered": "Niciun fișier nu se potrivește.",
+        "searchPlaceholder": "Caută fișiere"
       },
       "activity": {
         "empty": "Încă nu există muncă în fundal.",
@@ -2116,6 +2118,7 @@
       "showEmailLabel": "Arată e-mailul",
       "hideEmailLabel": "Ascunde e-mailul",
       "appearanceSection": "Aspect",
+      "computerSection": "Computer",
       "appearance": {
         "system": "Sistem",
         "light": "Luminos",
@@ -2148,6 +2151,7 @@
       "forgetConfirmTitle": "Uiți {name}?",
       "forgetConfirmBody": "Acest telefon nu se va mai reconecta la acel computer până când îl asociezi din nou.",
       "carPlayDiagnostics": "Diagnosticare CarPlay",
+      "aboutSection": "Despre",
       "openCarPlayDiagnosticsLabel": "Deschide diagnosticarea CarPlay",
       "termsOfService": "Termeni și condiții",
       "openTermsLabel": "Deschide Termenii și condițiile",

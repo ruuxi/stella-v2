@@ -1976,6 +1976,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Nastavení",
+      "apps": "Aplikace",
       "openLabel": "Otevřít navigaci",
       "closeLabel": "Zavřít navigaci",
       "account": "Účet",
@@ -2087,7 +2088,8 @@
       },
       "files": {
         "empty": "Zatím žádné soubory. Vše, co Stella vytvoří, se objeví tady.",
-        "emptyFiltered": "Žádné soubory neodpovídají."
+        "emptyFiltered": "Žádné soubory neodpovídají.",
+        "searchPlaceholder": "Hledat soubory"
       },
       "activity": {
         "empty": "Zatím žádná práce na pozadí.",
@@ -2134,6 +2136,7 @@
       "showEmailLabel": "Zobrazit e-mail",
       "hideEmailLabel": "Skrýt e-mail",
       "appearanceSection": "Vzhled",
+      "computerSection": "Počítač",
       "appearance": {
         "system": "Systém",
         "light": "Světlý",
@@ -2166,6 +2169,7 @@
       "forgetConfirmTitle": "Zapomenout zařízení {name}?",
       "forgetConfirmBody": "Tento telefon se k danému počítači přestane připojovat, dokud ho znovu nespárujete.",
       "carPlayDiagnostics": "Diagnostika CarPlay",
+      "aboutSection": "O aplikaci",
       "openCarPlayDiagnosticsLabel": "Otevřít diagnostiku CarPlay",
       "termsOfService": "Podmínky služby",
       "openTermsLabel": "Otevřít Podmínky služby",

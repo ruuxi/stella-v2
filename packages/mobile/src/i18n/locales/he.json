@@ -1958,6 +1958,7 @@
     "nav": {
       "chat": "צ׳אט",
       "settings": "הגדרות",
+      "apps": "אפליקציות",
       "openLabel": "פתיחת הניווט",
       "closeLabel": "סגירת הניווט",
       "account": "חשבון",
@@ -2069,7 +2070,8 @@
       },
       "files": {
         "empty": "אין עדיין קבצים. כל מה ש־ Stella מייצרת יופיע כאן.",
-        "emptyFiltered": "אין קבצים תואמים."
+        "emptyFiltered": "אין קבצים תואמים.",
+        "searchPlaceholder": "חיפוש קבצים"
       },
       "activity": {
         "empty": "אין עדיין עבודת רקע.",
@@ -2116,6 +2118,7 @@
       "showEmailLabel": "הצגת האימייל",
       "hideEmailLabel": "הסתרת האימייל",
       "appearanceSection": "מראה",
+      "computerSection": "מחשב",
       "appearance": {
         "system": "מערכת",
         "light": "בהיר",
@@ -2148,6 +2151,7 @@
       "forgetConfirmTitle": "לשכוח את {name}?",
       "forgetConfirmBody": "הטלפון הזה יפסיק להתחבר מחדש למחשב הזה עד שתחברו אותו שוב.",
       "carPlayDiagnostics": "אבחון CarPlay",
+      "aboutSection": "אודות",
       "openCarPlayDiagnosticsLabel": "פתיחת אבחון CarPlay",
       "termsOfService": "תנאי השירות",
       "openTermsLabel": "פתיחת תנאי השירות",

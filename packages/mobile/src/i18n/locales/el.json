@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "Συνομιλία",
       "settings": "Ρυθμίσεις",
+      "apps": "Εφαρμογές",
       "openLabel": "Άνοιγμα πλοήγησης",
       "closeLabel": "Κλείσιμο πλοήγησης",
       "account": "Λογαριασμός",
@@ -2050,7 +2051,8 @@
       },
       "files": {
         "empty": "Δεν υπάρχουν ακόμη αρχεία. Ό,τι δημιουργεί η Stella εμφανίζεται εδώ.",
-        "emptyFiltered": "Κανένα αρχείο δεν ταιριάζει."
+        "emptyFiltered": "Κανένα αρχείο δεν ταιριάζει.",
+        "searchPlaceholder": "Αναζήτηση αρχείων"
       },
       "activity": {
         "empty": "Δεν υπάρχει ακόμη εργασία στο παρασκήνιο.",
@@ -2097,6 +2099,7 @@
       "showEmailLabel": "Εμφάνιση email",
       "hideEmailLabel": "Απόκρυψη email",
       "appearanceSection": "Εμφάνιση",
+      "computerSection": "Υπολογιστής",
       "appearance": {
         "system": "Σύστημα",
         "light": "Ανοιχτό",
@@ -2129,6 +2132,7 @@
       "forgetConfirmTitle": "Κατάργηση της συσκευής {name};",
       "forgetConfirmBody": "Αυτό το κινητό θα σταματήσει να επανασυνδέεται σε εκείνον τον υπολογιστή μέχρι να τον αντιστοιχίσετε ξανά.",
       "carPlayDiagnostics": "Διαγνωστικά CarPlay",
+      "aboutSection": "Σχετικά",
       "openCarPlayDiagnosticsLabel": "Άνοιγμα διαγνωστικών CarPlay",
       "termsOfService": "Όροι χρήσης",
       "openTermsLabel": "Άνοιγμα Όρων χρήσης",

@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "Csevegés",
       "settings": "Beállítások",
+      "apps": "Alkalmazások",
       "openLabel": "Navigáció megnyitása",
       "closeLabel": "Navigáció bezárása",
       "account": "Fiók",
@@ -2050,7 +2051,8 @@
       },
       "files": {
         "empty": "Még nincsenek fájlok. Minden, amit Stella készít, itt jelenik meg.",
-        "emptyFiltered": "Nincs egyező fájl."
+        "emptyFiltered": "Nincs egyező fájl.",
+        "searchPlaceholder": "Fájlok keresése"
       },
       "activity": {
         "empty": "Még nincs háttérmunka.",
@@ -2097,6 +2099,7 @@
       "showEmailLabel": "E-mail megjelenítése",
       "hideEmailLabel": "E-mail elrejtése",
       "appearanceSection": "Megjelenés",
+      "computerSection": "Számítógép",
       "appearance": {
         "system": "Rendszer",
         "light": "Világos",
@@ -2129,6 +2132,7 @@
       "forgetConfirmTitle": "Elfelejted ezt: {name}?",
       "forgetConfirmBody": "Ez a telefon nem csatlakozik újra ahhoz a számítógéphez, amíg újra nem párosítod.",
       "carPlayDiagnostics": "CarPlay-diagnosztika",
+      "aboutSection": "Névjegy",
       "openCarPlayDiagnosticsLabel": "CarPlay-diagnosztika megnyitása",
       "termsOfService": "Felhasználási feltételek",
       "openTermsLabel": "Felhasználási feltételek megnyitása",

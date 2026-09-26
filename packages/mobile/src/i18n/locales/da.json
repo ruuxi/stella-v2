@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "Chat",
       "settings": "Indstillinger",
+      "apps": "Apps",
       "openLabel": "Åbn navigationen",
       "closeLabel": "Luk navigationen",
       "account": "Konto",
@@ -2051,7 +2052,8 @@
       },
       "files": {
         "empty": "Ingen filer endnu. Alt, hvad Stella laver, vises her.",
-        "emptyFiltered": "Ingen filer matcher."
+        "emptyFiltered": "Ingen filer matcher.",
+        "searchPlaceholder": "Søg i filer"
       },
       "activity": {
         "empty": "Intet baggrundsarbejde endnu.",
@@ -2098,6 +2100,7 @@
       "showEmailLabel": "Vis e-mail",
       "hideEmailLabel": "Skjul e-mail",
       "appearanceSection": "Udseende",
+      "computerSection": "Computer",
       "appearance": {
         "system": "System",
         "light": "Lyst",
@@ -2130,6 +2133,7 @@
       "forgetConfirmTitle": "Glem {name}?",
       "forgetConfirmBody": "Denne telefon holder op med at oprette forbindelse til den computer, indtil du parrer den igen.",
       "carPlayDiagnostics": "CarPlay-diagnostik",
+      "aboutSection": "Om",
       "openCarPlayDiagnosticsLabel": "Åbn CarPlay-diagnostik",
       "termsOfService": "Servicevilkår",
       "openTermsLabel": "Åbn Servicevilkår",

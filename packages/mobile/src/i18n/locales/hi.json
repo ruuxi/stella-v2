@@ -1940,6 +1940,7 @@
     "nav": {
       "chat": "चैट",
       "settings": "सेटिंग्स",
+      "apps": "ऐप्स",
       "openLabel": "नेविगेशन खोलें",
       "closeLabel": "नेविगेशन बंद करें",
       "account": "खाता",
@@ -2050,7 +2051,8 @@
       },
       "files": {
         "empty": "अभी कोई फ़ाइल नहीं है। Stella जो भी बनाएगी वह यहाँ दिखेगा।",
-        "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।"
+        "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।",
+        "searchPlaceholder": "फ़ाइलें खोजें"
       },
       "activity": {
         "empty": "अभी कोई बैकग्राउंड काम नहीं है।",
@@ -2097,6 +2099,7 @@
       "showEmailLabel": "ईमेल दिखाएँ",
       "hideEmailLabel": "ईमेल छिपाएँ",
       "appearanceSection": "दिखावट",
+      "computerSection": "कंप्यूटर",
       "appearance": {
         "system": "सिस्टम",
         "light": "लाइट",
@@ -2129,6 +2132,7 @@
       "forgetConfirmTitle": "{name} को भूल जाएँ?",
       "forgetConfirmBody": "जब तक आप दोबारा पेयर नहीं करते, यह फ़ोन उस कंप्यूटर से फिर कनेक्ट नहीं होगा।",
       "carPlayDiagnostics": "CarPlay डायग्नोस्टिक्स",
+      "aboutSection": "परिचय",
       "openCarPlayDiagnosticsLabel": "CarPlay डायग्नोस्टिक्स खोलें",
       "termsOfService": "सेवा की शर्तें",
       "openTermsLabel": "सेवा की शर्तें खोलें",

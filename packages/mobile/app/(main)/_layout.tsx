@@ -596,8 +596,8 @@ function MainStack() {
             gestureEnabled: false,
           }}
         >
-          {/* Tabs cross-fade like a tab switch; pages pushed from a tab
-              (Cloud Home) keep the slide. */}
+          {/* Tabs switch instantly; pages pushed from a tab (Cloud Home)
+              keep the slide. */}
           <Stack.Screen name="schedule" options={TAB_SCREEN_OPTIONS} />
           <Stack.Screen name="apps" options={TAB_SCREEN_OPTIONS} />
           <Stack.Screen name="files" options={TAB_SCREEN_OPTIONS} />
@@ -609,7 +609,7 @@ function MainStack() {
   );
 }
 
-const TAB_SCREEN_OPTIONS = { animation: "fade" } as const;
+const TAB_SCREEN_OPTIONS = { animation: "none" } as const;
 
 /**
  * React Navigation paints `colors.background` beneath every stack screen, and

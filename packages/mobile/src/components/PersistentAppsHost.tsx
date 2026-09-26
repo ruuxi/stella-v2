@@ -26,6 +26,8 @@ import { useT } from "../i18n";
 import { MainDetailSurface } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
 import { getConvexTokenForSubject } from "../lib/auth-token";
+import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
 import {
   appListCacheKey,
@@ -79,6 +81,7 @@ function AppsHost({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const t = useT();
   const [apps, setApps] = useState<WorkspaceApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -294,13 +297,23 @@ function AppsHost({
         <MainDetailSurface>
           <ScrollView
             style={{ display: frame ? "none" : "flex" }}
-            contentContainerStyle={{ padding: 20, gap: 16 }}
+            contentContainerStyle={{
+              gap: 16,
+              paddingBottom: bottomInset + 24,
+              paddingTop: 4,
+            }}
+            showsVerticalScrollIndicator={false}
           >
             <Text
               accessibilityRole="header"
-              style={{ fontSize: 26, color: colors.text }}
+              style={{
+                color: colors.text,
+                fontFamily: fonts.display.regular,
+                fontSize: 32,
+                letterSpacing: -1.2,
+              }}
             >
-              Apps
+              {t("mobile.nav.apps")}
             </Text>
             {apps === null && !error ? <ActivityIndicator /> : null}
             {error ? (

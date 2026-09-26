@@ -62,6 +62,7 @@ import Reanimated, {
   useAnimatedStyle,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -305,7 +306,7 @@ const CHAT_HORIZONTAL_INSET = 12;
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
-  const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const [height, setHeight] = useState(0);
 
   useEffect(() => {
@@ -330,11 +331,12 @@ function useKeyboardInset() {
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
-  // home-indicator safe area. When the keyboard is up the composer is lifted
-  // clear of it by `composerKeyboardStyle` (by `keyboardHeight - insets.bottom`),
-  // so that reserved band lands inside the keyboard region — a constant 6pt gap
-  // sits above the keyboard either way, with no per-state padding swap to animate.
-  const composerBottomPad = 6 + insets.bottom;
+  // shell's bottom band (the tab bar and home indicator). When the keyboard is
+  // up the composer is lifted clear of it by `composerKeyboardStyle` (by
+  // `keyboardHeight - bottomInset`), so that reserved band lands inside the
+  // keyboard region — a constant 6pt gap sits above the keyboard either way,
+  // with no per-state padding swap to animate.
+  const composerBottomPad = 6 + bottomInset;
 
   return { height, open, composerBottomPad };
 }
@@ -3041,6 +3043,7 @@ export function ChatPane({
   const t = useT();
   const readAloud = useReadAloudPreference();
   const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
@@ -3049,17 +3052,17 @@ export function ChatPane({
   // the keyboard exactly — both rising and falling — instead of chasing it via
   // a JS-scheduled layout animation that the OS curve always out-runs.
   const keyboard = useAnimatedKeyboard();
-  // The composer rests at `composerBottomPad` (home-indicator safe area) above
+  // The composer rests at `composerBottomPad` (the shell's bottom band) above
   // the screen bottom. Lift it by the keyboard height *minus* that already-
   // reserved band so its content lands a constant gap above the keyboard.
   const composerKeyboardStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateY: -Math.max(0, keyboard.height.value - insets.bottom) },
+      { translateY: -Math.max(0, keyboard.height.value - bottomInset) },
     ],
   }));
   // Extra reading area the message list must reserve below its content while the
   // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
-  const keyboardExtra = Math.max(0, keyboardHeight - insets.bottom);
+  const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);
 
   // The composer + working indicator overlay the bottom of the chat. We
   // measure their actual height so the list can reserve matching
@@ -5489,9 +5492,9 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
-      minHeight: 56,
+      minHeight: 50,
       paddingHorizontal: 8,
-      paddingVertical: 11,
+      paddingVertical: 8,
     },
     expandedInputBlock: { flexDirection: "column" },
 

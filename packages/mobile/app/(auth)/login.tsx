@@ -39,7 +39,10 @@ import {
   TERMS_OF_SERVICE,
   PRIVACY_POLICY,
 } from "../../src/lib/legal-text";
-import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
+import {
+  enterMainShell,
+  loadLastMainTabHref,
+} from "../../src/lib/last-main-tab";
 import { useT } from "../../src/i18n";
 import { signInMobileAnonymous } from "../../src/lib/anonymous-sign-in";
 import { buildMagicLinkHeaders } from "../../src/lib/auth-integrity-headers";
@@ -118,7 +121,7 @@ export default function LoginScreen() {
       }
 
       await setGuestMode(result.data?.user.isAnonymous === true);
-      router.replace(await loadLastMainTabHref());
+      enterMainShell(router, await loadLastMainTabHref());
     } catch (error) {
       setSubmitState({ type: "error", message: userFacingError(error) });
     }
@@ -191,7 +194,7 @@ export default function LoginScreen() {
         return;
       }
 
-      router.replace(await loadLastMainTabHref());
+      enterMainShell(router, await loadLastMainTabHref());
     } catch (error) {
       setSubmitState({ type: "error", message: userFacingError(error) });
     }
@@ -248,7 +251,7 @@ export default function LoginScreen() {
           return;
         }
 
-        router.replace(await loadLastMainTabHref());
+        enterMainShell(router, await loadLastMainTabHref());
         return;
       }
 
@@ -268,7 +271,7 @@ export default function LoginScreen() {
         return;
       }
 
-      router.replace(await loadLastMainTabHref());
+      enterMainShell(router, await loadLastMainTabHref());
     } catch (error) {
       // User cancels surface as ERR_REQUEST_CANCELED — return silently.
       if (

@@ -63,6 +63,19 @@ or browser storage APIs. Use an in-page confirmation panel or HTML <dialog>
 for destructive actions; native browser dialogs are blocked in the isolated frame.
 
 Build a complete responsive interface suitable for a narrow sidebar, browser,
-and mobile screen. Include loading, empty, and error states, accessible controls,
+and mobile screen. On a phone the app should feel like a native screen, not a
+web page:
+
+- Put `<meta name="viewport" content="width=device-width, initial-scale=1">` in `<head>`.
+- Use a fixed app shell: `html, body { height: 100%; margin: 0; overflow: hidden;
+  overscroll-behavior: none; }` with a root of `height: 100dvh` (never `100vh`).
+  Keep headers, tab bars, and toolbars outside the scroll area, and give the one
+  content region `overflow-y: auto; overscroll-behavior: contain;`. The page
+  itself must never scroll.
+- Pad edges with `env(safe-area-inset-*)`.
+- Use at least `16px` font size on inputs, selects, and textareas so iOS does not
+  zoom on focus. Use `touch-action: manipulation` on controls and touch targets
+  of at least 44px.
+- Avoid content wider than the viewport; nothing should scroll sideways. Include loading, empty, and error states, accessible controls,
 and light/dark colors. Test the actual UI and persistence when browser access is
 available. The app is private to the user; do not describe its address as public.

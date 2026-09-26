@@ -8,6 +8,7 @@ import {
   resetMainShellStore,
   subscribeSidebarOpenRequests,
   type ActivityHubData,
+  type ComputerControl,
 } from "../main-shell-store";
 
 const hub: ActivityHubData = {
@@ -27,18 +28,13 @@ describe("main shell store", () => {
     expect(readMainShellState()).toEqual({
       activity: null,
       computer: null,
-      history: null,
       back: null,
     });
   });
 
   test("publishing replaces one slot without touching the other", () => {
     publishActivityHub(hub);
-    const control = {
-      connection: "connected" as const,
-      label: "x",
-      onPress() {},
-    };
+    const control = { platformLabel: "x" } as ComputerControl;
     publishComputerControl(control);
     expect(readMainShellState().activity).toBe(hub);
     expect(readMainShellState().computer).toBe(control);

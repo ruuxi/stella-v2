@@ -54,7 +54,7 @@ export function ComposerNotice({
             label: "Upgrade",
             onPress: () => {
               dismiss();
-              router.push("/account");
+              router.push("/settings");
             },
           }
         : null;

@@ -64,6 +64,8 @@ export type PublicApiType = {
     "getMyConversationHistorySnapshot": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "listMyConversationsPage": FunctionReference<'query', 'public', { snapshotUpdatedAt: number; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
     "getCloudRealtimeConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getMyChatBootstrap": FunctionReference<'query', 'public', { clientCreateId: string; expectedSubject: string; identityRevision: number; expectedOwnerId: string; }, any, string | undefined>;
+    "getMyShellBootstrap": FunctionReference<'query', 'public', { routeConversationId?: string | undefined; cachedConversationId?: string | undefined; expectedSubject: string; identityRevision: number; expectedOwnerId: string; }, any, string | undefined>;
     "deleteMyConversation": FunctionReference<'action', 'public', { conversationId: string; }, any, string | undefined>;
     "spawnCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; originDeviceId?: string | undefined; originConversationId?: string | undefined; ownerGeneration: string; description: string; prompt: string; clientMsgId: string; }, any, string | undefined>;
     "continueMyCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; description: string; prompt: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; expectedTerminalUpdatedAt: number; controlRequestId: string; }, any, string | undefined>;
@@ -111,6 +113,7 @@ export type PublicApiType = {
     "activateImportedEngineSettings": FunctionReference<'mutation', 'public', { settingsId: Id<'cloud_engine_settings'>; }, any, string | undefined>;
     "setMyCloudEngine": FunctionReference<'mutation', 'public', { engine: string; }, any, string | undefined>;
     "setMyCloudExecution": FunctionReference<'mutation', 'public', { execution: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; }; }, any, string | undefined>;
+    "listEngineModels": FunctionReference<'query', 'public', {}, any, string | undefined>;
   };
   "cloud_memory": {
     "getMyMemoryPreference": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;

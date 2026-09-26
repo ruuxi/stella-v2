@@ -20,6 +20,8 @@ export type { WorkspaceApp as CloudApp } from "@stella/contracts/workspace-apps"
 export type CloudEngineConnections = {
   chatEngine: string;
   execution: CloudExecutionSelection;
+  /** When the account last saved a model selection; absent until then. */
+  selectedAt?: number;
   connections: Array<{
     provider: string;
     label: string;

@@ -28,7 +28,10 @@ import {
   observeCloudConversationIdentity,
   type CloudConversationIdentity,
 } from "../src/lib/cloud-conversation-auth";
-import { loadCloudConversationAuthority } from "../src/lib/cloud-conversation-authority";
+import {
+  loadCloudConversationAuthority,
+  type CloudChatBootstrap,
+} from "../src/lib/cloud-conversation-authority";
 import {
   ConversationSocket,
   type ConversationSocketEvent,
@@ -58,7 +61,6 @@ import {
   readAutomaticExecutionDispatch,
   waitForAutomaticExecutionStatus,
 } from "../src/lib/execution-placement-core";
-import { decodeMobileCloudMemoryPreferenceForSubject } from "../src/lib/cloud-memory-preference";
 import { decodeConvexTokenOwner } from "../src/lib/convex-token-owner";
 
 const MAX_RESPONSE_BYTES = 2 * 1_024 * 1_024;
@@ -510,20 +512,61 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
   assert(identity, "The native signed-in session produced no mobile identity.");
 
   let ensuredConversationOwner = "";
+  const createConversation = async (ownerGeneration: string) => {
+    const value = (await convexCall(
+      convexOrigin,
+      jwt,
+      "mutation",
+      "cloud_apps:createMyConversation",
+      {
+        clientCreateId: automaticExecutionConversationClientCreateId("cloud"),
+        expectedOwnerGeneration: ownerGeneration,
+        title: "Chat",
+      },
+      timeoutMs,
+      receipts,
+    )) as Record<string, unknown>;
+    const conversationId = requireString(
+      value?.conversationId,
+      "Mobile conversation id",
+      256,
+    );
+    assert(
+      UUID_PATTERN.test(conversationId),
+      "Mobile conversation id is invalid.",
+    );
+    ensuredConversationOwner = requireString(
+      value?.ownerId,
+      "Mobile conversation owner",
+    );
+    assert(
+      ensuredConversationOwner === tokenOwner.tokenIdentifier,
+      "The deterministic mobile conversation belongs to another owner.",
+    );
+    return conversationId;
+  };
+  const authorityIdentity = identity as CloudConversationIdentity;
   const authority = await loadCloudConversationAuthority(
-    identity as CloudConversationIdentity,
+    authorityIdentity,
+    tokenOwner.tokenIdentifier,
     {
-      confirmIdentity: async (input) =>
-        (await convexCall(
+      getBootstrap: async () => {
+        const bootstrap = (await convexCall(
           convexOrigin,
           jwt,
           "query",
-          "cloud_apps:confirmMySessionIdentity",
-          input,
+          "cloud_apps:getMyChatBootstrap",
+          {
+            expectedSubject: authorityIdentity.expectedSubject,
+            expectedOwnerId: tokenOwner.tokenIdentifier,
+            identityRevision: authorityIdentity.revision,
+            clientCreateId:
+              automaticExecutionConversationClientCreateId("cloud"),
+          },
           timeoutMs,
           receipts,
-        )) === true,
-      ensureConversation: async () => {
+        )) as CloudChatBootstrap;
+        if (bootstrap.status !== "ready") return bootstrap;
         if (phase === "core") {
           const conversationId = required(
             "STELLA_MOBILE_ACCEPTANCE_CONVERSATION_ID",
@@ -542,75 +585,16 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
               existing.ownerId === tokenOwner.tokenIdentifier,
             "The mobile session cannot read the exact desktop conversation.",
           );
-          return conversationId;
+          return { ...bootstrap, conversationId };
         }
-        const value = (await convexCall(
-          convexOrigin,
-          jwt,
-          "mutation",
-          "cloud_apps:createMyConversation",
-          {
-            clientCreateId:
-              automaticExecutionConversationClientCreateId("cloud"),
-            expectedOwnerGeneration,
-            title: "Chat",
-          },
-          timeoutMs,
-          receipts,
-        )) as Record<string, unknown>;
-        const conversationId = requireString(
-          value?.conversationId,
-          "Mobile conversation id",
-          256,
-        );
-        assert(
-          UUID_PATTERN.test(conversationId),
-          "Mobile conversation id is invalid.",
-        );
-        ensuredConversationOwner = requireString(
-          value?.ownerId,
-          "Mobile conversation owner",
-        );
-        assert(
-          ensuredConversationOwner === tokenOwner.tokenIdentifier,
-          "The deterministic mobile conversation belongs to another owner.",
-        );
-        return conversationId;
-      },
-      getRealtimeConfig: async () => {
-        const value = (await convexCall(
-          convexOrigin,
-          jwt,
-          "query",
-          "cloud_apps:getCloudRealtimeConfig",
-          {},
-          timeoutMs,
-          receipts,
-        )) as Record<string, unknown>;
+        // Always exercise the create path so the owner assertion runs; it is
+        // idempotent on the deterministic client create id.
         return {
-          httpOrigin:
-            typeof value?.httpOrigin === "string" ? value.httpOrigin : null,
-          socketOrigin:
-            typeof value?.socketOrigin === "string" ? value.socketOrigin : null,
-          protocol:
-            typeof value?.protocol === "number" ? value.protocol : Number.NaN,
+          ...bootstrap,
+          conversationId: await createConversation(bootstrap.ownerGeneration),
         };
       },
-      getOwnerGeneration: async () => {
-        const value = await convexCall(
-          convexOrigin,
-          jwt,
-          "query",
-          "cloud_memory:getMyMemoryPreference",
-          { expectedSubject: tokenOwner.tokenIdentifier },
-          timeoutMs,
-          receipts,
-        );
-        return decodeMobileCloudMemoryPreferenceForSubject(
-          value,
-          tokenOwner.tokenIdentifier,
-        ).ownerGeneration;
-      },
+      createConversation,
     },
   );
   assert(

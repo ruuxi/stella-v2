@@ -31,6 +31,7 @@ import {
   CloudAuthorityError,
   loadCloudConversationAuthority,
   type CloudAuthorityIssue,
+  type CloudChatBootstrap,
   type CloudConversationAuthority,
   type CloudRealtimeConfig,
 } from "./cloud-conversation-authority";
@@ -59,7 +60,9 @@ import {
 import { getConvexClient } from "./convex";
 import {
   AUTOMATIC_EXECUTION_TARGET,
+  automaticExecutionConversationClientCreateId,
   cancelAutomaticExecution,
+  createAutomaticExecutionConversation,
   ensureAutomaticExecutionConversation,
   getAutomaticExecutionStatus,
   type AutomaticExecutionTarget,
@@ -90,6 +93,17 @@ const realtimeConfigRef = makeFunctionReference<
   Record<string, never>,
   CloudRealtimeConfig
 >("cloud_apps:getCloudRealtimeConfig");
+
+const chatBootstrapRef = makeFunctionReference<
+  "query",
+  {
+    expectedSubject: string;
+    expectedOwnerId: string;
+    identityRevision: number;
+    clientCreateId: string;
+  },
+  CloudChatBootstrap
+>("cloud_apps:getMyChatBootstrap");
 
 const memoryPreferenceFenceRef = makeFunctionReference<
   "query",
@@ -147,6 +161,77 @@ export type CloudAuthorityHookState =
       retry: () => void;
     };
 
+const CHAT_THREAD_ID = "cloud";
+const CHAT_TITLE = "Chat";
+
+const isMissingFunctionError = (error: unknown) =>
+  error instanceof Error &&
+  /Could not find public function/i.test(error.message);
+
+// Set once a backend without `getMyChatBootstrap` answers, so retries in the
+// same run go straight to the chain it replaces.
+let chatBootstrapUnavailable = false;
+
+/**
+ * The launch chain `getMyChatBootstrap` replaces, shaped like its result, for
+ * a production backend that has not been deployed with it yet. Remove once
+ * every deployment a shipped build can reach serves the bootstrap query.
+ */
+const readLegacyChatBootstrap = async (
+  identity: CloudConversationIdentity,
+  ownerSubject: string,
+): Promise<CloudChatBootstrap> => {
+  const client = getConvexClient();
+  const config = client.query(realtimeConfigRef, {});
+  config.catch(() => undefined);
+  const confirmed = await client.query(confirmIdentityRef, {
+    expectedSubject: identity.expectedSubject,
+    identityRevision: identity.revision,
+  });
+  if (!confirmed) return { status: "identity_pending" };
+  const conversationId = await ensureAutomaticExecutionConversation({
+    threadId: CHAT_THREAD_ID,
+    title: CHAT_TITLE,
+  });
+  const realtime = await config;
+  const preference = decodeMobileCloudMemoryPreferenceForSubject(
+    await client.query(memoryPreferenceFenceRef, {
+      expectedSubject: ownerSubject,
+    }),
+    ownerSubject,
+  );
+  return {
+    status: "ready",
+    ownerId: ownerSubject,
+    ownerGeneration: preference.ownerGeneration,
+    conversationId,
+    realtime,
+  };
+};
+
+const readChatBootstrap = async (
+  identity: CloudConversationIdentity,
+  ownerSubject: string,
+): Promise<CloudChatBootstrap> => {
+  if (chatBootstrapUnavailable) {
+    return await readLegacyChatBootstrap(identity, ownerSubject);
+  }
+  try {
+    return await getConvexClient().query(chatBootstrapRef, {
+      expectedSubject: identity.expectedSubject,
+      expectedOwnerId: ownerSubject,
+      identityRevision: identity.revision,
+      clientCreateId: automaticExecutionConversationClientCreateId(
+        CHAT_THREAD_ID,
+      ),
+    });
+  } catch (error) {
+    if (!isMissingFunctionError(error)) throw error;
+    chatBootstrapUnavailable = true;
+    return await readLegacyChatBootstrap(identity, ownerSubject);
+  }
+};
+
 const resolveMobileCloudConversationAuthority = async (
   identity: CloudConversationIdentity,
 ): Promise<CloudConversationAuthority> => {
@@ -154,27 +239,14 @@ const resolveMobileCloudConversationAuthority = async (
     identity.expectedSubject,
   );
   const ownerSubject = tokenOwner.tokenIdentifier;
-  return loadCloudConversationAuthority(identity, {
-    confirmIdentity: (args) =>
-      getConvexClient().query(confirmIdentityRef, args),
-    getOwnerGeneration: async () =>
-      await getConvexClient()
-        .query(memoryPreferenceFenceRef, {
-          expectedSubject: ownerSubject,
-        })
-        .then(
-          (preference) =>
-            decodeMobileCloudMemoryPreferenceForSubject(
-              preference,
-              ownerSubject,
-            ).ownerGeneration,
-        ),
-    ensureConversation: () =>
-      ensureAutomaticExecutionConversation({
-        threadId: "cloud",
-        title: "Chat",
+  return loadCloudConversationAuthority(identity, ownerSubject, {
+    getBootstrap: () => readChatBootstrap(identity, ownerSubject),
+    createConversation: (expectedOwnerGeneration) =>
+      createAutomaticExecutionConversation({
+        threadId: CHAT_THREAD_ID,
+        title: CHAT_TITLE,
+        expectedOwnerGeneration,
       }),
-    getRealtimeConfig: () => getConvexClient().query(realtimeConfigRef, {}),
   });
 };
 

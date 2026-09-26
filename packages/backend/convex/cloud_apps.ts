@@ -28,6 +28,7 @@ import {
   markBrowserResumeDispatchFailed,
   projectCloudBrowserSuspension,
 } from "./cloud_browser";
+import { getOwnerMemoryPreference } from "./cloud_memory";
 import type { SubscriptionPlan } from "./lib/billing_plans";
 import {
   cloudExecutionSelectionValidator,
@@ -788,22 +789,104 @@ export const listMyConversationsPage = query({
  * origin is only useful to someone who already holds a token for it, and
  * unauthenticated discovery hands an attacker a map.
  */
+const cloudRealtimeConfigValidator = v.object({
+  /** Absent when the deployment has no builder: clients stay on polling. */
+  httpOrigin: v.union(v.string(), v.null()),
+  socketOrigin: v.union(v.string(), v.null()),
+  protocol: v.number(),
+});
+
+const readCloudRealtimeConfig = () => {
+  const raw = process.env.CLOUD_BUILDER_URL?.trim().replace(/\/+$/, "");
+  if (!raw) return { httpOrigin: null, socketOrigin: null, protocol: 1 };
+  return {
+    httpOrigin: raw,
+    socketOrigin: raw.replace(/^http/, "ws"),
+    protocol: 1,
+  };
+};
+
 export const getCloudRealtimeConfig = query({
   args: {},
-  returns: v.object({
-    /** Absent when the deployment has no builder: clients stay on polling. */
-    httpOrigin: v.union(v.string(), v.null()),
-    socketOrigin: v.union(v.string(), v.null()),
-    protocol: v.number(),
-  }),
+  returns: cloudRealtimeConfigValidator,
   handler: async (ctx) => {
     await requireOwnerId(ctx);
-    const raw = process.env.CLOUD_BUILDER_URL?.trim().replace(/\/+$/, "");
-    if (!raw) return { httpOrigin: null, socketOrigin: null, protocol: 1 };
+    return readCloudRealtimeConfig();
+  },
+});
+
+/**
+ * Everything a client needs before it can show the one chat, in one read.
+ *
+ * Replaces the launch chain of `confirmMySessionIdentity`, the owner
+ * generation reads (`getMyCloudConversationIdentity` and
+ * `cloud_memory:getMyMemoryPreference`), the `createMyConversation` call that
+ * only existed to learn the chat id, and `getCloudRealtimeConfig`. Each check
+ * runs here exactly as it does there, but a normal launch pays one round trip
+ * and writes nothing: `conversationId` is null only until the chat is first
+ * created, and the client then calls `createMyConversation` once.
+ */
+export const getMyChatBootstrap = query({
+  args: {
+    /** Raw Better Auth subject the client expects (`identity.subject`). */
+    expectedSubject: v.string(),
+    /** Owner id the client expects (`identity.tokenIdentifier`). */
+    expectedOwnerId: v.string(),
+    identityRevision: v.number(),
+    clientCreateId: v.string(),
+  },
+  returns: v.union(
+    v.object({ status: v.literal("identity_pending") }),
+    v.object({
+      status: v.literal("ready"),
+      ownerId: v.string(),
+      ownerGeneration: v.string(),
+      conversationId: v.union(v.string(), v.null()),
+      realtime: cloudRealtimeConfigValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    // Same result `confirmMySessionIdentity` reports as `false`: the Convex
+    // connection has not switched to the expected account yet.
+    if (!Number.isSafeInteger(args.identityRevision)) {
+      return { status: "identity_pending" as const };
+    }
+    const identity = await getUserIdentityOrNull(ctx);
+    if (
+      !identity ||
+      !sessionIdentityMatchesExpectedSubject(
+        identity.subject,
+        args.expectedSubject,
+      )
+    ) {
+      return { status: "identity_pending" as const };
+    }
+    const ownerId = identity.tokenIdentifier;
+    if (ownerId !== args.expectedOwnerId) {
+      throw new ConvexError({
+        code: "SESSION_IDENTITY_MISMATCH",
+        message: "The authenticated cloud session changed before this request.",
+      });
+    }
+    // Enforces the migration fence and rejects a memory preference left over
+    // from an older account reset, as the owner generation reads did.
+    const { ownerGeneration } = await getOwnerMemoryPreference(ctx, ownerId);
+    const clientCreateId = normalizeClientCreateId(args.clientCreateId);
+    const existing = await ctx.db
+      .query("cloud_conversations")
+      .withIndex("by_ownerId_and_clientCreateId", (q) =>
+        q.eq("ownerId", ownerId).eq("clientCreateId", clientCreateId),
+      )
+      .unique();
+    if (existing?.deletedAt !== undefined) {
+      throw new ConvexError("Conversation not found.");
+    }
     return {
-      httpOrigin: raw,
-      socketOrigin: raw.replace(/^http/, "ws"),
-      protocol: 1,
+      status: "ready" as const,
+      ownerId,
+      ownerGeneration,
+      conversationId: existing?.conversationId ?? null,
+      realtime: readCloudRealtimeConfig(),
     };
   },
 });

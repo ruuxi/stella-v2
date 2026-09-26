@@ -86,7 +86,6 @@ import {
   resolveCloudDriveFileUri,
   useCloudDriveFileUri,
 } from "../lib/use-cloud-drive-file-uri";
-import { AgentWorkCard } from "./AgentWorkCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { RunningTasksPill, runningTaskCount } from "./RunningTasksPill";
 import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
@@ -1747,7 +1746,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const isStandIn = isStandInArtifactRow(item);
   // Assistant text no longer streams, so there is no partial-render window to
   // protect: every card mounts as soon as its artifact reaches the row.
-  const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
   const showMapArtifacts = !isStandIn && mapArtifacts.length > 0;
   const showFileArtifacts =
     !isStandIn && Boolean(onOpenArtifact) && looseFiles.length > 0;
@@ -1761,7 +1759,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   );
   const showGeneratedImages = !isStandIn && generatedImages.length > 0;
   const showArtifacts =
-    showAgentWork ||
     showMapArtifacts ||
     showFileArtifacts ||
     showGeneratedImages;
@@ -1814,7 +1811,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
       }];
     });
   });
-  const quotedArtifactIds = new Set(completionQuotes.map((quote) => quote.artifactId));
   const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
   const renderAssistantMarkdown = (text: string) => {
     const markdown = (
@@ -1897,18 +1893,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {groupAgentWorkArtifacts.map((artifact) =>
-            quotedArtifactIds.has(artifact.id) ? null : (
-              <AgentWorkCard
-                key={artifact.id}
-                payload={artifact.payload}
-                colors={colors}
-                {...((onOpenReply && artifact.payload.agentIds?.[0])
-                  ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
-                  : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
-              />
-            ),
-          )}
+          {/* Running agents surface in the top bar's status mark, not as
+              transcript rows; finished ones arrive as quotes above replies. */}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (
                 <MapRouteCard

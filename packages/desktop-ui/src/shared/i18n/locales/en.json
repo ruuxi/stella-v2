@@ -1937,6 +1937,7 @@
       "settings": "Settings",
       "apps": "Apps",
       "openLabel": "Open navigation",
+      "chatSettingsLabel": "Chat settings",
       "closeLabel": "Close navigation",
       "account": "Account",
       "signIn": "Sign in",
@@ -1994,6 +1995,7 @@
     },
     "chat": {
       "emptyPrompt": "Ask Stella anything",
+      "workingMany": "{count} things in progress",
       "composerPlaceholder": "Message Stella",
       "mainChat": "Main chat",
       "createFailed": "Could not create a chat. Please try again.",

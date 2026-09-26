@@ -10,7 +10,8 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { STELLA_STAR_PATH } from "./geometry";
+import { STELLA_ORB_PATH, STELLA_STAR_PATH } from "./geometry";
+import { STELLA_SOFT_PATH } from "./blend";
 import { MarkLayer } from "./MarkLayer";
 import { StellaFace } from "./StellaFace";
 import {
@@ -38,10 +39,13 @@ export function StellaMarkHero({
   size,
   energy,
   faceColor,
+  shape = "star",
 }: {
   size: number;
   energy?: SharedValue<number>;
   faceColor?: string;
+  /** `soft` sits halfway between the star and the fully inflated orb. */
+  shape?: "star" | "soft" | "orb";
 }) {
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
@@ -94,7 +98,13 @@ export function StellaMarkHero({
     <View style={viewport} pointerEvents="none">
       <Animated.View style={[styles.stage, stageStyle]}>
         <MarkLayer
-          d={STELLA_STAR_PATH}
+          d={
+            shape === "orb"
+              ? STELLA_ORB_PATH
+              : shape === "soft"
+                ? STELLA_SOFT_PATH
+                : STELLA_STAR_PATH
+          }
           size={size}
           gradientId={`${uid}-hero`}
         />

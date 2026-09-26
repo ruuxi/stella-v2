@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useIsFocused } from "expo-router";
-import { ComputerSettingsSheet } from "../ComputerSettingsSheet";
+import { ModelSettingsPanel } from "../ModelSettingsPanel";
 import { Icon, type IconName } from "../Icon";
 import { PairPhoneSheet } from "../PairPhoneSheet";
 import { clearCachedDesktopBridge } from "../../lib/desktop-bridge-chat";
@@ -59,7 +59,6 @@ export function ComputerSection({
   const t = useT();
   const local = useMemo(() => makeStyles(colors), [colors]);
   const focused = useIsFocused();
-  const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [destinations, setDestinations] = useState<
     ExecutionDeviceDestination[] | undefined
@@ -142,9 +141,7 @@ export function ComputerSection({
   return (
     <>
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>
-          {t("mobile.settings.computerSection")}
-        </Text>
+        <Text style={styles.sectionLabel}>Where Stella works</Text>
 
         {control?.access ? (
           <View style={[styles.group, local.groupBottomGap]}>
@@ -189,7 +186,6 @@ export function ComputerSection({
 
         {control ? (
           <>
-            <Text style={local.subLabel}>Run on</Text>
             <View style={styles.group}>
               {targetOptions.map((option, index) => (
                 <Pressable
@@ -233,25 +229,11 @@ export function ComputerSection({
             </View>
 
             <View style={[styles.group, styles.groupGap]}>
-              {control.model ? (
-                <NavRow
-                  icon="cpu"
-                  label="Model"
-                  trailing={control.model.label}
-                  styles={styles}
-                  colors={colors}
-                  onPress={() => {
-                    tapLight();
-                    setModelSheetOpen(true);
-                  }}
-                />
-              ) : null}
               <NavRow
                 icon="smartphone"
                 label={
                   control.access ? "Pair another computer" : "Pair a computer"
                 }
-                divided={Boolean(control.model)}
                 styles={styles}
                 colors={colors}
                 onPress={() => {
@@ -324,19 +306,17 @@ export function ComputerSection({
         ) : null}
       </View>
 
+      {control?.model ? (
+        <ModelSettingsPanel
+          settings={control.model.settings}
+          composerModelPinned={control.composerModelPinned}
+          onComposerModelPinnedChange={control.onComposerModelPinnedChange}
+          styles={styles}
+        />
+      ) : null}
+
       {control ? (
         <>
-          {control.model ? (
-            <ComputerSettingsSheet
-              visible={modelSheetOpen}
-              onClose={() => setModelSheetOpen(false)}
-              settings={control.model.settings}
-              composerModelPinned={control.composerModelPinned}
-              onComposerModelPinnedChange={
-                control.onComposerModelPinnedChange
-              }
-            />
-          ) : null}
           <PairPhoneSheet
             visible={pairSheetOpen}
             onClose={() => setPairSheetOpen(false)}

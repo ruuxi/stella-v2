@@ -23,6 +23,8 @@ import {
 import { Icon } from "../../src/components/Icon";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { GlassIconButton } from "../../src/components/GlassIconButton";
+import { StellaStatusHeader } from "../../src/components/StellaStatusHeader";
+import { ChatSettingsSheet } from "../../src/components/ChatSettingsSheet";
 import {
   AppBackdrop,
   TOP_BAR_BAR_HEIGHT,
@@ -129,6 +131,7 @@ export default function MainLayout() {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
   const colors = useColors();
   const t = useT();
@@ -514,7 +517,13 @@ export default function MainLayout() {
                       </Text>
                     </Pressable>
                   </View>
-                ) : (
+                ) : null}
+                {!search.isOpen && onChatSurface ? (
+                  <View pointerEvents="box-none" style={styles.statusLane}>
+                    <StellaStatusHeader onPress={openSidebar} />
+                  </View>
+                ) : null}
+                {search.isOpen ? null : (
                   onChatSurface || backVisible ? (
                     <View style={styles.topBarSide}>
                       <GlassIconButton
@@ -531,6 +540,20 @@ export default function MainLayout() {
                     </View>
                   ) : null
                 )}
+                {!search.isOpen && onChatSurface ? (
+                  <View style={[styles.topBarSide, styles.topBarEnd]}>
+                    <GlassIconButton
+                      icon="settings"
+                      size={TOP_BAR_BUTTON}
+                      iconSize={19}
+                      accessibilityLabel={t("mobile.nav.chatSettingsLabel")}
+                      onPress={() => {
+                        tapLight();
+                        setChatSettingsOpen(true);
+                      }}
+                    />
+                  </View>
+                ) : null}
               </View>
 
               <View style={styles.content}>
@@ -566,6 +589,10 @@ export default function MainLayout() {
         artifact={viewerArtifact}
         access={hubAccess}
         onClose={() => setViewerArtifact(null)}
+      />
+      <ChatSettingsSheet
+        visible={chatSettingsOpen}
+        onClose={() => setChatSettingsOpen(false)}
       />
       <AiConsentModal
         visible={consentVisible}
@@ -653,6 +680,16 @@ const makeStyles = (colors: Colors) =>
       overflow: "visible",
       zIndex: 1,
     },
+    // Stella's status mark: spans the bar row beneath the status bar, drawn
+    // under the menu button so the button keeps its taps.
+    statusLane: {
+      bottom: 0,
+      height: TOP_BAR_BAR_HEIGHT,
+      left: 0,
+      position: "absolute",
+      right: 0,
+    },
+    topBarEnd: { marginLeft: "auto" },
     topBarSide: {
       alignItems: "center",
       height: 44,

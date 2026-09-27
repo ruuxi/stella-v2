@@ -195,6 +195,23 @@ export const readCachedServerCatalog = async (
   }
 };
 
+/**
+ * Cheap change stamp for the disk cache (stat only, no read/parse), so a
+ * per-turn consumer like the keyword index can skip re-reading an unchanged
+ * cache. Any rewrite changes mtime (and usually size); "absent" when the file
+ * is missing. Callers treat a changed stamp as "re-read", never as validity.
+ */
+export const readCachedServerCatalogStamp = async (
+  stellaDataDir: string,
+): Promise<string> => {
+  try {
+    const stat = await fs.stat(cachePath(stellaDataDir));
+    return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.ino}`;
+  } catch {
+    return "absent";
+  }
+};
+
 export const writeCachedServerCatalog = async (
   stellaDataDir: string,
   entries: readonly NativeConnectorCatalogEntry[],

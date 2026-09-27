@@ -70,6 +70,12 @@ export const packagedRuntimeAssetCopies = [
     from: "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
     to: packagedOAuthProviderCatalogRelativePath,
   },
+  {
+    // Summary sidecar (catalog minus `tools`) that the connector list and
+    // keyword reminder read instead of parsing the full catalog.
+    from: "packages/runtime/kernel/connectors/oauth-provider-catalog.index.json",
+    to: "runtime/kernel/connectors/oauth-provider-catalog.index.json",
+  },
 ];
 /**
  * Static assets copied next to the compiled electron-main bundle. The

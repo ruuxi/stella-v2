@@ -9,19 +9,12 @@ vi.mock("convex/react", async (importOriginal) => ({
   useMutation: () => async () => undefined,
   useAction: () => async () => undefined,
 }));
-// Mounting the auth-session hook starts a real network read of the session
-// (`authClient.getSession()`), and its settle lands a re-render of the cloud
-// connect/intervention cards at whatever wall-clock time the round trip
-// takes. Hold the session at one settled snapshot so no render in the
-// keystroke window depends on the network.
-vi.mock("@/global/auth/services/auth-session", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("@/global/auth/services/auth-session")
-    >();
-  const settled = { ...actual.getAuthSessionSnapshot(), isPending: false };
-  return { ...actual, useDesktopAuthSession: () => settled };
-});
+// Hold the auth session settled; see tests/helpers/render-budget-settle.ts.
+vi.mock("@/global/auth/services/auth-session", async (importOriginal) =>
+  (await import("../../helpers/render-budget-settle")).settledAuthSessionModule(
+    importOriginal,
+  ),
+);
 import { act, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { MessageRecord } from "@stella/contracts/local-chat";
@@ -39,6 +32,7 @@ import type {
 } from "@/features/chat/chat-column-types";
 import { UiStateProvider } from "@/context/ui-state";
 import { withI18n } from "../../helpers/i18n";
+import { installIdleCallbackQueue } from "../../helpers/render-budget-settle";
 
 const CONVERSATION_ID = "keystroke-budget";
 
@@ -156,33 +150,11 @@ function Harness() {
 describe("composer keystroke render budget", () => {
   let container: HTMLDivElement;
   let root: Root;
-  // ChatTimeline widens its draw distance from an idle callback after mount
-  // (a 240 ms timer in jsdom, which has no requestIdleCallback). Queue those
-  // callbacks so the test runs them before the counting window opens instead
-  // of letting one land mid-window on a slow runner.
-  let idleCallbacks: Map<number, IdleRequestCallback>;
-  const flushIdleCallbacks = () => {
-    while (idleCallbacks.size > 0) {
-      const pending = [...idleCallbacks.values()];
-      idleCallbacks.clear();
-      for (const callback of pending) {
-        callback({ didTimeout: false, timeRemaining: () => 50 });
-      }
-    }
-  };
+  let idle: ReturnType<typeof installIdleCallbackQueue>;
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    idleCallbacks = new Map();
-    let nextIdleHandle = 1;
-    vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) => {
-      const handle = nextIdleHandle++;
-      idleCallbacks.set(handle, callback);
-      return handle;
-    });
-    vi.stubGlobal("cancelIdleCallback", (handle: number) => {
-      idleCallbacks.delete(handle);
-    });
+    idle = installIdleCallbackQueue();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -211,9 +183,9 @@ describe("composer keystroke render budget", () => {
     });
     // Settle the mount-time idle warm-up before counting.
     await act(async () => {
-      flushIdleCallbacks();
+      idle.flush();
     });
-    expect(idleCallbacks.size).toBe(0);
+    expect(idle.pending).toBe(0);
     const keystrokes = ["he", "hel", "hell", "hello"];
     const report = await countRenders(async () => {
       for (const text of keystrokes) {

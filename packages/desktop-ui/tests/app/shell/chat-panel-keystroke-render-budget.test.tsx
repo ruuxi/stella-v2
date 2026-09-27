@@ -9,6 +9,12 @@ vi.mock("convex/react", async (importOriginal) => ({
   useMutation: () => async () => undefined,
   useAction: () => async () => undefined,
 }));
+// Hold the auth session settled; see tests/helpers/render-budget-settle.ts.
+vi.mock("@/global/auth/services/auth-session", async (importOriginal) =>
+  (await import("../../helpers/render-budget-settle")).settledAuthSessionModule(
+    importOriginal,
+  ),
+);
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,6 +22,7 @@ import type { MessageRecord } from "@stella/contracts/local-chat";
 import { ChatPanelTab } from "@/shell/ChatSidebar";
 import { UiStateProvider } from "@/context/ui-state";
 import { withI18n } from "../../helpers/i18n";
+import { installIdleCallbackQueue } from "../../helpers/render-budget-settle";
 
 const messages: MessageRecord[] = Array.from({ length: 20 }, (_, index) => {
   const isUser = index % 2 === 0;
@@ -45,9 +52,11 @@ const typeInto = (textarea: HTMLTextAreaElement, value: string) => {
 describe("chat panel keystroke render budget", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let idle: ReturnType<typeof installIdleCallbackQueue>;
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    idle = installIdleCallbackQueue();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -56,6 +65,7 @@ describe("chat panel keystroke render budget", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.unstubAllGlobals();
   });
 
   it("does not re-render the conversation timeline per keystroke", async () => {
@@ -85,6 +95,11 @@ describe("chat panel keystroke render budget", () => {
     });
     const textarea = container.querySelector("textarea")!;
     await act(async () => typeInto(textarea, "h"));
+    // Settle the mount-time idle warm-up before counting.
+    await act(async () => {
+      idle.flush();
+    });
+    expect(idle.pending).toBe(0);
     const report = await countRenders(async () => {
       for (const text of ["he", "hel", "hell", "hello"]) {
         await act(async () => typeInto(textarea, text));

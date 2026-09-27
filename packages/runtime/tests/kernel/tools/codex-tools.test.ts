@@ -44,6 +44,11 @@ const unixFishPath = findUnixExecutable("fish");
 const unixPowerShellPath = findUnixExecutable("pwsh");
 const runIfUnixFish = unixFishPath ? it : it.skip;
 const runIfUnixPowerShell = unixPowerShellPath ? it : it.skip;
+// A cold pwsh start (runtime JIT, module analysis cache) takes several seconds
+// on a shared CI runner, and each call below launches a fresh process. The
+// assertions are about exit-code propagation, not speed, so the budget only
+// has to rule out a hang.
+const PWSH_COMMAND_BUDGET_MS = 30_000;
 
 afterEach(() => tempDirs.cleanup());
 
@@ -287,7 +292,7 @@ describe("general agent tools", () => {
         state,
         "git stella-definitely-missing-subcommand",
         root,
-        5_000,
+        PWSH_COMMAND_BUDGET_MS,
         undefined,
         launchOptions,
       );
@@ -302,7 +307,7 @@ describe("general agent tools", () => {
         state,
         "node --version",
         root,
-        5_000,
+        PWSH_COMMAND_BUDGET_MS,
         { STELLA_NODE_BIN: "/usr/bin/false" },
         launchOptions,
       );
@@ -314,7 +319,7 @@ describe("general agent tools", () => {
           cmd: "/bin/sh -c 'exit 37'",
           shell: unixPowerShellPath,
           login: false,
-          yield_time_ms: 5_000,
+          yield_time_ms: PWSH_COMMAND_BUDGET_MS,
         },
         {
           conversationId: "c-pwsh-native-exit",
@@ -332,14 +337,14 @@ describe("general agent tools", () => {
         state,
         "/bin/sh -c 'exit 37'; Write-Output recovered",
         root,
-        5_000,
+        PWSH_COMMAND_BUDGET_MS,
         undefined,
         launchOptions,
       );
       expect(recovered).toBe("recovered\n");
     },
-    // Four real PowerShell processes each have a 5-second command budget.
-    25_000,
+    // Four real PowerShell processes, each with the cold-start budget above.
+    4 * PWSH_COMMAND_BUDGET_MS + 10_000,
   );
 
   it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {

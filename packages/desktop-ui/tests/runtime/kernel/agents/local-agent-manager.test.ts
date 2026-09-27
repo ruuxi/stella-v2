@@ -277,7 +277,7 @@ describe("LocalAgentManager lifecycle observability", () => {
 });
 
 describe("LocalAgentManager Exec fs locking", () => {
-  it("cancels persisted running agents left behind by a previous worker", () => {
+  it("cancels persisted running agents left behind by a previous worker", async () => {
     const savedRecords: Parameters<
       NonNullable<
         ConstructorParameters<typeof LocalAgentManager>[0]["saveAgentRecord"]
@@ -285,7 +285,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     >[0][] = [];
     const lifecycleEvents: AgentLifecycleEvent[] = [];
 
-    new LocalAgentManager({
+    const manager = new LocalAgentManager({
       maxConcurrent: 1,
       fetchAgentContext: async () => ({
         systemPrompt: "",
@@ -353,6 +353,11 @@ describe("LocalAgentManager Exec fs locking", () => {
         }),
       ]),
     );
+    // The status flip above is synchronous boot work; the display-only
+    // lifecycle notices are replayed by the manager's owned recovery sweep,
+    // which yields between records, so join it before asserting them.
+    await manager.awaitTerminalLifecycleRecovery();
+    await manager.shutdown();
     expect(lifecycleEvents).toEqual([
       expect.objectContaining({
         type: "agent-canceled",

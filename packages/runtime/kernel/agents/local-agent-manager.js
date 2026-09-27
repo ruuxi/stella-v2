@@ -450,7 +450,8 @@ export class LocalAgentManager {
      * installed manager; an orchestrator wake needs a started runtime; replaying
      * from the constructor could do neither, which is why receipts used to
      * replay, and fail, on every boot). Without that opt the sweep starts in
-     * the constructor turn, as it historically did.
+     * the constructor turn, but each replay after the first lands in its own
+     * macrotask; join `awaitTerminalLifecycleRecovery()` to observe them all.
      *
      * Delivery stays at-least-once for the crash window this receipt exists
      * for, with two explicit bounds so a backlog can never replay forever:

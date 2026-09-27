@@ -363,18 +363,64 @@ const normalizeStoredPreferences = (
 
 // ── Effect service ────────────────────────────────────────────────────────
 
-type CacheEntry = {
-  readonly prefs: LocalPreferences;
-  readonly mtimeMs: number | null;
+/**
+ * Identity of the preferences file as last read or written. Electron main and
+ * the worker both write this file (each process has its own cache), so every
+ * load re-stats (~1 µs) and re-reads only when the identity changed.
+ * `mtimeMs` alone is not enough: Linux stamps mtime from a coarse clock, so
+ * two writes a few ms apart can share it; size and inode (a replace-by-rename
+ * gets a new one) narrow that further. A same-size in-place rewrite inside
+ * one mtime tick would still match, so, like git's "racily clean" index
+ * entries, an entry is trusted only when it was observed more than
+ * `RACY_WINDOW_MS` (wider than any filesystem's mtime granularity) after the
+ * file's mtime. Until then every load re-reads: a few re-reads right after a
+ * save buy an exact cache.
+ */
+type FileKey = {
+  readonly filePath: string;
+  readonly mtimeMs: number;
+  readonly size: number;
+  readonly ino: number;
 };
 
+type CacheEntry = {
+  readonly prefs: LocalPreferences;
+  readonly key: FileKey | null;
+  /** Wall clock taken before the stat that produced `key`. */
+  readonly observedAtMs: number;
+};
+
+const RACY_WINDOW_MS = 2_000;
+
+const isTrustedHit = (
+  entry: CacheEntry | null,
+  key: FileKey,
+): entry is CacheEntry =>
+  entry !== null &&
+  sameFileKey(entry.key, key) &&
+  entry.observedAtMs - key.mtimeMs > RACY_WINDOW_MS;
+
+const fileKeyOf = (filePath: string, stat: fs.Stats): FileKey => ({
+  filePath,
+  mtimeMs: stat.mtimeMs,
+  size: stat.size,
+  ino: stat.ino,
+});
+
+const sameFileKey = (a: FileKey | null, b: FileKey): boolean =>
+  a !== null &&
+  a.filePath === b.filePath &&
+  a.mtimeMs === b.mtimeMs &&
+  a.size === b.size &&
+  a.ino === b.ino;
+
 /**
- * The effectful core: mtime-cached load and private-file save. Everything
- * else in this module is a pure projection over these two operations.
- * Exported so sibling kernel services can compose the layer directly instead
- * of round-tripping through the sync facade. The cache is mtime-keyed, so
- * multiple runtimes holding their own cache entry converge on the file's
- * content.
+ * The effectful core: stat-keyed cached load and private-file save.
+ * Everything else in this module is a pure projection over these two
+ * operations. Exported so sibling kernel services can compose the layer
+ * directly instead of round-tripping through the sync facade. The cache is
+ * keyed on (path, mtimeMs, size, ino), so multiple runtimes holding their own
+ * cache entry converge on the file's content.
  */
 export interface Interface {
   readonly load: (stellaDataDir: string) => Effect.Effect<LocalPreferences>;
@@ -391,9 +437,7 @@ export class Service extends Context.Service<Service, Interface>()(
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    // Single cache slot keyed by mtime — same shape (and same
-    // last-loaded-file-wins behavior) as the old module-level
-    // `_cached`/`_cachedMtime` pair.
+    // Single cache slot (last-loaded-file-wins) keyed on the file identity.
     const cache = yield* Ref.make<CacheEntry | null>(null);
 
     const load = Effect.fn("LocalPreferences.load")(function* (
@@ -403,15 +447,17 @@ export const layer = Layer.effect(
       const cached = yield* Ref.get(cache);
       const loaded = yield* Effect.try({
         try: (): CacheEntry => {
-          const stat = fs.statSync(filePath);
-          if (cached && cached.mtimeMs === stat.mtimeMs) {
+          const observedAtMs = Date.now();
+          const key = fileKeyOf(filePath, fs.statSync(filePath));
+          if (isTrustedHit(cached, key)) {
             return cached;
           }
           const raw = fs.readFileSync(filePath, "utf-8");
           const parsed = JSON.parse(raw) as Partial<LocalPreferences>;
           return {
             prefs: normalizeStoredPreferences(parsed),
-            mtimeMs: stat.mtimeMs,
+            key,
+            observedAtMs,
           };
         },
         catch: (error) => error,
@@ -446,14 +492,15 @@ export const layer = Layer.effect(
         },
         catch: (error) => error,
       });
-      const mtimeMs = yield* Effect.sync(() => {
+      const observedAtMs = Date.now();
+      const key = yield* Effect.sync(() => {
         try {
-          return fs.statSync(filePath).mtimeMs;
+          return fileKeyOf(filePath, fs.statSync(filePath));
         } catch {
           return null;
         }
       });
-      yield* Ref.set(cache, { prefs, mtimeMs });
+      yield* Ref.set(cache, { prefs, key, observedAtMs });
     });
 
     return { load, save };

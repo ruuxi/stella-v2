@@ -1,7 +1,7 @@
 import type { Api, Model } from "../ai/types.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getAllModels } from "@stella/contracts/model-catalog";
-import { getModels } from "../ai/models.js";
+import { getModelProviders, getModels } from "../ai/models.js";
 import {
   mergeModelHeaders,
   modelRuntime,
@@ -240,8 +240,10 @@ const getDirectProviderCandidates = (
     default: {
       // Plugin providers register themselves in the AI registry; if they show
       // up there, treat them as direct providers without hard-coding here.
-      const extensionModels = getModels(provider as never) as Model<Api>[];
-      if (extensionModels.length > 0) {
+      // (`getModels(provider).length > 0` without deep-cloning every model
+      // of the provider on each route resolution: the registry drops
+      // providers that have no models, so membership is the same answer.)
+      if (getModelProviders().includes(provider)) {
         return {
           credentialProvider: provider,
           registryProvider: provider,

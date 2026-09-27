@@ -15,6 +15,7 @@ import type { VoiceRuntimeService } from "../voice/service.js";
 import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
+import * as RunnerModule from "./runner-module.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -130,6 +131,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const hostBus = yield* HostBus.Service;
     const catalog = yield* ModelCatalog.Service;
+    const runnerModule = yield* RunnerModule.Service;
 
     // JSON-RPC handlers run concurrently (one fiber per request), so
     // initialize/shutdown mutate `currentSession` under this mutex. Without
@@ -235,6 +237,7 @@ export const layer = Layer.effect(
                 scope,
               ).pipe(
                 Effect.provideService(HostBus.Service, hostBus),
+                Effect.provideService(RunnerModule.Service, runnerModule),
               ),
             ).pipe(
               // A failed OR interrupted build must not leak the resources

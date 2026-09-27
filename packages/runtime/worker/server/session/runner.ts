@@ -11,12 +11,14 @@ import {
   listTranscriptNeighborsBatch,
   readRecallFtsHealth,
 } from "../../../kernel/storage/recall-read-queries.js";
-// Runner subgraph imported as types only — the values are loaded lazily (see
-// the dynamic import in the build promise below) so this ~68%-of-bundle
-// subgraph isn't parsed on the worker-ready path.
+// Runner subgraph imported as types only — the values are loaded lazily by
+// RunnerModule (a dynamic import the entry starts right after the transport
+// attaches) so this ~68%-of-bundle subgraph isn't parsed before the
+// transport is up.
 import type { StellaHostRunnerOptions } from "../../../kernel/runner.js";
 import { RunnerUnavailableError } from "../errors.js";
 import * as HostBus from "../host-bus.js";
+import * as RunnerModule from "../runner-module.js";
 import * as SessionConfig from "./config.js";
 import * as SessionStorage from "./storage.js";
 import * as CliBridge from "./cli-bridge.js";
@@ -106,6 +108,7 @@ export const layer = Layer.effect(
     const storage = yield* SessionStorage.Service;
     const cliBridge = yield* CliBridge.Service;
     const runnerCell = yield* RunnerCell.Service;
+    const runnerModule = yield* RunnerModule.Service;
     const init = config.get();
     let deviceSignerPromise: ReturnType<typeof createRemoteDeviceSigner> | null =
       null;
@@ -275,15 +278,15 @@ export const layer = Layer.effect(
 
     // Build the runner in the background instead of on the worker-ready path:
     // initialize returns without awaiting this; turn handlers join the same
-    // promise via `initialized`. The dynamic import() is also what lets
-    // esbuild split the runner into its own chunk (see dev-electron-build.mjs).
+    // promise via `initialized`. The module comes from RunnerModule, which
+    // is usually already importing (prefetched at transport attach); its
+    // dynamic import() is also what lets esbuild split the runner into its
+    // own chunk (see dev-electron-build.mjs).
     // Message of a failed background build; surfaced instead of the generic
     // "Runtime worker is not ready." and as the AgentHealth not-ready reason.
     let runnerReadyError: string | null = null;
     const buildPromise: Promise<RuntimeRunner | null> = (async () => {
-      const { createStellaHostRunner } = await import(
-        "../../../kernel/runner.js"
-      );
+      const { createStellaHostRunner } = await runnerModule.load();
       const runner = createStellaHostRunner(runnerOptions);
       // Apply the latest config (config patches that arrived during the
       // import fanned out against an empty RunnerCell, so re-apply).

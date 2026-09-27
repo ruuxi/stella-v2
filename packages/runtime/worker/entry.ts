@@ -211,6 +211,11 @@ const main = async () => {
     ),
   );
 
+  // The transport is up: start loading the runner module now so it overlaps
+  // the host's connect/initialize latency instead of running inside
+  // initialize. Owned by the runtime server's base scope.
+  runtimeServer.prefetchRunner();
+
   if (detachedMode) {
     console.error(
       `[runtime-worker] listening on ${server.describe()} (pid=${process.pid})`,

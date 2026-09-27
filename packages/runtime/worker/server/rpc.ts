@@ -3,6 +3,7 @@ import type { WorkerPeerLike } from "../peer-broker.js";
 import { causeToThrowable } from "./errors.js";
 import type * as HostBus from "./host-bus.js";
 import type * as ModelCatalog from "./model-catalog.js";
+import type * as RunnerModule from "./runner-module.js";
 import type * as WorkerSessions from "./sessions.js";
 
 /**
@@ -15,6 +16,7 @@ import type * as WorkerSessions from "./sessions.js";
 export type WorkerRpcContext =
   | HostBus.Service
   | ModelCatalog.Service
+  | RunnerModule.Service
   | WorkerSessions.Service;
 
 export type WorkerRpcHandler = (

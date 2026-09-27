@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  extractRelevantWebText,
   htmlToMarkdown,
   htmlToText,
+} from "@stella/runtime/kernel/tools/html-conversion";
+import {
+  extractRelevantWebText,
   localWebFetch,
   MAX_FETCH_BODY_BYTES,
   MAX_FETCH_BODY_CHARS,

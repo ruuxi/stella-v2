@@ -6,6 +6,7 @@ import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect";
 import { METHOD_NAMES } from "@stella/contracts/protocol";
 import * as HostBus from "../worker/server/host-bus.js";
 import * as ModelCatalog from "../worker/server/model-catalog.js";
+import * as RunnerModule from "../worker/server/runner-module.js";
 import * as WorkerSessions from "../worker/server/sessions.js";
 import type { WorkerInitializationState } from "../worker/server/types.js";
 
@@ -142,6 +143,7 @@ const makeSessionsRuntime = (behavior: FakePeerBehavior) =>
   ManagedRuntime.make(
     WorkerSessions.layer.pipe(
       Layer.provideMerge(ModelCatalog.layer),
+      Layer.provideMerge(RunnerModule.layer),
       Layer.provideMerge(HostBus.layer(makePeer(behavior))),
     ),
   );

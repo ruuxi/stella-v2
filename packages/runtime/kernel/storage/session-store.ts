@@ -1752,6 +1752,13 @@ export class SessionStore {
     );
   }
 
+  openEventWindow(conversationIdInput: unknown, maxItems: number) {
+    return this.chat.openEventWindow(
+      this.sanitizeConversationId(conversationIdInput),
+      maxItems,
+    );
+  }
+
   listEvents(conversationIdInput: unknown, maxItems = 200): LocalChatEventRecord[] {
     return this.chat.listEvents(
       this.sanitizeConversationId(conversationIdInput),

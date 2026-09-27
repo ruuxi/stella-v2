@@ -144,6 +144,8 @@ export const layer = Layer.effect(
         )) as HostAppBrowserContextSnapshot,
       listLocalChatEvents: (conversationId, maxItems) =>
         storage.chatStore.listEvents(conversationId, maxItems),
+      openLocalChatEventWindow: (conversationId, maxItems) =>
+        storage.chatStore.openEventWindow(conversationId, maxItems),
       recallReadQueries: {
         getFtsHealth: () => readRecallFtsHealth(storage.db),
         listTranscriptNeighborsBatch: (targets, options) =>

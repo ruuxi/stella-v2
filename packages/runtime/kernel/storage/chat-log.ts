@@ -36,6 +36,10 @@ import {
   projectLocalChatUpdateEventWithMetadata,
   type Cursor,
 } from "./view.js";
+import type {
+  LocalChatEventWindow,
+  LocalChatEventWindowQuery,
+} from "./event-window.js";
 
 const CUTOFF_SCAN_CEILING = 4000;
 const MAX_VISIBLE_MESSAGE_WINDOW = 500;
@@ -950,6 +954,66 @@ export class ChatLog {
       )
       .all(conversationId, ...NON_EVENT_TYPES, normalizedLimit) as EntryRow[];
     return rows.map((row) => this.deserializeEventRow(row));
+  }
+
+  /**
+   * The window `listEvents(conversationId, maxItems)` would return, queried
+   * for only the rows a caller needs (see `event-window.ts`). Each query is
+   * one statement: the window's lower bound (the seq of its oldest row) is a
+   * subquery, so nothing outside the window can match.
+   */
+  openEventWindow(
+    conversationId: string,
+    maxItems: number,
+  ): LocalChatEventWindow {
+    const windowOffset = Math.max(1, Math.floor(maxItems)) - 1;
+    return {
+      query: (query: LocalChatEventWindowQuery) => {
+        if (query.types.length === 0) return [];
+        // Fewer rows than the window: no lower bound (seq starts at 1).
+        const clauses = [
+          "entry.conversation_id = ?",
+          `entry.type IN (${placeholders(query.types)})`,
+          `entry.seq >= COALESCE((
+             SELECT seq FROM entry
+             WHERE conversation_id = ?
+               AND type NOT IN (${placeholders(NON_EVENT_TYPES)})
+             ORDER BY seq DESC
+             LIMIT 1 OFFSET ?
+           ), 0)`,
+        ];
+        const params: unknown[] = [
+          conversationId,
+          ...query.types,
+          conversationId,
+          ...NON_EVENT_TYPES,
+          windowOffset,
+        ];
+        if (query.beforeTimestamp !== undefined) {
+          clauses.push("entry.created_at < ?");
+          params.push(query.beforeTimestamp);
+        }
+        if (query.payloadKey !== undefined) {
+          clauses.push("instr(entry.payload, ?) > 0");
+          params.push(JSON.stringify(query.payloadKey));
+        }
+        const limit =
+          query.limit !== undefined && query.limit >= 0
+            ? Math.floor(query.limit)
+            : -1;
+        const rows = this.db
+          .prepare(
+            `SELECT * FROM (
+               SELECT ${ENTRY_SELECT} FROM entry
+               WHERE ${clauses.join(" AND ")}
+               ORDER BY entry.seq DESC
+               LIMIT ?
+             ) ORDER BY sequence ASC`,
+          )
+          .all(...params, limit) as EntryRow[];
+        return rows.map((row) => this.deserializeEventRow(row));
+      },
+    };
   }
 
   listEventsBefore(

@@ -93,14 +93,14 @@
       "ceiling": 217
     },
     "boot.census.source.bootModules": {
-      "value": 1239,
+      "value": 1147,
       "kind": "count",
-      "ceiling": 1302.95
+      "ceiling": 1206.35
     },
     "boot.census.source.bootBytes": {
-      "value": 13021985,
+      "value": 11893714,
       "kind": "bytes",
-      "ceiling": 13674108.25
+      "ceiling": 12489423.7
     },
     "boot.census.bundle.bootModules": {
       "value": 33,
@@ -148,9 +148,9 @@
       "ceiling": 25.1
     },
     "turn.plain.sqlRows.p50": {
-      "value": 67,
+      "value": 56.75,
       "kind": "count",
-      "ceiling": 72.35
+      "ceiling": 61.59
     },
     "turn.plain.rpcLinesOut.p50": {
       "value": 12,
@@ -203,9 +203,9 @@
       "ceiling": 44
     },
     "turn.tool.sqlRows.p50": {
-      "value": 127,
+      "value": 92.85,
       "kind": "count",
-      "ceiling": 135.35
+      "ceiling": 99.49
     },
     "turn.tool.rpcLinesOut.p50": {
       "value": 21,
@@ -233,9 +233,9 @@
       "ceiling": 3.14
     },
     "history.1000.turnOnHistory.toRunFinishedMs.p50": {
-      "value": 45.87,
+      "value": 22.54,
       "kind": "time",
-      "ceiling": 64.92
+      "ceiling": 33.43
     },
     "history.1000.turnOnHistory.sqlRows": {
       "value": 823,
@@ -268,9 +268,9 @@
       "ceiling": 3.9
     },
     "history.10000.turnOnHistory.toRunFinishedMs.p50": {
-      "value": 42.99,
+      "value": 19.6,
       "kind": "time",
-      "ceiling": 61.04
+      "ceiling": 29.46
     },
     "history.10000.turnOnHistory.sqlRows": {
       "value": 823,
@@ -363,9 +363,9 @@
       "ceiling": 45350482
     },
     "bundle.bootReachableBytes": {
-      "value": 3540580,
+      "value": 2532464,
       "kind": "bytes",
-      "ceiling": 3718633
+      "ceiling": 2660111.2
     }
   }
 }

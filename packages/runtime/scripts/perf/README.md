@@ -130,6 +130,13 @@ seeding cost is itself reported as append ms/statements per event). Then
 Also runs 5 turns on that conversation to show whether history size leaks
 into turn cost, and records boot-to-ready on the large DB.
 
+`--history-shape modern` seeds a different template: one real turn first,
+then the N events after it, so the durable thread is the model history and
+the events only feed reminders and locale (a conversation that started after
+the durable-store transition). The default `legacy` shape has every event
+predate the thread, so the pre-transition shim projects up to 800 of them
+into every prompt; `check` uses the default.
+
 ### J5 persistence write (derived, in `turn`)
 
 From J2's window: write statements, commits, SQL ms and RPC bytes per turn,

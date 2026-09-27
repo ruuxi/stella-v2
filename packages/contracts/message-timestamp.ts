@@ -41,24 +41,59 @@ export const formatDateTimeReminder = (
   return `Current date and time: ${value}.`;
 };
 
+// `Date#toLocale{Time,Date}String(locale, options)` builds a fresh
+// `Intl.DateTimeFormat` on every call (~16us each in JSC). History building
+// formats every legacy event, so reuse one formatter per timezone. The
+// options below request explicit fields, so `format()` produces exactly
+// what the `toLocale*String` calls did (no ECMA-402 defaults are added).
+type TimestampTagFormatters = { time: Intl.DateTimeFormat; date: Intl.DateTimeFormat };
+const MAX_CACHED_TIMEZONES = 32;
+const timestampTagFormatters = new Map<string, TimestampTagFormatters>();
+
+const getTimestampTagFormatters = (tz: string): TimestampTagFormatters => {
+  const cached = timestampTagFormatters.get(tz);
+  if (cached) return cached;
+  const formatters: TimestampTagFormatters = {
+    time: new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: tz,
+    }),
+    date: new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: tz,
+    }),
+  };
+  if (timestampTagFormatters.size >= MAX_CACHED_TIMEZONES) {
+    timestampTagFormatters.clear();
+  }
+  timestampTagFormatters.set(tz, formatters);
+  return formatters;
+};
+
+const formatTimeAndDate = (
+  timestamp: number,
+  timezone?: string,
+): { timeStr: string; dateStr: string } => {
+  const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const formatters = getTimestampTagFormatters(tz);
+  const d = new Date(timestamp);
+  // `format()` throws on an invalid date where `toLocale*String` returned
+  // "Invalid Date"; keep the old output.
+  if (Number.isNaN(d.getTime())) {
+    return { timeStr: "Invalid Date", dateStr: "Invalid Date" };
+  }
+  return { timeStr: formatters.time.format(d), dateStr: formatters.date.format(d) };
+};
+
 /**
  * Format a timestamp tag for appending to a user message.
  * Always includes the date portion.
  */
 export const formatTimestampTag = (timestamp: number, timezone?: string): string => {
-  const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
-  const d = new Date(timestamp);
-  const timeStr = d.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: tz,
-  });
-  const dateStr = d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: tz,
-  });
+  const { timeStr, dateStr } = formatTimeAndDate(timestamp, timezone);
   return formatTimestampSystemReminder(`${timeStr}, ${dateStr}`);
 };
 
@@ -70,19 +105,7 @@ export const formatTimestampForHistory = (
   prevDate?: string,
   timezone?: string,
 ): { tag: string; dateStr: string } => {
-  const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
-  const d = new Date(timestamp);
-  const timeStr = d.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: tz,
-  });
-  const dateStr = d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: tz,
-  });
+  const { timeStr, dateStr } = formatTimeAndDate(timestamp, timezone);
   const tag =
     prevDate && dateStr === prevDate
       ? formatTimestampSystemReminder(timeStr)

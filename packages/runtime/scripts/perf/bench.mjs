@@ -1087,8 +1087,19 @@ const cmdTurn = async () => {
 };
 
 // ------------------------------------------------------------------ J4 history
+// --history-shape legacy (default): events only, so every event predates the
+// orchestrator thread and the pre-transition shim projects them into the
+// prompt. modern: one real turn first, then N events after it, so the durable
+// thread is the history and the events only feed reminders/locale (the shape
+// of a conversation that started after the durable-store transition).
+const historyShape = () => (String(opts["history-shape"] ?? "legacy") === "modern" ? "modern" : "legacy");
 const ensureHistoryTemplate = async (n) => {
-  const dir = path.join(LAB_DIR, "templates", `history-${n}-v${TEMPLATE_VERSION}`);
+  const shape = historyShape();
+  const dir = path.join(
+    LAB_DIR,
+    "templates",
+    shape === "modern" ? `history-modern-${n}-v${TEMPLATE_VERSION}` : `history-${n}-v${TEMPLATE_VERSION}`,
+  );
   if (fs.existsSync(path.join(dir, ".complete")) && !opts.reseed) {
     return { dir, seed: JSON.parse(fs.readFileSync(path.join(dir, ".complete"), "utf8")) };
   }
@@ -1103,11 +1114,14 @@ const ensureHistoryTemplate = async (n) => {
     env: workerEnv({ runDir, dataDir: dir, cacheDir: warmCacheDir("source"), entryKind: "source" }),
   }).start();
   await client.boot(dir);
-  log(`seeding history N=${n} through internal.worker.localChat.appendEvent`);
+  if (shape === "modern") {
+    await runTurn(client, { conversationId: "perf-history", prompt: "perf modern history head" });
+  }
+  log(`seeding ${shape} history N=${n} through internal.worker.localChat.appendEvent`);
   const before = await client.snapshot();
   const start = client.now();
   const batch = 256;
-  const baseTs = Date.UTC(2026, 0, 1);
+  const baseTs = shape === "modern" ? Date.now() + 1000 : Date.UTC(2026, 0, 1);
   for (let i = 0; i < n; i += batch) {
     const inflight = [];
     for (let j = i; j < Math.min(n, i + batch); j += 1) {
@@ -1116,7 +1130,7 @@ const ensureHistoryTemplate = async (n) => {
         client.request("internal.worker.localChat.appendEvent", {
           conversationId: "perf-history",
           type: user ? "user_message" : "assistant_message",
-          timestamp: baseTs + j * 1000,
+          timestamp: baseTs + j * (shape === "modern" ? 1 : 1000),
           payload: {
             text: `${user ? "user" : "assistant"} message ${j}: ${"lorem ipsum dolor sit amet ".repeat(6)}`,
           },
@@ -1736,6 +1750,7 @@ Options
   --entry a,b         boot/profile entries: source,bundle
   --cache a,b         boot cache states: warm,cold
   --sizes a,b         history sizes (default 1000,10000,100000)
+  --history-shape S   (history) legacy (default; events predate the thread) or modern
   --turns a,b         memory checkpoints (default 10,100)
   --reseed            rebuild seeded template data dirs
   --template NAME     (profile) profile against templates/NAME, e.g. history-100000-v1

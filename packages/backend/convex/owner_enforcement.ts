@@ -13,6 +13,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import {
   ownerEnforcementStatusValidator,
@@ -37,6 +38,21 @@ const pushOwnerEnforcementRef = makeFunctionReference<
   null
 >("owner_enforcement:pushOwnerEnforcementToGateway");
 
+const expireOwnerEnforcementRef = makeFunctionReference<
+  "mutation",
+  { ownerId: string; expectedUpdatedAt: number; expectedUntil: number },
+  null
+>("owner_enforcement:expireOwnerEnforcementInternal");
+
+const backfillOwnerEnforcementExpiryRef = makeFunctionReference<
+  "mutation",
+  { cursor?: string | null },
+  null
+>("owner_enforcement:backfillOwnerEnforcementExpiryInternal");
+
+const BACKFILL_BATCH_SIZE = 100;
+const EXPIRY_ACTOR = "system:expiry";
+
 const postAlertRef = makeFunctionReference<
   "action",
   {
@@ -60,10 +76,10 @@ export const readOwnerEnforcement = async (
   ownerId: string,
 ): Promise<OwnerEnforcement> => {
   const row = await readOwnerEnforcementRow(ctx, ownerId);
+  // Expiry is materialized by expireOwnerEnforcementInternal (scheduled at
+  // `until`), so the stored status is authoritative and readers never consult
+  // the clock; this keeps query results cacheable and reactive on expiry.
   if (!row || row.status === "ok") return { status: "ok" };
-  if (row.until !== undefined && row.until <= Date.now()) {
-    return { status: "ok" };
-  }
   return {
     status: row.status,
     ...(row.until !== undefined ? { until: row.until } : {}),
@@ -255,18 +271,103 @@ export const setOwnerEnforcementInternal = internalMutation({
       expectedUpdatedAt: updatedAt,
       attempt: 1,
     });
-    if (args.until !== undefined && args.until > updatedAt) {
-      await ctx.scheduler.runAfter(
-        args.until - updatedAt + 1,
-        pushOwnerEnforcementRef,
-        { ownerId, expectedUpdatedAt: updatedAt, attempt: 1 },
-      );
+    // The expiry job clears the row (and pushes the cleared state) at `until`.
+    // A later write changes updatedAt/until, turning this job into a no-op.
+    if (args.status !== "ok" && args.until !== undefined) {
+      await scheduleEnforcementExpiry(ctx, ownerId, updatedAt, args.until);
     }
     return {
       ownerId,
       enforcement: await readOwnerEnforcement(ctx, ownerId),
       updatedAt,
     };
+  },
+});
+
+const scheduleEnforcementExpiry = async (
+  ctx: Pick<MutationCtx, "scheduler">,
+  ownerId: string,
+  updatedAt: number,
+  until: number,
+) => {
+  await ctx.scheduler.runAt(until, expireOwnerEnforcementRef, {
+    ownerId,
+    expectedUpdatedAt: updatedAt,
+    expectedUntil: until,
+  });
+};
+
+const clearExpiredEnforcement = async (
+  ctx: MutationCtx,
+  row: Doc<"owner_enforcement">,
+) => {
+  const updatedAt = Math.max(Date.now(), row.updatedAt + 1);
+  await ctx.db.replace(row._id, {
+    ownerId: row.ownerId,
+    status: "ok",
+    reason: row.reason,
+    actor: EXPIRY_ACTOR,
+    updatedAt,
+  });
+  await scheduleOwnerSnapshotChanged(ctx, row.ownerId, "enforcement");
+  await ctx.scheduler.runAfter(0, pushOwnerEnforcementRef, {
+    ownerId: row.ownerId,
+    expectedUpdatedAt: updatedAt,
+    attempt: 1,
+  });
+};
+
+export const expireOwnerEnforcementInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    expectedUpdatedAt: v.number(),
+    expectedUntil: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await readOwnerEnforcementRow(ctx, args.ownerId);
+    // Stale job: the enforcement was lifted, replaced, or extended since.
+    if (
+      !row ||
+      row.status === "ok" ||
+      row.updatedAt !== args.expectedUpdatedAt ||
+      row.until !== args.expectedUntil
+    ) {
+      return null;
+    }
+    // runAt never fires early; this only guards manual invocation.
+    if (row.until > Date.now()) return null;
+    await clearExpiredEnforcement(ctx, row);
+    return null;
+  },
+});
+
+// One-off backfill for rows written before expiry was scheduled. Clears rows
+// already past `until` and schedules expiry for the rest. Re-running is safe:
+// cleared rows are skipped and duplicate expiry jobs no-op after the first.
+// Run after deploy: bunx convex run --prod owner_enforcement:backfillOwnerEnforcementExpiryInternal '{}'
+export const backfillOwnerEnforcementExpiryInternal = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("owner_enforcement")
+      .paginate({ cursor: args.cursor ?? null, numItems: BACKFILL_BATCH_SIZE });
+    const now = Date.now();
+    for (const row of page.page) {
+      if (row.status === "ok" || row.until === undefined) continue;
+      if (row.until <= now) {
+        await clearExpiredEnforcement(ctx, row);
+      } else {
+        await scheduleEnforcementExpiry(ctx, row.ownerId, row.updatedAt, row.until);
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, backfillOwnerEnforcementExpiryRef, {
+        cursor: page.continueCursor,
+      });
+    }
+    return null;
   },
 });
 

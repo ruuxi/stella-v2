@@ -556,7 +556,9 @@ describe("risk scoring", () => {
         enforced: 0,
         hasMore: true,
       });
-      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      // Run only due jobs: runAllTimers would also fire the enforcement's
+      // scheduled expiry and clear it.
+      await t.finishAllScheduledFunctions(() => vi.advanceTimersByTime(0));
       const enforcement = await t.run(
         async (ctx) =>
           await ctx.db

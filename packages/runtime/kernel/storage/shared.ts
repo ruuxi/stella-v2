@@ -316,6 +316,67 @@ export type SqliteDatabase = {
   close(): void;
 };
 
+/**
+ * A connection's prepared-statement cache: `prepare(sql)` compiles each
+ * distinct SQL text once per connection and hands back that same statement
+ * on every later call. Storage code runs synchronously on the worker's one
+ * database thread and only uses `run`/`get`/`all` (which bind fresh, step to
+ * completion and reset), so reusing a statement is invisible to callers.
+ *
+ * Use it for SQL whose text comes from a small fixed set. SQL whose text
+ * varies with the data (a `?` list sized by the input) stays on
+ * `db.prepare`, which is why the cap below is a backstop, not a policy.
+ *
+ * One reuse hazard: bun:sqlite keeps a statement's previous bindings when it
+ * is called with no arguments at all (a fresh statement would bind NULLs),
+ * so always pass every parameter of a parameterized cached statement.
+ */
+export type CachedStatements = {
+  prepare(sql: string): SqliteStatement;
+};
+
+const MAX_CACHED_STATEMENTS = 512;
+
+const statementCaches = new WeakMap<SqliteDatabase, CachedStatements>();
+
+/**
+ * The shared statement cache for `db`. Every caller on the same connection
+ * gets the same cache. Closing the connection finalizes the cached
+ * statements first (bun:sqlite's close otherwise leaves the connection open
+ * until they are garbage collected) and drops the cache.
+ */
+export const cachedStatements = (db: SqliteDatabase): CachedStatements => {
+  const existing = statementCaches.get(db);
+  if (existing) return existing;
+  const statements = new Map<string, SqliteStatement>();
+  const cache: CachedStatements = {
+    prepare(sql) {
+      const cached = statements.get(sql);
+      if (cached) return cached;
+      const statement = db.prepare(sql);
+      if (statements.size < MAX_CACHED_STATEMENTS) {
+        statements.set(sql, statement);
+      }
+      return statement;
+    },
+  };
+  statementCaches.set(db, cache);
+  const close = db.close;
+  db.close = function closeAndFinalizeCachedStatements(
+    this: unknown,
+    ...args: unknown[]
+  ) {
+    statementCaches.delete(db);
+    db.close = close;
+    for (const statement of statements.values()) {
+      (statement as { finalize?: () => void }).finalize?.();
+    }
+    statements.clear();
+    return (close as (...closeArgs: unknown[]) => void).apply(db, args);
+  };
+  return cache;
+};
+
 export type LocalChatEventRow = {
   _id: string;
   timestamp: number;

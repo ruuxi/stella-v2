@@ -21,10 +21,12 @@ import {
   asFiniteNumber,
   asObject,
   asTrimmedString,
+  cachedStatements,
   eventTextFromPayload,
   generateLocalId,
   parseJsonRecord,
   toJsonValueString,
+  type CachedStatements,
   type LocalChatEventRecord,
   type SqliteDatabase,
 } from "./shared.js";
@@ -172,12 +174,16 @@ export const readReplyRefs = (
 };
 
 export class ChatLog {
+  private readonly cached: CachedStatements;
+
   constructor(
     private readonly db: SqliteDatabase,
     private readonly tx: {
       immediate: (work: () => void) => void;
     },
-  ) {}
+  ) {
+    this.cached = cachedStatements(db);
+  }
 
   /* ------------------------------------------------------------------ */
   /* Conversations                                                       */
@@ -199,7 +205,7 @@ export class ChatLog {
   }
 
   ensureConversation(conversationId: string, updatedAt: number): void {
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO conversation (id, kind, title, status, next_seq, created_at, updated_at)
          VALUES (?, ?, '', 'active', 1, ?, ?)
@@ -219,7 +225,7 @@ export class ChatLog {
   }
 
   claimSeq(conversationId: string): number {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `UPDATE conversation SET next_seq = next_seq + 1
          WHERE id = ?
@@ -232,9 +238,62 @@ export class ChatLog {
     return row.seq;
   }
 
+  /**
+   * `ensureConversation` + `claimSeq` for the append path. The row almost
+   * always exists, so apply the upsert's conflict update (kind, monotonic
+   * updated_at) in the same statement that claims the seq, and fall back to
+   * the upsert only when the row is missing.
+   */
+  private claimSeqEnsuringConversation(
+    conversationId: string,
+    updatedAt: number,
+  ): number {
+    const row = this.cached
+      .prepare(
+        `UPDATE conversation SET
+           next_seq = next_seq + 1,
+           kind = ?,
+           updated_at = CASE WHEN ? > updated_at THEN ? ELSE updated_at END
+         WHERE id = ?
+         RETURNING next_seq - 1 AS seq`,
+      )
+      .get(
+        ChatLog.conversationKind(conversationId),
+        updatedAt,
+        updatedAt,
+        conversationId,
+      ) as { seq?: number } | undefined;
+    if (typeof row?.seq === "number") return row.seq;
+    this.ensureConversation(conversationId, updatedAt);
+    return this.claimSeq(conversationId);
+  }
+
+  /**
+   * `ensureConversation` for an append that updates an entry already stored
+   * in this conversation: the entry's foreign key proves the row exists, so
+   * only the conflict update (kind, monotonic updated_at) is left to apply.
+   */
+  private touchConversation(conversationId: string, updatedAt: number): void {
+    const row = this.cached
+      .prepare(
+        `UPDATE conversation SET
+           kind = ?,
+           updated_at = CASE WHEN ? > updated_at THEN ? ELSE updated_at END
+         WHERE id = ?
+         RETURNING 1 AS touched`,
+      )
+      .get(
+        ChatLog.conversationKind(conversationId),
+        updatedAt,
+        updatedAt,
+        conversationId,
+      );
+    if (!row) this.ensureConversation(conversationId, updatedAt);
+  }
+
   conversationExists(conversationId: string): boolean {
     return Boolean(
-      this.db
+      this.cached
         .prepare("SELECT 1 FROM conversation WHERE id = ? LIMIT 1")
         .get(conversationId),
     );
@@ -250,7 +309,7 @@ export class ChatLog {
   }
 
   getSetting(key: string): string | null {
-    const row = this.db
+    const row = this.cached
       .prepare("SELECT value FROM settings WHERE key = ?")
       .get(key) as { value?: unknown } | undefined;
     return typeof row?.value === "string" && row.value.length > 0
@@ -259,7 +318,7 @@ export class ChatLog {
   }
 
   setSetting(key: string, value: string): void {
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
@@ -291,7 +350,7 @@ export class ChatLog {
       const activeConversationId = this.getSetting(
         DEFAULT_CONVERSATION_SETTING_KEY,
       );
-      const reusable = this.db
+      const reusable = this.cached
         .prepare(
           `SELECT candidate.id
            FROM conversation AS candidate
@@ -359,7 +418,7 @@ export class ChatLog {
     const cursorUpdatedAt = asFiniteNumber(args.cursor?.updatedAt);
     const cursorConversationId = asTrimmedString(args.cursor?.conversationId);
     const hasCursor = cursorUpdatedAt !== null && Boolean(cursorConversationId);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `WITH page AS (
            SELECT id, created_at, updated_at
@@ -436,7 +495,7 @@ export class ChatLog {
   deleteConversation(conversationId: string): boolean {
     const exists = this.conversationExists(conversationId);
     if (!exists) return false;
-    const runningAgent = this.db
+    const runningAgent = this.cached
       .prepare(
         `SELECT 1 FROM agent
          WHERE conversation_id = ? AND status = 'running' LIMIT 1`,
@@ -446,7 +505,7 @@ export class ChatLog {
       throw new Error("A conversation with running tasks cannot be deleted.");
     }
     this.tx.immediate(() => {
-      this.db
+      this.cached
         .prepare(
           `DELETE FROM blob WHERE id IN (
              SELECT blob_id FROM thread_entry
@@ -455,21 +514,21 @@ export class ChatLog {
            )`,
         )
         .run(conversationId);
-      this.db
+      this.cached
         .prepare("DELETE FROM agent WHERE conversation_id = ?")
         .run(conversationId);
-      this.db
+      this.cached
         .prepare("DELETE FROM thread WHERE conversation_id = ?")
         .run(conversationId);
-      this.db
+      this.cached
         .prepare(
           "DELETE FROM runtime_conversation_state WHERE conversation_id = ?",
         )
         .run(conversationId);
-      this.db
+      this.cached
         .prepare("DELETE FROM settings WHERE key = ? AND value = ?")
         .run(DEFAULT_CONVERSATION_SETTING_KEY, conversationId);
-      this.db
+      this.cached
         .prepare("DELETE FROM conversation WHERE id = ?")
         .run(conversationId);
     });
@@ -492,7 +551,7 @@ export class ChatLog {
     if (!cursor) return cursor;
     if (typeof cursor.sequence === "number") return cursor;
     if (typeof cursor.id !== "string" || cursor.id.length === 0) return cursor;
-    const row = this.db
+    const row = this.cached
       .prepare(
         "SELECT seq AS sequence FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1",
       )
@@ -524,7 +583,7 @@ export class ChatLog {
   getEventCursor(conversationId: string, eventIdInput: string): Cursor | null {
     const eventId = asTrimmedString(eventIdInput);
     if (!eventId) return null;
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT id AS _id, created_at AS timestamp, seq AS sequence
          FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1`,
@@ -544,7 +603,7 @@ export class ChatLog {
     conversationId: string,
     atOrBeforeSeq?: number,
   ): number | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT seq FROM entry
          WHERE conversation_id = ? AND type = 'user_message' AND visible = 1
@@ -561,7 +620,7 @@ export class ChatLog {
 
   /** Recompute turn ownership for entries at/after a seq (rare repair path). */
   private reassignTurns(conversationId: string, fromSeq: number): void {
-    this.db
+    this.cached
       .prepare(
         `UPDATE entry SET turn_seq = (
            SELECT turn_source.seq FROM entry AS turn_source
@@ -578,7 +637,9 @@ export class ChatLog {
 
   /**
    * Insert-or-update one event by id. Must run inside a transaction.
-   * Returns the stored cursor.
+   * Returns the stored cursor. With `ensureConversation`, the conversation
+   * row is created or touched exactly as `ensureConversation(conversationId,
+   * timestamp)` would, folded into the statements the write needs anyway.
    */
   upsertEvent(args: {
     conversationId: string;
@@ -592,12 +653,13 @@ export class ChatLog {
     agentType?: string;
     payload?: Record<string, unknown>;
     channelEnvelope?: Record<string, unknown>;
+    ensureConversation?: boolean;
   }): Cursor {
     const visible = computeChatVisibility(args.type, args.payload);
     const searchText = computeSearchText(args.type, args.payload);
     const payloadJson = toJsonValueString(args.payload ?? null);
     const envelopeJson = toJsonValueString(args.channelEnvelope ?? null);
-    const existing = this.db
+    const existing = this.cached
       .prepare(
         `SELECT conversation_id AS conversationId, seq, visible
          FROM entry WHERE id = ? LIMIT 1`,
@@ -606,15 +668,18 @@ export class ChatLog {
       | { conversationId: string; seq: number; visible: number }
       | undefined;
     if (existing && existing.conversationId !== args.conversationId) {
-      this.db
+      this.cached
         .prepare(
           "DELETE FROM entry_ref WHERE conversation_id = ? AND entry_seq = ?",
         )
         .run(existing.conversationId, existing.seq);
-      this.db.prepare("DELETE FROM entry WHERE id = ?").run(args.eventId);
+      this.cached.prepare("DELETE FROM entry WHERE id = ?").run(args.eventId);
     }
     if (existing && existing.conversationId === args.conversationId) {
-      this.db
+      if (args.ensureConversation) {
+        this.touchConversation(args.conversationId, args.timestamp);
+      }
+      this.cached
         .prepare(
           `UPDATE entry SET
              type = ?, role = ?, visible = ?,
@@ -656,12 +721,14 @@ export class ChatLog {
         sequence: existing.seq,
       };
     }
-    const seq = this.claimSeq(args.conversationId);
+    const seq = args.ensureConversation
+      ? this.claimSeqEnsuringConversation(args.conversationId, args.timestamp)
+      : this.claimSeq(args.conversationId);
     const turnSeq =
       args.type === "user_message" && visible === 1
         ? seq
         : this.lastVisibleUserSeq(args.conversationId);
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO entry (
            conversation_id, seq, id, type, role, visible, turn_seq,
@@ -716,7 +783,6 @@ export class ChatLog {
     const targetDeviceId = asTrimmedString(args.targetDeviceId) || undefined;
     let cursor: Cursor | null = null;
     this.tx.immediate(() => {
-      this.ensureConversation(args.conversationId, timestamp);
       cursor = this.upsertEvent({
         conversationId: args.conversationId,
         eventId,
@@ -727,6 +793,7 @@ export class ChatLog {
         targetDeviceId,
         payload,
         channelEnvelope,
+        ensureConversation: true,
       });
     });
     return {
@@ -753,7 +820,7 @@ export class ChatLog {
     if (!eventId) return null;
     let updatedRecord: LocalChatEventRecord | null = null;
     this.tx.immediate(() => {
-      const existingRow = this.db
+      const existingRow = this.cached
         .prepare(
           `SELECT ${ENTRY_SELECT} FROM entry
            WHERE entry.id = ? AND entry.conversation_id = ?`,
@@ -766,7 +833,7 @@ export class ChatLog {
       const mergedPayload = { ...existingPayload, ...args.patch };
       const visible = computeChatVisibility(existingRow.type, mergedPayload);
       const searchText = computeSearchText(existingRow.type, mergedPayload);
-      this.db
+      this.cached
         .prepare(
           `UPDATE entry SET payload = ?, visible = ?, search_text = ?, updated_at = ?
            WHERE id = ? AND conversation_id = ?`,
@@ -791,7 +858,7 @@ export class ChatLog {
     const eventId = asTrimmedString(eventIdInput);
     if (!eventId) return false;
     const type = asTrimmedString(typeInput);
-    const row = this.db
+    const row = this.cached
       .prepare(
         type
           ? `SELECT 1 AS present FROM entry
@@ -809,7 +876,7 @@ export class ChatLog {
     const eventId = asTrimmedString(eventIdInput);
     if (!eventId) return false;
     const type = asTrimmedString(typeInput);
-    const statement = this.db.prepare(
+    const statement = this.cached.prepare(
       type
         ? "SELECT 1 AS present FROM entry WHERE id = ? AND type = ? LIMIT 1"
         : "SELECT 1 AS present FROM entry WHERE id = ? LIMIT 1",
@@ -827,16 +894,16 @@ export class ChatLog {
     this.tx.immediate(() => {
       // Count first: driver-reported change counts include FTS trigger
       // cascades and cannot be trusted for the removed-row total.
-      const countRow = this.db
+      const countRow = this.cached
         .prepare(
           "SELECT COUNT(*) AS n FROM entry WHERE conversation_id = ? AND seq >= ?",
         )
         .get(conversationId, cursor.sequence) as { n?: number } | undefined;
-      this.db
+      this.cached
         .prepare("DELETE FROM entry WHERE conversation_id = ? AND seq >= ?")
         .run(conversationId, cursor.sequence);
       removed = typeof countRow?.n === "number" ? countRow.n : 0;
-      const orphanThreadRows = this.db
+      const orphanThreadRows = this.cached
         .prepare(
           `SELECT thread_id FROM agent
            WHERE conversation_id = ?
@@ -850,7 +917,7 @@ export class ChatLog {
       for (const row of orphanThreadRows) {
         const threadId = typeof row.thread_id === "string" ? row.thread_id : "";
         if (!threadId) continue;
-        this.db
+        this.cached
           .prepare(
             `DELETE FROM blob WHERE id IN (
                SELECT blob_id FROM thread_entry
@@ -858,8 +925,8 @@ export class ChatLog {
              )`,
           )
           .run(threadId);
-        this.db.prepare("DELETE FROM thread WHERE id = ?").run(threadId);
-        this.db.prepare("DELETE FROM agent WHERE thread_id = ?").run(threadId);
+        this.cached.prepare("DELETE FROM thread WHERE id = ?").run(threadId);
+        this.cached.prepare("DELETE FROM agent WHERE thread_id = ?").run(threadId);
       }
     });
     return { removed };
@@ -871,7 +938,7 @@ export class ChatLog {
   ): { conversationId: string } | null {
     const cursor = this.getEventCursor(conversationId, eventIdInput);
     if (!cursor) return null;
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT ${ENTRY_SELECT} FROM entry
          WHERE entry.conversation_id = ?
@@ -942,7 +1009,7 @@ export class ChatLog {
 
   listEvents(conversationId: string, maxItems = 200): LocalChatEventRecord[] {
     const normalizedLimit = Math.max(1, Math.floor(maxItems));
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT * FROM (
            SELECT ${ENTRY_SELECT} FROM entry
@@ -1001,7 +1068,7 @@ export class ChatLog {
           query.limit !== undefined && query.limit >= 0
             ? Math.floor(query.limit)
             : -1;
-        const rows = this.db
+        const rows = this.cached
           .prepare(
             `SELECT * FROM (
                SELECT ${ENTRY_SELECT} FROM entry
@@ -1026,7 +1093,7 @@ export class ChatLog {
       id: opts.beforeId ?? "",
     });
     const keyset = this.keyset("<", before);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT * FROM (
            SELECT ${ENTRY_SELECT} FROM entry
@@ -1073,7 +1140,7 @@ export class ChatLog {
       1,
       Math.min(Math.floor(args.limit ?? 80), 500),
     );
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT * FROM (
            SELECT entry.conversation_id AS conversationId, ${ENTRY_SELECT}
@@ -1117,7 +1184,7 @@ export class ChatLog {
       params.push(...keyset.params);
     }
     params.push(normalizedLimit);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT * FROM (
            SELECT ${ENTRY_SELECT} FROM entry
@@ -1152,7 +1219,7 @@ export class ChatLog {
       params.push(...keyset.params);
     }
     params.push(normalizedLimit);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT * FROM (
            SELECT ${ENTRY_SELECT} FROM entry
@@ -1166,7 +1233,7 @@ export class ChatLog {
   }
 
   getEventCount(conversationId: string): number {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT COUNT(*) AS count FROM entry
          WHERE conversation_id = ?
@@ -1187,7 +1254,7 @@ export class ChatLog {
     deviceId?: string;
   }> {
     const normalizedLimit = Math.max(1, Math.floor(maxMessages));
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT entry.id AS _id, entry.created_at AS timestamp, entry.type AS type,
                 entry.device_id AS deviceId, entry.payload AS payloadJson
@@ -1275,7 +1342,7 @@ export class ChatLog {
         ? Math.max(1, Math.floor(args.limit))
         : null;
     if (limit !== null) params.push(limit);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT ${ENTRY_SELECT} FROM entry
          WHERE ${clauses.join(" AND ")}
@@ -1310,7 +1377,7 @@ export class ChatLog {
     const params: unknown[] = [conversationId];
     if (beforeKeyset) params.push(...beforeKeyset.params);
     params.push(maxVisibleMessages - 1);
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1333,7 +1400,7 @@ export class ChatLog {
   ): Cursor | null {
     const after = this.resolveCursorSequence(conversationId, initialAfter);
     const keyset = this.keyset(">", after);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1358,7 +1425,7 @@ export class ChatLog {
   ): Cursor | null {
     const after = this.resolveCursorSequence(conversationId, initialAfter);
     const keyset = this.keyset(">", after);
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1381,7 +1448,7 @@ export class ChatLog {
     if (!cutoff) return null;
     const resolved = this.resolveCursorSequence(conversationId, cutoff);
     const keyset = this.keyset("<=", resolved);
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1406,7 +1473,7 @@ export class ChatLog {
     if (!cursor) return null;
     const resolved = this.resolveCursorSequence(conversationId, cursor);
     const keyset = this.keyset(">", resolved);
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1437,7 +1504,7 @@ export class ChatLog {
       "<",
       this.resolveCursorSequence(conversationId, before),
     );
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1474,7 +1541,7 @@ export class ChatLog {
       clauses.push(k.clause);
       params.push(...k.params);
     }
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -1580,7 +1647,7 @@ export class ChatLog {
       params.push(...k.params);
     }
     const select = `SELECT ${ENTRY_SELECT} FROM entry WHERE ${clauses.join(" AND ")}`;
-    const headProbeRows = this.db
+    const headProbeRows = this.cached
       .prepare(`${select} ORDER BY entry.seq ASC LIMIT ${EAGER_TOOL_EVENT_LIMIT + 1}`)
       .all(...params) as EntryRow[];
     const eventCountTruncated = headProbeRows.length > EAGER_TOOL_EVENT_LIMIT;
@@ -1588,7 +1655,7 @@ export class ChatLog {
       ? headProbeRows.slice(0, EAGER_TOOL_EVENT_SIDE_LIMIT)
       : headProbeRows;
     const tailRows = eventCountTruncated
-      ? (this.db
+      ? (this.cached
           .prepare(
             `${select} ORDER BY entry.seq DESC LIMIT ${EAGER_TOOL_EVENT_SIDE_LIMIT}`,
           )
@@ -1936,7 +2003,7 @@ export class ChatLog {
       ...(typeof afterSequence === "number" ? { sequence: afterSequence } : {}),
     });
     const keyset = this.keyset(">", cursor);
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT 1 AS found FROM entry
          WHERE entry.conversation_id = ?
@@ -1957,7 +2024,7 @@ export class ChatLog {
     cursorSequence?: number,
   ): boolean {
     if (typeof cursorId !== "string" || cursorId.length === 0) return false;
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT created_at AS timestamp, seq AS sequence FROM entry
          WHERE conversation_id = ? AND id = ? LIMIT 1`,
@@ -2082,7 +2149,7 @@ export class ChatLog {
         ? { sequence: args.messageSequence }
         : {}),
     });
-    const anchorRow = this.db
+    const anchorRow = this.cached
       .prepare(
         "SELECT type FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1",
       )
@@ -2152,7 +2219,7 @@ export class ChatLog {
     type: string,
     payload: Record<string, unknown> | undefined,
   ): void {
-    this.db
+    this.cached
       .prepare(
         "DELETE FROM entry_ref WHERE conversation_id = ? AND entry_seq = ?",
       )
@@ -2160,7 +2227,7 @@ export class ChatLog {
     if (type !== "assistant_message") return;
     const refs = readReplyRefs(payload);
     if (refs.length === 0) return;
-    const insert = this.db.prepare(
+    const insert = this.cached.prepare(
       `INSERT OR IGNORE INTO entry_ref (
          conversation_id, entry_seq, target_kind, target_key
        ) VALUES (?, ?, ?, ?)`,
@@ -2197,7 +2264,7 @@ export class ChatLog {
       resolved.push(ref);
     };
     const resolveAgent = (threadId: string): ReplyRef | null => {
-      const row = this.db
+      const row = this.cached
         .prepare(
           `SELECT description FROM agent
            WHERE thread_id = ? AND conversation_id = ? LIMIT 1`,
@@ -2218,7 +2285,7 @@ export class ChatLog {
         if (agent) push(agent);
         continue;
       }
-      const row = this.db
+      const row = this.cached
         .prepare(
           `SELECT id, type, payload AS payloadJson FROM entry
            WHERE conversation_id = ? AND seq = ?
@@ -2251,7 +2318,7 @@ export class ChatLog {
 
   /** Reply counts for every cited message and agent in a conversation. */
   listReplyCounts(conversationId: string): ReplyCounts {
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT target_kind AS kind, target_key AS key, COUNT(*) AS count
          FROM entry_ref
@@ -2316,7 +2383,7 @@ export class ChatLog {
     const lineageSeqs = new Set<number>();
     const rootSeqs: number[] = [];
     if (args.root.kind === "message") {
-      const row = this.db
+      const row = this.cached
         .prepare(
           `SELECT seq FROM entry
            WHERE conversation_id = ? AND id = ?
@@ -2328,7 +2395,7 @@ export class ChatLog {
         | undefined;
       if (!row) return { messages: [], visibleMessageCount: 0, hasOlder: false };
       rootSeqs.push(row.seq);
-      const turnRows = this.db
+      const turnRows = this.cached
         .prepare(
           `SELECT seq FROM entry
            WHERE conversation_id = ? AND turn_seq = ? AND visible = 1
@@ -2336,7 +2403,7 @@ export class ChatLog {
         )
         .all(conversationId, row.seq, ...CHAT_MESSAGE_TYPES) as Array<{ seq: number }>;
       for (const turnRow of turnRows) lineageSeqs.add(turnRow.seq);
-      const spawned = this.db
+      const spawned = this.cached
         .prepare(
           `SELECT DISTINCT json_extract(payload, '$.agentId') AS agentId FROM entry
            WHERE conversation_id = ? AND type = 'agent-started' AND turn_seq = ?`,
@@ -2344,7 +2411,7 @@ export class ChatLog {
         .all(conversationId, row.seq) as Array<{ agentId: string | null }>;
       for (const { agentId } of spawned) {
         if (!agentId) continue;
-        const agentRefs = this.db
+        const agentRefs = this.cached
           .prepare(
             `SELECT entry_seq AS seq FROM entry_ref
              WHERE conversation_id = ? AND target_kind = 'agent' AND target_key = ?`,
@@ -2354,7 +2421,7 @@ export class ChatLog {
       }
     } else {
       const threadId = args.root.threadId;
-      const starts = this.db
+      const starts = this.cached
         .prepare(
           `SELECT seq, turn_seq AS turnSeq FROM entry
            WHERE conversation_id = ? AND type = 'agent-started'
@@ -2369,7 +2436,7 @@ export class ChatLog {
         if (typeof start.turnSeq === "number") rootSeqs.push(start.turnSeq);
         // The visible row the spawn card is anchored on: the turn's last
         // visible chat message before the start event, if any.
-        const anchor = this.db
+        const anchor = this.cached
           .prepare(
             `SELECT seq FROM entry
              WHERE conversation_id = ? AND visible = 1
@@ -2385,7 +2452,7 @@ export class ChatLog {
           ) as { seq: number } | undefined;
         if (anchor) lineageSeqs.add(anchor.seq);
       }
-      const agentRefs = this.db
+      const agentRefs = this.cached
         .prepare(
           `SELECT entry_seq AS seq FROM entry_ref
            WHERE conversation_id = ? AND target_kind = 'agent' AND target_key = ?`,
@@ -2395,7 +2462,7 @@ export class ChatLog {
     }
     for (const seq of rootSeqs) {
       lineageSeqs.add(seq);
-      const refs = this.db
+      const refs = this.cached
         .prepare(
           `SELECT entry_seq AS seq FROM entry_ref
            WHERE conversation_id = ? AND target_kind = 'message' AND target_key = ?`,
@@ -2467,7 +2534,7 @@ export class ChatLog {
       // A completion event lands between an unrelated row and the reply that
       // cites the agent; pull the thread's lifecycle events onto the nearest
       // preceding lineage row so the spawn and completion cards still render.
-      const lifecycle = this.db
+      const lifecycle = this.cached
         .prepare(
           `SELECT ${ENTRY_SELECT} FROM entry
            WHERE entry.conversation_id = ?
@@ -2507,7 +2574,7 @@ export class ChatLog {
       "<",
       this.resolveCursorSequence(conversationId, before),
     );
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
          FROM entry
@@ -2525,7 +2592,7 @@ export class ChatLog {
   }
 
   private isUserMessageCursor(conversationId: string, cursor: Cursor): boolean {
-    const row = this.db
+    const row = this.cached
       .prepare(
         "SELECT type FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1",
       )

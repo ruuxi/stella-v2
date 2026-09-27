@@ -126,24 +126,17 @@ const runToolStatusIntegration = async (
       return () => listeners.delete(listener);
     },
   };
-  const recordedRunEvents: unknown[] = [];
   const statusEvents: RuntimeStatusEvent[] = [];
   const toolStartEvents: RuntimeToolStartEvent[] = [];
   const toolEndEvents: RuntimeToolEndEvent[] = [];
-  const store = {
-    recordRunEvent: (event: unknown) => {
-      recordedRunEvents.push(event);
-    },
-  };
+  const store = {};
 
   subscribeRuntimeAgentEvents({
     agent,
     runId,
     agentType: AGENT_IDS.ORCHESTRATOR,
     recorder: createRunEventRecorder({
-      store: store as never,
       runId,
-      conversationId,
       agentType: AGENT_IDS.ORCHESTRATOR,
       userMessageId,
     }),
@@ -288,18 +281,8 @@ const runToolStatusIntegration = async (
     activeDuringTool,
     activeAfterToolBeforeAnswer,
     statusAfterToolEnd: toolEndedRun?.statusText ?? null,
-    persistedToolEvent: recordedRunEvents.find(
-      (event) =>
-        typeof event === "object" &&
-        event !== null &&
-        (event as { type?: unknown }).type === "tool_start",
-    ),
-    persistedToolEndEvent: recordedRunEvents.find(
-      (event) =>
-        typeof event === "object" &&
-        event !== null &&
-        (event as { type?: unknown }).type === "tool_end",
-    ),
+    emittedToolStartEvent: toolStartEvents[0],
+    emittedToolEndEvent: toolEndEvents[0],
     displayStatus: displayStatusDuringTool,
   };
 };
@@ -311,9 +294,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
 
     expect(failed.rawToolEndIsError).toBe(true);
-    expect(failed.persistedToolEndEvent).toEqual(
+    expect(failed.emittedToolEndEvent).toEqual(
       expect.objectContaining({
-        type: "tool_end",
         isError: true,
         resultPreview: expect.stringContaining("[TOOL_ERROR] isolated native failure"),
       }),
@@ -325,8 +307,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(web.rawStatusText).toBe("Running Web");
     expect(web.rawToolStartStatusText).toBe("Running Web");
     expect(web.rawToolEndName).toBe("web");
-    expect(web.persistedToolEvent).toEqual(
-      expect.objectContaining({ type: "tool_start", toolName: "web" }),
+    expect(web.emittedToolStartEvent).toEqual(
+      expect.objectContaining({ toolName: "web" }),
     );
     expect(web.activeBeforeTool).toBe(true);
     expect(web.activeDuringTool).toBe(true);
@@ -343,8 +325,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(recall.rawStatusText).toBe("Running Recall");
     expect(recall.rawToolStartStatusText).toBe("Running Recall");
     expect(recall.rawToolEndName).toBe("Recall");
-    expect(recall.persistedToolEvent).toEqual(
-      expect.objectContaining({ type: "tool_start", toolName: "Recall" }),
+    expect(recall.emittedToolStartEvent).toEqual(
+      expect.objectContaining({ toolName: "Recall" }),
     );
     expect(recall.activeBeforeTool).toBe(true);
     expect(recall.activeDuringTool).toBe(true);
@@ -361,8 +343,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(spawnAgent.rawStatusText).toBe("Running Spawn Agent");
     expect(spawnAgent.rawToolStartStatusText).toBe("Running Spawn Agent");
     expect(spawnAgent.rawToolEndName).toBe("spawn_agent");
-    expect(spawnAgent.persistedToolEvent).toEqual(
-      expect.objectContaining({ type: "tool_start", toolName: "spawn_agent" }),
+    expect(spawnAgent.emittedToolStartEvent).toEqual(
+      expect.objectContaining({ toolName: "spawn_agent" }),
     );
     expect(spawnAgent.activeBeforeTool).toBe(true);
     expect(spawnAgent.activeDuringTool).toBe(true);
@@ -374,8 +356,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(pauseAgent.rawStatusText).toBe("Running Pause Agent");
     expect(pauseAgent.rawToolStartStatusText).toBe("Running Pause Agent");
     expect(pauseAgent.rawToolEndName).toBe("pause_agent");
-    expect(pauseAgent.persistedToolEvent).toEqual(
-      expect.objectContaining({ type: "tool_start", toolName: "pause_agent" }),
+    expect(pauseAgent.emittedToolStartEvent).toEqual(
+      expect.objectContaining({ toolName: "pause_agent" }),
     );
     expect(pauseAgent.activeBeforeTool).toBe(true);
     expect(pauseAgent.activeDuringTool).toBe(true);
@@ -387,8 +369,8 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(sendInput.rawStatusText).toBe("Running Send Input");
     expect(sendInput.rawToolStartStatusText).toBe("Running Send Input");
     expect(sendInput.rawToolEndName).toBe("send_input");
-    expect(sendInput.persistedToolEvent).toEqual(
-      expect.objectContaining({ type: "tool_start", toolName: "send_input" }),
+    expect(sendInput.emittedToolStartEvent).toEqual(
+      expect.objectContaining({ toolName: "send_input" }),
     );
     expect(sendInput.activeBeforeTool).toBe(true);
     expect(sendInput.activeDuringTool).toBe(true);
@@ -856,11 +838,8 @@ describe("subscribeRuntimeAgentEvents", () => {
   });
 
   it("flags a preamble message that ends with a tool call as followedByToolCall", () => {
-    const store = { recordRunEvent: vi.fn() };
     const recorder = createRunEventRecorder({
-      store: store as never,
       runId: "run-preamble",
-      conversationId: "conversation-1",
       agentType: "orchestrator",
       userMessageId: "user-1",
       getResponseTarget: () => ({ type: "user_turn" }),
@@ -890,11 +869,8 @@ describe("subscribeRuntimeAgentEvents", () => {
   });
 
   it("records a completed assistant text event without a Pi message object", () => {
-    const store = { recordRunEvent: vi.fn() };
     const recorder = createRunEventRecorder({
-      store: store as never,
       runId: "run-claude",
-      conversationId: "conversation-1",
       agentType: "orchestrator",
       userMessageId: "user-1",
       getResponseTarget: () => ({ type: "user_turn" }),
@@ -915,15 +891,11 @@ describe("subscribeRuntimeAgentEvents", () => {
       }),
     );
     expect(typeof event?.firstTextAtMs).toBe("number");
-    expect(store.recordRunEvent).not.toHaveBeenCalled();
   });
 
   it("stamps the first-text anchor once per segment and clears it on flush", () => {
-    const store = { recordRunEvent: vi.fn() };
     const recorder = createRunEventRecorder({
-      store: store as never,
       runId: "run-anchor",
-      conversationId: "conversation-1",
       agentType: "orchestrator",
       userMessageId: "user-1",
     });
@@ -983,9 +955,7 @@ describe("subscribeRuntimeAgentEvents", () => {
       runId: "run-atomic-group",
       agentType: AGENT_IDS.ORCHESTRATOR,
       recorder: createRunEventRecorder({
-        store: { recordRunEvent: vi.fn() } as never,
         runId: "run-atomic-group",
-        conversationId: "conversation-atomic-group",
         agentType: AGENT_IDS.ORCHESTRATOR,
         userMessageId: "user-atomic-group",
       }),
@@ -1026,7 +996,6 @@ describe("subscribeRuntimeAgentEvents", () => {
         return () => undefined;
       }),
     };
-    const store = { recordRunEvent: vi.fn() };
     const onReasoning = vi.fn();
     const onAssistantMessage = vi.fn();
     const onProgress = vi.fn();
@@ -1036,9 +1005,7 @@ describe("subscribeRuntimeAgentEvents", () => {
       runId: "run-1",
       agentType: "general",
       recorder: createRunEventRecorder({
-        store: store as never,
         runId: "run-1",
-        conversationId: "conversation-1",
         agentType: "general",
         userMessageId: "user-1",
       }),
@@ -1096,11 +1063,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onProgress).toHaveBeenCalledWith("Done.");
     expect(onAssistantMessage).not.toHaveBeenCalled();
-    expect(
-      store.recordRunEvent.mock.calls.map(
-        ([entry]: [{ type: string }]) => entry.type,
-      ),
-    ).not.toContain("stream");
   });
 
   it("skips empty thinking_delta chunks", () => {
@@ -1112,7 +1074,6 @@ describe("subscribeRuntimeAgentEvents", () => {
         return () => undefined;
       }),
     };
-    const store = { recordRunEvent: vi.fn() };
     const onReasoning = vi.fn();
 
     subscribeRuntimeAgentEvents({
@@ -1120,9 +1081,7 @@ describe("subscribeRuntimeAgentEvents", () => {
       runId: "run-1",
       agentType: "general",
       recorder: createRunEventRecorder({
-        store: store as never,
         runId: "run-1",
-        conversationId: "conversation-1",
         agentType: "general",
         userMessageId: "user-1",
       }),
@@ -1146,11 +1105,8 @@ describe("subscribeRuntimeAgentEvents", () => {
 
 describe("queued user steer visibility", () => {
   it("keeps hidden context hidden, then promotes the consumed user steer", () => {
-    const store = { recordRunEvent: vi.fn() };
     const recorder = createRunEventRecorder({
-      store: store as never,
       runId: "run-hidden",
-      conversationId: "conversation-1",
       agentType: AGENT_IDS.ORCHESTRATOR,
       userMessageId: "hidden-lifecycle-message",
       uiVisibility: "hidden",
@@ -1176,12 +1132,9 @@ describe("queued user steer visibility", () => {
 });
 
 describe("sensitive runtime event payloads", () => {
-  it("redacts reasoning, status, tool events, and persisted previews before dispatch", () => {
-    const store = { recordRunEvent: vi.fn() };
+  it("redacts reasoning, status, tool events, and previews before dispatch", () => {
     const recorder = createRunEventRecorder({
-      store: store as never,
       runId: "run-redaction",
-      conversationId: "conversation-redaction",
       agentType: AGENT_IDS.GENERAL,
       userMessageId: "user-redaction",
     });
@@ -1217,16 +1170,12 @@ describe("sensitive runtime event payloads", () => {
     });
 
     expect(toolEnd.isError).toBe(true);
-    expect(store.recordRunEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ isError: true }),
-    );
 
     const serialized = JSON.stringify({
       reasoning,
       status,
       toolStart,
       toolEnd,
-      persisted: store.recordRunEvent.mock.calls,
     });
     for (const secret of [
       "reasoning-secret",
@@ -1276,9 +1225,7 @@ describe("sensitive runtime event payloads", () => {
       runId: "run-exec-update",
       agentType: AGENT_IDS.GENERAL,
       recorder: createRunEventRecorder({
-        store: { recordRunEvent: () => undefined } as never,
         runId: "run-exec-update",
-        conversationId: "conversation-exec-update",
         agentType: AGENT_IDS.GENERAL,
         userMessageId: "user-exec-update",
       }),

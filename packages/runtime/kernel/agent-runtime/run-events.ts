@@ -1,4 +1,3 @@
-import { RUNTIME_RUN_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import {
   redactSensitiveText,
   sanitizeSensitiveData,
@@ -57,9 +56,7 @@ type RuntimeAgentLike = {
 };
 
 type RunRecorderArgs = {
-  store: RuntimeStore;
   runId: string;
-  conversationId: string;
   agentType: string;
   userMessageId: string;
   uiVisibility?: "visible" | "hidden";
@@ -69,9 +66,7 @@ type RunRecorderArgs = {
 export type RuntimeRunEventRecorder = ReturnType<typeof createRunEventRecorder>;
 
 export const createRunEventRecorder = ({
-  store,
   runId,
-  conversationId,
   agentType,
   userMessageId,
   uiVisibility,
@@ -180,26 +175,13 @@ export const createRunEventRecorder = ({
     },
     recordAssistantTextEnd,
 
-    recordRunStart(): void {
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        type: RUNTIME_RUN_EVENT_TYPES.RUN_START,
-      });
-    },
-
     /**
      * Observe one assistant text delta.
      *
      * Assistant text is delivered whole (one assistant-message event per
      * segment), so a delta produces no event and consumes no recorder seq.
      * All this does is stamp the segment's first-text time — see
-     * `pendingSegmentFirstTextAtMs`. Per-chunk `run_event` rows are
-     * deliberately not persisted any more: nothing ever read them back
-     * (`run_event` rows are excluded from every history query) and they cost
-     * one SQLite transaction per token.
+     * `pendingSegmentFirstTextAtMs`.
      */
     noteAssistantTextChunk(chunk: string): void {
       if (!chunk || pendingSegmentFirstTextAtMs !== null) {
@@ -270,16 +252,6 @@ export const createRunEventRecorder = ({
         string,
         unknown
       >;
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        seq,
-        type: RUNTIME_RUN_EVENT_TYPES.TOOL_START,
-        toolCallId,
-        toolName,
-      });
       return {
         runId,
         agentType,
@@ -314,18 +286,6 @@ export const createRunEventRecorder = ({
         ),
       );
       const seq = nextSeq();
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        seq,
-        type: RUNTIME_RUN_EVENT_TYPES.TOOL_END,
-        toolCallId,
-        toolName,
-        resultPreview,
-        isError: args.isError === true,
-      });
       return {
         runId,
         agentType,
@@ -344,15 +304,6 @@ export const createRunEventRecorder = ({
       responseTarget?: RuntimeEndEvent["responseTarget"];
     }): RuntimeEndEvent {
       const seq = nextSeq();
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        seq,
-        type: RUNTIME_RUN_EVENT_TYPES.RUN_END,
-        finalText: args.finalText,
-      });
       return {
         runId,
         agentType,
@@ -367,16 +318,6 @@ export const createRunEventRecorder = ({
 
     recordError(error: string): RuntimeErrorEvent {
       const seq = nextSeq();
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        seq,
-        type: RUNTIME_RUN_EVENT_TYPES.ERROR,
-        error,
-        fatal: true,
-      });
       return {
         runId,
         agentType,
@@ -389,16 +330,6 @@ export const createRunEventRecorder = ({
 
     recordInterrupted(reason: string): RuntimeInterruptedEvent {
       const seq = nextSeq();
-      store.recordRunEvent({
-        timestamp: now(),
-        runId,
-        conversationId,
-        agentType,
-        seq,
-        type: "interrupted",
-        error: reason,
-        fatal: false,
-      });
       return {
         runId,
         agentType,

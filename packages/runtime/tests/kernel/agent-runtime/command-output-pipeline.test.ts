@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createPiTools } from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
 import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
@@ -148,11 +148,8 @@ describe("command output pipeline", () => {
         readFile(details.toolOutputArtifact.path, "utf8"),
       ).resolves.toBe(rawModelText);
 
-      const store = { recordRunEvent: vi.fn() };
       const recorder = createRunEventRecorder({
-        store: store as never,
         runId: "run-command-output",
-        conversationId: "conversation-command-output",
         agentType: "general",
         userMessageId: "user-command-output",
       });
@@ -167,9 +164,7 @@ describe("command output pipeline", () => {
       expect(event.resultPreview).toContain("Process exited with code 7");
       expect(event.details).not.toHaveProperty("output");
       expect(JSON.stringify(event.details)).not.toContain("HEAD-MARKER");
-      expect(JSON.stringify(store.recordRunEvent.mock.calls)).not.toContain(
-        "MIDDLE-ONLY-MARKER",
-      );
+      expect(JSON.stringify(event)).not.toContain("MIDDLE-ONLY-MARKER");
     } finally {
       await rm(stellaDataDir, { recursive: true, force: true });
     }

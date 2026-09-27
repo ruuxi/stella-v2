@@ -58,7 +58,11 @@ const LIFECYCLE_EVENT_TYPES = [
   "agent-failed",
   "agent-canceled",
 ] as const;
-/** Legacy event types that never surface through the event APIs. */
+/**
+ * Legacy event types that never surface through the event APIs. Nothing
+ * writes them any more; `run_event` rows left in existing stores are
+ * deleted by `sweepLegacyRunEventEntries` (entry-retention.ts).
+ */
 const NON_EVENT_TYPES = ["thread_message", "run_event", "memory"] as const;
 
 const placeholders = (values: readonly unknown[]): string =>
@@ -779,29 +783,6 @@ export class ChatLog {
     return updatedRecord;
   }
 
-  recordRunEvent(event: {
-    runId: string;
-    conversationId: string;
-    agentType: string;
-    seq?: number;
-    timestamp: number;
-    [key: string]: unknown;
-  }): void {
-    const messageId = `run:${event.runId}:${event.seq ?? generateLocalId()}`;
-    this.tx.immediate(() => {
-      this.ensureConversation(event.conversationId, event.timestamp);
-      this.upsertEvent({
-        conversationId: event.conversationId,
-        eventId: messageId,
-        type: "run_event",
-        timestamp: event.timestamp,
-        runId: event.runId,
-        agentType: event.agentType,
-        payload: event as Record<string, unknown>,
-      });
-    });
-  }
-
   hasEvent(conversationId: string, eventIdInput: string, typeInput?: string): boolean {
     const eventId = asTrimmedString(eventIdInput);
     if (!eventId) return false;
@@ -1414,8 +1395,13 @@ export class ChatLog {
     conversationId: string,
     until: Cursor | null = null,
   ): Cursor | null {
-    const clauses = ["entry.conversation_id = ?"];
-    const params: unknown[] = [conversationId];
+    // Legacy non-event rows never anchor a cursor, so the result does not
+    // depend on whether they are still present.
+    const clauses = [
+      "entry.conversation_id = ?",
+      `entry.type NOT IN (${placeholders(NON_EVENT_TYPES)})`,
+    ];
+    const params: unknown[] = [conversationId, ...NON_EVENT_TYPES];
     if (until) {
       const k = this.keyset(
         "<",

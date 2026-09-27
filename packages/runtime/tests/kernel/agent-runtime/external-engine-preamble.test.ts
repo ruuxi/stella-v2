@@ -14,11 +14,8 @@ import {
 } from "@stella/runtime/kernel/agent-runtime/external-engines";
 
 const makeRecorder = () => {
-  const store = { recordRunEvent: vi.fn() };
   return createRunEventRecorder({
-    store: store as never,
     runId: "run-codex",
-    conversationId: "conversation-1",
     agentType: "orchestrator",
     userMessageId: "user-1",
     getResponseTarget: () => ({ type: "user_turn" }),
@@ -147,9 +144,7 @@ describe("external live steering", () => {
 
   it("moves callback ownership to every user steer consumed in one engine turn", () => {
     const recorder = createRunEventRecorder({
-      store: { recordRunEvent: vi.fn() } as never,
       runId: "run-hidden",
-      conversationId: "conversation-1",
       agentType: "orchestrator",
       userMessageId: "hidden-agent-result",
       uiVisibility: "hidden",

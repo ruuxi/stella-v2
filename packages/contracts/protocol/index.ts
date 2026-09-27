@@ -229,7 +229,6 @@ export const METHOD_NAMES = {
   INTERNAL_STORE_REPLACE_THREAD_MESSAGES:
     "internal.store.replaceThreadMessages",
   INTERNAL_STORE_UPDATE_THREAD_SUMMARY: "internal.store.updateThreadSummary",
-  INTERNAL_STORE_RECORD_RUN_EVENT: "internal.store.recordRunEvent",
   INTERNAL_STORE_LIST_LOCAL_CHAT_EVENTS: "internal.store.listLocalChatEvents",
   INTERNAL_SCHEDULE_LIST_CRON_JOBS: "internal.schedule.listCronJobs",
   INTERNAL_SCHEDULE_LIST_HEARTBEATS: "internal.schedule.listHeartbeats",

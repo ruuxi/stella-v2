@@ -440,22 +440,6 @@ export const AGENT_RUN_FINISH_OUTCOMES = {
 
 export type AgentRunFinishOutcome = TerminalTaskLifecycleStatus;
 
-// Internal runtime store event types (separate vocabulary because these
-// are persisted to RuntimeStore and the schema is independent from IPC).
-export const RUNTIME_RUN_EVENT_TYPES = {
-  RUN_START: "run_start",
-  /**
-   * No longer written: the recorder stopped persisting a row per text delta
-   * when assistant text became whole-message. Declared so rows already in
-   * users' local stores keep a name.
-   */
-  STREAM: "stream",
-  TOOL_START: "tool_start",
-  TOOL_END: "tool_end",
-  RUN_END: "run_end",
-  ERROR: "error",
-} as const;
-
 export const TOOL_IDS = {
   NO_RESPONSE: "NoResponse",
   READ: "Read",

@@ -1752,10 +1752,6 @@ export class SessionStore {
     );
   }
 
-  recordRunEvent(event: Parameters<ChatLog["recordRunEvent"]>[0]): void {
-    this.chat.recordRunEvent(event);
-  }
-
   listEvents(conversationIdInput: unknown, maxItems = 200): LocalChatEventRecord[] {
     return this.chat.listEvents(
       this.sanitizeConversationId(conversationIdInput),

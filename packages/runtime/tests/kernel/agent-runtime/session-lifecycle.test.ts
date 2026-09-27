@@ -86,9 +86,7 @@ const createOptions = (
     route: "direct-provider",
     getApiKey: () => undefined,
   },
-  store: {
-    recordRunEvent: vi.fn(),
-  } as never,
+  store: {} as never,
   callbacks: {
     onToolStart: vi.fn(),
     onToolEnd: vi.fn(),
@@ -420,7 +418,6 @@ describe("OrchestratorSession", () => {
         },
         toolCatalog: updatedTools.map(toolMetadata),
         store: {
-          recordRunEvent: vi.fn(),
           loadThreadMessages: vi.fn(() => []),
         } as never,
       }),
@@ -450,7 +447,6 @@ describe("OrchestratorSession", () => {
         runId: "run-2",
         userPrompt: "After compaction",
         store: {
-          recordRunEvent: vi.fn(),
           loadThreadMessages: vi.fn(() => [
             {
               role: "assistant",
@@ -535,7 +531,6 @@ describe("SubagentSession", () => {
       },
       describeImages,
       store: {
-        recordRunEvent: vi.fn(),
         appendThreadCustomMessage: vi.fn(),
         loadThreadMessages: vi.fn(() => []),
       } as never,
@@ -577,7 +572,6 @@ describe("SubagentSession", () => {
       },
     ];
     const store = {
-      recordRunEvent: vi.fn(),
       appendThreadCustomMessage: vi.fn(),
       loadThreadMessages: vi.fn(() => persistedHistory),
     };
@@ -650,7 +644,6 @@ describe("SubagentSession", () => {
     );
     const appendThreadMessage = vi.fn();
     const store = {
-      recordRunEvent: vi.fn(),
       appendThreadMessage,
       appendThreadCustomMessage: vi.fn(),
       loadThreadMessages: vi.fn(() => []),

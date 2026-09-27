@@ -397,7 +397,7 @@ export const createRuntimeInitialization = (
             Effect.sync(() => {
               if (!isCurrentGeneration()) return;
               logger.info("model-runtime.catalog.ready", {
-                modelCount: modelRuntime.getAllModels().length,
+                modelCount: modelRuntime.getModelCount(),
               });
             }),
           ),

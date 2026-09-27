@@ -9,6 +9,11 @@
         "@aws-sdk/client-bedrock-runtime": "^3.1055.0",
         "@convex-dev/better-auth": "^0.12.5",
         "@google/genai": "^2.6.0",
+        "@googleapis/calendar": "^14.3.0",
+        "@googleapis/docs": "^9.3.0",
+        "@googleapis/drive": "^20.2.0",
+        "@googleapis/gmail": "^16.1.2",
+        "@googleapis/people": "^7.0.1",
         "@legendapp/list": "3.0.0",
         "@modelcontextprotocol/sdk": "^1.25.2",
         "@noble/ciphers": "^2.1.1",
@@ -37,7 +42,6 @@
         "croner": "^10.0.1",
         "esbuild": "^0.28.0",
         "gaxios": "^7.1.4",
-        "googleapis": "^172.0.0",
         "googleapis-common": "^8.0.1",
         "motion": "^12.40.0",
         "openai": "6.39.0",
@@ -980,6 +984,16 @@
     "@fontsource/manrope": ["@fontsource/manrope@5.2.6", "", {}, "sha512-tboCPLGXWWkNORL7gRhA1m16FJj2QuObk2lhBvkNrpjW0911pGawvHwxuierKHojPtXptfMJo7CUWxXGkKN5zA=="],
 
     "@google/genai": ["@google/genai@2.6.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-HjoW3mPuEn7pnuKABJl9VbDoWDSF4nbwYKYvYYor7YjPeDxrrBxHzu2d1Prcd+BAuC4w+85UP6y7ZdcrQAoO7g=="],
+
+    "@googleapis/calendar": ["@googleapis/calendar@14.3.0", "", { "dependencies": { "googleapis-common": "^8.0.0" } }, "sha512-sPPwuIBKNN0ifmvbYTOPXdrjjRRBNTC7gz81kanjXLffnuIqRNt2vzAO8Q6KXzgYXyTApuJZrryUVL4ZncQDiQ=="],
+
+    "@googleapis/docs": ["@googleapis/docs@9.3.0", "", { "dependencies": { "googleapis-common": "^8.0.0" } }, "sha512-ga0ZlsrYxZGUfWbio7paMEs/0f6UtwUSJZcayFZ3DpJFSAnh9KhsPGj0bynrojensab18eO0ffVllUGKYCvOqA=="],
+
+    "@googleapis/drive": ["@googleapis/drive@20.2.0", "", { "dependencies": { "googleapis-common": "^8.0.0" } }, "sha512-6xPjqqLl34jBXWYMO34ywLVQsT8FgH948x8YI9o6Tdqs7+n4QRyvkC+BcvVQaAPNc+pyqsvZAXcbdMEcGgDUGw=="],
+
+    "@googleapis/gmail": ["@googleapis/gmail@16.1.2", "", { "dependencies": { "googleapis-common": "^8.0.0" } }, "sha512-/EjAtgTtmu6bwh7jhlspmzWu6VtO0zvkOlgR2nOfuhF2B6Wr6FAhGaqXF+/t8noLAAlQDQ638jLvR+ofdzzIxQ=="],
+
+    "@googleapis/people": ["@googleapis/people@7.0.1", "", { "dependencies": { "googleapis-common": "^8.0.0" } }, "sha512-KIkIXfUcGpeHmtX8Qz6YlomuXnX/cZ6niZZB9murcVfBJwDSBJbnEGotwVPb0ygta1H/Jn3GH8l7uZht386Gpg=="],
 
     "@hexagon/base64": ["@hexagon/base64@1.1.28", "", {}, "sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw=="],
 
@@ -2590,8 +2604,6 @@
     "google-auth-library": ["google-auth-library@10.6.2", "", { "dependencies": { "base64-js": "^1.3.0", "ecdsa-sig-formatter": "^1.0.11", "gaxios": "^7.1.4", "gcp-metadata": "8.1.2", "google-logging-utils": "1.1.3", "jws": "^4.0.0" } }, "sha512-e27Z6EThmVNNvtYASwQxose/G57rkRuaRbQyxM2bvYLLX/GqWZ5chWq2EBoUchJbCc57eC9ArzO5wMsEmWftCw=="],
 
     "google-logging-utils": ["google-logging-utils@1.1.3", "", {}, "sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA=="],
-
-    "googleapis": ["googleapis@172.0.0", "", { "dependencies": { "google-auth-library": "^10.2.0", "googleapis-common": "^8.0.0" } }, "sha512-cF1m/nwfu9JP+JtR6j2nkQKnhu0z45eUVsWCVeooU8EIvBiPQqbfgAuJsTggCYEpbWJNwq2WS+aigaBC/sriIw=="],
 
     "googleapis-common": ["googleapis-common@8.0.1", "", { "dependencies": { "extend": "^3.0.2", "gaxios": "^7.0.0-rc.4", "google-auth-library": "^10.1.0", "qs": "^6.7.0", "url-template": "^2.0.8" } }, "sha512-eCzNACUXPb1PW5l0ULTzMHaL/ltPRADoPgjBlT8jWsTbxkCp6siv+qKJ/1ldaybCthGwsYFYallF7u9AkU4L+A=="],
 

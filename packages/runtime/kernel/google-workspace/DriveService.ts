@@ -5,7 +5,7 @@
  */
 
 import { Effect } from 'effect';
-import { google, drive_v3 } from 'googleapis';
+import { drive as createDriveClient, drive_v3 } from '@googleapis/drive';
 import { AuthManager } from './AuthManager.js';
 import {
   runGoogleWorkspaceEffect,
@@ -36,7 +36,7 @@ export class DriveService {
 
   private async getDriveClient(): Promise<drive_v3.Drive> {
     const auth = await this.authManager.getAuthenticatedClient();
-    return google.drive({
+    return createDriveClient({
       version: 'v3',
       ...createGoogleClientOptions(auth),
     });

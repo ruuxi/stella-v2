@@ -333,19 +333,6 @@ const remoteCatalogModelSchema = {
   },
   required: [...remoteCatalogRequired, "api", "baseUrl"],
 } as const satisfies AnySchema;
-// Azure deployments resolve their endpoint from request options or the user's
-// resource configuration, so their catalog models intentionally use an empty
-// baseUrl. Key this exception to the transport contract rather than the
-// provider name; every other remote transport still requires a URL.
-const azureRemoteCatalogModelSchema = {
-  type: "object",
-  properties: {
-    ...remoteCatalogModelProperties,
-    api: { const: "azure-openai-responses", type: "string" },
-    baseUrl: stringSchema,
-  },
-  required: [...remoteCatalogRequired, "api", "baseUrl"],
-} as const satisfies AnySchema;
 // OpenRouter's automatic router cannot know the selected upstream model's
 // price until request routing. Its catalog uses this exact sentinel contract;
 // keep the exception pinned to that transport/model shape so no other
@@ -382,9 +369,7 @@ const remoteCatalogSchemaFor = (
   ) {
     return openRouterAutoRemoteCatalogModelSchema;
   }
-  return "api" in value && value.api === "azure-openai-responses"
-    ? azureRemoteCatalogModelSchema
-    : remoteCatalogModelSchema;
+  return remoteCatalogModelSchema;
 };
 
 export const isRemoteCatalogModel = (

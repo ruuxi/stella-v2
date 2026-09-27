@@ -24,10 +24,6 @@ import { anomalousStreamStopError } from "../utils/provider-stop.js";
 import { hashProviderRequestIdentity } from "../utils/provider-request-proof.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import {
-  isCloudflareProvider,
-  resolveCloudflareBaseUrl,
-} from "./cloudflare.js";
-import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput,
 } from "./github-copilot-headers.js";
@@ -428,22 +424,11 @@ function createClientOptions(
     }
   }
 
-  const defaultHeaders =
-    model.provider === "cloudflare-ai-gateway"
-      ? {
-          ...headers,
-          Authorization: headers.Authorization ?? null,
-          "cf-aig-authorization": `Bearer ${apiKey}`,
-        }
-      : headers;
-
   return {
     apiKey,
-    baseURL: isCloudflareProvider(model.provider)
-      ? resolveCloudflareBaseUrl(model)
-      : model.baseUrl,
+    baseURL: model.baseUrl,
     dangerouslyAllowBrowser: true,
-    defaultHeaders,
+    defaultHeaders: headers,
     ...(model.fetch ? { fetch: model.fetch } : {}),
   };
 }

@@ -42,10 +42,6 @@ import { anomalousStreamStopError } from "../utils/provider-stop.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 import {
-  isCloudflareProvider,
-  resolveCloudflareBaseUrl,
-} from "./cloudflare.js";
-import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput,
 } from "./github-copilot-headers.js";
@@ -642,22 +638,11 @@ function createClientOptions(
     Object.assign(headers, optionsHeaders);
   }
 
-  const defaultHeaders =
-    model.provider === "cloudflare-ai-gateway"
-      ? {
-          ...headers,
-          Authorization: headers.Authorization ?? null,
-          "cf-aig-authorization": `Bearer ${apiKey}`,
-        }
-      : headers;
-
   return {
     apiKey,
-    baseURL: isCloudflareProvider(model.provider)
-      ? resolveCloudflareBaseUrl(model)
-      : model.baseUrl,
+    baseURL: model.baseUrl,
     dangerouslyAllowBrowser: true,
-    defaultHeaders,
+    defaultHeaders: headers,
     ...(model.fetch ? { fetch: model.fetch } : {}),
   };
 }
@@ -1574,12 +1559,6 @@ function detectCompat(
     provider === "moonshotai" ||
     provider === "moonshotai-cn" ||
     baseUrl.includes("api.moonshot.");
-  const isCloudflareWorkersAI =
-    provider === "cloudflare-workers-ai" ||
-    baseUrl.includes("api.cloudflare.com");
-  const isCloudflareAiGateway =
-    provider === "cloudflare-ai-gateway" ||
-    baseUrl.includes("gateway.ai.cloudflare.com");
 
   const isNonStandard =
     provider === "cerebras" ||
@@ -1591,12 +1570,9 @@ function detectCompat(
     isZai ||
     isMoonshot ||
     provider === "opencode" ||
-    baseUrl.includes("opencode.ai") ||
-    isCloudflareWorkersAI ||
-    isCloudflareAiGateway;
+    baseUrl.includes("opencode.ai");
 
-  const useMaxTokens =
-    baseUrl.includes("chutes.ai") || isMoonshot || isCloudflareAiGateway;
+  const useMaxTokens = baseUrl.includes("chutes.ai") || isMoonshot;
 
   const isGrok = provider === "xai" || baseUrl.includes("api.x.ai");
   const isDeepSeek =
@@ -1615,8 +1591,7 @@ function detectCompat(
   return {
     supportsStore: !isNonStandard,
     supportsDeveloperRole: !isNonStandard,
-    supportsReasoningEffort:
-      !isGrok && !isZai && !isMoonshot && !isCloudflareAiGateway,
+    supportsReasoningEffort: !isGrok && !isZai && !isMoonshot,
     supportsUsageInStreaming: true,
     maxTokensField: useMaxTokens ? "max_tokens" : "max_completion_tokens",
     requiresToolResultName: false,
@@ -1635,12 +1610,10 @@ function detectCompat(
     openRouterRouting: {},
     vercelGatewayRouting: {},
     zaiToolStream: false,
-    supportsStrictMode: !isMoonshot && !isCloudflareAiGateway,
+    supportsStrictMode: !isMoonshot,
     cacheControlFormat,
     sendSessionAffinityHeaders: isFireworks,
-    supportsLongCacheRetention: !(
-      isCloudflareWorkersAI || isCloudflareAiGateway
-    ),
+    supportsLongCacheRetention: true,
   };
 }
 

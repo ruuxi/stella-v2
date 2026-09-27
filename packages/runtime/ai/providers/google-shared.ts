@@ -1,5 +1,5 @@
 /**
- * Shared utilities for Google Generative AI and Google Vertex providers.
+ * Shared utilities for the Google Generative AI provider.
  */
 
 import { type Content, FinishReason, FunctionCallingConfigMode, type GoogleGenAI, type Part } from "@google/genai";
@@ -7,7 +7,7 @@ import type { Context, ImageContent, Model, StopReason, TextContent, Tool } from
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { transformMessages } from "./transform-messages.js";
 
-type GoogleApiType = "google-generative-ai" | "google-vertex";
+type GoogleApiType = "google-generative-ai";
 
 /**
  * Route the SDK's HTTP calls through `model.fetch` when one is injected.

@@ -6,22 +6,16 @@ export type { AssistantMessageEventStream } from "./utils/event-stream.js";
 export type KnownApi =
   | "openai-completions"
   | "openai-responses"
-  | "azure-openai-responses"
   | "openai-codex-responses"
   | "anthropic-messages"
-  | "bedrock-converse-stream"
-  | "google-generative-ai"
-  | "google-vertex";
+  | "google-generative-ai";
 
 export type Api = KnownApi | (string & {});
 
 export type KnownProvider =
-  | "amazon-bedrock"
   | "anthropic"
   | "google"
-  | "google-vertex"
   | "openai"
-  | "azure-openai-responses"
   | "openai-codex"
   | "deepseek"
   | "github-copilot"
@@ -41,8 +35,6 @@ export type KnownProvider =
   | "opencode"
   | "opencode-go"
   | "kimi-coding"
-  | "cloudflare-workers-ai"
-  | "cloudflare-ai-gateway"
   | "xiaomi"
   | "xiaomi-token-plan-cn"
   | "xiaomi-token-plan-ams"
@@ -194,7 +186,7 @@ export interface StreamOptions {
   /**
    * Optional custom HTTP headers to include in API requests.
    * Merged with provider defaults; can override default headers.
-   * Not supported by all providers (e.g., AWS Bedrock uses SDK auth).
+   * Not supported by all providers.
    */
   headers?: Record<string, string>;
   /**
@@ -659,10 +651,7 @@ export interface Model<TApi extends Api> {
   /** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
   compat?: TApi extends "openai-completions"
     ? OpenAICompletionsCompat
-    : TApi extends
-          | "openai-responses"
-          | "openai-codex-responses"
-          | "azure-openai-responses"
+    : TApi extends "openai-responses" | "openai-codex-responses"
       ? OpenAIResponsesCompat
       : TApi extends "anthropic-messages"
         ? AnthropicMessagesCompat

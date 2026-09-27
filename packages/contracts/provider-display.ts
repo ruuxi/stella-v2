@@ -13,13 +13,10 @@
  */
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  "amazon-bedrock": "Amazon Bedrock",
   anthropic: "Anthropic",
-  "azure-openai-responses": "Azure OpenAI",
   cerebras: "Cerebras",
   "github-copilot": "GitHub Copilot",
   google: "Google",
-  "google-vertex": "Google Vertex",
   huggingface: "Hugging Face",
   local: "Local",
   "kimi-coding": "Kimi",

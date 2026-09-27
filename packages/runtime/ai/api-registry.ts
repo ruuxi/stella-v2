@@ -46,8 +46,7 @@ export interface ApiProviderModule<
 /**
  * Lazy registration: defer importing the provider's SDK-bearing module
  * (and the heavy SDK graph it pulls in: @anthropic-ai/sdk, openai,
- * @google/genai, @aws-sdk/client-bedrock-runtime,
- * …) until the first `stream()`/`streamSimple()` for this api. The
+ * @google/genai, …) until the first `stream()`/`streamSimple()` for this api. The
  * resolved module is cached after first load so subsequent calls reuse
  * it without re-importing. This keeps the worker's INTERNAL_WORKER_INITIALIZE
  * boot path off the SDK parse/eval cost.
@@ -200,6 +199,11 @@ export function getApiProviders(): ApiProviderInternal[] {
   ).filter(
     (provider): provider is ApiProviderInternal => provider !== undefined,
   );
+}
+
+/** Every registered api id, whether or not its lazy module has loaded yet. */
+export function getRegisteredApis(): Api[] {
+  return Array.from(apiProviderRegistry.keys());
 }
 
 export function unregisterApiProviders(sourceId: string): void {

@@ -39,7 +39,6 @@ import { readRetryAfterMs } from "../utils/retry.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 
-import { resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl, isManagedStellaRelayModel } from "./model-gateway.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
@@ -1064,30 +1063,6 @@ function createClient(
 	}
 	if (needsInterleavedBeta) {
 		betaFeatures.push(INTERLEAVED_THINKING_BETA);
-	}
-
-	if (model.provider === "cloudflare-ai-gateway") {
-		const client = new Anthropic({
-			apiKey: null,
-			authToken: null,
-			baseURL: resolveCloudflareBaseUrl(model),
-			dangerouslyAllowBrowser: true,
-			defaultHeaders: mergeHeaders(
-				{
-					accept: "application/json",
-					"anthropic-dangerous-direct-browser-access": "true",
-					"cf-aig-authorization": `Bearer ${apiKey}`,
-					"x-api-key": null,
-					Authorization: null,
-					...(betaFeatures.length > 0 ? { "anthropic-beta": betaFeatures.join(",") } : {}),
-				},
-				model.headers,
-				optionsHeaders,
-			),
-			...transportOptions(model),
-		});
-
-		return { client, isOAuthToken: false };
 	}
 
 	// Copilot: Bearer auth, selective betas.

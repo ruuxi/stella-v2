@@ -2,18 +2,15 @@ import {
   LegendList,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
-import { useIsFocused } from "expo-router";
 import { useT } from "../i18n";
 import {
-  fetchMobileSchedules,
-  getCachedMobileSchedules,
-  mutateMobileSchedule,
-  subscribeMobileScheduleUpdates,
+  useMobileSchedules,
+  useScheduleAction,
   type MobileSchedule,
   type MobileScheduleAction,
-} from "../lib/desktop-schedules";
+} from "../lib/schedules";
 import { authClient } from "../lib/auth-client";
 import { isGuest } from "../lib/guest-mode";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
@@ -24,10 +21,9 @@ import { useColors } from "../theme/theme-context";
 import { ScheduleRow, makeActivityRowStyles } from "./sidebar/activity-rows";
 
 /**
- * The Schedule tab: the paired computer's recurring jobs and heartbeats, with
- * pause / resume / delete for cron jobs. Loads while the tab is on screen (a
- * cheap authenticated read through the desktop bridge) and stays live via the
- * desktop's `schedule:updated` broadcast for as long as it is.
+ * The Schedule tab: every schedule the owner has, whichever computer or the
+ * cloud runs it, read live from Convex. Pause / resume / delete write back
+ * the same way, so the list updates on every device at once.
  */
 export function SchedulePage() {
   const colors = useColors();
@@ -35,82 +31,32 @@ export function SchedulePage() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const rowStyles = useMemo(() => makeActivityRowStyles(colors), [colors]);
   const bottomInset = useShellBottomInset();
-  const focused = useIsFocused();
   const session = authClient.useSession();
   const signedIn = Boolean(session.data?.user) && !isGuest();
 
-  const [schedules, setSchedules] = useState<MobileSchedule[]>(
-    () => getCachedMobileSchedules() ?? [],
-  );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const loaded = useMobileSchedules(signedIn);
+  const schedules = loaded ?? EMPTY;
+  const loading = signedIn && loaded === undefined;
+  const runAction = useScheduleAction();
   const [busyKey, setBusyKey] = useState<string | null>(null);
-
-  // True until unmount; loads and mutations check it before touching state
-  // so a slow bridge round-trip can't set state on a torn-down page.
-  const aliveRef = useRef(true);
-  useEffect(
-    () => () => {
-      aliveRef.current = false;
-    },
-    [],
-  );
-  // Monotonic load epoch: a response only lands if it is still the newest
-  // request, so overlapping loads can't interleave into last-write-wins.
-  const loadEpochRef = useRef(0);
-
-  const load = useCallback(async () => {
-    const epoch = ++loadEpochRef.current;
-    const isCurrent = () => aliveRef.current && loadEpochRef.current === epoch;
-    setLoading(true);
-    setError(null);
-    try {
-      const rows = await fetchMobileSchedules();
-      if (isCurrent()) setSchedules(rows);
-    } catch (e) {
-      if (isCurrent()) {
-        setError(
-          e instanceof Error
-            ? e.message
-            : t("mobile.activityHub.schedule.loadFailed"),
-        );
-      }
-    } finally {
-      if (isCurrent()) setLoading(false);
-    }
-  }, [t]);
-
-  const live = focused && signedIn;
-  useEffect(() => {
-    if (!live) return;
-    void load();
-    const subscription = subscribeMobileScheduleUpdates(() => {
-      void load();
-    });
-    return () => subscription.close();
-  }, [live, load]);
 
   const applyAction = useCallback(
     async (schedule: MobileSchedule, action: MobileScheduleAction) => {
       setBusyKey(`${schedule.kind}:${schedule.id}`);
       try {
-        await mutateMobileSchedule(action, schedule);
-        // Re-read so enabled/nextRunAtMs come back authoritative.
-        await load();
+        await runAction(action, schedule);
       } catch (e) {
-        if (aliveRef.current) {
-          Alert.alert(
-            t("mobile.activityHub.schedule.alertTitle"),
-            e instanceof Error
-              ? e.message
-              : t("mobile.activityHub.schedule.actionFailed"),
-          );
-        }
+        Alert.alert(
+          t("mobile.activityHub.schedule.alertTitle"),
+          e instanceof Error
+            ? e.message
+            : t("mobile.activityHub.schedule.actionFailed"),
+        );
       } finally {
-        if (aliveRef.current) setBusyKey(null);
+        setBusyKey(null);
       }
     },
-    [load, t],
+    [runAction, t],
   );
 
   const onAction = useCallback(
@@ -152,15 +98,12 @@ export function SchedulePage() {
     if (!signedIn) {
       return <Text style={styles.empty}>{t("mobile.sidebar.signedOutHint")}</Text>;
     }
-    if (loading && schedules.length === 0) {
+    if (loading) {
       return (
         <View style={[styles.centered, { paddingBottom: bottomInset }]}>
           <ActivityIndicator color={colors.textMuted} />
         </View>
       );
-    }
-    if (error && schedules.length === 0) {
-      return <Text style={styles.empty}>{error}</Text>;
     }
     return (
       <LegendList<MobileSchedule>
@@ -203,6 +146,8 @@ export function SchedulePage() {
     </View>
   );
 }
+
+const EMPTY: MobileSchedule[] = [];
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({

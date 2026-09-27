@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { prefetchMobileSchedules } from "../../src/lib/desktop-schedules";
 import { StatusBar } from "expo-status-bar";
 import {
   DefaultTheme,
@@ -176,12 +175,6 @@ export default function MainLayout() {
   );
   const backOverride = useBackOverride();
   const hubAccess = useActivityHub()?.access ?? null;
-  const pairedDeviceId = hubAccess?.desktopDeviceId ?? null;
-  // The Schedule tab reads through the computer, which takes seconds; start
-  // that read once a computer is paired so the tab opens with its list.
-  useEffect(() => {
-    if (pairedDeviceId) prefetchMobileSchedules();
-  }, [pairedDeviceId]);
   const [viewerArtifact, setViewerArtifact] = useState<ChatArtifact | null>(
     null,
   );

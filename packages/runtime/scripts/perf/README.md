@@ -9,7 +9,8 @@ wall-clock, and ratchet both in CI.
 
 ```sh
 bun packages/runtime/scripts/perf/bench.mjs all   --lab-dir /tmp/stella-perf-lab --out report.json
-bun packages/runtime/scripts/perf/bench.mjs check --lab-dir /tmp/stella-perf-lab     # CI gate
+bun packages/runtime/scripts/perf/bench.mjs check --lab-dir /tmp/stella-perf-lab     # local gate
+bun run runtime:perf:check                                                         # CI gate (check --counts-only --sizes 1000)
 bun packages/runtime/scripts/perf/bench.mjs boot  --entry source --cache warm --repeat 10 --json
 bun packages/runtime/scripts/perf/bench.mjs help
 ```
@@ -92,8 +93,25 @@ transport / before initialize returned / before ready / during the first two
 turns). The census plugin intercepts TypeScript sources and bundle chunks
 only (plugin-loaded `.js` would lose Bun's CommonJS detection) and expands
 each observed module to its static import closure from an esbuild metafile of
-the source graph, so node_modules JS is counted too. Also boot SQL statements
-and boot RPC bytes. Use `profile` for per-module CPU.
+the source graph, so node_modules JS is counted too. Also boot SQL statements.
+Use `profile` for per-module CPU.
+
+Proxies: **boot JSON-RPC** (`bootRpc`), counted bench side in stdout order
+from spawn to the first health response that reports ready. The responses to
+the bench's own probes (`readyz`, the 5ms `health` polls, whose count depends
+on timing) are excluded; what remains (initialize response, notifications,
+worker→host requests) is identical on every run of a tree. Gated per boot
+config: `linesOut`, `bytesOut`, `notificationsTotal`,
+`notifications.<method>` (`modelCatalog.updated` is always reported, 0 when
+absent), `hostRequests` and `hostRequests.<method>` (`host.*` requests the
+worker makes during boot), plus `postReadyLinesOut`/`postReadyBytesOut` for the
+first 250ms of stdout silence after ready, so work moved just past ready does
+not escape. Bytes are counted with the lab dir, repo path and per-run dir
+replaced by fixed tokens, so a different checkout or temp path does not move
+them. `fetch.blocked` / `fetch.catalogRequests` count fetches during boot
+(both 0 on a seeded data dir). Each boot config's counts are the max over the
+runs; `bootRpc.<window>.nondeterministic` lists any field that differed
+between runs, and `check` fails if it is non-empty.
 
 ### J2 chat-turn overhead (`turn`, plain)
 
@@ -185,6 +203,7 @@ cold × transport/ready); turn SQL statements and RPC bytes vs turn time
 | --- | --- | --- | --- |
 | time | 35% | 3 ms | wall-clock |
 | count | 5% | 2 | statements, RPC lines, modules |
+| exact | 0 | 0 | boot notifications, boot host requests, boot fetches |
 | bytes | 5% | 1 KB | RPC bytes, bundle/module bytes |
 | mem | 20% | 2 (MB/KB) | RSS, heap |
 
@@ -194,7 +213,19 @@ cold × transport/ready); turn SQL statements and RPC bytes vs turn time
   `--strict-time` is passed (use it only on the machine class that recorded
   the baseline, on a quiet host: on a shared dev machine the same turn
   measured 9 ms and 16 ms p50 an hour apart).
+- `check --counts-only` gates only `count`, `exact` and `bytes`; wall-clock and
+  memory print `warn` on any runner. This is the CI mode: the `runtime` job in
+  `.github/workflows/ci.yml` runs `bun run runtime:perf:check` (source entry,
+  warm cache, 1k history template only; ~20 s including seeding, no bundle
+  build) with `STELLA_PERF_LAB_DIR` under the runner temp and uploads the JSON
+  report as the `runtime-perf-report` artifact. It needs no secrets and no
+  network: the fake provider serves every model call, and the network guard
+  answers the pi.dev catalog refresh a fresh seed triggers with a local 404
+  (the seed logs how many it answered) and blocks any other fetch.
 - `check --ratchet` lowers every ceiling this run beat (never raises).
+- `--add-missing` (any command) adds the metrics this run measured that
+  `baseline.json` lacks, with fresh ceilings, and never touches an existing
+  entry. Use it to introduce a new metric without re-recording the others.
 - `all --write-baseline` rewrites the baseline from scratch; do it on the CI
   machine class, not a laptop, before wiring `check` into CI.
 - To lower a ceiling by hand after an optimization lands, edit `ceiling` in

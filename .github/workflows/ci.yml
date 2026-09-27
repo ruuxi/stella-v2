@@ -156,6 +156,24 @@ jobs:
       - name: Test runtime
         run: bun run runtime:test
 
+      # Runtime worker perf lab (packages/runtime/scripts/perf/README.md).
+      # Source entry only, 1k history template; the worker runs with a
+      # scratch HOME/data dir, the scripted fake model provider and the
+      # network guard, so the step needs no secrets and no network. Count and
+      # byte metrics gate; wall-clock and memory only warn (--counts-only).
+      - name: Check runtime perf counts
+        env:
+          STELLA_PERF_LAB_DIR: ${{ runner.temp }}/stella-perf-lab
+        run: bun run runtime:perf:check --out "$RUNNER_TEMP/stella-perf-report.json"
+
+      - name: Upload runtime perf report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-perf-report
+          path: ${{ runner.temp }}/stella-perf-report.json
+          if-no-files-found: ignore
+
   executor:
     name: Cloud executor
     runs-on: ubuntu-latest

@@ -221,6 +221,101 @@ const workerEnv = ({ runDir, dataDir, cacheDir, entryKind, census = false, sqlCo
   return env;
 };
 
+// ------------------------------------------------------------------ boot rpc accounting
+/**
+ * Boot JSON-RPC accounting, bench side, in stdout order. Counts every line the
+ * worker writes during boot EXCEPT the responses to the bench's own probes
+ * (`internal.worker.readyz` and the 5ms `internal.worker.health` polls, whose
+ * count depends on timing). What remains is deterministic per tree: the
+ * initialize response, notifications, and worker→host requests.
+ *
+ * Bytes are measured after replacing the lab dir and repo paths with fixed
+ * tokens (and a per-run dir with `<run>`), so a longer checkout or temp path
+ * on a CI runner does not move the byte count.
+ */
+const PROBE_METHODS = new Set(["internal.worker.readyz", "internal.worker.health"]);
+const newBootAccount = () => ({
+  lines: 0,
+  bytes: 0,
+  notifications: {},
+  notificationBytes: {},
+  hostRequests: {},
+});
+let pathTokens = null;
+const normalizePaths = (line) => {
+  if (!pathTokens) {
+    const real = (p) => {
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const labs = [...new Set([real(LAB_DIR), LAB_DIR])].sort((a, b) => b.length - a.length);
+    const repos = [...new Set([real(REPO), REPO])].sort((a, b) => b.length - a.length);
+    pathTokens = {
+      run: new RegExp(`(?:${labs.map(esc).join("|")})/runs/[^/"\\\\]+`, "g"),
+      lab: new RegExp(labs.map(esc).join("|"), "g"),
+      repo: new RegExp(repos.map(esc).join("|"), "g"),
+    };
+  }
+  return line
+    .replace(pathTokens.run, "<run>")
+    .replace(pathTokens.lab, "<lab>")
+    .replace(pathTokens.repo, "<repo>");
+};
+const bootAccount = (acct, msg, line, responseMethod) => {
+  if (responseMethod && PROBE_METHODS.has(responseMethod)) return;
+  const bytes = Buffer.byteLength(normalizePaths(line)) + 1;
+  acct.lines += 1;
+  acct.bytes += bytes;
+  if (!("method" in msg)) return;
+  if ("id" in msg) {
+    acct.hostRequests[msg.method] = (acct.hostRequests[msg.method] ?? 0) + 1;
+    return;
+  }
+  const key = msg.method === "run.event" ? `run.event:${msg.params?.type ?? "?"}` : msg.method;
+  acct.notifications[key] = (acct.notifications[key] ?? 0) + 1;
+  acct.notificationBytes[key] = (acct.notificationBytes[key] ?? 0) + bytes;
+};
+/** Notifications always reported (0 when absent) so a baseline key never goes missing. */
+const TRACKED_BOOT_NOTIFICATIONS = ["modelCatalog.updated"];
+/**
+ * Fold per-run boot accounts into max values (the gate is conservative) and
+ * list every field whose value differed between runs (should be empty).
+ */
+const foldBootAccounts = (accounts) => {
+  const out = { lines: 0, bytes: 0, notificationsTotal: 0, hostRequestsTotal: 0, notifications: {}, notificationBytes: {}, hostRequests: {} };
+  const seen = {};
+  const note = (key, value) => {
+    (seen[key] ??= new Set()).add(value);
+  };
+  const keysOf = (field) => new Set(accounts.flatMap((a) => Object.keys(a[field])));
+  for (const name of TRACKED_BOOT_NOTIFICATIONS) out.notifications[name] = 0;
+  for (const a of accounts) {
+    const notifTotal = Object.values(a.notifications).reduce((x, y) => x + y, 0);
+    const hostTotal = Object.values(a.hostRequests).reduce((x, y) => x + y, 0);
+    for (const [key, value] of [["lines", a.lines], ["bytes", a.bytes], ["notificationsTotal", notifTotal], ["hostRequestsTotal", hostTotal]]) {
+      out[key] = Math.max(out[key], value);
+      note(key, value);
+    }
+  }
+  for (const field of ["notifications", "notificationBytes", "hostRequests"]) {
+    for (const key of keysOf(field)) {
+      for (const a of accounts) {
+        const value = a[field][key] ?? 0;
+        out[field][key] = Math.max(out[field][key] ?? 0, value);
+        note(`${field}.${key}`, value);
+      }
+    }
+  }
+  out.nondeterministic = Object.entries(seen)
+    .filter(([, values]) => values.size > 1)
+    .map(([key, values]) => `${key}=${[...values].join("/")}`);
+  return out;
+};
+
 // ------------------------------------------------------------------ worker client
 const PERF_PREFIX = "@@PERF ";
 const hostIdentity = (() => {
@@ -247,6 +342,15 @@ class WorkerClient {
     this.hostRequests = {};
     this.lastMessageAt = 0;
     this.exited = null;
+    // Boot accounting (see bootAccount): active from spawn until endBootAccounting().
+    this.bootAcct = newBootAccount();
+    this.bootAcctAtReady = null;
+  }
+
+  endBootAccounting() {
+    const settled = this.bootAcct;
+    this.bootAcct = null;
+    return settled;
   }
 
   now() {
@@ -332,6 +436,21 @@ class WorkerClient {
     bucket.lines += 1;
     bucket.bytes += bytes;
 
+    if (this.bootAcct) {
+      const pollMethod =
+        "id" in msg && !("method" in msg) ? this.pending.get(msg.id)?.method : undefined;
+      bootAccount(this.bootAcct, msg, line, pollMethod);
+      // Snapshot in stdout order, at the exact line that first reports ready:
+      // later lines in the same chunk are processed before the awaiting
+      // boot() resumes, so a snapshot taken there would not be deterministic.
+      if (
+        this.bootAcctAtReady == null &&
+        pollMethod === "internal.worker.health" &&
+        msg.result?.health?.ready
+      ) {
+        this.bootAcctAtReady = structuredClone(this.bootAcct);
+      }
+    }
     if ("id" in msg && !("method" in msg)) {
       const pending = this.pending.get(msg.id);
       if (!pending) return;
@@ -379,6 +498,7 @@ class WorkerClient {
         reject(new Error(`timeout: ${method}`));
       }, timeoutMs);
       this.pending.set(id, {
+        method,
         resolve: (v) => {
           clearTimeout(timer);
           resolve({ ...v, sentAt });
@@ -434,7 +554,7 @@ class WorkerClient {
    * the socket transport; over stdio it returns METHOD_NOT_FOUND, which is
    * exactly the cheap round trip we want.
    */
-  async boot(dataDir, { pollMs = 5, readyTimeoutMs = 30_000 } = {}) {
+  async boot(dataDir, { pollMs = 5, readyTimeoutMs = 30_000, keepBootAccounting = false } = {}) {
     const probe = this.request("internal.worker.readyz", {}).catch((e) => ({ at: e.at }));
     const probeRes = await probe;
     const transportAt = probeRes.at ?? this.now();
@@ -456,6 +576,8 @@ class WorkerClient {
     if (readyAt == null) {
       throw new Error(`worker never became ready: ${JSON.stringify(lastHealth)}\n${this.stderrTail.slice(-20).join("\n")}`);
     }
+    // Path normalization is per line; stop it before any timed turn traffic.
+    if (!keepBootAccounting) this.endBootAccounting();
     return {
       spawnToFirstByteMs: this.firstByteAt - this.spawnAt,
       spawnToTransportMs: transportAt - this.spawnAt,
@@ -562,6 +684,13 @@ const ensureBaseTemplate = async () => {
   await client.boot(dir);
   await runTurn(client, { conversationId: "perf-conv", prompt: "seed turn" });
   await client.waitQuiet();
+  // A fresh data dir refreshes the pi.dev catalog once; the probe answers it
+  // with a local 404 (never a real request). Anything else is blocked.
+  const { fetch: seedFetch } = await client.snapshot();
+  log(
+    `seed network guard: catalog requests answered locally=${seedFetch.catalog404}, other fetches blocked=${seedFetch.blocked}` +
+      `${seedFetch.blockedUrls.length ? ` (${seedFetch.blockedUrls.join(", ")})` : ""}`,
+  );
   await client.stop();
   fs.writeFileSync(path.join(dir, ".complete"), new Date().toISOString());
   return dir;
@@ -669,8 +798,15 @@ const bootOnce = async ({ entryKind, cache, dataTemplate, cpuProfDir = null, cen
     cpuProfDir,
   }).start();
   try {
-    const marks = await client.boot(dataDir);
+    const marks = await client.boot(dataDir, { keepBootAccounting: true });
     const snap = await client.snapshot();
+    // Boot RPC windows: `ready` = spawn → the first health response reporting
+    // ready (what the host's runtime-ready waits on); `settled` = through the
+    // first 250ms of stdout silence after ready (debounced post-ready work
+    // such as the background catalog warm lands here).
+    await client.waitQuiet(250);
+    const settledSnap = await client.snapshot();
+    const bootRpc = { ready: client.bootAcctAtReady, settled: client.endBootAccounting() };
     const workerStartEpoch = snap.timeOriginEpochMs;
     const breakdown = {
       execToProcessStartMs: workerStartEpoch - client.spawnEpoch,
@@ -687,6 +823,12 @@ const bootOnce = async ({ entryKind, cache, dataTemplate, cpuProfDir = null, cen
       heapAfterReady: snap.memory.heapUsed,
       bootSql: snap.sqlite.statements,
       bootRpcBytesOut: snap.stdout.bytes,
+      bootRpc,
+      bootFetch: {
+        catalog404: settledSnap.fetch.catalog404,
+        blocked: settledSnap.fetch.blocked,
+        blockedUrls: settledSnap.fetch.blockedUrls,
+      },
       census: snap.census,
       censusAnchor: census
         ? {
@@ -738,7 +880,23 @@ const cmdBoot = async () => {
         heapAfterReadyMB: pick((r) => r.heapAfterReady / 1048576),
         bootSqlStatements: pick((r) => r.bootSql),
         bootRpcBytesOut: pick((r) => r.bootRpcBytesOut),
+        // Deterministic boot RPC counts (max over runs; `nondeterministic`
+        // lists any field that differed between runs and should be empty).
+        bootRpc: {
+          ready: foldBootAccounts(runs.map((r) => r.bootRpc.ready)),
+          settled: foldBootAccounts(runs.map((r) => r.bootRpc.settled)),
+        },
+        bootFetch: {
+          catalog404: Math.max(...runs.map((r) => r.bootFetch.catalog404)),
+          blocked: Math.max(...runs.map((r) => r.bootFetch.blocked)),
+          blockedUrls: [...new Set(runs.flatMap((r) => r.bootFetch.blockedUrls))],
+        },
       };
+      for (const [window, folded] of Object.entries(results[`${entryKind}.${cache}`].bootRpc)) {
+        if (folded.nondeterministic.length) {
+          log(`WARNING boot ${entryKind}.${cache} ${window} counts varied across runs: ${folded.nondeterministic.join(", ")}`);
+        }
+      }
       log(`boot ${entryKind}.${cache}: ready p50=${results[`${entryKind}.${cache}`].spawnToReadyMs?.p50}ms`);
     }
   }
@@ -1616,15 +1774,20 @@ const cmdValidate = async () => {
  * Metrics the ratchet tracks. kind decides the default tolerance:
  *   time  -> +35% and +3ms slack (machine noise)
  *   count -> +5%  and +2 slack   (near-deterministic)
+ *   exact -> no slack            (identical on every run: boot notifications,
+ *                                 host requests, blocked fetches)
  *   bytes -> +5%  and +1KB slack (deterministic byte counts)
  *   mem   -> +20% and +2 slack   (RSS/heap in MB or KB; GC-timing noise)
  */
 const TOLERANCE = {
   time: { rel: 0.35, abs: 3 },
   count: { rel: 0.05, abs: 2 },
+  exact: { rel: 0, abs: 0 },
   bytes: { rel: 0.05, abs: 1024 },
   mem: { rel: 0.2, abs: 2 },
 };
+/** Kinds that gate by default and under --counts-only (machine-independent). */
+const DETERMINISTIC_KINDS = new Set(["count", "exact", "bytes"]);
 const extractMetrics = (report) => {
   const m = {};
   const put = (key, value, kind) => {
@@ -1638,6 +1801,31 @@ const extractMetrics = (report) => {
     put(`boot.${cfg}.spawnToReadyMs.p50`, b.spawnToReadyMs?.p50, "time");
     put(`boot.${cfg}.spawnToReadyMs.p95`, b.spawnToReadyMs?.p95, "time");
     put(`boot.${cfg}.rssAfterReadyMB.p50`, b.rssAfterReadyMB?.p50, "mem");
+    // Boot JSON-RPC (bench side, probe responses excluded, paths normalized).
+    const ready = b.bootRpc?.ready;
+    const settled = b.bootRpc?.settled;
+    if (ready) {
+      put(`boot.${cfg}.bootRpc.linesOut`, ready.lines, "exact");
+      put(`boot.${cfg}.bootRpc.bytesOut`, ready.bytes, "bytes");
+      put(`boot.${cfg}.bootRpc.notificationsTotal`, ready.notificationsTotal, "exact");
+      for (const [name, n] of Object.entries(ready.notifications)) {
+        put(`boot.${cfg}.bootRpc.notifications.${name}`, n, "exact");
+      }
+      put(`boot.${cfg}.bootRpc.hostRequests`, ready.hostRequestsTotal, "exact");
+      for (const [name, n] of Object.entries(ready.hostRequests)) {
+        put(`boot.${cfg}.bootRpc.hostRequests.${name}`, n, "exact");
+      }
+    }
+    if (ready && settled) {
+      // Work that moves from before ready to just after it must not escape
+      // the gate: lines/bytes emitted in the post-ready settle window.
+      put(`boot.${cfg}.bootRpc.postReadyLinesOut`, settled.lines - ready.lines, "exact");
+      put(`boot.${cfg}.bootRpc.postReadyBytesOut`, settled.bytes - ready.bytes, "bytes");
+    }
+    if (b.bootFetch) {
+      put(`boot.${cfg}.fetch.blocked`, b.bootFetch.blocked, "exact");
+      put(`boot.${cfg}.fetch.catalogRequests`, b.bootFetch.catalog404, "exact");
+    }
   }
   for (const entry of ["source", "bundle"]) {
     const c = boot.census?.[entry];
@@ -1679,6 +1867,7 @@ const extractMetrics = (report) => {
   if (bundle?.metafile) {
     put("bundle.outputJsBytes", bundle.metafile.outputJsBytes, "bytes");
     put("bundle.bootReachableBytes", bundle.metafile.bootReachableBytes, "bytes");
+    put("bundle.bootReachableFiles", bundle.metafile.bootReachableFiles, "count");
   }
   return m;
 };
@@ -1686,21 +1875,31 @@ const ceilingFor = (value, kind) => {
   const tol = TOLERANCE[kind] ?? TOLERANCE.time;
   return round(value * (1 + tol.rel) + tol.abs, 2);
 };
+const isGating = (kind) => {
+  // --counts-only (CI): only machine-independent kinds gate; wall-clock and
+  // memory are reported as warnings on any runner.
+  if (opts["counts-only"]) return DETERMINISTIC_KINDS.has(kind);
+  // Default: counts, bytes and memory gate; wall-clock gates only with
+  // --strict-time (same machine class, quiet host).
+  return kind !== "time" || Boolean(opts["strict-time"]);
+};
 const checkAgainstBaseline = (metrics, baseline) => {
   const failures = [];
   const rows = [];
+  const skipped = [];
   for (const [key, base] of Object.entries(baseline.metrics)) {
     const cur = metrics[key];
-    if (!cur) continue;
+    if (!cur) {
+      skipped.push(key);
+      continue;
+    }
     const ok = cur.value <= base.ceiling;
-    // Wall-clock ceilings only gate with --strict-time (same machine class,
-    // quiet host); otherwise a time regression is reported as a warning.
-    // Counts, bytes and memory always gate.
-    const gating = base.kind !== "time" || Boolean(opts["strict-time"]);
-    rows.push({ key, baseline: base.value, ceiling: base.ceiling, current: cur.value, ok, gating });
+    const gating = isGating(base.kind);
+    rows.push({ key, kind: base.kind, baseline: base.value, ceiling: base.ceiling, current: cur.value, ok, gating });
     if (!ok && gating) failures.push(key);
   }
-  return { rows, failures };
+  const untracked = Object.keys(metrics).filter((key) => !baseline.metrics[key]);
+  return { rows, failures, skipped, untracked };
 };
 
 // ------------------------------------------------------------------ main
@@ -1760,6 +1959,9 @@ Options
   --write-baseline    (all/check) write baseline.json from this run
   --ratchet           (check) lower ceilings where this run beat them
   --strict-time       (check) wall-clock regressions fail instead of warn
+  --counts-only       (check) only count/exact/bytes metrics gate; wall-clock and
+                      memory warn on any runner (the CI mode)
+  --add-missing       (any) add metrics this run measured that baseline.json lacks
   --keep-runs         keep <lab-dir>/runs (per-run data dir copies) for inspection
   --verbose           echo worker stderr
 `);
@@ -1795,11 +1997,24 @@ const main = async () => {
   if (command === "check") {
     if (!fs.existsSync(BASELINE_PATH)) throw new Error(`no baseline at ${BASELINE_PATH}`);
     const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
-    const { rows, failures } = checkAgainstBaseline(metrics, baseline);
-    report.check = { rows, failures };
+    const { rows, failures, skipped, untracked } = checkAgainstBaseline(metrics, baseline);
+    report.check = { rows, failures, skipped, untracked };
     for (const r of rows) {
-      const tag = r.ok ? "ok  " : r.gating ? "FAIL" : "warn";
+      const tag = r.ok ? (r.gating ? "ok  " : "ok ~") : r.gating ? "FAIL" : "warn";
       process.stderr.write(`${tag} ${r.key}: ${r.current} (ceiling ${r.ceiling}, baseline ${r.baseline})\n`);
+    }
+    process.stderr.write(
+      `[perf] check: ${rows.filter((r) => r.gating).length} gating, ${rows.filter((r) => !r.gating).length} advisory (~), ` +
+        `${failures.length} failed, ${skipped.length} baseline metrics not measured by this run` +
+        `${untracked.length ? `, ${untracked.length} measured but not in baseline: ${untracked.join(", ")}` : ""}\n`,
+    );
+    // Deterministic boot counts must not vary between runs of one check.
+    const varied = Object.entries(report.boot ?? {}).flatMap(([cfg, b]) =>
+      Object.entries(b?.bootRpc ?? {}).flatMap(([window, f]) => f.nondeterministic.map((x) => `${cfg}.${window}.${x}`)),
+    );
+    if (varied.length) {
+      process.stderr.write(`FAIL boot RPC counts varied across runs: ${varied.join(", ")}\n`);
+      failures.push(...varied);
     }
     if (failures.length) exitCode = 1;
     if (opts.ratchet) {
@@ -1814,6 +2029,19 @@ const main = async () => {
       writeJson(BASELINE_PATH, baseline);
       log(`ratcheted ${BASELINE_PATH}`);
     }
+  }
+  if (opts["add-missing"] && !opts["write-baseline"]) {
+    // Add metrics this run measured that baseline.json lacks (fresh ceilings);
+    // never touches an existing entry.
+    const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
+    const added = [];
+    for (const [k, v] of Object.entries(metrics)) {
+      if (baseline.metrics[k]) continue;
+      baseline.metrics[k] = { ...v, ceiling: ceilingFor(v.value, v.kind) };
+      added.push(k);
+    }
+    writeJson(BASELINE_PATH, baseline);
+    log(`added ${added.length} metrics to ${BASELINE_PATH}${added.length ? `: ${added.join(", ")}` : ""}`);
   }
   if (opts["write-baseline"]) {
     const baseline = {

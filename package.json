@@ -77,6 +77,7 @@
     "mobile:test": "cd packages/mobile && bun run test",
     "runtime:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/runtime/tsconfig.json --pretty false --noEmit",
     "runtime:test": "cd packages/runtime && bun run test",
+    "runtime:perf:check": "bun packages/runtime/scripts/perf/bench.mjs check --counts-only --sizes 1000",
     "executor:typecheck": "cd packages/executor-cloud && bun run typecheck",
     "executor:test": "cd packages/executor-cloud && bun run test",
     "cloud-builder:typecheck": "cd workers/cloud-builder && bun run typecheck",

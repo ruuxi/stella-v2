@@ -366,6 +366,121 @@
       "value": 2532464,
       "kind": "bytes",
       "ceiling": 2660111.2
+    },
+    "boot.source.warm.bootRpc.linesOut": {
+      "value": 4,
+      "kind": "exact",
+      "ceiling": 4
+    },
+    "boot.source.warm.bootRpc.bytesOut": {
+      "value": 261619,
+      "kind": "bytes",
+      "ceiling": 275723.95
+    },
+    "boot.source.warm.bootRpc.notificationsTotal": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.notifications.modelCatalog.updated": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.hostRequests": {
+      "value": 2,
+      "kind": "exact",
+      "ceiling": 2
+    },
+    "boot.source.warm.bootRpc.hostRequests.host.deviceIdentity.get": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.hostRequests.host.llmCredentials.request": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.postReadyLinesOut": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.source.warm.bootRpc.postReadyBytesOut": {
+      "value": 0,
+      "kind": "bytes",
+      "ceiling": 1024
+    },
+    "boot.source.warm.fetch.blocked": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.source.warm.fetch.catalogRequests": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.bundle.warm.bootRpc.linesOut": {
+      "value": 4,
+      "kind": "exact",
+      "ceiling": 4
+    },
+    "boot.bundle.warm.bootRpc.bytesOut": {
+      "value": 261619,
+      "kind": "bytes",
+      "ceiling": 275723.95
+    },
+    "boot.bundle.warm.bootRpc.notificationsTotal": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.notifications.modelCatalog.updated": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.hostRequests": {
+      "value": 2,
+      "kind": "exact",
+      "ceiling": 2
+    },
+    "boot.bundle.warm.bootRpc.hostRequests.host.deviceIdentity.get": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.hostRequests.host.llmCredentials.request": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.postReadyLinesOut": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.bundle.warm.bootRpc.postReadyBytesOut": {
+      "value": 0,
+      "kind": "bytes",
+      "ceiling": 1024
+    },
+    "boot.bundle.warm.fetch.blocked": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.bundle.warm.fetch.catalogRequests": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "bundle.bootReachableFiles": {
+      "value": 21,
+      "kind": "count",
+      "ceiling": 24.05
     }
   }
 }

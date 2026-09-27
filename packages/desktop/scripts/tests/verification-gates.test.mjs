@@ -19,6 +19,7 @@ import {
   mainStartupDeferredInputs,
   packagedOAuthProviderCatalogRelativePath,
   packagedRuntimeAssetCopies,
+  runtimeCliNames,
   smokeTestNodeCliEntry,
   verifyPackagedOAuthProviderCatalog,
 } from "../dev-electron-build.mjs";
@@ -243,6 +244,28 @@ test("Node CLI smoke gate rejects duplicate bundle-banner bindings", () => {
   assert.throws(
     () => smokeTestNodeCliEntry(invalidCli),
     /Node CLI smoke test failed[\s\S]*__dirname/,
+  );
+});
+
+test("every runtime CLI the worker resolves by path is bundled", () => {
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "..",
+  );
+  const runnerSource = readFileSync(
+    path.join(repoRoot, "packages/runtime/worker/server/session/runner.ts"),
+    "utf8",
+  );
+  const resolved = [
+    ...runnerSource.matchAll(/resolveRuntimeCliPath\("([^"]+)\.js"\)/g),
+  ].map((match) => match[1]);
+  assert.ok(resolved.length > 0, "runner.ts no longer resolves runtime CLIs");
+  assert.deepEqual(
+    resolved.filter((name) => !runtimeCliNames.includes(name)),
+    [],
   );
 });
 

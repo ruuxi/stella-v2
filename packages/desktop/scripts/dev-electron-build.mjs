@@ -85,6 +85,17 @@ const electronStaticAssetCopies = [
     to: "electron/i18n-locales",
   },
 ];
+// Sidecar CLIs the worker hands to shells by path (see
+// `resolveRuntimeCliPath` in packages/runtime/worker/server/session/runner.ts).
+// Packaged installs ship no runtime source, so every CLI the worker resolves
+// must be bundled here or its shell command silently disappears.
+export const runtimeCliNames = ["stella-computer", "stella-media", "stella-x-api"];
+const runtimeCliEntryPoints = Object.fromEntries(
+  runtimeCliNames.map((name) => [
+    `runtime/kernel/cli/${name}`,
+    `packages/runtime/kernel/cli/${name}.ts`,
+  ]),
+);
 const electronRuntimeEntryPoints = {
   // `launch` is the package.json entry: it enables the V8 compile cache, then
   // imports the `main` bundle through a computed specifier so it stays a
@@ -98,10 +109,7 @@ const electronRuntimeEntryPoints = {
           "packages/desktop/electron/update-verification-main.ts",
       }
     : {}),
-  "runtime/kernel/cli/stella-computer":
-    "packages/runtime/kernel/cli/stella-computer.ts",
-  "runtime/kernel/cli/stella-media":
-    "packages/runtime/kernel/cli/stella-media.ts",
+  ...runtimeCliEntryPoints,
 };
 // The worker builds on its own so we can code-split it: the heavy runner
 // subgraph is lazily imported in server.ts, and splitting lands it in a
@@ -674,6 +682,11 @@ export const requiredOutputsExist = () => {
     existsSync(path.join(outBase, "electron", "launch.js")) &&
     existsSync(path.join(outBase, "electron", "main.js")) &&
     existsSync(path.join(outBase, "electron", "preload.js")) &&
+    // A tree built before a CLI was added to the bundle would otherwise skip
+    // the rebuild and leave the worker pointing at a missing file.
+    runtimeCliNames.every((name) =>
+      existsSync(path.join(outBase, "runtime", "kernel", "cli", `${name}.js`)),
+    ) &&
     // A tree built before the catalog copy existed looks otherwise complete,
     // so treat its absence as a cold start rather than a warm skip.
     existsSync(path.join(outBase, packagedOAuthProviderCatalogRelativePath))
@@ -898,22 +911,33 @@ export const smokeTestNodeCliEntry = (
   return result.stdout;
 };
 
+const runtimeCliHelpContracts = {
+  "stella-computer": "stella-computer - control",
+  "stella-media": "stella-media - submit",
+  "stella-x-api": "stella-x-api - use X",
+};
+
 const smokeTestNodeCliBundles = () => {
-  const computerCliPath = path.join(
-    desktopDir,
-    outdir,
-    "runtime",
-    "kernel",
-    "cli",
-    "stella-computer.js",
-  );
-  const stdout = smokeTestNodeCliEntry(computerCliPath);
-  if (!stdout.includes("stella-computer - control")) {
-    throw new Error(
-      "Node CLI smoke test did not return the stella-computer help contract.",
+  for (const name of runtimeCliNames) {
+    const cliPath = path.join(
+      desktopDir,
+      outdir,
+      "runtime",
+      "kernel",
+      "cli",
+      `${name}.js`,
     );
+    const stdout = smokeTestNodeCliEntry(cliPath);
+    const contract = runtimeCliHelpContracts[name] ?? name;
+    if (!stdout.includes(contract)) {
+      throw new Error(
+        `Node CLI smoke test did not return the ${name} help contract.`,
+      );
+    }
   }
-  console.log("[electron-build] stella-computer CLI runs cleanly under Node.");
+  console.log(
+    `[electron-build] ${runtimeCliNames.join(", ")} CLIs run cleanly under Node.`,
+  );
 };
 
 const verifyApplicationIdentifiersInChild = () => {

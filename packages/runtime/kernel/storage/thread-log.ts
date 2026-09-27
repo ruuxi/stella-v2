@@ -694,6 +694,36 @@ export class ThreadLog {
     return Boolean(row);
   }
 
+  /**
+   * Keyed probe for one custom message by its event id. Rides
+   * `idx_thread_entry_thread_custom (thread_id, custom_type, seq)`, so it
+   * visits only that thread's rows of `customType` and never materializes the
+   * transcript. `payload` holds the bounded custom message, which always keeps
+   * `eventId` (storage trims content, never the id); the CASE keeps
+   * json_extract lazy so a malformed row reads as absent instead of throwing.
+   */
+  hasThreadCustomEvent(
+    threadKeyInput: string,
+    customTypeInput: string,
+    eventId: string,
+  ): boolean {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    const customType = asTrimmedString(customTypeInput);
+    if (!threadKey || !customType || !eventId) {
+      return false;
+    }
+    const row = this.cached
+      .prepare(
+        `SELECT 1 AS present FROM thread_entry
+         WHERE thread_id = ? AND custom_type = ?
+           AND (CASE WHEN json_valid(payload)
+                     THEN json_extract(payload, '$.eventId') END) = ?
+         LIMIT 1`,
+      )
+      .get(threadKey, customType, eventId);
+    return Boolean(row);
+  }
+
   listThreadLifecycleEntries(
     threadKeyInput: string,
     limit = 300,

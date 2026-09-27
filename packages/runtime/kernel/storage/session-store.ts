@@ -2049,6 +2049,14 @@ export class SessionStore {
     return this.threads.hasThreadLifecycleEvent(threadKey, eventId);
   }
 
+  hasThreadCustomEvent(
+    threadKey: string,
+    customType: string,
+    eventId: string,
+  ): boolean {
+    return this.threads.hasThreadCustomEvent(threadKey, customType, eventId);
+  }
+
   listThreadLifecycleEntries(threadKey: string, limit?: number) {
     return this.threads.listThreadLifecycleEntries(threadKey, limit);
   }

@@ -93,7 +93,7 @@ export const registerCloudConnectorConnectRoutes = (http: HttpRouter) => {
         }
         let current = (await ctx.runQuery(
           internal.cloud_connector_connect.getConnectRequestInternal,
-          { ...owner, requestId },
+          { ...owner, requestId, now },
         )) as ConnectRequestSummary | null;
         if (!current) return json({ error: "Connect request not found." }, 404);
         if (current.state === "expired") {

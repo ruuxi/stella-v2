@@ -83,11 +83,22 @@ async function getExpoPushToken(): Promise<string | null> {
 }
 
 let registered = false;
+let registering: Promise<void> | null = null;
 
-/** Register for push notifications and send the token to the backend. */
-export async function registerForPushNotifications(): Promise<void> {
-  if (registered) return;
+/**
+ * Register for push notifications and send the token to the backend. The
+ * root layout calls this on every route/session change, so calls made while
+ * one is in flight share it instead of racing duplicate first registrations.
+ */
+export function registerForPushNotifications(): Promise<void> {
+  if (registered) return Promise.resolve();
+  registering ??= registerOnce().finally(() => {
+    registering = null;
+  });
+  return registering;
+}
 
+async function registerOnce(): Promise<void> {
   try {
     const token = await getExpoPushToken();
     if (!token) return;

@@ -134,4 +134,40 @@ describe("mobile_push.upsertToken idempotency", () => {
     const rows = await readRows(t);
     expect(rows).toHaveLength(1);
   });
+
+  it("collapses stray duplicate rows for one device onto the oldest", async () => {
+    const t = createTest();
+    const t0 = 1_000_000;
+    const oldest = await t.run(async (ctx) => {
+      const first = await ctx.db.insert("mobile_push_tokens", {
+        ownerId: OWNER,
+        ownerGeneration: "legacy",
+        mobileDeviceId: DEVICE,
+        expoPushToken: TOKEN,
+        platform: "ios",
+        updatedAt: t0,
+      });
+      await ctx.db.insert("mobile_push_tokens", {
+        ownerId: OWNER,
+        ownerGeneration: "legacy",
+        mobileDeviceId: DEVICE,
+        expoPushToken: TOKEN,
+        platform: "ios",
+        updatedAt: t0,
+      });
+      return first;
+    });
+
+    await t.mutation(internal.mobile_push.upsertToken, {
+      ownerId: OWNER,
+      ownerGeneration: "legacy",
+      mobileDeviceId: DEVICE,
+      expoPushToken: TOKEN,
+      platform: "ios",
+      nowMs: t0 + 5_000,
+    });
+
+    const rows = await readRows(t);
+    expect(rows.map((row) => row._id)).toEqual([oldest]);
+  });
 });

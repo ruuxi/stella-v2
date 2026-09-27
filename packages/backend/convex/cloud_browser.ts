@@ -243,6 +243,9 @@ const applyProfileResetRef = makeFunctionReference<
   },
   null
 >("cloud_browser:applyBrowserProfileResetInternal");
+const expireAtDeadlineRef = makeFunctionReference<"mutation", any, null>(
+  "cloud_browser:expireBrowserInteractionAtDeadlineInternal",
+);
 const activateResumeTurnRef = makeFunctionReference<"mutation", any, null>(
   "cloud_browser:activateBrowserResumeTurnInternal",
 );
@@ -565,13 +568,10 @@ export const projectCloudBrowserSuspension = async (
   // it needs to fence.
   const revocationAfterMint = await ctx.db
     .query("auth_revoked_sessions")
-    .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", turn.ownerId))
-    .filter((q) =>
-      q.and(
-        q.gt(q.field("expiresAt"), args.now),
-        q.gt(q.field("revokedAt"), turn.createdAt),
-      ),
+    .withIndex("by_ownerId_and_revokedAt", (q) =>
+      q.eq("ownerId", turn.ownerId).gt("revokedAt", turn.createdAt),
     )
+    .filter((q) => q.gt(q.field("expiresAt"), args.now))
     .first();
   if (revocationAfterMint) {
     throw new ConvexError({
@@ -637,6 +637,13 @@ export const projectCloudBrowserSuspension = async (
     suspensionEventPayloadHash: payloadHash,
     createdAt: args.now,
     updatedAt: args.now,
+  });
+  // Expiry is a data change, not a clock read: list queries filter on
+  // `state`, so the deadline must move the row out of the active states.
+  await ctx.scheduler.runAt(suspension.expiresAt, expireAtDeadlineRef, {
+    ownerId: turn.ownerId,
+    ownerGeneration: turn.ownerGeneration,
+    interactionId: suspension.interactionId,
   });
   await ctx.db.patch(turn._id, {
     status: "waiting_for_user",
@@ -859,7 +866,6 @@ export const listMyPendingBrowserInteractions = query({
   args: {},
   returns: v.array(browserInteractionSummaryValidator),
   handler: async (ctx) => {
-    const now = Date.now();
     const identity = await requireSensitiveConnectedUserIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
     const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
@@ -876,10 +882,7 @@ export const listMyPendingBrowserInteractions = query({
     );
     return pages
       .flat()
-      .filter(
-        (row) =>
-          row.ownerGeneration === generation && row.expiresAt > now,
-      )
+      .filter((row) => row.ownerGeneration === generation)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_ACTIVE_INTERACTIONS)
       .map(projectSummary);
@@ -1554,6 +1557,79 @@ export const expireBrowserInteractionInternal = internalMutation({
       ...args,
       decision: "cancel",
     });
+  },
+});
+
+/**
+ * Fires at `expiresAt` for every projected wait. Resumes the turn with an
+ * `expired` tool result when it can; otherwise marks the row expired so it
+ * still leaves the pending list. A row already decided is left alone.
+ */
+export const expireBrowserInteractionAtDeadlineInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    interactionId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const row = await ctx.db
+      .query("cloud_browser_interactions")
+      .withIndex("by_ownerId_and_interactionId", (q) =>
+        q.eq("ownerId", args.ownerId).eq("interactionId", args.interactionId),
+      )
+      .unique();
+    if (
+      !row ||
+      row.ownerGeneration !== args.ownerGeneration ||
+      !["pending", "human_control"].includes(row.state) ||
+      row.expiresAt > now
+    ) {
+      return null;
+    }
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      row.ownerId,
+      row.ownerGeneration,
+    );
+    const safeMessage = "Browser request expired.";
+    try {
+      await applyBrowserResumeReceipt(ctx, {
+        ownerId: row.ownerId,
+        ownerGeneration: row.ownerGeneration,
+        interactionId: row.interactionId,
+        expectedRevision: row.revision,
+        requestId: `deadline:${row.interactionId}`,
+        decision: "cancel",
+        receipt: {
+          schemaVersion: 1,
+          interactionId: row.interactionId,
+          interactionRevision: row.revision,
+          profileId: row.profileId,
+          profileEpoch: row.profileEpoch,
+          toolCallId: row.toolCallId,
+          requestDigest: row.requestDigest,
+          result: "expired",
+          safeMessage,
+        },
+        now,
+      });
+      return null;
+    } catch (error) {
+      // Every rejection in applyBrowserResumeReceipt happens before its first
+      // write, so the row is untouched here.
+      if (!(error instanceof ConvexError)) throw error;
+    }
+    await ctx.db.patch(row._id, {
+      state: "expired",
+      resolution: "expired",
+      safeMessage,
+      revision: row.revision + 1,
+      updatedAt: now,
+      completedAt: now,
+    });
+    return null;
   },
 });
 

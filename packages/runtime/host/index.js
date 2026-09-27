@@ -2274,10 +2274,22 @@ export class StellaRuntimeHost {
     }
     async initializeHostServices() {
         await this.stopHostServices();
+        const identityStartedAt = performance.now();
         this.deviceIdentity = await this.options.hostHandlers.getDeviceIdentity();
+        const dbStartedAt = performance.now();
         const ConnectorDatabase = loadSqliteDatabaseCtorSync();
         const connectorDatabase = new ConnectorDatabase(getDesktopDatabasePath(this.options.initializeParams.stellaDataDirPath));
-        initializeDesktopDatabase(connectorDatabase);
+        // Synchronous on the host's thread (Electron main in the desktop app):
+        // a pending schema migration blocks it for the migration's duration.
+        // Timed so that cost is visible next to the worker's boot timing.
+        const dbInit = initializeDesktopDatabase(connectorDatabase);
+        getFileLogger()?.process("host.services-init.timing", {
+            deviceIdentityMs: Math.round(dbStartedAt - identityStartedAt),
+            dbInitMs: Math.round(performance.now() - dbStartedAt),
+            dbFromVersion: dbInit.fromVersion,
+            dbToVersion: dbInit.toVersion,
+            dbMigrated: dbInit.migrated,
+        });
         this.connectorFollowupDatabase = connectorDatabase;
         this.connectorFollowupOutbox = new ConnectorFollowupOutbox({
             database: connectorDatabase,

@@ -1,7 +1,9 @@
 import { createRequire } from "node:module";
+import { performance } from "node:perf_hooks";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
+  type DesktopDatabaseInitTiming,
 } from "./database-init.js";
 import type { SqliteDatabase } from "./shared.js";
 
@@ -54,8 +56,19 @@ const openDatabase = (dbPath: string): SqliteDatabase => {
 export const openSqliteConnection = (dbPath: string): SqliteDatabase =>
   openDatabase(dbPath);
 
-export const createDesktopDatabase = (stellaDataDir: string): SqliteDatabase => {
+/** Open cost (file open) plus connection init/migration cost. */
+export type DesktopDatabaseOpenTiming = DesktopDatabaseInitTiming & {
+  openMs: number;
+};
+
+export const createDesktopDatabase = (
+  stellaDataDir: string,
+  options?: { onTiming?: (timing: DesktopDatabaseOpenTiming) => void },
+): SqliteDatabase => {
+  const startedAt = performance.now();
   const db = openDatabase(getDesktopDatabasePath(stellaDataDir));
-  initializeDesktopDatabase(db);
+  const openMs = performance.now() - startedAt;
+  const init = initializeDesktopDatabase(db);
+  options?.onTiming?.({ ...init, openMs });
   return db;
 };

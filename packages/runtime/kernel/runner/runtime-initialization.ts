@@ -24,8 +24,28 @@ import { modelRuntime } from "../../ai/model-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunnerContext } from "./types.js";
 import { joinWithTimeout } from "../shared/supervised-scope.js";
+import { recordBootStep } from "../../observability/boot-timing.js";
 
 const logger = createRuntimeLogger("runtime-init");
+
+/**
+ * Pipeable: report an initialization phase's duration to the worker boot
+ * timeline (`worker.ready.timing`). A no-op outside a worker boot,
+ * including extension hot reloads.
+ */
+const timedBootStep =
+  (name: string) =>
+  <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+    Effect.suspend(() => {
+      const startedAt = performance.now();
+      return effect.pipe(
+        Effect.ensuring(
+          Effect.sync(() =>
+            recordBootStep(name, performance.now() - startedAt),
+          ),
+        ),
+      );
+    });
 
 /**
  * Requirements-free runtime + scope for this module's timer fibers (watch
@@ -354,7 +374,10 @@ export const createRuntimeInitialization = (
             );
           }),
       }),
+      timedBootStep("runnerExtensions"),
     );
+    // models.json + the cached catalog (allowNetwork: false). The network
+    // refresh below is forked after initialization and never gates ready.
     const modelsLoad = interruptAndJoinPromise((signal) =>
       lifecycle?.initializeModels
         ? lifecycle.initializeModels({
@@ -365,7 +388,7 @@ export const createRuntimeInitialization = (
             stellaDataDir: context.stellaDataDir,
             allowNetwork: false,
           }),
-    );
+    ).pipe(timedBootStep("runnerModelsJson"));
 
     const startup = Effect.all([extensionsLoad, modelsLoad], {
       concurrency: "unbounded",
@@ -393,6 +416,7 @@ export const createRuntimeInitialization = (
               })
             : modelRuntime.refresh({ allowNetwork: true, signal }),
         ).pipe(
+          timedBootStep("catalogRefresh"),
           Effect.tap(() =>
             Effect.sync(() => {
               if (!isCurrentGeneration()) return;

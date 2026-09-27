@@ -1264,6 +1264,51 @@ describe("managed media idempotency and cancellation", () => {
     });
   });
 
+  it("keeps unsubmitted outbox rows out of the stale watchdog scan", async () => {
+    ensureMediaEnv();
+    const t = await createTest();
+    for (const jobId of ["stale-pending-a", "stale-pending-b", "stale-legacy"]) {
+      await t.mutation(internal.media_jobs.createJob, {
+        ownerId: "stale-owner",
+        ownerGeneration: "legacy",
+        jobId,
+        capability: "text_to_image",
+        profile: "best",
+        provider: "fal",
+        endpointId: "fal-ai/flux/dev",
+        request: { prompt: jobId },
+      });
+    }
+    await t.run(async (ctx) => {
+      for (const job of await ctx.db.query("media_jobs").collect()) {
+        await ctx.db.patch(job._id, {
+          updatedAt: 1,
+          submissionState: job.jobId.startsWith("stale-pending")
+            ? "pending"
+            : undefined,
+        });
+      }
+    });
+    // Limit 1: older skipped rows must not consume the budget.
+    await expect(
+      t.mutation(internal.media_jobs.markStaleJobsFailed, {
+        cutoffMs: 100,
+        limit: 1,
+      }),
+    ).resolves.toEqual({ updated: 1 });
+    const statuses = await t.run(async (ctx) =>
+      (await ctx.db.query("media_jobs").collect()).map((job) => [
+        job.jobId,
+        job.status,
+      ]),
+    );
+    expect(Object.fromEntries(statuses)).toMatchObject({
+      "stale-pending-a": "queued",
+      "stale-pending-b": "queued",
+      "stale-legacy": "unknown",
+    });
+  });
+
   it("reconciles an accepted request by owner key and exact request hash", async () => {
     ensureMediaEnv();
     const t = await createTest();

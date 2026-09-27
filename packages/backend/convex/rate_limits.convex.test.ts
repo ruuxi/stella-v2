@@ -21,11 +21,19 @@ describe("webhook rate-limit sharding", () => {
     expect(resolveShardCount(1)).toBe(1);
     expect(resolveShardCount(4)).toBe(1);
     expect(resolveShardCount(5)).toBe(1);
-    expect(resolveShardCount(9)).toBe(1);
+    expect(resolveShardCount(5)).toBe(1);
+  });
+
+  it("gives low limits three shards so choose-two borrowing applies", () => {
+    expect(resolveShardCount(6)).toBe(3);
+    expect(resolveShardCount(9)).toBe(3);
+    expect(resolveShardCount(10)).toBe(3);
+    expect(resolveShardCount(14)).toBe(3);
+    expect(resolveShardCount(15)).toBe(3);
+    expect(resolveShardCount(20)).toBe(4);
   });
 
   it("spreads busier buckets across more docs, capped so shards stay useful", () => {
-    expect(resolveShardCount(10)).toBe(2);
     expect(resolveShardCount(30)).toBe(6);
     expect(resolveShardCount(40)).toBe(8);
     // Beyond the cap we stop adding shards rather than fragmenting the budget.
@@ -50,6 +58,21 @@ describe("webhook rate-limit sharding", () => {
     const blocked = await call();
     expect(blocked.allowed).toBe(false);
     expect(blocked.retryAfterMs).toBeGreaterThan(0);
+  });
+
+  it("never exceeds a sharded low limit", async () => {
+    const t = createTest();
+    let allowed = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const result = await t.mutation(
+        internal.rate_limits.consumeWebhookRateLimit,
+        { scope: "test_scope", key: "owner-a", limit: 6, windowMs: 60_000 },
+      );
+      if (result.allowed) allowed += 1;
+    }
+    // Sampling can refuse slightly early; it can never grant past the limit.
+    expect(allowed).toBeLessThanOrEqual(6);
+    expect(allowed).toBeGreaterThanOrEqual(4);
   });
 
   it("keeps separate keys in independent buckets", async () => {

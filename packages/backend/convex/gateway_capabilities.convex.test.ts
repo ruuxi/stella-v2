@@ -356,7 +356,8 @@ describe("peekOwnerModelAllowanceInternal", () => {
           .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .unique(),
     );
-    expect(usageAfterMutation?.rollingWindowStartedAt).toBeGreaterThan(1);
+    // The allowance mutation is read-only too; usage writers normalize.
+    expect(usageAfterMutation?.rollingWindowStartedAt).toBe(1);
   });
 
   it("matches the mutation without creating missing billing rows", async () => {

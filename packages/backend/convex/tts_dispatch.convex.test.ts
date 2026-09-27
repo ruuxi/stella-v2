@@ -184,8 +184,23 @@ describe("TTS provider dispatch leases", () => {
       state: "active",
       hardExpiresAt: first.hardExpiresAt,
     });
-    expect(heartbeat.leaseExpiresAt).toBe(
-      TEST_NOW + 1_000 + TTS_DISPATCH_HEARTBEAT_LEASE_MS,
+    // More than half the lease remains, so the heartbeat does not write.
+    expect(heartbeat.leaseExpiresAt).toBe(first.leaseExpiresAt);
+    const extendAt = TEST_NOW + TTS_DISPATCH_HEARTBEAT_LEASE_MS / 2 + 1_000;
+    const extended = await t.mutation(
+      internal.tts_dispatch.heartbeatTtsProviderDispatchInternal,
+      {
+        ownerId: "owner-a",
+        ownerGeneration: "legacy",
+        dispatchId: "dispatch-a",
+        attemptId: "attempt-a",
+        leaseId: "lease-a",
+        now: extendAt,
+      },
+    );
+    expect(extended).toMatchObject({ allowed: true, state: "active" });
+    expect(extended.leaseExpiresAt).toBe(
+      extendAt + TTS_DISPATCH_HEARTBEAT_LEASE_MS,
     );
 
     await expect(

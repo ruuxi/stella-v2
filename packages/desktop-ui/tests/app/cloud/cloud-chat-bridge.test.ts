@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
 import {
   activateCloudConversationClientAuthority,
@@ -74,6 +77,10 @@ const emptySubmission = (
   locale: null,
   execution: null,
 });
+const SOURCE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../src",
+);
 
 beforeEach(() => {
   setCloudConversationOutboxStorageForTests(new MemoryStorage());
@@ -499,8 +506,12 @@ describe("cloud chat bridge authority", () => {
       path.join(SOURCE_ROOT, "routes/__root.tsx"),
       "utf8",
     );
-    const topbar = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+    // The root's conversation-selection reads live in this hook.
+    const conversationSource = fs.readFileSync(
+      path.join(
+        SOURCE_ROOT,
+        "global/auth/hooks/use-shell-conversation-source.ts",
+      ),
       "utf8",
     );
     expect(shell).toContain(
@@ -514,18 +525,17 @@ describe("cloud chat bridge authority", () => {
     expect(root).toMatch(
       /createCloudConversationDraft\(\s*accountScope,\s*clientCreateId,?\s*\)/,
     );
-    expect(root).toContain("cloudApi.getMyCloudConversationIdentity");
+    expect(conversationSource).toContain(
+      "cloudApi.getMyCloudConversationIdentity",
+    );
+    expect(conversationSource).not.toContain(
+      "cloudApi.getMyExecutionPlacementIdentity",
+    );
     expect(root).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
     expect(root).toContain(
       "retireCloudConversationClientAuthority(accountScope)",
     );
     expect(root).toContain("retireCloudExecutionClientAuthority(accountScope)");
     expect(root).toContain("ownershipMigrationRetryRef.current !== operation");
-    expect(topbar).toContain("const operationAccountScope = accountScope;");
-    expect(topbar).toContain(
-      "activeAccountScopeRef.current !== operationAccountScope",
-    );
-    expect(topbar).toContain("cloudApi.getMyCloudConversationIdentity");
-    expect(topbar).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
   });
 });

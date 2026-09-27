@@ -911,7 +911,12 @@
       "photosDeniedBody": "Cho phép Stella truy cập thư viện ảnh của bạn trong Cài đặt để đính kèm hình ảnh.",
       "cameraDeniedTitle": "Máy ảnh",
       "cameraDeniedBody": "Cho phép Stella dùng máy ảnh trong Cài đặt để chụp ảnh.",
-      "photoLabel": "Ảnh"
+      "photoLabel": "Ảnh",
+      "sheetTitle": "Thêm vào cuộc trò chuyện",
+      "camera": "Máy ảnh",
+      "photos": "Ảnh",
+      "files": "Tệp",
+      "readAloud": "Đọc to câu trả lời"
     }
   },
   "errors": {
@@ -1917,6 +1922,7 @@
       "settings": "Cài đặt",
       "apps": "Ứng dụng",
       "openLabel": "Mở điều hướng",
+      "chatSettingsLabel": "Cài đặt trò chuyện",
       "closeLabel": "Đóng điều hướng",
       "account": "Tài khoản",
       "signIn": "Đăng nhập",
@@ -1974,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
+      "workingMany": "{count} tác vụ đang chạy",
       "composerPlaceholder": "Nhắn cho Stella",
       "mainChat": "Trò chuyện chính",
       "createFailed": "Không thể tạo cuộc trò chuyện. Vui lòng thử lại.",

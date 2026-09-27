@@ -912,7 +912,12 @@
       "photosDeniedBody": "इमेज अटैच करने के लिए सेटिंग में Stella को अपनी फ़ोटो लाइब्रेरी की अनुमति दें.",
       "cameraDeniedTitle": "कैमरा",
       "cameraDeniedBody": "फ़ोटो लेने के लिए सेटिंग में Stella को कैमरे की अनुमति दें.",
-      "photoLabel": "फ़ोटो"
+      "photoLabel": "फ़ोटो",
+      "sheetTitle": "चैट में जोड़ें",
+      "camera": "कैमरा",
+      "photos": "फ़ोटो",
+      "files": "फ़ाइलें",
+      "readAloud": "उत्तर ज़ोर से पढ़ें"
     }
   },
   "errors": {
@@ -1937,6 +1942,7 @@
       "settings": "सेटिंग्स",
       "apps": "ऐप्स",
       "openLabel": "नेविगेशन खोलें",
+      "chatSettingsLabel": "चैट सेटिंग्स",
       "closeLabel": "नेविगेशन बंद करें",
       "account": "खाता",
       "signIn": "साइन इन",
@@ -1994,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella से कुछ भी पूछें",
+      "workingMany": "{count} कार्य प्रगति पर",
       "composerPlaceholder": "Stella को संदेश भेजें",
       "mainChat": "मुख्य चैट",
       "createFailed": "चैट नहीं बनाई जा सकी। कृपया फिर से कोशिश करें।",

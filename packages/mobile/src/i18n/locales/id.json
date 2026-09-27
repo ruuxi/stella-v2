@@ -911,7 +911,12 @@
       "photosDeniedBody": "Izinkan Stella mengakses galeri fotomu di Pengaturan agar kamu bisa melampirkan gambar.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Izinkan Stella menggunakan kamera di Pengaturan agar kamu bisa mengambil foto.",
-      "photoLabel": "Foto"
+      "photoLabel": "Foto",
+      "sheetTitle": "Tambahkan ke obrolan",
+      "camera": "Kamera",
+      "photos": "Foto",
+      "files": "File",
+      "readAloud": "Bacakan balasan"
     }
   },
   "errors": {
@@ -1917,6 +1922,7 @@
       "settings": "Pengaturan",
       "apps": "Aplikasi",
       "openLabel": "Buka navigasi",
+      "chatSettingsLabel": "Pengaturan obrolan",
       "closeLabel": "Tutup navigasi",
       "account": "Akun",
       "signIn": "Masuk",
@@ -1974,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "Tanya Stella apa saja",
+      "workingMany": "{count} tugas sedang berjalan",
       "composerPlaceholder": "Pesan untuk Stella",
       "mainChat": "Obrolan utama",
       "createFailed": "Tidak dapat membuat obrolan. Silakan coba lagi.",

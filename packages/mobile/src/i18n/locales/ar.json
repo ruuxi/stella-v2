@@ -916,7 +916,12 @@
       "photosDeniedBody": "اسمح لـ Stella بالوصول إلى مكتبة صورك من الإعدادات لتتمكن من إرفاق الصور.",
       "cameraDeniedTitle": "الكاميرا",
       "cameraDeniedBody": "اسمح لـ Stella باستخدام الكاميرا من الإعدادات لتتمكن من التقاط صورة.",
-      "photoLabel": "صورة"
+      "photoLabel": "صورة",
+      "sheetTitle": "إضافة إلى المحادثة",
+      "camera": "الكاميرا",
+      "photos": "الصور",
+      "files": "الملفات",
+      "readAloud": "قراءة الردود بصوت عالٍ"
     }
   },
   "errors": {
@@ -2005,6 +2010,7 @@
       "settings": "الإعدادات",
       "apps": "التطبيقات",
       "openLabel": "فتح التنقل",
+      "chatSettingsLabel": "إعدادات المحادثة",
       "closeLabel": "إغلاق التنقل",
       "account": "الحساب",
       "signIn": "تسجيل الدخول",
@@ -2062,6 +2068,7 @@
     },
     "chat": {
       "emptyPrompt": "اسأل Stella عن أي شيء",
+      "workingMany": "المهام قيد التنفيذ: {count}",
       "composerPlaceholder": "راسِل Stella",
       "mainChat": "المحادثة الرئيسية",
       "createFailed": "تعذّر إنشاء محادثة. يُرجى المحاولة مرة أخرى.",

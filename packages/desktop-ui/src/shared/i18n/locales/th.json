@@ -911,7 +911,12 @@
       "photosDeniedBody": "อนุญาตให้ Stella เข้าถึงคลังรูปภาพของคุณในการตั้งค่าเพื่อแนบรูปภาพ",
       "cameraDeniedTitle": "กล้อง",
       "cameraDeniedBody": "อนุญาตให้ Stella ใช้กล้องในการตั้งค่าเพื่อถ่ายรูป",
-      "photoLabel": "รูปภาพ"
+      "photoLabel": "รูปภาพ",
+      "sheetTitle": "เพิ่มลงในแชต",
+      "camera": "กล้อง",
+      "photos": "รูปภาพ",
+      "files": "ไฟล์",
+      "readAloud": "อ่านคำตอบออกเสียง"
     }
   },
   "errors": {
@@ -1917,6 +1922,7 @@
       "settings": "การตั้งค่า",
       "apps": "แอป",
       "openLabel": "เปิดเมนูนำทาง",
+      "chatSettingsLabel": "การตั้งค่าแชต",
       "closeLabel": "ปิดเมนูนำทาง",
       "account": "บัญชี",
       "signIn": "เข้าสู่ระบบ",
@@ -1974,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "ถาม Stella อะไรก็ได้",
+      "workingMany": "{count} งานกำลังดำเนินการ",
       "composerPlaceholder": "ส่งข้อความถึง Stella",
       "mainChat": "แชตหลัก",
       "createFailed": "ไม่สามารถสร้างแชตได้ โปรดลองอีกครั้ง",

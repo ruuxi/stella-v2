@@ -912,7 +912,12 @@
       "photosDeniedBody": "Ge Stella åtkomst till ditt bildbibliotek i Inställningar så att du kan bifoga bilder.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Ge Stella åtkomst till kameran i Inställningar så att du kan ta ett foto.",
-      "photoLabel": "Bild"
+      "photoLabel": "Bild",
+      "sheetTitle": "Lägg till i chatten",
+      "camera": "Kamera",
+      "photos": "Bilder",
+      "files": "Filer",
+      "readAloud": "Läs upp svar"
     }
   },
   "errors": {
@@ -1937,6 +1942,7 @@
       "settings": "Inställningar",
       "apps": "Appar",
       "openLabel": "Öppna navigeringen",
+      "chatSettingsLabel": "Chattinställningar",
       "closeLabel": "Stäng navigeringen",
       "account": "Konto",
       "signIn": "Logga in",
@@ -1994,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Fråga Stella vad som helst",
+      "workingMany": "{count} uppgifter pågår",
       "composerPlaceholder": "Skriv till Stella",
       "mainChat": "Huvudchatt",
       "createFailed": "Det gick inte att skapa en chatt. Försök igen.",

@@ -911,7 +911,12 @@
       "photosDeniedBody": "이미지를 첨부할 수 있도록 설정에서 Stella에 사진 라이브러리 접근을 허용하세요.",
       "cameraDeniedTitle": "카메라",
       "cameraDeniedBody": "사진을 찍을 수 있도록 설정에서 Stella에 카메라 사용을 허용하세요.",
-      "photoLabel": "사진"
+      "photoLabel": "사진",
+      "sheetTitle": "채팅에 추가",
+      "camera": "카메라",
+      "photos": "사진",
+      "files": "파일",
+      "readAloud": "답변 소리 내어 읽기"
     }
   },
   "errors": {
@@ -1917,6 +1922,7 @@
       "settings": "설정",
       "apps": "앱",
       "openLabel": "탐색 열기",
+      "chatSettingsLabel": "채팅 설정",
       "closeLabel": "탐색 닫기",
       "account": "계정",
       "signIn": "로그인",
@@ -1974,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
+      "workingMany": "작업 {count}개 진행 중",
       "composerPlaceholder": "Stella에게 메시지",
       "mainChat": "기본 채팅",
       "createFailed": "채팅을 만들 수 없습니다. 다시 시도해 주세요.",

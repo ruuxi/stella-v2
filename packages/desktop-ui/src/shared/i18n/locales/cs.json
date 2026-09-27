@@ -914,7 +914,12 @@
       "photosDeniedBody": "Povolte Stelle v Nastavení přístup k fotogalerii, abyste mohli přikládat obrázky.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Povolte Stelle v Nastavení používat kameru, abyste mohli vyfotit snímek.",
-      "photoLabel": "Fotka"
+      "photoLabel": "Fotka",
+      "sheetTitle": "Přidat do chatu",
+      "camera": "Kamera",
+      "photos": "Fotky",
+      "files": "Soubory",
+      "readAloud": "Číst odpovědi nahlas"
     }
   },
   "errors": {
@@ -1971,6 +1976,7 @@
       "settings": "Nastavení",
       "apps": "Aplikace",
       "openLabel": "Otevřít navigaci",
+      "chatSettingsLabel": "Nastavení chatu",
       "closeLabel": "Zavřít navigaci",
       "account": "Účet",
       "signIn": "Přihlásit se",
@@ -2028,6 +2034,7 @@
     },
     "chat": {
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
+      "workingMany": "Probíhající úlohy: {count}",
       "composerPlaceholder": "Napište Stelle",
       "mainChat": "Hlavní chat",
       "createFailed": "Chat se nepodařilo vytvořit. Zkuste to prosím znovu.",

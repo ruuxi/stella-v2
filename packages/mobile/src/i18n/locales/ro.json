@@ -913,7 +913,12 @@
       "photosDeniedBody": "Permite-i Stellei accesul la biblioteca de fotografii din Setări pentru a atașa imagini.",
       "cameraDeniedTitle": "Cameră",
       "cameraDeniedBody": "Permite-i Stellei să folosească camera din Setări pentru a face o fotografie.",
-      "photoLabel": "Fotografie"
+      "photoLabel": "Fotografie",
+      "sheetTitle": "Adaugă în chat",
+      "camera": "Cameră",
+      "photos": "Fotografii",
+      "files": "Fișiere",
+      "readAloud": "Citește răspunsurile cu voce tare"
     }
   },
   "errors": {
@@ -1954,6 +1959,7 @@
       "settings": "Setări",
       "apps": "Aplicații",
       "openLabel": "Deschide navigarea",
+      "chatSettingsLabel": "Setări chat",
       "closeLabel": "Închide navigarea",
       "account": "Cont",
       "signIn": "Conectează-te",
@@ -2011,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "Întreab-o pe Stella orice",
+      "workingMany": "Sarcini în curs: {count}",
       "composerPlaceholder": "Scrie-i Stellei",
       "mainChat": "Chat principal",
       "createFailed": "Nu s-a putut crea un chat. Încearcă din nou.",

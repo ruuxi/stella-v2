@@ -912,7 +912,12 @@
       "photosDeniedBody": "Anna Stellalle oikeus kuvakirjastoosi Asetuksissa, jotta voit liittää kuvia.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Anna Stellalle oikeus käyttää kameraa Asetuksissa, jotta voit ottaa kuvan.",
-      "photoLabel": "Kuva"
+      "photoLabel": "Kuva",
+      "sheetTitle": "Lisää keskusteluun",
+      "camera": "Kamera",
+      "photos": "Kuvat",
+      "files": "Tiedostot",
+      "readAloud": "Lue vastaukset ääneen"
     }
   },
   "errors": {
@@ -1937,6 +1942,7 @@
       "settings": "Asetukset",
       "apps": "Sovellukset",
       "openLabel": "Avaa navigointi",
+      "chatSettingsLabel": "Keskustelun asetukset",
       "closeLabel": "Sulje navigointi",
       "account": "Tili",
       "signIn": "Kirjaudu sisään",
@@ -1994,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
+      "workingMany": "{count} tehtävää käynnissä",
       "composerPlaceholder": "Kirjoita Stellalle",
       "mainChat": "Pääkeskustelu",
       "createFailed": "Keskustelua ei voitu luoda. Yritä uudelleen.",

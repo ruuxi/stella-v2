@@ -911,7 +911,12 @@
       "photosDeniedBody": "請在設定中允許 Stella 存取你的照片圖庫，以便附加圖片。",
       "cameraDeniedTitle": "相機",
       "cameraDeniedBody": "請在設定中允許 Stella 使用相機，以便拍照。",
-      "photoLabel": "照片"
+      "photoLabel": "照片",
+      "sheetTitle": "新增至聊天",
+      "camera": "相機",
+      "photos": "照片",
+      "files": "檔案",
+      "readAloud": "朗讀回覆"
     }
   },
   "errors": {
@@ -1917,6 +1922,7 @@
       "settings": "設定",
       "apps": "應用程式",
       "openLabel": "開啟導覽",
+      "chatSettingsLabel": "聊天設定",
       "closeLabel": "關閉導覽",
       "account": "帳號",
       "signIn": "登入",
@@ -1974,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "什麼都可以問 Stella",
+      "workingMany": "{count} 項工作進行中",
       "composerPlaceholder": "傳訊息給 Stella",
       "mainChat": "主要聊天",
       "createFailed": "無法建立聊天。請重試。",

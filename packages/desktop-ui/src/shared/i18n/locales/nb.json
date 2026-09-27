@@ -912,7 +912,12 @@
       "photosDeniedBody": "Gi Stella tilgang til bildebiblioteket i Innstillinger for å legge ved bilder.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Gi Stella tilgang til kameraet i Innstillinger for å ta et bilde.",
-      "photoLabel": "Bilde"
+      "photoLabel": "Bilde",
+      "sheetTitle": "Legg til i chat",
+      "camera": "Kamera",
+      "photos": "Bilder",
+      "files": "Filer",
+      "readAloud": "Les opp svar"
     }
   },
   "errors": {
@@ -1937,6 +1942,7 @@
       "settings": "Innstillinger",
       "apps": "Apper",
       "openLabel": "Åpne navigasjon",
+      "chatSettingsLabel": "Chatinnstillinger",
       "closeLabel": "Lukk navigasjon",
       "account": "Konto",
       "signIn": "Logg inn",
@@ -1994,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Spør Stella om hva som helst",
+      "workingMany": "{count} oppgaver pågår",
       "composerPlaceholder": "Skriv til Stella",
       "mainChat": "Hovedchat",
       "createFailed": "Kunne ikke opprette en chat. Prøv igjen.",

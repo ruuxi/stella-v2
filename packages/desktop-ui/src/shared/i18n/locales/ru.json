@@ -914,7 +914,12 @@
       "photosDeniedBody": "Разрешите Stella доступ к медиатеке в настройках, чтобы прикреплять изображения.",
       "cameraDeniedTitle": "Камера",
       "cameraDeniedBody": "Разрешите Stella использовать камеру в настройках, чтобы сделать фото.",
-      "photoLabel": "Фото"
+      "photoLabel": "Фото",
+      "sheetTitle": "Добавить в чат",
+      "camera": "Камера",
+      "photos": "Фото",
+      "files": "Файлы",
+      "readAloud": "Читать ответы вслух"
     }
   },
   "errors": {
@@ -1971,6 +1976,7 @@
       "settings": "Настройки",
       "apps": "Приложения",
       "openLabel": "Открыть навигацию",
+      "chatSettingsLabel": "Настройки чата",
       "closeLabel": "Закрыть навигацию",
       "account": "Аккаунт",
       "signIn": "Войти",
@@ -2028,6 +2034,7 @@
     },
     "chat": {
       "emptyPrompt": "Спросите у Stella что угодно",
+      "workingMany": "Задачи в работе: {count}",
       "composerPlaceholder": "Написать Stella",
       "mainChat": "Основной чат",
       "createFailed": "Не удалось создать чат. Попробуйте ещё раз.",

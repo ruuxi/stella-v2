@@ -912,7 +912,12 @@
       "photosDeniedBody": "Görsel ekleyebilmek için Ayarlar'dan Stella'nın fotoğraf kitaplığına erişmesine izin ver.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Fotoğraf çekebilmek için Ayarlar'dan Stella'nın kamerayı kullanmasına izin ver.",
-      "photoLabel": "Fotoğraf"
+      "photoLabel": "Fotoğraf",
+      "sheetTitle": "Sohbete ekle",
+      "camera": "Kamera",
+      "photos": "Fotoğraflar",
+      "files": "Dosyalar",
+      "readAloud": "Yanıtları sesli oku"
     }
   },
   "errors": {
@@ -1937,6 +1942,7 @@
       "settings": "Ayarlar",
       "apps": "Uygulamalar",
       "openLabel": "Gezinmeyi aç",
+      "chatSettingsLabel": "Sohbet ayarları",
       "closeLabel": "Gezinmeyi kapat",
       "account": "Hesap",
       "signIn": "Giriş yap",
@@ -1994,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella'ya istediğinizi sorun",
+      "workingMany": "{count} görev sürüyor",
       "composerPlaceholder": "Stella'ya mesaj yazın",
       "mainChat": "Ana sohbet",
       "createFailed": "Sohbet oluşturulamadı. Lütfen tekrar deneyin.",

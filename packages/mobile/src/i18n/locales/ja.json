@@ -911,7 +911,12 @@
       "photosDeniedBody": "画像を添付できるように、設定で Stella に写真ライブラリへのアクセスを許可してください。",
       "cameraDeniedTitle": "カメラ",
       "cameraDeniedBody": "写真を撮れるように、設定で Stella にカメラの使用を許可してください。",
-      "photoLabel": "写真"
+      "photoLabel": "写真",
+      "sheetTitle": "チャットに追加",
+      "camera": "カメラ",
+      "photos": "写真",
+      "files": "ファイル",
+      "readAloud": "返信を読み上げる"
     }
   },
   "errors": {
@@ -1917,6 +1922,7 @@
       "settings": "設定",
       "apps": "アプリ",
       "openLabel": "ナビゲーションを開く",
+      "chatSettingsLabel": "チャット設定",
       "closeLabel": "ナビゲーションを閉じる",
       "account": "アカウント",
       "signIn": "サインイン",
@@ -1974,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella に何でも聞いてください",
+      "workingMany": "{count} 件のタスクを実行中",
       "composerPlaceholder": "Stella にメッセージ",
       "mainChat": "メインチャット",
       "createFailed": "チャットを作成できませんでした。もう一度お試しください。",

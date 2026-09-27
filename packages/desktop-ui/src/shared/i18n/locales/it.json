@@ -913,7 +913,12 @@
       "photosDeniedBody": "Consenti a Stella di accedere alla tua libreria foto in Impostazioni per allegare immagini.",
       "cameraDeniedTitle": "Fotocamera",
       "cameraDeniedBody": "Consenti a Stella di usare la fotocamera in Impostazioni per scattare una foto.",
-      "photoLabel": "Foto"
+      "photoLabel": "Foto",
+      "sheetTitle": "Aggiungi alla chat",
+      "camera": "Fotocamera",
+      "photos": "Foto",
+      "files": "File",
+      "readAloud": "Leggi le risposte ad alta voce"
     }
   },
   "errors": {
@@ -1954,6 +1959,7 @@
       "settings": "Impostazioni",
       "apps": "App",
       "openLabel": "Apri la navigazione",
+      "chatSettingsLabel": "Impostazioni chat",
       "closeLabel": "Chiudi la navigazione",
       "account": "Account",
       "signIn": "Accedi",
@@ -2011,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "Chiedi qualsiasi cosa a Stella",
+      "workingMany": "{count} attività in corso",
       "composerPlaceholder": "Scrivi a Stella",
       "mainChat": "Chat principale",
       "createFailed": "Impossibile creare una chat. Riprova.",

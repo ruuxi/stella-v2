@@ -912,7 +912,12 @@
       "photosDeniedBody": "Engedélyezd a Stellának a fotókönyvtárad elérését a Beállításokban, hogy képeket csatolhass.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Engedélyezd a Stellának a kamera használatát a Beállításokban, hogy fotót készíthess.",
-      "photoLabel": "Fotó"
+      "photoLabel": "Fotó",
+      "sheetTitle": "Hozzáadás a csevegéshez",
+      "camera": "Kamera",
+      "photos": "Fotók",
+      "files": "Fájlok",
+      "readAloud": "Válaszok felolvasása"
     }
   },
   "errors": {
@@ -1937,6 +1942,7 @@
       "settings": "Beállítások",
       "apps": "Alkalmazások",
       "openLabel": "Navigáció megnyitása",
+      "chatSettingsLabel": "Csevegés beállításai",
       "closeLabel": "Navigáció bezárása",
       "account": "Fiók",
       "signIn": "Bejelentkezés",
@@ -1994,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Kérdezz bármit a Stellától",
+      "workingMany": "{count} feladat folyamatban",
       "composerPlaceholder": "Írj a Stellának",
       "mainChat": "Fő csevegés",
       "createFailed": "Nem sikerült létrehozni a csevegést. Próbáld újra.",

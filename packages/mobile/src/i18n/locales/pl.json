@@ -914,7 +914,12 @@
       "photosDeniedBody": "Zezwól Stelli w Ustawieniach na dostęp do biblioteki zdjęć, aby załączać obrazy.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Zezwól Stelli w Ustawieniach na korzystanie z kamery, aby zrobić zdjęcie.",
-      "photoLabel": "Zdjęcie"
+      "photoLabel": "Zdjęcie",
+      "sheetTitle": "Dodaj do czatu",
+      "camera": "Kamera",
+      "photos": "Zdjęcia",
+      "files": "Pliki",
+      "readAloud": "Czytaj odpowiedzi na głos"
     }
   },
   "errors": {
@@ -1971,6 +1976,7 @@
       "settings": "Ustawienia",
       "apps": "Aplikacje",
       "openLabel": "Otwórz nawigację",
+      "chatSettingsLabel": "Ustawienia czatu",
       "closeLabel": "Zamknij nawigację",
       "account": "Konto",
       "signIn": "Zaloguj się",
@@ -2028,6 +2034,7 @@
     },
     "chat": {
       "emptyPrompt": "Zapytaj Stellę o cokolwiek",
+      "workingMany": "Zadania w toku: {count}",
       "composerPlaceholder": "Napisz do Stelli",
       "mainChat": "Główny czat",
       "createFailed": "Nie udało się utworzyć czatu. Spróbuj ponownie.",

@@ -282,6 +282,16 @@ export class SearchIndex {
     return this.deserializeTranscriptHits(rows);
   }
 
+  /**
+   * Degraded path (no FTS5). Every column read here lives in the covering
+   * partial index idx_entry_search_conv_created (built by idle
+   * maintenance, `SEARCH_TEXT_INDEX_SQL`), so once it exists this scans only
+   * the ~12k rows that carry `search_text` and never a table row: a table
+   * scan reads each row's payload overflow chain to reach `search_text`
+   * (5.5 s on the 13 GiB prod file). Keep the projection and predicates
+   * within that index's columns, and never force it with INDEXED BY — the
+   * index may not exist yet.
+   */
   private searchTranscriptsLike(
     tokens: string[],
     limit: number,

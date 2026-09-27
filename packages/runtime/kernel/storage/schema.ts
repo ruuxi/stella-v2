@@ -232,6 +232,29 @@ CREATE INDEX IF NOT EXISTS idx_entry_ref_target
 `;
 
 /**
+ * Recall's covering index over the rows that carry `search_text` (visible
+ * user/assistant messages: ~12k of prod's ~1.9M `entry` rows). `payload`
+ * precedes `search_text`/`created_at` in `entry`, so any filter on those
+ * columns that reads the table walks multi-MB payload overflow chains; this
+ * partial index holds every column a transcript hit projects, so the recall
+ * time-window neighbours (`recall-read-queries.ts`) and the transcript LIKE
+ * fallback (`search.ts`) never touch the table row.
+ *
+ * Deliberately NOT part of the core schema or a migration: building it is
+ * one full `entry` scan (~6 s warm, ~15-20 s cold on the 13 GiB prod file)
+ * under the write lock, which must not run at open (Electron main migrates
+ * synchronously). `maintenance.ts` builds it in the detached idle window.
+ * Queries must never depend on it (no `INDEXED BY`): without it they return
+ * the same rows, only slower.
+ */
+export const SEARCH_TEXT_INDEX_NAME = "idx_entry_search_conv_created";
+export const SEARCH_TEXT_INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS idx_entry_search_conv_created
+  ON entry(conversation_id, created_at, seq, role, id, search_text)
+  WHERE search_text IS NOT NULL;
+`;
+
+/**
  * Dev-only (local/cloud hybrid) operational tables. These are durable
  * delivery/receipt ledgers for the cloud lane and realtime voice — they are
  * not chat history and are never imported/rebuilt by the legacy importer

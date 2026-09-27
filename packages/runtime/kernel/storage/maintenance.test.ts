@@ -9,6 +9,7 @@ import {
   DatabaseMaintenance,
   MAINTENANCE_META_KEYS,
   analyzeOncePerSchemaVersion,
+  buildSearchTextIndex,
   checkReclaimDiskSpace,
   checkpointWal,
   readDatabaseHealth,
@@ -17,7 +18,11 @@ import {
   type DiskSpaceProbe,
   type ReclaimPolicy,
 } from "./maintenance.js";
-import { SCHEMA_VERSION } from "./schema.js";
+import {
+  SCHEMA_VERSION,
+  SEARCH_TEXT_INDEX_NAME,
+  SEARCH_TEXT_INDEX_SQL,
+} from "./schema.js";
 import type { SqliteDatabase } from "./shared.js";
 
 const MiB = 1024 * 1024;
@@ -46,9 +51,13 @@ const openConnection = (dbPath: string): Database => {
  * A current-schema database with synthetic chat history (entries, threads,
  * thread summaries — every external-content FTS table has rows), rowid gaps
  * from deletes, and a large freelist left by creating and dropping a table,
- * exactly the shape migration v1 left behind in production.
+ * exactly the shape migration v1 left behind in production. The search-text
+ * index is pre-built unless `searchIndex: false`, so the reclaim tests see
+ * the reclaim as the only pending heavy step.
  */
-const makeFixture = (options: { junkMiB?: number } = {}) => {
+const makeFixture = (
+  options: { junkMiB?: number; searchIndex?: boolean } = {},
+) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stella-maintenance-"));
   cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
   const dbPath = path.join(dir, "stella.sqlite");
@@ -97,6 +106,7 @@ const makeFixture = (options: { junkMiB?: number } = {}) => {
   // Rowid gaps: the case where renumbering would actually move rows.
   db.exec("DELETE FROM entry WHERE seq % 3 = 0;");
   db.exec("DELETE FROM thread WHERE CAST(substr(id, 2) AS INTEGER) % 4 = 0;");
+  if (options.searchIndex !== false) db.exec(SEARCH_TEXT_INDEX_SQL);
 
   const junkMiB = options.junkMiB ?? 8;
   db.exec("CREATE TABLE junk (b BLOB);");
@@ -839,5 +849,167 @@ describe("storage maintenance: idle scheduler", () => {
     detached.maintenance.start({ isIdle: () => true, attachedClientCount: () => 0 });
     detached.maintenance.runIdleTick();
     expect(detached.events.at(-1)?.event).toBe("storage.maintenance.reclaim");
+  });
+
+  const hasSearchIndex = (db: Database) =>
+    Boolean(
+      db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get(SEARCH_TEXT_INDEX_NAME),
+    );
+
+  test("search index: built on the first detached idle tick, never while attached, then the reclaim", () => {
+    const fixture = makeFixture({ searchIndex: false });
+    const before = snapshotSearches(fixture.db);
+    const { maintenance, events } = makeScheduler(fixture, {
+      analyzeIdleTicks: 99,
+      reclaimIdleTicks: 1,
+    });
+    let clients = 1;
+    maintenance.start({ isIdle: () => true, attachedClientCount: () => clients });
+
+    for (let i = 0; i < 4; i += 1) maintenance.runIdleTick();
+    const names = () => events.map((e) => e.event);
+    expect(names()).toContain("storage.maintenance.search-index-waiting");
+    expect(names()).not.toContain("storage.maintenance.search-index");
+    expect(hasSearchIndex(fixture.db)).toBe(false);
+    expect(maintenance.holdsWorkerAlive()).toBe(false);
+
+    clients = 0;
+    expect(maintenance.holdsWorkerAlive()).toBe(true);
+    maintenance.runIdleTick(); // the index, and only the index
+    expect(events.at(-1)).toMatchObject({
+      event: "storage.maintenance.search-index",
+      fields: { index: SEARCH_TEXT_INDEX_NAME, ms: expect.any(Number) },
+    });
+    expect(
+      (events.at(-1)?.fields as { indexBytes: number }).indexBytes,
+    ).toBeGreaterThan(0);
+    expect(hasSearchIndex(fixture.db)).toBe(true);
+    expect(
+      fixture.db
+        .prepare("SELECT stat FROM sqlite_stat1 WHERE idx = ?")
+        .get(SEARCH_TEXT_INDEX_NAME),
+    ).toMatchObject({ stat: expect.any(String) });
+    expect(readMeta(fixture.db, MAINTENANCE_META_KEYS.freelistReclaimed)).toBeNull();
+    // The reclaim is still due, so idle shutdown stays pinned.
+    expect(maintenance.holdsWorkerAlive()).toBe(true);
+
+    maintenance.runIdleTick(); // the reclaim, which also compacts the index
+    expect(events.at(-1)?.event).toBe("storage.maintenance.reclaim");
+    expect(maintenance.holdsWorkerAlive()).toBe(false);
+    expect(hasSearchIndex(fixture.db)).toBe(true);
+    expect(fixture.db.prepare("PRAGMA integrity_check;").get()).toEqual({
+      integrity_check: "ok",
+    });
+    expect(snapshotSearches(fixture.db)).toEqual(before);
+    expect(names().filter((e) => e === "storage.maintenance.search-index")).toHaveLength(1);
+  });
+
+  test("search index: not rebuilt once present, and built even when no reclaim is due", () => {
+    const fixture = makeFixture({ searchIndex: false, junkMiB: 0 });
+    let creates = 0;
+    const createSearchIndex = (c: SqliteDatabase) => {
+      creates += 1;
+      c.exec(SEARCH_TEXT_INDEX_SQL);
+    };
+    const first = makeScheduler(fixture, {
+      analyzeIdleTicks: 99,
+      reclaimIdleTicks: 1,
+      createSearchIndex,
+    });
+    first.maintenance.start({ isIdle: () => true, attachedClientCount: () => 0 });
+    expect(first.maintenance.holdsWorkerAlive()).toBe(false); // nothing seen yet
+    first.maintenance.runIdleTick();
+    expect(creates).toBe(1);
+    expect(first.events.map((e) => e.event)).not.toContain("storage.maintenance.reclaim");
+    for (let i = 0; i < 3; i += 1) first.maintenance.runIdleTick();
+    expect(creates).toBe(1);
+    expect(first.maintenance.holdsWorkerAlive()).toBe(false);
+    first.maintenance.stop();
+
+    // A later session finds it in sqlite_master.
+    const second = makeScheduler(fixture, {
+      analyzeIdleTicks: 99,
+      reclaimIdleTicks: 1,
+      createSearchIndex,
+    });
+    second.maintenance.start({ isIdle: () => true, attachedClientCount: () => 0 });
+    for (let i = 0; i < 3; i += 1) second.maintenance.runIdleTick();
+    expect(creates).toBe(1);
+    expect(second.events.map((e) => e.event)).not.toContain(
+      "storage.maintenance.search-index",
+    );
+    expect(second.maintenance.holdsWorkerAlive()).toBe(false);
+  });
+
+  test("search index: BUSY defers to the next idle tick and holds the reclaim back", () => {
+    const fixture = makeFixture({ searchIndex: false });
+    const other = openConnection(fixture.dbPath);
+    const { maintenance, events } = makeScheduler(fixture, {
+      analyzeIdleTicks: 99,
+      reclaimIdleTicks: 1,
+      busyTimeoutMs: 20,
+    });
+    let clients = 1;
+    maintenance.start({ isIdle: () => true, attachedClientCount: () => clients });
+    maintenance.runIdleTick(); // attached: the sweep drains, the index waits
+    clients = 0;
+    other.exec("BEGIN IMMEDIATE;");
+    maintenance.runIdleTick();
+    maintenance.runIdleTick();
+    other.exec("COMMIT;");
+    expect(events.some((e) => e.level === "warn")).toBe(false);
+    expect(
+      events.filter(
+        (e) =>
+          e.event === "storage.maintenance.deferred" &&
+          (e.fields as { step?: string }).step === "search-index",
+      ),
+    ).toHaveLength(1);
+    expect(hasSearchIndex(fixture.db)).toBe(false);
+    expect(readMeta(fixture.db, MAINTENANCE_META_KEYS.freelistReclaimed)).toBeNull();
+    expect(maintenance.holdsWorkerAlive()).toBe(true);
+
+    maintenance.runIdleTick();
+    expect(events.at(-1)?.event).toBe("storage.maintenance.search-index");
+    maintenance.runIdleTick();
+    expect(events.at(-1)?.event).toBe("storage.maintenance.reclaim");
+  });
+
+  test("search index: three BUSY deferrals give up for the session and release the reclaim", () => {
+    const fixture = makeFixture({ searchIndex: false });
+    const { maintenance, events } = makeScheduler(fixture, {
+      analyzeIdleTicks: 99,
+      reclaimIdleTicks: 1,
+      // Another writer takes the lock just for the index build.
+      createSearchIndex: () => {
+        throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+      },
+    });
+    maintenance.start({ isIdle: () => true, attachedClientCount: () => 0 });
+    for (let i = 0; i < 3; i += 1) maintenance.runIdleTick();
+    expect(maintenance.holdsWorkerAlive()).toBe(true); // reclaim still due
+    maintenance.runIdleTick();
+    expect(events.at(-1)?.event).toBe("storage.maintenance.reclaim");
+    expect(hasSearchIndex(fixture.db)).toBe(false);
+    expect(maintenance.holdsWorkerAlive()).toBe(false);
+  });
+
+  test("buildSearchTextIndex covers every search_text row", () => {
+    const { db, dbPath } = makeFixture({ searchIndex: false });
+    const conn = openConnection(dbPath);
+    expect(
+      buildSearchTextIndex(asDb(conn), { busyTimeoutMs: 50, analysisLimit: 400 }),
+    ).toMatchObject({ status: "built" });
+    expect(
+      buildSearchTextIndex(asDb(conn), { busyTimeoutMs: 50, analysisLimit: 400 }),
+    ).toEqual({ status: "present" });
+    const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+    expect(
+      count(
+        `SELECT count(*) AS n FROM entry INDEXED BY ${SEARCH_TEXT_INDEX_NAME} WHERE search_text IS NOT NULL`,
+      ),
+    ).toBe(count("SELECT count(*) AS n FROM entry NOT INDEXED WHERE search_text IS NOT NULL"));
   });
 });

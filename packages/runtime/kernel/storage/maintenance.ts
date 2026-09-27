@@ -29,6 +29,10 @@
  *     hours at one batch per tick;
  *   - streak >= analyzeIdleTicks: one bounded `ANALYZE` per schema version
  *     (meta-guarded), so the planner finally has `sqlite_stat1`;
+ *   - zero RPC clients attached AND streak >= reclaimIdleTicks, while
+ *     `idx_entry_search_conv_created` is missing: build recall's covering
+ *     index (`SEARCH_TEXT_INDEX_SQL`, below) — before the reclaim, so the
+ *     VACUUM that follows also compacts it;
  *   - the run_event sweep drained (deleted rows only return space through
  *     VACUUM) AND zero RPC clients attached AND streak >= reclaimIdleTicks
  *     (default 1 — the long streak only ever protected an attached
@@ -82,6 +86,24 @@
  * VACUUM + FTS rebuild + final checkpoint — about 5–7 minutes for the
  * 13.3 GiB prod file (~6 GiB live).
  *
+ * The search-text index. Recall's covering partial index is not in the
+ * schema or a migration: building it is one full `entry` scan through every
+ * row's payload overflow chain (~6 s warm, ~15–20 s cold on the 13 GiB prod
+ * file) holding the write lock, which at open would freeze Electron main
+ * (it migrates synchronously) and fail other writers' 5 s busy timeout. So
+ * it is built here, in the same detached window as the reclaim, with the
+ * same treatment: `holdsWorkerAlive()` pins idle shutdown while it is
+ * missing and no client is attached, BUSY defers to the next idle tick,
+ * three deferrals give up for the session. `CREATE INDEX` and
+ * `ANALYZE idx_entry_search_conv_created` commit in one transaction: with
+ * `sqlite_stat1` rows for the other `entry` indexes but none for this one,
+ * the planner would pick it for the latest-visible-message lookup over
+ * `idx_entry_conv_visible_seq`. The index is ~14 MB on prod, so it needs no
+ * disk check. Queries never force it (no `INDEXED BY`); without it they
+ * return the same rows, slower. Presence is read from `sqlite_master`.
+ * This adds, once per database, one tick plus the build to the post-quit
+ * linger below.
+ *
  * Kill switch: `STELLA_DB_RECLAIM=0` disables only the reclaim; checkpoint,
  * optimize, ANALYZE and the run_event sweep keep running.
  *
@@ -109,6 +131,8 @@ import { deleteLegacyRunEventBatch } from "./entry-retention.js";
 import {
   EXTERNAL_CONTENT_FTS_TABLES,
   SCHEMA_VERSION,
+  SEARCH_TEXT_INDEX_NAME,
+  SEARCH_TEXT_INDEX_SQL,
   rebuildFtsIndexSql,
 } from "./schema.js";
 import type { SqliteDatabase } from "./shared.js";
@@ -206,6 +230,11 @@ export type ReclaimOutcome =
       reason: "already-done" | "below-threshold" | "insufficient-disk";
       detail: Record<string, unknown>;
     };
+
+export type SearchIndexOutcome =
+  | { status: "built"; ms: number; indexBytes: number }
+  | { status: "present" }
+  | { status: "deferred"; reason: "busy" };
 
 export type ReclaimPolicy = {
   minFreelistBytes: number;
@@ -396,6 +425,57 @@ export const analyzeOncePerSchemaVersion = (
     writeMeta(db, MAINTENANCE_META_KEYS.analyzedSchemaVersion, version);
   });
   return true;
+};
+
+export const searchTextIndexExists = (db: SqliteDatabase): boolean =>
+  Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get(SEARCH_TEXT_INDEX_NAME),
+  );
+
+/**
+ * Build recall's covering index and its `sqlite_stat1` row in one
+ * immediate transaction. Holds the write lock for the whole `entry` scan,
+ * so callers run it only in the detached window. BUSY is a deferral.
+ * `indexBytes` is the growth in live pages (the index plus its stat row).
+ */
+export const buildSearchTextIndex = (
+  connection: SqliteDatabase,
+  options: {
+    busyTimeoutMs: number;
+    analysisLimit: number;
+    /** Test seam: the default runs `SEARCH_TEXT_INDEX_SQL`. */
+    create?: (connection: SqliteDatabase) => void;
+  },
+): SearchIndexOutcome => {
+  if (searchTextIndexExists(connection)) return { status: "present" };
+  const livePages = () =>
+    pragmaNumber(connection, "page_count") -
+    pragmaNumber(connection, "freelist_count");
+  const pagesBefore = livePages();
+  const startedAt = performance.now();
+  try {
+    withBusyTimeout(connection, options.busyTimeoutMs, () => {
+      connection.exec(`PRAGMA analysis_limit = ${options.analysisLimit};`);
+      inImmediateTransaction(connection, () => {
+        (options.create ?? ((db) => db.exec(SEARCH_TEXT_INDEX_SQL)))(
+          connection,
+        );
+        connection.exec(`ANALYZE ${SEARCH_TEXT_INDEX_NAME};`);
+      });
+    });
+  } catch (error) {
+    if (isSqliteBusyError(error)) return { status: "deferred", reason: "busy" };
+    throw error;
+  }
+  return {
+    status: "built",
+    ms: elapsedMs(startedAt),
+    indexBytes:
+      Math.max(0, livePages() - pagesBefore) *
+      pragmaNumber(connection, "page_size"),
+  };
 };
 
 /**
@@ -621,6 +701,8 @@ export type DatabaseMaintenanceOptions = {
   diskSpace?: DiskSpaceProbe;
   tempDirectory?: string;
   vacuum?: (connection: SqliteDatabase) => void;
+  /** Test seam: the default runs `SEARCH_TEXT_INDEX_SQL`. */
+  createSearchIndex?: (connection: SqliteDatabase) => void;
   /** Rows per legacy run_event batch transaction (default 5k). */
   sweepBatchSize?: number;
   /** Clock for the sweep budget (test seam; default performance.now). */
@@ -640,6 +722,7 @@ export const reclaimKillSwitchEngaged = (): boolean =>
 
 /** Consecutive BUSY deferrals, while detached, before giving up for the session. */
 const MAX_DETACHED_RECLAIM_DEFERRALS = 3;
+const MAX_DETACHED_SEARCH_INDEX_DEFERRALS = 3;
 
 const elapsedMs = (startedAt: number) =>
   Math.round(performance.now() - startedAt);
@@ -662,6 +745,14 @@ export class DatabaseMaintenance {
   private reclaimReady = false;
   private reclaimRunning = false;
   private detachedDeferrals = 0;
+  /** The search-text index exists (or was built this session). */
+  private searchIndexDone = false;
+  /** Seen missing on an idle tick; waiting for (or retrying in) the detached window. */
+  private searchIndexPending = false;
+  private searchIndexRunning = false;
+  /** Three BUSY deferrals or a non-BUSY failure: stop trying this session. */
+  private searchIndexDisabled = false;
+  private searchIndexDeferrals = 0;
   private readonly loggedSkips = new Set<string>();
 
   constructor(private readonly options: DatabaseMaintenanceOptions) {
@@ -684,14 +775,24 @@ export class DatabaseMaintenance {
   }
 
   /**
-   * True while a reclaim is running, or is ready and waiting for the
-   * detached window. The worker ORs this into `hasActiveWork`, so the
-   * lifecycle's idle-shutdown (`shouldKeepAlive`) keeps the process up
-   * after the last client detaches until the next tick has run the reclaim.
-   * (The VACUUM itself is synchronous, so no timer can fire during it.)
+   * True while the search-index build or the reclaim is running, or either
+   * is pending and waiting for the detached window. The worker ORs this into
+   * `hasActiveWork`, so the lifecycle's idle-shutdown (`shouldKeepAlive`)
+   * keeps the process up after the last client detaches until later ticks
+   * have run them. (Both are synchronous, so no timer can fire during them.)
    */
   holdsWorkerAlive(): boolean {
-    if (this.reclaimRunning) return true;
+    if (this.reclaimRunning || this.searchIndexRunning) return true;
+    if (
+      !this.disposed &&
+      this.hooks &&
+      this.searchIndexPending &&
+      !this.searchIndexDone &&
+      !this.searchIndexDisabled &&
+      safeCount(this.hooks.attachedClientCount) === 0
+    ) {
+      return true;
+    }
     if (
       this.disposed ||
       !this.hooks ||
@@ -834,11 +935,87 @@ export class DatabaseMaintenance {
       }
     }
 
+    // Heavy, detached only, and before the reclaim so VACUUM compacts it.
+    const searchIndex = this.searchIndexStep(connection);
+
     // Readiness is evaluated on every idle tick (cheap: pragmas + statfs)
     // so the idle-shutdown hold is already in place when Electron quits;
-    // the VACUUM itself only runs detached (see reclaim()).
+    // the VACUUM itself only runs detached (see reclaim()), and not on a
+    // tick that built the index or while the index is still pending.
     if (this.sweepDrained && !this.reclaimDone && !this.reclaimDisabled) {
-      this.reclaim(connection);
+      this.reclaim(connection, searchIndex === "settled");
+    }
+  }
+
+  /**
+   * "settled": the index exists or this session gave up on it; "waiting":
+   * missing, not in the detached window yet; "ran": this tick built it or
+   * deferred on BUSY (the tick's one heavy step).
+   */
+  private searchIndexStep(
+    connection: SqliteDatabase,
+  ): "settled" | "waiting" | "ran" {
+    if (this.searchIndexDone || this.searchIndexDisabled) return "settled";
+    if (searchTextIndexExists(connection)) {
+      this.searchIndexDone = true;
+      this.searchIndexPending = false;
+      return "settled";
+    }
+    this.searchIndexPending = true;
+    if (!this.isDetached()) {
+      this.logOnce(
+        "search-index-waiting",
+        "storage.maintenance.search-index-waiting",
+        { reason: "clients-attached" },
+      );
+      return "waiting";
+    }
+    if (this.idleStreak < this.settings.reclaimIdleTicks) return "waiting";
+    let outcome: SearchIndexOutcome;
+    this.searchIndexRunning = true;
+    const startedAt = performance.now();
+    try {
+      outcome = buildSearchTextIndex(connection, {
+        busyTimeoutMs: this.settings.busyTimeoutMs,
+        analysisLimit: this.settings.analysisLimit,
+        ...(this.options.createSearchIndex
+          ? { create: this.options.createSearchIndex }
+          : {}),
+      });
+    } catch (error) {
+      this.searchIndexDisabled = true;
+      this.logger?.warn("storage.maintenance.search-index-failed", {
+        error: (error as Error)?.message ?? String(error),
+        ms: elapsedMs(startedAt),
+      });
+      return "ran";
+    } finally {
+      this.searchIndexRunning = false;
+    }
+    switch (outcome.status) {
+      case "present":
+        this.searchIndexDone = true;
+        this.searchIndexPending = false;
+        return "settled";
+      case "built":
+        this.searchIndexDone = true;
+        this.searchIndexPending = false;
+        this.logger?.process("storage.maintenance.search-index", {
+          index: SEARCH_TEXT_INDEX_NAME,
+          indexBytes: outcome.indexBytes,
+          ms: outcome.ms,
+        });
+        return "ran";
+      case "deferred":
+        this.searchIndexDeferrals += 1;
+        if (this.searchIndexDeferrals >= MAX_DETACHED_SEARCH_INDEX_DEFERRALS) {
+          this.searchIndexDisabled = true;
+        }
+        this.logOnce("deferred:search-index", "storage.maintenance.deferred", {
+          step: "search-index",
+          reason: outcome.reason,
+        });
+        return "ran";
     }
   }
 
@@ -952,7 +1129,7 @@ export class DatabaseMaintenance {
     };
   }
 
-  private reclaim(connection: SqliteDatabase): void {
+  private reclaim(connection: SqliteDatabase, mayRun: boolean): void {
     if (reclaimKillSwitchEngaged()) {
       this.reclaimReady = false;
       this.logOnce("kill-switch", "storage.maintenance.reclaim-skipped", {
@@ -985,6 +1162,7 @@ export class DatabaseMaintenance {
     // No attached client to protect, so no long streak: the default of one
     // idle tick keeps the post-quit linger to a single tick.
     if (this.idleStreak < this.settings.reclaimIdleTicks) return;
+    if (!mayRun) return;
     const startedAt = performance.now();
     let outcome: ReclaimOutcome;
     this.reclaimRunning = true;

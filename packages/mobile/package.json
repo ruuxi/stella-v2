@@ -35,7 +35,7 @@
     "@stella/contracts": "workspace:*",
     "@stella/theme": "workspace:*",
     "better-auth": "^1.4.9",
-    "convex": "^1.44.0",
+    "convex": "1.46.0",
     "expo": "~57.0.19",
     "expo-apple-authentication": "~57.0.1",
     "expo-asset": "57.0.16",

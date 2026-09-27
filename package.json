@@ -139,7 +139,7 @@
     "better-auth": "1.6.11",
     "cloudflared": "^0.7.1",
     "clsx": "^2.1.1",
-    "convex": "^1.44.0",
+    "convex": "1.46.0",
     "croner": "^10.0.1",
     "esbuild": "^0.28.0",
     "gaxios": "^7.1.4",

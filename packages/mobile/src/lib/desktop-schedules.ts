@@ -181,8 +181,33 @@ export async function listPairedAccess() {
   return listStoredPairedPhoneAccess();
 }
 
+/**
+ * The last list read from the computer. Every read goes through the relay to
+ * the desktop, which takes seconds, so the tab paints this copy at once and
+ * refreshes behind it.
+ */
+let lastSchedules: MobileSchedule[] | null = null;
+
+export function getCachedMobileSchedules(): MobileSchedule[] | null {
+  return lastSchedules;
+}
+
+/**
+ * Warm the bridge and the cached list before the tab is opened. Failures are
+ * ignored; the tab loads (and reports errors) itself.
+ */
+export function prefetchMobileSchedules(): void {
+  fetchMobileSchedules().catch(() => {});
+}
+
 /** Load every schedule on the paired computer through the desktop bridge. */
 export async function fetchMobileSchedules(): Promise<MobileSchedule[]> {
+  const rows = await readMobileSchedules();
+  lastSchedules = rows;
+  return rows;
+}
+
+async function readMobileSchedules(): Promise<MobileSchedule[]> {
   const { resolveDesktopBridge, invokeDesktopBridge } = await import(
     "./desktop-bridge-chat"
   );

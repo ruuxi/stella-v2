@@ -8,6 +8,7 @@ import { useIsFocused } from "expo-router";
 import { useT } from "../i18n";
 import {
   fetchMobileSchedules,
+  getCachedMobileSchedules,
   mutateMobileSchedule,
   subscribeMobileScheduleUpdates,
   type MobileSchedule,
@@ -38,7 +39,9 @@ export function SchedulePage() {
   const session = authClient.useSession();
   const signedIn = Boolean(session.data?.user) && !isGuest();
 
-  const [schedules, setSchedules] = useState<MobileSchedule[]>([]);
+  const [schedules, setSchedules] = useState<MobileSchedule[]>(
+    () => getCachedMobileSchedules() ?? [],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -151,7 +154,7 @@ export function SchedulePage() {
     }
     if (loading && schedules.length === 0) {
       return (
-        <View style={styles.centered}>
+        <View style={[styles.centered, { paddingBottom: bottomInset }]}>
           <ActivityIndicator color={colors.textMuted} />
         </View>
       );

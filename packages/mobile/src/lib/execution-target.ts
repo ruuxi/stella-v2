@@ -7,8 +7,17 @@ import {
 const KEY = "stella-mobile.execution-target.v1";
 export { AUTOMATIC_EXECUTION_TARGET };
 
+/**
+ * The phone offers Cloud or a specific computer. Nothing saved, or the old
+ * "Automatic" choice, means Cloud.
+ */
+export const CLOUD_EXECUTION_TARGET: AutomaticExecutionTarget = Object.freeze({
+  mode: "cloud",
+});
+const CLOUD = CLOUD_EXECUTION_TARGET;
+
 const parse = (value: string | null): AutomaticExecutionTarget => {
-  if (!value) return AUTOMATIC_EXECUTION_TARGET;
+  if (!value) return CLOUD;
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     if (parsed.mode === "cloud") return { mode: "cloud" };
@@ -19,9 +28,9 @@ const parse = (value: string | null): AutomaticExecutionTarget => {
     ) {
       return { mode: "device", deviceId: parsed.deviceId.trim() };
     }
-    return AUTOMATIC_EXECUTION_TARGET;
+    return CLOUD;
   } catch {
-    return AUTOMATIC_EXECUTION_TARGET;
+    return CLOUD;
   }
 };
 

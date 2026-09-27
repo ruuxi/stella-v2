@@ -18,7 +18,7 @@ import {
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
 import {
-  AUTOMATIC_EXECUTION_TARGET,
+  CLOUD_EXECUTION_TARGET,
   getMobileExecutionTarget,
   setMobileExecutionTarget,
 } from "../../src/lib/execution-target";
@@ -131,7 +131,7 @@ function SignedInCanonicalChat(props: {
   const [access, setAccess] = useState<StoredPhoneAccess | null>(null);
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
   const [executionTarget, setExecutionTarget] =
-    useState<AutomaticExecutionTarget>(AUTOMATIC_EXECUTION_TARGET);
+    useState<AutomaticExecutionTarget>(CLOUD_EXECUTION_TARGET);
   const [pairingResolved, setPairingResolved] = useState(false);
   useEffect(() => {
     void Promise.all([
@@ -145,10 +145,10 @@ function SignedInCanonicalChat(props: {
         target.mode !== "device" ||
         paired.some((entry) => entry.desktopDeviceId === target.deviceId);
       setExecutionTarget(
-        targetStillPaired ? target : AUTOMATIC_EXECUTION_TARGET,
+        targetStillPaired ? target : CLOUD_EXECUTION_TARGET,
       );
       if (!targetStillPaired) {
-        void setMobileExecutionTarget(AUTOMATIC_EXECUTION_TARGET);
+        void setMobileExecutionTarget(CLOUD_EXECUTION_TARGET);
       }
       setPairingResolved(true);
       if (!stored) updateStellaWidget({ paired: false, online: false });

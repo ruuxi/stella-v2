@@ -130,179 +130,143 @@ export function ComputerSection({
   // Nothing to show until the chat has resolved pairing (or for a guest).
   if (!control && !signedIn) return null;
 
-  const targetOptions = control
-    ? executionOptions({
-        pairedDesktops: control.pairedDesktops,
-        destinations,
-        target: control.executionTarget,
-      })
-    : [];
+  const target = control?.executionTarget ?? { mode: "cloud" as const };
+  const rows = computerRows({
+    paired: pairedDesktops,
+    destinations,
+    labelFor: (access) =>
+      platformLabelFor(t, access, desktopPlatforms[access.desktopDeviceId]),
+    active: control,
+  });
+  // A computer that can't take work isn't a real choice, so Cloud carries
+  // the check (and the turn) whenever the picked computer is unavailable.
+  const selectedDeviceId =
+    target.mode === "device" &&
+    rows.some((row) => row.deviceId === target.deviceId && row.available)
+      ? target.deviceId
+      : null;
+  const choose = (next: AutomaticExecutionTarget) => {
+    if (!control) return;
+    tapLight();
+    control.onExecutionTargetChange(next);
+  };
 
   return (
     <>
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Where Stella works</Text>
 
-        {control?.access ? (
-          <View style={[styles.group, local.groupBottomGap]}>
-            <View style={styles.row}>
-              <Icon
-                name="monitor"
-                size={18}
-                color={colors.textMuted}
-                style={styles.rowIcon}
-              />
-              <View style={styles.rowCopy}>
-                <Text style={styles.rowLabel}>{control.platformLabel}</Text>
-                <View style={local.statusRow}>
-                  {control.connecting ? null : (
+        <View style={styles.group}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: selectedDeviceId === null }}
+            disabled={!control}
+            onPress={() => choose({ mode: "cloud" })}
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+          >
+            <Icon
+              name="globe"
+              size={18}
+              color={colors.textMuted}
+              style={styles.rowIcon}
+            />
+            <Text style={[styles.rowLabel, local.flex]}>Cloud</Text>
+            {selectedDeviceId === null ? (
+              <Icon name="check" size={17} color={colors.accent} />
+            ) : null}
+          </Pressable>
+
+          {rows.map((row) => {
+            const removing = removingDesktopId === row.deviceId;
+            return (
+              <Pressable
+                key={row.deviceId}
+                accessibilityRole="button"
+                accessibilityState={{
+                  selected: selectedDeviceId === row.deviceId,
+                  disabled: !row.available,
+                }}
+                disabled={!control || !row.available}
+                onPress={() =>
+                  choose({ mode: "device", deviceId: row.deviceId })
+                }
+                style={({ pressed }) => [
+                  styles.row,
+                  styles.rowDivider,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <Icon
+                  name="monitor"
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.rowIcon}
+                />
+                <View style={[styles.rowCopy, !row.available && local.dim]}>
+                  <Text style={styles.rowLabel} numberOfLines={1}>
+                    {row.label}
+                  </Text>
+                  <View style={local.statusRow}>
                     <View
                       style={[
                         local.statusDot,
                         {
-                          backgroundColor: control.statusAvailable
+                          backgroundColor: row.available
                             ? colors.ok
                             : colors.textMuted,
                         },
                       ]}
                     />
-                  )}
-                  <Text style={styles.rowSub}>{control.statusLabel}</Text>
+                    <Text style={styles.rowSub}>{row.status}</Text>
+                  </View>
                 </View>
-              </View>
-              {control.showWake ? (
+                {row.onWake ? (
+                  <Pressable
+                    onPress={row.onWake}
+                    hitSlop={8}
+                    accessibilityLabel={`Wake ${row.label}`}
+                    style={({ pressed }) => pressed && local.pressed}
+                  >
+                    <Text style={styles.rowAction}>Wake up</Text>
+                  </Pressable>
+                ) : null}
+                {selectedDeviceId === row.deviceId ? (
+                  <Icon name="check" size={17} color={colors.accent} />
+                ) : null}
                 <Pressable
-                  onPress={control.onWake}
+                  onPress={() => confirmForgetDesktop(row.access)}
+                  disabled={removing}
                   hitSlop={8}
-                  accessibilityLabel="Wake your computer"
-                  style={({ pressed }) => pressed && local.pressed}
-                >
-                  <Text style={styles.rowAction}>Wake up</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
-        {control ? (
-          <>
-            <View style={styles.group}>
-              {targetOptions.map((option, index) => (
-                <Pressable
-                  key={option.key}
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    selected: option.selected,
-                    disabled: option.disabled,
-                  }}
-                  disabled={option.disabled}
-                  onPress={() => {
-                    tapLight();
-                    control.onExecutionTargetChange(option.target);
-                  }}
+                  accessibilityLabel={t("mobile.settings.forgetLabel", {
+                    name: row.label,
+                  })}
                   style={({ pressed }) => [
-                    styles.row,
-                    index > 0 && styles.rowDivider,
-                    pressed && styles.rowPressed,
-                    option.disabled && styles.rowDisabled,
+                    local.remove,
+                    (pressed || removing) && local.pressed,
                   ]}
                 >
-                  <Icon
-                    name={option.icon}
-                    size={18}
-                    color={colors.textMuted}
-                    style={styles.rowIcon}
-                  />
-                  <Text style={[styles.rowLabel, local.flex]}>
-                    {option.label}
-                  </Text>
-                  {option.selected ? (
-                    <Icon name="check" size={17} color={colors.accent} />
-                  ) : null}
-                  {option.disabled ? (
-                    <Text style={styles.rowTrailing}>
-                      {option.unavailableLabel}
-                    </Text>
-                  ) : null}
+                  <Icon name="trash" size={17} color={colors.textMuted} />
                 </Pressable>
-              ))}
-            </View>
+              </Pressable>
+            );
+          })}
+        </View>
 
-            <View style={[styles.group, styles.groupGap]}>
-              <NavRow
-                icon="smartphone"
-                label={
-                  control.access ? "Pair another computer" : "Pair a computer"
-                }
-                styles={styles}
-                colors={colors}
-                onPress={() => {
-                  tapLight();
-                  setPairSheetOpen(true);
-                }}
-              />
-            </View>
-          </>
-        ) : null}
-
-        {signedIn ? (
-          <>
-            <Text style={local.subLabel}>
-              {t("mobile.settings.pairedSection")}
-            </Text>
-            <View style={styles.group}>
-              {pairedDesktops.length === 0 ? (
-                <Text style={styles.hint}>
-                  {t("mobile.settings.pairedEmpty")}
-                </Text>
-              ) : (
-                pairedDesktops.map((access, index) => {
-                  const label = platformLabelFor(
-                    t,
-                    access,
-                    desktopPlatforms[access.desktopDeviceId],
-                  );
-                  const removing =
-                    removingDesktopId === access.desktopDeviceId;
-                  return (
-                    <View
-                      key={access.desktopDeviceId}
-                      style={[styles.row, index > 0 && styles.rowDivider]}
-                    >
-                      <View style={styles.rowCopy}>
-                        <Text style={styles.rowLabel}>{label}</Text>
-                        <Text style={styles.rowSub}>
-                          {t("mobile.settings.pairedOn", {
-                            date: new Date(
-                              access.approvedAt,
-                            ).toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                            }),
-                          })}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => confirmForgetDesktop(access)}
-                        disabled={removing}
-                        hitSlop={8}
-                        accessibilityLabel={t("mobile.settings.forgetLabel", {
-                          name: label,
-                        })}
-                        style={({ pressed }) => [
-                          (pressed || removing) && local.pressed,
-                        ]}
-                      >
-                        <Text style={local.forgetText}>
-                          {removing ? "…" : t("mobile.settings.forget")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          </>
+        {control ? (
+          <View style={[styles.group, styles.groupGap]}>
+            <NavRow
+              icon="smartphone"
+              label={
+                rows.length > 0 ? "Pair another computer" : "Pair a computer"
+              }
+              styles={styles}
+              colors={colors}
+              onPress={() => {
+                tapLight();
+                setPairSheetOpen(true);
+              }}
+            />
+          </View>
         ) : null}
       </View>
 
@@ -379,66 +343,52 @@ function NavRow({
   );
 }
 
-function executionOptions(props: {
-  pairedDesktops: StoredPhoneAccess[];
-  destinations: ExecutionDeviceDestination[] | undefined;
-  target: AutomaticExecutionTarget;
-}) {
-  const pairedIds = new Set(
-    props.pairedDesktops.map((entry) => entry.desktopDeviceId),
-  );
-  const computers = (props.destinations ?? []).filter(
-    (device) =>
-      pairedIds.has(device.deviceId) &&
-      ((device.online && device.remoteExecutionEnabled) ||
-        (props.target.mode === "device" &&
-          props.target.deviceId === device.deviceId)),
-  );
-  const options: {
-    key: string;
-    icon: IconName;
-    label: string;
-    selected: boolean;
-    disabled?: boolean;
-    unavailableLabel?: string;
-    target: AutomaticExecutionTarget;
-  }[] = [
-    {
-      key: "automatic",
-      icon: "sparkles",
-      label: "Automatic",
-      selected: props.target.mode === "automatic",
-      target: { mode: "automatic" },
-    },
-    {
-      key: "cloud",
-      icon: "globe",
-      label: "Cloud",
-      selected: props.target.mode === "cloud",
-      target: { mode: "cloud" },
-    },
-    ...computers.map((device) => ({
-      key: device.deviceId,
-      icon: "monitor" as IconName,
-      label: device.label ?? "Computer",
-      selected:
-        props.target.mode === "device" &&
-        props.target.deviceId === device.deviceId,
-      disabled:
-        !device.online ||
-        !device.remoteExecutionEnabled ||
-        device.availability?.ready !== true ||
-        (device.availability?.chatSlots ?? 0) <= 0,
-      unavailableLabel: !device.online
-        ? "Offline"
-        : !device.remoteExecutionEnabled
-          ? "Unavailable"
-          : "Busy",
-      target: { mode: "device" as const, deviceId: device.deviceId },
-    })),
-  ];
+type ComputerRow = {
+  deviceId: string;
+  access: StoredPhoneAccess;
+  label: string;
+  status: string;
+  available: boolean;
+  onWake?: () => void;
+};
 
-  return options;
+/** Every paired computer, reachable or not, with what it can do right now. */
+function computerRows(props: {
+  paired: StoredPhoneAccess[];
+  destinations: ExecutionDeviceDestination[] | undefined;
+  labelFor: (access: StoredPhoneAccess) => string;
+  active: ComputerControl | null;
+}): ComputerRow[] {
+  return props.paired.map((access) => {
+    const deviceId = access.desktopDeviceId;
+    const device = props.destinations?.find((d) => d.deviceId === deviceId);
+    const isActive = props.active?.access?.desktopDeviceId === deviceId;
+    const available = Boolean(
+      device?.online &&
+        device.remoteExecutionEnabled &&
+        device.availability?.ready === true &&
+        (device.availability?.chatSlots ?? 0) > 0,
+    );
+    const status = available
+      ? "Online"
+      : device?.online
+        ? device.remoteExecutionEnabled
+          ? "Busy"
+          : "Unavailable"
+        : isActive && props.active
+          ? props.active.statusLabel
+          : "Offline";
+    return {
+      deviceId,
+      access,
+      label: device?.label ?? props.labelFor(access),
+      status,
+      available,
+      ...(isActive && props.active?.showWake
+        ? { onWake: props.active.onWake }
+        : {}),
+    };
+  });
 }
 
 const makeStyles = (colors: Colors) =>
@@ -470,6 +420,12 @@ const makeStyles = (colors: Colors) =>
     },
     pressed: {
       opacity: 0.6,
+    },
+    dim: {
+      opacity: 0.55,
+    },
+    remove: {
+      marginLeft: 14,
     },
     forgetText: {
       color: colors.textMuted,

@@ -13,6 +13,7 @@ export type IconName =
   | "menu"
   | "plus"
   | "x"
+  | "trash"
   | "chevron-down"
   | "chevron-left"
   | "chevron-right"
@@ -73,6 +74,7 @@ const FEATHER_NAMES: Record<
   menu: "menu",
   plus: "plus",
   x: "x",
+  trash: "trash-2",
   "chevron-down": "chevron-down",
   "chevron-left": "chevron-left",
   "chevron-right": "chevron-right",
@@ -136,6 +138,7 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   menu: "line.3.horizontal",
   plus: "plus",
   x: "xmark",
+  trash: "trash",
   "chevron-down": "chevron.down",
   "chevron-left": "chevron.left",
   "chevron-right": "chevron.right",

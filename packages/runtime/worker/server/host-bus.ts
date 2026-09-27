@@ -23,6 +23,11 @@ export interface Interface {
   ) => Promise<TResult>;
   readonly activeRequestHandlerCount: () => number;
   /**
+   * RPC clients attached right now. A peer without the broker's count (a
+   * bare single-stream peer) reports 1: its host is, by construction, there.
+   */
+  readonly attachedClientCount: () => number;
+  /**
    * Host hop for the inline connect cards (connector + browser extension).
    * Attaches a worker-generated `offerId` so a turn abort can cancel the
    * pending desktop card via `host.connectorConnect.cancel` instead of
@@ -83,6 +88,7 @@ export const make = (peer: WorkerPeerLike): Interface => {
     notify: (method, params) => peer.notify(method, params),
     request: (method, params, options) => peer.request(method, params, options),
     activeRequestHandlerCount: () => peer.activeRequestHandlerCount?.() ?? 0,
+    attachedClientCount: () => peer.attachedCount?.() ?? 1,
     requestConnectCard,
   };
 };

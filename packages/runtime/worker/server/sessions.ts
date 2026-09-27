@@ -233,7 +233,9 @@ export const layer = Layer.effect(
               Layer.buildWithScope(
                 sessionLayer(init, deviceIdentity.deviceId),
                 scope,
-              ).pipe(Effect.provideService(HostBus.Service, hostBus)),
+              ).pipe(
+                Effect.provideService(HostBus.Service, hostBus),
+              ),
             ).pipe(
               // A failed OR interrupted build must not leak the resources
               // acquired so far (onExit runs uninterruptibly on every
@@ -262,6 +264,14 @@ export const layer = Layer.effect(
               voice: Context.get(context, VoiceRuntime.Service).service,
             };
             currentSession = session;
+            // Idle = this exact session is still current and the worker has
+            // no run, agent, voice/user-app work or in-flight RPC. Teardown
+            // clears currentSession first, so maintenance goes quiet before
+            // the storage finalizer stops it.
+            session.storage.maintenance.start({
+              isIdle: () => currentSession === session && !hasSessionWork(),
+              attachedClientCount: () => hostBus.attachedClientCount(),
+            });
             configureRuntimeTelemetry({
               stellaDataDirPath: init.stellaDataDirPath,
               authToken: init.authToken,
@@ -335,7 +345,7 @@ export const layer = Layer.effect(
         return { ok: true as const };
       });
 
-    const hasActiveWork = () => {
+    const hasSessionWork = () => {
       // Keep this in sync with host-side shouldKeepWorkerAlive plus
       // worker-only work that the host cannot observe after disconnect.
       const session = currentSession;
@@ -353,6 +363,14 @@ export const layer = Layer.effect(
           userAppPinned,
       );
     };
+
+    // Idle-shutdown keep-alive: session work, plus a DB reclaim that is
+    // running or ready for the zero-client window (maintenance.ts). The
+    // maintenance idle check uses hasSessionWork, never this, so the hold
+    // cannot make maintenance think the worker is busy.
+    const hasActiveWork = () =>
+      hasSessionWork() ||
+      (currentSession?.storage.maintenance.holdsWorkerAlive() ?? false);
 
     return {
       initialize,

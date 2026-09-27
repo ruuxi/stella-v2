@@ -612,16 +612,30 @@ const MIGRATIONS: Migration[] = [
 ];
 
 /**
+ * Every external-content FTS5 index the schema owns. Their rows are keyed by
+ * the content table's rowid, so anything that can renumber rowids (VACUUM on
+ * `entry`/`thread`, which have no INTEGER PRIMARY KEY) must rebuild all of
+ * them. `kernel/storage/maintenance.ts` relies on this list being complete.
+ */
+export const EXTERNAL_CONTENT_FTS_TABLES = [
+  "entry_fts",
+  "thread_fts",
+  THREAD_SUMMARY_FTS_TABLE,
+] as const;
+
+/** `INSERT INTO <fts>(<fts>) VALUES ('rebuild')` for one index. */
+export const rebuildFtsIndexSql = (table: string): string =>
+  `INSERT INTO ${table}(${table}) VALUES ('rebuild');`;
+
+/**
  * Rebuild every external-content FTS index from its content table.
  * The maintenance entry point for a corrupted or manually cleared index —
  * never part of the boot path.
  */
 export const rebuildSearchIndexes = (db: SqliteDatabase): void => {
-  db.exec("INSERT INTO entry_fts(entry_fts) VALUES ('rebuild');");
-  db.exec("INSERT INTO thread_fts(thread_fts) VALUES ('rebuild');");
-  db.exec(
-    "INSERT INTO durable_thread_summaries_fts(durable_thread_summaries_fts) VALUES ('rebuild');",
-  );
+  for (const table of EXTERNAL_CONTENT_FTS_TABLES) {
+    db.exec(rebuildFtsIndexSql(table));
+  }
   db.prepare(
     `INSERT INTO meta (key, value, updated_at) VALUES ('fts_ready', '1', ?)
      ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`,

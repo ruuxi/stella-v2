@@ -46,6 +46,14 @@ const openDatabase = (dbPath: string): SqliteDatabase => {
   return new Database(dbPath);
 };
 
+/**
+ * Open a raw extra connection to an already-initialized database: no
+ * pragmas, no migration. Used by storage maintenance, which tunes its own
+ * connection (temp_store, busy_timeout) without touching the shared one.
+ */
+export const openSqliteConnection = (dbPath: string): SqliteDatabase =>
+  openDatabase(dbPath);
+
 export const createDesktopDatabase = (stellaDataDir: string): SqliteDatabase => {
   const db = openDatabase(getDesktopDatabasePath(stellaDataDir));
   initializeDesktopDatabase(db);

@@ -1,6 +1,8 @@
 import { Context, Effect, Layer } from "effect";
 import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { createDesktopDatabase } from "../../../kernel/storage/database.js";
+import { getDesktopDatabasePath } from "../../../kernel/storage/database-init.js";
+import { DatabaseMaintenance } from "../../../kernel/storage/maintenance.js";
 import { ChatStore } from "../../../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../../../kernel/storage/runtime-store.js";
 import {
@@ -28,6 +30,13 @@ export interface Interface {
   readonly chatStore: ChatStore;
   readonly runtimeStore: RuntimeStore;
   readonly runEventLog: RunEventLog;
+  /**
+   * Idle-time checkpoint / ANALYZE / one-time VACUUM of `stella.sqlite`.
+   * Started by WorkerSessions once the session is published (it needs the
+   * worker-wide idle signal and the attached-client count); its
+   * `holdsWorkerAlive()` feeds `hasActiveWork`. Stopped by this finalizer.
+   */
+  readonly maintenance: DatabaseMaintenance;
   /**
    * LOCAL_CHAT_UPDATED fan-out, exactly as the old top-level
    * `notifyLocalChatUpdated` helper emitted it.
@@ -66,9 +75,15 @@ export const layer = Layer.effect(
     const runtimeStore = chatStore as RuntimeStore;
     const runEventDb = openRunEventDatabase(config.get().stellaDataDirPath);
     const runEventLog = new RunEventLog(runEventDb);
+    const maintenance = new DatabaseMaintenance({
+      db,
+      databasePath: getDesktopDatabasePath(config.get().stellaDataDirPath),
+    });
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
+        // Cancel ticks + PRAGMA optimize on the still-open connection.
+        maintenance.stop();
         runEventDb.close();
         db.close();
       }),
@@ -102,6 +117,7 @@ export const layer = Layer.effect(
       chatStore,
       runtimeStore,
       runEventLog,
+      maintenance,
       notifyLocalChatUpdated,
       appendChatEventAndNotify,
     };

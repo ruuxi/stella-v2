@@ -700,6 +700,158 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
+  it("feeds the tool_use correlator from stdout so MCP calls run without the settle wait and image_gen gets its identity", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-claude-correlator-feed-"),
+    );
+    const binDir = path.join(dir, "bin");
+    const helperPath = path.join(dir, "fake-claude.mjs");
+    const logPath = path.join(dir, "calls.log");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.symlinkSync(
+      path.resolve(process.cwd(), "../../node_modules"),
+      path.join(dir, "node_modules"),
+      "dir",
+    );
+    // Mirrors the real CLI ordering: the tool_use block streams and the
+    // finalized assistant event (stop_reason "tool_use") is written to stdout
+    // BEFORE the MCP HTTP call is issued. Each line is split across two
+    // writes to keep the split-frame reassembly path in play.
+    fs.writeFileSync(
+      helperPath,
+      [
+        "import fs from 'node:fs';",
+        "import { Client } from '@modelcontextprotocol/sdk/client/index.js';",
+        "import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';",
+        "const argv = process.argv.slice(2);",
+        "const sid = 'correlator-session';",
+        "const sleep = ms => new Promise(r => setTimeout(r, ms));",
+        "async function emit(payload) {",
+        "  const line = JSON.stringify({ session_id: sid, ...payload }) + '\\n';",
+        "  const mid = Math.floor(line.length / 2);",
+        "  process.stdout.write(line.slice(0, mid));",
+        "  await sleep(5);",
+        "  process.stdout.write(line.slice(mid));",
+        "}",
+        "async function toolRound(client, id, name, input) {",
+        "  const json = JSON.stringify(input);",
+        "  await emit({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id, name: 'mcp__stella__' + name, input: {} } } });",
+        "  await emit({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: json.slice(0, 5) } } });",
+        "  await emit({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: json.slice(5) } } });",
+        "  await emit({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });",
+        "  await emit({ type: 'assistant', message: { id: 'msg-' + id, stop_reason: 'tool_use', content: [{ type: 'tool_use', id, name: 'mcp__stella__' + name, input }] } });",
+        "  const started = Date.now();",
+        "  let isError = false; let text = '';",
+        "  try {",
+        "    const out = await client.callTool({ name, arguments: input }, undefined, { timeout: 20000 });",
+        "    isError = Boolean(out.isError);",
+        "    text = JSON.stringify(out.content);",
+        "  } catch (error) { isError = true; text = String(error && error.message || error); }",
+        "  fs.appendFileSync(process.env.STELLA_FAKE_CLAUDE_LOG, JSON.stringify({ name, ms: Date.now() - started, isError, text }) + '\\n');",
+        "}",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
+        "let buffer = '';",
+        "let handled = false;",
+        "process.stdin.on('data', async chunk => {",
+        "  buffer += chunk.toString('utf8');",
+        "  if (handled || !buffer.includes('\\n')) return;",
+        "  handled = true;",
+        "  await emit({ type: 'stream_event', event: { type: 'message_start' } });",
+        "  await toolRound(client, 'toolu_weather', 'get_weather', { city: 'Paris' });",
+        "  await toolRound(client, 'toolu_image', 'image_gen', { prompt: 'a red fox' });",
+        "  await emit({ type: 'result', is_error: false, usage: { input_tokens: 1, output_tokens: 1 }, result: 'Done.' });",
+        "});",
+      ].join("\n"),
+    );
+    const fakeClaude = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fakeClaude,
+      '#!/bin/sh\nexec node "$STELLA_FAKE_CLAUDE_HELPER" "$@"\n',
+    );
+    fs.chmodSync(fakeClaude, 0o755);
+    const previousPath = process.env.PATH;
+    const previousHelper = process.env.STELLA_FAKE_CLAUDE_HELPER;
+    const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.STELLA_FAKE_CLAUDE_HELPER = helperPath;
+    process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
+    try {
+      const executeTool = vi.fn(
+        async (_toolCallId: string, toolName: string) => ({
+          result: `${toolName} ok`,
+        }),
+      );
+      const result = await runClaudeCodeTurn({
+        runId: "run-correlator-feed",
+        sessionKey: `test-correlator-feed:${Date.now()}`,
+        prompt: "Use the tools.",
+        modelId: "claude-code/default",
+        tools: [
+          {
+            name: "get_weather",
+            description: "Get weather",
+            parameters: { type: "object" },
+          },
+          {
+            name: "image_gen",
+            description: "Generate an image",
+            parameters: { type: "object" },
+          },
+        ],
+        executeTool,
+      });
+
+      expect(result.text).toBe("Done.");
+      const calls = fs
+        .readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              name: string;
+              ms: number;
+              isError: boolean;
+              text: string;
+            },
+        );
+      const weather = calls.find((call) => call.name === "get_weather");
+      const image = calls.find((call) => call.name === "image_gen");
+      // The integrity verdict is already on record when the call lands, so
+      // the 750ms fail-open settle window must not be paid.
+      expect(weather).toMatchObject({ isError: false });
+      expect(weather!.ms).toBeLessThan(500);
+      // image_gen must claim Claude's native tool_use id instead of timing
+      // out after 5s and refusing the submission.
+      expect(image).toMatchObject({ isError: false });
+      expect(image!.text).not.toContain("durable tool_use identity");
+      expect(image!.ms).toBeLessThan(500);
+      const imageCall = executeTool.mock.calls.find(
+        (call) => call[1] === "image_gen",
+      );
+      expect(imageCall?.[0]).toMatch(/^claude:[0-9a-f]{24}:toolu_image:/);
+    } finally {
+      shutdownClaudeCodeRuntime();
+      process.env.PATH = previousPath;
+      if (previousHelper === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_HELPER;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_HELPER = previousHelper;
+      }
+      if (previousLogPath === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_LOG;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_LOG = previousLogPath;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("allows an empty native final after a successful NoResponse call", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-no-response-"),

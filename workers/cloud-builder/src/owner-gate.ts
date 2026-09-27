@@ -2327,7 +2327,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ];
     }
     if (
-      (row.ingress === "desktop" || row.ingress === "browser") &&
+      (row.ingress === "desktop" ||
+        row.ingress === "browser" ||
+        row.ingress === "schedule") &&
       row.requested_target_mode === "device" &&
       row.requested_executor_device_id
     ) {

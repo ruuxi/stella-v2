@@ -14,17 +14,20 @@
 // interactive chat budget so background work can never spend the allowance the
 // person in front of the composer is about to need.
 
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import { Cron } from "croner";
 import { makeFunctionReference } from "convex/server";
 import {
   internalAction,
   internalMutation,
   internalQuery,
+  mutation,
+  query,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { isAnonymousIdentity, requireUserIdentity } from "./auth";
 import { cronScheduleValidator } from "./schema/scheduling";
 import type { SubscriptionPlan } from "./lib/billing_plans";
 import { scheduleOwnershipClaimAllowed } from "./lib/auth_migration_paths";
@@ -33,7 +36,11 @@ import {
   assertOwnerDataWriteAllowed,
   assertOwnerPurgeOperation,
 } from "./owner_lifecycle";
-import { isBuilderTurnError, startBuilderTurn } from "./lib/builder_turns";
+import {
+  isBuilderTurnError,
+  startBuilderTurn,
+  submitBuilderScheduleDispatch,
+} from "./lib/builder_turns";
 
 /** ConvexError carries its readable text in `data`, not in `message`. */
 const readableError = (error: unknown): string => {
@@ -158,6 +165,7 @@ const scheduleRowValidator = v.object({
   scheduleId: v.string(),
   ownerId: v.string(),
   conversationId: v.optional(v.string()),
+  targetDeviceId: v.optional(v.string()),
   prompt: v.string(),
   schedule: v.string(),
   nextRunAt: v.number(),
@@ -176,6 +184,7 @@ type ScheduleRow = {
   scheduleId: string;
   ownerId: string;
   conversationId?: string;
+  targetDeviceId?: string;
   prompt: string;
   schedule: string;
   nextRunAt: number;
@@ -193,6 +202,7 @@ const toScheduleRow = (row: ScheduleRow) => ({
   scheduleId: row.scheduleId,
   ownerId: row.ownerId,
   conversationId: row.conversationId,
+  targetDeviceId: row.targetDeviceId,
   prompt: row.prompt,
   schedule: row.schedule,
   nextRunAt: row.nextRunAt,
@@ -501,20 +511,10 @@ export const hasOwnerSchedulesInternal = internalQuery({
   },
 });
 
-export const createScheduleInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    isAnonymous: v.boolean(),
-    requestId: v.string(),
-    prompt: v.string(),
-    schedule: cronScheduleValidator,
-    description: v.optional(v.string()),
-    conversationId: v.optional(v.string()),
-    ownerGeneration: v.string(),
-    now: v.number(),
-  },
-  returns: scheduleMutationReceiptValidator,
-  handler: async (ctx, args) => {
+const createScheduleForOwner = async (
+  ctx: MutationCtx,
+  args: ObjectType<typeof createScheduleForOwnerArgs>,
+) => {
     if (args.isAnonymous) signInRequired();
     await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const requestId = normalizeScheduleRequestId(args.requestId);
@@ -527,6 +527,7 @@ export const createScheduleInternal = internalMutation({
       schedule,
       description,
       conversationId: args.conversationId ?? null,
+      targetDeviceId: args.targetDeviceId ?? null,
     });
     const replay = await replayScheduleReceipt(ctx, {
       ownerId: args.ownerId,
@@ -577,6 +578,9 @@ export const createScheduleInternal = internalMutation({
       scheduleId,
       ownerId: args.ownerId,
       conversationId: args.conversationId,
+      ...(args.targetDeviceId?.trim()
+        ? { targetDeviceId: args.targetDeviceId.trim() }
+        : {}),
       prompt,
       schedule: JSON.stringify(schedule),
       nextRunAt: computeNextRunAt(schedule, args.now),
@@ -600,24 +604,31 @@ export const createScheduleInternal = internalMutation({
       now: args.now,
     });
     return { replayed: false, resultJson };
-  },
-});
+};
 
-export const updateScheduleInternal = internalMutation({
-  args: {
+const createScheduleForOwnerArgs = {
     ownerId: v.string(),
     isAnonymous: v.boolean(),
     requestId: v.string(),
-    scheduleId: v.string(),
-    prompt: v.optional(v.string()),
-    schedule: v.optional(cronScheduleValidator),
+    prompt: v.string(),
+    schedule: cronScheduleValidator,
     description: v.optional(v.string()),
-    status: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+    targetDeviceId: v.optional(v.string()),
     ownerGeneration: v.string(),
     now: v.number(),
-  },
+  };
+
+export const createScheduleInternal = internalMutation({
+  args: createScheduleForOwnerArgs,
   returns: scheduleMutationReceiptValidator,
-  handler: async (ctx, args) => {
+  handler: async (ctx, args) => await createScheduleForOwner(ctx, args),
+});
+
+const updateScheduleForOwner = async (
+  ctx: MutationCtx,
+  args: ObjectType<typeof updateScheduleForOwnerArgs>,
+) => {
     if (args.isAnonymous && args.status === "active") signInRequired();
     await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const requestId = normalizeScheduleRequestId(args.requestId);
@@ -699,19 +710,31 @@ export const updateScheduleInternal = internalMutation({
       now: args.now,
     });
     return { replayed: false, resultJson };
-  },
-});
+};
 
-export const removeScheduleInternal = internalMutation({
-  args: {
+const updateScheduleForOwnerArgs = {
     ownerId: v.string(),
+    isAnonymous: v.boolean(),
     requestId: v.string(),
     scheduleId: v.string(),
+    prompt: v.optional(v.string()),
+    schedule: v.optional(cronScheduleValidator),
+    description: v.optional(v.string()),
+    status: v.optional(v.string()),
     ownerGeneration: v.string(),
     now: v.number(),
-  },
+  };
+
+export const updateScheduleInternal = internalMutation({
+  args: updateScheduleForOwnerArgs,
   returns: scheduleMutationReceiptValidator,
-  handler: async (ctx, args) => {
+  handler: async (ctx, args) => await updateScheduleForOwner(ctx, args),
+});
+
+const removeScheduleForOwner = async (
+  ctx: MutationCtx,
+  args: ObjectType<typeof removeScheduleForOwnerArgs>,
+) => {
     await assertOwnerDataWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const requestId = normalizeScheduleRequestId(args.requestId);
     const intentJson = JSON.stringify({
@@ -759,7 +782,20 @@ export const removeScheduleInternal = internalMutation({
       now: args.now,
     });
     return { replayed: false, resultJson };
-  },
+};
+
+const removeScheduleForOwnerArgs = {
+    ownerId: v.string(),
+    requestId: v.string(),
+    scheduleId: v.string(),
+    ownerGeneration: v.string(),
+    now: v.number(),
+  };
+
+export const removeScheduleInternal = internalMutation({
+  args: removeScheduleForOwnerArgs,
+  returns: scheduleMutationReceiptValidator,
+  handler: async (ctx, args) => await removeScheduleForOwner(ctx, args),
 });
 
 export const listDueSchedulesInternal = internalQuery({
@@ -1080,6 +1116,39 @@ export const dispatchDueSchedulesInternal = internalAction({
                 : {}),
             },
           });
+        // A schedule that names a computer is offered to it first; the owner
+        // gate runs it in the cloud when that computer can't take it.
+        if (row.targetDeviceId) {
+          const conversationId = row.conversationId ?? crypto.randomUUID();
+          await submitBuilderScheduleDispatch({
+            ownerId: row.ownerId,
+            ownerGeneration: ownerGeneration!,
+            conversationId,
+            idempotencyKey: scheduleClientMsgId(fireId),
+            clientMsgId: scheduleClientMsgId(fireId),
+            prompt: row.prompt,
+            targetDeviceId: row.targetDeviceId,
+          });
+          if (!row.conversationId) {
+            await ctx.runMutation(attachConversationRef, {
+              scheduleId: row.scheduleId,
+              ownerId: row.ownerId,
+              fireId,
+              ownerGeneration,
+              conversationId,
+              now,
+            });
+          }
+          await ctx.runMutation(finishScheduleFireRef, {
+            scheduleId: row.scheduleId,
+            ownerId: row.ownerId,
+            fireId,
+            ownerGeneration,
+            now,
+          });
+          dispatched += 1;
+          continue;
+        }
         // The pinned conversation can be deleted from the web app while the
         // schedule lives on. Start a fresh one rather than letting the
         // schedule fail silently on every fire from then on.
@@ -1149,5 +1218,127 @@ export const dispatchDueSchedulesInternal = internalAction({
       }
     }
     return { due: due.length, dispatched };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Signed-in clients (the phone's Schedule tab, the desktop's schedule tools
+// and chips). Every schedule lives here, whichever computer or cloud runs it.
+// ---------------------------------------------------------------------------
+
+const requireScheduleOwner = async (ctx: QueryCtx | MutationCtx) => {
+  const identity = await requireUserIdentity(ctx);
+  const ownerId = identity.tokenIdentifier;
+  const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
+  return {
+    ownerId,
+    ownerGeneration: generation,
+    isAnonymous: isAnonymousIdentity(identity),
+  };
+};
+
+const receiptSchedule = (resultJson: string) =>
+  (JSON.parse(resultJson) as { schedule?: unknown }).schedule ?? null;
+
+/** Live schedules, soonest first, paused ones after. */
+export const listMySchedules = query({
+  args: {},
+  returns: v.array(scheduleRowValidator),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    const rows = await ctx.db
+      .query("cloud_scheduled_turns")
+      .withIndex("by_ownerId_and_updatedAt", (q) =>
+        q.eq("ownerId", identity.tokenIdentifier),
+      )
+      .order("desc")
+      .take(MAX_SCHEDULES_PER_OWNER * 2);
+    return rows
+      .filter((row) => row.status === "active" || row.status === "paused")
+      .map(toScheduleRow)
+      .sort((a, b) =>
+        a.status !== b.status
+          ? a.status === "active"
+            ? -1
+            : 1
+          : a.nextRunAt - b.nextRunAt,
+      );
+  },
+});
+
+export const createMySchedule = mutation({
+  args: {
+    requestId: v.string(),
+    prompt: v.string(),
+    schedule: cronScheduleValidator,
+    description: v.optional(v.string()),
+    conversationId: v.optional(v.string()),
+    targetDeviceId: v.optional(v.string()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const owner = await requireScheduleOwner(ctx);
+    const created = await createScheduleForOwner(ctx, {
+      ...owner,
+      ...args,
+      now: Date.now(),
+    });
+    return receiptSchedule(created.resultJson);
+  },
+});
+
+export const updateMySchedule = mutation({
+  args: {
+    requestId: v.string(),
+    scheduleId: v.string(),
+    prompt: v.optional(v.string()),
+    schedule: v.optional(cronScheduleValidator),
+    description: v.optional(v.string()),
+    status: v.optional(v.union(v.literal("active"), v.literal("paused"))),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const owner = await requireScheduleOwner(ctx);
+    const updated = await updateScheduleForOwner(ctx, {
+      ...owner,
+      ...args,
+      now: Date.now(),
+    });
+    return receiptSchedule(updated.resultJson);
+  },
+});
+
+export const removeMySchedule = mutation({
+  args: { requestId: v.string(), scheduleId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { ownerId, ownerGeneration } = await requireScheduleOwner(ctx);
+    await removeScheduleForOwner(ctx, {
+      ownerId,
+      ownerGeneration,
+      ...args,
+      now: Date.now(),
+    });
+    return null;
+  },
+});
+
+/** "Run now": the next sweep (within a minute) fires it. */
+export const runMyScheduleNow = mutation({
+  args: { scheduleId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { ownerId } = await requireScheduleOwner(ctx);
+    const row = await ctx.db
+      .query("cloud_scheduled_turns")
+      .withIndex("by_scheduleId", (q) => q.eq("scheduleId", args.scheduleId))
+      .unique();
+    if (!row || row.ownerId !== ownerId || row.status !== "active") {
+      throw new ConvexError(`No active schedule with id ${args.scheduleId}.`);
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, { nextRunAt: now, updatedAt: now });
+    return null;
   },
 });

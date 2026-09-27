@@ -13,6 +13,9 @@ export const cloudScheduleSchema = {
     // reports into; from then on every fire lands in the same thread.
     conversationId: v.optional(v.string()),
     prompt: v.string(),
+    // The computer a fire is offered to first. Absent means the cloud. A fire
+    // whose computer is asleep, busy or gone runs in the cloud instead.
+    targetDeviceId: v.optional(v.string()),
     // Serialized LocalCronSchedule (packages/contracts/scheduling.ts):
     // {kind:"at",atMs} | {kind:"every",everyMs,anchorMs?} | {kind:"cron",expr,tz?}
     schedule: v.string(),

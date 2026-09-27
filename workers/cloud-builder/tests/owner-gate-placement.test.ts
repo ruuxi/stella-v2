@@ -224,6 +224,32 @@ describe("dispatch submission", () => {
     )).toHaveLength(2);
   });
 
+  test("offers a scheduled fire to the computer it targets", async () => {
+    const desk = await generateDeviceKey("desk-1");
+    const harness = open(OwnerGate, {
+      snapshot: snapshotWith([desk], ["desk-1"]),
+    });
+    const { socket } = await withNow(NOW, () => harness.connect(desk));
+    const result = await withNow(NOW, () =>
+      harness.instance.submit({
+        request: submitBody({
+          ingress: "schedule",
+          subject: "cloud",
+          targetMode: "device",
+          targetDeviceId: "desk-1",
+          requestingDeviceId: undefined,
+        }),
+        now: NOW,
+      }),
+    );
+    expect(result.response.dispatch).toMatchObject({
+      state: "offering",
+      ingress: "schedule",
+    });
+    expect(lastFrame(socket, "offer")).toBeDefined();
+    expect(harness.forwarded).toHaveLength(0);
+  });
+
   test("offers mobile work to the paired desktop with the payload and its hash", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, {

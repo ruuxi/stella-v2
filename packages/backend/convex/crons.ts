@@ -18,7 +18,7 @@ const maintainAgentEventOwnershipRef = makeFunctionReference<
 >("agent_event_ownership:maintainAgentEventOwnershipInternal");
 
 const sweepMemoryWipesRef = makeFunctionReference<
-  "action",
+  "mutation",
   { limit?: number },
   { attempted: number }
 >("cloud_memory_lifecycle:sweepDueMemoryWipesInternal");
@@ -296,11 +296,12 @@ crons.interval(
 
 // A platform-suspended Stripe action can report a provider success only after
 // permanent account deletion removed its owner-scoped operation row. The mark
-// retained a hash-only physical receipt; this sweep drains any short-lived raw
-// cleanup locator even if its transaction-scheduled first wake was lost.
+// retained a hash-only physical receipt; every write that makes a cleanup
+// locator due (enqueue, claim, deferral, failure backoff) schedules its own
+// drain, so this hourly sweep only recovers a lost or killed wake.
 crons.interval(
   "drain late Stripe deletion locators",
-  { minutes: 1 },
+  { hours: 1 },
   drainLateStripeCleanupRef,
   {},
 );

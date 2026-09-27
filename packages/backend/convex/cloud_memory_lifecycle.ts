@@ -1186,7 +1186,9 @@ export const listDueMemoryWipesInternal = internalQuery({
   },
 });
 
-export const sweepDueMemoryWipesInternal = internalAction({
+// A mutation, not an action: the minute cron reads the due index and
+// schedules wipes in one transaction, and an idle tick costs no action.
+export const sweepDueMemoryWipesInternal = internalMutation({
   args: { limit: v.optional(v.number()) },
   returns: v.object({ attempted: v.number() }),
   handler: async (ctx, args) => {

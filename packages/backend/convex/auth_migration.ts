@@ -4910,7 +4910,9 @@ export const listPendingMigratedSourceIdentityDeletionsInternal = internalQuery(
   },
 );
 
-export const sweepMigratedSourceIdentityDeletionsInternal = internalAction({
+// A mutation, not an action: the minute cron reads pending retirements and
+// schedules them in one transaction, and an idle tick costs no action.
+export const sweepMigratedSourceIdentityDeletionsInternal = internalMutation({
   args: { limit: v.optional(v.number()) },
   returns: v.object({ attempted: v.number() }),
   handler: async (ctx, args) => {

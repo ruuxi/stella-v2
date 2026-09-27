@@ -3,7 +3,7 @@
 import { makeFunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { assertOwnerArtifactQuota } from "./lib/artifact_quota";
 import { calculateRiskScore } from "./lib/risk";
 import { evaluateSybilPressure } from "./lib/sybil";
@@ -53,8 +53,14 @@ const getOrProvisionTunnelRef = makeFunctionReference<
 
 const recomputeRiskRef = makeFunctionReference<
   "mutation",
-  { now?: number },
-  { scored: number; deleted: number; enforced: number; hasMoreExpired: boolean }
+  { now?: number; cursor?: string },
+  {
+    scored: number;
+    deleted: number;
+    enforced: number;
+    hasMoreExpired: boolean;
+    hasMore: boolean;
+  }
 >("risk:recomputeRiskScoresInternal");
 
 const topRiskRef = makeFunctionReference<
@@ -62,6 +68,7 @@ const topRiskRef = makeFunctionReference<
   {
     window: "1h" | "24h";
     by: "spend" | "requests" | "mints" | "score";
+    now: number;
   },
   Array<{ ownerId: string; score: number; requests: number }>
 >("risk:listTopOwnerRiskSignalsInternal");
@@ -488,7 +495,11 @@ describe("risk scoring", () => {
         updatedAt: Date.now() - DAY_MS - 1,
       });
     });
-    const top = await t.query(topRiskRef, { window: "24h", by: "requests" });
+    const top = await t.query(topRiskRef, {
+      window: "24h",
+      by: "requests",
+      now: Date.now(),
+    });
     expect(top).toHaveLength(20);
     expect(top[0]).toMatchObject({ ownerId: "owner-24", requests: 24 });
     expect(top.some((row) => row.ownerId === "stale-owner")).toBe(false);
@@ -496,5 +507,69 @@ describe("risk scoring", () => {
       ownerId: "owner-5",
       requests: 5,
     });
+  });
+
+  it("pages past the batch size and enforces owners on continuation pages", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const now = Date.now();
+      await t.run(async (ctx) => {
+        // Oldest row lands on the second page of the descending scan.
+        await ctx.db.insert("owner_risk_signals", {
+          ownerId: "late-page-owner",
+          window: "1h",
+          requests: 201,
+          chargedMicroCents: 200_000_001,
+          mints: 0,
+          hostingRequests: 0,
+          distinctIps: 0,
+          ipHashes: [],
+          distinctConversations: 0,
+          conversationIds: [],
+          failedRequests: 0,
+          sybilFlags: 0,
+          score: 0,
+          updatedAt: now - 60_000,
+        });
+        for (let index = 0; index < 500; index += 1) {
+          await ctx.db.insert("owner_risk_signals", {
+            ownerId: `quiet-owner-${index}`,
+            window: "24h",
+            requests: 0,
+            chargedMicroCents: 0,
+            mints: 0,
+            hostingRequests: 0,
+            distinctIps: 0,
+            ipHashes: [],
+            distinctConversations: 0,
+            conversationIds: [],
+            failedRequests: 0,
+            sybilFlags: 0,
+            score: 0,
+            updatedAt: now - index,
+          });
+        }
+      });
+      expect(await t.mutation(recomputeRiskRef, { now })).toMatchObject({
+        scored: 500,
+        enforced: 0,
+        hasMore: true,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const enforcement = await t.run(
+        async (ctx) =>
+          await ctx.db
+            .query("owner_enforcement")
+            .withIndex("by_owner", (q) => q.eq("ownerId", "late-page-owner"))
+            .unique(),
+      );
+      expect(enforcement).toMatchObject({
+        status: "challenged",
+        actor: "risk-cron",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

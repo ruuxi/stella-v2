@@ -282,11 +282,24 @@ const authorizeLateStripeCleanupProviderOwnerRef = makeFunctionReference<
   boolean
 >("stripe_operation_dispatch:authorizeLateStripeCleanupProviderOwnerInternal");
 
-const authorizeLateStripeCleanupRowRef = makeFunctionReference<
-  "query",
-  { tupleHash: string; locatorHash: string },
-  boolean
->("stripe_operation_dispatch:authorizeLateStripeCleanupRowInternal");
+const claimNextLateStripeCleanupRef = makeFunctionReference<
+  "mutation",
+  { claimId: string; now: number },
+  | null
+  | { status: "skipped" }
+  | {
+      status: "claimed";
+      row: {
+        tupleHash: string;
+        ownerHash: string;
+        providerOwnerHash: string;
+        successLocatorHash: string;
+        locatorHash: string;
+        locatorKind: "customer" | "checkout_session";
+        locatorValue: string;
+      };
+    }
+>("stripe_operation_dispatch:claimNextLateStripeCleanupInternal");
 
 const hasTerminalStripeCleanupCustomerRef = makeFunctionReference<
   "query",
@@ -4427,75 +4440,150 @@ export const hasValidLateStripeCleanupRowProof = async (
   );
 };
 
-export const authorizeLateStripeCleanupRowInternal = internalQuery({
-  args: { tupleHash: v.string(), locatorHash: v.string() },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("billing_stripe_late_cleanup_locators")
-      .withIndex("by_tupleHash_and_locatorHash", (q) =>
-        q.eq("tupleHash", args.tupleHash).eq("locatorHash", args.locatorHash),
-      )
-      .unique();
-    return row ? await hasValidLateStripeCleanupRowProof(ctx, row) : false;
-  },
+const lateStripeCleanupCandidateValidator = v.object({
+  tupleHash: v.string(),
+  ownerHash: v.string(),
+  providerOwnerHash: v.string(),
+  successLocatorHash: v.string(),
+  locatorHash: v.string(),
+  locatorKind: v.union(v.literal("customer"), v.literal("checkout_session")),
+  locatorValue: v.string(),
 });
+
+const toLateStripeCleanupCandidate = (
+  row: Doc<"billing_stripe_late_cleanup_locators">,
+) => ({
+  tupleHash: row.tupleHash,
+  ownerHash: row.ownerHash,
+  providerOwnerHash: row.providerOwnerHash,
+  successLocatorHash: row.successLocatorHash,
+  locatorHash: row.locatorHash,
+  locatorKind: row.locatorKind,
+  locatorValue: row.locatorValue,
+});
+
+/**
+ * Checkout locators drain before customers so a customer delete never races
+ * the Checkout that still references it. Claims push `nextAttemptAt` past the
+ * claim expiry, so the first row in each due range is the next unclaimed one.
+ */
+const readDueLateStripeCleanupRow = async (
+  ctx: Pick<QueryCtx, "db">,
+  now: number,
+): Promise<Doc<"billing_stripe_late_cleanup_locators"> | null> => {
+  const checkout = await ctx.db
+    .query("billing_stripe_late_cleanup_locators")
+    .withIndex("by_kind_and_nextAttemptAt", (q) =>
+      q.eq("locatorKind", "checkout_session").lte("nextAttemptAt", now),
+    )
+    .first();
+  if (checkout) return checkout;
+  return await ctx.db
+    .query("billing_stripe_late_cleanup_locators")
+    .withIndex("by_kind_and_nextAttemptAt", (q) =>
+      q.eq("locatorKind", "customer").lte("nextAttemptAt", now),
+    )
+    .first();
+};
+
+const recordLateStripeCleanupRowFailure = async (
+  ctx: MutationCtx,
+  row: Doc<"billing_stripe_late_cleanup_locators">,
+  error: string,
+  now: number,
+): Promise<void> => {
+  await ctx.db.patch(row._id, {
+    attempts: row.attempts + 1,
+    lastError: error.slice(0, 2_000),
+    nextAttemptAt: now + 60_000,
+    cleanupClaimId: undefined,
+    cleanupClaimExpiresAt: undefined,
+    updatedAt: now,
+  });
+  await ctx.scheduler.runAt(now + 60_000, drainLateStripeCleanupRef, {});
+};
 
 export const getPendingLateStripeCleanupInternal = internalQuery({
   args: { now: v.number() },
+  returns: v.union(v.null(), lateStripeCleanupCandidateValidator),
+  handler: async (ctx, args) => {
+    const row = await readDueLateStripeCleanupRow(ctx, args.now);
+    return row ? toLateStripeCleanupCandidate(row) : null;
+  },
+});
+
+/**
+ * One transaction per drain round: find the next due locator, prove it, and
+ * claim it. `skipped` means the head row was consumed without a claim
+ * (retained, deferred behind a Checkout, or failed validation and backed off),
+ * so the caller should try the next round.
+ */
+export const claimNextLateStripeCleanupInternal = internalMutation({
+  args: { claimId: v.string(), now: v.number() },
   returns: v.union(
     v.null(),
+    v.object({ status: v.literal("skipped") }),
     v.object({
-      tupleHash: v.string(),
-      ownerHash: v.string(),
-      providerOwnerHash: v.string(),
-      successLocatorHash: v.string(),
-      locatorHash: v.string(),
-      locatorKind: v.union(
-        v.literal("customer"),
-        v.literal("checkout_session"),
-      ),
-      locatorValue: v.string(),
+      status: v.literal("claimed"),
+      row: lateStripeCleanupCandidateValidator,
     }),
   ),
   handler: async (ctx, args) => {
-    const checkoutRows = await ctx.db
-      .query("billing_stripe_late_cleanup_locators")
-      .withIndex("by_kind_and_nextAttemptAt", (q) =>
-        q.eq("locatorKind", "checkout_session").lte("nextAttemptAt", args.now),
-      )
-      .take(33);
-    const checkout = checkoutRows.find(
-      (candidate) =>
-        candidate.cleanupClaimExpiresAt === undefined ||
-        candidate.cleanupClaimExpiresAt <= args.now,
-    );
-    const customerRows = checkout
-      ? []
-      : await ctx.db
-          .query("billing_stripe_late_cleanup_locators")
-          .withIndex("by_kind_and_nextAttemptAt", (q) =>
-            q.eq("locatorKind", "customer").lte("nextAttemptAt", args.now),
-          )
-          .take(33);
-    const row =
-      checkout ??
-      customerRows.find(
-        (candidate) =>
-          candidate.cleanupClaimExpiresAt === undefined ||
-          candidate.cleanupClaimExpiresAt <= args.now,
-      );
-    return row
-      ? {
+    // Bounded: rows claimed before claims advanced `nextAttemptAt` are moved
+    // out of the due range here instead of being rescanned every round.
+    for (let index = 0; index < 8; index += 1) {
+      const row = await readDueLateStripeCleanupRow(ctx, args.now);
+      if (!row) return null;
+      if (
+        row.cleanupClaimExpiresAt !== undefined &&
+        row.cleanupClaimExpiresAt > args.now
+      ) {
+        await ctx.db.patch(row._id, {
+          nextAttemptAt: row.cleanupClaimExpiresAt,
+        });
+        await ctx.scheduler.runAfter(
+          row.cleanupClaimExpiresAt - args.now,
+          drainLateStripeCleanupRef,
+          {},
+        );
+        continue;
+      }
+      if (!(await hasValidLateStripeCleanupRowProof(ctx, row))) {
+        await recordLateStripeCleanupRowFailure(
+          ctx,
+          row,
+          "Stripe cleanup row proof is missing or changed.",
+          args.now,
+        );
+        return { status: "skipped" as const };
+      }
+      let claimed: boolean;
+      try {
+        // Subtransaction: a conflict rolls back only the claim's own writes,
+        // leaving this mutation free to back the row off.
+        claimed = await ctx.runMutation(claimLateStripeCleanupRef, {
           tupleHash: row.tupleHash,
-          ownerHash: row.ownerHash,
-          providerOwnerHash: row.providerOwnerHash,
-          successLocatorHash: row.successLocatorHash,
           locatorHash: row.locatorHash,
-          locatorKind: row.locatorKind,
-          locatorValue: row.locatorValue,
-        }
-      : null;
+          claimId: args.claimId,
+          now: args.now,
+        });
+      } catch (error) {
+        await recordLateStripeCleanupRowFailure(
+          ctx,
+          row,
+          error instanceof Error ? error.message : String(error),
+          args.now,
+        );
+        return { status: "skipped" as const };
+      }
+      return claimed
+        ? {
+            status: "claimed" as const,
+            row: toLateStripeCleanupCandidate(row),
+          }
+        : { status: "skipped" as const };
+    }
+    return { status: "skipped" as const };
   },
 });
 
@@ -4576,11 +4664,17 @@ export const claimLateStripeCleanupInternal = internalMutation({
         // customer at a time avoids a fan-out transaction over every tuple
         // that references a shared customer, so an arbitrarily large set
         // cannot roll back the callback that created cleanup authority.
+        const nextAttemptAt = Math.max(row.nextAttemptAt, args.now + 60_000);
         await ctx.db.patch(row._id, {
           checkoutBlocked: true,
-          nextAttemptAt: Math.max(row.nextAttemptAt, args.now + 60_000),
+          nextAttemptAt,
           updatedAt: args.now,
         });
+        await ctx.scheduler.runAfter(
+          nextAttemptAt - args.now,
+          drainLateStripeCleanupRef,
+          {},
+        );
         return false;
       }
     }
@@ -4590,8 +4684,22 @@ export const claimLateStripeCleanupInternal = internalMutation({
       // Worst-case Checkout cleanup can perform four sequential Stripe calls
       // (session, customer, expire, readback), each with a 20s timeout.
       cleanupClaimExpiresAt: args.now + STRIPE_LATE_CLEANUP_DISCOVERY_CLAIM_MS,
+      // Claimed rows leave the due index range until the claim can expire, so
+      // discovery never has to scan past in-flight work.
+      nextAttemptAt: Math.max(
+        row.nextAttemptAt,
+        args.now + STRIPE_LATE_CLEANUP_DISCOVERY_CLAIM_MS,
+      ),
       updatedAt: args.now,
     });
+    // Wakes the drain if this claimant dies; a finished claim makes it a no-op.
+    // Wakes are relative so a caller-supplied `now` never lands them in the
+    // past and races the claimant it is meant to back up.
+    await ctx.scheduler.runAfter(
+      STRIPE_LATE_CLEANUP_DISCOVERY_CLAIM_MS,
+      drainLateStripeCleanupRef,
+      {},
+    );
     return true;
   },
 });
@@ -4646,8 +4754,14 @@ export const revalidateLateStripeCleanupClaimInternal = internalMutation({
     }
     await ctx.db.patch(row._id, {
       cleanupClaimExpiresAt: args.now + STRIPE_LATE_CLEANUP_MUTATION_CLAIM_MS,
+      nextAttemptAt: args.now + STRIPE_LATE_CLEANUP_MUTATION_CLAIM_MS,
       updatedAt: args.now,
     });
+    await ctx.scheduler.runAfter(
+      STRIPE_LATE_CLEANUP_MUTATION_CLAIM_MS,
+      drainLateStripeCleanupRef,
+      {},
+    );
     return true;
   },
 });
@@ -5154,15 +5268,7 @@ export const recordLateStripeCleanupFailureInternal = internalMutation({
     ) {
       return null;
     }
-    await ctx.db.patch(row._id, {
-      attempts: row.attempts + 1,
-      lastError: args.error.slice(0, 2_000),
-      nextAttemptAt: args.now + 60_000,
-      cleanupClaimId: undefined,
-      cleanupClaimExpiresAt: undefined,
-      updatedAt: args.now,
-    });
-    await ctx.scheduler.runAt(args.now + 60_000, drainLateStripeCleanupRef, {});
+    await recordLateStripeCleanupRowFailure(ctx, row, args.error, args.now);
     return null;
   },
 });
@@ -5194,29 +5300,16 @@ export const drainLateStripeCleanupInternal = internalAction({
   returns: v.null(),
   handler: async (ctx) => {
     for (let index = 0; index < 8; index += 1) {
-      const row = await ctx.runQuery(getPendingLateStripeCleanupRef, {
+      const candidateClaimId = crypto.randomUUID();
+      const next = await ctx.runMutation(claimNextLateStripeCleanupRef, {
+        claimId: candidateClaimId,
         now: Date.now(),
       });
-      if (!row) break;
-      let cleanupClaimId: string | undefined;
+      if (!next) break;
+      if (next.status === "skipped") continue;
+      const { row } = next;
+      const cleanupClaimId = candidateClaimId;
       try {
-        if (
-          !(await ctx.runQuery(authorizeLateStripeCleanupRowRef, {
-            tupleHash: row.tupleHash,
-            locatorHash: row.locatorHash,
-          }))
-        ) {
-          throw new Error("Stripe cleanup row proof is missing or changed.");
-        }
-        const candidateClaimId = crypto.randomUUID();
-        const claimed = await ctx.runMutation(claimLateStripeCleanupRef, {
-          tupleHash: row.tupleHash,
-          locatorHash: row.locatorHash,
-          claimId: candidateClaimId,
-          now: Date.now(),
-        });
-        if (!claimed) continue;
-        cleanupClaimId = candidateClaimId;
         const stripe = getStripeClient(STRIPE_LATE_CLEANUP_PROVIDER_TIMEOUT_MS);
         const requestOptions = {
           idempotencyKey: `stella-billing-late-delete-v1-${row.locatorHash}`,
@@ -5376,7 +5469,7 @@ export const drainLateStripeCleanupInternal = internalAction({
           await ctx.runMutation(markLateStripeCleanupTerminalRef, {
             tupleHash: row.tupleHash,
             locatorHash: row.locatorHash,
-            claimId: cleanupClaimId!,
+            claimId: cleanupClaimId,
             now: Date.now(),
           });
           continue;
@@ -5384,14 +5477,15 @@ export const drainLateStripeCleanupInternal = internalAction({
         await ctx.runMutation(recordLateStripeCleanupFailureRef, {
           tupleHash: row.tupleHash,
           locatorHash: row.locatorHash,
-          ...(cleanupClaimId ? { claimId: cleanupClaimId } : {}),
+          claimId: cleanupClaimId,
           error: error instanceof Error ? error.message : String(error),
           now: Date.now(),
         });
       }
     }
     // The action is intentionally bounded, but due work must make forward
-    // progress even when more than one batch was waiting. A periodic cron
+    // progress even when more than one batch was waiting. Every write that
+    // makes a row due later schedules its own wake, and an hourly cron
     // recovers a killed pre-claim action; this explicit continuation avoids a
     // full cron interval between immediately-due batches.
     const remainingDue = await ctx.runQuery(getPendingLateStripeCleanupRef, {

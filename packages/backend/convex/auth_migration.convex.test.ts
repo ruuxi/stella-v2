@@ -133,7 +133,7 @@ const migrationInternal = (
         Array<Id<"auth_owner_migrations">>
       >;
       sweepMigratedSourceIdentityDeletionsInternal: FunctionReference<
-        "action",
+        "mutation",
         "internal",
         { limit?: number },
         { attempted: number }
@@ -534,7 +534,7 @@ describe("crash-safe ownership migration lifecycle", () => {
       ),
     ).toContain(migrationId);
     expect(
-      await t.action(
+      await t.mutation(
         migrationInternal.sweepMigratedSourceIdentityDeletionsInternal,
         { limit: 10 },
       ),

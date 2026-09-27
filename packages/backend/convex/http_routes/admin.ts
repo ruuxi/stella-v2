@@ -115,6 +115,7 @@ const listTopOwnerRiskSignalsRef = makeFunctionReference<
   {
     window: "1h" | "24h";
     by: "spend" | "requests" | "mints" | "score";
+    now: number;
   },
   unknown[]
 >("risk:listTopOwnerRiskSignalsInternal");
@@ -520,6 +521,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
       const owners = await ctx.runQuery(listTopOwnerRiskSignalsRef, {
         window,
         by,
+        now: Date.now(),
       });
       return jsonResponse(200, { window, by, owners });
     }),

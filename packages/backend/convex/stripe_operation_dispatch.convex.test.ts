@@ -270,6 +270,18 @@ const claimLateStripeCleanup = makeFunctionReference<
   boolean
 >("stripe_operation_dispatch:claimLateStripeCleanupInternal");
 
+const claimNextLateStripeCleanup = makeFunctionReference<
+  "mutation",
+  { claimId: string; now: number },
+  null | { status: "skipped" } | { status: "claimed"; row: unknown }
+>("stripe_operation_dispatch:claimNextLateStripeCleanupInternal");
+
+const getPendingLateStripeCleanup = makeFunctionReference<
+  "query",
+  { now: number },
+  unknown
+>("stripe_operation_dispatch:getPendingLateStripeCleanupInternal");
+
 const revalidateLateStripeCleanupClaim = makeFunctionReference<
   "mutation",
   { tupleHash: string; locatorHash: string; claimId: string; now: number },
@@ -4747,6 +4759,60 @@ describe("Stripe final-return and cleanup fences", () => {
     expect(remaining).toMatchObject({
       cleanupClaimId: "cleanup-takeover-worker",
     });
+  });
+
+  it("claims the next due locator in one transaction and moves it out of the due range", async () => {
+    const t = createTest();
+    const ownerId = "cleanup-claim-next-owner";
+    const ownerGeneration = "cleanup-claim-next-generation";
+    const operationId = "cleanup-claim-next-operation";
+    await seedActiveOwner(t, ownerId, ownerGeneration);
+    await seedOperation(t, {
+      ownerId,
+      ownerGeneration,
+      operationId,
+      index: 132,
+    });
+    const envelope = await seedLateCleanupEnvelope(t, {
+      ownerId,
+      ownerGeneration,
+      operationId,
+      index: 132,
+      stripeCustomerId: "cus_cleanup_claim_next",
+    });
+    const now = Date.now() + 1_000;
+    const first = await t.mutation(claimNextLateStripeCleanup, {
+      claimId: "cleanup-claim-next-worker",
+      now,
+    });
+    expect(first).toMatchObject({
+      status: "claimed",
+      row: {
+        tupleHash: envelope.tupleHash,
+        locatorHash: envelope.customerLocatorHash,
+      },
+    });
+    const claimed = await t.run(async (ctx) =>
+      ctx.db
+        .query("billing_stripe_late_cleanup_locators")
+        .withIndex("by_tupleHash_and_locatorHash", (q) =>
+          q
+            .eq("tupleHash", envelope.tupleHash)
+            .eq("locatorHash", envelope.customerLocatorHash),
+        )
+        .unique(),
+    );
+    expect(claimed?.cleanupClaimId).toBe("cleanup-claim-next-worker");
+    expect(claimed?.nextAttemptAt).toBe(claimed?.cleanupClaimExpiresAt);
+    await expect(
+      t.query(getPendingLateStripeCleanup, { now }),
+    ).resolves.toBeNull();
+    await expect(
+      t.mutation(claimNextLateStripeCleanup, {
+        claimId: "cleanup-claim-next-second",
+        now,
+      }),
+    ).resolves.toBeNull();
   });
 
   it("propagates one owner-scoped retained customer fence across physical tuples", async () => {

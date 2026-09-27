@@ -139,6 +139,13 @@ export type PublicApiType = {
     "disconnectGithubInstallation": FunctionReference<'mutation', 'public', { installationId: string; }, any, string | undefined>;
     "listMyGithubRepositories": FunctionReference<'action', 'public', { installationId?: string | undefined; }, any, string | undefined>;
   };
+  "cloud_schedule": {
+    "listMySchedules": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "createMySchedule": FunctionReference<'mutation', 'public', { conversationId?: string | undefined; targetDeviceId?: string | undefined; description?: string | undefined; requestId: string; prompt: string; schedule: { kind: 'at'; atMs: number; } | { anchorMs?: number | undefined; kind: 'every'; everyMs: number; } | { tz?: string | undefined; kind: 'cron'; expr: string; }; }, any, string | undefined>;
+    "updateMySchedule": FunctionReference<'mutation', 'public', { status?: 'active' | 'paused' | undefined; description?: string | undefined; prompt?: string | undefined; schedule?: { kind: 'at'; atMs: number; } | { anchorMs?: number | undefined; kind: 'every'; everyMs: number; } | { tz?: string | undefined; kind: 'cron'; expr: string; } | undefined; requestId: string; scheduleId: string; }, any, string | undefined>;
+    "removeMySchedule": FunctionReference<'mutation', 'public', { requestId: string; scheduleId: string; }, any, string | undefined>;
+    "runMyScheduleNow": FunctionReference<'mutation', 'public', { scheduleId: string; }, any, string | undefined>;
+  };
   "cloud_skills": {
     "listMySkillHeads": FunctionReference<'query', 'public', { clientScope: string; }, any, string | undefined>;
     "deleteMyMirroredSkill": FunctionReference<'mutation', 'public', { slug: string; expectedRevision: number; clientScope: string; }, any, string | undefined>;

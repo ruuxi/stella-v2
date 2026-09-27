@@ -1734,6 +1734,113 @@ export class WorldSqlStore implements WorldToolFileApi {
     return { missingBlobs: [], revision: mutation.revision };
   }
 
+  /** Exact-path lookups in one call, without following any symlink. */
+  async statMany(
+    inputs: readonly string[],
+    options: { fork?: string } = {},
+  ): Promise<(WorldEntry | null)[]> {
+    if (inputs.length > 256) {
+      throw new Error("statMany accepts at most 256 paths.");
+    }
+    const manifest = this.liveManifest(options.fork);
+    return inputs.map((input) => {
+      const path = normalizeWorldPath(input, { allowRoot: true });
+      if (path === "")
+        return { path: "", kind: "dir", mode: 0o755, mtime: 0, size: 0 };
+      const row = this.entryRow(path, manifest);
+      return row ? rowEntry(row) : null;
+    });
+  }
+
+  /** A directory's direct children, by name. Deeper entries are not listed. */
+  async children(
+    input: string,
+    options: { fork?: string } = {},
+  ): Promise<WorldEntry[]> {
+    const parent = normalizeWorldPath(input, { allowRoot: true });
+    return this.sql
+      .exec<EntryRow>(
+        `SELECT (? || CASE WHEN d.parent_path = '' THEN '' ELSE '/' END || d.name) AS path,
+              n.node_id, n.kind, n.mode, n.mtime, n.size, n.blob_sha256, n.target
+         FROM world_dirents d JOIN world_nodes n ON n.node_id = d.node_id
+        WHERE d.manifest_id = ? AND d.parent_path = ?
+        ORDER BY d.name LIMIT 10001`,
+        parent,
+        this.liveManifest(options.fork),
+        parent,
+      )
+      .toArray()
+      .map(rowEntry);
+  }
+
+  /**
+   * Apply a worker-shell run's change set, but only if nothing it read or
+   * wrote changed after `baseRevision`. The check and the apply happen in one
+   * call, so under the Durable Object's single-writer rule no other mutation
+   * lands between them. A refused commit changes nothing, and the caller may
+   * run the command again against the newer world.
+   */
+  async commitShell(input: {
+    baseRevision: number;
+    reads: { paths: readonly string[]; children: readonly string[] };
+    entries: WorldListingEntry[];
+    deleted: string[];
+    fork?: string;
+  }): Promise<
+    | { status: "committed"; revision: number }
+    | { status: "conflict"; paths: string[] }
+    | { status: "missing_blobs"; missingBlobs: string[] }
+  > {
+    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
+      throw new Error("World revision must be a non-negative integer.");
+    }
+    const forkId = this.forkRow(input.fork).fork_id;
+    if (input.baseRevision < this.changeFloor(forkId)) {
+      return { status: "conflict", paths: [] };
+    }
+    const changed = this.sql
+      .exec<{ path: string }>(
+        "SELECT DISTINCT path FROM world_changes WHERE fork_id = ? AND revision > ?",
+        forkId,
+        input.baseRevision,
+      )
+      .toArray()
+      .map((row) => row.path);
+    if (changed.length > 0) {
+      const read = new Set(input.reads.paths);
+      const listed = new Set(input.reads.children);
+      const written = new Set([
+        ...input.entries.map((entry) => entry.path),
+        ...input.deleted,
+      ]);
+      const conflicts = changed.filter((path) => {
+        const slash = path.lastIndexOf("/");
+        const parent = slash < 0 ? "" : path.slice(0, slash);
+        return (
+          read.has(path) ||
+          listed.has(parent) ||
+          written.has(path) ||
+          input.deleted.some((deleted) => pathWithin(path, deleted))
+        );
+      });
+      if (conflicts.length > 0) {
+        return { status: "conflict", paths: conflicts.sort().slice(0, 20) };
+      }
+    }
+    if (input.entries.length === 0 && input.deleted.length === 0) {
+      return { status: "committed", revision: this.revision(forkId) };
+    }
+    const pushed = await this.pushDiff({
+      entries: input.entries,
+      deleted: input.deleted,
+      fork: forkId,
+    });
+    if (pushed.missingBlobs.length > 0) {
+      return { status: "missing_blobs", missingBlobs: pushed.missingBlobs };
+    }
+    return { status: "committed", revision: pushed.revision };
+  }
+
   async changesSince(
     revision: number,
     options: { fork?: string } = {},

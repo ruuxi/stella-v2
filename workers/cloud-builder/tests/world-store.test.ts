@@ -731,3 +731,150 @@ describe("WorldSqlStore", () => {
     }
   });
 });
+
+describe("WorldSqlStore worker-shell reads and commits", () => {
+  const blobEntry = async (
+    world: WorldSqlStore,
+    path: string,
+    text: string,
+  ) => {
+    const bytes = encoder.encode(text);
+    const sha256 = await sha256BytesHex(bytes);
+    const outcome = await world.putBlob(fragmentedStream(bytes), {
+      sha256,
+      size: bytes.byteLength,
+    });
+    expect(outcome.accepted).toBe(true);
+    return { path, kind: "file" as const, mode: 0o644, size: bytes.byteLength, sha256 };
+  };
+
+  test("statMany answers exact paths without following links", async () => {
+    const world = createWorld();
+    await world.writeFile("a/b.txt", encoder.encode("b"));
+    await world.symlink("link", "a");
+    const [root, file, dir, link, through, missing] = await world.statMany([
+      "",
+      "a/b.txt",
+      "a",
+      "link",
+      "link/b.txt",
+      "nope",
+    ]);
+    expect(root).toMatchObject({ kind: "dir", path: "" });
+    expect(file).toMatchObject({ kind: "file", size: 1 });
+    expect(dir).toMatchObject({ kind: "dir" });
+    expect(link).toMatchObject({ kind: "symlink", target: "a" });
+    expect(through).toBeNull();
+    expect(missing).toBeNull();
+    await expect(world.statMany(["../escape"])).rejects.toThrow();
+  });
+
+  test("children lists one level, in name order", async () => {
+    const world = createWorld();
+    await world.writeFile("d/z.txt", encoder.encode("z"));
+    await world.writeFile("d/a.txt", encoder.encode("a"));
+    await world.writeFile("d/sub/deep.txt", encoder.encode("deep"));
+    await world.writeFile("top.txt", encoder.encode("t"));
+    expect((await world.children("d")).map((entry) => entry.path)).toEqual([
+      "d/a.txt",
+      "d/sub",
+      "d/z.txt",
+    ]);
+    expect((await world.children("")).map((entry) => entry.path)).toEqual([
+      "d",
+      "top.txt",
+    ]);
+  });
+
+  test("commits a change set in one revision when nothing it used moved", async () => {
+    const world = createWorld();
+    await world.writeFile("keep.txt", encoder.encode("keep"));
+    await world.writeFile("gone/old.txt", encoder.encode("old"));
+    const base = (await world.head()).revision;
+    // An unrelated write after the base does not block the commit.
+    await world.writeFile("elsewhere.txt", encoder.encode("x"));
+    const result = await world.commitShell({
+      baseRevision: base,
+      reads: { paths: ["keep.txt", "gone"], children: ["gone"] },
+      entries: [await blobEntry(world, "new/made.txt", "made")],
+      deleted: ["gone"],
+    });
+    expect(result).toEqual({ status: "committed", revision: base + 2 });
+    expect(decoder.decode((await world.readFile("new/made.txt"))!)).toBe("made");
+    expect(await world.stat("gone/old.txt")).toBeNull();
+    expect(await world.stat("keep.txt")).not.toBeNull();
+  });
+
+  test("refuses a change set when a path it read, listed, wrote or deleted moved", async () => {
+    const cases: Array<{
+      moved: string;
+      reads?: { paths?: string[]; children?: string[] };
+      write?: string;
+      deleted?: string[];
+    }> = [
+      { moved: "read.txt", reads: { paths: ["read.txt"] } },
+      { moved: "listed/new.txt", reads: { children: ["listed"] } },
+      { moved: "out.txt", write: "out.txt" },
+      { moved: "tree/inner/new.txt", deleted: ["tree"] },
+    ];
+    for (const change of cases) {
+      const world = createWorld();
+      await world.writeFile("tree/inner/x.txt", encoder.encode("x"));
+      const base = (await world.head()).revision;
+      await world.writeFile(change.moved, encoder.encode("concurrent"));
+      const before = await world.head();
+      const result = await world.commitShell({
+        baseRevision: base,
+        reads: {
+          paths: change.reads?.paths ?? [],
+          children: change.reads?.children ?? [],
+        },
+        entries: change.write ? [await blobEntry(world, change.write, "mine")] : [],
+        deleted: change.deleted ?? [],
+      });
+      expect({ moved: change.moved, result }).toEqual({
+        moved: change.moved,
+        result: { status: "conflict", paths: [change.moved] },
+      });
+      expect(await world.head()).toEqual(before);
+    }
+  });
+
+  test("refuses when the change log no longer reaches the base revision", async () => {
+    const world = createWorld();
+    const base = (await world.head()).revision;
+    await world.pushDiff({
+      entries: Array.from({ length: WORLD_CHANGE_LOG_MAX_ROWS + 1 }, (_, index) => ({
+        path: `bulk/${String(index).padStart(5, "0")}`,
+        kind: "dir" as const,
+        mode: 0o755,
+        size: 0,
+      })),
+      deleted: [],
+    });
+    expect(
+      await world.commitShell({
+        baseRevision: base,
+        reads: { paths: [], children: [] },
+        entries: [],
+        deleted: ["unrelated"],
+      }),
+    ).toEqual({ status: "conflict", paths: [] });
+  });
+
+  test("reports an entry whose blob was never uploaded without applying anything", async () => {
+    const world = createWorld();
+    const base = (await world.head()).revision;
+    const result = await world.commitShell({
+      baseRevision: base,
+      reads: { paths: [], children: [] },
+      entries: [
+        { path: "ghost.txt", kind: "file", mode: 0o644, size: 3, sha256: "0".repeat(64) },
+      ],
+      deleted: [],
+    });
+    expect(result).toEqual({ status: "missing_blobs", missingBlobs: ["0".repeat(64)] });
+    expect(await world.stat("ghost.txt")).toBeNull();
+    expect((await world.head()).revision).toBe(base);
+  });
+});

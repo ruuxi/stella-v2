@@ -16,6 +16,7 @@ export { OrchestratorSession };
 export { OwnerTransferCoordinator };
 export { OwnerGate };
 export { WorldStore } from "./world-store.js";
+export { WorldShellFs } from "./world-shell-fs.js";
 
 /** Existing large general-agent namespace, retained migration-compatibly. */
 export class Sandbox extends GeneralAgentSandbox<Env> {}

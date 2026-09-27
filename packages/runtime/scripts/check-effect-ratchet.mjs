@@ -40,6 +40,9 @@ const sourceSuffixes = new Set([
   ".cts",
 ]);
 const isTestFile = (name) => /\.test\.[cm]?[jt]sx?$/.test(name);
+// Generated bundles (vendored code serialized for a Dynamic Worker) are not
+// shipped source anyone migrates; their generator is what the ratchet sees.
+const isGeneratedFile = (name) => /\.generated\.[cm]?[jt]sx?$/.test(name);
 
 const walk = async (directory) => {
   let entries;
@@ -57,7 +60,8 @@ const walk = async (directory) => {
     } else if (
       entry.isFile() &&
       sourceSuffixes.has(path.extname(entry.name)) &&
-      !isTestFile(entry.name)
+      !isTestFile(entry.name) &&
+      !isGeneratedFile(entry.name)
     ) {
       files.push(absolutePath);
     }

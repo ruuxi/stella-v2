@@ -317,7 +317,7 @@ describe("dispatch submission", () => {
     });
   });
 
-  test("an explicitly selected computer that is offline is blocked, never rerouted", async () => {
+  test("an explicitly selected computer that is offline hands portable work to cloud", async () => {
     const desk = await generateDeviceKey("desk-1");
     const harness = open(OwnerGate, { snapshot: snapshotWith([desk]) });
     const result = await withNow(NOW, () =>
@@ -332,11 +332,10 @@ describe("dispatch submission", () => {
       }),
     );
     expect(result.response.dispatch).toMatchObject({
-      state: "blocked",
-      errorCode: "SELECTED_DEVICE_UNAVAILABLE",
-      fallbackReason: "selected-device-unavailable",
+      state: "cloud_running",
+      placement: "cloud",
+      fallbackReason: "no-eligible-paired-computer",
     });
-    expect(harness.forwarded).toHaveLength(0);
   });
 
   test("desktop ingress commits to the requesting device and drops the payload", async () => {

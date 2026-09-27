@@ -1238,7 +1238,7 @@ const requireScheduleOwner = async (ctx: QueryCtx | MutationCtx) => {
 };
 
 const receiptSchedule = (resultJson: string) =>
-  (JSON.parse(resultJson) as { schedule?: unknown }).schedule ?? null;
+  (JSON.parse(resultJson) as { schedule?: ScheduleRow }).schedule ?? null;
 
 /** Live schedules, soonest first, paused ones after. */
 export const listMySchedules = query({
@@ -1247,15 +1247,19 @@ export const listMySchedules = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
-    const rows = await ctx.db
-      .query("cloud_scheduled_turns")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", identity.tokenIdentifier),
-      )
-      .order("desc")
-      .take(MAX_SCHEDULES_PER_OWNER * 2);
-    return rows
-      .filter((row) => row.status === "active" || row.status === "paused")
+    // One indexed read per live status, so finished one-shots can never
+    // crowd a paused schedule out of the list.
+    const [active, paused] = await Promise.all(
+      (["active", "paused"] as const).map((status) =>
+        ctx.db
+          .query("cloud_scheduled_turns")
+          .withIndex("by_ownerId_and_status_and_updatedAt", (q) =>
+            q.eq("ownerId", identity.tokenIdentifier).eq("status", status),
+          )
+          .take(MAX_SCHEDULES_PER_OWNER),
+      ),
+    );
+    return [...active!, ...paused!]
       .map(toScheduleRow)
       .sort((a, b) =>
         a.status !== b.status
@@ -1276,7 +1280,7 @@ export const createMySchedule = mutation({
     conversationId: v.optional(v.string()),
     targetDeviceId: v.optional(v.string()),
   },
-  returns: v.any(),
+  returns: v.union(scheduleRowValidator, v.null()),
   handler: async (ctx, args) => {
     const owner = await requireScheduleOwner(ctx);
     const created = await createScheduleForOwner(ctx, {
@@ -1297,7 +1301,7 @@ export const updateMySchedule = mutation({
     description: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("paused"))),
   },
-  returns: v.any(),
+  returns: v.union(scheduleRowValidator, v.null()),
   handler: async (ctx, args) => {
     const owner = await requireScheduleOwner(ctx);
     const updated = await updateScheduleForOwner(ctx, {

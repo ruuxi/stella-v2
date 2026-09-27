@@ -87,6 +87,39 @@ describe("signed-in schedules", () => {
     expect(await user.query(listMySchedules, {})).toEqual([]);
   });
 
+  it("keeps a paused schedule listed behind many finished ones", async () => {
+    const { t, user } = await setup();
+    const created = (await user.mutation(createMySchedule, {
+      requestId: "request-create-3",
+      prompt: "Weekly review.",
+      schedule: { kind: "every", everyMs: 3_600_000 },
+    })) as { scheduleId: string };
+    await user.mutation(updateMySchedule, {
+      requestId: "request-pause-3",
+      scheduleId: created.scheduleId,
+      status: "paused",
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("cloud_scheduled_turns", {
+          scheduleId: `sch-done-${index}`,
+          ownerId: OWNER,
+          prompt: "Done.",
+          schedule: JSON.stringify({ kind: "at", atMs: 1 }),
+          nextRunAt: 1,
+          status: "done",
+          description: "Done",
+          createdAt: Date.now() + index,
+          updatedAt: Date.now() + index,
+        });
+      }
+    });
+    const rows = (await user.query(listMySchedules, {})) as Array<{
+      scheduleId: string;
+    }>;
+    expect(rows.map((row) => row.scheduleId)).toEqual([created.scheduleId]);
+  });
+
   it("shows nothing when signed out", async () => {
     const { t } = await setup();
     expect(await t.query(listMySchedules, {})).toEqual([]);

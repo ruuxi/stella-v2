@@ -73,6 +73,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { AddContextSheet } from "./AddContextSheet";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -3715,43 +3716,24 @@ export function ChatPane({
 
   // Root the in-tree menu overlays measure against (see PlusMenuPopover).
   const rootRef = useRef<View>(null);
-  const plusAnchorRef = useRef<View>(null);
   const modelPickerAnchorRef = useRef<View>(null);
-  const [plusMenuAnchor, setPlusMenuAnchor] = useState<AnchorRect | null>(null);
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // The picker a sheet choice asked for; it opens once the sheet is gone,
+  // since iOS won't present a picker over a sheet that is still leaving.
+  const afterAddSheetRef = useRef<(() => void) | null>(null);
   const [modelPickerAnchor, setModelPickerAnchor] = useState<AnchorRect | null>(
     null,
   );
 
-  const plusMenuOptions = useMemo<PlusMenuOption[]>(() => {
-    const out: PlusMenuOption[] = [];
-    if (enableAttachments) {
-      out.push({
-        id: "attach-photo",
-        label: t("chat.attachments.attachPhoto"),
-        icon: "image",
-        onSelect: () => void pickImage(),
-      });
-      out.push({
-        id: "take-photo",
-        label: t("chat.attachments.takePhoto"),
-        icon: "camera",
-        onSelect: () => void takePhoto(),
-      });
-      out.push({
-        id: "attach-file",
-        label: t("chat.attachments.attachFile"),
-        icon: "file-text",
-        onSelect: () => void pickDocument(),
-      });
-    }
-    out.push({
-      id: "read-aloud",
-      label: readAloud.enabled ? "Stop reading aloud" : "Read replies aloud",
-      icon: readAloud.enabled ? "volume-2" : "volume-x",
-      onSelect: () => void readAloud.setEnabled(!readAloud.enabled),
-    });
-    return out;
-  }, [enableAttachments, pickDocument, pickImage, readAloud, t, takePhoto]);
+  const chooseFromAddSheet = useCallback((action: () => void) => {
+    afterAddSheetRef.current = action;
+    setAddSheetOpen(false);
+  }, []);
+  const onAddSheetDismissed = useCallback(() => {
+    const action = afterAddSheetRef.current;
+    afterAddSheetRef.current = null;
+    action?.();
+  }, []);
 
   // Debounced catch-up indicator (show delay + minimum visible time), so
   // instant no-op pulls on every tab return never flash the pill.
@@ -3866,37 +3848,10 @@ export function ChatPane({
   );
 
   const onPressPlus = useCallback(() => {
-    if (plusMenuOptions.length === 0) return;
-    if (
-      plusMenuOptions.length === 1 &&
-      plusMenuOptions[0].id === "attach-photo"
-    ) {
-      // Single-action: fall straight through so the menu doesn't add friction.
-      void pickImage();
-      return;
-    }
-    if (!plusAnchorRef.current) return;
     tapLight();
-    const measureAnchor = () => {
-      plusAnchorRef.current?.measureInWindow((x, y, width, height) => {
-        setPlusMenuAnchor({ x, y, width, height });
-      });
-    };
-    if (Keyboard.isVisible()) {
-      // The composer rides the keyboard (composerKeyboardStyle), so measuring
-      // at dismiss time would anchor the menu a keyboard-height above the
-      // button's settled position. Measure once the hide animation completes.
-      const sub = Keyboard.addListener("keyboardDidHide", () => {
-        sub.remove();
-        measureAnchor();
-      });
-      Keyboard.dismiss();
-    } else {
-      measureAnchor();
-    }
-  }, [pickImage, plusMenuOptions]);
-
-  const dismissPlusMenu = useCallback(() => setPlusMenuAnchor(null), []);
+    Keyboard.dismiss();
+    setAddSheetOpen(true);
+  }, []);
 
   const modelPickerOptions = useMemo<PlusMenuOption[]>(() => {
     if (!composerModelPicker?.pinned) return [];
@@ -4323,7 +4278,7 @@ export function ChatPane({
   const hasPlusMenu = composerEnabled;
 
   const plusButton = hasPlusMenu ? (
-    <View ref={plusAnchorRef} collapsable={false}>
+    <View collapsable={false}>
       <Pressable
         style={styles.addButton}
         hitSlop={4}
@@ -4952,14 +4907,27 @@ export function ChatPane({
           </Pressable>
         </View>
       </Reanimated.View>
-      <PlusMenuPopover
-        visible={Boolean(plusMenuAnchor) && plusMenuOptions.length > 0}
-        anchor={plusMenuAnchor}
-        options={plusMenuOptions}
-        onDismiss={dismissPlusMenu}
-        colors={colors}
-        containerRef={rootRef}
-        large
+      <AddContextSheet
+        visible={addSheetOpen}
+        onClose={() => setAddSheetOpen(false)}
+        onDismissed={onAddSheetDismissed}
+        onCamera={
+          enableAttachments
+            ? () => chooseFromAddSheet(() => void takePhoto())
+            : undefined
+        }
+        onPhotos={
+          enableAttachments
+            ? () => chooseFromAddSheet(() => void pickImage())
+            : undefined
+        }
+        onFiles={
+          enableAttachments
+            ? () => chooseFromAddSheet(() => void pickDocument())
+            : undefined
+        }
+        readAloud={readAloud.enabled}
+        onReadAloudChange={(next) => void readAloud.setEnabled(next)}
       />
       <PlusMenuPopover
         // Guard against an empty menu: an attachment-only message yields no

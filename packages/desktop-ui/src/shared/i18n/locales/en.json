@@ -912,7 +912,12 @@
       "photosDeniedBody": "Allow Stella to access your photo library in Settings so you can attach images.",
       "cameraDeniedTitle": "Camera",
       "cameraDeniedBody": "Allow Stella to use the camera in Settings so you can snap a photo.",
-      "photoLabel": "Photo"
+      "photoLabel": "Photo",
+      "sheetTitle": "Add to chat",
+      "camera": "Camera",
+      "photos": "Photos",
+      "files": "Files",
+      "readAloud": "Read replies aloud"
     }
   },
   "errors": {

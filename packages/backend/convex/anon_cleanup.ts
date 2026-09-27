@@ -5,6 +5,8 @@ import { tokenIdentifierForBetterAuthUserId } from "./auth";
 
 const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 100;
+/** Upper bound on resets one daily run (the whole page chain) schedules. */
+export const MAX_RESETS_PER_RUN = 200;
 
 type PaginatedResult = {
   page: Array<{ _id: string; isAnonymous?: boolean | null; updatedAt: number }>;
@@ -12,6 +14,19 @@ type PaginatedResult = {
   isDone?: boolean;
 };
 
+/**
+ * One page of anonymous Better Auth users that still need a retention reset.
+ *
+ * The reset deliberately keeps the Better Auth user (the anonymous JWT may
+ * still be live and `cloud_owner_lifecycles` must keep its generation), so the
+ * durable "already cleaned" marker is the owner's `cloud_owner_purge_jobs`
+ * row: it survives completion in stage `complete` with `updatedAt` at finish.
+ * An owner is skipped when
+ *  - a purge (reset or delete) is still in flight — its own retry sweep owns it;
+ *  - a completed purge finished after the user's last Better Auth update, i.e.
+ *    nothing on the user has changed since it was cleaned;
+ *  - it is the source of an unfinished ownership migration.
+ */
 export const _listStaleAnonymousOwnerIds = internalQuery({
   args: {
     cursor: v.union(v.string(), v.null()),
@@ -37,70 +52,88 @@ export const _listStaleAnonymousOwnerIds = internalQuery({
       },
     );
 
-    const ownerIds = result.page
-      .filter((u) => u.updatedAt < args.cutoffMs)
-      .map((u) => u._id);
-    const done = result.isDone === true;
+    const stale = result.page.filter((u) => u.updatedAt < args.cutoffMs);
+    const eligible = await Promise.all(
+      stale.map(async (user) => {
+        // App tables key `ownerId` by the Convex tokenIdentifier
+        // (`${issuer}|${betterAuthUserId}`), not the raw Better Auth user id.
+        const ownerId = tokenIdentifierForBetterAuthUserId(user._id);
+        const [purgeJob, migrations] = await Promise.all([
+          ctx.db
+            .query("cloud_owner_purge_jobs")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+          ctx.db
+            .query("auth_owner_migrations")
+            .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+              q.eq("fromOwnerId", ownerId),
+            )
+            .take(2),
+        ]);
+        if (migrations.some((row) => row.status !== "complete")) return null;
+        if (purgeJob) {
+          if (purgeJob.stage !== "complete") return null;
+          if (purgeJob.updatedAt >= user.updatedAt) return null;
+        }
+        return ownerId;
+      }),
+    );
 
+    const done = result.isDone === true;
     return {
-      ownerIds,
+      ownerIds: eligible.filter((id): id is string => id !== null),
       nextCursor: done ? null : (result.continueCursor ?? null),
     };
   },
 });
 
-export const _hasActiveSourceOwnershipMigration = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("auth_owner_migrations")
-      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
-        q.eq("fromOwnerId", args.ownerId),
-      )
-      .take(2);
-    return rows.some((row) => row.status !== "complete");
-  },
-});
-
+/**
+ * Daily retention sweep. Each invocation handles one page and continues the
+ * chain with `ctx.scheduler.runAfter`, so no single action walks every
+ * anonymous user. A run stops once it has scheduled `MAX_RESETS_PER_RUN`
+ * resets; the remainder is picked up by the next daily run (cleaned owners
+ * are skipped, so the backlog always makes progress).
+ */
 export const purgeStaleAnonymousData = internalAction({
-  args: {},
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    cutoffMs: v.optional(v.number()),
+    scheduledSoFar: v.optional(v.number()),
+  },
   returns: v.null(),
-  handler: async (ctx) => {
-    const cutoffMs = Date.now() - STALE_THRESHOLD_MS;
-    let cursor: string | null = null;
-    let totalScheduled = 0;
+  handler: async (ctx, args) => {
+    const cutoffMs = args.cutoffMs ?? Date.now() - STALE_THRESHOLD_MS;
+    let scheduledSoFar = args.scheduledSoFar ?? 0;
 
-    do {
-      const batch: {
-        ownerIds: string[];
-        nextCursor: string | null;
-      } = await ctx.runQuery(
-        internal.anon_cleanup._listStaleAnonymousOwnerIds,
-        { cursor, cutoffMs },
-      );
+    const batch: {
+      ownerIds: string[];
+      nextCursor: string | null;
+    } = await ctx.runQuery(internal.anon_cleanup._listStaleAnonymousOwnerIds, {
+      cursor: args.cursor ?? null,
+      cutoffMs,
+    });
 
-      for (const userId of batch.ownerIds) {
-        // App tables key `ownerId` by the Convex tokenIdentifier
-        // (`${issuer}|${betterAuthUserId}`), not the raw Better Auth user id.
-        const ownerId = tokenIdentifierForBetterAuthUserId(userId);
-        const migrationActive: boolean = await ctx.runQuery(
-          internal.anon_cleanup._hasActiveSourceOwnershipMigration,
-          { ownerId },
-        );
-        if (migrationActive) continue;
-        await ctx.scheduler.runAfter(0, internal.reset.resetOwnerDataInternal, {
+    const budget = Math.max(0, MAX_RESETS_PER_RUN - scheduledSoFar);
+    const toReset = batch.ownerIds.slice(0, budget);
+    await Promise.all(
+      toReset.map((ownerId) =>
+        ctx.scheduler.runAfter(0, internal.reset.resetOwnerDataInternal, {
           ownerId,
-        });
-        totalScheduled++;
-      }
+        }),
+      ),
+    );
+    scheduledSoFar += toReset.length;
 
-      cursor = batch.nextCursor;
-    } while (cursor !== null);
-
-    if (totalScheduled > 0) {
+    const capped = scheduledSoFar >= MAX_RESETS_PER_RUN;
+    if (batch.nextCursor !== null && !capped) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.anon_cleanup.purgeStaleAnonymousData,
+        { cursor: batch.nextCursor, cutoffMs, scheduledSoFar },
+      );
+    } else if (scheduledSoFar > 0) {
       console.log(
-        `[anon_cleanup] Scheduled purge for ${totalScheduled} stale anonymous users`,
+        `[anon_cleanup] Scheduled purge for ${scheduledSoFar} stale anonymous users${capped ? " (per-run cap reached)" : ""}`,
       );
     }
 

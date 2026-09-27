@@ -456,13 +456,21 @@ const isSessionRevokedInDb = async (
   ctx: QueryCtx | MutationCtx,
   ownerId: string,
   sessionId: string | null,
-  nowMs: number,
+  // `null` = clock-free (query) evaluation: every tombstone that has not been
+  // purged yet counts. A tombstone outlives every JWT it covers, and a revoked
+  // session can never mint a new JWT, so for an identified session this is
+  // equivalent to the live check. For the no-`sessionId` path it only extends
+  // the denial until `purgeExpiredRevokedSessions` (hourly) drops the row.
+  nowMs: number | null,
 ) => {
   if (sessionId === null) {
     const anyLive = await ctx.db
       .query("auth_revoked_sessions")
-      .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", ownerId))
-      .filter((q) => q.gt(q.field("expiresAt"), nowMs))
+      .withIndex("by_ownerId_and_expiresAt", (q) =>
+        nowMs === null
+          ? q.eq("ownerId", ownerId)
+          : q.eq("ownerId", ownerId).gt("expiresAt", nowMs),
+      )
       .first();
     return anyLive !== null;
   }
@@ -472,7 +480,7 @@ const isSessionRevokedInDb = async (
       q.eq("ownerId", ownerId).eq("sessionId", sessionId),
     )
     .unique();
-  return row !== null && row.expiresAt > nowMs;
+  return row !== null && (nowMs === null || row.expiresAt > nowMs);
 };
 
 export const assertSensitiveSessionPolicy = async (
@@ -485,7 +493,8 @@ export const assertSensitiveSessionPolicy = async (
       ctx,
       identity.tokenIdentifier,
       readSessionIdClaim(identity),
-      Date.now(),
+      // Queries must not read the wall clock; mutations keep the live check.
+      "scheduler" in ctx ? Date.now() : null,
     )
   ) {
     throw revokedSessionError();
@@ -500,6 +509,7 @@ export const assertSensitiveSessionPolicyAction = async (
   const revoked = await ctx.runQuery(internal.auth.isSessionRevokedInternal, {
     ownerId: identity.tokenIdentifier,
     sessionId: readSessionIdClaim(identity),
+    nowMs: Date.now(),
   });
   if (revoked) {
     throw revokedSessionError();
@@ -1184,10 +1194,20 @@ export const getLatestJwks = internalAction({
 });
 
 export const isSessionRevokedInternal = internalQuery({
-  args: { ownerId: v.string(), sessionId: v.union(v.string(), v.null()) },
+  args: {
+    ownerId: v.string(),
+    sessionId: v.union(v.string(), v.null()),
+    // Callers (actions) pass their clock; omitted = clock-free evaluation.
+    nowMs: v.optional(v.number()),
+  },
   returns: v.boolean(),
   handler: async (ctx, args) =>
-    await isSessionRevokedInDb(ctx, args.ownerId, args.sessionId, Date.now()),
+    await isSessionRevokedInDb(
+      ctx,
+      args.ownerId,
+      args.sessionId,
+      args.nowMs ?? null,
+    ),
 });
 
 /** Write the tombstones for a set of just-killed sessions. */
@@ -1200,27 +1220,30 @@ export const recordRevokedSessionsInternal = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const now = Date.now();
-    for (const sessionId of args.sessionIds) {
-      const existing = await ctx.db
-        .query("auth_revoked_sessions")
-        .withIndex("by_ownerId_and_sessionId", (q) =>
-          q.eq("ownerId", args.ownerId).eq("sessionId", sessionId),
-        )
-        .unique();
-      if (existing) {
-        await ctx.db.patch(existing._id, {
+    const sessionIds = [...new Set(args.sessionIds)];
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        const existing = await ctx.db
+          .query("auth_revoked_sessions")
+          .withIndex("by_ownerId_and_sessionId", (q) =>
+            q.eq("ownerId", args.ownerId).eq("sessionId", sessionId),
+          )
+          .unique();
+        if (existing) {
+          await ctx.db.patch(existing._id, {
+            revokedAt: now,
+            expiresAt: args.expiresAt,
+          });
+          return;
+        }
+        await ctx.db.insert("auth_revoked_sessions", {
+          ownerId: args.ownerId,
+          sessionId,
           revokedAt: now,
           expiresAt: args.expiresAt,
         });
-        continue;
-      }
-      await ctx.db.insert("auth_revoked_sessions", {
-        ownerId: args.ownerId,
-        sessionId,
-        revokedAt: now,
-        expiresAt: args.expiresAt,
-      });
-    }
+      }),
+    );
     return null;
   },
 });
@@ -1395,29 +1418,52 @@ const throwMigratedAnonymousIdentity = (): never => {
 
 type ActionIdentityCtx = Pick<ActionCtx, "auth" | "runQuery">;
 
+/**
+ * One transaction for the action-side identity admission: the lifecycle gate
+ * (throws OWNER_DATA_PURGE_ACTIVE) and the anonymous source fence are read
+ * together instead of in two sequential `runQuery` round trips.
+ */
+export const getIdentityWriteFenceInternal = internalQuery({
+  args: { ownerId: v.string(), isAnonymous: v.boolean() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    await assertOwnerDataWriteAllowed(ctx, args.ownerId);
+    return (
+      args.isAnonymous &&
+      (await hasOwnerMigrationSourceFence(ctx, args.ownerId))
+    );
+  },
+});
+
+/**
+ * Identity admission fence, identical for queries, mutations and actions:
+ * the owner lifecycle gate plus the permanent source fence for an anonymous
+ * identity that was linked to an account. Destination owners are not fenced
+ * here: they must be able to read and retry their own migration (see
+ * `retryMyLatestFailedOwnershipMigration`), and destination writes are
+ * rejected atomically by `assertOwnerMigrationWriteAllowed` inside the
+ * writing mutation.
+ */
 const identityWriteFence = async (
   ctx: QueryCtx | MutationCtx | ActionIdentityCtx,
   identity: NonNullable<
     Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>
   >,
 ): Promise<"migration" | null> => {
+  const ownerId = identity.tokenIdentifier;
   if ("db" in ctx) {
     const databaseCtx = ctx as QueryCtx | MutationCtx;
-    await assertOwnerDataWriteAllowed(databaseCtx, identity.tokenIdentifier);
+    await assertOwnerDataWriteAllowed(databaseCtx, ownerId);
     return isAnonymousIdentity(identity) &&
-      (await hasOwnerMigrationSourceFence(
-        databaseCtx,
-        identity.tokenIdentifier,
-      ))
+      (await hasOwnerMigrationSourceFence(databaseCtx, ownerId))
       ? "migration"
       : null;
   }
   const actionCtx = ctx as ActionIdentityCtx;
-  await assertOwnerDataAccessActive(actionCtx, identity.tokenIdentifier);
-  return (await actionCtx.runQuery(
-    internal.auth.hasOwnerMigrationWriteFenceInternal,
-    { ownerId: identity.tokenIdentifier },
-  ))
+  return (await actionCtx.runQuery(internal.auth.getIdentityWriteFenceInternal, {
+    ownerId,
+    isAnonymous: isAnonymousIdentity(identity),
+  }))
     ? "migration"
     : null;
 };

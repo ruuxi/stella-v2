@@ -152,6 +152,12 @@ export const devicesSchema = {
       "ownerId",
       "desktopDeviceId",
       "mobileDeviceId",
+    ])
+    .index("by_ownerId_and_desktopDeviceId_and_acknowledgedAt_and_expiresAt", [
+      "ownerId",
+      "desktopDeviceId",
+      "acknowledgedAt",
+      "expiresAt",
     ]),
 
   mobile_push_tokens: defineTable({

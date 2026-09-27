@@ -56,6 +56,8 @@ export const authSchema = {
     expiresAt: v.number(),
   })
     .index("by_ownerId_and_sessionId", ["ownerId", "sessionId"])
+    .index("by_ownerId_and_revokedAt", ["ownerId", "revokedAt"])
+    .index("by_ownerId_and_expiresAt", ["ownerId", "expiresAt"])
     .index("by_expiresAt", ["expiresAt"]),
 
   auth_link_requests: defineTable({

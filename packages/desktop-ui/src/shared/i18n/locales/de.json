@@ -912,7 +912,12 @@
       "photosDeniedBody": "Erlaube Stella in den Einstellungen den Zugriff auf deine Fotobibliothek, um Bilder anzuhängen.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Erlaube Stella in den Einstellungen die Kameranutzung, um ein Foto aufzunehmen.",
-      "photoLabel": "Foto"
+      "photoLabel": "Foto",
+      "sheetTitle": "Zum Chat hinzufügen",
+      "camera": "Kamera",
+      "photos": "Fotos",
+      "files": "Dateien",
+      "readAloud": "Antworten vorlesen"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Wartende Nachricht abbrechen",
-        "cancelAndEdit": "Abbrechen und bearbeiten",
-        "cancelIndexed": "Wartende Nachricht {index} abbrechen",
-        "previewLabel": "{label}. Wartende Nachrichten ansehen",
-        "queuedCount": {
-          "one": "{count} Nachricht in Warteschlange",
-          "other": "{count} Nachrichten in Warteschlange"
-        }
+        "cancelAndEdit": "Abbrechen und bearbeiten"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Einstellungen",
+      "apps": "Apps",
       "openLabel": "Navigation öffnen",
+      "chatSettingsLabel": "Chat-Einstellungen",
       "closeLabel": "Navigation schließen",
       "account": "Konto",
       "signIn": "Anmelden",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Frag Stella alles",
+      "workingMany": "{count} Aufgaben laufen",
       "composerPlaceholder": "Nachricht an Stella",
       "mainChat": "Hauptchat",
       "createFailed": "Der Chat konnte nicht erstellt werden. Bitte versuche es erneut.",
@@ -2051,7 +2053,8 @@
       },
       "files": {
         "empty": "Noch keine Dateien. Alles, was Stella erstellt, erscheint hier.",
-        "emptyFiltered": "Keine passenden Dateien."
+        "emptyFiltered": "Keine passenden Dateien.",
+        "searchPlaceholder": "Dateien durchsuchen"
       },
       "activity": {
         "empty": "Noch keine Hintergrundarbeit.",
@@ -2098,6 +2101,7 @@
       "showEmailLabel": "E-Mail-Adresse anzeigen",
       "hideEmailLabel": "E-Mail-Adresse ausblenden",
       "appearanceSection": "Erscheinungsbild",
+      "computerSection": "Computer",
       "appearance": {
         "system": "System",
         "light": "Hell",
@@ -2130,6 +2134,7 @@
       "forgetConfirmTitle": "{name} entfernen?",
       "forgetConfirmBody": "Dieses Handy verbindet sich nicht mehr mit diesem Computer, bis du ihn erneut koppelst.",
       "carPlayDiagnostics": "CarPlay-Diagnose",
+      "aboutSection": "Über",
       "openCarPlayDiagnosticsLabel": "CarPlay-Diagnose öffnen",
       "termsOfService": "Nutzungsbedingungen",
       "openTermsLabel": "Nutzungsbedingungen öffnen",

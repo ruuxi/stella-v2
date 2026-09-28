@@ -14,7 +14,10 @@ import { useConversationActivity } from "@/features/chat/hooks/use-conversation-
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
 import { useConversationFiles } from "@/features/chat/hooks/use-conversation-files";
 import { useConversationMessages } from "@/features/chat/hooks/use-conversation-messages";
-import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
+import {
+  useComposerMessageSelector,
+  useComposerMessageStore,
+} from "@/features/chat/hooks/use-composer-message-state";
 import { takePendingComposerDraft } from "@/global/onboarding/chat/pending-handoff";
 import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
@@ -49,6 +52,7 @@ const MAX_RETAINED_TAB_STATE = 20;
 const OPEN_BOTTOM_SETTLE_MS = 600;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
 const EMPTY_STREAMING_ASSISTANTS = [];
+const hasNonWhitespaceText = (text) => text.trim().length > 0;
 const setBoundedTabMemory = (memory, conversationId, value) => {
   memory.delete(conversationId);
   memory.set(conversationId, value);
@@ -125,11 +129,20 @@ export function useFullShellChat({
   // the render body would still hold the pre-transcript text at that point,
   // so the send would go out empty (and silently no-op), leaving the
   // transcript sitting in the composer unsent. See use-composer-message-state.
+  //
+  // The text lives in a store rather than this hook's state: this hook owns
+  // the whole chat runtime, so state here re-rendered the provider and every
+  // runtime consumer (root chrome, sidebars, bridges) on each keystroke. Only
+  // the composer leaf subscribes to the text; this hook reads derived facts.
   const {
-    message,
+    store: composerMessageStore,
     setMessage,
     messageRef: latestMessageRef,
-  } = useComposerMessageState();
+  } = useComposerMessageStore();
+  const hasComposerText = useComposerMessageSelector(
+    composerMessageStore,
+    hasNonWhitespaceText,
+  );
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const { chatContext, setChatContext, selectedText, setSelectedText } =
     useCapturedChatContext();
@@ -182,11 +195,13 @@ export function useFullShellChat({
       const pendingDraft = remembered?.message
         ? null
         : takePendingComposerDraft();
+      // Arm the hand-off before writing the text so the auto-send readiness
+      // subscription below observes both in the same store notification.
+      pendingAutoSendTextRef.current =
+        pendingDraft?.send ? pendingDraft.text : null;
       setMessage(remembered?.message ?? pendingDraft?.text ?? "");
       setChatContext(remembered?.chatContext ?? null);
       setSelectedText(remembered?.selectedText ?? null);
-      pendingAutoSendTextRef.current =
-        pendingDraft?.send ? pendingDraft.text : null;
     }
     previousComposerConversationIdRef.current = activeConversationId;
   }, [
@@ -462,13 +477,12 @@ export function useFullShellChat({
     isUserScrolling,
     noteManualScroll,
     getIsFollowing,
-    getShouldPlaceLatestTurn,
+    getShouldFollowSend,
     getIsEffectivelyAtBottom,
     showScrollButton,
     scrollToBottom,
     releaseFollow,
-    nudgeAfterSend,
-    nudgeQueuedMessagesIntoView,
+    followAfterSend,
     thumbRef,
   } = useChatScrollManagement({
     hasOlderEvents: hasOlderMessages,
@@ -559,31 +573,17 @@ export function useFullShellChat({
     scrollToBottom,
   ]);
   const handleSend = useCallback(async () => {
-    // The placement gate subtracts the synthetic response spacer before
-    // applying Codex's 300px near-bottom threshold. That keeps a visually
-    // bottomed short reply eligible without pulling deliberate scrollback
-    // forward.
+    // Follow the send to the bottom whenever the freshest turn is on
+    // screen — near/at bottom OR meaningfully scrolled up but still within
+    // the 300px send gate. `getIsEffectivelyAtBottom` is distance-based
+    // (latch-independent), so a stray upward nudge near the bottom still
+    // follows. Only a genuine read-history position (neither) stays put.
     //
-    // While a stream is already in flight, the send queues as a
-    // follow-up chip at the keyed tail of the event list (not yet a sent
-    // user row). The normal latest-user-row nudge is still skipped:
-    // it would fall through to the prior turn's user bubble and scroll
-    // *backwards* to re-frame it. The streaming branch below uses a
-    // footer-tail target instead.
-    // Frame the just-sent turn (place the new user message near the top,
-    // with the response spacer as the reading area below it) whenever the
-    // freshest turn is on screen — near/at bottom OR meaningfully scrolled
-    // up but still within the placement window. `getIsEffectivelyAtBottom`
-    // is distance-based (latch-independent), so a stray upward nudge near
-    // the bottom still frames-to-top rather than falling through to a plain
-    // scroll. Only a genuine read-history position (neither) stays put. The
-    // spacer is settled+frozen for the placement in the scroll hook, so the
-    // nudge target can't be yanked mid-animation.
-    const shouldKeepTailFramed =
-      showHomeContent ||
-      getIsEffectivelyAtBottom() ||
-      getShouldPlaceLatestTurn();
-    const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
+    // While a stream is already in flight, the send queues as a follow-up
+    // chip at the keyed tail of the event list (not yet a sent user row).
+    // That item is the end of content too, so the same follow frames it.
+    const shouldFollowSend =
+      showHomeContent || getIsEffectivelyAtBottom() || getShouldFollowSend();
     const submittedConversationId = activeConversationId;
     const submittedMessage = latestMessageRef.current;
     const submittedSelectedText = selectedText;
@@ -616,23 +616,11 @@ export function useFullShellChat({
         if (activeConversationIdRef.current !== submittedConversationId) return;
         enterChatSurfaceForInteraction();
         resetIdleTimer();
-        // Frame the optimistic row before runtime acceptance. Waiting for
+        // Follow the optimistic row before runtime acceptance. Waiting for
         // sendMessage here makes the viewport lag behind the visible message.
-        if (isStreaming) {
-          // Queued follow-up — no new user row lands in the event list.
-          // The streaming assistant row's own auto-follow keeps the reply
-          // framed, but repeated queued chips live below that row in the
-          // virtualized tail and can drift under the viewport without their own
-          // target.
-          if (shouldKeepTailFramed) {
-            nudgeQueuedMessagesIntoView();
-          }
-        } else if (shouldNudgeAfterSend) {
-          // Places the newest user turn near the top of the readable area,
-          // above the (now settled) response spacer. The gentle loop keeps
-          // that reframe continuous with the assistant stream-follow.
-          nudgeAfterSend();
-        } else {
+        if (shouldFollowSend) {
+          followAfterSend();
+        } else if (!isStreaming) {
           releaseFollow();
         }
       },
@@ -678,12 +666,11 @@ export function useFullShellChat({
     chatContext,
     enterChatSurfaceForInteraction,
     getIsFollowing,
-    getShouldPlaceLatestTurn,
+    getShouldFollowSend,
     getIsEffectivelyAtBottom,
     isStreaming,
     latestMessageRef,
-    nudgeAfterSend,
-    nudgeQueuedMessagesIntoView,
+    followAfterSend,
     releaseFollow,
     resetIdleTimer,
     selectedText,
@@ -695,7 +682,7 @@ export function useFullShellChat({
     showHomeContent,
   ]);
   const { canSubmit } = deriveComposerState({
-    message,
+    hasMessage: hasComposerText,
     chatContext,
     selectedText,
     conversationId: activeConversationId,
@@ -704,13 +691,25 @@ export function useFullShellChat({
   // Submit the onboarding hand-off once the composer is live with that exact
   // text. A rejected send restores the text through the normal path, so the
   // user still sees their draft rather than losing it.
+  const autoSendDraftReady = useComposerMessageSelector(
+    composerMessageStore,
+    (text) =>
+      pendingAutoSendTextRef.current !== null &&
+      text === pendingAutoSendTextRef.current,
+  );
   useEffect(() => {
     const text = pendingAutoSendTextRef.current;
     if (!text || !canSubmit || isStreaming) return;
     if (latestMessageRef.current !== text) return;
     pendingAutoSendTextRef.current = null;
     void handleSend();
-  }, [canSubmit, handleSend, isStreaming, latestMessageRef, message]);
+  }, [
+    autoSendDraftReady,
+    canSubmit,
+    handleSend,
+    isStreaming,
+    latestMessageRef,
+  ]);
   // Per-conversation model selection: mirror the global model preferences
   // to whichever conversation is active so each tab remembers its own
   // engine/model/reasoning pick. Cloud and local conversations both retain
@@ -1064,7 +1063,7 @@ export function useFullShellChat({
   );
   const chatColumnComposer = useMemo(
     () => ({
-      message,
+      messageStore: composerMessageStore,
       setMessage,
       chatContext,
       setChatContext,
@@ -1077,7 +1076,7 @@ export function useFullShellChat({
       onStop: cancelCurrentStream,
     }),
     [
-      message,
+      composerMessageStore,
       setMessage,
       chatContext,
       setChatContext,

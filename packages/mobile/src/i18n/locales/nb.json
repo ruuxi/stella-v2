@@ -912,7 +912,12 @@
       "photosDeniedBody": "Gi Stella tilgang til bildebiblioteket i Innstillinger for å legge ved bilder.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Gi Stella tilgang til kameraet i Innstillinger for å ta et bilde.",
-      "photoLabel": "Bilde"
+      "photoLabel": "Bilde",
+      "sheetTitle": "Legg til i chat",
+      "camera": "Kamera",
+      "photos": "Bilder",
+      "files": "Filer",
+      "readAloud": "Les opp svar"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Avbryt melding i kø",
-        "cancelAndEdit": "Avbryt og rediger",
-        "cancelIndexed": "Avbryt melding i kø {index}",
-        "previewLabel": "{label}. Forhåndsvis meldinger i kø",
-        "queuedCount": {
-          "one": "{count} melding i kø",
-          "other": "{count} meldinger i kø"
-        }
+        "cancelAndEdit": "Avbryt og rediger"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Innstillinger",
+      "apps": "Apper",
       "openLabel": "Åpne navigasjon",
+      "chatSettingsLabel": "Chatinnstillinger",
       "closeLabel": "Lukk navigasjon",
       "account": "Konto",
       "signIn": "Logg inn",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Spør Stella om hva som helst",
+      "workingMany": "{count} oppgaver pågår",
       "composerPlaceholder": "Skriv til Stella",
       "mainChat": "Hovedchat",
       "createFailed": "Kunne ikke opprette en chat. Prøv igjen.",
@@ -2052,7 +2054,8 @@
       },
       "files": {
         "empty": "Ingen filer ennå. Alt Stella lager dukker opp her.",
-        "emptyFiltered": "Ingen filer samsvarer."
+        "emptyFiltered": "Ingen filer samsvarer.",
+        "searchPlaceholder": "Søk i filer"
       },
       "activity": {
         "empty": "Ingen bakgrunnsarbeid ennå.",
@@ -2099,6 +2102,7 @@
       "showEmailLabel": "Vis e-post",
       "hideEmailLabel": "Skjul e-post",
       "appearanceSection": "Utseende",
+      "computerSection": "Datamaskin",
       "appearance": {
         "system": "System",
         "light": "Lyst",
@@ -2131,6 +2135,7 @@
       "forgetConfirmTitle": "Glemme {name}?",
       "forgetConfirmBody": "Denne telefonen vil slutte å koble seg til den datamaskinen til du kobler den til på nytt.",
       "carPlayDiagnostics": "CarPlay-diagnostikk",
+      "aboutSection": "Om",
       "openCarPlayDiagnosticsLabel": "Åpne CarPlay-diagnostikk",
       "termsOfService": "Vilkår for bruk",
       "openTermsLabel": "Åpne Vilkår for bruk",

@@ -23,6 +23,7 @@ import type {
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { LocalContextEvent } from "../storage/shared.js";
+import type { LocalChatEventWindow } from "../storage/event-window.js";
 import type {
   FashionToolApi,
   ScheduleToolApi,
@@ -147,6 +148,13 @@ export type StellaHostRunnerOptions = {
     conversationId: string,
     maxItems: number,
   ) => LocalContextEvent[];
+  /** Bounded queries over the `listLocalChatEvents(conversationId, maxItems)`
+   * window; the orchestrator context build reads only the rows it consumes.
+   * Absent: callers fall back to `listLocalChatEvents`. */
+  openLocalChatEventWindow?: (
+    conversationId: string,
+    maxItems: number,
+  ) => LocalChatEventWindow;
   recallReadQueries?: {
     getFtsHealth: () => RecallFtsHealth;
     listTranscriptNeighborsBatch: (
@@ -392,6 +400,7 @@ export type RunnerContext = {
   fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;
   listLocalChatEvents?: StellaHostRunnerOptions["listLocalChatEvents"];
+  openLocalChatEventWindow?: StellaHostRunnerOptions["openLocalChatEventWindow"];
   recallReadQueries?: StellaHostRunnerOptions["recallReadQueries"];
   appendLocalChatEvent?: StellaHostRunnerOptions["appendLocalChatEvent"];
   notifyThreadActivityUpdated?: StellaHostRunnerOptions["notifyThreadActivityUpdated"];

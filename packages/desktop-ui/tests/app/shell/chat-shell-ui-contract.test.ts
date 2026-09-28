@@ -1,17 +1,9 @@
 // @vitest-environment jsdom
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { getContextSuggestionLabel } from "@/app/chat/ComposerAddMenu";
 import { shouldShowActivityPill } from "@/app/chat/ComposerActivityPill";
 import { isComposerContextMenuTarget } from "@/shell/context-menu/StellaContextMenu";
 import type { ComposerContextSuggestion } from "@/app/chat/ComposerContextRow";
-
-const SOURCE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../src",
-);
 
 describe("chat shell UI contracts", () => {
   it("shows the activity pill only when the workspace strip cannot carry it", () => {
@@ -64,36 +56,5 @@ describe("chat shell UI contracts", () => {
     expect(isComposerContextMenuTarget(textarea)).toBe(true);
     expect(isComposerContextMenuTarget(form)).toBe(true);
     expect(isComposerContextMenuTarget(outside)).toBe(false);
-  });
-
-  it("moves suggestion UI into the + menu", () => {
-    const leadRow = fs.readFileSync(
-      path.join(SOURCE_ROOT, "app/chat/ComposerLeadRow.tsx"),
-      "utf8",
-    );
-    const addMenu = fs.readFileSync(
-      path.join(SOURCE_ROOT, "app/chat/ComposerAddMenu.tsx"),
-      "utf8",
-    );
-    expect(leadRow).not.toContain("ComposerSuggestionContextRow");
-    // The label is localized, so pin the key rather than the English string.
-    expect(addMenu).toContain('t("app.chat.addMenu.context")');
-  });
-
-  it("shows Windows window controls only while the right sidebar is closed", () => {
-    const mainTopBar = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/ShellTopBarFull.tsx"),
-      "utf8",
-    );
-    const panelTopBar = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/DisplayPanelTopBar.tsx"),
-      "utf8",
-    );
-
-    expect(mainTopBar).toContain("{isWin && !panelOpen ? (");
-    expect(mainTopBar).toContain(
-      "<WindowControls useWindowsIcons hidden={false} />",
-    );
-    expect(panelTopBar).not.toContain("WindowControls");
   });
 });

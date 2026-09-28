@@ -3059,10 +3059,14 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
     ] {
         let resp = execute_command(&command, &mut state).await;
         assert_eq!(resp["success"], false, "response: {}", resp);
-        assert!(resp["error"]
-            .as_str()
-            .unwrap()
-            .contains("another browser owner"));
+        assert!(
+            resp["error"]
+                .as_str()
+                .unwrap()
+                .contains("a different browser owner"),
+            "response: {}",
+            resp
+        );
     }
 
     // A step cannot spoof owner-b inside an owner-a chain.
@@ -3086,10 +3090,14 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
     )
     .await;
     assert_eq!(resp["success"], false, "response: {}", resp);
-    assert!(resp["error"]
-        .as_str()
-        .unwrap()
-        .contains("another browser owner"));
+    assert!(
+        resp["error"]
+            .as_str()
+            .unwrap()
+            .contains("a different browser owner"),
+        "response: {}",
+        resp
+    );
 
     // Failed foreign close did not touch owner-b's tab.
     let resp = execute_command(
@@ -3110,8 +3118,8 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
         .iter()
         .any(|tab| tab["tabId"] == owner_b_tab));
 
-    // A newer lease for the same owner closes prior-lease owned tabs before it
-    // receives a fresh implicit tab. It cannot inherit the old active tab.
+    // A newer lease fences old callers while preserving the durable owner's
+    // tabs and active selection across worker/REPL replacement.
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "7", "action": "tab_list" }),
@@ -3125,14 +3133,17 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
     .await;
     assert_success(&resp);
     let superseding_tabs = get_data(&resp)["tabs"].as_array().unwrap();
-    assert_eq!(superseding_tabs.len(), 1, "response: {}", resp);
+    assert_eq!(superseding_tabs.len(), 2, "response: {}", resp);
     assert!(superseding_tabs
         .iter()
-        .all(|tab| { tab["tabId"] != owner_a_first_tab && tab["tabId"] != owner_a_tab }));
-    let newer_tab = superseding_tabs[0]["tabId"].as_u64().unwrap();
+        .any(|tab| tab["tabId"] == owner_a_first_tab));
+    assert!(superseding_tabs
+        .iter()
+        .any(|tab| tab["tabId"] == owner_a_tab));
+    assert_eq!(get_data(&resp)["activeTabId"].as_u64(), Some(owner_a_tab));
 
     // Late disposal from the prior turn is rejected before finalization, so it
-    // cannot close the newer lease's fresh tab.
+    // cannot close the tabs retained by the newer lease.
     let stale_cleanup = execute_command(
         &with_owner_lease(
             json!({ "id": "8", "action": "finalize_tabs", "keep": [] }),
@@ -3166,11 +3177,14 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
     )
     .await;
     assert_success(&resp);
-    assert!(get_data(&resp)["tabs"]
-        .as_array()
-        .unwrap()
+    let retained_tabs = get_data(&resp)["tabs"].as_array().unwrap();
+    assert_eq!(retained_tabs.len(), 2, "response: {}", resp);
+    assert!(retained_tabs
         .iter()
-        .any(|tab| tab["tabId"] == newer_tab));
+        .any(|tab| tab["tabId"] == owner_a_first_tab));
+    assert!(retained_tabs
+        .iter()
+        .any(|tab| tab["tabId"] == owner_a_tab));
 
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);

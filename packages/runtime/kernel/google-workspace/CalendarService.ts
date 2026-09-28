@@ -5,7 +5,7 @@
  */
 
 import crypto from 'node:crypto';
-import { calendar_v3, google } from 'googleapis';
+import { calendar as createCalendarClient, calendar_v3 } from '@googleapis/calendar';
 import type { AuthManager } from "./AuthManager.js";
 import { logToFile } from './logger.js';
 import { createGoogleClientOptions } from './GaxiosConfig.js';
@@ -148,7 +148,7 @@ export class CalendarService {
     logToFile('Getting authenticated client for calendar...');
     const auth = await this.authManager.getAuthenticatedClient();
     logToFile('Got auth client, creating calendar instance...');
-    return google.calendar({
+    return createCalendarClient({
       version: 'v3',
       ...createGoogleClientOptions(auth),
     });

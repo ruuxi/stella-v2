@@ -40,7 +40,6 @@ const PAIR_SECRET_LENGTH = 48;
 // devices are typically a handful per desktop, so these caps are generous.
 const PAIRING_SESSION_SCAN_LIMIT = 50;
 const PAIRED_DEVICE_SCAN_LIMIT = 100;
-const CONNECT_INTENT_SCAN_LIMIT = 20;
 export const MOBILE_BRIDGE_PAIR_PROOF_VERSION =
   "stella-mobile-bridge-pair-proof-v1";
 
@@ -402,29 +401,30 @@ export const watchIncomingConnectIntent = query({
       return null;
     }
     const ownerId = identity.tokenIdentifier;
-    // Scan by the stable (ownerId, desktopDeviceId) prefix, newest first. When
-    // a caller supplies `nowMs` we additionally bound the range to un-expired
-    // intents for backward-compatible behavior; otherwise we return the
-    // freshest unacknowledged intent and let the caller apply the live expiry
-    // check against `expiresAt` (consistent with the pairing-session queries in
-    // this module, which also delegate live expiry to their callers).
-    const intents = await ctx.db
+    // Read only unacknowledged intents for this (ownerId, desktopDeviceId),
+    // newest first (`expiresAt` = `createdAt` + a fixed TTL, so it orders by
+    // recency). Acknowledged rows are excluded by the index itself, so a
+    // backlog of acknowledged intents can never hide a live one. When a
+    // caller supplies `nowMs` we additionally bound the range to un-expired
+    // intents for backward-compatible behavior; otherwise the caller applies
+    // the live expiry check against `expiresAt` (consistent with the
+    // pairing-session queries in this module).
+    const intent = await ctx.db
       .query("mobile_connect_intents")
-      .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) => {
-        const prefix = q
-          .eq("ownerId", ownerId)
-          .eq("desktopDeviceId", args.desktopDeviceId);
-        return args.nowMs !== undefined
-          ? prefix.gt("expiresAt", args.nowMs)
-          : prefix;
-      })
+      .withIndex(
+        "by_ownerId_and_desktopDeviceId_and_acknowledgedAt_and_expiresAt",
+        (q) => {
+          const prefix = q
+            .eq("ownerId", ownerId)
+            .eq("desktopDeviceId", args.desktopDeviceId)
+            .eq("acknowledgedAt", undefined);
+          return args.nowMs !== undefined
+            ? prefix.gt("expiresAt", args.nowMs)
+            : prefix;
+        },
+      )
       .order("desc")
-      .take(CONNECT_INTENT_SCAN_LIMIT);
-
-    const intent =
-      intents
-        .filter((entry) => !entry.acknowledgedAt)
-        .sort((left, right) => right.createdAt - left.createdAt)[0] ?? null;
+      .first();
 
     if (!intent) {
       return null;

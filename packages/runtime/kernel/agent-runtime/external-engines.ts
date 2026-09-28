@@ -1105,7 +1105,6 @@ const runClaudeHostedTurn = async (args: {
       ? args.session.responseTargetTracker
       : undefined;
 
-  runEvents.recordRunStart();
   persistExternalPromptMessages(args.opts, threadKey, args.promptMessages);
 
   if (args.opts.abortSignal?.aborted) {

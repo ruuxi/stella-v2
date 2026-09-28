@@ -32,6 +32,7 @@ import {
 } from "../lib/use-cloud-canonical-chat-thread";
 import type { CloudConversationAuthority } from "../lib/cloud-conversation-authority";
 import { useDictation } from "../lib/dictation";
+import { useChatDraft } from "../lib/chat-draft-store";
 import {
   speakReply,
   startAfterStoppingReadAloud,
@@ -134,6 +135,7 @@ function CarPlayVoiceLoop({
     threadId: "carplay",
   });
   const { setDraft, send, messages, sending, storageLoaded } = thread;
+  const draft = useChatDraft(thread.draftStore);
 
   const readAloud = useReadAloudState();
 
@@ -340,7 +342,7 @@ function CarPlayVoiceLoop({
     const pending = pendingSendRef.current;
     if (!pending) return;
     if (!storageLoaded) return;
-    if (thread.draft.trim() !== pending) return;
+    if (draft.trim() !== pending) return;
     if (sending) return;
     pendingSendRef.current = null;
     awaitingReplyRef.current = true;
@@ -363,7 +365,7 @@ function CarPlayVoiceLoop({
         goPhase("idle");
       }
     }, SEND_START_TIMEOUT_MS);
-  }, [thread.draft, storageLoaded, sending, send, goPhase]);
+  }, [draft, storageLoaded, sending, send, goPhase]);
 
   // Mirror `sending` and cancel the send-start guard the moment a real turn
   // begins (so the guard only ever fires for a send that never started).

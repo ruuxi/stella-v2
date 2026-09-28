@@ -26,13 +26,12 @@ import {
   observeCloudConversationIdentity,
   type CloudConversationIdentity,
 } from "./cloud-conversation-auth";
-import { decodeMobileCloudMemoryPreferenceForSubject } from "./cloud-memory-preference";
 import {
   CloudAuthorityError,
   loadCloudConversationAuthority,
   type CloudAuthorityIssue,
+  type CloudChatBootstrap,
   type CloudConversationAuthority,
-  type CloudRealtimeConfig,
 } from "./cloud-conversation-authority";
 import { CloudConversationAuthorityStore } from "./cloud-conversation-authority-store";
 import {
@@ -59,8 +58,9 @@ import {
 import { getConvexClient } from "./convex";
 import {
   AUTOMATIC_EXECUTION_TARGET,
+  automaticExecutionConversationClientCreateId,
   cancelAutomaticExecution,
-  ensureAutomaticExecutionConversation,
+  createAutomaticExecutionConversation,
   getAutomaticExecutionStatus,
   type AutomaticExecutionTarget,
 } from "./execution-placement";
@@ -68,6 +68,8 @@ import { collectActivityHubArtifacts, groupActivityArtifacts } from "./activity-
 import { canonicalWorkingState } from "./canonical-working-state";
 import { planCloudTranscriptDisplay } from "./cloud-transcript-display";
 import { useChatAttachmentPreviews } from "./use-chat-attachment-previews";
+import { reuseEqualChatMessages } from "./structural-sharing";
+import { TrailingTask } from "./trailing-task";
 import type { ChatMessage } from "../types";
 import type { ChatThreadId } from "./offline-chat-storage";
 import type { StoredPhoneAccess } from "./phone-access";
@@ -77,29 +79,16 @@ import {
   type ChatTransport,
 } from "./use-chat-thread";
 
-const confirmIdentityRef = makeFunctionReference<
+const chatBootstrapRef = makeFunctionReference<
   "query",
-  { expectedSubject: string; identityRevision: number },
-  boolean
->("cloud_apps:confirmMySessionIdentity");
-
-const realtimeConfigRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  CloudRealtimeConfig
->("cloud_apps:getCloudRealtimeConfig");
-
-const memoryPreferenceFenceRef = makeFunctionReference<
-  "query",
-  { expectedSubject: string },
   {
-    subject: string;
-    ownerGeneration: string;
-    memoryEnabled: boolean;
-    revision: number;
-    updatedAt: number;
-  }
->("cloud_memory:getMyMemoryPreference");
+    expectedSubject: string;
+    expectedOwnerId: string;
+    identityRevision: number;
+    clientCreateId: string;
+  },
+  CloudChatBootstrap
+>("cloud_apps:getMyChatBootstrap");
 
 const safeAuthorityIssue = (
   error: unknown,
@@ -145,6 +134,22 @@ export type CloudAuthorityHookState =
       retry: () => void;
     };
 
+const CHAT_THREAD_ID = "cloud";
+const CHAT_TITLE = "Chat";
+
+const readChatBootstrap = async (
+  identity: CloudConversationIdentity,
+  ownerSubject: string,
+): Promise<CloudChatBootstrap> =>
+  await getConvexClient().query(chatBootstrapRef, {
+    expectedSubject: identity.expectedSubject,
+    expectedOwnerId: ownerSubject,
+    identityRevision: identity.revision,
+    clientCreateId: automaticExecutionConversationClientCreateId(
+      CHAT_THREAD_ID,
+    ),
+  });
+
 const resolveMobileCloudConversationAuthority = async (
   identity: CloudConversationIdentity,
 ): Promise<CloudConversationAuthority> => {
@@ -152,27 +157,14 @@ const resolveMobileCloudConversationAuthority = async (
     identity.expectedSubject,
   );
   const ownerSubject = tokenOwner.tokenIdentifier;
-  return loadCloudConversationAuthority(identity, {
-    confirmIdentity: (args) =>
-      getConvexClient().query(confirmIdentityRef, args),
-    getOwnerGeneration: async () =>
-      await getConvexClient()
-        .query(memoryPreferenceFenceRef, {
-          expectedSubject: ownerSubject,
-        })
-        .then(
-          (preference) =>
-            decodeMobileCloudMemoryPreferenceForSubject(
-              preference,
-              ownerSubject,
-            ).ownerGeneration,
-        ),
-    ensureConversation: () =>
-      ensureAutomaticExecutionConversation({
-        threadId: "cloud",
-        title: "Chat",
+  return loadCloudConversationAuthority(identity, ownerSubject, {
+    getBootstrap: () => readChatBootstrap(identity, ownerSubject),
+    createConversation: (expectedOwnerGeneration) =>
+      createAutomaticExecutionConversation({
+        threadId: CHAT_THREAD_ID,
+        title: CHAT_TITLE,
+        expectedOwnerGeneration,
       }),
-    getRealtimeConfig: () => getConvexClient().query(realtimeConfigRef, {}),
   });
 };
 
@@ -317,6 +309,28 @@ const EMPTY_STATE: ConversationState = {
 };
 
 const emptySnapshot = () => EMPTY_STATE;
+
+/** Quiet period after the last committed record before the cache rebuilds. */
+const CACHE_WRITE_SETTLE_MS = 1_500;
+/** Upper bound on how stale the cache may get during a long, busy turn. */
+const CACHE_WRITE_MAX_DELAY_MS = 10_000;
+
+/**
+ * Rows that survive a re-projection unchanged keep their previous objects (see
+ * `reuseEqualChatMessages`), so a committed record re-renders only the rows it
+ * touched and an unchanged transcript skips every downstream memo.
+ */
+const useStableChatMessages = (messages: ChatMessage[]): ChatMessage[] => {
+  const previousRef = useRef<readonly ChatMessage[] | null>(null);
+  const stable = useMemo(
+    () => reuseEqualChatMessages(previousRef.current, messages),
+    [messages],
+  );
+  useEffect(() => {
+    previousRef.current = stable;
+  }, [stable]);
+  return stable;
+};
 
 /**
  * Signed-in Chat: automatic execution for writes, DO journal for every visible
@@ -549,14 +563,16 @@ export const useCloudCanonicalChatThread = (
     });
   }, [local.messages, local.sending]);
 
-  const projected = useMemo(
-    () =>
-      projectCloudConversationMessages({
-        conversationId: authority.conversationId,
-        records: state.records,
-        hasOlder: state.hasOlder,
-      }),
-    [authority.conversationId, state.hasOlder, state.records],
+  const projected = useStableChatMessages(
+    useMemo(
+      () =>
+        projectCloudConversationMessages({
+          conversationId: authority.conversationId,
+          records: state.records,
+          hasOlder: state.hasOlder,
+        }),
+      [authority.conversationId, state.hasOlder, state.records],
+    ),
   );
 
   // Cold start: the on-disk projection from the last session paints the
@@ -655,7 +671,9 @@ export const useCloudCanonicalChatThread = (
       }),
     [acknowledgedDispatchIds, canonical, dispatchBindings, local.messages],
   );
-  const messages = useChatAttachmentPreviews(mergedMessages, JSON.stringify(cacheAuthority));
+  const messages = useStableChatMessages(
+    useChatAttachmentPreviews(mergedMessages, JSON.stringify(cacheAuthority)),
+  );
 
   useEffect(() => {
     if (!clientAuthorityReady || cacheVisible || threadId !== "cloud" ||
@@ -670,6 +688,23 @@ export const useCloudCanonicalChatThread = (
 
   const cacheWriteGenerationRef = useRef(0);
   const cacheWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // A rebuild serializes every projected row and the raw journal tail (up to
+  // 4 MB) on the JS thread, then rewrites them in SQLite. It only feeds the
+  // next cold start, so a turn's run of committed records is coalesced into
+  // one rebuild of the latest snapshot instead of one per record. Leaving the
+  // foreground writes it immediately, so a suspended app keeps a current cache.
+  const [cacheWriteTask] = useState(
+    () => new TrailingTask(CACHE_WRITE_SETTLE_MS, CACHE_WRITE_MAX_DELAY_MS),
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next !== "active") cacheWriteTask.flush();
+    });
+    return () => {
+      subscription.remove();
+      cacheWriteTask.cancel();
+    };
+  }, [cacheWriteTask]);
   const records = state.records;
   useEffect(() => {
     if (!authorityReady || state.epoch === null) return;
@@ -684,25 +719,28 @@ export const useCloudCanonicalChatThread = (
       headSeq: state.headSeq,
       floorSeq: state.floorSeq,
     };
-    cacheWriteQueueRef.current = cacheWriteQueueRef.current
-      .catch(() => undefined)
-      .then(() =>
-        rebuildMobileCloudConversationCache({
-          metadata,
-          // The projection is committed records only, so the cache never
-          // persists anything the journal has not durably accepted.
-          messages: projected,
-          // The raw tail beside it lets the next launch resume by cursor.
-          records,
-          isCurrent: () => generation === cacheWriteGenerationRef.current,
-        }),
-      );
+    cacheWriteTask.schedule(() => {
+      cacheWriteQueueRef.current = cacheWriteQueueRef.current
+        .catch(() => undefined)
+        .then(() =>
+          rebuildMobileCloudConversationCache({
+            metadata,
+            // The projection is committed records only, so the cache never
+            // persists anything the journal has not durably accepted.
+            messages: projected,
+            // The raw tail beside it lets the next launch resume by cursor.
+            records,
+            isCurrent: () => generation === cacheWriteGenerationRef.current,
+          }),
+        );
+    });
   }, [
     authority.accountScope,
     authority.conversationId,
     authority.ownerGeneration,
     authority.socketOrigin,
     authorityReady,
+    cacheWriteTask,
     projected,
     records,
     state.epoch,
@@ -798,10 +836,15 @@ export const useCloudCanonicalChatThread = (
     store.loadOlder();
   }, [store]);
   const loadNewerMessages = useCallback(async () => undefined, []);
-  const runningTurnId = activeCloudTurnId(state.records, state.live);
-  const runningDispatchId = canonicalCloudDispatchIdForTurn(
-    state.records,
-    runningTurnId,
+  // Whole-journal scans: keyed on the journal so composer keystrokes, which
+  // re-render this hook, do not repeat them.
+  const runningDispatchId = useMemo(
+    () =>
+      canonicalCloudDispatchIdForTurn(
+        state.records,
+        activeCloudTurnId(state.records, state.live),
+      ),
+    [state.live, state.records],
   );
   const { sending, workingIndicator } = useMemo(
     () => canonicalWorkingState({

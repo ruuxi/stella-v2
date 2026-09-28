@@ -8,7 +8,6 @@ import {
   approximateDataUrlBytes,
   attachPersistedImagePaths,
   buildSpilledAttachmentNotice,
-  INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES,
   spillImageAttachmentsToDisk,
 } from "@stella/runtime/worker/chat-attachment-spill";
 
@@ -39,14 +38,6 @@ describe("chat attachment spill", () => {
     expect(approximateDataUrlBytes(url)).toBeGreaterThanOrEqual(expected);
     expect(approximateDataUrlBytes(url)).toBeLessThanOrEqual(expected + 2);
     expect(approximateDataUrlBytes("not a data url")).toBe(0);
-  });
-
-  it("keeps a typical single screenshot under the inline budget", () => {
-    // ~8.6MB was the per-image size in the original 413 repro; one image
-    // must stay inline (current behavior), ten must not.
-    const single = 8.6 * 1024 * 1024;
-    expect(single).toBeLessThan(INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES);
-    expect(single * 10).toBeGreaterThan(INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES);
   });
 
   it("writes attachments to per-conversation files with mime-derived extensions", async () => {

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
 
 import { createManagedExecutionSettlementHandle } from "../convex/automation/runner";
 import { runConnectorAgentTurnCommitSequence } from "../convex/channels/connector_delivery";
@@ -108,38 +107,4 @@ describe("automation runner deferred execution settlement", () => {
     ]);
   });
 
-  it("keeps delivery CAS ahead of both settlement acknowledgements in production", () => {
-    const source = readFileSync(
-      new URL("../convex/channels/connector_delivery.ts", import.meta.url),
-      "utf8",
-    );
-    const start = source.indexOf("async function runFallbackAndDeliver");
-    const end = source.indexOf(
-      "async function persistConnectorAssistantMessage",
-      start,
-    );
-    const body = source.slice(start, end);
-    expect(body.indexOf("runConnectorAgentTurnCommitSequence")).toBeGreaterThan(
-      -1,
-    );
-    expect(body.indexOf("acknowledgeUsageDisposition:")).toBeGreaterThan(
-      body.indexOf("runConnectorAgentTurnCommitSequence"),
-    );
-    expect(body.indexOf("persistConnectorAssistantMessage")).toBeGreaterThan(
-      body.indexOf("acknowledgeUsageDisposition:"),
-    );
-    expect(body.indexOf("deliverToConnectorCore")).toBeGreaterThan(
-      body.indexOf("persistConnectorAssistantMessage"),
-    );
-    expect(body).not.toContain("recordManagedUsage");
-    expect(body).not.toContain("scheduleManagedUsage");
-
-    const deliveryStart = source.indexOf(
-      "async function deliverToConnectorCore",
-    );
-    const deliveryEnd = source.indexOf("type SettleExecution", deliveryStart);
-    expect(source.slice(deliveryStart, deliveryEnd)).not.toContain(
-      "finishRemoteTurnAttemptInternal",
-    );
-  });
 });

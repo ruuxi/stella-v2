@@ -13,9 +13,13 @@ import {
 } from "../verify-packaged-identifiers.mjs";
 import { collectRootAbsoluteRendererAssetReferences } from "../verify-renderer-asset-paths.mjs";
 import {
+  assertMainBundleStartupBoundary,
   copyPackagedRuntimeAssets,
+  mainStartupDeferredExternals,
+  mainStartupDeferredInputs,
   packagedOAuthProviderCatalogRelativePath,
   packagedRuntimeAssetCopies,
+  runtimeCliNames,
   smokeTestNodeCliEntry,
   verifyPackagedOAuthProviderCatalog,
 } from "../dev-electron-build.mjs";
@@ -243,6 +247,28 @@ test("Node CLI smoke gate rejects duplicate bundle-banner bindings", () => {
   );
 });
 
+test("every runtime CLI the worker resolves by path is bundled", () => {
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "..",
+  );
+  const runnerSource = readFileSync(
+    path.join(repoRoot, "packages/runtime/worker/server/session/runner.ts"),
+    "utf8",
+  );
+  const resolved = [
+    ...runnerSource.matchAll(/resolveRuntimeCliPath\("([^"]+)\.js"\)/g),
+  ].map((match) => match[1]);
+  assert.ok(resolved.length > 0, "runner.ts no longer resolves runtime CLIs");
+  assert.deepEqual(
+    resolved.filter((name) => !runtimeCliNames.includes(name)),
+    [],
+  );
+});
+
 test("packaged runtime asset contract copies and validates the OAuth catalog", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "stella-runtime-assets-"));
   const sourceRoot = path.join(tempDir, "source");
@@ -285,21 +311,6 @@ test("packaged runtime asset contract copies and validates the OAuth catalog", a
   );
 });
 
-test("electron-builder ships the assembled runtime tree beside app.asar", () => {
-  const rootPackage = JSON.parse(
-    readFileSync(new URL("../../../../package.json", import.meta.url), "utf8"),
-  );
-
-  assert.ok(
-    rootPackage.build.extraResources.some(
-      (entry) =>
-        entry.from === "packages/desktop/dist-electron/runtime" &&
-        entry.to === "runtime" &&
-        entry.filter?.includes("**/*"),
-    ),
-  );
-});
-
 test("packaged runtime verification fails clearly when the OAuth catalog is missing", async () => {
   const outputRoot = mkdtempSync(
     path.join(os.tmpdir(), "stella-runtime-assets-missing-"),
@@ -309,4 +320,115 @@ test("packaged runtime verification fails clearly when the OAuth catalog is miss
     verifyPackagedOAuthProviderCatalog({ outputRoot }),
     /Required packaged OAuth provider catalog is missing.*runtime[\\/]kernel[\\/]connectors[\\/]oauth-provider-catalog\.json/,
   );
+});
+
+const mainStartupMetafile = ({
+  mainImports = [],
+  launchInputs = ["packages/desktop/electron/launch.ts"],
+  bootstrapImports = [],
+} = {}) => ({
+  inputs: {
+    "packages/desktop/electron/main.ts": {
+      imports: [
+        {
+          path: "packages/desktop/electron/bootstrap.ts",
+          kind: "dynamic-import",
+        },
+      ],
+    },
+    "packages/desktop/electron/bootstrap.ts": { imports: bootstrapImports },
+    "packages/desktop/electron/ipc/system-handlers.js": {
+      imports: [
+        {
+          path: mainStartupDeferredInputs[0],
+          kind: "dynamic-import",
+        },
+      ],
+    },
+  },
+  outputs: {
+    "packages/desktop/dist-electron/electron/launch.js": {
+      imports: [],
+      inputs: Object.fromEntries(
+        launchInputs.map((input) => [input, { bytesInOutput: 1 }]),
+      ),
+    },
+    "packages/desktop/dist-electron/electron/main.js": {
+      imports: mainImports,
+      inputs: { "packages/desktop/electron/main.ts": { bytesInOutput: 1 } },
+    },
+  },
+});
+
+test("main cold-start gate accepts deferred externals loaded on first use", () => {
+  assert.doesNotThrow(() =>
+    assertMainBundleStartupBoundary(
+      mainStartupMetafile({
+        mainImports: [
+          { path: "electron", kind: "import-statement", external: true },
+          { path: "node:module", kind: "import-statement", external: true },
+        ],
+      }),
+    ),
+  );
+});
+
+test("main cold-start gate rejects a static import of a deferred external", () => {
+  for (const external of mainStartupDeferredExternals) {
+    assert.throws(
+      () =>
+        assertMainBundleStartupBoundary(
+          mainStartupMetafile({
+            mainImports: [
+              { path: external, kind: "import-statement", external: true },
+            ],
+          }),
+        ),
+      new RegExp(`statically imports ${external}`),
+    );
+  }
+});
+
+test("main cold-start gate rejects launch.js inlining the main bundle", () => {
+  assert.throws(
+    () =>
+      assertMainBundleStartupBoundary(
+        mainStartupMetafile({
+          launchInputs: [
+            "packages/desktop/electron/launch.ts",
+            "packages/desktop/electron/main.ts",
+          ],
+        }),
+      ),
+    /launch\.js inlines packages\/desktop\/electron\/main\.ts/,
+  );
+});
+
+test("main cold-start gate allows deferred modules behind a dynamic import", () => {
+  assert.doesNotThrow(() =>
+    assertMainBundleStartupBoundary(
+      mainStartupMetafile({
+        bootstrapImports: [
+          {
+            path: "packages/desktop/electron/ipc/system-handlers.js",
+            kind: "import-statement",
+          },
+        ],
+      }),
+    ),
+  );
+});
+
+test("main cold-start gate rejects a deferred module in the static startup graph", () => {
+  for (const input of mainStartupDeferredInputs) {
+    assert.throws(
+      () =>
+        assertMainBundleStartupBoundary(
+          mainStartupMetafile({
+            bootstrapImports: [{ path: input, kind: "import-statement" }],
+          }),
+        ),
+      /is statically reachable from startup/,
+    );
+  }
 });

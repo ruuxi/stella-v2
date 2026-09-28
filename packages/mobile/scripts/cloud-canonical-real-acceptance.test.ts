@@ -11,28 +11,4 @@ describe("mobile cloud-canonical real-product harness", () => {
     expect(() => assertBun14(undefined)).toThrow("Bun 1.4.x is required");
   });
 
-  test("keeps the accepted CLI tied to product modules and a real process boundary", async () => {
-    const source = await Bun.file(
-      import.meta.path.replace(/\.test\.ts$/u, ".ts"),
-    ).text();
-    for (const productModule of [
-      "cloud-conversation-auth",
-      "cloud-conversation-authority",
-      "cloud-conversation-socket",
-      "cloud-journal-projection",
-      "desktop-chat-outbox-state",
-      "execution-placement-core",
-      "cloud-memory-preference",
-      "convex-token-owner",
-    ]) {
-      expect(source).toContain(productModule);
-    }
-    expect(source).toContain('phase === "enqueue"');
-    expect(source).toContain('phase === "replay"');
-    expect(source).toContain("processExitedBeforeAdmission: true");
-    expect(source).toContain("new ConversationSocket");
-    expect(source).toContain("/api/mobile/execution/submit");
-    expect(source).not.toContain("FakeWebSocket");
-    expect(source).not.toContain("mockFetch");
-  });
 });

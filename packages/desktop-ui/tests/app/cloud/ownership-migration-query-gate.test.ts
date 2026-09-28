@@ -12,12 +12,26 @@ const ROOT_SOURCE = fs.readFileSync(
   "utf8",
 );
 
-const sourceBetween = (start: string, end: string) => {
-  const startIndex = ROOT_SOURCE.indexOf(start);
-  const endIndex = ROOT_SOURCE.indexOf(end, startIndex + start.length);
+// RootLayout's conversation-selection reads (migration status, list,
+// identity, exact lookups) live in this hook.
+const SHELL_SOURCE_SOURCE = fs.readFileSync(
+  path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../src/global/auth/hooks/use-shell-conversation-source.ts",
+  ),
+  "utf8",
+);
+
+const sourceBetween = (
+  start: string,
+  end: string,
+  source: string = ROOT_SOURCE,
+) => {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
   expect(startIndex).toBeGreaterThanOrEqual(0);
   expect(endIndex).toBeGreaterThan(startIndex);
-  return ROOT_SOURCE.slice(startIndex, endIndex);
+  return source.slice(startIndex, endIndex);
 };
 
 describe("RootLayout ownership migration query gate", () => {
@@ -38,7 +52,7 @@ describe("RootLayout ownership migration query gate", () => {
   });
 
   test("queries migration authority before every ownership-fenced Root query", () => {
-    const migrationQueryIndex = ROOT_SOURCE.indexOf(
+    const migrationQueryIndex = SHELL_SOURCE_SOURCE.indexOf(
       "cloudApi.getMyOwnershipMigrationStatus",
     );
     expect(migrationQueryIndex).toBeGreaterThanOrEqual(0);
@@ -48,34 +62,36 @@ describe("RootLayout ownership migration query gate", () => {
       "cloudApi.getMyCloudConversationIdentity",
       "cloudApi.getMyConversation",
     ]) {
-      expect(ROOT_SOURCE.indexOf(queryName)).toBeGreaterThan(
+      expect(SHELL_SOURCE_SOURCE.indexOf(queryName)).toBeGreaterThan(
         migrationQueryIndex,
       );
     }
 
+    const between = (start: string, end: string) =>
+      sourceBetween(start, end, SHELL_SOURCE_SOURCE);
+    expect(between("const selection =", "const legacyFenced =")).toContain(
+      "bootstrap && canQueryOwnershipFencedCloudData",
+    );
     expect(
-      sourceBetween(
-        "const cloudConversations = useQuery(",
-        "const conversationIdentity = useQuery(",
-      ),
-    ).toContain('canQueryOwnershipFencedCloudData ? {} : "skip"');
+      between("const legacyFenced =", "const legacyConversations = useQuery("),
+    ).toContain("canQueryOwnershipFencedCloudData");
     expect(
-      sourceBetween(
-        "const conversationIdentity = useQuery(",
-        "const ownerGeneration =",
+      between(
+        "const legacyConversations = useQuery(",
+        "const legacyConversationIdentity = useQuery(",
       ),
-    ).toContain('canQueryOwnershipFencedCloudData ? {} : "skip"');
+    ).toContain('legacyFenced ? {} : "skip"');
     expect(
-      sourceBetween(
-        "const exactCloudConversation = useQuery(",
-        "const cachedConversationIsListed =",
+      between(
+        "const legacyConversationIdentity = useQuery(",
+        "const cloudConversations =",
       ),
+    ).toContain('legacyFenced ? {} : "skip"');
+    expect(
+      between("const routeLookupId =", "const launchRouteConversation ="),
     ).toContain("canQueryOwnershipFencedCloudData &&");
     expect(
-      sourceBetween(
-        "const exactCachedCloudConversation = useQuery(",
-        "const routeOwnershipIsLoading =",
-      ),
+      between("const cachedLookupId =", "const launchCachedConversation ="),
     ).toContain("canQueryOwnershipFencedCloudData &&");
   });
 

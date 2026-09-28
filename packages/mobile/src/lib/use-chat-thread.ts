@@ -86,6 +86,7 @@ import {
 } from "./activity-hub-model";
 import { admitSend } from "./send-admission";
 import { userFacingError } from "./user-facing-error";
+import { createChatDraftStore, type ChatDraftStore } from "./chat-draft-store";
 import {
   clearComposerNotices,
   showComposerNoticeForError,
@@ -253,8 +254,12 @@ export type ChatTransport = {
 export type ChatComposerThread = {
   /** The optimistic overlay of turns this device has in flight. */
   messages: ChatMessage[];
-  draft: string;
-  setDraft: React.Dispatch<React.SetStateAction<string>>;
+  /**
+   * The composer text. Held in a store rather than React state so a keystroke
+   * re-renders only what subscribes to it (see `chat-draft-store`).
+   */
+  draftStore: ChatDraftStore;
+  setDraft: ChatDraftStore["set"];
   /** Composer chips, each carrying its own upload state. */
   attachments: ComposerAttachment[];
   /** Adds picks and starts their uploads. Reports picks over the turn budget. */
@@ -391,7 +396,8 @@ export function useChatThread(opts: {
     setHydrationRetryGeneration((generation) => generation + 1);
   }, []);
   const historyPageGenerationRef = useRef(0);
-  const [draft, setDraft] = useState("");
+  const [draftStore] = useState(createChatDraftStore);
+  const setDraft = draftStore.set;
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef(attachments);
@@ -567,7 +573,7 @@ export function useChatThread(opts: {
       syncConversationIdRef.current = canonicalConversationId;
       setStorageLoaded(false);
       setHydrationAuthorityIssue(null);
-      setDraft("");
+      draftStore.set("");
       setAttachments([]);
       setQuotes([]);
       setSending(false);
@@ -587,7 +593,7 @@ export function useChatThread(opts: {
       activeDispatchRef.current = null;
       active?.abort.abort();
     };
-  }, [canonicalAuthorityKey, canonicalConversationId, updateMessages]);
+  }, [canonicalAuthorityKey, canonicalConversationId, draftStore, updateMessages]);
 
   // ─── Durable outbox hydration ────────────────────────────────────────────
   // The DO journal owns history, so nothing is read back from SQLite here.
@@ -713,7 +719,7 @@ export function useChatThread(opts: {
         desktopTransportEnabledRef.current = false;
         markSending(false);
         updateMessages([]);
-        setDraft("");
+        draftStore.set("");
         setAttachments([]);
         setQuotes([]);
         setWorkingActivity(IDLE_WORKING_ACTIVITY);
@@ -721,7 +727,7 @@ export function useChatThread(opts: {
         setDesktopTaskDecoration(null);
         setLivePushConnected(false);
       }),
-    [markSending, updateMessages],
+    [draftStore, markSending, updateMessages],
   );
 
   const acknowledgeDesktopSendIds = useCallback(
@@ -1169,7 +1175,7 @@ export function useChatThread(opts: {
       // Fresh turn — clear any activity left over from the previous reply so
       // the indicator starts from the pre-tool "thinking" state.
       setWorkingActivity(IDLE_WORKING_ACTIVITY);
-      // Promote the queued bubble out of the dimmed state and add an empty
+      // Mark the queued bubble dispatched and add an empty
       // assistant placeholder beside it.
       const dispatchedAt = Date.now();
       updateMessages((m) => {
@@ -1245,7 +1251,7 @@ export function useChatThread(opts: {
       // we're ready.
       if (!storageLoaded || !admissionEnabledRef.current) return null;
       const supplied = suppliedPrompt !== undefined;
-      const typed = (suppliedPrompt ?? draft).trim();
+      const typed = (suppliedPrompt ?? draftStore.get()).trim();
       // Composer quote chips fold into the outgoing text as markdown
       // blockquotes ahead of the typed message; supplied (voice) prompts skip
       // them since they bypass composer state entirely.
@@ -1282,7 +1288,7 @@ export function useChatThread(opts: {
       }
 
       if (!supplied) {
-        setDraft("");
+        draftStore.set("");
         setAttachments([]);
         setQuotes([]);
       }
@@ -1426,7 +1432,7 @@ export function useChatThread(opts: {
       canonicalAuthorityLeaseCurrent,
       canonicalOutboxAuthority,
       dispatch,
-      draft,
+      draftStore,
       quotes,
       markSending,
       parkQueuedSend,
@@ -1597,7 +1603,7 @@ export function useChatThread(opts: {
 
   return {
     messages: displayMessages,
-    draft,
+    draftStore,
     setDraft,
     attachments,
     addAttachments,

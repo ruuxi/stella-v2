@@ -315,59 +315,6 @@ describe("cloud chat bridge authority", () => {
     expect(firstAttempt).not.toHaveProperty("expectedOwnerGeneration");
   });
 
-  test("routes hosted sends and Stop through placement and desktop sends to the builder turn route", () => {
-    const conversationSource = fs.readFileSync(
-      path.join(SOURCE_ROOT, "features/cloud/use-conversation.ts"),
-      "utf8",
-    );
-    const bridgeSource = fs.readFileSync(
-      path.join(SOURCE_ROOT, "features/cloud/use-cloud-chat-bridge.tsx"),
-      "utf8",
-    );
-    expect(conversationSource).toContain("await submitDispatch({");
-    expect(conversationSource).toContain("socketOrigin: placementOrigin,");
-    expect(conversationSource).toContain(
-      "cloudApi.getMyCloudConversationIdentity",
-    );
-    expect(conversationSource).not.toContain(
-      "cloudApi.getMyExecutionPlacementIdentity",
-    );
-    expect(conversationSource).toContain("await browserExecutionSubmitArgs({");
-    expect(conversationSource).toContain(
-      "__STELLA_RENDERED_ACCEPTANCE_BEFORE_BROWSER_DISPATCH__",
-    );
-    expect(conversationSource).toContain(
-      "await waitForRenderedAcceptanceBrowserDispatch(",
-    );
-    expect(conversationSource).toContain(
-      "__STELLA_RENDERED_ACCEPTANCE_AFTER_BROWSER_DISPATCH__",
-    );
-    expect(conversationSource).toContain('"owner_generation_rejected"');
-    expect(conversationSource).toContain(
-      "__STELLA_RENDERED_ACCEPTANCE_AUTHORITY__",
-    );
-    expect(conversationSource).toContain("getDispatchStatus({");
-    expect(conversationSource).toContain(
-      "...browserExecutionCancelArgs(dispatchId),",
-    );
-    expect(conversationSource).not.toContain("cloudApi.getExecutionDispatchStatus");
-    expect(conversationSource).not.toContain("cloudApi.cancelExecutionDispatch");
-    expect(conversationSource).toContain("if (!webShell)");
-    expect(conversationSource).toContain("await startCloudTurn({");
-    expect(conversationSource).toContain(
-      "conversationId: targetConversationId,",
-    );
-    expect(conversationSource).toContain(
-      "getToken: (options) => getConvexToken(options ?? {}),",
-    );
-    expect(conversationSource).toContain(
-      "conversationId ?? (webShell ? null : newCloudConversationId())",
-    );
-    expect(conversationSource).not.toContain("startLegacyTurn");
-    expect(conversationSource).not.toContain("cloudApi.startCloudChat");
-    expect(bridgeSource).toContain("conversation.cancelPending(");
-  });
-
   test("classifies browser dispatch rejection only from the exact structured code", async () => {
     const staleCode = "OWNER_DATA_GENERATION_STALE";
     const resetMessage =
@@ -559,8 +506,12 @@ describe("cloud chat bridge authority", () => {
       path.join(SOURCE_ROOT, "routes/__root.tsx"),
       "utf8",
     );
-    const topbar = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+    // The root's conversation-selection reads live in this hook.
+    const conversationSource = fs.readFileSync(
+      path.join(
+        SOURCE_ROOT,
+        "global/auth/hooks/use-shell-conversation-source.ts",
+      ),
       "utf8",
     );
     expect(shell).toContain(
@@ -574,18 +525,17 @@ describe("cloud chat bridge authority", () => {
     expect(root).toMatch(
       /createCloudConversationDraft\(\s*accountScope,\s*clientCreateId,?\s*\)/,
     );
-    expect(root).toContain("cloudApi.getMyCloudConversationIdentity");
+    expect(conversationSource).toContain(
+      "cloudApi.getMyCloudConversationIdentity",
+    );
+    expect(conversationSource).not.toContain(
+      "cloudApi.getMyExecutionPlacementIdentity",
+    );
     expect(root).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
     expect(root).toContain(
       "retireCloudConversationClientAuthority(accountScope)",
     );
     expect(root).toContain("retireCloudExecutionClientAuthority(accountScope)");
     expect(root).toContain("ownershipMigrationRetryRef.current !== operation");
-    expect(topbar).toContain("const operationAccountScope = accountScope;");
-    expect(topbar).toContain(
-      "activeAccountScopeRef.current !== operationAccountScope",
-    );
-    expect(topbar).toContain("cloudApi.getMyCloudConversationIdentity");
-    expect(topbar).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
   });
 });

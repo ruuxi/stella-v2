@@ -36,7 +36,7 @@ const skillRoot = path.dirname(scriptPath);
 const repoRoot = path.resolve(skillRoot, "../../..");
 const POINTER_PATH = path.join(skillRoot, ".run", "current.json");
 const DEFAULT_EVIDENCE_DIR = path.join(skillRoot, "artifacts");
-const READY_SELECTOR = '[data-testid="conversation-topbar"]';
+const READY_SELECTOR = ".shell-topbar-full";
 const HOST_HEALTH_EXPRESSION = String.raw`
 (async () => {
   const getDeviceId = window.electronAPI?.system?.getDeviceId;
@@ -1288,8 +1288,8 @@ const SHELL_STATE_JS = `(() => {
       && rect.right > 0 && rect.bottom > 0
       && rect.left < window.innerWidth && rect.top < window.innerHeight;
   };
-  const topbar = document.querySelector("[data-testid=conversation-topbar]");
   const composer = [...document.querySelectorAll("textarea.composer-input")].find(visible) || null;
+  const chatColumn = [...document.querySelectorAll("[data-conversation-id]")].find(visible) || null;
   const selectedTabs = [...document.querySelectorAll('[role="tab"][aria-selected="true"]')]
     .filter(visible)
     .map((el) => (el.getAttribute("aria-label") || el.textContent || "").trim())
@@ -1298,7 +1298,7 @@ const SHELL_STATE_JS = `(() => {
     title: document.title,
     route: location.pathname,
     search: location.search,
-    activeConversationId: topbar?.getAttribute("data-active-conversation-id") || null,
+    activeConversationId: chatColumn?.getAttribute("data-conversation-id") || null,
     homeOpen: Boolean(document.querySelector(".full-body-home-overlay")),
     historyOpen: Boolean([...document.querySelectorAll(".conversation-history-popover")].find(visible)),
     settingsOpen: Boolean([...document.querySelectorAll('[role="dialog"]')].find((el) => visible(el) && (el.textContent || "").includes("Settings"))),

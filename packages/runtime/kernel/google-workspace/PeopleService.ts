@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { google, people_v1 } from 'googleapis';
+import { people as createPeopleClient, people_v1 } from '@googleapis/people';
 import { AuthManager } from './AuthManager.js';
 import { logToFile } from './logger.js';
 import { createGoogleClientOptions } from './GaxiosConfig.js';
@@ -14,7 +14,7 @@ export class PeopleService {
 
   private async getPeopleClient(): Promise<people_v1.People> {
     const auth = await this.authManager.getAuthenticatedClient();
-    return google.people({
+    return createPeopleClient({
       version: 'v1',
       ...createGoogleClientOptions(auth),
     });

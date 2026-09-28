@@ -83,9 +83,11 @@ export const decideDispatchPlacement = (args: {
     return { kind: "commit", placement: "cloud", reason: "explicit-cloud" };
   }
   if (args.targetMode === "device") {
+    // A picked computer that is asleep or busy hands portable work to the
+    // cloud; only work that needs that computer waits on it.
     return {
       kind: "offer",
-      onNoEligibleComputer: "blocked",
+      onNoEligibleComputer: args.subject === "computer" ? "blocked" : "cloud",
       reason: "explicit-device",
     };
   }

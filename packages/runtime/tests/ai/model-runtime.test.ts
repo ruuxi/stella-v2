@@ -1225,4 +1225,184 @@ describe("ModelRuntime", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  describe("catalog publication at boot", () => {
+    const writeFreshStore = async (stellaDataDir: string) => {
+      // A first, networked initialize stamps every provider the refresh
+      // covers, like a returning user's models-store.json.
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async () =>
+        new Response("", { status: 404 })) as typeof fetch;
+      try {
+        await new ModelRuntime().initialize({
+          stellaDataDir,
+          allowNetwork: true,
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    };
+
+    it("publishes the catalog once when every provider cache is still fresh", async () => {
+      const stellaDataDir = await makeTempDir();
+      await writeFreshStore(stellaDataDir);
+      const storePath = path.join(stellaDataDir, "models-store.json");
+      const storedBefore = await readFile(storePath, "utf8");
+      const newestCheck = Math.max(
+        ...Object.values(
+          JSON.parse(storedBefore) as Record<string, { checkedAt: number }>,
+        ).map((entry) => entry.checkedAt),
+      );
+
+      const originalFetch = globalThis.fetch;
+      let requests = 0;
+      globalThis.fetch = (async () => {
+        requests += 1;
+        return new Response("", { status: 404 });
+      }) as typeof fetch;
+      const runtime = new ModelRuntime();
+      const snapshots: ReturnType<ModelRuntime["getSnapshot"]>[] = [];
+      // Same order as the worker: subscribe, load extensions, initialize
+      // offline, then the background networked refresh.
+      const unsubscribe = runtime.onCatalogChanged((snapshot) => {
+        snapshots.push(snapshot);
+      });
+      try {
+        runtime.setExtensionProviders([]);
+        await runtime.initialize({ stellaDataDir, allowNetwork: false });
+        await runtime.refresh({ allowNetwork: true });
+
+        expect(requests).toBe(0);
+        expect(snapshots).toHaveLength(1);
+        expect(snapshots[0]?.refreshedAt).toBe(newestCheck);
+        expect(runtime.getSnapshot().refreshedAt).toBe(newestCheck);
+        // Nothing was fetched, so the store is not rewritten either.
+        expect(await readFile(storePath, "utf8")).toBe(storedBefore);
+      } finally {
+        unsubscribe();
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("still publishes when a refresh actually fetches", async () => {
+      const stellaDataDir = await makeTempDir();
+      await writeFreshStore(stellaDataDir);
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: false });
+      const before = runtime.getSnapshot();
+      const snapshots: ReturnType<ModelRuntime["getSnapshot"]>[] = [];
+      const unsubscribe = runtime.onCatalogChanged((snapshot) => {
+        snapshots.push(snapshot);
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async () =>
+        new Response("", { status: 404 })) as typeof fetch;
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        await runtime.refresh({ allowNetwork: true, force: true });
+        expect(snapshots).toHaveLength(1);
+        expect(snapshots[0]?.revision).toBeGreaterThan(before.revision);
+        expect(snapshots[0]?.refreshedAt).toBeGreaterThan(
+          before.refreshedAt ?? 0,
+        );
+        expect(snapshots[0]?.models).toEqual(before.models);
+      } finally {
+        unsubscribe();
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe("snapshot structural sharing", () => {
+    const withoutHeaders = (models: ReturnType<ModelRuntime["getAllModels"]>) =>
+      models.map(({ headers: _headers, ...model }) => model);
+
+    it("matches a deep copy of the composed catalog without headers", async () => {
+      const stellaDataDir = await makeTempDir();
+      await writeFile(
+        path.join(stellaDataDir, "models.json"),
+        JSON.stringify({
+          providers: {
+            openrouter: {
+              baseUrl: "https://proxy.example/v1",
+              headers: { "x-api-key": "secret" },
+              models: [{ id: "custom-or", name: "Custom", input: ["text"] }],
+            },
+          },
+        }),
+      );
+      const runtime = new ModelRuntime();
+      await runtime.initialize({ stellaDataDir, allowNetwork: false });
+      runtime.setExtensionProviders([
+        {
+          name: "ext-provider",
+          api: "openai-completions",
+          baseUrl: "https://ext.example/v1",
+          headers: { authorization: "Bearer ext" },
+          models: [
+            { id: "ext-one", name: "Ext", contextWindow: 10, maxTokens: 5 },
+          ],
+        },
+      ]);
+
+      const snapshot = runtime.getSnapshot();
+      expect(snapshot.models).toEqual(withoutHeaders(runtime.getAllModels()));
+      expect(snapshot.models.every((model) => !("headers" in model))).toBe(
+        true,
+      );
+      expect(JSON.parse(JSON.stringify(snapshot.models))).toEqual(
+        snapshot.models,
+      );
+    });
+
+    it("shares frozen models across snapshots and isolates callers", () => {
+      const runtime = new ModelRuntime();
+      const first = runtime.getSnapshot();
+      const model = first.models.find((entry) => entry.provider === "xai");
+      expect(model).toBeDefined();
+      expect(Object.isFrozen(model)).toBe(true);
+      expect(Object.isFrozen(model?.cost)).toBe(true);
+      expect(Object.isFrozen(model?.input)).toBe(true);
+      expect(() => {
+        (model as { name: string }).name = "mutated";
+      }).toThrow(TypeError);
+
+      // An unrelated registry change recomposes, but untouched models are
+      // the same objects rather than fresh deep copies.
+      const registered = {
+        id: "shared-probe",
+        name: "Probe",
+        api: "openai-completions",
+        provider: "probe",
+        baseUrl: "https://probe.example/v1",
+        reasoning: false,
+        input: ["text" as const],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1,
+        maxTokens: 1,
+      };
+      runtime.registerModel("probe", registered);
+      const second = runtime.getSnapshot();
+      expect(
+        second.models.find(
+          (entry) => entry.provider === "xai" && entry.id === model?.id,
+        ),
+      ).toBe(model);
+
+      // Caller-owned inputs and outputs stay decoupled from the catalog.
+      registered.name = "Changed after register";
+      registered.input.push("image");
+      const copy = runtime.getModel("xai", model!.id)!;
+      copy.cost.input = 12_345;
+      const third = runtime.getSnapshot();
+      expect(
+        third.models.find((entry) => entry.id === "shared-probe"),
+      ).toMatchObject({ name: "Probe", input: ["text"] });
+      expect(runtime.getModel("xai", model!.id)?.cost.input).toBe(
+        model?.cost.input,
+      );
+      expect(Object.isFrozen(copy)).toBe(false);
+      expect(runtime.getModelCount()).toBe(third.models.length);
+    });
+  });
 });

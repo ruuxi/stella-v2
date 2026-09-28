@@ -14,10 +14,12 @@ import { installRendererErrorReporting } from "./platform/diagnostics/report-err
 import { App } from "./App.tsx";
 import { AppProviders } from "./context/AppProviders";
 import { DesktopConvexAuthProvider } from "./global/auth/DesktopConvexAuthProvider";
+import { prefetchAuthSessionBeforeRender } from "./global/auth/services/auth-session";
 import { ErrorBoundary } from "./shell/ErrorBoundary";
 
 applyLowPowerDocumentFlag();
 installRendererErrorReporting();
+prefetchAuthSessionBeforeRender();
 
 document.documentElement.dataset.stellaWindow = "full";
 

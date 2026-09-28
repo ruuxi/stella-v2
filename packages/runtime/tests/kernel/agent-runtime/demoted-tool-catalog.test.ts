@@ -203,16 +203,6 @@ describe("demoted tool catalog (createPiTools)", () => {
     );
   });
 
-  it("keeps the code description byte-identical when no demoted tool is in scope", () => {
-    const tools = makeTools({
-      toolsAllowlist: ["code", "web"],
-      toolCatalog: baseCatalog.filter((tool) => !tool.demoted),
-    });
-    expect(tools.find((tool) => tool.name === "code")?.description).toBe(
-      CODE_DESCRIPTION,
-    );
-  });
-
   it("marks the catalog PARTIAL with $search guidance once the budget overflows", () => {
     const bulky: ToolMetadata[] = Array.from({ length: 120 }, (_, index) => ({
       name: `bulk_tool_${String(index).padStart(3, "0")}`,

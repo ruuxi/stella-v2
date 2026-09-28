@@ -5,7 +5,7 @@
  */
 
 import { Effect } from "effect";
-import { google, Auth } from "googleapis";
+import { OAuth2Client } from "googleapis-common";
 import {
   deleteConnectorAccessTokens,
   loadConnectorTokenPayload,
@@ -50,11 +50,11 @@ const stellaAppDirFromProjectRoot = () => {
  * `googleWorkspaceRuntime`; the public methods stay plain-Promise facades
  * that reject with the original failure objects (tagged parity errors carry
  * the exact pre-Effect messages). The `client.on("tokens")` persistence
- * callback stays a plain async closure because googleapis invokes it from
+ * callback stays a plain async closure because google-auth-library invokes it from
  * non-Effect land.
  */
 export class AuthManager {
-  private client: Auth.OAuth2Client | null = null;
+  private client: OAuth2Client | null = null;
   private readonly clientId = loadConfig().clientId;
   private onStatusUpdate: ((message: string) => void) | null = null;
 
@@ -70,7 +70,7 @@ export class AuthManager {
   }
 
   private getAuthenticatedClientEffect(): Effect.Effect<
-    Auth.OAuth2Client,
+    OAuth2Client,
     unknown
   > {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -97,7 +97,7 @@ export class AuthManager {
         return yield* Effect.fail(new GoogleWorkspaceReconnectRequiredError());
       }
 
-      const client = new google.auth.OAuth2({ clientId: self.clientId });
+      const client = new OAuth2Client({ clientId: self.clientId });
       client.setCredentials({
         access_token: payload.accessToken,
         refresh_token: payload.refreshToken,
@@ -128,7 +128,7 @@ export class AuthManager {
     });
   }
 
-  public getAuthenticatedClient(): Promise<Auth.OAuth2Client> {
+  public getAuthenticatedClient(): Promise<OAuth2Client> {
     return runGoogleWorkspaceEffect(this.getAuthenticatedClientEffect());
   }
 

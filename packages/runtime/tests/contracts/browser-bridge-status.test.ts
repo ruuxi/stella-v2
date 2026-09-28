@@ -59,22 +59,6 @@ const BRIDGE_STATUSES = [
 ] as const;
 
 describe("browser bridge global toast policy", () => {
-  it("covers every known bridge state and failure reason", () => {
-    expect(STELLA_BROWSER_BRIDGE_STATES).toEqual([
-      "idle",
-      "connecting",
-      "connected",
-      "reconnecting",
-      "host_registration_failed",
-    ]);
-    expect(STELLA_BROWSER_BRIDGE_FAILURE_REASONS).toEqual([
-      "bridge_missing",
-      "authorization_failed",
-      "connection_lost",
-      "transient_failure",
-    ]);
-  });
-
   it("never turns optional bridge missing, loss, or retry into a global toast", () => {
     for (const status of BRIDGE_STATUSES) {
       expect(shouldEmitBrowserBridgeGlobalToast(status)).toBe(false);

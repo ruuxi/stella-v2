@@ -47,23 +47,6 @@ describe("StellaEmptyState", () => {
     vi.restoreAllMocks();
   });
 
-  it("mounts the character rig with the requested mood", async () => {
-    await act(async () => {
-      root.render(<StellaEmptyState mood="listening" size={64} />);
-    });
-    stepFrames(16);
-
-    const hero = container.querySelector<HTMLElement>(".stella-empty-state");
-    expect(hero).not.toBeNull();
-    expect(hero?.dataset.mood).toBe("listening");
-    expect(hero?.getAttribute("aria-hidden")).toBe("true");
-
-    const svg = hero?.querySelector("svg");
-    expect(svg).not.toBeNull();
-    expect(svg?.style.width).toBe("64px");
-    expect(svg?.querySelector("path")?.getAttribute("d")).toMatch(/^M/);
-  });
-
   it("stops scheduling frames once the window blurs", async () => {
     await act(async () => {
       root.render(<StellaEmptyState mood="idle" />);

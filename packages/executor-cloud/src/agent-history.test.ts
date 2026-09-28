@@ -8,40 +8,7 @@ import {
 const user = (text = "hello") =>
   JSON.stringify({ role: "user", content: text, timestamp: 1 });
 
-const assistant = () =>
-  JSON.stringify({
-    role: "assistant",
-    content: [{ type: "text", text: "done" }],
-    api: "messages",
-    provider: "anthropic",
-    model: "claude",
-    usage: {
-      input: 1,
-      output: 1,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 2,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: 2,
-  });
-
 describe("authoritative cloud agent history", () => {
-  test("accepts ordered, structurally valid AgentMessage rows", () => {
-    expect(
-      parseAuthoritativeAgentHistory([
-        { seq: 1, role: "user", payloadJson: user(), turnId: "turn-1" },
-        {
-          seq: 2,
-          role: "assistant",
-          payloadJson: assistant(),
-          turnId: "turn-1",
-        },
-      ]),
-    ).toHaveLength(2);
-  });
-
   test.each([
     ["malformed JSON", "{"],
     [

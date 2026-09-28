@@ -9,7 +9,7 @@ import {
   scheduleRowBadge,
   type MobileSchedule,
   type MobileScheduleAction,
-} from "../../lib/desktop-schedules";
+} from "../../lib/schedules";
 import { tapLight } from "../../lib/haptics";
 import { useT, useTPlural } from "../../i18n";
 import { CONTENT_MAX_FONT_SCALE } from "../../lib/setup-text-defaults";

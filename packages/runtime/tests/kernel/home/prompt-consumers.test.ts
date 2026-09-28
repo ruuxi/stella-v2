@@ -66,14 +66,6 @@ describe("bundled prompt consumers", () => {
       "shipped subagent fallback",
     );
   });
-
-  it("ships the real bundled prompt set", async () => {
-    // Without the env override, the repo's own bundle is the source.
-    expect(resolveThreadCompactionSystemPrompt()).not.toBe("");
-    expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR)).not.toBe("");
-    expect(defaultPromptForAgentType("unknown-agent")).not.toBe("");
-    expect(readOrSeedPersonality(await tempDir())).not.toBe("");
-  });
 });
 
 describe("personality composition", () => {

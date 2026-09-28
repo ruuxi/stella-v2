@@ -27,6 +27,7 @@ import { getWorkingIndicatorCharacterState } from "@/features/chat/working-indic
 import { stripMarkdownForTts } from "@/features/voice/services/read-aloud/markdown-strip";
 import { readAloudPrefStore } from "@/features/voice/services/read-aloud/read-aloud-pref";
 import { isReadAloudPlaying } from "@/features/voice/services/read-aloud/read-aloud-player";
+import { useCompanionVisible } from "./use-companion-window";
 
 const PUBLISH_THROTTLE_MS = 80;
 const READ_ALOUD_POLL_MS = 300;
@@ -41,11 +42,19 @@ type MessagePayload = {
   };
 };
 
+// Every timeline update re-derives the latest previews, but the latest reply
+// rarely changes between updates. Remember the last conversion per preview
+// size so an unchanged message skips the full-text markdown strip.
+const lastPlainPreview = new Map<number, { raw: string; preview: string }>();
+
 const toPlainPreview = (raw: string, maxChars: number): string => {
+  const cached = lastPlainPreview.get(maxChars);
+  if (cached?.raw === raw) return cached.preview;
   const plain = stripMarkdownForTts(raw).replace(/\s+/g, " ").trim();
-  return plain.length > maxChars
-    ? `${plain.slice(0, maxChars).trimEnd()}…`
-    : plain;
+  const preview =
+    plain.length > maxChars ? `${plain.slice(0, maxChars).trimEnd()}…` : plain;
+  lastPlainPreview.set(maxChars, { raw, preview });
+  return preview;
 };
 
 const latestUserPreview = (
@@ -104,24 +113,7 @@ export function useCompanionBridge(conversationId: string | null): void {
     readAloudPrefStore.getServerSnapshot,
   );
 
-  const [companionVisible, setCompanionVisible] = useState(false);
-  useEffect(() => {
-    if (!api) return;
-    let cancelled = false;
-    void api
-      .getVisible()
-      .then((result) => {
-        if (!cancelled) setCompanionVisible(result.visible);
-      })
-      .catch(() => undefined);
-    const unsubscribe = api.onVisibleChanged((result) => {
-      if (!cancelled) setCompanionVisible(result.visible);
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [api]);
+  const companionVisible = useCompanionVisible(false);
 
   // Read-aloud playback has no change event; poll only while it can matter.
   const [readAloudPlaying, setReadAloudPlaying] = useState(false);
@@ -222,4 +214,19 @@ export function useCompanionBridge(conversationId: string | null): void {
       cancelCurrentStream();
     });
   }, [api, cancelCurrentStream]);
+}
+
+/**
+ * Hosts `useCompanionBridge` in its own leaf. The bridge subscribes to the
+ * live message timeline; called from the root chrome, that subscription
+ * re-rendered the whole shell (top bar, right sidebar, dialogs) on every
+ * timeline update. As a leaf, only this null-rendering component does.
+ */
+export function CompanionBridge({
+  conversationId,
+}: {
+  conversationId: string | null;
+}): null {
+  useCompanionBridge(conversationId);
+  return null;
 }

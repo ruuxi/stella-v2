@@ -914,7 +914,12 @@
       "photosDeniedBody": "Разрешите Stella доступ к медиатеке в настройках, чтобы прикреплять изображения.",
       "cameraDeniedTitle": "Камера",
       "cameraDeniedBody": "Разрешите Stella использовать камеру в настройках, чтобы сделать фото.",
-      "photoLabel": "Фото"
+      "photoLabel": "Фото",
+      "sheetTitle": "Добавить в чат",
+      "camera": "Камера",
+      "photos": "Фото",
+      "files": "Файлы",
+      "readAloud": "Читать ответы вслух"
     }
   },
   "errors": {
@@ -1299,15 +1304,7 @@
       },
       "queuedMessages": {
         "cancel": "Отменить сообщение из очереди",
-        "cancelAndEdit": "Отменить и изменить",
-        "cancelIndexed": "Отменить сообщение из очереди {index}",
-        "previewLabel": "{label}. Посмотреть сообщения в очереди",
-        "queuedCount": {
-          "one": "{count} сообщение в очереди",
-          "few": "{count} сообщения в очереди",
-          "many": "{count} сообщений в очереди",
-          "other": "{count} сообщения в очереди"
-        }
+        "cancelAndEdit": "Отменить и изменить"
       },
       "replyCount": {
         "label": {
@@ -1977,7 +1974,9 @@
     "nav": {
       "chat": "Чат",
       "settings": "Настройки",
+      "apps": "Приложения",
       "openLabel": "Открыть навигацию",
+      "chatSettingsLabel": "Настройки чата",
       "closeLabel": "Закрыть навигацию",
       "account": "Аккаунт",
       "signIn": "Войти",
@@ -2035,6 +2034,7 @@
     },
     "chat": {
       "emptyPrompt": "Спросите у Stella что угодно",
+      "workingMany": "Задачи в работе: {count}",
       "composerPlaceholder": "Написать Stella",
       "mainChat": "Основной чат",
       "createFailed": "Не удалось создать чат. Попробуйте ещё раз.",
@@ -2089,7 +2089,8 @@
       },
       "files": {
         "empty": "Файлов пока нет. Всё, что создаёт Stella, появится здесь.",
-        "emptyFiltered": "Нет подходящих файлов."
+        "emptyFiltered": "Нет подходящих файлов.",
+        "searchPlaceholder": "Поиск файлов"
       },
       "activity": {
         "empty": "Фоновой работы пока нет.",
@@ -2136,6 +2137,7 @@
       "showEmailLabel": "Показать эл. почту",
       "hideEmailLabel": "Скрыть эл. почту",
       "appearanceSection": "Оформление",
+      "computerSection": "Компьютер",
       "appearance": {
         "system": "Системная",
         "light": "Светлая",
@@ -2168,6 +2170,7 @@
       "forgetConfirmTitle": "Забыть устройство {name}?",
       "forgetConfirmBody": "Этот телефон перестанет подключаться к тому компьютеру, пока вы не свяжете их снова.",
       "carPlayDiagnostics": "Диагностика CarPlay",
+      "aboutSection": "О приложении",
       "openCarPlayDiagnosticsLabel": "Открыть диагностику CarPlay",
       "termsOfService": "Условия использования",
       "openTermsLabel": "Открыть Условия использования",

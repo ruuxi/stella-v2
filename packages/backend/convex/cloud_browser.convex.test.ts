@@ -94,7 +94,26 @@ const seedActiveTurn = async (t: TestHarness) => {
   });
 };
 
-const projectWait = async (t: TestHarness, payloadJson = waitingPayload()) =>
+const projectWait = async (t: TestHarness, payloadJson = waitingPayload()) => {
+  const result = await projectWaitEvent(t, payloadJson);
+  // Fixture deadlines sit at a fixed epoch far in the real past, so
+  // convex-test would fire the deadline expiry immediately. Tests drive it
+  // explicitly instead.
+  await t.run(async (ctx) => {
+    const jobs = await ctx.db.system.query("_scheduled_functions").collect();
+    for (const job of jobs) {
+      if (
+        job.name.includes("expireBrowserInteractionAtDeadlineInternal") &&
+        job.state.kind === "pending"
+      ) {
+        await ctx.scheduler.cancel(job._id);
+      }
+    }
+  });
+  return result;
+};
+
+const projectWaitEvent = async (t: TestHarness, payloadJson: string) =>
   await t.mutation(internal.cloud_apps.appendEventInternal, {
     ownerId: OWNER_ID,
     ownerGeneration: OWNER_GENERATION,
@@ -447,6 +466,82 @@ describe("cloud browser control projection", () => {
         },
       ),
     ).toMatchObject({ state: "expired", revision: 3 });
+  });
+
+  it("expires a wait at its deadline so the pending list drops it without a clock", async () => {
+    const t = createTest();
+    await seedActiveTurn(t);
+    await projectWait(t);
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(
+      scheduled.find((job) =>
+        job.name.includes("expireBrowserInteractionAtDeadlineInternal"),
+      ),
+    ).toMatchObject({ scheduledTime: NOW + 60_000 });
+
+    await t.mutation(
+      internal.cloud_browser.expireBrowserInteractionAtDeadlineInternal,
+      {
+        ownerId: OWNER_ID,
+        ownerGeneration: OWNER_GENERATION,
+        interactionId: "interaction:browser",
+      },
+    );
+    const interaction = await t.run(async (ctx) =>
+      ctx.db
+        .query("cloud_browser_interactions")
+        .withIndex("by_interactionId", (q) =>
+          q.eq("interactionId", "interaction:browser"),
+        )
+        .unique(),
+    );
+    expect(interaction).toMatchObject({
+      state: "resuming",
+      resolution: "expired",
+      decisionRequestId: "deadline:interaction:browser",
+    });
+
+    // A second firing is a no-op on an already-decided row.
+    await t.mutation(
+      internal.cloud_browser.expireBrowserInteractionAtDeadlineInternal,
+      {
+        ownerId: OWNER_ID,
+        ownerGeneration: OWNER_GENERATION,
+        interactionId: "interaction:browser",
+      },
+    );
+  });
+
+  it("marks a deadline-passed wait expired when its turn can no longer resume", async () => {
+    const t = createTest();
+    await seedActiveTurn(t);
+    await projectWait(t);
+    await t.run(async (ctx) => {
+      const turn = await ctx.db
+        .query("agent_turns")
+        .withIndex("by_turnId", (q) => q.eq("turnId", TURN_ID))
+        .unique();
+      await ctx.db.patch(turn!._id, { status: "failed" });
+    });
+    await t.mutation(
+      internal.cloud_browser.expireBrowserInteractionAtDeadlineInternal,
+      {
+        ownerId: OWNER_ID,
+        ownerGeneration: OWNER_GENERATION,
+        interactionId: "interaction:browser",
+      },
+    );
+    const interaction = await t.run(async (ctx) =>
+      ctx.db
+        .query("cloud_browser_interactions")
+        .withIndex("by_interactionId", (q) =>
+          q.eq("interactionId", "interaction:browser"),
+        )
+        .unique(),
+    );
+    expect(interaction).toMatchObject({ state: "expired", revision: 2 });
   });
 
   it("cancels every active wait only after the Gateway reset receipt is applied", async () => {

@@ -623,22 +623,22 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
    * Bottom fade is also always present so chat content tapers out toward the
    * composer rather than ending on a hard edge.
    *
-   * The bottom 56px is therefore not readable area: auto-follow has to frame
-   * the live tail above it, or the tail lands inside the fade and reads as
-   * clipped. `CHAT_VIEWPORT_BOTTOM_FADE_PX` in `shell/chat-follow-target.ts`
-   * mirrors this length — keep the two in sync. */
+   * Follow settles at the literal end of content, so the bottom fade must not
+   * be longer than the list's bottom padding (`FULL_CHAT_CONTENT_STYLE` in
+   * `app/chat/ChatColumn.tsx`), or the resting last row lands inside it and
+   * reads as clipped. Keep the two in sync. */
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
     black 24px,
-    black calc(100% - 56px),
+    black calc(100% - 16px),
     transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0%,
     black 24px,
-    black calc(100% - 56px),
+    black calc(100% - 16px),
     transparent 100%
   );
   transition:

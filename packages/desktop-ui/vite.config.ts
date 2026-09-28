@@ -192,6 +192,53 @@ function websiteLaunchHtml(): Plugin {
 }
 
 /**
+ * Warm the connections the main window's boot path needs before any script
+ * runs: the Convex sync socket (both shells) and, in the browser shell, the
+ * Convex site origin it reads its session from (Electron main owns that
+ * traffic on desktop). The entry chunk graph takes a few hundred milliseconds
+ * to fetch and evaluate; DNS and TLS for these origins can finish meanwhile.
+ * Session reads are credential-less CORS fetches, hence `crossorigin`.
+ */
+function convexPreconnectHints(): Plugin {
+  let origins: { href: string; crossorigin: boolean }[] = [];
+  const originOf = (value: string | undefined): string | null => {
+    try {
+      return value?.trim() ? new URL(value.trim()).origin : null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    name: "convex-preconnect-hints",
+    configResolved(config) {
+      const cloud = originOf(config.env.VITE_CONVEX_URL);
+      const site = originOf(config.env.VITE_CONVEX_SITE_URL);
+      origins = [
+        ...(cloud ? [{ href: cloud, crossorigin: false }] : []),
+        ...(site && WEBSITE_BUILD ? [{ href: site, crossorigin: true }] : []),
+      ];
+    },
+    transformIndexHtml(html, ctx) {
+      if (origins.length === 0 || path.basename(ctx.filename) !== "index.html") {
+        return html;
+      }
+      return {
+        html,
+        tags: origins.map(({ href, crossorigin }) => ({
+          tag: "link",
+          attrs: {
+            rel: "preconnect",
+            href,
+            ...(crossorigin ? { crossorigin: "anonymous" } : {}),
+          },
+          injectTo: "head" as const,
+        })),
+      };
+    },
+  };
+}
+
+/**
  * Bun's node:http never settles `server.close(callback)` once a WebSocket
  * upgrade has happened on the server (zombie upgrade sockets keep the
  * connection count from draining — oven-sh/bun#13184). The production
@@ -260,6 +307,11 @@ const packageNameFromModuleId = (id: string): string | null => {
   return first;
 };
 
+// Packages left out of the per-package vendor chunks. `convex` stays with its
+// importers; the rest are only reached through lazy imports (PDF preview,
+// usage charts) and must not own shared modules the entry needs.
+const LAZY_ONLY_PACKAGES = new Set(["convex", "pdfjs-dist", "recharts"]);
+
 const packageChunkName = (packageName: string): string =>
   `vendor-${packageName.replace(/^@/, "").replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
 
@@ -270,6 +322,7 @@ export default defineConfig({
     tailwindcss(),
     devCspRelax(),
     websiteLaunchHtml(),
+    convexPreconnectHints(),
     bunHttpServerCloseFix(),
     uiStateSharedStore(),
     pdfWorkerAsset(),
@@ -328,6 +381,16 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           const normalized = id.replace(/\\/g, "/");
+          // Rolldown's manualChunks groups capture their dependencies
+          // recursively, so whichever vendor group reaches a shared module
+          // first owns it. The dynamic-import helper was landing in the
+          // pdfjs chunk (and recharts' store deps in the recharts chunk),
+          // which dragged ~1MB of lazy-only code onto the entry's static
+          // import graph. Pin the helper to its own chunk and leave the
+          // lazy-only heavyweights to rolldown's natural placement.
+          if (normalized.includes("vite/preload-helper")) {
+            return "preload-helper";
+          }
           if (normalized.includes("/node_modules/react/")) {
             return "vendor-react";
           }
@@ -335,7 +398,7 @@ export default defineConfig({
             return "vendor-react-dom";
           }
           const packageName = packageNameFromModuleId(id);
-          if (packageName === "convex") {
+          if (packageName && LAZY_ONLY_PACKAGES.has(packageName)) {
             return undefined;
           }
           return packageName ? packageChunkName(packageName) : undefined;

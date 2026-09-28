@@ -2,6 +2,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import type { WorkerPeerLike } from "../peer-broker.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
+import * as RunnerModule from "./runner-module.js";
 import * as WorkerSessions from "./sessions.js";
 import { attachWorkerRpcHandlers, type WorkerRpcContext } from "./rpc.js";
 import { lifecycleHandlers } from "./handlers/lifecycle.js";
@@ -29,10 +30,12 @@ export const createRuntimeWorkerServer = (
   peer: WorkerPeerLike,
 ): {
   hasActiveWork: () => boolean;
+  prefetchRunner: () => void;
   shutdown: () => Promise<void>;
 } => {
   const baseLayer: Layer.Layer<WorkerRpcContext> = WorkerSessions.layer.pipe(
     Layer.provideMerge(ModelCatalog.layer),
+    Layer.provideMerge(RunnerModule.layer),
     Layer.provideMerge(HostBus.layer(peer)),
   );
   const runtime = ManagedRuntime.make(baseLayer);
@@ -58,6 +61,23 @@ export const createRuntimeWorkerServer = (
       ),
     );
 
+  // Start the runner-module import ahead of initialize (see
+  // runner-module.ts). The import fiber lives in the base layer's scope.
+  // It waits one timer tick so requests already buffered on the transport
+  // (a stdio host writes before the worker attaches) are dispatched first;
+  // starting it synchronously delayed the first response by the whole
+  // import (+38 ms in the perf lab) for no gain in spawn→ready.
+  const prefetchRunner = (): void => {
+    void runtime
+      .runPromise(
+        Effect.andThen(
+          Effect.sleep(0),
+          Effect.flatMap(RunnerModule.Service, (m) => m.prefetch),
+        ),
+      )
+      .catch(() => undefined);
+  };
+
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) {
@@ -75,5 +95,5 @@ export const createRuntimeWorkerServer = (
     );
   };
 
-  return { hasActiveWork, shutdown };
+  return { hasActiveWork, prefetchRunner, shutdown };
 };

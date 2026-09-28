@@ -178,10 +178,7 @@ describe("Cloud Home startup preservation", () => {
     expect(writes).toBe(corpus.size);
     expect(await readCorpus(root, corpus)).toEqual(original);
 
-    // Turning memory use off changes prompt injection, not ownership of the
-    // migration source. A later seed while disabled cannot erase local bytes.
-    const memoryEnabled = false;
-    expect(memoryEnabled).toBe(false);
+    // A later startup seed must preserve every byte of the migration source.
     await migrateLegacyHomeLayout(root);
     expect(await readCorpus(root, corpus)).toEqual(original);
 

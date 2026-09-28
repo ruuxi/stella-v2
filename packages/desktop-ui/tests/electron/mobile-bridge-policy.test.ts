@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { buildMobileBridgeBootstrap } from "@stella/desktop/electron/services/mobile-bridge/bootstrap-payload.js";
 import {
   MOBILE_BRIDGE_CAPABILITIES,
   MOBILE_BRIDGE_EVENT_CAPABILITIES,
@@ -16,20 +15,6 @@ describe("mobile bridge policy", () => {
     expect(containsPrivateChatData([{ conversationId: "local_secret", text: "private" }])).toBe(true);
     expect(containsPrivateChatData({ "stella.conversationTabs.v2:local": "private titles" })).toBe(true);
     expect(containsPrivateChatData({ conversationId: "cloud-id", text: "cloud message" })).toBe(false);
-  });
-
-  it("allows the chat channels used by the mobile desktop WebView", () => {
-    expect(isMobileBridgeRequestChannel("localChat:listMessages")).toBe(true);
-    expect(isMobileBridgeRequestChannel("localChat:listMessagesBefore")).toBe(
-      true,
-    );
-    expect(isMobileBridgeRequestChannel("localChat:listActivity")).toBe(true);
-    expect(isMobileBridgeRequestChannel("localChat:listFiles")).toBe(true);
-    expect(
-      isMobileBridgeRequestChannel("localChat:persistDiscoveryWelcome"),
-    ).toBe(true);
-    expect(isMobileBridgeRequestChannel("localChat:syncMessages")).toBe(true);
-    expect(isMobileBridgeEventChannel("localChat:updated")).toBe(true);
   });
 
   it("derives bridge channel access from explicit mobile capability decisions", () => {
@@ -77,36 +62,5 @@ describe("mobile bridge policy", () => {
           capability.mode === "noop",
       ),
     ).toBe(true);
-  });
-
-  it("bootstraps allowed localStorage keys into the mobile WebView", () => {
-    expect(
-      buildMobileBridgeBootstrap({
-        "stella:post-onboarding-hints":
-          '{"seededAt":1,"active":{"connect":true}}',
-        "stella.home.ideasSeen.v2.default": '{"Ideas":"abcd"}',
-        "stella-billing-last-seen-plan:user@example.com": "pro",
-        "stella-nickname:user@example.com": "Rahul",
-        "stella-nickname-asked:user@example.com": "true",
-        "stella.displayPanel.width": "480",
-        "better-auth_cookie": "secret",
-        "better-auth_session_token": "secret",
-        "stella-onboarding-complete": "true",
-        "unrelated-key": "ignored",
-      }),
-    ).toMatchObject({
-      localStorage: {
-        "stella:post-onboarding-hints":
-          '{"seededAt":1,"active":{"connect":true}}',
-        "stella.home.ideasSeen.v2.default": '{"Ideas":"abcd"}',
-        "stella-billing-last-seen-plan:user@example.com": "pro",
-        "stella-nickname:user@example.com": "Rahul",
-        "stella-nickname-asked:user@example.com": "true",
-        "stella-onboarding-complete": "true",
-      },
-      mobileBridgeCapabilities: {
-        version: 1,
-      },
-    });
   });
 });

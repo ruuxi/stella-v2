@@ -20,6 +20,7 @@ import type { NativeConnectorCatalogEntry } from "./native-integrations.js";
 import {
   buildMergedConnectorCatalog,
   readCachedServerCatalog,
+  readCachedServerCatalogStamp,
 } from "./catalog-cache.js";
 
 export type ConnectorKeywordIndex = {
@@ -231,12 +232,13 @@ export const matchConnectorsInMessage = (
 
 // ---------------------------------------------------------------------------
 // Cached index over the live catalog (bundled fallback + disk-cached server
-// catalog). Rebuilt when the disk cache's fetch timestamp changes.
+// catalog). Rebuilt when the disk cache file changes: the per-turn check is a
+// stat, not a read + JSON.parse of the whole cache.
 // ---------------------------------------------------------------------------
 
 type CachedIndexState = {
   stellaDataDir: string;
-  fetchedAt: number;
+  cacheStamp: string;
   index: ConnectorKeywordIndex;
 };
 
@@ -250,17 +252,22 @@ export const resetConnectorKeywordIndexCache = () => {
 export const getConnectorKeywordIndex = async (
   stellaDataDir: string,
 ): Promise<ConnectorKeywordIndex> => {
-  const cached = await readCachedServerCatalog(stellaDataDir);
-  const fetchedAt = cached?.fetchedAt ?? 0;
+  // Stamp before reading: a write racing the read leaves a stale stamp, so
+  // the next call re-reads rather than pinning old contents.
+  const cacheStamp = await readCachedServerCatalogStamp(stellaDataDir);
   if (
     cachedIndex &&
     cachedIndex.stellaDataDir === stellaDataDir &&
-    cachedIndex.fetchedAt === fetchedAt
+    cachedIndex.cacheStamp === cacheStamp
   ) {
     return cachedIndex.index;
   }
+  const cached =
+    cacheStamp === "absent"
+      ? null
+      : await readCachedServerCatalog(stellaDataDir);
   const catalog = buildMergedConnectorCatalog(cached?.entries ?? undefined);
   const index = buildConnectorKeywordIndex(catalog);
-  cachedIndex = { stellaDataDir, fetchedAt, index };
+  cachedIndex = { stellaDataDir, cacheStamp, index };
   return index;
 };

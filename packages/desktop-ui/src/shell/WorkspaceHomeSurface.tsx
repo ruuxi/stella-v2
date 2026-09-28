@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useT } from "@/shared/i18n";
-import { useLayoutEffect, useState } from "react";
+import { memo, useLayoutEffect, useState } from "react";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
 import { useHasQualifyingActivity } from "@/shell/workspace/use-qualifying-activity";
 import { usePendingCloudBrowserInteractions } from "@/features/cloud/use-cloud-browser-interactions";
@@ -18,7 +18,7 @@ type WorkspaceHomeSurfaceProps = {
  * Opening the sidebar collapses this surface and replaces it with the panel;
  * closing the sidebar reveals Activity again.
  */
-export function WorkspaceHomeSurface({
+export const WorkspaceHomeSurface = memo(function WorkspaceHomeSurface({
   hidden,
   portalTarget,
 }: WorkspaceHomeSurfaceProps) {
@@ -68,4 +68,4 @@ export function WorkspaceHomeSurface({
     </aside>,
     resolvedPortalTarget,
   );
-}
+});

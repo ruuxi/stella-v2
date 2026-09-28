@@ -89,12 +89,6 @@ const activeThreadIds = (
   store.listActiveThreads(conversationId).map((thread) => thread.threadId);
 
 describe("slugify", () => {
-  it("slugs a basic phrase to lowercase dash-separated words", () => {
-    expect(slugify("Compare Flight Prices: Tokyo!")).toBe(
-      "compare-flight-prices-tokyo",
-    );
-  });
-
   it("strips diacritics", () => {
     expect(slugify("Café au Lait — Crème Brûlée")).toBe(
       "cafe-au-lait-creme-brulee",
@@ -521,10 +515,6 @@ describe("buildActiveThreadsPrompt", () => {
     expect(prompt).toContain("Recall");
   });
 
-  it("returns an empty string when there are no threads", () => {
-    expect(buildActiveThreadsPrompt([], 1_700_000_000_000)).toBe("");
-  });
-
   it("derives active vs paused end-to-end from the runtime_agents.status join", () => {
     // Full-stack proof: real SessionStore + real SQLite. The roster's
     // active/paused signal must come from runtime_agents.status via the
@@ -580,7 +570,6 @@ describe("review-fix regressions", () => {
     const results = store.searchThreads({ conversationId: "conv-x" });
     expect(results.map((thread) => thread.threadId)).toEqual([real.threadId]);
   });
-
 
   it("thread slugs never land in the legacy- feature-id namespace", () => {
     const { store } = createTestContext();

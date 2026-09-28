@@ -47,7 +47,7 @@ export interface ImageCaps {
 export interface ImageCapTarget {
   /** Model registry provider id (e.g. "anthropic", "openai", "google"). */
   provider?: string;
-  /** Model registry api id (e.g. "anthropic-messages", "bedrock-converse-stream"). */
+  /** Model registry api id (e.g. "anthropic-messages", "openai-responses"). */
   api?: string;
   /** Resolved model id, used to distinguish Anthropic resolution tiers. */
   modelId?: string;
@@ -66,9 +66,6 @@ export interface ImageCapTarget {
  * resize, send-boundary, and spill modules.
  */
 export const ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES = 10 * 1024 * 1024;
-
-/** Anthropic's per-image base64 ceiling on Amazon Bedrock and Google Vertex. */
-export const ANTHROPIC_BEDROCK_VERTEX_MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
 
 // --- Long-edge tiers ---
 
@@ -109,7 +106,6 @@ export const SAFE_FALLBACK_MAX_BYTES = Math.floor(4.5 * 1024 * 1024);
  */
 const ANTHROPIC_DIRECT_RESIZE_MAX_BYTES = Math.floor(9.5 * 1024 * 1024);
 const GENEROUS_RESIZE_MAX_BYTES = Math.floor(9.5 * 1024 * 1024);
-const BEDROCK_VERTEX_RESIZE_MAX_BYTES = Math.floor(4.5 * 1024 * 1024);
 
 /** Default starting JPEG quality: keep text legible, only step down to fit. */
 export const DEFAULT_JPEG_QUALITY = 90;
@@ -137,23 +133,9 @@ export const isAnthropicStandardTierModel = (modelId: string): boolean => {
   );
 };
 
-const isBedrockOrVertexTarget = (provider: string, api: string): boolean =>
-  provider === "amazon-bedrock" ||
-  provider === "google-vertex" ||
-  api === "bedrock-converse-stream" ||
-  api === "google-vertex";
-
 const anthropicByteCap = (
-  provider: string,
-  api: string,
   detailOriginal: boolean,
 ): { resize: number; hard: number } => {
-  if (isBedrockOrVertexTarget(provider, api)) {
-    return {
-      resize: BEDROCK_VERTEX_RESIZE_MAX_BYTES,
-      hard: ANTHROPIC_BEDROCK_VERTEX_MAX_IMAGE_BASE64_BYTES,
-    };
-  }
   return {
     resize: detailOriginal
       ? ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES
@@ -163,19 +145,12 @@ const anthropicByteCap = (
 };
 
 const isAnthropicFamily = (provider: string, api: string): boolean =>
-  provider === "anthropic" ||
-  provider === "amazon-bedrock" ||
-  provider === "google-vertex" ||
-  api === "anthropic-messages" ||
-  api === "bedrock-converse-stream" ||
-  api === "google-vertex";
+  provider === "anthropic" || api === "anthropic-messages";
 
 const isOpenAIFamily = (provider: string, api: string): boolean =>
   provider === "openai" ||
   provider === "openai-codex" ||
-  provider === "azure-openai-responses" ||
-  api.startsWith("openai-") ||
-  api === "azure-openai-responses";
+  api.startsWith("openai-");
 
 const isGoogleFamily = (provider: string, api: string): boolean =>
   provider === "google" ||
@@ -196,7 +171,7 @@ export const resolveImageCaps = (target: ImageCapTarget = {}): ImageCaps => {
   let maxBytes = SAFE_FALLBACK_MAX_BYTES;
 
   if (isAnthropicFamily(provider, api)) {
-    const bytes = anthropicByteCap(provider, api, detailOriginal);
+    const bytes = anthropicByteCap(detailOriginal);
     maxBytes = bytes.resize;
     if (detailOriginal) {
       maxEdge = ANTHROPIC_HARD_MAX_EDGE;
@@ -235,12 +210,5 @@ export const resolveImageCaps = (target: ImageCapTarget = {}): ImageCaps => {
 
 /** The per-image hard byte cap for a target, for the send-boundary/spill guards. */
 export const maxInlineImageBase64Bytes = (
-  target: ImageCapTarget = {},
-): number => {
-  const provider = normalize(target.provider);
-  const api = normalize(target.api);
-  if (isAnthropicFamily(provider, api)) {
-    return anthropicByteCap(provider, api, false).hard;
-  }
-  return ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES;
-};
+  _target: ImageCapTarget = {},
+): number => ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES;

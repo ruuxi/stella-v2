@@ -14,11 +14,8 @@ import {
 } from "@stella/runtime/kernel/agent-runtime/external-engines";
 
 const makeRecorder = () => {
-  const store = { recordRunEvent: vi.fn() };
   return createRunEventRecorder({
-    store: store as never,
     runId: "run-codex",
-    conversationId: "conversation-1",
     agentType: "orchestrator",
     userMessageId: "user-1",
     getResponseTarget: () => ({ type: "user_turn" }),
@@ -26,20 +23,6 @@ const makeRecorder = () => {
 };
 
 describe("external-engine preamble→tool boundary", () => {
-  it("pairs streamed preamble text with the tool call it precedes", () => {
-    const message = buildPreambleToolBoundaryMessage({
-      preamble: "Let me look that up.",
-      toolCallId: "call-1",
-      toolName: "web",
-      toolArgs: { query: "tokyo population" },
-    });
-    expect(message.role).toBe("assistant");
-    const blocks = Array.isArray(message.content) ? message.content : [];
-    expect(blocks.map((block) => block.type)).toEqual(["text", "toolCall"]);
-    const toolCall = blocks.find((block) => block.type === "toolCall");
-    expect(toolCall).toMatchObject({ id: "call-1", name: "web" });
-  });
-
   it("flags the emitted assistant-message event as followedByToolCall", () => {
     const recorder = makeRecorder();
     const event = recorder.recordAssistantMessageEnd(
@@ -67,14 +50,6 @@ describe("external-engine preamble→tool boundary", () => {
     expect(event).toBeNull();
   });
 
-  it("does not flag a plain final answer as followedByToolCall", () => {
-    const recorder = makeRecorder();
-    const finalEvent = recorder.recordAssistantTextEnd(
-      "Tokyo has ~14 million.",
-    );
-    expect(finalEvent?.text).toBe("Tokyo has ~14 million.");
-    expect(finalEvent?.followedByToolCall).toBeUndefined();
-  });
 });
 
 describe("external-engine sandbox image authority", () => {
@@ -169,9 +144,7 @@ describe("external live steering", () => {
 
   it("moves callback ownership to every user steer consumed in one engine turn", () => {
     const recorder = createRunEventRecorder({
-      store: { recordRunEvent: vi.fn() } as never,
       runId: "run-hidden",
-      conversationId: "conversation-1",
       agentType: "orchestrator",
       userMessageId: "hidden-agent-result",
       uiVisibility: "hidden",

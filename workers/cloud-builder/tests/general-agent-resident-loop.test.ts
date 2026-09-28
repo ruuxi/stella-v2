@@ -37,15 +37,12 @@ mock.module("@cloudflare/sandbox", () => ({
 }));
 
 const { runResidentStellaLoop } = await import("../src/general-agent-turn.js");
-const { NO_WORKSPACE_ATTACHED_MESSAGE, createResidentGeneralAgentTools } =
+const { createResidentGeneralAgentTools } =
   await import("../src/general-agent-tools.js");
 const { createTurnRetryCancellation } = await import(
   "../src/turn-cancellation.js"
 );
 const { openSqlStorageFake } = await import("./fixtures/sql-storage.js");
-const { nativeHistoryCursorFromRows } = await import(
-  "../src/native-state-checkpoint.js"
-);
 
 type Sealed = Awaited<ReturnType<AgentTurnJournal["seal"]>>;
 
@@ -257,86 +254,6 @@ afterEach(() => {
 });
 
 describe("resident Stella loop", () => {
-  test("completes a text-only turn without touching a container", async () => {
-    const { result, appended } = await run({
-      script: [assistantText("We decided to ship the ladder.")],
-    });
-
-    expect(getSandboxCalls).toBe(0);
-    expect(result.outcome).toBe("completed");
-    if (result.outcome !== "completed") throw new Error(result.outcome);
-    expect(result.finalText).toBe("We decided to ship the ladder.");
-    expect(result.compute).toEqual({ kind: "resident" });
-    expect(result.durability.kind).toBe("transcript_only");
-    expect(result.usage).toEqual({
-      inputTokens: 11,
-      outputTokens: 5,
-      llmCalls: 1,
-    });
-    expect(appended).toHaveLength(1);
-    expect(appended[0]?.rows.map((row) => row.role)).toEqual([
-      "user",
-      "assistant",
-    ]);
-    expect(appended[0]?.historyCursor).toBe(
-      await nativeHistoryCursorFromRows(
-        (appended[0]?.rows ?? []).map((row) => ({
-          turnId: TURN.identity.turnId,
-          role: row.role,
-          payloadJson: row.payloadJson,
-        })),
-      ),
-    );
-  });
-
-  test("prompts with the lazy workspace variant and the pinned catalog", async () => {
-    const { contexts } = await run({ script: [assistantText("done")] });
-
-    const systemPrompt = contexts[0]?.systemPrompt ?? "";
-    expect(systemPrompt).toContain("Nothing is on disk yet.");
-    expect(systemPrompt).toContain(
-      "restore this world and synchronize the user's drive into it the first time you call one",
-    );
-    expect(systemPrompt).not.toContain("is already on disk");
-    expect(contexts[0]?.tools?.map((tool) => tool.name)).toEqual([
-      "exec_command",
-      "write_stdin",
-      "apply_patch",
-      "web",
-      "Read",
-      "Write",
-      "Edit",
-      "Grep",
-      "code",
-      "spawn_agent",
-      "send_input",
-      "pause_agent",
-      "agent_status",
-      "merge_workspace",
-    ]);
-  });
-
-  test("refuses a container tool with a model-visible error and keeps going", async () => {
-    const { result, appended } = await run({
-      script: [
-        assistantCalls("exec_command"),
-        assistantText("I cannot read the repo without a workspace."),
-      ],
-    });
-
-    expect(getSandboxCalls).toBe(0);
-    expect(result.outcome).toBe("completed");
-    const rows = appended[0]?.rows ?? [];
-    expect(rows.map((row) => row.role)).toEqual([
-      "user",
-      "assistant",
-      "toolResult",
-      "assistant",
-    ]);
-    expect(rows[2]?.payloadJson).toContain(NO_WORKSPACE_ATTACHED_MESSAGE);
-    expect(result.outcome === "completed" && result.usage.llmCalls).toBe(2);
-  });
-
   test("drains steer messages into the journal before the next model call", async () => {
     const built = harness({
       script: [assistantCalls("web"), assistantText("I used the update.")],

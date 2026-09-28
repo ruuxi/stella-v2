@@ -22,8 +22,13 @@
  * pointing at the `/apps` route would compete with the sidebar for the same
  * job. Home is also omitted from route navigation because its activity surface
  * is rendered independently by `WorkspaceHomeSurface`.
+ *
+ * Stella is a single-chat product, so the bar carries no conversation tabs,
+ * history or new-chat control: the active conversation is chosen by the
+ * root route (`?c=`) alone.
  */
 
+import { memo } from "react";
 import { getPlatform } from "@/platform/electron/platform";
 import {
   displayTabs,
@@ -33,7 +38,6 @@ import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { ShellTopBarPrimaryNav } from "@/shell/sidebar/ShellTopBarNav";
-import { ConversationTopBar } from "@/shell/topbar/ConversationTopBar";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import { WindowControls } from "@/shell/WindowControls";
 import { PanelRight } from "@/ui/icons";
@@ -50,7 +54,7 @@ type ShellTopBarFullProps = {
   onSignIn?: () => void;
 };
 
-export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
+export const ShellTopBarFull = memo(function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
   const t = useT();
   const platform = getPlatform();
   const isMac = platform === "darwin";
@@ -67,7 +71,6 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
       data-display-open={panelOpen ? "true" : "false"}
     >
       <div className="shell-topbar-full__left">
-        <ConversationTopBar />
         <ShellTopBarPrimaryNav omitIds={OMITTED_NAV_IDS} />
       </div>
 
@@ -98,4 +101,4 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
       </div>
     </header>
   );
-}
+});

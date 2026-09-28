@@ -15,7 +15,16 @@ export function createAsyncTempDirTracker() {
       await Promise.all(
         tempDirs
           .splice(0)
-          .map((dir) => rm(dir, { recursive: true, force: true })),
+          // A child process that is still exiting can add an entry mid-rm
+          // (ENOTEMPTY); retry briefly instead of failing the suite.
+          .map((dir) =>
+            rm(dir, {
+              recursive: true,
+              force: true,
+              maxRetries: 5,
+              retryDelay: 100,
+            }),
+          ),
       );
     },
   };

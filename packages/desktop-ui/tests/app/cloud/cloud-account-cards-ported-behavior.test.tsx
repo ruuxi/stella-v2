@@ -212,7 +212,7 @@ describe("ported cloud account cards", () => {
     const expected = {
       engine: "openai-codex",
       provider: "openai-codex",
-      model: "gpt-5.6-sol",
+      model: "gpt-6-sol",
       reasoningEffort: "default",
     };
     expect(

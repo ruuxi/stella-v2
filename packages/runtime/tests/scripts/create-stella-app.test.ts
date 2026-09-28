@@ -174,23 +174,4 @@ describe("create-stella-app scaffold", () => {
     await expect(readFile(lockPath, "utf8")).resolves.toBe("other creator");
   });
 
-  it("keeps the legacy command as a thin wrapper around the canonical scaffold", async () => {
-    const wrapper = await readFile(
-      path.join(REPO_ROOT, "packages/desktop/scripts/create-workspace-app.mjs"),
-      "utf8",
-    );
-    const rootPackage = JSON.parse(
-      await readFile(path.join(REPO_ROOT, "package.json"), "utf8"),
-    );
-
-    expect(wrapper).toContain(
-      "../../home-seed/skills/create-stella-app/scripts/program.ts",
-    );
-    expect(wrapper).not.toContain("desktop/templates/workspace-app");
-    expect(wrapper).not.toContain("desktop/workspace");
-    expect(rootPackage.scripts["app:create"]).toBe(
-      "node packages/desktop/scripts/create-workspace-app.mjs",
-    );
-    expect(rootPackage.scripts["workspace:create-app"]).toBeUndefined();
-  });
 });

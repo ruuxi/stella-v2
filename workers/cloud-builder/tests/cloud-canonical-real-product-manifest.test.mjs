@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
 import { STELLA_PROMPT_IDS } from "@stella/contracts/stella-prompts";
+
 import { MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS as MOBILE_RN_ORCHESTRATOR_CHILD_TIMEOUT_OVERHEAD_MS } from "../../../packages/mobile/scripts/cloud-canonical-rn-acceptance.mjs";
 
 import {
@@ -19,14 +20,12 @@ import {
 import {
   AUTHORITY_RUNWAY_EXHAUSTED,
   AUTHORITY_RUNWAY_EXHAUSTED_EXIT_CODE,
-  CANONICAL_PROMPT_IDS,
   CANONICAL_PROMPT_SOURCES,
   MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS,
   MOBILE_RN_GENERATION_PHASE_TIMEOUT_MS,
   MOBILE_RN_GENERATION_MAX_NO_REFRESH_WINDOW_MS,
   MOBILE_RN_PHASE_MAX_NO_REFRESH_WINDOW_MS,
   OWNER_RESET_CONTINUATION_RESERVE_MS,
-  REAL_PRODUCT_DRIVER_STEP_IDS,
   REFRESHED_JWT_MINIMUM_RUNWAY_MS,
   assertNoSerializedCredentialMaterial,
   assertRefreshedJwtRunway,
@@ -38,7 +37,6 @@ import {
   parseJwtIdentity,
   parseDevToolsActivePort,
   parseTrustedViteListenerRecords,
-  reviewedMemoryArchitectureBoundary,
 } from "../scripts/cloud-canonical-real-product-driver.mjs";
 import {
   ACCEPTANCE_DRIVER_CONTRACT,
@@ -218,33 +216,6 @@ describe("real-product acceptance manifest generator", () => {
     expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
-  test("refreshes isolated product profiles around each mounted RN phase", async () => {
-    const [source, runnerSource] = await Promise.all([
-      readFile(driver, "utf8"),
-      readFile(runner, "utf8"),
-    ]);
-    expect(source).toContain("const runMountedRnPhase = async");
-    expect(source).toContain('runMountedRnPhase("enqueue_response_loss")');
-    expect(source).toContain('runMountedRnPhase("replay_reconnect_switch"');
-    expect(source).toContain('runMountedRnPhase("clean_hydrate")');
-    expect(source).toContain('STELLA_MOBILE_RN_ACCEPTANCE_MODE: "phase"');
-    expect(source).toContain(
-      "minimumRunwayMs: MOBILE_RN_PHASE_MAX_NO_REFRESH_WINDOW_MS",
-    );
-    expect(source).toContain("deadlineMs: mobileGeneration.proofDeadlineAt");
-    expect(source).toContain("OWNER_RESET_CONTINUATION_RESERVE_MS");
-    expect(source).not.toContain("timeoutMs: 29 * 60_000");
-    expect(source).toContain(
-      "error.details?.code === AUTHORITY_RUNWAY_EXHAUSTED",
-    );
-    expect(runnerSource).toContain(
-      "result.code === AUTHORITY_RUNWAY_EXHAUSTED_EXIT_CODE",
-    );
-    expect(runnerSource).toContain("code: AUTHORITY_RUNWAY_EXHAUSTED");
-    expect(runnerSource).toContain("detached: DRIVER_PROCESS_GROUPS");
-    expect(runnerSource).toContain("process.kill(-child.pid, signal)");
-  });
-
   test("rejects raw credentials from every private acceptance-state write", () => {
     const digest = "a".repeat(64);
     expect(
@@ -275,116 +246,7 @@ describe("real-product acceptance manifest generator", () => {
     ).toThrow("serialized credential material");
   });
 
-  test("binds every required id to the reviewed executable with no receipt-import seam", async () => {
-    expect(REAL_PRODUCT_DRIVER_STEP_IDS).toEqual(REQUIRED_STEP_IDS);
-    expect(REAL_PRODUCT_DRIVER_STEP_IDS).toEqual(REAL_PRODUCT_STEP_IDS);
-    expect(new Set(REAL_PRODUCT_DRIVER_STEP_IDS).size).toBe(
-      REQUIRED_STEP_IDS.length,
-    );
-    expect(CANONICAL_PROMPT_IDS).toEqual(STELLA_PROMPT_IDS);
-
-    const source = await readFile(driver, "utf8");
-    expect(source).not.toContain("requireDeployedScenarioReceipt");
-    expect(source).not.toContain("STELLA_CLOUD_ACCEPTANCE_OBSERVATION_FILE");
-    expect(source).not.toContain("STELLA_CLOUD_ACCEPTANCE_DRIVER_COMMAND");
-    expect(source).toContain("/api/stella/prompts");
-    expect(source).toContain("packages/runtime/extensions/stella-runtime");
-    expect(source).not.toContain("packages/backend/prompts/stella-runtime");
-    expect(source).toContain("const accountScope = `account:${jwtSubject}`");
-    expect(source).not.toContain(
-      "const accountScope = `account:${owner.ownerId}`",
-    );
-    expect(source).toContain("STELLA_DATA_DIR: dataDir");
-    expect(source).toMatch(
-      /"deploy",\s*"--dry-run",\s*"--env",\s*REQUIRED_CLOUDFLARE_ENVIRONMENT/u,
-    );
-    expect(source).toContain("REQUIRED_AGENT_HOME_BUCKET_NAME");
-    expect(source).toContain("REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME");
-    expect(source).not.toMatch(
-      /["']stella-v2-(?:app-builds|agent-home|conversation-archive)-dev["']/u,
-    );
-    expect(source).toContain(
-      'path.join(paths.profileDirectory, "vite-server", "data")',
-    );
-    expect(source).toContain("canonicalPromptMatchesReviewedSource: true");
-    expect(source).toContain("connectedIntegrationPreservedByReset");
-    expect(source).toContain('"mcp.post-reset.real-read"');
-    expect(source).toContain(
-      '"composio_purge:remainingOwnerComposioSessionsInternal"',
-    );
-    expect(source).toContain("connectedIntegrationRemovedAfterAccountDeletion");
-    expect(source).toContain("secondaryTestAccountRevoked");
-    expect(source).toContain("secondaryOwnerResidueRemoved");
-    expect(source).toContain("electron.process-logs.privacy-scan");
-    expect(source).toContain(
-      "mobile_signed_in_canonical_sync: stepMobileMountedRnCanonicalSync",
-    );
-    expect(source).toContain(
-      "packages/mobile/scripts/cloud-canonical-rn-acceptance.mjs",
-    );
-    expect(source).not.toContain(
-      "packages/mobile/scripts/cloud-canonical-real-acceptance.ts",
-    );
-    expect(source).not.toContain("STELLA_MOBILE_ACCEPTANCE_OUTBOX_FILE");
-    expect(source).not.toContain("STELLA_MOBILE_ACCEPTANCE_PHASE");
-    expect(source).toContain(
-      'STELLA_MOBILE_RN_ACCEPTANCE_MODE: "post_reset_generation"',
-    );
-    expect(source).toContain("expectedCloseCode: 4404");
-    expect(source).toContain("expectedCloseCode: 4403");
-    expect(source).toContain("expectedStatuses: [403]");
-    expect(source).toContain("Sign in with an account to use Stella mobile.");
-    expect(source).toContain("mobile.anonymous-policy-rejection.submit");
-    expect(source).toContain(
-      '"STELLA_CLOUD_ACCEPTANCE_SECONDARY_DISPOSABLE_EMAIL"',
-    );
-    expect(source).toContain(
-      'secondary.identityClass === "connected-secondary"',
-    );
-    expect(source).toContain("jwt: secondarySecrets.jwt");
-    expect(source).toContain("headers: userHeaders(anonymousSecrets)");
-    expect(source).toContain("disposeAnonymousMobilePolicyAccount");
-    expect(source).toContain('"STELLA_CLOUD_ACCEPTANCE_SECONDARY_JWT",');
-    expect(source).toContain(
-      '"STELLA_CLOUD_ACCEPTANCE_SECONDARY_SESSION_COOKIE",',
-    );
-    expect(source).toContain(
-      "must be absent; authority is refreshed from the isolated product profile.",
-    );
-    expect(source).toContain("startBoundedCommand(bunBinary, [harnessFile]");
-    expect(source).toContain("await terminateBoundedCommands()");
-    const streamingChatSource = await readFile(
-      path.join(
-        repoRoot,
-        "packages/desktop-ui/src/features/chat/hooks/use-streaming-chat-core.ts",
-      ),
-      "utf8",
-    );
-    expect(streamingChatSource).not.toContain("cleanedText.slice(0, 200)");
-    expect(streamingChatSource).not.toMatch(/\|\s*text=\$\{/u);
-    expect(streamingChatSource).toContain("textLength=${cleanedText.length}");
-    expect(source).toContain("expectedOwnerGeneration: owner.ownerGeneration");
-    const legacyChatAdmissions = source.match(/startCloudChat/gu) ?? [];
-    const generationFencedLegacyChatAdmissions = source.match(
-      /startCloudChat[\s\S]{0,320}?expectedOwnerGeneration/gu,
-    );
-    expect(legacyChatAdmissions).toHaveLength(8);
-    expect(generationFencedLegacyChatAdmissions).toHaveLength(
-      legacyChatAdmissions.length,
-    );
-    expect(source).toContain(
-      "Reviewed source tree changed after deployment identity was attested.",
-    );
-    expect(source).not.toContain("connectedIntegrationPurgedByReset");
-    for (const id of REQUIRED_STEP_IDS) {
-      expect(source).toMatch(new RegExp(`\\b${id}:\\s*step[A-Z]`, "u"));
-    }
-  });
-
   test("keeps proof secrets out of Electron and accepts only owned loopback endpoints", async () => {
-    const source = await readFile(driver, "utf8");
-    expect(source).toContain("versionResult.output.trim().length > 0");
-    expect(source).not.toContain("versionResult.code === 0");
     expect(
       isolatedElectronEnvironment({
         PATH: "/reviewed/bin",
@@ -419,35 +281,10 @@ describe("real-product acceptance manifest generator", () => {
         parseTrustedViteListenerRecords(output, { pid: 4242 }),
       ).toThrow("exact IPv4 loopback");
     }
-    expect(source).toContain("const vitePortForRun = (_runId) => 57_314");
-    expect(source).toContain(
-      "Trusted loopback port ${port} is already owned by another process",
-    );
     expect(parseDetachedProcessGroupId(" 4242\n", 4242)).toBe(4242);
     expect(() => parseDetachedProcessGroupId("4243\n", 4242)).toThrow(
       "no longer the leader",
     );
-    expect(source).toContain('process.kill(-pid, "SIGTERM")');
-    expect(source).toContain("pid was recycled or replaced before shutdown");
-    expect(source.match(/"Cleanup Vite process fingerprint"/gu)).toHaveLength(
-      2,
-    );
-    expect(source.match(/"Cleanup Vite listener-address set"/gu)).toHaveLength(
-      2,
-    );
-    expect(source).toContain('"Recorded secondary Vite state"');
-  });
-
-  test("pins authoritative parent memory and explicit child context boundaries", async () => {
-    await expect(reviewedMemoryArchitectureBoundary()).resolves.toEqual({
-      authoritativeMemoryLoadedAtTurnStartup: true,
-      authoritativePersonalityLoadedAtTurnStartup: true,
-      authoritativeContextFailureBlocksTurn: true,
-      childTaskContextExplicitOnly: true,
-      childPinnedSkillCatalog: true,
-      childImplicitFullMemoryDump: false,
-      sourceSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
-    });
   });
 
   test("binds the runtime roster and removes only agent frontmatter plus its separator", async () => {

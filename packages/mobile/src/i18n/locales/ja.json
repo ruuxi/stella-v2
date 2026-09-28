@@ -911,7 +911,12 @@
       "photosDeniedBody": "画像を添付できるように、設定で Stella に写真ライブラリへのアクセスを許可してください。",
       "cameraDeniedTitle": "カメラ",
       "cameraDeniedBody": "写真を撮れるように、設定で Stella にカメラの使用を許可してください。",
-      "photoLabel": "写真"
+      "photoLabel": "写真",
+      "sheetTitle": "チャットに追加",
+      "camera": "カメラ",
+      "photos": "写真",
+      "files": "ファイル",
+      "readAloud": "返信を読み上げる"
     }
   },
   "errors": {
@@ -1278,12 +1283,7 @@
       },
       "queuedMessages": {
         "cancel": "キューのメッセージをキャンセル",
-        "cancelAndEdit": "キャンセルして編集",
-        "cancelIndexed": "キューのメッセージ {index} をキャンセル",
-        "previewLabel": "{label}。キューのメッセージをプレビュー",
-        "queuedCount": {
-          "other": "{count} 件のメッセージをキューに追加"
-        }
+        "cancelAndEdit": "キャンセルして編集"
       },
       "replyCount": {
         "label": {
@@ -1920,7 +1920,9 @@
     "nav": {
       "chat": "チャット",
       "settings": "設定",
+      "apps": "アプリ",
       "openLabel": "ナビゲーションを開く",
+      "chatSettingsLabel": "チャット設定",
       "closeLabel": "ナビゲーションを閉じる",
       "account": "アカウント",
       "signIn": "サインイン",
@@ -1978,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella に何でも聞いてください",
+      "workingMany": "{count} 件のタスクを実行中",
       "composerPlaceholder": "Stella にメッセージ",
       "mainChat": "メインチャット",
       "createFailed": "チャットを作成できませんでした。もう一度お試しください。",
@@ -2029,7 +2032,8 @@
       },
       "files": {
         "empty": "ファイルはまだありません。Stellaが作成したものがここに表示されます。",
-        "emptyFiltered": "一致するファイルはありません。"
+        "emptyFiltered": "一致するファイルはありません。",
+        "searchPlaceholder": "ファイルを検索"
       },
       "activity": {
         "empty": "バックグラウンド作業はまだありません。",
@@ -2076,6 +2080,7 @@
       "showEmailLabel": "メールアドレスを表示",
       "hideEmailLabel": "メールアドレスを非表示",
       "appearanceSection": "外観",
+      "computerSection": "コンピュータ",
       "appearance": {
         "system": "システム",
         "light": "ライト",
@@ -2108,6 +2113,7 @@
       "forgetConfirmTitle": "{name} を解除しますか？",
       "forgetConfirmBody": "再度ペアリングするまで、この携帯はそのコンピュータに再接続しなくなります。",
       "carPlayDiagnostics": "CarPlay 診断",
+      "aboutSection": "情報",
       "openCarPlayDiagnosticsLabel": "CarPlay 診断を開く",
       "termsOfService": "利用規約",
       "openTermsLabel": "利用規約を開く",

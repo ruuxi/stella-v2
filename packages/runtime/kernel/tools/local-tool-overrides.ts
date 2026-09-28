@@ -7,8 +7,6 @@
  * - NoResponse: immediate return
  */
 
-import { parse, type DefaultTreeAdapterMap } from "parse5";
-import TurndownService from "turndown";
 import { normalizeSafeExternalUrl } from "./network-guards.js";
 import { containsSecretLikeToken, sanitizeToolVisibleText } from "./safety.js";
 
@@ -45,102 +43,20 @@ const PROMPT_STOP_WORDS = new Set([
 
 export type WebFetchFormat = "text" | "markdown" | "html";
 
-type HtmlNode = DefaultTreeAdapterMap["node"];
-
-const SKIPPED_HTML_ELEMENTS = new Set([
-  "head",
-  "script",
-  "style",
-  "template",
-  "noscript",
-  "svg",
-  "canvas",
-]);
-const BLOCK_HTML_ELEMENTS = new Set([
-  "address",
-  "article",
-  "aside",
-  "blockquote",
-  "br",
-  "dd",
-  "div",
-  "dl",
-  "dt",
-  "figcaption",
-  "figure",
-  "footer",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "header",
-  "hr",
-  "li",
-  "main",
-  "nav",
-  "ol",
-  "p",
-  "pre",
-  "section",
-  "table",
-  "td",
-  "th",
-  "tr",
-  "ul",
-]);
-
-/** Parse HTML into a DOM tree before extracting visible text. */
-export const htmlToText = (html: string): string => {
-  const document = parse(html);
-  const chunks: string[] = [];
-  const visit = (node: HtmlNode) => {
-    if ("nodeName" in node && SKIPPED_HTML_ELEMENTS.has(node.nodeName)) return;
-    if (node.nodeName === "#text" && "value" in node) {
-      chunks.push(node.value);
-      return;
-    }
-    const isBlock =
-      "nodeName" in node &&
-      BLOCK_HTML_ELEMENTS.has(node.nodeName.toLowerCase());
-    if (isBlock) chunks.push("\n");
-    if ("childNodes" in node) {
-      for (const child of node.childNodes) visit(child);
-    }
-    if (isBlock) chunks.push("\n");
-  };
-  visit(document);
-  return chunks
-    .join("")
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+// parse5 and turndown load lazily; see html-conversion.ts.
+type HtmlConversion = typeof import("./html-conversion.js");
+let htmlConversionLoad: Promise<HtmlConversion> | null = null;
+const loadHtmlConversion = (): Promise<HtmlConversion> => {
+  const pending =
+    htmlConversionLoad ??
+    import("./html-conversion.js").catch((error: unknown) => {
+      // Let the next fetch retry instead of caching a failed load.
+      htmlConversionLoad = null;
+      throw error;
+    });
+  htmlConversionLoad = pending;
+  return pending;
 };
-
-const turndown = new TurndownService({
-  headingStyle: "atx",
-  bulletListMarker: "-",
-  codeBlockStyle: "fenced",
-});
-turndown.remove([
-  "head",
-  "script",
-  "style",
-  "template",
-  "noscript",
-  "svg",
-  "canvas",
-]);
-
-/** Convert parsed HTML semantics to Markdown (links, lists, headings, code, etc.). */
-export const htmlToMarkdown = (html: string): string =>
-  turndown
-    .turndown(html)
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 
 const HTML_MIME_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 const TEXTUAL_APPLICATION_MIME_TYPES = new Set([
@@ -352,7 +268,8 @@ export const localWebFetch = async (args: {
     const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
     const format = args.format ?? "text";
     let text = rawBody;
-    if (HTML_MIME_TYPES.has(mimeType)) {
+    if (HTML_MIME_TYPES.has(mimeType) && format !== "html") {
+      const { htmlToText, htmlToMarkdown } = await loadHtmlConversion();
       if (format === "text") text = htmlToText(rawBody);
       if (format === "markdown") text = htmlToMarkdown(rawBody);
     }

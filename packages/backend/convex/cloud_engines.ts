@@ -34,12 +34,19 @@ import {
   type CloudExecutionEngine,
   type CloudExecutionSelection,
 } from "./lib/cloud_execution";
+import { ENGINE_MODEL_CATALOG } from "@stella/contracts/engine-model-catalog";
 import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
 import { scheduleOwnerSnapshotChanged } from "./lib/owner_snapshot_notify";
 import {
   assertOwnerDataAccessActive,
   LEGACY_OWNER_GENERATION,
 } from "./owner_lifecycle";
+
+const engineModelOptionValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  description: v.optional(v.string()),
+});
 
 export type CloudEngineProvider = "anthropic" | "openai-codex";
 
@@ -839,6 +846,8 @@ export const listMyEngineConnections = query({
   returns: v.object({
     chatEngine: v.string(),
     execution: cloudExecutionSelectionValidator,
+    /** When the owner last saved a selection; absent until the first save. */
+    selectedAt: v.optional(v.number()),
     connections: v.array(
       v.object({
         provider: v.string(),
@@ -888,6 +897,7 @@ export const listMyEngineConnections = query({
     return {
       chatEngine: settings?.chatEngine ?? "stella",
       execution: executionFromSettings(settings),
+      ...(settings ? { selectedAt: settings.updatedAt } : {}),
       connections: rows.map((row) => ({
         provider: row.provider,
         label: row.label,
@@ -1036,8 +1046,10 @@ export const setMyCloudExecution = mutation({
   handler: async (ctx, args) => {
     const ownerId = await requireOwnerId(ctx);
     await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    // No credential check: this is the account-wide selection, and a paired
+    // computer runs Claude Code / Codex on its own local login. Cloud turns
+    // still require the connection when they resolve the route.
     const execution = normalizeCloudExecutionSelection(args.execution);
-    await requireExecutionCredential(ctx, ownerId, execution);
     const now = Date.now();
     const settings = await activeEngineSettings(ctx, ownerId);
     if (settings) {
@@ -1057,6 +1069,16 @@ export const setMyCloudExecution = mutation({
     await scheduleOwnerSnapshotChanged(ctx, ownerId, "engine");
     return null;
   },
+});
+
+/** Hand-maintained Claude Code and Codex model lists for every client picker. */
+export const listEngineModels = query({
+  args: {},
+  returns: v.object({
+    claude: v.array(engineModelOptionValidator),
+    codex: v.array(engineModelOptionValidator),
+  }),
+  handler: async () => ENGINE_MODEL_CATALOG,
 });
 
 export const getEngineSettingsInternal = internalQuery({

@@ -912,7 +912,12 @@
       "photosDeniedBody": "Ge Stella åtkomst till ditt bildbibliotek i Inställningar så att du kan bifoga bilder.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Ge Stella åtkomst till kameran i Inställningar så att du kan ta ett foto.",
-      "photoLabel": "Bild"
+      "photoLabel": "Bild",
+      "sheetTitle": "Lägg till i chatten",
+      "camera": "Kamera",
+      "photos": "Bilder",
+      "files": "Filer",
+      "readAloud": "Läs upp svar"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Avbryt meddelande i kö",
-        "cancelAndEdit": "Avbryt och redigera",
-        "cancelIndexed": "Avbryt meddelande {index} i kön",
-        "previewLabel": "{label}. Förhandsvisa meddelanden i kön",
-        "queuedCount": {
-          "one": "{count} meddelande i kö",
-          "other": "{count} meddelanden i kö"
-        }
+        "cancelAndEdit": "Avbryt och redigera"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Chatt",
       "settings": "Inställningar",
+      "apps": "Appar",
       "openLabel": "Öppna navigeringen",
+      "chatSettingsLabel": "Chattinställningar",
       "closeLabel": "Stäng navigeringen",
       "account": "Konto",
       "signIn": "Logga in",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Fråga Stella vad som helst",
+      "workingMany": "{count} uppgifter pågår",
       "composerPlaceholder": "Skriv till Stella",
       "mainChat": "Huvudchatt",
       "createFailed": "Det gick inte att skapa en chatt. Försök igen.",
@@ -2052,7 +2054,8 @@
       },
       "files": {
         "empty": "Inga filer ännu. Allt Stella skapar visas här.",
-        "emptyFiltered": "Inga filer matchar."
+        "emptyFiltered": "Inga filer matchar.",
+        "searchPlaceholder": "Sök filer"
       },
       "activity": {
         "empty": "Inget bakgrundsarbete ännu.",
@@ -2099,6 +2102,7 @@
       "showEmailLabel": "Visa e-postadressen",
       "hideEmailLabel": "Dölj e-postadressen",
       "appearanceSection": "Utseende",
+      "computerSection": "Dator",
       "appearance": {
         "system": "System",
         "light": "Ljust",
@@ -2131,6 +2135,7 @@
       "forgetConfirmTitle": "Glömma {name}?",
       "forgetConfirmBody": "Den här telefonen slutar återansluta till den datorn tills du parkopplar den igen.",
       "carPlayDiagnostics": "CarPlay-diagnostik",
+      "aboutSection": "Om",
       "openCarPlayDiagnosticsLabel": "Öppna CarPlay-diagnostiken",
       "termsOfService": "Användarvillkor",
       "openTermsLabel": "Öppna Användarvillkoren",

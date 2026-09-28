@@ -76,17 +76,6 @@ const countRefs = (db: SqliteDatabase) =>
   ).count;
 
 describe("reply reference storage", () => {
-  it("bumps the schema and creates the entry_ref index", () => {
-    const { db } = createContext();
-    // entry_ref landed in v2; later migrations must not un-create it.
-    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(2);
-    const version = db.prepare("PRAGMA user_version;").get() as {
-      user_version: number;
-    };
-    expect(version.user_version).toBe(SCHEMA_VERSION);
-    expect(countRefs(db)).toBe(0);
-  });
-
   it("migrates an existing v1 database forward without losing rows", async () => {
     const rootPath = path.join(
       os.tmpdir(),

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
   browserAttachmentUploads,
   useBrowserAttachmentUploads,
@@ -9,7 +10,7 @@ const formatSize = (bytes: number) =>
     ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-export function BrowserAttachmentTray() {
+export const BrowserAttachmentTray = memo(function BrowserAttachmentTray() {
   const uploads = useBrowserAttachmentUploads();
   if (!platformCapabilities.browserUploads || uploads.length === 0) return null;
   return (
@@ -55,4 +56,4 @@ export function BrowserAttachmentTray() {
       ))}
     </div>
   );
-}
+});

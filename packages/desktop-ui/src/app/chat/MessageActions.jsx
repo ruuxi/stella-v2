@@ -39,9 +39,7 @@ const COPIED_RESET_MS = 1600;
 
 // Rewind is destructive (drops the message + everything after it), so it
 // takes two clicks: the first arms a "Click again to rewind" state, the
-// second within this window performs it. Mirrors the two-step confirm used
-// by the top bar's new-chat / delete-conversation controls
-// (HISTORY_*_CONFIRM_TIMEOUT_MS in ConversationTopBar).
+// second within this window performs it.
 const REWIND_CONFIRM_TIMEOUT_MS = 3000;
 
 /**

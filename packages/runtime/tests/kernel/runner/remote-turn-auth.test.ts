@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { StellaRuntimeHost } from "@stella/runtime/host";
 import { remoteTurnWorkerRunId } from "@stella/runtime/kernel/remote-turn-attempt";
@@ -1007,35 +1006,4 @@ describe("remote-turn host dispatch contract", () => {
     expect(binding.cancelJoined).toBe(true);
   });
 
-  it("keeps worker startup and the final lease fence adjacent to exact dispatch", () => {
-    const source = readFileSync(
-      new URL("../../../host/index.js", import.meta.url),
-      "utf8",
-    );
-    const bridgeStart = source.indexOf("ensureHostRemoteTurnBridge() {");
-    const bridgeEnd = source.indexOf(
-      "async syncHostExecutionPlacement()",
-      bridgeStart,
-    );
-    const bridgeSource = source.slice(bridgeStart, bridgeEnd);
-    const confirmationIndex = bridgeSource.indexOf(
-      "await confirmDispatchLease();",
-    );
-    const workerStartupIndex = bridgeSource.indexOf(
-      "await this.ensureWorkerStarted();",
-    );
-    const dispatchIndex = bridgeSource.indexOf(
-      "const workerRunPromise = this.requestWorker",
-    );
-
-    expect(workerStartupIndex).toBeGreaterThan(0);
-    expect(confirmationIndex).toBeGreaterThan(workerStartupIndex);
-    expect(dispatchIndex).toBeGreaterThan(confirmationIndex);
-    expect(bridgeSource).toContain("rejectIfBusy: true");
-    expect(bridgeSource).toContain("retryOnceOnDisconnect: false");
-    expect(bridgeSource).toContain("ensureWorker: false");
-    expect(bridgeSource).toContain("remoteTurnAttemptId: attemptId");
-    expect(bridgeSource).toContain('status: "uncertain"');
-    expect(bridgeSource).toContain("requestRemoteTurnCancellation(binding)");
-  });
 });

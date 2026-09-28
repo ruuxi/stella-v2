@@ -3,7 +3,10 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useAuthBootstrapState } from "../DesktopConvexAuthProvider";
-import { resolveCloudConversationSession } from "../lib/cloud-conversation-session";
+import {
+  resolveCloudConversationSession,
+  type CloudConversationSessionGate,
+} from "../lib/cloud-conversation-session";
 import { useAuthSessionState } from "./use-auth-session-state";
 import { reportCloudReadiness } from "@/features/cloud/cloud-readiness-timing";
 
@@ -41,16 +44,22 @@ export function useCloudConversationSession() {
         }
       : "skip",
   );
-  const mode = resolveCloudConversationSession({
+  // Everything the readiness decision needs except the identity proof, so a
+  // caller holding its own proof (the shell bootstrap query) can resolve the
+  // same decision without waiting for `confirmMySessionIdentity`.
+  const sessionGate: CloudConversationSessionGate = {
     hasSession: session.hasSession,
     sessionIsLoading: session.isLoading,
     convexIsAuthenticated: convex.isAuthenticated,
     convexIsLoading: convex.isLoading,
     hasExpectedSubject: Boolean(expectedSubject),
-    identityConfirmed: identityConfirmed === true,
-    identityIsLoading: shouldConfirmIdentity && identityConfirmed === undefined,
     authBootstrapReady: authBootstrap.status === "ready",
     authBootstrapFailed: authBootstrap.status === "failed",
+  };
+  const mode = resolveCloudConversationSession({
+    ...sessionGate,
+    identityConfirmed: identityConfirmed === true,
+    identityIsLoading: shouldConfirmIdentity && identityConfirmed === undefined,
   });
   useEffect(() => {
     if (authBootstrap.status === "ready") {
@@ -81,6 +90,9 @@ export function useCloudConversationSession() {
   ]);
   return {
     ...mode,
+    sessionGate,
+    /** True once the identity proof may be requested (same gate for both). */
+    canConfirmIdentity: shouldConfirmIdentity,
     accountScope: session.cacheScope,
     expectedSubject,
     ownerSubject,

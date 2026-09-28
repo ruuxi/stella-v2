@@ -24,7 +24,7 @@
  * render churn low.
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { getElectronApi } from "@/platform/electron/electron"
 import type { ChatContext } from "@/shared/types/electron"
 
@@ -428,6 +428,125 @@ const orderCandidates = ({ apps, tab }: FetchSnapshotResult): SuggestionChip[] =
 }
 
 // ---------------------------------------------------------------------------
+// Shared poller
+//
+// Every composer surface (main chat, the display-panel chat tab, each mounted
+// quick chat) shows the same recent-apps snapshot, so one renderer-wide loop
+// fetches it and broadcasts to whichever surfaces are active. Before this,
+// each active surface ran its own interval, multiplying the IPC calls and the
+// native helper spawns (AX enumeration + osascript) behind them.
+//
+// Perf: each poll spawns native helpers. The loop only runs while at least
+// one surface is active AND the window is focused and visible — the chips
+// can't be seen otherwise — and is torn down entirely when none are. It
+// re-arms (with an immediate refresh) on focus/visibilitychange, so the
+// strip reflects the current foreground app right away when the user returns.
+// ---------------------------------------------------------------------------
+
+type CandidatesListener = (candidates: SuggestionChip[]) => void
+
+const candidateListeners = new Set<CandidatesListener>()
+let sharedInterval: number | null = null
+let sharedInitialTimer: number | null = null
+let sharedInFlight: Promise<void> | null = null
+let detachSharedSurfaceListeners: (() => void) | null = null
+
+const isSurfaceVisible = () => !document.hidden && document.hasFocus()
+
+const refreshSharedCandidates = (): Promise<void> => {
+  if (sharedInFlight) return sharedInFlight
+  sharedInFlight = fetchSnapshot()
+    .then((snapshot) => {
+      const candidates = orderCandidates(snapshot)
+      for (const listener of [...candidateListeners]) listener(candidates)
+    })
+    .finally(() => {
+      sharedInFlight = null
+    })
+  return sharedInFlight
+}
+
+const stopSharedInterval = () => {
+  if (sharedInterval !== null) {
+    window.clearInterval(sharedInterval)
+    sharedInterval = null
+  }
+}
+
+const startSharedPolling = () => {
+  if (!isSurfaceVisible()) return
+  if (sharedInterval !== null) return
+  void refreshSharedCandidates()
+  sharedInterval = window.setInterval(
+    refreshSharedCandidates,
+    getPollingConfig().pollIntervalMs,
+  )
+}
+
+/**
+ * Subscribes an active surface to the shared recent-apps loop. The first
+ * subscriber arms it; a later one triggers a refresh after the same
+ * activation delay its own poller used to wait, so a surface that just became
+ * active never shows a stale strip for a whole interval.
+ */
+const subscribeToRecentAppCandidates = (
+  listener: CandidatesListener,
+): (() => void) => {
+  const { initialDelayMs } = getPollingConfig()
+  candidateListeners.add(listener)
+  let joinTimer: number | null = null
+
+  if (candidateListeners.size === 1) {
+    // Pause on blur/hide, resume on focus/show.
+    const handleVisibilityChange = () => {
+      if (isSurfaceVisible()) startSharedPolling()
+      else stopSharedInterval()
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("focus", handleVisibilityChange)
+    window.addEventListener("blur", handleVisibilityChange)
+    detachSharedSurfaceListeners = () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("focus", handleVisibilityChange)
+      window.removeEventListener("blur", handleVisibilityChange)
+    }
+    if (initialDelayMs > 0) {
+      sharedInitialTimer = window.setTimeout(() => {
+        sharedInitialTimer = null
+        startSharedPolling()
+      }, initialDelayMs)
+    } else {
+      startSharedPolling()
+    }
+  } else {
+    const refreshForJoin = () => {
+      joinTimer = null
+      if (sharedInterval !== null && isSurfaceVisible()) {
+        void refreshSharedCandidates()
+      }
+    }
+    if (initialDelayMs > 0) {
+      joinTimer = window.setTimeout(refreshForJoin, initialDelayMs)
+    } else {
+      refreshForJoin()
+    }
+  }
+
+  return () => {
+    if (joinTimer !== null) window.clearTimeout(joinTimer)
+    candidateListeners.delete(listener)
+    if (candidateListeners.size > 0) return
+    if (sharedInitialTimer !== null) {
+      window.clearTimeout(sharedInitialTimer)
+      sharedInitialTimer = null
+    }
+    stopSharedInterval()
+    detachSharedSurfaceListeners?.()
+    detachSharedSurfaceListeners = null
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public hook
 // ---------------------------------------------------------------------------
 
@@ -440,87 +559,25 @@ type AutoContextChipsApi = {
 export function useAutoContextChips(
   active: boolean = true,
 ): AutoContextChipsApi {
-  const [state, dispatch] = useReducer(lanesReducer, undefined, emptyLanes)
+  // State + functional updates rather than `useReducer`: an update whose
+  // reducer returns the previous state is dropped before rendering, so a
+  // poll that changes nothing (the common case) doesn't re-render the
+  // composer that owns this hook every tick.
+  const [state, setState] = useState(emptyLanes)
+  const dispatch = useCallback((action: LanesAction) => {
+    setState((prev) => lanesReducer(prev, action))
+  }, [])
 
-  // Polling — kept simple. The reducer absorbs identical payloads; the
-  // visible state only changes when a lane actually shifts.
-  //
-  // Perf: each poll spawns native helpers (macOS home_apps AX enumeration +
-  // osascript). Gate the interval on window focus AND document visibility so
-  // we never spawn those helpers while Stella is hidden/backgrounded — the
-  // chips can't be seen then anyway. The interval is fully torn down when the
-  // surface goes inactive and re-created (with an immediate refresh) on
-  // focus/visibilitychange, so the visible content is identical to before the
-  // moment the surface is focused+visible.
-  const cancelledRef = useRef(false)
+  // Each surface keeps its own lanes (animation phases and dismissals are
+  // per surface); only the polling is shared.
   useEffect(() => {
-    cancelledRef.current = false
-    if (!active) {
-      cancelledRef.current = true
-      return
-    }
-
+    if (!active) return
     const api = getElectronApi()
     if (!api?.home?.listRecentApps) return
-
-    let initialTimer: number | null = null
-    let interval: number | null = null
-    const { initialDelayMs, pollIntervalMs } = getPollingConfig()
-
-    const refresh = async () => {
-      const snapshot = await fetchSnapshot()
-      if (cancelledRef.current) return
-      const candidates = orderCandidates(snapshot)
+    return subscribeToRecentAppCandidates((candidates) => {
       dispatch({ type: "reconcile", candidates })
-    }
-
-    // Only poll while the document is visible and the window is focused;
-    // otherwise nobody can see the chips and the native helper spawns are
-    // pure idle-CPU drain.
-    const isSurfaceVisible = () =>
-      !document.hidden && document.hasFocus()
-
-    const stopInterval = () => {
-      if (interval) {
-        window.clearInterval(interval)
-        interval = null
-      }
-    }
-
-    const startPolling = () => {
-      if (!isSurfaceVisible()) return
-      if (interval) return
-      void refresh()
-      interval = window.setInterval(refresh, pollIntervalMs)
-    }
-
-    // Pause on blur/hide, resume on focus/show. Resuming kicks an immediate
-    // refresh so the strip reflects the current foreground app right away
-    // rather than waiting a full interval after the user returns.
-    const handleVisibilityChange = () => {
-      if (isSurfaceVisible()) startPolling()
-      else stopInterval()
-    }
-
-    if (initialDelayMs > 0) {
-      initialTimer = window.setTimeout(startPolling, initialDelayMs)
-    } else {
-      startPolling()
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-    window.addEventListener("focus", handleVisibilityChange)
-    window.addEventListener("blur", handleVisibilityChange)
-
-    return () => {
-      cancelledRef.current = true
-      if (initialTimer) window.clearTimeout(initialTimer)
-      stopInterval()
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
-      window.removeEventListener("focus", handleVisibilityChange)
-      window.removeEventListener("blur", handleVisibilityChange)
-    }
-  }, [active])
+    })
+  }, [active, dispatch])
 
   // Drive entering→stable on the next frame so CSS can transition.
   useEffect(() => {
@@ -536,7 +593,7 @@ export function useAutoContextChips(
       }
     })
     return () => window.cancelAnimationFrame(raf)
-  }, [state.lanes])
+  }, [dispatch, state.lanes])
 
   // Drop outgoing chips after their fade-out timer.
   useEffect(() => {
@@ -554,11 +611,14 @@ export function useAutoContextChips(
     return () => {
       for (const timer of timers) window.clearTimeout(timer)
     }
-  }, [state.lanes])
+  }, [dispatch, state.lanes])
 
-  const dismissSlot = useCallback((slotKey: string) => {
-    dispatch({ type: "clearChip", slotKey })
-  }, [])
+  const dismissSlot = useCallback(
+    (slotKey: string) => {
+      dispatch({ type: "clearChip", slotKey })
+    },
+    [dispatch],
+  )
 
   return {
     lanes: state.lanes,

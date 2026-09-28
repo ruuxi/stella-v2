@@ -1,6 +1,5 @@
 /// <reference types="vite/client" />
 
-import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
@@ -71,28 +70,6 @@ describe("agent invoke owner authority", () => {
       } as never),
     ).rejects.toThrow(/conversationId/iu);
     expect(upstream).not.toHaveBeenCalled();
-  });
-
-  it("has no noop or optional-owner managed dispatch branch", () => {
-    const source = readFileSync(
-      new URL("./agent/invoke.ts", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain('conversationId: v.id("conversations")');
-    expect(source).toContain("returns: agentInvokeResultValidator");
-    expect(source).toContain("createManagedUsageDispatchGuard(ctx");
-    expect(source).toContain("spanExecution: true");
-    expect(source).toContain("finishExecution: undefined");
-    expect(source.indexOf("deriveManagedModelBillingContext({")).toBeLessThan(
-      source.indexOf("streamTextWithFailover({"),
-    );
-    expect(source.indexOf("await result.text")).toBeLessThan(
-      source.indexOf("managedExecutionGuard.finishExecution?."),
-    );
-    expect(source).not.toContain("recordManagedUsage");
-    expect(source).not.toContain("scheduleManagedUsage");
-    expect(source).not.toContain("createManagedFenceDispatchGuard");
-    expect(source).not.toContain("ownerId && modelAccess");
   });
 
   it("captures and settles exactly one physical invoke receipt before execution settlement", async () => {

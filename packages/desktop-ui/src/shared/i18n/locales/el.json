@@ -912,7 +912,12 @@
       "photosDeniedBody": "Επιτρέψτε στη Stella πρόσβαση στη βιβλιοθήκη φωτογραφιών από τις Ρυθμίσεις για να επισυνάπτετε εικόνες.",
       "cameraDeniedTitle": "Κάμερα",
       "cameraDeniedBody": "Επιτρέψτε στη Stella να χρησιμοποιεί την κάμερα από τις Ρυθμίσεις για να βγάλετε φωτογραφία.",
-      "photoLabel": "Φωτογραφία"
+      "photoLabel": "Φωτογραφία",
+      "sheetTitle": "Προσθήκη στη συνομιλία",
+      "camera": "Κάμερα",
+      "photos": "Φωτογραφίες",
+      "files": "Αρχεία",
+      "readAloud": "Ανάγνωση απαντήσεων φωναχτά"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Ακύρωση μηνύματος σε αναμονή",
-        "cancelAndEdit": "Ακύρωση και επεξεργασία",
-        "cancelIndexed": "Ακύρωση μηνύματος σε αναμονή {index}",
-        "previewLabel": "{label}. Προεπισκόπηση μηνυμάτων σε αναμονή",
-        "queuedCount": {
-          "one": "{count} μήνυμα σε αναμονή",
-          "other": "{count} μηνύματα σε αναμονή"
-        }
+        "cancelAndEdit": "Ακύρωση και επεξεργασία"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Συνομιλία",
       "settings": "Ρυθμίσεις",
+      "apps": "Εφαρμογές",
       "openLabel": "Άνοιγμα πλοήγησης",
+      "chatSettingsLabel": "Ρυθμίσεις συνομιλίας",
       "closeLabel": "Κλείσιμο πλοήγησης",
       "account": "Λογαριασμός",
       "signIn": "Σύνδεση",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Ρωτήστε τη Stella οτιδήποτε",
+      "workingMany": "{count} εργασίες σε εξέλιξη",
       "composerPlaceholder": "Γράψτε στη Stella",
       "mainChat": "Κύρια συνομιλία",
       "createFailed": "Δεν ήταν δυνατή η δημιουργία συνομιλίας. Δοκιμάστε ξανά.",
@@ -2051,7 +2053,8 @@
       },
       "files": {
         "empty": "Δεν υπάρχουν ακόμη αρχεία. Ό,τι δημιουργεί η Stella εμφανίζεται εδώ.",
-        "emptyFiltered": "Κανένα αρχείο δεν ταιριάζει."
+        "emptyFiltered": "Κανένα αρχείο δεν ταιριάζει.",
+        "searchPlaceholder": "Αναζήτηση αρχείων"
       },
       "activity": {
         "empty": "Δεν υπάρχει ακόμη εργασία στο παρασκήνιο.",
@@ -2098,6 +2101,7 @@
       "showEmailLabel": "Εμφάνιση email",
       "hideEmailLabel": "Απόκρυψη email",
       "appearanceSection": "Εμφάνιση",
+      "computerSection": "Υπολογιστής",
       "appearance": {
         "system": "Σύστημα",
         "light": "Ανοιχτό",
@@ -2130,6 +2134,7 @@
       "forgetConfirmTitle": "Κατάργηση της συσκευής {name};",
       "forgetConfirmBody": "Αυτό το κινητό θα σταματήσει να επανασυνδέεται σε εκείνον τον υπολογιστή μέχρι να τον αντιστοιχίσετε ξανά.",
       "carPlayDiagnostics": "Διαγνωστικά CarPlay",
+      "aboutSection": "Σχετικά",
       "openCarPlayDiagnosticsLabel": "Άνοιγμα διαγνωστικών CarPlay",
       "termsOfService": "Όροι χρήσης",
       "openTermsLabel": "Άνοιγμα Όρων χρήσης",

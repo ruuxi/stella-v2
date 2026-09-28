@@ -21,6 +21,8 @@ import { createCloudCodeAgentTool } from "../cloud-code-tool.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
 import { createGeneralAgentDoLocalTools } from "../general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "../general-agent-tools.js";
+import { createWorkerShellRouter } from "../worker-shell-router.js";
+import { createWorkerShellRunner } from "../worker-shell-runner.js";
 import { runResidentStellaLoop } from "../general-agent-turn.js";
 import { sha256Hex } from "../hash.js";
 import { INSTANCE_TIERS, initialInstanceSize } from "../instance-size.js";
@@ -391,7 +393,8 @@ export const runResidentAgentTurn = async (
   );
 
   const sandboxId = await worldSandboxId(turn.ownerId);
-  const world = host.env.WORLDS.getByName(await worldName(turn.ownerId));
+  const ownerWorldName = await worldName(turn.ownerId);
+  const world = host.env.WORLDS.getByName(ownerWorldName);
   const proposedSize: InstanceSize = !host.env.SANDBOX_SMALL
     ? "large"
     : initialInstanceSize({ prompt: turn.prompt });
@@ -586,6 +589,42 @@ export const runResidentAgentTurn = async (
       ])
     : undefined;
 
+  // exec_command runs in the just-bash worker shell until this turn attaches
+  // a sandbox, and in the sandbox from then on. The shell reads the world
+  // through a loopback scoped to this owner world and fork; only this
+  // Durable Object commits what a run changed.
+  const workspaceFork = turn.workspaceForkId;
+  const workspaceRoot = worldRootForFork(workspaceFork);
+  const forkScope = workspaceFork ? { fork: workspaceFork } : {};
+  const compute = createWorkerShellRouter({
+    ladder,
+    root: workspaceRoot,
+    signal: execution.signal,
+    emitEvent: (kind, payload) => {
+      void host
+        .event(turn, "auto", kind, payload, false, execution.signal)
+        .catch(() => undefined);
+    },
+    ...(host.env.LOADER
+      ? {
+          shell: createWorkerShellRunner({
+            loader: host.env.LOADER,
+            loopback: () =>
+              host.ctx.exports.WorldShellFs({
+                props: { worldName: ownerWorldName, ...forkScope },
+              }),
+            world: {
+              head: () => world.head(forkScope),
+              commitShell: (change) =>
+                world.commitShell({ ...change, ...forkScope }),
+            },
+            root: workspaceRoot,
+            scope: `${ownerWorldName}:${workspaceFork ?? "shared"}`,
+          }),
+        }
+      : {}),
+  });
+
   let computeReleased = false;
   try {
     execution.assertActive();
@@ -625,7 +664,7 @@ export const runResidentAgentTurn = async (
         fetch: (input, init) => modelGatewayBinding.fetch(input, init),
       },
       sql: host.ctx.storage.sql,
-      tools: createResidentGeneralAgentTools(doLocal, ladder, jsSandbox, {
+      tools: createResidentGeneralAgentTools(doLocal, compute, jsSandbox, {
         agentDepth: turn.agentDepth,
       }),
       steer: {
@@ -642,7 +681,7 @@ export const runResidentAgentTurn = async (
       },
       workspacePrompt: {
         office: false,
-        workspaceRoot: worldRootForFork(turn.workspaceForkId),
+        workspaceRoot,
       },
       now: () => Date.now(),
       onAgentStarted: (abort) => {

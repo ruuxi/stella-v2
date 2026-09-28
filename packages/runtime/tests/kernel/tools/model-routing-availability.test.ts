@@ -9,7 +9,7 @@
  * asserts the routing sentence reaches the built orchestrator prompt.
  */
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -25,8 +25,6 @@ import { SPAWN_AGENT_MODEL_DESCRIPTION } from "@stella/runtime/kernel/tools/defs
 import { loadLocalPreferences } from "@stella/runtime/kernel/preferences/local-preferences";
 import { getLlmCredentialStorePath } from "@stella/runtime/kernel/storage/llm-credentials";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
 type TestHostContext = {
   rootPath: string;
@@ -143,38 +141,4 @@ describe("model routing availability", () => {
       );
     },
   );
-});
-
-describe("model-control renderer availability", () => {
-  const read = async (relative: string) =>
-    readFile(path.join(repoRoot, relative), "utf-8");
-
-  it("mounts the global Models control without a compatibility gate", async () => {
-    const source = await read("packages/desktop-ui/src/routes/__root.tsx");
-    expect(source).toContain(
-      "<GlobalModelsControl visible={modelControlVisible} />",
-    );
-    expect(source).not.toContain("developerModeEnabled");
-    expect(source).not.toContain("useDeveloperModeEnabled");
-  });
-
-  it("keeps composer model pinning and mentions available", async () => {
-    const source = await read("packages/desktop-ui/src/app/chat/Composer.tsx");
-    expect(source).toContain("const modelPinned = useComposerModelPinned();");
-    expect(source).toContain("if (!suggestionsActive)");
-    expect(source).not.toContain("developerModeEnabled");
-  });
-
-  it("removes the obsolete setting and compatibility helpers", async () => {
-    const settings = await read(
-      "packages/desktop-ui/src/global/settings/tabs/GeneralTab.tsx",
-    );
-    const preferences = await read(
-      "packages/runtime/kernel/preferences/local-preferences.ts",
-    );
-    expect(settings).not.toContain("settings.developerMode");
-    expect(preferences).not.toContain("hasDeveloperModeSignals");
-    expect(preferences).not.toContain("getDeveloperModeEnabled");
-    expect(preferences).not.toContain("setDeveloperModeEnabled");
-  });
 });

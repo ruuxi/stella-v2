@@ -912,7 +912,12 @@
       "photosDeniedBody": "Allow Stella to access your photo library in Settings so you can attach images.",
       "cameraDeniedTitle": "Camera",
       "cameraDeniedBody": "Allow Stella to use the camera in Settings so you can snap a photo.",
-      "photoLabel": "Photo"
+      "photoLabel": "Photo",
+      "sheetTitle": "Add to chat",
+      "camera": "Camera",
+      "photos": "Photos",
+      "files": "Files",
+      "readAloud": "Read replies aloud"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Cancel queued message",
-        "cancelAndEdit": "Cancel and edit",
-        "cancelIndexed": "Cancel queued message {index}",
-        "previewLabel": "{label}. Preview queued messages",
-        "queuedCount": {
-          "one": "{count} message queued",
-          "other": "{count} messages queued"
-        }
+        "cancelAndEdit": "Cancel and edit"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Settings",
+      "apps": "Apps",
       "openLabel": "Open navigation",
+      "chatSettingsLabel": "Chat settings",
       "closeLabel": "Close navigation",
       "account": "Account",
       "signIn": "Sign in",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Ask Stella anything",
+      "workingMany": "{count} things in progress",
       "composerPlaceholder": "Message Stella",
       "mainChat": "Main chat",
       "createFailed": "Could not create a chat. Please try again.",
@@ -2051,7 +2053,8 @@
       },
       "files": {
         "empty": "No files yet. Anything Stella produces shows up here.",
-        "emptyFiltered": "No files match."
+        "emptyFiltered": "No files match.",
+        "searchPlaceholder": "Search files"
       },
       "activity": {
         "empty": "No background work yet.",
@@ -2098,6 +2101,7 @@
       "showEmailLabel": "Show email",
       "hideEmailLabel": "Hide email",
       "appearanceSection": "Appearance",
+      "computerSection": "Computer",
       "appearance": {
         "system": "System",
         "light": "Light",
@@ -2130,6 +2134,7 @@
       "forgetConfirmTitle": "Forget {name}?",
       "forgetConfirmBody": "This phone will stop reconnecting to that computer until you pair it again.",
       "carPlayDiagnostics": "CarPlay diagnostics",
+      "aboutSection": "About",
       "openCarPlayDiagnosticsLabel": "Open CarPlay diagnostics",
       "termsOfService": "Terms of Service",
       "openTermsLabel": "Open Terms of Service",

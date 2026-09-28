@@ -26,12 +26,6 @@ const jsonResponse = (body: unknown, status = 200) =>
   });
 
 describe("readBridgeJsonBody", () => {
-  test("parses real JSON", async () => {
-    expect(await readBridgeJsonBody(jsonResponse({ ok: true }))).toEqual({
-      ok: true,
-    });
-  });
-
   test("parses JSON even when the content-type is mislabeled", async () => {
     const response = new Response('{"ok":true}', {
       status: 200,

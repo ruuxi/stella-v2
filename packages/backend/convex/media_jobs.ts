@@ -4007,63 +4007,69 @@ export const markStaleJobsFailed = internalMutation({
     };
     let updated = 0;
 
+    // Only legacy (no submissionState) and submitted jobs are eligible, so
+    // each is its own index range: rows in other submission states never
+    // enter the scan and cannot crowd out real stale jobs.
     for (const status of ["queued", "running"] as const) {
       for (const capability of STALE_IMAGE_JOB_CAPABILITIES) {
-        const jobs = await ctx.db
-          .query("media_jobs")
-          .withIndex("by_status_and_capability_and_updatedAt", (q) =>
-            q
-              .eq("status", status)
-              .eq("capability", capability)
-              .lt("updatedAt", cutoffMs),
-          )
-          .take(limit - updated);
+        for (const submissionState of [undefined, "submitted"] as const) {
+          const jobs = await ctx.db
+            .query("media_jobs")
+            .withIndex(
+              "by_status_and_capability_and_submissionState_and_updatedAt",
+              (q) =>
+                q
+                  .eq("status", status)
+                  .eq("capability", capability)
+                  .eq("submissionState", submissionState)
+                  .lt("updatedAt", cutoffMs),
+            )
+            .take(limit - updated);
 
-        const now = Date.now();
-        for (const job of jobs) {
-          if (isTerminalMediaJobStatus(job.status)) continue;
-          if (job.submissionState && job.submissionState !== "submitted") {
-            continue;
-          }
-          if (!(await mediaJobWriteAllowedForWatchdog(ctx, job))) continue;
-          await ctx.db.patch(job._id, {
-            status: "unknown",
-            ...(job.submissionState
-              ? { submissionState: "unknown" as const }
-              : {}),
-            ...(job.submissionPayloadStorageId
-              ? { submissionPayloadStorageId: undefined }
-              : {}),
-            ...(job.submissionPayloadManifestId
-              ? { submissionPayloadManifestId: undefined }
-              : {}),
-            upstreamStatus: "TERMINAL_OUTCOME_UNKNOWN",
-            queuePosition: null,
-            error: terminalError,
-            updatedAt: now,
-            completedAt: now,
-          });
-          if (job.submissionPayloadStorageId) {
-            await ctx.scheduler.runAfter(
-              0,
-              internal.media_image_submission.deleteSubmissionPayload,
-              { storageId: job.submissionPayloadStorageId },
-            );
-          }
-          if (job.submissionPayloadManifestId) {
-            await markPrivatePayloadManifestPending(ctx, {
-              manifestId: job.submissionPayloadManifestId,
-              now,
+          const now = Date.now();
+          for (const job of jobs) {
+            if (isTerminalMediaJobStatus(job.status)) continue;
+            if (!(await mediaJobWriteAllowedForWatchdog(ctx, job))) continue;
+            await ctx.db.patch(job._id, {
+              status: "unknown",
+              ...(job.submissionState
+                ? { submissionState: "unknown" as const }
+                : {}),
+              ...(job.submissionPayloadStorageId
+                ? { submissionPayloadStorageId: undefined }
+                : {}),
+              ...(job.submissionPayloadManifestId
+                ? { submissionPayloadManifestId: undefined }
+                : {}),
+              upstreamStatus: "TERMINAL_OUTCOME_UNKNOWN",
+              queuePosition: null,
+              error: terminalError,
+              updatedAt: now,
+              completedAt: now,
             });
-            await ctx.scheduler.runAfter(
-              0,
-              internal.media_image_submission.deletePrivatePayloadManifest,
-              { manifestId: job.submissionPayloadManifestId },
-            );
+            if (job.submissionPayloadStorageId) {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.media_image_submission.deleteSubmissionPayload,
+                { storageId: job.submissionPayloadStorageId },
+              );
+            }
+            if (job.submissionPayloadManifestId) {
+              await markPrivatePayloadManifestPending(ctx, {
+                manifestId: job.submissionPayloadManifestId,
+                now,
+              });
+              await ctx.scheduler.runAfter(
+                0,
+                internal.media_image_submission.deletePrivatePayloadManifest,
+                { manifestId: job.submissionPayloadManifestId },
+              );
+            }
+            updated += 1;
           }
-          updated += 1;
-        }
 
+          if (updated >= limit) break;
+        }
         if (updated >= limit) {
           break;
         }

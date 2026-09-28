@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -119,7 +120,7 @@ const clearDisplayPanelWidthCssVar = (): void => {
  * call. This component just observes the store and renders the active
  * tab's `render()`.
  */
-export const RightSidebar = forwardRef<
+export const RightSidebar = memo(forwardRef<
   RightSidebarHandle,
   RightSidebarProps
 >(function RightSidebar({ portalTarget }, ref) {
@@ -432,4 +433,4 @@ export const RightSidebar = forwardRef<
     </aside>,
     resolvedPortalTarget,
   );
-});
+}));

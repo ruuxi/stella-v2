@@ -331,9 +331,7 @@ export class OrchestratorSession extends PiSessionCore {
     );
     this.currentResponseTargetTracker = responseTargetTracker;
     const runEvents = createRunEventRecorder({
-      store: opts.store,
       runId,
-      conversationId: opts.conversationId,
       agentType: opts.agentType,
       userMessageId: opts.userMessageId,
       uiVisibility: opts.uiVisibility,
@@ -502,8 +500,6 @@ export class OrchestratorSession extends PiSessionCore {
       queueUserMessageId: runEvents.queueUserMessageId,
       agent,
     });
-
-    runEvents.recordRunStart();
 
     if (opts.abortSignal?.aborted) {
       const reason =

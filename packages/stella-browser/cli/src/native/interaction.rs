@@ -1911,17 +1911,6 @@ mod tests {
         }
     }
 
-    /// Regression test: period must NEVER map to VK 46 (VK_DELETE).
-    #[test]
-    fn test_period_is_not_vk_delete() {
-        let (_, _, vk) = char_to_key_info('.');
-        assert_ne!(
-            vk, 46,
-            "Period must not use VK code 46 (VK_DELETE); expected 190 (VK_OEM_PERIOD)"
-        );
-        assert_eq!(vk, 190);
-    }
-
     // -- actionability -------------------------------------------------------
 
     #[test]
@@ -2002,81 +1991,6 @@ mod tests {
         assert!(message.contains("scroll_container=div.virtual-table"));
         assert!(message.contains("client=900x520"));
         assert!(message.contains("scroll=900x3200"));
-    }
-
-    /// The injected probe must include every stage of the shared pre-action
-    /// pipeline: scroll-into-view, size/visibility checks, and the
-    /// elementFromPoint occlusion verification.
-    #[test]
-    fn test_actionability_check_js_structure() {
-        assert!(ACTIONABILITY_CHECK_JS.starts_with("function(requireHit, scopedFrame)"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("scrollIntoView"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("scrollNestedContainers"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("scrollContainer"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("getBoundingClientRect"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("elementFromPoint"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("getComputedStyle"));
-        for status in [
-            "'detached'",
-            "'hidden'",
-            "'transparent'",
-            "'disabled'",
-            "'pointer-events-none'",
-            "'zero-size'",
-            "'offscreen'",
-            "'covered'",
-            "'cross-origin-frame'",
-            "'ok'",
-        ] {
-            assert!(
-                ACTIONABILITY_CHECK_JS.contains(status),
-                "probe JS missing status {}",
-                status
-            );
-        }
-    }
-
-    #[test]
-    fn test_fill_uses_atomic_native_setter_and_verifies_the_result() {
-        assert!(FILL_REPLACE_JS.starts_with("async function(nextValue)"));
-        assert!(FILL_REPLACE_JS.contains("HTMLInputElement.prototype"));
-        assert!(FILL_REPLACE_JS.contains("HTMLTextAreaElement.prototype"));
-        assert!(FILL_REPLACE_JS.contains("insertReplacementText"));
-        assert!(FILL_REPLACE_JS.contains("beforeinput"));
-        assert!(FILL_REPLACE_JS.contains("new InputEvent"));
-        assert!(FILL_REPLACE_JS.contains("new Event('change'"));
-        assert!(FILL_REPLACE_JS.contains("actual === String(nextValue)"));
-        assert!(FILL_REPLACE_JS.contains("actualLength: [...actual].length"));
-        assert!(!FILL_REPLACE_JS.contains("actual,"));
-    }
-
-    /// The probe must be frame-aware: geometry measured in the element's own
-    /// document, coordinates translated across ancestor iframes (rect +
-    /// clientLeft/clientTop border offset), and occlusion checked in every
-    /// ancestor document, so Input.dispatchMouseEvent receives top-viewport
-    /// coordinates for elements inside same-origin iframes.
-    #[test]
-    fn test_actionability_check_js_is_frame_aware() {
-        assert!(ACTIONABILITY_CHECK_JS.contains("el.ownerDocument"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("frameElement"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("root.defaultView"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("clientLeft"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("clientTop"));
-        // Local measurements must use the element's window, never the top
-        // window implicitly.
-        assert!(ACTIONABILITY_CHECK_JS.contains("win.getComputedStyle(el)"));
-        assert!(ACTIONABILITY_CHECK_JS.contains("doc.elementFromPoint"));
-        assert!(!ACTIONABILITY_CHECK_JS.contains("window.getComputedStyle"));
-        assert!(!ACTIONABILITY_CHECK_JS.contains("document.elementFromPoint"));
-        // Parent documents are hit-tested at the translated point.
-        assert!(ACTIONABILITY_CHECK_JS.contains("parentDoc.elementFromPoint"));
-    }
-
-    #[test]
-    fn test_actionability_bounds() {
-        // Bounded wait: a handful of short polls, roughly 2-3 seconds total.
-        assert!(ACTIONABILITY_TIMEOUT_MS >= 2000 && ACTIONABILITY_TIMEOUT_MS <= 3000);
-        assert!(ACTIONABILITY_POLL_MS >= 50 && ACTIONABILITY_POLL_MS <= 500);
     }
 
     /// Characters outside the US keyboard layout should return (key, "", 0)

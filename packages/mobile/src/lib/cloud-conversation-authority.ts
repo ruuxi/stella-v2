@@ -29,50 +29,57 @@ export class CloudAuthorityError extends Error {
   }
 }
 
+/** `cloud_apps:getMyChatBootstrap`: everything the chat needs, in one read. */
+export type CloudChatBootstrap =
+  | { status: "identity_pending" }
+  | {
+      status: "ready";
+      ownerId: string;
+      ownerGeneration: string;
+      /** Null until the one chat is first created. */
+      conversationId: string | null;
+      realtime: CloudRealtimeConfig;
+    };
+
 export type CloudAuthorityPorts = {
-  confirmIdentity: (args: {
-    expectedSubject: string;
-    identityRevision: number;
-  }) => Promise<boolean>;
-  getOwnerGeneration: () => Promise<string>;
-  ensureConversation: () => Promise<string>;
-  getRealtimeConfig: () => Promise<CloudRealtimeConfig>;
+  getBootstrap: () => Promise<CloudChatBootstrap>;
+  /** Idempotent: always resolves the same chat for this account. */
+  createConversation: (expectedOwnerGeneration: string) => Promise<string>;
 };
 
 /**
  * Framework-free authority handshake used by the hook and focused tests.
- * Conversation creation is deterministic/idempotent; a clean install therefore
- * discovers the exact placement conversation instead of creating a new one.
+ *
+ * One read normally resolves everything; the chat is created (deterministic
+ * and idempotent) only the first time an account opens it, so a clean install
+ * discovers the existing chat instead of creating a new one.
  */
 export const loadCloudConversationAuthority = async (
   identity: CloudConversationIdentity,
+  expectedOwnerId: string,
   ports: CloudAuthorityPorts,
 ): Promise<CloudConversationAuthority> => {
-  const confirmed = await ports.confirmIdentity({
-    expectedSubject: identity.expectedSubject,
-    identityRevision: identity.revision,
-  });
-  if (!confirmed) {
+  const bootstrap = await ports.getBootstrap();
+  if (bootstrap.status !== "ready") {
     throw new CloudAuthorityError(
       "Stella is still securing this account. Try again in a moment.",
       true,
     );
   }
-  const conversationId = (await ports.ensureConversation()).trim();
-  if (!conversationId) {
+  if (bootstrap.ownerId !== expectedOwnerId) {
     throw new CloudAuthorityError(
-      "Stella could not identify this cloud conversation.",
+      "Stella is still securing this account. Try again in a moment.",
       true,
     );
   }
-  const config = await ports.getRealtimeConfig();
-  const ownerGeneration = (await ports.getOwnerGeneration()).trim();
+  const ownerGeneration = bootstrap.ownerGeneration.trim();
   if (!ownerGeneration) {
     throw new CloudAuthorityError(
       "Stella could not verify this account generation.",
       true,
     );
   }
+  const config = bootstrap.realtime;
   const socketOrigin = config.socketOrigin?.trim().replace(/\/+$/, "") ?? "";
   if (config.protocol !== 1) {
     throw new CloudAuthorityError(
@@ -84,6 +91,16 @@ export const loadCloudConversationAuthority = async (
     throw new CloudAuthorityError(
       "Cloud conversation history is not available on this deployment.",
       false,
+    );
+  }
+  const conversationId = (
+    bootstrap.conversationId ??
+    (await ports.createConversation(ownerGeneration))
+  ).trim();
+  if (!conversationId) {
+    throw new CloudAuthorityError(
+      "Stella could not identify this cloud conversation.",
+      true,
     );
   }
   return {

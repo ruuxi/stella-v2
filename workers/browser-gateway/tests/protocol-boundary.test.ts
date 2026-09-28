@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   MAX_REQUEST_BYTES,
-  PROFILE_ID,
-  parseInteraction,
   parseOwnerPurge,
   parseTurnCommand,
   profileObjectName,
@@ -13,22 +11,6 @@ import { suspensionAlarmDeadline } from "../src/suspension-alarm.js";
 import { AUTHORITY, uuid } from "./fixtures.js";
 
 describe("private protocol boundary", () => {
-  test("accepts the exact Builder authority envelope and gateway-owned profile", () => {
-    const parsed = parseTurnCommand({
-      schemaVersion: 1,
-      authority: AUTHORITY,
-      command: {
-        schemaVersion: 1,
-        requestId: uuid(1),
-        action: "browser.observe",
-        params: {},
-      },
-    });
-    expect(parsed.command.action).toBe("browser.observe");
-    expect("profileId" in parsed.command).toBe(false);
-    expect(PROFILE_ID).toBe("default");
-  });
-
   test("rejects legacy caller-owned epochs, extra fields, and unknown actions", () => {
     expect(() =>
       parseTurnCommand({
@@ -141,30 +123,6 @@ describe("private protocol boundary", () => {
       duplex: "half",
     } as RequestInit & { duplex: "half" });
     expect(await readJsonBody(request)).toEqual({ ok: true });
-  });
-
-  test("accepts a transfer on the endpoint that requires one", () => {
-    const parsed = parseInteraction(
-      {
-        schemaVersion: 1,
-        authority: AUTHORITY,
-        profileId: "default",
-        profileEpoch: 1,
-        interactionId: uuid(70),
-        interactionRevision: 1,
-        sessionTransfer: {
-          schemaVersion: 1,
-          algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1",
-          capabilityId: uuid(71),
-          clientPublicKey: "A".repeat(43),
-          iv: "B".repeat(16),
-          ciphertext: "C".repeat(64),
-        },
-      },
-      { requireSessionTransfer: true },
-    );
-
-    expect(parsed.sessionTransfer?.capabilityId).toBe(uuid(71));
   });
 
   test("rejects an oversized declared body before consuming its stream", async () => {

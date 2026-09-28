@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { google, docs_v1 } from 'googleapis';
+import { docs as createDocsClient, docs_v1 } from '@googleapis/docs';
 import { AuthManager } from './AuthManager.js';
 import { logToFile } from './logger.js';
 import { extractDocId } from './IdUtils.js';
@@ -61,7 +61,7 @@ export class DocsService {
 
   private async getDocsClient(): Promise<docs_v1.Docs> {
     const auth = await this.authManager.getAuthenticatedClient();
-    return google.docs({
+    return createDocsClient({
       version: 'v1',
       ...createGoogleClientOptions(auth),
     });

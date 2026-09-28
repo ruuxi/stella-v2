@@ -21,9 +21,11 @@ import {
 import {
   asFiniteNumber,
   asTrimmedString,
+  cachedStatements,
   generateLocalId,
   parseJsonRecord,
   toJsonValueString,
+  type CachedStatements,
   type SqliteDatabase,
 } from "./shared.js";
 import {
@@ -92,11 +94,15 @@ const threadKeyTail = (): string => {
 };
 
 export class ThreadLog {
+  private readonly cached: CachedStatements;
+
   constructor(
     private readonly db: SqliteDatabase,
     private readonly tx: { immediate: (work: () => void) => void },
     private readonly ensureConversation: EnsureConversation,
-  ) {}
+  ) {
+    this.cached = cachedStatements(db);
+  }
 
   /* ------------------------------------------------------------------ */
   /* Thread rows                                                         */
@@ -128,7 +134,7 @@ export class ThreadLog {
     const derived = this.deriveImplicitThreadMetadata(threadKey);
     const now = Date.now();
     this.ensureConversation(derived.conversationId, now);
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO thread (
            id, conversation_id, agent_type, name, status,
@@ -142,7 +148,7 @@ export class ThreadLog {
   }
 
   getThreadConversationId(threadKey: string): string {
-    const row = this.db
+    const row = this.cached
       .prepare("SELECT conversation_id AS conversationId FROM thread WHERE id = ? LIMIT 1")
       .get(threadKey) as { conversationId?: unknown } | undefined;
     if (
@@ -160,7 +166,7 @@ export class ThreadLog {
     cwd: string;
     parentSession: string | null;
   } | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT session_id AS sessionId, session_created_at AS createdAt,
                 cwd, parent_session AS parentSession
@@ -188,7 +194,7 @@ export class ThreadLog {
     }
     const sessionId = generateLocalId();
     this.ensureConversation(conversationId, timestamp);
-    this.db
+    this.cached
       .prepare(
         `UPDATE thread SET session_id = ?, session_created_at = ?, cwd = COALESCE(cwd, '')
          WHERE id = ?`,
@@ -199,7 +205,7 @@ export class ThreadLog {
 
   threadKeyExists(key: string): boolean {
     return Boolean(
-      this.db.prepare("SELECT 1 AS hit FROM thread WHERE id = ? LIMIT 1").get(key),
+      this.cached.prepare("SELECT 1 AS hit FROM thread WHERE id = ? LIMIT 1").get(key),
     );
   }
 
@@ -233,7 +239,7 @@ export class ThreadLog {
   listActiveThreadsByAge(
     conversationId: string,
   ): Array<{ threadId: string; lastUsedAt: number }> {
-    return this.db
+    return this.cached
       .prepare(
         `SELECT id AS threadId, last_used_at AS lastUsedAt
          FROM thread
@@ -246,7 +252,7 @@ export class ThreadLog {
   evictOldestThread(conversationId: string): void {
     const oldest = this.listActiveThreadsByAge(conversationId)[0];
     if (!oldest) return;
-    this.db
+    this.cached
       .prepare(
         `UPDATE thread SET status = 'evicted'
          WHERE conversation_id = ? AND status = 'active' AND id = ?`,
@@ -261,7 +267,7 @@ export class ThreadLog {
     ) {
       this.evictOldestThread(conversationId);
     }
-    this.db
+    this.cached
       .prepare("UPDATE thread SET status = 'active' WHERE conversation_id = ? AND id = ?")
       .run(conversationId, threadId);
   }
@@ -274,7 +280,7 @@ export class ThreadLog {
   }): { threadId: string; reused: boolean } {
     const requestedThreadId = normalizeRuntimeThreadId(args.threadId ?? "");
     const existing = requestedThreadId
-      ? (this.db
+      ? (this.cached
           .prepare(
             `SELECT id AS threadId, conversation_id AS conversationId,
                     agent_type AS agentType, status
@@ -320,7 +326,7 @@ export class ThreadLog {
       args.nameHint?.trim().replace(/\s+/g, " ").slice(0, 200) || threadId;
     const now = Date.now();
     this.ensureConversation(args.conversationId, now);
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO thread (
            id, conversation_id, agent_type, name, status,
@@ -334,14 +340,14 @@ export class ThreadLog {
   }
 
   touchThread(threadKey: string): void {
-    this.db
+    this.cached
       .prepare("UPDATE thread SET last_used_at = ? WHERE id = ?")
       .run(Date.now(), threadKey);
   }
 
   getThreadExternalSessionId(threadKey: string): string | undefined {
     this.ensureImplicitThreadRow(threadKey);
-    const row = this.db
+    const row = this.cached
       .prepare(
         "SELECT external_session_id AS externalSessionId FROM thread WHERE id = ? LIMIT 1",
       )
@@ -363,7 +369,7 @@ export class ThreadLog {
       typeof externalSessionId === "string" && externalSessionId.trim().length > 0
         ? externalSessionId.trim()
         : null;
-    this.db
+    this.cached
       .prepare(
         "UPDATE thread SET external_session_id = ?, last_used_at = ? WHERE id = ?",
       )
@@ -374,14 +380,14 @@ export class ThreadLog {
     const trimmed = summary.trim();
     if (!trimmed) return;
     this.ensureImplicitThreadRow(threadKey);
-    this.db
+    this.cached
       .prepare("UPDATE thread SET summary = ?, last_used_at = ? WHERE id = ?")
       .run(trimmed, Date.now(), threadKey);
     this.refreshThreadSearchText(threadKey);
   }
 
   getThreadName(threadKey: string): string | undefined {
-    const row = this.db
+    const row = this.cached
       .prepare("SELECT name FROM thread WHERE id = ? LIMIT 1")
       .get(threadKey) as { name?: unknown } | undefined;
     return typeof row?.name === "string" && row.name.length > 0
@@ -392,7 +398,7 @@ export class ThreadLog {
   getThreadActivityMetadata(
     threadId: string,
   ): { groupKey?: string; groupLabel?: string } | null {
-    const row = this.db
+    const row = this.cached
       .prepare("SELECT group_key, group_label FROM thread WHERE id = ? LIMIT 1")
       .get(threadId) as
       | { group_key?: string | null; group_label?: string | null }
@@ -411,7 +417,7 @@ export class ThreadLog {
   refreshThreadSearchText(threadId: string): void {
     // The `search_text IS NOT ...` guard keeps no-op saves from rewriting the
     // row (and churning the FTS index through the update trigger).
-    this.db
+    this.cached
       .prepare(
         `UPDATE thread SET search_text = (
            SELECT next_text FROM (
@@ -449,7 +455,7 @@ export class ThreadLog {
   /* ------------------------------------------------------------------ */
 
   private claimThreadSeq(threadId: string): number {
-    const row = this.db
+    const row = this.cached
       .prepare(
         "UPDATE thread SET next_seq = next_seq + 1 WHERE id = ? RETURNING next_seq - 1 AS seq",
       )
@@ -461,7 +467,7 @@ export class ThreadLog {
   }
 
   getThreadLeafEntryId(threadKey: string): string | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         "SELECT id AS entryId FROM thread_entry WHERE thread_id = ? ORDER BY seq DESC LIMIT 1",
       )
@@ -498,7 +504,7 @@ export class ThreadLog {
     if (args.exactData !== undefined) {
       const exactJson = toJsonValueString(args.exactData);
       if (exactJson !== null && exactJson !== dataJson) {
-        const blobRow = this.db
+        const blobRow = this.cached
           .prepare(
             "INSERT INTO blob (byte_length, content) VALUES (?, ?) RETURNING id",
           )
@@ -508,7 +514,7 @@ export class ThreadLog {
         blobId = typeof blobRow?.id === "number" ? blobRow.id : null;
       }
     }
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO thread_entry (
            thread_id, seq, id, type, role, custom_type, payload, blob_id,
@@ -677,7 +683,7 @@ export class ThreadLog {
     if (!threadKey || !eventId) {
       return false;
     }
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT 1 AS present FROM thread_entry
          WHERE thread_id = ? AND type = 'lifecycle_event'
@@ -685,6 +691,36 @@ export class ThreadLog {
          LIMIT 1`,
       )
       .get(threadKey, eventId);
+    return Boolean(row);
+  }
+
+  /**
+   * Keyed probe for one custom message by its event id. Rides
+   * `idx_thread_entry_thread_custom (thread_id, custom_type, seq)`, so it
+   * visits only that thread's rows of `customType` and never materializes the
+   * transcript. `payload` holds the bounded custom message, which always keeps
+   * `eventId` (storage trims content, never the id); the CASE keeps
+   * json_extract lazy so a malformed row reads as absent instead of throwing.
+   */
+  hasThreadCustomEvent(
+    threadKeyInput: string,
+    customTypeInput: string,
+    eventId: string,
+  ): boolean {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    const customType = asTrimmedString(customTypeInput);
+    if (!threadKey || !customType || !eventId) {
+      return false;
+    }
+    const row = this.cached
+      .prepare(
+        `SELECT 1 AS present FROM thread_entry
+         WHERE thread_id = ? AND custom_type = ?
+           AND (CASE WHEN json_valid(payload)
+                     THEN json_extract(payload, '$.eventId') END) = ?
+         LIMIT 1`,
+      )
+      .get(threadKey, customType, eventId);
     return Boolean(row);
   }
 
@@ -700,7 +736,7 @@ export class ThreadLog {
       500,
       Math.max(1, Math.floor(Number.isFinite(limit) ? limit : 300)),
     );
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT id AS entryId, payload AS dataJson FROM (
            SELECT id, payload, seq FROM thread_entry
@@ -728,7 +764,7 @@ export class ThreadLog {
       return [];
     }
     const normalizedLimit = Math.min(50, Math.max(1, Math.floor(limit)));
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT created_at AS createdAt, payload AS dataJson
          FROM thread_entry
@@ -769,7 +805,7 @@ export class ThreadLog {
     }
     let removed = 0;
     this.tx.immediate(() => {
-      this.db
+      this.cached
         .prepare(
           `DELETE FROM blob WHERE id IN (
              SELECT blob_id FROM thread_entry
@@ -779,7 +815,7 @@ export class ThreadLog {
            )`,
         )
         .run(threadKey, entryId, threadKey);
-      const deleteResult = this.db
+      const deleteResult = this.cached
         .prepare(
           `DELETE FROM thread_entry
            WHERE thread_id = ? AND id = ? AND type = 'message'
@@ -855,14 +891,14 @@ export class ThreadLog {
     `;
     const rows = (
       normalizedLimit
-        ? this.db.prepare(sql).all(threadKey, normalizedLimit)
-        : this.db.prepare(sql).all(threadKey)
+        ? this.cached.prepare(sql).all(threadKey, normalizedLimit)
+        : this.cached.prepare(sql).all(threadKey)
     ) as ThreadEntryDbRow[];
     return this.parseEntryRows(rows);
   }
 
   getThreadContext(threadKey: string): ThreadContextRow | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT thread_id AS threadId, compaction_entry_id AS compactionEntryId,
                 covered_from_seq AS coveredFromSeq,
@@ -897,10 +933,10 @@ export class ThreadLog {
   } | null {
     const context = this.getThreadContext(threadKey);
     if (!context) return null;
-    const fromEntry = this.db
+    const fromEntry = this.cached
       .prepare("SELECT id FROM thread_entry WHERE thread_id = ? AND seq = ? LIMIT 1")
       .get(threadKey, context.coveredFromSeq) as { id?: string } | undefined;
-    const toEntry = this.db
+    const toEntry = this.cached
       .prepare("SELECT id FROM thread_entry WHERE thread_id = ? AND seq = ? LIMIT 1")
       .get(threadKey, context.coveredThroughSeq) as { id?: string } | undefined;
     if (!fromEntry?.id || !toEntry?.id) return null;
@@ -926,7 +962,7 @@ export class ThreadLog {
     predicate: "<" | ">",
     seq: number,
   ): ParsedThreadEntry[] {
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT ${THREAD_ENTRY_SELECT} FROM thread_entry
          WHERE thread_id = ? AND seq ${predicate} ?
@@ -1013,7 +1049,7 @@ export class ThreadLog {
     this.tx.immediate(() => {
       const existingContext = this.getThreadContext(threadKey);
       const seqForEntry = (id: string): number | null => {
-        const row = this.db
+        const row = this.cached
           .prepare(
             "SELECT seq FROM thread_entry WHERE thread_id = ? AND id = ? LIMIT 1",
           )
@@ -1029,7 +1065,7 @@ export class ThreadLog {
         coveredThroughSeq = seqForEntry(toEntryId);
       } else if (firstKeptEntryId) {
         const firstKeptSeq = seqForEntry(firstKeptEntryId);
-        const firstRow = this.db
+        const firstRow = this.cached
           .prepare(
             `SELECT MIN(seq) AS seq FROM thread_entry
              WHERE thread_id = ? AND type IN ('message', 'custom_message')`,
@@ -1047,7 +1083,7 @@ export class ThreadLog {
       this.ensureThreadSession(threadKey, conversationId, timestamp);
       const fromEntryIdForRecord =
         fromEntryId && toEntryId && coveredFromSeq !== null
-          ? ((this.db
+          ? ((this.cached
               .prepare(
                 "SELECT id FROM thread_entry WHERE thread_id = ? AND seq = ? LIMIT 1",
               )
@@ -1069,7 +1105,7 @@ export class ThreadLog {
         },
       });
       if (coveredFromSeq !== null && coveredThroughSeq !== null) {
-        this.db
+        this.cached
           .prepare(
             `INSERT INTO thread_context (
                thread_id, compaction_entry_id, covered_from_seq,
@@ -1125,7 +1161,7 @@ export class ThreadLog {
     const rangeArgs = context
       ? [context.coveredFromSeq, context.coveredThroughSeq]
       : [];
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT COUNT(*) AS rowCount,
                 SUM(est_tokens) AS estimatedTokens,
@@ -1158,7 +1194,7 @@ export class ThreadLog {
           })()
         : [],
     );
-    const quarantineRows = this.db
+    const quarantineRows = this.cached
       .prepare(
         `SELECT seq, payload AS dataJson FROM thread_entry
          WHERE thread_id = ? AND custom_type = ?`,
@@ -1246,7 +1282,7 @@ export class ThreadLog {
       params.push(threadId);
     }
     params.push(normalizedLimit + 1);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT
            te.id AS id,

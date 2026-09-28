@@ -3,26 +3,96 @@ import { Alert } from "react-native";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type {
+  EngineModelCatalog,
+  EngineModelOption,
+} from "@stella/contracts/engine-model-catalog";
 import { env } from "../config/env";
 import { useT } from "../i18n";
 import { authClient } from "./auth-client";
 import { getConvexTokenForOwner } from "./auth-token";
 import { observeCloudConversationIdentity } from "./cloud-conversation-auth";
 import { useConvexTokenOwner } from "./use-convex-token-owner";
-import { managedCloudModelSelection, runOwnerBoundModelRequest } from "./cloud-model-selection";
-import { fetchStellaCatalog, stellaModelLabel, type StellaCatalog } from "./desktop-model-prefs";
+import { runOwnerBoundModelRequest } from "./cloud-model-selection";
+import {
+  fetchStellaCatalog,
+  STELLA_DEFAULT_MODEL,
+  stellaModelLabel,
+  type StellaCatalog,
+} from "./stella-model-catalog";
 import { notifyError } from "./haptics";
 import { userFacingError } from "./user-facing-error";
 
-const readRef = makeFunctionReference<"query", Record<string, never>, {
+export type ModelEngine = CloudExecutionSelection["engine"];
+
+export const MODEL_ENGINE_OPTIONS: ReadonlyArray<{ id: ModelEngine; label: string }> = [
+  { id: "stella", label: "Stella" },
+  { id: "anthropic", label: "Claude Code" },
+  { id: "openai-codex", label: "Codex" },
+];
+
+type Connections = {
   execution: CloudExecutionSelection;
-}>("cloud_engines:listMyEngineConnections");
+  connections: Array<{ provider: string }>;
+};
+
+const readRef = makeFunctionReference<"query", Record<string, never>, Connections>(
+  "cloud_engines:listMyEngineConnections",
+);
+const engineModelsRef = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  EngineModelCatalog
+>("cloud_engines:listEngineModels");
 const writeRef = makeFunctionReference<"mutation", { execution: CloudExecutionSelection }, null>(
   "cloud_engines:setMyCloudExecution",
 );
 const EMPTY_CATALOG: StellaCatalog = { models: [], agentKeys: [] };
+const EMPTY_ENGINE_MODELS: EngineModelCatalog = { claude: [], codex: [] };
 
-/** Account preferences use an owner-bound token, independently of the desktop bridge. */
+export type ModelOption = {
+  id: string;
+  label: string;
+  description?: string;
+  selected: boolean;
+  /** False when the account's plan can't use this model. */
+  available: boolean;
+};
+
+type LoadedState = {
+  scope: string;
+  execution: CloudExecutionSelection;
+  catalog: StellaCatalog;
+  engineModels: EngineModelCatalog;
+  connectedProviders: string[];
+};
+
+const engineModelList = (
+  engineModels: EngineModelCatalog,
+  engine: ModelEngine,
+): EngineModelOption[] =>
+  engine === "anthropic"
+    ? engineModels.claude
+    : engine === "openai-codex"
+      ? engineModels.codex
+      : [];
+
+/** The first model an engine lands on when the user switches to it. */
+const defaultModelFor = (
+  engine: ModelEngine,
+  engineModels: EngineModelCatalog,
+): string =>
+  engine === "stella"
+    ? STELLA_DEFAULT_MODEL
+    : (engineModelList(engineModels, engine)[0]?.id ??
+      (engine === "anthropic" ? "default" : "gpt-6-sol"));
+
+/**
+ * The account's model selection. Lists and the saved choice both come from
+ * the server, never from a paired computer; the desktop mirrors the saved
+ * choice into its local runtime, so one pick applies to cloud and computer
+ * turns alike.
+ */
 export function useCloudModelSettings(active: boolean) {
   const t = useT();
   const session = authClient.useSession();
@@ -35,11 +105,7 @@ export function useCloudModelSettings(active: boolean) {
   const currentScope = useRef<string | null>(scope);
   const writePending = useRef(false);
   const readRevision = useRef(0);
-  const [state, setState] = useState<{
-    scope: string;
-    execution: CloudExecutionSelection;
-    catalog: StellaCatalog;
-  } | null>(null);
+  const [state, setState] = useState<LoadedState | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   useLayoutEffect(() => {
@@ -49,8 +115,11 @@ export function useCloudModelSettings(active: boolean) {
     setLoading(false);
     return () => { currentScope.current = null; };
   }, [scope]);
-  const execution = state?.scope === scope ? state.execution : null;
-  const catalog = state?.scope === scope ? state.catalog : EMPTY_CATALOG;
+  const loaded = state?.scope === scope ? state : null;
+  const execution = loaded?.execution ?? null;
+  const catalog = loaded?.catalog ?? EMPTY_CATALOG;
+  const engineModels = loaded?.engineModels ?? EMPTY_ENGINE_MODELS;
+  const connectedProviders = loaded?.connectedProviders;
 
   const refresh = useCallback(async () => {
     if (!owner || !scope || !active || writePending.current) return;
@@ -63,11 +132,17 @@ export function useCloudModelSettings(active: boolean) {
         request: async (token) => {
           const client = new ConvexHttpClient(env.convexUrl);
           client.setAuth(token);
-          const [settings, catalog] = await Promise.all([
+          const [settings, engineModels, catalog] = await Promise.all([
             client.query(readRef, {}),
+            client.query(engineModelsRef, {}),
             fetchStellaCatalog({ headers: { Authorization: `Bearer ${token}` } }),
           ]);
-          return { execution: settings.execution, catalog };
+          return {
+            execution: settings.execution,
+            connectedProviders: settings.connections.map((row) => row.provider),
+            engineModels,
+            catalog,
+          };
         },
       });
       if (next) setState({ scope, ...next });
@@ -82,25 +157,27 @@ export function useCloudModelSettings(active: boolean) {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const apply = useCallback(async (next: CloudExecutionSelection) => {
-    if (!active || !owner || !scope || !execution || writePending.current) return;
+    if (!active || !owner || !scope || !loaded || writePending.current) return;
     writePending.current = true;
     ++readRevision.current;
     setLoading(false);
     setSaving(true);
+    // Show the pick immediately; a failed save restores the previous one.
+    const previous = loaded;
+    setState({ ...loaded, execution: next });
     try {
-      const saved = await runOwnerBoundModelRequest({
+      await runOwnerBoundModelRequest({
         getToken: () => getConvexTokenForOwner(owner.userSubject, owner.expectedSubject),
         isCurrent: () => currentScope.current === scope,
         request: async (token) => {
           const client = new ConvexHttpClient(env.convexUrl);
           client.setAuth(token);
           await client.mutation(writeRef, { execution: next });
-          return next;
         },
       });
-      if (saved) setState({ scope, execution: saved, catalog });
     } catch (error) {
       if (currentScope.current === scope) {
+        setState(previous);
         notifyError();
         Alert.alert(t("app.chat.miniModelPicker.updateFailedTitle"), userFacingError(error));
       }
@@ -110,30 +187,135 @@ export function useCloudModelSettings(active: boolean) {
         setSaving(false);
       }
     }
-  }, [active, owner, scope, execution, catalog, t]);
+  }, [active, owner, scope, loaded, t]);
 
-  return {
-    execution,
-    loading,
-    saving,
-    refresh,
-    label: execution ? stellaModelLabel(catalog, execution.model) : "Stella",
-    effort: execution?.reasoningEffort ?? "default",
-    // Stella-managed cloud runs take their effort from the backend config;
-    // only the Anthropic / Codex cloud engines expose one.
-    supportsEffortSelection: Boolean(execution && execution.engine !== "stella"),
-    models: catalog.models.filter((model) => model.allowedForAudience).map((model) => ({
-      id: model.id,
-      label: model.name,
-      selected: execution?.engine === "stella" && execution.model === model.id,
-    })),
-    selectModel: (model: string) => {
-      if (execution && catalog.models.some((entry) => entry.id === model && entry.allowedForAudience)) {
-        void apply(managedCloudModelSelection(model, execution));
+  const engine: ModelEngine = execution?.engine ?? "stella";
+  const effort = execution?.reasoningEffort ?? "default";
+
+  const selectEngineModel = useCallback(
+    (targetEngine: ModelEngine, model: string) => {
+      if (!execution) return;
+      if (targetEngine === "stella") {
+        const allowed =
+          model === STELLA_DEFAULT_MODEL ||
+          catalog.models.some((entry) => entry.id === model && entry.allowedForAudience);
+        if (!allowed) return;
+        void apply({ engine: "stella", provider: "stella", model, reasoningEffort: "default" });
+        return;
+      }
+      if (!engineModelList(engineModels, targetEngine).some((entry) => entry.id === model)) {
+        return;
+      }
+      // Keep the engine's effort when staying on it; a new engine starts on Auto.
+      const reasoningEffort = execution.engine === targetEngine ? execution.reasoningEffort : "default";
+      void apply(
+        targetEngine === "anthropic"
+          ? { engine: "anthropic", provider: "anthropic", model, reasoningEffort }
+          : { engine: "openai-codex", provider: "openai-codex", model, reasoningEffort },
+      );
+    },
+    [apply, catalog.models, engineModels, execution],
+  );
+
+  const selectEngine = useCallback(
+    (targetEngine: ModelEngine) => {
+      if (!execution || targetEngine === execution.engine) return;
+      selectEngineModel(targetEngine, defaultModelFor(targetEngine, engineModels));
+    },
+    [engineModels, execution, selectEngineModel],
+  );
+
+  const selectEffort = useCallback(
+    (next: CloudExecutionSelection["reasoningEffort"]) => {
+      if (execution && execution.engine !== "stella") {
+        void apply({ ...execution, reasoningEffort: next });
       }
     },
-    selectEffort: (effort: CloudExecutionSelection["reasoningEffort"]) => {
-      if (execution) void apply({ ...execution, reasoningEffort: effort });
+    [apply, execution],
+  );
+
+  const modelsFor = useCallback(
+    (targetEngine: ModelEngine): ModelOption[] => {
+      const selectedId = execution?.engine === targetEngine ? execution.model : null;
+      if (targetEngine === "stella") {
+        // The opaque default is always selectable, even when the catalog
+        // lists no concrete model for this plan.
+        const models = catalog.models.some((model) => model.id === STELLA_DEFAULT_MODEL)
+          ? catalog.models
+          : [
+              { id: STELLA_DEFAULT_MODEL, name: "Stella Recommended", allowedForAudience: true },
+              ...catalog.models,
+            ];
+        return models.map((model) => ({
+          id: model.id,
+          label: model.name,
+          selected: model.id === selectedId,
+          available: model.allowedForAudience,
+        }));
+      }
+      return engineModelList(engineModels, targetEngine).map((model) => ({
+        id: model.id,
+        label: model.name,
+        description: model.description,
+        selected: model.id === selectedId,
+        available: true,
+      }));
     },
-  };
+    [catalog.models, engineModels, execution],
+  );
+
+  const label = useMemo(() => {
+    if (!execution) return "Stella";
+    if (execution.engine === "stella") return stellaModelLabel(catalog, execution.model);
+    const name =
+      engineModelList(engineModels, execution.engine).find((model) => model.id === execution.model)
+        ?.name ?? execution.model;
+    return execution.engine === "anthropic" ? `Claude Code · ${name}` : name;
+  }, [catalog, engineModels, execution]);
+
+  // The compact composer picker only lists models this plan can use.
+  const models = useMemo(
+    () => modelsFor(engine).filter((model) => model.available),
+    [engine, modelsFor],
+  );
+
+  return useMemo(
+    () => ({
+      execution,
+      engine,
+      loading,
+      saving,
+      refresh,
+      label,
+      effort,
+      // Stella-managed runs take their effort from the backend config; only
+      // the Claude Code / Codex engines expose one.
+      supportsEffortSelection: Boolean(execution && execution.engine !== "stella"),
+      /** Providers connected for cloud runs; undefined until loaded. */
+      connectedProviders,
+      models,
+      modelsFor,
+      selectModel: (model: string) => selectEngineModel(engine, model),
+      selectEngineModel,
+      selectEngine,
+      selectEffort,
+    }),
+    [
+      connectedProviders,
+      effort,
+      engine,
+      execution,
+      label,
+      loading,
+      models,
+      modelsFor,
+      refresh,
+      saving,
+      selectEffort,
+      selectEngine,
+      selectEngineModel,
+    ],
+  );
 }
+
+export type ModelSettings = ReturnType<typeof useCloudModelSettings>;

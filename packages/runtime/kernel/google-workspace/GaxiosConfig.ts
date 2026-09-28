@@ -4,8 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { Auth } from 'googleapis';
-import type { GlobalOptions } from 'googleapis-common';
+import type { GlobalOptions, OAuth2Client } from 'googleapis-common';
 import type { GaxiosOptions } from 'gaxios';
 import { logToFile } from './logger.js';
 
@@ -37,7 +36,7 @@ export const mediaUploadOptions: GaxiosOptions = {
 };
 
 export function createGoogleClientOptions(
-  auth: Auth.OAuth2Client,
+  auth: OAuth2Client,
 ): GlobalOptions {
   return {
     auth,

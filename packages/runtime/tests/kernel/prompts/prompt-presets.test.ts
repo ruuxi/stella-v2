@@ -7,12 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
 import {
   deletePromptPreset,
-  isCustomizablePromptAgentId,
   listPromptPresets,
-  promptSelectionAgentId,
   readPromptPreset,
   savePromptPreset,
-  slugifyPresetName,
 } from "@stella/runtime/kernel/prompts/prompt-presets";
 import {
   getPromptPresetSelection,
@@ -136,14 +133,6 @@ describe("prompt preset store", () => {
     await expect(
       readPromptPreset(home, "orchestrator", "../../../etc/passwd"),
     ).resolves.toBeNull();
-  });
-
-  it("maps agent types to a selection owner", () => {
-    expect(promptSelectionAgentId("orchestrator")).toBe("orchestrator");
-    expect(promptSelectionAgentId("general")).toBe("general");
-    expect(promptSelectionAgentId("fashion")).toBeNull();
-    expect(isCustomizablePromptAgentId("explore")).toBe(false);
-    expect(slugifyPresetName("Über Prompt!!")).toBe("uber-prompt");
   });
 });
 

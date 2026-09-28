@@ -1,16 +1,18 @@
 import { useSyncExternalStore } from "react";
-import type { NativeMenuItem } from "../components/NativeMenu.types";
+import type { AutomaticExecutionTarget } from "./execution-placement";
 import type { StoredPhoneAccess } from "./phone-access";
-import type { DesktopConnection } from "./top-bar-status";
+import type { ModelSettings } from "./use-cloud-model-settings";
 import type { ChatArtifact, MobileTask } from "../types";
 
 /**
- * What the chat surface knows and the shell chrome (top bar, sidebar) shows.
+ * What the chat surface knows and the rest of the shell (sidebar, Files,
+ * Settings) shows.
  *
  * The chat route owns the conversation thread and the paired-computer state,
- * but the buttons that expose them live in the `(main)` layout above it. A
- * tiny external store bridges the two without threading props through the
- * router: the chat publishes, the chrome subscribes.
+ * but the surfaces that expose them are the `(main)` layout above it and the
+ * sibling tab routes. The chat stays mounted under every tab, so a tiny
+ * external store bridges them without threading props through the router:
+ * the chat publishes, the others subscribe.
  */
 export type ActivityHubData = {
   /** Background tasks in the conversation (running + settled). */
@@ -25,18 +27,29 @@ export type ActivityHubData = {
   access: StoredPhoneAccess | null;
 };
 
+/** The paired computer and where turns run, for Settings' Computer section. */
 export type ComputerControl = {
-  /** `null` while nothing is paired yet: the button then starts pairing. */
-  connection: DesktopConnection | null;
-  /** Localized accessibility label for the current state. */
-  label: string;
-  onPress: () => void;
-};
-
-export type HistoryControl = {
-  disabled: boolean;
-  onPress: () => void;
-  items: NativeMenuItem[];
+  /** Preferred paired computer; `null` while nothing is paired yet. */
+  access: StoredPhoneAccess | null;
+  pairedDesktops: StoredPhoneAccess[];
+  platformLabel: string;
+  statusLabel: string;
+  statusAvailable: boolean | null;
+  connecting: boolean;
+  /** Show the inline "Wake up" affordance (computer asleep and not waking). */
+  showWake: boolean;
+  onWake: () => void;
+  /** Bubble a freshly-paired computer up so the chat re-targets it. */
+  onRepaired: (access: StoredPhoneAccess) => void;
+  executionTarget: AutomaticExecutionTarget;
+  onExecutionTargetChange: (target: AutomaticExecutionTarget) => void;
+  /** The account's model selection, or `null` when its controls are hidden. */
+  model: {
+    label: string;
+    settings: ModelSettings;
+  } | null;
+  composerModelPinned: boolean;
+  onComposerModelPinnedChange: (next: boolean) => void;
 };
 
 /**
@@ -54,14 +67,12 @@ export type BackOverride = {
 type ShellState = {
   activity: ActivityHubData | null;
   computer: ComputerControl | null;
-  history: HistoryControl | null;
   back: BackOverride | null;
 };
 
 const EMPTY_STATE: ShellState = {
   activity: null,
   computer: null,
-  history: null,
   back: null,
 };
 
@@ -91,12 +102,6 @@ export function publishComputerControl(next: ComputerControl | null): void {
   emit();
 }
 
-export function publishHistoryControl(next: HistoryControl | null): void {
-  if (state.history === next) return;
-  state = { ...state, history: next };
-  emit();
-}
-
 export function publishBackOverride(next: BackOverride | null): void {
   if (state.back === next) return;
   state = { ...state, back: next };
@@ -106,11 +111,6 @@ export function publishBackOverride(next: BackOverride | null): void {
 const readBack = () => state.back;
 export function useBackOverride(): BackOverride | null {
   return useSyncExternalStore(subscribe, readBack, readBack);
-}
-
-const readHistory = () => state.history;
-export function useHistoryControl(): HistoryControl | null {
-  return useSyncExternalStore(subscribe, readHistory, readHistory);
 }
 
 const readActivity = () => state.activity;

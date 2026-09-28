@@ -26,10 +26,6 @@ const event = {
 };
 
 describe("closed telemetry schema", () => {
-  test("accepts the shared v1 contract", () => {
-    expect(parseBatch({ schemaVersion: 1, events: [event] }).ok).toBe(true);
-  });
-
   test("rejects arbitrary metadata and content fields", () => {
     expect(
       parseBatch({

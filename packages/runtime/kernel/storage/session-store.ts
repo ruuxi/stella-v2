@@ -17,7 +17,9 @@ import { normalizeRuntimeThreadId } from "../runtime-threads.js";
 import {
   asFiniteNumber,
   asTrimmedString,
+  cachedStatements,
   parseJsonRecord,
+  type CachedStatements,
   type LocalChatEventRecord,
   type RuntimeThreadMessage,
   type SqliteDatabase,
@@ -244,6 +246,7 @@ type ComputerAgentCloudOutboxRow = ComputerAgentCloudOutboxRecord;
 export class SessionStore {
   readonly db: SqliteDatabase;
   readonly options: SessionStoreOptions;
+  private readonly cached: CachedStatements;
   private readonly chat: ChatLog;
   private readonly threads: ThreadLog;
   private readonly agents: AgentRegistry;
@@ -263,6 +266,7 @@ export class SessionStore {
 
   constructor(db: SqliteDatabase, options: SessionStoreOptions = {}) {
     this.db = db;
+    this.cached = cachedStatements(db);
     this.options = options;
     const tx = { immediate: (work: () => void) => void this.withImmediateTransaction(work) };
     this.chat = new ChatLog(db, tx);
@@ -377,7 +381,7 @@ export class SessionStore {
     limit = 100,
   ): LegacyChatCloudImportCandidate[] {
     const normalizedLimit = Math.max(1, Math.min(Math.floor(limit), 500));
-    return this.db
+    return this.cached
       .prepare(
         `
       SELECT
@@ -412,7 +416,7 @@ export class SessionStore {
     const localConversationId = this.sanitizeConversationId(
       localConversationIdInput,
     );
-    const row = this.db
+    const row = this.cached
       .prepare(
         `
       SELECT
@@ -450,7 +454,7 @@ export class SessionStore {
     const detail = asTrimmedString(args.detail);
     const now = Date.now();
     this.withImmediateTransaction(() => {
-      const existing = this.db
+      const existing = this.cached
         .prepare(
           `SELECT owner_generation AS ownerGeneration
              FROM legacy_chat_cloud_import
@@ -469,7 +473,7 @@ export class SessionStore {
           "Legacy chat import cannot be rebound to another owner generation.",
         );
       }
-      this.db
+      this.cached
         .prepare(
           `
         INSERT INTO legacy_chat_cloud_import (
@@ -512,7 +516,7 @@ export class SessionStore {
     conversationIdInput: string,
   ): LegacyChatVisibleMessage[] {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `
       SELECT
@@ -551,7 +555,7 @@ export class SessionStore {
     const threadId = asTrimmedString(threadIdInput);
     const ownerGeneration = asTrimmedString(ownerGenerationInput);
     if (!threadId || !ownerGeneration) return null;
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT
            thread_id AS threadId,
@@ -646,7 +650,7 @@ export class SessionStore {
 
       if (replace) {
         const now = Date.now();
-        this.db
+        this.cached
           .prepare(
             `INSERT INTO cloud_agent_thread_controls (
                thread_id,
@@ -688,7 +692,7 @@ export class SessionStore {
   ): CloudAgentToolOperationRecord | null {
     const operationId = asTrimmedString(operationIdInput);
     if (!operationId) return null;
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT
            operation_id AS operationId,
@@ -728,7 +732,7 @@ export class SessionStore {
     }
     return this.withImmediateTransaction(() => {
       const now = Date.now();
-      this.db
+      this.cached
         .prepare(
           `INSERT OR IGNORE INTO cloud_agent_tool_operations (
              operation_id,
@@ -781,7 +785,7 @@ export class SessionStore {
       if (existing.requestJson !== expectedRequestJson) {
         throw new Error("Cloud agent operation request changed concurrently.");
       }
-      this.db
+      this.cached
         .prepare(
           `UPDATE cloud_agent_tool_operations
            SET request_json = ?, updated_at = ?
@@ -809,7 +813,7 @@ export class SessionStore {
         throw new Error("Cloud agent tool operation returned conflicting results.");
       }
       if (existing.resultJson === null) {
-        this.db
+        this.cached
           .prepare(
             `UPDATE cloud_agent_tool_operations
              SET result_json = ?, updated_at = ?
@@ -830,7 +834,7 @@ export class SessionStore {
   putCloudTranscriptOutbox(record: CloudTranscriptOutboxWrite): void {
     const now = Date.now();
     this.withImmediateTransaction(() => {
-      const existing = this.db
+      const existing = this.cached
         .prepare(
           `SELECT id,
                   kind,
@@ -858,7 +862,7 @@ export class SessionStore {
         }
         return;
       }
-      this.db
+      this.cached
         .prepare(
           `
         INSERT INTO cloud_transcript_outbox (
@@ -896,7 +900,7 @@ export class SessionStore {
 
   listCloudTranscriptOutbox(limit = 256): CloudTranscriptOutboxRecord[] {
     const normalizedLimit = Math.max(1, Math.floor(limit));
-    return this.db
+    return this.cached
       .prepare(
         `
       SELECT
@@ -923,7 +927,7 @@ export class SessionStore {
   }
 
   countCloudTranscriptOutbox(): number {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `
       SELECT COUNT(*) AS count
@@ -936,7 +940,7 @@ export class SessionStore {
   }
 
   markCloudTranscriptOutboxAttempt(id: string): void {
-    this.db
+    this.cached
       .prepare(
         `
       UPDATE cloud_transcript_outbox
@@ -948,12 +952,12 @@ export class SessionStore {
   }
 
   deleteCloudTranscriptOutbox(id: string): void {
-    this.db.prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?").run(id);
+    this.cached.prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?").run(id);
   }
 
   deadLetterCloudTranscriptOutbox(id: string, reason: string): void {
     const now = Date.now();
-    this.db
+    this.cached
       .prepare(
         `
       UPDATE cloud_transcript_outbox
@@ -993,7 +997,7 @@ export class SessionStore {
       source: "cloud-sync-error",
     };
     this.withImmediateTransaction(() => {
-      this.db
+      this.cached
         .prepare(
           `
           UPDATE cloud_transcript_outbox
@@ -1025,7 +1029,7 @@ export class SessionStore {
   ): void {
     const now = Date.now();
     this.withImmediateTransaction(() => {
-      const selectById = this.db.prepare(
+      const selectById = this.cached.prepare(
         `SELECT id,
                 kind,
                 conversation_id AS conversationId,
@@ -1073,7 +1077,7 @@ export class SessionStore {
             "Cloud transcript finish has no matching admitted begin.",
           );
         }
-        this.db
+        this.cached
           .prepare(
             `
           INSERT INTO cloud_transcript_outbox (
@@ -1107,7 +1111,7 @@ export class SessionStore {
             now,
           );
       }
-      this.db
+      this.cached
         .prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?")
         .run(acknowledgedId);
     });
@@ -1130,7 +1134,7 @@ export class SessionStore {
       throw new Error("Cloud journal owner generation is invalid.");
     }
     return this.withImmediateTransaction(() => {
-      const admitted = this.db
+      const admitted = this.cached
         .prepare(
           `SELECT payload_json AS payloadJson
              FROM cloud_journal_admission_receipts WHERE id = ?`,
@@ -1145,14 +1149,14 @@ export class SessionStore {
       if (admitted) return { replayed: true };
 
       const now = Date.now();
-      this.db
+      this.cached
         .prepare(
           `INSERT INTO cloud_journal_admission_receipts (
              id, payload_json, created_at
            ) VALUES (?, ?, ?)`,
         )
         .run(record.id, record.payloadJson, now);
-      this.db
+      this.cached
         .prepare(
           `INSERT INTO cloud_journal_outbox (
              id, conversation_id, device_id, owner_generation, append_id, payload_json,
@@ -1171,7 +1175,7 @@ export class SessionStore {
         );
       // One cheap indexed cleanup per admission keeps this operational dedupe
       // table bounded without coupling it to cloud delivery success.
-      this.db
+      this.cached
         .prepare(
           `DELETE FROM cloud_journal_admission_receipts
             WHERE created_at < ?`,
@@ -1202,7 +1206,7 @@ export class SessionStore {
       throw new Error("Voice tool receipt identity is invalid.");
     }
     return this.withImmediateTransaction(() => {
-      const existing = this.db
+      const existing = this.cached
         .prepare(
           `SELECT request_fingerprint AS requestFingerprint,
                   operation_id AS operationId,
@@ -1243,7 +1247,7 @@ export class SessionStore {
               startedAt: existingStartedAt,
             };
       }
-      this.db
+      this.cached
         .prepare(
           `INSERT INTO voice_tool_call_receipts (
              conversation_id, call_id, request_fingerprint, operation_id,
@@ -1279,7 +1283,7 @@ export class SessionStore {
       throw new Error("Voice tool completion is invalid.");
     }
     this.withImmediateTransaction(() => {
-      const existing = this.db
+      const existing = this.cached
         .prepare(
           `SELECT request_fingerprint AS requestFingerprint,
                   completion_json AS completionJson
@@ -1301,7 +1305,7 @@ export class SessionStore {
         return;
       }
       const now = Date.now();
-      this.db
+      this.cached
         .prepare(
           `UPDATE voice_tool_call_receipts
               SET completion_json = ?, completed_at = ?, updated_at = ?
@@ -1313,7 +1317,7 @@ export class SessionStore {
   }
 
   listCloudJournalOutbox(limit = 256): CloudJournalOutboxRecord[] {
-    return this.db
+    return this.cached
       .prepare(
         `SELECT
            sequence,
@@ -1337,7 +1341,7 @@ export class SessionStore {
   }
 
   countCloudJournalOutbox(): number {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT COUNT(*) AS count
            FROM cloud_journal_outbox
@@ -1348,7 +1352,7 @@ export class SessionStore {
   }
 
   markCloudJournalOutboxAttempt(id: string, error?: string): void {
-    this.db
+    this.cached
       .prepare(
         `UPDATE cloud_journal_outbox
             SET attempts = attempts + 1,
@@ -1360,12 +1364,12 @@ export class SessionStore {
   }
 
   deleteCloudJournalOutbox(id: string): void {
-    this.db.prepare("DELETE FROM cloud_journal_outbox WHERE id = ?").run(id);
+    this.cached.prepare("DELETE FROM cloud_journal_outbox WHERE id = ?").run(id);
   }
 
   deadLetterCloudJournalOutbox(id: string, reason: string): void {
     const now = Date.now();
-    this.db
+    this.cached
       .prepare(
         `UPDATE cloud_journal_outbox
             SET payload_json = '{}',
@@ -1391,7 +1395,7 @@ export class SessionStore {
     payloadJson: string;
   }): void {
     const now = Date.now();
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO computer_agent_cloud_outbox (
            id, kind, thread_id, attempt_generation, owner_scope,
@@ -1425,7 +1429,7 @@ export class SessionStore {
     ownerScope: string,
     limit = 256,
   ): ComputerAgentCloudOutboxRecord[] {
-    return this.db
+    return this.cached
       .prepare(
         `SELECT
            sequence,
@@ -1453,7 +1457,7 @@ export class SessionStore {
   }
 
   countComputerAgentCloudOutbox(): number {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT COUNT(*) AS count
            FROM computer_agent_cloud_outbox`,
@@ -1467,7 +1471,7 @@ export class SessionStore {
     error: string;
     nextAttemptAt: number;
   }): void {
-    this.db
+    this.cached
       .prepare(
         `UPDATE computer_agent_cloud_outbox
             SET attempts = attempts + 1,
@@ -1486,7 +1490,7 @@ export class SessionStore {
 
   resumeComputerAgentCloudOutbox(ownerScope: string): void {
     const now = Date.now();
-    this.db
+    this.cached
       .prepare(
         `UPDATE computer_agent_cloud_outbox
             SET next_attempt_at = MIN(next_attempt_at, ?),
@@ -1497,7 +1501,7 @@ export class SessionStore {
   }
 
   getComputerAgentCloudThreadOwnerScope(threadId: string): string | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT owner_scope AS ownerScope
            FROM computer_agent_cloud_thread_owners
@@ -1513,7 +1517,7 @@ export class SessionStore {
   getComputerAgentCloudThreadAuthority(
     threadId: string,
   ): { ownerScope: string; ownerGeneration: string } | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT owner_scope AS ownerScope,
                 owner_generation AS ownerGeneration
@@ -1537,7 +1541,7 @@ export class SessionStore {
 
   hasUnscopedComputerAgentCloudOutbox(threadId: string): boolean {
     return Boolean(
-      this.db
+      this.cached
         .prepare(
           `SELECT 1
              FROM computer_agent_cloud_outbox
@@ -1555,7 +1559,7 @@ export class SessionStore {
     ownerGeneration: string;
   }): boolean {
     return Boolean(
-      this.db
+      this.cached
         .prepare(
           `SELECT 1
              FROM computer_agent_cloud_retired_generations
@@ -1573,7 +1577,7 @@ export class SessionStore {
     ownerScope: string,
   ): string {
     const now = Date.now();
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO computer_agent_cloud_thread_owners (
            thread_id, owner_scope, created_at, updated_at
@@ -1600,7 +1604,7 @@ export class SessionStore {
       ) {
         return null;
       }
-      const existing = this.db
+      const existing = this.cached
         .prepare(
           `SELECT owner_scope AS ownerScope,
                   owner_generation AS ownerGeneration
@@ -1621,14 +1625,14 @@ export class SessionStore {
         // A newly admitted epoch tombstones queued work from the prior epoch
         // before rebinding the mutable thread id. Persist the tombstone first
         // so a late retry cannot reverse the transition back to the old epoch.
-        this.db
+        this.cached
           .prepare(
             `INSERT OR IGNORE INTO computer_agent_cloud_retired_generations (
                thread_id, owner_scope, owner_generation, retired_at
              ) VALUES (?, ?, ?, ?)`,
           )
           .run(threadId, ownerScope, existing.ownerGeneration, now);
-        this.db
+        this.cached
           .prepare(
             `DELETE FROM computer_agent_cloud_outbox
               WHERE thread_id = ?
@@ -1637,7 +1641,7 @@ export class SessionStore {
           )
           .run(threadId, ownerScope, existing.ownerGeneration);
       }
-      this.db
+      this.cached
         .prepare(
           `INSERT INTO computer_agent_cloud_thread_owners (
              thread_id, owner_scope, owner_generation, created_at, updated_at
@@ -1658,14 +1662,14 @@ export class SessionStore {
     ownerGeneration: string;
   }): void {
     this.withImmediateTransaction(() => {
-      this.db
+      this.cached
         .prepare(
           `INSERT OR IGNORE INTO computer_agent_cloud_retired_generations (
              thread_id, owner_scope, owner_generation, retired_at
            ) VALUES (?, ?, ?, ?)`,
         )
         .run(args.threadId, args.ownerScope, args.ownerGeneration, Date.now());
-      this.db
+      this.cached
         .prepare(
           `DELETE FROM computer_agent_cloud_outbox
             WHERE thread_id = ?
@@ -1673,7 +1677,7 @@ export class SessionStore {
               AND owner_generation = ?`,
         )
         .run(args.threadId, args.ownerScope, args.ownerGeneration);
-      this.db
+      this.cached
         .prepare(
           `DELETE FROM computer_agent_cloud_thread_owners
             WHERE thread_id = ?
@@ -1685,7 +1689,7 @@ export class SessionStore {
   }
 
   deleteComputerAgentCloudOutbox(id: string): void {
-    this.db
+    this.cached
       .prepare("DELETE FROM computer_agent_cloud_outbox WHERE id = ?")
       .run(id);
   }
@@ -1752,8 +1756,11 @@ export class SessionStore {
     );
   }
 
-  recordRunEvent(event: Parameters<ChatLog["recordRunEvent"]>[0]): void {
-    this.chat.recordRunEvent(event);
+  openEventWindow(conversationIdInput: unknown, maxItems: number) {
+    return this.chat.openEventWindow(
+      this.sanitizeConversationId(conversationIdInput),
+      maxItems,
+    );
   }
 
   listEvents(conversationIdInput: unknown, maxItems = 200): LocalChatEventRecord[] {
@@ -2042,6 +2049,14 @@ export class SessionStore {
     return this.threads.hasThreadLifecycleEvent(threadKey, eventId);
   }
 
+  hasThreadCustomEvent(
+    threadKey: string,
+    customType: string,
+    eventId: string,
+  ): boolean {
+    return this.threads.hasThreadCustomEvent(threadKey, customType, eventId);
+  }
+
   listThreadLifecycleEntries(threadKey: string, limit?: number) {
     return this.threads.listThreadLifecycleEntries(threadKey, limit);
   }
@@ -2311,7 +2326,7 @@ export class SessionStore {
    */
   getThreadExternalDeliveredEntryId(threadKey: string): string | undefined {
     this.threads.ensureImplicitThreadRow(threadKey);
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT external_delivered_entry_id AS externalDeliveredEntryId
          FROM thread
@@ -2334,7 +2349,7 @@ export class SessionStore {
       typeof entryId === "string" && entryId.trim().length > 0
         ? entryId.trim()
         : null;
-    this.db
+    this.cached
       .prepare(
         `UPDATE thread
          SET external_delivered_entry_id = ?
@@ -2468,7 +2483,7 @@ export class SessionStore {
   getOrchestratorReminderState(conversationId: string): {
     shouldInjectDynamicReminder: boolean;
   } {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT force_reminder_on_next_turn AS forceReminderOnNextTurn
          FROM runtime_conversation_state
@@ -2482,7 +2497,7 @@ export class SessionStore {
   }
 
   forceOrchestratorReminderOnNextTurn(conversationId: string): void {
-    this.db
+    this.cached
       .prepare(
         `INSERT INTO runtime_conversation_state (
            conversation_id, force_reminder_on_next_turn
@@ -2494,7 +2509,7 @@ export class SessionStore {
   }
 
   consumeOrchestratorReminder(conversationId: string): void {
-    this.db
+    this.cached
       .prepare(
         `UPDATE runtime_conversation_state
          SET force_reminder_on_next_turn = 0

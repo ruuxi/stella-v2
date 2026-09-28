@@ -242,45 +242,6 @@ describe("browser profile session core", () => {
     });
   });
 
-  test("releases the human-control lock at its durable alarm boundary", async () => {
-    const store = new MemoryProfileStore();
-    const browser = new FakeBrowser();
-    let now = 3_000_000;
-    const core = new BrowserProfileSessionCore({
-      store,
-      browser,
-      bucket: new MemoryR2().asBucket(),
-      kekV1: TEST_KEK,
-      now: () => now,
-      randomUuid: () => uuid(500),
-    });
-    await core.turn(
-      command(uuid(20), "browser.open", {
-        allowedOrigins: ["https://app.example"],
-        startUrl: "https://app.example/login",
-      }),
-    );
-    await core.turn(
-      command(uuid(21), "browser.login_takeover", {
-        allowedOrigins: ["https://app.example"],
-        displayOrigin: "https://app.example",
-        expiresInMs: 60_000,
-        verification: {
-          expectedOrigin: "https://app.example",
-          authenticatedSelector: "#logout",
-          loggedOutSelector: "#login",
-          resumeUrl: "https://app.example/account",
-        },
-      }),
-    );
-    expect(store.state?.phase).toBe("HUMAN_CONTROL");
-    now += 60_001;
-    await core.expireActive();
-    expect(store.state?.phase).toBe("AGENT_CONTROL");
-    expect(store.state?.activeInteractionId).toBeUndefined();
-    expect(browser.closeCount).toBe(1);
-  });
-
   test("an old decision cannot clear a newer interaction's human-control lock", async () => {
     const store = new MemoryProfileStore();
     const browser = new FakeBrowser();

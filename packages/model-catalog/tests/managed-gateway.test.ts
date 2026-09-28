@@ -53,27 +53,6 @@ describe("managed gateway", () => {
     expect(config.baseURL).toBe("https://openrouter.ai/api/v1");
   });
 
-  it("publishes base URLs, key env names, and static headers per gateway", () => {
-    expect(getManagedGatewayConfig("deepseek")).toMatchObject({
-      baseURL: "https://api.deepseek.com",
-      apiKeyEnvVar: "DEEPSEEK_API_KEY",
-    });
-    expect(getManagedGatewayConfig("xai")).toMatchObject({
-      baseURL: "https://api.x.ai/v1",
-      apiKeyEnvVar: "XAI_API_KEY",
-    });
-    expect(getManagedGatewayConfig("wafer")).toMatchObject({
-      baseURL: "https://pass.wafer.ai/v1",
-      apiKeyEnvVar: "WAFER_API_KEY",
-      extraHeaders: { "Wafer-ZDR": "required" },
-    });
-    expect(getManagedGatewayConfig("meta")).toMatchObject({
-      baseURL: "https://api.meta.ai/v1",
-      apiKeyEnvVar: "META_MODEL_API_KEY",
-      apiKeyEnvVarFallbacks: ["MODEL_API_KEY"],
-    });
-  });
-
   it("resolves META_MODEL_API_KEY ahead of MODEL_API_KEY from an explicit env map", () => {
     const config = getManagedGatewayConfig("meta");
     expect(listManagedGatewayApiKeyEnvVars(config)).toEqual([

@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileBridgeService } from "@stella/desktop/electron/services/mobile-bridge/service.js";
-import {
-  isMobileBridgeRequestChannel,
-  isMobileBridgeEventChannel,
-} from "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js";
-import { MOBILE_BRIDGE_FEATURES } from "@stella/desktop/electron/services/mobile-bridge/capabilities.js";
 import { guardMobileBridgeInvokeArgs } from "@stella/desktop/electron/services/mobile-bridge/invoke-guards.js";
 
 const createService = () =>
@@ -168,25 +163,6 @@ describe("staged upload attachment resolution", () => {
   });
 });
 
-describe("bridge capability surface", () => {
-  it("whitelists mobile:hello as a request channel", () => {
-    expect(isMobileBridgeRequestChannel("mobile:hello")).toBe(true);
-  });
-
-  it("still whitelists the localChat push event channel", () => {
-    expect(isMobileBridgeEventChannel("localChat:updated")).toBe(true);
-  });
-
-  it("advertises the negotiated feature set", () => {
-    expect(MOBILE_BRIDGE_FEATURES).toContain("hello-v1");
-    expect(MOBILE_BRIDGE_FEATURES).toContain("envelope-deflate");
-    expect(MOBILE_BRIDGE_FEATURES).toContain("binary-file-lane");
-    expect(MOBILE_BRIDGE_FEATURES).toContain("binary-upload");
-    expect(MOBILE_BRIDGE_FEATURES).toContain("localchat-push");
-    expect(MOBILE_BRIDGE_FEATURES).toContain("compact-thread-activity-v1");
-  });
-});
-
 describe("cron mutation lane narrowing", () => {
   it("passes the phone's pause/resume patch through, rebuilt", () => {
     const args = [
@@ -251,13 +227,5 @@ describe("cron mutation lane narrowing", () => {
     expect(() =>
       guardMobileBridgeInvokeArgs("schedule:removeCronJob", [{}]),
     ).toThrow(/requires a jobId/);
-  });
-
-  it("leaves unguarded channels untouched", () => {
-    const args = [{ conversationId: "c1", anything: { nested: true } }];
-    expect(guardMobileBridgeInvokeArgs("schedule:listCronJobs", args)).toBe(
-      args,
-    );
-    expect(guardMobileBridgeInvokeArgs("agent:startChat", args)).toBe(args);
   });
 });

@@ -1,0 +1,1421 @@
+[
+  {
+    "id": "basecamp",
+    "name": "Basecamp",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 13,
+    "description": "Basecamp is a project management and team collaboration tool by 37signals. It helps teams organize tasks, share files, and communicate efficiently in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/basecamp"
+  },
+  {
+    "id": "dart",
+    "name": "Dart",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 20,
+    "description": "Dart is the ultimate AI project management platform for teams and individuals. It streamlines your workflows so you can focus on what matters most.",
+    "sourceUrl": "https://composio.dev/toolkits/dart"
+  },
+  {
+    "id": "databricks",
+    "name": "Databricks",
+    "category": "analytics & data",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 447,
+    "description": "Databricks is a unified analytics platform for big data and AI on the lakehouse architecture. It empowers data teams to collaborate, analyze, and build scalable solutions efficiently.",
+    "sourceUrl": "https://composio.dev/toolkits/databricks"
+  },
+  {
+    "id": "dub",
+    "name": "Dub",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 28,
+    "description": "Dub is a short link management platform with analytics and API access. Use it to easily create, manage, and track branded short links for your business.",
+    "sourceUrl": "https://composio.dev/toolkits/dub"
+  },
+  {
+    "id": "egnyte",
+    "name": "Egnyte",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 16,
+    "description": "Egnyte is a cloud-based platform for secure file sharing, storage, and governance. It helps teams collaborate efficiently while maintaining data compliance and security.",
+    "sourceUrl": "https://composio.dev/toolkits/egnyte"
+  },
+  {
+    "id": "fathom",
+    "name": "Fathom",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 6,
+    "description": "Fathom is an AI meeting assistant that records, transcribes, and summarizes meetings. It helps you stay focused while capturing every important detail automatically.",
+    "sourceUrl": "https://composio.dev/toolkits/fathom"
+  },
+  {
+    "id": "fly",
+    "name": "Fly",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 45,
+    "description": "Fly.io transforms containers into micro-VMs running globally. Instantly deploy apps close to your users for low latency and high availability.",
+    "sourceUrl": "https://composio.dev/toolkits/fly"
+  },
+  {
+    "id": "follow_up_boss",
+    "name": "Follow Up Boss",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 99,
+    "description": "Follow Up Boss is a CRM designed for high-growth real estate teams. Centralize leads and follow-ups to drive smarter sales.",
+    "sourceUrl": "https://composio.dev/toolkits/follow_up_boss"
+  },
+  {
+    "id": "freeagent",
+    "name": "Freeagent",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 17,
+    "description": "Freeagent is a cloud-based accounting platform designed for freelancers and small businesses. It simplifies bookkeeping, invoicing, and expense management in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/freeagent"
+  },
+  {
+    "id": "hugging_face",
+    "name": "Hugging Face",
+    "category": "ai & machine learning",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 143,
+    "description": "Hugging Face is an open-source platform for building, training, and deploying machine learning models. It empowers developers with easy access to state-of-the-art AI tools and model sharing.",
+    "sourceUrl": "https://composio.dev/toolkits/hugging_face"
+  },
+  {
+    "id": "shippo",
+    "name": "Shippo",
+    "category": "e-commerce",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 95,
+    "description": "Shippo is a shipping API for e-commerce merchants to create labels, track packages, and manage shipments. It streamlines shipping operations with multi-carrier support and easy integration.",
+    "sourceUrl": "https://composio.dev/toolkits/shippo"
+  },
+  {
+    "id": "storyblok",
+    "name": "Storyblok",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 10,
+    "description": "Storyblok is a headless CMS with a visual editor for managing content across platforms. It helps teams deliver consistent, flexible digital experiences anywhere.",
+    "sourceUrl": "https://composio.dev/toolkits/storyblok"
+  },
+  {
+    "id": "typeform",
+    "name": "Typeform",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 44,
+    "description": "Typeform is a user-friendly online form builder for interactive surveys and data collection. It helps you create beautiful forms and collect responses seamlessly.",
+    "sourceUrl": "https://composio.dev/toolkits/typeform"
+  },
+  {
+    "id": "whop",
+    "name": "Whop",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 19,
+    "description": "Whop is a platform for selling digital products, memberships, and managing online communities. It empowers entrepreneurs to launch, grow, and monetize their digital offerings easily.",
+    "sourceUrl": "https://composio.dev/toolkits/whop"
+  },
+  {
+    "id": "xata",
+    "name": "Xata",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 8,
+    "description": "Xata is a serverless, scalable, branchable cloud database platform. It streamlines modern app development with hassle-free, developer-focused data management.",
+    "sourceUrl": "https://composio.dev/toolkits/xata"
+  },
+  {
+    "id": "airtable",
+    "name": "Airtable",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 23,
+    "description": "Airtable combines the flexibility of spreadsheets with the power of a database for easy project and data management. Teams use Airtable to organize, track, and collaborate with custom views and automations.",
+    "sourceUrl": "https://composio.dev/toolkits/airtable"
+  },
+  {
+    "id": "apaleo",
+    "name": "Apaleo",
+    "category": "scheduling & booking",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 29,
+    "description": "Apaleo is a cloud-based property management platform for hospitality businesses. It centralizes reservations, billing, and daily operations for smoother hotel management.",
+    "sourceUrl": "https://composio.dev/toolkits/apaleo"
+  },
+  {
+    "id": "asana",
+    "name": "Asana",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 153,
+    "description": "Asana is a collaborative work management platform for teams to organize and track projects. It streamlines teamwork, boosts productivity, and keeps everyone aligned on goals.",
+    "sourceUrl": "https://composio.dev/toolkits/asana"
+  },
+  {
+    "id": "attio",
+    "name": "Attio",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 99,
+    "description": "Attio is a customizable CRM and workspace for managing your team's relationships and workflows. It helps teams organize contacts, automate tasks, and collaborate more efficiently.",
+    "sourceUrl": "https://composio.dev/toolkits/attio"
+  },
+  {
+    "id": "bamboohr",
+    "name": "Bamboohr",
+    "category": "hr & recruiting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 41,
+    "description": "BambooHR is a cloud-based HR management platform for small and mid-sized businesses. It streamlines employee data, HR workflows, and reporting in one easy interface.",
+    "sourceUrl": "https://composio.dev/toolkits/bamboohr"
+  },
+  {
+    "id": "beeminder",
+    "name": "Beeminder",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 4,
+    "description": "Beeminder is an online goal-tracking platform that uses monetary pledges to keep you motivated. Stay accountable and hit your targets with real financial incentives.",
+    "sourceUrl": "https://composio.dev/toolkits/beeminder"
+  },
+  {
+    "id": "bitbucket",
+    "name": "Bitbucket",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 105,
+    "description": "Bitbucket is a Git-based code hosting and collaboration platform for teams. It enables secure repository management and streamlined code reviews.",
+    "sourceUrl": "https://composio.dev/toolkits/bitbucket"
+  },
+  {
+    "id": "blackbaud",
+    "name": "Blackbaud",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 5,
+    "description": "Blackbaud provides cloud-based software for nonprofits, schools, and healthcare institutions. It streamlines fundraising, donor management, and mission-driven operations.",
+    "sourceUrl": "https://composio.dev/toolkits/blackbaud"
+  },
+  {
+    "id": "blackboard",
+    "name": "Blackboard",
+    "category": "education & lms",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 314,
+    "description": "Blackboard is a digital learning platform for higher education and schools, offering tools to manage courses, track engagement, and deliver interactive content. It helps institutions improve student outcomes through actionable analytics and in-app guidance.",
+    "sourceUrl": "https://composio.dev/toolkits/blackboard"
+  },
+  {
+    "id": "boldsign",
+    "name": "Boldsign",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 14,
+    "description": "Boldsign is a digital eSignature platform for sending, signing, and tracking documents online. Organizations use it to automate agreements and manage legally binding workflows efficiently.",
+    "sourceUrl": "https://composio.dev/toolkits/boldsign"
+  },
+  {
+    "id": "box",
+    "name": "Box",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 284,
+    "description": "Box is a cloud content management and file sharing platform for businesses. It helps teams securely store, organize, and collaborate on files from anywhere.",
+    "sourceUrl": "https://composio.dev/toolkits/box"
+  },
+  {
+    "id": "brevo",
+    "name": "Brevo",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 21,
+    "description": "Brevo is an all-in-one email and SMS marketing platform for transactional messaging, automation, and CRM. It helps businesses engage customers and streamline communications through powerful campaign tools.",
+    "sourceUrl": "https://composio.dev/toolkits/brevo"
+  },
+  {
+    "id": "brex",
+    "name": "Brex",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 84,
+    "description": "Brex provides corporate credit cards and spend management tailored for startups and tech businesses. It helps optimize company cash flow, streamline accounting, and accelerate business growth.",
+    "sourceUrl": "https://composio.dev/toolkits/brex"
+  },
+  {
+    "id": "cal",
+    "name": "Cal",
+    "category": "scheduling & booking",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 168,
+    "description": "Cal is a meeting scheduling platform that offers shareable booking links and real-time calendar syncing. It streamlines the process of finding mutual availability to make scheduling effortless.",
+    "sourceUrl": "https://composio.dev/toolkits/cal"
+  },
+  {
+    "id": "calendly",
+    "name": "Calendly",
+    "category": "scheduling & booking",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 51,
+    "description": "Calendly is an appointment scheduling tool that automates meeting invitations, availability checks, and reminders. It helps individuals and teams avoid endless email back-and-forth when booking meetings.",
+    "sourceUrl": "https://composio.dev/toolkits/calendly"
+  },
+  {
+    "id": "canva",
+    "name": "Canva",
+    "category": "design & creative tools",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 46,
+    "description": "Canva is a drag-and-drop design suite for creating professional graphics, presentations, and marketing materials. It makes it easy for anyone to design with beautiful templates and a vast library of elements.",
+    "sourceUrl": "https://composio.dev/toolkits/canva"
+  },
+  {
+    "id": "canvas",
+    "name": "Canvas",
+    "category": "education & lms",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 573,
+    "description": "Canvas is a learning management system for online courses, assignments, grading, and collaboration. It's trusted by educators and students to streamline virtual classrooms and enhance digital learning.",
+    "sourceUrl": "https://composio.dev/toolkits/canvas"
+  },
+  {
+    "id": "capsule_crm",
+    "name": "Capsule crm",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 109,
+    "description": "Capsule CRM is a user-friendly CRM platform for managing contacts and sales pipelines. It helps businesses organize relationships and streamline their sales process efficiently.",
+    "sourceUrl": "https://composio.dev/toolkits/capsule_crm"
+  },
+  {
+    "id": "clickup",
+    "name": "Clickup",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 162,
+    "description": "ClickUp is an all-in-one productivity platform for managing tasks, docs, goals, and team collaboration. It streamlines project workflows so teams can work smarter and stay organized in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/clickup"
+  },
+  {
+    "id": "confluence",
+    "name": "Confluence",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 62,
+    "description": "Confluence is Atlassian's team collaboration and knowledge management platform. It helps your team organize, share, and update documents and project content in one secure workspace.",
+    "sourceUrl": "https://composio.dev/toolkits/confluence"
+  },
+  {
+    "id": "contentful",
+    "name": "Contentful",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 106,
+    "description": "Contentful is a headless CMS for creating, managing, and distributing content via API. It's built for flexibility, letting teams publish anywhere from websites to apps with speed and consistency.",
+    "sourceUrl": "https://composio.dev/toolkits/contentful"
+  },
+  {
+    "id": "coupa",
+    "name": "Coupa",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 384,
+    "description": "Coupa is a business spend management platform for procurement, invoicing, and expenses. It helps organizations streamline purchasing, control costs, and gain complete visibility over financial operations.",
+    "sourceUrl": "https://composio.dev/toolkits/coupa"
+  },
+  {
+    "id": "crowdin",
+    "name": "Crowdin",
+    "category": "workflow automation",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 230,
+    "description": "Crowdin is a localization management platform that streamlines translation workflows and collaboration. It helps teams centralize multilingual content, boost productivity, and automate translation processes.",
+    "sourceUrl": "https://composio.dev/toolkits/crowdin"
+  },
+  {
+    "id": "d2lbrightspace",
+    "name": "D2lbrightspace",
+    "category": "education & lms",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 45,
+    "description": "D2L Brightspace is a learning management system for delivering and managing online courses and assessments. It helps educators streamline digital teaching, assignments, and communication with students.",
+    "sourceUrl": "https://composio.dev/toolkits/d2lbrightspace"
+  },
+  {
+    "id": "datadog",
+    "name": "Datadog",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 42,
+    "description": "Datadog is a cloud monitoring and observability platform for applications and infrastructure. It helps teams detect issues and optimize performance by unifying metrics, logs, and traces.",
+    "sourceUrl": "https://composio.dev/toolkits/datadog"
+  },
+  {
+    "id": "dialpad",
+    "name": "Dialpad",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 192,
+    "description": "Dialpad is a cloud-based business phone and contact center system for teams. It unifies voice, video, messaging, and meetings across your devices.",
+    "sourceUrl": "https://composio.dev/toolkits/dialpad"
+  },
+  {
+    "id": "digital_ocean",
+    "name": "Digital ocean",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 48,
+    "description": "DigitalOcean is a cloud platform for deploying, managing, and scaling infrastructure. Its simplicity and developer-friendly tools let you launch projects quickly and manage resources effortlessly.",
+    "sourceUrl": "https://composio.dev/toolkits/digital_ocean"
+  },
+  {
+    "id": "docusign",
+    "name": "Docusign",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 335,
+    "description": "Docusign is a digital agreement platform for sending, signing, and managing documents online. It streamlines electronic signatures and automates contract workflows for businesses.",
+    "sourceUrl": "https://composio.dev/toolkits/docusign"
+  },
+  {
+    "id": "dropbox",
+    "name": "Dropbox",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 174,
+    "description": "Dropbox is a cloud storage service for file syncing, sharing, and collaboration. It keeps your files accessible, organized, and safe across all your devices.",
+    "sourceUrl": "https://composio.dev/toolkits/dropbox"
+  },
+  {
+    "id": "dropbox_sign",
+    "name": "Dropbox sign",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 56,
+    "description": "Dropbox Sign is an electronic signature platform for sending, signing, and managing legally binding documents online. It streamlines business workflows by making signature collection fast, secure, and effortless.",
+    "sourceUrl": "https://composio.dev/toolkits/dropbox_sign"
+  },
+  {
+    "id": "dynamics365",
+    "name": "Dynamics365",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 16,
+    "description": "Dynamics 365 is Microsoft's platform combining CRM, ERP, and productivity apps. It streamlines sales, marketing, service, and operations in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/dynamics365"
+  },
+  {
+    "id": "eventbrite",
+    "name": "Eventbrite",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 95,
+    "description": "Eventbrite is an event management platform for planning, promoting, and hosting events. It helps organizers streamline ticket sales, registrations, and attendee communications.",
+    "sourceUrl": "https://composio.dev/toolkits/eventbrite"
+  },
+  {
+    "id": "excel",
+    "name": "Excel",
+    "category": "data & analytics",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 54,
+    "description": "Microsoft Excel is a robust spreadsheet application for organizing, analyzing, and visualizing data. It's the go-to tool for calculations, reporting, and flexible data management.",
+    "sourceUrl": "https://composio.dev/toolkits/excel"
+  },
+  {
+    "id": "exist",
+    "name": "Exist",
+    "category": "data & analytics",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 12,
+    "description": "Exist is a personal analytics app that combines data from multiple services to help you understand and improve your life. It reveals trends and insights about your habits, mood, and productivity to drive self-improvement.",
+    "sourceUrl": "https://composio.dev/toolkits/exist"
+  },
+  {
+    "id": "facebook",
+    "name": "Facebook",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 39,
+    "description": "Facebook is a social media and advertising platform for businesses and creators. It helps you connect, share, and manage content across your public Facebook Pages.",
+    "sourceUrl": "https://composio.dev/toolkits/facebook"
+  },
+  {
+    "id": "figma",
+    "name": "Figma",
+    "category": "design & creative tools",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 57,
+    "description": "Figma is a collaborative interface design tool for teams and individuals. It streamlines design workflows with real-time collaboration and easy sharing.",
+    "sourceUrl": "https://composio.dev/toolkits/figma"
+  },
+  {
+    "id": "freshbooks",
+    "name": "Freshbooks",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 10,
+    "description": "FreshBooks is a cloud-based accounting software for small businesses. It streamlines invoicing, expense tracking, and time management in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/freshbooks"
+  },
+  {
+    "id": "github",
+    "name": "GitHub",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 847,
+    "description": "GitHub is a code hosting platform for version control and collaborative software development. It streamlines project management, code review, and team workflows in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/github"
+  },
+  {
+    "id": "gitlab",
+    "name": "Gitlab",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 58,
+    "description": "Gitlab is a web-based DevOps platform for managing source code, issues, and CI/CD pipelines. It streamlines software development with integrated collaboration and automation tools.",
+    "sourceUrl": "https://composio.dev/toolkits/gitlab"
+  },
+  {
+    "id": "gong",
+    "name": "Gong",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 57,
+    "description": "Gong is a platform for video meetings, call recording, and team collaboration. It helps teams capture conversations, analyze calls, and turn insights into action.",
+    "sourceUrl": "https://composio.dev/toolkits/gong"
+  },
+  {
+    "id": "gorgias",
+    "name": "Gorgias",
+    "category": "sales & customer support",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 32,
+    "description": "Gorgias is a helpdesk and live chat platform built for e-commerce brands. It helps automate support, manage orders, and unify customer communication across channels.",
+    "sourceUrl": "https://composio.dev/toolkits/gorgias"
+  },
+  {
+    "id": "gumroad",
+    "name": "Gumroad",
+    "category": "e-commerce",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 7,
+    "description": "Gumroad is a platform for selling digital products, physical goods, and memberships with a simple checkout and marketing tools. It streamlines creator payouts and helps you grow your audience effortlessly.",
+    "sourceUrl": "https://composio.dev/toolkits/gumroad"
+  },
+  {
+    "id": "harvest",
+    "name": "Harvest",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 57,
+    "description": "Harvest is a time-tracking and invoicing platform for teams and freelancers. It helps you log billable hours, manage projects, and streamline payments.",
+    "sourceUrl": "https://composio.dev/toolkits/harvest"
+  },
+  {
+    "id": "hubspot",
+    "name": "Hubspot",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 232,
+    "description": "HubSpot is an all-in-one marketing, sales, and customer service platform. It lets teams nurture leads, automate outreach, and track every customer interaction in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/hubspot"
+  },
+  {
+    "id": "instagram",
+    "name": "Instagram",
+    "category": "social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 29,
+    "description": "Instagram is a social platform for sharing photos, videos, and stories with your audience. It helps brands and creators engage, grow, and analyze their online presence.",
+    "sourceUrl": "https://composio.dev/toolkits/instagram"
+  },
+  {
+    "id": "intercom",
+    "name": "Intercom",
+    "category": "sales & customer support",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 133,
+    "description": "Intercom is a customer messaging platform for live chat and support automation. It helps businesses engage, convert, and support customers at scale.",
+    "sourceUrl": "https://composio.dev/toolkits/intercom"
+  },
+  {
+    "id": "jira",
+    "name": "Jira",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 94,
+    "description": "Jira is Atlassian’s platform for bug tracking, issue tracking, and agile project management. It helps teams organize work, prioritize tasks, and deliver projects efficiently.",
+    "sourceUrl": "https://composio.dev/toolkits/jira"
+  },
+  {
+    "id": "kit",
+    "name": "Kit",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 42,
+    "description": "Kit is a platform for creators and developers to automate tasks and publish apps on the Kit App Store. It helps streamline workflows so you can focus on what matters most.",
+    "sourceUrl": "https://composio.dev/toolkits/kit"
+  },
+  {
+    "id": "klaviyo",
+    "name": "Klaviyo",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 225,
+    "description": "Klaviyo is a data-driven email and SMS marketing platform for e-commerce brands. It helps deliver targeted messages, track conversions, and build scalable customer relationships.",
+    "sourceUrl": "https://composio.dev/toolkits/klaviyo"
+  },
+  {
+    "id": "kommo",
+    "name": "Kommo",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 53,
+    "description": "Kommo is a CRM platform for managing your leads, contacts, and sales pipelines. It helps businesses organize customer interactions, automate workflows, and boost team productivity.",
+    "sourceUrl": "https://composio.dev/toolkits/kommo"
+  },
+  {
+    "id": "lever",
+    "name": "Lever",
+    "category": "hr & recruiting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 64,
+    "description": "Lever is an applicant tracking system that blends sourcing, CRM, and analytics for recruiting. It helps companies scale hiring with collaborative workflows and actionable insights.",
+    "sourceUrl": "https://composio.dev/toolkits/lever"
+  },
+  {
+    "id": "linear",
+    "name": "Linear",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 32,
+    "description": "Linear is a modern issue tracking and project planning tool for fast-moving teams. It helps streamline workflows, organize projects, and boost productivity.",
+    "sourceUrl": "https://composio.dev/toolkits/linear"
+  },
+  {
+    "id": "linkedin",
+    "name": "Linkedin",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 22,
+    "description": "LinkedIn is a professional networking platform for connecting, sharing content, and engaging with business opportunities. It's the go-to place for building your professional brand and unlocking new career connections.",
+    "sourceUrl": "https://composio.dev/toolkits/linkedin"
+  },
+  {
+    "id": "linkhut",
+    "name": "Linkhut",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 5,
+    "description": "Linkhut is a minimalist bookmarking platform for organizing and sharing links with your team. It helps you keep references tidy, searchable, and collaborative in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/linkhut"
+  },
+  {
+    "id": "mailchimp",
+    "name": "Mailchimp",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 272,
+    "description": "Mailchimp is an email marketing and automation platform offering campaign creation, audience segmentation, and analytics. It helps businesses drive engagement and grow their customer base with targeted email outreach.",
+    "sourceUrl": "https://composio.dev/toolkits/mailchimp"
+  },
+  {
+    "id": "metaads",
+    "name": "Metaads",
+    "category": "advertising & marketing",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 50,
+    "description": "Metaads is Meta's official Ads API that lets you manage, analyze, and optimize your Facebook and Instagram ad campaigns. Streamline ad operations and gain deeper insights with robust automation.",
+    "sourceUrl": "https://composio.dev/toolkits/metaads"
+  },
+  {
+    "id": "miro",
+    "name": "Miro",
+    "category": "design & creative tools",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 73,
+    "description": "Miro is a collaborative online whiteboard platform for teams to brainstorm, design, and manage projects visually. It streamlines teamwork by enabling real-time idea sharing, diagramming, and workflow planning in a single space.",
+    "sourceUrl": "https://composio.dev/toolkits/miro"
+  },
+  {
+    "id": "monday",
+    "name": "Monday",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 132,
+    "description": "Monday.com is a customizable work management platform for project planning and collaboration. It helps teams organize tasks, automate workflows, and track progress in real time.",
+    "sourceUrl": "https://composio.dev/toolkits/monday"
+  },
+  {
+    "id": "moneybird",
+    "name": "Moneybird",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 21,
+    "description": "Moneybird is an online invoicing and accounting platform for small businesses and freelancers. It streamlines billing, expense management, and financial reporting—all in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/moneybird"
+  },
+  {
+    "id": "mural",
+    "name": "Mural",
+    "category": "design & creative tools",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 22,
+    "description": "Mural is a digital whiteboard platform for distributed visual collaboration. It helps teams brainstorm, map ideas, and diagram together in real time.",
+    "sourceUrl": "https://composio.dev/toolkits/mural"
+  },
+  {
+    "id": "netsuite",
+    "name": "Netsuite",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 85,
+    "description": "NetSuite by Oracle is a cloud-based ERP suite combining accounting, CRM, e-commerce, and inventory management. It streamlines business operations with real-time insights and unified data.",
+    "sourceUrl": "https://composio.dev/toolkits/netsuite"
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 45,
+    "description": "Notion is a collaborative workspace for notes, docs, wikis, and tasks. It streamlines team knowledge, project tracking, and workflow customization in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/notion"
+  },
+  {
+    "id": "omnisend",
+    "name": "Omnisend",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 43,
+    "description": "Omnisend is a marketing automation platform for ecommerce, specializing in email and SMS campaigns. It helps online businesses engage customers and boost sales with targeted, automated messaging.",
+    "sourceUrl": "https://composio.dev/toolkits/omnisend"
+  },
+  {
+    "id": "one_drive",
+    "name": "One drive",
+    "category": "document & file management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 60,
+    "description": "OneDrive is Microsoft’s cloud storage for storing, syncing, and sharing files across devices. Access your files securely anywhere with real-time collaboration and offline support.",
+    "sourceUrl": "https://composio.dev/toolkits/one_drive"
+  },
+  {
+    "id": "outlook",
+    "name": "Outlook",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 282,
+    "description": "Outlook is Microsoft's email and calendaring platform for unified communications and scheduling. It helps users stay organized with powerful email, contacts, and calendar management.",
+    "sourceUrl": "https://composio.dev/toolkits/outlook"
+  },
+  {
+    "id": "pagerduty",
+    "name": "Pagerduty",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 363,
+    "description": "Pagerduty is a real-time incident management platform for IT teams. It helps organizations resolve critical issues faster with on-call scheduling, alerting, and response automation.",
+    "sourceUrl": "https://composio.dev/toolkits/pagerduty"
+  },
+  {
+    "id": "pipedrive",
+    "name": "Pipedrive",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 398,
+    "description": "Pipedrive is a sales management platform offering pipeline visualization, lead tracking, and workflow automation. It helps sales teams keep deals moving forward efficiently and never miss a follow-up.",
+    "sourceUrl": "https://composio.dev/toolkits/pipedrive"
+  },
+  {
+    "id": "prisma",
+    "name": "Prisma",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 22,
+    "description": "Prisma Data Platform is a suite of database tools for managing workspaces, projects, and PostgreSQL environments. It simplifies data access, query optimization, and secure platform automation.",
+    "sourceUrl": "https://composio.dev/toolkits/prisma"
+  },
+  {
+    "id": "productboard",
+    "name": "Productboard",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 99,
+    "description": "Productboard is a product management platform that consolidates feedback and prioritizes features. It helps teams align roadmaps with customer insights and strategic goals.",
+    "sourceUrl": "https://composio.dev/toolkits/productboard"
+  },
+  {
+    "id": "pushbullet",
+    "name": "Pushbullet",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 15,
+    "description": "Pushbullet is a notification and file sharing service for devices and browsers. It helps you instantly send messages, files, and links between your devices and contacts.",
+    "sourceUrl": "https://composio.dev/toolkits/pushbullet"
+  },
+  {
+    "id": "quickbooks",
+    "name": "Quickbooks",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 105,
+    "description": "Quickbooks is cloud-based accounting software for managing your business finances. It helps you track income, expenses, and gain insights to streamline your workflow.",
+    "sourceUrl": "https://composio.dev/toolkits/quickbooks"
+  },
+  {
+    "id": "ramp",
+    "name": "Ramp",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 88,
+    "description": "Ramp is a finance automation platform for tracking business expenses and income. It helps you manage spending and gain actionable insights into your company's finances.",
+    "sourceUrl": "https://composio.dev/toolkits/ramp"
+  },
+  {
+    "id": "reddit",
+    "name": "Reddit",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 22,
+    "description": "Reddit is a social news platform with thriving user-driven communities (subreddits). It's the go-to place for discussion, content sharing, and viral marketing.",
+    "sourceUrl": "https://composio.dev/toolkits/reddit"
+  },
+  {
+    "id": "salesforce",
+    "name": "Salesforce",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 179,
+    "description": "Salesforce is a leading CRM platform that helps businesses manage sales, service, and marketing. It centralizes customer data, enabling teams to drive growth and build strong relationships.",
+    "sourceUrl": "https://composio.dev/toolkits/salesforce"
+  },
+  {
+    "id": "salesforce_service_cloud",
+    "name": "Salesforce service cloud",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 23,
+    "description": "Salesforce Service Cloud is a customer service platform for case management, omnichannel support, and automation. It enables teams to deliver faster, personalized service experiences with robust workflow tools and a unified workspace.",
+    "sourceUrl": "https://composio.dev/toolkits/salesforce_service_cloud"
+  },
+  {
+    "id": "sentry",
+    "name": "Sentry",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 205,
+    "description": "Sentry is an error tracking and performance monitoring platform for applications. It helps teams identify, triage, and resolve errors faster to deliver more reliable software.",
+    "sourceUrl": "https://composio.dev/toolkits/sentry"
+  },
+  {
+    "id": "servicem8",
+    "name": "Servicem8",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 28,
+    "description": "Servicem8 is a field service management platform for scheduling jobs, quoting, and invoicing. It helps businesses track real-time job status and empower mobile staff in the field.",
+    "sourceUrl": "https://composio.dev/toolkits/servicem8"
+  },
+  {
+    "id": "share_point",
+    "name": "Share point",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 86,
+    "description": "SharePoint is a Microsoft platform for secure document management and team collaboration. It helps organizations store, organize, and share content efficiently.",
+    "sourceUrl": "https://composio.dev/toolkits/share_point"
+  },
+  {
+    "id": "shopify",
+    "name": "Shopify",
+    "category": "e-commerce",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 361,
+    "description": "Shopify is an e-commerce platform for building, managing, and scaling online stores. It streamlines sales, inventory, and payments so merchants can focus on growth.",
+    "sourceUrl": "https://composio.dev/toolkits/shopify"
+  },
+  {
+    "id": "snowflake",
+    "name": "Snowflake",
+    "category": "analytics & data",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 14,
+    "description": "Snowflake is a cloud data warehouse built for elastic scaling, secure data sharing, and fast SQL analytics across major clouds.",
+    "sourceUrl": "https://composio.dev/toolkits/snowflake"
+  },
+  {
+    "id": "splitwise",
+    "name": "Splitwise",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 27,
+    "description": "Splitwise helps you split bills and expenses with friends and family. It makes it easy to track shared costs and settle up, so everyone stays on the same page.",
+    "sourceUrl": "https://composio.dev/toolkits/splitwise"
+  },
+  {
+    "id": "spotify",
+    "name": "Spotify",
+    "category": "entertainment & media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 84,
+    "description": "Spotify is a streaming service for music and podcasts with millions of tracks from artists worldwide. Enjoy personalized playlists, recommendations, and seamless listening across all your devices.",
+    "sourceUrl": "https://composio.dev/toolkits/spotify"
+  },
+  {
+    "id": "square",
+    "name": "Square",
+    "category": "e-commerce",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 96,
+    "description": "Square is a platform for payment processing, POS, invoicing, and e-commerce. It empowers businesses to accept payments, manage sales, and streamline operations from one place.",
+    "sourceUrl": "https://composio.dev/toolkits/square"
+  },
+  {
+    "id": "stack_exchange",
+    "name": "Stack exchange",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 124,
+    "description": "Stack Exchange is a network of expert Q&A communities covering coding, math, science, and more. It lets users ask questions, share answers, and collaborate with global experts.",
+    "sourceUrl": "https://composio.dev/toolkits/stack_exchange"
+  },
+  {
+    "id": "strava",
+    "name": "Strava",
+    "category": "social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 33,
+    "description": "Strava is a social fitness network and app for cyclists and runners. It's perfect for tracking workouts, sharing progress, and joining active communities.",
+    "sourceUrl": "https://composio.dev/toolkits/strava"
+  },
+  {
+    "id": "stripe",
+    "name": "Stripe",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 415,
+    "description": "Stripe is a global online payments platform offering APIs for managing payments, customers, and subscriptions. Trusted by businesses for secure, efficient, and scalable payment processing worldwide.",
+    "sourceUrl": "https://composio.dev/toolkits/stripe"
+  },
+  {
+    "id": "supabase",
+    "name": "Supabase",
+    "category": "developer tools & devops",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 119,
+    "description": "Supabase is an open-source backend platform offering scalable Postgres databases, authentication, storage, and real-time APIs. It lets developers build modern apps without managing infrastructure.",
+    "sourceUrl": "https://composio.dev/toolkits/supabase"
+  },
+  {
+    "id": "survey_monkey",
+    "name": "Survey monkey",
+    "category": "data & analytics",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 22,
+    "description": "SurveyMonkey is an online survey platform for building, distributing, and analyzing surveys. It helps organizations collect feedback and gain actionable insights fast.",
+    "sourceUrl": "https://composio.dev/toolkits/survey_monkey"
+  },
+  {
+    "id": "ticktick",
+    "name": "Ticktick",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 13,
+    "description": "TickTick is a cross-platform task management and to-do list app. It helps you organize tasks, set reminders, and stay on top of your schedule.",
+    "sourceUrl": "https://composio.dev/toolkits/ticktick"
+  },
+  {
+    "id": "tiktok",
+    "name": "Tiktok",
+    "category": "social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 10,
+    "description": "Tiktok is a short-form video platform for creating, sharing, and discovering viral content. It helps creators and brands reach massive audiences with creative tools and global social features.",
+    "sourceUrl": "https://composio.dev/toolkits/tiktok"
+  },
+  {
+    "id": "timely",
+    "name": "Timely",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 41,
+    "description": "Timely is an automatic time-tracking platform that seamlessly records work across apps, calendars, and devices. It helps you create detailed timesheets and gain productivity insights without manual input.",
+    "sourceUrl": "https://composio.dev/toolkits/timely"
+  },
+  {
+    "id": "todoist",
+    "name": "Todoist",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 76,
+    "description": "Todoist is a task management app for to-do lists, projects, and reminders. Stay organized and on track with easy deadlines, collaboration, and cross-platform syncing.",
+    "sourceUrl": "https://composio.dev/toolkits/todoist"
+  },
+  {
+    "id": "toneden",
+    "name": "Toneden",
+    "category": "marketing & social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 26,
+    "description": "ToneDen is a platform for automating social campaigns, ads, and landing pages—especially for music promoters and event organizers. It helps boost your audience reach and streamline digital marketing workflows.",
+    "sourceUrl": "https://composio.dev/toolkits/toneden"
+  },
+  {
+    "id": "twitter",
+    "name": "Twitter",
+    "category": "social media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 78,
+    "description": "Twitter is a social media platform for sharing real-time updates, conversations, and news. Stay connected, informed, and engaged with communities worldwide.",
+    "sourceUrl": "https://composio.dev/toolkits/twitter"
+  },
+  {
+    "id": "wakatime",
+    "name": "Wakatime",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 17,
+    "description": "Wakatime is an automatic time tracking service for developers, integrating directly with code editors. It helps you understand coding patterns, project focus, and productivity with detailed dashboards.",
+    "sourceUrl": "https://composio.dev/toolkits/wakatime"
+  },
+  {
+    "id": "webex",
+    "name": "Webex",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 26,
+    "description": "Webex is a Cisco-powered video conferencing and team collaboration platform. It streamlines online meetings, webinars, and secure team messaging for organizations.",
+    "sourceUrl": "https://composio.dev/toolkits/webex"
+  },
+  {
+    "id": "webflow",
+    "name": "Webflow",
+    "category": "design & creative tools",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 51,
+    "description": "Webflow is a no-code website design and hosting platform for building responsive sites and online stores. It empowers users to launch, update, and manage web content with zero coding required.",
+    "sourceUrl": "https://composio.dev/toolkits/webflow"
+  },
+  {
+    "id": "workable",
+    "name": "Workable",
+    "category": "hr & recruiting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 37,
+    "description": "Workable is an all-in-one HR software platform that streamlines hiring, employee management, and payroll. It helps teams simplify recruiting, onboarding, and staff operations in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/workable"
+  },
+  {
+    "id": "workday",
+    "name": "Workday",
+    "category": "hr & recruiting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 84,
+    "description": "Workday is a cloud-based ERP platform for HR, finance, and workforce analytics. It streamlines employee management, payroll, and business operations in a single system.",
+    "sourceUrl": "https://composio.dev/toolkits/workday"
+  },
+  {
+    "id": "wrike",
+    "name": "Wrike",
+    "category": "productivity & project management",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 144,
+    "description": "Wrike is a project management and team collaboration platform with customizable workflows, Gantt charts, and reporting. It helps teams boost productivity with centralized planning and resource management.",
+    "sourceUrl": "https://composio.dev/toolkits/wrike"
+  },
+  {
+    "id": "xero",
+    "name": "Xero",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 41,
+    "description": "Xero is cloud-based accounting software for small businesses, offering invoicing, bookkeeping, and real-time financial reports. It helps you manage business finances efficiently from anywhere.",
+    "sourceUrl": "https://composio.dev/toolkits/xero"
+  },
+  {
+    "id": "yandex",
+    "name": "Yandex",
+    "category": "data & analytics",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 21,
+    "description": "Yandex is a leading Russian internet services provider offering search, email, maps, and more. It's known for robust email, navigation, and web-based solutions tailored for Russian-speaking users.",
+    "sourceUrl": "https://composio.dev/toolkits/yandex"
+  },
+  {
+    "id": "ynab",
+    "name": "Ynab",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 27,
+    "description": "YNAB (You Need A Budget) is a personal finance and budgeting platform that helps users track spending, plan budgets, and reach savings goals. It's designed to give you more control over your money and reduce financial stress.",
+    "sourceUrl": "https://composio.dev/toolkits/ynab"
+  },
+  {
+    "id": "youtube",
+    "name": "Youtube",
+    "category": "entertainment & media",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 47,
+    "description": "YouTube is a leading video-sharing platform for uploading, streaming, and discovering content. It empowers creators and businesses to reach global audiences and monetize their work.",
+    "sourceUrl": "https://composio.dev/toolkits/youtube"
+  },
+  {
+    "id": "zendesk",
+    "name": "Zendesk",
+    "category": "sales & customer support",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 452,
+    "description": "Zendesk is a customer support platform for managing tickets, live chats, and help articles. It streamlines support workflows and boosts customer satisfaction for businesses of any size.",
+    "sourceUrl": "https://composio.dev/toolkits/zendesk"
+  },
+  {
+    "id": "zeplin",
+    "name": "Zeplin",
+    "category": "design & creative tools",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 24,
+    "description": "Zeplin is a collaborative workspace for designers and developers to organize and hand off design projects. It streamlines design file sharing and communication for smoother product development.",
+    "sourceUrl": "https://composio.dev/toolkits/zeplin"
+  },
+  {
+    "id": "zoho",
+    "name": "Zoho",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 14,
+    "description": "Zoho is a suite of cloud business apps for CRM, email marketing, and collaboration. It helps teams automate workflows and scale operations effortlessly.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho"
+  },
+  {
+    "id": "zoho_bigin",
+    "name": "Zoho bigin",
+    "category": "crm",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 54,
+    "description": "Zoho Bigin is a simple CRM designed for small businesses to manage pipelines and customer relationships. It helps you organize deals, track progress, and streamline sales processes in one place.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho_bigin"
+  },
+  {
+    "id": "zoho_books",
+    "name": "Zoho books",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 265,
+    "description": "Zoho Books is a cloud-based accounting platform for invoicing, expenses, and finance management. It streamlines collaboration and automates business finances in real-time.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho_books"
+  },
+  {
+    "id": "zoho_desk",
+    "name": "Zoho desk",
+    "category": "sales & customer support",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 23,
+    "description": "Zoho Desk is a context-aware helpdesk platform that helps support teams track, manage, and resolve customer tickets. It streamlines workflows and gives you actionable insights into every customer interaction.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho_desk"
+  },
+  {
+    "id": "zoho_inventory",
+    "name": "Zoho inventory",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 58,
+    "description": "Zoho Inventory is a cloud-based inventory and order management solution for businesses. It streamlines stock tracking, order fulfillment, and multi-channel inventory control.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho_inventory"
+  },
+  {
+    "id": "zoho_invoice",
+    "name": "Zoho invoice",
+    "category": "finance & accounting",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 137,
+    "description": "Zoho Invoice is an online invoicing and billing platform for freelancers and small businesses. It streamlines professional invoice creation, recurring payments, and expense tracking.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho_invoice"
+  },
+  {
+    "id": "zoho_mail",
+    "name": "Zoho mail",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 15,
+    "description": "Zoho Mail is a secure and ad-free email hosting platform with collaboration features. It helps businesses communicate efficiently while maintaining privacy and administrative control.",
+    "sourceUrl": "https://composio.dev/toolkits/zoho_mail"
+  },
+  {
+    "id": "zoom",
+    "name": "Zoom",
+    "category": "collaboration & communication",
+    "auth": [
+      "OAUTH2"
+    ],
+    "catalogToolCount": 89,
+    "description": "Zoom is a video conferencing and online meeting platform with features like breakout rooms and screen sharing. It helps teams and organizations connect and collaborate from anywhere with ease.",
+    "sourceUrl": "https://composio.dev/toolkits/zoom"
+  }
+]

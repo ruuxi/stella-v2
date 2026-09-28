@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildWorkerShellModules } from "./build-worker-shell.mjs";
 
 const workerRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -25,6 +26,9 @@ export const workerBuildDirectory = path.join(
 
 /** Keep real import() boundaries; Wrangler's normal bundle flattens them. */
 export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
+  // The worker shell's Dynamic Worker modules are imported lazily by the
+  // BuildSession; regenerate them from the pinned just-bash first.
+  await buildWorkerShellModules();
   const result = await build({
     absWorkingDir: workerRoot,
     entryPoints: ["src/index.ts"],

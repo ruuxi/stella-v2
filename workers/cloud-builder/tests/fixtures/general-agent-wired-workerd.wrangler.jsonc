@@ -6,6 +6,9 @@
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
+  "rules": [
+    { "type": "Text", "globs": ["**/*.md"], "fallthrough": true },
+  ],
   "durable_objects": {
     "bindings": [
       {

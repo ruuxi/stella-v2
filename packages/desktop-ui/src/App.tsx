@@ -6,6 +6,7 @@ import { CredentialRequestLayer } from "./global/auth/CredentialRequestLayer";
 import { FullShell } from "./shell/FullShell";
 import { CloudHomeSyncBridge } from "./features/cloud/CloudHomeSyncBridge";
 import { CloudMemoryPreferenceBridge } from "./features/cloud/CloudMemoryPreferenceBridge";
+import { CloudModelSelectionBridge } from "./features/cloud/CloudModelSelectionBridge";
 import { platformCapabilities } from "./platform/capabilities";
 
 const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
@@ -33,6 +34,9 @@ function App() {
         <ChatStoreProvider>
           <AppBootstrap />
           <CloudMemoryPreferenceBridge />
+          {platformCapabilities.nativeBridges ? (
+            <CloudModelSelectionBridge />
+          ) : null}
           <CloudHomeSyncBridge />
           {platformCapabilities.phoneAccess ? <PhoneAccessBridge /> : null}
           {platformCapabilities.nativeBridges ? (

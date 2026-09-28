@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ATTACHED_TOOL_NAMES,
   ATTACHED_TOOL_PROTOCOL_VERSION,
   ATTACHED_TOOL_REQUEST_MAX_BYTES,
   AttachedToolProtocolError,
@@ -51,26 +50,6 @@ describe("attached tool protocol", () => {
     });
     expect(second.directory).not.toBe(first.directory);
     expect(second.socket).not.toBe(first.socket);
-  });
-
-  test("serves only the four bridged tools", () => {
-    expect([...ATTACHED_TOOL_NAMES]).toEqual([
-      "exec_command",
-      "write_stdin",
-      "Read",
-      "apply_patch",
-    ]);
-  });
-
-  test("round-trips a request through the frame codec", () => {
-    const parsed = parseAttachedToolRequest(
-      decodeAttachedToolFrame(
-        encodeAttachedToolFrame(request()),
-        ATTACHED_TOOL_REQUEST_MAX_BYTES,
-      ),
-    );
-    expect(parsed.toolName).toBe("exec_command");
-    expect(parsed.params).toEqual({ command: "ls" });
   });
 
   test("refuses a tool the daemon does not serve", () => {

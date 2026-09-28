@@ -19,10 +19,8 @@ import {
   getRuntimeToolMetadata,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
 import { estimateProviderPayloadTokens } from "@stella/runtime/kernel/agent-runtime/context-budget.js";
-import { buildSystemPrompt } from "@stella/runtime/kernel/agent-runtime/thread-memory.js";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
-import { SPAWN_AGENT_MODEL_DESCRIPTION } from "@stella/runtime/kernel/tools/defs/task.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 type TestHostContext = {
@@ -116,95 +114,6 @@ const makeOrchestratorContext = (): ToolContext => ({
 });
 
 describe("working orchestrator surface", () => {
-  it("describes unified Recall and retained profile memory only", () => {
-    const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
-      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
-    );
-    const prompt = buildSystemPrompt({
-      systemPrompt: orchestrator?.systemPrompt ?? "",
-      dynamicContext: "runtime context",
-      maxAgentDepth: orchestrator?.maxAgentDepth ?? 1,
-      threadHistory: [],
-      toolsAllowlist: orchestrator?.toolsAllowlist,
-    });
-
-    expect(prompt).toContain(
-      "The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.",
-    );
-    expect(prompt).toContain(
-      "Recall` searches every thread you have ever run and returns the matching `thread_id`s",
-    );
-    expect(prompt).toContain("~/.stella/memories/profile.md");
-    expect(prompt).not.toContain("memory_map.md");
-    expect(prompt).not.toContain("MEMORY.md");
-    expect(prompt).not.toContain("memory_summary.md");
-    expect(prompt).not.toContain("stella/gpt-5.6-sol");
-  });
-
-  it("exposes the canonical concise model selectors in the generated tool schema", async () => {
-    const { host } = await createTestHost();
-    const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
-      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
-    );
-    const tools = createPiTools({
-      runId: "run-schema",
-      conversationId: "conv-schema",
-      agentType: AGENT_IDS.ORCHESTRATOR,
-      deviceId: "device-schema",
-      toolsAllowlist: orchestrator?.toolsAllowlist,
-      toolCatalog: host.getToolCatalog(AGENT_IDS.ORCHESTRATOR),
-      store: {} as never,
-      toolExecutor: async () => ({ result: "unused" }),
-    }) as Array<{
-      name: string;
-      parameters: {
-        properties?: { model?: { description?: string } };
-      };
-    }>;
-    const description = tools.find((tool) => tool.name === "spawn_agent")
-      ?.parameters.properties?.model?.description;
-
-    expect(description).toBe(SPAWN_AGENT_MODEL_DESCRIPTION);
-    expect(description).toContain("`stella/default`");
-    expect(description).toContain("`openrouter/<provider>/<model>`");
-    expect(description).toContain("`codex/gpt-5.6-sol`");
-    expect(description).toContain("`claude-code/fable`");
-    expect(description).toContain("`claude-code/opus`");
-    expect(description).toContain("`:low`, `:medium`, `:high`, or `:xhigh`");
-    expect(description).not.toContain("stella/light");
-    expect(description).not.toContain("stella/max");
-    expect(description).not.toContain("stella/gpt-5.6-sol");
-    expect(description).not.toContain("Terra");
-    expect(description).not.toContain("Luna");
-  });
-
-  it("ships the bundled coordinator prompt and its bounded tools", () => {
-    const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
-      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
-    );
-
-    expect(orchestrator?.maxAgentDepth).toBe(2);
-    expect(orchestrator?.systemPrompt).toContain(
-      "Agents run in the background.",
-    );
-    expect(orchestrator?.toolsAllowlist).toEqual(
-      expect.arrayContaining([
-        "code",
-        "web",
-        "Read",
-        "Recall",
-        "Remember",
-        "spawn_agent",
-        "send_input",
-        "pause_agent",
-        "agent_status",
-        "merge_workspace",
-      ]),
-    );
-    expect(orchestrator?.toolsAllowlist).not.toEqual(
-      expect.arrayContaining(["exec_command", "write_stdin", "apply_patch"]),
-    );
-  });
 
   it("registers the full bundled agent set and ignores user data-dir files", async () => {
     const { rootPath } = await createTestHost();

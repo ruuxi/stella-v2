@@ -18,8 +18,7 @@ const hasOpenAiPrefix = (value: string): boolean => {
     normalized === "openai" ||
     normalized === "openai-codex" ||
     normalized.startsWith("openai/") ||
-    normalized.startsWith("stella/openai/") ||
-    normalized.startsWith("azure-openai")
+    normalized.startsWith("stella/openai/")
   );
 };
 

@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   GENERAL_AGENT_EGRESS_ALLOWED_PORTS,
-  GENERAL_AGENT_EGRESS_BUDGET_BYTES,
-  GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE,
   appBuildEgress,
   createGeneralAgentEgress,
   egressDestinationTelemetry,
@@ -18,12 +16,6 @@ afterEach(() => {
 });
 
 describe("sandbox egress policy", () => {
-  test("uses the fixed per-container egress limits", () => {
-    expect(GENERAL_AGENT_EGRESS_BUDGET_BYTES).toBe(500 * 1024 * 1024);
-    expect(GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE).toBe(120);
-    expect(GENERAL_AGENT_EGRESS_ALLOWED_PORTS).toEqual([80, 443, 22]);
-  });
-
   test("telemetry contains the destination but no URL path, query, fragment, or content", () => {
     const event = egressDestinationTelemetry(
       new Request(

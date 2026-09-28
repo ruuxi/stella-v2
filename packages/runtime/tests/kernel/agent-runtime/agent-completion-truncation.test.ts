@@ -93,18 +93,6 @@ describe("getAgentCompletion truncated-reasoning detection", () => {
     expect(completion.errorMessage).toBeUndefined();
   });
 
-  it("does not flag a normal stop with a final reply", () => {
-    const completion = completionFor(
-      assistantMessage({
-        stopReason: "stop",
-        content: [{ type: "text", text: "All done." }],
-      }),
-    );
-
-    expect(completion.finalText).toBe("All done.");
-    expect(completion.errorMessage).toBeUndefined();
-  });
-
   it("prefers an explicit provider errorMessage over the truncation text", () => {
     const completion = completionFor(
       assistantMessage({

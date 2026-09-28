@@ -10,14 +10,13 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -29,23 +28,18 @@ import { ChatColumn } from "@/app/chat/ChatColumn";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
+import { useShellConversationSource } from "@/global/auth/hooks/use-shell-conversation-source";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
-import { resolveOwnershipMigrationGate } from "@/global/auth/lib/cloud-conversation-session";
 import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   acknowledgeCloudConversation,
   cloudConversationBelongsToOwnerSubject,
-  cloudConversationsForOwnerSubject,
-  isOwnedCloudConversation,
   markCloudConversationCreated,
   createCloudConversationDraft,
   resolveCloudConversationForShell,
   resolveCloudConversationRoute,
 } from "@/features/cloud/cloud-conversation-selection";
-import {
-  readActiveCloudConversationIdCache,
-  writeActiveCloudConversationIdCache,
-} from "@/features/cloud/cloud-conversation-cache";
+import { writeActiveCloudConversationIdCache } from "@/features/cloud/cloud-conversation-cache";
 import { retireCloudConversationClientAuthority } from "@/features/cloud/conversation-store";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { retireCloudExecutionClientAuthority } from "@/features/cloud/cloud-execution-store";
@@ -112,7 +106,7 @@ import { ModelCatalogUpdatedAtProvider } from "@/global/settings/hooks/model-cat
 import { useRestrictedStellaModelReset } from "@/global/settings/hooks/use-restricted-stella-model-reset";
 import { MobileActivityNotificationsBridge } from "@/global/mobile/MobileActivityNotificationsBridge";
 import { useDictationToggleBridge } from "@/shell/root-chrome/use-dictation-toggle-bridge";
-import { useCompanionBridge } from "@/shell/companion/use-companion-bridge";
+import { CompanionBridge } from "@/shell/companion/use-companion-bridge";
 import { useDisplayPayloadRouting } from "@/shell/root-chrome/use-display-payload-routing";
 import { useLastLocationRestore } from "@/shell/root-chrome/use-last-location-restore";
 import { usePersistLastLocation } from "@/shell/root-chrome/use-persist-last-location";
@@ -185,16 +179,14 @@ function RootLayout() {
     intent: string;
     id: string;
   } | null>(null);
+  const cloudSession = useCloudConversationSession();
   const {
-    isCloudConversationReady: authCloudReady,
     error: authBootstrapError,
     authBootstrapStatus,
-    isLoading: isAuthLoading,
     accountScope,
     ownerSubject,
     retryAuthBootstrap,
-  } = useCloudConversationSession();
-  const isCloudConversationReady = !isPrivate && authCloudReady;
+  } = cloudSession;
   const matchRoute = useMatchRoute();
   const isOnChatRoute = Boolean(matchRoute({ to: "/chat" }));
   const routerConversationId = useRouterState({
@@ -245,30 +237,29 @@ function RootLayout() {
   ]);
   const activeRouteIntentRef = useRef(routeIntent);
   activeRouteIntentRef.current = routeIntent;
-  const ownershipMigration = useQuery(
-    cloudApi.getMyOwnershipMigrationStatus,
-    isCloudConversationReady ? {} : "skip",
-  );
-  const ownershipMigrationGate = resolveOwnershipMigrationGate(
-    ownershipMigration === undefined
-      ? undefined
-      : (ownershipMigration?.status ?? null),
+  // Everything conversation selection reads from Convex arrives in one
+  // self-certifying query (the identity proof, migration status, list, owner
+  // generation and route/cached ownership), so selection is one round trip
+  // after Convex auth. The shell's readiness comes from that query, not from
+  // the separate identity confirmation other surfaces use.
+  const {
     isCloudConversationReady,
-  );
-  const canQueryOwnershipFencedCloudData =
-    !isPrivate && ownershipMigrationGate.canSelectConversation;
-  const cloudConversations = useQuery(
-    cloudApi.listMyConversations,
-    canQueryOwnershipFencedCloudData ? {} : "skip",
-  );
-  const conversationIdentity = useQuery(
-    cloudApi.getMyCloudConversationIdentity,
-    canQueryOwnershipFencedCloudData ? {} : "skip",
-  );
-  const ownerGeneration =
-    conversationIdentity?.ownerId === ownerSubject
-      ? conversationIdentity.ownerGeneration
-      : null;
+    isLoading: isAuthLoading,
+    ownershipMigration,
+    ownershipMigrationGate,
+    cloudConversations,
+    scopedCloudConversations,
+    ownerGeneration,
+    cachedCloudConversationId,
+    routeIsListedOrPendingCloudConversation,
+    exactCloudConversation,
+    cachedConversationIsListed,
+    exactCachedCloudConversation,
+  } = useShellConversationSource({
+    session: cloudSession,
+    isPrivate,
+    routeConversationId: routerConversationId,
+  });
   const retryOwnershipMigrationMutation = useMutation(
     cloudApi.retryMyLatestFailedOwnershipMigration,
   );
@@ -298,44 +289,6 @@ function RootLayout() {
   const [ownershipMigrationRetryFailure, setOwnershipMigrationRetryFailure] =
     useState<string | null>(null);
 
-  const scopedCloudConversations = useMemo(
-    () =>
-      cloudConversationsForOwnerSubject(cloudConversations ?? [], ownerSubject),
-    [cloudConversations, ownerSubject],
-  );
-  const cachedCloudConversationId = isCloudConversationReady
-    ? readActiveCloudConversationIdCache(accountScope)
-    : null;
-  const routeIsListedOrPendingCloudConversation = isOwnedCloudConversation(
-    scopedCloudConversations,
-    routerConversationId,
-    accountScope,
-    ownerSubject,
-  );
-  const exactCloudConversation = useQuery(
-    cloudApi.getMyConversation,
-    canQueryOwnershipFencedCloudData &&
-      routerConversationId &&
-      !routeIsListedOrPendingCloudConversation
-      ? { conversationId: routerConversationId }
-      : "skip",
-  );
-  const cachedConversationIsListed = Boolean(
-    cachedCloudConversationId &&
-      scopedCloudConversations.some(
-        (conversation) =>
-          conversation.conversationId === cachedCloudConversationId,
-      ),
-  );
-  const exactCachedCloudConversation = useQuery(
-    cloudApi.getMyConversation,
-    canQueryOwnershipFencedCloudData &&
-      cachedCloudConversationId &&
-      cachedCloudConversationId !== routerConversationId &&
-      !cachedConversationIsListed
-      ? { conversationId: cachedCloudConversationId }
-      : "skip",
-  );
   const routeOwnershipIsLoading = Boolean(
     isCloudConversationReady &&
       routerConversationId &&
@@ -667,9 +620,9 @@ function RootLayout() {
     writeActiveCloudConversationIdCache(accountScope, conversationId);
   }, [accountScope, isCloudConversationReady, conversationId, isAuthLoading]);
 
-  // Opens + navigates to a conversation (tab strip + router). Mirrors the
-  // top bar's new-chat navigation and is handed to the chat runtime so the
-  // Fork action can jump to the newly branched conversation.
+  // Opens + navigates to a conversation (tab store + router). Handed to the
+  // chat runtime so the Fork action can jump to the newly branched
+  // conversation.
   const navigateToConversation = useCallback(
     (targetConversationId: string, title?: string) => {
       conversationTabs.openConversation(targetConversationId, title);
@@ -1007,7 +960,6 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
   });
 
   useDictationToggleBridge();
-  useCompanionBridge(conversationId);
 
   useWorkspacePanelEvents({
     rightSidebarRef,
@@ -1161,6 +1113,8 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
 
   return (
     <>
+      {/* A leaf, so its timeline subscription never re-renders this chrome. */}
+      <CompanionBridge conversationId={conversationId} />
       {platformCapabilities.phoneAccess ? (
         <MobileActivityNotificationsBridge />
       ) : null}

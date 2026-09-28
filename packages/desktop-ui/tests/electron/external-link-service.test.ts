@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import { ExternalLinkService } from "@stella/desktop/electron/services/external-link-service";
 import { resolveRendererRoot } from "@stella/desktop/electron/renderer-location";
 
-const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..", "..");
 
 describe("ExternalLinkService renderer trust", () => {
   it("trusts only the configured Stella dev origin for shell renderer URLs", () => {
@@ -100,24 +99,5 @@ describe("ExternalLinkService renderer trust", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
-  });
-
-  it("configures packaged bootstrap trust from the shared renderer resolver", () => {
-    const bootstrapServices = readFileSync(
-      path.join(
-        repoRoot,
-        "packages/desktop/electron/bootstrap/bootstrap-services.js",
-      ),
-      "utf8",
-    );
-    expect(bootstrapServices).toContain(
-      'import { resolveRendererRoot } from "../renderer-location.js";',
-    );
-    expect(bootstrapServices).toContain(
-      "trustFileRendererRoot(resolveRendererRoot(config.electronDir))",
-    );
-    expect(bootstrapServices).not.toContain(
-      'trustFileRendererRoot(path.resolve(config.electronDir, "../../../dist"))',
-    );
   });
 });

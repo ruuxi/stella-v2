@@ -93,20 +93,23 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        source: "/chat-app/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
+      {
+        // Must follow the `/chat-app/:path*` rule: when several rules match,
+        // Next applies them in order and the last value for a key wins, so
+        // listing this first left the hashed bundle revalidating on every
+        // visit.
         source: "/chat-app/assets/:path*",
         headers: [
           {
             key: "Cache-Control",
             value: "public, max-age=31536000, immutable",
           },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-        ],
-      },
-      {
-        source: "/chat-app/:path*",
-        headers: [
-          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
         ],
       },
       {

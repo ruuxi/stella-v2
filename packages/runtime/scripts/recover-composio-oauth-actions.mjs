@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -91,8 +92,25 @@ const readCatalog = async () => {
   return { catalog: JSON.parse(text) };
 };
 
-const writeCatalog = (catalog) =>
-  writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+// The runtime reads the tools-free sidecar (oauth-provider-catalog.index.json)
+// before it ever parses the full catalog, so every catalog rewrite must
+// regenerate it; the drift test beside the generator fails otherwise.
+const catalogIndexGeneratorPath = path.join(
+  repoRoot,
+  "runtime/kernel/connectors/generate-oauth-provider-catalog-index.ts",
+);
+
+const writeCatalog = async (catalog) => {
+  await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  const result = spawnSync(process.execPath, [catalogIndexGeneratorPath], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      "Failed to regenerate oauth-provider-catalog.index.json after writing the catalog.",
+    );
+  }
+};
 
 const parseSseJson = (text) => {
   const messages = [];

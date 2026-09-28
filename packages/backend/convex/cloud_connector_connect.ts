@@ -181,6 +181,13 @@ export const createConnectRequestInternal = internalMutation({
       updatedAt: args.now,
     };
     const id = await ctx.db.insert("cloud_connector_connect_requests", row);
+    // Expiry is a data change, not a clock read: the client list filters on
+    // `state`, so the deadline must move the row out of the live states.
+    await ctx.scheduler.runAt(
+      row.expiresAt,
+      internal.cloud_connector_connect.expireConnectRequestInternal,
+      { requestId: row.requestId },
+    );
     return projectSummary({ ...row, _id: id, _creationTime: args.now });
   },
 });
@@ -190,6 +197,8 @@ export const getConnectRequestInternal = internalQuery({
     ownerId: v.string(),
     ownerGeneration: v.string(),
     requestId: v.string(),
+    /** Caller's clock, so a deadline the sweeper hasn't reached still reads expired. */
+    now: v.number(),
   },
   returns: v.union(v.null(), connectRequestSummaryValidator),
   handler: async (ctx, args) => {
@@ -200,7 +209,7 @@ export const getConnectRequestInternal = internalQuery({
       )
       .unique();
     if (!row || row.ownerGeneration !== args.ownerGeneration) return null;
-    return projectSummary({ ...row, state: effectiveState(row, Date.now()) });
+    return projectSummary({ ...row, state: effectiveState(row, args.now) });
   },
 });
 
@@ -247,6 +256,34 @@ export const settleConnectRequestInternal = internalMutation({
   },
 });
 
+/** Fires at `expiresAt`: settles a still-live card as expired. */
+export const expireConnectRequestInternal = internalMutation({
+  args: { requestId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("cloud_connector_connect_requests")
+      .withIndex("by_requestId", (q) => q.eq("requestId", args.requestId))
+      .unique();
+    const now = Date.now();
+    if (!row || TERMINAL_STATES.has(row.state) || row.expiresAt > now) {
+      return null;
+    }
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      row.ownerId,
+      row.ownerGeneration,
+    );
+    await ctx.db.patch(row._id, {
+      state: "expired",
+      revision: row.revision + 1,
+      updatedAt: now,
+      completedAt: now,
+    });
+    return null;
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Client surface
 // ---------------------------------------------------------------------------
@@ -255,7 +292,6 @@ export const listMyPendingConnectRequests = query({
   args: {},
   returns: v.array(connectRequestSummaryValidator),
   handler: async (ctx) => {
-    const now = Date.now();
     const identity = await requireSensitiveConnectedUserIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
     const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
@@ -272,7 +308,7 @@ export const listMyPendingConnectRequests = query({
     );
     return pages
       .flat()
-      .filter((row) => row.ownerGeneration === generation && row.expiresAt > now)
+      .filter((row) => row.ownerGeneration === generation)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_PENDING_REQUESTS)
       .map(projectSummary);
@@ -319,7 +355,7 @@ export const decideMyConnectRequest = action({
     );
     const current = (await ctx.runQuery(
       internal.cloud_connector_connect.getConnectRequestInternal,
-      { ...owner, requestId },
+      { ...owner, requestId, now: Date.now() },
     )) as ConnectRequestSummary | null;
     if (!current) throw new ConvexError("Connect request not found.");
     if (

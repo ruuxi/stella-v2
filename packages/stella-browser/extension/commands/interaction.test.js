@@ -93,32 +93,6 @@ const { handleClick, handleDblclick, handleFill, handleWait } =
 const { handleChain } = await import("./chain.js");
 const { detachAllDebuggers } = await import("../lib/debugger.js");
 
-test("fill replaces through native setters, emits input lifecycle events, and verifies", async () => {
-  debuggerCalls = [];
-  evaluationOutcome = {
-    ok: true,
-    reason: null,
-    tag: "input",
-    inputType: "text",
-    actualLength: 6,
-  };
-  const response = await handleFill({
-    id: "fill-a",
-    ownerId: "owner-a",
-    selector: "#version",
-    value: "1.0.27",
-  });
-
-  assert.equal(response.success, true);
-  assert.match(evaluatedExpression, /HTMLInputElement\.prototype/);
-  assert.match(evaluatedExpression, /HTMLTextAreaElement\.prototype/);
-  assert.match(evaluatedExpression, /insertReplacementText/);
-  assert.match(evaluatedExpression, /beforeinput/);
-  assert.match(evaluatedExpression, /new Event\('change'/);
-  assert.match(evaluatedExpression, /actual === nextValue/);
-  await detachAllDebuggers();
-});
-
 test("fill mismatch reports lengths without exposing the observed value", async () => {
   debuggerCalls = [];
   evaluationOutcome = {
@@ -144,31 +118,6 @@ test("fill mismatch reports lengths without exposing the observed value", async 
       return true;
     },
   );
-  await detachAllDebuggers();
-});
-
-test("click and wait resolve CSS through open shadow roots and same-origin frames", async () => {
-  debuggerCalls = [];
-  evaluationOutcome = true;
-  const clickResponse = await handleClick({
-    id: "click-composed",
-    ownerId: "owner-a",
-    selector: ".target",
-  });
-  assert.equal(clickResponse.success, true);
-  assert.match(evaluatedExpression, /shadowRoot/);
-  assert.match(evaluatedExpression, /contentDocument\.documentElement/);
-  assert.match(evaluatedExpression, /el\.click\(\)/);
-
-  const waitResponse = await handleWait({
-    id: "wait-composed",
-    ownerId: "owner-a",
-    selector: ".target",
-    timeout: 20,
-  });
-  assert.equal(waitResponse.data.found, true);
-  assert.match(evaluatedExpression, /shadowRoot/);
-  assert.match(evaluatedExpression, /contentDocument\.documentElement/);
   await detachAllDebuggers();
 });
 

@@ -51,13 +51,18 @@ describe("decideDispatchPlacement", () => {
     }
   });
 
-  test("an explicit device choice offers and never falls back", () => {
+  test("an explicit device choice offers, and portable work falls back to cloud", () => {
     expect(decide("browser", "cloud", "device")).toEqual({
       kind: "offer",
-      onNoEligibleComputer: "blocked",
+      onNoEligibleComputer: "cloud",
       reason: "explicit-device",
     });
     expect(decide("desktop", "portable", "device")).toEqual({
+      kind: "offer",
+      onNoEligibleComputer: "cloud",
+      reason: "explicit-device",
+    });
+    expect(decide("mobile", "computer", "device")).toEqual({
       kind: "offer",
       onNoEligibleComputer: "blocked",
       reason: "explicit-device",

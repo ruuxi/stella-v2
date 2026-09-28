@@ -662,6 +662,36 @@ function ensureAuthSessionRevalidationListeners() {
   }
 }
 
+/**
+ * Kick off the cold-start session read once. Browser session discovery waits
+ * for an OTT handoff to settle so an older cached/anonymous identity is never
+ * surfaced while the intended account exchange is still in flight.
+ */
+function startAuthSessionBootstrap(): void {
+  if (initialRefreshRequested) return;
+  initialRefreshRequested = true;
+  void waitForBrowserAuthHandoff().then(() => {
+    if (!inFlightRefresh) {
+      void refreshAuthSession({ allowCached: true });
+    }
+  });
+}
+
+/**
+ * Called by the full window's entry before React renders, so the session
+ * IPC / HTTP round trip overlaps the first render and commit instead of
+ * starting from the first mount effect.
+ *
+ * Only while the store has nothing to show: a browser shell with a cached
+ * session renders (and starts Convex auth) from that cache first, and a
+ * non-silent refresh here would flip it back to pending before that render.
+ * Its refresh stays on the mount path, as do the secondary windows'.
+ */
+export function prefetchAuthSessionBeforeRender(): void {
+  if (!currentSession.isPending) return;
+  startAuthSessionBootstrap();
+}
+
 export function useDesktopAuthSession() {
   // useSyncExternalStore subscribes and reads the snapshot in one atomic step,
   // so an emit that lands between render and the mount effect can't be missed
@@ -672,19 +702,10 @@ export function useDesktopAuthSession() {
     getAuthSessionSnapshot,
   );
 
-  // Kick off a cold-start refresh when we mount still pending. The guard keeps
-  // this from stacking on an in-flight refresh. Browser session discovery also
-  // waits for an OTT handoff to settle so an older cached/anonymous identity is
-  // never surfaced while the intended account exchange is still in flight.
+  // Kick off a cold-start refresh on mount unless the entry already did. The
+  // guard keeps this from stacking on an in-flight refresh.
   useEffect(() => {
-    if (!initialRefreshRequested) {
-      initialRefreshRequested = true;
-      void waitForBrowserAuthHandoff().then(() => {
-        if (!inFlightRefresh) {
-          void refreshAuthSession({ allowCached: true });
-        }
-      });
-    }
+    startAuthSessionBootstrap();
     ensureAuthSessionRevalidationListeners();
   }, []);
 

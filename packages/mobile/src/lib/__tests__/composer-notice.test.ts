@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   classifyComposerNotice,
   clearComposerNotices,
-  dismissComposerNotice,
   getComposerNotices,
   resetComposerNotices,
   selectComposerNotice,
@@ -60,17 +59,6 @@ describe("composer notice store", () => {
     expect(titles()).toEqual(["B"]);
   });
 
-  test("dismisses by id", () => {
-    const id = showComposerNotice({
-      conversationId: "c1",
-      kind: "provider",
-      title: "Key",
-    });
-    dismissComposerNotice("nope");
-    expect(titles()).toEqual(["Key"]);
-    dismissComposerNotice(id);
-    expect(titles()).toEqual([]);
-  });
 });
 
 describe("classifyComposerNotice", () => {

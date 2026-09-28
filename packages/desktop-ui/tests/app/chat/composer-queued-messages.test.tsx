@@ -65,7 +65,7 @@ describe("ComposerQueuedMessages", () => {
     ).toBe("none");
   });
 
-  it("keeps one queued message as its normal text bubble", async () => {
+  it("renders a queued message with the sent user bubble and no queue label", async () => {
     await act(async () => {
       root.render(
         withI18n(
@@ -79,15 +79,17 @@ describe("ComposerQueuedMessages", () => {
     expect(container.querySelectorAll(".composer-queued-message")).toHaveLength(
       1,
     );
-    expect(
-      container.querySelector(".composer-queued-message__bubble")?.textContent,
-    ).toBe("Only this message");
-    expect(
-      container.querySelector(".composer-queued-message__bubble--summary"),
-    ).toBeNull();
+    const bubble = container.querySelector(".composer-queued-message > div");
+    expect(bubble?.className).toBe("event-item user chat-bubble-text");
+    expect(bubble?.querySelector(".event-user-body .event-body")?.textContent).toBe(
+      "Only this message",
+    );
+    expect(container.textContent).toBe("Only this message");
+    expect(container.textContent?.toLowerCase()).not.toContain("queued");
   });
 
-  it("collapses multiple messages and previews their ordered contents", async () => {
+  it("renders each queued message as its own bubble in queue order", async () => {
+    const onCancel = vi.fn();
     const messages = [
       queued("queued-third", "Third in input", 3),
       queued("queued-first", "First in queue", 1),
@@ -95,40 +97,37 @@ describe("ComposerQueuedMessages", () => {
     ];
 
     await act(async () => {
-      root.render(withI18n(<ComposerQueuedMessages messages={messages} />));
+      root.render(
+        withI18n(
+          <ComposerQueuedMessages messages={messages} onCancel={onCancel} />,
+        ),
+      );
     });
 
-    expect(container.querySelectorAll(".composer-queued-message")).toHaveLength(
-      1,
-    );
-    const summary = container.querySelector<HTMLButtonElement>(
-      ".composer-queued-message__bubble--summary",
-    );
-    expect(summary?.textContent).toBe("3 messages queued");
-    expect(summary?.getAttribute("aria-expanded")).toBe("false");
-
-    await act(async () => {
-      summary!.dispatchEvent(new MouseEvent("mouseenter"));
-    });
-
-    const preview = document.body.querySelector(".composer-queued-preview");
-    expect(preview).not.toBeNull();
-    expect(summary?.getAttribute("aria-expanded")).toBe("true");
+    const rows = container.querySelectorAll(".composer-queued-message");
     expect(
-      Array.from(
-        preview!.querySelectorAll(".composer-queued-preview__text"),
-        (node) => node.textContent,
-      ),
+      Array.from(rows, (row) => row.querySelector(".event-item.user")?.textContent),
     ).toEqual(["First in queue", "Second in queue", "Third in input"]);
+    expect(container.textContent?.toLowerCase()).not.toContain("queued");
+
+    const cancel = rows[1]!.querySelector<HTMLButtonElement>(
+      ".composer-queued-message__cancel",
+    );
+    expect(cancel?.getAttribute("aria-label")).toBe("Cancel queued message");
+    await act(async () => cancel!.click());
+    expect(onCancel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "queued-second", text: "Second in queue" }),
+    );
 
     await act(async () => root.unmount());
     root = createRoot(container);
     await act(async () => {
       root.render(withI18n(<ComposerQueuedMessages messages={messages} />));
     });
-    expect(
-      container.querySelector<HTMLElement>(".composer-queued-message")?.style
-        .animation,
-    ).toBe("none");
+    for (const row of container.querySelectorAll<HTMLElement>(
+      ".composer-queued-message",
+    )) {
+      expect(row.style.animation).toBe("none");
+    }
   });
 });

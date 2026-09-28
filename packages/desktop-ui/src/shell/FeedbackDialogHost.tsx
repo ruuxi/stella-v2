@@ -7,7 +7,7 @@
  * be mounted at once. They all go through `feedbackDialog`, so exactly one
  * dialog exists regardless of how many triggers are on screen.
  */
-import { lazy, Suspense } from "react";
+import { lazy, memo, Suspense } from "react";
 import {
   feedbackDialog,
   useFeedbackDialogOpen,
@@ -19,7 +19,7 @@ const FeedbackDialog = lazy(() =>
   })),
 );
 
-export function FeedbackDialogHost() {
+export const FeedbackDialogHost = memo(function FeedbackDialogHost() {
   const open = useFeedbackDialogOpen();
 
   if (!open) return null;
@@ -32,4 +32,4 @@ export function FeedbackDialogHost() {
       />
     </Suspense>
   );
-}
+});

@@ -210,6 +210,14 @@ export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
  * `packages/runtime`.
  */
 const managerRuntime = ManagedRuntime.make(Layer.empty);
+/** Receipts older than the previous session's last activity by this much are not replayed. */
+export const LOCAL_TERMINAL_RECOVERY_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+/** Failed boot replays of one receipt before its ledger records it abandoned. */
+export const LOCAL_TERMINAL_RECOVERY_MAX_ATTEMPTS = 5;
+/** Longest synchronous slice of the receipt sweep before it yields a macrotask. */
+const LOCAL_TERMINAL_RECOVERY_SLICE_MS = 4;
+/** Durable per-receipt attempt ledger key prefix (settings table). */
+export const LOCAL_TERMINAL_RECOVERY_LEDGER_PREFIX = "runtime.localTerminalLifecycleRecovery:";
 const isTerminalSnapshotStatus = (status) => status === "completed" || status === "error" || status === "canceled";
 export class LocalAgentManager {
     defaultMaxConcurrent;
@@ -272,6 +280,12 @@ export class LocalAgentManager {
     bootInterruptionEpisodeId = null;
     /** Owned restart replays from terminal runtime rows into the cloud outbox. */
     terminalReceiptRecoveries = new Set();
+    /** Latest updatedAt among rows still `running` at boot, read before the flip. */
+    bootPreviousActivityAt = 0;
+    /** Deferred local terminal-receipt sweep (see startTerminalLifecycleRecovery). */
+    terminalLifecycleRecoveryFiber = null;
+    terminalLifecycleRecoverySettled = Promise.resolve();
+    terminalLifecycleRecoveryStopped = false;
     /** Concurrent lifecycle deliveries keyed by their stable durable identity. */
     lifecycleEventDeliveries = new Map();
     /**
@@ -285,7 +299,7 @@ export class LocalAgentManager {
         this.defaultMaxConcurrent = Math.max(1, opts.maxConcurrent ?? 3);
         const orphanedRecords = this.recoverOrCancelOrphanedPersistedAgents();
         this.recoverPersistedCloudTerminalReceipts(orphanedRecords);
-        this.recoverPersistedLocalTerminalLifecycleReceipts(orphanedRecords);
+        this.startTerminalLifecycleRecovery(orphanedRecords);
     }
     /** Threads that were running at the previous shutdown (pre-sweep snapshot). */
     getBootInterruptedThreads() {
@@ -303,6 +317,9 @@ export class LocalAgentManager {
         const runningRecords = this.opts.listAgentRecordsByStatus?.("running") ?? [];
         const orphanedRecords = [];
         for (const record of runningRecords) {
+            // Pre-flip activity time: the flip below restamps updatedAt to now,
+            // which would otherwise hide when the previous session last worked.
+            this.bootPreviousActivityAt = Math.max(this.bootPreviousActivityAt, record.updatedAt ?? 0);
             this.bootInterruptedThreads.push({
                 threadId: record.threadId,
                 conversationId: record.conversationId,
@@ -422,13 +439,115 @@ export class LocalAgentManager {
             this.terminalReceiptRecoveries.add(recovery);
         }
     }
-    recoverPersistedLocalTerminalLifecycleReceipts(additionalRecords = []) {
+    /**
+     * Replay unstamped local terminal lifecycle receipts (terminal rows whose
+     * exact-generation wake never reached a durable receipt).
+     *
+     * Ownership: one fiber in the manager's supervisory scope, interrupted by
+     * `shutdown()`. It first parks on `opts.awaitTerminalLifecycleRecoveryReady`
+     * so neither the listing nor any delivery runs on the boot critical path —
+     * and so the wake can actually be admitted (a parent wake needs the
+     * installed manager; an orchestrator wake needs a started runtime; replaying
+     * from the constructor could do neither, which is why receipts used to
+     * replay, and fail, on every boot). Without that opt the sweep starts in
+     * the constructor turn, but each replay after the first lands in its own
+     * macrotask; join `awaitTerminalLifecycleRecovery()` to observe them all.
+     *
+     * Delivery stays at-least-once for the crash window this receipt exists
+     * for, with two explicit bounds so a backlog can never replay forever:
+     *   - stale: a receipt whose terminal time precedes the previous session's
+     *     last durable agent activity by more than
+     *     LOCAL_TERMINAL_RECOVERY_STALE_AFTER_MS was not cut off by the exit
+     *     before this boot; waking its parent (or the orchestrator) now would
+     *     resurrect finished work. It is skipped, never stamped as delivered.
+     *   - abandoned: each failed replay counts one attempt in a durable ledger;
+     *     after LOCAL_TERMINAL_RECOVERY_MAX_ATTEMPTS the ledger records the
+     *     terminal outcome and later boots stop replaying it.
+     */
+    startTerminalLifecycleRecovery(additionalRecords = []) {
+        let settle;
+        let done = false;
+        this.terminalLifecycleRecoverySettled = new Promise((resolve) => {
+            settle = resolve;
+        });
+        if (this.supervisoryScopeClosed) {
+            settle();
+            return;
+        }
+        const program = this.recoverPersistedLocalTerminalLifecycleReceiptsEffect(additionalRecords).pipe(
+            Effect.catchCause((cause) => Effect.sync(() => {
+                if (Cause.hasInterruptsOnly(cause)) return;
+                console.warn("[runtime] local terminal lifecycle recovery sweep failed", Cause.pretty(cause));
+            })),
+            Effect.ensuring(Effect.sync(() => {
+                done = true;
+                this.terminalLifecycleRecoveryFiber = null;
+                settle();
+            })),
+        );
+        // Without a readiness gate the fiber may finish inside runSync.
+        const fiber = managerRuntime.runSync(Effect.forkIn(program, this.supervisoryScope, { startImmediately: true }));
+        if (!done) {
+            this.terminalLifecycleRecoveryFiber = fiber;
+        }
+    }
+    /**
+     * Resolve once the boot sweep has finished (or was interrupted) and every
+     * replay it started has settled. Never rejects.
+     */
+    async awaitTerminalLifecycleRecovery() {
+        await this.terminalLifecycleRecoverySettled;
+        await Promise.allSettled([...this.terminalReceiptRecoveries]);
+    }
+    recoverPersistedLocalTerminalLifecycleReceiptsEffect(additionalRecords = []) {
+        const manager = this;
+        return Effect.gen(function* () {
+            const awaitReady = manager.opts.awaitTerminalLifecycleRecoveryReady;
+            if (awaitReady) {
+                const ready = yield* Effect.promise(() => Promise.resolve()
+                    .then(() => awaitReady())
+                    .then((value) => value !== false, () => false));
+                if (!ready) return;
+            }
+            const { candidates, lastActivityAt } = manager.listLocalTerminalLifecycleRecoveryCandidates(additionalRecords);
+            let sliceStartedAt = performance.now();
+            for (const record of candidates) {
+                if (manager.terminalLifecycleRecoveryStopped) return;
+                let outcome = "settled";
+                try {
+                    outcome = manager.recoverLocalTerminalLifecycleReceipt(record, lastActivityAt);
+                }
+                catch (error) {
+                    console.warn("[runtime] local terminal lifecycle recovery failed", error instanceof Error ? error.message : error);
+                }
+                // Never hold the worker's event loop for more than a few ms. A
+                // replay's durable writes continue in microtasks after its sync
+                // start, so each replay gets its own macrotask; skipped rows
+                // (one keyed read each) share a time budget.
+                if (outcome === "replayed" ||
+                    performance.now() - sliceStartedAt >= LOCAL_TERMINAL_RECOVERY_SLICE_MS) {
+                    yield* Effect.sleep(0);
+                    sliceStartedAt = performance.now();
+                }
+            }
+        });
+    }
+    listLocalTerminalLifecycleRecoveryCandidates(additionalRecords = []) {
+        const flippedThisBoot = new Set(additionalRecords.map((record) => record.threadId));
         const terminalRecords = [
             ...additionalRecords,
             ...["completed", "error", "canceled"].flatMap((status) => this.opts.listAgentRecordsByStatus?.(status) ?? []),
         ];
+        // Last durable agent activity of the previous session. Rows this boot
+        // just flipped to canceled carry `now`; their pre-flip time was captured
+        // in recoverOrCancelOrphanedPersistedAgents instead.
+        let lastActivityAt = this.bootPreviousActivityAt;
         const seen = new Set();
+        const candidates = [];
         for (const record of terminalRecords) {
+            if (!flippedThisBoot.has(record.threadId)) {
+                lastActivityAt = Math.max(lastActivityAt, record.updatedAt ?? record.completedAt ?? 0);
+            }
             const generation = record.attemptGeneration ?? 0;
             const recoveryKey = `${record.threadId}:${generation}:${record.status}`;
             if (record.storageMode === "cloud" ||
@@ -438,53 +557,119 @@ export class LocalAgentManager {
                 continue;
             }
             seen.add(recoveryKey);
-            const type = record.status === "completed"
-                ? "agent-completed"
-                : record.status === "canceled"
-                    ? "agent-canceled"
-                    : "agent-failed";
-            const event = {
-                type,
-                conversationId: record.conversationId,
-                eventId: `${record.threadId}:${generation}:${type}`,
-                rootRunId: record.rootRunId,
-                agentId: record.threadId,
-                agentType: record.agentType,
-                description: record.description,
-                parentAgentId: record.parentAgentId,
-                attemptGeneration: generation,
-                ...(record.status === "completed" ? { result: record.result } : { error: record.error }),
-                ...(record.status === "canceled" && record.error === AGENT_ORPHANED_RESTART_CANCEL_REASON
-                    ? { audience: "display-only" }
-                    : {}),
-            };
-            // Begin delivery immediately. The callback itself therefore runs in
-            // this constructor turn (matching the historical boot-sweep
-            // contract), while its durable receipt remains asynchronously owned
-            // and joined during shutdown.
-            const recovery = this.emitAgentLifecycleEventOnce(event)
-                .then(() => {
-                const current = this.opts.getAgentRecord?.(record.threadId);
-                if (!current ||
-                    current.storageMode === "cloud" ||
-                    current.attemptGeneration !== generation ||
-                    current.status !== record.status) {
-                    return;
-                }
-                this.opts.saveAgentRecord?.({
-                    ...current,
-                    terminalLifecycleReceiptGeneration: generation,
-                });
-            })
-                .catch((error) => {
-                // The terminal runtime row remains the restart receipt. The next
-                // boot replays this same stable event id.
-                console.warn("[runtime] local terminal lifecycle recovery failed", error instanceof Error ? error.message : error);
-            })
-                .finally(() => {
-                this.terminalReceiptRecoveries.delete(recovery);
+            candidates.push(record);
+        }
+        return { candidates, lastActivityAt };
+    }
+    /**
+     * Replay one receipt. Returns what happened ("settled" | "stale" |
+     * "abandoned" | "replayed") for tests and diagnostics.
+     */
+    recoverLocalTerminalLifecycleReceipt(record, lastActivityAt) {
+        const generation = record.attemptGeneration ?? 0;
+        // The listing can predate this record's own progress (the sweep is
+        // deferred), so re-validate against the current durable row.
+        const current = this.opts.getAgentRecord?.(record.threadId) ?? record;
+        if (current.storageMode === "cloud" ||
+            (current.attemptGeneration ?? 0) !== generation ||
+            current.status !== record.status ||
+            current.terminalLifecycleReceiptGeneration === generation) {
+            return "settled";
+        }
+        const terminalAt = current.completedAt ?? current.updatedAt ?? 0;
+        if (lastActivityAt - terminalAt > LOCAL_TERMINAL_RECOVERY_STALE_AFTER_MS) {
+            return "stale";
+        }
+        const type = current.status === "completed"
+            ? "agent-completed"
+            : current.status === "canceled"
+                ? "agent-canceled"
+                : "agent-failed";
+        const eventId = `${current.threadId}:${generation}:${type}`;
+        const ledgerKey = `${LOCAL_TERMINAL_RECOVERY_LEDGER_PREFIX}${current.conversationId}:${eventId}`;
+        const ledger = this.readTerminalLifecycleRecoveryLedger(ledgerKey);
+        if (ledger?.outcome === "abandoned") {
+            return "abandoned";
+        }
+        const event = {
+            type,
+            conversationId: current.conversationId,
+            eventId,
+            rootRunId: current.rootRunId,
+            agentId: current.threadId,
+            agentType: current.agentType,
+            description: current.description,
+            parentAgentId: current.parentAgentId,
+            attemptGeneration: generation,
+            ...(current.status === "completed" ? { result: current.result } : { error: current.error }),
+            ...(current.status === "canceled" && current.error === AGENT_ORPHANED_RESTART_CANCEL_REASON
+                ? { audience: "display-only" }
+                : {}),
+        };
+        const recovery = this.emitAgentLifecycleEventOnce(event)
+            .then(() => {
+            const latest = this.opts.getAgentRecord?.(current.threadId);
+            if (!latest ||
+                latest.storageMode === "cloud" ||
+                latest.attemptGeneration !== generation ||
+                latest.status !== current.status) {
+                return;
+            }
+            this.opts.saveAgentRecord?.({
+                ...latest,
+                terminalLifecycleReceiptGeneration: generation,
             });
-            this.terminalReceiptRecoveries.add(recovery);
+        })
+            .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            // A shutdown-time failure says nothing about deliverability; only
+            // count attempts made while the runtime was live.
+            if (!this.terminalLifecycleRecoveryStopped) {
+                this.recordTerminalLifecycleRecoveryFailure(ledgerKey, ledger, message, eventId);
+            }
+            // The terminal runtime row remains the restart receipt. The next
+            // boot replays this same stable event id until the ledger bound.
+            console.warn("[runtime] local terminal lifecycle recovery failed", message);
+        })
+            .finally(() => {
+            this.terminalReceiptRecoveries.delete(recovery);
+        });
+        this.terminalReceiptRecoveries.add(recovery);
+        return "replayed";
+    }
+    readTerminalLifecycleRecoveryLedger(key) {
+        try {
+            const raw = this.opts.readTerminalLifecycleRecoveryLedger?.(key);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === "object" ? parsed : null;
+        }
+        catch {
+            return null;
+        }
+    }
+    recordTerminalLifecycleRecoveryFailure(key, previous, message, eventId) {
+        if (!this.opts.writeTerminalLifecycleRecoveryLedger) return;
+        const attempts = (Number.isInteger(previous?.attempts) ? previous.attempts : 0) + 1;
+        const outcome = attempts >= LOCAL_TERMINAL_RECOVERY_MAX_ATTEMPTS ? "abandoned" : "retrying";
+        try {
+            this.opts.writeTerminalLifecycleRecoveryLedger(key, JSON.stringify({
+                attempts,
+                outcome,
+                lastError: truncate(message, 500),
+                lastAttemptAt: Date.now(),
+            }));
+        }
+        catch {
+            // Ledger bookkeeping is best-effort; the row keeps replaying.
+            return;
+        }
+        if (outcome === "abandoned") {
+            console.warn("[runtime] local terminal lifecycle wake abandoned", {
+                eventId,
+                attempts,
+                error: truncate(message, 500),
+            });
         }
     }
     /**
@@ -1979,6 +2164,11 @@ export class LocalAgentManager {
      * (`superviseAttempt`), which interrupts and joins them at shutdown.
      */
     async shutdown(reason = AGENT_SHUTDOWN_CANCEL_REASON) {
+        // Stop the deferred receipt sweep before anything else: no new replay
+        // starts during teardown, and replays already started are joined below.
+        // Unvisited receipts stay unstamped and replay on the next boot.
+        this.terminalLifecycleRecoveryStopped = true;
+        this.terminalLifecycleRecoveryFiber?.interruptUnsafe();
         for (const pending of this.attemptTakeoverDeadlines.values()) {
             pending.fiber.interruptUnsafe();
         }

@@ -4,17 +4,27 @@ import {
   STELLA_RUNTIME_PROTOCOL_VERSION,
   type HostDeviceIdentity,
 } from "@stella/contracts/protocol";
+import { performance } from "node:perf_hooks";
+import {
+  BootTimeline,
+  getActiveBootTimeline,
+  setActiveBootTimeline,
+  workerReadyTelemetry,
+  type BootOutcome,
+} from "../../observability/boot-timing.js";
 import { getFileLogger } from "../../observability/file-logger.js";
 import {
   configureRuntimeTelemetry,
+  recordRuntimeTelemetry,
   updateRuntimeTelemetryAuth,
 } from "../../observability/runtime-telemetry.js";
-import { forkDelayed } from "../effect-runtime.js";
+import { forkDelayed, workerRuntime } from "../effect-runtime.js";
 import type { UserAppProjectService } from "../user-apps/project-service.js";
 import type { VoiceRuntimeService } from "../voice/service.js";
 import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
+import * as RunnerModule from "./runner-module.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -55,18 +65,115 @@ export type SessionServices =
  * documented here in one place. Revisit only if a tier
  * outgrows what this comment can order by hand.
  */
-const sessionLayer = (init: WorkerInitializationState, deviceId: string) =>
-  UserAppProjects.layer.pipe(
-    Layer.provideMerge(VoiceRuntime.layer),
-    Layer.provideMerge(AgentRuns.layer),
-    Layer.provideMerge(RunnerHandle.layer),
-    Layer.provideMerge(RunEventBus.layer),
-    Layer.provideMerge(CliBridge.layer),
-    Layer.provideMerge(CredentialBrokers.layer),
-    Layer.provideMerge(SessionStorage.layer),
+const sessionLayer = (
+  init: WorkerInitializationState,
+  deviceId: string,
+  timeline: BootTimeline,
+  runnerGate: RunnerGate,
+) => {
+  // Boot timing only: each layer's own build time (its dependencies are
+  // already built when it starts). Wrapping changes no order or finalizer.
+  const timed = <A, E, R>(name: string, layer: Layer.Layer<A, E, R>) =>
+    Layer.unwrap(
+      Effect.sync(() => {
+        const startedAt = performance.now();
+        return layer.pipe(
+          Layer.tap(() =>
+            Effect.sync(() =>
+              timeline.step(name, performance.now() - startedAt),
+            ),
+          ),
+        );
+      }),
+    );
+  return timed("layerUserApps", UserAppProjects.layer).pipe(
+    Layer.provideMerge(timed("layerVoice", VoiceRuntime.layer)),
+    Layer.provideMerge(timed("layerAgentRuns", AgentRuns.layer)),
+    Layer.provideMerge(
+      timed("layerRunnerHandle", RunnerHandle.layer).pipe(
+        // Registered after RunnerHandle's own finalizer, so it runs first
+        // (LIFO): settle the runner gate before that finalizer awaits the
+        // background build. Normal close releases it (build, then stop, as
+        // before); a failed or interrupted build rejects it (no runner).
+        Layer.tap(() =>
+          Effect.addFinalizer((exit) =>
+            Effect.sync(() => {
+              if (Exit.isSuccess(exit)) {
+                runnerGate.open();
+              } else {
+                runnerGate.fail(
+                  new Error(
+                    "Runtime session initialization did not complete; runner not started.",
+                  ),
+                );
+              }
+            }),
+          ),
+        ),
+      ),
+    ),
+    Layer.provideMerge(timed("layerRunEvents", RunEventBus.layer)),
+    Layer.provideMerge(timed("layerCliBridge", CliBridge.layer)),
+    Layer.provideMerge(timed("layerBrokers", CredentialBrokers.layer)),
+    Layer.provideMerge(timed("layerStorage", SessionStorage.layer)),
     Layer.provideMerge(RunnerCell.layer),
     Layer.provideMerge(SessionConfig.layer(init, deviceId)),
   );
+};
+
+const BOOT_PROBE_INTERVAL_MS = 25;
+const BOOT_PROBE_MAX_MS = 15 * 60_000;
+
+/**
+ * Event-loop stall probe for one boot: a 25 ms sleep loop that records the
+ * longest overshoot (synchronous work on the worker thread — SQLite, module
+ * evaluation, runner construction). Stops when the timeline finishes.
+ */
+const startBootStallProbe = (timeline: BootTimeline): void => {
+  let last = performance.now();
+  const loop: Effect.Effect<void> = Effect.sleep(BOOT_PROBE_INTERVAL_MS).pipe(
+    Effect.andThen(
+      Effect.suspend(() => {
+        const now = performance.now();
+        timeline.noteEventLoopStall(now - last - BOOT_PROBE_INTERVAL_MS);
+        last = now;
+        return timeline.isFinished || timeline.elapsed() > BOOT_PROBE_MAX_MS
+          ? Effect.void
+          : loop;
+      }),
+    ),
+  );
+  workerRuntime.runFork(loop);
+};
+
+/**
+ * Report one finished boot: the `worker.ready.timing` process-log event and
+ * the `app.performance` `worker-ready` metric. Idempotent per timeline.
+ */
+const reportBoot = (
+  timeline: BootTimeline,
+  outcome: BootOutcome,
+  fields?: Record<string, string | number | boolean>,
+): void => {
+  if (timeline.isFinished) return;
+  for (const [name, value] of Object.entries(fields ?? {})) {
+    timeline.set(name, value);
+  }
+  if (getActiveBootTimeline() === timeline) setActiveBootTimeline(null);
+  const timing = timeline.finish(outcome);
+  if (!timing) return;
+  const logger = getFileLogger();
+  if (logger) {
+    logger.process("worker.ready.timing", timing);
+  } else {
+    // stdio workers (perf lab, child-mode hosts) have no file logger; stderr
+    // is their diagnostics channel (stdout carries JSON-RPC).
+    console.error(
+      `[stella:boot] worker.ready.timing ${JSON.stringify(timing)}`,
+    );
+  }
+  recordRuntimeTelemetry(workerReadyTelemetry(timing));
+};
 
 type SessionKey = {
   stellaAppDir: string;
@@ -99,6 +206,7 @@ export type InitializeResult = {
 export interface Interface {
   readonly initialize: (
     init: WorkerInitializationState,
+    options?: { readonly timeline?: BootTimeline },
   ) => Effect.Effect<InitializeResult, ProtocolMismatchError | Error>;
   readonly configure: (
     patch: Partial<WorkerInitializationState>,
@@ -125,11 +233,78 @@ export const sessionOrFail = <E>(
     return session;
   });
 
+/**
+ * Release latch for one session's background runner build (see
+ * `sessionRunnerModule`). Settles once; later calls are no-ops.
+ */
+type RunnerGate = {
+  readonly published: Promise<void>;
+  readonly open: () => void;
+  readonly fail: (error: Error) => void;
+};
+
+const makeRunnerGate = (): RunnerGate => {
+  let open: () => void = () => undefined;
+  let fail: (error: Error) => void = () => undefined;
+  const published = new Promise<void>((resolve, reject) => {
+    open = resolve;
+    fail = reject;
+  });
+  // Observed by RunnerHandle's build; never an unhandled rejection.
+  published.catch(() => undefined);
+  return { published, open, fail };
+};
+
+/**
+ * The RunnerModule handed to one session build.
+ *
+ * `load()` first waits for `published`: the session's background runner
+ * build (RunnerHandle) must not construct/start the runner until the session
+ * is published and the initialize response is on its way. Construction runs
+ * boot recovery sweeps synchronously and `start()` begins extension and
+ * models.json loading; started mid-build they share the worker thread with
+ * the rest of the layer build and delay the initialize response (perf lab:
+ * ~35 ms of a ~50 ms session build; field: tens of seconds on large agent
+ * histories). The import itself is still prefetched at transport attach.
+ * The gate is settled no later than scope close (see `sessionLayer`): a
+ * session that closes normally before the gate opened still builds and then
+ * stops its runner, exactly as before; a build that fails or is interrupted
+ * never constructs one. Either way RunnerHandle's finalizer, which awaits
+ * the build, cannot hang.
+ *
+ * Also instrumented for the boot timeline: how long the build waited on the
+ * import after publish, and how long synchronous `createStellaHostRunner`
+ * took. Same import, same factory, same arguments.
+ */
+const sessionRunnerModule = (
+  runnerModule: RunnerModule.Interface,
+  timeline: BootTimeline,
+  gate: RunnerGate,
+): RunnerModule.Interface => ({
+  prefetch: runnerModule.prefetch,
+  load: async () => {
+    await gate.published;
+    const waitStartedAt = performance.now();
+    const loaded = await runnerModule.load();
+    timeline.step("runnerModuleWait", performance.now() - waitStartedAt);
+    return {
+      ...loaded,
+      createStellaHostRunner: (
+        ...args: Parameters<typeof loaded.createStellaHostRunner>
+      ) =>
+        timeline.time("runnerConstruct", () =>
+          loaded.createStellaHostRunner(...args),
+        ),
+    };
+  },
+});
+
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const hostBus = yield* HostBus.Service;
     const catalog = yield* ModelCatalog.Service;
+    const runnerModule = yield* RunnerModule.Service;
 
     // JSON-RPC handlers run concurrently (one fiber per request), so
     // initialize/shutdown mutate `currentSession` under this mutex. Without
@@ -189,10 +364,16 @@ export const layer = Layer.effect(
     // failure inside the build closes the partially-built scope via onExit,
     // so a losing/interrupted initialize can never leak resources or publish
     // a half-built session.
-    const initialize: Interface["initialize"] = (init) =>
-      sessionLock.withPermit(
+    const initialize: Interface["initialize"] = (init, options) => {
+      const timeline = options?.timeline ?? new BootTimeline();
+      const lockRequestedAt = performance.now();
+      return sessionLock.withPermit(
         Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
+            timeline.step(
+              "sessionLockWait",
+              performance.now() - lockRequestedAt,
+            );
             if (
               init.protocolVersion &&
               init.protocolVersion !== STELLA_RUNTIME_PROTOCOL_VERSION
@@ -216,30 +397,91 @@ export const layer = Layer.effect(
                 deviceId: existing.config.deviceId,
               };
             }
-            yield* closeCurrent;
+            // A fresh session is being built: this initialize is a boot.
+            // Steps recorded from storage / runner init land on it too.
+            setActiveBootTimeline(timeline);
+            startBootStallProbe(timeline);
+            let bootStep = "closePrevious";
+            const closeStartedAt = performance.now();
+            yield* closeCurrent.pipe(
+              Effect.ensuring(
+                Effect.sync(() =>
+                  timeline.step(
+                    "closePrevious",
+                    performance.now() - closeStartedAt,
+                  ),
+                ),
+              ),
+            );
 
+            bootStep = "deviceIdentity";
             const deviceIdentity = yield* restore(
               Effect.tryPromise({
                 try: () =>
-                  hostBus.request<HostDeviceIdentity>(
-                    METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
+                  timeline.timeAsync("deviceIdentity", () =>
+                    hostBus.request<HostDeviceIdentity>(
+                      METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
+                    ),
                   ),
                 catch: (error) => error as Error,
               }),
+            ).pipe(
+              Effect.onExit((exit) =>
+                Exit.isSuccess(exit)
+                  ? Effect.void
+                  : Effect.sync(() =>
+                      reportBoot(
+                        timeline,
+                        Exit.hasInterrupts(exit) ? "canceled" : "failure",
+                        { failedStep: bootStep },
+                      ),
+                    ),
+              ),
             );
 
+            bootStep = "sessionBuild";
+            const buildStartedAt = performance.now();
+            const runnerGate = makeRunnerGate();
             const scope = yield* Scope.make();
             const context = yield* restore(
               Layer.buildWithScope(
-                sessionLayer(init, deviceIdentity.deviceId),
+                sessionLayer(
+                  init,
+                  deviceIdentity.deviceId,
+                  timeline,
+                  runnerGate,
+                ),
                 scope,
-              ).pipe(Effect.provideService(HostBus.Service, hostBus)),
+              ).pipe(
+                Effect.provideService(HostBus.Service, hostBus),
+                Effect.provideService(
+                  RunnerModule.Service,
+                  sessionRunnerModule(runnerModule, timeline, runnerGate),
+                ),
+              ),
             ).pipe(
               // A failed OR interrupted build must not leak the resources
               // acquired so far (onExit runs uninterruptibly on every
               // non-success exit, unlike onError which misses interrupts).
               Effect.onExit((exit) =>
-                Exit.isSuccess(exit) ? Effect.void : Scope.close(scope, exit),
+                Exit.isSuccess(exit)
+                  ? Effect.sync(() =>
+                      timeline.step(
+                        "sessionBuild",
+                        performance.now() - buildStartedAt,
+                      ),
+                    )
+                  : Scope.close(scope, exit).pipe(
+                      Effect.ensuring(
+                        Effect.sync(() =>
+                          reportBoot(
+                            timeline,
+                            Exit.hasInterrupts(exit) ? "canceled" : "failure",
+                            { failedStep: bootStep },
+                          ),
+                        ),
+                      ),
+                    ),
               ),
             );
 
@@ -262,6 +504,21 @@ export const layer = Layer.effect(
               voice: Context.get(context, VoiceRuntime.Service).service,
             };
             currentSession = session;
+            // Let the background runner build proceed once the initialize
+            // response has been written (a timer tick runs after the RPC
+            // adapter's response continuation). Scheduled right at publish so
+            // a later throw on this path cannot strand RunnerHandle's build;
+            // a session closed in the meantime still builds and then stops
+            // its runner, exactly as when the build started mid-initialize.
+            forkDelayed(0, runnerGate.open);
+            // Idle = this exact session is still current and the worker has
+            // no run, agent, voice/user-app work or in-flight RPC. Teardown
+            // clears currentSession first, so maintenance goes quiet before
+            // the storage finalizer stops it.
+            session.storage.maintenance.start({
+              isIdle: () => currentSession === session && !hasSessionWork(),
+              attachedClientCount: () => hostBus.attachedClientCount(),
+            });
             configureRuntimeTelemetry({
               stellaDataDirPath: init.stellaDataDirPath,
               authToken: init.authToken,
@@ -276,16 +533,26 @@ export const layer = Layer.effect(
             forkDelayed(0, () => {
               void (async () => {
                 const startupStartedAt = Date.now();
+                let runnerOutcome: BootOutcome = "success";
                 await Promise.allSettled([
                   (async () => {
                     if (currentSession?.scope === scope) {
-                      session.runEvents.startupBackfill();
+                      timeline.time("runEventBackfill", () =>
+                        session.runEvents.startupBackfill(),
+                      );
                     }
                   })(),
                   (async () => {
                     const builtRunner =
                       await session.runner.awaitBuildSettled();
+                    if (!builtRunner) runnerOutcome = "failure";
+                    // The initialize-time warm below no-ops while the runner
+                    // is still building; warm once it exists, as before.
+                    if (builtRunner && currentSession === session) {
+                      catalog.scheduleWarm(() => session.runnerCell.get());
+                    }
                     await builtRunner?.waitUntilInitialized().catch((error) => {
+                      runnerOutcome = "failure";
                       console.warn(
                         "[runtime-worker] Runner initialization finished with an error:",
                         (error as Error).message,
@@ -295,6 +562,11 @@ export const layer = Layer.effect(
                 ]);
                 getFileLogger()?.process("startup.post-ready-complete", {
                   ms: Date.now() - startupStartedAt,
+                });
+                reportBoot(timeline, runnerOutcome, {
+                  readyAfterInitializeMs:
+                    Math.round((timeline.elapsed() - initializedAtMs) * 10) /
+                    10,
                 });
               })();
             });
@@ -308,6 +580,8 @@ export const layer = Layer.effect(
             // cold fetch. Best-effort; no-ops while the runner is building.
             catalog.scheduleWarm(() => session.runnerCell.get());
 
+            const initializedAtMs = timeline.elapsed();
+            timeline.mark("initialized");
             return {
               protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
               pid: process.pid,
@@ -316,6 +590,7 @@ export const layer = Layer.effect(
           }),
         ),
       );
+    };
 
     const configure: Interface["configure"] = (patch) =>
       Effect.gen(function* () {
@@ -335,7 +610,7 @@ export const layer = Layer.effect(
         return { ok: true as const };
       });
 
-    const hasActiveWork = () => {
+    const hasSessionWork = () => {
       // Keep this in sync with host-side shouldKeepWorkerAlive plus
       // worker-only work that the host cannot observe after disconnect.
       const session = currentSession;
@@ -353,6 +628,14 @@ export const layer = Layer.effect(
           userAppPinned,
       );
     };
+
+    // Idle-shutdown keep-alive: session work, plus a DB reclaim that is
+    // running or ready for the zero-client window (maintenance.ts). The
+    // maintenance idle check uses hasSessionWork, never this, so the hold
+    // cannot make maintenance think the worker is busy.
+    const hasActiveWork = () =>
+      hasSessionWork() ||
+      (currentSession?.storage.maintenance.holdsWorkerAlive() ?? false);
 
     return {
       initialize,

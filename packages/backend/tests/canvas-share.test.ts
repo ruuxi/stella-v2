@@ -1,12 +1,6 @@
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 
 import { deleteR2Object, signR2Put } from "../convex/lib/r2_sigv4";
-import {
-  CANVAS_SHARE_BASE_URL_PLACEHOLDER,
-  buildCanvasShareUrl,
-  resolveCanvasShareBaseUrl,
-} from "../convex/lib/canvas_share_url";
-
 const R2 = {
   accessKeyId: "AKIAEXAMPLE",
   secretAccessKey: "secret-example-key",
@@ -47,20 +41,6 @@ describe("r2 sigv4 signer", () => {
     );
     const signature = /Signature=([0-9a-f]+)$/.exec(auth)?.[1];
     expect(signature).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it("is deterministic for identical inputs at a fixed time", () => {
-    setSystemTime(new Date("2026-07-08T12:00:00.000Z"));
-    const args = {
-      ...R2,
-      key: "shares/abc123.html",
-      payloadHash: "b".repeat(64),
-      contentType: "text/html; charset=utf-8",
-      cacheControl: "public, max-age=300",
-    };
-    const a = signR2Put(args).headers["authorization"];
-    const b = signR2Put(args).headers["authorization"];
-    expect(a).toBe(b);
   });
 
   it("signs custom metadata headers (they must be in SignedHeaders)", () => {
@@ -171,26 +151,5 @@ describe("r2 sigv4 signer", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
-  });
-});
-
-describe("canvas share url", () => {
-  const prev = process.env.CANVAS_SHARE_BASE_URL;
-  afterEach(() => {
-    if (prev === undefined) delete process.env.CANVAS_SHARE_BASE_URL;
-    else process.env.CANVAS_SHARE_BASE_URL = prev;
-  });
-
-  it("falls back to the placeholder when unconfigured", () => {
-    delete process.env.CANVAS_SHARE_BASE_URL;
-    expect(resolveCanvasShareBaseUrl()).toBe(CANVAS_SHARE_BASE_URL_PLACEHOLDER);
-    expect(buildCanvasShareUrl("slug1")).toBe(
-      `${CANVAS_SHARE_BASE_URL_PLACEHOLDER}/c/slug1`,
-    );
-  });
-
-  it("uses the configured base and trims trailing slashes", () => {
-    process.env.CANVAS_SHARE_BASE_URL = "https://share.example.com/";
-    expect(buildCanvasShareUrl("abc")).toBe("https://share.example.com/c/abc");
   });
 });

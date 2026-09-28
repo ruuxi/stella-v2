@@ -49,14 +49,26 @@ export const hasAccessibleLocalLlmOAuthCredential = (
     : hasLocalLlmOAuthCredential(stellaDataDirPath, normalized);
 };
 
+/*
+ * With a broker installed, a `get` is a host round trip (on desktop an IPC
+ * hop to Electron main plus a safeStorage decrypt). The broker's
+ * `hasApiKey`/`hasOAuth` answer from the host's provider list, which the host
+ * re-sends whenever stored credentials change (`localLlmCredentialsUpdatedAt`
+ * → `refreshLocalLlmCredentialAccess`), and the host's `get` reads the same
+ * store that list enumerates. So a provider the list does not name has no
+ * value to fetch: answer null locally instead of asking the host twice per
+ * model call (api-key, then oauth) for providers routed through
+ * models.json/runtime-managed auth.
+ */
 export const getAccessibleLocalLlmApiKey = async (
   stellaDataDirPath: string,
   provider: string,
 ): Promise<string | null> => {
   const normalized = normalizeProvider(provider);
-  return broker
+  if (!broker) return getLocalLlmCredential(stellaDataDirPath, normalized);
+  return broker.hasApiKey(normalized)
     ? await broker.getApiKey(normalized)
-    : getLocalLlmCredential(stellaDataDirPath, normalized);
+    : null;
 };
 
 export const getAccessibleLocalLlmOAuthApiKey = async (
@@ -65,7 +77,10 @@ export const getAccessibleLocalLlmOAuthApiKey = async (
   options: LocalLlmOAuthApiKeyAccessOptions = {},
 ): Promise<string | null> => {
   const normalized = normalizeProvider(provider);
-  return broker
+  if (!broker) {
+    return await getLocalLlmOAuthApiKey(stellaDataDirPath, normalized, options);
+  }
+  return broker.hasOAuth(normalized)
     ? await broker.getOAuthApiKey(normalized, options)
-    : await getLocalLlmOAuthApiKey(stellaDataDirPath, normalized, options);
+    : null;
 };

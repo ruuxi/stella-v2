@@ -4,6 +4,7 @@ import {
   STELLA_RUNTIME_PROTOCOL_VERSION,
   type AgentHealth,
 } from "@stella/contracts/protocol";
+import { BootTimeline } from "../../../observability/boot-timing.js";
 import * as ModelCatalog from "../model-catalog.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
@@ -12,12 +13,21 @@ import type { WorkerInitializationState } from "../types.js";
 export const lifecycleHandlers: WorkerRpcHandlers = {
   [METHOD_NAMES.INTERNAL_WORKER_INITIALIZE]: (params) =>
     Effect.gen(function* () {
+      // Boot timeline starts the moment initialize is dispatched; sessions
+      // reports it once the runner is ready (worker.ready.timing).
+      const timeline = new BootTimeline();
       const catalog = yield* ModelCatalog.Service;
       const sessions = yield* WorkerSessions.Service;
       // Subscribe before the runner loads extensions or models.json so every
       // successful initial/hot registry composition reaches the renderer.
-      yield* fromPromise(() => catalog.ensureSubscription());
-      return yield* sessions.initialize(params as WorkerInitializationState);
+      yield* fromPromise(() =>
+        timeline.timeAsync("catalogSubscribe", () =>
+          catalog.ensureSubscription(),
+        ),
+      );
+      return yield* sessions.initialize(params as WorkerInitializationState, {
+        timeline,
+      });
     }),
 
   [METHOD_NAMES.INTERNAL_WORKER_CONFIGURE]: (params) =>
@@ -54,8 +64,7 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
         pid: process.pid,
         deviceId: session?.config.deviceId ?? null,
         voiceBusy: session?.voice.isBusy() ?? false,
-        pendingVoiceRequestCount:
-          session?.voice.getPendingRequestCount() ?? 0,
+        pendingVoiceRequestCount: session?.voice.getPendingRequestCount() ?? 0,
       };
     }),
 

@@ -132,12 +132,38 @@ export const listTranscriptNeighborsBatch = (
     );
   }
   const windowMs = Math.max(60_000, options?.windowMs ?? 2 * 60 * 60 * 1000);
-  const values = targets.map(() => "(?, ?, ?)").join(", ");
-  const params = targets.flatMap((target, index) => [
-    index,
-    target.conversationId,
-    target.atMs,
-  ]);
+  // Nearest `before` hits strictly earlier than the target and nearest
+  // `after` hits strictly later, each within `windowMs`. Once idle
+  // maintenance has built the covering partial index
+  // idx_entry_search_conv_created (conversation_id, created_at, seq, ...)
+  // WHERE search_text IS NOT NULL, every side is an ordered seek on it and
+  // the table row (and its payload overflow chain) is never read; before
+  // that, the same rows come back via idx_entry_conv_turn_seq, slower. No
+  // INDEXED BY: the index may not exist. Equal timestamps break toward the
+  // target by `seq`.
+  const params: unknown[] = [];
+  const selects = targets.flatMap((target, index) => {
+    params.push(
+      target.conversationId,
+      target.atMs - windowMs,
+      target.atMs,
+      before,
+      target.conversationId,
+      target.atMs,
+      target.atMs + windowMs,
+      after,
+    );
+    return [
+      `SELECT ${index} AS targetIndex, * FROM (SELECT ${transcriptHitColumns(TRANSCRIPT_SEARCH_TEXT_CAP)}
+        FROM entry WHERE entry.conversation_id = ? AND entry.search_text IS NOT NULL
+          AND entry.created_at >= ? AND entry.created_at < ?
+        ORDER BY entry.created_at DESC, entry.seq DESC LIMIT ?)`,
+      `SELECT ${index} AS targetIndex, * FROM (SELECT ${transcriptHitColumns(TRANSCRIPT_SEARCH_TEXT_CAP)}
+        FROM entry WHERE entry.conversation_id = ? AND entry.search_text IS NOT NULL
+          AND entry.created_at > ? AND entry.created_at <= ?
+        ORDER BY entry.created_at ASC, entry.seq ASC LIMIT ?)`,
+    ];
+  });
   type Row = {
     targetIndex: number;
     conversationId: string;
@@ -147,33 +173,14 @@ export const listTranscriptNeighborsBatch = (
     atMs: number;
     text: unknown;
   };
-  const rows = db
-    .prepare(
-      `WITH targets(target_index, conversation_id, target_ms) AS (
-         VALUES ${values}
-       ), ranked AS (
-         SELECT
-           targets.target_index AS targetIndex,
-           ${transcriptHitColumns(TRANSCRIPT_SEARCH_TEXT_CAP)},
-           CASE WHEN entry.created_at < targets.target_ms THEN 'before' ELSE 'after' END AS side,
-           ROW_NUMBER() OVER (
-             PARTITION BY targets.target_index,
-               CASE WHEN entry.created_at < targets.target_ms THEN 'before' ELSE 'after' END
-             ORDER BY ABS(entry.created_at - targets.target_ms) ASC
-           ) AS distanceRank
-         FROM targets
-         JOIN entry ON entry.conversation_id = targets.conversation_id
-         WHERE entry.search_text IS NOT NULL
-           AND entry.created_at != targets.target_ms
-           AND entry.created_at BETWEEN targets.target_ms - ? AND targets.target_ms + ?
-       )
-       SELECT targetIndex, id, sequence, conversationId, role, atMs, text
-       FROM ranked
-       WHERE (side = 'before' AND distanceRank <= ?)
-          OR (side = 'after' AND distanceRank <= ?)
-       ORDER BY targetIndex ASC, atMs ASC`,
-    )
-    .all(...params, windowMs, windowMs, before, after) as Row[];
+  const rows = (
+    db.prepare(selects.join(" UNION ALL ")).all(...params) as Row[]
+  ).sort(
+    (a, b) =>
+      a.targetIndex - b.targetIndex ||
+      a.atMs - b.atMs ||
+      a.sequence - b.sequence,
+  );
   const grouped = targets.map(() => [] as TranscriptSearchHit[]);
   for (const row of rows) {
     const text = typeof row.text === "string" ? row.text.trim() : "";

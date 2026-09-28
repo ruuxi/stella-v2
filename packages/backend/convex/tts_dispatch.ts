@@ -687,6 +687,23 @@ export const heartbeatTtsProviderDispatchInternal = internalMutation({
       row.hardExpiresAt,
       args.now + TTS_DISPATCH_HEARTBEAT_LEASE_MS,
     );
+    // Extend only once less than half the lease remains. Patching on every
+    // tick made heartbeats collide with settle/cancel writes on this row; the
+    // lease stays valid either way and callers still see fences above.
+    if (
+      row.leaseExpiresAt - args.now > TTS_DISPATCH_HEARTBEAT_LEASE_MS / 2 ||
+      leaseExpiresAt <= row.leaseExpiresAt
+    ) {
+      return {
+        found: true,
+        allowed: true,
+        cancelRequested: false,
+        state: "active" as const,
+        leaseExpiresAt: row.leaseExpiresAt,
+        hardExpiresAt: row.hardExpiresAt,
+        quiescentAfterAt: row.quiescentAfterAt,
+      };
+    }
     await ctx.db.patch(row._id, {
       leaseExpiresAt,
       lastHeartbeatAt: args.now,

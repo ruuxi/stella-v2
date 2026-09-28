@@ -41,32 +41,35 @@ import {
   persistPlacementCancellation,
 } from "./execution-placement-local-ownership.js";
 
-const findPersistedThreadCustomEvent = (
-  context: RunnerContext,
-  threadKey: string,
-  eventId: string | undefined,
-): { timestamp: number } | null => {
-  if (!eventId) return null;
-  const loadThreadMessages =
-    context.runtimeStore.loadRawThreadMessages ??
-    context.runtimeStore.loadThreadMessages;
-  if (typeof loadThreadMessages !== "function") return null;
-  return (
-    loadThreadMessages.call(context.runtimeStore, threadKey).find((message) => {
-      if (message.customMessage?.customType !== "runtime.task_lifecycle") {
-        return false;
-      }
-      return message.customMessage.eventId === eventId;
-    }) ?? null
-  );
-};
+const TASK_LIFECYCLE_CUSTOM_TYPE = "runtime.task_lifecycle";
 
 const hasPersistedThreadCustomEvent = (
   context: RunnerContext,
   threadKey: string,
   eventId: string | undefined,
-): boolean =>
-  findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
+): boolean => {
+  if (!eventId) return false;
+  const store = context.runtimeStore;
+  // Keyed, indexed probe; never loads or parses the thread transcript.
+  if (typeof store.hasThreadCustomEvent === "function") {
+    return store.hasThreadCustomEvent(
+      threadKey,
+      TASK_LIFECYCLE_CUSTOM_TYPE,
+      eventId,
+    );
+  }
+  // Store doubles without the keyed probe keep the historical transcript scan.
+  const loadThreadMessages =
+    store.loadRawThreadMessages ?? store.loadThreadMessages;
+  if (typeof loadThreadMessages !== "function") return false;
+  return loadThreadMessages
+    .call(store, threadKey)
+    .some(
+      (message) =>
+        message.customMessage?.customType === TASK_LIFECYCLE_CUSTOM_TYPE &&
+        message.customMessage.eventId === eventId,
+    );
+};
 
 // stella-cloud-side callers use the shorter name for the same check.
 const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
@@ -839,6 +842,30 @@ export const createAgentOrchestration = (
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
     persistBootInterruptionSnapshot: (threads: any) =>
       writeRestartInterruptedSnapshot(context.stellaDataDir, threads),
+    // The persisted terminal-receipt replay is off the boot critical path: it
+    // parks until the runtime has started and initialized, so the wake it
+    // repairs can actually be admitted (a parent wake needs the installed
+    // manager; an orchestrator wake needs a started runtime). An embedding
+    // without the runner lifecycle latch keeps the historical immediate replay.
+    ...(context.state.initializationStarted
+      ? {
+          awaitTerminalLifecycleRecoveryReady: async () => {
+            await context.state.initializationStarted.awaitOpen();
+            try {
+              await context.state.initializationPromise;
+            } catch {
+              // Unready this boot: the unstamped rows replay on the next one.
+              return false;
+            }
+            return context.state.isRunning === true;
+          },
+        }
+      : {}),
+    readTerminalLifecycleRecoveryLedger: (key: string) =>
+      context.runtimeStore.getSetting?.(key) ?? null,
+    writeTerminalLifecycleRecoveryLedger: (key: string, value: string) => {
+      context.runtimeStore.setSetting?.(key, value);
+    },
     hasAgentLifecycleEvent: (
       conversationId: string,
       eventId: string,

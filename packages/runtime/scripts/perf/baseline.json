@@ -1,0 +1,486 @@
+{
+  "schema": 1,
+  "note": "Ceilings are value*(1+rel)+abs per kind (see TOLERANCE in bench.mjs). Lower a ceiling by editing it or running `check --ratchet`; never raise one without a written reason in the PR.",
+  "machine": {
+    "platform": "darwin-arm64",
+    "cpu": "Apple M4",
+    "cores": 10,
+    "memGB": 24,
+    "bun": "1.4.0",
+    "gitHead": "5ab60c0a8",
+    "dirtyRuntimeFiles": 8
+  },
+  "recordedAt": "2026-09-27T18:58:13.591Z",
+  "metrics": {
+    "boot.source.warm.spawnToTransportMs.p50": {
+      "value": 117.06,
+      "kind": "time",
+      "ceiling": 161.03
+    },
+    "boot.source.warm.spawnToReadyMs.p50": {
+      "value": 244.93,
+      "kind": "time",
+      "ceiling": 333.66
+    },
+    "boot.source.warm.spawnToReadyMs.p95": {
+      "value": 254.81,
+      "kind": "time",
+      "ceiling": 346.99
+    },
+    "boot.source.warm.rssAfterReadyMB.p50": {
+      "value": 162.8,
+      "kind": "mem",
+      "ceiling": 197.36
+    },
+    "boot.source.cold.spawnToTransportMs.p50": {
+      "value": 151,
+      "kind": "time",
+      "ceiling": 206.85
+    },
+    "boot.source.cold.spawnToReadyMs.p50": {
+      "value": 295.07,
+      "kind": "time",
+      "ceiling": 401.34
+    },
+    "boot.source.cold.spawnToReadyMs.p95": {
+      "value": 297.53,
+      "kind": "time",
+      "ceiling": 404.67
+    },
+    "boot.source.cold.rssAfterReadyMB.p50": {
+      "value": 185.71,
+      "kind": "mem",
+      "ceiling": 224.85
+    },
+    "boot.bundle.warm.spawnToTransportMs.p50": {
+      "value": 69.57,
+      "kind": "time",
+      "ceiling": 96.92
+    },
+    "boot.bundle.warm.spawnToReadyMs.p50": {
+      "value": 180.95,
+      "kind": "time",
+      "ceiling": 247.28
+    },
+    "boot.bundle.warm.spawnToReadyMs.p95": {
+      "value": 213.13,
+      "kind": "time",
+      "ceiling": 290.73
+    },
+    "boot.bundle.warm.rssAfterReadyMB.p50": {
+      "value": 136.47,
+      "kind": "mem",
+      "ceiling": 165.76
+    },
+    "boot.bundle.cold.spawnToTransportMs.p50": {
+      "value": 81.28,
+      "kind": "time",
+      "ceiling": 112.73
+    },
+    "boot.bundle.cold.spawnToReadyMs.p50": {
+      "value": 223.45,
+      "kind": "time",
+      "ceiling": 304.66
+    },
+    "boot.bundle.cold.spawnToReadyMs.p95": {
+      "value": 231.42,
+      "kind": "time",
+      "ceiling": 315.42
+    },
+    "boot.bundle.cold.rssAfterReadyMB.p50": {
+      "value": 179.17,
+      "kind": "mem",
+      "ceiling": 217
+    },
+    "boot.census.source.bootModules": {
+      "value": 1147,
+      "kind": "count",
+      "ceiling": 1206.35
+    },
+    "boot.census.source.bootBytes": {
+      "value": 11893714,
+      "kind": "bytes",
+      "ceiling": 12489423.7
+    },
+    "boot.census.bundle.bootModules": {
+      "value": 33,
+      "kind": "count",
+      "ceiling": 36.65
+    },
+    "boot.census.bundle.bootBytes": {
+      "value": 6650553,
+      "kind": "bytes",
+      "ceiling": 6984104.65
+    },
+    "turn.plain.toRunFinishedMs.p50": {
+      "value": 15.37,
+      "kind": "time",
+      "ceiling": 23.75
+    },
+    "turn.plain.toRunFinishedMs.p95": {
+      "value": 20.18,
+      "kind": "time",
+      "ceiling": 30.24
+    },
+    "turn.plain.toRunStartedMs.p50": {
+      "value": 3.67,
+      "kind": "time",
+      "ceiling": 7.95
+    },
+    "turn.plain.nonToolMs.p50": {
+      "value": 15.37,
+      "kind": "time",
+      "ceiling": 23.75
+    },
+    "turn.plain.toIdleMs.p50": {
+      "value": 16.05,
+      "kind": "time",
+      "ceiling": 24.67
+    },
+    "turn.plain.sqlStatements.p50": {
+      "value": 49,
+      "kind": "count",
+      "ceiling": 53.45
+    },
+    "turn.plain.writeStatements.p50": {
+      "value": 22,
+      "kind": "count",
+      "ceiling": 25.1
+    },
+    "turn.plain.sqlRows.p50": {
+      "value": 56.75,
+      "kind": "count",
+      "ceiling": 61.59
+    },
+    "turn.plain.rpcLinesOut.p50": {
+      "value": 12,
+      "kind": "count",
+      "ceiling": 14.6
+    },
+    "turn.plain.rpcBytesOut.p50": {
+      "value": 3730.15,
+      "kind": "bytes",
+      "ceiling": 4940.66
+    },
+    "turn.plain.firstTurn.toRunFinishedMs": {
+      "value": 47.7,
+      "kind": "time",
+      "ceiling": 67.4
+    },
+    "turn.tool.toRunFinishedMs.p50": {
+      "value": 21.31,
+      "kind": "time",
+      "ceiling": 31.77
+    },
+    "turn.tool.toRunFinishedMs.p95": {
+      "value": 31.77,
+      "kind": "time",
+      "ceiling": 45.89
+    },
+    "turn.tool.toRunStartedMs.p50": {
+      "value": 4.03,
+      "kind": "time",
+      "ceiling": 8.44
+    },
+    "turn.tool.nonToolMs.p50": {
+      "value": 18.9,
+      "kind": "time",
+      "ceiling": 28.52
+    },
+    "turn.tool.toIdleMs.p50": {
+      "value": 21.77,
+      "kind": "time",
+      "ceiling": 32.39
+    },
+    "turn.tool.sqlStatements.p50": {
+      "value": 84,
+      "kind": "count",
+      "ceiling": 90.2
+    },
+    "turn.tool.writeStatements.p50": {
+      "value": 40,
+      "kind": "count",
+      "ceiling": 44
+    },
+    "turn.tool.sqlRows.p50": {
+      "value": 92.85,
+      "kind": "count",
+      "ceiling": 99.49
+    },
+    "turn.tool.rpcLinesOut.p50": {
+      "value": 21,
+      "kind": "count",
+      "ceiling": 24.05
+    },
+    "turn.tool.rpcBytesOut.p50": {
+      "value": 7416.05,
+      "kind": "bytes",
+      "ceiling": 8810.85
+    },
+    "turn.tool.firstTurn.toRunFinishedMs": {
+      "value": 15,
+      "kind": "time",
+      "ceiling": 23.25
+    },
+    "history.1000.listEvents.p50": {
+      "value": 0.34,
+      "kind": "time",
+      "ceiling": 3.46
+    },
+    "history.1000.getEventCount.p50": {
+      "value": 0.1,
+      "kind": "time",
+      "ceiling": 3.14
+    },
+    "history.1000.turnOnHistory.toRunFinishedMs.p50": {
+      "value": 22.54,
+      "kind": "time",
+      "ceiling": 33.43
+    },
+    "history.1000.turnOnHistory.sqlRows": {
+      "value": 823,
+      "kind": "count",
+      "ceiling": 866.15
+    },
+    "history.1000.listEvents.sqlStatementsPerCall": {
+      "value": 1,
+      "kind": "count",
+      "ceiling": 3.05
+    },
+    "history.1000.appendMsPerEvent": {
+      "value": 0.38,
+      "kind": "time",
+      "ceiling": 3.51
+    },
+    "history.1000.sqlStatementsPerAppend": {
+      "value": 7.5,
+      "kind": "count",
+      "ceiling": 9.88
+    },
+    "history.10000.listEvents.p50": {
+      "value": 0.34,
+      "kind": "time",
+      "ceiling": 3.46
+    },
+    "history.10000.getEventCount.p50": {
+      "value": 0.67,
+      "kind": "time",
+      "ceiling": 3.9
+    },
+    "history.10000.turnOnHistory.toRunFinishedMs.p50": {
+      "value": 19.6,
+      "kind": "time",
+      "ceiling": 29.46
+    },
+    "history.10000.turnOnHistory.sqlRows": {
+      "value": 823,
+      "kind": "count",
+      "ceiling": 866.15
+    },
+    "history.10000.listEvents.sqlStatementsPerCall": {
+      "value": 1,
+      "kind": "count",
+      "ceiling": 3.05
+    },
+    "history.10000.appendMsPerEvent": {
+      "value": 0.35,
+      "kind": "time",
+      "ceiling": 3.47
+    },
+    "history.10000.sqlStatementsPerAppend": {
+      "value": 7.5,
+      "kind": "count",
+      "ceiling": 9.88
+    },
+    "history.100000.listEvents.p50": {
+      "value": 0.3,
+      "kind": "time",
+      "ceiling": 3.41
+    },
+    "history.100000.getEventCount.p50": {
+      "value": 6.13,
+      "kind": "time",
+      "ceiling": 11.28
+    },
+    "history.100000.turnOnHistory.toRunFinishedMs.p50": {
+      "value": 46.74,
+      "kind": "time",
+      "ceiling": 66.1
+    },
+    "history.100000.turnOnHistory.sqlRows": {
+      "value": 823,
+      "kind": "count",
+      "ceiling": 866.15
+    },
+    "history.100000.listEvents.sqlStatementsPerCall": {
+      "value": 1,
+      "kind": "count",
+      "ceiling": 3.05
+    },
+    "history.100000.appendMsPerEvent": {
+      "value": 0.7,
+      "kind": "time",
+      "ceiling": 3.95
+    },
+    "history.100000.sqlStatementsPerAppend": {
+      "value": 7.5,
+      "kind": "count",
+      "ceiling": 9.88
+    },
+    "memory.rssMB.after0Turns": {
+      "value": 162.34,
+      "kind": "mem",
+      "ceiling": 196.81
+    },
+    "memory.rssMB.after10Turns": {
+      "value": 223.34,
+      "kind": "mem",
+      "ceiling": 270.01
+    },
+    "memory.rssMB.after100Turns": {
+      "value": 249.33,
+      "kind": "mem",
+      "ceiling": 301.2
+    },
+    "memory.heapUsedMB.after0Turns": {
+      "value": 29.97,
+      "kind": "mem",
+      "ceiling": 37.96
+    },
+    "memory.heapUsedMB.after10Turns": {
+      "value": 52.58,
+      "kind": "mem",
+      "ceiling": 65.1
+    },
+    "memory.heapUsedMB.after100Turns": {
+      "value": 41.44,
+      "kind": "mem",
+      "ceiling": 51.73
+    },
+    "bundle.outputJsBytes": {
+      "value": 43189960,
+      "kind": "bytes",
+      "ceiling": 45350482
+    },
+    "bundle.bootReachableBytes": {
+      "value": 2532464,
+      "kind": "bytes",
+      "ceiling": 2660111.2
+    },
+    "boot.source.warm.bootRpc.linesOut": {
+      "value": 4,
+      "kind": "exact",
+      "ceiling": 4
+    },
+    "boot.source.warm.bootRpc.bytesOut": {
+      "value": 261619,
+      "kind": "bytes",
+      "ceiling": 275723.95
+    },
+    "boot.source.warm.bootRpc.notificationsTotal": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.notifications.modelCatalog.updated": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.hostRequests": {
+      "value": 2,
+      "kind": "exact",
+      "ceiling": 2
+    },
+    "boot.source.warm.bootRpc.hostRequests.host.deviceIdentity.get": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.hostRequests.host.llmCredentials.request": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.source.warm.bootRpc.postReadyLinesOut": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.source.warm.bootRpc.postReadyBytesOut": {
+      "value": 0,
+      "kind": "bytes",
+      "ceiling": 1024
+    },
+    "boot.source.warm.fetch.blocked": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.source.warm.fetch.catalogRequests": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.bundle.warm.bootRpc.linesOut": {
+      "value": 4,
+      "kind": "exact",
+      "ceiling": 4
+    },
+    "boot.bundle.warm.bootRpc.bytesOut": {
+      "value": 261619,
+      "kind": "bytes",
+      "ceiling": 275723.95
+    },
+    "boot.bundle.warm.bootRpc.notificationsTotal": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.notifications.modelCatalog.updated": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.hostRequests": {
+      "value": 2,
+      "kind": "exact",
+      "ceiling": 2
+    },
+    "boot.bundle.warm.bootRpc.hostRequests.host.deviceIdentity.get": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.hostRequests.host.llmCredentials.request": {
+      "value": 1,
+      "kind": "exact",
+      "ceiling": 1
+    },
+    "boot.bundle.warm.bootRpc.postReadyLinesOut": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.bundle.warm.bootRpc.postReadyBytesOut": {
+      "value": 0,
+      "kind": "bytes",
+      "ceiling": 1024
+    },
+    "boot.bundle.warm.fetch.blocked": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "boot.bundle.warm.fetch.catalogRequests": {
+      "value": 0,
+      "kind": "exact",
+      "ceiling": 0
+    },
+    "bundle.bootReachableFiles": {
+      "value": 21,
+      "kind": "count",
+      "ceiling": 24.05
+    }
+  }
+}

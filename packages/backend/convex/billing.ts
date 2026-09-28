@@ -6317,8 +6317,6 @@ const resolveManagedModelAllowanceFromBillingState = (args: {
   now: number;
 }): {
   allowance: ManagedModelAllowanceResult;
-  normalizedUsage: UsageSnapshot["normalizedUsage"];
-  usageChanged: boolean;
 } => {
   const plan = args.profile.activePlan;
   const unlimited = hasUnlimitedUsage(args.profile);
@@ -6369,8 +6367,6 @@ const resolveManagedModelAllowanceFromBillingState = (args: {
             }),
           ),
     },
-    normalizedUsage: snapshot.normalizedUsage,
-    usageChanged: snapshot.changed,
   };
 };
 
@@ -6394,21 +6390,19 @@ const resolveManagedModelAllowanceForWrite = async (
   const identityLevel = args.isAnonymous
     ? 0
     : await resolveIdentityLevel(ctx, args.ownerId);
-  const resolved = resolveManagedModelAllowanceFromBillingState({
+  // The access check never persists window normalization: the result is
+  // computed from the normalized snapshot in memory either way, and writing
+  // here made every admission contend with usage logging on the owner's
+  // billing_usage_windows row. Usage/reservation writers normalize when they
+  // write.
+  return resolveManagedModelAllowanceFromBillingState({
     profile,
     usage,
     credit,
     isAnonymous: args.isAnonymous,
     identityLevel,
     now,
-  });
-  if (resolved.usageChanged) {
-    await ctx.db.patch(usage._id, {
-      ...resolved.normalizedUsage,
-      updatedAt: now,
-    });
-  }
-  return resolved.allowance;
+  }).allowance;
 };
 
 /** Read-only allowance using stored rows or the defaults writers create. */
@@ -6450,8 +6444,8 @@ export const runPeekManagedModelAccess = async (
   (await runPeekManagedModelAllowance(ctx, args)).access;
 
 // Reusable cores let standalone mutations and the combined gate mutation run
-// the same billing math. Writers still initialize missing rows and persist
-// window normalization; snapshot readers do both in memory.
+// the same billing math. Writers still initialize missing rows; window
+// normalization is computed in memory and persisted only by usage writers.
 export const runResolveManagedModelAccess = async (
   ctx: MutationCtx,
   args: ResolveManagedModelAllowanceArgs,

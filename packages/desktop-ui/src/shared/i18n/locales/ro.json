@@ -913,7 +913,12 @@
       "photosDeniedBody": "Permite-i Stellei accesul la biblioteca de fotografii din Setări pentru a atașa imagini.",
       "cameraDeniedTitle": "Cameră",
       "cameraDeniedBody": "Permite-i Stellei să folosească camera din Setări pentru a face o fotografie.",
-      "photoLabel": "Fotografie"
+      "photoLabel": "Fotografie",
+      "sheetTitle": "Adaugă în chat",
+      "camera": "Cameră",
+      "photos": "Fotografii",
+      "files": "Fișiere",
+      "readAloud": "Citește răspunsurile cu voce tare"
     }
   },
   "errors": {
@@ -1292,14 +1297,7 @@
       },
       "queuedMessages": {
         "cancel": "Anulează mesajul din coadă",
-        "cancelAndEdit": "Anulează și editează",
-        "cancelIndexed": "Anulează mesajul {index} din coadă",
-        "previewLabel": "{label}. Previzualizează mesajele din coadă",
-        "queuedCount": {
-          "one": "{count} mesaj în coadă",
-          "few": "{count} mesaje în coadă",
-          "other": "{count} de mesaje în coadă"
-        }
+        "cancelAndEdit": "Anulează și editează"
       },
       "replyCount": {
         "label": {
@@ -1959,7 +1957,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Setări",
+      "apps": "Aplicații",
       "openLabel": "Deschide navigarea",
+      "chatSettingsLabel": "Setări chat",
       "closeLabel": "Închide navigarea",
       "account": "Cont",
       "signIn": "Conectează-te",
@@ -2017,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "Întreab-o pe Stella orice",
+      "workingMany": "Sarcini în curs: {count}",
       "composerPlaceholder": "Scrie-i Stellei",
       "mainChat": "Chat principal",
       "createFailed": "Nu s-a putut crea un chat. Încearcă din nou.",
@@ -2070,7 +2071,8 @@
       },
       "files": {
         "empty": "Încă nu există fișiere. Tot ce produce Stella apare aici.",
-        "emptyFiltered": "Niciun fișier nu se potrivește."
+        "emptyFiltered": "Niciun fișier nu se potrivește.",
+        "searchPlaceholder": "Caută fișiere"
       },
       "activity": {
         "empty": "Încă nu există muncă în fundal.",
@@ -2117,6 +2119,7 @@
       "showEmailLabel": "Arată e-mailul",
       "hideEmailLabel": "Ascunde e-mailul",
       "appearanceSection": "Aspect",
+      "computerSection": "Computer",
       "appearance": {
         "system": "Sistem",
         "light": "Luminos",
@@ -2149,6 +2152,7 @@
       "forgetConfirmTitle": "Uiți {name}?",
       "forgetConfirmBody": "Acest telefon nu se va mai reconecta la acel computer până când îl asociezi din nou.",
       "carPlayDiagnostics": "Diagnosticare CarPlay",
+      "aboutSection": "Despre",
       "openCarPlayDiagnosticsLabel": "Deschide diagnosticarea CarPlay",
       "termsOfService": "Termeni și condiții",
       "openTermsLabel": "Deschide Termenii și condițiile",

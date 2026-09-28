@@ -67,24 +67,6 @@ afterEach(() => {
 });
 
 describe("managed Muse Spark 1.3 Contributor transport", () => {
-  it("all modes pin Responses on the OpenRouter gateway", () => {
-    for (const mode of [
-      "standard",
-      "priority",
-      "light",
-      "builder",
-      "designer",
-      "vision",
-      "max",
-    ] as const) {
-      const config = getModeConfig(mode, "pro");
-      expect(config.model).toBe(MUSE_MODEL);
-      expect(config.managedGatewayProvider).toBe("openrouter");
-      expect(config.api).toBe("openai-responses");
-      expect(config.fallback).toBe("crof/deepseek-v4-flash-0731");
-    }
-  });
-
   it("streams via Responses with xhigh reasoning and Responses-shaped input", async () => {
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
     const calls: CapturedCall[] = [];

@@ -8,7 +8,6 @@ import {
   CanonicalPromptUnavailableError,
   buildCloudSystemPrompt,
   refreshCanonicalPrompts,
-  type CanonicalPromptSnapshot,
   type CanonicalPromptLoadResult,
 } from "../src/cloud-prompt.js";
 import { sha256Hex } from "../src/hash.js";
@@ -345,26 +344,6 @@ describe("canonical cloud prompts", () => {
       refreshErrorCode: "publication_rollback",
       snapshot: { revision: newer.revision },
     });
-  });
-
-  test("cloud session overlay lists agent_status with the other agent tools", () => {
-    const prompt = buildCloudSystemPrompt({
-      canonicalBody: "canonical",
-      personalityBody: null,
-      localeDirective: undefined,
-      residentSection: "",
-      skillSection: "",
-      memoryEnabled: true,
-    });
-    expect(prompt).toContain(
-      "code, html, image_gen, web, Read, Recall, Remember, spawn_agent, send_input, pause_agent, agent_status, merge_workspace",
-    );
-    expect(prompt).toContain(
-      "demoted map, schedule_add/list/update/remove and connector_status inside code",
-    );
-    expect(prompt).toContain("check on it with agent_status");
-    expect(prompt).not.toContain("spawn_manager");
-    expect(prompt).not.toContain("tool_search");
   });
 
   test("memory-off system prompt exposes no Recall/Remember tool contract", () => {

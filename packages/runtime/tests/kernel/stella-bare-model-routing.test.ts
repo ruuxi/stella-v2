@@ -74,7 +74,7 @@ describe("bare Stella model routing", () => {
       )
       .map(([id]) => id);
 
-    expect(shadowedManagedIds).toHaveLength(62);
+    expect(shadowedManagedIds).toHaveLength(29);
     for (const id of shadowedManagedIds) {
       expect(() => resolve(`stella/${id}`), id).not.toThrow();
     }

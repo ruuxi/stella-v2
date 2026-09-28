@@ -18,7 +18,7 @@ import {
   type StoredPhoneAccess,
 } from "../../src/lib/phone-access";
 import {
-  AUTOMATIC_EXECUTION_TARGET,
+  CLOUD_EXECUTION_TARGET,
   getMobileExecutionTarget,
   setMobileExecutionTarget,
 } from "../../src/lib/execution-target";
@@ -39,15 +39,13 @@ import {
   setComposerModelPinned,
   useComposerModelPinned,
 } from "../../src/lib/composer-model-pin";
-import { useComputerModelSettings } from "../../src/lib/use-computer-model-settings";
 import { useCloudModelSettings } from "../../src/lib/use-cloud-model-settings";
 import { usesCloudModelSettings } from "../../src/lib/cloud-model-selection";
 import { resolveRealtimeVoiceRoute } from "../../src/lib/realtime-voice-routing";
 import {
   REASONING_OPTIONS,
   type ReasoningEffort,
-} from "../../src/lib/desktop-model-prefs";
-import { type DesktopConnection } from "../../src/lib/top-bar-status";
+} from "../../src/lib/stella-model-catalog";
 import { attachmentsSettled } from "../../src/lib/chat-attachments";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
@@ -58,14 +56,12 @@ import {
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
-import { ConversationSwitcher } from "../../src/components/ConversationSwitcher";
 import { mainContentStyles } from "../../src/components/MainScreenSurface";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import { CloudBrowserInterventionCard } from "../../src/components/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "../../src/components/CloudConnectorConnectCard";
 import { ComposerNotice } from "../../src/components/ComposerNotice";
 import { CloudBoundary } from "../../src/components/CloudBoundary";
-import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
@@ -113,16 +109,12 @@ function SignedInChatScreen() {
           }
         />
       ) : (
-        <ConversationSwitcher
-          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}`}
+        // One conversation per account: there is no switching or new chat.
+        <SignedInCanonicalChat
+          key={`${authority.authority.accountScope}:${authority.authority.ownerGeneration}:${authority.authority.conversationId}`}
           authority={authority.authority}
-        >
-          {(selectedAuthority) => <SignedInCanonicalChat
-            key={selectedAuthority.conversationId}
-            authority={selectedAuthority}
-            reloadAuthority={authority.retry}
-          />}
-        </ConversationSwitcher>
+          reloadAuthority={authority.retry}
+        />
       )}
     </View>
   );
@@ -139,7 +131,7 @@ function SignedInCanonicalChat(props: {
   const [access, setAccess] = useState<StoredPhoneAccess | null>(null);
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
   const [executionTarget, setExecutionTarget] =
-    useState<AutomaticExecutionTarget>(AUTOMATIC_EXECUTION_TARGET);
+    useState<AutomaticExecutionTarget>(CLOUD_EXECUTION_TARGET);
   const [pairingResolved, setPairingResolved] = useState(false);
   useEffect(() => {
     void Promise.all([
@@ -153,10 +145,10 @@ function SignedInCanonicalChat(props: {
         target.mode !== "device" ||
         paired.some((entry) => entry.desktopDeviceId === target.deviceId);
       setExecutionTarget(
-        targetStillPaired ? target : AUTOMATIC_EXECUTION_TARGET,
+        targetStillPaired ? target : CLOUD_EXECUTION_TARGET,
       );
       if (!targetStillPaired) {
-        void setMobileExecutionTarget(AUTOMATIC_EXECUTION_TARGET);
+        void setMobileExecutionTarget(CLOUD_EXECUTION_TARGET);
       }
       setPairingResolved(true);
       if (!stored) updateStellaWidget({ paired: false, online: false });
@@ -164,7 +156,8 @@ function SignedInCanonicalChat(props: {
   }, []);
 
   const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
-  const cloudModelSettings = useCloudModelSettings(cloudModelsActive);
+  // One account-wide selection for cloud and computer turns alike.
+  const cloudModelSettings = useCloudModelSettings(true);
   const thread = useCloudCanonicalChatThread(props.authority, {
     reloadAuthority: props.reloadAuthority,
     access,
@@ -277,11 +270,9 @@ function ChatSurface(props: {
   const isFocused = useIsFocused();
   const composerModelPinned = useComposerModelPinned();
   const cloudModelsActive = usesCloudModelSettings(executionTarget, Boolean(access));
-  const modelSettings = useComputerModelSettings(cloudModelsActive ? null : access);
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
-  const [deviceSheetOpen, setDeviceSheetOpen] = useState(false);
   const [appActive, setAppActive] = useState(
     () =>
       AppState.currentState !== "background" &&
@@ -438,33 +429,6 @@ function ChatSurface(props: {
     }
   }, [access, isFocused, offline, status.available, triggerWake, waking]);
 
-  const connection: DesktopConnection =
-    status.checking || waking
-      ? "connecting"
-      : status.available
-        ? "connected"
-        : "disconnected";
-
-  // The top bar's computer button is chrome owned by the layout above this
-  // route, so its state and tap handler travel through the shell store.
-  const openComputer = useCallback(() => {
-    setDeviceSheetOpen(true);
-  }, []);
-  const computerLabel = !access
-    ? t("mobile.computer.pairLabel")
-    : connection === "connecting"
-      ? t("mobile.computer.connectingLabel")
-      : connection === "connected"
-        ? t("mobile.computer.connectedLabel")
-        : t("mobile.computer.disconnectedLabel");
-  useEffect(() => {
-    publishComputerControl({
-      connection: access ? connection : null,
-      label: computerLabel,
-      onPress: openComputer,
-    });
-  }, [access, pairingResolved, connection, computerLabel, openComputer]);
-
   // The sidebar shows this conversation's background work, so it reads the
   // same rows the retired activity sheet did, published as they change.
   const {
@@ -507,10 +471,55 @@ function ChatSurface(props: {
         ? t("mobile.computer.statusConnected")
         : t("mobile.computer.statusAsleep");
 
-  const canSubmit =
-    (thread.draft.trim().length > 0 ||
-      thread.attachments.length > 0 ||
-      thread.quotes.length > 0) &&
+  // The Settings tab shows the paired computer and where turns run, but that
+  // state lives here, so it travels through the shell store. The chat stays
+  // mounted under every tab, so what Settings shows stays live. Built from
+  // the fields Settings reads (not the whole model-settings object, which is
+  // new every render) so streaming doesn't re-render Settings per token.
+  const connecting = status.checking || waking;
+  const showWake = !status.checking && !status.available && !waking;
+  const computerModel = useMemo(
+    () => ({ label: cloudModelSettings.label, settings: cloudModelSettings }),
+    [cloudModelSettings],
+  );
+  useEffect(() => {
+    if (!pairingResolved) return;
+    publishComputerControl({
+      access,
+      pairedDesktops,
+      platformLabel,
+      statusLabel,
+      statusAvailable: status.available,
+      connecting,
+      showWake,
+      onWake: wake,
+      onRepaired: onAccessChange,
+      executionTarget,
+      onExecutionTargetChange,
+      model: computerModel,
+      composerModelPinned,
+      onComposerModelPinnedChange: setComposerModelPinned,
+    });
+  }, [
+    pairingResolved,
+    access,
+    pairedDesktops,
+    platformLabel,
+    statusLabel,
+    status.available,
+    connecting,
+    showWake,
+    wake,
+    onAccessChange,
+    executionTarget,
+    onExecutionTargetChange,
+    computerModel,
+    composerModelPinned,
+  ]);
+
+  // Content (typed text, an attachment or a quote) is checked by the pane, so
+  // this screen never reads the draft and a keystroke never re-renders it.
+  const sendReady =
     // A turn is only sendable once every attachment has a drive path. Until
     // then the chip is still uploading or has failed, and sending would drop it.
     attachmentsSettled(thread.attachments) &&
@@ -535,58 +544,33 @@ function ChatSurface(props: {
     [access, executionTarget, pairedDesktops],
   );
 
-  const composerModelPicker = useMemo(() => {
-    if (cloudModelsActive) {
-      return {
-        pinned: composerModelPinned,
-        label: cloudModelSettings.label,
-        loading: cloudModelSettings.loading && !cloudModelSettings.execution,
-        saving: cloudModelSettings.saving,
-        effortLabel: cloudModelSettings.effort === "default"
-          ? t("settings.agentModelPicker.default")
-          : t(`settings.reasoningEffort.${cloudModelSettings.effort}`),
-        effortOptions: cloudModelSettings.supportsEffortSelection
-          ? REASONING_OPTIONS.map((option) => ({
-              ...option,
-              label: option.id === "default"
-                ? t("settings.agentModelPicker.default")
-                : t(`settings.reasoningEffort.${option.id}`),
-              selected: option.id === cloudModelSettings.effort,
-            }))
-          : [],
-        recentModels: cloudModelSettings.models,
-        onOpen: () => { void cloudModelSettings.refresh(); },
-        onSelectEffort: (id: string) => cloudModelSettings.selectEffort(id as ReasoningEffort),
-        onSelectModel: cloudModelSettings.selectModel,
-      };
-    }
-    if (!access) return undefined;
-    return {
+  const composerModelPicker = useMemo(
+    () => ({
       // One pin for both cloud and computer chats: off by default, and only
       // the user's own "Show in composer" toggle turns it on.
       pinned: composerModelPinned,
-      label: modelSettings.selectedModelLabel,
-      loading: modelSettings.loading && !modelSettings.snapshot,
-      saving: modelSettings.saving,
-      effortLabel:
-        REASONING_OPTIONS.find(
-          (option) => option.id === modelSettings.selectedEffort,
-        )?.label ?? "Auto",
-      effortOptions: modelSettings.supportsEffortSelection
+      label: cloudModelSettings.label,
+      loading: cloudModelSettings.loading && !cloudModelSettings.execution,
+      saving: cloudModelSettings.saving,
+      effortLabel: cloudModelSettings.effort === "default"
+        ? t("settings.agentModelPicker.default")
+        : t(`settings.reasoningEffort.${cloudModelSettings.effort}`),
+      effortOptions: cloudModelSettings.supportsEffortSelection
         ? REASONING_OPTIONS.map((option) => ({
             ...option,
-            selected: option.id === modelSettings.selectedEffort,
+            label: option.id === "default"
+              ? t("settings.agentModelPicker.default")
+              : t(`settings.reasoningEffort.${option.id}`),
+            selected: option.id === cloudModelSettings.effort,
           }))
         : [],
-      recentModels: modelSettings.recentModels,
-      onOpen: () => {
-        void modelSettings.refresh().catch(() => undefined);
-      },
-      onSelectEffort: (id: string) =>
-        modelSettings.selectEffort(id as ReasoningEffort),
-      onSelectModel: modelSettings.selectRecentModel,
-    };
-  }, [access, cloudModelsActive, cloudModelSettings, composerModelPinned, modelSettings, t]);
+      recentModels: cloudModelSettings.models,
+      onOpen: () => { void cloudModelSettings.refresh(); },
+      onSelectEffort: (id: string) => cloudModelSettings.selectEffort(id as ReasoningEffort),
+      onSelectModel: cloudModelSettings.selectModel,
+    }),
+    [cloudModelSettings, composerModelPinned, t],
+  );
 
   return (
     <View style={styles.screen}>
@@ -621,10 +605,9 @@ function ChatSurface(props: {
         historyPageLoading={thread.historyPageLoading}
         onLoadOlderHistory={thread.loadOlderMessages}
         onLoadNewerHistory={thread.loadNewerMessages}
-        draft={thread.draft}
-        onChangeDraft={thread.setDraft}
+        draftStore={thread.draftStore}
         {...(composerModelPicker ? { composerModelPicker } : {})}
-        canSubmit={canSubmit}
+        sendReady={sendReady}
         onSubmit={thread.send}
         onStop={thread.stop}
         realtimeVoiceConversationId={thread.conversationId}
@@ -662,24 +645,6 @@ function ChatSurface(props: {
         activityTasks={thread.conversationTasks}
         onOpenActivity={requestOpenSidebar}
         catchingUp={thread.catchingUp}
-      />
-      <ComputerDeviceSheet
-        visible={deviceSheetOpen}
-        onClose={() => setDeviceSheetOpen(false)}
-        access={access}
-        platformLabel={platformLabel}
-        statusLabel={statusLabel}
-        statusAvailable={status.available}
-        connecting={status.checking || waking}
-        showWake={!status.checking && !status.available && !waking}
-        onWake={wake}
-        onRepaired={onAccessChange}
-        pairedDesktops={pairedDesktops}
-        executionTarget={executionTarget}
-        onExecutionTargetChange={onExecutionTargetChange}
-        modelSettings={modelSettings}
-        composerModelPinned={composerModelPinned}
-        onComposerModelPinnedChange={setComposerModelPinned}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}

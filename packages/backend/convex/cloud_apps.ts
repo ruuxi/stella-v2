@@ -28,6 +28,12 @@ import {
   markBrowserResumeDispatchFailed,
   projectCloudBrowserSuspension,
 } from "./cloud_browser";
+import { getOwnerMemoryPreference } from "./cloud_memory";
+import {
+  ownershipMigrationBlocksSelection,
+  ownershipMigrationStatusValidator,
+  readMyOwnershipMigrationStatus,
+} from "./lib/ownership_migration_status";
 import type { SubscriptionPlan } from "./lib/billing_plans";
 import {
   cloudExecutionSelectionValidator,
@@ -532,6 +538,31 @@ const MAX_DISPATCHED_PROMPT_CHARS = 8_000;
 const requireOwnerId = requireUserId;
 
 /**
+ * The Convex session identity, but only once the connection holds the account
+ * the client expects (`identity.subject === expectedSubject`); null while it
+ * is still switching, signed out, or fenced by an account-link transfer. The
+ * one identity check behind `confirmMySessionIdentity` and every bootstrap
+ * query that stands in for it.
+ */
+const readExpectedSessionIdentity = async (
+  ctx: QueryCtx,
+  args: { expectedSubject: string; identityRevision: number },
+) => {
+  if (!Number.isSafeInteger(args.identityRevision)) return null;
+  const identity = await getUserIdentityOrNull(ctx);
+  if (
+    !identity ||
+    !sessionIdentityMatchesExpectedSubject(
+      identity.subject,
+      args.expectedSubject,
+    )
+  ) {
+    return null;
+  }
+  return identity;
+};
+
+/**
  * Prove that the Convex connection has switched to the same immutable Better
  * Auth owner currently visible to the renderer. The expected subject is part
  * of the query key, so an account transition cannot reuse the prior owner's
@@ -543,16 +574,17 @@ export const confirmMySessionIdentity = query({
     identityRevision: v.number(),
   },
   returns: v.boolean(),
-  handler: async (ctx, args) => {
-    if (!Number.isSafeInteger(args.identityRevision)) return false;
-    const identity = await getUserIdentityOrNull(ctx);
-    if (!identity) return false;
-    return sessionIdentityMatchesExpectedSubject(
-      identity.subject,
-      args.expectedSubject,
-    );
-  },
+  handler: async (ctx, args) =>
+    (await readExpectedSessionIdentity(ctx, args)) !== null,
 });
+
+const readCloudConversationIdentity = async (
+  ctx: QueryCtx,
+  ownerId: string,
+) => {
+  const lifecycle = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+  return { ownerId, ownerGeneration: lifecycle.generation };
+};
 
 /**
  * Returns the lifecycle authority used to fence cloud-conversation state.
@@ -568,14 +600,8 @@ export const getMyCloudConversationIdentity = query({
     ownerId: v.string(),
     ownerGeneration: v.string(),
   }),
-  handler: async (ctx) => {
-    const ownerId = await requireOwnerId(ctx);
-    const lifecycle = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
-    return {
-      ownerId,
-      ownerGeneration: lifecycle.generation,
-    };
-  },
+  handler: async (ctx) =>
+    await readCloudConversationIdentity(ctx, await requireOwnerId(ctx)),
 });
 
 /**
@@ -673,38 +699,52 @@ export const createMyConversation = mutation({
   },
 });
 
+/** One live conversation, or null unless `ownerId` owns it. */
+const readOwnedConversation = async (
+  ctx: QueryCtx,
+  ownerId: string,
+  conversationId: string,
+) => {
+  const row = await ctx.db
+    .query("cloud_conversations")
+    .withIndex("by_conversationId", (q) =>
+      q.eq("conversationId", conversationId),
+    )
+    .unique();
+  if (!row || row.ownerId !== ownerId || row.deletedAt !== undefined) {
+    return null;
+  }
+  return projectCloudConversation(row);
+};
+
+/** The small reactive snapshot the shell selects a conversation from. */
+const listRecentOwnedConversations = async (ctx: QueryCtx, ownerId: string) => {
+  const rows = await ctx.db
+    .query("cloud_conversations")
+    .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
+      q.eq("ownerId", ownerId).eq("deletedAt", undefined),
+    )
+    .order("desc")
+    .take(25);
+  return rows.map(projectCloudConversationListItem);
+};
+
 export const getMyConversation = query({
   args: { conversationId: v.string() },
   returns: v.union(cloudConversationProjectionValidator, v.null()),
-  handler: async (ctx, args) => {
-    const ownerId = await requireOwnerId(ctx);
-    const row = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_conversationId", (q) =>
-        q.eq("conversationId", args.conversationId),
-      )
-      .unique();
-    if (!row || row.ownerId !== ownerId || row.deletedAt !== undefined) {
-      return null;
-    }
-    return projectCloudConversation(row);
-  },
+  handler: async (ctx, args) =>
+    await readOwnedConversation(
+      ctx,
+      await requireOwnerId(ctx),
+      args.conversationId,
+    ),
 });
 
 export const listMyConversations = query({
   args: {},
   returns: v.array(cloudConversationListProjectionValidator),
-  handler: async (ctx) => {
-    const ownerId = await requireOwnerId(ctx);
-    const rows = await ctx.db
-      .query("cloud_conversations")
-      .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
-        q.eq("ownerId", ownerId).eq("deletedAt", undefined),
-      )
-      .order("desc")
-      .take(25);
-    return rows.map(projectCloudConversationListItem);
-  },
+  handler: async (ctx) =>
+    await listRecentOwnedConversations(ctx, await requireOwnerId(ctx)),
 });
 
 const MAX_CONVERSATIONS_PER_PAGE = 50;
@@ -788,22 +828,185 @@ export const listMyConversationsPage = query({
  * origin is only useful to someone who already holds a token for it, and
  * unauthenticated discovery hands an attacker a map.
  */
+const cloudRealtimeConfigValidator = v.object({
+  /** Absent when the deployment has no builder: clients stay on polling. */
+  httpOrigin: v.union(v.string(), v.null()),
+  socketOrigin: v.union(v.string(), v.null()),
+  protocol: v.number(),
+});
+
+const readCloudRealtimeConfig = () => {
+  const raw = process.env.CLOUD_BUILDER_URL?.trim().replace(/\/+$/, "");
+  if (!raw) return { httpOrigin: null, socketOrigin: null, protocol: 1 };
+  return {
+    httpOrigin: raw,
+    socketOrigin: raw.replace(/^http/, "ws"),
+    protocol: 1,
+  };
+};
+
 export const getCloudRealtimeConfig = query({
   args: {},
-  returns: v.object({
-    /** Absent when the deployment has no builder: clients stay on polling. */
-    httpOrigin: v.union(v.string(), v.null()),
-    socketOrigin: v.union(v.string(), v.null()),
-    protocol: v.number(),
-  }),
+  returns: cloudRealtimeConfigValidator,
   handler: async (ctx) => {
     await requireOwnerId(ctx);
-    const raw = process.env.CLOUD_BUILDER_URL?.trim().replace(/\/+$/, "");
-    if (!raw) return { httpOrigin: null, socketOrigin: null, protocol: 1 };
+    return readCloudRealtimeConfig();
+  },
+});
+
+/**
+ * Everything a client needs before it can show the one chat, in one read.
+ *
+ * Replaces the launch chain of `confirmMySessionIdentity`, the owner
+ * generation reads (`getMyCloudConversationIdentity` and
+ * `cloud_memory:getMyMemoryPreference`), the `createMyConversation` call that
+ * only existed to learn the chat id, and `getCloudRealtimeConfig`. Each check
+ * runs here exactly as it does there, but a normal launch pays one round trip
+ * and writes nothing: `conversationId` is null only until the chat is first
+ * created, and the client then calls `createMyConversation` once.
+ */
+export const getMyChatBootstrap = query({
+  args: {
+    /** Raw Better Auth subject the client expects (`identity.subject`). */
+    expectedSubject: v.string(),
+    /** Owner id the client expects (`identity.tokenIdentifier`). */
+    expectedOwnerId: v.string(),
+    identityRevision: v.number(),
+    clientCreateId: v.string(),
+  },
+  returns: v.union(
+    v.object({ status: v.literal("identity_pending") }),
+    v.object({
+      status: v.literal("ready"),
+      ownerId: v.string(),
+      ownerGeneration: v.string(),
+      conversationId: v.union(v.string(), v.null()),
+      realtime: cloudRealtimeConfigValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    // Same result `confirmMySessionIdentity` reports as `false`: the Convex
+    // connection has not switched to the expected account yet.
+    const identity = await readExpectedSessionIdentity(ctx, args);
+    if (!identity) return { status: "identity_pending" as const };
+    const ownerId = identity.tokenIdentifier;
+    if (ownerId !== args.expectedOwnerId) {
+      throw new ConvexError({
+        code: "SESSION_IDENTITY_MISMATCH",
+        message: "The authenticated cloud session changed before this request.",
+      });
+    }
+    // Enforces the migration fence and rejects a memory preference left over
+    // from an older account reset, as the owner generation reads did.
+    const { ownerGeneration } = await getOwnerMemoryPreference(ctx, ownerId);
+    const clientCreateId = normalizeClientCreateId(args.clientCreateId);
+    const existing = await ctx.db
+      .query("cloud_conversations")
+      .withIndex("by_ownerId_and_clientCreateId", (q) =>
+        q.eq("ownerId", ownerId).eq("clientCreateId", clientCreateId),
+      )
+      .unique();
+    if (existing?.deletedAt !== undefined) {
+      throw new ConvexError("Conversation not found.");
+    }
     return {
-      httpOrigin: raw,
-      socketOrigin: raw.replace(/^http/, "ws"),
-      protocol: 1,
+      status: "ready" as const,
+      ownerId,
+      ownerGeneration,
+      conversationId: existing?.conversationId ?? null,
+      realtime: readCloudRealtimeConfig(),
+    };
+  },
+});
+
+/**
+ * Everything the desktop and web shell needs to select a conversation, in
+ * one reactive read.
+ *
+ * Replaces the shell's launch chain of `confirmMySessionIdentity` and
+ * `auth_migration:getMyOwnershipMigrationStatus`, then (once no account-link
+ * transfer blocks selection) `listMyConversations`,
+ * `getMyCloudConversationIdentity` and `getMyConversation` for the route and
+ * cached ids. Each part reuses the helper behind the function it replaces, so
+ * the results match field for field.
+ *
+ * The identity check runs first, so a `ready` result always belongs to
+ * `expectedOwnerId` and can be shown as soon as it arrives. A connection
+ * still on another account (or on a different issuer) reads as
+ * `identity_pending`, never as another owner's list. While a transfer blocks
+ * selection, `selection` is null and nothing owner-fenced is read.
+ */
+export const getMyShellBootstrap = query({
+  args: {
+    /** Raw Better Auth subject the client expects (`identity.subject`). */
+    expectedSubject: v.string(),
+    /** Owner id the client expects (`identity.tokenIdentifier`). */
+    expectedOwnerId: v.string(),
+    identityRevision: v.number(),
+    /** Conversation the client is routed to, looked up like `getMyConversation`. */
+    routeConversationId: v.optional(v.string()),
+    /** Conversation the client last had open, looked up the same way. */
+    cachedConversationId: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.object({ status: v.literal("identity_pending") }),
+    v.object({
+      status: v.literal("ready"),
+      ownerId: v.string(),
+      migration: ownershipMigrationStatusValidator,
+      /** Null while the migration blocks conversation selection. */
+      selection: v.union(
+        v.null(),
+        v.object({
+          ownerGeneration: v.string(),
+          conversations: v.array(cloudConversationListProjectionValidator),
+          routeConversation: v.union(
+            cloudConversationProjectionValidator,
+            v.null(),
+          ),
+          cachedConversation: v.union(
+            cloudConversationProjectionValidator,
+            v.null(),
+          ),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const identity = await readExpectedSessionIdentity(ctx, args);
+    if (!identity || identity.tokenIdentifier !== args.expectedOwnerId) {
+      return { status: "identity_pending" as const };
+    }
+    const ownerId = identity.tokenIdentifier;
+    const migration = await readMyOwnershipMigrationStatus(ctx);
+    if (ownershipMigrationBlocksSelection(migration)) {
+      return { status: "ready" as const, ownerId, migration, selection: null };
+    }
+    const lookup = (conversationId: string | undefined) =>
+      conversationId === undefined
+        ? null
+        : readOwnedConversation(ctx, ownerId, conversationId);
+    const [
+      { ownerGeneration },
+      conversations,
+      routeConversation,
+      cachedConversation,
+    ] = await Promise.all([
+      readCloudConversationIdentity(ctx, ownerId),
+      listRecentOwnedConversations(ctx, ownerId),
+      lookup(args.routeConversationId),
+      lookup(args.cachedConversationId),
+    ]);
+    return {
+      status: "ready" as const,
+      ownerId,
+      migration,
+      selection: {
+        ownerGeneration,
+        conversations,
+        routeConversation,
+        cachedConversation,
+      },
     };
   },
 });

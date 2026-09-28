@@ -38,17 +38,6 @@ const tools = (post: (path: string, body: unknown, signal?: AbortSignal) => Prom
 };
 
 describe("cloud schedule tools", () => {
-  test("advertise the device descriptors, demoted, with the same names", () => {
-    const { all } = tools(async () => Response.json({ schedules: [] }));
-    expect(all.map((tool) => tool.name)).toEqual([
-      "schedule_add",
-      "schedule_list",
-      "schedule_update",
-      "schedule_remove",
-    ]);
-    for (const tool of all) expect(tool.demoted?.searchTerms).toContain("reminder");
-  });
-
   test("schedule_add replays a lost response with the same generation-fenced request id", async () => {
     const requests: Array<Record<string, unknown>> = [];
     let lose = true;

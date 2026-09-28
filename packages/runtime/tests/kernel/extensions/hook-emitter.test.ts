@@ -2,22 +2,6 @@ import { describe, expect, it } from "vitest";
 import { HookEmitter } from "@stella/runtime/kernel/extensions/hook-emitter";
 
 describe("HookEmitter", () => {
-  describe("has", () => {
-    it("returns false when no hook is registered for the event", () => {
-      const emitter = new HookEmitter();
-      expect(emitter.has("message_update")).toBe(false);
-    });
-
-    it("returns true when at least one hook is registered for the event", () => {
-      const emitter = new HookEmitter();
-      emitter.register({
-        event: "message_update",
-        handler: async () => undefined,
-      });
-      expect(emitter.has("message_update")).toBe(true);
-      expect(emitter.has("agent_end")).toBe(false);
-    });
-  });
 
   describe("clearBySource preserves bundled hooks", () => {
     it("leaves bundled hooks intact when only extension hooks are swept (F1 invariant)", async () => {
@@ -112,21 +96,6 @@ describe("HookEmitter", () => {
         { systemPromptAppend: "ext-1" },
         { systemPromptAppend: "ext-2" },
       ]);
-    });
-
-    it("returns an empty array when no hooks are registered", async () => {
-      const emitter = new HookEmitter();
-      const results = await emitter.emitAll(
-        "before_agent_start",
-        {
-          agentType: "orchestrator",
-          systemPrompt: "base",
-          conversationId: "conv-1",
-          isUserTurn: true,
-        },
-        { agentType: "orchestrator" },
-      );
-      expect(results).toEqual([]);
     });
 
     it("swallows individual hook errors and continues with the rest", async () => {

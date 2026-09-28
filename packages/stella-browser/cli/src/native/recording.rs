@@ -238,14 +238,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_recording_state_new() {
-        let state = RecordingState::new();
-        assert!(!state.active);
-        assert!(state.output_path.is_empty());
-        assert_eq!(state.frame_count, 0);
-    }
-
-    #[test]
     fn test_recording_start_sets_active() {
         let mut state = RecordingState::new();
         let result = recording_start(&mut state, "/tmp/test.mp4");

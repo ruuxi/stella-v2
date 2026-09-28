@@ -7,8 +7,9 @@
  * That difference is the `workspace` input, and it is the only difference.
  * `materialized` renders exactly what the container path has always rendered.
  * `lazy` drops every sentence that claims a file is already on disk and says
- * instead that the first workspace tool call restores and synchronizes the
- * world. A resident turn that only chats must not be told its drive is
+ * instead which commands run without a sandbox and which start one to
+ * restore and synchronize the world. A resident turn that only chats must not
+ * be told its drive is
  * hydrated, and a turn that later attaches must not have been told the world
  * was missing.
  */
@@ -56,13 +57,24 @@ export type GeneralAgentPromptOptions = {
   workspaceRoot?: string;
 } & GeneralAgentPromptWorkspace;
 
-const lazyWorkspaceSentence = (
-  workspaceRoot: string,
-) => `Nothing is on disk yet. The workspace tools \
-(\`exec_command\`, \`Read\`, \`apply_patch\`) restore this world and \
-synchronize the user's drive into it the first time you call one. Its root is \
-${workspaceRoot}, so call one \
-before you reason about what a path contains.`;
+/**
+ * What `exec_command` does before a sandbox is attached. The command list is
+ * illustrative; `worker-shell-router.test.ts` in cloud-builder pins every name
+ * here against the worker shell's allowlist.
+ */
+const lazyWorkspaceSentence = (workspaceRoot: string) => `No sandbox is \
+running yet. \`Read\`, \`Write\`, \`Edit\`, \`Grep\` and \`apply_patch\` work on \
+${workspaceRoot} directly. \`exec_command\` first tries a lightweight shell over \
+the same files: ordinary text and file commands (cat, ls, find, grep, rg, sed, \
+awk, head, tail, sort, uniq, wc, cut, tr, jq, yq, diff, tar, xargs) with pipes, \
+redirects, quoting, globs, loops and functions. A command that needs anything \
+else (node, bun, git, a package install or build, the network, a background \
+job, tty, the user's drive, or any path outside ${workspaceRoot} such as /tmp) \
+runs whole in a full Linux sandbox instead. The sandbox starts on first use, \
+restores this world, synchronizes the user's drive into it, and runs every \
+later \`exec_command\` of the turn. The switch is automatic and no command runs \
+in both, so never repeat a command because of where it ran. Call a workspace \
+tool before you reason about what a path contains.`;
 
 /**
  * Everything this says about the drive is a claim about a `DriveSyncResult`,

@@ -16,11 +16,13 @@ import {
   type NativeOAuthProviderConfig,
   type NativeOAuthProviderConfigOptions,
 } from "./native-oauth-provider-config.js";
-import { getOAuthProviderCatalog } from "./oauth-provider-catalog.js";
+import {
+  getOAuthCatalogProviderTools,
+  getOAuthProviderSummaries,
+} from "./oauth-provider-catalog.js";
 import { clearConnectorDecline } from "./connect-preferences.js";
 import { getConnectorStateRoot } from "./state.js";
 import type { ConnectorToolInfo } from "./types.js";
-import type { OAuthCatalogTool } from "./oauth-provider-catalog.js";
 
 export type NativeConnectorAvailability = "ready";
 export type NativeConnectorOAuthSetupStatus =
@@ -198,9 +200,9 @@ const GOOGLE_WORKSPACE_CONNECTOR_CATALOG: NativeConnectorCatalogEntry[] = [
   },
 ];
 
-// Lazily derived from the on-disk OAuth catalog so the ~8MB JSON is only
-// read+parsed when the connector catalog is first needed (an IPC call), not at
-// module import time. Memoized after first build.
+// Lazily derived from the OAuth catalog's summary sidecar (~50KB; no `tools`),
+// so listing/matching connectors never parses the ~12MB full catalog. Memoized
+// after first build.
 let cachedNativeConnectorCatalog: NativeConnectorCatalogEntry[] | null = null;
 
 const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
@@ -208,7 +210,7 @@ const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
     return cachedNativeConnectorCatalog;
   }
   const fallbackOAuthCatalog: NativeConnectorCatalogEntry[] =
-    getOAuthProviderCatalog()
+    getOAuthProviderSummaries()
       .filter(
         (entry) =>
           !isExistingGoogleIntegration(entry.id) &&
@@ -297,9 +299,6 @@ export const getNativeConnectorOAuthConfig = (
   entry: NativeConnectorCatalogEntry,
 ) => entry.oauthConfig ?? getNativeOAuthProviderConfig(entry.id);
 
-const getOAuthCatalogProvider = (id: string) =>
-  getOAuthProviderCatalog().find((entry) => entry.id === id);
-
 /**
  * Compact one-line parameter summary for an action's input schema
  * ("required: a, b; optional: c, d, +3"). Shared by the generated
@@ -343,7 +342,7 @@ export const getNativeConnectorCatalogActions = (
       return [...(entry.actions ?? [])];
     }
     if (entry.oauthConfig) return [];
-    return (getOAuthCatalogProvider(entry.id)?.tools ?? []).map((tool) => ({
+    return (getOAuthCatalogProviderTools(entry.id) ?? []).map((tool) => ({
       name: tool.name.trim(),
       ...(tool.title ? { title: tool.title } : {}),
       ...(tool.description ? { description: tool.description } : {}),

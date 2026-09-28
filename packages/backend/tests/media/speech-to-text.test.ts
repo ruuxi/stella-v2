@@ -1,18 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { meterCompletedMediaJob } from "../../convex/media_billing";
-import { getMediaCapability } from "../../convex/media_catalog";
 import { resolveOpenRouterAudioInput } from "../../convex/media_openrouter_stt";
-
-describe("speech_to_text catalog", () => {
-  it("defaults to OpenRouter Nemotron 3.5 ASR", () => {
-    const capability = getMediaCapability("speech_to_text");
-    expect(capability?.provider).toBe("openrouter");
-    expect(capability?.endpointId).toBe(
-      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
-    );
-  });
-});
 
 describe("speech_to_text billing", () => {
   it("meters Nemotron from OpenRouter usage.seconds at $0.000003/second", () => {

@@ -93,6 +93,7 @@ const initializeWindowShell = (context) => {
 };
 const finalizeWindowLaunch = (context) => {
     const { config, services, state } = context;
+    // No-op when createBootstrapInitialWindows already ran.
     state.windowManager.createInitialWindows();
     const fullWindow = state.windowManager.getFullWindow();
     let deferredStartupTriggered = false;
@@ -129,6 +130,19 @@ const finalizeWindowLaunch = (context) => {
             services.globalInputHook.start();
         });
     }
+};
+/**
+ * Create the full window (and start its renderer load) ahead of the rest of
+ * bootstrap. Callers must register IPC handlers in the same synchronous task:
+ * renderer IPC is only dispatched once main yields, so every handler is in
+ * place before the renderer can invoke one, while the renderer process
+ * launch and page load overlap with that registration work.
+ */
+export const createBootstrapInitialWindows = (context) => {
+    context.state.windowManager.createInitialWindows();
+    getMainLogger()?.process("startup.window-created", {
+        elapsedMs: Math.round(process.uptime() * 1000),
+    });
 };
 export const initializeBootstrapAppShell = async (context) => {
     await prepareBootstrapAppShell(context);

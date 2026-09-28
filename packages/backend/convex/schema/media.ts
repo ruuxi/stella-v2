@@ -207,9 +207,13 @@ export const mediaSchema = {
       "status",
       "completedAt",
     ])
-    .index("by_status_and_capability_and_updatedAt", [
+    // The stale watchdog only fails legacy (no submissionState) or submitted
+    // jobs; keying on submissionState keeps pending/dispatching rows, which
+    // the submission outbox owns, out of every cron scan.
+    .index("by_status_and_capability_and_submissionState_and_updatedAt", [
       "status",
       "capability",
+      "submissionState",
       "updatedAt",
     ])
     .index("by_status_and_connectorMediaDeliveryScheduledAt", [

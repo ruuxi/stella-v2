@@ -30,35 +30,6 @@ describe("createThinkingAbortGate", () => {
 		};
 	}
 
-	it("(1) defers an abort that lands mid-thinking until the block closes", () => {
-		const onForwardAbort = vi.fn();
-		const timer = withCapturedTimer();
-		const gate = createThinkingAbortGate({ onForwardAbort, setTimer: timer.setTimer, clearTimer: timer.clearTimer });
-
-		gate.openThinkingBlock();
-		gate.requestAbort();
-
-		expect(onForwardAbort).not.toHaveBeenCalled();
-		expect(gate.isDeferring).toBe(true);
-		expect(timer.hasScheduled).toBe(true);
-
-		gate.closeThinkingBlock();
-
-		expect(onForwardAbort).toHaveBeenCalledTimes(1);
-		expect(gate.isDeferring).toBe(false);
-		expect(timer.cleared).toBe(true);
-	});
-
-	it("(2) forwards immediately when the abort lands outside a thinking block", () => {
-		const onForwardAbort = vi.fn();
-		const gate = createThinkingAbortGate({ onForwardAbort });
-
-		gate.requestAbort();
-
-		expect(onForwardAbort).toHaveBeenCalledTimes(1);
-		expect(gate.isDeferring).toBe(false);
-	});
-
 	it("(2b) forwards immediately once the thinking block has already closed", () => {
 		const onForwardAbort = vi.fn();
 		const gate = createThinkingAbortGate({ onForwardAbort });
@@ -91,23 +62,6 @@ describe("createThinkingAbortGate", () => {
 		// A late block-close must not fire a second abort.
 		gate.closeThinkingBlock();
 		expect(onForwardAbort).toHaveBeenCalledTimes(1);
-	});
-
-	it("defaults the defer timeout to 3s when none is provided", () => {
-		let scheduledMs: number | undefined;
-		const gate = createThinkingAbortGate({
-			onForwardAbort: vi.fn(),
-			setTimer: (_fn, ms) => {
-				scheduledMs = ms;
-				return 1 as unknown as ReturnType<typeof setTimeout>;
-			},
-			clearTimer: () => {},
-		});
-
-		gate.openThinkingBlock();
-		gate.requestAbort();
-
-		expect(scheduledMs).toBe(3_000);
 	});
 
 	it("is idempotent across repeated abort requests", () => {

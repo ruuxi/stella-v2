@@ -20,6 +20,10 @@ const DISTINCT_VALUE_LIMIT = 32;
 const RISK_RETENTION_MS = 48 * 60 * 60_000;
 const RISK_ENFORCEMENT_MS = 24 * 60 * 60_000;
 const RISK_CRON_BATCH_SIZE = 500;
+// Top-N reads scan the metric index and drop stale rows in memory; this bounds
+// that scan even when many stale-but-retained rows outrank fresh ones.
+const RISK_TOP_SCAN_LIMIT = 500;
+const RISK_TOP_RESULT_LIMIT = 20;
 
 type RiskWindow = keyof typeof RISK_WINDOWS;
 
@@ -33,6 +37,12 @@ type RiskSignalDelta = {
   failedRequests?: number;
   sybilFlags?: number;
 };
+
+const recomputeRiskScoresRef = makeFunctionReference<
+  "mutation",
+  { now?: number; cursor?: string },
+  unknown
+>("risk:recomputeRiskScoresInternal");
 
 const setOwnerEnforcementRef = makeFunctionReference<
   "mutation",
@@ -244,10 +254,11 @@ export const listTopOwnerRiskSignalsInternal = internalQuery({
       v.literal("mints"),
       v.literal("score"),
     ),
+    now: v.number(),
   },
   returns: v.array(riskSignalValidator),
   handler: async (ctx, args) => {
-    const cutoff = Date.now() - RISK_WINDOWS[args.window];
+    const cutoff = args.now - RISK_WINDOWS[args.window];
     const query =
       args.by === "spend"
         ? ctx.db
@@ -272,44 +283,60 @@ export const listTopOwnerRiskSignalsInternal = internalQuery({
                 .withIndex("by_window_score", (q) =>
                   q.eq("window", args.window),
                 );
-    return (
-      await query
-        .filter((q) => q.gte(q.field("updatedAt"), cutoff))
-        .order("desc")
-        .take(20)
-    ).map(projectRiskSignal);
+    // Freshness cannot be expressed in a metric index range, so drop stale
+    // rows after a bounded scan instead of an unbounded post-index filter.
+    return (await query.order("desc").take(RISK_TOP_SCAN_LIMIT))
+      .filter((row) => row.updatedAt >= cutoff)
+      .slice(0, RISK_TOP_RESULT_LIMIT)
+      .map(projectRiskSignal);
   },
 });
 
+/**
+ * Rescores every signal updated inside the widest window, one page per
+ * transaction. `now` is pinned for the whole pass so every page scores
+ * against the same windows; later pages continue via the scheduler.
+ */
 export const recomputeRiskScoresInternal = internalMutation({
-  args: { now: v.optional(v.number()) },
+  args: {
+    now: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+  },
   returns: v.object({
     scored: v.number(),
     deleted: v.number(),
     enforced: v.number(),
     hasMoreExpired: v.boolean(),
+    hasMore: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
-    const expired = await ctx.db
-      .query("owner_risk_signals")
-      .withIndex("by_updatedAt", (q) =>
-        q.lt("updatedAt", now - RISK_RETENTION_MS),
-      )
-      .take(RISK_CRON_BATCH_SIZE);
+    // Retention runs once per pass, on its first page.
+    const expired =
+      args.cursor === undefined
+        ? await ctx.db
+            .query("owner_risk_signals")
+            .withIndex("by_updatedAt", (q) =>
+              q.lt("updatedAt", now - RISK_RETENTION_MS),
+            )
+            .take(RISK_CRON_BATCH_SIZE)
+        : [];
     for (const row of expired) await ctx.db.delete(row._id);
 
-    const recent = await ctx.db
+    const page = await ctx.db
       .query("owner_risk_signals")
       .withIndex("by_updatedAt", (q) =>
         q.gte("updatedAt", now - RISK_WINDOWS["24h"]),
       )
       .order("desc")
-      .take(RISK_CRON_BATCH_SIZE);
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: RISK_CRON_BATCH_SIZE,
+      });
     const weights = parseRiskWeights(process.env.STELLA_RISK_WEIGHTS_JSON);
     const ownerScores = new Map<string, number>();
     let scored = 0;
-    for (const row of recent) {
+    for (const row of page.page) {
       if (row.updatedAt < now - RISK_WINDOWS[row.window]) continue;
       const score = calculateRiskScore(row, row.window, weights);
       if (score !== row.score) await ctx.db.patch(row._id, { score });
@@ -320,12 +347,40 @@ export const recomputeRiskScoresInternal = internalMutation({
       scored += 1;
     }
 
+    // An owner split across pages is enforced per page; the escalation checks
+    // below keep that monotone (challenged can still rise to throttled).
+    const candidates = await Promise.all(
+      [...ownerScores].flatMap(([ownerId, score]) => {
+        const status =
+          score >= 80
+            ? ("throttled" as const)
+            : score >= 60
+              ? ("challenged" as const)
+              : null;
+        if (!status) return [];
+        return [
+          Promise.all([
+            resolveIdentityLevel(ctx, ownerId),
+            readOwnerEnforcement(ctx, ownerId),
+          ]).then(([identityLevel, current]) => ({
+            ownerId,
+            score,
+            status,
+            identityLevel,
+            current,
+          })),
+        ];
+      }),
+    );
     let enforced = 0;
-    for (const [ownerId, score] of ownerScores) {
-      const status =
-        score >= 80 ? "throttled" : score >= 60 ? "challenged" : null;
-      if (!status || (await resolveIdentityLevel(ctx, ownerId)) >= 3) continue;
-      const current = await readOwnerEnforcement(ctx, ownerId);
+    for (const {
+      ownerId,
+      score,
+      status,
+      identityLevel,
+      current,
+    } of candidates) {
+      if (identityLevel >= 3) continue;
       if (
         current.status === "suspended" ||
         current.status === "throttled" ||
@@ -342,11 +397,18 @@ export const recomputeRiskScoresInternal = internalMutation({
       });
       enforced += 1;
     }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, recomputeRiskScoresRef, {
+        now,
+        cursor: page.continueCursor,
+      });
+    }
     return {
       scored,
       deleted: expired.length,
       enforced,
       hasMoreExpired: expired.length === RISK_CRON_BATCH_SIZE,
+      hasMore: !page.isDone,
     };
   },
 });

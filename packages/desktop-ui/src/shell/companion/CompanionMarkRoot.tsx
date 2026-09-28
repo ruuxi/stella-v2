@@ -20,7 +20,11 @@ import {
   useCompanionState,
   useVoiceSpeakingState,
 } from "./use-companion-state";
-import { useCompanionWindow, useDocumentVisible } from "./use-companion-window";
+import {
+  useCompanionVisible,
+  useCompanionWindow,
+  useDocumentVisible,
+} from "./use-companion-window";
 import { useMarkPress } from "./use-mark-press";
 import "./companion.css";
 
@@ -33,6 +37,10 @@ export function CompanionMarkRoot() {
   const voiceActive = Boolean(uiState.isVoiceRtcActive);
   const voice = useVoiceSpeakingState(voiceActive);
   const documentVisible = useDocumentVisible();
+  // Hiding the companion hides this window without changing its document
+  // visibility (see `useCompanionVisible`), so gate on main's signal too;
+  // otherwise the mark kept rebuilding its outline at 60fps while hidden.
+  const companionVisible = useCompanionVisible();
   const markHandleRef = useRef<StellaMarkHandle | null>(null);
 
   const { dragging, handlers: pressHandlers } = useMarkPress(() =>
@@ -93,7 +101,7 @@ export function CompanionMarkRoot() {
           glow
           eyeColor="var(--card)"
           followPointer={activity.hovered || expanded}
-          paused={!documentVisible}
+          paused={!documentVisible || !companionVisible}
           handleRef={markHandleRef}
         />
         {runningCount > 0 ? (

@@ -1,0 +1,436 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { useIsFocused } from "expo-router";
+import { ModelSettingsPanel } from "../ModelSettingsPanel";
+import { Icon, type IconName } from "../Icon";
+import { PairPhoneSheet } from "../PairPhoneSheet";
+import { clearCachedDesktopBridge } from "../../lib/desktop-bridge-chat";
+import {
+  listExecutionDevices,
+  type AutomaticExecutionTarget,
+  type ExecutionDeviceDestination,
+} from "../../lib/execution-placement";
+import { tapLight } from "../../lib/haptics";
+import type { ComputerControl } from "../../lib/main-shell-store";
+import {
+  clearStoredPhoneAccess,
+  listStoredPairedPhoneAccess,
+  type StoredPhoneAccess,
+} from "../../lib/phone-access";
+import { useDesktopPlatforms } from "../../lib/use-desktop-platforms";
+import { useT } from "../../i18n";
+import type { Colors } from "../../theme/colors";
+import { fonts } from "../../theme/fonts";
+import { useColors } from "../../theme/theme-context";
+import type { SettingsStyles } from "./settings-styles";
+
+/** Live presence goes stale quickly; refresh while Settings is on screen. */
+const EXECUTION_DEVICE_POLL_MS = 15_000;
+
+function platformLabelFor(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  access: StoredPhoneAccess,
+  platform: string | null | undefined,
+): string {
+  const base = platform?.trim();
+  if (base) return base;
+  return t("mobile.settings.paired.unnamedComputer", {
+    id: access.desktopDeviceId.slice(0, 4).toUpperCase(),
+  });
+}
+
+/**
+ * Settings' Computer section: the paired computer's status, where turns run,
+ * its model, pairing, and the list of paired computers. The live state
+ * belongs to the chat (which stays mounted under every tab) and arrives as
+ * `control`; it is `null` until the chat has resolved its pairing, when only
+ * the stored paired list shows.
+ */
+export function ComputerSection({
+  control,
+  signedIn,
+  styles,
+}: {
+  control: ComputerControl | null;
+  signedIn: boolean;
+  styles: SettingsStyles;
+}) {
+  const colors = useColors();
+  const t = useT();
+  const local = useMemo(() => makeStyles(colors), [colors]);
+  const focused = useIsFocused();
+  const [pairSheetOpen, setPairSheetOpen] = useState(false);
+  const [destinations, setDestinations] = useState<
+    ExecutionDeviceDestination[] | undefined
+  >(undefined);
+  const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
+  const desktopPlatforms = useDesktopPlatforms(pairedDesktops);
+  const [removingDesktopId, setRemovingDesktopId] = useState<string | null>(
+    null,
+  );
+
+  const refreshPaired = useCallback(async () => {
+    setPairedDesktops(await listStoredPairedPhoneAccess());
+  }, []);
+  // Re-read after the chat records a new pairing, too.
+  const chatPaired = control?.pairedDesktops;
+  useEffect(() => {
+    void refreshPaired();
+  }, [refreshPaired, chatPaired]);
+
+  // Device presence lives on the owner gate, so this is a poll while
+  // Settings is on screen rather than a Convex subscription.
+  const hasControl = control !== null;
+  useEffect(() => {
+    if (!focused || !hasControl) return;
+    let active = true;
+    const controller = new AbortController();
+    const read = () => {
+      void listExecutionDevices({ signal: controller.signal })
+        .then((devices) => {
+          if (active) setDestinations(devices);
+        })
+        .catch(() => undefined);
+    };
+    read();
+    const timer = setInterval(read, EXECUTION_DEVICE_POLL_MS);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [focused, hasControl]);
+
+  const confirmForgetDesktop = (access: StoredPhoneAccess) => {
+    const label = platformLabelFor(
+      t,
+      access,
+      desktopPlatforms[access.desktopDeviceId],
+    );
+    Alert.alert(
+      t("mobile.settings.forgetConfirmTitle", { name: label }),
+      t("mobile.settings.forgetConfirmBody"),
+      [
+        { text: t("mobile.common.cancel"), style: "cancel" },
+        {
+          text: t("mobile.settings.forget"),
+          style: "destructive",
+          onPress: () => {
+            setRemovingDesktopId(access.desktopDeviceId);
+            clearCachedDesktopBridge(access.desktopDeviceId);
+            void clearStoredPhoneAccess(access.desktopDeviceId)
+              .then(() => refreshPaired())
+              .finally(() => setRemovingDesktopId(null));
+          },
+        },
+      ],
+    );
+  };
+
+  // Nothing to show until the chat has resolved pairing (or for a guest).
+  if (!control && !signedIn) return null;
+
+  const target = control?.executionTarget ?? { mode: "cloud" as const };
+  const rows = computerRows({
+    paired: pairedDesktops,
+    destinations,
+    labelFor: (access) =>
+      platformLabelFor(t, access, desktopPlatforms[access.desktopDeviceId]),
+    active: control,
+  });
+  // A computer that can't take work isn't a real choice, so Cloud carries
+  // the check (and the turn) whenever the picked computer is unavailable.
+  const selectedDeviceId =
+    target.mode === "device" &&
+    rows.some((row) => row.deviceId === target.deviceId && row.available)
+      ? target.deviceId
+      : null;
+  const choose = (next: AutomaticExecutionTarget) => {
+    if (!control) return;
+    tapLight();
+    control.onExecutionTargetChange(next);
+  };
+
+  return (
+    <>
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Where Stella works</Text>
+
+        <View style={styles.group}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: selectedDeviceId === null }}
+            disabled={!control}
+            onPress={() => choose({ mode: "cloud" })}
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+          >
+            <Icon
+              name="globe"
+              size={18}
+              color={colors.textMuted}
+              style={styles.rowIcon}
+            />
+            <Text style={[styles.rowLabel, local.flex]}>Cloud</Text>
+            {selectedDeviceId === null ? (
+              <Icon name="check" size={17} color={colors.accent} />
+            ) : null}
+          </Pressable>
+
+          {rows.map((row) => {
+            const removing = removingDesktopId === row.deviceId;
+            return (
+              <Pressable
+                key={row.deviceId}
+                accessibilityRole="button"
+                accessibilityState={{
+                  selected: selectedDeviceId === row.deviceId,
+                  disabled: !row.available,
+                }}
+                disabled={!control || !row.available}
+                onPress={() =>
+                  choose({ mode: "device", deviceId: row.deviceId })
+                }
+                style={({ pressed }) => [
+                  styles.row,
+                  styles.rowDivider,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <Icon
+                  name="monitor"
+                  size={18}
+                  color={colors.textMuted}
+                  style={styles.rowIcon}
+                />
+                <View style={[styles.rowCopy, !row.available && local.dim]}>
+                  <Text style={styles.rowLabel} numberOfLines={1}>
+                    {row.label}
+                  </Text>
+                  <View style={local.statusRow}>
+                    <View
+                      style={[
+                        local.statusDot,
+                        {
+                          backgroundColor: row.available
+                            ? colors.ok
+                            : colors.textMuted,
+                        },
+                      ]}
+                    />
+                    <Text style={styles.rowSub}>{row.status}</Text>
+                  </View>
+                </View>
+                {row.onWake ? (
+                  <Pressable
+                    onPress={row.onWake}
+                    hitSlop={8}
+                    accessibilityLabel={`Wake ${row.label}`}
+                    style={({ pressed }) => pressed && local.pressed}
+                  >
+                    <Text style={styles.rowAction}>Wake up</Text>
+                  </Pressable>
+                ) : null}
+                {selectedDeviceId === row.deviceId ? (
+                  <Icon name="check" size={17} color={colors.accent} />
+                ) : null}
+                <Pressable
+                  onPress={() => confirmForgetDesktop(row.access)}
+                  disabled={removing}
+                  hitSlop={8}
+                  accessibilityLabel={t("mobile.settings.forgetLabel", {
+                    name: row.label,
+                  })}
+                  style={({ pressed }) => [
+                    local.remove,
+                    (pressed || removing) && local.pressed,
+                  ]}
+                >
+                  <Icon name="trash" size={17} color={colors.textMuted} />
+                </Pressable>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {control ? (
+          <View style={[styles.group, styles.groupGap]}>
+            <NavRow
+              icon="smartphone"
+              label={
+                rows.length > 0 ? "Pair another computer" : "Pair a computer"
+              }
+              styles={styles}
+              colors={colors}
+              onPress={() => {
+                tapLight();
+                setPairSheetOpen(true);
+              }}
+            />
+          </View>
+        ) : null}
+      </View>
+
+      {control?.model ? (
+        <ModelSettingsPanel
+          settings={control.model.settings}
+          composerModelPinned={control.composerModelPinned}
+          onComposerModelPinnedChange={control.onComposerModelPinnedChange}
+          styles={styles}
+        />
+      ) : null}
+
+      {control ? (
+        <>
+          <PairPhoneSheet
+            visible={pairSheetOpen}
+            onClose={() => setPairSheetOpen(false)}
+            onPaired={(next) => {
+              setPairSheetOpen(false);
+              control.onRepaired(next);
+            }}
+            preferredAccess={control.access}
+            pairedDesktops={control.pairedDesktops}
+            onSwitchDesktop={control.onRepaired}
+          />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function NavRow({
+  icon,
+  label,
+  trailing,
+  divided = false,
+  styles,
+  colors,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  trailing?: string;
+  divided?: boolean;
+  styles: SettingsStyles;
+  colors: Colors;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.row,
+        divided && styles.rowDivider,
+        pressed && styles.rowPressed,
+      ]}
+    >
+      <Icon
+        name={icon}
+        size={18}
+        color={colors.textMuted}
+        style={styles.rowIcon}
+      />
+      <Text style={[styles.rowLabel, { flex: 1 }]}>{label}</Text>
+      {trailing ? (
+        <Text style={styles.rowTrailing} numberOfLines={1}>
+          {trailing}
+        </Text>
+      ) : null}
+      <Icon name="chevron-right" size={15} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+type ComputerRow = {
+  deviceId: string;
+  access: StoredPhoneAccess;
+  label: string;
+  status: string;
+  available: boolean;
+  onWake?: () => void;
+};
+
+/** Every paired computer, reachable or not, with what it can do right now. */
+function computerRows(props: {
+  paired: StoredPhoneAccess[];
+  destinations: ExecutionDeviceDestination[] | undefined;
+  labelFor: (access: StoredPhoneAccess) => string;
+  active: ComputerControl | null;
+}): ComputerRow[] {
+  return props.paired.map((access) => {
+    const deviceId = access.desktopDeviceId;
+    const device = props.destinations?.find((d) => d.deviceId === deviceId);
+    const isActive = props.active?.access?.desktopDeviceId === deviceId;
+    const available = Boolean(
+      device?.online &&
+        device.remoteExecutionEnabled &&
+        device.availability?.ready === true &&
+        (device.availability?.chatSlots ?? 0) > 0,
+    );
+    const status = available
+      ? "Online"
+      : device?.online
+        ? device.remoteExecutionEnabled
+          ? "Busy"
+          : "Unavailable"
+        : isActive && props.active
+          ? props.active.statusLabel
+          : "Offline";
+    return {
+      deviceId,
+      access,
+      label: device?.label ?? props.labelFor(access),
+      status,
+      available,
+      ...(isActive && props.active?.showWake
+        ? { onWake: props.active.onWake }
+        : {}),
+    };
+  });
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    flex: {
+      flex: 1,
+    },
+    groupBottomGap: {
+      marginBottom: 4,
+    },
+    subLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: 0.2,
+      marginBottom: 8,
+      marginLeft: 4,
+      marginTop: 16,
+    },
+    statusRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 6,
+    },
+    statusDot: {
+      borderRadius: 3,
+      height: 6,
+      width: 6,
+    },
+    pressed: {
+      opacity: 0.6,
+    },
+    dim: {
+      opacity: 0.55,
+    },
+    remove: {
+      marginLeft: 14,
+    },
+    forgetText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+      letterSpacing: -0.1,
+    },
+  });

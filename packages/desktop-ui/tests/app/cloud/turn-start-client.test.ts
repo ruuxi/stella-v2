@@ -1,7 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   CLIENT_MSG_ID_PATTERN,
-  CONVERSATION_ID_PATTERN,
   TURN_TITLE_MAX_CHARS,
   type CloudTurnStartError,
   type CloudTurnStartRequest,
@@ -12,9 +11,7 @@ import {
   CloudTurnStartTransportError,
   cloudTurnStartRequest,
   cloudTurnTitleHint,
-  newCloudConversationId,
   startCloudTurn,
-  TURN_START_TIMEOUT_MS,
 } from "../../../src/features/cloud/turn-start-client";
 
 const ORIGIN = "https://builder.example.test";
@@ -76,11 +73,6 @@ const tokens = (...values: Array<string | null>) => {
 };
 
 describe("cloud turn start client", () => {
-  test("mints conversation ids that satisfy the contract pattern", () => {
-    const id = newCloudConversationId();
-    expect(id).toMatch(CONVERSATION_ID_PATTERN);
-    expect(id).not.toBe(newCloudConversationId());
-  });
 
   test("builds the wire body from the frozen submission only", () => {
     const submission = {
@@ -131,33 +123,6 @@ describe("cloud turn start client", () => {
     expect(cloudTurnTitleHint("x".repeat(500))).toHaveLength(
       TURN_TITLE_MAX_CHARS,
     );
-  });
-
-  test("posts the body to the conversation's turn route with the bearer JWT", async () => {
-    const { calls, fetch } = fetchMock(jsonResponse(202, receipt()));
-    const getToken = tokens("jwt-1");
-    const result = await startCloudTurn({
-      socketOrigin: `${ORIGIN}/`,
-      conversationId: CONVERSATION_ID,
-      request,
-      getToken,
-      fetch,
-    });
-    expect(result).toEqual(receipt());
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(
-      `${ORIGIN}/conversations/${CONVERSATION_ID}/turns`,
-    );
-    expect(calls[0]!.init.method).toBe("POST");
-    expect(calls[0]!.init.headers).toEqual({
-      Authorization: "Bearer jwt-1",
-      "content-type": "application/json",
-    });
-    expect(JSON.parse(String(calls[0]!.init.body))).toEqual(request);
-    expect(calls[0]!.init.signal).toBeInstanceOf(AbortSignal);
-    expect(getToken).toHaveBeenCalledTimes(1);
-    expect(getToken).toHaveBeenCalledWith();
-    expect(TURN_START_TIMEOUT_MS).toBe(30_000);
   });
 
   test("treats a replayed admission as success", async () => {

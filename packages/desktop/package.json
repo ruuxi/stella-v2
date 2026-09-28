@@ -10,7 +10,7 @@
   },
   "private": true,
   "type": "module",
-  "main": "dist-electron/electron/main.js",
+  "main": "dist-electron/electron/launch.js",
   "exports": {
     "./electron/bootstrap/app-shell.js": "./electron/bootstrap/app-shell.js",
     "./electron/bootstrap/aux-runtime.js": "./electron/bootstrap/aux-runtime.js",

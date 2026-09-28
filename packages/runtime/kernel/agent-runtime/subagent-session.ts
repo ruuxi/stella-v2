@@ -179,9 +179,7 @@ export class SubagentSession extends PiSessionCore {
     // The recorder is side-effect-free to create and is needed this early
     // so the compaction waits below can surface a "compacting" indicator.
     const runEvents = createRunEventRecorder({
-      store: opts.store,
       runId,
-      conversationId: opts.conversationId,
       agentType: opts.agentType,
       userMessageId: opts.userMessageId,
       uiVisibility: opts.uiVisibility,
@@ -327,8 +325,6 @@ export class SubagentSession extends PiSessionCore {
       });
     }
     let swapAttempted: { fromModelId: string; toModelId: string } | undefined;
-
-    runEvents.recordRunStart();
 
     if (opts.abortSignal?.aborted) {
       const reason =

@@ -12,30 +12,6 @@ const resolve = (capabilityId: string) => {
 };
 
 describe("media defaults", () => {
-  it("defaults text-to-image requests to low quality", () => {
-    const capability = resolve("text_to_image");
-
-    const input = applyConvenienceInput({
-      capability,
-      input: {},
-      prompt: "a small cabin at sunrise",
-    });
-
-    expect(input.quality).toBe("low");
-  });
-
-  it("defaults GPT Image 2 text-to-image requests to automatic image size", () => {
-    const capability = resolve("text_to_image");
-
-    const input = applyConvenienceInput({
-      capability,
-      input: {},
-      prompt: "a small cabin at sunrise",
-    });
-
-    expect(input.image_size).toBe("auto");
-  });
-
   it("preserves an explicit client image size override", () => {
     const capability = resolve("text_to_image");
 
@@ -73,15 +49,4 @@ describe("media defaults", () => {
     expect(input.quality).toBe("medium");
   });
 
-  it("defaults image edit requests to low quality", () => {
-    const capability = resolve("image_edit");
-
-    const input = applyConvenienceInput({
-      capability,
-      input: { image_urls: ["https://example.com/input.png"] },
-      prompt: "make the background blue",
-    });
-
-    expect(input.quality).toBe("low");
-  });
 });

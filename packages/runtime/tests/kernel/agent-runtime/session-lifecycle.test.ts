@@ -86,9 +86,7 @@ const createOptions = (
     route: "direct-provider",
     getApiKey: () => undefined,
   },
-  store: {
-    recordRunEvent: vi.fn(),
-  } as never,
+  store: {} as never,
   callbacks: {
     onToolStart: vi.fn(),
     onToolEnd: vi.fn(),
@@ -284,19 +282,6 @@ describe("OrchestratorSession", () => {
     }
   });
 
-  it("forwards the image description service to prompt execution", async () => {
-    const session = new OrchestratorSession("conversation-1");
-    const describeImages = vi.fn(async () => "A terminal window.");
-
-    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "done" });
-
-    await session.runTurn(createOptions({ describeImages }));
-
-    expect(executeRuntimeAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ describeImages }),
-    );
-  });
-
   it("describes image-bearing tool results for a text-only model", async () => {
     const session = new OrchestratorSession("conversation-1");
     const describeImages = vi.fn(async () => "A browser error page.");
@@ -433,7 +418,6 @@ describe("OrchestratorSession", () => {
         },
         toolCatalog: updatedTools.map(toolMetadata),
         store: {
-          recordRunEvent: vi.fn(),
           loadThreadMessages: vi.fn(() => []),
         } as never,
       }),
@@ -463,7 +447,6 @@ describe("OrchestratorSession", () => {
         runId: "run-2",
         userPrompt: "After compaction",
         store: {
-          recordRunEvent: vi.fn(),
           loadThreadMessages: vi.fn(() => [
             {
               role: "assistant",
@@ -498,53 +481,6 @@ describe("OrchestratorSession", () => {
 describe("SubagentSession", () => {
   beforeEach(() => {
     executeRuntimeAgentPrompt.mockReset();
-  });
-
-  it("forwards the image description service to prompt execution", async () => {
-    const session = new SubagentSession(
-      "image-thread",
-      "conversation-1",
-      "general",
-    );
-    const describeImages = vi.fn(async () => "A terminal window.");
-    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "done" });
-
-    await session.runTurn({
-      runId: "image-run",
-      conversationId: "conversation-1",
-      userMessageId: "image-user",
-      agentId: "image-thread",
-      agentType: "general",
-      userPrompt: "What is shown?",
-      agentContext: {
-        systemPrompt: "General prompt",
-        dynamicContext: "",
-        maxAgentDepth: 1,
-        threadHistory: [],
-      },
-      toolCatalog: [],
-      toolExecutor: vi.fn(async () => ({ result: "ok" })),
-      deviceId: "device-1",
-      stellaDataDir: "/tmp/stella",
-      stellaAppDir: "/tmp/stella",
-      resolvedLlm: {
-        model,
-        route: "direct-provider",
-        getApiKey: () => undefined,
-      },
-      describeImages,
-      store: {
-        recordRunEvent: vi.fn(),
-        appendThreadCustomMessage: vi.fn(),
-        loadThreadMessages: vi.fn(() => []),
-      } as never,
-      callbacks: {},
-      compactionScheduler: new BackgroundCompactionScheduler(),
-    } satisfies SubagentRunOptions);
-
-    expect(executeRuntimeAgentPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ describeImages }),
-    );
   });
 
   it("describes image-bearing tool results for a text-only subagent", async () => {
@@ -595,7 +531,6 @@ describe("SubagentSession", () => {
       },
       describeImages,
       store: {
-        recordRunEvent: vi.fn(),
         appendThreadCustomMessage: vi.fn(),
         loadThreadMessages: vi.fn(() => []),
       } as never,
@@ -637,7 +572,6 @@ describe("SubagentSession", () => {
       },
     ];
     const store = {
-      recordRunEvent: vi.fn(),
       appendThreadCustomMessage: vi.fn(),
       loadThreadMessages: vi.fn(() => persistedHistory),
     };
@@ -710,7 +644,6 @@ describe("SubagentSession", () => {
     );
     const appendThreadMessage = vi.fn();
     const store = {
-      recordRunEvent: vi.fn(),
       appendThreadMessage,
       appendThreadCustomMessage: vi.fn(),
       loadThreadMessages: vi.fn(() => []),

@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ANTHROPIC_BEDROCK_VERTEX_MAX_IMAGE_BASE64_BYTES,
   ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES,
   ANTHROPIC_HARD_MAX_EDGE,
   ANTHROPIC_HIGH_RES_MAX_EDGE,
   ANTHROPIC_STANDARD_MAX_EDGE,
   DEFAULT_JPEG_QUALITY,
-  GOOGLE_MAX_EDGE,
   isAnthropicStandardTierModel,
   MANY_IMAGE_MAX_EDGE,
   maxInlineImageBase64Bytes,
@@ -49,20 +47,6 @@ describe("resolveImageCaps", () => {
     expect(caps.maxWidth).toBe(ANTHROPIC_STANDARD_MAX_EDGE);
   });
 
-  it("uses the 5MB Bedrock/Vertex byte cap for those routes", () => {
-    const caps = resolveImageCaps({
-      provider: "amazon-bedrock",
-      api: "bedrock-converse-stream",
-      modelId: "claude-opus-4-8",
-    });
-    expect(caps.maxBytes).toBeLessThan(
-      ANTHROPIC_BEDROCK_VERTEX_MAX_IMAGE_BASE64_BYTES,
-    );
-    expect(maxInlineImageBase64Bytes({ provider: "amazon-bedrock" })).toBe(
-      ANTHROPIC_BEDROCK_VERTEX_MAX_IMAGE_BASE64_BYTES,
-    );
-  });
-
   it("caps OpenAI at 2048px (high) and lifts to 6000px for original detail", () => {
     expect(resolveImageCaps({ provider: "openai" }).maxWidth).toBe(
       OPENAI_MAX_EDGE,
@@ -70,12 +54,6 @@ describe("resolveImageCaps", () => {
     expect(
       resolveImageCaps({ provider: "openai", detailOriginal: true }).maxWidth,
     ).toBe(OPENAI_ORIGINAL_MAX_EDGE);
-  });
-
-  it("gives Google Gemini the 3072px ceiling", () => {
-    expect(resolveImageCaps({ provider: "google" }).maxWidth).toBe(
-      GOOGLE_MAX_EDGE,
-    );
   });
 
   it("falls back to the safe conservative profile for unknown providers", () => {

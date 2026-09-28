@@ -31,12 +31,30 @@ const AUTH_IP_RATE_LIMITS = {
 // bursty-but-uneven traffic isn't falsely throttled, and never let the shard
 // count exceed `limit` (a shard's per-request capacity is `rate / shards`,
 // which must stay >= 1 or every request would be rejected).
+//
+// Low limits (6-14: anonymous/owner synthesis, music, tunnel tokens, voice
+// sessions) used to collapse to one or two shards, and the onboarding burst of
+// concurrent synthesis calls kept one doc hot. They now get three shards: the
+// smallest count at which the component checks two shards and borrows across
+// them, so a request is only refused when both sampled shards are drained.
+// Tradeoff: the ceiling stays exact-or-lower (shard budgets sum to `limit` and
+// no shard ever grants past its share), but a caller can be refused a little
+// before `limit` when its tokens sit in the unsampled shard. That is the
+// conservative direction. Limits below 6 stay on one exact doc: dedup
+// (limit 1) must be exact, and magic-link/sensitive buckets are human-rate.
 const MAX_RATE_LIMIT_SHARDS = 8;
 const MIN_TOKENS_PER_SHARD = 5;
+const LOW_LIMIT_SHARDS = 3;
+const MIN_TOKENS_PER_LOW_LIMIT_SHARD = 2;
 
 export const resolveShardCount = (limit: number): number => {
   const byBudget = Math.floor(limit / MIN_TOKENS_PER_SHARD);
-  return Math.max(1, Math.min(MAX_RATE_LIMIT_SHARDS, byBudget));
+  if (byBudget >= LOW_LIMIT_SHARDS) {
+    return Math.min(MAX_RATE_LIMIT_SHARDS, byBudget);
+  }
+  return limit >= LOW_LIMIT_SHARDS * MIN_TOKENS_PER_LOW_LIMIT_SHARD
+    ? LOW_LIMIT_SHARDS
+    : 1;
 };
 
 export type WebhookRateLimitArgs = {

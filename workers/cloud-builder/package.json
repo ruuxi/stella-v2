@@ -13,11 +13,12 @@
     "types:generate": "node scripts/generate-worker-types.mjs",
     "types:check": "node scripts/generate-worker-types.mjs --check",
     "typecheck": "bun run types:check && tsc --noEmit",
-    "test:unit": "bun test tests --path-ignore-patterns 'tests/*-workerd.test.ts'",
-    "test:workerd": "bun test tests/*-workerd.test.ts",
+    "test:unit": "bun run shell:bundle && bun test tests --path-ignore-patterns 'tests/*-workerd.test.ts'",
+    "test:workerd": "bun run shell:bundle && bun test tests/*-workerd.test.ts",
     "test": "bun run test:unit && bun run test:workerd && bun run test:code-workerd",
     "build:dry-run": "node scripts/check-production-bundle.mjs",
-    "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs"
+    "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs",
+    "shell:bundle": "node scripts/build-worker-shell.mjs"
   },
   "dependencies": {
     "@cloudflare/codemode": "0.5.1",
@@ -27,7 +28,8 @@
     "@stella/contracts": "workspace:*",
     "@stella/executor-cloud": "workspace:*",
     "@stella/runtime": "workspace:*",
-    "effect": "4.0.0-beta.83"
+    "effect": "4.0.0-beta.83",
+    "just-bash": "3.4.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260830.1",

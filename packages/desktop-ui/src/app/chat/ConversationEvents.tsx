@@ -58,7 +58,6 @@ type Props = {
   estimatedItemSize?: number;
   extraTail?: React.ReactNode;
   alignItemsAtEnd?: boolean;
-  reserveTailSpace?: boolean;
 };
 
 /**
@@ -172,7 +171,6 @@ export const ConversationEvents = memo(function ConversationEvents({
   estimatedItemSize,
   extraTail,
   alignItemsAtEnd,
-  reserveTailSpace,
 }: Props) {
   // Task titles from the runtime's Activity list give reply context the
   // thread behind a spawn whose journal row only recorded a description.
@@ -243,7 +241,6 @@ export const ConversationEvents = memo(function ConversationEvents({
       estimatedItemSize={estimatedItemSize}
       extraTail={extraTail}
       alignItemsAtEnd={alignItemsAtEnd}
-      reserveTailSpace={reserveTailSpace}
     />
   );
 });

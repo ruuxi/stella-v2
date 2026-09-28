@@ -912,7 +912,12 @@
       "photosDeniedBody": "Engedélyezd a Stellának a fotókönyvtárad elérését a Beállításokban, hogy képeket csatolhass.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Engedélyezd a Stellának a kamera használatát a Beállításokban, hogy fotót készíthess.",
-      "photoLabel": "Fotó"
+      "photoLabel": "Fotó",
+      "sheetTitle": "Hozzáadás a csevegéshez",
+      "camera": "Kamera",
+      "photos": "Fotók",
+      "files": "Fájlok",
+      "readAloud": "Válaszok felolvasása"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Sorba állított üzenet visszavonása",
-        "cancelAndEdit": "Visszavonás és szerkesztés",
-        "cancelIndexed": "Sorba állított üzenet visszavonása: {index}",
-        "previewLabel": "{label}. Sorba állított üzenetek előnézete",
-        "queuedCount": {
-          "one": "{count} üzenet sorba állítva",
-          "other": "{count} üzenet sorba állítva"
-        }
+        "cancelAndEdit": "Visszavonás és szerkesztés"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Csevegés",
       "settings": "Beállítások",
+      "apps": "Alkalmazások",
       "openLabel": "Navigáció megnyitása",
+      "chatSettingsLabel": "Csevegés beállításai",
       "closeLabel": "Navigáció bezárása",
       "account": "Fiók",
       "signIn": "Bejelentkezés",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Kérdezz bármit a Stellától",
+      "workingMany": "{count} feladat folyamatban",
       "composerPlaceholder": "Írj a Stellának",
       "mainChat": "Fő csevegés",
       "createFailed": "Nem sikerült létrehozni a csevegést. Próbáld újra.",
@@ -2051,7 +2053,8 @@
       },
       "files": {
         "empty": "Még nincsenek fájlok. Minden, amit Stella készít, itt jelenik meg.",
-        "emptyFiltered": "Nincs egyező fájl."
+        "emptyFiltered": "Nincs egyező fájl.",
+        "searchPlaceholder": "Fájlok keresése"
       },
       "activity": {
         "empty": "Még nincs háttérmunka.",
@@ -2098,6 +2101,7 @@
       "showEmailLabel": "E-mail megjelenítése",
       "hideEmailLabel": "E-mail elrejtése",
       "appearanceSection": "Megjelenés",
+      "computerSection": "Számítógép",
       "appearance": {
         "system": "Rendszer",
         "light": "Világos",
@@ -2130,6 +2134,7 @@
       "forgetConfirmTitle": "Elfelejted ezt: {name}?",
       "forgetConfirmBody": "Ez a telefon nem csatlakozik újra ahhoz a számítógéphez, amíg újra nem párosítod.",
       "carPlayDiagnostics": "CarPlay-diagnosztika",
+      "aboutSection": "Névjegy",
       "openCarPlayDiagnosticsLabel": "CarPlay-diagnosztika megnyitása",
       "termsOfService": "Felhasználási feltételek",
       "openTermsLabel": "Felhasználási feltételek megnyitása",

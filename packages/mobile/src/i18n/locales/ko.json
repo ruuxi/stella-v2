@@ -911,7 +911,12 @@
       "photosDeniedBody": "이미지를 첨부할 수 있도록 설정에서 Stella에 사진 라이브러리 접근을 허용하세요.",
       "cameraDeniedTitle": "카메라",
       "cameraDeniedBody": "사진을 찍을 수 있도록 설정에서 Stella에 카메라 사용을 허용하세요.",
-      "photoLabel": "사진"
+      "photoLabel": "사진",
+      "sheetTitle": "채팅에 추가",
+      "camera": "카메라",
+      "photos": "사진",
+      "files": "파일",
+      "readAloud": "답변 소리 내어 읽기"
     }
   },
   "errors": {
@@ -1278,12 +1283,7 @@
       },
       "queuedMessages": {
         "cancel": "대기 중인 메시지 취소",
-        "cancelAndEdit": "취소하고 편집",
-        "cancelIndexed": "대기 중인 메시지 {index} 취소",
-        "previewLabel": "{label}. 대기 중인 메시지 미리보기",
-        "queuedCount": {
-          "other": "메시지 {count}개 대기 중"
-        }
+        "cancelAndEdit": "취소하고 편집"
       },
       "replyCount": {
         "label": {
@@ -1920,7 +1920,9 @@
     "nav": {
       "chat": "채팅",
       "settings": "설정",
+      "apps": "앱",
       "openLabel": "탐색 열기",
+      "chatSettingsLabel": "채팅 설정",
       "closeLabel": "탐색 닫기",
       "account": "계정",
       "signIn": "로그인",
@@ -1978,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella에게 무엇이든 물어보세요",
+      "workingMany": "작업 {count}개 진행 중",
       "composerPlaceholder": "Stella에게 메시지",
       "mainChat": "기본 채팅",
       "createFailed": "채팅을 만들 수 없습니다. 다시 시도해 주세요.",
@@ -2029,7 +2032,8 @@
       },
       "files": {
         "empty": "아직 파일이 없습니다. Stella가 만든 모든 것이 여기에 표시됩니다.",
-        "emptyFiltered": "일치하는 파일이 없습니다."
+        "emptyFiltered": "일치하는 파일이 없습니다.",
+        "searchPlaceholder": "파일 검색"
       },
       "activity": {
         "empty": "아직 백그라운드 작업이 없습니다.",
@@ -2076,6 +2080,7 @@
       "showEmailLabel": "이메일 표시",
       "hideEmailLabel": "이메일 숨기기",
       "appearanceSection": "모양",
+      "computerSection": "컴퓨터",
       "appearance": {
         "system": "시스템",
         "light": "라이트",
@@ -2108,6 +2113,7 @@
       "forgetConfirmTitle": "{name}을(를) 해제할까요?",
       "forgetConfirmBody": "다시 페어링할 때까지 이 휴대폰은 해당 컴퓨터에 다시 연결하지 않습니다.",
       "carPlayDiagnostics": "CarPlay 진단",
+      "aboutSection": "정보",
       "openCarPlayDiagnosticsLabel": "CarPlay 진단 열기",
       "termsOfService": "서비스 약관",
       "openTermsLabel": "서비스 약관 열기",

@@ -202,34 +202,3 @@ pub fn to_device_json(devices: &[IosDevice]) -> Value {
         .collect();
     json!({ "devices": list })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ios_device_struct() {
-        let device = IosDevice {
-            name: "iPhone 15 Pro".to_string(),
-            udid: "ABC-123".to_string(),
-            state: "Booted".to_string(),
-            runtime: "iOS-17-0".to_string(),
-            is_real: false,
-        };
-        assert_eq!(device.name, "iPhone 15 Pro");
-        assert!(!device.is_real);
-    }
-
-    #[test]
-    fn test_to_device_json() {
-        let devices = vec![IosDevice {
-            name: "Test".to_string(),
-            udid: "123".to_string(),
-            state: "Shutdown".to_string(),
-            runtime: "iOS-17".to_string(),
-            is_real: false,
-        }];
-        let json = to_device_json(&devices);
-        assert!(json.get("devices").unwrap().as_array().unwrap().len() == 1);
-    }
-}

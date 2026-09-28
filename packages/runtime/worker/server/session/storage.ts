@@ -1,6 +1,9 @@
 import { Context, Effect, Layer } from "effect";
 import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
+import { performance } from "node:perf_hooks";
 import { createDesktopDatabase } from "../../../kernel/storage/database.js";
+import { getDesktopDatabasePath } from "../../../kernel/storage/database-init.js";
+import { DatabaseMaintenance } from "../../../kernel/storage/maintenance.js";
 import { ChatStore } from "../../../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../../../kernel/storage/runtime-store.js";
 import {
@@ -12,6 +15,10 @@ import type {
   LocalChatEventRecord,
   SqliteDatabase,
 } from "../../../kernel/storage/shared.js";
+import {
+  recordBootField,
+  recordBootStep,
+} from "../../../observability/boot-timing.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
 
@@ -28,6 +35,13 @@ export interface Interface {
   readonly chatStore: ChatStore;
   readonly runtimeStore: RuntimeStore;
   readonly runEventLog: RunEventLog;
+  /**
+   * Idle-time checkpoint / ANALYZE / one-time VACUUM of `stella.sqlite`.
+   * Started by WorkerSessions once the session is published (it needs the
+   * worker-wide idle signal and the attached-client count); its
+   * `holdsWorkerAlive()` feeds `hasActiveWork`. Stopped by this finalizer.
+   */
+  readonly maintenance: DatabaseMaintenance;
   /**
    * LOCAL_CHAT_UPDATED fan-out, exactly as the old top-level
    * `notifyLocalChatUpdated` helper emitted it.
@@ -51,7 +65,18 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const hostBus = yield* HostBus.Service;
     const config = yield* SessionConfig.Service;
-    const db = createDesktopDatabase(config.get().stellaDataDirPath);
+    // Boot timing: open vs. pragmas/migration, then the store and the
+    // run-event database (reported on the worker.ready.timing event).
+    const db = createDesktopDatabase(config.get().stellaDataDirPath, {
+      onTiming: (timing) => {
+        recordBootStep("dbOpen", timing.openMs);
+        recordBootStep("dbMigrate", timing.durationMs);
+        recordBootField("dbFromVersion", timing.fromVersion);
+        recordBootField("dbToVersion", timing.toVersion);
+        recordBootField("dbMigrated", timing.migrated);
+      },
+    });
+    const storesStartedAt = performance.now();
     const chatStore = new ChatStore(db, {
       onThreadActivityUpdate: (payload) => {
         hostBus.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
@@ -64,11 +89,20 @@ export const layer = Layer.effect(
       },
     });
     const runtimeStore = chatStore as RuntimeStore;
+    const runEventDbStartedAt = performance.now();
+    recordBootStep("chatStore", runEventDbStartedAt - storesStartedAt);
     const runEventDb = openRunEventDatabase(config.get().stellaDataDirPath);
     const runEventLog = new RunEventLog(runEventDb);
+    recordBootStep("runEventDbOpen", performance.now() - runEventDbStartedAt);
+    const maintenance = new DatabaseMaintenance({
+      db,
+      databasePath: getDesktopDatabasePath(config.get().stellaDataDirPath),
+    });
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
+        // Cancel ticks + PRAGMA optimize on the still-open connection.
+        maintenance.stop();
         runEventDb.close();
         db.close();
       }),
@@ -102,6 +136,7 @@ export const layer = Layer.effect(
       chatStore,
       runtimeStore,
       runEventLog,
+      maintenance,
       notifyLocalChatUpdated,
       appendChatEventAndNotify,
     };

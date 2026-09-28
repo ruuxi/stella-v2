@@ -912,7 +912,12 @@
       "photosDeniedBody": "Giv Stella adgang til dit billedbibliotek i Indstillinger, så du kan vedhæfte billeder.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Giv Stella adgang til kameraet i Indstillinger, så du kan tage et billede.",
-      "photoLabel": "Billede"
+      "photoLabel": "Billede",
+      "sheetTitle": "Føj til chat",
+      "camera": "Kamera",
+      "photos": "Billeder",
+      "files": "Filer",
+      "readAloud": "Læs svar op"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Annuller besked i kø",
-        "cancelAndEdit": "Annuller og rediger",
-        "cancelIndexed": "Annuller besked {index} i kø",
-        "previewLabel": "{label}. Se beskeder i kø",
-        "queuedCount": {
-          "one": "{count} besked i kø",
-          "other": "{count} beskeder i kø"
-        }
+        "cancelAndEdit": "Annuller og rediger"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Indstillinger",
+      "apps": "Apps",
       "openLabel": "Åbn navigationen",
+      "chatSettingsLabel": "Chatindstillinger",
       "closeLabel": "Luk navigationen",
       "account": "Konto",
       "signIn": "Log ind",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Spørg Stella om hvad som helst",
+      "workingMany": "{count} opgaver i gang",
       "composerPlaceholder": "Skriv til Stella",
       "mainChat": "Hovedchat",
       "createFailed": "Kunne ikke oprette en chat. Prøv igen.",
@@ -2052,7 +2054,8 @@
       },
       "files": {
         "empty": "Ingen filer endnu. Alt, hvad Stella laver, vises her.",
-        "emptyFiltered": "Ingen filer matcher."
+        "emptyFiltered": "Ingen filer matcher.",
+        "searchPlaceholder": "Søg i filer"
       },
       "activity": {
         "empty": "Intet baggrundsarbejde endnu.",
@@ -2099,6 +2102,7 @@
       "showEmailLabel": "Vis e-mail",
       "hideEmailLabel": "Skjul e-mail",
       "appearanceSection": "Udseende",
+      "computerSection": "Computer",
       "appearance": {
         "system": "System",
         "light": "Lyst",
@@ -2131,6 +2135,7 @@
       "forgetConfirmTitle": "Glem {name}?",
       "forgetConfirmBody": "Denne telefon holder op med at oprette forbindelse til den computer, indtil du parrer den igen.",
       "carPlayDiagnostics": "CarPlay-diagnostik",
+      "aboutSection": "Om",
       "openCarPlayDiagnosticsLabel": "Åbn CarPlay-diagnostik",
       "termsOfService": "Servicevilkår",
       "openTermsLabel": "Åbn Servicevilkår",

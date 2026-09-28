@@ -6,6 +6,7 @@ import { ReplyCountBadge, ReplyPreview, type ReplyAgentStatus } from "./ReplyPre
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
 import {
   type ReactNode,
+  type Ref,
   memo,
   useCallback,
   useEffect,
@@ -35,6 +36,7 @@ import {
   Text,
   type TextLayoutEventData,
   TextInput,
+  type TextInputProps,
   UIManager,
   useWindowDimensions,
   View,
@@ -57,11 +59,21 @@ import {
   type PickedAttachment,
 } from "../lib/chat-attachments";
 import { useT } from "../i18n";
+import {
+  useChatDraft,
+  useChatDraftSelector,
+  type ChatDraftStore,
+} from "../lib/chat-draft-store";
 import Reanimated, {
+  KeyboardState,
   useAnimatedKeyboard,
+  useAnimatedReaction,
   useAnimatedStyle,
+  useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShellBottomInset } from "../lib/shell-bottom-inset";
+import { AddContextSheet } from "./AddContextSheet";
 import { Icon, type IconName } from "./Icon";
 import { GlassSurface, liquidGlassSupported } from "./glass";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -75,7 +87,6 @@ import {
   resolveCloudDriveFileUri,
   useCloudDriveFileUri,
 } from "../lib/use-cloud-drive-file-uri";
-import { AgentWorkCard } from "./AgentWorkCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { RunningTasksPill, runningTaskCount } from "./RunningTasksPill";
 import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
@@ -115,12 +126,9 @@ import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
   canStartPostSendPlacement,
-  consumeResponseSpacerHeight,
   resolvePostSendPlacement,
-  resolveReplyOverflow,
-  resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
-} from "../lib/chat-response-spacer";
+} from "../lib/chat-post-send-placement";
 import { resolveChatDataChangeScrollOwner } from "../lib/chat-scroll-ownership";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
@@ -186,7 +194,7 @@ const LAYOUT_SPRING = {
 };
 
 /**
- * Extra breathing room beyond the list's trailing slack (`EDGE_FADE` +
+ * Extra breathing room beyond the list's trailing slack (the chat tail +
  * measured composer height). The slack is empty scrollable padding so messages
  * can sit above the overlay — without adding it, "near bottom" never engages
  * in the normal reading position (desktop `followRearmThreshold` does the same).
@@ -259,6 +267,11 @@ const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
 const POST_SEND_REANCHOR_WINDOW_MS = 1500;
 
 const EDGE_FADE = 48;
+/** LegendList's data-change tail pin, hoisted so it keeps one identity. */
+const LEGEND_TAIL_SCROLL_AT_END = {
+  animated: false,
+  on: { dataChange: true, itemLayout: false, layout: false },
+} as const;
 const MESSAGE_LIST_GAP = 20;
 /**
  * Fixed reading-area floor below the last message (desktop's
@@ -305,8 +318,10 @@ const CHAT_HORIZONTAL_INSET = 12;
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
-  const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const [height, setHeight] = useState(0);
+  // The height the keyboard is heading to, for the composer's UI-thread lift.
+  const targetHeight = useSharedValue(0);
 
   useEffect(() => {
     const showEvent =
@@ -315,6 +330,7 @@ function useKeyboardInset() {
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
     const onShow = (e: { endCoordinates: { height: number } }) => {
+      targetHeight.value = e.endCoordinates.height;
       setHeight(e.endCoordinates.height);
     };
     const onHide = () => setHeight(0);
@@ -326,17 +342,18 @@ function useKeyboardInset() {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [targetHeight]);
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
-  // home-indicator safe area. When the keyboard is up the composer is lifted
-  // clear of it by `composerKeyboardStyle` (by `keyboardHeight - insets.bottom`),
-  // so that reserved band lands inside the keyboard region — a constant 6pt gap
-  // sits above the keyboard either way, with no per-state padding swap to animate.
-  const composerBottomPad = 6 + insets.bottom;
+  // shell's bottom band (the tab bar and home indicator). When the keyboard is
+  // up the composer is lifted clear of it by `composerKeyboardStyle` (by
+  // `keyboardHeight - bottomInset`), so that reserved band lands inside the
+  // keyboard region — a constant 6pt gap sits above the keyboard either way,
+  // with no per-state padding swap to animate.
+  const composerBottomPad = 6 + bottomInset;
 
-  return { height, open, composerBottomPad };
+  return { height, open, composerBottomPad, targetHeight };
 }
 
 // ---------------------------------------------------------------------------
@@ -346,16 +363,11 @@ function useKeyboardInset() {
 
 function useChatScroll(
   listTrailingSlackPx: number,
-  responseSpacerHeightPx: number,
   trailingMessageId: string | null,
-  onConsumeResponseSpacer: (distanceDeltaPx: number) => void,
-  onClearResponseSpacer: () => void,
 ) {
   const listRef = useRef<LegendListRef>(null);
   const listTrailingSlackRef = useRef(listTrailingSlackPx);
   listTrailingSlackRef.current = listTrailingSlackPx;
-  const responseSpacerHeightRef = useRef(responseSpacerHeightPx);
-  responseSpacerHeightRef.current = responseSpacerHeightPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const nearBottomLimit = SCROLL_NEAR_BOTTOM_BASE_PX + listTrailingSlackPx;
   const atBottomLimit = SCROLL_AT_BOTTOM_THRESHOLD + listTrailingSlackPx;
@@ -391,7 +403,7 @@ function useChatScroll(
   const assistantLayoutBaselineRef = useRef<number | null>(null);
   /** True while the user's finger is actively dragging the list. */
   const isDraggingRef = useRef(false);
-  /** Holds through drag momentum so the spacer keeps consuming after release. */
+  /** Holds through drag momentum so an upward fling still blocks re-arming. */
   const manualScrollActiveRef = useRef(false);
   const manualScrollSettleTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -463,11 +475,19 @@ function useChatScroll(
       };
       contentHeightRef.current = contentSize.height;
 
+      // iOS rubber-band: after overscrolling past the tail the list springs
+      // back upward. That return is not a scrollback and must not block
+      // re-arming, or follow stays released while the user sits at the end.
+      const maxOffsetY = Math.max(
+        0,
+        contentSize.height - layoutMeasurement.height,
+      );
+      const bouncingBackFromTail = previousOffsetY > maxOffsetY + 0.5;
+
       if (manualScrollActiveRef.current) {
         scheduleManualScrollSettle();
-        if (offsetDelta < -0.5) {
+        if (offsetDelta < -0.5 && !bouncingBackFromTail) {
           followRearmBlockedRef.current = true;
-          onConsumeResponseSpacer(-offsetDelta);
         } else if (offsetDelta > 0.5) {
           followRearmBlockedRef.current = false;
         }
@@ -506,7 +526,6 @@ function useChatScroll(
       atBottomLimit,
       awayFromBottomLimit,
       nearBottomLimit,
-      onConsumeResponseSpacer,
       scheduleManualScrollSettle,
       setFollowArmed,
       stopFollowLoop,
@@ -554,10 +573,15 @@ function useChatScroll(
     scheduleManualScrollSettle();
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    if (distFromBottom <= atBottomLimit && !followRearmBlockedRef.current) {
+    // Coming to rest anywhere inside the near-bottom band re-arms follow —
+    // the same band `onScroll` uses to release it. Re-arming only at the
+    // exact tail left a dead zone where the user was visibly at the bottom
+    // but new messages never scrolled into view.
+    if (distFromBottom <= nearBottomLimit) {
+      followRearmBlockedRef.current = false;
       setFollowArmed(true);
     }
-  }, [atBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
+  }, [nearBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
 
   /** Call when assistant text grows, before layout measures the new height. */
   const prepareAssistantLayoutFollow = useCallback(() => {
@@ -733,11 +757,7 @@ function useChatScroll(
     const contentHeight = contentHeightRef.current;
     const rowBottom = Math.max(0, contentHeight - listTrailingSlackPx);
     const rowTop = Math.max(0, rowBottom - assistantHeight);
-    const desiredScrollTop = resolveReplyOverflow({
-      contentHeightPx: contentHeight,
-      viewportHeightPx: layoutHeight,
-      responseSpacerHeightPx: responseSpacerHeightRef.current,
-    });
+    const desiredScrollTop = Math.max(0, contentHeight - layoutHeight);
     const pinnedTop = Math.max(0, rowTop - FOLLOW_TOP_PEEK_PX);
     setFollowTarget(Math.min(pinnedTop, desiredScrollTop));
   }, [listTrailingSlackPx, setFollowTarget]);
@@ -760,12 +780,11 @@ function useChatScroll(
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = false;
     setFollowArmed(true);
-    onClearResponseSpacer();
     resetAssistantAutoScroll();
     requestAnimationFrame(() =>
       listRef.current?.scrollToEnd({ animated: true }),
     );
-  }, [onClearResponseSpacer, resetAssistantAutoScroll, setFollowArmed]);
+  }, [resetAssistantAutoScroll, setFollowArmed]);
 
   const getShouldPlaceLatestTurn = useCallback(() => {
     const { offsetY, layoutHeight } = metricsRef.current;
@@ -775,14 +794,13 @@ function useChatScroll(
     );
     return shouldPlaceLatestTurn({
       distanceFromBottomPx,
-      responseSpacerHeightPx: responseSpacerHeightRef.current,
       isFollowingLatest: followArmedRef.current,
     });
   }, []);
 
   /**
-   * Place the newest user row above the current trailing slack (response
-   * spacer + reserved bottom inset). The same gentle loop owns
+   * Place the newest user row above the current trailing slack (chat tail +
+   * reserved bottom inset). The same gentle loop owns
    * this motion and streaming follow, so the two movements blend if reply text
    * arrives before placement settles.
    */
@@ -842,10 +860,11 @@ function useChatScroll(
 
   const onListContentSizeChange = useCallback(
     (_width: number, height: number) => {
+      const previousHeight = contentHeightRef.current;
       contentHeightRef.current = height;
       metricsRef.current.contentHeight = height;
 
-      // Composer collapse and footer/spacer changes can settle after the user
+      // Composer collapse and footer changes can settle after the user
       // row measures. Re-anchor from this committed geometry as well.
       const pending = pendingSendAnchorRef.current;
       if (
@@ -860,7 +879,14 @@ function useChatScroll(
 
       const baseline = assistantLayoutBaselineRef.current;
       if (baseline === null || height <= baseline) {
-        followActiveAssistantRow();
+        if (activeAssistantHeightRef.current > 0) {
+          followActiveAssistantRow();
+        } else if (previousHeight > 0 && height > previousHeight) {
+          // A settled append at the live tail (a reply that lands whole as the
+          // turn ends, a synced message, a row finishing its layout): keep
+          // the new end in view. Released follow ignores this.
+          setFollowTarget(Math.max(0, height - metricsRef.current.layoutHeight));
+        }
         return;
       }
 
@@ -868,11 +894,9 @@ function useChatScroll(
       if (activeAssistantHeightRef.current > 0) {
         followActiveAssistantRow();
       } else {
-        setFollowTarget(resolveReplyOverflow({
-          contentHeightPx: height,
-          viewportHeightPx: metricsRef.current.layoutHeight,
-          responseSpacerHeightPx: responseSpacerHeightRef.current,
-        }));
+        setFollowTarget(
+          Math.max(0, height - metricsRef.current.layoutHeight),
+        );
       }
     },
     [followActiveAssistantRow, schedulePlaceLatestTurn, setFollowTarget],
@@ -1616,10 +1640,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 onPress={anySelecting ? onEndSelecting : undefined}
                 delayLongPress={350}
                 accessibilityLabel="Long press for message actions"
-                style={[
-                  styles.userBubble,
-                  item.queued && styles.userBubbleQueued,
-                ]}
+                style={styles.userBubble}
               >
                 {attachmentPreviews.length > 0 ? (
                   <View style={[styles.userThumbStrip, showText && styles.userThumbsAbove]}>
@@ -1685,12 +1706,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
               </Pressable>
             </Animated.View>
           )}
-          {item.queued || item.stopped ? (
+          {item.stopped ? (
             <Text
-              style={item.queued ? styles.queuedTag : styles.stoppedTag}
+              style={styles.stoppedTag}
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             >
-              {item.queued ? "Queued" : "Stopped"}
+              Stopped
             </Text>
           ) : null}
           {replyCount && replyCount > 0 && onOpenReply ? (
@@ -1726,7 +1747,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const isStandIn = isStandInArtifactRow(item);
   // Assistant text no longer streams, so there is no partial-render window to
   // protect: every card mounts as soon as its artifact reaches the row.
-  const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
   const showMapArtifacts = !isStandIn && mapArtifacts.length > 0;
   const showFileArtifacts =
     !isStandIn && Boolean(onOpenArtifact) && looseFiles.length > 0;
@@ -1740,7 +1760,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   );
   const showGeneratedImages = !isStandIn && generatedImages.length > 0;
   const showArtifacts =
-    showAgentWork ||
     showMapArtifacts ||
     showFileArtifacts ||
     showGeneratedImages;
@@ -1793,7 +1812,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
       }];
     });
   });
-  const quotedArtifactIds = new Set(completionQuotes.map((quote) => quote.artifactId));
   const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
   const renderAssistantMarkdown = (text: string) => {
     const markdown = (
@@ -1876,18 +1894,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {groupAgentWorkArtifacts.map((artifact) =>
-            quotedArtifactIds.has(artifact.id) ? null : (
-              <AgentWorkCard
-                key={artifact.id}
-                payload={artifact.payload}
-                colors={colors}
-                {...((onOpenReply && artifact.payload.agentIds?.[0])
-                  ? { onPress: () => onOpenReply({ kind: "agent", threadId: artifact.payload.agentIds![0]!, title: artifact.payload.title }) }
-                  : onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
-              />
-            ),
-          )}
+          {/* Running agents surface in the top bar's status mark, not as
+              transcript rows; finished ones arrive as quotes above replies. */}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (
                 <MapRouteCard
@@ -1947,6 +1955,32 @@ const ChatMessageRow = memo(function ChatMessageRow({
     </View>
   );
 });
+
+const isDraftEmpty = (draft: string) => draft.length === 0;
+const draftHasText = (draft: string) => draft.trim().length > 0;
+
+/**
+ * The composer's text input — the only component a keystroke re-renders. It
+ * subscribes to the draft store for its value and writes edits straight back.
+ */
+function ComposerTextInput({
+  draftStore,
+  ref,
+  ...props
+}: Omit<TextInputProps, "value" | "onChangeText"> & {
+  draftStore: ChatDraftStore;
+  ref?: Ref<TextInput>;
+}) {
+  const value = useChatDraft(draftStore);
+  return (
+    <TextInput
+      ref={ref}
+      {...props}
+      value={value}
+      onChangeText={draftStore.set}
+    />
+  );
+}
 
 /**
  * Submit button that springs between enabled/disabled states like the
@@ -2854,10 +2888,11 @@ export type ChatPaneProps = {
   onLoadOlderHistory?: () => Promise<void> | void;
   onLoadNewerHistory?: () => Promise<void> | void;
 
-  /** Composer input value. */
-  draft: string;
-  /** Composer input change handler. */
-  onChangeDraft: (next: string) => void;
+  /**
+   * The composer text. Only the input subscribes to the full value, so a
+   * keystroke re-renders the input rather than this whole pane.
+   */
+  draftStore: ChatDraftStore;
   /** Whether the composer accepts text (typing + sending). */
   composerEnabled?: boolean;
   /**
@@ -2871,8 +2906,12 @@ export type ChatPaneProps = {
   /** Owner-approved intervention pinned immediately above the composer. */
   composerIntervention?: ReactNode;
 
-  /** Computed once per parent re-render; controls submit button enabled. */
-  canSubmit: boolean;
+  /**
+   * Everything except content that gates sending (uploads settled, hydrated,
+   * online, authority ready). The pane adds the content check itself: typed
+   * text, an attachment, or a quote.
+   */
+  sendReady: boolean;
   /** Triggered by the send button or `return` key. */
   onSubmit: () => { userMessageId: string } | null;
   /**
@@ -3001,13 +3040,12 @@ export function ChatPane({
   historyPageLoading = false,
   onLoadOlderHistory,
   onLoadNewerHistory,
-  draft,
-  onChangeDraft,
+  draftStore,
   composerEnabled = true,
   composerModelPicker,
   placeholder,
   composerIntervention,
-  canSubmit,
+  sendReady,
   onSubmit,
   onStop,
   realtimeVoiceConversationId = null,
@@ -3041,25 +3079,44 @@ export function ChatPane({
   const t = useT();
   const readAloud = useReadAloudPreference();
   const insets = useSafeAreaInsets();
+  const bottomInset = useShellBottomInset();
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
-  const { height: keyboardHeight, composerBottomPad } = useKeyboardInset();
+  const {
+    height: keyboardHeight,
+    composerBottomPad,
+    targetHeight: keyboardTargetHeight,
+  } = useKeyboardInset();
   // UI-thread keyboard frame. Drives the composer's lift directly so it tracks
   // the keyboard exactly — both rising and falling — instead of chasing it via
   // a JS-scheduled layout animation that the OS curve always out-runs.
   const keyboard = useAnimatedKeyboard();
-  // The composer rests at `composerBottomPad` (home-indicator safe area) above
-  // the screen bottom. Lift it by the keyboard height *minus* that already-
-  // reserved band so its content lands a constant gap above the keyboard.
-  const composerKeyboardStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: -Math.max(0, keyboard.height.value - insets.bottom) },
-    ],
-  }));
+  // Once the keyboard settles, its height is the travel for the next close
+  // and open, including a height change while it's up (QuickType, emoji).
+  useAnimatedReaction(
+    () =>
+      keyboard.state.value === KeyboardState.OPEN ? keyboard.height.value : -1,
+    (settled) => {
+      if (settled > 0) keyboardTargetHeight.value = settled;
+    },
+  );
+  // The composer rests at `composerBottomPad` (the shell's bottom band) above
+  // the screen bottom, and must end a constant gap above the keyboard, so it
+  // travels the keyboard height *minus* that band. Spread that travel over
+  // the keyboard's whole motion rather than waiting for the keyboard to climb
+  // past the band: the composer starts moving on the keyboard's first frame
+  // and the two land together, in both directions.
+  const composerKeyboardStyle = useAnimatedStyle(() => {
+    const height = keyboard.height.value;
+    const travel = Math.max(keyboardTargetHeight.value, height);
+    const lift =
+      travel > 0 ? (height / travel) * Math.max(0, travel - bottomInset) : 0;
+    return { transform: [{ translateY: -lift }] };
+  });
   // Extra reading area the message list must reserve below its content while the
   // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
-  const keyboardExtra = Math.max(0, keyboardHeight - insets.bottom);
+  const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);
 
   // The composer + working indicator overlay the bottom of the chat. We
   // measure their actual height so the list can reserve matching
@@ -3068,51 +3125,10 @@ export function ChatPane({
   // clipped by it. The composer's keyboard lift is a transform, so this
   // measured height stays constant across keyboard show/hide.
   const [footerHeight, setFooterHeight] = useState(0);
-  const [listViewportHeight, setListViewportHeight] = useState(0);
-  const [chatTailHeightPx, setChatTailHeightPx] = useState(CHAT_TAIL_GAP);
-  const listBottomInsetPx = EDGE_FADE + footerHeight + keyboardExtra;
-  // The target is viewport-derived, but the current tail starts at its real
-  // working-indicator floor. An accepted send expands it; upward user scroll
-  // consumes it one-for-one until only that floor remains.
-  const responseSpacerTargetHeightPx = resolveResponseSpacerHeight({
-    viewportHeight: listViewportHeight,
-    bottomInsetPx: listBottomInsetPx,
-    minimumHeightPx: listBottomInsetPx + CHAT_TAIL_GAP,
-  });
-  const chatTailTargetHeightPx = Math.max(
-    CHAT_TAIL_GAP,
-    responseSpacerTargetHeightPx - listBottomInsetPx,
-  );
-  const listTrailingSlackPx = listBottomInsetPx + chatTailHeightPx;
-  const responseSpacerHeightPx = Math.max(0, chatTailHeightPx - CHAT_TAIL_GAP);
-  // Accepts an explicit chat-tail height: a send activates the spacer against
-  // the keyboard-DOWN inset (it dismisses the keyboard in the same breath), so
-  // it cannot use this render's keyboard-inflated `chatTailTargetHeightPx`.
-  const activateResponseSpacer = useCallback((chatTailPx: number) => {
-    setChatTailHeightPx(Math.max(CHAT_TAIL_GAP, chatTailPx));
-  }, []);
-  const clearResponseSpacer = useCallback(() => {
-    setChatTailHeightPx(CHAT_TAIL_GAP);
-  }, []);
-  const consumeResponseSpacer = useCallback((distanceDeltaPx: number) => {
-    setChatTailHeightPx((currentHeightPx) =>
-      consumeResponseSpacerHeight({
-        currentHeightPx,
-        minimumHeightPx: CHAT_TAIL_GAP,
-        distanceDeltaPx,
-      }),
-    );
-  }, []);
-  // A viewport/keyboard shrink may cap the current spacer, but growing the
-  // viewport never recreates space the user already consumed.
-  useEffect(() => {
-    setChatTailHeightPx((current) =>
-      Math.max(CHAT_TAIL_GAP, Math.min(current, chatTailTargetHeightPx)),
-    );
-  }, [chatTailTargetHeightPx]);
-  const onViewportLayout = useCallback((event: LayoutChangeEvent) => {
-    setListViewportHeight(Math.round(event.nativeEvent.layout.height));
-  }, []);
+  // The list runs under the composer, so its reserved inset is exactly the
+  // overlay; the chat tail supplies the gap between the last row and it.
+  const listBottomInsetPx = footerHeight + keyboardExtra;
+  const listTrailingSlackPx = listBottomInsetPx + CHAT_TAIL_GAP;
 
   // The footer (working indicator + composer) re-measures on every frame of any
   // layout animation it runs. Each measurement re-renders the list padding and
@@ -3179,13 +3195,7 @@ export function ChatPane({
     [],
   );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
-  const scroll = useChatScroll(
-    listTrailingSlackPx,
-    responseSpacerHeightPx,
-    lastMessage?.id ?? null,
-    consumeResponseSpacer,
-    clearResponseSpacer,
-  );
+  const scroll = useChatScroll(listTrailingSlackPx, lastMessage?.id ?? null);
 
   const [unread, setUnread] = useState(false);
   const prevLenRef = useRef(0);
@@ -3274,11 +3284,9 @@ export function ChatPane({
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
   // `streaming` is often still false at that render (always over the computer
-  // bridge) — and scrolls to the literal content end, full response spacer
-  // included, fighting the custom post-send nudge that owns the tail. Suppress
-  // it while a send-nudge is in flight; streaming or the next appended row
-  // releases this identity latch. The custom owner remains active for the
-  // reserved response space, including the final idle answer append.
+  // bridge) — and scrolls to the literal content end, fighting the custom
+  // post-send nudge that owns the tail. Suppress it while a send-nudge is in
+  // flight; streaming or the next appended row releases this identity latch.
   const [sendPinSuppressForId, setSendPinSuppressForId] = useState<
     string | null
   >(null);
@@ -3293,9 +3301,6 @@ export function ChatPane({
     isFollowingLatest: scroll.isFollowingLatest,
     isStreaming: streaming,
     postSendPlacementPending: sendPinSuppressForId !== null,
-    // Completion can append the final answer in the same render that busy
-    // becomes false. End-pinning here would scroll into reserved blank space.
-    hasResponseSpacer: responseSpacerHeightPx > 0,
   });
   const scrollOwnerRef = useRef(dataChangeScrollOwner);
   scrollOwnerRef.current = dataChangeScrollOwner;
@@ -3370,13 +3375,18 @@ export function ChatPane({
   const [expanded, setExpanded] = useState(false);
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
 
+  // Derived draft flags: these re-render the pane only when they flip, not on
+  // every keystroke.
+  const draftEmpty = useChatDraftSelector(draftStore, isDraftEmpty);
+  const hasText = useChatDraftSelector(draftStore, draftHasText);
+
   // When the parent clears draft after send, collapse back to pill shape.
   useEffect(() => {
-    if (expanded && draft.length === 0) {
+    if (expanded && draftEmpty) {
       LayoutAnimation.configureNext(LAYOUT_SPRING);
       setExpanded(false);
     }
-  }, [draft, expanded]);
+  }, [draftEmpty, expanded]);
 
   // Expansion is one-way while the user is typing: the pill and expanded
   // shapes give the text different widths, so a 2-line pill can re-flow to
@@ -3400,14 +3410,14 @@ export function ChatPane({
       // it again, and the two LayoutAnimation springs ping-pong — the composer
       // (and the working indicator stacked above it) shake violently. An empty
       // composer is never expanded, so there is nothing to grow for here.
-      if (draft.length === 0) return;
+      if (draftStore.get().length === 0) return;
       const h = e.nativeEvent.contentSize.height;
       if (h > EXPAND_THRESHOLD) {
         LayoutAnimation.configureNext(LAYOUT_SPRING);
         setExpanded(true);
       }
     },
-    [expanded, draft],
+    [expanded, draftStore],
   );
 
   const submit = useCallback(() => {
@@ -3415,36 +3425,20 @@ export function ChatPane({
     const shouldPlaceLatestTurn = scroll.getShouldPlaceLatestTurn();
     const submitted = onSubmit();
     if (submitted && shouldPlaceLatestTurn) {
-      // Spacer and scroll anchor are computed against the keyboard-DOWN
-      // inset: `Keyboard.dismiss()` below collapses `keyboardExtra` a few
-      // frames from now, and a target derived from the inflated inset would
-      // be left ~keyboard-height past the content end once the padding
-      // shrinks.
-      const restingBottomInsetPx = EDGE_FADE + footerHeight;
-      const restingSpacerTargetPx = resolveResponseSpacerHeight({
-        viewportHeight: listViewportHeight,
-        bottomInsetPx: restingBottomInsetPx,
-        minimumHeightPx: restingBottomInsetPx + CHAT_TAIL_GAP,
-      });
-      activateResponseSpacer(restingSpacerTargetPx - restingBottomInsetPx);
       setSendPinSuppressForId(submitted.userMessageId);
       // Always start from the committed message list, even with no keyboard.
-      // The effect also waits for the keyboard-down inset when needed.
+      // The effect waits for the keyboard-down inset: `Keyboard.dismiss()`
+      // below collapses `keyboardExtra` a few frames from now, and a target
+      // derived from the inflated inset would land past the content end.
       pendingSendNudgeRef.current = {
         userMessageId: submitted.userMessageId,
       };
     } else if (submitted) {
-      clearResponseSpacer();
       scroll.releaseFollow();
     }
     Keyboard.dismiss();
   }, [
     onSubmit,
-    activateResponseSpacer,
-    clearResponseSpacer,
-    footerHeight,
-    keyboardExtra,
-    listViewportHeight,
     scroll.getShouldPlaceLatestTurn,
     scroll.nudgeAfterSend,
     scroll.releaseFollow,
@@ -3455,13 +3449,6 @@ export function ChatPane({
     // We trust the parent to memoize these.
     [dictationHeaders],
   );
-
-  // Use a ref so the dictation transcript callback always sees the latest
-  // draft, even when a transcription chunk lands after the parent re-renders.
-  const draftRef = useRef(draft);
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
 
   // Auto-send-after-dictation coordination (see `stopAndSendVoice` below).
   // When a voice-send is armed we stash the exact draft the transcript produces
@@ -3474,12 +3461,14 @@ export function ChatPane({
 
   const appendTranscript = useCallback(
     (text: string) => {
-      const trimmedPrev = draftRef.current.trimEnd();
+      // The store is read synchronously, so a transcription chunk always
+      // appends to the latest text.
+      const trimmedPrev = draftStore.get().trimEnd();
       const next = trimmedPrev ? `${trimmedPrev} ${text}` : text;
       if (pendingVoiceSendRef.current) voiceSendTargetRef.current = next;
-      onChangeDraft(next);
+      draftStore.set(next);
     },
-    [onChangeDraft],
+    [draftStore],
   );
 
   const dictation = useDictation({
@@ -3600,7 +3589,7 @@ export function ChatPane({
         armed: pendingVoiceSendRef.current,
         resultReady: voiceSendResultReadyRef.current,
         status: dictation.status,
-        draft,
+        draft: draftStore.get(),
         target,
         attachmentCount: attachments?.length ?? 0,
       })
@@ -3611,7 +3600,7 @@ export function ChatPane({
     voiceSendResultReadyRef.current = false;
     voiceSendTargetRef.current = null;
     submit();
-  }, [dictation.status, draft, attachments, submit, voiceSendResultVersion]);
+  }, [dictation.status, draftStore, attachments, submit, voiceSendResultVersion]);
 
   const attachmentLimit = maxAttachments ?? CHAT_ATTACHMENT_MAX_COUNT;
   const acceptPicked = useCallback(
@@ -3727,43 +3716,24 @@ export function ChatPane({
 
   // Root the in-tree menu overlays measure against (see PlusMenuPopover).
   const rootRef = useRef<View>(null);
-  const plusAnchorRef = useRef<View>(null);
   const modelPickerAnchorRef = useRef<View>(null);
-  const [plusMenuAnchor, setPlusMenuAnchor] = useState<AnchorRect | null>(null);
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // The picker a sheet choice asked for; it opens once the sheet is gone,
+  // since iOS won't present a picker over a sheet that is still leaving.
+  const afterAddSheetRef = useRef<(() => void) | null>(null);
   const [modelPickerAnchor, setModelPickerAnchor] = useState<AnchorRect | null>(
     null,
   );
 
-  const plusMenuOptions = useMemo<PlusMenuOption[]>(() => {
-    const out: PlusMenuOption[] = [];
-    if (enableAttachments) {
-      out.push({
-        id: "attach-photo",
-        label: t("chat.attachments.attachPhoto"),
-        icon: "image",
-        onSelect: () => void pickImage(),
-      });
-      out.push({
-        id: "take-photo",
-        label: t("chat.attachments.takePhoto"),
-        icon: "camera",
-        onSelect: () => void takePhoto(),
-      });
-      out.push({
-        id: "attach-file",
-        label: t("chat.attachments.attachFile"),
-        icon: "file-text",
-        onSelect: () => void pickDocument(),
-      });
-    }
-    out.push({
-      id: "read-aloud",
-      label: readAloud.enabled ? "Stop reading aloud" : "Read replies aloud",
-      icon: readAloud.enabled ? "volume-2" : "volume-x",
-      onSelect: () => void readAloud.setEnabled(!readAloud.enabled),
-    });
-    return out;
-  }, [enableAttachments, pickDocument, pickImage, readAloud, t, takePhoto]);
+  const chooseFromAddSheet = useCallback((action: () => void) => {
+    afterAddSheetRef.current = action;
+    setAddSheetOpen(false);
+  }, []);
+  const onAddSheetDismissed = useCallback(() => {
+    const action = afterAddSheetRef.current;
+    afterAddSheetRef.current = null;
+    action?.();
+  }, []);
 
   // Debounced catch-up indicator (show delay + minimum visible time), so
   // instant no-op pulls on every tab return never flash the pill.
@@ -3878,37 +3848,10 @@ export function ChatPane({
   );
 
   const onPressPlus = useCallback(() => {
-    if (plusMenuOptions.length === 0) return;
-    if (
-      plusMenuOptions.length === 1 &&
-      plusMenuOptions[0].id === "attach-photo"
-    ) {
-      // Single-action: fall straight through so the menu doesn't add friction.
-      void pickImage();
-      return;
-    }
-    if (!plusAnchorRef.current) return;
     tapLight();
-    const measureAnchor = () => {
-      plusAnchorRef.current?.measureInWindow((x, y, width, height) => {
-        setPlusMenuAnchor({ x, y, width, height });
-      });
-    };
-    if (Keyboard.isVisible()) {
-      // The composer rides the keyboard (composerKeyboardStyle), so measuring
-      // at dismiss time would anchor the menu a keyboard-height above the
-      // button's settled position. Measure once the hide animation completes.
-      const sub = Keyboard.addListener("keyboardDidHide", () => {
-        sub.remove();
-        measureAnchor();
-      });
-      Keyboard.dismiss();
-    } else {
-      measureAnchor();
-    }
-  }, [pickImage, plusMenuOptions]);
-
-  const dismissPlusMenu = useCallback(() => setPlusMenuAnchor(null), []);
+    Keyboard.dismiss();
+    setAddSheetOpen(true);
+  }, []);
 
   const modelPickerOptions = useMemo<PlusMenuOption[]>(() => {
     if (!composerModelPicker?.pinned) return [];
@@ -4005,14 +3948,14 @@ export function ChatPane({
         onAddQuote(trimmed);
       } else {
         const quoted = quoteMessageText(trimmed);
-        const current = draftRef.current;
-        onChangeDraft(
+        const current = draftStore.get();
+        draftStore.set(
           current.trim() ? `${quoted}\n\n${current}` : `${quoted}\n\n`,
         );
       }
       setTimeout(() => inputRef.current?.focus(), 0);
     },
-    [onAddQuote, onChangeDraft],
+    [draftStore, onAddQuote],
   );
 
   // Long-press action menu for USER messages (assistant long-press does native
@@ -4069,6 +4012,45 @@ export function ChatPane({
     return options;
   }, [messageMenu, quoteMessage, startSelectingMessage]);
 
+  // The list's handlers are stable so a composer keystroke — which re-renders
+  // this pane — leaves the memoized LegendList (and its rows) alone.
+  const selectingMessageIdRef = useRef<string | null>(null);
+  selectingMessageIdRef.current = selectingMessageId;
+  const handleListScrollBeginDrag = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      // Scrolling the transcript exits any active text selection before the
+      // drag runs.
+      if (selectingMessageIdRef.current != null) stopSelectingMessage();
+      pendingSendNudgeRef.current = null;
+      scroll.onScrollBeginDrag();
+      historyPaging.beginDrag();
+      // A short page may already be at the boundary and never cross a list
+      // threshold. The drag itself requests one page.
+      requestHistoryNearPosition(e.nativeEvent);
+    },
+    [
+      historyPaging,
+      requestHistoryNearPosition,
+      scroll.onScrollBeginDrag,
+      stopSelectingMessage,
+    ],
+  );
+  const handleListScrollEndDrag = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      historyPaging.endDrag(e.nativeEvent.velocity?.y);
+      handleListScrollSettle();
+    },
+    [handleListScrollSettle, historyPaging],
+  );
+  const handleListMomentumScrollBegin = useCallback(
+    () => historyPaging.beginMomentum(),
+    [historyPaging],
+  );
+  const handleListMomentumScrollEnd = useCallback(() => {
+    historyPaging.endScroll();
+    handleListScrollSettle();
+  }, [handleListScrollSettle, historyPaging]);
+
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
   // The in-flight turn's reply row: appended empty on dispatch, then grown by
   // whole message segments. It owns the autoscroll follow so a landing message
@@ -4095,6 +4077,21 @@ export function ChatPane({
         : undefined,
     [onOpenArtifact, conversationId],
   );
+  // The scroll owner's layout handlers change with the reserved bottom inset
+  // (keyboard, composer height). Route rows through stable forwarders so those
+  // changes do not invalidate every mounted row.
+  const scrollLayoutRef = useRef(scroll);
+  scrollLayoutRef.current = scroll;
+  const onActiveAssistantLayout = useCallback(
+    (event: LayoutChangeEvent) =>
+      scrollLayoutRef.current.onActiveAssistantLayout(event),
+    [],
+  );
+  const onLatestUserLayout = useCallback(
+    (id: string, event: LayoutChangeEvent) =>
+      scrollLayoutRef.current.onLatestUserLayout(id, event),
+    [],
+  );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isActiveAssistant = item.id === activeAssistantId;
@@ -4109,9 +4106,9 @@ export function ChatPane({
           animate={animate && item.role !== "assistant"}
           onLayout={
             isActiveAssistant
-              ? scroll.onActiveAssistantLayout
+              ? onActiveAssistantLayout
               : isLatestUser
-                ? (event) => scroll.onLatestUserLayout(item.id, event)
+                ? (event) => onLatestUserLayout(item.id, event)
                 : undefined
           }
         >
@@ -4149,25 +4146,25 @@ export function ChatPane({
       onOpenArtifact,
       onOpenStellaFile,
       latestUserMessageId,
-      scroll.onLatestUserLayout,
-      scroll.onActiveAssistantLayout,
+      onLatestUserLayout,
+      onActiveAssistantLayout,
       activeAssistantId,
       activeMenuMessageId,
       selectingMessageId,
-      startSelectingMessage,
       stopSelectingMessage,
       quoteMessage,
       onOpenActivity,
       desktopAccess,
     ],
   );
-  // Recycled rows also depend on focus and the current palette. Invalidate
-  // them when either changes so native attributed text receives new colors
-  // even when the message data itself has not changed.
-  const listExtraData = useMemo(
-    () => ({ activeMenuMessageId, selectingMessageId, colors }),
-    [activeMenuMessageId, selectingMessageId, colors],
-  );
+  // Legend re-renders a mounted row only when its item or `extraData`
+  // changes, never when `renderItem` does. Everything a row closes over —
+  // focus and selection, the palette (native attributed text needs new
+  // colors), reply quotes and "N replies" counts that change when *other*
+  // messages land, the latest-turn layout wiring, paired-computer access —
+  // is a `renderItem` dependency, so its identity is the invalidation key.
+  // Rows whose props did not change still bail out in `ChatMessageRow`'s memo.
+  const listExtraData = renderItem;
   const renderSeparator = useCallback(
     () => <View style={styles.itemSeparator} />,
     [styles],
@@ -4175,12 +4172,11 @@ export function ChatPane({
   const getItemType = useCallback((item: ChatMessage) => item.role, []);
 
   // The working indicator rides at the tail of the chat (desktop-style) instead
-  // of floating above the composer. Its viewport-derived tail reserves the
-  // response area below the latest turn; the indicator itself keeps a stable
-  // slot, so fading it in or out never changes the footer's height.
+  // of floating above the composer. It keeps a stable slot, so fading it in or
+  // out never changes the footer's height.
   const listFooter = useMemo(
     () => (
-      <View style={[styles.chatTail, { minHeight: chatTailHeightPx }]}>
+      <View style={styles.chatTail}>
         <WorkingIndicator
           active={workingIndicator?.active ?? streaming}
           exitImmediately={workingIndicator?.exitImmediately}
@@ -4190,7 +4186,7 @@ export function ChatPane({
         />
       </View>
     ),
-    [chatTailHeightPx, streaming, workingIndicator, styles.chatTail],
+    [streaming, workingIndicator, styles.chatTail],
   );
 
   // Search shows a separate results menu that overlays the chat (the chat
@@ -4258,8 +4254,10 @@ export function ChatPane({
   );
 
   const empty = visibleMessages.length === 0;
-  const hasText = draft.trim().length > 0;
-  const composerHasContent = draft.length > 0 || (attachments?.length ?? 0) > 0;
+  const composerHasContent = !draftEmpty || (attachments?.length ?? 0) > 0;
+  const canSubmit =
+    sendReady &&
+    (hasText || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0);
   const dictationInline = isListening && !hasText;
   const dictationBelow = isListening && hasText;
 
@@ -4280,7 +4278,7 @@ export function ChatPane({
   const hasPlusMenu = composerEnabled;
 
   const plusButton = hasPlusMenu ? (
-    <View ref={plusAnchorRef} collapsable={false}>
+    <View collapsable={false}>
       <Pressable
         style={styles.addButton}
         hitSlop={4}
@@ -4357,9 +4355,40 @@ export function ChatPane({
     () => [styles.list, { paddingBottom: listBottomInsetPx }],
     [styles.list, listBottomInsetPx],
   );
+  // Built once per geometry: the backdrop mask would otherwise re-render with
+  // every composer keystroke.
+  const topTaper = useMemo(
+    () => (
+      <View style={styles.topTaper} pointerEvents="none" collapsable={false}>
+        <MaskedView
+          style={StyleSheet.absoluteFill}
+          maskElement={
+            <LinearGradient
+              colors={["#000", "rgba(0,0,0,0)"]}
+              locations={[0, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+          }
+        >
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: -(insets.top + TOP_BAR_BAR_HEIGHT),
+              height: screenHeight,
+            }}
+          >
+            <AppBackdrop />
+          </View>
+        </MaskedView>
+      </View>
+    ),
+    [insets.top, screenHeight, styles.topTaper],
+  );
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
-      <View style={styles.viewport} onLayout={onViewportLayout}>
+      <View style={styles.viewport}>
         {historyLoading ? (
           // Hold a stable blank surface while history hydrates so the empty
           // state never flashes during a tab transition.
@@ -4393,26 +4422,10 @@ export function ChatPane({
                 ItemSeparatorComponent={renderSeparator}
                 ListFooterComponent={listFooter}
                 onScroll={handleListScroll}
-                onScrollBeginDrag={(e) => {
-                  // Scrolling the transcript exits any active text selection
-                  // before the drag runs (inline so it adds no new deps warning).
-                  if (selectingMessageId != null) stopSelectingMessage();
-                  pendingSendNudgeRef.current = null;
-                  scroll.onScrollBeginDrag();
-                  historyPaging.beginDrag();
-                  // A short page may already be at the boundary and never
-                  // cross a list threshold. The drag itself requests one page.
-                  requestHistoryNearPosition(e.nativeEvent);
-                }}
-                onScrollEndDrag={(e) => {
-                  historyPaging.endDrag(e.nativeEvent.velocity?.y);
-                  handleListScrollSettle();
-                }}
-                onMomentumScrollBegin={() => historyPaging.beginMomentum()}
-                onMomentumScrollEnd={() => {
-                  historyPaging.endScroll();
-                  handleListScrollSettle();
-                }}
+                onScrollBeginDrag={handleListScrollBeginDrag}
+                onScrollEndDrag={handleListScrollEndDrag}
+                onMomentumScrollBegin={handleListMomentumScrollBegin}
+                onMomentumScrollEnd={handleListMomentumScrollEnd}
                 onContentSizeChange={handleListContentSizeChange}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
@@ -4443,14 +4456,7 @@ export function ChatPane({
                 // placement, and this pin owns only ordinary live-tail appends.
                 maintainScrollAtEnd={
                   dataChangeScrollOwner === "legend-tail"
-                    ? {
-                        animated: false,
-                        on: {
-                          dataChange: true,
-                          itemLayout: false,
-                          layout: false,
-                        },
-                      }
+                    ? LEGEND_TAIL_SCROLL_AT_END
                     : false
                 }
               />
@@ -4465,30 +4471,7 @@ export function ChatPane({
             {/* Android's native MaskedView does not implement pointerEvents.
                 Keep touch exclusion on a real RN View around the whole mask,
                 including its screen-height backdrop child. */}
-            <View style={styles.topTaper} pointerEvents="none" collapsable={false}>
-              <MaskedView
-                style={StyleSheet.absoluteFill}
-                maskElement={
-                  <LinearGradient
-                    colors={["#000", "rgba(0,0,0,0)"]}
-                    locations={[0, 1]}
-                    style={StyleSheet.absoluteFill}
-                  />
-                }
-              >
-                <View
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    top: -(insets.top + TOP_BAR_BAR_HEIGHT),
-                    height: screenHeight,
-                  }}
-                >
-                  <AppBackdrop />
-                </View>
-              </MaskedView>
-            </View>
+            {topTaper}
           </>
         )}
         {replyFocus && <ReplyFocus
@@ -4799,11 +4782,11 @@ export function ChatPane({
                     }
                   >
                     {isExpandedComposed ? null : plusButton}
-                    <TextInput
+                    <ComposerTextInput
                       ref={inputRef}
+                      draftStore={draftStore}
                       multiline
                       scrollEnabled={isExpandedComposed}
-                      onChangeText={onChangeDraft}
                       onContentSizeChange={handleContentSizeChange}
                       onFocus={() => {
                         // Focusing the composer (keyboard opening) exits any
@@ -4823,10 +4806,9 @@ export function ChatPane({
                       underlineColorAndroid="transparent"
                       style={
                         isExpandedComposed
-                          ? [styles.inputExpanded, draft.length === 0 && styles.inputExpandedEmpty]
+                          ? [styles.inputExpanded, draftEmpty && styles.inputExpandedEmpty]
                           : styles.inputPill
                       }
-                      value={draft}
                       editable={composerEnabled}
                     />
                     {isExpandedComposed ? null : canSubmit ? (
@@ -4925,14 +4907,27 @@ export function ChatPane({
           </Pressable>
         </View>
       </Reanimated.View>
-      <PlusMenuPopover
-        visible={Boolean(plusMenuAnchor) && plusMenuOptions.length > 0}
-        anchor={plusMenuAnchor}
-        options={plusMenuOptions}
-        onDismiss={dismissPlusMenu}
-        colors={colors}
-        containerRef={rootRef}
-        large
+      <AddContextSheet
+        visible={addSheetOpen}
+        onClose={() => setAddSheetOpen(false)}
+        onDismissed={onAddSheetDismissed}
+        onCamera={
+          enableAttachments
+            ? () => chooseFromAddSheet(() => void takePhoto())
+            : undefined
+        }
+        onPhotos={
+          enableAttachments
+            ? () => chooseFromAddSheet(() => void pickImage())
+            : undefined
+        }
+        onFiles={
+          enableAttachments
+            ? () => chooseFromAddSheet(() => void pickDocument())
+            : undefined
+        }
+        readAloud={readAloud.enabled}
+        onReadAloudChange={(next) => void readAloud.setEnabled(next)}
       />
       <PlusMenuPopover
         // Guard against an empty menu: an attachment-only message yields no
@@ -5103,7 +5098,6 @@ const makeStyles = (colors: Colors) =>
     list: {
       paddingHorizontal: CHAT_HORIZONTAL_INSET,
       paddingTop: 80,
-      paddingBottom: EDGE_FADE,
     },
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working
@@ -5183,16 +5177,6 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 18,
       borderBottomRightRadius: 4,
       padding: 12,
-    },
-    userBubbleQueued: { opacity: 0.55 },
-    queuedTag: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 11,
-      letterSpacing: 0.4,
-      marginTop: 4,
-      marginRight: 4,
-      textTransform: "uppercase",
     },
     stoppedTag: {
       color: colors.textMuted,
@@ -5489,9 +5473,9 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
-      minHeight: 56,
+      minHeight: 50,
       paddingHorizontal: 8,
-      paddingVertical: 11,
+      paddingVertical: 8,
     },
     expandedInputBlock: { flexDirection: "column" },
 

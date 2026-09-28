@@ -1,0 +1,4 @@
+[test]
+# Unit tests live under src/. The live acceptance test in scripts/ needs its
+# preload and a live deployment, so a bare `bun test` must not pick it up.
+root = "src"

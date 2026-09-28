@@ -9,7 +9,16 @@ const budgets = {
   maxJsAssetBytes: 2_000_000,
   maxCssAssetBytes: 400_000,
   maxRendererBytes: 24_000_000,
+  // Every JS file the main window fetches before it can render: the entry
+  // script plus its modulepreload list, i.e. the entry's static import graph.
+  // Was 2.95 MB while lazy-only vendors (pdfjs, recharts) leaked onto it;
+  // ~2.2 MB after. Ratchet down as the boot path gets lighter.
+  maxMainCriticalJsBytes: 2_300_000,
 };
+
+// Packages only reachable through lazy imports. Finding one on the main
+// window's critical path means a shared module was captured into its chunk.
+const lazyOnlyChunkPattern = /^vendor-(pdfjs-dist|react-pdf|recharts)-/;
 
 const formatBytes = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -73,11 +82,43 @@ if (totalBytes > budgets.maxRendererBytes) {
   );
 }
 
+const mainHtml = fs.readFileSync(path.join(distDir, "index.html"), "utf8");
+const mainCriticalJs = [
+  ...new Set(
+    [
+      ...mainHtml.matchAll(
+        /<(?:script|link)\b[^>]*\b(?:src|href)="(?:\.\/|\/chat-app\/)?(assets\/[^"]+\.js)"/g,
+      ),
+    ].map((match) => match[1]),
+  ),
+];
+if (mainCriticalJs.length === 0) {
+  failures.push("Could not find the main window's entry script in index.html.");
+}
+const mainCriticalJsBytes = mainCriticalJs.reduce(
+  (sum, relative) => sum + fs.statSync(path.join(distDir, relative)).size,
+  0,
+);
+if (mainCriticalJsBytes > budgets.maxMainCriticalJsBytes) {
+  failures.push(
+    `Main window critical-path JS is ${formatBytes(mainCriticalJsBytes)}; budget is ${formatBytes(budgets.maxMainCriticalJsBytes)}.`,
+  );
+}
+const leakedLazyChunks = mainCriticalJs.filter((relative) =>
+  lazyOnlyChunkPattern.test(path.basename(relative)),
+);
+if (leakedLazyChunks.length > 0) {
+  failures.push(
+    `Lazy-only chunks are on the main window's critical path: ${leakedLazyChunks.join(", ")}.`,
+  );
+}
+
 console.log(
   [
     `Renderer dist: ${formatBytes(totalBytes)}`,
     `Largest JS: ${largestJs.relative || "none"} ${formatBytes(largestJs.size)}`,
     `Largest CSS: ${largestCss.relative || "none"} ${formatBytes(largestCss.size)}`,
+    `Main window critical-path JS: ${formatBytes(mainCriticalJsBytes)} across ${mainCriticalJs.length} files`,
   ].join("\n"),
 );
 

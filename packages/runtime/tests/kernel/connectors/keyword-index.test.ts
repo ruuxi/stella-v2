@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   readCachedServerCatalog,
+  readCachedServerCatalogStamp,
   writeCachedServerCatalog,
 } from "@stella/runtime/kernel/connectors/catalog-cache";
 import {
@@ -144,6 +145,27 @@ describe("getConnectorKeywordIndex (catalog cache sync)", () => {
         (entry) => entry.id,
       ),
     ).toContain("asana");
+  });
+
+  it("reuses the index while the cache file is unchanged and rebuilds when it is removed", async () => {
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [composioEntry("linear", "Linear")]);
+    const stamp = await readCachedServerCatalogStamp(root);
+    expect(stamp).not.toBe("absent");
+    const first = await getConnectorKeywordIndex(root);
+    expect(await getConnectorKeywordIndex(root)).toBe(first);
+    expect(await readCachedServerCatalogStamp(root)).toBe(stamp);
+
+    await rm(path.join(root, "connectors", "catalog-cache.json"), {
+      force: true,
+    });
+    expect(await readCachedServerCatalogStamp(root)).toBe("absent");
+    const bundledOnly = await getConnectorKeywordIndex(root);
+    expect(bundledOnly).not.toBe(first);
+    expect(bundledOnly.entriesById.get("linear")?.provider).not.toBe(
+      "backend-composio",
+    );
+    expect(await getConnectorKeywordIndex(root)).toBe(bundledOnly);
   });
 
   it("round-trips the server catalog through the disk cache", async () => {

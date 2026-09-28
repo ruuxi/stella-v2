@@ -913,7 +913,12 @@
       "photosDeniedBody": "Autorisez Stella à accéder à votre photothèque dans Réglages pour joindre des images.",
       "cameraDeniedTitle": "Appareil photo",
       "cameraDeniedBody": "Autorisez Stella à utiliser l'appareil photo dans Réglages pour prendre une photo.",
-      "photoLabel": "Photo"
+      "photoLabel": "Photo",
+      "sheetTitle": "Ajouter au chat",
+      "camera": "Appareil photo",
+      "photos": "Photos",
+      "files": "Fichiers",
+      "readAloud": "Lire les réponses à voix haute"
     }
   },
   "errors": {
@@ -1292,14 +1297,7 @@
       },
       "queuedMessages": {
         "cancel": "Annuler le message en file d’attente",
-        "cancelAndEdit": "Annuler et modifier",
-        "cancelIndexed": "Annuler le message en file d’attente {index}",
-        "previewLabel": "{label}. Aperçu des messages en file d’attente",
-        "queuedCount": {
-          "one": "{count} message en file d’attente",
-          "many": "{count} messages en file d’attente",
-          "other": "{count} messages en file d’attente"
-        }
+        "cancelAndEdit": "Annuler et modifier"
       },
       "replyCount": {
         "label": {
@@ -1959,7 +1957,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Paramètres",
+      "apps": "Apps",
       "openLabel": "Ouvrir la navigation",
+      "chatSettingsLabel": "Paramètres du chat",
       "closeLabel": "Fermer la navigation",
       "account": "Compte",
       "signIn": "Se connecter",
@@ -2017,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "Demandez ce que vous voulez à Stella",
+      "workingMany": "{count} tâches en cours",
       "composerPlaceholder": "Écrire à Stella",
       "mainChat": "Chat principal",
       "createFailed": "Impossible de créer un chat. Veuillez réessayer.",
@@ -2070,7 +2071,8 @@
       },
       "files": {
         "empty": "Aucun fichier pour l’instant. Tout ce que Stella produit apparaît ici.",
-        "emptyFiltered": "Aucun fichier ne correspond."
+        "emptyFiltered": "Aucun fichier ne correspond.",
+        "searchPlaceholder": "Rechercher des fichiers"
       },
       "activity": {
         "empty": "Aucun travail en arrière-plan pour l’instant.",
@@ -2117,6 +2119,7 @@
       "showEmailLabel": "Afficher l'e-mail",
       "hideEmailLabel": "Masquer l'e-mail",
       "appearanceSection": "Apparence",
+      "computerSection": "Ordinateur",
       "appearance": {
         "system": "Système",
         "light": "Clair",
@@ -2149,6 +2152,7 @@
       "forgetConfirmTitle": "Oublier {name} ?",
       "forgetConfirmBody": "Ce téléphone cessera de se reconnecter à cet ordinateur jusqu'à ce que vous l'associez de nouveau.",
       "carPlayDiagnostics": "Diagnostics CarPlay",
+      "aboutSection": "À propos",
       "openCarPlayDiagnosticsLabel": "Ouvrir les diagnostics CarPlay",
       "termsOfService": "Conditions d'utilisation",
       "openTermsLabel": "Ouvrir les Conditions d'utilisation",

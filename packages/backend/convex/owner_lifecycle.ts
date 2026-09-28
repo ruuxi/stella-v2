@@ -923,7 +923,9 @@ export const resumeOwnerPurgeJobInternal = internalAction({
   },
 });
 
-export const sweepDueOwnerPurgeJobsInternal = internalAction({
+// A mutation, not an action: the minute cron reads the due index and
+// schedules resumes in one transaction, and an idle tick costs no action.
+export const sweepDueOwnerPurgeJobsInternal = internalMutation({
   args: { limit: v.optional(v.number()) },
   returns: v.object({ attempted: v.number() }),
   handler: async (ctx, args) => {

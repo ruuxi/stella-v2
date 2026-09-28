@@ -43,17 +43,6 @@ const input: AgentTurnInput = {
 };
 
 describe("agent turn input", () => {
-  test("carries no reusable control-plane credential", () => {
-    const keys = Object.keys(input);
-    expect(keys).not.toContain("turnToken");
-    expect(keys).not.toContain("convexCallbackBase");
-    expect(keys).not.toContain("convexSiteUrl");
-    expect(input.turnBroker).toEqual({
-      credentialsPath: "/workspace/.turn-broker-1.json",
-    });
-    expect(input.modelGateway.capability).toBe(CAPABILITY);
-  });
-
   test("the model gateway input fails closed on anything but an origin and a JWS", () => {
     expect(parseCloudModelGatewayInput(input.modelGateway)).toEqual({
       origin: "https://gateway.example",

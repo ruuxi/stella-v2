@@ -911,7 +911,12 @@
       "photosDeniedBody": "請在設定中允許 Stella 存取你的照片圖庫，以便附加圖片。",
       "cameraDeniedTitle": "相機",
       "cameraDeniedBody": "請在設定中允許 Stella 使用相機，以便拍照。",
-      "photoLabel": "照片"
+      "photoLabel": "照片",
+      "sheetTitle": "新增至聊天",
+      "camera": "相機",
+      "photos": "照片",
+      "files": "檔案",
+      "readAloud": "朗讀回覆"
     }
   },
   "errors": {
@@ -1278,12 +1283,7 @@
       },
       "queuedMessages": {
         "cancel": "取消排入佇列的訊息",
-        "cancelAndEdit": "取消並編輯",
-        "cancelIndexed": "取消排入佇列的訊息 {index}",
-        "previewLabel": "{label}。預覽排入佇列的訊息",
-        "queuedCount": {
-          "other": "{count} 則訊息在佇列中"
-        }
+        "cancelAndEdit": "取消並編輯"
       },
       "replyCount": {
         "label": {
@@ -1920,7 +1920,9 @@
     "nav": {
       "chat": "聊天",
       "settings": "設定",
+      "apps": "應用程式",
       "openLabel": "開啟導覽",
+      "chatSettingsLabel": "聊天設定",
       "closeLabel": "關閉導覽",
       "account": "帳號",
       "signIn": "登入",
@@ -1978,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "什麼都可以問 Stella",
+      "workingMany": "{count} 項工作進行中",
       "composerPlaceholder": "傳訊息給 Stella",
       "mainChat": "主要聊天",
       "createFailed": "無法建立聊天。請重試。",
@@ -2029,7 +2032,8 @@
       },
       "files": {
         "empty": "還沒有檔案。Stella 產生的所有內容都會顯示在這裡。",
-        "emptyFiltered": "沒有相符的檔案。"
+        "emptyFiltered": "沒有相符的檔案。",
+        "searchPlaceholder": "搜尋檔案"
       },
       "activity": {
         "empty": "還沒有背景工作。",
@@ -2076,6 +2080,7 @@
       "showEmailLabel": "顯示電子郵件",
       "hideEmailLabel": "隱藏電子郵件",
       "appearanceSection": "外觀",
+      "computerSection": "電腦",
       "appearance": {
         "system": "系統",
         "light": "淺色",
@@ -2108,6 +2113,7 @@
       "forgetConfirmTitle": "要忘記 {name} 嗎？",
       "forgetConfirmBody": "在您重新配對之前，這支手機將不再連線到那台電腦。",
       "carPlayDiagnostics": "CarPlay 診斷",
+      "aboutSection": "關於",
       "openCarPlayDiagnosticsLabel": "開啟 CarPlay 診斷",
       "termsOfService": "服務條款",
       "openTermsLabel": "開啟服務條款",

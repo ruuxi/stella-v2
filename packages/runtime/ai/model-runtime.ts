@@ -124,8 +124,71 @@ const hasStaticAuthHeader = (
 
 const cloneModel = (model: Model<Api>): Model<Api> => structuredClone(model);
 
-const modelMap = (models: readonly Model<Api>[]): Map<string, Model<Api>> =>
-  new Map(models.map((model) => [model.id, cloneModel(model)]));
+/**
+ * Composed catalog models are immutable and shared across recompositions and
+ * snapshots instead of being deep-cloned on every recompose (835 models, 13%
+ * of worker boot CPU when they were cloned). Public accessors that hand a
+ * model to a caller who may mutate it (`getModel`, `getModels`,
+ * `getAllModels`) still return clones.
+ */
+const deepFreeze = <T>(value: T): T => {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
+    return value;
+  }
+  Object.freeze(value);
+  for (const nested of Object.values(value)) deepFreeze(nested);
+  return value;
+};
+
+/** Own a caller-supplied model: an isolated, frozen copy. */
+const ownModel = (model: Model<Api>): Model<Api> =>
+  deepFreeze(cloneModel(model));
+
+/**
+ * A composed model built during recompose (models.json provider transport,
+ * configured definitions, overrides, extension models) may share nested
+ * objects with the parsed config or extension definitions. Clone those before
+ * freezing so freezing never reaches objects the runtime does not own; models
+ * carried over untouched are already frozen and are reused as-is.
+ */
+const sealComposedModel = (model: Model<Api>): Model<Api> =>
+  Object.isFrozen(model) ? model : ownModel(model);
+
+/**
+ * Equality with JSON semantics (what the old `JSON.stringify` fingerprint
+ * compared): keys whose value is `undefined` are treated as absent, and
+ * identical references short-circuit, which is the common case for the
+ * shared frozen models.
+ */
+const jsonEqual = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null
+  ) {
+    return false;
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    const other = b as unknown[];
+    if (a.length !== other.length) return false;
+    return a.every((item, index) => jsonEqual(item, other[index]));
+  }
+  const definedKeys = (value: object) =>
+    Object.keys(value).filter(
+      (key) => (value as Record<string, unknown>)[key] !== undefined,
+    );
+  const keysA = definedKeys(a);
+  if (keysA.length !== definedKeys(b).length) return false;
+  return keysA.every((key) =>
+    jsonEqual(
+      (a as Record<string, unknown>)[key],
+      (b as Record<string, unknown>)[key],
+    ),
+  );
+};
 
 const validateRemoteCatalogEntries = (
   providerId: string,
@@ -336,7 +399,7 @@ export class ModelRuntime {
   private refreshIsForce = false;
   private readonly providerRefreshes = new Map<
     string,
-    { promise: Promise<void>; force: boolean }
+    { promise: Promise<boolean>; force: boolean }
   >();
   private refreshedAt: number | null = null;
   private compositionErrors: string[] = [];
@@ -347,7 +410,12 @@ export class ModelRuntime {
   // Timestamp-derived sequence remains ordered across worker restarts while
   // still allowing multiple registry changes inside one millisecond.
   private revision = Date.now() * 1_000;
-  private snapshotFingerprint?: string;
+  // Last published snapshot minus `revision`, compared structurally so the
+  // shared frozen models short-circuit on identity.
+  private publishedContent?: Omit<ModelRuntimeSnapshot, "revision">;
+  // Header-stripped snapshot view of each composed (frozen) model, so repeated
+  // snapshots reuse the same objects instead of rebuilding 835 of them.
+  private readonly snapshotModels = new WeakMap<Model<Api>, Model<Api>>();
   private readonly catalogChangeListeners = new Set<
     (snapshot: ModelRuntimeSnapshot) => void
   >();
@@ -362,7 +430,7 @@ export class ModelRuntime {
       }
       this.builtins.set(
         providerId,
-        Object.values(models).map((model) => cloneModel(model as Model<Api>)),
+        Object.values(models).map((model) => ownModel(model as Model<Api>)),
       );
     }
     this.builtinsLoaded = true;
@@ -405,12 +473,21 @@ export class ModelRuntime {
           entry.models,
         );
         this.dynamicCatalogs.set(providerId, {
-          models: validation.models,
+          models: validation.models.map(deepFreeze),
           checkedAt: validation.invalidCount > 0 ? undefined : entry.checkedAt,
         });
       }
     } catch {
       // Missing/corrupt cache falls back to the built-in catalog.
+    }
+    // The restored catalog is as fresh as its newest stored check, so a boot
+    // that skips every still-fresh provider reports that time rather than
+    // none.
+    const checkedAts = [...this.dynamicCatalogs.values()]
+      .map((entry) => entry.checkedAt)
+      .filter((checkedAt): checkedAt is number => checkedAt !== undefined);
+    if (this.refreshedAt === null && checkedAts.length > 0) {
+      this.refreshedAt = Math.max(...checkedAts);
     }
   }
 
@@ -425,7 +502,10 @@ export class ModelRuntime {
     providerId: string,
     entry: RuntimeCatalogEntry,
   ): void {
-    this.dynamicCatalogs.set(providerId, entry);
+    this.dynamicCatalogs.set(providerId, {
+      ...entry,
+      models: entry.models.map(deepFreeze),
+    });
     this.storedCatalogs.set(providerId, structuredClone(entry));
   }
 
@@ -447,20 +527,21 @@ export class ModelRuntime {
       const composeProvider = (
         providerConfig: ModelsJsonProvider | undefined,
       ): Map<string, Model<Api>> => {
-        const models = modelMap(this.builtins.get(providerId) ?? []);
+        // Sources are frozen and already carry `provider: providerId`, so
+        // they are shared, not cloned.
+        const models = new Map<string, Model<Api>>(
+          (this.builtins.get(providerId) ?? []).map((model) => [
+            model.id,
+            model,
+          ]),
+        );
         for (const dynamic of this.dynamicCatalogs.get(providerId)?.models ??
           []) {
-          models.set(
-            dynamic.id,
-            cloneModel({ ...dynamic, provider: providerId }),
-          );
+          models.set(dynamic.id, dynamic);
         }
         for (const managed of this.managedProviderModels.get(providerId) ??
           []) {
-          models.set(
-            managed.id,
-            cloneModel({ ...managed, provider: providerId }),
-          );
+          models.set(managed.id, managed);
         }
 
         if (providerConfig) {
@@ -498,7 +579,7 @@ export class ModelRuntime {
 
         for (const model of this.registeredModels.get(providerId)?.values() ??
           []) {
-          models.set(model.id, cloneModel(model));
+          models.set(model.id, model);
         }
 
         if (providerConfig?.modelOverrides) {
@@ -510,6 +591,9 @@ export class ModelRuntime {
               models.set(modelId, applyModelOverride(model, override));
             }
           }
+        }
+        for (const [modelId, model] of models) {
+          models.set(modelId, sealComposedModel(model));
         }
         return models;
       };
@@ -535,16 +619,25 @@ export class ModelRuntime {
   }
 
   private publishCatalogChangeIfNeeded(): void {
-    const snapshot = this.getSnapshot();
-    const fingerprint = JSON.stringify({ ...snapshot, revision: undefined });
-    if (fingerprint === this.snapshotFingerprint) return;
-    this.snapshotFingerprint = fingerprint;
-    this.publishCatalogSnapshot();
+    const { revision: _revision, ...content } = this.getSnapshot();
+    if (
+      this.publishedContent !== undefined &&
+      jsonEqual(content, this.publishedContent)
+    ) {
+      return;
+    }
+    this.publishedContent = content;
+    this.publishCatalogSnapshot(content);
   }
 
-  private publishCatalogSnapshot(): void {
+  private publishCatalogSnapshot(
+    content: Omit<ModelRuntimeSnapshot, "revision"> = this.getSnapshot(),
+  ): void {
     this.revision += 1;
-    const published = this.getSnapshot();
+    const published: ModelRuntimeSnapshot = {
+      ...content,
+      revision: this.revision,
+    };
     for (const listener of this.catalogChangeListeners) {
       try {
         listener(published);
@@ -587,7 +680,7 @@ export class ModelRuntime {
     if (isRetiredAssistantProvider(providerId)) return;
     this.managedProviderModels.set(
       providerId,
-      models.map((model) => cloneModel({ ...model, provider: providerId })),
+      models.map((model) => ownModel({ ...model, provider: providerId })),
     );
     this.recompose();
   }
@@ -596,7 +689,7 @@ export class ModelRuntime {
     this.ensureBuiltinsLoaded();
     if (isRetiredAssistantProvider(providerId)) return;
     const models = this.registeredModels.get(providerId) ?? new Map();
-    models.set(model.id, cloneModel(model));
+    models.set(model.id, ownModel(model));
     this.registeredModels.set(providerId, models);
     this.recompose();
   }
@@ -610,14 +703,15 @@ export class ModelRuntime {
     this.recompose();
   }
 
+  /** Resolves true when the provider's catalog was fetched, false if skipped. */
   private async refreshProviderOnce(
     providerId: string,
     options: { force?: boolean; lifecycleSignal?: AbortSignal },
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (isRetiredAssistantProvider(providerId)) {
       this.dynamicCatalogs.delete(providerId);
       this.storedCatalogs.delete(providerId);
-      return;
+      return false;
     }
     const stored = this.dynamicCatalogs.get(providerId);
     if (
@@ -625,7 +719,7 @@ export class ModelRuntime {
       stored?.checkedAt !== undefined &&
       Date.now() - stored.checkedAt < REMOTE_CATALOG_REFRESH_INTERVAL_MS
     ) {
-      return;
+      return false;
     }
     const timeoutSignal = AbortSignal.timeout(this.catalogRequestTimeoutMs);
     const signal = options.lifecycleSignal
@@ -657,7 +751,7 @@ export class ModelRuntime {
         models: stored?.models ?? [],
         checkedAt,
       });
-      return;
+      return true;
     }
     if (!response.ok) {
       throw new Error(
@@ -684,12 +778,13 @@ export class ModelRuntime {
       models: validation.models,
       checkedAt,
     });
+    return true;
   }
 
   private refreshProvider(
     providerId: string,
     options: { force?: boolean; lifecycleSignal?: AbortSignal },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const existing = this.providerRefreshes.get(providerId);
     if (existing) {
       if (options.force && !existing.force) {
@@ -760,17 +855,19 @@ export class ModelRuntime {
   private async refreshProviders(
     providerIds: readonly string[],
     options: { force?: boolean; signal?: AbortSignal },
-  ): Promise<string[]> {
+  ): Promise<{ failures: string[]; fetchedCount: number }> {
     const failures: string[] = [];
+    let fetchedCount = 0;
     let cursor = 0;
     const runWorker = async (): Promise<void> => {
       while (cursor < providerIds.length && !options.signal?.aborted) {
         const providerId = providerIds[cursor++];
         try {
-          await this.refreshProvider(providerId, {
+          const fetched = await this.refreshProvider(providerId, {
             force: options.force,
             lifecycleSignal: options.signal,
           });
+          if (fetched) fetchedCount += 1;
         } catch (error) {
           if (error instanceof CatalogRefreshCancelledError) continue;
           failures.push(
@@ -785,7 +882,7 @@ export class ModelRuntime {
         runWorker,
       ),
     );
-    return failures;
+    return { failures, fetchedCount };
   }
 
   async refresh(
@@ -812,7 +909,10 @@ export class ModelRuntime {
         const providerIds = Array.from(
           new Set([...this.builtins.keys(), ...STELLA_RELAY_PROVIDERS]),
         ).filter((providerId) => providerId !== "local");
-        const failures = await this.refreshProviders(providerIds, options);
+        const { failures, fetchedCount } = await this.refreshProviders(
+          providerIds,
+          options,
+        );
         // A torn-down refresh is not a catalog failure. Report nothing rather
         // than one scary line per provider that never got its turn, and leave
         // the previous error in place as the last thing we actually learned.
@@ -826,7 +926,11 @@ export class ModelRuntime {
           this.publishCatalogChangeIfNeeded();
           throw new Error(this.catalogError);
         }
-        if (successCount > 0) {
+        // Providers whose cached catalog is still fresh are skipped without a
+        // request. Only an actual fetch advances `refreshedAt` and rewrites
+        // the store; otherwise a boot with a fresh cache would republish the
+        // whole catalog just to move this timestamp.
+        if (successCount > 0 && fetchedCount > 0) {
           this.refreshedAt = Date.now();
           this.writeStoredCatalogs();
         }
@@ -1015,14 +1119,34 @@ export class ModelRuntime {
     return headers;
   }
 
+  /**
+   * Snapshot view of a composed model: headers stripped (they can carry
+   * static credentials), frozen, and memoized per composed model.
+   */
+  private toSnapshotModel(model: Model<Api>): Model<Api> {
+    let view = this.snapshotModels.get(model);
+    if (!view) {
+      const { headers: _headers, ...safeModel } = model;
+      view = Object.freeze(safeModel) as Model<Api>;
+      this.snapshotModels.set(model, view);
+    }
+    return view;
+  }
+
+  getModelCount(): number {
+    this.ensureBuiltinsLoaded();
+    let count = 0;
+    for (const models of this.composed.values()) count += models.size;
+    return count;
+  }
+
   getSnapshot(): ModelRuntimeSnapshot {
     this.ensureBuiltinsLoaded();
     return {
       revision: this.revision,
-      models: this.getAllModels().map((model) => {
-        const { headers: _headers, ...safeModel } = model;
-        return safeModel as Model<Api>;
-      }),
+      models: [...this.composed.values()].flatMap((models) =>
+        [...models.values()].map((model) => this.toSnapshotModel(model)),
+      ),
       runtimeManagedProviders: [
         ...new Set<string>([
           ...this.config

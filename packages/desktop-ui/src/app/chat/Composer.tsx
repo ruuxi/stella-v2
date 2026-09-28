@@ -51,6 +51,12 @@ import "./full-shell.composer.css";
 import { BrowserAttachmentTray } from "./BrowserAttachmentTray";
 import { platformCapabilities } from "@/platform/capabilities";
 
+// The toolbar buttons take only stable props (dictation callbacks, primitive
+// flags), so memoizing them keeps a keystroke from reconciling their icon and
+// motion subtrees.
+const MemoComposerMicButton = memo(ComposerMicButton);
+const MemoComposerSubmitButton = memo(ComposerSubmitButton);
+
 type ComposerProps = {
   message: string;
   setMessage: Dispatch<SetStateAction<string>>;
@@ -386,7 +392,7 @@ function ComposerImpl({
                   <div className="composer-toolbar-right">
                     {modelPinned && <MiniModelPicker />}
                     <div className="composer-voice-controls">
-                      <ComposerMicButton
+                      <MemoComposerMicButton
                         className="composer-mic"
                         isTranscribing={dictation.isTranscribing}
                         disabled={dictation.isTranscribing}
@@ -418,7 +424,7 @@ function ComposerImpl({
                       />
                     )}
                     {showRealtimeVoice ? null : (
-                      <ComposerSubmitButton
+                      <MemoComposerSubmitButton
                         className="composer-submit"
                         disabled={!canSubmitWithDictation}
                         animated

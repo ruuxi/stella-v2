@@ -232,20 +232,31 @@ export const ensureAutomaticExecutionConversation = async (args: {
   threadId: string;
   title: string;
 }): Promise<string> => {
-  const clientCreateId = automaticExecutionConversationClientCreateId(
-    args.threadId,
-  );
-  const client = getConvexClient();
-  const identity = await client.query(conversationIdentityRef, {});
+  const identity = await getConvexClient().query(conversationIdentityRef, {});
   const expectedOwnerGeneration = identity?.ownerGeneration?.trim();
   if (!expectedOwnerGeneration) {
     throw new Error(
       "Conversation admission could not establish owner authority.",
     );
   }
-  const conversation = await client.mutation(createConversationRef, {
-    clientCreateId,
+  return await createAutomaticExecutionConversation({
+    ...args,
     expectedOwnerGeneration,
+  });
+};
+
+/**
+ * `ensureAutomaticExecutionConversation` for a caller that already holds the
+ * owner generation (the chat bootstrap read), saving its identity round trip.
+ */
+export const createAutomaticExecutionConversation = async (args: {
+  threadId: string;
+  title: string;
+  expectedOwnerGeneration: string;
+}): Promise<string> => {
+  const conversation = await getConvexClient().mutation(createConversationRef, {
+    clientCreateId: automaticExecutionConversationClientCreateId(args.threadId),
+    expectedOwnerGeneration: args.expectedOwnerGeneration,
     title: args.title.trim().slice(0, 80),
   });
   if (

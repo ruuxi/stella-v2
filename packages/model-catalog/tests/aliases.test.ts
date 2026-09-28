@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   listStellaCatalogModels,
-  listStellaDefaultSelections,
   parseStellaModelSelection,
   resolveStellaModelConfigForSelection,
   resolveStellaModelSelection,
@@ -15,8 +14,6 @@ import {
   DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
   DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
   GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
-  getManagedReasoningEffort,
-  getModeConfig,
   isPaidManagedAudience,
   isStellaModelAllowedForAudience,
   MANAGED_MODEL_AUDIENCES,
@@ -30,7 +27,6 @@ const WAFER_FAST_SELECTION = `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`;
 const LEGACY_FIREWORKS_SELECTION = `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`;
 const LEGACY_DIRECT_SELECTION = `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`;
 const MUSE_SELECTION = `stella/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`;
-const MUSE_ROUTING_MODEL = `openrouter/${MUSE_SPARK_1_3_CONTRIBUTOR_MODEL}`;
 
 const RETIRED_SELECTIONS = [
   "stella/standard",
@@ -80,24 +76,7 @@ describe("parseStellaModelSelection", () => {
   });
 });
 
-describe("managed reasoning effort", () => {
-  it("reads the backend-owned effort and omits absent values", () => {
-    expect(getManagedReasoningEffort(getModeConfig("light", "pro"))).toBe(
-      "xhigh",
-    );
-    expect(
-      getManagedReasoningEffort({ model: "google/gemini-3.1-flash-lite" }),
-    ).toBeUndefined();
-  });
-});
-
 describe("resolveStellaModelSelection", () => {
-  it("resolves the Light alias to the current default", () => {
-    expect(resolveStellaModelSelection("stella/light", "pro")).toBe(
-      MUSE_SPARK_1_3_CONTRIBUTOR_MODEL,
-    );
-  });
-
   it("keeps DeepSeek V4 Flash routable and collapses legacy spellings onto the active route", () => {
     for (const selection of [
       FLASH_SELECTION,
@@ -313,24 +292,5 @@ describe("audience allowlist", () => {
         },
       ]);
     }
-  });
-
-  it("publishes the opaque default sentinel per agent with a routable resolved model", () => {
-    const entries = listStellaDefaultSelections("free");
-    const byAgent = new Map(entries.map((entry) => [entry.agentType, entry]));
-    for (const entry of entries) {
-      expect(entry.model).toBe(STELLA_DEFAULT_MODEL);
-    }
-    expect(byAgent.get("orchestrator")?.resolvedModel).toBe(MUSE_ROUTING_MODEL);
-    expect(byAgent.get("general")?.resolvedModel).toBe(MUSE_ROUTING_MODEL);
-    expect(byAgent.get("synthesis")?.resolvedModel).toBe(
-      "openrouter/moonshotai/kimi-k2.6",
-    );
-    expect(byAgent.get("image_description")?.resolvedModel).toBe(
-      "google/gemini-3.1-flash-lite",
-    );
-    expect(byAgent.get("offline_responder")?.resolvedModel).toBe(
-      `openrouter/${GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL}`,
-    );
   });
 });

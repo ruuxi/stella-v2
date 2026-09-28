@@ -912,7 +912,12 @@
       "photosDeniedBody": "Anna Stellalle oikeus kuvakirjastoosi Asetuksissa, jotta voit liittää kuvia.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Anna Stellalle oikeus käyttää kameraa Asetuksissa, jotta voit ottaa kuvan.",
-      "photoLabel": "Kuva"
+      "photoLabel": "Kuva",
+      "sheetTitle": "Lisää keskusteluun",
+      "camera": "Kamera",
+      "photos": "Kuvat",
+      "files": "Tiedostot",
+      "readAloud": "Lue vastaukset ääneen"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Peruuta jonossa oleva viesti",
-        "cancelAndEdit": "Peruuta ja muokkaa",
-        "cancelIndexed": "Peruuta jonossa oleva viesti {index}",
-        "previewLabel": "{label}. Esikatsele jonossa olevia viestejä",
-        "queuedCount": {
-          "one": "{count} viesti jonossa",
-          "other": "{count} viestiä jonossa"
-        }
+        "cancelAndEdit": "Peruuta ja muokkaa"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Keskustelu",
       "settings": "Asetukset",
+      "apps": "Sovellukset",
       "openLabel": "Avaa navigointi",
+      "chatSettingsLabel": "Keskustelun asetukset",
       "closeLabel": "Sulje navigointi",
       "account": "Tili",
       "signIn": "Kirjaudu sisään",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
+      "workingMany": "{count} tehtävää käynnissä",
       "composerPlaceholder": "Kirjoita Stellalle",
       "mainChat": "Pääkeskustelu",
       "createFailed": "Keskustelua ei voitu luoda. Yritä uudelleen.",
@@ -2051,7 +2053,8 @@
       },
       "files": {
         "empty": "Ei vielä tiedostoja. Kaikki Stellan tuottama näkyy täällä.",
-        "emptyFiltered": "Mikään tiedosto ei vastaa hakua."
+        "emptyFiltered": "Mikään tiedosto ei vastaa hakua.",
+        "searchPlaceholder": "Hae tiedostoja"
       },
       "activity": {
         "empty": "Ei vielä taustatyötä.",
@@ -2098,6 +2101,7 @@
       "showEmailLabel": "Näytä sähköposti",
       "hideEmailLabel": "Piilota sähköposti",
       "appearanceSection": "Ulkoasu",
+      "computerSection": "Tietokone",
       "appearance": {
         "system": "Järjestelmä",
         "light": "Vaalea",
@@ -2130,6 +2134,7 @@
       "forgetConfirmTitle": "Unohdetaanko laite {name}?",
       "forgetConfirmBody": "Tämä puhelin lakkaa yhdistämästä kyseiseen tietokoneeseen, kunnes pariliität sen uudelleen.",
       "carPlayDiagnostics": "CarPlay-diagnostiikka",
+      "aboutSection": "Tietoja",
       "openCarPlayDiagnosticsLabel": "Avaa CarPlay-diagnostiikka",
       "termsOfService": "Käyttöehdot",
       "openTermsLabel": "Avaa käyttöehdot",

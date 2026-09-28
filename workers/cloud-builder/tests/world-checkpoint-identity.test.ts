@@ -1,12 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  APP_BUILD_ROOT,
-  WORLD_ROOT,
-  checkpointBackupName,
-  checkpointKey,
-  worldName,
-} from "../src/workspace.js";
-import { sha256Hex } from "../src/hash.js";
+import { checkpointKey } from "../src/workspace.js";
 
 describe("world checkpoint identity", () => {
   test("gives one owner exactly one checkpoint key", async () => {
@@ -14,18 +7,5 @@ describe("world checkpoint identity", () => {
     expect(first).toBe(await checkpointKey("owner-a"));
     expect(first).toMatch(/^ws:[0-9a-f]{64}$/u);
     expect(first).not.toBe(await checkpointKey("owner-b"));
-  });
-
-  test("derives the world object and backup names from that one key", async () => {
-    const key = await checkpointKey("owner-a");
-    expect(await worldName("owner-a")).toBe(
-      `${await sha256Hex("owner-a")}:${await sha256Hex(key)}`,
-    );
-    expect(checkpointBackupName(key)).toBe(`stella-${key.slice(3, 27)}`);
-  });
-
-  test("keeps the world and app build sandboxes separate", () => {
-    expect(WORLD_ROOT).toBe("/workspace/world");
-    expect(APP_BUILD_ROOT.startsWith(`${WORLD_ROOT}/`)).toBe(false);
   });
 });

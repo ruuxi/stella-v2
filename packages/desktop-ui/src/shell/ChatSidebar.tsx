@@ -1,10 +1,14 @@
 import {
+  memo,
   useState,
   useRef,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
 } from "react";
 import { CompactConversationSurface } from "@/features/chat/CompactConversationSurface";
 import type { ChatColumnScroll } from "@/features/chat/chat-column-types";
@@ -18,6 +22,7 @@ import { ConnectorConnectCard } from "@/app/chat/ConnectorConnectCard";
 import { ComposerNotice } from "@/app/chat/ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { ComposerAddMenu } from "@/app/chat/ComposerAddMenu";
+import type { ComposerContextSuggestion } from "@/app/chat/ComposerContextRow";
 import {
   ComposerMicButton,
   ComposerSubmitButton,
@@ -32,7 +37,11 @@ import {
 } from "@/features/chat/composer-context";
 import { buildInlineWorkingIndicatorProps } from "@/features/chat/working-indicator-state";
 import { useFileDrop } from "@/features/chat/hooks/use-file-drop";
-import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
+import {
+  useComposerMessage,
+  useComposerMessageStore,
+  type ComposerMessageStore,
+} from "@/features/chat/hooks/use-composer-message-state";
 import { useOptimisticStop } from "@/features/chat/hooks/use-optimistic-stop";
 import { handleComposerPaste } from "@/features/chat/lib/paste-context";
 import { useReadAloud } from "@/features/voice/services/read-aloud/use-read-aloud";
@@ -62,7 +71,7 @@ const SIDEBAR_CONTENT_STYLE = {
   paddingLeft: 10,
   paddingRight: 10,
   paddingTop: 8,
-  paddingBottom: 4,
+  paddingBottom: 12,
 } as const;
 
 /** Centered column when the display panel owns the full content area. */
@@ -73,7 +82,7 @@ const WIDE_PANEL_CONTENT_STYLE = {
   paddingLeft: 24,
   paddingRight: 24,
   paddingTop: 16,
-  paddingBottom: 4,
+  paddingBottom: 16,
 } as const;
 
 interface ChatSidebarOpenOptions {
@@ -185,18 +194,20 @@ function AccountScopedChatPanelTab({
   onStop,
   isolated = false,
 }: ChatPanelTabProps) {
-  const t = useT();
   // Input state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
   // flushes the render carrying the appended transcript — a ref synced in the
   // render body would still hold the pre-transcript text at that point, so
   // `sendCurrentMessage` would see `canSubmit === false` and silently no-op,
   // leaving the transcript in the composer. See use-composer-message-state.
+  //
+  // Store-backed: only `SidebarComposerForm` subscribes to the text, so a
+  // keystroke re-renders the form and not this whole panel.
   const {
-    message: inputText,
+    store: inputTextStore,
     setMessage: setInputText,
     messageRef: inputTextRef,
-  } = useComposerMessageState();
+  } = useComposerMessageStore();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const { showStop, requestStop } = useOptimisticStop(isStreaming, onStop);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -311,14 +322,44 @@ function AccountScopedChatPanelTab({
   useReadAloud(messages);
   // The indicator hands off to the reply once the run's final assistant
   // message lands; a preamble followed by a tool keeps it up.
-  const indicatorProps = buildInlineWorkingIndicatorProps({
-    isStreaming: Boolean(isStreaming),
-    isToolActive: Boolean(isToolActive),
-    answerLanded: Boolean(answerLanded),
-    activeToolName,
-    activeToolCallId,
-    runtimeStatusText,
-  });
+  // Memoized like ChatColumn's: a fresh object every render (each keystroke
+  // in this composer) busted the memoized timeline and rebuilt its list items.
+  // Stable while unchanged so the memoized lead row skips keystrokes.
+  const {
+    visible: replyPeekVisible,
+    previewText: replyPeekText,
+    dismiss: dismissReplyPeek,
+  } = assistantReplyPeek;
+  const replyPeek = useMemo(
+    () =>
+      replyPeekVisible
+        ? {
+            text: replyPeekText,
+            onJumpToBottom: () => scrollSidebarToBottom("smooth"),
+            onDismiss: dismissReplyPeek,
+          }
+        : null,
+    [dismissReplyPeek, replyPeekText, replyPeekVisible, scrollSidebarToBottom],
+  );
+  const indicatorProps = useMemo(
+    () =>
+      buildInlineWorkingIndicatorProps({
+        isStreaming: Boolean(isStreaming),
+        isToolActive: Boolean(isToolActive),
+        answerLanded: Boolean(answerLanded),
+        activeToolName,
+        activeToolCallId,
+        runtimeStatusText,
+      }),
+    [
+      isStreaming,
+      isToolActive,
+      answerLanded,
+      activeToolName,
+      activeToolCallId,
+      runtimeStatusText,
+    ],
+  );
 
   const { chatContext, setChatContext, selectedText, setSelectedText } =
     useCapturedChatContext();
@@ -344,8 +385,6 @@ function AccountScopedChatPanelTab({
     setChatContext,
   });
 
-  const submitFromDictationRef = useRef<() => void>(() => {});
-
   const handleCancelQueued = useCallback(
     (message: QueuedUserMessage) => {
       removeQueuedUserMessage?.(message.id);
@@ -356,22 +395,6 @@ function AccountScopedChatPanelTab({
     },
     [removeQueuedUserMessage, setInputText],
   );
-
-  const dictation = useDictation({
-    message: inputText,
-    setMessage: setInputText,
-    // Dictation stays available even while the orchestrator is busy
-    // (mid-turn / streaming) — the mic is intentionally NOT gated on
-    // `isStreaming`. See `submitComposer` for the in-flight submit flow.
-    onTranscriptCommitted: () => {
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
-    },
-    onCommit: () => {
-      submitFromDictationRef.current();
-    },
-  });
 
   useEffect(() => {
     if (!openRequest) return;
@@ -419,28 +442,19 @@ function AccountScopedChatPanelTab({
       selectedText,
     });
     if (!canSubmit) return;
-    // The placement gate subtracts the synthetic response spacer before
-    // applying Codex's 300px near-bottom threshold, so a visually-bottomed
-    // short reply still reframes while deliberate scrollback stays put.
-    const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
+    // Follow to the bottom when the user is within the 300px send gate;
+    // deliberate scrollback stays put. Mid-stream, the send lands as the
+    // queued follow-up item at the end of the list, so the same follow
+    // frames it.
+    const shouldFollowSend = sidebarScroll.getShouldFollowSend();
     const accepted = await onSend(
       trimmedMessage,
       chatContext,
       selectedText,
       () => {
-        if (isStreaming) {
-          // Queued follow-up — no new user row lands in the event
-          // list, just a chip in the trailing region. Keep that footer
-          // stack framed without falling through to the prior turn's
-          // user bubble.
-          if (shouldNudgeAfterSend) {
-            sidebarScroll.nudgeQueuedMessagesIntoView();
-          }
-        } else if (shouldNudgeAfterSend) {
-          // Place the newest user turn above the viewport-derived response
-          // spacer, using the same gentle loop as stream-follow.
-          sidebarScroll.nudgeAfterSend();
-        } else {
+        if (shouldFollowSend) {
+          sidebarScroll.followAfterSend();
+        } else if (!isStreaming) {
           sidebarScroll.releaseFollow();
         }
       },
@@ -461,54 +475,6 @@ function AccountScopedChatPanelTab({
     setSelectedText,
     sidebarScroll,
   ]);
-
-  const submitFromDictation = useCallback(() => {
-    sendCurrentMessage();
-  }, [sendCurrentMessage]);
-
-  // Submitting while a recording/transcription is still in flight must not
-  // race ahead of the dictated text. `commitAndSend` stops + finalizes the
-  // recording, waits for the pending transcript to be appended to the
-  // composer, and only then fires `onCommit` (→ sendCurrentMessage). For the
-  // idle case it sends immediately. Transcription is time-bounded (see the
-  // dictation service's per-segment timeout), so a stalled request fails into
-  // a recoverable error and fires the commit instead of wedging submit.
-  const submitComposer = useCallback(() => {
-    if (dictation.isRecording || dictation.isTranscribing) {
-      dictation.commitAndSend();
-      return;
-    }
-    sendCurrentMessage();
-  }, [dictation, sendCurrentMessage]);
-
-  useEffect(() => {
-    submitFromDictationRef.current = submitFromDictation;
-  }, [submitFromDictation]);
-
-  const composerState = deriveComposerState({
-    message: inputText,
-    chatContext,
-    selectedText,
-  });
-  // A dictation in flight makes the composer submittable on its own — the
-  // pending transcript is the content. Without this the submit arrow stays
-  // disabled while the text is empty, so a press during transcription is
-  // swallowed and the message is never sent/queued.
-  const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
-  const canSubmitWithDictation = composerState.canSubmit || dictationInFlight;
-  const hasText = inputText.trim().length > 0;
-  const dictationBelow = dictation.isRecordingVisible && hasText;
-  const dictationInline = dictation.isRecordingVisible && !hasText;
-  const formExpanded = sidebarExpanded || dictationBelow;
-
-  // Keep the pill shape in sync when `inputText` changes outside of
-  // onChange (e.g. cleared by send, or set by dictation).
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      updateComposerTextareaExpansion(inputRef.current, setSidebarExpanded);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [inputText]);
 
   return (
     <div
@@ -557,16 +523,7 @@ function AccountScopedChatPanelTab({
               />
               <ComposerNotice compact conversationId={conversationId} />
               <ComposerLeadRow
-                replyPeek={
-                  assistantReplyPeek.visible
-                    ? {
-                        text: assistantReplyPeek.previewText,
-                        onJumpToBottom: () =>
-                          sidebarScroll.scrollToBottom("smooth"),
-                        onDismiss: assistantReplyPeek.dismiss,
-                      }
-                    : null
-                }
+                replyPeek={replyPeek}
                 showActivityPill={showActivityPill}
               />
 
@@ -590,133 +547,24 @@ function AccountScopedChatPanelTab({
                       />
                     </div>
                   )}
-                  <form
-                    ref={formRef}
-                    data-composer-context-menu="native"
-                    className={`chat-sidebar-form${formExpanded ? " expanded" : ""}`}
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      submitComposer();
-                    }}
-                  >
-                    <ComposerAddMenu
-                      className="composer-add-button"
-                      title={t("shell.chatSidebar.add")}
-                      setChatContext={setChatContext}
-                      contextSuggestions={contextSuggestions.suggestions}
-                      onSelectContextSuggestion={
-                        contextSuggestions.selectSuggestion
-                      }
-                    />
-
-                    {dictationInline ? (
-                      <DictationRecordingBar
-                        levels={dictation.levels}
-                        elapsedMs={dictation.elapsedMs}
-                        transcriptPreview={dictation.transcriptPreview}
-                        onCancel={dictation.cancel}
-                        onConfirm={dictation.toggle}
-                        onSend={dictation.commitAndSend}
-                        showControls={dictation.showControls}
-                      />
-                    ) : (
-                      <>
-                        <ComposerTextarea
-                          ref={inputRef}
-                          className="chat-sidebar-input"
-                          tone="default"
-                          value={inputText}
-                          rows={1}
-                          onChange={(event) => {
-                            setInputText(event.target.value);
-                            requestAnimationFrame(() => {
-                              updateComposerTextareaExpansion(
-                                inputRef.current,
-                                setSidebarExpanded,
-                              );
-                            });
-                          }}
-                          onKeyDown={(event) => {
-                            if (
-                              event.nativeEvent.isComposing ||
-                              event.nativeEvent.keyCode === 229
-                            ) {
-                              return;
-                            }
-                            if (event.key === "Enter" && !event.shiftKey) {
-                              event.preventDefault();
-                              submitComposer();
-                            }
-                          }}
-                          onPaste={(event) => {
-                            handleComposerPaste(event, setChatContext);
-                          }}
-                          placeholder={composerState.placeholder}
-                        />
-
-                        <div className="composer-toolbar">
-                          <div className="composer-toolbar-left">
-                            <ComposerAddMenu
-                              className="composer-add-button composer-add-button--toolbar"
-                              title={t("shell.chatSidebar.add")}
-                              setChatContext={setChatContext}
-                              contextSuggestions={
-                                contextSuggestions.suggestions
-                              }
-                              onSelectContextSuggestion={
-                                contextSuggestions.selectSuggestion
-                              }
-                            />
-                          </div>
-
-                          <div className="composer-toolbar-right">
-                            <ComposerMicButton
-                              className="composer-mic"
-                              isTranscribing={dictation.isTranscribing}
-                              disabled={dictation.isTranscribing}
-                              onClick={dictation.toggle}
-                              onPointerEnter={dictation.prewarm}
-                              onFocus={dictation.prewarm}
-                              title={
-                                dictation.error
-                                  ? t("shell.chatSidebar.dictationError", {
-                                      error: dictation.error,
-                                    })
-                                  : undefined
-                              }
-                            />
-                            {showStop && (
-                              <ComposerStopButton
-                                className="composer-stop"
-                                onClick={requestStop}
-                                title={t("shell.chatSidebar.stop")}
-                                aria-label={t("shell.chatSidebar.stop")}
-                              />
-                            )}
-                            <ComposerSubmitButton
-                              className="composer-submit"
-                              disabled={!canSubmitWithDictation}
-                              animated
-                            />
-                          </div>
-                        </div>
-
-                        {dictationBelow && (
-                          <div className="composer-dictation-row">
-                            <DictationRecordingBar
-                              levels={dictation.levels}
-                              elapsedMs={dictation.elapsedMs}
-                              transcriptPreview={dictation.transcriptPreview}
-                              onCancel={dictation.cancel}
-                              onConfirm={dictation.toggle}
-                              onSend={dictation.commitAndSend}
-                              showControls={dictation.showControls}
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </form>
+                  <SidebarComposerForm
+                    messageStore={inputTextStore}
+                    setMessage={setInputText}
+                    inputRef={inputRef}
+                    formRef={formRef}
+                    expanded={sidebarExpanded}
+                    setExpanded={setSidebarExpanded}
+                    chatContext={chatContext}
+                    selectedText={selectedText}
+                    setChatContext={setChatContext}
+                    contextSuggestions={contextSuggestions.suggestions}
+                    onSelectContextSuggestion={
+                      contextSuggestions.selectSuggestion
+                    }
+                    showStop={showStop}
+                    requestStop={requestStop}
+                    onSend={sendCurrentMessage}
+                  />
                 </div>
               </div>
             </div>
@@ -733,3 +581,235 @@ function AccountScopedChatPanelTab({
     </div>
   );
 }
+
+// Stable props while typing (dictation callbacks, primitive flags), so a
+// keystroke skips their icon and motion subtrees.
+const MemoComposerMicButton = memo(ComposerMicButton);
+const MemoComposerSubmitButton = memo(ComposerSubmitButton);
+
+type SidebarComposerFormProps = {
+  messageStore: ComposerMessageStore;
+  setMessage: Dispatch<SetStateAction<string>>;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
+  formRef: RefObject<HTMLFormElement | null>;
+  expanded: boolean;
+  setExpanded: Dispatch<SetStateAction<boolean>>;
+  chatContext: ChatContext | null;
+  selectedText: string | null;
+  setChatContext: Dispatch<SetStateAction<ChatContext | null>>;
+  contextSuggestions: ComposerContextSuggestion[];
+  onSelectContextSuggestion: (suggestion: ComposerContextSuggestion) => void;
+  showStop: boolean;
+  requestStop: () => void;
+  onSend: () => void;
+};
+
+/**
+ * The panel composer's form. The only subscriber to the draft text, so a
+ * keystroke re-renders this form instead of the whole panel (timeline host,
+ * scroll management, cards). Dictation lives here because it tracks the text.
+ */
+const SidebarComposerForm = memo(function SidebarComposerForm({
+  messageStore,
+  setMessage: setInputText,
+  inputRef,
+  formRef,
+  expanded: sidebarExpanded,
+  setExpanded: setSidebarExpanded,
+  chatContext,
+  selectedText,
+  setChatContext,
+  contextSuggestions,
+  onSelectContextSuggestion,
+  showStop,
+  requestStop,
+  onSend: sendCurrentMessage,
+}: SidebarComposerFormProps) {
+  const t = useT();
+  const inputText = useComposerMessage(messageStore);
+  const submitFromDictationRef = useRef<() => void>(() => {});
+
+  const dictation = useDictation({
+    message: inputText,
+    setMessage: setInputText,
+    // Dictation stays available even while the orchestrator is busy
+    // (mid-turn / streaming) — the mic is intentionally NOT gated on
+    // `isStreaming`. See `submitComposer` for the in-flight submit flow.
+    onTranscriptCommitted: () => {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    },
+    onCommit: () => {
+      submitFromDictationRef.current();
+    },
+  });
+
+  // Submitting while a recording/transcription is still in flight must not
+  // race ahead of the dictated text. `commitAndSend` stops + finalizes the
+  // recording, waits for the pending transcript to be appended to the
+  // composer, and only then fires `onCommit` (→ sendCurrentMessage). For the
+  // idle case it sends immediately. Transcription is time-bounded (see the
+  // dictation service's per-segment timeout), so a stalled request fails into
+  // a recoverable error and fires the commit instead of wedging submit.
+  const submitComposer = useCallback(() => {
+    if (dictation.isRecording || dictation.isTranscribing) {
+      dictation.commitAndSend();
+      return;
+    }
+    sendCurrentMessage();
+  }, [dictation, sendCurrentMessage]);
+
+  useEffect(() => {
+    submitFromDictationRef.current = sendCurrentMessage;
+  }, [sendCurrentMessage]);
+
+  const composerState = deriveComposerState({
+    message: inputText,
+    chatContext,
+    selectedText,
+  });
+  // A dictation in flight makes the composer submittable on its own — the
+  // pending transcript is the content. Without this the submit arrow stays
+  // disabled while the text is empty, so a press during transcription is
+  // swallowed and the message is never sent/queued.
+  const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
+  const canSubmitWithDictation = composerState.canSubmit || dictationInFlight;
+  const hasText = inputText.trim().length > 0;
+  const dictationBelow = dictation.isRecordingVisible && hasText;
+  const dictationInline = dictation.isRecordingVisible && !hasText;
+  const formExpanded = sidebarExpanded || dictationBelow;
+
+  // Keep the pill shape in sync when `inputText` changes outside of
+  // onChange (e.g. cleared by send, or set by dictation).
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      updateComposerTextareaExpansion(inputRef.current, setSidebarExpanded);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [inputRef, inputText, setSidebarExpanded]);
+
+  return (
+    <form
+      ref={formRef}
+      data-composer-context-menu="native"
+      className={`chat-sidebar-form${formExpanded ? " expanded" : ""}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        submitComposer();
+      }}
+    >
+      <ComposerAddMenu
+        className="composer-add-button"
+        title={t("shell.chatSidebar.add")}
+        setChatContext={setChatContext}
+        contextSuggestions={contextSuggestions}
+        onSelectContextSuggestion={onSelectContextSuggestion}
+      />
+
+      {dictationInline ? (
+        <DictationRecordingBar
+          levels={dictation.levels}
+          elapsedMs={dictation.elapsedMs}
+          transcriptPreview={dictation.transcriptPreview}
+          onCancel={dictation.cancel}
+          onConfirm={dictation.toggle}
+          onSend={dictation.commitAndSend}
+          showControls={dictation.showControls}
+        />
+      ) : (
+        <>
+          <ComposerTextarea
+            ref={inputRef}
+            className="chat-sidebar-input"
+            tone="default"
+            value={inputText}
+            rows={1}
+            onChange={(event) => {
+              setInputText(event.target.value);
+              requestAnimationFrame(() => {
+                updateComposerTextareaExpansion(
+                  inputRef.current,
+                  setSidebarExpanded,
+                );
+              });
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.nativeEvent.isComposing ||
+                event.nativeEvent.keyCode === 229
+              ) {
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submitComposer();
+              }
+            }}
+            onPaste={(event) => {
+              handleComposerPaste(event, setChatContext);
+            }}
+            placeholder={composerState.placeholder}
+          />
+
+          <div className="composer-toolbar">
+            <div className="composer-toolbar-left">
+              <ComposerAddMenu
+                className="composer-add-button composer-add-button--toolbar"
+                title={t("shell.chatSidebar.add")}
+                setChatContext={setChatContext}
+                contextSuggestions={contextSuggestions}
+                onSelectContextSuggestion={onSelectContextSuggestion}
+              />
+            </div>
+
+            <div className="composer-toolbar-right">
+              <MemoComposerMicButton
+                className="composer-mic"
+                isTranscribing={dictation.isTranscribing}
+                disabled={dictation.isTranscribing}
+                onClick={dictation.toggle}
+                onPointerEnter={dictation.prewarm}
+                onFocus={dictation.prewarm}
+                title={
+                  dictation.error
+                    ? t("shell.chatSidebar.dictationError", {
+                        error: dictation.error,
+                      })
+                    : undefined
+                }
+              />
+              {showStop && (
+                <ComposerStopButton
+                  className="composer-stop"
+                  onClick={requestStop}
+                  title={t("shell.chatSidebar.stop")}
+                  aria-label={t("shell.chatSidebar.stop")}
+                />
+              )}
+              <MemoComposerSubmitButton
+                className="composer-submit"
+                disabled={!canSubmitWithDictation}
+                animated
+              />
+            </div>
+          </div>
+
+          {dictationBelow && (
+            <div className="composer-dictation-row">
+              <DictationRecordingBar
+                levels={dictation.levels}
+                elapsedMs={dictation.elapsedMs}
+                transcriptPreview={dictation.transcriptPreview}
+                onCancel={dictation.cancel}
+                onConfirm={dictation.toggle}
+                onSend={dictation.commitAndSend}
+                showControls={dictation.showControls}
+              />
+            </div>
+          )}
+        </>
+      )}
+    </form>
+  );
+});

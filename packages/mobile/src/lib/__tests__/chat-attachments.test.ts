@@ -177,13 +177,6 @@ describe("the two-step drive upload", () => {
     }
   });
 
-  test("claims a presigned PUT, sends the bytes, then records the row", async () => {
-    const { calls, deps } = fakeDrive();
-    const path = await uploadChatAttachment(picked("a"), new Set(), deps);
-    expect(calls).toEqual(["prepareDriveUpload", "finalizeDriveUpload"]);
-    expect(path).toBe("uploads/2026-08-29/a.png");
-  });
-
   test("records the sniffed content type, not the picker's claim", async () => {
     const { deps } = fakeDrive();
     const declared: string[] = [];

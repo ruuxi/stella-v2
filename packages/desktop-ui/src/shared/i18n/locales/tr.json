@@ -912,7 +912,12 @@
       "photosDeniedBody": "Görsel ekleyebilmek için Ayarlar'dan Stella'nın fotoğraf kitaplığına erişmesine izin ver.",
       "cameraDeniedTitle": "Kamera",
       "cameraDeniedBody": "Fotoğraf çekebilmek için Ayarlar'dan Stella'nın kamerayı kullanmasına izin ver.",
-      "photoLabel": "Fotoğraf"
+      "photoLabel": "Fotoğraf",
+      "sheetTitle": "Sohbete ekle",
+      "camera": "Kamera",
+      "photos": "Fotoğraflar",
+      "files": "Dosyalar",
+      "readAloud": "Yanıtları sesli oku"
     }
   },
   "errors": {
@@ -1285,13 +1290,7 @@
       },
       "queuedMessages": {
         "cancel": "Sıradaki mesajı iptal et",
-        "cancelAndEdit": "İptal et ve düzenle",
-        "cancelIndexed": "Sıradaki {index} numaralı mesajı iptal et",
-        "previewLabel": "{label}. Sıradaki mesajları önizle",
-        "queuedCount": {
-          "one": "{count} mesaj sırada",
-          "other": "{count} mesaj sırada"
-        }
+        "cancelAndEdit": "İptal et ve düzenle"
       },
       "replyCount": {
         "label": {
@@ -1941,7 +1940,9 @@
     "nav": {
       "chat": "Sohbet",
       "settings": "Ayarlar",
+      "apps": "Uygulamalar",
       "openLabel": "Gezinmeyi aç",
+      "chatSettingsLabel": "Sohbet ayarları",
       "closeLabel": "Gezinmeyi kapat",
       "account": "Hesap",
       "signIn": "Giriş yap",
@@ -1999,6 +2000,7 @@
     },
     "chat": {
       "emptyPrompt": "Stella'ya istediğinizi sorun",
+      "workingMany": "{count} görev sürüyor",
       "composerPlaceholder": "Stella'ya mesaj yazın",
       "mainChat": "Ana sohbet",
       "createFailed": "Sohbet oluşturulamadı. Lütfen tekrar deneyin.",
@@ -2051,7 +2053,8 @@
       },
       "files": {
         "empty": "Henüz dosya yok. Stella'nın ürettiği her şey burada görünür.",
-        "emptyFiltered": "Eşleşen dosya yok."
+        "emptyFiltered": "Eşleşen dosya yok.",
+        "searchPlaceholder": "Dosyalarda ara"
       },
       "activity": {
         "empty": "Henüz arka plan çalışması yok.",
@@ -2098,6 +2101,7 @@
       "showEmailLabel": "E-postayı göster",
       "hideEmailLabel": "E-postayı gizle",
       "appearanceSection": "Görünüm",
+      "computerSection": "Bilgisayar",
       "appearance": {
         "system": "Sistem",
         "light": "Açık",
@@ -2130,6 +2134,7 @@
       "forgetConfirmTitle": "Şu unutulsun mu: {name}?",
       "forgetConfirmBody": "Bu telefon, yeniden eşleştirene kadar o bilgisayara bağlanmayı bırakacak.",
       "carPlayDiagnostics": "CarPlay tanılama",
+      "aboutSection": "Hakkında",
       "openCarPlayDiagnosticsLabel": "CarPlay tanılamayı aç",
       "termsOfService": "Hizmet Koşulları",
       "openTermsLabel": "Hizmet Koşullarını aç",

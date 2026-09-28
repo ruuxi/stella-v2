@@ -1,0 +1,19 @@
+{
+  "name": "worker-shell-workerd-fixture",
+  "main": "./worker-shell-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "r2_buckets": [
+    { "binding": "WORLDS_BUCKET", "bucket_name": "worker-shell-fixture" },
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORLDS", "class_name": "WorldStore" },
+      { "name": "HOSTS", "class_name": "ShellHost" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WorldStore", "ShellHost"] },
+  ],
+}

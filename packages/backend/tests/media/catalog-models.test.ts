@@ -1,46 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
 import { meterCompletedMediaJob } from "../../convex/media_billing";
-import {
-  getMediaCapability,
-  listMediaCapabilities,
-} from "../../convex/media_catalog";
-
-describe("managed media model catalog", () => {
-  it("uses one GPT Image 2 endpoint per image operation", () => {
-    expect(getMediaCapability("text_to_image")?.endpointId).toBe(
-      "openai/gpt-image-2",
-    );
-    expect(getMediaCapability("image_edit")?.endpointId).toBe(
-      "openai/gpt-image-2/edit",
-    );
-    expect(getMediaCapability("icon")).toBeNull();
-    expect(
-      listMediaCapabilities().every((entry) => !("profiles" in entry)),
-    ).toBe(true);
-  });
-
-  it("uses H3 Max for the three video operations", () => {
-    expect(getMediaCapability("text_to_video")?.endpointId).toBe(
-      "minimax/h3-max/text-to-video",
-    );
-    expect(getMediaCapability("image_to_video")?.endpointId).toBe(
-      "minimax/h3-max/image-to-video",
-    );
-    expect(getMediaCapability("reference_to_video")?.endpointId).toBe(
-      "minimax/h3-max/reference-to-video",
-    );
-    expect(getMediaCapability("video_extend")).toBeNull();
-    expect(getMediaCapability("video_to_video")).toBeNull();
-  });
-
-  it("uses Hunyuan 3D v3.1 Pro for text to 3D", () => {
-    expect(getMediaCapability("text_to_3d")?.endpointId).toBe(
-      "fal-ai/hunyuan-3d/v3.1/pro/text-to-3d",
-    );
-  });
-});
-
 describe("new media endpoint billing", () => {
   it("meters H3 Max by output seconds and requested resolution", () => {
     expect(

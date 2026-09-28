@@ -12,6 +12,7 @@ import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
 import { isRestartContinuationEnabled, recordRestartShutdown, } from "../kernel/restart-continuation.js";
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
+import { createCloudSchedules, isCloudScheduleId, isCloudSchedulePayload, } from "./cloud-schedules.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import { remoteTurnWorkerRunId } from "../kernel/remote-turn-attempt.js";
@@ -129,6 +130,8 @@ export class StellaRuntimeHost {
     workerHealthCache = null;
     schedulerService = null;
     schedulerSubscription = null;
+    cloudScheduleUnsubscribe = null;
+    cloudSchedules = null;
     watcher = null;
     reloadTimer = null;
     deferredRuntimeReload = false;
@@ -617,7 +620,18 @@ export class StellaRuntimeHost {
         this.hostConvexClient = client;
         this.hostConvexClientUrl = deploymentUrl;
         this.hostConvexClientAuthToken = authToken;
+        this.resubscribeCloudSchedules();
         return client;
+    }
+    /** Follows the owner's schedules on the current client (and sign-in). */
+    resubscribeCloudSchedules() {
+        this.cloudScheduleUnsubscribe?.();
+        this.cloudScheduleUnsubscribe = null;
+        if (!this.schedulerService || !this.hostConvexClient)
+            return;
+        this.cloudScheduleUnsubscribe = this.getCloudSchedules().subscribe(() => {
+            this.events.emit("schedule-updated", undefined);
+        });
     }
     handleHostRemoteTurnAuthFailure(source, error) {
         if (!isConvexUnauthenticatedError(error)) {
@@ -2138,8 +2152,29 @@ export class StellaRuntimeHost {
     async listLocalChatSyncMessages(payload) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_LIST_SYNC_MESSAGES, payload, { ensureWorker: true, recordActivity: false });
     }
+    /**
+     * Reminders and tasks live in Convex (see cloud-schedules.ts); watches
+     * stay on the local scheduler. Callers see one list either way.
+     */
+    getCloudSchedules() {
+        if (!this.cloudSchedules) {
+            this.cloudSchedules = createCloudSchedules({
+                getClient: () => this.ensureHostConvexClient(),
+                getDeviceId: () => this.deviceIdentity?.deviceId,
+            });
+        }
+        return this.cloudSchedules;
+    }
     async listCronJobs() {
-        return this.ensureScheduler().listCronJobs();
+        const local = this.schedulerService?.listCronJobs() ?? [];
+        const cloud = await this.getCloudSchedules().list().catch(() => []);
+        return [...cloud, ...local];
+    }
+    async addCronJob(input) {
+        if (isCloudSchedulePayload(input.payload)) {
+            return await this.getCloudSchedules().add(input);
+        }
+        return this.ensureScheduler().addCronJob(input);
     }
     async listHeartbeats() {
         return this.ensureScheduler().listHeartbeats();
@@ -2153,12 +2188,21 @@ export class StellaRuntimeHost {
      * refresh together.
      */
     async runCronJob(jobId) {
+        if (isCloudScheduleId(jobId)) {
+            return await this.getCloudSchedules().runNow(jobId);
+        }
         return this.ensureScheduler().runCronJob(jobId);
     }
     async removeCronJob(jobId) {
+        if (isCloudScheduleId(jobId)) {
+            return await this.getCloudSchedules().remove(jobId);
+        }
         return this.ensureScheduler().removeCronJob(jobId);
     }
     async updateCronJob(jobId, patch) {
+        if (isCloudScheduleId(jobId)) {
+            return await this.getCloudSchedules().update(jobId, patch);
+        }
         return this.ensureScheduler().updateCronJob(jobId, patch);
     }
     async upsertHeartbeat(input) {
@@ -2230,10 +2274,22 @@ export class StellaRuntimeHost {
     }
     async initializeHostServices() {
         await this.stopHostServices();
+        const identityStartedAt = performance.now();
         this.deviceIdentity = await this.options.hostHandlers.getDeviceIdentity();
+        const dbStartedAt = performance.now();
         const ConnectorDatabase = loadSqliteDatabaseCtorSync();
         const connectorDatabase = new ConnectorDatabase(getDesktopDatabasePath(this.options.initializeParams.stellaDataDirPath));
-        initializeDesktopDatabase(connectorDatabase);
+        // Synchronous on the host's thread (Electron main in the desktop app):
+        // a pending schema migration blocks it for the migration's duration.
+        // Timed so that cost is visible next to the worker's boot timing.
+        const dbInit = initializeDesktopDatabase(connectorDatabase);
+        getFileLogger()?.process("host.services-init.timing", {
+            deviceIdentityMs: Math.round(dbStartedAt - identityStartedAt),
+            dbInitMs: Math.round(performance.now() - dbStartedAt),
+            dbFromVersion: dbInit.fromVersion,
+            dbToVersion: dbInit.toVersion,
+            dbMigrated: dbInit.migrated,
+        });
         this.connectorFollowupDatabase = connectorDatabase;
         this.connectorFollowupOutbox = new ConnectorFollowupOutbox({
             database: connectorDatabase,
@@ -2275,11 +2331,17 @@ export class StellaRuntimeHost {
                 }
                 : {}),
         });
+        // Reminders and tasks moved to Convex; the local copies are dropped
+        // rather than migrated. Watches keep running here.
+        for (const job of scheduler.listCronJobs()) {
+            if (job.payload.kind !== "watch") scheduler.removeCronJob(job.id);
+        }
         scheduler.start();
         this.schedulerService = scheduler;
         this.schedulerSubscription = scheduler.subscribe(() => {
             this.events.emit("schedule-updated", undefined);
         });
+        this.resubscribeCloudSchedules();
         this.hostReady = true;
     }
     async stopHostServices() {
@@ -2305,6 +2367,8 @@ export class StellaRuntimeHost {
         this.hostRemoteTurnAuthRecoveryPromise = null;
         this.schedulerSubscription?.();
         this.schedulerSubscription = null;
+        this.cloudScheduleUnsubscribe?.();
+        this.cloudScheduleUnsubscribe = null;
         this.schedulerService?.stop();
         this.schedulerService = null;
     }
@@ -2511,13 +2575,13 @@ export class StellaRuntimeHost {
         });
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_LIST_CRON_JOBS, async () => await this.listCronJobs());
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_LIST_HEARTBEATS, async () => await this.listHeartbeats());
-        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_ADD_CRON_JOB, async (params) => await this.ensureScheduler().addCronJob(params));
+        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_ADD_CRON_JOB, async (params) => await this.addCronJob(params));
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_UPDATE_CRON_JOB, async (params) => {
             const payload = params;
-            return await this.ensureScheduler().updateCronJob(payload.jobId, payload.patch);
+            return await this.updateCronJob(payload.jobId, payload.patch);
         });
-        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_REMOVE_CRON_JOB, async (params) => await this.ensureScheduler().removeCronJob(params.jobId));
-        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_RUN_CRON_JOB, async (params) => await this.ensureScheduler().runCronJob(params.jobId));
+        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_REMOVE_CRON_JOB, async (params) => await this.removeCronJob(params.jobId));
+        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_RUN_CRON_JOB, async (params) => await this.runCronJob(params.jobId));
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_GET_HEARTBEAT_CONFIG, async (params) => await this.ensureScheduler().getHeartbeatConfig(params.conversationId));
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_UPSERT_HEARTBEAT, async (params) => await this.ensureScheduler().upsertHeartbeat(params));
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_RUN_HEARTBEAT, async (params) => await this.ensureScheduler().runHeartbeat(params.conversationId));

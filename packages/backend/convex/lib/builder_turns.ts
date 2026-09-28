@@ -11,6 +11,11 @@ import {
   type CloudTurnStartResponse,
 } from "@stella/contracts/turn-plane/turn-start";
 import type { CloudExecutionSelection } from "./cloud_execution";
+import {
+  DISPATCH_SUBMIT_PATH,
+  PLACEMENT_PROTOCOL,
+  type DispatchSubmitRequest,
+} from "@stella/contracts/turn-plane/placement";
 
 /**
  * Convex's client for turn starts on the cloud-builder worker.
@@ -338,4 +343,76 @@ export const startBuilderAgentTurn = async (
     request,
   );
   return parseAgentTurnStartResponse(status, body, args.request);
+};
+
+export type BuilderScheduleDispatchArgs = {
+  endpoint?: BuilderEndpoint | null;
+  fetch?: typeof fetch;
+  ownerId: string;
+  ownerGeneration: string;
+  conversationId: string;
+  /** Stable per fire, so a retried submit replays instead of running twice. */
+  idempotencyKey: string;
+  clientMsgId: string;
+  prompt: string;
+  targetDeviceId: string;
+};
+
+/**
+ * `POST /owners/me/dispatches` for a scheduled fire that names a computer.
+ * The owner gate offers it to that computer and runs it in the cloud when the
+ * computer can't take it, so the caller only learns that it was placed.
+ */
+export const submitBuilderScheduleDispatch = async (
+  args: BuilderScheduleDispatchArgs,
+): Promise<{ dispatchId: string; state: string }> => {
+  const request: DispatchSubmitRequest = {
+    protocol: PLACEMENT_PROTOCOL,
+    idempotencyKey: args.idempotencyKey,
+    kind: "chat",
+    ingress: "schedule",
+    subject: "cloud",
+    targetMode: "device",
+    targetDeviceId: args.targetDeviceId,
+    conversationId: args.conversationId,
+    requiredCapabilities: ["chat"],
+    payload: {
+      schemaVersion: 1,
+      prompt: args.prompt,
+      conversationId: args.conversationId,
+      clientMsgId: args.clientMsgId,
+    },
+  };
+  const { status, body } = await postJson(
+    args,
+    DISPATCH_SUBMIT_PATH,
+    {
+      [TURN_OWNER_ID_HEADER]: args.ownerId,
+      [TURN_OWNER_GENERATION_HEADER]: args.ownerGeneration,
+    },
+    request,
+  );
+  if (status < 200 || status >= 300) throw parseError(status, body);
+  const dispatch = isRecord(body) && isRecord(body.dispatch) ? body.dispatch : null;
+  if (!dispatch || typeof dispatch.dispatchId !== "string") {
+    throw new BuilderTurnError({
+      code: "internal",
+      message: "Cloud builder returned a malformed dispatch receipt.",
+      status,
+      retryable: false,
+    });
+  }
+  const state = typeof dispatch.state === "string" ? dispatch.state : "";
+  if (state === "blocked") {
+    throw new BuilderTurnError({
+      code: "internal",
+      message:
+        typeof dispatch.errorMessage === "string"
+          ? dispatch.errorMessage
+          : "The scheduled run could not be placed.",
+      status,
+      retryable: true,
+    });
+  }
+  return { dispatchId: dispatch.dispatchId, state };
 };

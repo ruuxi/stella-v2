@@ -198,6 +198,7 @@ import type * as lib_outbox_events from "../lib/outbox_events.js";
 import type * as lib_owner_ids from "../lib/owner_ids.js";
 import type * as lib_owner_migration_purge from "../lib/owner_migration_purge.js";
 import type * as lib_owner_snapshot_notify from "../lib/owner_snapshot_notify.js";
+import type * as lib_ownership_migration_status from "../lib/ownership_migration_status.js";
 import type * as lib_provider_keys from "../lib/provider_keys.js";
 import type * as lib_provider_redaction from "../lib/provider_redaction.js";
 import type * as lib_providers from "../lib/providers.js";
@@ -524,6 +525,7 @@ declare const fullApi: ApiFromModules<{
   "lib/owner_ids": typeof lib_owner_ids;
   "lib/owner_migration_purge": typeof lib_owner_migration_purge;
   "lib/owner_snapshot_notify": typeof lib_owner_snapshot_notify;
+  "lib/ownership_migration_status": typeof lib_ownership_migration_status;
   "lib/provider_keys": typeof lib_provider_keys;
   "lib/provider_redaction": typeof lib_provider_redaction;
   "lib/providers": typeof lib_providers;

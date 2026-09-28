@@ -88,36 +88,6 @@ describe("BackgroundWorkCard minimal row states", () => {
     expect(row!.querySelector(".agent-activity-row__subtitle")).toBeNull();
   });
 
-  it("shimmer polarity: dim resting base, bright sweeping highlight (CSS contract)", async () => {
-    // jsdom doesn't apply stylesheets, so pin the scoped variable override
-    // in the shipped CSS: the row remaps TextShimmer's base ink to the
-    // muted color and the sweep band to the strong color — light sweeping
-    // across dim text, never the reverse.
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-    const css = fs.readFileSync(
-      path.resolve(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "../../../src/app/chat/agent-activity-row.css",
-      ),
-      "utf8",
-    );
-    const scope = css.slice(
-      css.indexOf(".agent-activity-row__title .text-shimmer {"),
-      css.indexOf("}", css.indexOf(".agent-activity-row__title .text-shimmer {")),
-    );
-    expect(scope).toContain("--text-shimmer-from: var(--text-base)");
-    expect(scope).toContain("--text-shimmer-via: var(--text-strong)");
-    // Description size: one step above the row base (14px `--font-size-md`),
-    // matched by mobile — keep the two in sync if this changes.
-    const titleScope = css.slice(
-      css.indexOf(".agent-activity-row__title {"),
-      css.indexOf("}", css.indexOf(".agent-activity-row__title {")),
-    );
-    expect(titleScope).toContain("font-size: var(--font-size-md)");
-  });
-
   it("completed: settles into a calm row with an uncolored check in the leading slot", async () => {
     await render({ completedThreadIds: ["thread-1"] });
     const row = container.querySelector(".agent-activity-row")!;

@@ -128,12 +128,20 @@ export const upsertToken = internalMutation({
       }
     }
 
-    const existing = await ctx.db
+    // Convex serializes the two first registrations of a new device (the
+    // loser retries and sees the winner's row), so there is normally one row.
+    // Tolerate strays anyway rather than `.unique()`-throwing on every future
+    // registration: keep the oldest and drop the rest.
+    const deviceRows = await ctx.db
       .query("mobile_push_tokens")
       .withIndex("by_ownerId_and_mobileDeviceId", (q) =>
         q.eq("ownerId", args.ownerId).eq("mobileDeviceId", mobileDeviceId),
       )
-      .unique();
+      .take(8);
+    const existing = deviceRows[0];
+    for (const duplicate of deviceRows.slice(1)) {
+      await ctx.db.delete(duplicate._id);
+    }
 
     if (existing) {
       // The mobile client re-registers the same (owner, device, token) on every

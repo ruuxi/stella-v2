@@ -913,7 +913,12 @@
       "photosDeniedBody": "Consenti a Stella di accedere alla tua libreria foto in Impostazioni per allegare immagini.",
       "cameraDeniedTitle": "Fotocamera",
       "cameraDeniedBody": "Consenti a Stella di usare la fotocamera in Impostazioni per scattare una foto.",
-      "photoLabel": "Foto"
+      "photoLabel": "Foto",
+      "sheetTitle": "Aggiungi alla chat",
+      "camera": "Fotocamera",
+      "photos": "Foto",
+      "files": "File",
+      "readAloud": "Leggi le risposte ad alta voce"
     }
   },
   "errors": {
@@ -1292,14 +1297,7 @@
       },
       "queuedMessages": {
         "cancel": "Annulla il messaggio in coda",
-        "cancelAndEdit": "Annulla e modifica",
-        "cancelIndexed": "Annulla il messaggio in coda {index}",
-        "previewLabel": "{label}. Vedi i messaggi in coda",
-        "queuedCount": {
-          "one": "{count} messaggio in coda",
-          "many": "{count} messaggi in coda",
-          "other": "{count} messaggi in coda"
-        }
+        "cancelAndEdit": "Annulla e modifica"
       },
       "replyCount": {
         "label": {
@@ -1959,7 +1957,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Impostazioni",
+      "apps": "App",
       "openLabel": "Apri la navigazione",
+      "chatSettingsLabel": "Impostazioni chat",
       "closeLabel": "Chiudi la navigazione",
       "account": "Account",
       "signIn": "Accedi",
@@ -2017,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "Chiedi qualsiasi cosa a Stella",
+      "workingMany": "{count} attività in corso",
       "composerPlaceholder": "Scrivi a Stella",
       "mainChat": "Chat principale",
       "createFailed": "Impossibile creare una chat. Riprova.",
@@ -2070,7 +2071,8 @@
       },
       "files": {
         "empty": "Ancora nessun file. Tutto ciò che Stella produce compare qui.",
-        "emptyFiltered": "Nessun file corrisponde."
+        "emptyFiltered": "Nessun file corrisponde.",
+        "searchPlaceholder": "Cerca file"
       },
       "activity": {
         "empty": "Ancora nessun lavoro in background.",
@@ -2117,6 +2119,7 @@
       "showEmailLabel": "Mostra l'email",
       "hideEmailLabel": "Nascondi l'email",
       "appearanceSection": "Aspetto",
+      "computerSection": "Computer",
       "appearance": {
         "system": "Sistema",
         "light": "Chiaro",
@@ -2149,6 +2152,7 @@
       "forgetConfirmTitle": "Dimenticare {name}?",
       "forgetConfirmBody": "Questo telefono smetterà di riconnettersi a quel computer finché non lo associ di nuovo.",
       "carPlayDiagnostics": "Diagnostica CarPlay",
+      "aboutSection": "Informazioni",
       "openCarPlayDiagnosticsLabel": "Apri la diagnostica CarPlay",
       "termsOfService": "Termini di servizio",
       "openTermsLabel": "Apri i Termini di servizio",

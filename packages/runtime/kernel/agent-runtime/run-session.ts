@@ -85,9 +85,7 @@ export const createExternalOrchestratorRunSession = (
     opts.responseTarget,
   );
   const runEvents = createRunEventRecorder({
-    store: opts.store,
     runId,
-    conversationId: opts.conversationId,
     agentType: opts.agentType,
     userMessageId: opts.userMessageId,
     uiVisibility: opts.uiVisibility,
@@ -151,9 +149,7 @@ export const createExternalSubagentRunSession = (
     threadId: opts.agentContext.activeThreadId,
   });
   const runEvents = createRunEventRecorder({
-    store: opts.store,
     runId,
-    conversationId: opts.conversationId,
     agentType: opts.agentType,
     userMessageId: opts.userMessageId,
     uiVisibility: opts.uiVisibility,

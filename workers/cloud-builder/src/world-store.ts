@@ -157,6 +157,31 @@ export class WorldStore extends DurableObject<Env> {
     return result;
   }
 
+  statMany(paths: readonly string[], options: { fork?: string } = {}) {
+    return this.world.statMany(paths, options);
+  }
+
+  children(path: string, options: { fork?: string } = {}) {
+    return this.world.children(path, options);
+  }
+
+  async commitShell(input: Parameters<WorldSqlStore["commitShell"]>[0]) {
+    const result = await this.ctx.blockConcurrencyWhile(() =>
+      this.world.commitShell(input),
+    );
+    if (
+      result.status === "committed" &&
+      (!input.fork || input.fork === "shared") &&
+      input.entries.some(
+        (entry) =>
+          entry.path === "stella.app.json" ||
+          entry.path.endsWith("/stella.app.json"),
+      )
+    )
+      await this.apps.reconcile();
+    return result;
+  }
+
   changesSince(revision: number, options: { fork?: string } = {}) {
     return this.world.changesSince(revision, options);
   }

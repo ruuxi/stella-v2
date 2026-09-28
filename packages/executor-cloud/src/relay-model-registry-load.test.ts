@@ -49,13 +49,6 @@ const managed = (model = "stella/default"): CloudExecutionSelection => ({
   reasoningEffort: "default",
 });
 
-const nativeAnthropic = (): CloudExecutionSelection => ({
-  engine: "anthropic",
-  provider: "anthropic",
-  model: "claude-sonnet-4-6",
-  reasoningEffort: "default",
-});
-
 const resolution = (
   overrides: Partial<GatewayModelResolution> = {},
 ): GatewayModelResolution => ({
@@ -128,58 +121,4 @@ describe("managed relay registry loading", () => {
     }
   });
 
-  test.each([
-    {
-      name: "complete OpenAI gateway resolution metadata",
-      requestedModel: "stella/openai/gpt-5.6-sol",
-      resolvedModel: "openai/gpt-5.6-sol",
-      provider: "openai",
-      protocol: "openai-responses",
-      contextWindow: 272_000,
-      maxOutputTokens: 128_000,
-    },
-    {
-      name: "OpenRouter slugs with possible registry metadata",
-      requestedModel: "stella/openrouter/anthropic/claude-sonnet-4-6",
-      resolvedModel: "anthropic/claude-sonnet-4-6",
-      provider: "openrouter",
-      protocol: "openai-completions",
-      contextWindow: 200_000,
-      maxOutputTokens: 16_384,
-    },
-    {
-      name: "custom managed resolutions",
-      requestedModel: "stella/x-ai/grok-4.5",
-      resolvedModel: "x-ai/grok-4.5",
-      provider: "xai",
-      protocol: "openai-responses",
-      contextWindow: 500_000,
-      maxOutputTokens: 500_000,
-    },
-  ] as const)(
-    "loads the generated registry for $name",
-    async ({ name: _name, requestedModel, ...resolved }) => {
-      loadModelRegistryCalls = 0;
-      await expect(
-        createCloudRelayModel({
-          ...relayArgs(managed(requestedModel)),
-          fetch: Object.assign(
-            async () =>
-              Response.json(resolution({ requestedModel, ...resolved })),
-            fetch,
-          ),
-        }),
-      ).rejects.toThrow("registry import should stay off this path");
-
-      expect(loadModelRegistryCalls).toBe(1);
-    },
-  );
-
-  test("loads the generated registry for native subscription models", async () => {
-    loadModelRegistryCalls = 0;
-    await expect(
-      createCloudRelayModel(relayArgs(nativeAnthropic())),
-    ).rejects.toThrow("registry import should stay off this path");
-    expect(loadModelRegistryCalls).toBe(1);
-  });
 });

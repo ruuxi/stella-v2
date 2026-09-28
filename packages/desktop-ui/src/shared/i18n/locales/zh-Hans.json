@@ -911,7 +911,12 @@
       "photosDeniedBody": "请在设置中允许 Stella 访问你的照片图库，以便添加图片。",
       "cameraDeniedTitle": "相机",
       "cameraDeniedBody": "请在设置中允许 Stella 使用相机，以便拍照。",
-      "photoLabel": "照片"
+      "photoLabel": "照片",
+      "sheetTitle": "添加到聊天",
+      "camera": "相机",
+      "photos": "照片",
+      "files": "文件",
+      "readAloud": "朗读回复"
     }
   },
   "errors": {
@@ -1278,12 +1283,7 @@
       },
       "queuedMessages": {
         "cancel": "取消排队的消息",
-        "cancelAndEdit": "取消并编辑",
-        "cancelIndexed": "取消排队的消息 {index}",
-        "previewLabel": "{label}。预览排队的消息",
-        "queuedCount": {
-          "other": "{count} 条消息排队中"
-        }
+        "cancelAndEdit": "取消并编辑"
       },
       "replyCount": {
         "label": {
@@ -1920,7 +1920,9 @@
     "nav": {
       "chat": "聊天",
       "settings": "设置",
+      "apps": "应用",
       "openLabel": "打开导航",
+      "chatSettingsLabel": "聊天设置",
       "closeLabel": "关闭导航",
       "account": "账户",
       "signIn": "登录",
@@ -1978,6 +1980,7 @@
     },
     "chat": {
       "emptyPrompt": "随便问 Stella",
+      "workingMany": "{count} 个任务进行中",
       "composerPlaceholder": "给 Stella 发消息",
       "mainChat": "主聊天",
       "createFailed": "无法创建聊天。请重试。",
@@ -2029,7 +2032,8 @@
       },
       "files": {
         "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
-        "emptyFiltered": "没有匹配的文件。"
+        "emptyFiltered": "没有匹配的文件。",
+        "searchPlaceholder": "搜索文件"
       },
       "activity": {
         "empty": "还没有后台工作。",
@@ -2076,6 +2080,7 @@
       "showEmailLabel": "显示邮箱",
       "hideEmailLabel": "隐藏邮箱",
       "appearanceSection": "外观",
+      "computerSection": "电脑",
       "appearance": {
         "system": "系统",
         "light": "浅色",
@@ -2108,6 +2113,7 @@
       "forgetConfirmTitle": "忽略 {name}？",
       "forgetConfirmBody": "在您重新配对之前，这台手机将不再连接那台电脑。",
       "carPlayDiagnostics": "CarPlay 诊断",
+      "aboutSection": "关于",
       "openCarPlayDiagnosticsLabel": "打开 CarPlay 诊断",
       "termsOfService": "服务条款",
       "openTermsLabel": "打开服务条款",

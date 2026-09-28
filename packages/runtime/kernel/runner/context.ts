@@ -22,6 +22,11 @@ import { readOrSeedPersonality } from "../personality/personality.js";
 // Deprecated pre-transition compat shim; see `buildOrchestratorThreadHistory`.
 import { buildLocalHistoryFromEvents } from "../local-history.js";
 import type { LocalContextEvent } from "../storage/shared.js";
+import {
+  createListedLocalChatEventWindow,
+  filterLocalChatEventWindow,
+  type LocalChatEventWindowQuery,
+} from "../storage/event-window.js";
 import { ConvexClient } from "convex/browser";
 import {
   formatDateTimeReminder,
@@ -138,6 +143,12 @@ type ThreadHistoryEntry = {
   payload?: PersistedRuntimeThreadPayload;
   customMessage?: RuntimeThreadMessage["customMessage"];
 };
+
+/** Newest chat events the orchestrator context build considers. */
+const ORCHESTRATOR_LOCAL_EVENT_WINDOW = 800;
+const LOCAL_CONTEXT_EVENT_TYPE_LIST = [...LOCAL_CONTEXT_EVENT_TYPES];
+/** Newest context events read for the reminders and locale before widening. */
+const RECENT_CONTEXT_EVENT_READ = 16;
 
 const getLocalHistoryBudget = (contextWindow: number): number =>
   Math.max(
@@ -395,6 +406,35 @@ const trimDuplicatedTransitionUserEvent = (
  * retires organically per conversation as checkpoints land. Do not extend
  * these branches — new history must go through the durable store.
  */
+/**
+ * Which chat events `buildOrchestratorThreadHistory` can consume for these
+ * stored messages: every event (no durable entries), none (a checkpoint, or
+ * no usable transition timestamp), or only events strictly older than the
+ * transition cutoff. Callers bound their event read by it.
+ */
+export type LegacyHistoryEventBound =
+  | { kind: "all" }
+  | { kind: "none" }
+  | { kind: "before"; timestamp: number };
+
+export const resolveLegacyHistoryEventBound = (
+  storedThreadMessages: ThreadHistoryEntry[],
+): LegacyHistoryEventBound => {
+  if (storedThreadMessages.length === 0) {
+    return { kind: "all" };
+  }
+  if (hasStoredCheckpoint(storedThreadMessages)) {
+    return { kind: "none" };
+  }
+  const transitionCutoff =
+    storedThreadMessages.find((message) => message.role !== "user")
+      ?.timestamp ?? storedThreadMessages[0]?.timestamp;
+  if (!transitionCutoff || !Number.isFinite(transitionCutoff)) {
+    return { kind: "none" };
+  }
+  return { kind: "before", timestamp: transitionCutoff };
+};
+
 export const buildOrchestratorThreadHistory = (args: {
   storedThreadMessages: ThreadHistoryEntry[];
   localEvents?: LocalContextEvent[];
@@ -402,27 +442,20 @@ export const buildOrchestratorThreadHistory = (args: {
 }): ThreadHistoryEntry[] => {
   const localEvents = args.localEvents ?? [];
   const localHistoryBudget = getLocalHistoryBudget(args.contextWindow);
+  const bound = resolveLegacyHistoryEventBound(args.storedThreadMessages);
 
-  if (args.storedThreadMessages.length === 0) {
+  if (bound.kind === "all") {
     return buildLocalHistoryFromEvents({
       events: localEvents,
       maxTokens: localHistoryBudget,
     });
   }
 
-  if (
-    localEvents.length === 0 ||
-    hasStoredCheckpoint(args.storedThreadMessages)
-  ) {
+  if (localEvents.length === 0 || bound.kind === "none") {
     return args.storedThreadMessages;
   }
 
-  const transitionCutoff =
-    args.storedThreadMessages.find((message) => message.role !== "user")
-      ?.timestamp ?? args.storedThreadMessages[0]?.timestamp;
-  if (!transitionCutoff || !Number.isFinite(transitionCutoff)) {
-    return args.storedThreadMessages;
-  }
+  const transitionCutoff = bound.timestamp;
 
   const preTransitionEvents = trimDuplicatedTransitionUserEvent(
     localEvents.filter((event) => event.timestamp < transitionCutoff),
@@ -474,6 +507,7 @@ export const createRunnerContext = ({
   runtimeStore,
   getAppBrowserContext,
   listLocalChatEvents,
+  openLocalChatEventWindow,
   recallReadQueries,
   appendLocalChatEvent,
   notifyThreadActivityUpdated,
@@ -1057,6 +1091,7 @@ export const createRunnerContext = ({
     fashionApi: resolvedFashionApi,
     runtimeStore,
     listLocalChatEvents,
+    openLocalChatEventWindow,
     recallReadQueries,
     appendLocalChatEvent,
     notifyThreadActivityUpdated,
@@ -1530,13 +1565,66 @@ export const buildAgentContext = async (
     "injectsRuntimeReminders",
   );
   if (injectsRuntimeReminders && context.listLocalChatEvents) {
-    const localEvents = context
-      .listLocalChatEvents(args.conversationId, 800)
-      .filter((event) => LOCAL_CONTEXT_EVENT_TYPES.has(event.type));
-    staleUserReminderText = buildStaleUserReminder(localEvents);
+    // The reminders, the locale and the legacy history shim all read the
+    // newest ORCHESTRATOR_LOCAL_EVENT_WINDOW chat events, but each consumes
+    // only a few of them. Query exactly those instead of parsing the whole
+    // window every turn; the results are what the full-window filters
+    // below would produce (see `event-window.ts`).
+    const eventWindow = context.openLocalChatEventWindow
+      ? context.openLocalChatEventWindow(
+          args.conversationId,
+          ORCHESTRATOR_LOCAL_EVENT_WINDOW,
+        )
+      : createListedLocalChatEventWindow(
+          context.listLocalChatEvents(
+            args.conversationId,
+            ORCHESTRATOR_LOCAL_EVENT_WINDOW,
+          ),
+        );
+    const queryWindow = (query: LocalChatEventWindowQuery) =>
+      filterLocalChatEventWindow(eventWindow.query(query), query);
+    // Stale-user and connector reminders read the latest context event and
+    // the latest two user messages; the locale reads the latest user message
+    // that carries one. The newest few context events usually hold all of
+    // them, so read those and only widen when they don't.
+    const recentContextEvents = queryWindow({
+      types: LOCAL_CONTEXT_EVENT_TYPE_LIST,
+      limit: RECENT_CONTEXT_EVENT_READ,
+    });
+    const recentUserEvents = recentContextEvents.filter(
+      (event) => event.type === "user_message",
+    );
+    const latestUserEvents =
+      recentUserEvents.length >= 2 ||
+      recentContextEvents.length < RECENT_CONTEXT_EVENT_READ
+        ? recentUserEvents.slice(-2)
+        : queryWindow({ types: ["user_message"], limit: 2 });
+    const latestContextEvent = recentContextEvents.at(-1);
+    const reminderEvents =
+      latestContextEvent && latestContextEvent.type !== "user_message"
+        ? [...latestUserEvents, latestContextEvent]
+        : latestUserEvents;
+    staleUserReminderText = buildStaleUserReminder(reminderEvents);
     connectorTransitionReminderText =
-      buildConnectorTransitionReminder(localEvents);
-    userLocale = findLatestLocale(localEvents);
+      buildConnectorTransitionReminder(reminderEvents);
+    userLocale =
+      findLatestLocale(recentUserEvents) ??
+      findLatestLocale(latestUserEvents) ??
+      (recentContextEvents.length < RECENT_CONTEXT_EVENT_READ
+        ? undefined
+        : findLatestLocale(
+            queryWindow({ types: ["user_message"], payloadKey: "locale" }),
+          ));
+    const historyBound = resolveLegacyHistoryEventBound(storedThreadMessages);
+    const localEvents =
+      historyBound.kind === "none"
+        ? []
+        : queryWindow({
+            types: LOCAL_CONTEXT_EVENT_TYPE_LIST,
+            ...(historyBound.kind === "before"
+              ? { beforeTimestamp: historyBound.timestamp }
+              : {}),
+          });
     // The current turn's user message rides in via the prompt; its
     // just-appended display event must not double into the legacy
     // pre-transition history shim.

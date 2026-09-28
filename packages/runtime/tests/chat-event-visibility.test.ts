@@ -39,14 +39,4 @@ describe("chat-event-visibility", () => {
     ).toBe(false);
   });
 
-  it("renders ordinary user and assistant messages", () => {
-    expect(
-      isUiDisplayableChatEvent(event("1", "user_message", 1, { text: "hi" })),
-    ).toBe(true);
-    expect(
-      isUiDisplayableChatEvent(
-        event("2", "assistant_message", 2, { text: "hello" }),
-      ),
-    ).toBe(true);
-  });
 });

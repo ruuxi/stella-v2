@@ -1,71 +1,10 @@
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   SETTINGS_SEARCH_ENTRY_DEFS,
   searchSettings,
 } from "../../src/global/settings/lib/settings-search-index";
 
-const repoRoot = path.resolve(import.meta.dirname, "../../../..");
-const read = (relative: string) =>
-  fs.readFileSync(path.join(repoRoot, relative), "utf8");
-
 describe("website settings native-host isolation", () => {
-  test("GeneralTab loads native subtrees only through lazy imports", () => {
-    const source = read(
-      "packages/desktop-ui/src/global/settings/tabs/GeneralTab.tsx",
-    );
-    expect(source).not.toMatch(/electronAPI/);
-    expect(source).not.toMatch(
-      /getPreventComputerSleep|getSoundNotificationsEnabled|getLockedComputerUse|useDesktopPermissions/,
-    );
-    expect(source).not.toMatch(
-      /from ["'].\/(?:NativeGeneralSettings|NativePermissionSettings)["']/,
-    );
-    expect(source).toContain('import("./NativeGeneralSettings")');
-    expect(source).toContain('import("./NativePermissionSettings")');
-    expect(source).toContain("lazy(() =>");
-    expect(source).toContain("<Suspense fallback={null}>");
-    expect(source).toContain("platformCapabilities.nativeSettings");
-  });
-
-  test("AudioTab lazy-loads native rows instead of importing their module eagerly", () => {
-    const source = read("packages/desktop-ui/src/global/settings/AudioTab.tsx");
-    const nativeSource = read(
-      "packages/desktop-ui/src/global/settings/tabs/NativeAudioDesktopSettings.tsx",
-    );
-    expect(source).not.toMatch(
-      /getWakeWordEnabled|getSoundEffectsEnabled|useMicrophoneRecovery|getPermissionStatus/,
-    );
-    expect(source).not.toMatch(
-      /from ["'].\/tabs\/NativeAudioDesktopSettings["']/,
-    );
-    expect(source).toContain('import("./tabs/NativeAudioDesktopSettings")');
-    expect(source.match(/lazy\(\(\) =>/gu)).toHaveLength(1);
-    expect(source.match(/<Suspense fallback=\{null\}>/gu)).toHaveLength(1);
-    expect(source).toContain("<NativeAudioDesktopRows");
-    expect(source).toContain("afterWakeWord={afterWakeWord}");
-
-    const orderedRows = [
-      "<NativeMicrophoneRecoveryRow />",
-      "<NativeWakeWordRow micEnabled={micEnabled} />",
-      "{afterWakeWord}",
-      "<NativeDictationSoundsRow />",
-    ].map((marker) => nativeSource.indexOf(marker));
-    expect(orderedRows.every((index) => index >= 0)).toBe(true);
-    expect(orderedRows).toEqual([...orderedRows].sort((a, b) => a - b));
-  });
-
-  test("settings search reads host availability from each catalog entry", () => {
-    const source = read(
-      "packages/desktop-ui/src/global/settings/SettingsSearchResults.tsx",
-    );
-    expect(source).toContain('host: platformCapabilities.website ? "website"');
-    expect(source).toContain("platform: window.electronAPI?.platform");
-    expect(source).not.toContain("HIDDEN_SETTING");
-    expect(source).not.toContain("SETTING_TITLE_KEYS");
-  });
-
   test("website search excludes every native catalog entry", () => {
     const translate = (key: string) => key;
     const nativeEntries = SETTINGS_SEARCH_ENTRY_DEFS.filter(

@@ -75,7 +75,10 @@ import {
  * Where a general-agent tool's work happens.
  *
  * `container` needs a real process or the world filesystem, so the first such
- * call attaches the Cloudflare Sandbox. `do_local` runs against worker-side
+ * call attaches the Cloudflare Sandbox. `exec_command` is the one container
+ * tool with a way around that: until the turn attaches, the resident turn's
+ * bridge (`worker-shell-router.ts`) first offers each command to a just-bash
+ * Dynamic Worker over the world, and attaches only for the ones it cannot run. `do_local` runs against worker-side
  * capabilities the DO already holds. `js_sandbox` runs in a fresh Dynamic
  * Worker isolate the DO loads on demand: no container, no cold start, no
  * per-turn compute reservation.
@@ -269,6 +272,8 @@ export type GeneralAgentComputeBridge = Readonly<{
     toolCallId: string;
     toolName: string;
     params: Record<string, unknown>;
+    /** The tool call's own cancellation, when the agent loop supplies one. */
+    signal?: AbortSignal;
   }): Promise<{
     outcome:
       | Readonly<{ kind: "ok"; text: string }>
@@ -298,11 +303,16 @@ const bridgedTool = (
   ...(descriptor.workingText ? { workingText: descriptor.workingText } : {}),
   description: descriptor.description,
   parameters: descriptor.parameters as unknown as TSchema,
-  execute: async (toolCallId, params): Promise<AgentToolResult<unknown>> => {
+  execute: async (
+    toolCallId,
+    params,
+    signal,
+  ): Promise<AgentToolResult<unknown>> => {
     const result = await compute.execute({
       toolCallId,
       toolName: descriptor.name,
       params: (params ?? {}) as Record<string, unknown>,
+      ...(signal ? { signal } : {}),
     });
     if (result.outcome.kind === "error") {
       return {

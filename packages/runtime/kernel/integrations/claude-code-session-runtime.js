@@ -1922,6 +1922,27 @@ class ClaudeCodeSessionRuntime {
               // Diagnostic observers must never disrupt the engine stream.
             }
           }
+          // Feed the native tool_use correlator. The MCP host consults it for
+          // every inbound call (integrity gate, 750ms fail-open settle) and
+          // for image_gen's durable identity (5s claim), so an unfed
+          // correlator taxes every call and refuses every image_gen.
+          const correlator = session.activeNativeToolUseCorrelator;
+          if (correlator) {
+            observeFinalizedClaudeToolUses(parsedLine, correlator.observe);
+            // Record the stop_reason verdict BEFORE the MCP gate can consult
+            // it, and shout when a tool call's arguments were cut mid-value.
+            // The gate rejects the call when it wins the race with the CLI's
+            // HTTP dispatch; this notice makes the loss visible otherwise.
+            const truncatedToolUse =
+              correlator.observeAssistantMessage(parsedLine);
+            if (truncatedToolUse) {
+              current.request.onStatusChange?.({
+                state: "running",
+                text: `⚠ Truncated tool call — ${describeClaudeToolUseTruncation(truncatedToolUse)} Stella blocked or flagged it; the instruction was NOT delivered in full.`,
+              });
+            }
+            correlator.observeStreamEvent(parsedLine);
+          }
           if (
             updateClaudeCodeNativeToolActivity(
               parsedLine,

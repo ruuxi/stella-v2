@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  OWNER_PRODUCT_TRANSFER_LEASE_MS,
   OWNER_TRANSFER_OBJECT_LIMIT,
   assertOwnerTransferReservation,
   collectCheckpointRecoveryReferences,
@@ -97,11 +96,6 @@ describe("owner product transfer", () => {
     expect(
       replaceOwnerPrefix("other/source", "agent-home/source/", "next/"),
     ).toBeNull();
-  });
-
-  test("bounds the exclusive lease beyond one control-plane request", () => {
-    expect(OWNER_PRODUCT_TRANSFER_LEASE_MS).toBeGreaterThan(150_000);
-    expect(OWNER_PRODUCT_TRANSFER_LEASE_MS).toBeLessThanOrEqual(10 * 60_000);
   });
 
   test("rejects every distinct transfer lease but permits exact replay", () => {

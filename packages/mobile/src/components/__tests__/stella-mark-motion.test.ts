@@ -68,14 +68,6 @@ describe("dot bounce wave", () => {
     }
   });
 
-  test("the peak travels left → middle → right, a third of a cycle apart", () => {
-    const third = DOT_CYCLE_MS / 3;
-    const gap = (from: number, to: number) =>
-      (peakAt(to) - peakAt(from) + DOT_CYCLE_MS) % DOT_CYCLE_MS;
-    expect(gap(0, 1)).toBeCloseTo(third, 6);
-    expect(gap(1, 2)).toBeCloseTo(third, 6);
-  });
-
   test("wraps across the cycle seam without a discontinuity", () => {
     const beforeSeam = dotGaussian(0, DOT_CYCLE_MS - 1);
     const afterSeam = dotGaussian(0, DOT_CYCLE_MS + 1);

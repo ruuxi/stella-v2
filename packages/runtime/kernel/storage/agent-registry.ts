@@ -10,7 +10,9 @@ import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import {
   asFiniteNumber,
   asTrimmedString,
+  cachedStatements,
   toJsonValueString,
+  type CachedStatements,
   type SqliteDatabase,
 } from "./shared.js";
 import {
@@ -176,17 +178,21 @@ export type AgentRecordInput = {
 };
 
 export class AgentRegistry {
+  private readonly cached: CachedStatements;
+
   constructor(
     private readonly db: SqliteDatabase,
     private readonly hooks: {
       ensureConversation: (conversationId: string, updatedAt: number) => void;
       refreshThreadSearchText: (threadId: string) => void;
     },
-  ) {}
+  ) {
+    this.cached = cachedStatements(db);
+  }
 
   saveAgentRecord(record: AgentRecordInput): number | null {
     this.hooks.ensureConversation(record.conversationId, record.updatedAt);
-    const revisionRow = this.db
+    const revisionRow = this.cached
       .prepare(
         `INSERT INTO agent (
            thread_id, conversation_id, storage_mode, owner_generation,
@@ -329,7 +335,7 @@ export class AgentRegistry {
   `;
 
   getAgentRecord(threadId: string): PersistedAgentRecord | null {
-    const row = this.db
+    const row = this.cached
       .prepare(
         `SELECT ${AgentRegistry.AGENT_COLUMNS} FROM agent WHERE thread_id = ? LIMIT 1`,
       )
@@ -341,7 +347,7 @@ export class AgentRegistry {
   }
 
   listAgentRecordsByStatus(status: string): PersistedAgentRecord[] {
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `SELECT ${AgentRegistry.AGENT_COLUMNS} FROM agent
          WHERE status = ?
@@ -352,7 +358,7 @@ export class AgentRegistry {
   }
 
   listActiveThreads(conversationId: string): RuntimeThreadListing[] {
-    const rows = this.db
+    const rows = this.cached
       .prepare(
         `${RUNTIME_THREAD_SELECT}
          WHERE thread.conversation_id = ? AND thread.status = 'active'
@@ -435,7 +441,7 @@ export class AgentRegistry {
     let remainingBytes = AGENT_ASSISTANT_UPDATE_LIMITS.totalBytes;
     for (let targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
       const target = targets[targetIndex]!;
-      const rows = this.db
+      const rows = this.cached
         .prepare(
           `SELECT created_at AS atMs, seq AS sequence, payload AS dataJson
            FROM thread_entry
@@ -540,7 +546,7 @@ export class AgentRegistry {
     conversationId: string,
     maxItems: number,
   ): string[] {
-    const activeRows = this.db
+    const activeRows = this.cached
       .prepare(
         `SELECT thread_id FROM agent
          WHERE conversation_id = ? AND status IN ('pending', 'running')
@@ -551,7 +557,7 @@ export class AgentRegistry {
     const remaining = maxItems - activeRows.length;
     const terminalRows =
       remaining > 0
-        ? (this.db
+        ? (this.cached
             .prepare(
               `SELECT thread_id FROM agent
                WHERE conversation_id = ? AND status NOT IN ('pending', 'running')

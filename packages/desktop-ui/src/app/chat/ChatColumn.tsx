@@ -45,6 +45,10 @@ import {
   restoreQueuedTextToComposer,
   type QueuedUserMessage,
 } from "@/features/chat/hooks/queued-user-messages";
+import {
+  useComposerMessage,
+  type ComposerMessageStore,
+} from "@/features/chat/hooks/use-composer-message-state";
 import { useT } from "@/shared/i18n";
 import "./full-shell.chat.css";
 
@@ -64,8 +68,52 @@ const FULL_CHAT_CONTENT_STYLE = {
   paddingLeft: 24,
   paddingRight: 24,
   paddingTop: 112,
-  paddingBottom: 30,
+  // The last row's gap above the composer. Matches the bottom mask fade on
+  // `.session-content` so the resting last row is never faded.
+  paddingBottom: 16,
 } as const;
+
+type StoreBackedComposerProps = Omit<
+  ComponentProps<typeof Composer>,
+  "message"
+> & { messageStore: ComposerMessageStore };
+
+/**
+ * Subscribes to the draft text at the composer leaf, so a keystroke
+ * re-renders the composer and nothing above it (chat column, timeline,
+ * runtime consumers).
+ */
+const StoreBackedComposer = memo(function StoreBackedComposer({
+  messageStore,
+  ...props
+}: StoreBackedComposerProps) {
+  const message = useComposerMessage(messageStore);
+  return <Composer {...props} message={message} />;
+});
+
+/**
+ * The cards pinned above the composer depend only on the conversation id, so
+ * they are memoized as a group: the chat column re-renders on every timeline
+ * update, and none of these read the timeline.
+ */
+const AboveComposerCards = memo(function AboveComposerCards({
+  conversationId,
+}: {
+  conversationId: string | null;
+}) {
+  return (
+    <>
+      {/* Inline connect offer (agent-initiated) pinned above the
+          composer while the agent's turn waits on the answer. */}
+      <ConnectorConnectCard conversationId={conversationId} />
+      <CloudConnectorConnectCard conversationId={conversationId} />
+      <CloudBrowserInterventionCard conversationId={conversationId} />
+      {/* Sign-in / plan-limit / provider notices pin here too, so the
+          thing blocking the composer sits right above it. */}
+      <ComposerNotice conversationId={conversationId} />
+    </>
+  );
+});
 
 export const ChatColumn = memo(function ChatColumn({
   conversation,
@@ -261,8 +309,8 @@ export const ChatColumn = memo(function ChatColumn({
     const isActiveSurface =
       surface === "home" ? showHomeContent : !showHomeContent;
     return (
-      <Composer
-        message={composer.message}
+      <StoreBackedComposer
+        messageStore={composer.messageStore}
         setMessage={composer.setMessage}
         chatContext={composer.chatContext}
         setChatContext={composer.setChatContext}
@@ -281,13 +329,24 @@ export const ChatColumn = memo(function ChatColumn({
     );
   };
 
-  const chatReplyPeek = assistantReplyPeek.visible
-    ? {
-        text: assistantReplyPeek.previewText,
-        onJumpToBottom: () => scrollToBottom("smooth"),
-        onDismiss: assistantReplyPeek.dismiss,
-      }
-    : null;
+  // Stable while the peek is unchanged so the memoized composer does not
+  // re-render every time the timeline publishes a new message array.
+  const {
+    visible: replyPeekVisible,
+    previewText: replyPeekText,
+    dismiss: dismissReplyPeek,
+  } = assistantReplyPeek;
+  const chatReplyPeek = useMemo(
+    () =>
+      replyPeekVisible
+        ? {
+            text: replyPeekText,
+            onJumpToBottom: () => scrollToBottom("smooth"),
+            onDismiss: dismissReplyPeek,
+          }
+        : null,
+    [dismissReplyPeek, replyPeekText, replyPeekVisible, scrollToBottom],
+  );
 
   // Home content is an overlay ON TOP of the always-mounted chat, not a
   // replacement for it — so navigating home and back never unmounts the
@@ -360,14 +419,7 @@ export const ChatColumn = memo(function ChatColumn({
             />
           </div>
 
-          {/* Inline connect offer (agent-initiated) pinned above the
-              composer while the agent's turn waits on the answer. */}
-          <ConnectorConnectCard conversationId={conversationId} />
-          <CloudConnectorConnectCard conversationId={conversationId} />
-          <CloudBrowserInterventionCard conversationId={conversationId} />
-          {/* Sign-in / plan-limit / provider notices pin here too, so the
-              thing blocking the composer sits right above it. */}
-          <ComposerNotice conversationId={conversationId} />
+          <AboveComposerCards conversationId={conversationId} />
 
           {/* Composer: normal flow below the scroll viewport */}
           <div

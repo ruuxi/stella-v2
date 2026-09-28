@@ -4,9 +4,6 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import vm from "node:vm";
 import v8 from "node:v8";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { Streamdown } from "streamdown";
 import { afterAll, beforeAll, bench, describe } from "vitest";
 
 import {
@@ -16,8 +13,6 @@ import {
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { buildHistorySource } from "@stella/runtime/kernel/agent-runtime/thread-memory";
-import { streamRenderIntervalMs } from "../src/features/chat/streaming/use-stream-text-animation";
-import { shouldUseBoundedMarkdownPlaintext } from "../src/features/chat/streaming/markdown-chunks";
 
 const CONVERSATION_ID = "pathological-long-chat";
 const TURN_COUNT = 500;
@@ -167,34 +162,6 @@ const keyedActivityUpdate = () => {
     JSON.stringify({ conversationId: CONVERSATION_ID, record }).length +
     (activityById.get(record.threadId) ? 1 : 0)
   );
-};
-
-const markdown = Array.from(
-  { length: 300 },
-  (_, index) =>
-    `## Section ${index}\n\nThis is streamed markdown with **formatting**, [a link](https://example.com), and enough text to exercise incremental block parsing.\n\n`,
-).join("");
-
-const renderGrowingMarkdown = (commits: number) => {
-  for (let index = 1; index <= commits; index += 1) {
-    const text = markdown.slice(
-      0,
-      Math.ceil((markdown.length * index) / commits),
-    );
-    renderToStaticMarkup(
-      createElement(Streamdown, { mode: "streaming" }, text),
-    );
-  }
-};
-
-const renderGrowingPlainText = (commits: number) => {
-  for (let index = 1; index <= commits; index += 1) {
-    const text = markdown.slice(
-      0,
-      Math.ceil((markdown.length * index) / commits),
-    );
-    renderToStaticMarkup(createElement("div", null, text));
-  }
 };
 
 const legacyRuntimeHistory = () =>
@@ -408,25 +375,6 @@ beforeAll(() => {
   const currentRetainedHeapBytes = retainedHeap(currentVisibleWindow, 5);
   const legacyActivityTiming = timed(legacyActivityUpdate, 1_000);
   const keyedActivityTiming = timed(keyedActivityUpdate, 1_000);
-  const legacyMarkdownTiming = timed(() => renderGrowingMarkdown(34), 5);
-  const currentMarkdownCommits = Math.ceil(
-    1_000 / streamRenderIntervalMs(markdown.length),
-  );
-  const currentMarkdownTiming = timed(
-    () => renderGrowingPlainText(currentMarkdownCommits),
-    5,
-  );
-  const settledMarkdownPlaintextTiming = timed(
-    () =>
-      renderToStaticMarkup(
-        createElement(
-          "div",
-          { className: "markdown markdown--streaming-plaintext" },
-          markdown,
-        ),
-      ),
-    5,
-  );
   const legacyRuntime = legacyRuntimeHistory();
   const currentRuntime = currentRuntimeHistory();
   const legacyRuntimeTiming = timed(legacyRuntimeHistory, 3);
@@ -491,17 +439,6 @@ beforeAll(() => {
           ),
           legacyUpdateMainThreadBlock: legacyActivityTiming,
           keyedUpdateMainThreadBlock: keyedActivityTiming,
-        },
-        streamingMarkdown: {
-          streamedCharacters: markdown.length,
-          legacyCommitsPerSecond: 34,
-          currentCommitsPerSecond: currentMarkdownCommits,
-          legacyOneSecondCommitWork: legacyMarkdownTiming,
-          currentOneSecondCommitWork: currentMarkdownTiming,
-          boundedSettledPlaintext: shouldUseBoundedMarkdownPlaintext(
-            markdown.length,
-          ),
-          settledPlaintextMainThreadBlock: settledMarkdownPlaintextTiming,
         },
         runtimeHistory: {
           durableEntries: RUNTIME_HISTORY_ENTRIES + 1,

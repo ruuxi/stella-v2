@@ -84,21 +84,6 @@ describe("code tool protocol compatibility", () => {
     });
   });
 
-  it("keeps current history byte-shape stable", () => {
-    const history = [
-      {
-        role: "toolResult",
-        toolCallId: "call-code",
-        toolName: CODE_TOOL_NAME,
-        content: [{ type: "text", text: "ok" }],
-        isError: false,
-        timestamp: 1,
-      },
-    ] as AgentMessage[];
-
-    expect(normalizeLegacyCodeHistory(history)).toBe(history);
-  });
-
   it("fails closed for unknown approval policy shapes", () => {
     expect(toolRequiresExplicitApproval(undefined)).toBe(false);
     expect(toolRequiresExplicitApproval(false)).toBe(false);

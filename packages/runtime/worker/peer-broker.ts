@@ -32,6 +32,11 @@ export type WorkerPeerLike = {
     handler: NotificationHandler,
   ) => void;
   activeRequestHandlerCount?: () => number;
+  /**
+   * Attached RPC clients (the broker's live peer set — the same attach /
+   * detach events the lifecycle server's idle-shutdown counts).
+   */
+  attachedCount?: () => number;
 };
 
 type PeerEvents = {

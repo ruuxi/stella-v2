@@ -8,6 +8,7 @@ import type {
 
 export type { EventRecord };
 import type { ChatContext } from "@/shared/types/electron";
+import type { ComposerMessageStore } from "@/features/chat/hooks/use-composer-message-state";
 
 /**
  * Stable per-conversation slice of the chat runtime.
@@ -94,7 +95,12 @@ export type ChatColumnConversation = {
 };
 
 export type ChatColumnComposer = {
-  message: string;
+  /**
+   * Composer text as a store, not a string: only the composer leaf
+   * subscribes, so a keystroke never re-renders the chat column or the
+   * runtime consumers that receive this object.
+   */
+  messageStore: ComposerMessageStore;
   setMessage: Dispatch<SetStateAction<string>>;
   chatContext: ChatContext | null;
   setChatContext: Dispatch<SetStateAction<ChatContext | null>>;

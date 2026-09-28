@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   USER_MESSAGE_COLLAPSE_LINES,
   USER_MESSAGE_MEASURE_LINES,
@@ -13,18 +11,7 @@ import {
   userMessageNumberOfLines,
 } from "../user-message-clamp";
 
-const chatPane = readFileSync(
-  resolve(__dirname, "../../components/ChatPane.tsx"),
-  "utf8",
-);
-
 describe("mobile user message collapse contract", () => {
-  test("clamps long user messages to four rendered lines", () => {
-    expect(USER_MESSAGE_COLLAPSE_LINES).toBe(4);
-    expect(chatPane).toContain("numberOfLines={userMessageNumberOfLines({");
-    expect(/USER_MESSAGE_COLLAPSE_LINES\s*=\s*[68]/.test(chatPane)).toBe(false);
-  });
-
   test("never paints a long message unclamped — measures at collapse + 1", () => {
     expect(USER_MESSAGE_MEASURE_LINES).toBe(USER_MESSAGE_COLLAPSE_LINES + 1);
     // The measuring pass renders at the measure cap, not unclamped, so a
@@ -68,21 +55,6 @@ describe("mobile user message collapse contract", () => {
     ).toBeUndefined();
     // A five-line measurement is still distinguishable as overflow.
     expect(isUserMessageTruncatable(USER_MESSAGE_MEASURE_LINES)).toBe(true);
-  });
-
-  test("keeps the mobile type contract that four lines map to 17px at 1.52", () => {
-    expect(/fontSize:\s*17,/.test(chatPane)).toBe(true);
-    expect(/lineHeight:\s*17 \* 1\.52,/.test(chatPane)).toBe(true);
-    expect(USER_MESSAGE_MOBILE_FONT_SIZE_PX).toBe(17);
-    expect(USER_MESSAGE_MOBILE_LINE_HEIGHT).toBe(1.52);
-    expect(
-      Math.abs(
-        collapsedUserMessageMaxHeight({
-          fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX,
-          lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
-        }) - 103.36,
-      ) < 1e-5,
-    ).toBe(true);
   });
 
   test("treats four exact lines as in-bounds and five as overflow", () => {

@@ -223,6 +223,29 @@ describe("free lifetime allowance", () => {
     });
   });
 
+  it("checks access without persisting window normalization", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = "access-read-only-owner";
+    // Every window start (0) is stale, so the snapshot normalizes in memory.
+    await seedLifetimeSpend(t, { ownerId, spentUsd: FREE_LIFETIME_LIMIT_USD });
+    const readUsage = () =>
+      t.run(
+        async (ctx) =>
+          await ctx.db
+            .query("billing_usage_windows")
+            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+            .unique(),
+      );
+    const before = await readUsage();
+
+    const access = await t.mutation(
+      internal.billing.resolveManagedModelAccess,
+      { ownerId, ownerGeneration: "legacy" },
+    );
+    expect(access).toMatchObject({ allowed: false, plan: "free" });
+    expect(await readUsage()).toEqual(before);
+  });
+
   it("keeps serving a Free account below the allowance", async () => {
     const t = convexTest(schema, modules);
     const ownerId = "lifetime-remaining-owner";

@@ -913,7 +913,12 @@
       "photosDeniedBody": "אפשר ל-Stella לגשת לספריית התמונות שלך בהגדרות כדי לצרף תמונות.",
       "cameraDeniedTitle": "מצלמה",
       "cameraDeniedBody": "אפשר ל-Stella להשתמש במצלמה בהגדרות כדי לצלם תמונה.",
-      "photoLabel": "תמונה"
+      "photoLabel": "תמונה",
+      "sheetTitle": "הוספה לצ׳אט",
+      "camera": "מצלמה",
+      "photos": "תמונות",
+      "files": "קבצים",
+      "readAloud": "הקראת תשובות"
     }
   },
   "errors": {
@@ -1292,14 +1297,7 @@
       },
       "queuedMessages": {
         "cancel": "בטל הודעה בתור",
-        "cancelAndEdit": "בטל וערוך",
-        "cancelIndexed": "בטל את ההודעה בתור {index}",
-        "previewLabel": "{label}. הצג את ההודעות שבתור",
-        "queuedCount": {
-          "one": "הודעה {count} בתור",
-          "two": "{count} הודעות בתור",
-          "other": "{count} הודעות בתור"
-        }
+        "cancelAndEdit": "בטל וערוך"
       },
       "replyCount": {
         "label": {
@@ -1959,7 +1957,9 @@
     "nav": {
       "chat": "צ׳אט",
       "settings": "הגדרות",
+      "apps": "אפליקציות",
       "openLabel": "פתיחת הניווט",
+      "chatSettingsLabel": "הגדרות צ׳אט",
       "closeLabel": "סגירת הניווט",
       "account": "חשבון",
       "signIn": "התחברות",
@@ -2017,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "שאלו את Stella כל דבר",
+      "workingMany": "{count} משימות בתהליך",
       "composerPlaceholder": "כתבו ל-Stella",
       "mainChat": "צ׳אט ראשי",
       "createFailed": "לא ניתן ליצור צ׳אט. יש לנסות שוב.",
@@ -2070,7 +2071,8 @@
       },
       "files": {
         "empty": "אין עדיין קבצים. כל מה ש־ Stella מייצרת יופיע כאן.",
-        "emptyFiltered": "אין קבצים תואמים."
+        "emptyFiltered": "אין קבצים תואמים.",
+        "searchPlaceholder": "חיפוש קבצים"
       },
       "activity": {
         "empty": "אין עדיין עבודת רקע.",
@@ -2117,6 +2119,7 @@
       "showEmailLabel": "הצגת האימייל",
       "hideEmailLabel": "הסתרת האימייל",
       "appearanceSection": "מראה",
+      "computerSection": "מחשב",
       "appearance": {
         "system": "מערכת",
         "light": "בהיר",
@@ -2149,6 +2152,7 @@
       "forgetConfirmTitle": "לשכוח את {name}?",
       "forgetConfirmBody": "הטלפון הזה יפסיק להתחבר מחדש למחשב הזה עד שתחברו אותו שוב.",
       "carPlayDiagnostics": "אבחון CarPlay",
+      "aboutSection": "אודות",
       "openCarPlayDiagnosticsLabel": "פתיחת אבחון CarPlay",
       "termsOfService": "תנאי השירות",
       "openTermsLabel": "פתיחת תנאי השירות",

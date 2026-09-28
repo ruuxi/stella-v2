@@ -913,7 +913,12 @@
       "photosDeniedBody": "Permita à Stella acesso à sua biblioteca de fotos nas Definições para anexar imagens.",
       "cameraDeniedTitle": "Câmara",
       "cameraDeniedBody": "Permita à Stella usar a câmara nas Definições para tirar uma foto.",
-      "photoLabel": "Foto"
+      "photoLabel": "Foto",
+      "sheetTitle": "Adicionar ao chat",
+      "camera": "Câmara",
+      "photos": "Fotos",
+      "files": "Arquivos",
+      "readAloud": "Ler as respostas em voz alta"
     }
   },
   "errors": {
@@ -1292,14 +1297,7 @@
       },
       "queuedMessages": {
         "cancel": "Cancelar a mensagem na fila",
-        "cancelAndEdit": "Cancelar e editar",
-        "cancelIndexed": "Cancelar a mensagem {index} da fila",
-        "previewLabel": "{label}. Ver as mensagens na fila",
-        "queuedCount": {
-          "one": "{count} mensagem na fila",
-          "many": "{count} mensagens na fila",
-          "other": "{count} mensagens na fila"
-        }
+        "cancelAndEdit": "Cancelar e editar"
       },
       "replyCount": {
         "label": {
@@ -1959,7 +1957,9 @@
     "nav": {
       "chat": "Chat",
       "settings": "Configurações",
+      "apps": "Apps",
       "openLabel": "Abrir a navegação",
+      "chatSettingsLabel": "Configurações do chat",
       "closeLabel": "Fechar a navegação",
       "account": "Conta",
       "signIn": "Entrar",
@@ -2017,6 +2017,7 @@
     },
     "chat": {
       "emptyPrompt": "Pergunte qualquer coisa à Stella",
+      "workingMany": "{count} tarefas em andamento",
       "composerPlaceholder": "Escreva para a Stella",
       "mainChat": "Chat principal",
       "createFailed": "Não foi possível criar um chat. Tente novamente.",
@@ -2070,7 +2071,8 @@
       },
       "files": {
         "empty": "Ainda não há arquivos. Tudo o que a Stella produzir aparece aqui.",
-        "emptyFiltered": "Nenhum arquivo corresponde."
+        "emptyFiltered": "Nenhum arquivo corresponde.",
+        "searchPlaceholder": "Pesquisar arquivos"
       },
       "activity": {
         "empty": "Ainda não há trabalho em segundo plano.",
@@ -2117,6 +2119,7 @@
       "showEmailLabel": "Mostrar o e-mail",
       "hideEmailLabel": "Ocultar o e-mail",
       "appearanceSection": "Aparência",
+      "computerSection": "Computador",
       "appearance": {
         "system": "Sistema",
         "light": "Claro",
@@ -2149,6 +2152,7 @@
       "forgetConfirmTitle": "Esquecer {name}?",
       "forgetConfirmBody": "Este celular vai parar de se reconectar àquele computador até você pareá-lo de novo.",
       "carPlayDiagnostics": "Diagnóstico do CarPlay",
+      "aboutSection": "Sobre",
       "openCarPlayDiagnosticsLabel": "Abrir o diagnóstico do CarPlay",
       "termsOfService": "Termos de Serviço",
       "openTermsLabel": "Abrir os Termos de Serviço",

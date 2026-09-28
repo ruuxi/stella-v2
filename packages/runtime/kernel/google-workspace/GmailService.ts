@@ -5,7 +5,7 @@
  */
 
 import { Effect } from 'effect';
-import { google, gmail_v1 } from 'googleapis';
+import { gmail as createGmailClient, gmail_v1 } from '@googleapis/gmail';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
@@ -49,7 +49,7 @@ export class GmailService {
 
   private async getGmailClient(): Promise<gmail_v1.Gmail> {
     const auth = await this.authManager.getAuthenticatedClient();
-    return google.gmail({
+    return createGmailClient({
       version: 'v1',
       ...createGoogleClientOptions(auth),
     });

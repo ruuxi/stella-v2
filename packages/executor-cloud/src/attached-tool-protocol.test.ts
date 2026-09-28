@@ -52,6 +52,18 @@ describe("attached tool protocol", () => {
     expect(second.socket).not.toBe(first.socket);
   });
 
+  test("accepts all filesystem tools on the sticky sandbox bridge", async () => {
+    for (const toolName of ["Read", "Write", "Edit", "Grep", "apply_patch"] as const) {
+      const fingerprint = await attachedToolFingerprint({
+        toolName,
+        params: {},
+      });
+      expect(
+        parseAttachedToolRequest(request({ toolName, fingerprint })).toolName,
+      ).toBe(toolName);
+    }
+  });
+
   test("refuses a tool the daemon does not serve", () => {
     expect(() =>
       parseAttachedToolRequest(request({ toolName: "code" })),

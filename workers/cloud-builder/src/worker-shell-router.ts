@@ -174,7 +174,9 @@ export const formatWorkerShellResult = (
 ): SerializedAgentToolResult => {
   const output = joinOutput(result.stdout, result.stderr);
   const wallTimeSeconds = context.wallTimeMs / 1000;
-  const originalTokenCount = Math.ceil(result.outputBytes / APPROX_BYTES_PER_TOKEN);
+  const originalTokenCount = Math.ceil(
+    result.outputBytes / APPROX_BYTES_PER_TOKEN,
+  );
   const text = [
     `Wall time: ${wallTimeSeconds.toFixed(4)} seconds`,
     `Process exited with code ${result.exitCode}`,
@@ -210,6 +212,8 @@ export type WorkerShellRouterInput = Readonly<{
   /** Absent on a deployment without the Worker Loader: everything attaches. */
   shell?: WorkerShellRunner;
   root: string;
+  /** Establish the current drive before shell reads; false attaches the sandbox. */
+  prepareWorkspace?: () => Promise<boolean>;
   signal?: AbortSignal;
   emitEvent?: (kind: string, payload: unknown) => void;
   now?: () => number;
@@ -249,6 +253,11 @@ export const createWorkerShellRouter = (
         dangerousReason: input.dangerousReason ?? loadDangerousReason,
       });
       if (route.route === "sandbox") return await toSandbox(call);
+      if (input.prepareWorkspace && !(await input.prepareWorkspace())) {
+        return await toSandbox(call);
+      }
+      // Hydration may have attached while another resident tool was running.
+      if (input.ladder.attached()) return await toSandbox(call);
       const started = now();
       const result = await shell.run(
         {
@@ -262,7 +271,7 @@ export const createWorkerShellRouter = (
             PWD: route.cwd,
           },
           timeoutMs: route.timeoutMs,
-          sandboxOnly: WORKER_SHELL_SANDBOX_ONLY,
+          sandboxOnly: input.prepareWorkspace ? [] : WORKER_SHELL_SANDBOX_ONLY,
         },
         call.signal ?? input.signal,
       );

@@ -35,6 +35,9 @@ export const ATTACHED_TOOL_NAMES = [
   "exec_command",
   "write_stdin",
   "Read",
+  "Write",
+  "Edit",
+  "Grep",
   "apply_patch",
 ] as const;
 

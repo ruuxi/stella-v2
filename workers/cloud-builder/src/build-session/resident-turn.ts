@@ -22,6 +22,7 @@ import { executorSessionEnvironment } from "../executor-session-env.js";
 import { createGeneralAgentDoLocalTools } from "../general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "../general-agent-tools.js";
 import { createWorkerShellRouter } from "../worker-shell-router.js";
+import { hydrateResidentDrive } from "../resident-drive.js";
 import { createWorkerShellRunner } from "../worker-shell-runner.js";
 import { runResidentStellaLoop } from "../general-agent-turn.js";
 import { sha256Hex } from "../hash.js";
@@ -33,6 +34,7 @@ import {
   TURN_BROKER_MAX_TTL_MS,
   issueTurnBrokerCredential,
   turnBrokerStorageKey,
+  forwardTurnBrokerRequest,
 } from "../turn-credential-broker.js";
 import { issueWorldCapability } from "../world-capability.js";
 import { deliverWorldLinkedFiles } from "./world-linked-files.js";
@@ -559,15 +561,74 @@ export const runResidentAgentTurn = async (
         : {}),
     },
   });
+  const forkScope = turn.workspaceForkId ? { fork: turn.workspaceForkId } : {};
+  let driveKnown = new Map<string, number>();
+  let hydration: Promise<boolean> | undefined;
+  const prepareWorkspace = (): Promise<boolean> => {
+    if (ladder.attached()) return Promise.resolve(false);
+    return (hydration ??= (async () => {
+      const convexOrigin = host.env.STELLA_CONVEX_SITE_URL?.trim();
+      if (!convexOrigin) return false;
+      try {
+        driveKnown = await hydrateResidentDrive({
+          turnId: turn.turnId,
+          prompt: turn.prompt,
+          signal: execution.signal,
+          world: {
+            head: () => world.head(forkScope),
+            stat: (path) => world.stat(path, forkScope),
+            list: (prefix, options) =>
+              world.list(prefix, { ...options, ...forkScope }),
+            readFile: (path) => world.readFile(path, forkScope),
+            putBlob: (stream, input) => world.putBlob(stream, input),
+            commitShell: (change) =>
+              world.commitShell({ ...change, ...forkScope }),
+          },
+          post: async (body, signal) =>
+            forwardTurnBrokerRequest({
+              target: {
+                kind: "callback",
+                method: "POST",
+                path: "/api/cloud/drive/sync",
+                maxBodyBytes: 64 * 1024,
+              },
+              body: new TextEncoder().encode(JSON.stringify(body)),
+              incomingHeaders: new Headers({
+                "content-type": "application/json",
+              }),
+              convexOrigin,
+              controlPlaneCapability: await host.controlPlaneCapability(turn),
+              signal,
+            }),
+        });
+        return true;
+      } catch (error) {
+        execution.assertActive();
+        log("info", "resident_drive_sandbox_fallback", {
+          turnId: turn.turnId,
+          message: errorMessage(error),
+        });
+        return false;
+      }
+    })());
+  };
   const doLocal = createGeneralAgentDoLocalTools({
     control,
     agentControl,
     world: {
-      tool: (call) =>
-        world.tool({
-          ...call,
-          ...(turn.workspaceForkId ? { fork: turn.workspaceForkId } : {}),
-        }),
+      tool: async (call, toolCallId) => {
+        if (!(await prepareWorkspace()) || ladder.attached()) {
+          const result = await ladder.execute({
+            toolCallId,
+            toolName: call.name,
+            params: call.arguments,
+          });
+          return result.outcome.kind === "ok"
+            ? { ok: true, output: result.outcome.text }
+            : { ok: false, output: result.outcome.message };
+        }
+        return world.tool({ ...call, ...forkScope });
+      },
     },
     signal: execution.signal,
   });
@@ -595,10 +656,10 @@ export const runResidentAgentTurn = async (
   // Durable Object commits what a run changed.
   const workspaceFork = turn.workspaceForkId;
   const workspaceRoot = worldRootForFork(workspaceFork);
-  const forkScope = workspaceFork ? { fork: workspaceFork } : {};
   const compute = createWorkerShellRouter({
     ladder,
     root: workspaceRoot,
+    prepareWorkspace,
     signal: execution.signal,
     emitEvent: (kind, payload) => {
       void host
@@ -696,6 +757,7 @@ export const runResidentAgentTurn = async (
           finalText,
           control,
           commandTimeoutMs,
+          driveKnown,
         }),
     });
     computeReleased = true;
@@ -757,6 +819,7 @@ export const commitResidentTurnDurability = async (
     execution: TurnExecutionContext;
     ladder: ReturnType<typeof createAgentComputeLadder>;
     sealed: SealedTurnTranscript;
+    driveKnown?: ReadonlyMap<string, number>;
     /** The turn's final assistant text; delivered files derive from its links. */
     finalText: string;
     control: ReturnType<typeof createAgentControlPlane>;
@@ -771,6 +834,7 @@ export const commitResidentTurnDurability = async (
       turn,
       finalText: args.finalText,
       signal: execution.signal,
+      known: args.driveKnown,
       log: (event, fields) => log("error", event, fields),
     }).catch((error) => {
       log("error", "world_linked_files_failed", {

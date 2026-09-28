@@ -21,7 +21,11 @@ import {
   type TurnBrokerTarget,
 } from "../turn-credential-broker.js";
 import { worldRelativeToolPath } from "../world/path.js";
-import { driveRootForWorld, worldName, worldRootForFork } from "../workspace.js";
+import {
+  driveRootForWorld,
+  worldName,
+  worldRootForFork,
+} from "../workspace.js";
 import type { TurnRequest } from "./shared/types.js";
 import type { BuildSessionInternals } from "./host.js";
 
@@ -60,7 +64,10 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export const contentTypeForName = (name: string): string => {
   const extension = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  return (name.includes(".") && CONTENT_TYPES[extension]) || "application/octet-stream";
+  return (
+    (name.includes(".") && CONTENT_TYPES[extension]) ||
+    "application/octet-stream"
+  );
 };
 
 export type WorldLinkedTarget = {
@@ -93,7 +100,8 @@ export const worldLinkedDriveTargets = (
     const drivePrefix = `${worldRelativeToolPath(driveRoot, worldRoot)}/`;
     if (!worldPath.startsWith(drivePrefix)) continue;
     const drivePath = worldPath.slice(drivePrefix.length);
-    if (!drivePath || drivePath.split("/").includes(STATE_DIR_SEGMENT)) continue;
+    if (!drivePath || drivePath.split("/").includes(STATE_DIR_SEGMENT))
+      continue;
     if (seen.has(drivePath)) continue;
     seen.add(drivePath);
     targets.push({
@@ -150,6 +158,7 @@ export const deliverWorldLinkedFiles = async (
     turn: TurnRequest;
     finalText: string;
     signal: AbortSignal;
+    known?: ReadonlyMap<string, number>;
     /** Test seam: the world to read from and the fetch to forward with. */
     world?: WorldFileReader;
     fetchImpl?: typeof fetch;
@@ -175,6 +184,7 @@ export const deliverWorldLinkedFiles = async (
     sizeBytes: number;
     contentType: string;
     contentBase64?: string;
+    knownUpdatedAt?: number;
   }> = [];
   for (const target of targets) {
     const entry = await world.stat(target.worldPath, fork).catch(() => null);
@@ -184,9 +194,14 @@ export const deliverWorldLinkedFiles = async (
       name: target.name,
       sizeBytes: entry.size,
       contentType: contentTypeForName(target.name),
+      ...(args.known?.has(target.drivePath)
+        ? { knownUpdatedAt: args.known.get(target.drivePath) }
+        : {}),
     };
     if (entry.size < INLINE_LIMIT_BYTES) {
-      const bytes = await world.readFile(target.worldPath, fork).catch(() => null);
+      const bytes = await world
+        .readFile(target.worldPath, fork)
+        .catch(() => null);
       if (bytes && bytes.byteLength === entry.size) {
         files.push({ ...file, contentBase64: toBase64(bytes) });
         continue;

@@ -487,6 +487,38 @@ describe("worker shell router", () => {
     expect(h.runs).toHaveLength(0);
   });
 
+  test("hydrated drive commands stay in the worker shell", async () => {
+    const h = await harness({ "drive/a.txt": "upload\n" });
+    const { ladder, calls } = fakeLadder();
+    const router = createWorkerShellRouter({
+      ladder,
+      shell: h.runner,
+      root: ROOT,
+      dangerousReason: noDanger,
+      prepareWorkspace: async () => true,
+    });
+    const result = await router.execute(exec("cat drive/a.txt"));
+    expect(result.outcome).toMatchObject({
+      text: expect.stringContaining("upload"),
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("hydration requiring a sandbox never starts the worker command", async () => {
+    const h = await harness({});
+    const { ladder, calls } = fakeLadder();
+    const router = createWorkerShellRouter({
+      ladder,
+      shell: h.runner,
+      root: ROOT,
+      dangerousReason: noDanger,
+      prepareWorkspace: async () => false,
+    });
+    await router.execute(exec("echo x > drive/a.txt"));
+    expect(calls).toHaveLength(1);
+    expect(h.runs).toHaveLength(0);
+  });
+
   test("gives commands the container's tool environment", async () => {
     expect(WORKER_SHELL_TOOL_HOME).toBe(CLOUD_TOOL_HOME);
     expect(WORKER_SHELL_TOOL_USER).toBe(CLOUD_TOOL_PROCESS_IDENTITY.user);

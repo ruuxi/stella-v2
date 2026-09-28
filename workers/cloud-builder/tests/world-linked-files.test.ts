@@ -58,6 +58,7 @@ describe("deliverWorldLinkedFiles", () => {
     const delivered = await deliverWorldLinkedFiles(makeHost(events), {
       turn,
       finalText: "Wrote [hello.txt](/workspace/world/drive/hello.txt).",
+      known: new Map([["hello.txt", 123]]),
       signal: new AbortController().signal,
       world: {
         stat: async (path) => (path === "drive/hello.txt" ? { kind: "file", size: bytes.byteLength } : null),
@@ -75,7 +76,7 @@ describe("deliverWorldLinkedFiles", () => {
       turnId: "turn-1",
       batchKey: "turn-1:world:0",
       files: [{
-        path: "hello.txt", name: "hello.txt", sizeBytes: 3,
+        path: "hello.txt", name: "hello.txt", sizeBytes: 3, knownUpdatedAt: 123,
         contentType: "text/plain; charset=utf-8", contentBase64: btoa("hi\n"),
       }],
     });

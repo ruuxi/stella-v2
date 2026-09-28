@@ -43,10 +43,13 @@ export const createGeneralAgentDoLocalTools = (deps: {
   control: GeneralAgentControlPlane;
   agentControl: GeneralAgentAgentControl;
   world: {
-    tool(call: {
-      name: "Read" | "Write" | "Edit" | "Grep" | "apply_patch";
-      arguments: Record<string, unknown>;
-    }): Promise<{ ok: boolean; output: string }>;
+    tool(
+      call: {
+        name: "Read" | "Write" | "Edit" | "Grep" | "apply_patch";
+        arguments: Record<string, unknown>;
+      },
+      toolCallId: string,
+    ): Promise<{ ok: boolean; output: string }>;
   };
   signal?: AbortSignal;
 }): ReadonlyMap<string, AgentTool> => {
@@ -85,11 +88,14 @@ export const createGeneralAgentDoLocalTools = (deps: {
           label: descriptor.label,
           description: descriptor.description,
           parameters: descriptor.parameters as unknown as TSchema,
-          execute: async (_toolCallId, params) => {
-            const result = await deps.world.tool({
-              name,
-              arguments: (params ?? {}) as Record<string, unknown>,
-            });
+          execute: async (toolCallId, params) => {
+            const result = await deps.world.tool(
+              {
+                name,
+                arguments: (params ?? {}) as Record<string, unknown>,
+              },
+              toolCallId,
+            );
             return {
               content: [{ type: "text", text: result.output || "(no output)" }],
               details: null,

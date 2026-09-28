@@ -103,7 +103,10 @@ export const writeAttachedToolDaemonIdentity = async (
   paths: AttachedToolPaths,
 ): Promise<void> => {
   const stat = await readFile("/proc/self/stat", "utf8");
-  const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/u);
+  const fields = stat
+    .slice(stat.lastIndexOf(")") + 2)
+    .trim()
+    .split(/\s+/u);
   const pgid = Number(fields[2]);
   if (!Number.isSafeInteger(pgid) || pgid < 2) {
     throw new Error("Attached tool daemon process group is invalid.");
@@ -501,7 +504,13 @@ export const runAttachedToolHost = (
       ): Promise<SerializedAgentToolResult> => {
         calls.set(key, { kind: "running" });
         const syncAtBoundary =
-          toolName === "exec_command" || toolName === "write_stdin";
+          toolName === "exec_command" ||
+          toolName === "write_stdin" ||
+          toolName === "Read" ||
+          toolName === "Write" ||
+          toolName === "Edit" ||
+          toolName === "Grep" ||
+          toolName === "apply_patch";
         const syncNotices: string[] = [];
         if (syncAtBoundary) {
           await pullWorldProjection({

@@ -35,6 +35,15 @@ Implemented here:
   update, move, delete, tolerant matching and already-applied receipts. Mutations
   use sorted file locks, descriptor-pinned directories, regular-file/link checks,
   verified writes, and cancellation settlement. It is not the complete Stella tool pack.
+- Native shell pipes and PTY/ConPTY implementation, conversation/thread access
+  control, serialized interactions, idempotent writes, resize/EOF/termination,
+  bounded output and cursor receipts, completed-session retention, and the
+  catastrophic-command guard. Linux pipes and PTYs have been exercised with
+  real model-driven input, large output, and cancellation. Windows remains
+  unverified; CLI integrations and progress forwarding still need completion.
+- Provider-context reconstruction preserves exact stored messages while repairing
+  dangling/interleaved tool results, dropping foreign reasoning signatures and
+  downgrading images for models without vision.
 
 ## Build and run
 
@@ -74,8 +83,13 @@ python3 packages/runtime-rust/scripts/verify-legacy-migration.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --steer
+python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --cloud
+python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --cancel-shell
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image
 python3 packages/runtime-rust/scripts/verify-live-agent.py --patch
+python3 packages/runtime-rust/scripts/verify-live-agent.py --shell
+python3 packages/runtime-rust/scripts/verify-live-agent.py --pty
+python3 packages/runtime-rust/scripts/verify-live-agent.py --shell-volume
 python3 packages/runtime-rust/scripts/verify-rpc.py
 ```
 

@@ -1,7 +1,9 @@
 pub mod agent;
 pub mod builtin;
 pub mod completions;
+pub mod messages;
 pub mod patch;
 pub mod redaction;
 pub mod responses;
+pub mod shell_guard;
 pub mod tools;

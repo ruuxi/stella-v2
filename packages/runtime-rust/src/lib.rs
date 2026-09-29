@@ -9,4 +9,5 @@ pub mod file_mutation;
 pub mod file_tools;
 pub mod lifecycle;
 pub mod runs;
+pub mod shell;
 pub mod work;

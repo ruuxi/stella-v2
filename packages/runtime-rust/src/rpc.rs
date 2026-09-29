@@ -16,6 +16,7 @@ const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 pub struct Service {
     pub(crate) store: Option<Store>,
     pub(crate) files: Arc<crate::file_tools::FileTools>,
+    pub(crate) shells: Arc<crate::shell::Shells>,
     pub(crate) orchestrator_lane: Arc<tokio::sync::Mutex<()>>,
     database_path: Option<PathBuf>,
     pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
@@ -39,6 +40,7 @@ impl Service {
         Ok(Self {
             run_events,
             files: Arc::new(Default::default()),
+            shells: Arc::new(Default::default()),
             orchestrator_lane: Arc::new(tokio::sync::Mutex::new(())),
             store,
             database_path: database,
@@ -323,6 +325,18 @@ pub async fn dispatch(
     params: Value,
 ) -> Result<Value> {
     match method.as_str() {
+        "internal.worker.killAllShells" => {
+            let shells = service.lock().unwrap().shells.clone();
+            return Ok(json!({"ok":true,"killed":shells.kill_all().await?}));
+        }
+        "internal.worker.killShellByPort" => {
+            let port = params["port"]
+                .as_u64()
+                .filter(|port| (1..=65535).contains(port))
+                .context("port must be an integer from 1 to 65535")? as u16;
+            let shells = service.lock().unwrap().shells.clone();
+            return Ok(json!({"ok":true,"killed":shells.kill_by_port(port).await?}));
+        }
         "internal.worker.startChat" | "internal.worker.runAutomation" => {
             let user_message_id = params["userMessageEventId"].clone();
             let run = crate::runs::start(service, params)?;

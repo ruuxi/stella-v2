@@ -14,6 +14,11 @@ file = work / 'verification.txt'
 file.write_text(nonce + '\n')
 image_mode = '--image' in sys.argv
 patch_mode = '--patch' in sys.argv
+volume_mode = '--shell-volume' in sys.argv
+shell_mode = '--shell' in sys.argv or '--pty' in sys.argv or volume_mode
+pty_mode = '--pty' in sys.argv
+if shell_mode:
+    (work / 'interactive.py').write_text('import os,sys\nprint("READY",flush=True)\nline=sys.stdin.readline().strip()\nassert "STELLA_AUTH_TOKEN" not in os.environ\n' + ('print("x"*2200000,flush=True)\n' if volume_mode else '') + 'print("RESULT:"+open('+repr(str(file))+').read().strip()+":"+line+":"+str(os.isatty(0)),flush=True)\n')
 if patch_mode:
     file.write_text('before\n' + nonce + '\nafter\n')
     (work / 'obsolete.txt').write_text('obsolete\n')
@@ -37,6 +42,8 @@ if image_mode:
     request['prompt'] = f'Use Read to inspect {file}. Reply with the two solid colours from left to right in lowercase, separated by a comma and a space. Do not delegate.'
 if patch_mode:
     request['prompt'] = f'Use Read to inspect {file}. Use apply_patch to change the first line from before to updated, preserving the other lines, and move it to {work / "moved.txt"}. In the same patch, add {work / "new.txt"} containing exactly added plus a trailing newline, and delete {work / "obsolete.txt"}. Read the moved file to verify it. Reply with exactly the nonce from its second line. Do not delegate.'
+if shell_mode:
+    request['prompt'] = f'Use exec_command to run python3 -u {work / "interactive.py"}, tty={str(pty_mode).lower()}, yield_time_ms=1000. It prints READY and waits for input. Use write_stdin to send verified followed by a newline, write_id="verification-input", yield_time_ms=1000, max_output_tokens=256. Poll with write_stdin if needed until exit. Reply with exactly the RESULT line the process prints. Do not inspect or change the script or any files. Do not delegate.'
 proc = subprocess.run([os.environ.get('STELLA_RUNTIME_BIN', str(root / 'packages/runtime-rust/target/debug/stella-runtime')), '--run', '--database', str(work / 'stella.sqlite')], input=json.dumps(request), text=True, env=env, capture_output=True, timeout=180)
 (work / 'events.jsonl').write_text(proc.stdout)
 print('exit', proc.returncode, 'artifacts', work)
@@ -44,7 +51,7 @@ if proc.returncode:
     print(proc.stderr[-3000:])
     raise SystemExit(1)
 events = [json.loads(line)['params'] for line in proc.stdout.splitlines()]
-assert any((e['type'] == 'tool_execution_end' and e['toolName'] == 'Read' and (not e['isError']) for e in events)), [e['type'] for e in events]
+assert any((e['type'] == 'tool_execution_end' and e['toolName'] == ('exec_command' if shell_mode else 'Read') and (not e['isError']) for e in events)), [e['type'] for e in events]
 assert events[-1]['type'] == 'agent_end'
 text = '\n'.join((b.get('text', '') for m in events[-1]['messages'] if m.get('role') == 'assistant' for b in m.get('content', [])))
 assert nonce in text.lower() if image_mode else nonce in text, text
@@ -55,4 +62,13 @@ if patch_mode:
     assert (work / 'moved.txt').read_text() == 'updated\n' + nonce + '\nafter\n'
     assert (work / 'new.txt').read_text() == 'added\n'
     assert any(e['type'] == 'tool_execution_end' and e['toolName'] == 'apply_patch' and not e['isError'] for e in events)
+if shell_mode:
+    assert 'RESULT:' + nonce + ':verified:' + str(pty_mode) in text, text
+    results=[e['result']['details'] for e in events if e['type']=='tool_execution_end' and e['toolName'] in ['exec_command','write_stdin'] and not e['isError']]
+    assert results[0]['running'] and results[0]['session_id']
+    assert any(r.get('write_id')=='verification-input' and r.get('write_deduplicated') is False for r in results)
+    assert not results[-1]['running'] and results[-1]['exit_code']==0
+    assert all(r['shell_session_id']==results[0]['session_id'] and r['worker_generation']==results[0]['worker_generation'] for r in results)
+    if volume_mode:
+        assert any(r['raw_output_truncated'] and r['original_output_bytes'] > 2_200_000 for r in results), results
 print('Native Rust gateway authentication, live model completion, tool execution, follow-up completion, and transcript persistence passed')

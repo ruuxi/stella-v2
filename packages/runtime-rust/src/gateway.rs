@@ -262,8 +262,20 @@ impl Gateway {
             .unwrap_or(8192)
             .min(16384);
         let provider = self.resolution["provider"].as_str().unwrap_or("stella");
+        let context = stella_runtime_core::agent::AgentContext {
+            system_prompt: context.system_prompt.clone(),
+            tools: context.tools.clone(),
+            messages: stella_runtime_core::messages::transform(
+                &context.messages,
+                provider,
+                self.resolution["protocol"].as_str().unwrap_or(""),
+                model,
+                self.resolution["supportsImages"] == true,
+                now_ms(),
+            ),
+        };
         if self.resolution["protocol"] == "openai-responses" {
-            let body = stella_runtime_core::responses::request(context, model, max_tokens)?;
+            let body = stella_runtime_core::responses::request(&context, model, max_tokens)?;
             let response = self
                 .post("/v1/relay/responses", body, Some(&self.revision))
                 .await?;
@@ -276,7 +288,7 @@ impl Gateway {
             );
         }
         let body = stella_runtime_core::completions::request(
-            context,
+            &context,
             model,
             self.resolution["maxOutputTokens"]
                 .as_u64()

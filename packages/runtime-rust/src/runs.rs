@@ -28,6 +28,7 @@ pub struct Run {
     accepting: AtomicBool,
     prompt_owner: Mutex<Value>,
     transcript: Mutex<Vec<Value>>,
+    tool_results: Mutex<std::collections::BTreeMap<String, Value>>,
     pub cancel: watch::Sender<bool>,
     pub finished: watch::Sender<Option<Value>>,
     sequence: AtomicI64,
@@ -43,6 +44,45 @@ impl Run {
     pub fn snapshot(&self) -> Value {
         let owner = self.prompt_owner.lock().unwrap();
         json!({"runId":self.id,"conversationId":self.conversation,"requestId":owner["requestId"],"userMessageId":owner["userMessageId"],"agentType":self.agent_type})
+    }
+    fn settle_tools(&self, service: &SharedService, reason: &str) -> Result<()> {
+        let transcript = self.transcript.lock().unwrap().clone();
+        for message in &transcript {
+            if message["role"] != "assistant" {
+                continue;
+            }
+            for call in message["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|block| block["type"] == "toolCall")
+            {
+                let id = call["id"].as_str().context("Tool call has no identity")?;
+                if transcript
+                    .iter()
+                    .any(|m| m["role"] == "toolResult" && m["toolCallId"] == id)
+                {
+                    continue;
+                }
+                let completed = self.tool_results.lock().unwrap().remove(id);
+                let result = if let Some(result) = completed {
+                    result
+                } else {
+                    let text = format!(
+                        "Tool execution interrupted: {reason}. An operation may have completed before interruption; verify its effects before retrying."
+                    );
+                    self.publish(service,json!({"type":"tool-end","toolCallId":id,"toolName":call["name"],"isError":true,"resultPreview":text,"details":{}}))?;
+                    json!({"role":"toolResult","toolCallId":id,"toolName":call["name"],"isError":true,"content":[{"type":"text","text":text}],"details":{},"timestamp":now_ms()})
+                };
+                service
+                    .lock()
+                    .unwrap()
+                    .store()?
+                    .append_thread_message(&self.thread, &result)?;
+                self.transcript.lock().unwrap().push(result);
+            }
+        }
+        Ok(())
     }
     fn publish(&self, service: &SharedService, mut event: Value) -> Result<()> {
         let mut state = service
@@ -99,6 +139,7 @@ impl RuntimeExecution {
                 let prompt_owner=self.run.prompt_owner.lock().unwrap().clone();
                 self.run.transcript.lock().unwrap().push(message.clone());
                 self.service.lock().map_err(|_|anyhow::anyhow!("Runtime state poisoned"))?.store()?.append_thread_message(&self.run.thread,message)?;
+                if message["role"]=="toolResult" && let Some(id)=message["toolCallId"].as_str(){self.run.tool_results.lock().unwrap().remove(id);}
                 if message["role"]=="assistant" {
                     let text=message_text(message);
                     if !text.is_empty() {
@@ -115,7 +156,10 @@ impl RuntimeExecution {
                 }
             }
             "tool_execution_start"=>self.run.publish(&self.service,json!({"type":"tool-start","toolCallId":event["toolCallId"],"toolName":event["toolName"],"args":event["args"]}))?,
-            "tool_execution_end"=>self.run.publish(&self.service,json!({"type":"tool-end","toolCallId":event["toolCallId"],"toolName":event["toolName"],"isError":event["isError"],"resultPreview":message_text(&event["result"]),"details":event["result"]["details"]}))?,
+            "tool_execution_end"=>{
+                if let Some(id)=event["toolCallId"].as_str(){self.run.tool_results.lock().unwrap().insert(id.into(),json!({"role":"toolResult","toolCallId":id,"toolName":event["toolName"],"isError":event["isError"],"content":event["result"]["content"],"details":event["result"]["details"],"timestamp":now_ms()}));}
+                self.run.publish(&self.service,json!({"type":"tool-end","toolCallId":event["toolCallId"],"toolName":event["toolName"],"isError":event["isError"],"resultPreview":message_text(&event["result"]),"details":event["result"]["details"]}))?;
+            }
             _=>{}
         }
         Ok(())
@@ -290,6 +334,7 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             agent_type: kind.clone(),
             cloud,
             transcript: Mutex::new(Vec::new()),
+            tool_results: Default::default(),
             cancel: watch::channel(false).0,
             finished: watch::channel(None).0,
             sequence: AtomicI64::new(0),
@@ -330,7 +375,8 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             let auth=config["authToken"].as_str().context("Managed execution requires authentication")?;
             let signer=DeviceSigner::from_host(host).await?;
             let gateway=Gateway::connect(&origin,auth,&kind,params["model"].as_str().unwrap_or("stella/default"),signer).await?;
-            let native=NativeExecution{work:owned.work.clone(),gateway,canceled:AtomicBool::new(false),files:service.lock().unwrap().files.clone(),file_context:crate::file_tools::FileContext{data_dir:config["stellaDataDirPath"].as_str().map(std::path::PathBuf::from),app_dir:config["stellaAppDir"].as_str().map(std::path::PathBuf::from),workspace_root:params["toolWorkspaceRoot"].as_str().map(std::path::PathBuf::from),scope:owned.thread.clone()}};
+            let (files,shells)={let state=service.lock().unwrap();(state.files.clone(),state.shells.clone())};
+            let native=NativeExecution{shells,shell_owner:json!({"conversationId":owned.conversation,"agentId":if kind=="orchestrator"{None}else{Some(&owned.thread)},"agentType":kind,"runId":owned.id}),work:owned.work.clone(),gateway,canceled:AtomicBool::new(false),files,file_context:crate::file_tools::FileContext{data_dir:config["stellaDataDirPath"].as_str().map(std::path::PathBuf::from),app_dir:config["stellaAppDir"].as_str().map(std::path::PathBuf::from),workspace_root:params["toolWorkspaceRoot"].as_str().map(std::path::PathBuf::from),scope:owned.thread.clone()}};
             let execution=RuntimeExecution{native,service:service.clone(),run:owned.clone()};
             let tools=stella_runtime_core::tools::native_definitions(&definition.tools);
             let mut context=AgentContext{system_prompt:definition.system_prompt.into(),messages:history,tools};
@@ -349,6 +395,17 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
         };
         owned.accepting.store(false, Ordering::SeqCst);
         owned.work.settle().await;
+        if let Err(error) = owned.settle_tools(
+            &service,
+            if *owned.cancel.borrow() {
+                "run canceled"
+            } else {
+                "run ended before tool settlement"
+            },
+        ) {
+            *owned.failure.lock().unwrap() =
+                Some(format!("Unable to settle tool transcript: {error:#}"));
+        }
         let failure = owned.failure.lock().unwrap().clone();
         let canceled = *owned.cancel.borrow() && failure.is_none();
         let (mut outcome, text, mut error) = match execution_result {

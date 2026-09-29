@@ -19,6 +19,8 @@ pub struct RunRequest {
 
 pub struct NativeExecution {
     pub(crate) work: std::sync::Arc<crate::work::Work>,
+    pub(crate) shells: std::sync::Arc<crate::shell::Shells>,
+    pub(crate) shell_owner: Value,
     pub(crate) gateway: Gateway,
     pub(crate) canceled: AtomicBool,
     pub(crate) files: std::sync::Arc<crate::file_tools::FileTools>,
@@ -48,6 +50,25 @@ impl Execution for NativeExecution {
     }
     async fn execute(&self, call: &ToolCall) -> Result<ToolResult> {
         match call.name.as_str() {
+            "exec_command" => {
+                self.shells
+                    .exec(
+                        call.arguments.clone(),
+                        self.file_context.clone(),
+                        self.shell_owner.clone(),
+                        self.work.clone(),
+                    )
+                    .await
+            }
+            "write_stdin" => {
+                self.shells
+                    .interact(
+                        call.arguments.clone(),
+                        &self.file_context.scope,
+                        self.work.clone(),
+                    )
+                    .await
+            }
             "Read" | "apply_patch" => {
                 let files = self.files.clone();
                 let context = self.file_context.clone();
@@ -86,16 +107,21 @@ pub async fn run(request: RunRequest, store: &mut Store) -> Result<()> {
         Gateway::ephemeral_signer()?,
     )
     .await?;
-    let execution = NativeExecution {
-        work: Default::default(),
-        gateway,
-        canceled: AtomicBool::new(false),
-        files: std::sync::Arc::new(Default::default()),
-        file_context: Default::default(),
-    };
     let conversation = request
         .conversation_id
         .unwrap_or(store.default_conversation()?);
+    let execution = NativeExecution {
+        work: Default::default(),
+        shells: Default::default(),
+        shell_owner: json!({"agentType":request.agent_type,"conversationId":conversation}),
+        gateway,
+        canceled: AtomicBool::new(false),
+        files: std::sync::Arc::new(Default::default()),
+        file_context: crate::file_tools::FileContext {
+            scope: format!("{}:{}", request.agent_type, conversation),
+            ..Default::default()
+        },
+    };
     let user=store.append_event(serde_json::from_value::<AppendEvent>(json!({"conversationId":conversation,"type":"user_message","payload":{"text":request.prompt}}))?)?;
     let messages=store.list_events(&conversation,2000,None)?.into_iter().filter(|event|event.id!=user.id && matches!(event.kind.as_str(),"user_message"|"assistant_message")).map(|event|json!({"role":if event.kind=="user_message"{"user"}else{"assistant"},"content":[{"type":"text","text":event.payload.as_ref().and_then(|p|p["text"].as_str()).unwrap_or("")}],"timestamp":event.timestamp})).collect();
     let tools = stella_runtime_core::tools::native_definitions(&definition.tools);

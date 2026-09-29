@@ -22,10 +22,11 @@ pub struct FileTools {
     skills: Mutex<VecDeque<(String, PathBuf, u64, std::time::SystemTime)>>,
     writes: Mutex<std::collections::BTreeMap<PathBuf, std::sync::Weak<Mutex<()>>>>,
 }
-fn home() -> Result<PathBuf> {
+pub(crate) fn home() -> Result<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
+        .or_else(dirs::home_dir)
         .context("Home directory is unavailable")
 }
 pub fn absolute(raw: &str) -> Result<PathBuf> {

@@ -10,10 +10,12 @@ const directory = await mkdtemp(join(tmpdir(), 'stella-rust-live-rpc-'));
 const nonce = `native-rpc-${randomUUID()}`;
 const steer = process.argv.includes('--steer');
 const cloud = process.argv.includes('--cloud');
+const cancelShell = process.argv.includes('--cancel-shell');
 let heldSigner = false;
 const secondNonce = `native-steering-${randomUUID()}`;
 await writeFile(join(directory, 'nonce.txt'), nonce);
 await writeFile(join(directory, 'second.txt'), secondNonce);
+if(cancelShell)await writeFile(join(directory,'waiting.py'),`import os,time\nopen(${JSON.stringify(join(directory,'child.pid'))},'w').write(str(os.getpid()))\ntime.sleep(600)\n`);
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const rawPublicKey = [...publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)];
 const child = spawn(join(root, 'packages/runtime-rust/target/debug/stella-runtime'), ['--database', join(directory, 'stella.sqlite')], { env: process.env, stdio: ['pipe', 'pipe', 'inherit'] });
@@ -30,7 +32,20 @@ peer.registerNotificationHandler('run.event',event=>{events.push(event);if(event
 try {
   await peer.request('internal.worker.initialize',{protocolVersion:'v1',stellaDataDirPath:directory,authToken:process.env.STELLA_AUTH_TOKEN,convexUrl:'https://outgoing-bulldog-865.convex.cloud'});
   const conversationId=await peer.request('internal.worker.localChat.getOrCreateDefaultConversationId',{});
-  const started=await peer.request('internal.worker.startChat',{conversationId,agentType:'general',storageMode:cloud?'cloud':'local',requestId:randomUUID(),userPrompt:`Use Read to read ${join(directory,'nonce.txt')}. Reply with exactly its contents. Do not delegate.`});
+  const started=await peer.request('internal.worker.startChat',{conversationId,agentType:'general',storageMode:cloud?'cloud':'local',requestId:randomUUID(),userPrompt:cancelShell?`Use exec_command to run python3 -u ${join(directory,'waiting.py')} with yield_time_ms=30000. Do not delegate.`:`Use Read to read ${join(directory,'nonce.txt')}. Reply with exactly its contents. Do not delegate.`});
+  if(cancelShell){
+    let pid;const deadline=Date.now()+90000;
+    while(Date.now()<deadline){try{pid=Number(await readFile(join(directory,'child.pid'),'utf8'));if(pid)break;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}
+    if(!pid)throw Error('Native shell child did not start');
+    const result=await peer.request('internal.worker.cancel',{runId:started.runId});
+    const final=await terminal;
+    if(!result.cancelled || final.outcome!=='canceled')throw Error('Native run did not cancel');
+    let alive=true;try{process.kill(pid,0);}catch(error){if(error.code==='ESRCH')alive=false;else throw error;}
+    if(alive)throw Error('Cancellation returned while the owned child was still alive');
+    if(!events.some(e=>e.type==='tool-end' && e.toolName==='exec_command' && e.isError))throw Error('Cancellation left a dangling tool call');
+    await writeFile(join(directory,'run-events.json'),JSON.stringify(events,null,2));
+    console.log('PASS: native shell child started, cancellation joined process teardown, interrupted tool result and terminal event persisted',directory);
+  }else{
   const secondId=randomUUID();
   if(steer){
     const parameters={conversationId,agentType:'general',requestId:randomUUID(),userMessageEventId:secondId,userPrompt:`Correction: use Read to read ${join(directory,'second.txt')} instead. Reply with exactly that file's contents. Do not delegate.`};
@@ -52,6 +67,7 @@ try {
   if(cloud && stored.some(e=>e.type==='assistant_message'))throw Error('Cloud turn incorrectly wrote local canonical chat');
   await writeFile(join(directory,'run-events.json'),JSON.stringify(events,null,2));
   console.log('PASS: native RPC admission, host signing callbacks, live model/tool execution, transcript, event replay',steer?'with idempotent steering and response ownership':cloud?'with live cloud turn and lease renewals during a 40-second signer delay':'',directory);
+  }
 } finally {
   child.stdin.end();
   await new Promise(resolve=>child.once('exit',resolve));

@@ -21,7 +21,7 @@ pub struct NativeExecution {
     pub(crate) work: std::sync::Arc<crate::work::Work>,
     pub(crate) shells: std::sync::Arc<crate::shell::Shells>,
     pub(crate) shell_owner: Value,
-    pub(crate) gateway: Gateway,
+    pub(crate) gateway: crate::model_client::ModelClient,
     pub(crate) canceled: AtomicBool,
     pub(crate) files: std::sync::Arc<crate::file_tools::FileTools>,
     pub(crate) file_context: crate::file_tools::FileContext,
@@ -95,18 +95,29 @@ impl Execution for NativeExecution {
 pub async fn run(request: RunRequest, store: &mut Store) -> Result<()> {
     let definition = stella_runtime_core::builtin::agent(&request.agent_type)
         .context("Unknown built-in agent")?;
-    let auth = std::env::var("STELLA_AUTH_TOKEN")
-        .context("STELLA_AUTH_TOKEN is required for managed model execution")?;
-    let origin = std::env::var("STELLA_MODEL_GATEWAY_URL")
-        .context("STELLA_MODEL_GATEWAY_URL is required")?;
-    let gateway = Gateway::connect(
-        &origin,
-        &auth,
-        &request.agent_type,
-        request.model.as_deref().unwrap_or("stella/default"),
-        Gateway::ephemeral_signer()?,
-    )
-    .await?;
+    let selected = request.model.as_deref().unwrap_or("stella/default");
+    let gateway = if selected.starts_with("stella/") {
+        let auth = std::env::var("STELLA_AUTH_TOKEN")
+            .context("STELLA_AUTH_TOKEN is required for managed model execution")?;
+        let origin = std::env::var("STELLA_MODEL_GATEWAY_URL")
+            .context("STELLA_MODEL_GATEWAY_URL is required")?;
+        Gateway::connect(
+            &origin,
+            &auth,
+            &request.agent_type,
+            request.model.as_deref().unwrap_or("stella/default"),
+            Gateway::ephemeral_signer()?,
+        )
+        .await?
+        .into()
+    } else {
+        let catalog = crate::provider_catalog::Providers::default();
+        catalog
+            .reload(std::env::var_os("STELLA_DATA_DIR").map(std::path::PathBuf::from))
+            .await;
+        let (model, headers) = catalog.route(selected).await?;
+        crate::model_client::ModelClient::direct(model, headers)?
+    };
     let conversation = request
         .conversation_id
         .unwrap_or(store.default_conversation()?);

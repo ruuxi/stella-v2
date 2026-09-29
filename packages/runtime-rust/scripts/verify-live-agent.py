@@ -41,6 +41,15 @@ if '--rpc' in sys.argv:
     subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-live-rpc.mjs'), *sys.argv[1:]], env=env, timeout=180, check=True)
     raise SystemExit(0)
 request = {'agentType': 'general', 'prompt': f'Use the Read tool to read {file}. Reply with exactly the single line from that file. Do not delegate.'}
+if '--model' in sys.argv:
+    request['model'] = sys.argv[sys.argv.index('--model')+1]
+    if '--backend-provider-key' in sys.argv:
+        provider = request['model'].split('/')[0]
+        name = {'anthropic':'ANTHROPIC_API_KEY','google':'GOOGLE_AI_API_KEY'}[provider]
+        result = subprocess.run(['bunx','convex','env','get',name],cwd=root / 'packages/backend',text=True,capture_output=True,check=True)
+        value = result.stdout.strip().split('\n')[-1]
+        assert value and value not in ['undefined','null'], 'Provider verification credential is unavailable: ' + name
+        env[name] = value
 if image_mode:
     request['prompt'] = f'Use Read to inspect {file}. Reply with the two solid colours from left to right in lowercase, separated by a comma and a space. Do not delegate.'
 if patch_mode:
@@ -54,6 +63,11 @@ if proc.returncode:
     print(proc.stderr[-3000:])
     raise SystemExit(1)
 events = [json.loads(line)['params'] for line in proc.stdout.splitlines()]
+if '--model' in sys.argv and not request['model'].startswith('stella/'):
+    provider=request['model'].split('/')[0]
+    protocol={'anthropic':'anthropic-messages','google':'google-generative-ai'}.get(provider)
+    messages=[e['message'] for e in events if e['type']=='message_end' and e['message']['role']=='assistant']
+    assert messages and all(m['provider']==provider and (not protocol or m['api']==protocol) for m in messages), 'Requested provider was not exercised'
 assert any((e['type'] == 'tool_execution_end' and e['toolName'] == ('exec_command' if shell_mode else 'Read') and (not e['isError']) for e in events)), [e['type'] for e in events]
 assert events[-1]['type'] == 'agent_end'
 text = '\n'.join((b.get('text', '') for m in events[-1]['messages'] if m.get('role') == 'assistant' for b in m.get('content', [])))
@@ -74,4 +88,4 @@ if shell_mode:
     assert all(r['shell_session_id']==results[0]['session_id'] and r['worker_generation']==results[0]['worker_generation'] for r in results)
     if volume_mode:
         assert any(r['raw_output_truncated'] and r['original_output_bytes'] > 2_200_000 for r in results), results
-print('Native Rust gateway authentication, live model completion, tool execution, follow-up completion, and transcript persistence passed')
+print('Native Rust provider routing, live model completion, tool execution, follow-up completion, and transcript persistence passed')

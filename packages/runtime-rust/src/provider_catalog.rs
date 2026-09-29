@@ -258,6 +258,119 @@ fn compose(
 }
 
 impl Providers {
+    pub async fn route(&self, reference: &str) -> Result<(Value, reqwest::header::HeaderMap)> {
+        let (provider, id) = reference
+            .split_once('/')
+            .context("Model reference must include its provider")?;
+        if stella_runtime_core::catalog::retired(provider) {
+            bail!("Provider has been retired");
+        }
+        let snapshot = self.snapshot(vec![]);
+        let model = snapshot["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["provider"] == provider && m["id"] == id)
+            .cloned()
+            .context("Unknown provider model")?;
+        let (config, base_headers) = {
+            let state = self.state.lock().unwrap();
+            let config = if snapshot["runtimeManagedProviders"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["id"] == provider)
+            {
+                state.config["providers"][provider].clone()
+            } else {
+                Value::Null
+            };
+            let baseline = state
+                .stored
+                .get(provider)
+                .and_then(|e| e["models"].as_array())
+                .and_then(|models| models.iter().find(|m| m["id"] == id))
+                .unwrap_or(&stella_runtime_core::catalog::MODELS[provider][id]);
+            (config, baseline["headers"].clone())
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Some(values) = base_headers.as_object() {
+            for (name, value) in values {
+                headers.insert(
+                    reqwest::header::HeaderName::from_bytes(name.as_bytes())?,
+                    reqwest::header::HeaderValue::from_str(
+                        value.as_str().context("Invalid provider header")?,
+                    )?,
+                );
+            }
+        }
+        let definition = config["models"]
+            .as_array()
+            .and_then(|models| models.iter().find(|m| m["id"] == id));
+        for values in [
+            Some(&config["headers"]),
+            definition.map(|m| &m["headers"]),
+            Some(&config["modelOverrides"][id]["headers"]),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(values) = values.as_object() {
+                for (name, expression) in values {
+                    let value =
+                        resolve_value(expression.as_str().context("Invalid configured header")?)
+                            .await
+                            .context("Configured provider header could not be resolved")?;
+                    headers.insert(
+                        reqwest::header::HeaderName::from_bytes(name.as_bytes())?,
+                        reqwest::header::HeaderValue::from_str(&value)?,
+                    );
+                }
+            }
+        }
+        let key = if let Some(configured) = config["apiKey"].as_str() {
+            Some(
+                resolve_value(configured)
+                    .await
+                    .context("Configured provider API key could not be resolved")?,
+            )
+        } else {
+            environment_key(provider)
+        };
+        if let Some(key) = key {
+            let header = if config["authHeader"] == true {
+                "authorization"
+            } else {
+                match model["api"].as_str() {
+                    Some("anthropic-messages") => "x-api-key",
+                    Some("google-generative-ai") => "x-goog-api-key",
+                    _ => "authorization",
+                }
+            };
+            let value = if header == "authorization" {
+                format!("Bearer {key}")
+            } else {
+                key
+            };
+            if !headers.contains_key(header) {
+                headers.insert(header, reqwest::header::HeaderValue::from_str(&value)?);
+            }
+        } else if !snapshot["runtimeManagedProviders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == provider && p["credentialless"] == true)
+            && !headers.keys().any(|key| {
+                matches!(
+                    key.as_str(),
+                    "authorization" | "api-key" | "x-api-key" | "x-auth-token" | "x-goog-api-key"
+                )
+            })
+        {
+            bail!("No credential is available for provider {provider}");
+        }
+        Ok((model, headers))
+    }
     pub async fn reload(&self, root: Option<PathBuf>) {
         let _single = self.reload.lock().await;
         let first = {
@@ -514,13 +627,117 @@ impl Providers {
     }
 }
 
+fn environment_key(provider: &str) -> Option<String> {
+    let names: &[&str] = match provider {
+        "anthropic" => &["ANTHROPIC_API_KEY"],
+        "google" => &["GEMINI_API_KEY", "GOOGLE_AI_API_KEY"],
+        "openai" => &["OPENAI_API_KEY"],
+        "meta" => &["META_API_KEY", "MODEL_API_KEY"],
+        "cerebras" => &["CEREBRAS_API_KEY"],
+        "xai" => &["XAI_API_KEY"],
+        "openrouter" => &["OPENROUTER_API_KEY"],
+        "vercel-ai-gateway" => &["AI_GATEWAY_API_KEY"],
+        "zai" => &["ZAI_API_KEY"],
+        "minimax" => &["MINIMAX_API_KEY"],
+        "minimax-cn" => &["MINIMAX_CN_API_KEY"],
+        "huggingface" => &["HF_TOKEN"],
+        "opencode" | "opencode-go" => &["OPENCODE_API_KEY"],
+        "kimi-coding" => &["KIMI_API_KEY"],
+        _ => &[],
+    };
+    names
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+}
+
+async fn resolve_value(expression: &str) -> Result<String> {
+    if let Some(command) = expression.strip_prefix('!') {
+        let mut invocation = if cfg!(windows) {
+            let mut cmd = tokio::process::Command::new(
+                std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()),
+            );
+            cmd.args(["/d", "/s", "/c", command]);
+            cmd
+        } else {
+            let mut cmd = tokio::process::Command::new(
+                std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
+            );
+            cmd.args(["-lc", command]);
+            cmd
+        };
+        invocation
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let mut child = invocation
+            .spawn()
+            .context("Credential command could not start")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("Credential command has no output stream")?;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            use tokio::io::AsyncReadExt;
+            let mut bytes = Vec::new();
+            stdout.take(65537).read_to_end(&mut bytes).await?;
+            if bytes.len() > 65536 {
+                bail!("Credential command output exceeds limit");
+            }
+            if !child.wait().await?.success() {
+                bail!("Credential command failed");
+            }
+            let value = String::from_utf8(bytes)
+                .context("Credential command output is not UTF-8")?
+                .trim()
+                .to_owned();
+            if value.is_empty() {
+                bail!("Credential command returned no value");
+            }
+            Ok(value)
+        })
+        .await
+        .context("Credential command timed out")?;
+        if result.is_err() {
+            let _ = child.kill().await;
+        }
+        return result;
+    }
+    let escaped = expression
+        .replace("$$", "\0stella-dollar\0")
+        .replace("$!", "\0stella-bang\0");
+    static ENV: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))").unwrap()
+    });
+    let mut missing = false;
+    let result = ENV.replace_all(&escaped, |capture: &regex::Captures| {
+        let name = capture.get(1).or_else(|| capture.get(2)).unwrap().as_str();
+        match std::env::var(name) {
+            Ok(value) => value,
+            Err(_) => {
+                missing = true;
+                String::new()
+            }
+        }
+    });
+    if missing {
+        bail!("Credential environment variable is not set");
+    }
+    Ok(result
+        .replace("\0stella-dollar\0", "$")
+        .replace("\0stella-bang\0", "!"))
+}
+
 async fn fetch(provider: &str) -> Result<Option<Value>> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
     let mut url = reqwest::Url::parse("https://pi.dev/api/models/providers/")?;
-    url.path_segments_mut().unwrap().pop_if_empty().push(provider);
+    url.path_segments_mut()
+        .unwrap()
+        .pop_if_empty()
+        .push(provider);
     let mut response = client
         .get(url)
         .header("accept", "application/json")

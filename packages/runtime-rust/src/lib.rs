@@ -9,6 +9,7 @@ pub mod cloud_transcript;
 pub mod file_mutation;
 pub mod file_tools;
 pub mod lifecycle;
+pub mod model_client;
 pub mod provider_catalog;
 pub mod runs;
 pub mod shell;

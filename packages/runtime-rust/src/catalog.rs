@@ -173,6 +173,18 @@ fn validate_catalog(value: &Value) -> Result<()> {
 }
 
 impl Catalog {
+    pub async fn direct(
+        &self,
+        service: &SharedService,
+        reference: &str,
+    ) -> Result<crate::model_client::ModelClient> {
+        let root = service.lock().unwrap().config["stellaDataDirPath"]
+            .as_str()
+            .map(PathBuf::from);
+        self.providers.reload(root).await;
+        let (model, headers) = self.providers.route(reference).await?;
+        crate::model_client::ModelClient::direct(model, headers)
+    }
     fn entry(&self, identity: &str) -> Arc<Entry> {
         let mut entries = self.entries.lock().unwrap();
         // Bound old signed-out accounts; active fetches keep their own Arc.

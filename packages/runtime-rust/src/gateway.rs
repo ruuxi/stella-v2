@@ -225,6 +225,9 @@ impl Gateway {
             )
             .header("x-stella-dpop-ts", at.to_string())
             .header("x-stella-dpop-alg", "ed25519");
+        if path.ends_with("/messages") {
+            request = request.header("anthropic-version", "2023-06-01");
+        }
         if let Some(revision) = revision {
             request = request.header("x-stella-model-revision", revision);
         }
@@ -274,6 +277,24 @@ impl Gateway {
                 now_ms(),
             ),
         };
+        if self.resolution["protocol"] == "anthropic-messages" {
+            let body = stella_runtime_core::anthropic::request(&context, model, max_tokens)?;
+            let response = self
+                .post("/v1/relay/v1/messages", body, Some(&self.revision))
+                .await?;
+            return stella_runtime_core::anthropic::response(response, model, provider, now_ms());
+        }
+        if self.resolution["protocol"] == "google-generative-ai" {
+            let upstream = self.resolution["resolvedModel"].as_str().unwrap_or(model);
+            let body = stella_runtime_core::google::request(&context, upstream, max_tokens)?;
+            let mut path = reqwest::Url::parse(&format!("{}/v1/relay/models/", self.origin))?;
+            path.path_segments_mut()
+                .map_err(|_| anyhow::anyhow!("Invalid gateway origin"))?
+                .pop_if_empty()
+                .push(&format!("{model}:generateContent"));
+            let response = self.post(path.path(), body, Some(&self.revision)).await?;
+            return stella_runtime_core::google::response(response, model, provider, now_ms());
+        }
         if self.resolution["protocol"] == "openai-responses" {
             let body = stella_runtime_core::responses::request(&context, model, max_tokens)?;
             let response = self

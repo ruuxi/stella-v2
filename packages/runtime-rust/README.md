@@ -28,7 +28,12 @@ Implemented here:
 - Compiled Rust agent metadata and prompt-reminder policy in `../runtime-core`.
 - A standalone Rust agent loop and managed model-gateway execution using
   Ed25519 capability exchange, DPoP, descriptor revisions, and the Responses and
-  Chat Completions protocols. The current standalone tool adapter implements
+  Chat Completions protocols, plus Anthropic Messages and Google GenerateContent
+  adapters. Direct provider routing supports environment/configured credentials,
+  bounded credential commands, request-time headers and registry cost accounting.
+  Actual Anthropic and Google text/image tool turns have been exercised; OAuth,
+  token streaming, advanced provider options and protected credential-store
+  integration remain incomplete. The current standalone tool adapter implements
   bounded text/image `Read`, with file guards, scoped descriptor reads on Unix,
   UTF-16-compatible hash anchors, and skill-read deduplication. Tool images are
   forwarded through both managed protocols. Native `apply_patch` supports add,
@@ -103,6 +108,8 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py --idle-shell
 python3 packages/runtime-rust/scripts/verify-live-agent.py --shutdown-shell
 python3 packages/runtime-rust/scripts/verify-rpc.py
 bun packages/runtime-rust/scripts/verify-catalog.mjs
+python3 packages/runtime-rust/scripts/verify-live-agent.py --model anthropic/claude-haiku-4-5 --backend-provider-key
+python3 packages/runtime-rust/scripts/verify-live-agent.py --image --model google/gemini-3-flash-preview --backend-provider-key
 ```
 
 The live check mints a dev Pro test account using the existing Convex login or

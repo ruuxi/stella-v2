@@ -372,10 +372,13 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
                 history
             }else{history};
             let catalog=service.lock().unwrap().catalog.clone();
+            let selected=params["model"].as_str().unwrap_or("stella/default");
+            let gateway=if selected.starts_with("stella/") {
             let origin=catalog.gateway(&service).await?;
             let auth=config["authToken"].as_str().context("Managed execution requires authentication")?;
             let signer=DeviceSigner::from_host(host).await?;
-            let gateway=Gateway::connect(&origin,auth,&kind,params["model"].as_str().unwrap_or("stella/default"),signer).await?;
+            Gateway::connect(&origin,auth,&kind,selected,signer).await?.into()
+            }else{catalog.direct(&service,selected).await?};
             let (files,shells)={let state=service.lock().unwrap();(state.files.clone(),state.shells.clone())};
             let native=NativeExecution{shells,shell_owner:json!({"conversationId":owned.conversation,"agentId":if kind=="orchestrator"{None}else{Some(&owned.thread)},"agentType":kind,"runId":owned.id}),work:owned.work.clone(),gateway,canceled:AtomicBool::new(false),files,file_context:crate::file_tools::FileContext{data_dir:config["stellaDataDirPath"].as_str().map(std::path::PathBuf::from),app_dir:config["stellaAppDir"].as_str().map(std::path::PathBuf::from),workspace_root:params["toolWorkspaceRoot"].as_str().map(std::path::PathBuf::from),scope:owned.thread.clone()}};
             let execution=RuntimeExecution{native,service:service.clone(),run:owned.clone()};

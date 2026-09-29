@@ -2078,6 +2078,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "portable-pty",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

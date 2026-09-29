@@ -17,6 +17,7 @@ pub struct Service {
     pub(crate) store: Option<Store>,
     pub(crate) files: Arc<crate::file_tools::FileTools>,
     pub(crate) shells: Arc<crate::shell::Shells>,
+    pub(crate) catalog: Arc<crate::catalog::Catalog>,
     pub(crate) orchestrator_lane: Arc<tokio::sync::Mutex<()>>,
     database_path: Option<PathBuf>,
     pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
@@ -41,6 +42,7 @@ impl Service {
             run_events,
             files: Arc::new(Default::default()),
             shells: Arc::new(Default::default()),
+            catalog: Arc::new(Default::default()),
             orchestrator_lane: Arc::new(tokio::sync::Mutex::new(())),
             store,
             database_path: database,
@@ -325,6 +327,23 @@ pub async fn dispatch(
     params: Value,
 ) -> Result<Value> {
     match method.as_str() {
+        "internal.worker.configure" => {
+            let (result, catalog) = {
+                let mut state = service.lock().unwrap();
+                (state.dispatch(&method, params)?, state.catalog.clone())
+            };
+            let weak = Arc::downgrade(&service);
+            tokio::spawn(async move {
+                if let Some(service) = weak.upgrade() {
+                    catalog.list(&service, false).await;
+                }
+            });
+            return Ok(result);
+        }
+        "internal.worker.listModels" => {
+            let catalog = service.lock().unwrap().catalog.clone();
+            return Ok(catalog.list(&service, params["forceRefresh"] == true).await);
+        }
         "internal.worker.killAllShells" => {
             let shells = service.lock().unwrap().shells.clone();
             return Ok(json!({"ok":true,"killed":shells.kill_all().await?}));
@@ -394,6 +413,13 @@ pub async fn dispatch(
             state.delivery_started = true;
             crate::cloud_transcript::start_delivery(&service);
         }
+        let catalog = state.catalog.clone();
+        let weak = Arc::downgrade(&service);
+        tokio::spawn(async move {
+            if let Some(service) = weak.upgrade() {
+                catalog.list(&service, false).await;
+            }
+        });
         return Ok(initialized);
     }
     tokio::task::spawn_blocking(move || {

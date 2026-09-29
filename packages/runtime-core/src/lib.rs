@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod builtin;
+pub mod catalog;
 pub mod completions;
 pub mod messages;
 pub mod patch;

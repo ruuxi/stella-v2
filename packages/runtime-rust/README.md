@@ -44,6 +44,10 @@ Implemented here:
 - Provider-context reconstruction preserves exact stored messages while repairing
   dangling/interleaved tool results, dropping foreign reasoning signatures and
   downgrading images for models without vision.
+- Managed catalog discovery over the authenticated backend endpoint, account/device
+  cache isolation using the existing disk format, stale refresh, concurrent fetch
+  coalescing, gateway discovery, compiled provider metadata, and model-list RPC
+  notifications. Custom configuration and remote provider refresh remain in progress.
 
 ## Build and run
 
@@ -84,6 +88,7 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --steer
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --cloud
+python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --catalog
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --cancel-shell
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image
 python3 packages/runtime-rust/scripts/verify-live-agent.py --patch

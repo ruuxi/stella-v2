@@ -11,6 +11,7 @@ const nonce = `native-rpc-${randomUUID()}`;
 const steer = process.argv.includes('--steer');
 const cloud = process.argv.includes('--cloud');
 const cancelShell = process.argv.includes('--cancel-shell');
+const catalogMode = process.argv.includes('--catalog');
 let heldSigner = false;
 const secondNonce = `native-steering-${randomUUID()}`;
 await writeFile(join(directory, 'nonce.txt'), nonce);
@@ -18,7 +19,9 @@ await writeFile(join(directory, 'second.txt'), secondNonce);
 if(cancelShell)await writeFile(join(directory,'waiting.py'),`import os,time\nopen(${JSON.stringify(join(directory,'child.pid'))},'w').write(str(os.getpid()))\ntime.sleep(600)\n`);
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const rawPublicKey = [...publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)];
-const child = spawn(join(root, 'packages/runtime-rust/target/debug/stella-runtime'), ['--database', join(directory, 'stella.sqlite')], { env: process.env, stdio: ['pipe', 'pipe', 'inherit'] });
+const environment={...process.env};
+if(catalogMode)delete environment.STELLA_MODEL_GATEWAY_URL;
+const child = spawn(join(root, 'packages/runtime-rust/target/debug/stella-runtime'), ['--database', join(directory, 'stella.sqlite')], { env: environment, stdio: ['pipe', 'pipe', 'inherit'] });
 const { peer } = attachJsonRpcPeerToStreams({ input: child.stdout, output: child.stdin, requestTimeoutMs: 180000 });
 peer.registerRequestHandler('host.deviceIdentity.get', () => ({ deviceId: 'native-rpc-verification', publicKey: publicKey.export({ format: 'pem', type: 'spki' }) }));
 peer.registerRequestHandler('host.auth.signDevice', async ({input}) => {
@@ -30,7 +33,17 @@ let complete;
 const terminal=new Promise(resolve=>{complete=resolve;});
 peer.registerNotificationHandler('run.event',event=>{events.push(event);if(event.type==='run-finished')complete(event);});
 try {
-  await peer.request('internal.worker.initialize',{protocolVersion:'v1',stellaDataDirPath:directory,authToken:process.env.STELLA_AUTH_TOKEN,convexUrl:'https://outgoing-bulldog-865.convex.cloud'});
+  await peer.request('internal.worker.initialize',{protocolVersion:'v1',stellaDataDirPath:directory,authToken:process.env.STELLA_AUTH_TOKEN,convexUrl:'https://outgoing-bulldog-865.convex.cloud',convexSiteUrl:'https://outgoing-bulldog-865.convex.site'});
+  if(catalogMode){
+    const snapshots=await Promise.all(Array.from({length:4},()=>peer.request('internal.worker.listModels',{})));
+    const snapshot=snapshots[0];
+    if(snapshot.catalogError)throw Error(snapshot.catalogError);
+    if(!snapshot.models.some(m=>m.provider==='stella'))throw Error('No managed catalog models');
+    if(!snapshot.models.some(m=>m.provider==='anthropic'))throw Error('No vendored provider models');
+    if(snapshot.models.some(m=>'headers' in m))throw Error('Catalog leaked headers');
+    if(snapshots.some(s=>s.revision!==snapshot.revision))throw Error('Unstable catalog revision');
+    await writeFile(join(directory,'catalog.json'),JSON.stringify(snapshot,null,2));
+  }
   const conversationId=await peer.request('internal.worker.localChat.getOrCreateDefaultConversationId',{});
   const started=await peer.request('internal.worker.startChat',{conversationId,agentType:'general',storageMode:cloud?'cloud':'local',requestId:randomUUID(),userPrompt:cancelShell?`Use exec_command to run python3 -u ${join(directory,'waiting.py')} with yield_time_ms=30000. Do not delegate.`:`Use Read to read ${join(directory,'nonce.txt')}. Reply with exactly its contents. Do not delegate.`});
   if(cancelShell){

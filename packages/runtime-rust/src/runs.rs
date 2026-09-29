@@ -371,7 +371,8 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
                 lease=Some(admitted);
                 history
             }else{history};
-            let origin=std::env::var("STELLA_MODEL_GATEWAY_URL").ok().or_else(||config["modelGatewayUrl"].as_str().map(str::to_owned)).context("STELLA_MODEL_GATEWAY_URL is required")?;
+            let catalog=service.lock().unwrap().catalog.clone();
+            let origin=catalog.gateway(&service).await?;
             let auth=config["authToken"].as_str().context("Managed execution requires authentication")?;
             let signer=DeviceSigner::from_host(host).await?;
             let gateway=Gateway::connect(&origin,auth,&kind,params["model"].as_str().unwrap_or("stella/default"),signer).await?;

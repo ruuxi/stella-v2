@@ -9,7 +9,10 @@ def send(value):
     proc.stdin.flush()
 def read():
     # A watchdog protects the executable check from hanging on a deadlock.
-    return json.loads(proc.stdout.readline())
+    while True:
+        message = json.loads(proc.stdout.readline())
+        if 'id' in message:
+            return message
 def request(id, method, params=None):
     send(dict(id=id, method=method, params=params or {}))
 try:

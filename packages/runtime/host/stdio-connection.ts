@@ -23,8 +23,9 @@ export const buildStdioConnectionFactory = (
   options: StdioWorkerConnectionFactoryOptions = {},
 ) => {
   return async (workerEntryPath: string): Promise<WorkerConnection> => {
-    const bunBinaryPath = options.bunBinaryPath ?? resolveBunBinaryPath();
-    const child = spawn(bunBinaryPath, ["run", workerEntryPath], {
+    const nativeBinary = process.env.STELLA_RUNTIME_BINARY?.trim();
+    const bunBinaryPath = nativeBinary ?? options.bunBinaryPath ?? resolveBunBinaryPath();
+    const child = spawn(bunBinaryPath, nativeBinary ? [] : ["run", workerEntryPath], {
       // stderr is inherited so worker diagnostics surface on the host's
       // stderr instead of disappearing (stdout carries the JSON-RPC frames).
       stdio: ["pipe", "pipe", "inherit"],

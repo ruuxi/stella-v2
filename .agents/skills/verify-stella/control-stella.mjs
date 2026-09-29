@@ -738,6 +738,9 @@ const cmdLaunch = async (options) => {
   if (options.reuse && accountMode !== "anonymous")
     fail("--reuse applies to anonymous launches only; test accounts are minted per run.");
 
+  const runtimeBinary = options["runtime-binary"] ? path.resolve(options["runtime-binary"]) : null;
+  if (runtimeBinary && !existsSync(runtimeBinary)) fail(`--runtime-binary file not found: ${runtimeBinary}`);
+  const modelGateway = options["model-gateway"] ? new URL(options["model-gateway"]).origin : null;
   const fakeMic = options["fake-mic"] ? path.resolve(options["fake-mic"]) : null;
   if (fakeMic && !existsSync(fakeMic)) fail(`--fake-mic file not found: ${fakeMic}`);
 
@@ -863,6 +866,8 @@ const cmdLaunch = async (options) => {
       cwd: repoRoot,
       env: {
         ...isolatedElectronEnvironment(),
+        ...(runtimeBinary ? { STELLA_RUNTIME_BINARY: runtimeBinary } : {}),
+        ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
         STELLA_SKIP_BROWSER_HYDRATE: "1",
         STELLA_DATA_DIR: dataDir,
         STELLA_V2_DEV_DATA_DIR: dataDir,
@@ -873,6 +878,7 @@ const cmdLaunch = async (options) => {
           ? { STELLA_DEV_HARNESS_SESSION_TOKEN: minted.sessionToken }
           : {}),
         STELLA_V2_DEV_USER_DATA_DIR: userDataDir,
+        STELLA_RUNTIME_IPC_DIR: path.dirname(userDataDir),
         STELLA_REMOTE_DEBUG_PORT: String(cdpPort),
         NODE_ENV: "development",
         ...(softwareGl

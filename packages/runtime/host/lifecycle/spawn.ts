@@ -60,9 +60,9 @@ const spawnDetachedWorkerProcess = (
   options: LifecycleStartOptions,
   paths: RuntimePaths,
 ): { child: ChildProcess; bunBinaryPath: string } => {
+  const nativeBinary = process.env.STELLA_RUNTIME_BINARY?.trim();
   const args = [
-    "run",
-    options.workerEntryPath,
+    ...(nativeBinary ? [] : ["run", options.workerEntryPath]),
     "--listen",
     runtimeIpcListenUrl(paths.socketPath),
     "--stella-root",
@@ -89,7 +89,7 @@ const spawnDetachedWorkerProcess = (
     transpilerCachePath = undefined;
   }
   let child: ChildProcess;
-  const bunBinaryPath = options.bunBinaryPath ?? resolveBunBinaryPath();
+  const bunBinaryPath = nativeBinary ?? options.bunBinaryPath ?? resolveBunBinaryPath();
   try {
     if (options.env?.NODE_ENV === "development") {
       console.warn(`[runtime-host] Detached worker logs: ${paths.logFile}`);

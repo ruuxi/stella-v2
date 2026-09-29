@@ -197,6 +197,34 @@ impl Service {
                 "parityComplete":false,
                 "storageReady":self.store.is_some(), "implementation":"rust"
             })),
+            "internal.worker.threads.resolve" => {
+                let (id, reused) = self.store()?.resolve_thread(
+                    string("conversationId"),
+                    string("agentType"),
+                    params["threadId"].as_str(),
+                    string("nameHint"),
+                )?;
+                Ok(json!({"threadId":id,"reused":reused}))
+            }
+            "internal.worker.threads.append" => Ok(
+                json!({"entryId":self.store()?.append_session_entry(string("threadKey"),string("entryType"),&params["data"],params["timestamp"].as_i64().unwrap_or_else(crate::storage::now_ms))?}),
+            ),
+            "internal.worker.threads.entries" => Ok(json!(
+                self.store()?
+                    .session_entries(string("threadKey"), params["limit"].as_i64())?
+            )),
+            "internal.worker.threads.messages" => Ok(json!(
+                self.store()?
+                    .context_messages(string("threadKey"), params["limit"].as_i64())?
+            )),
+            "internal.worker.threads.context" => {
+                Ok(json!(self.store()?.thread_context(string("threadKey"))?))
+            }
+            "internal.worker.threads.compact" => self.store()?.compact_thread(&params),
+            "internal.worker.threads.pressure" => {
+                self.store()?.thread_pressure(string("threadKey"))
+            }
+            "internal.worker.threads.session" => self.store()?.thread_session(string("threadKey")),
             "internal.worker.storage.diagnostics" => self.store()?.diagnostics(),
             "internal.worker.localChat.getOrCreateDefaultConversationId" => {
                 Ok(json!(self.store()?.default_conversation()?))

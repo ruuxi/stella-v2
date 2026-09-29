@@ -3,6 +3,7 @@ pub mod anthropic;
 pub mod builtin;
 pub mod catalog;
 pub mod completions;
+pub mod context;
 pub mod google;
 pub mod messages;
 pub mod patch;

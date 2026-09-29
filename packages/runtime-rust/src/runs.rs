@@ -363,7 +363,7 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
           result=async {
             if *owned.cancel.borrow(){bail!("Run canceled");}
             owned.publish(&service,json!({"type":"run-started","responseTarget":{"type":"user_turn"}}))?;
-            let history=service.lock().unwrap().store()?.raw_thread_messages(&owned.thread)?;
+            let history=service.lock().unwrap().store()?.context_messages(&owned.thread,None)?;
             let user_message=json!({"role":"user","content":[{"type":"text","text":prompt}],"timestamp":params["userMessageTimestamp"].as_i64().unwrap_or_else(now_ms)});
             let history=if cloud {
                 let admitted=crate::cloud_transcript::Lease::begin(service.clone(),owned.clone(),params["ownerGeneration"].as_str().unwrap_or("").to_owned(),user_message.clone()).await?;

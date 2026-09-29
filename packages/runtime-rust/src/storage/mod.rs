@@ -3,6 +3,7 @@ mod legacy;
 pub mod run_events;
 pub mod schema;
 mod summaries;
+mod thread_context;
 mod threads;
 
 use anyhow::Result;

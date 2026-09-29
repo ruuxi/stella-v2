@@ -13,6 +13,10 @@ Implemented here:
 - `rusqlite` with bundled SQLite/FTS5, schema versions 0–3, WAL, exclusive
   migrations, legacy transcript/thread/blob/compaction import, and preservation
   of existing outbox and receipt tables.
+- Durable thread sessions and range compaction with immutable exact blobs, resident
+  context folding, pinned instructions, image receipts and image-aware accounting.
+  Active context reads skip compacted blobs; quarantine masks apply only to model
+  context. RPC/process-restart checks cover ordering and retained raw history.
 - Transactional chat writes, sequence allocation, overwrite-by-ID, turn
   ownership, reply references, transcript search, settings, and summary records.
 - Duplex host callbacks, existing unversioned v1 RPC envelopes, concurrent
@@ -114,6 +118,7 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py --shutdown-shell
 python3 packages/runtime-rust/scripts/verify-rpc.py
 bun packages/runtime-rust/scripts/verify-catalog.mjs
 bun packages/runtime-rust/scripts/verify-projects.mjs
+bun packages/runtime-rust/scripts/verify-thread-context.mjs
 python3 packages/runtime-rust/scripts/verify-live-agent.py --model anthropic/claude-haiku-4-5 --backend-provider-key
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image --model google/gemini-3-flash-preview --backend-provider-key
 ```

@@ -1,5 +1,5 @@
 use super::{Store, now_ms};
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 
@@ -48,32 +48,12 @@ impl Store {
     /// Exact native messages use the legacy {message: ...} payload wrapper.
     /// Large messages remain exact in the blob table instead of being truncated.
     pub fn append_thread_message(&mut self, thread: &str, message: &Value) -> Result<String> {
-        let tx = self
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let seq:i64=tx.query_row("UPDATE thread SET next_seq=next_seq+1,last_used_at=? WHERE id=? RETURNING next_seq-1",params![now_ms(),thread],|r|r.get(0)).context("Unknown thread")?;
-        let id = ulid::Ulid::new().to_string();
-        let timestamp = message["timestamp"].as_i64().unwrap_or_else(now_ms);
-        let exact = serde_json::to_string(&json!({"message":message}))?;
-        let blob = if exact.len() > 64 * 1024 {
-            Some(tx.query_row(
-                "INSERT INTO blob(byte_length,content) VALUES(?,?) RETURNING id",
-                params![exact.len() as i64, exact],
-                |r| r.get::<_, i64>(0),
-            )?)
-        } else {
-            None
-        };
-        let payload = if blob.is_some() {
-            serde_json::to_string(
-                &json!({"message":{"role":message["role"],"content":"[Exact message stored in blob]","timestamp":timestamp}}),
-            )?
-        } else {
-            exact.clone()
-        };
-        tx.execute("INSERT INTO thread_entry(thread_id,seq,id,type,role,payload,blob_id,est_tokens,timestamp_iso,created_at) VALUES(?,?,?,'message',?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ',? / 1000.0,'unixepoch'),?)",params![thread,seq,id,message["role"].as_str(),payload,blob,exact.len().div_ceil(4) as i64,timestamp,timestamp])?;
-        tx.commit()?;
-        Ok(id)
+        self.append_session_entry(
+            thread,
+            "message",
+            &json!({"message":message}),
+            message["timestamp"].as_i64().unwrap_or_else(now_ms),
+        )
     }
 
     pub fn thread_last_sequence(&self, thread: &str) -> Result<i64> {

@@ -525,6 +525,13 @@ fn reader(session: Arc<Session>, mut input: Box<dyn Read + Send>) {
     });
 }
 impl Shells {
+    pub fn has_active_work(&self) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .values()
+            .any(|session| session.running())
+    }
     fn prune(&self) {
         use std::sync::atomic::Ordering;
         let mut sessions = self.sessions.lock().unwrap();

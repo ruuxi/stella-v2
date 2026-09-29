@@ -67,6 +67,7 @@ impl Service {
         timeout_ms > 0
             && self.connections == 0
             && self.active_runs().is_empty()
+            && !self.shells.has_active_work()
             && crate::storage::now_ms().saturating_sub(self.last_activity) > timeout_ms as i64
     }
     pub(crate) fn store(&mut self) -> Result<&mut Store> {
@@ -229,6 +230,22 @@ impl Service {
 }
 
 pub type SharedService = Arc<Mutex<Service>>;
+
+pub async fn shutdown(service: &SharedService) {
+    let (runs, shells) = {
+        let state = service.lock().unwrap();
+        (state.active_runs(), state.shells.clone())
+    };
+    for run in &runs {
+        run.cancel.send_replace(true);
+    }
+    for run in runs {
+        let _ = run.join().await;
+    }
+    if let Err(error) = shells.kill_all().await {
+        eprintln!("Shell shutdown: {error:#}");
+    }
+}
 
 async fn write_message<W: AsyncWrite + Unpin>(writer: &mut W, message: &Value) -> Result<()> {
     let mut data = serde_json::to_vec(message)?;

@@ -41,6 +41,8 @@ Implemented here:
   catastrophic-command guard. Linux pipes and PTYs have been exercised with
   real model-driven input, large output, and cancellation. Windows remains
   unverified; CLI integrations and progress forwarding still need completion.
+  Running shells keep a detached process alive past its idle timeout; explicit
+  shutdown settles active turns and shell process groups before exiting.
 - Provider-context reconstruction preserves exact stored messages while repairing
   dangling/interleaved tool results, dropping foreign reasoning signatures and
   downgrading images for models without vision.
@@ -97,6 +99,8 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py --patch
 python3 packages/runtime-rust/scripts/verify-live-agent.py --shell
 python3 packages/runtime-rust/scripts/verify-live-agent.py --pty
 python3 packages/runtime-rust/scripts/verify-live-agent.py --shell-volume
+python3 packages/runtime-rust/scripts/verify-live-agent.py --idle-shell
+python3 packages/runtime-rust/scripts/verify-live-agent.py --shutdown-shell
 python3 packages/runtime-rust/scripts/verify-rpc.py
 bun packages/runtime-rust/scripts/verify-catalog.mjs
 ```

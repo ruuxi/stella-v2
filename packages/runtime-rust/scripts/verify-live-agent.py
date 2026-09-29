@@ -34,6 +34,9 @@ if image_mode:
 env = os.environ.copy()
 env['STELLA_AUTH_TOKEN'] = auth
 env['STELLA_MODEL_GATEWAY_URL'] = 'https://stella-v2-model-gateway-dev.lolruuxi.workers.dev'
+if '--idle-shell' in sys.argv or '--shutdown-shell' in sys.argv:
+    subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-shell-lifecycle.mjs'), *sys.argv[1:]], env=env, timeout=180, check=True)
+    raise SystemExit(0)
 if '--rpc' in sys.argv:
     subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-live-rpc.mjs'), *sys.argv[1:]], env=env, timeout=180, check=True)
     raise SystemExit(0)

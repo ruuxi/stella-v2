@@ -80,7 +80,12 @@ async fn main() -> Result<()> {
         .transpose()?;
     let service = Arc::new(Mutex::new(Service::new(database)?));
     if listen == "stdio://" {
-        return serve(tokio::io::stdin(), tokio::io::stdout(), service).await;
+        let result = tokio::select! {
+            result=serve(tokio::io::stdin(), tokio::io::stdout(), service.clone())=>result,
+            signal=stella_runtime::lifecycle::shutdown_signal()=>signal,
+        };
+        stella_runtime::rpc::shutdown(&service).await;
+        return result;
     }
     #[cfg(unix)]
     if let Some(path) = listen.strip_prefix("unix://") {
@@ -105,12 +110,12 @@ async fn main() -> Result<()> {
                 }
                 signal=stella_runtime::lifecycle::shutdown_signal()=>{
                     signal?;
-                    settle_runs(&service).await;
-                    std::fs::remove_file(path)?;return Ok(());
+                    stella_runtime::rpc::shutdown(&service).await;
+                    remove_socket(path)?;return Ok(());
                 }
                 _=idle_tick.tick()=>{
                     let idle={let state=service.lock().unwrap();state.is_idle(idle_shutdown_ms)};
-                    if idle {std::fs::remove_file(path)?;return Ok(());}
+                    if idle {remove_socket(path)?;return Ok(());}
                 }
             }
         }
@@ -124,8 +129,18 @@ async fn main() -> Result<()> {
         let mut server = ServerOptions::new()
             .first_pipe_instance(true)
             .create(path)?;
+        let mut idle_tick = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
-            server.connect().await?;
+            tokio::select! {
+                result=server.connect()=>result?,
+                signal=stella_runtime::lifecycle::shutdown_signal()=>{
+                    signal?;stella_runtime::rpc::shutdown(&service).await;return Ok(());
+                }
+                _=idle_tick.tick()=>{
+                    if service.lock().unwrap().is_idle(idle_shutdown_ms){return Ok(());}
+                    continue;
+                }
+            }
             let connected = server;
             server = ServerOptions::new().create(path)?;
             let (read, write) = tokio::io::split(connected);
@@ -140,12 +155,11 @@ async fn main() -> Result<()> {
     bail!("Unsupported listener on this platform: {listen}")
 }
 
-async fn settle_runs(service: &stella_runtime::rpc::SharedService) {
-    let runs = service.lock().unwrap().active_runs();
-    for run in &runs {
-        run.cancel.send_replace(true);
-    }
-    for run in runs {
-        let _ = run.join().await;
+#[cfg(unix)]
+fn remove_socket(path: &str) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }

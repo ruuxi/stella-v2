@@ -47,7 +47,9 @@ Implemented here:
 - Managed catalog discovery over the authenticated backend endpoint, account/device
   cache isolation using the existing disk format, stale refresh, concurrent fetch
   coalescing, gateway discovery, compiled provider metadata, and model-list RPC
-  notifications. Custom configuration and remote provider refresh remain in progress.
+  notifications. Native JSONC provider configuration, schema validation, model
+  overrides, private provider cache persistence and bounded remote refresh are
+  connected to listing; credential expressions are never executed for listing.
 
 ## Build and run
 
@@ -96,6 +98,7 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py --shell
 python3 packages/runtime-rust/scripts/verify-live-agent.py --pty
 python3 packages/runtime-rust/scripts/verify-live-agent.py --shell-volume
 python3 packages/runtime-rust/scripts/verify-rpc.py
+bun packages/runtime-rust/scripts/verify-catalog.mjs
 ```
 
 The live check mints a dev Pro test account using the existing Convex login or

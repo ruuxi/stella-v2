@@ -12,6 +12,7 @@ use std::{
 
 #[derive(Default)]
 pub struct Catalog {
+    providers: crate::provider_catalog::Providers,
     entries: Mutex<BTreeMap<String, Arc<Entry>>>,
     published: Mutex<Value>,
 }
@@ -298,7 +299,7 @@ impl Catalog {
     }
 
     fn snapshot(&self, config: &Value) -> Value {
-        let mut models = stella_runtime_core::catalog::all();
+        let mut models = Vec::new();
         let mut snapshot = json!({"runtimeManagedProviders":[],"refreshedAt":null});
         match request(config) {
             Ok(Some(req)) => {
@@ -325,11 +326,17 @@ impl Catalog {
             Err(error) => snapshot["catalogError"] = json!(error.to_string()),
             _ => {}
         }
-        for model in &mut models {
-            model.as_object_mut().unwrap().remove("headers");
+        let mut providers = self.providers.snapshot(models);
+        if snapshot["refreshedAt"].as_i64() > providers["refreshedAt"].as_i64() {
+            providers["refreshedAt"] = snapshot["refreshedAt"].clone();
         }
-        snapshot["models"] = json!(models);
-        snapshot
+        if let Some(error) = snapshot["catalogError"].as_str() {
+            providers["catalogError"] = json!(match providers["catalogError"].as_str() {
+                Some(other) => format!("{other}\n{error}"),
+                None => error.into(),
+            });
+        }
+        providers
     }
 
     pub fn publish(&self, service: &SharedService) -> Value {
@@ -349,9 +356,25 @@ impl Catalog {
     }
 
     pub async fn list(self: &Arc<Self>, service: &SharedService, force: bool) -> Value {
+        let root = service.lock().unwrap().config["stellaDataDirPath"]
+            .as_str()
+            .map(PathBuf::from);
+        self.providers.reload(root).await;
         // Listing retains the last usable registry and surfaces failures in the
         // snapshot, so a network outage does not empty the picker.
         let _ = self.managed(service, force).await;
+        if force {
+            self.providers.refresh(true).await;
+        } else {
+            let this = self.clone();
+            let weak = Arc::downgrade(service);
+            tokio::spawn(async move {
+                this.providers.refresh(false).await;
+                if let Some(service) = weak.upgrade() {
+                    this.publish(&service);
+                }
+            });
+        }
         self.publish(service)
     }
 
@@ -375,7 +398,7 @@ impl Catalog {
     }
 }
 
-async fn read_cache(path: &std::path::Path) -> Result<Vec<u8>> {
+pub(crate) async fn read_cache(path: &std::path::Path) -> Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
     let file = tokio::fs::File::open(path).await?;
     let mut bytes = Vec::new();
@@ -388,7 +411,7 @@ async fn read_cache(path: &std::path::Path) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-async fn write_cache(path: &std::path::Path, value: &Value) -> Result<()> {
+pub(crate) async fn write_cache(path: &std::path::Path, value: &Value) -> Result<()> {
     let parent = path.parent().context("Cache path has no parent")?;
     tokio::fs::create_dir_all(parent).await?;
     let temporary = parent.join(format!(".{}.tmp", ulid::Ulid::new()));

@@ -19,6 +19,9 @@ Implemented here:
   requests, protected host signing, detached lifecycle control files and signals.
 - RPC run admission/cancellation, durable event replay/acknowledgment in the
   existing `stella-runs.sqlite`, and interrupted-run settlement on restart.
+- Bounded concurrent tool execution with pre-execution deduplication and stable
+  transcript order; local prompt steering with reply ownership, queued turn
+  serialization, and bounded transient gateway retries.
 - Signed-in desktop cloud turn admission/renewal/finish through the existing
   Durable Object, with a native transcript outbox and interrupted-begin recovery.
   Other outbox families and full recovery parity remain below.
@@ -67,6 +70,7 @@ python3 packages/runtime-rust/scripts/verify-storage.py
 python3 packages/runtime-rust/scripts/verify-legacy-migration.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc
+python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --steer
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image
 python3 packages/runtime-rust/scripts/verify-rpc.py
 ```

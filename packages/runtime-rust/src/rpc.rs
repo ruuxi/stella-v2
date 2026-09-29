@@ -16,6 +16,7 @@ const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 pub struct Service {
     pub(crate) store: Option<Store>,
     pub(crate) files: Arc<crate::file_tools::FileTools>,
+    pub(crate) orchestrator_lane: Arc<tokio::sync::Mutex<()>>,
     database_path: Option<PathBuf>,
     pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
     pub(crate) config: Value,
@@ -38,6 +39,7 @@ impl Service {
         Ok(Self {
             run_events,
             files: Arc::new(Default::default()),
+            orchestrator_lane: Arc::new(tokio::sync::Mutex::new(())),
             store,
             database_path: database,
             config: json!({}),
@@ -322,11 +324,14 @@ pub async fn dispatch(
 ) -> Result<Value> {
     match method.as_str() {
         "internal.worker.startChat" | "internal.worker.runAutomation" => {
-            let run = crate::runs::start(service, params).await?;
+            let user_message_id = params["userMessageEventId"].clone();
+            let run = crate::runs::start(service, params)?;
             return if method.ends_with("runAutomation") {
                 run.join().await
             } else {
-                Ok(json!({"runId":run.id,"userMessageId":run.user_id}))
+                Ok(
+                    json!({"runId":run.id,"userMessageId":user_message_id.as_str().unwrap_or(&run.user_id)}),
+                )
             };
         }
         "internal.worker.cancel" | "internal.worker.cancelByConversation" => {

@@ -25,6 +25,9 @@ pub struct NativeExecution {
 }
 
 impl Execution for NativeExecution {
+    fn tool_concurrency(&self) -> usize {
+        8
+    }
     fn now_ms(&self) -> i64 {
         now_ms()
     }

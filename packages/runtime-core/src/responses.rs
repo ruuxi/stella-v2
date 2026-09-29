@@ -46,8 +46,11 @@ pub fn request(context: &AgentContext, model: &str, max_tokens: u64) -> Result<V
                     .join("\n");
                 let images=blocks(message).into_iter().filter(|b|b["type"]=="image").map(|b|json!({"type":"input_image","detail":"auto","image_url":format!("data:{};base64,{}",b["mimeType"].as_str().unwrap_or("image/png"),b["data"].as_str().unwrap_or(""))})).collect::<Vec<_>>();
                 input.push(json!({"type":"function_call_output","call_id":message["toolCallId"].as_str().unwrap_or("").split('|').next().unwrap_or(""),"output":if output.is_empty() && !images.is_empty(){"(see attached image)"}else{&output}}));
-                if !images.is_empty(){
-                    let mut content=vec![json!({"type":"input_text","text":"Attached image(s) from the previous tool result:"})];content.extend(images);
+                if !images.is_empty() {
+                    let mut content = vec![
+                        json!({"type":"input_text","text":"Attached image(s) from the previous tool result:"}),
+                    ];
+                    content.extend(images);
                     input.push(json!({"role":"user","content":content}));
                 }
             }

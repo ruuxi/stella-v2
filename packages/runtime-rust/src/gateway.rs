@@ -8,6 +8,19 @@ use reqwest::{Client, Url};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[derive(Debug)]
+struct GatewayFailure {
+    status: reqwest::StatusCode,
+    code: String,
+    retry_after: Option<u64>,
+}
+impl std::fmt::Display for GatewayFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Gateway request failed ({}): {}", self.status, self.code)
+    }
+}
+impl std::error::Error for GatewayFailure {}
+
 fn decode_claims(jwt: &str) -> Result<Value> {
     let part = jwt.split('.').nth(1).context("Missing JWT payload")?;
     Ok(serde_json::from_slice(&URL_SAFE_NO_PAD.decode(part)?)?)
@@ -165,6 +178,31 @@ impl Gateway {
     }
 
     async fn post(&self, path: &str, body: Value, revision: Option<&str>) -> Result<Value> {
+        for attempt in 0..4 {
+            match self.post_once(path, &body, revision).await {
+                Ok(value) => return Ok(value),
+                Err(error) => {
+                    let response = error.downcast_ref::<GatewayFailure>();
+                    let transient = response.is_some_and(|failure| {
+                        matches!(failure.status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504)
+                    }) || error
+                        .downcast_ref::<reqwest::Error>()
+                        .is_some_and(|failure| failure.is_connect() || failure.is_timeout());
+                    if !transient || attempt == 3 {
+                        return Err(error);
+                    }
+                    let delay = response
+                        .and_then(|failure| failure.retry_after)
+                        .unwrap_or(1 << attempt)
+                        .min(30);
+                    tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                }
+            }
+        }
+        unreachable!()
+    }
+
+    async fn post_once(&self, path: &str, body: &Value, revision: Option<&str>) -> Result<Value> {
         let request_id = ulid::Ulid::new().to_string();
         let at = now_ms();
         let signature = self
@@ -192,14 +230,24 @@ impl Gateway {
         }
         let response = request.json(&body).send().await?;
         let status = response.status();
-        let body: Value = response.json().await?;
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse().ok());
+        let parsed = response.json::<Value>().await;
         if !status.is_success() {
-            bail!(
-                "Gateway request failed ({status}): {}",
-                body["error"]["code"].as_str().unwrap_or("unknown")
-            );
+            return Err(GatewayFailure {
+                status,
+                code: parsed
+                    .ok()
+                    .and_then(|body| body["error"]["code"].as_str().map(str::to_owned))
+                    .unwrap_or_else(|| "unknown".into()),
+                retry_after,
+            }
+            .into());
         }
-        Ok(body)
+        Ok(parsed?)
     }
 
     pub async fn complete(

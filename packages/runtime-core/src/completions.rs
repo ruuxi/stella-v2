@@ -38,29 +38,55 @@ pub fn request(context: &AgentContext, model: &str, max_tokens: u64) -> Result<V
     if !context.system_prompt.is_empty() {
         messages.push(json!({"role":"system","content":context.system_prompt}));
     }
-    let mut tool_images=Vec::new();
-    for (index,message) in context.messages.iter().enumerate() {
+    let mut tool_images = Vec::new();
+    for (index, message) in context.messages.iter().enumerate() {
         match message["role"].as_str() {
-            Some("user"|"runtimeInternal")=>messages.push(json!({"role":"user","content":parts(&message["content"])})),
-            Some("assistant")=>{
-                let mut item=json!({"role":"assistant","content":text(&message["content"])});
+            Some("user" | "runtimeInternal") => {
+                messages.push(json!({"role":"user","content":parts(&message["content"])}))
+            }
+            Some("assistant") => {
+                let mut item = json!({"role":"assistant","content":text(&message["content"])});
                 let calls=message["content"].as_array().into_iter().flatten().filter(|b|b["type"]=="toolCall").map(|b|json!({"id":b["id"],"type":"function","function":{"name":b["name"],"arguments":b["arguments"].to_string()}})).collect::<Vec<_>>();
-                if !calls.is_empty() { item["tool_calls"]=json!(calls); }
-                let reasoning=message["content"].as_array().into_iter().flatten().filter(|b|b["type"]=="thinking").filter_map(|b|b["thinking"].as_str()).collect::<Vec<_>>().join("");
-                if !reasoning.is_empty() {item["reasoning_content"]=json!(reasoning);}
+                if !calls.is_empty() {
+                    item["tool_calls"] = json!(calls);
+                }
+                let reasoning = message["content"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|b| b["type"] == "thinking")
+                    .filter_map(|b| b["thinking"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("");
+                if !reasoning.is_empty() {
+                    item["reasoning_content"] = json!(reasoning);
+                }
                 messages.push(item);
             }
-            Some("toolResult")=>{
-                let text=text(&message["content"]);
-                let images=message["content"].as_array().into_iter().flatten().filter(|b|b["type"]=="image").cloned().collect::<Vec<_>>();
+            Some("toolResult") => {
+                let text = text(&message["content"]);
+                let images = message["content"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|b| b["type"] == "image")
+                    .cloned()
+                    .collect::<Vec<_>>();
                 messages.push(json!({"role":"tool","tool_call_id":message["toolCallId"],"content":if text.is_empty()&&!images.is_empty(){"(see attached image)"}else{&text}}));
                 tool_images.extend(images);
-                if context.messages.get(index+1).is_none_or(|m|m["role"]!="toolResult") && !tool_images.is_empty(){
-                    let mut content=vec![json!({"type":"text","text":"Attached image(s) from tool result:"})];content.append(&mut tool_images);
+                if context
+                    .messages
+                    .get(index + 1)
+                    .is_none_or(|m| m["role"] != "toolResult")
+                    && !tool_images.is_empty()
+                {
+                    let mut content =
+                        vec![json!({"type":"text","text":"Attached image(s) from tool result:"})];
+                    content.append(&mut tool_images);
                     messages.push(json!({"role":"user","content":parts(&json!(content))}));
                 }
-            },
-            role=>bail!("Unsupported message role at completion boundary: {role:?}"),
+            }
+            role => bail!("Unsupported message role at completion boundary: {role:?}"),
         }
     }
     let mut body =

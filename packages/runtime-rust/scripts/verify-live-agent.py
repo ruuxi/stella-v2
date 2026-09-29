@@ -26,7 +26,7 @@ env = os.environ.copy()
 env['STELLA_AUTH_TOKEN'] = auth
 env['STELLA_MODEL_GATEWAY_URL'] = 'https://stella-v2-model-gateway-dev.lolruuxi.workers.dev'
 if '--rpc' in sys.argv:
-    subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-live-rpc.mjs')], env=env, timeout=180, check=True)
+    subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-live-rpc.mjs'), *sys.argv[1:]], env=env, timeout=180, check=True)
     raise SystemExit(0)
 request = {'agentType': 'general', 'prompt': f'Use the Read tool to read {file}. Reply with exactly the single line from that file. Do not delegate.'}
 if image_mode:

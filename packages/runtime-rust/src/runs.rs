@@ -23,6 +23,10 @@ pub struct Run {
     pub request_id: Option<String>,
     pub agent_type: String,
     cloud: bool,
+    input: Mutex<Vec<Value>>,
+    submitted: Mutex<std::collections::BTreeMap<String, String>>,
+    accepting: AtomicBool,
+    prompt_owner: Mutex<Value>,
     transcript: Mutex<Vec<Value>>,
     pub cancel: watch::Sender<bool>,
     pub finished: watch::Sender<Option<Value>>,
@@ -32,7 +36,8 @@ pub struct Run {
 }
 impl Run {
     pub fn snapshot(&self) -> Value {
-        json!({"runId":self.id,"conversationId":self.conversation,"requestId":self.request_id,"userMessageId":self.user_id,"agentType":self.agent_type})
+        let owner = self.prompt_owner.lock().unwrap();
+        json!({"runId":self.id,"conversationId":self.conversation,"requestId":owner["requestId"],"userMessageId":owner["userMessageId"],"agentType":self.agent_type})
     }
     fn publish(&self, service: &SharedService, mut event: Value) -> Result<()> {
         let mut state = service
@@ -78,8 +83,15 @@ struct RuntimeExecution {
 impl RuntimeExecution {
     fn record(&self, event: Value) -> Result<()> {
         match event["type"].as_str().unwrap_or("") {
+            "message_start" if event["message"]["stellaPromptOwner"].is_object()=>{
+                *self.run.prompt_owner.lock().unwrap()=event["message"]["stellaPromptOwner"].clone();
+            }
+
             "message_end"=>{
-                let message=&event["message"];
+                let mut durable=event["message"].clone();
+                if let Some(object)=durable.as_object_mut(){object.remove("stellaPromptOwner");}
+                let message=&durable;
+                let prompt_owner=self.run.prompt_owner.lock().unwrap().clone();
                 self.run.transcript.lock().unwrap().push(message.clone());
                 self.service.lock().map_err(|_|anyhow::anyhow!("Runtime state poisoned"))?.store()?.append_thread_message(&self.run.thread,message)?;
                 if message["role"]=="assistant" {
@@ -89,7 +101,7 @@ impl RuntimeExecution {
                         let id=format!("assistant-msg-{}-{}",self.run.id,self.run.sequence.load(Ordering::SeqCst)+1);
                         let followed=message["content"].as_array().is_some_and(|v|v.iter().any(|c|c["type"]=="toolCall"));
                         if !self.run.cloud {
-                        let stored=state.store()?.append_event(serde_json::from_value::<AppendEvent>(json!({"conversationId":self.run.conversation,"eventId":id,"requestId":self.run.user_id,"type":"assistant_message","payload":{"text":text,"userMessageId":self.run.user_id,"metadata":{"runtime":{"followedByToolCall":followed,"turnComplete":!followed,"responseTarget":{"type":"user_turn"}}}}}))?)?;
+                        let stored=state.store()?.append_event(serde_json::from_value::<AppendEvent>(json!({"conversationId":self.run.conversation,"eventId":id,"requestId":prompt_owner["userMessageId"],"type":"assistant_message","payload":{"text":text,"userMessageId":prompt_owner["userMessageId"],"metadata":{"runtime":{"followedByToolCall":followed,"turnComplete":!followed,"responseTarget":{"type":"user_turn"}}}}}))?)?;
                         let _=state.notifications.send(json!({"method":"localChat.updated","params":{"conversationId":self.run.conversation,"event":stored}}));
                         }
                         drop(state);
@@ -105,6 +117,16 @@ impl RuntimeExecution {
     }
 }
 impl Execution for RuntimeExecution {
+    fn tool_concurrency(&self) -> usize {
+        8
+    }
+    async fn steering(&self) -> Result<Vec<Value>> {
+        Ok(std::mem::take(&mut *self.run.input.lock().unwrap()))
+    }
+    async fn follow_up(&self) -> Result<Vec<Value>> {
+        self.steering().await
+    }
+
     fn emit(&self, event: Value) {
         if let Err(error) = self.record(event) {
             *self.run.failure.lock().unwrap() = Some(format!("{error:#}"));
@@ -157,7 +179,7 @@ pub fn message_text(message: &Value) -> String {
         })
 }
 
-pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
+pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
     let conversation = params["conversationId"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
@@ -174,7 +196,7 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
     let definition =
         stella_runtime_core::builtin::agent(&kind).context("Unknown built-in agent")?;
     let cloud = params["storageMode"] == "cloud";
-    let (run, config, host, history) = {
+    let (run, config, host, lane) = {
         let mut state = service
             .lock()
             .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?;
@@ -190,13 +212,6 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
         }) {
             return Ok(existing.clone());
         }
-        if state
-            .runs
-            .values()
-            .any(|r| r.conversation == conversation && r.finished.borrow().is_none())
-        {
-            bail!("Conversation already has an active run");
-        }
         state.runs.retain(|_, r| {
             let completed = r.completed_at.load(Ordering::Relaxed);
             completed == 0 || now_ms() - completed < 30 * 60 * 1000
@@ -205,12 +220,51 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             .as_str()
             .map(str::to_owned)
             .unwrap_or_else(|| ulid::Ulid::new().to_string());
+        if !cloud
+            && let Some(active) = state
+                .runs
+                .values()
+                .find(|r| {
+                    !r.cloud
+                        && r.conversation == conversation
+                        && r.agent_type == kind
+                        && r.accepting.load(Ordering::SeqCst)
+                        && r.finished.borrow().is_none()
+                })
+                .cloned()
+        {
+            {
+                let mut submitted = active.submitted.lock().unwrap();
+                if let Some(previous) = submitted.get(&user_id) {
+                    if previous != &prompt {
+                        bail!("User message identity was reused with different text");
+                    }
+                    return Ok(active.clone());
+                }
+                submitted.insert(user_id.clone(), prompt.clone());
+            }
+            let timestamp = params["userMessageTimestamp"]
+                .as_i64()
+                .unwrap_or_else(now_ms);
+            state.store()?.append_event(serde_json::from_value(json!({"conversationId":conversation,"eventId":user_id,"requestId":user_id,"type":"user_message","timestamp":timestamp,"payload":{"text":prompt}}))?)?;
+            let mut input = active.input.lock().unwrap();
+            // This mutex is also the natural-stop fence. If it closed while we
+            // acquired the service lock, admit a new queued run below.
+            if active.accepting.load(Ordering::SeqCst) {
+                input.push(json!({"role":"user","content":[{"type":"text","text":prompt}],"timestamp":timestamp,"stellaPromptOwner":{"userMessageId":user_id,"requestId":request_id}}));
+                let _ = state.notifications.send(
+                    json!({"method":"localChat.updated","params":{"conversationId":conversation}}),
+                );
+                drop(input);
+                return Ok(active);
+            }
+        }
         let thread_id = format!("{kind}:{conversation}");
         let (thread, _) =
             state
                 .store()?
                 .resolve_thread(&conversation, &kind, Some(&thread_id), &kind)?;
-        let history = state.store()?.raw_thread_messages(&thread)?;
+
         if !cloud {
             let user=state.store()?.append_event(serde_json::from_value(json!({"conversationId":conversation,"eventId":user_id,"requestId":user_id,"type":"user_message","timestamp":params["userMessageTimestamp"].as_i64().unwrap_or_else(now_ms),"payload":{"text":prompt}}))?)?;
             let _=state.notifications.send(json!({"method":"localChat.updated","params":{"conversationId":conversation,"event":user}}));
@@ -219,6 +273,13 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             id: ulid::Ulid::new().to_string(),
             conversation,
             thread,
+            prompt_owner: Mutex::new(json!({"userMessageId":user_id,"requestId":request_id})),
+            input: Mutex::new(Vec::new()),
+            submitted: Mutex::new(std::collections::BTreeMap::from([(
+                user_id.clone(),
+                prompt.clone(),
+            )])),
+            accepting: AtomicBool::new(true),
             user_id,
             request_id,
             agent_type: kind.clone(),
@@ -231,18 +292,27 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             failure: Mutex::new(None),
         });
         state.runs.insert(run.id.clone(), run.clone());
-        (run, state.config.clone(), host, history)
+        (
+            run,
+            state.config.clone(),
+            host,
+            state.orchestrator_lane.clone(),
+        )
     };
-    run.publish(
-        &service,
-        json!({"type":"run-started","responseTarget":{"type":"user_turn"}}),
-    )?;
     let owned = run.clone();
     tokio::spawn(async move {
         let mut lease = None;
         let mut canceled = owned.cancel.subscribe();
+        let _lane = if *canceled.borrow() {
+            None
+        } else {
+            tokio::select! { lock=lane.lock_owned()=>Some(lock),_=canceled.changed()=>None }
+        };
         let execution_result: Result<String> = tokio::select! {
           result=async {
+            if *owned.cancel.borrow(){bail!("Run canceled");}
+            owned.publish(&service,json!({"type":"run-started","responseTarget":{"type":"user_turn"}}))?;
+            let history=service.lock().unwrap().store()?.raw_thread_messages(&owned.thread)?;
             let user_message=json!({"role":"user","content":[{"type":"text","text":prompt}],"timestamp":params["userMessageTimestamp"].as_i64().unwrap_or_else(now_ms)});
             let history=if cloud {
                 let admitted=crate::cloud_transcript::Lease::begin(service.clone(),owned.clone(),params["ownerGeneration"].as_str().unwrap_or("").to_owned(),user_message.clone()).await?;
@@ -258,12 +328,20 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             let execution=RuntimeExecution{native,service:service.clone(),run:owned.clone()};
             let tools=if definition.tools.contains(&"Read") {vec![stella_runtime_core::tools::READ.clone()]}else{vec![]};
             let mut context=AgentContext{system_prompt:definition.system_prompt.into(),messages:history,tools};
-            let messages=stella_runtime_core::agent::run(&execution,&mut context,vec![user_message]).await?;
+            let mut prompts=vec![user_message];
+            let mut messages=Vec::new();
+            loop {
+                messages.extend(stella_runtime_core::agent::run(&execution,&mut context,prompts).await?);
+                let pending={let mut input=owned.input.lock().unwrap();if input.is_empty(){owned.accepting.store(false,Ordering::SeqCst);}std::mem::take(&mut *input)};
+                if pending.is_empty() || execution.canceled(){break;}
+                prompts=pending;
+            }
             if let Some(error)=owned.failure.lock().unwrap().as_ref(){bail!("{error}");}
             Ok(messages.iter().rev().find(|m|m["role"]=="assistant").map(message_text).unwrap_or_default())
           }=>result,
           _=canceled.changed()=>Err(anyhow::anyhow!("Run canceled")),
         };
+        owned.accepting.store(false, Ordering::SeqCst);
         let failure = owned.failure.lock().unwrap().clone();
         let canceled = *owned.cancel.borrow() && failure.is_none();
         let (mut outcome, text, mut error) = match execution_result {
@@ -298,6 +376,14 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
         };
         owned.completed_at.store(now_ms(), Ordering::Relaxed);
         owned.finished.send_replace(Some(settled));
+        let pending = std::mem::take(&mut *owned.input.lock().unwrap());
+        for message in pending {
+            let owner = &message["stellaPromptOwner"];
+            let payload = json!({"conversationId":owned.conversation,"agentType":owned.agent_type,"storageMode":"local","userPrompt":message_text(&message),"userMessageEventId":owner["userMessageId"],"requestId":owner["requestId"],"userMessageTimestamp":message["timestamp"]});
+            if let Err(error) = start(service.clone(), payload) {
+                eprintln!("Unable to recover queued user input: {error:#}");
+            }
+        }
     });
     Ok(run)
 }

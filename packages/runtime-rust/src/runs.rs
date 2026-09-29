@@ -36,6 +36,10 @@ pub struct Run {
     work: Arc<crate::work::Work>,
 }
 impl Run {
+    pub fn lose_lease(&self, reason: &str) {
+        *self.failure.lock().unwrap() = Some(reason.to_owned());
+        self.cancel.send_replace(true);
+    }
     pub fn snapshot(&self) -> Value {
         let owner = self.prompt_owner.lock().unwrap();
         json!({"runId":self.id,"conversationId":self.conversation,"requestId":owner["requestId"],"userMessageId":owner["userMessageId"],"agentType":self.agent_type})
@@ -356,6 +360,10 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
                 Some(format!("{error:#}")),
             ),
         };
+        if let Some(failure) = failure {
+            outcome = "error";
+            error = Some(failure);
+        }
         if let Some(lease) = lease {
             let records = owned.transcript.lock().unwrap().clone();
             let phase = match outcome {

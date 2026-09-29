@@ -168,6 +168,7 @@ impl Lease {
             .collect::<std::result::Result<Vec<Value>, _>>()?;
         let (stop, mut stopped) = watch::channel(false);
         let heartbeat_service = service.clone();
+        let expected_turn = ack["turnId"].clone();
         let heartbeat_payload = json!({"deviceId":device,"expectedOwnerGeneration":generation,"localTurnId":run.id,"leaseToken":token,"renewOnly":true});
         let heartbeat = tokio::spawn(async move {
             let mut deadline =
@@ -178,14 +179,14 @@ impl Lease {
                 }
                 let remaining = deadline.saturating_sub(now_ms());
                 if remaining <= 0 {
-                    run.cancel.send_replace(true);
+                    run.lose_lease("Cloud turn renewal exceeded its authority deadline");
                     break;
                 }
                 tokio::select! {_=tokio::time::sleep(std::time::Duration::from_millis(10_000.min(remaining as u64)))=>{},_=stopped.changed()=>break};
                 let sent = now_ms();
                 let remaining = deadline.saturating_sub(sent);
                 if remaining <= 0 {
-                    run.cancel.send_replace(true);
+                    run.lose_lease("Cloud turn renewal exceeded its authority deadline");
                     break;
                 }
                 let attempt = tokio::time::timeout(
@@ -202,13 +203,22 @@ impl Lease {
                 match response {
                     Ok(Ok(response))
                         if (200..300).contains(&response.status)
-                            && check_ack(&response.body).is_ok() =>
+                            && response.body["turnId"] == expected_turn
+                            && response.body["leaseToken"] == heartbeat_payload["leaseToken"]
+                            && response.body["renewed"] == true
+                            && response.body["expiresAt"]
+                                .as_i64()
+                                .is_some_and(|at| at > now_ms()) =>
                     {
                         deadline =
                             (sent + 30_000).min(response.body["expiresAt"].as_i64().unwrap() - 5000)
                     }
                     Ok(Ok(response)) if terminal(&response) => {
-                        run.cancel.send_replace(true);
+                        run.lose_lease(
+                            response.body["code"]
+                                .as_str()
+                                .unwrap_or("Cloud turn lease was revoked"),
+                        );
                         break;
                     }
                     _ => {}

@@ -40,12 +40,35 @@ impl Service {
     pub fn dispatch(&mut self, method: &str, params: Value) -> Result<Value> {
         let string = |key| params[key].as_str().unwrap_or("");
         match method {
+            "internal.worker.builtin.recordThreadSummary" => {
+                if string("outcome") == "success" && params["sideEffectsAllowed"] == true {
+                    self.store()?.record_thread_summary(
+                        string("threadId"),
+                        string("runId"),
+                        string("agentType"),
+                        string("finalText"),
+                    )?;
+                }
+                Ok(json!({"ok":true}))
+            }
+            "internal.worker.builtin.listThreadSummaries" => self
+                .store()?
+                .list_thread_summaries(params["limit"].as_i64().unwrap_or(20)),
+            "internal.worker.builtin.listAgents" => Ok(serde_json::to_value(
+                &*stella_runtime_core::builtin::AGENTS,
+            )?),
+            "internal.worker.builtin.preparePrompt" => {
+                let context = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    stella_runtime_core::builtin::prepare_prompt(&context),
+                )?)
+            }
             "internal.worker.readyz" => Ok(json!({"protocolVersion":"v1"})),
             "internal.worker.initialize" => {
-                if let Some(version) = params["protocolVersion"].as_str() {
-                    if version != "v1" {
-                        bail!("Unsupported protocol version {version}");
-                    }
+                if let Some(version) = params["protocolVersion"].as_str()
+                    && version != "v1"
+                {
+                    bail!("Unsupported protocol version {version}");
                 }
                 let dir = string("stellaDataDirPath");
                 if !dir.is_empty() {

@@ -14,6 +14,7 @@ async fn main() -> Result<()> {
     let mut database = None;
     let mut listen = "stdio://".to_string();
     let mut migrate = false;
+    let mut run = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--database" => {
@@ -23,6 +24,7 @@ async fn main() -> Result<()> {
             }
             "--listen" => listen = args.next().context("--listen requires a URL")?,
             "--migrate" => migrate = true,
+            "--run" => run = true,
             "--version" => {
                 println!(
                     "stella-runtime {} (Rust; protocol v1; schema 3)",
@@ -38,6 +40,17 @@ async fn main() -> Result<()> {
             }
             _ => bail!("Unknown argument: {arg}"),
         }
+    }
+    if run {
+        use tokio::io::AsyncReadExt;
+        let mut input = String::new();
+        tokio::io::stdin()
+            .take(4 * 1024 * 1024)
+            .read_to_string(&mut input)
+            .await?;
+        let request = serde_json::from_str(&input)?;
+        let mut store = Store::open(database.as_deref().context("--run requires --database")?)?;
+        return stella_runtime::execution::run(request, &mut store).await;
     }
     if migrate {
         let store = Store::open(

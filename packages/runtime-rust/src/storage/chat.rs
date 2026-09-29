@@ -140,15 +140,15 @@ pub fn append(db: &Connection, mut args: AppendEvent) -> Result<ChatEvent> {
         )
         .optional()?;
     ensure_conversation(db, &args.conversation_id, timestamp)?;
-    if let Some((old_conv, seq, _, _)) = &old {
-        if old_conv != &args.conversation_id {
-            db.execute(
-                "DELETE FROM entry_ref WHERE conversation_id=? AND entry_seq=?",
-                params![old_conv, seq],
-            )?;
-            db.execute("DELETE FROM entry WHERE id=?", [&id])?;
-            repair_turns(db, old_conv, *seq)?;
-        }
+    if let Some((old_conv, seq, _, _)) = &old
+        && old_conv != &args.conversation_id
+    {
+        db.execute(
+            "DELETE FROM entry_ref WHERE conversation_id=? AND entry_seq=?",
+            params![old_conv, seq],
+        )?;
+        db.execute("DELETE FROM entry WHERE id=?", [&id])?;
+        repair_turns(db, old_conv, *seq)?;
     }
     let seq;
     if let Some((_, existing_seq, old_visible, old_type)) =
@@ -180,31 +180,30 @@ pub fn append(db: &Connection, mut args: AppendEvent) -> Result<ChatEvent> {
         "DELETE FROM entry_ref WHERE conversation_id=? AND entry_seq=?",
         params![args.conversation_id, seq],
     )?;
-    if args.kind == "assistant_message" {
-        if let Some(refs) = p
+    if args.kind == "assistant_message"
+        && let Some(refs) = p
             .pointer("/metadata/runtime/replyRefs")
             .and_then(Value::as_array)
-        {
-            for reference in refs {
-                let key = match reference["kind"].as_str() {
-                    Some("message")
-                        if reference["sequence"]
-                            .as_i64()
-                            .is_some_and(|n| n.abs() <= 9_007_199_254_740_991)
-                            && reference["id"].is_string() =>
-                    {
-                        reference["sequence"].as_i64().map(|n| n.to_string())
-                    }
-                    Some("agent") => reference["threadId"]
-                        .as_str()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(String::from),
-                    _ => None,
-                };
-                if let Some(key) = key {
-                    db.execute("INSERT OR IGNORE INTO entry_ref(conversation_id,entry_seq,target_kind,target_key) VALUES(?,?,?,?)",params![args.conversation_id,seq,reference["kind"].as_str(),key])?;
+    {
+        for reference in refs {
+            let key = match reference["kind"].as_str() {
+                Some("message")
+                    if reference["sequence"]
+                        .as_i64()
+                        .is_some_and(|n| n.abs() <= 9_007_199_254_740_991)
+                        && reference["id"].is_string() =>
+                {
+                    reference["sequence"].as_i64().map(|n| n.to_string())
                 }
+                Some("agent") => reference["threadId"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from),
+                _ => None,
+            };
+            if let Some(key) = key {
+                db.execute("INSERT OR IGNORE INTO entry_ref(conversation_id,entry_seq,target_kind,target_key) VALUES(?,?,?,?)",params![args.conversation_id,seq,reference["kind"].as_str(),key])?;
             }
         }
     }

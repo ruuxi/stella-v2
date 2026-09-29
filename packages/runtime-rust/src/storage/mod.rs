@@ -1,6 +1,7 @@
 pub mod chat;
 mod legacy;
 pub mod schema;
+mod summaries;
 
 use anyhow::Result;
 use rusqlite::Connection;

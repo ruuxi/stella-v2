@@ -220,10 +220,10 @@ fn import_blobs(db: &Connection) -> Result<()> {
         if exact.is_empty() {
             continue;
         }
-        if let (Some(n), Some(b)) = (expected_chunks, expected_bytes) {
-            if n != count as f64 || b != exact.len() as f64 {
-                continue;
-            }
+        if let (Some(n), Some(b)) = (expected_chunks, expected_bytes)
+            && (n != count as f64 || b != exact.len() as f64)
+        {
+            continue;
         }
         db.execute(
             "INSERT INTO blob(byte_length,content) VALUES(?,?)",

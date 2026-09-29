@@ -1,0 +1,21 @@
+diff --git i/worker-build/src/build/mod.rs w/worker-build/src/build/mod.rs
+index e7247fb..fdde58a 100644
+--- i/worker-build/src/build/mod.rs
++++ w/worker-build/src/build/mod.rs
+@@ -475,5 +475,16 @@ impl Build {
+         if snippets.is_dir() {
+             copy_dir(&snippets, &self.out_dir.join("snippets"))?;
+         }
++        // Cargo 1.100 places linker auxiliary output in the package's
++        // build/<package>/<hash>/out directory rather than deps/.
++        let link_build = out.join("build").join(bin);
++        if link_build.is_dir() {
++            for entry in std::fs::read_dir(&link_build)? {
++                let snippets = entry?.path().join("out/snippets");
++                if snippets.is_dir() {
++                    copy_dir(&snippets, &self.out_dir.join("snippets"))?;
++                }
++            }
++        }
+         Ok(())
+     }

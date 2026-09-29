@@ -111,3 +111,6 @@ packages/runtime/kernel/exec/.exec-worker-cache/
 .env.local
 
 /packages/runtime-rust/target/
+/workers/runtime-rust/target/
+/workers/runtime-rust/build/
+/workers/runtime-rust/.toolchain/

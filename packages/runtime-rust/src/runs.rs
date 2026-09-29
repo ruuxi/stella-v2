@@ -33,6 +33,7 @@ pub struct Run {
     sequence: AtomicI64,
     completed_at: AtomicI64,
     failure: Mutex<Option<String>>,
+    work: Arc<crate::work::Work>,
 }
 impl Run {
     pub fn snapshot(&self) -> Value {
@@ -290,6 +291,7 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             sequence: AtomicI64::new(0),
             completed_at: AtomicI64::new(0),
             failure: Mutex::new(None),
+            work: Default::default(),
         });
         state.runs.insert(run.id.clone(), run.clone());
         (
@@ -324,9 +326,9 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             let auth=config["authToken"].as_str().context("Managed execution requires authentication")?;
             let signer=DeviceSigner::from_host(host).await?;
             let gateway=Gateway::connect(&origin,auth,&kind,params["model"].as_str().unwrap_or("stella/default"),signer).await?;
-            let native=NativeExecution{gateway,canceled:AtomicBool::new(false),files:service.lock().unwrap().files.clone(),file_context:crate::file_tools::FileContext{data_dir:config["stellaDataDirPath"].as_str().map(std::path::PathBuf::from),app_dir:config["stellaAppDir"].as_str().map(std::path::PathBuf::from),workspace_root:params["toolWorkspaceRoot"].as_str().map(std::path::PathBuf::from),scope:owned.thread.clone()}};
+            let native=NativeExecution{work:owned.work.clone(),gateway,canceled:AtomicBool::new(false),files:service.lock().unwrap().files.clone(),file_context:crate::file_tools::FileContext{data_dir:config["stellaDataDirPath"].as_str().map(std::path::PathBuf::from),app_dir:config["stellaAppDir"].as_str().map(std::path::PathBuf::from),workspace_root:params["toolWorkspaceRoot"].as_str().map(std::path::PathBuf::from),scope:owned.thread.clone()}};
             let execution=RuntimeExecution{native,service:service.clone(),run:owned.clone()};
-            let tools=if definition.tools.contains(&"Read") {vec![stella_runtime_core::tools::READ.clone()]}else{vec![]};
+            let tools=stella_runtime_core::tools::native_definitions(&definition.tools);
             let mut context=AgentContext{system_prompt:definition.system_prompt.into(),messages:history,tools};
             let mut prompts=vec![user_message];
             let mut messages=Vec::new();
@@ -342,6 +344,7 @@ pub fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
           _=canceled.changed()=>Err(anyhow::anyhow!("Run canceled")),
         };
         owned.accepting.store(false, Ordering::SeqCst);
+        owned.work.settle().await;
         let failure = owned.failure.lock().unwrap().clone();
         let canceled = *owned.cancel.borrow() && failure.is_none();
         let (mut outcome, text, mut error) = match execution_result {

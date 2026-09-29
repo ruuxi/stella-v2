@@ -13,6 +13,10 @@ nonce = 'rust-native-' + uuid.uuid4().hex
 file = work / 'verification.txt'
 file.write_text(nonce + '\n')
 image_mode = '--image' in sys.argv
+patch_mode = '--patch' in sys.argv
+if patch_mode:
+    file.write_text('before\n' + nonce + '\nafter\n')
+    (work / 'obsolete.txt').write_text('obsolete\n')
 if image_mode:
     import struct, zlib
     file = work / 'vision.png'
@@ -31,6 +35,8 @@ if '--rpc' in sys.argv:
 request = {'agentType': 'general', 'prompt': f'Use the Read tool to read {file}. Reply with exactly the single line from that file. Do not delegate.'}
 if image_mode:
     request['prompt'] = f'Use Read to inspect {file}. Reply with the two solid colours from left to right in lowercase, separated by a comma and a space. Do not delegate.'
+if patch_mode:
+    request['prompt'] = f'Use Read to inspect {file}. Use apply_patch to change the first line from before to updated, preserving the other lines, and move it to {work / "moved.txt"}. In the same patch, add {work / "new.txt"} containing exactly added plus a trailing newline, and delete {work / "obsolete.txt"}. Read the moved file to verify it. Reply with exactly the nonce from its second line. Do not delegate.'
 proc = subprocess.run([os.environ.get('STELLA_RUNTIME_BIN', str(root / 'packages/runtime-rust/target/debug/stella-runtime')), '--run', '--database', str(work / 'stella.sqlite')], input=json.dumps(request), text=True, env=env, capture_output=True, timeout=180)
 (work / 'events.jsonl').write_text(proc.stdout)
 print('exit', proc.returncode, 'artifacts', work)
@@ -44,4 +50,9 @@ text = '\n'.join((b.get('text', '') for m in events[-1]['messages'] if m.get('ro
 assert nonce in text.lower() if image_mode else nonce in text, text
 if image_mode:
     assert any(b.get('type') == 'image' for e in events if e['type'] == 'tool_execution_end' for b in e['result']['content'])
+if patch_mode:
+    assert not file.exists() and not (work / 'obsolete.txt').exists()
+    assert (work / 'moved.txt').read_text() == 'updated\n' + nonce + '\nafter\n'
+    assert (work / 'new.txt').read_text() == 'added\n'
+    assert any(e['type'] == 'tool_execution_end' and e['toolName'] == 'apply_patch' and not e['isError'] for e in events)
 print('Native Rust gateway authentication, live model completion, tool execution, follow-up completion, and transcript persistence passed')

@@ -31,7 +31,10 @@ Implemented here:
   Chat Completions protocols. The current standalone tool adapter implements
   bounded text/image `Read`, with file guards, scoped descriptor reads on Unix,
   UTF-16-compatible hash anchors, and skill-read deduplication. Tool images are
-  forwarded through both managed protocols. It is not the complete Stella tool pack.
+  forwarded through both managed protocols. Native `apply_patch` supports add,
+  update, move, delete, tolerant matching and already-applied receipts. Mutations
+  use sorted file locks, descriptor-pinned directories, regular-file/link checks,
+  verified writes, and cancellation settlement. It is not the complete Stella tool pack.
 
 ## Build and run
 
@@ -72,6 +75,7 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc --steer
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image
+python3 packages/runtime-rust/scripts/verify-live-agent.py --patch
 python3 packages/runtime-rust/scripts/verify-rpc.py
 ```
 

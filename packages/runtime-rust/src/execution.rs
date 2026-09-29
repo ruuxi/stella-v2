@@ -18,6 +18,7 @@ pub struct RunRequest {
 }
 
 pub struct NativeExecution {
+    pub(crate) work: std::sync::Arc<crate::work::Work>,
     pub(crate) gateway: Gateway,
     pub(crate) canceled: AtomicBool,
     pub(crate) files: std::sync::Arc<crate::file_tools::FileTools>,
@@ -47,11 +48,21 @@ impl Execution for NativeExecution {
     }
     async fn execute(&self, call: &ToolCall) -> Result<ToolResult> {
         match call.name.as_str() {
-            "Read" => {
+            "Read" | "apply_patch" => {
                 let files = self.files.clone();
                 let context = self.file_context.clone();
                 let args = call.arguments.clone();
-                tokio::task::spawn_blocking(move || files.read(&args, &context)).await?
+                let patch = call.name == "apply_patch";
+                let work = self.work.enter();
+                tokio::task::spawn_blocking(move || {
+                    let _work = work;
+                    if patch {
+                        files.patch(&args, &context)
+                    } else {
+                        files.read(&args, &context)
+                    }
+                })
+                .await?
             }
             _ => bail!("Native tool is not available: {}", call.name),
         }
@@ -76,6 +87,7 @@ pub async fn run(request: RunRequest, store: &mut Store) -> Result<()> {
     )
     .await?;
     let execution = NativeExecution {
+        work: Default::default(),
         gateway,
         canceled: AtomicBool::new(false),
         files: std::sync::Arc::new(Default::default()),
@@ -86,11 +98,7 @@ pub async fn run(request: RunRequest, store: &mut Store) -> Result<()> {
         .unwrap_or(store.default_conversation()?);
     let user=store.append_event(serde_json::from_value::<AppendEvent>(json!({"conversationId":conversation,"type":"user_message","payload":{"text":request.prompt}}))?)?;
     let messages=store.list_events(&conversation,2000,None)?.into_iter().filter(|event|event.id!=user.id && matches!(event.kind.as_str(),"user_message"|"assistant_message")).map(|event|json!({"role":if event.kind=="user_message"{"user"}else{"assistant"},"content":[{"type":"text","text":event.payload.as_ref().and_then(|p|p["text"].as_str()).unwrap_or("")}],"timestamp":event.timestamp})).collect();
-    let tools = if definition.tools.contains(&"Read") {
-        vec![stella_runtime_core::tools::READ.clone()]
-    } else {
-        vec![]
-    };
+    let tools = stella_runtime_core::tools::native_definitions(&definition.tools);
     let mut context = AgentContext {
         system_prompt: definition.system_prompt.into(),
         messages,
@@ -100,7 +108,7 @@ pub async fn run(request: RunRequest, store: &mut Store) -> Result<()> {
     let work = stella_runtime_core::agent::run(&execution, &mut context, vec![prompt]);
     let output = tokio::select! {
         result=work=>result?,
-        _=tokio::signal::ctrl_c()=>{execution.canceled.store(true,Ordering::Relaxed);bail!("Native run canceled");}
+        _=tokio::signal::ctrl_c()=>{execution.canceled.store(true,Ordering::Relaxed);execution.work.settle().await;bail!("Native run canceled");}
     };
     for message in &output {
         if message["role"] != "assistant" {

@@ -20,6 +20,7 @@ pub struct FileContext {
 #[derive(Default)]
 pub struct FileTools {
     skills: Mutex<VecDeque<(String, PathBuf, u64, std::time::SystemTime)>>,
+    writes: Mutex<std::collections::BTreeMap<PathBuf, std::sync::Weak<Mutex<()>>>>,
 }
 fn home() -> Result<PathBuf> {
     std::env::var_os("HOME")
@@ -163,54 +164,7 @@ pub fn validate(path: &Path, context: &FileContext) -> Result<()> {
     Ok(())
 }
 fn open_file(path: &Path, context: &FileContext) -> Result<std::fs::File> {
-    validate(path, context)?;
-    if let Some(root) = &context.workspace_root {
-        #[cfg(unix)]
-        {
-            use std::os::fd::{AsRawFd, FromRawFd};
-            use std::os::unix::ffi::OsStrExt;
-            let mut parent = std::fs::File::open(root)?;
-            let parts = path.strip_prefix(root)?.components().collect::<Vec<_>>();
-            for (index, component) in parts.iter().enumerate() {
-                let Component::Normal(name) = component else {
-                    bail!("Invalid scoped file path");
-                };
-                let name = std::ffi::CString::new(name.as_bytes())?;
-                let flags = libc::O_RDONLY
-                    | libc::O_NOFOLLOW
-                    | libc::O_CLOEXEC
-                    | if index + 1 < parts.len() {
-                        libc::O_DIRECTORY
-                    } else {
-                        libc::O_NONBLOCK
-                    };
-                let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
-                if fd < 0 {
-                    return Err(std::io::Error::last_os_error().into());
-                }
-                parent = unsafe { std::fs::File::from_raw_fd(fd) };
-            }
-            return Ok(parent);
-        }
-        #[cfg(not(unix))]
-        {
-            let canonical = path.canonicalize()?;
-            if !canonical.starts_with(root.canonicalize()?) {
-                bail!("Path escapes the shared session workspace");
-            }
-        }
-    }
-    // Check the resolved target as well: a symlink cannot make protected files
-    // readable through an otherwise innocuous filename.
-    validate(&path.canonicalize()?, context)?;
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    Ok(options.open(path)?)
+    crate::file_mutation::Entry::locate(path, context, false)?.open(false, false)
 }
 fn hash_line(line: &str) -> String {
     let mut hash = 0x811c9dc5_u32;
@@ -227,6 +181,123 @@ fn hash_line(line: &str) -> String {
     String::from_utf8(output.to_vec()).unwrap()
 }
 impl FileTools {
+    pub fn patch(&self, args: &Value, context: &FileContext) -> Result<ToolResult> {
+        use crate::file_mutation::{Entry, read_text};
+        use stella_runtime_core::patch::{self, Operation};
+        let input = args["input"]
+            .as_str()
+            .or_else(|| args["patch"].as_str())
+            .context("apply_patch requires a patch envelope")?;
+        let ops = patch::parse(input)?;
+        let mut keys = std::collections::BTreeSet::new();
+        for raw in ops.iter().flat_map(Operation::paths) {
+            let path = absolute(raw)?;
+            validate(&path, context)?;
+            let key = path.canonicalize().unwrap_or_else(|_| {
+                path.parent()
+                    .and_then(|p| p.canonicalize().ok())
+                    .map(|p| p.join(path.file_name().unwrap()))
+                    .unwrap_or(path)
+            });
+            keys.insert(if cfg!(target_os = "linux") {
+                key
+            } else {
+                PathBuf::from(key.to_string_lossy().to_lowercase())
+            });
+        }
+        let locks = {
+            let mut writes = self.writes.lock().unwrap();
+            writes.retain(|_, weak| weak.strong_count() > 0);
+            keys.into_iter()
+                .map(|key| {
+                    if let Some(lock) = writes.get(&key).and_then(std::sync::Weak::upgrade) {
+                        lock
+                    } else {
+                        let lock = std::sync::Arc::new(Mutex::new(()));
+                        writes.insert(key, std::sync::Arc::downgrade(&lock));
+                        lock
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let _guards = locks
+            .iter()
+            .map(|lock| lock.lock().unwrap())
+            .collect::<Vec<_>>();
+        let mut results = Vec::new();
+        for operation in ops {
+            match operation {
+                Operation::Add { path, lines } => {
+                    let path = absolute(&path)?;
+                    let entry = Entry::locate(&path, context, true)?;
+                    let mut file = entry.open(true, true)?;
+                    let content = if lines.is_empty() {
+                        String::new()
+                    } else {
+                        lines.join("\n") + "\n"
+                    };
+                    entry.write(&mut file, content.as_bytes())?;
+                    results.push(json!({"kind":"add","path":path}));
+                }
+                Operation::Delete { path } => {
+                    let path = absolute(&path)?;
+                    let entry = Entry::locate(&path, context, false)?;
+                    let file = entry.open(false, false)?;
+                    entry.delete(&file)?;
+                    results.push(json!({"kind":"delete","path":path}));
+                }
+                Operation::Update {
+                    path,
+                    moved_to,
+                    hunks,
+                } => {
+                    let path = absolute(&path)?;
+                    let entry = Entry::locate(&path, context, false)?;
+                    let mut file = entry.open(true, false)?;
+                    let original = read_text(&mut file)?;
+                    let Some(content) = patch::update(&original, &hunks)? else {
+                        results.push(json!({"kind":"noop","path":path,"note":format!("Patch already applied to {}; no write was needed.",path.display())}));
+                        continue;
+                    };
+                    let mut result = json!({"kind":"update","path":path,"written":path});
+                    if let Some(raw) = moved_to {
+                        let target = absolute(&raw)?;
+                        result["movedTo"] = json!(target);
+                        result["written"] = json!(target);
+                        if target == path {
+                            entry.write(&mut file, content.as_bytes())?;
+                        } else {
+                            let destination = Entry::locate(&target, context, true)?;
+                            let mut output = match destination.open(true, false) {
+                                Ok(file) => file,
+                                Err(error)
+                                    if error.downcast_ref::<std::io::Error>().is_some_and(
+                                        |e| e.kind() == std::io::ErrorKind::NotFound,
+                                    ) =>
+                                {
+                                    destination.open(true, true)?
+                                }
+                                Err(error) => return Err(error),
+                            };
+                            destination.write(&mut output, content.as_bytes())?;
+                            entry
+                                .delete(&file)
+                                .context("Failed to remove original after move")?;
+                        }
+                    } else {
+                        entry.write(&mut file, content.as_bytes())?;
+                    }
+                    results.push(result);
+                }
+            }
+        }
+        let details = json!({"results":results});
+        Ok(ToolResult {
+            content: vec![json!({"type":"text","text":serde_json::to_string(&details)?})],
+            details,
+            is_error: false,
+        })
+    }
     pub fn read(&self, args: &Value, context: &FileContext) -> Result<ToolResult> {
         let path = absolute(
             args["file_path"]

@@ -109,3 +109,5 @@ packages/runtime/kernel/exec/.exec-worker-cache/
 # Written by the Convex CLI during deploys. Nothing named .env.local is
 # tracked; this only guards against one being committed later.
 .env.local
+
+/packages/runtime-rust/target/

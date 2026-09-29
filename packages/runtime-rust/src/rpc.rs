@@ -14,24 +14,33 @@ use tokio::{
 const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 pub struct Service {
-    store: Option<Store>,
+    pub(crate) store: Option<Store>,
     database_path: Option<PathBuf>,
-    config: Value,
-    notifications: broadcast::Sender<Value>,
+    pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
+    pub(crate) config: Value,
+    pub(crate) host: Option<Peer>,
+    pub(crate) notifications: broadcast::Sender<Value>,
 }
 
 impl Service {
     pub fn new(database: Option<PathBuf>) -> Result<Self> {
         let store = database.as_deref().map(Store::open).transpose()?;
+        let run_events = database
+            .as_deref()
+            .and_then(|p| p.parent())
+            .map(crate::storage::run_events::RunEvents::open)
+            .transpose()?;
         Ok(Self {
+            run_events,
             store,
             database_path: database,
             config: json!({}),
+            host: None,
             notifications: broadcast::channel(1024).0,
         })
     }
 
-    fn store(&mut self) -> Result<&mut Store> {
+    pub(crate) fn store(&mut self) -> Result<&mut Store> {
         self.store
             .as_mut()
             .context("Runtime storage is not initialized")
@@ -40,6 +49,23 @@ impl Service {
     pub fn dispatch(&mut self, method: &str, params: Value) -> Result<Value> {
         let string = |key| params[key].as_str().unwrap_or("");
         match method {
+            "internal.worker.resumeEvents" => self
+                .run_events
+                .as_mut()
+                .context("Run log not initialized")?
+                .resume(string("runId"), params["lastSeq"].as_i64().unwrap_or(0)),
+            "internal.worker.ackEvents" => {
+                let pruned = self
+                    .run_events
+                    .as_mut()
+                    .context("Run log not initialized")?
+                    .ack(
+                        string("runId"),
+                        params["lastSeq"].as_i64().context("lastSeq is required")?,
+                    )?;
+                Ok(json!({"ok":true,"pruned":pruned}))
+            }
+
             "internal.worker.builtin.recordThreadSummary" => {
                 if string("outcome") == "success" && params["sideEffectsAllowed"] == true {
                     self.store()?.record_thread_summary(
@@ -78,6 +104,9 @@ impl Service {
                     }
                     if self.store.is_none() {
                         self.store = Some(Store::open(&path)?);
+                        self.run_events = Some(crate::storage::run_events::RunEvents::open(
+                            path.parent().context("Missing data directory")?,
+                        )?);
                         self.database_path = Some(path);
                     }
                 }
@@ -152,6 +181,114 @@ fn error(id: Value, code: i64, message: String) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
+/// One live duplex connection. Callback IDs are strings in a separate namespace
+/// from the host's request IDs. No callback response can cross connections.
+#[derive(Clone)]
+pub struct Peer(Arc<PeerState>);
+struct PeerState {
+    outgoing: tokio::sync::mpsc::Sender<Value>,
+    pending: Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<Result<Value>>>>,
+    next_id: std::sync::atomic::AtomicU64,
+}
+
+struct PendingCall {
+    peer: Peer,
+    id: String,
+}
+impl Drop for PendingCall {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.peer.0.pending.lock() {
+            pending.remove(&self.id);
+        }
+    }
+}
+
+impl Peer {
+    pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let id = format!(
+            "rust:{}",
+            self.0
+                .next_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let (send, receive) = tokio::sync::oneshot::channel();
+        self.0
+            .pending
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Callback state poisoned"))?
+            .insert(id.clone(), send);
+        let _pending = PendingCall {
+            peer: self.clone(),
+            id: id.clone(),
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(120), async {
+            self.0
+                .outgoing
+                .send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
+                .await
+                .context("Host disconnected")?;
+            receive.await.context("Host disconnected during callback")?
+        })
+        .await
+        .context("Host callback timed out")?
+    }
+
+    fn response(&self, message: &Value) -> bool {
+        let Some(id) = message["id"].as_str() else {
+            return false;
+        };
+        let Ok(mut pending) = self.0.pending.lock() else {
+            return false;
+        };
+        let Some(sender) = pending.remove(id) else {
+            return false;
+        };
+        let result = if let Some(error) = message.get("error") {
+            Err(anyhow::anyhow!(
+                "Host callback: {}",
+                error["message"].as_str().unwrap_or("Unknown error")
+            ))
+        } else {
+            message
+                .get("result")
+                .cloned()
+                .context("Invalid callback response")
+        };
+        let _ = sender.send(result);
+        true
+    }
+}
+
+pub async fn dispatch(
+    service: SharedService,
+    peer: Peer,
+    method: String,
+    params: Value,
+) -> Result<Value> {
+    if method == "internal.worker.initialize" {
+        let initialized = service
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?
+            .dispatch(&method, params)?;
+        // The host owns the protected private key. The runtime gets only its
+        // public identity and requests scoped signatures on this same channel.
+        let identity = peer.request("host.deviceIdentity.get", json!({})).await?;
+        let mut state = service
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?;
+        state.config["deviceId"] = identity["deviceId"].clone();
+        state.host = Some(peer);
+        return Ok(initialized);
+    }
+    tokio::task::spawn_blocking(move || {
+        service
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?
+            .dispatch(&method, params)
+    })
+    .await?
+}
+
 pub async fn serve<R, W>(reader: R, mut writer: W, service: SharedService) -> Result<()>
 where
     R: AsyncRead + Unpin,
@@ -162,45 +299,85 @@ where
         .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?
         .notifications
         .subscribe();
+    let (outgoing, mut incoming) = tokio::sync::mpsc::channel(256);
+    let peer = Peer(Arc::new(PeerState {
+        outgoing,
+        pending: Mutex::new(Default::default()),
+        next_id: std::sync::atomic::AtomicU64::new(1),
+    }));
+    let mut requests = tokio::task::JoinSet::new();
     let mut reader = BufReader::new(reader);
     let mut line = Vec::new();
-    loop {
-        let mut bounded = (&mut reader).take((MAX_FRAME_BYTES + 1 - line.len()) as u64);
-        tokio::select! {
-            read=bounded.read_until(b'\n',&mut line) => {
-                if read?==0 { return Ok(()); }
-                if line.len()>MAX_FRAME_BYTES { bail!("RPC frame exceeds 32 MiB"); }
-                if line.iter().all(u8::is_ascii_whitespace) { line.clear(); continue; }
-                let request=serde_json::from_slice::<Value>(&line);
-                line.clear();
-                let request=match request { Ok(r)=>r,Err(e)=>{write_message(&mut writer,&error(Value::Null,-32700,e.to_string())).await?; continue;} };
-                let id=request.get("id").cloned();
-                let method=request["method"].as_str();
-                if request["jsonrpc"]!="2.0" || method.is_none() {
-                    write_message(&mut writer,&error(id.unwrap_or(Value::Null),-32600,"Invalid JSON-RPC request".into())).await?;
-                    continue;
-                }
-                let method=method.unwrap().to_string();
-                let params=request.get("params").cloned().unwrap_or_else(||json!({}));
-                let cloned=service.clone();
-                let result=tokio::task::spawn_blocking(move || {
-                    cloned.lock().map_err(|_|anyhow::anyhow!("Runtime state poisoned"))?.dispatch(&method,params)
-                }).await?;
-                if let Some(id)=id {
-                    let message=match result {
-                        Ok(result)=>json!({"jsonrpc":"2.0","id":id,"result":result}),
-                        Err(e)=>{let msg=format!("{e:#}"); error(id,if msg.starts_with("Method not found:") {-32601} else {-32000},msg)}
+    let result = async {
+        loop {
+            let mut bounded = (&mut reader).take((MAX_FRAME_BYTES + 1 - line.len()) as u64);
+            tokio::select! {
+                read=bounded.read_until(b'\n',&mut line) => {
+                    if read?==0 { return Ok(()); }
+                    if line.len()>MAX_FRAME_BYTES { bail!("RPC frame exceeds 32 MiB"); }
+                    if line.iter().all(u8::is_ascii_whitespace) { line.clear(); continue; }
+                    let request=serde_json::from_slice::<Value>(&line);
+                    line.clear();
+                    let request=match request { Ok(r)=>r,Err(e)=>{write_message(&mut writer,&error(Value::Null,-32700,e.to_string())).await?; continue;} };
+                    let id=request.get("id").cloned();
+                    let method=request["method"].as_str();
+                    // Stella's v1 transport predates the optional JSON-RPC
+                    // version field. Accept both envelopes, reject other versions.
+                    if request.get("jsonrpc").is_some_and(|v| v != "2.0") || !request.is_object() {
+                        write_message(&mut writer,&error(id.unwrap_or(Value::Null),-32600,"Invalid JSON-RPC request".into())).await?;
+                        continue;
+                    }
+                    if method.is_none() && id.is_some() && (request.get("result").is_some() || request.get("error").is_some()) {
+                        peer.response(&request);
+                        continue;
+                    }
+                    let Some(method) = method else {
+                        write_message(&mut writer,&error(id.unwrap_or(Value::Null),-32600,"Invalid JSON-RPC request".into())).await?;
+                        continue;
                     };
-                    write_message(&mut writer,&message).await?;
+                    if id.as_ref().is_some_and(|id| !id.is_string() && !id.is_number()) {
+                        write_message(&mut writer,&error(Value::Null,-32600,"Invalid request id".into())).await?;
+                        continue;
+                    }
+                    if requests.len() >= 128 {
+                        if let Some(id)=id { write_message(&mut writer,&error(id,-32800,"Too many concurrent requests".into())).await?; }
+                        continue;
+                    }
+                    let method=method.to_owned();
+                    let params=request.get("params").cloned().unwrap_or_else(||json!({}));
+                    let cloned=service.clone();
+                    let peer=peer.clone();
+                    requests.spawn(async move {
+                        let result=dispatch(cloned,peer.clone(),method,params).await;
+                        if let Some(id)=id {
+                            let message=match result {
+                                Ok(result)=>json!({"jsonrpc":"2.0","id":id,"result":result}),
+                                Err(e)=>{let msg=format!("{e:#}"); error(id,if msg.starts_with("Method not found:") {-32601} else {-32000},msg)}
+                            };
+                            let _ = peer.0.outgoing.send(message).await;
+                        }
+                    });
                 }
-            }
-            notification=notifications.recv()=> {
-                match notification {
-                    Ok(message)=>write_message(&mut writer,&message).await?,
-                    Err(broadcast::error::RecvError::Lagged(skipped))=>write_message(&mut writer,&json!({"jsonrpc":"2.0","method":"runtime.lagged","params":{"skipped":skipped}})).await?,
-                    Err(broadcast::error::RecvError::Closed)=>return Ok(()),
+                Some(message)=incoming.recv()=>write_message(&mut writer,&message).await?,
+                Some(joined)=requests.join_next(), if !requests.is_empty()=> { joined?; }
+                notification=notifications.recv()=> {
+                    match notification {
+                        Ok(message)=>write_message(&mut writer,&message).await?,
+                        Err(broadcast::error::RecvError::Lagged(skipped))=>write_message(&mut writer,&json!({"jsonrpc":"2.0","method":"runtime.lagged","params":{"skipped":skipped}})).await?,
+                        Err(broadcast::error::RecvError::Closed)=>return Ok(()),
+                    }
                 }
             }
         }
-    }
+    }.await;
+    // Drop pending callbacks and connection-owned requests before returning.
+    // Admitted agent runs belong to the service and survive a host reconnect.
+    peer.0
+        .pending
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Callback state poisoned"))?
+        .clear();
+    requests.abort_all();
+    while requests.join_next().await.is_some() {}
+    result
 }

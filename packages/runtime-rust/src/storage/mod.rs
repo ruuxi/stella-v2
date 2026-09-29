@@ -1,5 +1,6 @@
 pub mod chat;
 mod legacy;
+pub mod run_events;
 pub mod schema;
 mod summaries;
 

@@ -13,10 +13,64 @@ fn decode_claims(jwt: &str) -> Result<Value> {
     Ok(serde_json::from_slice(&URL_SAFE_NO_PAD.decode(part)?)?)
 }
 
+/// Desktop signatures remain in Electron's protected identity service; CLI
+/// execution can use an explicitly owned key. Neither mode exports a secret.
+pub enum DeviceSigner {
+    Local(SigningKey),
+    Host {
+        peer: crate::rpc::Peer,
+        public_key: [u8; 32],
+    },
+}
+impl DeviceSigner {
+    pub async fn from_host(peer: crate::rpc::Peer) -> Result<Self> {
+        let signed = peer
+            .request(
+                "host.auth.signDevice",
+                json!({"input":"stella-device-key-probe"}),
+            )
+            .await?;
+        let public_key: [u8; 32] = serde_json::from_value(signed["rawPublicKey"].clone())
+            .context("Invalid host signing key")?;
+        if signed["alg"] != "ed25519" {
+            bail!("Unsupported host signing algorithm");
+        }
+        Ok(Self::Host { peer, public_key })
+    }
+    fn public_key(&self) -> [u8; 32] {
+        match self {
+            Self::Local(key) => key.verifying_key().to_bytes(),
+            Self::Host { public_key, .. } => *public_key,
+        }
+    }
+    async fn sign(&self, input: &str) -> Result<String> {
+        match self {
+            Self::Local(key) => Ok(URL_SAFE_NO_PAD.encode(key.sign(input.as_bytes()).to_bytes())),
+            Self::Host { peer, public_key } => {
+                let signed = peer
+                    .request("host.auth.signDevice", json!({"input":input}))
+                    .await?;
+                let returned: [u8; 32] = serde_json::from_value(signed["rawPublicKey"].clone())?;
+                if signed["alg"] != "ed25519" || &returned != public_key {
+                    bail!("Host signing identity changed during execution");
+                }
+                let signature = signed["signature"]
+                    .as_str()
+                    .context("Missing host signature")?;
+                let bytes = URL_SAFE_NO_PAD.decode(signature)?;
+                let signature_value = ed25519_dalek::Signature::from_slice(&bytes)?;
+                ed25519_dalek::VerifyingKey::from_bytes(public_key)?
+                    .verify_strict(input.as_bytes(), &signature_value)?;
+                Ok(signature.to_string())
+            }
+        }
+    }
+}
+
 pub struct Gateway {
     client: Client,
     origin: String,
-    signer: SigningKey,
+    signer: DeviceSigner,
     capability: String,
     jti: String,
     agent_type: String,
@@ -30,7 +84,7 @@ impl Gateway {
         auth: &str,
         agent_type: &str,
         model: &str,
-        signer: SigningKey,
+        signer: DeviceSigner,
     ) -> Result<Self> {
         let url = Url::parse(origin)?;
         if url.scheme() != "https"
@@ -54,15 +108,12 @@ impl Gateway {
             .trim_end_matches('/');
         let subject = claims["sub"].as_str().context("Missing owner subject")?;
         let at = now_ms();
-        let public = URL_SAFE_NO_PAD.encode(signer.verifying_key().as_bytes());
-        let signature = URL_SAFE_NO_PAD.encode(
-            signer
-                .sign(
-                    format!("stella-device-exchange\n{issuer}|{subject}\n{origin}\n{at}")
-                        .as_bytes(),
-                )
-                .to_bytes(),
-        );
+        let public = URL_SAFE_NO_PAD.encode(signer.public_key());
+        let signature = signer
+            .sign(&format!(
+                "stella-device-exchange\n{issuer}|{subject}\n{origin}\n{at}"
+            ))
+            .await?;
         let response=client.post(format!("{origin}/v1/capabilities/session")).bearer_auth(auth).json(&json!({"deviceKey":{"alg":"ed25519","publicKey":public,"signature":signature,"timestamp":at}})).send().await?;
         let status = response.status();
         let body: Value = response.json().await?;
@@ -116,26 +167,23 @@ impl Gateway {
     async fn post(&self, path: &str, body: Value, revision: Option<&str>) -> Result<Value> {
         let request_id = ulid::Ulid::new().to_string();
         let at = now_ms();
-        let signature = self.signer.sign(
-            format!(
+        let signature = self
+            .signer
+            .sign(&format!(
                 "stella-dpop\nPOST\n{path}\n{}\n{request_id}\n{at}",
                 self.jti
-            )
-            .as_bytes(),
-        );
+            ))
+            .await?;
         let mut request = self
             .client
             .post(format!("{}{path}", self.origin))
             .bearer_auth(&self.capability)
             .header("x-stella-agent-type", &self.agent_type)
             .header("x-stella-request-id", request_id)
-            .header(
-                "x-stella-dpop",
-                URL_SAFE_NO_PAD.encode(signature.to_bytes()),
-            )
+            .header("x-stella-dpop", signature)
             .header(
                 "x-stella-dpop-key",
-                URL_SAFE_NO_PAD.encode(self.signer.verifying_key().as_bytes()),
+                URL_SAFE_NO_PAD.encode(self.signer.public_key()),
             )
             .header("x-stella-dpop-ts", at.to_string())
             .header("x-stella-dpop-alg", "ed25519");
@@ -198,9 +246,9 @@ impl Gateway {
         )
     }
 
-    pub fn ephemeral_signer() -> Result<SigningKey> {
+    pub fn ephemeral_signer() -> Result<DeviceSigner> {
         let mut seed = [0; 32];
         getrandom::fill(&mut seed).map_err(|e| anyhow::anyhow!("Generating device signer: {e}"))?;
-        Ok(SigningKey::from_bytes(&seed))
+        Ok(DeviceSigner::Local(SigningKey::from_bytes(&seed)))
     }
 }

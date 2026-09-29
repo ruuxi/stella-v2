@@ -38,7 +38,8 @@ pub fn request(context: &AgentContext, model: &str, max_tokens: u64) -> Result<V
     if !context.system_prompt.is_empty() {
         messages.push(json!({"role":"system","content":context.system_prompt}));
     }
-    for message in &context.messages {
+    let mut tool_images=Vec::new();
+    for (index,message) in context.messages.iter().enumerate() {
         match message["role"].as_str() {
             Some("user"|"runtimeInternal")=>messages.push(json!({"role":"user","content":parts(&message["content"])})),
             Some("assistant")=>{
@@ -49,7 +50,16 @@ pub fn request(context: &AgentContext, model: &str, max_tokens: u64) -> Result<V
                 if !reasoning.is_empty() {item["reasoning_content"]=json!(reasoning);}
                 messages.push(item);
             }
-            Some("toolResult")=>messages.push(json!({"role":"tool","tool_call_id":message["toolCallId"],"content":text(&message["content"])})),
+            Some("toolResult")=>{
+                let text=text(&message["content"]);
+                let images=message["content"].as_array().into_iter().flatten().filter(|b|b["type"]=="image").cloned().collect::<Vec<_>>();
+                messages.push(json!({"role":"tool","tool_call_id":message["toolCallId"],"content":if text.is_empty()&&!images.is_empty(){"(see attached image)"}else{&text}}));
+                tool_images.extend(images);
+                if context.messages.get(index+1).is_none_or(|m|m["role"]!="toolResult") && !tool_images.is_empty(){
+                    let mut content=vec![json!({"type":"text","text":"Attached image(s) from tool result:"})];content.append(&mut tool_images);
+                    messages.push(json!({"role":"user","content":parts(&json!(content))}));
+                }
+            },
             role=>bail!("Unsupported message role at completion boundary: {role:?}"),
         }
     }

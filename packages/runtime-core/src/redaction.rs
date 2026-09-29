@@ -17,7 +17,12 @@ fn mask(value: &str) -> String {
     }
 }
 
-pub fn memory(text: &str) -> String {
+pub fn memory(text: &str) -> String { redact(text,false) }
+pub fn tool_text(text:&str, code_file:bool)->String {
+    static ANSI: LazyLock<Regex> = LazyLock::new(||pattern(r"(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[@-_])"));
+    redact(&ANSI.replace_all(text,""),code_file)
+}
+fn redact(text: &str, code_file:bool) -> String {
     static PREFIX: LazyLock<Regex> = LazyLock::new(|| {
         pattern(
             r"\b((?:sk-(?:proj-)?|sk-ant-|gh[pousr]_|github_pat_|xox[baprs]-|hf_|r8_|npm_|pypi-|AKIA|AIza|ya29\.|syt_)[A-Za-z0-9._:=+/~-]{10,})\b",
@@ -55,12 +60,10 @@ pub fn memory(text: &str) -> String {
     let text = DATABASE.replace_all(&text, |c: &Captures| format!("{}***{}", &c[1], &c[3]));
     let text = JWT.replace_all(&text, |c: &Captures| mask(&c[0]));
     let text = USERINFO.replace_all(&text, |c: &Captures| format!("{}{}:***@", &c[1], &c[2]));
-    let text = ENV.replace_all(&text, |c: &Captures| {
-        format!("{}={}{}{}", &c[1], &c[2], mask(&c[3]), &c[4])
-    });
-    let text = JSON.replace_all(&text, |c: &Captures| {
-        format!("{}{}{}", &c[1], mask(&c[2]), &c[3])
-    });
+    let text = if code_file {text.into_owned()} else {
+        let text=ENV.replace_all(&text,|c:&Captures|format!("{}={}{}{}",&c[1],&c[2],mask(&c[3]),&c[4]));
+        JSON.replace_all(&text,|c:&Captures|format!("{}{}{}",&c[1],mask(&c[2]),&c[3])).into_owned()
+    };
     URL.replace_all(&text, |c: &Captures| {
         let Ok(mut url) = url::Url::parse(&c[0]) else {
             return c[0].to_string();

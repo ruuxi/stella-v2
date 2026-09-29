@@ -254,9 +254,9 @@ pub async fn start(service: SharedService, params: Value) -> Result<Arc<Run>> {
             let auth=config["authToken"].as_str().context("Managed execution requires authentication")?;
             let signer=DeviceSigner::from_host(host).await?;
             let gateway=Gateway::connect(&origin,auth,&kind,params["model"].as_str().unwrap_or("stella/default"),signer).await?;
-            let native=NativeExecution{gateway,canceled:AtomicBool::new(false)};
+            let native=NativeExecution{gateway,canceled:AtomicBool::new(false),files:service.lock().unwrap().files.clone(),file_context:crate::file_tools::FileContext{data_dir:config["stellaDataDirPath"].as_str().map(std::path::PathBuf::from),app_dir:config["stellaAppDir"].as_str().map(std::path::PathBuf::from),workspace_root:params["toolWorkspaceRoot"].as_str().map(std::path::PathBuf::from),scope:owned.thread.clone()}};
             let execution=RuntimeExecution{native,service:service.clone(),run:owned.clone()};
-            let tools=if definition.tools.contains(&"Read") {vec![json!({"name":"Read","description":"Read a UTF-8 file by absolute path.","parameters":{"type":"object","properties":{"file_path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["file_path"]}})]}else{vec![]};
+            let tools=if definition.tools.contains(&"Read") {vec![stella_runtime_core::tools::READ.clone()]}else{vec![]};
             let mut context=AgentContext{system_prompt:definition.system_prompt.into(),messages:history,tools};
             let messages=stella_runtime_core::agent::run(&execution,&mut context,vec![user_message]).await?;
             if let Some(error)=owned.failure.lock().unwrap().as_ref(){bail!("{error}");}

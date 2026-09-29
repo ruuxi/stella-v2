@@ -15,6 +15,7 @@ const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 pub struct Service {
     pub(crate) store: Option<Store>,
+    pub(crate) files: Arc<crate::file_tools::FileTools>,
     database_path: Option<PathBuf>,
     pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
     pub(crate) config: Value,
@@ -36,6 +37,7 @@ impl Service {
             .transpose()?;
         Ok(Self {
             run_events,
+            files: Arc::new(Default::default()),
             store,
             database_path: database,
             config: json!({}),

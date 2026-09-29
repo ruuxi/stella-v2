@@ -26,7 +26,9 @@ Implemented here:
 - A standalone Rust agent loop and managed model-gateway execution using
   Ed25519 capability exchange, DPoP, descriptor revisions, and the Responses and
   Chat Completions protocols. The current standalone tool adapter implements
-  bounded UTF-8 `Read` only. It is not the complete Stella tool pack.
+  bounded text/image `Read`, with file guards, scoped descriptor reads on Unix,
+  UTF-16-compatible hash anchors, and skill-read deduplication. Tool images are
+  forwarded through both managed protocols. It is not the complete Stella tool pack.
 
 ## Build and run
 
@@ -65,6 +67,7 @@ python3 packages/runtime-rust/scripts/verify-storage.py
 python3 packages/runtime-rust/scripts/verify-legacy-migration.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc
+python3 packages/runtime-rust/scripts/verify-live-agent.py --image
 python3 packages/runtime-rust/scripts/verify-rpc.py
 ```
 

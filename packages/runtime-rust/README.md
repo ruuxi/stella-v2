@@ -57,6 +57,11 @@ Implemented here:
   notifications. Native JSONC provider configuration, schema validation, model
   overrides, private provider cache persistence and bounded remote refresh are
   connected to listing; credential expressions are never executed for listing.
+- Native project discovery and manifest validation, package-script detection,
+  dependency installation, persistent TCP/UDP ports, HTTP/TCP/process readiness,
+  process-group teardown, crash recovery, filesystem notifications and project RPC.
+  Real multi-process Bun apps have exercised concurrent admission, startup rollback,
+  grandchild cleanup, restart and shutdown through the binary.
 
 ## Build and run
 
@@ -108,6 +113,7 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py --idle-shell
 python3 packages/runtime-rust/scripts/verify-live-agent.py --shutdown-shell
 python3 packages/runtime-rust/scripts/verify-rpc.py
 bun packages/runtime-rust/scripts/verify-catalog.mjs
+bun packages/runtime-rust/scripts/verify-projects.mjs
 python3 packages/runtime-rust/scripts/verify-live-agent.py --model anthropic/claude-haiku-4-5 --backend-provider-key
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image --model google/gemini-3-flash-preview --backend-provider-key
 ```

@@ -89,12 +89,13 @@ const spawnDetachedWorkerProcess = (
     transpilerCachePath = undefined;
   }
   let child: ChildProcess;
-  const bunBinaryPath = nativeBinary ?? options.bunBinaryPath ?? resolveBunBinaryPath();
+  const bunBinaryPath = options.bunBinaryPath ?? resolveBunBinaryPath();
+  const runtimeExecutable = nativeBinary ?? bunBinaryPath;
   try {
     if (options.env?.NODE_ENV === "development") {
       console.warn(`[runtime-host] Detached worker logs: ${paths.logFile}`);
     }
-    child = spawn(bunBinaryPath, args, {
+    child = spawn(runtimeExecutable, args, {
       detached: process.platform !== "win32",
       stdio: ["ignore", logFd, logFd],
       env: {
@@ -114,7 +115,7 @@ const spawnDetachedWorkerProcess = (
     closeSync(logFd);
   }
   child.unref();
-  return { child, bunBinaryPath };
+  return { child, bunBinaryPath: runtimeExecutable };
 };
 
 /**

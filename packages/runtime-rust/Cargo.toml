@@ -25,6 +25,8 @@ portable-pty = "0.9"
 dirs = "6"
 jsonschema = { version = "0.58", default-features = false }
 regex = "1"
+notify = "8.2"
+chrono = "0.4"
 
 [profile.release]
 lto = "thin"

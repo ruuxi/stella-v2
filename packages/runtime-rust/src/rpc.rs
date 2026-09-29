@@ -18,6 +18,7 @@ pub struct Service {
     pub(crate) files: Arc<crate::file_tools::FileTools>,
     pub(crate) shells: Arc<crate::shell::Shells>,
     pub(crate) catalog: Arc<crate::catalog::Catalog>,
+    projects: Arc<tokio::sync::OnceCell<Arc<crate::projects::Projects>>>,
     pub(crate) orchestrator_lane: Arc<tokio::sync::Mutex<()>>,
     database_path: Option<PathBuf>,
     pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
@@ -43,6 +44,7 @@ impl Service {
             files: Arc::new(Default::default()),
             shells: Arc::new(Default::default()),
             catalog: Arc::new(Default::default()),
+            projects: Arc::new(Default::default()),
             orchestrator_lane: Arc::new(tokio::sync::Mutex::new(())),
             store,
             database_path: database,
@@ -68,6 +70,10 @@ impl Service {
             && self.connections == 0
             && self.active_runs().is_empty()
             && !self.shells.has_active_work()
+            && !self
+                .projects
+                .get()
+                .is_some_and(|projects| projects.has_active_work())
             && crate::storage::now_ms().saturating_sub(self.last_activity) > timeout_ms as i64
     }
     pub(crate) fn store(&mut self) -> Result<&mut Store> {
@@ -232,6 +238,12 @@ impl Service {
 pub type SharedService = Arc<Mutex<Service>>;
 
 pub async fn shutdown(service: &SharedService) {
+    let projects = service.lock().unwrap().projects.get().cloned();
+    if let Some(projects) = projects
+        && let Err(error) = projects.shutdown().await
+    {
+        eprintln!("Project shutdown: {error:#}");
+    }
     let (runs, shells) = {
         let state = service.lock().unwrap();
         (state.active_runs(), state.shells.clone())
@@ -245,6 +257,35 @@ pub async fn shutdown(service: &SharedService) {
     if let Err(error) = shells.kill_all().await {
         eprintln!("Shell shutdown: {error:#}");
     }
+}
+
+async fn projects(service: &SharedService) -> Result<Arc<crate::projects::Projects>> {
+    let (cell, workspace, bun, notifications) = {
+        let state = service.lock().unwrap();
+        let workspace = state.config["stellaWorkspacePath"]
+            .as_str()
+            .map(PathBuf::from)
+            .or_else(|| {
+                state
+                    .database_path
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.join("workspace"))
+            })
+            .context("Project workspace is not initialized")?;
+        (
+            state.projects.clone(),
+            workspace,
+            state.config["bunExecutablePath"]
+                .as_str()
+                .map(str::to_owned),
+            state.notifications.clone(),
+        )
+    };
+    Ok(cell
+        .get_or_try_init(|| crate::projects::Projects::open(workspace, bun, notifications))
+        .await?
+        .clone())
 }
 
 async fn write_message<W: AsyncWrite + Unpin>(writer: &mut W, message: &Value) -> Result<()> {
@@ -344,6 +385,24 @@ pub async fn dispatch(
     params: Value,
 ) -> Result<Value> {
     match method.as_str() {
+        "internal.worker.projects.list" => return projects(&service).await?.list().await,
+        "internal.worker.projects.start" | "internal.worker.projects.stop" => {
+            let projects = projects(&service).await?;
+            let slug = params["slug"]
+                .as_str()
+                .context("App slug is required")?
+                .trim()
+                .to_owned();
+            // The service owns admitted app mutations across RPC disconnects.
+            return tokio::spawn(async move {
+                if method.ends_with(".start") {
+                    projects.start(&slug).await
+                } else {
+                    projects.stop(&slug).await
+                }
+            })
+            .await?;
+        }
         "internal.worker.configure" => {
             let (result, catalog) = {
                 let mut state = service.lock().unwrap();
@@ -418,6 +477,7 @@ pub async fn dispatch(
             .lock()
             .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?
             .dispatch(&method, params)?;
+        projects(&service).await?;
         // The host owns the protected private key. The runtime gets only its
         // public identity and requests scoped signatures on this same channel.
         let identity = peer.request("host.deviceIdentity.get", json!({})).await?;

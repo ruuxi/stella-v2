@@ -3,6 +3,7 @@ mod legacy;
 pub mod run_events;
 pub mod schema;
 mod summaries;
+mod threads;
 
 use anyhow::Result;
 use rusqlite::Connection;
@@ -63,3 +64,5 @@ impl Store {
         }))
     }
 }
+
+mod outbox;

@@ -22,8 +22,8 @@ pub struct RunRequest {
 }
 
 pub struct NativeExecution {
-    gateway: Gateway,
-    canceled: AtomicBool,
+    pub(crate) gateway: Gateway,
+    pub(crate) canceled: AtomicBool,
 }
 
 impl Execution for NativeExecution {

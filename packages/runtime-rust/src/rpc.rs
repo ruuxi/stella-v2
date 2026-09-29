@@ -19,6 +19,10 @@ pub struct Service {
     pub(crate) run_events: Option<crate::storage::run_events::RunEvents>,
     pub(crate) config: Value,
     pub(crate) host: Option<Peer>,
+    delivery_started: bool,
+    connections: usize,
+    last_activity: i64,
+    pub(crate) runs: std::collections::BTreeMap<String, Arc<crate::runs::Run>>,
     pub(crate) notifications: broadcast::Sender<Value>,
 }
 
@@ -36,10 +40,27 @@ impl Service {
             database_path: database,
             config: json!({}),
             host: None,
+            runs: Default::default(),
+            delivery_started: false,
+            connections: 0,
+            last_activity: crate::storage::now_ms(),
             notifications: broadcast::channel(1024).0,
         })
     }
 
+    pub fn active_runs(&self) -> Vec<Arc<crate::runs::Run>> {
+        self.runs
+            .values()
+            .filter(|r| r.finished.borrow().is_none())
+            .cloned()
+            .collect()
+    }
+    pub fn is_idle(&self, timeout_ms: u64) -> bool {
+        timeout_ms > 0
+            && self.connections == 0
+            && self.active_runs().is_empty()
+            && crate::storage::now_ms().saturating_sub(self.last_activity) > timeout_ms as i64
+    }
     pub(crate) fn store(&mut self) -> Result<&mut Store> {
         self.store
             .as_mut()
@@ -49,6 +70,33 @@ impl Service {
     pub fn dispatch(&mut self, method: &str, params: Value) -> Result<Value> {
         let string = |key| params[key].as_str().unwrap_or("");
         match method {
+            "internal.worker.getActive" => Ok(self
+                .runs
+                .values()
+                .find(|r| r.finished.borrow().is_none())
+                .map(|r| r.snapshot())
+                .unwrap_or(Value::Null)),
+            "internal.worker.listActiveRuns" => {
+                let mut runs = self
+                    .runs
+                    .values()
+                    .filter(|r| r.finished.borrow().is_none())
+                    .map(|r| {
+                        let mut value = r.snapshot();
+                        value["kind"] = json!("active");
+                        value
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(log) = self.run_events.as_ref() {
+                    for buffered in log.buffered()? {
+                        if !runs.iter().any(|r| r["runId"] == buffered["runId"]) {
+                            runs.push(json!({"runId":buffered["runId"],"conversationId":buffered["conversationId"],"kind":"buffered"}));
+                        }
+                    }
+                }
+                Ok(json!({"runs":runs}))
+            }
+
             "internal.worker.resumeEvents" => self
                 .run_events
                 .as_mut()
@@ -126,7 +174,12 @@ impl Service {
             }
             "internal.worker.health" => Ok(json!({
                 "protocolVersion":"v1", "pid":std::process::id(),
-                "ready":false, "reason":"Rust agent execution is not connected yet",
+                "ready":self.store.is_some() && self.host.is_some(),
+                "health":{"ready":self.store.is_some() && self.host.is_some()},
+                "deviceId":self.config["deviceId"],
+                "activeRun":self.active_runs().first().map(|r|r.snapshot()),
+                "activeAgentCount":self.active_runs().len(),
+                "parityComplete":false,
                 "storageReady":self.store.is_some(), "implementation":"rust"
             })),
             "internal.worker.storage.diagnostics" => self.store()?.diagnostics(),
@@ -265,6 +318,44 @@ pub async fn dispatch(
     method: String,
     params: Value,
 ) -> Result<Value> {
+    match method.as_str() {
+        "internal.worker.startChat" | "internal.worker.runAutomation" => {
+            let run = crate::runs::start(service, params).await?;
+            return if method.ends_with("runAutomation") {
+                run.join().await
+            } else {
+                Ok(json!({"runId":run.id,"userMessageId":run.user_id}))
+            };
+        }
+        "internal.worker.cancel" | "internal.worker.cancelByConversation" => {
+            let runs = {
+                let state = service
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?;
+                state
+                    .runs
+                    .values()
+                    .filter(|r| {
+                        r.finished.borrow().is_none()
+                            && if method.ends_with("cancelByConversation") {
+                                params["conversationId"] == r.conversation
+                            } else {
+                                params["runId"] == r.id
+                            }
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            for run in &runs {
+                run.cancel.send_replace(true);
+            }
+            for run in &runs {
+                run.join().await?;
+            }
+            return Ok(json!({"ok":true,"cancelled":!runs.is_empty()}));
+        }
+        _ => {}
+    }
     if method == "internal.worker.initialize" {
         let initialized = service
             .lock()
@@ -278,6 +369,10 @@ pub async fn dispatch(
             .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?;
         state.config["deviceId"] = identity["deviceId"].clone();
         state.host = Some(peer);
+        if !state.delivery_started {
+            state.delivery_started = true;
+            crate::cloud_transcript::start_delivery(&service);
+        }
         return Ok(initialized);
     }
     tokio::task::spawn_blocking(move || {
@@ -289,11 +384,28 @@ pub async fn dispatch(
     .await?
 }
 
+struct ConnectionGuard(SharedService);
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.lock() {
+            state.connections = state.connections.saturating_sub(1);
+            state.last_activity = crate::storage::now_ms();
+        }
+    }
+}
+
 pub async fn serve<R, W>(reader: R, mut writer: W, service: SharedService) -> Result<()>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    let _connection = ConnectionGuard(service.clone());
+    {
+        let mut state = service
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?;
+        state.connections += 1;
+    }
     let mut notifications = service
         .lock()
         .map_err(|_| anyhow::anyhow!("Runtime state poisoned"))?

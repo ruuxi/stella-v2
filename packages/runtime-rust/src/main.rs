@@ -13,6 +13,8 @@ async fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let mut database = None;
     let mut listen = "stdio://".to_string();
+    let mut stella_root = None;
+    let mut idle_shutdown_ms = 300_000_u64;
     let mut migrate = false;
     let mut run = false;
     while let Some(arg) = args.next() {
@@ -23,6 +25,17 @@ async fn main() -> Result<()> {
                 ))
             }
             "--listen" => listen = args.next().context("--listen requires a URL")?,
+            "--stella-root" => {
+                stella_root = Some(PathBuf::from(
+                    args.next().context("--stella-root requires a path")?,
+                ))
+            }
+            "--idle-shutdown-ms" => {
+                idle_shutdown_ms = args
+                    .next()
+                    .context("--idle-shutdown-ms requires milliseconds")?
+                    .parse()?
+            }
             "--migrate" => migrate = true,
             "--run" => run = true,
             "--version" => {
@@ -61,6 +74,10 @@ async fn main() -> Result<()> {
         println!("{}", store.diagnostics()?);
         return Ok(());
     }
+    let lifecycle = stella_root
+        .as_deref()
+        .map(stella_runtime::lifecycle::Lifecycle::acquire)
+        .transpose()?;
     let service = Arc::new(Mutex::new(Service::new(database)?));
     if listen == "stdio://" {
         return serve(tokio::io::stdin(), tokio::io::stdout(), service).await;
@@ -71,9 +88,13 @@ async fn main() -> Result<()> {
         if path.is_empty() {
             bail!("Missing socket path");
         }
-        // Never remove an existing endpoint: it may belong to a live runtime.
+        if let Some(owner) = &lifecycle {
+            owner.prepare_socket(std::path::Path::new(path))?;
+        }
+        // Without an exclusive root lock, never remove an existing endpoint.
         let listener = tokio::net::UnixListener::bind(path)?;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        let mut idle_tick = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
             tokio::select! {
                 accepted=listener.accept()=>{
@@ -82,7 +103,15 @@ async fn main() -> Result<()> {
                     let service=service.clone();
                     tokio::spawn(async move { if let Err(error)=serve(read,write,service).await {eprintln!("RPC connection: {error:#}");} });
                 }
-                _=tokio::signal::ctrl_c()=>{std::fs::remove_file(path)?;return Ok(());}
+                signal=stella_runtime::lifecycle::shutdown_signal()=>{
+                    signal?;
+                    settle_runs(&service).await;
+                    std::fs::remove_file(path)?;return Ok(());
+                }
+                _=idle_tick.tick()=>{
+                    let idle={let state=service.lock().unwrap();state.is_idle(idle_shutdown_ms)};
+                    if idle {std::fs::remove_file(path)?;return Ok(());}
+                }
             }
         }
     }
@@ -109,4 +138,14 @@ async fn main() -> Result<()> {
         }
     }
     bail!("Unsupported listener on this platform: {listen}")
+}
+
+async fn settle_runs(service: &stella_runtime::rpc::SharedService) {
+    let runs = service.lock().unwrap().active_runs();
+    for run in &runs {
+        run.cancel.send_replace(true);
+    }
+    for run in runs {
+        let _ = run.join().await;
+    }
 }

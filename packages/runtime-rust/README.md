@@ -1,9 +1,10 @@
 # Native runtime migration
 
 This is an **incomplete replacement**, not the default desktop runtime. Electron
-and the cloud-builder still use `packages/runtime`. Do not switch their launch
-paths to this binary yet. Its JSON-RPC health response deliberately reports
-`ready: false` until the application integration and remaining services exist.
+and the cloud-builder still default to `packages/runtime`. Desktop can select
+the native binary explicitly for integration verification. Native health reports
+transport/execution readiness separately from `parityComplete: false`; readiness
+does not establish complete service or tool parity.
 
 Implemented here:
 
@@ -14,6 +15,13 @@ Implemented here:
   of existing outbox and receipt tables.
 - Transactional chat writes, sequence allocation, overwrite-by-ID, turn
   ownership, reply references, transcript search, settings, and summary records.
+- Duplex host callbacks, existing unversioned v1 RPC envelopes, concurrent
+  requests, protected host signing, detached lifecycle control files and signals.
+- RPC run admission/cancellation, durable event replay/acknowledgment in the
+  existing `stella-runs.sqlite`, and interrupted-run settlement on restart.
+- Signed-in desktop cloud turn admission/renewal/finish through the existing
+  Durable Object, with a native transcript outbox and interrupted-begin recovery.
+  Other outbox families and full recovery parity remain below.
 - Compiled Rust agent metadata and prompt-reminder policy in `../runtime-core`.
 - A standalone Rust agent loop and managed model-gateway execution using
   Ed25519 capability exchange, DPoP, descriptor revisions, and the Responses and
@@ -56,6 +64,8 @@ Bun migration against a copy of the same input database.
 python3 packages/runtime-rust/scripts/verify-storage.py
 python3 packages/runtime-rust/scripts/verify-legacy-migration.py
 python3 packages/runtime-rust/scripts/verify-live-agent.py
+python3 packages/runtime-rust/scripts/verify-live-agent.py --rpc
+python3 packages/runtime-rust/scripts/verify-rpc.py
 ```
 
 The live check mints a dev Pro test account using the existing Convex login or
@@ -76,7 +86,8 @@ The following are required before this can replace the old runtime:
   routing, multimodal/tool-result fidelity, usage/cost accounting, and native
   subscription-provider flows.
 - Complete thread/session/search APIs and outbox delivery/control services.
-  Existing outbox rows survive migration; their delivery workers are not ported.
+  Existing outbox rows survive migration; transcript delivery is connected, while
+  journal, agent, connector, voice and control delivery remain to be ported.
 - Replace Electron's runtime-internal imports with an RPC client and preserve
   lifecycle attachment, host callbacks, packaging, and restart behavior.
 - Replace the cloud-builder agent path with the Emscripten implementation,
@@ -86,3 +97,6 @@ The following are required before this can replace the old runtime:
   have moved. The extension system has **not** been retired yet.
 - Verify the switched desktop and cloud product flows end to end. A successful
   baseline run of the old desktop runtime is not evidence of a Rust cutover.
+  Native desktop verification has completed a signed-in reply and a real Read
+  tool call, with process identity and visible answers captured under the
+  verify-stella artifacts directory. This is only the exercised execution path.

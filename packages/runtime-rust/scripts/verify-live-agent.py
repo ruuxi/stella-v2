@@ -1,5 +1,5 @@
 """Executable integration verification against an isolated runtime, not a unit suite."""
-import subprocess, pathlib, tempfile, os, urllib.request, json, uuid
+import subprocess, pathlib, tempfile, os, urllib.request, json, uuid, sys
 root = pathlib.Path(__file__).resolve().parents[3]
 work = pathlib.Path(tempfile.mkdtemp(prefix='stella-native-live-'))
 site = 'https://outgoing-bulldog-865.convex.site'
@@ -15,6 +15,9 @@ file.write_text(nonce + '\n')
 env = os.environ.copy()
 env['STELLA_AUTH_TOKEN'] = auth
 env['STELLA_MODEL_GATEWAY_URL'] = 'https://stella-v2-model-gateway-dev.lolruuxi.workers.dev'
+if '--rpc' in sys.argv:
+    subprocess.run(['bun', str(root / 'packages/runtime-rust/scripts/verify-live-rpc.mjs')], env=env, timeout=180, check=True)
+    raise SystemExit(0)
 request = {'agentType': 'general', 'prompt': f'Use the Read tool to read {file}. Reply with exactly the single line from that file. Do not delegate.'}
 proc = subprocess.run([os.environ.get('STELLA_RUNTIME_BIN', str(root / 'packages/runtime-rust/target/debug/stella-runtime')), '--run', '--database', str(work / 'stella.sqlite')], input=json.dumps(request), text=True, env=env, capture_output=True, timeout=180)
 (work / 'events.jsonl').write_text(proc.stdout)

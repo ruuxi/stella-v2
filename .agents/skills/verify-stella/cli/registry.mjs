@@ -105,6 +105,7 @@ export const helpText = () => {
   }
   lines.push("Common forms:");
   lines.push("  session launch [--replace] [--account anonymous|signed-in|go|pro] [--reuse] [--fake-mic <wav>]");
+  lines.push("                 [--runtime-binary <native-executable>] [--model-gateway <origin>]");
   lines.push("  chat send --text <message> [--timeout <ms>]");
   lines.push("  settings tab --name <tab>");
   lines.push("  settings search --query <text>");

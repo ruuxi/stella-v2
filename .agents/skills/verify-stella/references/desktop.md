@@ -42,6 +42,13 @@ Every launch is a fresh profile, so an anonymous launch signs up a new anonymous
 
 Launch creates an isolated run under `.agents/skills/verify-stella/.run/<runId>/`, an isolated durable Stella data directory, and a temporary Chromium user-data directory. It seeds onboarding complete, builds the Electron development main/preload bundle, allocates ephemeral Vite and CDP ports, launches Electron with the verifier harness environment, and writes owned Vite/Electron logs. It preserves protected-storage behavior with a run-scoped key rather than using the developer's keyring.
 
+During the native runtime migration, `--runtime-binary packages/runtime-rust/target/debug/stella-runtime`
+selects an explicitly built Rust executable. The helper forwards its absolute path
+through the restricted launch environment and isolates its IPC directory. The
+optional `--model-gateway <origin>` overrides gateway discovery for a specific
+deployment; omit it to verify discovery from the signed-in catalog. The native
+process remains an incomplete replacement until the runtime migration is finished.
+
 Doctor exits successfully only when the recorded Vite and Electron processes are alive, Vite answers, CDP has Stella's page target, the conversation top bar exists, Electron device identity is available, and the runtime host answers its health check. A painted shell alone is not healthy.
 
 Never attach by process name or window title. The pointer under `.run/current.json` is the ownership boundary.

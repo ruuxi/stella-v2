@@ -16,9 +16,10 @@ import { computeRuntimeBuildStamp } from "@stella/runtime/worker/runtime-build-s
 import { resolveRuntimePaths } from "@stella/runtime/worker/runtime-paths";
 
 /**
- * Staleness handshake + idle/deferred restart tests. These drive the host's
- * private machinery directly (same style as reload-deferral.test.ts): the
- * "connection" objects are minimal fakes and restartWorker is stubbed.
+ * Staleness + idle/deferred restart tests for the host in the runtime
+ * process. They drive the host's private machinery directly: the in-process
+ * worker attach is a no-op and restartWorker is stubbed, except where the
+ * test is about the restart itself.
  */
 
 const tempDirs: string[] = [];
@@ -52,7 +53,10 @@ const createHost = (args: {
   stellaAppDir: string;
   workerEntryPath: string;
 }) => {
+  const restartProcess = vi.fn();
   const host = new StellaRuntimeHost({
+    workerMode: "inproc",
+    inprocWorker: { attach: () => () => undefined, restartProcess },
     workerEntryPath: args.workerEntryPath,
     hostHandlers: {
       getDeviceIdentity: async () => ({
@@ -79,6 +83,8 @@ const createHost = (args: {
   hosts.push(host);
   const anyHost = host as any;
   anyHost.started = true;
+  anyHost.restartProcess = restartProcess;
+  anyHost.realRestartWorker = anyHost.restartWorker.bind(anyHost);
   anyHost.restartWorker = vi.fn().mockResolvedValue({ ok: true });
   anyHost.getWorkerHealth = vi.fn().mockResolvedValue(IDLE_HEALTH);
   return anyHost;
@@ -150,18 +156,15 @@ describe("isWorkerBusyForRestart", () => {
   });
 });
 
-describe("stale worker staleness handshake", () => {
-  it("detects a build-stamp mismatch on reattach and restarts an idle worker", async () => {
+describe("runtime staleness when an app attaches", () => {
+  it("detects a build-stamp mismatch and restarts an idle runtime", async () => {
     const { stellaAppDir, paths } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     writeFileSync(paths.buildStampFile, "stamp-from-an-older-build\n");
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
     anyHost.workerHealthCache = IDLE_HEALTH;
 
-    await anyHost.evaluateWorkerStalenessOnConnect({
-      pid: 4242,
-      attachedToExistingWorker: true,
-    });
+    await anyHost.checkRuntimeStaleness();
 
     expect(anyHost.pendingStaleWorkerRestart?.reason).toBe(
       "build-stamp-mismatch",
@@ -174,23 +177,20 @@ describe("stale worker staleness handshake", () => {
     expect(anyHost.restartWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a missing worker stamp (pre-stamp worker) as stale", async () => {
+  it("treats a missing boot stamp as stale", async () => {
     const { stellaAppDir } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
     anyHost.workerHealthCache = IDLE_HEALTH;
 
-    await anyHost.evaluateWorkerStalenessOnConnect({
-      pid: 4242,
-      attachedToExistingWorker: true,
-    });
+    await anyHost.checkRuntimeStaleness();
 
     expect(anyHost.pendingStaleWorkerRestart?.reason).toBe(
       "worker-stamp-missing",
     );
   });
 
-  it("does not flag a reattached worker whose stamp matches the on-disk tree", async () => {
+  it("does not flag a runtime whose stamp matches the on-disk tree", async () => {
     const { stellaAppDir, paths } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     writeFileSync(
@@ -200,10 +200,7 @@ describe("stale worker staleness handshake", () => {
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
     anyHost.workerHealthCache = IDLE_HEALTH;
 
-    await anyHost.evaluateWorkerStalenessOnConnect({
-      pid: 4242,
-      attachedToExistingWorker: true,
-    });
+    await anyHost.checkRuntimeStaleness();
 
     expect(anyHost.pendingStaleWorkerRestart).toBeNull();
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(false);
@@ -211,7 +208,7 @@ describe("stale worker staleness handshake", () => {
     expect(anyHost.restartWorker).not.toHaveBeenCalled();
   });
 
-  it("defers the restart while busy and restarts once the worker goes quiescent", async () => {
+  it("defers the restart while busy and restarts once the runtime goes quiescent", async () => {
     const { stellaAppDir, paths } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     writeFileSync(paths.buildStampFile, "stale-stamp\n");
@@ -219,10 +216,7 @@ describe("stale worker staleness handshake", () => {
     anyHost.workerHealthCache = BUSY_HEALTH;
     anyHost.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
 
-    await anyHost.evaluateWorkerStalenessOnConnect({
-      pid: 4242,
-      attachedToExistingWorker: true,
-    });
+    await anyHost.checkRuntimeStaleness();
 
     expect(anyHost.pendingStaleWorkerRestart?.reason).toBe(
       "build-stamp-mismatch",
@@ -232,24 +226,21 @@ describe("stale worker staleness handshake", () => {
     await drain(anyHost);
     expect(anyHost.restartWorker).not.toHaveBeenCalled();
 
-    // Run finishes -> worker reports idle -> restart fires.
+    // Run finishes -> runtime reports idle -> restart fires.
     anyHost.getWorkerHealth = vi.fn().mockResolvedValue(IDLE_HEALTH);
     await anyHost.flushWorkerRestart();
     await drain(anyHost);
     expect(anyHost.restartWorker).toHaveBeenCalledTimes(1);
   });
 
-  it("re-checks busy-ness immediately before killing so a fresh run is never cut down", async () => {
+  it("re-checks busy-ness immediately before restarting so a fresh run is never cut down", async () => {
     const { stellaAppDir, paths } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     writeFileSync(paths.buildStampFile, "stale-stamp\n");
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
     anyHost.workerHealthCache = IDLE_HEALTH;
 
-    await anyHost.evaluateWorkerStalenessOnConnect({
-      pid: 4242,
-      attachedToExistingWorker: true,
-    });
+    await anyHost.checkRuntimeStaleness();
 
     // Quiescence check sees idle, but by the time the queued restart runs a
     // new run has started.
@@ -264,49 +255,28 @@ describe("stale worker staleness handshake", () => {
     expect(anyHost.pendingStaleWorkerRestart).not.toBeNull();
   });
 
-  it("persists the pending flag so a new host (post Electron restart) picks it up", async () => {
+  it("a fresh runtime process clears a pending flag left by the previous one", async () => {
     const { stellaAppDir, paths } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
-    const anyHostA = createHost({ stellaAppDir, workerEntryPath });
-    anyHostA.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
-    await anyHostA.markPendingWorkerRestart("runtime-update");
+    const previous = createHost({ stellaAppDir, workerEntryPath });
+    previous.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
+    await previous.markPendingWorkerRestart("runtime-update");
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
 
-    // "Electron restarts": a brand-new host attaches to the same worker.
-    // The stamp matches (nothing rebuilt) but the flag forces staleness.
-    writeFileSync(
-      paths.buildStampFile,
-      `${computeRuntimeBuildStamp(workerEntryPath)}\n`,
-    );
-    const anyHostB = createHost({ stellaAppDir, workerEntryPath });
-    anyHostB.workerHealthCache = IDLE_HEALTH;
-    await anyHostB.evaluateWorkerStalenessOnConnect({
-      pid: 4242,
-      attachedToExistingWorker: true,
-    });
-    expect(anyHostB.pendingStaleWorkerRestart?.reason).toBe(
-      "pending-restart-flag",
-    );
-    await anyHostB.flushWorkerRestart();
-    await drain(anyHostB);
-    expect(anyHostB.restartWorker).toHaveBeenCalledTimes(1);
+    const fresh = createHost({ stellaAppDir, workerEntryPath });
+    await fresh.evaluateWorkerStalenessOnConnect({ pid: process.pid });
+
+    expect(fresh.pendingStaleWorkerRestart).toBeNull();
+    expect(existsSync(paths.pendingWorkerRestartFile)).toBe(false);
   });
 
-  it("clears the pending flag when a freshly spawned worker connects", async () => {
-    const { stellaAppDir, paths } = setupRoot();
+  it("restarting the worker asks the runtime process to exit", async () => {
+    const { stellaAppDir } = setupRoot();
     const workerEntryPath = makeWorkerEntryTree();
     const anyHost = createHost({ stellaAppDir, workerEntryPath });
-    anyHost.getWorkerHealth = vi.fn().mockResolvedValue(BUSY_HEALTH);
-    await anyHost.markPendingWorkerRestart("runtime-update");
-    expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
 
-    await anyHost.evaluateWorkerStalenessOnConnect({
-      pid: 4243,
-      attachedToExistingWorker: false,
-    });
-
-    expect(anyHost.pendingStaleWorkerRestart).toBeNull();
-    expect(existsSync(paths.pendingWorkerRestartFile)).toBe(false);
+    expect(await anyHost.realRestartWorker("runtime-update")).toEqual({ ok: true });
+    expect(anyHost.restartProcess).toHaveBeenCalledWith("runtime-update");
   });
 
   it("marks pending and restarts immediately for an idle runtime update", async () => {

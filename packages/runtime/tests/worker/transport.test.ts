@@ -117,7 +117,7 @@ describe("startWorkerTransport", () => {
       await expect(
         startWorkerTransport({
           transport: { kind: "unix", socketPath },
-          broker: new WorkerPeerBroker(),
+          attach: (peer) => new WorkerPeerBroker().attach(peer),
         }),
       ).rejects.toThrow(/already in use/);
     } finally {

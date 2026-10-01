@@ -55,8 +55,8 @@ Before runtime initialization, Electron sets the absolute managed-runtime
 variables and prepends their private directories to the child-process PATH.
 The worker and agent shell therefore use Stella's Git, Node, Python, uv,
 ripgrep, and Bun without relying on tools installed on the user's machine.
-`STELLA_BUN_PATH` points the host at the packaged worker runtime, which attaches
-over its existing local socket transport.
+`STELLA_BUN_PATH` points Electron at the packaged Bun, which runs the runtime
+process: the worker and the runtime host together, reached over a local socket.
 
 Most worker dependencies are bundled into the runtime chunks. `undici` and
 `@silvia-odwyer/photon-node` remain installed-file-layout dependencies and are
@@ -67,9 +67,11 @@ its adjacent WASM file). The social-session preview manager launches
 
 ## Process ownership
 
-The worker remains detached while Electron is running so an internal renderer
-or host restart can reattach without losing active work. A true application
-quit explicitly stops it. Worker shutdown stops the social-session service,
+The runtime process is detached from Electron, so an Electron restart
+reattaches to it without losing active work, scheduled jobs, or host
+subscriptions. Quitting detaches; the runtime exits 10 seconds after its last
+client leaves unless work is still running. Runtime shutdown stops the
+social-session service,
 which terminates each Vite process group with a bounded TERM-to-KILL grace.
 Normal quit therefore owns Electron, Bun, and every social preview child.
 On macOS it also terminates this app instance's detached crashpad handler

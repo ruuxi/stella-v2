@@ -8,7 +8,11 @@ export const scheduleBootstrapRuntimeShutdown = (context, options = {}) => {
         console.error("Failed to shut down Stella runtime during scheduled shutdown.", error);
     });
 };
-export const shutdownBootstrapRuntime = async (context, _options = {}) => {
+/**
+ * `stopRuntime` also stops the runtime process, so a reset can delete the
+ * files it holds; the next runner start spawns a fresh one.
+ */
+export const shutdownBootstrapRuntime = async (context, options = {}) => {
     const { lifecycle, state } = context;
     state.localChatUpdateUnsubscribe?.();
     state.localChatUpdateUnsubscribe = null;
@@ -24,7 +28,7 @@ export const shutdownBootstrapRuntime = async (context, _options = {}) => {
         else {
             state.stellaHostRunner = null;
         }
-        await runner.stop();
+        await runner.stop({ shutdownRuntime: options.stopRuntime === true });
     }
 };
 export const createBootstrapResetFlows = (context, options) => ({
@@ -33,7 +37,7 @@ export const createBootstrapResetFlows = (context, options) => ({
         const hadRunner = Boolean(state.stellaHostRunner);
         services.credentialService.cancelAll();
         services.connectorCredentialService.cancelAll();
-        await shutdownBootstrapRuntime(context, { stopScheduler: true });
+        await shutdownBootstrapRuntime(context, { stopRuntime: true });
         await services.localChatHistoryService.closeForReset();
         services.authService.stopAuthRefreshLoop();
         state.appReady = false;
@@ -68,7 +72,7 @@ export const createBootstrapResetFlows = (context, options) => ({
         if (!state.stellaDataDirPath) {
             return { ok: true };
         }
-        await shutdownBootstrapRuntime(context);
+        await shutdownBootstrapRuntime(context, { stopRuntime: true });
         await services.localChatHistoryService.closeForReset();
         try {
             await resetMessageStorage(state.stellaDataDirPath);

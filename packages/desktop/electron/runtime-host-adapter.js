@@ -1,6 +1,6 @@
 import { withConversationStorage } from "./cloud-conversation-mode.js";
 import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerminalType, } from "@stella/contracts/agent-runtime";
-import { StellaRuntimeHost, } from "@stella/runtime/host";
+import { RemoteRuntimeHost } from "@stella/runtime/host/remote";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 
@@ -31,7 +31,8 @@ export class RuntimeHostAdapter {
     localChatSessions = new Map();
     availabilityListeners = new Set();
     constructor(options) {
-        this.host = new StellaRuntimeHost(options);
+        // The host runs in the runtime process; this is the app's handle on it.
+        this.host = new RemoteRuntimeHost(options);
         this.host.on("runtime-connected", () => {
             this.connected = true;
             if (this.lastHealth && !this.lastHealth.ready) {
@@ -336,10 +337,11 @@ export class RuntimeHostAdapter {
         this.activeRun = await this.host.getActiveRun();
         this.emitAvailabilityChange();
     }
-    async stop(options) {
+    /** `shutdownRuntime` stops the runtime too, for resets that delete its files. */
+    async stop(options = {}) {
         this.started = false;
         this.clearLocalChatSessions();
-        await this.host.stop(options);
+        await this.host.stop({ shutdownRuntime: options.shutdownRuntime === true });
     }
     async ensureWorkerStarted() {
         if (!this.started) {
@@ -691,18 +693,6 @@ export class RuntimeHostAdapter {
     }
     runOneShotCompletion(payload) {
         return this.host.runOneShotCompletion(payload);
-    }
-    listStorePackages() {
-        return this.host.listStorePackages();
-    }
-    getStorePackage(packageId) {
-        return this.host.getStorePackage(packageId);
-    }
-    listStorePackageReleases(packageId) {
-        return this.host.listStorePackageReleases(packageId);
-    }
-    getStorePackageRelease(packageId, releaseNumber) {
-        return this.host.getStorePackageRelease(packageId, releaseNumber);
     }
     listCronJobs() {
         return this.host.listCronJobs();

@@ -14,7 +14,7 @@ import {
   STELLA_RUNTIME_READY_METHOD,
   type JsonRpcMessage,
 } from "@stella/contracts/protocol";
-import type { WorkerPeerBroker } from "./peer-broker.js";
+import type { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
 import { workerRuntime } from "./effect-runtime.js";
 import {
   isWindowsNamedPipePath,
@@ -112,7 +112,10 @@ export const parseWorkerArgs = (
 
 export type StartTransportArgs = {
   transport: WorkerTransport;
-  broker: WorkerPeerBroker;
+  /** Takes each connection's peer: the worker broker, or the runtime's client server. */
+  attach: (peer: JsonRpcPeer) => void;
+  /** What the readiness probe reports; defaults to the worker protocol. */
+  protocolVersion?: string;
   onError?: (error: unknown) => void;
 };
 
@@ -131,7 +134,7 @@ const startStdioTransport = (
     output: process.stdout,
     onError: args.onError,
   });
-  args.broker.attach(handle.peer);
+  args.attach(handle.peer);
   return {
     close: async () => {
       handle.dispose();
@@ -238,7 +241,7 @@ const startIpcSocketTransport = async (
         output: socket,
         onError: args.onError,
       });
-      args.broker.attach(handle.peer);
+      args.attach(handle.peer);
       socket.resume();
     };
     const onFirstData = (chunk: Buffer) => {
@@ -264,7 +267,11 @@ const startIpcSocketTransport = async (
             socket.write(
               `${JSON.stringify({
                 id: message.id,
-                result: { ok: true, protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION },
+                result: {
+                  ok: true,
+                  protocolVersion:
+                    args.protocolVersion ?? STELLA_RUNTIME_PROTOCOL_VERSION,
+                },
               })}\n`,
               () => socket.end(),
             );

@@ -1,7 +1,7 @@
 /**
- * The one module-level ManagedRuntime for the host tree (Electron main
- * process side of `packages/runtime`), plus the small timer combinators the
- * host facades share.
+ * The one module-level ManagedRuntime for the host tree (the runtime host in
+ * the runtime process, and its client in the app), plus the small timer
+ * combinators the host facades share.
  *
  * House conventions (docs/effect-architecture.md, kernel/tools/effect-runtime.ts):
  * - Exactly ONE requirements-free runtime per facade module family; context
@@ -12,8 +12,8 @@
  *   shape as `forkAbortTimer` in kernel/tools) — the Effect replacement for
  *   `setTimeout`/`setInterval` + `clearTimeout` pairs.
  *
- * This module runs in Electron main only. It must never be imported from
- * worker-reachable modules (`worker/**` has its own runtime module).
+ * Worker modules (`worker/**`) keep their own runtime module; only the
+ * runtime entry reaches into the host tree, to start the host beside them.
  */
 
 import {
@@ -27,7 +27,7 @@ import {
 } from "effect";
 
 /** Shared runtime for every Effect run in `host/` (staleness handshake,
- * quiescence poll, lifecycle controller, timers). */
+ * quiescence poll, lifecycle controller, client timers). */
 export const hostRuntime = ManagedRuntime.make(Layer.empty);
 
 /**

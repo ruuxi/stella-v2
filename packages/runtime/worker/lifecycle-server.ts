@@ -54,7 +54,7 @@ export type LifecycleServerOptions = {
    * on-disk runtime and detect a stale worker on reattach.
    */
   runtimeBuildStamp?: string;
-  onShutdown: (reason: "idle" | "signal") => Promise<void> | void;
+  onShutdown: (reason: "idle" | "signal" | "restart") => Promise<void> | void;
 };
 
 const DEFAULT_IDLE_SHUTDOWN_MS = 10_000;
@@ -253,7 +253,7 @@ export class WorkerLifecycleServer {
    * Tear everything down: cancel timers, run the consumer-provided
    * shutdown hook, release the lock, and remove pid + socket files.
    */
-  async shutdown(reason: "idle" | "signal"): Promise<void> {
+  async shutdown(reason: "idle" | "signal" | "restart"): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
     getFileLogger()?.process("worker.shutdown", {

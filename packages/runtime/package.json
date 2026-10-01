@@ -24,6 +24,7 @@
     "./host": "./host/index.js",
     "./host/index": "./host/index.js",
     "./host/index.js": "./host/index.js",
+    "./host/remote": "./host/remote.ts",
     "./kernel/agent-runtime/context-budget": "./kernel/agent-runtime/context-budget.js",
     "./kernel/agent-runtime/context-budget.js": "./kernel/agent-runtime/context-budget.js",
     "./kernel/agent-runtime/context-overflow-recovery": "./kernel/agent-runtime/context-overflow-recovery.js",

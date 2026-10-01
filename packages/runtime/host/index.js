@@ -28,10 +28,9 @@ import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/st
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
 import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
-import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
+import { buildInprocConnectionFactory } from "./inproc-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { probeRunningWorker } from "../worker/lifecycle-server.js";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
@@ -68,7 +67,6 @@ const REMOTE_TURN_CANCEL_RETRY_COUNT = 4;
 const REMOTE_TURN_CANCEL_RETRY_DELAY_MS = 25;
 const REMOTE_TURN_CANCEL_ACK_TIMEOUT_MS = 500;
 const PLACED_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
-export { retireDetachedWorkerRoot };
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
 const parseDisplayUpdateParams = (params) => {
     if (params && typeof params === "object") {
@@ -121,10 +119,28 @@ export const shouldAckWorkerRunEvent = (event) => {
         return false;
     return event.type !== AGENT_STREAM_EVENT_TYPES.RUN_FINISHED;
 };
+/**
+ * The host's event bus, plus a tap on every event so the runtime can forward
+ * them to its clients without keeping a list of names.
+ */
+class HostEvents extends EventEmitter {
+    anyListeners = new Set();
+    emit(eventName, ...args) {
+        for (const listener of this.anyListeners) {
+            try {
+                listener(eventName, args[0]);
+            }
+            catch (error) {
+                console.error("[runtime-host] event tap failed:", error);
+            }
+        }
+        return super.emit(eventName, ...args);
+    }
+}
 export class StellaRuntimeHost {
     options;
-    workerMode = "detached";
-    events = new EventEmitter();
+    workerMode = "child";
+    events = new HostEvents();
     agentEventBuffers = new Map();
     workerController;
     workerHealthCache = null;
@@ -207,48 +223,30 @@ export class StellaRuntimeHost {
     hostRemoteTurnCancelUnsubscribe = null;
     constructor(options) {
         this.options = options;
-        const stellaAppDir = this.options.initializeParams.stellaAppDir;
-        // "detached" (default): shared self-supervising UDS worker keyed by
-        // stellaAppDir — the desktop topology. "child": a private stdio worker
-        // owned by this host process, used by headless/test hosts so they never
-        // attach to (or restart) a live desktop's detached worker.
-        this.workerMode = this.options.workerMode === "child" ? "child" : "detached";
+        // "inproc": the worker shares this process. That is the runtime
+        // process, where the host runs for the desktop, and restarting the
+        // worker restarts the process. "child" (default): a private stdio
+        // worker owned by this host, for headless and test hosts.
+        this.workerMode = this.options.workerMode === "inproc" ? "inproc" : "child";
         const onWorkerRpcError = (error) => {
             console.error("[runtime-host] worker RPC error:", error);
         };
-        const createConnectionAsync = this.workerMode === "child"
-            ? buildStdioConnectionFactory({
-                ...(process.env.STELLA_BUN_PATH?.trim()
-                    ? { bunBinaryPath: process.env.STELLA_BUN_PATH.trim() }
-                    : {}),
+        const createConnectionAsync = this.workerMode === "inproc"
+            ? buildInprocConnectionFactory(this.options.inprocWorker.attach, {
                 onError: onWorkerRpcError,
             })
-            : buildUdsConnectionFactory({
-                stellaAppDir,
+            : buildStdioConnectionFactory({
                 ...(process.env.STELLA_BUN_PATH?.trim()
                     ? { bunBinaryPath: process.env.STELLA_BUN_PATH.trim() }
                     : {}),
-                expectedProtocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
-                hostExecutablePath: process.execPath,
                 onError: onWorkerRpcError,
             });
         this.workerController = new RuntimeWorkerLifecycleController({
             workerEntryPath: resolveDefaultWorkerEntryPath(this.options),
             isHostStarted: () => this.started,
-            // Worker self-supervises in the UDS path. Closing the IPC channel
-            // (stop "stopped" / "idle") leaves the worker running for the next
-            // host to attach; only "restart" actually kills the pid. A "child"
-            // worker is owned by this process, so every stop kills it.
-            killWorkerOnStop: this.workerMode === "child"
-                ? () => true
-                : (reason) => reason === "restart",
-            ...(this.workerMode === "child"
-                ? {}
-                : {
-                    killWorker: async () => {
-                        await killDetachedWorker(stellaAppDir);
-                    },
-                }),
+            // A child worker is owned by this host, so every stop kills it. An
+            // in-process worker only detaches; nothing outlives the process.
+            killWorkerOnStop: this.workerMode === "inproc" ? () => false : () => true,
             createConnectionAsync,
             initializeConnection: async (connection) => {
                 this.registerHostHandlers(connection.peer);
@@ -314,13 +312,10 @@ export class StellaRuntimeHost {
         });
     }
     /*
-     * The detached worker keeps agent runs, shell/tool execution, and the
-     * persistent run-event log alive across an Electron restart. Host-owned
-     * services below still pause during the gap: LocalSchedulerService,
-     * remote-turn Convex subscriptions, dev file watching, and the runtime
-     * file watcher. Those surfaces are expected
-     * to recover on host reconnect; they are not part of the sidecar's
-     * survival guarantee.
+     * In the runtime process, the host and its services (the scheduler,
+     * remote-turn subscriptions, the connector outbox, the dev watcher) run
+     * beside the worker and keep running while the app restarts. Only the
+     * callbacks that need the app wait for it to reattach.
      */
     /**
      * Dev dist-electron watcher trigger: `runtime/` worker code changed on disk.
@@ -339,18 +334,15 @@ export class StellaRuntimeHost {
     /*
      * ---- Stale-worker detection + idle/deferred restart -------------------
      *
-     * The detached worker survives Electron restarts by design (grace window
-     * that preserves in-flight runs). Without this machinery, runtime code
-     * changes never reach a surviving
-     * worker: the new host reconnects and keeps running old code forever.
+     * The runtime process survives app restarts by design, so without this
+     * machinery runtime code changes would never reach it.
      *
-     * On every reattach we compare the worker's boot-time build stamp with the
-     * on-disk runtime tree. Stale + idle => restart immediately. Stale + busy
-     * => mark "restart pending" (persisted, survives further Electron
-     * restarts) and restart the moment the worker goes quiescent — checked on
-     * every RUN_FINISHED plus a slow safety poll. Auto-resuming runs killed by
-     * a restart is intentionally out of scope for v1: deferral means we never
-     * kill in-flight work in the first place.
+     * When an app attaches we compare the process's boot-time build stamp with
+     * the on-disk runtime tree. Stale + idle => restart now. Stale + busy =>
+     * mark "restart pending" (persisted, survives further app restarts) and
+     * restart the moment the runtime goes quiescent, checked on every
+     * RUN_FINISHED plus a slow safety poll. Deferral means in-flight work is
+     * never killed.
      */
     getRuntimeControlPaths() {
         return resolveRuntimePaths(this.options.initializeParams.stellaAppDir);
@@ -431,39 +423,38 @@ export class StellaRuntimeHost {
      * running stale runtime code. Runs from `onConnectionStarted` after the
      * health snapshot is cached.
      */
-    async evaluateWorkerStalenessOnConnect(connection) {
+    async evaluateWorkerStalenessOnConnect(_connection) {
         if (this.workerMode === "child") {
-            // A stdio child always runs the current on-disk code and the
-            // on-disk pending-restart bookkeeping belongs to the detached
-            // supervisor topology — leave those control files alone so an
-            // ephemeral headless host can't clear a desktop host's deferral.
+            // A stdio child always runs the current on-disk code, and the
+            // on-disk pending-restart bookkeeping belongs to the desktop's
+            // runtime process; an ephemeral headless host leaves it alone.
             return;
         }
-        if (connection.attachedToExistingWorker !== true) {
-            // Freshly spawned worker loaded the current on-disk code; any deferred
-            // restart bookkeeping from a previous generation is now satisfied.
-            await this.clearPendingWorkerRestart();
+        // This process just started its worker, so it runs the code on disk:
+        // a restart deferred by the previous runtime process is satisfied.
+        await this.clearPendingWorkerRestart();
+    }
+    /**
+     * In-process mode: a client just attached, possibly an app updated since
+     * this runtime started. Compare the code this process loaded with the
+     * tree on disk and schedule a restart for when the runtime is idle.
+     */
+    async checkRuntimeStaleness() {
+        if (this.workerMode !== "inproc" || !this.started)
             return;
-        }
         const verdict = await hostRuntime.runPromise(evaluateWorkerStaleness({
             attachedToExistingWorker: true,
             paths: this.getRuntimeControlPaths(),
             workerEntryPath: resolveDefaultWorkerEntryPath(this.options),
         }));
-        if (!verdict.stale) {
-            await this.clearPendingWorkerRestart();
+        if (!verdict.stale ||
+            (verdict.reason === "pending-restart-flag" && this.pendingStaleWorkerRestart)) {
             return;
         }
-        const reason = verdict.reason;
-        getFileLogger()?.process("host.worker-stale-detected", {
-            reason,
-            pid: connection.pid,
+        getFileLogger()?.process("host.runtime-stale-detected", {
+            reason: verdict.reason,
         });
-        console.warn(`[runtime-host] Reconnected to a stale runtime worker (pid=${connection.pid}, ${reason}).`);
-        // `markPendingWorkerRestart` starts the quiescence poll and nudges the
-        // unified gate; a run that starts in the meantime re-defers instead of
-        // being killed.
-        await this.markPendingWorkerRestart(reason);
+        await this.markPendingWorkerRestart(verdict.reason);
     }
     /**
      * Unified gate for restarting the runtime worker. A restart may only proceed
@@ -841,15 +832,13 @@ export class StellaRuntimeHost {
         if (!this.remoteTurnWorkerRetirementPromise) {
             this.remoteTurnWorkerRetirementPromise = (async () => {
                 console.warn(`[remote-turn] Retiring ambiguous worker for attempt ${binding.attemptId}: ${reason}`);
-                await this.workerController.stop("restart");
-                if (this.workerMode === "detached") {
-                    const stellaAppDir = this.options.initializeParams.stellaAppDir;
-                    await killDetachedWorker(stellaAppDir);
-                    const remainingPid = await probeRunningWorker(stellaAppDir);
-                    if (remainingPid != null) {
-                        throw new Error(`Runtime worker ${remainingPid} survived remote-turn retirement.`);
-                    }
+                if (this.workerMode === "inproc") {
+                    // The worker is this process, so retiring it means exiting.
+                    // No continuation record: the attempt must not resume.
+                    this.options.inprocWorker.restartProcess("remote-turn-retirement");
+                    return;
                 }
+                await this.workerController.stop("restart");
                 if (this.started) {
                     await this.workerController.ensureStarted();
                 }
@@ -1625,6 +1614,13 @@ export class StellaRuntimeHost {
             this.events.removeListener(eventName, listener);
         };
     }
+    /** Every event, as `(eventName, payload)`. */
+    onAny(listener) {
+        this.events.anyListeners.add(listener);
+        return () => {
+            this.events.anyListeners.delete(listener);
+        };
+    }
     async start() {
         if (this.started)
             return;
@@ -1689,6 +1685,13 @@ export class StellaRuntimeHost {
         const startedAt = Date.now();
         this.events.emit("runtime-reloading", { reason: "worker-restart" });
         this.writeRestartContinuationRecord(reason);
+        if (this.workerMode === "inproc") {
+            // The worker is this process. It exits once this returns, and the
+            // attached client starts a fresh one.
+            getFileLogger()?.process("host.runtime-restart", { reason });
+            this.options.inprocWorker.restartProcess(reason);
+            return { ok: true };
+        }
         await this.workerController.stop("restart");
         const stoppedAt = Date.now();
         await this.workerController.ensureStarted();
@@ -2650,18 +2653,12 @@ export class StellaRuntimeHost {
         if (!this.options.initializeParams.isDev || this.watcher)
             return;
         // Watch only the bundled `runtime/` subtree, not the whole dist-electron
-        // tree (which also holds the 14.6MB main.js and the CLI bundles).
-        // `shouldReloadRuntime` only ever matches "runtime/..." paths, so a single
-        // esbuild rebuild that rewrites main.js no longer wakes this watcher and
-        // cold-respawns the worker. The watch callback's `filename` is relative to
-        // the watched root, so re-prefix it with "runtime/" to keep the matcher's
-        // contract intact.
+        // tree (which also holds main.js and the CLI bundles), so a rebuild that
+        // only rewrites main.js never restarts the runtime. Any runtime change
+        // does: the host runs in the runtime process too.
         const runtimeBundleRoot = path.resolve(path.dirname(workerEntryPath), "..");
         this.watcher = watch(runtimeBundleRoot, { recursive: true }, (_eventType, filename) => {
             if (typeof filename !== "string" || !filename.endsWith(".js"))
-                return;
-            const runtimeRelative = `runtime/${filename.replace(/\\/g, "/")}`;
-            if (!shouldReloadRuntime(runtimeRelative))
                 return;
             void this.scheduleRuntimeReload();
         });
@@ -2672,31 +2669,4 @@ const resolveDefaultWorkerEntryPath = (options) => {
         return options.workerEntryPath;
     }
     return resolveBundledRuntimeFile("worker/entry.js");
-};
-const shouldReloadRuntime = (normalizedFilename) => {
-    const hostOwnedRuntimeKernelPrefixes = [
-        "runtime/kernel/convex-urls",
-        "runtime/kernel/dev-projects/",
-        "runtime/kernel/home/",
-        "runtime/kernel/local-scheduler-service",
-        "runtime/kernel/preferences/local-preferences",
-        "runtime/kernel/shared/",
-        "runtime/kernel/storage/",
-        "runtime/kernel/tools/network-guards",
-        "runtime/kernel/tools/stella-browser-bridge-config",
-    ];
-    if (normalizedFilename.startsWith("runtime/discovery/") &&
-        !normalizedFilename.startsWith("runtime/discovery/browser-data")) {
-        return true;
-    }
-    if (normalizedFilename.startsWith("runtime/kernel/") &&
-        !hostOwnedRuntimeKernelPrefixes.some((prefix) => normalizedFilename.startsWith(prefix))) {
-        return true;
-    }
-    if (normalizedFilename.startsWith("runtime/ai/") ||
-        normalizedFilename.startsWith("runtime/worker/") ||
-        normalizedFilename.startsWith("runtime/protocol/jsonl")) {
-        return true;
-    }
-    return false;
 };

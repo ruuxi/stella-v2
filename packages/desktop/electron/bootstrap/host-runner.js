@@ -17,7 +17,7 @@ import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
-import { retireDetachedWorkerRoot } from "@stella/runtime/host";
+import { retireRuntimeRoot } from "@stella/runtime/host/remote";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -373,7 +373,7 @@ export const initializeStellaHostRunner = async (context) => {
     if (app.isPackaged) {
         const legacyStellaAppDir = app.getAppPath();
         if (legacyStellaAppDir !== stellaAppDir) {
-            const retired = await retireDetachedWorkerRoot(legacyStellaAppDir);
+            const retired = await retireRuntimeRoot(legacyStellaAppDir);
             if (retired.pid != null) {
                 getMainLogger()?.process("startup.host-runner.legacy-root-retired", {
                     pid: retired.pid,

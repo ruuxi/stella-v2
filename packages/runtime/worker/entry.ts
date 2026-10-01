@@ -8,6 +8,9 @@ import {
   installGlobalErrorLogging,
 } from "../observability/file-logger.js";
 import { closeRuntimeTelemetry } from "../observability/runtime-telemetry.js";
+import type { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
+import { STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION } from "@stella/contracts/protocol/runtime-client";
+import { RuntimeClientServer } from "../host/client-server.js";
 import { workerRuntime } from "./effect-runtime.js";
 import {
   WorkerLifecycleServer,
@@ -37,11 +40,11 @@ import {
  *
  *   bun run runtime/worker/entry.js --listen unix:///path/to/runtime.sock
  *   bun run runtime/worker/entry.js --listen pipe://\\.\pipe\stella-runtime-...
- *     -> detached mode. The worker binds the IPC endpoint, writes pid+lock
- *        beneath Electron userData/runtime/<rootHash>/, and self-shuts-down 10s after
- *        the last client disconnect. The host attaches over IPC instead of
- *        stdio, so Electron restart drops the connection without killing
- *        the worker.
+ *     -> the runtime process. The runtime host runs here beside the worker,
+ *        reaching it in process; the socket speaks the client protocol
+ *        (`@stella/contracts/protocol/runtime-client`) to the app. It writes
+ *        pid+lock beneath the runtime root and self-shuts-down 10s after the
+ *        last client disconnects, so an app restart loses nothing.
  *
  *   ... --stella-root /path                    [required for detached mode]
  *   ... --idle-shutdown-ms 10000               [detached mode only]
@@ -171,7 +174,7 @@ const main = async () => {
       shouldKeepAlive: () => runtimeServer.hasActiveWork(),
       onShutdown: async (reason) => {
         await closeRootScope();
-        if (reason === "idle") {
+        if (reason === "idle" || reason === "restart") {
           setImmediate(() => process.exit(0));
         }
       },
@@ -186,11 +189,55 @@ const main = async () => {
     }
   }
 
+  // Stdio: the parent is the host and talks to the worker directly. The
+  // runtime process instead hosts the runtime host itself and serves apps.
+  let attachPeer = (peer: JsonRpcPeer) => broker.attach(peer);
+  let protocolVersion: string | undefined;
   if (lifecycle) {
-    broker.on("client-attached", () => lifecycle?.noteClientConnected());
-    broker.on("client-detached", () => {
-      lifecycle?.noteClientDisconnected();
-    });
+    const runtimeLifecycle = lifecycle;
+    const { StellaRuntimeHost } = await import("../host/index.js");
+    const clientServer = await acquire(
+      Effect.acquireRelease(
+        Effect.sync(
+          () =>
+            new RuntimeClientServer({
+              createHost: (params, hostHandlers) =>
+                new StellaRuntimeHost({
+                  initializeParams: params.initializeParams,
+                  hostHandlers,
+                  workerMode: "inproc",
+                  workerEntryPath: process.argv[1],
+                  ...(params.disableLocalScheduler
+                    ? { disableLocalScheduler: true }
+                    : {}),
+                  inprocWorker: {
+                    attach: (peer: JsonRpcPeer) => {
+                      broker.attach(peer);
+                      return () => broker.detach(peer);
+                    },
+                    // Exit once the restart call returns; the attached app
+                    // starts a fresh runtime when it reconnects.
+                    restartProcess: () => {
+                      setImmediate(() => {
+                        void runtimeLifecycle.shutdown("restart");
+                      });
+                    },
+                  },
+                }),
+              onShutdownRequested: () => {
+                void runtimeLifecycle.shutdown("restart");
+              },
+            }),
+        ),
+        (acquired) => Effect.promise(() => acquired.close()),
+      ),
+    );
+    attachPeer = (peer) => {
+      runtimeLifecycle.noteClientConnected();
+      peer.on("closed", () => runtimeLifecycle.noteClientDisconnected());
+      clientServer.attach(peer);
+    };
+    protocolVersion = STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION;
   }
 
   const server = await acquire(
@@ -199,7 +246,8 @@ const main = async () => {
         try: () =>
           startWorkerTransport({
             transport,
-            broker,
+            attach: attachPeer,
+            ...(protocolVersion ? { protocolVersion } : {}),
             onError: (error) => {
               console.error("[runtime-worker] transport error:", error);
             },

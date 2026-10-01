@@ -101,7 +101,7 @@ export const registerBootstrapLifecycle = (context) => {
         await context.services.localChatHistoryService.close();
     });
     context.state.processRuntime.registerCleanup("will-quit", "bootstrap-runtime", async () => {
-        await shutdownBootstrapRuntime(context, { stopScheduler: true });
+        await shutdownBootstrapRuntime(context);
     });
     app.on("activate", () => {
         // Quitting closes every window well before the process exits. Without

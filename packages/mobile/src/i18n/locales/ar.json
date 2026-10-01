@@ -1506,11 +1506,6 @@
     "oauth": {
       "xaiCodeMessage": "أدخل هذا الرمز لتوصيل xAI",
       "expectedValue": "القيمة المتوقعة: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "اختر صورة جسمك",
-      "pickClothesTitle": "اختر صور الملابس",
-      "imageFilterName": "صورة"
     }
   },
   "features": {

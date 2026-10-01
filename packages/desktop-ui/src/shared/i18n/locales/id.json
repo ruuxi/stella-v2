@@ -1470,11 +1470,6 @@
     "oauth": {
       "xaiCodeMessage": "Masukkan kode ini untuk menghubungkan xAI",
       "expectedValue": "Nilai yang diharapkan: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Pilih foto tubuh Anda",
-      "pickClothesTitle": "Pilih gambar pakaian",
-      "imageFilterName": "Gambar"
     }
   },
   "features": {

@@ -2,14 +2,13 @@ export const AGENT_IDS = {
   ORCHESTRATOR: "orchestrator",
   GENERAL: "general",
   STORE: "store",
-  FASHION: "fashion",
   OFFLINE_RESPONDER: "offline_responder",
   INSTALL_UPDATE: "install_update",
 } as const;
 
 export type AgentType = (typeof AGENT_IDS)[keyof typeof AGENT_IDS];
 
-export const SUBAGENT_TYPES = [AGENT_IDS.GENERAL, AGENT_IDS.FASHION] as const;
+export const SUBAGENT_TYPES = [AGENT_IDS.GENERAL] as const;
 
 export type SubagentType = (typeof SUBAGENT_TYPES)[number];
 

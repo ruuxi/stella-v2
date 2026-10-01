@@ -417,18 +417,6 @@ const XERO_SCOPES = [
 ];
 const ZENDESK_SCOPES = ["read", "write"];
 const LINKEDIN_SCOPES = ["openid", "profile", "email", "w_member_social"];
-const SHOPIFY_SCOPES = [
-  "read_products",
-  "write_products",
-  "read_orders",
-  "write_orders",
-  "read_customers",
-  "write_customers",
-  "read_inventory",
-  "write_inventory",
-  "read_content",
-  "write_content",
-];
 const SQUARE_SCOPES = [
   "MERCHANT_PROFILE_READ",
   "ORDERS_READ",
@@ -773,7 +761,6 @@ const ENV_BACKED_NATIVE_OAUTH_PROVIDER_IDS = new Set([
   "xero",
   "zendesk",
   "linkedin",
-  "shopify",
   "square",
   "strava",
   "survey_monkey",
@@ -1309,41 +1296,6 @@ const readEnvBackedOAuthProviderConfig = (
         resourceUrl: "https://api.linkedin.com/v2",
         tokenExchange: { type: "backend", provider: "linkedin" },
       };
-    case "shopify": {
-      const shopDomain = process.env[envKey("shopify", "SHOP_DOMAIN")]
-        ?.trim()
-        .replace(/^https?:\/\//u, "")
-        .replace(/\/.*$/u, "");
-      const origin = shopDomain
-        ? `https://${shopDomain.endsWith(".myshopify.com") ? shopDomain : `${shopDomain}.myshopify.com`}`
-        : null;
-      const authorizationEndpoint =
-        process.env[envKey("shopify", "AUTHORIZATION_URL")]?.trim() ||
-        (origin ? `${origin}/admin/oauth/authorize` : undefined);
-      const tokenEndpoint =
-        process.env[envKey("shopify", "TOKEN_URL")]?.trim() ||
-        (origin ? `${origin}/admin/oauth/access_token` : undefined);
-      const resourceUrl =
-        process.env[envKey("shopify", "RESOURCE_URL")]?.trim() ||
-        (origin ? `${origin}/admin/api` : undefined);
-      if (!authorizationEndpoint || !tokenEndpoint || !resourceUrl) return null;
-      return {
-        flow: "authorization_code",
-        tokenKey: "native-oauth:shopify",
-        clientId,
-        authorizationEndpoint,
-        tokenEndpoint,
-        callbackId: "shopify",
-        callbackUrl: readEnvCallbackUrl(
-          "shopify",
-          "https://stella.sh/oauth/shopify/callback",
-        ),
-        callbackMode: "external",
-        scopes: readEnvScopesOrDefault("shopify", SHOPIFY_SCOPES),
-        resourceUrl,
-        tokenExchange: { type: "backend", provider: "shopify" },
-      };
-    }
     case "square":
       return {
         flow: "authorization_code",

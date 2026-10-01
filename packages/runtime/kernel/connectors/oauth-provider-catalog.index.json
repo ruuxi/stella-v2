@@ -1023,17 +1023,6 @@
     "sourceUrl": "https://composio.dev/toolkits/share_point"
   },
   {
-    "id": "shopify",
-    "name": "Shopify",
-    "category": "e-commerce",
-    "auth": [
-      "OAUTH2"
-    ],
-    "catalogToolCount": 361,
-    "description": "Shopify is an e-commerce platform for building, managing, and scaling online stores. It streamlines sales, inventory, and payments so merchants can focus on growth.",
-    "sourceUrl": "https://composio.dev/toolkits/shopify"
-  },
-  {
     "id": "snowflake",
     "name": "Snowflake",
     "category": "analytics & data",

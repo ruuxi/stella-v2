@@ -1485,11 +1485,6 @@
     "oauth": {
       "xaiCodeMessage": "הזן את הקוד הזה כדי לחבר את xAI",
       "expectedValue": "ערך צפוי: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "בחר תמונת גוף",
-      "pickClothesTitle": "בחר תמונות של בגדים",
-      "imageFilterName": "תמונה"
     }
   },
   "features": {

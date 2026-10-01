@@ -457,7 +457,6 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   [AGENT_IDS.GENERAL]: "light",
   [AGENT_IDS.INSTALL_UPDATE]: "light",
   [AGENT_IDS.STORE]: "light",
-  [AGENT_IDS.FASHION]: "light",
 
   schedule: "light",
   synthesis: "synthesis",

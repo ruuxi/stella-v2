@@ -493,7 +493,7 @@ describe("managed media idempotency and cancellation", () => {
         profile: "best",
         provider: "fal",
         endpointId: "fal-ai/flux/dev",
-        request: { prompt: "private Fashion reference" },
+        request: { prompt: "private image reference" },
         submissionPayloadManifestId: manifestId,
       }),
     ).resolves.toMatchObject({ state: "created", jobId });
@@ -596,7 +596,7 @@ describe("managed media idempotency and cancellation", () => {
             profile: "best",
             provider: "fal",
             endpointId: "fal-ai/flux/dev",
-            request: { prompt: "private Fashion reference" },
+            request: { prompt: "private image reference" },
             submissionState: submission.state,
             submissionPayloadStorageId: submission.storageId,
             ...(submission.state === "dispatching"

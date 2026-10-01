@@ -1042,7 +1042,6 @@ export const changelogEntries: ChangelogEntry[] = [
     tags: ["New", "Polish"],
     highlights: [
       "Settings → Models and the composer model picker got a cleaner redesign, with the real model name shown on every Stella tier row.",
-      "Fashion is back as a first-class Store tab.",
       "Display tabs now remember their history, so reopening the panel feels less like starting over.",
       "Canvas previews use compact tab-style chips instead of bulky rail thumbnails.",
       "The chat surface is getting a workspace strip, so conversation-specific work can stay easier to find.",
@@ -1454,7 +1453,7 @@ export const changelogEntries: ChangelogEntry[] = [
       "Store security review got stricter about network access.",
       "New skills for creating Stella apps, generating media, and extending Stella.",
       "Computer-use sessions are cleaned up daily.",
-      "Chat text appears more smoothly, and Social/Fashion updates feel faster.",
+      "Chat text appears more smoothly, and Social updates feel faster.",
       "Voice sessions understand your screen and chat context better.",
       "Replaced \"Explore ideas\" with skill suggestions; flatter app suggestions dialog rows.",
       "Home hint mouse icon, welcome opens the workspace, badge polish.",
@@ -1516,12 +1515,11 @@ export const changelogEntries: ChangelogEntry[] = [
     highlights: [
       "New setting to keep Stella awake so background work isn't interrupted.",
       "New sound-notification setting, plus an anonymous feedback prompt that can show up once a day.",
-      "Fashion shopping: try-on flow you can trigger by dropping a photo into the composer.",
       "Deleted items now appear in a trash view inside the side panel.",
     ],
     more: [
       "Onboarding got a big polish pass: snappier transitions, friendlier copy, clearer steps.",
-      "Store: navigation redesign, tighter Fashion agent, and a confirmation step before adding new connectors.",
+      "Store: navigation redesign and a confirmation step before adding new connectors.",
       "Onboarding now skips the macOS permissions step on Windows and Linux.",
       "Lots of fixes: radial overlay stays on the active macOS Space, Connect dialog layering, inline questions, and visuals while Stella updates herself.",
       { text: "Stella for iPhone began its journey with the very first commit on this day.", product: "Mobile" },
@@ -1567,7 +1565,6 @@ export const changelogEntries: ChangelogEntry[] = [
     highlights: [
       "Local Parakeet dictation: fast, private, runs on your device.",
       "Controls for connecting your own AI accounts.",
-      "New Fashion tab redesigned as a full-bleed snap feed.",
       "Top-bar chat sidebar toggle and a unified scroll between sidebar chat and full chat.",
       "Stella notifies you when a long-running agent finishes its work.",
     ],

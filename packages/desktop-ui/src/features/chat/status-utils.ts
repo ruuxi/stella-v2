@@ -371,52 +371,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Logging it",
     "Recording it",
   ],
-
-  // Fashion subagent
-  fashion_search_products: [
-    "Browsing pieces",
-    "Hunting for looks",
-    "Searching the racks",
-    "Finding options",
-    "Pulling pieces",
-  ],
-  fashion_get_product_details: [
-    "Checking the details",
-    "Looking it up",
-    "Reading the specs",
-    "Studying the piece",
-  ],
-  fashion_get_context: [
-    "Checking your style",
-    "Reading your taste",
-    "Pulling your preferences",
-    "Getting the vibe",
-  ],
-  fashion_create_outfit: [
-    "Styling a look",
-    "Putting a look together",
-    "Building the outfit",
-    "Pulling it together",
-    "Crafting the fit",
-  ],
-  fashion_create_checkout: [
-    "Setting up checkout",
-    "Getting the order ready",
-    "Building the cart",
-    "Prepping the order",
-  ],
-  fashion_mark_outfit_ready: [
-    "Finishing the look",
-    "Wrapping it up",
-    "Finalizing the fit",
-    "Calling it ready",
-  ],
-  fashion_mark_outfit_failed: [
-    "Reworking it",
-    "Noting the issue",
-    "Adjusting course",
-    "Trying again",
-  ],
 };
 
 // Verb-prefixed tool status emitted by the runtime when a tool does not

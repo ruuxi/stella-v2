@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "Syötä tämä koodi yhdistääksesi xAI:n",
       "expectedValue": "Odotettu arvo: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Valitse vartalokuvasi",
-      "pickClothesTitle": "Valitse vaatekuvat",
-      "imageFilterName": "Kuva"
     }
   },
   "features": {

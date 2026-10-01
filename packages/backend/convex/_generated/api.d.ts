@@ -83,7 +83,6 @@ import type * as data_emoji_pack_grid_constants from "../data/emoji_pack_grid_co
 import type * as data_emoji_pack_reference_images from "../data/emoji_pack_reference_images.js";
 import type * as data_emoji_pack_uploads from "../data/emoji_pack_uploads.js";
 import type * as data_emoji_packs from "../data/emoji_packs.js";
-import type * as data_fashion from "../data/fashion.js";
 import type * as data_integrations from "../data/integrations.js";
 import type * as data_preferences from "../data/preferences.js";
 import type * as data_secrets from "../data/secrets.js";
@@ -210,7 +209,6 @@ import type * as lib_remote_turn_attempt_guard from "../lib/remote_turn_attempt_
 import type * as lib_retry_fetch from "../lib/retry_fetch.js";
 import type * as lib_risk from "../lib/risk.js";
 import type * as lib_session_identity from "../lib/session_identity.js";
-import type * as lib_shopify_ucp from "../lib/shopify_ucp.js";
 import type * as lib_stripe_operation_integrity from "../lib/stripe_operation_integrity.js";
 import type * as lib_sybil from "../lib/sybil.js";
 import type * as lib_telemetry_metric from "../lib/telemetry_metric.js";
@@ -300,7 +298,6 @@ import type * as schema_desktop_releases from "../schema/desktop_releases.js";
 import type * as schema_devices from "../schema/devices.js";
 import type * as schema_emoji_packs from "../schema/emoji_packs.js";
 import type * as schema_execution_placement from "../schema/execution_placement.js";
-import type * as schema_fashion from "../schema/fashion.js";
 import type * as schema_feedback from "../schema/feedback.js";
 import type * as schema_gateway from "../schema/gateway.js";
 import type * as schema_integrations from "../schema/integrations.js";
@@ -410,7 +407,6 @@ declare const fullApi: ApiFromModules<{
   "data/emoji_pack_reference_images": typeof data_emoji_pack_reference_images;
   "data/emoji_pack_uploads": typeof data_emoji_pack_uploads;
   "data/emoji_packs": typeof data_emoji_packs;
-  "data/fashion": typeof data_fashion;
   "data/integrations": typeof data_integrations;
   "data/preferences": typeof data_preferences;
   "data/secrets": typeof data_secrets;
@@ -537,7 +533,6 @@ declare const fullApi: ApiFromModules<{
   "lib/retry_fetch": typeof lib_retry_fetch;
   "lib/risk": typeof lib_risk;
   "lib/session_identity": typeof lib_session_identity;
-  "lib/shopify_ucp": typeof lib_shopify_ucp;
   "lib/stripe_operation_integrity": typeof lib_stripe_operation_integrity;
   "lib/sybil": typeof lib_sybil;
   "lib/telemetry_metric": typeof lib_telemetry_metric;
@@ -627,7 +622,6 @@ declare const fullApi: ApiFromModules<{
   "schema/devices": typeof schema_devices;
   "schema/emoji_packs": typeof schema_emoji_packs;
   "schema/execution_placement": typeof schema_execution_placement;
-  "schema/fashion": typeof schema_fashion;
   "schema/feedback": typeof schema_feedback;
   "schema/gateway": typeof schema_gateway;
   "schema/integrations": typeof schema_integrations;

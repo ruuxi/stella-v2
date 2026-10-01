@@ -1183,46 +1183,6 @@ export type ElectronScheduleApi = {
   onUpdated: (callback: () => void) => () => void;
 };
 
-export type FashionBodyPhotoInfo = {
-  hasBodyPhoto: boolean;
-  absolutePath?: string;
-  mimeType?: string;
-  updatedAt?: number;
-};
-
-export type ElectronFashionApi = {
-  pickAndSaveBodyPhoto: () => Promise<
-    { canceled: true } | { canceled: false; info: FashionBodyPhotoInfo }
-  >;
-  getBodyPhotoInfo: () => Promise<FashionBodyPhotoInfo>;
-  getBodyPhotoDataUrl: () => Promise<string | null>;
-  deleteBodyPhoto: () => Promise<{ ok: true }>;
-  getLocalImageDataUrl: (path: string) => Promise<string>;
-  startOutfitBatch: (payload: {
-    prompt?: string;
-    batchId?: string;
-    count?: number;
-    excludeProductIds?: string[];
-    seedHints?: string[];
-  }) => Promise<{ threadId?: string; batchId: string }>;
-  pickTryOnImages: () => Promise<
-    { canceled: true; paths: string[] } | { canceled: false; paths: string[] }
-  >;
-  /** Returns the absolute on-disk path for a dropped File, or "" if unavailable. */
-  getDroppedFilePath: (file: File) => string;
-  startTryOn: (payload: {
-    prompt?: string;
-    batchId?: string;
-    imagePaths?: string[];
-    imageUrls?: string[];
-  }) => Promise<{
-    threadId?: string;
-    batchId: string;
-    imagePaths: string[];
-    imageUrls: string[];
-  }>;
-};
-
 export type ElectronUserAppsApi = {
   list: () => Promise<UserAppProjectListResult>;
   start: (slug: string) => Promise<UserAppProjectStartResult>;
@@ -1777,7 +1737,6 @@ export type ElectronApi = {
     openFolder: (payload?: { sessionId?: string }) => Promise<{ ok: boolean }>;
   };
   schedule: ElectronScheduleApi;
-  fashion: ElectronFashionApi;
   userApps: ElectronUserAppsApi;
   localChat: ElectronLocalChatApi;
   nativeIntegrations: ElectronNativeIntegrationsApi;

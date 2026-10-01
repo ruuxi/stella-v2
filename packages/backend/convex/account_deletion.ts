@@ -216,8 +216,8 @@ const drainMobileTable = async (
  * Owner-keyed tables not covered by `reset._deleteOwnerTableBatch` (whose
  * list doubles as the user-facing "reset my data" scope). Account deletion
  * must additionally wipe private/user-content tables: secrets, integrations,
- * media, channel links, and fashion. External media, billing, TTS, and social
- * state each have dedicated strict purge helpers because they require
+ * media, and channel links. External media, billing, TTS, and social state
+ * each have dedicated strict purge helpers because they require
  * external-object-first deletion or shared-resource attribution handling.
  */
 const EXTRA_TABLES = [
@@ -228,11 +228,6 @@ const EXTRA_TABLES = [
   "media_job_logs",
   "media_request_cancellations",
   "media_webhook_events",
-  "fashion_profiles",
-  "fashion_outfits",
-  "fashion_likes",
-  "fashion_cart_items",
-  "fashion_checkout_sessions",
 ] as const;
 
 type ExtraTable = (typeof EXTRA_TABLES)[number];
@@ -470,47 +465,6 @@ async function deleteOneExtraTableBatch(
         .withIndex("by_ownerId_and_clientRequestKey", (q) =>
           q.eq("ownerId", ownerId),
         )
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "fashion_profiles": {
-      const rows = await ctx.db
-        .query("fashion_profiles")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "fashion_outfits": {
-      batch = 100;
-      const rows = await ctx.db
-        .query("fashion_outfits")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "fashion_likes": {
-      const rows = await ctx.db
-        .query("fashion_likes")
-        .withIndex("by_ownerId_and_likedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "fashion_cart_items": {
-      const rows = await ctx.db
-        .query("fashion_cart_items")
-        .withIndex("by_ownerId_and_addedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "fashion_checkout_sessions": {
-      const rows = await ctx.db
-        .query("fashion_checkout_sessions")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .take(batch);
       ids = rows.map((r) => r._id);
       break;
@@ -771,40 +725,6 @@ export const remainingOwnerAccountCoreStoresInternal = internalQuery({
         ctx.db
           .query("media_provider_cancellations")
           .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("fashion_profiles", () =>
-        ctx.db
-          .query("fashion_profiles")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("fashion_outfits", () =>
-        ctx.db
-          .query("fashion_outfits")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("fashion_likes", () =>
-        ctx.db
-          .query("fashion_likes")
-          .withIndex("by_ownerId_and_likedAt", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("fashion_cart_items", () =>
-        ctx.db
-          .query("fashion_cart_items")
-          .withIndex("by_ownerId_and_addedAt", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("fashion_checkout_sessions", () =>
-        ctx.db
-          .query("fashion_checkout_sessions")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
           .take(1),
       ),
     ]);

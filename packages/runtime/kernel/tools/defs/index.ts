@@ -27,7 +27,6 @@ import { applyPatchTool } from "./apply-patch.js";
 import { createRecallTool } from "./recall.js";
 import { editTool } from "./edit.js";
 import { createExecCommandTool } from "./exec-command.js";
-import { createFashionControlTools } from "./fashion-control.js";
 import { grepTool } from "./grep.js";
 import { createHtmlTool } from "./html.js";
 import { createImageGenTool } from "./image-gen.js";
@@ -156,9 +155,6 @@ export const buildBuiltinTools = (
   );
 
   // (Store agent moved to backend — no local tools.)
-
-  // Fashion subagent surface
-  tools.push(...createFashionControlTools({ fashionApi: options.fashionApi }));
 
   // Demoted orchestrator connector check + inline connect card. Surfaced
   // situationally by the connector-availability system reminder.

@@ -84,7 +84,6 @@ const EXPECTED_CANONICAL_PROMPT_SOURCES = [
     "agent-metadata/orchestrator.md",
   ],
   ["agents/general.md", "agent-metadata", "agent-metadata/general.md"],
-  ["agents/fashion.md", "agent-metadata", "agent-metadata/fashion.md"],
   ["agents/explore.md", "agent-metadata", "agent-metadata/explore.md"],
   ["prompts/thread-compaction.md", "prompt", "prompts/thread-compaction.md"],
   [

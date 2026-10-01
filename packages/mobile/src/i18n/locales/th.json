@@ -1470,11 +1470,6 @@
     "oauth": {
       "xaiCodeMessage": "ป้อนรหัสนี้เพื่อเชื่อมต่อ xAI",
       "expectedValue": "ค่าที่คาดไว้: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "เลือกรูปเต็มตัวของคุณ",
-      "pickClothesTitle": "เลือกรูปเสื้อผ้า",
-      "imageFilterName": "รูปภาพ"
     }
   },
   "features": {

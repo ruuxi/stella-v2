@@ -2,7 +2,6 @@ import path from "path";
 import { loadDeviceExecutionContext } from "./execution-context.js";
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 import { stripMessageRefTag } from "@stella/contracts/reply-refs";
-import { createFashionApi } from "./fashion-api.js";
 import {
   createCloudSpawnDispatcher,
   createCloudThreadController,
@@ -503,7 +502,6 @@ export const createRunnerContext = ({
   requestChallengeToken,
   getDeviceSigner,
   scheduleApi,
-  fashionApi,
   runtimeStore,
   getAppBrowserContext,
   listLocalChatEvents,
@@ -687,9 +685,6 @@ export const createRunnerContext = ({
       : {}),
   });
 
-  const resolvedFashionApi =
-    fashionApi ?? createFashionApi({ convexAction, convexApi: anyApi });
-
   const toolHost = createToolHost({
     stellaAppDir,
     stellaDataDir,
@@ -821,8 +816,6 @@ export const createRunnerContext = ({
       return toCloudExecutionSelection(modelConfigSnapshot);
     },
     scheduleApi,
-
-    fashionApi: resolvedFashionApi,
     webSearch: async (query, searchOptions) => {
       const handler = context.state?.webSearch;
       if (!handler) {
@@ -1087,8 +1080,6 @@ export const createRunnerContext = ({
     requestChallengeToken,
     getDeviceSigner,
     scheduleApi,
-
-    fashionApi: resolvedFashionApi,
     runtimeStore,
     listLocalChatEvents,
     openLocalChatEventWindow,

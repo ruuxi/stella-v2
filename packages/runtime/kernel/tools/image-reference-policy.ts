@@ -59,9 +59,6 @@ const authorizedRoots = async (context: ToolContext): Promise<string[]> => {
     context.stellaDataDir
       ? path.join(context.stellaDataDir, "outputs")
       : undefined,
-    context.stellaDataDir
-      ? path.join(context.stellaDataDir, "fashion")
-      : undefined,
   ].filter((value): value is string => Boolean(value?.trim()));
   const roots = await Promise.all(
     configured.map(

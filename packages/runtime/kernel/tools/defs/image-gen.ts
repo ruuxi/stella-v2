@@ -18,10 +18,10 @@ export const createImageGenTool = (
   const handler = handlers.image_gen as ToolHandler;
   return {
     name: "image_gen",
-    // Audience declaration: image generation is for the orchestrator and the
-    // Fashion agent. The General agent (and any other subagent) is denied at
-    // both the catalog filter and executeTool via this gate.
-    agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.FASHION],
+    // Audience declaration: image generation is for the orchestrator. The
+    // General agent (and any other subagent) is denied at both the catalog
+    // filter and executeTool via this gate.
+    agentTypes: [AGENT_IDS.ORCHESTRATOR],
     description:
       "Generate a still image through the image provider selected in Settings (Stella managed or the user's own OpenAI, OpenRouter, or Fal account). The call stays pending until success, failure, cancellation, or a structured unknown outcome, including durable artifact handoff. Success returns terminal status, artifact metadata, and local path(s) under ~/.stella/media/outputs/. Never retry or parallel-submit a pending call; Stella reattaches when the provider exposes durable identity and never blindly resubmits an ambiguous BYOK request. Do not poll, download, or open the result yourself. Required: prompt.",
     promptSnippet:

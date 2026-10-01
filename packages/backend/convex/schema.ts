@@ -8,7 +8,6 @@ import { usersSchema } from "./schema/users";
 import { telemetrySchema } from "./schema/telemetry";
 import { billingSchema } from "./schema/billing";
 import { mediaSchema } from "./schema/media";
-import { fashionSchema } from "./schema/fashion";
 import { feedbackSchema } from "./schema/feedback";
 import { desktopReleasesSchema } from "./schema/desktop_releases";
 import { emojiPacksSchema } from "./schema/emoji_packs";
@@ -41,7 +40,6 @@ export default defineSchema({
   ...telemetrySchema,
   ...billingSchema,
   ...mediaSchema,
-  ...fashionSchema,
   ...feedbackSchema,
   ...desktopReleasesSchema,
   ...emojiPacksSchema,

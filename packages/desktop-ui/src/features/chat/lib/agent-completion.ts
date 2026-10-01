@@ -251,12 +251,12 @@ const toSummaryExcerpt = (result: string): string => {
  * breadcrumb): an agent-produced FILE is a user-facing deliverable no matter
  * which agent made it, and before the completion-card consolidation these
  * files rendered inline for every agent type. Reserved builtins that run in
- * hidden conversations (such as fashion) never land in the visible
- * transcript anyway; ones that run in the user's conversation (e.g. the
- * schedule subagent, whose toolset is not restricted away from file-writing
- * tools) keep their files visible as pills. This also keeps behavior
- * identical whether or not the agent's `agent-started` (and thus its
- * `agentType`) aged out of the loaded event window.
+ * hidden conversations never land in the visible transcript anyway; ones
+ * that run in the user's conversation (e.g. the schedule subagent, whose
+ * toolset is not restricted away from file-writing tools) keep their files
+ * visible as pills. This also keeps behavior identical whether or not the
+ * agent's `agent-started` (and thus its `agentType`) aged out of the loaded
+ * event window.
  */
 export function buildAgentCompletionSections(
   toolEvents: ReadonlyArray<EventRecord>,

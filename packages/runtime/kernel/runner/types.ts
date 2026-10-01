@@ -25,7 +25,6 @@ import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { LocalContextEvent } from "../storage/shared.js";
 import type { LocalChatEventWindow } from "../storage/event-window.js";
 import type {
-  FashionToolApi,
   ScheduleToolApi,
   AgentToolRequest,
   AgentToolSnapshot,
@@ -139,7 +138,6 @@ export type StellaHostRunnerOptions = {
   requestChallengeToken?: () => Promise<string | undefined>;
   getDeviceSigner?: () => Promise<DeviceSigner> | DeviceSigner;
   scheduleApi?: ScheduleToolApi;
-  fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;
   getAppBrowserContext?: () =>
     | Promise<HostAppBrowserContextSnapshot>
@@ -397,7 +395,6 @@ export type RunnerContext = {
   requestChallengeToken?: StellaHostRunnerOptions["requestChallengeToken"];
   getDeviceSigner?: StellaHostRunnerOptions["getDeviceSigner"];
   scheduleApi?: ScheduleToolApi;
-  fashionApi?: FashionToolApi;
   runtimeStore: RuntimeStore;
   listLocalChatEvents?: StellaHostRunnerOptions["listLocalChatEvents"];
   openLocalChatEventWindow?: StellaHostRunnerOptions["openLocalChatEventWindow"];

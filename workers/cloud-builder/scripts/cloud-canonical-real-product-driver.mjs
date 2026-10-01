@@ -131,12 +131,6 @@ export const CANONICAL_PROMPT_SOURCES = Object.freeze([
       "packages/runtime/extensions/stella-runtime/agent-metadata/general.md",
   }),
   Object.freeze({
-    id: "agents/fashion.md",
-    kind: "agent-metadata",
-    relativePath:
-      "packages/runtime/extensions/stella-runtime/agent-metadata/fashion.md",
-  }),
-  Object.freeze({
     id: "agents/explore.md",
     kind: "agent-metadata",
     relativePath:

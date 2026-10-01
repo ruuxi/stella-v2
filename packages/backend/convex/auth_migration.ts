@@ -758,152 +758,6 @@ export const migrateUserCountersBatch = internalMutation({
   },
 });
 
-/**
- * Fashion is available to anonymous identities, so account linking must keep
- * its durable profile and shopping state. The staged order preserves checkout
- * references before cart rows move. Entity-key collisions merge the same
- * logical item instead of silently discarding either owner's quantity or
- * newest metadata.
- */
-export const migrateFashionBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    await requireActiveOwnershipMigrationLease(ctx, args);
-    const checkout = (
-      await ctx.db
-        .query("fashion_checkout_sessions")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (checkout) {
-      await ctx.db.patch(checkout._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
-    }
-    const cart = (
-      await ctx.db
-        .query("fashion_cart_items")
-        .withIndex("by_ownerId_and_addedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (cart) {
-      const destination = await ctx.db
-        .query("fashion_cart_items")
-        .withIndex("by_ownerId_and_variantId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("variantId", cart.variantId),
-        )
-        .unique();
-      if (destination) {
-        await ctx.db.patch(destination._id, {
-          quantity: destination.quantity + cart.quantity,
-          addedAt: Math.min(destination.addedAt, cart.addedAt),
-          ...(destination.checkoutSessionId
-            ? {}
-            : cart.checkoutSessionId
-              ? { checkoutSessionId: cart.checkoutSessionId }
-              : {}),
-        });
-        await ctx.db.delete(cart._id);
-      } else {
-        await ctx.db.patch(cart._id, { ownerId: args.toOwnerId });
-      }
-      return { hasMore: true };
-    }
-    const like = (
-      await ctx.db
-        .query("fashion_likes")
-        .withIndex("by_ownerId_and_likedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (like) {
-      const destination = await ctx.db
-        .query("fashion_likes")
-        .withIndex("by_ownerId_and_variantId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("variantId", like.variantId),
-        )
-        .unique();
-      if (destination) {
-        if (like.likedAt > destination.likedAt) {
-          await ctx.db.patch(destination._id, {
-            productId: like.productId,
-            title: like.title,
-            imageUrl: like.imageUrl,
-            productUrl: like.productUrl,
-            merchantOrigin: like.merchantOrigin,
-            priceCents: like.priceCents,
-            currency: like.currency,
-            vendor: like.vendor,
-            likedAt: like.likedAt,
-          });
-        }
-        await ctx.db.delete(like._id);
-      } else {
-        await ctx.db.patch(like._id, { ownerId: args.toOwnerId });
-      }
-      return { hasMore: true };
-    }
-    const outfit = (
-      await ctx.db
-        .query("fashion_outfits")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (outfit) {
-      await ctx.db.patch(outfit._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
-    }
-    const profile = await ctx.db
-      .query("fashion_profiles")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique();
-    if (profile) {
-      const destination = await ctx.db
-        .query("fashion_profiles")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-        .unique();
-      if (destination) {
-        const importedStyle =
-          profile.stylePreferences &&
-          profile.stylePreferences !== destination.stylePreferences
-            ? [
-                destination.stylePreferences,
-                `Imported anonymous preferences: ${profile.stylePreferences}`,
-              ]
-                .filter(Boolean)
-                .join("\n")
-            : destination.stylePreferences;
-        await ctx.db.patch(destination._id, {
-          displayName: destination.displayName ?? profile.displayName,
-          gender: destination.gender ?? profile.gender,
-          sizes: { ...(profile.sizes ?? {}), ...(destination.sizes ?? {}) },
-          stylePreferences: importedStyle,
-          hasBodyPhoto: destination.hasBodyPhoto || profile.hasBodyPhoto,
-          bodyPhotoMimeType:
-            destination.bodyPhotoMimeType ?? profile.bodyPhotoMimeType,
-          bodyPhotoUpdatedAt: Math.max(
-            destination.bodyPhotoUpdatedAt ?? 0,
-            profile.bodyPhotoUpdatedAt ?? 0,
-          ),
-          updatedAt: Math.max(destination.updatedAt, profile.updatedAt),
-        });
-        await ctx.db.delete(profile._id);
-      } else {
-        await ctx.db.patch(profile._id, { ownerId: args.toOwnerId });
-      }
-      return { hasMore: true };
-    }
-    return { hasMore: false };
-  },
-});
-
 const MAX_EXTERNAL_MEDIA_OBJECTS_PER_SOURCE = 8;
 type ExternalMediaSourceKind = "emoji_pack";
 
@@ -7795,45 +7649,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "fashion_profiles",
-        await ctx.db
-          .query("fashion_profiles")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "fashion_outfits",
-        await ctx.db
-          .query("fashion_outfits")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "fashion_likes",
-        await ctx.db
-          .query("fashion_likes")
-          .withIndex("by_ownerId_and_likedAt", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "fashion_cart_items",
-        await ctx.db
-          .query("fashion_cart_items")
-          .withIndex("by_ownerId_and_addedAt", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "fashion_checkout_sessions",
-        await ctx.db
-          .query("fashion_checkout_sessions")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "x_oauth_tokens",
         await ctx.db
           .query("x_oauth_tokens")
@@ -8398,7 +8213,6 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateMediaJobLogsBatch,
   internal.auth_migration.migrateMediaWebhookEventsBatch,
   internal.auth_migration.migrateUserCountersBatch,
-  internal.auth_migration.migrateFashionBatch,
   internal.auth_migration.migrateAccountExternalMediaContentBatch,
   internal.auth_migration.migrateXTokensBatch,
   internal.auth_migration.migrateDeviceExtensionsForAccountLink,

@@ -34,7 +34,6 @@
     "./electron/ipc/capture-handlers.js": "./electron/ipc/capture-handlers.js",
     "./electron/ipc/dictation-handlers.js": "./electron/ipc/dictation-handlers.js",
     "./electron/ipc/discovery-handlers.js": "./electron/ipc/discovery-handlers.js",
-    "./electron/ipc/fashion-handlers.js": "./electron/ipc/fashion-handlers.js",
     "./electron/ipc/runtime-availability-bridge.js": "./electron/ipc/runtime-availability-bridge.js",
     "./electron/ipc/runtime-availability.js": "./electron/ipc/runtime-availability.js",
     "./electron/ipc/schedule-handlers.js": "./electron/ipc/schedule-handlers.js",

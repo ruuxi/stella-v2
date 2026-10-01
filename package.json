@@ -9,7 +9,7 @@
     "packages/backend/workers/*",
     "workers/*"
   ],
-  "main": "packages/desktop/dist-electron/electron/launch.js",
+  "main": "packages/desktop/electron/start.mjs",
   "scripts": {
     "dev": "cd packages/desktop-ui && vite",
     "preview": "cd packages/desktop-ui && vite preview",
@@ -36,7 +36,7 @@
     "stella-office:download": "node packages/stella-office/scripts/download-native.js",
     "app:create": "node packages/desktop/scripts/create-workspace-app.mjs",
     "electron:install": "bun ./node_modules/electron/install.js",
-    "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --build-from-source && node packages/stella-office/scripts/ensure-native.js && node packages/desktop/scripts/dev-electron-build.mjs --once && node packages/desktop/scripts/launch-electron-dev.mjs",
+    "electron:dev": "node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --build-from-source && node packages/stella-office/scripts/ensure-native.js && node packages/desktop/scripts/launch-electron-dev.mjs",
     "electron:typecheck:core": "node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.electron.json --pretty false --noEmit && node node_modules/typescript-7/bin/tsc -p packages/desktop/tsconfig.preload.json --pretty false --noEmit && bun run verify:source-exports && bun run verify:source-identifiers && bun run verify:local-named-imports",
     "electron:typecheck": "bun run electron:typecheck:core && bun run verify:ipc-handlers",
     "electron:typecheck:watch": "concurrently -k --kill-others-on-fail \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.electron.json --preserveWatchOutput --noEmit\" \"node node_modules/typescript-7/bin/tsc -w -p packages/desktop/tsconfig.preload.json --preserveWatchOutput --noEmit\"",

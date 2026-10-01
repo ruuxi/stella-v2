@@ -9,11 +9,11 @@ privileged work already crosses the context-isolated preload bridge. A custom
 scheme would add protocol registration, routing, and CSP surface without an M2
 capability benefit.
 
-Development is intentionally different and honest: `bun run electron:dev`
-starts the ordinary Vite server at `http://127.0.0.1:57314`, waits for that
-URL, and launches the stock Electron binary with `--dev`. Isolated checkouts
-can override the loopback URL with `STELLA_DEV_SERVER_URL`. There is no
-bundle rename, Info.plist rewrite, icon swap, re-sign, responsibility-disclaim
+Development runs from source: `bun run electron:dev` launches the stock
+Electron binary with `--dev`, which serves the renderer from source at
+`stella-app://desktop` (see `electron/source/`), rebuilds main and preload
+when their sources changed, and runs the runtime as Bun on its TypeScript.
+There is no dev server and no bundle rename, Info.plist rewrite, icon swap, re-sign, responsibility-disclaim
 shim, generated supervisor markers, or generated dev-URL file.
 
 The built product name is explicitly `Stella`; internal workspace names such
@@ -34,9 +34,7 @@ user-created outputs. Electron `userData` remains separate: on macOS it uses
 `~/Library/Application Support/Stella` for packaged builds and
 `Stella Development` for development, and contains only replaceable
 Chromium/session/runtime state. `STELLA_DATA_DIR` may explicitly redirect a
-packaged build; development only honors `STELLA_V2_DEV_DATA_DIR`. The Vite UI
-state bridge uses the same development root, so a plain dev-server tab cannot
-write production UI state either. Development also receives its own in-app
+packaged build; development only honors `STELLA_V2_DEV_DATA_DIR`. Development also receives its own in-app
 browser bootstrap endpoint, allowing the installed app and dev app to run at
 the same time without competing for one socket or loopback port.
 

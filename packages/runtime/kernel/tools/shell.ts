@@ -341,9 +341,15 @@ export const extractOfficePreviewRef = (
   };
 };
 
+// A CLI resolved to its TypeScript source (a source tree) runs under Bun, the
+// runtime's own executable; a bundled one runs under the host's Node.
 const buildWindowsCliShimScript = (envVar: string): string =>
   [
     "@echo off",
+    `if /I "%${envVar}:~-3%"==".ts" (`,
+    `  "%STELLA_BUN_PATH%" "%${envVar}%" %*`,
+    "  exit /b %ERRORLEVEL%",
+    ")",
     'set "ELECTRON_RUN_AS_NODE=1"',
     `"%STELLA_NODE_BIN%" "%${envVar}%" %*`,
     "",
@@ -371,6 +377,7 @@ const buildUnixNodeShimScript = (): string =>
 const buildUnixCliShimScript = (envVar: string): string =>
   [
     "#!/bin/sh",
+    `case "$${envVar}" in *.ts) exec "\${STELLA_BUN_PATH:-bun}" "$${envVar}" "$@" ;; esac`,
     `ELECTRON_RUN_AS_NODE=1 exec "$STELLA_NODE_BIN" "$${envVar}" "$@"`,
     "",
   ].join("\n");
@@ -617,6 +624,10 @@ const buildShellEnv = (
     STELLA_NODE_BIN: resolveShellNodeBinary(
       envOverrides ? { ...process.env, ...envOverrides } : process.env,
     ),
+    // Source-tree CLIs run under Bun (see the CLI shims).
+    STELLA_BUN_PATH:
+      process.env.STELLA_BUN_PATH?.trim() ||
+      (process.versions.bun ? process.execPath : "bun"),
     STELLA_RUNTIME_WORKER_PID: String(process.pid),
     ...(options?.secretStateRoot
       ? { STELLA_DATA_DIR: options.secretStateRoot }

@@ -761,19 +761,6 @@ const cmdLaunch = async (options) => {
     STELLA_V2_DEV_DATA_DIR: dataDir,
   };
 
-  process.stderr.write("Building Electron main bundle if needed...\n");
-  const build = spawn(
-    process.execPath,
-    [
-      path.join(repoRoot, "packages/desktop/scripts/dev-electron-build.mjs"),
-      "--once",
-    ],
-    { cwd: repoRoot, env: sharedEnv, stdio: "inherit" },
-  );
-  const buildCode = await new Promise((resolve) => build.on("exit", resolve));
-  if (buildCode !== 0)
-    fail(`dev-electron-build failed with exit ${buildCode}.`);
-
   const run = {
     runId,
     runDir,

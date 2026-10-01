@@ -56,7 +56,7 @@ const resolveDesktopCliEntrypoint = (
   return path.join(stellaAppDir, packageName, "bin", entrypoint);
 };
 
-// Resolve a runtime CLI bundled into desktop/dist-electron/runtime/kernel/cli/.
+// Resolve a runtime CLI: its TypeScript source, or the packaged bundle.
 const resolveRuntimeCliPath = (fileName: string) =>
   resolveBundledRuntimeFile(`kernel/cli/${fileName}`);
 

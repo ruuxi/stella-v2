@@ -50,7 +50,7 @@ export function getStellaAppDir(): string {
 /**
  * Resolve a data asset that ships in the repo's source tree under `packages/runtime/`
  * (e.g. the OAuth catalog JSON, bundled agent markdown). The STELLA_APP_DIR path
- * is canonical; the dev-build copy under `packages/desktop/dist-electron/` is a fallback
+ * is canonical; the packaging build's copy under `packages/desktop/dist-electron/` is a fallback
  * for callers that only see the bundled tree.
  */
 export function resolveRuntimeSourceAsset(...segments: string[]): string {
@@ -67,12 +67,12 @@ export function resolveRuntimeSourceAsset(...segments: string[]): string {
 }
 
 /**
- * Resolve a compiled runtime file that lives under the bundled
- * `packages/desktop/dist-electron/runtime/` tree (worker entry, sidecar CLIs, the
- * deferred-delete helper). Anchored on STELLA_APP_DIR rather than this module's
- * `import.meta` — esbuild inlines shared modules into each entry/chunk, so a
- * shared helper's own location is not a stable offset to sibling files. The
- * `.ts` source candidate keeps unbundled source-tree execution working.
+ * Resolve a runtime file the app spawns by path (the worker entry, sidecar
+ * CLIs). A source tree runs it as TypeScript under Bun, so the `.ts` source
+ * comes first; a packaged app has no runtime source and uses its bundled copy
+ * under `STELLA_APP_RESOURCES_PATH`, and `dist-electron/runtime/` (the
+ * packaging build) is the last resort. Anchored on STELLA_APP_DIR rather than
+ * this module's `import.meta`, which moves when esbuild inlines it.
  *
  * @param relativeToRuntimeRoot e.g. "worker/entry.js" or "kernel/cli/foo.js"
  */
@@ -84,11 +84,11 @@ export function resolveBundledRuntimeFile(relativeToRuntimeRoot: string): string
     index === segments.length - 1 ? segment.replace(/\.js$/, ".ts") : segment,
   );
   const candidates = [
+    path.join(root, "packages", "runtime", ...sourceSegments),
     ...(resourcesPath
       ? [path.join(resourcesPath, "runtime", ...segments)]
       : []),
     path.join(root, "packages", "desktop", "dist-electron", "runtime", ...segments),
-    path.join(root, "packages", "runtime", ...sourceSegments),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }

@@ -1,28 +1,21 @@
 /**
- * Electron-main / preload / worker / CLI bundle builds.
+ * Electron-main / preload bundles, and the packaging build.
  *
- * Historically this script kept four esbuild watch contexts (plus the esbuild
- * service process) resident for the whole app session — ~200MB of steady-state
- * memory paid purely so rarely-changing host bundles could rebuild on source
- * change. It now builds on demand instead:
+ * Stella runs from its source tree. The renderer is served from source
+ * (`electron/source/`) and the runtime is Bun running TypeScript, so the only
+ * bundles a source launch needs are Electron main and the sandboxed preload.
+ * `electron/start.mjs` calls `ensureElectronBundlesFresh` before loading main:
+ * a stat fingerprint of the source roots, persisted next to the outputs,
+ * skips the build when nothing changed, and otherwise main and preload are
+ * rebuilt in place (about a second).
  *
- *   - One-shot builds via the esbuild API, with `write: false` + manual
- *     write-if-changed so byte-identical outputs never touch disk. That gate
- *     matters: the host's dist watcher (`startDevWatcher` in
- *     `runtime/host/index.ts`) restarts the worker on any mtime bump under
- *     `dist-electron/runtime/`, so rewriting unchanged worker bundles when
- *     only electron-main changed would cold-respawn the worker for nothing.
- *   - `esbuild.stop()` after every build so the service process exits instead
- *     of idling resident.
- *   - A bare `fs.watch` over the source roots (native fs events, ~0 cost)
- *     drives debounced rebuilds while the app runs — manual user edits land
- *     through it.
- *   - A stat fingerprint of the source roots persisted next to the outputs
- *     lets a warm launch skip the startup build entirely when nothing changed
- *     since the last successful build.
+ * Builds use the esbuild API with `write: false` plus write-if-changed, so
+ * byte-identical outputs never touch disk, and stop the esbuild service
+ * afterwards so nothing stays resident.
  *
- * Run directly (postinstall, low-resource build) it performs the historical
- * `--once` behavior: clean outdir, full build, exit.
+ * Run directly (`--once`: postinstall, packaging, release CI) it does the
+ * packaging build instead: clean outdir, main and preload plus the bundled
+ * worker and sidecar CLIs and the runtime data assets, smoke tests, exit.
  */
 import { build as runEsbuildBuild, stop as stopEsbuildService } from "esbuild";
 import { spawnSync } from "node:child_process";
@@ -34,12 +27,11 @@ import {
   promises as fsPromises,
   readdirSync,
   readFileSync,
-  watch as watchFs,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadEnv } from "vite";
+import { parseEnv } from "node:util";
 
 const scriptDir = import.meta.dirname;
 const desktopDir = path.resolve(scriptDir, "..");
@@ -102,10 +94,10 @@ const runtimeCliEntryPoints = Object.fromEntries(
     `packages/runtime/kernel/cli/${name}.ts`,
   ]),
 );
-const electronRuntimeEntryPoints = {
-  // `launch` is the package.json entry: it enables the V8 compile cache, then
-  // imports the `main` bundle through a computed specifier so it stays a
-  // separate output instead of being inlined.
+const electronMainEntryPoints = {
+  // `launch` enables the V8 compile cache, then imports the `main` bundle
+  // through a computed specifier so it stays a separate output instead of
+  // being inlined.
   "electron/launch": "packages/desktop/electron/launch.ts",
   "electron/main": "packages/desktop/electron/main.ts",
   "electron/cloud-conversation-cache-worker": "packages/desktop/electron/services/cloud-conversation-cache-worker.ts",
@@ -115,7 +107,6 @@ const electronRuntimeEntryPoints = {
           "packages/desktop/electron/update-verification-main.ts",
       }
     : {}),
-  ...runtimeCliEntryPoints,
 };
 // The worker builds on its own so we can code-split it: the heavy runner
 // subgraph is lazily imported in server.ts, and splitting lands it in a
@@ -131,11 +122,16 @@ const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
 };
 const desktopUiDir = path.join(repoRootDir, "packages", "desktop-ui");
-const desktopPublicEnv = loadEnv(
-  process.env.NODE_ENV || "development",
-  desktopUiDir,
-  "VITE_",
-);
+/** desktop-ui's env files in Vite's order (later files win). */
+const desktopEnvFiles = (mode) => [".env", ".env.local", `.env.${mode}`, `.env.${mode}.local`];
+const desktopPublicEnv = {};
+for (const name of desktopEnvFiles(process.env.NODE_ENV || "development")) {
+  try {
+    Object.assign(desktopPublicEnv, parseEnv(readFileSync(path.join(desktopUiDir, name), "utf8")));
+  } catch {
+    // A missing env file is normal.
+  }
+}
 const publicTurnstileSiteKey =
   process.env.VITE_TURNSTILE_SITE_KEY ||
   desktopPublicEnv.VITE_TURNSTILE_SITE_KEY ||
@@ -189,6 +185,8 @@ const bundleConfigFiles = [
   "packages/desktop/tsconfig.electron.json",
   "packages/desktop/tsconfig.preload.json",
   "packages/runtime/package.json",
+  // VITE_TURNSTILE_SITE_KEY is baked into main from these.
+  ...desktopEnvFiles("development").map((name) => `packages/desktop-ui/${name}`),
 ];
 const bundleSourceExtensions = new Set([
   ".ts",
@@ -231,7 +229,43 @@ const pruneDependencyPackageMetadataPlugin = {
   },
 };
 
-const createBuildOptions = () => [
+const workerBuildOptions = {
+  absWorkingDir: repoRootDir,
+  alias: workspaceAliases,
+  bundle: true,
+  entryPoints: workerEntryPoints,
+  external: [
+    "electron",
+    "bun:*",
+    // Keep packages whose runtime behavior depends on their installed-file
+    // layout external. electron-builder copies these two small trees next
+    // to the packaged worker; everything else is bundled so the sidecar
+    // never depends on app.asar/node_modules.
+    "undici",
+    "@silvia-odwyer/photon-node",
+  ],
+  format: "esm",
+  // Split the lazily-imported runner subgraph into its own chunk(s). Chunks
+  // sit next to entry.js (under runtime/worker/chunks/) so Bun resolves them
+  // relatively at runtime; entry.js stays at its existing path.
+  splitting: true,
+  chunkNames: "runtime/worker/chunks/[name]-[hash]",
+  // Consumed by assertWorkerBundleBoundary after each build.
+  metafile: true,
+  logLevel: "warning",
+  plugins: [pruneDependencyPackageMetadataPlugin],
+  outdir: path.join("packages", "desktop", outdir),
+  platform: "node",
+  target: nodeTarget,
+  tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
+};
+
+/**
+ * The source launch builds main and preload. `packaging` adds the sidecar
+ * CLIs to the main build and the code-split worker build, which a packaged
+ * app ships because it has no runtime source.
+ */
+const createBuildOptions = ({ packaging }) => [
   {
     absWorkingDir: repoRootDir,
     alias: workspaceAliases,
@@ -246,7 +280,9 @@ const createBuildOptions = () => [
         publicTurnstileSiteKey,
       ),
     },
-    entryPoints: electronRuntimeEntryPoints,
+    entryPoints: packaging
+      ? { ...electronMainEntryPoints, ...runtimeCliEntryPoints }
+      : electronMainEntryPoints,
     external: [
       "electron",
       "electron-updater",
@@ -269,36 +305,7 @@ const createBuildOptions = () => [
     target: nodeTarget,
     tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
   },
-  {
-    absWorkingDir: repoRootDir,
-    alias: workspaceAliases,
-    bundle: true,
-    entryPoints: workerEntryPoints,
-    external: [
-      "electron",
-      "bun:*",
-      // Keep packages whose runtime behavior depends on their installed-file
-      // layout external. electron-builder copies these two small trees next
-      // to the packaged worker; everything else is bundled so the sidecar
-      // never depends on app.asar/node_modules.
-      "undici",
-      "@silvia-odwyer/photon-node",
-    ],
-    format: "esm",
-    // Split the lazily-imported runner subgraph into its own chunk(s). Chunks
-    // sit next to entry.js (under runtime/worker/chunks/) so Bun resolves them
-    // relatively at runtime; entry.js stays at its existing path.
-    splitting: true,
-    chunkNames: "runtime/worker/chunks/[name]-[hash]",
-    // Consumed by assertWorkerBundleBoundary after each build.
-    metafile: true,
-    logLevel: "warning",
-    plugins: [pruneDependencyPackageMetadataPlugin],
-    outdir: path.join("packages", "desktop", outdir),
-    platform: "node",
-    target: nodeTarget,
-    tsconfig: path.join("packages", "desktop", "tsconfig.electron.json"),
-  },
+  ...(packaging ? [workerBuildOptions] : []),
   {
     absWorkingDir: repoRootDir,
     alias: workspaceAliases,
@@ -570,34 +577,25 @@ const copyElectronStaticAssets = async () => {
 };
 
 /**
- * One-shot build of all four bundles. Outputs are produced with
- * `write: false` and written manually only when their bytes differ from
- * what's on disk, so downstream watchers (Electron restart gate, host worker
- * watcher) only ever see genuine changes. The esbuild service process is
- * stopped afterwards so nothing stays resident between builds.
+ * One-shot build. Outputs are produced with `write: false` and written only
+ * when their bytes differ from what's on disk, so watchers only ever see
+ * genuine changes. The esbuild service is stopped afterwards so nothing stays
+ * resident between builds.
  */
-export const buildElectronBundles = async () => {
+export const buildElectronBundles = async ({ packaging = false } = {}) => {
   try {
-    const optionsList = createBuildOptions();
+    const optionsList = createBuildOptions({ packaging });
     const results = await Promise.all(
       optionsList.map((options) =>
         runEsbuildBuild({ ...options, write: false }),
       ),
     );
-    const workerResult =
-      results[
-        optionsList.findIndex(
-          (options) => options.entryPoints === workerEntryPoints,
-        )
-      ];
-    assertWorkerBundleBoundary(workerResult.metafile);
-    const mainResult =
-      results[
-        optionsList.findIndex(
-          (options) => options.entryPoints === electronRuntimeEntryPoints,
-        )
-      ];
-    assertMainBundleStartupBoundary(mainResult.metafile);
+    assertMainBundleStartupBoundary(results[0].metafile);
+    if (packaging) {
+      assertWorkerBundleBoundary(
+        results[optionsList.indexOf(workerBuildOptions)].metafile,
+      );
+    }
     const changedOutputs = [];
     for (const result of results) {
       for (const file of result.outputFiles ?? []) {
@@ -606,8 +604,10 @@ export const buildElectronBundles = async () => {
         }
       }
     }
-    await copyPackagedRuntimeAssets();
-    await verifyPackagedOAuthProviderCatalog();
+    if (packaging) {
+      await copyPackagedRuntimeAssets();
+      await verifyPackagedOAuthProviderCatalog();
+    }
     await copyElectronStaticAssets();
     return changedOutputs;
   } finally {
@@ -702,18 +702,8 @@ const writeBundleFingerprint = (fingerprint) => {
 
 export const requiredOutputsExist = () => {
   const outBase = path.join(desktopDir, outdir);
-  return (
-    existsSync(path.join(outBase, "electron", "launch.js")) &&
-    existsSync(path.join(outBase, "electron", "main.js")) &&
-    existsSync(path.join(outBase, "electron", "preload.js")) &&
-    // A tree built before a CLI was added to the bundle would otherwise skip
-    // the rebuild and leave the worker pointing at a missing file.
-    runtimeCliNames.every((name) =>
-      existsSync(path.join(outBase, "runtime", "kernel", "cli", `${name}.js`)),
-    ) &&
-    // A tree built before the catalog copy existed looks otherwise complete,
-    // so treat its absence as a cold start rather than a warm skip.
-    existsSync(path.join(outBase, packagedOAuthProviderCatalogRelativePath))
+  return ["launch.js", "main.js", "preload.js"].every((name) =>
+    existsSync(path.join(outBase, "electron", name)),
   );
 };
 
@@ -725,108 +715,23 @@ export const cleanOutdir = async () => {
 };
 
 /**
- * Startup path: skip the build entirely when the outputs exist and the source
- * fingerprint matches the last successful build (the common warm launch).
- * A missing-output cold start cleans the outdir first for a deterministic
- * from-scratch build; a stale fingerprint rebuilds in place and relies on the
- * write-if-changed gate to keep untouched outputs byte-stable.
+ * The source launch: skip the build when main and preload exist and the
+ * source fingerprint matches the last successful build, otherwise rebuild
+ * them in place (a missing output cleans the outdir first).
  */
 export const ensureElectronBundlesFresh = async ({ log } = {}) => {
   const fingerprint = computeBundleInputsFingerprint();
   if (requiredOutputsExist() && readBundleFingerprint() === fingerprint) {
-    log?.("electron bundles are current; skipping startup build.");
     return { built: false };
   }
   if (!requiredOutputsExist()) {
     await cleanOutdir();
   }
-  log?.("electron bundle inputs changed; rebuilding.");
+  const startedAt = Date.now();
   await buildElectronBundles();
-  writeBundleFingerprint(computeBundleInputsFingerprint());
+  writeBundleFingerprint(fingerprint);
+  log?.(`built main and preload in ${Date.now() - startedAt}ms`);
   return { built: true };
-};
-
-/**
- * Watches the bundle source roots with bare fs.watch and runs debounced
- * one-shot rebuilds. Returns a close() handle. Build failures are logged and
- * leave the persisted fingerprint stale so the next launch rebuilds.
- */
-export const watchElectronBundleSources = ({
-  debounceMs = 300,
-  log,
-  logError,
-} = {}) => {
-  const watchers = [];
-  let closed = false;
-  let debounceTimer = null;
-  let buildChain = Promise.resolve();
-
-  const scheduleBuild = () => {
-    if (closed) {
-      return;
-    }
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      buildChain = buildChain
-        .catch(() => undefined)
-        .then(async () => {
-          if (closed) {
-            return;
-          }
-          const startedAt = Date.now();
-          try {
-            const changedOutputs = await buildElectronBundles();
-            writeBundleFingerprint(computeBundleInputsFingerprint());
-            log?.(
-              `rebuilt electron bundles in ${Date.now() - startedAt}ms (${changedOutputs.length} output${changedOutputs.length === 1 ? "" : "s"} changed)`,
-            );
-          } catch (error) {
-            logError?.(
-              `electron bundle rebuild failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        });
-    }, debounceMs);
-  };
-
-  for (const root of bundleSourceRoots) {
-    const absoluteRoot = path.join(repoRootDir, root);
-    if (!existsSync(absoluteRoot)) {
-      continue;
-    }
-    const watcher = watchFs(
-      absoluteRoot,
-      { recursive: true },
-      (_eventType, filename) => {
-        if (typeof filename !== "string") {
-          return;
-        }
-        const relPosixPath = path.posix.join(toPosix(root), toPosix(filename));
-        if (!isBundleSourceRelPath(relPosixPath)) {
-          return;
-        }
-        scheduleBuild();
-      },
-    );
-    watchers.push(watcher);
-  }
-
-  return {
-    close: async () => {
-      closed = true;
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
-      for (const watcher of watchers) {
-        watcher.close();
-      }
-      await buildChain.catch(() => undefined);
-    },
-  };
 };
 
 // Same candidate order as the host's worker spawn (runtime/host/lifecycle.ts).
@@ -999,12 +904,11 @@ const isRunDirectly = (() => {
 })();
 
 if (isRunDirectly) {
-  // Historical `--once` behavior (postinstall, low-resource build): clean
-  // outdir, deterministic from-scratch build, exit. The flag is accepted for
-  // existing callers but one-shot is now the only direct-invocation mode.
+  // The packaging build: clean outdir, everything a packaged app ships,
+  // smoke tests, exit. `--once` is accepted for existing callers.
   try {
     await cleanOutdir();
-    await buildElectronBundles();
+    await buildElectronBundles({ packaging: true });
     if (verifyIdentifiers) {
       verifyApplicationIdentifiersInChild();
     }

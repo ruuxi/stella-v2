@@ -31,6 +31,7 @@ import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { buildInprocConnectionFactory } from "./inproc-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
+import { resolveRuntimeCodeRoots } from "../worker/runtime-build-stamp.js";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
@@ -318,7 +319,7 @@ export class StellaRuntimeHost {
      * callbacks that need the app wait for it to reattach.
      */
     /**
-     * Dev dist-electron watcher trigger: `runtime/` worker code changed on disk.
+     * Dev source watcher trigger: runtime code changed on disk.
      * Records the reload intent and debounces a gated flush. The actual restart
      * only proceeds when {@link canRestartWorkerNow} holds (worker not busy) — evaluated in
      * `flushWorkerRestart`.
@@ -459,7 +460,7 @@ export class StellaRuntimeHost {
     /**
      * Unified gate for restarting the runtime worker. A restart may only proceed
      * when the worker is not busy (an agent run / voice request is in flight).
-     * Both restart triggers (dev dist-electron watcher, stale-worker detection)
+     * Both restart triggers (dev source watcher, stale-worker detection)
      * and every unblock hook route through this, so the dev-watcher path honors
      * the worker-busy deferral exactly like the stale-worker path.
      */
@@ -2652,18 +2653,24 @@ export class StellaRuntimeHost {
     startDevWatcher(workerEntryPath) {
         if (!this.options.initializeParams.isDev || this.watcher)
             return;
-        // Watch only the bundled `runtime/` subtree, not the whole dist-electron
-        // tree (which also holds main.js and the CLI bundles), so a rebuild that
-        // only rewrites main.js never restarts the runtime. Any runtime change
-        // does: the host runs in the runtime process too.
-        const runtimeBundleRoot = path.resolve(path.dirname(workerEntryPath), "..");
-        this.watcher = watch(runtimeBundleRoot, { recursive: true }, (_eventType, filename) => {
-            if (typeof filename !== "string" || !filename.endsWith(".js"))
+        // Any change to the code the runtime loads restarts it (the host runs
+        // in the runtime process too): the runtime and contracts sources, or
+        // the bundled `runtime/` subtree. Edits to main or tests never do.
+        const watchers = resolveRuntimeCodeRoots(workerEntryPath).map((root) => watch(root, { recursive: true }, (_eventType, filename) => {
+            if (typeof filename !== "string" || !isRuntimeCodeChange(filename))
                 return;
             void this.scheduleRuntimeReload();
-        });
+        }));
+        this.watcher = { close: () => watchers.forEach((watcher) => watcher.close()) };
     }
 }
+const isRuntimeCodeChange = (filename) => {
+    const segments = filename.split(/[\\/]/);
+    const name = segments.at(-1) ?? "";
+    return (/\.(?:[cm]?js|[cm]?ts)$/.test(name) &&
+        !name.includes(".test.") &&
+        !segments.some((segment) => segment === "node_modules" || segment === "tests" || segment === "scripts"));
+};
 const resolveDefaultWorkerEntryPath = (options) => {
     if (options.workerEntryPath) {
         return options.workerEntryPath;

@@ -71,17 +71,6 @@ describe("computeRuntimeBuildStamp", () => {
     expect(after).not.toBe(before);
   });
 
-  it("ignores host-owned runtime paths that never restart the worker", () => {
-    const { treeRoot, entryPath } = makeRuntimeTree();
-    const before = computeRuntimeBuildStamp(entryPath);
-    writeFileSync(
-      path.join(treeRoot, "kernel", "storage", "session-store.js"),
-      "// changed host-owned content that should not affect the stamp\n",
-    );
-    const after = computeRuntimeBuildStamp(entryPath);
-    expect(after).toBe(before);
-  });
-
   it("returns the unavailable sentinel for a missing tree", () => {
     expect(computeRuntimeBuildStamp("/nonexistent/runtime/worker/entry.js")).toBe(
       RUNTIME_BUILD_STAMP_UNAVAILABLE,

@@ -11,24 +11,24 @@ launch uses the same `~/.stella` home, conversation database, configuration,
 credentials, and `electron-user-data` as Stella v1 and packaged v2:
 
 ```sh
-cd /Users/rahulnanda/projects/stella-v2
-STELLA_DEV_SERVER_URL=http://127.0.0.1:57316 \
 bun run electron:dev
 ```
 
-This starts Vite and Electron together. The port override is honored by both
-the Vite server and Electron launcher. Fully quit v1 first: both apps use the
-same Electron process-singleton path, so the second launch exits instead of
-opening the shared database concurrently. Quit the terminal process with
+Stella runs from source. Electron serves the renderer from `packages/desktop-ui`
+itself (transformed on request and cached), main and preload are rebuilt at
+launch only when their sources changed, and the runtime is Bun running
+`packages/runtime` TypeScript. There is no dev server or build step: renderer
+edits reload the window, runtime edits restart the runtime when it is idle, and
+main or preload edits apply on the next launch. Fully quit v1 first: both apps
+use the same Electron process-singleton path, so the second launch exits instead
+of opening the shared database concurrently. Quit the terminal process with
 `Ctrl-C` when finished.
 
 Tests and harnesses that need isolation must opt in explicitly:
 
 ```sh
 isolated_root=$(mktemp -d "${TMPDIR:-/tmp}/stella-v2-test.XXXXXX")
-STELLA_DEV_SERVER_URL=http://127.0.0.1:57316 \
-STELLA_V2_DEV_DATA_DIR="$isolated_root" \
-bun run electron:dev
+STELLA_V2_DEV_DATA_DIR="$isolated_root" bun run electron:dev
 ```
 
 `STELLA_V2_DEV_DATA_DIR` is the only development data-root override. Generic

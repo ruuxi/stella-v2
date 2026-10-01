@@ -25,6 +25,9 @@ import path from "node:path";
  * real code change virtually always changes size or mtime; mtime-preserving
  * copies with identical sizes are the only blind spot and don't occur in
  * the desktop-update path.
+ *
+ * A source tree (the runtime running as TypeScript) stamps `packages/runtime`
+ * and `packages/contracts`, minus tests and scripts the runtime never loads.
  */
 
 /** Sentinel returned when the stamp cannot be computed (missing tree, IO error). */
@@ -37,23 +40,16 @@ const SKIPPED_DIR_NAMES = new Set([
   ".git",
   "browser-data",
   "bun-transpiler-cache",
+  "tests",
+  "scripts",
 ]);
-
-const HOST_OWNED_RUNTIME_PREFIXES = [
-  "kernel/convex-urls",
-  "kernel/dev-projects/",
-  "kernel/home/",
-  "kernel/local-scheduler-service",
-  "kernel/preferences/local-preferences",
-  "kernel/shared/",
-  "kernel/storage/",
-  "kernel/tools/network-guards",
-  "kernel/tools/stella-browser-bridge-config",
-];
 
 const hasStampedSuffix = (name: string): boolean => {
   const lower = name.toLowerCase();
-  return STAMPED_FILE_SUFFIXES.some((suffix) => lower.endsWith(suffix));
+  return (
+    STAMPED_FILE_SUFFIXES.some((suffix) => lower.endsWith(suffix)) &&
+    !lower.includes(".test.")
+  );
 };
 
 /**
@@ -63,6 +59,14 @@ const hasStampedSuffix = (name: string): boolean => {
  */
 export const resolveRuntimeBundleRoot = (workerEntryPath: string): string =>
   path.resolve(path.dirname(workerEntryPath), "..");
+
+/** The trees whose code the runtime loads: the source tree adds contracts. */
+export const resolveRuntimeCodeRoots = (workerEntryPath: string): string[] => {
+  const runtimeRoot = resolveRuntimeBundleRoot(workerEntryPath);
+  return workerEntryPath.endsWith(".ts")
+    ? [runtimeRoot, path.join(runtimeRoot, "..", "contracts")]
+    : [runtimeRoot];
+};
 
 const collectStampLines = (
   rootDir: string,
@@ -79,12 +83,9 @@ const collectStampLines = (
     }
     if (!entry.isFile() || !hasStampedSuffix(name)) continue;
     const absPath = path.join(currentDir, name);
-    const relPath = path.relative(rootDir, absPath).replace(/\\/g, "/");
-    if (
-      HOST_OWNED_RUNTIME_PREFIXES.some((prefix) => relPath.startsWith(prefix))
-    ) {
-      continue;
-    }
+    const relPath = path
+      .relative(path.dirname(rootDir), absPath)
+      .replace(/\\/g, "/");
     let size = 0;
     let mtimeMs = 0;
     try {
@@ -113,9 +114,10 @@ export const computeRuntimeBuildStamp = (workerEntryPath: string): string => {
   const trimmedEntry = workerEntryPath?.trim();
   if (!trimmedEntry) return RUNTIME_BUILD_STAMP_UNAVAILABLE;
   try {
-    const rootDir = resolveRuntimeBundleRoot(trimmedEntry);
     const lines: string[] = [];
-    collectStampLines(rootDir, rootDir, lines);
+    for (const rootDir of resolveRuntimeCodeRoots(trimmedEntry)) {
+      collectStampLines(rootDir, rootDir, lines);
+    }
     if (lines.length === 0) return RUNTIME_BUILD_STAMP_UNAVAILABLE;
     lines.sort();
     return crypto

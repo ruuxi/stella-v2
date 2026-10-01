@@ -10,7 +10,7 @@ if (skipDesktopSetup) {
 }
 
 const steps = [
-  ["packages/desktop/scripts/postinstall-dist-electron.mjs"],
+  ["packages/desktop/scripts/postinstall-electron-binary.mjs"],
   [
     "packages/desktop/scripts/ensure-stella-browser.mjs",
     "--allow-build-fallback",

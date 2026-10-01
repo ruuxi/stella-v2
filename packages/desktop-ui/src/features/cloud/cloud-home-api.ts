@@ -66,15 +66,6 @@ export type StartCloudMemoryWipeArgs = {
 export type AuthorizeCloudMemoryReimportArgs = StartCloudMemoryWipeArgs;
 
 export const cloudHomeApi = {
-  getCloudRealtimeConfig: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    {
-      httpOrigin: string | null;
-      socketOrigin: string | null;
-      protocol: number;
-    }
-  >("cloud_apps:getCloudRealtimeConfig"),
   getMyMemoryPreference: makeFunctionReference<
     "query",
     { expectedSubject: string },

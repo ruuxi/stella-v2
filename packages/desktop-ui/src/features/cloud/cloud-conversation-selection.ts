@@ -1,6 +1,6 @@
 /**
  * Conversations created by this renderer may be routed to before the live
- * `listMyConversations` query has delivered its next snapshot. Keep that
+ * `conversations.recent` view has delivered its next value. Keep that
  * short handoff explicit so route validation cannot mistake a just-created
  * conversation for a stale or foreign id and immediately navigate away.
  */

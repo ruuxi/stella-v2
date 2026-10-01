@@ -6713,6 +6713,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       sameConversationEditLock(lock, request)
     ) {
       await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
+      // Publish the copy to the owner's index now, not when a client first
+      // connects: the index row is what an owner purge finds it by.
+      await this.index
+        .flush({ activity: "idle", updatedAt: Date.now() })
+        .catch(() => undefined);
     }
     return json({ released: true });
   }

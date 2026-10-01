@@ -23,22 +23,8 @@ export type OwnershipMigrationStatus = Infer<
 >;
 
 /**
- * Whether the caller's latest account-link transfer still fences its
- * conversations. Clients hold conversation selection while this is true; a
- * failed transfer also offers a retry.
- */
-export const ownershipMigrationBlocksSelection = (
-  migration: OwnershipMigrationStatus,
-): boolean =>
-  migration?.status === "pending" ||
-  migration?.status === "running" ||
-  migration?.status === "failed";
-
-/**
- * The caller's latest account-link transfer, as the destination owner. Shared
- * by `auth_migration:getMyOwnershipMigrationStatus` and the shell bootstrap
- * query so the two can never disagree about what blocks conversation
- * selection. Anonymous callers never receive a transfer, so they read null.
+ * The caller's latest account-link transfer, as the destination owner.
+ * Anonymous callers never receive a transfer, so they read null.
  */
 export const readMyOwnershipMigrationStatus = async (
   ctx: QueryCtx,

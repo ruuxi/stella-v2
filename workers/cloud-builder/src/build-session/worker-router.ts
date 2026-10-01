@@ -55,11 +55,6 @@ import {
 import { withBrowserCors } from "../browser-cors.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
-import { parseConversationEditRequest } from "../conversation-edit-protocol.js";
-import {
-  conversationEditErrorResponse,
-  runConversationEdit,
-} from "../conversation-edit-runner.js";
 import {
   HEADER_ISSUER,
   HEADER_OWNER,
@@ -140,7 +135,6 @@ import {
   purgeOwnerStorage,
   transferControl,
   transferOwnerProductStorage,
-  withOwnerActivityLease,
   yieldTransferCoordinator,
 } from "./owner-purge-transfer.js";
 import { retireSandboxInstance } from "./session-sandbox.js";
@@ -1428,32 +1422,6 @@ const router = {
             },
             409,
           );
-    }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/conversation-edits/run"
-    ) {
-      const edit = parseConversationEditRequest(
-        await request.json().catch(() => null),
-      );
-      if (!edit) {
-        return json(
-          { code: "bad_request", message: "Malformed conversation edit." },
-          400,
-        );
-      }
-      try {
-        const result = await withOwnerActivityLease(
-          env,
-          edit.ownerId,
-          edit.ownerGeneration,
-          `conversation-edit:${edit.operationId}`,
-          async () => await runConversationEdit(env, edit),
-        );
-        return json(result, result.complete ? 200 : 202);
-      } catch (error) {
-        return conversationEditErrorResponse(error);
-      }
     }
     const ownerTransferMatch = url.pathname.match(
       /^\/internal\/conversations\/([^/]+)\/transfer-owner$/,

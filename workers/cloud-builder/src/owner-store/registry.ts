@@ -16,6 +16,10 @@ import type {
   ViewResult,
 } from "@stella/contracts/backend/api";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import type {
+  ConversationEditRequest,
+  ConversationEditResult,
+} from "../conversation-edit-protocol.js";
 import type { Parser } from "./args.js";
 
 /** The verified user behind a request. `null` for jobs and internal calls. */
@@ -75,6 +79,11 @@ export type OwnerHost = {
     sourceTurnId: string;
     card: unknown;
   }): Promise<void>;
+  /**
+   * One bounded pass of a fork or rewind across the orchestrators, under an
+   * owner activity lease. Throws `RpcError` when an orchestrator refuses.
+   */
+  runConversationEdit(request: ConversationEditRequest): Promise<ConversationEditResult>;
 };
 
 export type AgentTurnDispatch = {

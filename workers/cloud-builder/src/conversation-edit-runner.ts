@@ -14,7 +14,8 @@ export type ConversationEditWorkerEnv = {
 
 type JsonResponse = Record<string, unknown>;
 
-class ConversationEditHttpError extends Error {
+/** An orchestrator refused a step; `status` and `body` are its response. */
+export class ConversationEditHttpError extends Error {
   constructor(
     readonly status: number,
     readonly body: JsonResponse,
@@ -145,7 +146,7 @@ const rewind = async (
   );
 };
 
-/** One bounded, resumable pass. Convex retries the same operation id. */
+/** One bounded, resumable pass. The owner object retries the same operation id. */
 export const runConversationEdit = async (
   env: ConversationEditWorkerEnv,
   request: ConversationEditRequest,
@@ -153,19 +154,3 @@ export const runConversationEdit = async (
   request.kind === "fork"
     ? await fork(env, request)
     : await rewind(env, request);
-
-export const conversationEditErrorResponse = (error: unknown): Response => {
-  if (error instanceof ConversationEditHttpError) {
-    return Response.json(error.body, {
-      status: error.status,
-      headers: { "cache-control": "no-store" },
-    });
-  }
-  return Response.json(
-    {
-      code: "conversation_edit_failed",
-      message: error instanceof Error ? error.message : String(error),
-    },
-    { status: 503, headers: { "cache-control": "no-store" } },
-  );
-};

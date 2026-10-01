@@ -138,18 +138,6 @@ const purgeFunctions = internal as unknown as {
       { ownerId: string; now: number },
       { ready: boolean; nextCheckAt?: number }
     >;
-    deleteConfirmedConversationEditInternal: FunctionReference<
-      "mutation",
-      "internal",
-      Fence & {
-        ref: {
-          id: Id<"cloud_conversation_edits">;
-          editOperationId: string;
-          targetConversationId?: string;
-        };
-      },
-      boolean
-    >;
     remainingOwnerStoresInternal: FunctionReference<
       "query",
       "internal",
@@ -806,61 +794,6 @@ describe("owner purge adversarial invariants", () => {
       ),
     ).toBe(true);
     expect(await t.run(async (ctx) => ctx.db.get(id))).toBeNull();
-  });
-
-  it("tracks Fork targets as strict external handshake debt", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(t, "edit-owner", "delete", "cloud");
-    const id = await t.run(async (ctx) =>
-      ctx.db.insert("cloud_conversation_edits", {
-        operationId: "edit-operation",
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        requestId: "edit-request-0001",
-        fingerprint: "fingerprint",
-        kind: "fork",
-        state: "preparing",
-        sourceConversationId: "source-conversation",
-        targetConversationId: "target-conversation",
-        throughSeq: 1,
-        expectedEpoch: 1,
-        expectedLastSeq: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
-    );
-    expect(
-      await t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).toContain("cloud_conversation_edits");
-    expect(
-      await t.mutation(
-        purgeFunctions.cloud_purge.deleteConfirmedConversationEditInternal,
-        {
-          ...fence,
-          ref: {
-            id,
-            editOperationId: "edit-operation",
-            targetConversationId: "wrong-target",
-          },
-        },
-      ),
-    ).toBe(false);
-    expect(await t.run(async (ctx) => ctx.db.get(id))).not.toBeNull();
-    expect(
-      await t.mutation(
-        purgeFunctions.cloud_purge.deleteConfirmedConversationEditInternal,
-        {
-          ...fence,
-          ref: {
-            id,
-            editOperationId: "edit-operation",
-            targetConversationId: "target-conversation",
-          },
-        },
-      ),
-    ).toBe(true);
   });
 
   it("uses exact-key CAS and retains live presigned upload locators", async () => {

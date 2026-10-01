@@ -3781,42 +3781,6 @@ export const listCloudConversationTransferBatch = internalQuery({
   returns: cloudTransferBatchReturn,
   handler: async (ctx, args) => {
     if (args.fromOwnerId === args.toOwnerId) return [];
-    // An in-progress fork has already bound its target DO before the target is
-    // published in `cloud_conversations`. Its owner-indexed edit receipt is
-    // therefore the only locator migration can use. Transfer every such target
-    // before ordinary source conversations; the commit mutation moves the
-    // locator to the destination generation only after this DO handshake.
-    const editTarget = (
-      await ctx.db
-        .query("cloud_conversation_edits")
-        .withIndex("by_ownerId_and_targetConversationId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId).gt("targetConversationId", ""),
-        )
-        .take(1)
-    )[0];
-    if (editTarget?.targetConversationId) {
-      const [conversation, tombstone] = await Promise.all([
-        ctx.db
-          .query("cloud_conversations")
-          .withIndex("by_conversationId", (q) =>
-            q.eq("conversationId", editTarget.targetConversationId!),
-          )
-          .unique(),
-        ctx.db
-          .query("cloud_conversation_tombstones")
-          .withIndex("by_conversationId", (q) =>
-            q.eq("conversationId", editTarget.targetConversationId!),
-          )
-          .unique(),
-      ]);
-      return [
-        {
-          conversationId: editTarget.targetConversationId,
-          deleted: conversation?.deletedAt !== undefined || tombstone !== null,
-          purged: conversation?.purgedAt !== undefined || tombstone !== null,
-        },
-      ];
-    }
     const conversations = await ctx.db
       .query("cloud_conversations")
       .withIndex("by_ownerId_and_updatedAt", (q) =>
@@ -5642,55 +5606,6 @@ export const finishOwnershipMigrationPass = internalMutation({
 });
 
 /**
- * Moves edit control-plane locators only after the corresponding DO owner
- * transfer acknowledged. Target locators are ordered before source
- * conversations by `listCloudConversationTransferBatch`, so a partial fork's
- * target cannot be stranded under the anonymous owner while its receipt moves.
- */
-const migrateConversationEditLocators = async (
-  ctx: MutationCtx,
-  args: OwnerIds & { conversationId: string; toOwnerGeneration: string },
-): Promise<{ sourceHasMore: boolean }> => {
-  const [targets, sources] = await Promise.all([
-    ctx.db
-      .query("cloud_conversation_edits")
-      .withIndex("by_targetConversationId_and_ownerId_and_updatedAt", (q) =>
-        q
-          .eq("targetConversationId", args.conversationId)
-          .eq("ownerId", args.fromOwnerId),
-      )
-      .take(CLOUD_PROJECTION_BATCH_SIZE),
-    ctx.db
-      .query("cloud_conversation_edits")
-      .withIndex("by_sourceConversationId_and_ownerId_and_updatedAt", (q) =>
-        q
-          .eq("sourceConversationId", args.conversationId)
-          .eq("ownerId", args.fromOwnerId),
-      )
-      .take(CLOUD_PROJECTION_BATCH_SIZE),
-  ]);
-  // Source-side locators with a fork target are migrated by the target pass
-  // above. Rewind receipts have no target and follow their sole source DO.
-  const sourceOnly = sources.filter(
-    (row) => row.targetConversationId === undefined,
-  );
-  await Promise.all(
-    [...targets, ...sourceOnly].map((row) =>
-      ctx.db.patch(row._id, {
-        ownerId: args.toOwnerId,
-        ownerGeneration: args.toOwnerGeneration,
-        updatedAt: Date.now(),
-      }),
-    ),
-  );
-  return {
-    sourceHasMore:
-      sources.length === CLOUD_PROJECTION_BATCH_SIZE &&
-      sourceOnly.length === CLOUD_PROJECTION_BATCH_SIZE,
-  };
-};
-
-/**
  * Moves a turn's durable event stream before the parent turn is re-owned.
  * The owner-qualified index is essential for retry progress: once one page is
  * patched, destination rows cannot remain at the front and starve later source
@@ -5752,12 +5667,6 @@ export const commitCloudConversationTransferBatch = internalMutation({
       );
       return result;
     };
-    const editLocators = await migrateConversationEditLocators(ctx, {
-      fromOwnerId: args.fromOwnerId,
-      toOwnerId: args.toOwnerId,
-      conversationId: args.conversationId,
-      toOwnerGeneration: migration.toOwnerGeneration!,
-    });
     const conversation = await ctx.db
       .query("cloud_conversations")
       .withIndex("by_conversationId", (q) =>
@@ -5769,9 +5678,6 @@ export const commitCloudConversationTransferBatch = internalMutation({
     }
     if (conversation.ownerId !== args.fromOwnerId) {
       throw new Error("Cloud conversation ownership changed unexpectedly.");
-    }
-    if (editLocators.sourceHasMore) {
-      return await finish({ complete: false, progressed: true });
     }
 
     const turn = (
@@ -5856,13 +5762,7 @@ export const commitDeletedCloudConversationTransfer = internalMutation({
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    await migrateConversationEditLocators(ctx, {
-      fromOwnerId: args.fromOwnerId,
-      toOwnerId: args.toOwnerId,
-      conversationId: args.conversationId,
-      toOwnerGeneration: migration.toOwnerGeneration!,
-    });
+    await requireActiveOwnershipMigrationLease(ctx, args);
     const conversation = await ctx.db
       .query("cloud_conversations")
       .withIndex("by_conversationId", (q) =>
@@ -7705,15 +7605,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         "cloud_conversations",
         await ctx.db
           .query("cloud_conversations")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_conversation_edits",
-        await ctx.db
-          .query("cloud_conversation_edits")
           .withIndex("by_ownerId_and_updatedAt", (q) =>
             q.eq("ownerId", ownerId),
           )

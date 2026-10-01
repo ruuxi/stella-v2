@@ -83,7 +83,6 @@ export const serviceJsonBodyLimit = (
     return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
   }
   if (
-    pathname === "/internal/conversation-edits/run" ||
     pathname === "/internal/owners/transfer-product-state" ||
     pathname === "/internal/owners/transfer-ack" ||
     /^\/internal\/conversations\/[^/]+\/transfer-owner$/u.test(pathname)

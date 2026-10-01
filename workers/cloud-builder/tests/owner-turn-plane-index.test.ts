@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import { DispatchError } from "../src/owner-store/registry.js";
 import {
+  completeConversationEdit,
   createOwnerStoreHarness,
   OWNER_ID,
   type OwnerStoreHarness,
@@ -106,6 +107,86 @@ describe("conversations", () => {
     });
     expect(second.conversations.map((row: any) => row.createdAt)).toEqual([1_002, 1_001, 1_000]);
     expect(second.hasMore).toBe(false);
+  });
+});
+
+describe("fork and rewind", () => {
+  const forkArgs = { sourceConversationId: CONV, throughSeq: 3, expectedEpoch: 1, expectedLastSeq: 5, requestId: "fork-request-1" };
+  const rewindArgs = { conversationId: CONV, throughSeq: 3, expectedEpoch: 1, expectedLastSeq: 5, requestId: "rewind-request-1", activeTurnPolicy: "conflict" };
+
+  beforeEach(async () => {
+    await h.outbox([created(), indexEvent({ epoch: 1, lastSeq: 5, updatedAt: 2_000, lastPreview: "five" })]);
+  });
+
+  test("fork publishes a new conversation and replays by request id", async () => {
+    const recent = await h.watch("conversations.recent", {});
+    const fork = await h.call("conversations.fork", forkArgs);
+    expect(fork).toMatchObject({ sourceEpoch: 1, throughSeq: 3, targetEpoch: 1, lastSeq: 3, replayed: false });
+    expect(fork.conversationId).not.toBe(CONV);
+    expect(h.host.edits).toEqual([
+      expect.objectContaining({
+        kind: "fork",
+        ownerId: OWNER_ID,
+        ownerGeneration: GEN,
+        sourceConversationId: CONV,
+        targetConversationId: fork.conversationId,
+        title: "Plan the trip",
+        sourceCreatedAt: 1_000,
+      }),
+    ]);
+    expect(recent().map((row: any) => row.conversationId)).toEqual([fork.conversationId, CONV]);
+    expect(recent()[0]).toMatchObject({ title: "Plan the trip", lastPreview: "kept", activity: "idle" });
+
+    expect(await h.call("conversations.fork", forkArgs)).toEqual({ ...fork, replayed: true });
+    expect(h.host.edits).toHaveLength(1);
+    expect(await h.callError("conversations.fork", { ...forkArgs, throughSeq: 2 })).toMatchObject({ code: "CONFLICT" });
+  });
+
+  test("an unfinished fork resumes the same target on retry", async () => {
+    h.editResponder = (request) => {
+      if (request.kind !== "fork") throw new Error("expected a fork");
+      return { complete: false, kind: "fork", operationId: request.operationId, sourceConversationId: CONV, targetConversationId: request.targetConversationId, sourceEpoch: 1, throughSeq: 3, targetEpoch: 1, lastSeq: 1, pendingAtSeq: 2 };
+    };
+    expect(await h.callError("conversations.fork", forkArgs)).toMatchObject({ code: "UNAVAILABLE" });
+    const target = h.host.edits[0]!.kind === "fork" ? h.host.edits[0]!.targetConversationId : "";
+    expect(new Set(h.host.edits.map((edit) => edit.kind === "fork" && edit.targetConversationId))).toEqual(new Set([target]));
+
+    h.editResponder = completeConversationEdit;
+    expect(await h.call("conversations.fork", forkArgs)).toMatchObject({ conversationId: target, replayed: false });
+  });
+
+  test("rewind advances the epoch and a late flush from the cut suffix can't undo it", async () => {
+    const get = await h.watch("conversations.get", { conversationId: CONV });
+    const rewind = await h.call("conversations.rewind", rewindArgs);
+    expect(rewind).toEqual({ conversationId: CONV, previousEpoch: 1, nextEpoch: 2, lastSeq: 3, replayed: false });
+    expect(h.host.edits).toEqual([expect.objectContaining({ kind: "rewind", conversationId: CONV, activeTurnPolicy: "conflict" })]);
+    expect(get()).toMatchObject({ lastPreview: "kept", lastRole: "user", activity: "idle" });
+
+    await h.outbox([indexEvent({ epoch: 1, lastSeq: 6, updatedAt: 9_000, lastPreview: "cut" })]);
+    expect(get()).toMatchObject({ lastPreview: "kept" });
+    expect(await h.call("conversations.rewind", rewindArgs)).toEqual({ ...rewind, replayed: true });
+  });
+
+  test("edits refuse missing conversations, bad boundaries and a stale generation", async () => {
+    expect(await h.callError("conversations.rewind", { ...rewindArgs, conversationId: "00000000-0000-4000-8000-000000000009" })).toMatchObject({ code: "NOT_FOUND" });
+    expect(await h.callError("conversations.fork", { ...forkArgs, throughSeq: 6 })).toMatchObject({ code: "BAD_REQUEST" });
+    expect(await h.callError("conversations.fork", { ...forkArgs, requestId: "short" })).toMatchObject({ code: "BAD_REQUEST" });
+
+    h.editResponder = (request) => {
+      h.snapshot = { ...h.snapshot, ownerGeneration: "generation-2" };
+      return { complete: false, kind: "rewind", operationId: request.operationId, conversationId: CONV, previousEpoch: 1, nextEpoch: 2, lastSeq: 3 };
+    };
+    expect(await h.callError("conversations.rewind", rewindArgs)).toMatchObject({ code: "CONFLICT" });
+    expect(h.host.edits).toHaveLength(1);
+  });
+
+  test("a deleted source stops the fork before it publishes", async () => {
+    h.editResponder = async (request) => {
+      await h.outbox([{ ...base("conversation.deleted", CONV), kind: "conversation.deleted", conversationId: CONV, deletedAt: 3_000 }]);
+      return completeConversationEdit(request);
+    };
+    expect(await h.callError("conversations.fork", forkArgs)).toMatchObject({ code: "NOT_FOUND" });
+    expect((await h.call("conversations.page", {})).conversations).toEqual([]);
   });
 });
 

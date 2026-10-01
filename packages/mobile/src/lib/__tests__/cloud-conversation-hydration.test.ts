@@ -144,7 +144,7 @@ describe("mobile cloud canonical hydration", () => {
           readyBootstrap({ conversationId: serverConversationId }),
         createConversation: async () => {
           createCalls += 1;
-          // createMyConversation is idempotent on mobile-placement:cloud.
+          // conversations.create is idempotent on mobile-placement:cloud.
           serverConversationId = "conversation-stable";
           return serverConversationId;
         },

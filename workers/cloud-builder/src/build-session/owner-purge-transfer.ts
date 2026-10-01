@@ -47,6 +47,7 @@ import {
   type OwnerPurgeMode,
 } from "../owner-fence-do.js";
 import type { CloudHomeLeaseRunner } from "../cloud-home-routes.js";
+import { withOwnerActivityLease } from "../owner-activity-lease.js";
 import type {
   TurnStateTransferActivationResponse,
   TurnStateTransferDestinationStatus,
@@ -122,54 +123,11 @@ export const callOwnerFence = async (
     body: JSON.stringify({ ...body, ownerId }),
   });
 
-export const withOwnerActivityLease = async <T>(
-  env: Env,
-  ownerId: string,
-  ownerGeneration: string,
-  activityId: string,
-  operation: (generation: string, leaseId: string) => Promise<T>,
-): Promise<T> => {
-  const sessionId = `activity-${activityId}`;
-  const turnId = activityId;
-  const leaseId = crypto.randomUUID();
-  // Activity leases cannot be canceled by owner purge, so every one needs a
-  // durable crash expiry. Thirty minutes leaves ample room for large world
-  // operations while guaranteeing an evicted isolate cannot wedge the owner.
-  const expiresAt = Date.now() + 30 * 60_000;
-  const registered = await callOwnerFence(env, ownerId, "register", {
-    leaseId,
-    sessionId,
-    turnId,
-    ownerGeneration,
-    namespace: "activity",
-    role: "activity",
-    expiresAt,
-  });
-  const registration = (await registered.json().catch(() => null)) as {
-    generation?: string;
-  } | null;
-  if (!registered.ok || !registration?.generation) {
-    throw new OwnerPurgeFenceError();
-  }
-  try {
-    return await operation(registration.generation, leaseId);
-  } finally {
-    await callOwnerFence(env, ownerId, "unregister", {
-      leaseId,
-      sessionId,
-      turnId,
-      ownerGeneration,
-      generation: registration.generation,
-    }).catch(() => undefined);
-  }
-};
-
 export const cloudHomeLeaseRunner =
   (env: Env): CloudHomeLeaseRunner =>
   async (ownerId, ownerGeneration, activityId, operation) =>
     await withOwnerActivityLease(
-      env,
-      ownerId,
+      (path, body) => callOwnerFence(env, ownerId, path, body),
       ownerGeneration,
       activityId,
       async (generation, leaseId) =>

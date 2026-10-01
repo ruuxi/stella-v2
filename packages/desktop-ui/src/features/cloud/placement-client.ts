@@ -218,7 +218,7 @@ const isDispatchSummary = (value: unknown): value is DispatchSummary => {
 };
 
 export type PlacementRequestBase = {
-  /** Builder origin from `getCloudRealtimeConfig`. */
+  /** The backend origin (`backendUrl`). */
   socketOrigin: string;
   /** Resolves the Better Auth JWT; `forceRefresh` bypasses every cache. */
   getToken: PlacementGetToken;

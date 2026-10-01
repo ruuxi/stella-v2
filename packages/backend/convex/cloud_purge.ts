@@ -100,10 +100,6 @@ type StoreStyle =
   | "global";
 
 const OWNER_STORES = {
-  // Fork/Rewind control receipts. A fork receipt can be the only locator for
-  // an unpublished target DO, so the target handshake must finish before the
-  // receipt row is removed.
-  cloud_conversation_edits: "handshake",
   // The conversation index. Content lives in the OrchestratorSession DO and
   // its R2 segments; `purgeConversationInternal` is the handshake.
   cloud_conversations: "handshake",
@@ -708,57 +704,6 @@ export const deleteOwnerAgentHomeBatch = internalMutation({
   },
 });
 
-// ─── Fork/Rewind control receipts ──────────────────────────────────────────
-
-const conversationEditPurgeRef = v.object({
-  id: v.id("cloud_conversation_edits"),
-  editOperationId: v.string(),
-  targetConversationId: v.optional(v.string()),
-});
-
-export const listOwnerConversationEditPurgeBatchInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.array(conversationEditPurgeRef),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("cloud_conversation_edits")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(BATCH);
-    return rows.map((row) => ({
-      id: row._id,
-      editOperationId: row.operationId,
-      ...(row.targetConversationId
-        ? { targetConversationId: row.targetConversationId }
-        : {}),
-    }));
-  },
-});
-
-/** Deletes only the exact receipt whose target was just confirmed purged. */
-export const deleteConfirmedConversationEditInternal = internalMutation({
-  args: {
-    ...purgeOperationArgs,
-    ref: conversationEditPurgeRef,
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const row = await ctx.db.get(args.ref.id);
-    if (
-      !row ||
-      row.ownerId !== args.ownerId ||
-      row.operationId !== args.ref.editOperationId ||
-      row.targetConversationId !== args.ref.targetConversationId
-    ) {
-      return false;
-    }
-    await ctx.db.delete(row._id);
-    return true;
-  },
-});
-
 /**
  * Turns cascade: each carries its event stream and any app-operation
  * invocations it created. Children go first, and the turn row is only retired
@@ -1320,16 +1265,6 @@ export const remainingOwnerStoresInternal = internalQuery({
     };
     for (const store of Object.keys(OWNER_STORES) as OwnerStore[]) {
       switch (store) {
-        case "cloud_conversation_edits":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_conversation_edits")
-              .withIndex("by_ownerId_and_updatedAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
         case "cloud_conversations":
           await check(store, () =>
             ctx.db
@@ -2146,55 +2081,7 @@ export const purgeOwnerCloudStack = internalAction({
         pending.push("cloud_integration_call_receipts");
       }
 
-      // 1. Fork/Rewind receipts. A fork target may have been created in its DO
-      // before the ordinary conversation index was published, so the receipt
-      // is the only durable locator for that external state. Purge that exact
-      // target first and retire the receipt only after the handshake succeeds.
-      let editPass = 0;
-      for (; editPass < MAX_PASSES; editPass += 1) {
-        const edits: Array<{
-          id: Id<"cloud_conversation_edits">;
-          editOperationId: string;
-          targetConversationId?: string;
-        }> = await ctx.runQuery(
-          internal.cloud_purge.listOwnerConversationEditPurgeBatchInternal,
-          { ownerId },
-        );
-        if (edits.length === 0) break;
-        let progressed = false;
-        for (const edit of edits) {
-          if (edit.targetConversationId) {
-            await assertCloudLease();
-            const result: { purged: boolean } = await ctx.runAction(
-              internal.cloud_conversation_edits
-                .purgeConversationEditTargetInternal,
-              {
-                ...fence,
-                editOperationId: edit.editOperationId,
-                targetConversationId: edit.targetConversationId,
-              },
-            );
-            if (!result.purged) continue;
-          }
-          const deleted: boolean = await ctx.runMutation(
-            internal.cloud_purge.deleteConfirmedConversationEditInternal,
-            { ...fence, ref: edit },
-          );
-          progressed ||= deleted;
-        }
-        if (!progressed) {
-          pending.push("cloud_conversation_edits");
-          break;
-        }
-      }
-      if (editPass === MAX_PASSES) {
-        pending.push("cloud_conversation_edits");
-        logPurge("owner_conversation_edit_drain_truncated", {
-          passes: MAX_PASSES,
-        });
-      }
-
-      // 2. Conversations. Each is a handshake with its DO.
+      // 1. Conversations. Each is a handshake with its DO.
       let pass = 0;
       for (; pass < MAX_PASSES; pass += 1) {
         const rows: Array<{ conversationId: string; purged: boolean }> =

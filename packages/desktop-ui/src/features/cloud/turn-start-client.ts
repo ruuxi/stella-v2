@@ -261,7 +261,7 @@ const isStartResponse = (
 };
 
 export type StartCloudTurnArgs = {
-  /** Builder origin from `getCloudRealtimeConfig`, e.g. `https://build.example`. */
+  /** The backend origin (`backendUrl`), e.g. `https://build.example`. */
   socketOrigin: string;
   conversationId: string;
   request: CloudTurnStartRequest;

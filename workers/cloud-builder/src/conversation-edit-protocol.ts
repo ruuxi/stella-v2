@@ -1,10 +1,8 @@
 /**
- * Service-only protocol for canonical conversation edits.
- *
- * The public client talks to Convex. Convex derives the owner from auth,
- * captures the current owner-data generation, and sends one of these requests
- * to the builder with the service secret. The worker validates it again before
- * addressing either Durable Object.
+ * The protocol between the owner object and the orchestrators for canonical
+ * conversation edits. `OwnerGate` reserves the operation in the owner's
+ * database and drives these requests; each orchestrator validates them again
+ * before touching its journal.
  */
 
 export const CONVERSATION_EDIT_LOCK_KEY = "conversationEditLock";
@@ -130,7 +128,7 @@ const safeInteger = (value: unknown, minimum: number): number | null =>
     ? value
     : null;
 
-/** Fail-closed parsing for the service-secret builder route. */
+/** Fail-closed parsing for the orchestrator edit routes. */
 export const parseConversationEditRequest = (
   value: unknown,
 ): ConversationEditRequest | null => {

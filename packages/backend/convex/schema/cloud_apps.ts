@@ -5,24 +5,12 @@ import { executionPlacementValidator } from "./execution_placement";
 import { cloudExecutionSelectionValidator } from "../lib/cloud_execution";
 
 export const cloudAppsSchema = {
-  // The conversation INDEX, not the conversation. Message content lives in the
-  // OrchestratorSession Durable Object's SQLite and nowhere else; this table
-  // exists because a per-conversation DO cannot answer "list my conversations".
-  //
-  // The rule: everything below the marker is a DO-owned projection. Nothing in
-  // Convex may read a DO-owned field and act on it as truth — they exist to
-  // order and label a sidebar row, and a stale one costs a stale label.
-  // `upsertConversationIndexInternal` is the ordinary projection writer,
-  // fenced on (epoch, lastSeq). The one control-plane exception is the atomic
-  // publish/rewind commit in `cloud_conversation_edits`: a fork identity is
-  // inserted only after its target journal is complete, and rewind advances
-  // the epoch before stale flushes can be accepted.
-  //
-  // Honest limit: conversation IDENTITY is not rebuildable from the DO tier —
-  // Cloudflare has no "list the DOs in a namespace" API. So
-  // {conversationId, ownerId, createdAt} is Convex-authoritative and mirrored
-  // into the DO's `meta` on first contact; a total loss of this table is
-  // recoverable only from a Convex backup, not from the DOs.
+  // A projection of the owner's conversation index, fed by the turn outbox.
+  // Clients read the index from the owner object (`OwnerGate`); this copy
+  // stays only for the Convex modules that still look conversations up
+  // (purge, browser interactions, placement), and goes with them.
+  // `upsertConversationIndexInternal` is the writer, fenced on
+  // (epoch, lastSeq).
   cloud_conversations: defineTable({
     conversationId: v.string(),
     ownerId: v.string(),

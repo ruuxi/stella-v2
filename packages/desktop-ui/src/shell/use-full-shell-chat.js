@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAction } from "convex/react";
 import { deriveComposerState } from "@/features/chat/composer-context";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useConversationActivity } from "@/features/chat/hooks/use-conversation-activity";
@@ -37,7 +36,7 @@ import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
-import { cloudApi } from "@/features/cloud/cloud-api";
+import { backendClient } from "@/platform/backend/backend-client";
 import { cloudPrefixBoundaryForUserMessage } from "@/features/cloud/use-cloud-chat-bridge";
 import { conversationStore } from "@/features/cloud/conversation-store";
 import { markCloudConversationCreated } from "@/features/cloud/cloud-conversation-selection";
@@ -111,6 +110,11 @@ export const cloudConversationEditFailureMessage = (error, fallback) => {
   }
   return fallback;
 };
+const forkCloudConversation = (args) =>
+  backendClient.call("conversations.fork", args);
+const rewindCloudConversation = (args) =>
+  backendClient.call("conversations.rewind", args);
+
 export function useFullShellChat({
   activeConversationId,
   isOnChatRoute,
@@ -121,8 +125,6 @@ export function useFullShellChat({
   const { accountScope } = useCloudConversationSession();
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
-  const forkCloudConversation = useAction(cloudApi.forkMyConversation);
-  const rewindCloudConversation = useAction(cloudApi.rewindMyConversation);
   // Message state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
   // flushes the render that carries the appended transcript — a ref synced in

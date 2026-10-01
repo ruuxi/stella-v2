@@ -32,7 +32,7 @@ import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDb, OwnerDbReader, OwnerDomain } from "../registry.js";
 
-type ConversationRow = {
+export type ConversationRow = {
   conversation_id: string;
   title: string;
   created_at: number;
@@ -73,12 +73,12 @@ export const CONVERSATIONS_MIGRATION = {
   ],
 };
 
-const CONVERSATION_ID_PATTERN =
+export const CONVERSATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CLIENT_CREATE_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
+export const CLIENT_CREATE_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
 const MAX_PAGE = 50;
 
-const clip = (value: string, max: number): string =>
+export const clip = (value: string, max: number): string =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
 const summary = (row: ConversationRow, ownerId: string): ConversationSummary => ({
@@ -94,7 +94,7 @@ const summary = (row: ConversationRow, ownerId: string): ConversationSummary => 
     : {}),
 });
 
-const readConversation = (db: OwnerDbReader, conversationId: string): ConversationRow | null =>
+export const readConversation = (db: OwnerDbReader, conversationId: string): ConversationRow | null =>
   db.one<ConversationRow>(
     "SELECT * FROM conversations WHERE conversation_id = ?",
     conversationId,

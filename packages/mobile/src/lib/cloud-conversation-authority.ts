@@ -29,7 +29,7 @@ export class CloudAuthorityError extends Error {
   }
 }
 
-/** `cloud_apps:getMyChatBootstrap`: everything the chat needs, in one read. */
+/** Everything the chat needs, in one read (`conversations.bootstrap`). */
 export type CloudChatBootstrap =
   | { status: "identity_pending" }
   | {

@@ -88,42 +88,6 @@ export const cloudApi = {
     Record<string, never>,
     { origin: string }
   >("gateway_capabilities:getModelGatewayConfig"),
-  forkMyConversation: makeFunctionReference<
-    "action",
-    {
-      sourceConversationId: string;
-      throughSeq: number;
-      expectedEpoch: number;
-      expectedLastSeq: number;
-      requestId: string;
-    },
-    {
-      conversationId: string;
-      sourceEpoch: number;
-      throughSeq: number;
-      targetEpoch: number;
-      lastSeq: number;
-      replayed: boolean;
-    }
-  >("cloud_conversation_edits:forkMyConversation"),
-  rewindMyConversation: makeFunctionReference<
-    "action",
-    {
-      conversationId: string;
-      throughSeq: number;
-      expectedEpoch: number;
-      expectedLastSeq: number;
-      requestId: string;
-      activeTurnPolicy: "conflict" | "cancel";
-    },
-    {
-      conversationId: string;
-      previousEpoch: number;
-      nextEpoch: number;
-      lastSeq: number;
-      replayed: boolean;
-    }
-  >("cloud_conversation_edits:rewindMyConversation"),
   listMyEngineConnections: makeFunctionReference<
     "query",
     Record<string, never>,

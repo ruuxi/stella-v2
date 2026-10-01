@@ -157,8 +157,8 @@ describe("cloud chat bridge authority", () => {
       path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
       "utf8",
     );
-    expect(source).toContain("useAction(cloudApi.forkMyConversation)");
-    expect(source).toContain("useAction(cloudApi.rewindMyConversation)");
+    expect(source).toContain('backendClient.call("conversations.fork", args)');
+    expect(source).toContain('backendClient.call("conversations.rewind", args)');
     expect(source).toContain("expectedEpoch: head.epoch");
     expect(source).toContain("expectedLastSeq: head.headSeq");
     expect(source).toContain('activeTurnPolicy: "conflict"');

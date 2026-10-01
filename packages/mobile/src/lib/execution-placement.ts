@@ -75,7 +75,7 @@ export type AutomaticExecutionDispatch = {
 
 export type SubmitAutomaticExecutionInput = AutomaticExecutionAdmissionInput & {
   access?: StoredPhoneAccess;
-  /** Overrides the cached `getCloudRealtimeConfig().httpOrigin`. */
+  /** Overrides the backend origin from `EXPO_PUBLIC_STELLA_BACKEND_URL`. */
   builderOrigin?: string | null;
 };
 

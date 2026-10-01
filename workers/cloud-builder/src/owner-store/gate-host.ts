@@ -10,8 +10,15 @@ import {
   CloudAgentDispatchRefused,
   dispatchCloudAgentTurn,
 } from "../cloud-agent-dispatch.js";
+import { OwnerPurgeFenceError } from "../build-session/shared/errors.js";
+import {
+  ConversationEditHttpError,
+  runConversationEdit,
+} from "../conversation-edit-runner.js";
+import { withOwnerActivityLease, type OwnerFenceCaller } from "../owner-activity-lease.js";
 import { enqueueOutbox } from "../outbox.js";
 import type { OwnerGateAdmission, OwnerGateAdmitInput } from "../owner-gate.js";
+import { RpcError } from "./errors.js";
 import { DispatchError, type AgentTurnDispatch, type OwnerHost } from "./registry.js";
 
 type GateHostEnv = Pick<
@@ -26,6 +33,8 @@ export type GateHostDependencies = {
   snapshot: () => Promise<OwnerSnapshot>;
   admit: (input: OwnerGateAdmitInput) => Promise<OwnerGateAdmission>;
   release: (input: { turnId: string }) => Promise<void>;
+  /** This object's owner fence, called in-process. */
+  fence: OwnerFenceCaller;
   log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
 };
 
@@ -125,6 +134,28 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
         conversationId: input.conversationId,
         message: error instanceof Error ? error.message : String(error),
       });
+    }
+  },
+
+  async runConversationEdit(request) {
+    try {
+      return await withOwnerActivityLease(
+        (path, body) => deps.fence(path, { ...body, ownerId: deps.ownerId() }),
+        request.ownerGeneration,
+        `conversation-edit:${request.operationId}`,
+        async () => await runConversationEdit(deps.env, request),
+      );
+    } catch (error) {
+      if (error instanceof ConversationEditHttpError) {
+        throw new RpcError(
+          error.status === 409 ? "CONFLICT" : error.status === 404 ? "NOT_FOUND" : "UNAVAILABLE",
+          error.message,
+        );
+      }
+      if (error instanceof OwnerPurgeFenceError) {
+        throw new RpcError("CONFLICT", "Your cloud data is being reset. Try again in a moment.");
+      }
+      throw error;
     }
   },
 });

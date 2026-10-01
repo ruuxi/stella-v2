@@ -9,6 +9,10 @@ import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import { openSqlStorageFake, type SqlStorageFake } from "../fixtures/sql-storage.js";
 import { installWebSocketPair, type FakeSocket } from "./owner-gate-harness.js";
 import { sampleOwnerSnapshot } from "./turn-plane-fakes.js";
+import type {
+  ConversationEditRequest,
+  ConversationEditResult,
+} from "../../src/conversation-edit-protocol.js";
 import { ownerRegistry } from "../../src/owner-store/domains.js";
 import { applyOwnerOutbox } from "../../src/owner-store/outbox-apply.js";
 import type {
@@ -27,6 +31,7 @@ export type HostCalls = {
   dispatched: AgentTurnDispatch[];
   canceled: Array<Parameters<OwnerHost["cancelAgentTurn"]>[0]>;
   cards: Array<Parameters<OwnerHost["postConversationCard"]>[0]>;
+  edits: ConversationEditRequest[];
 };
 
 export type OwnerStoreHarness = {
@@ -37,6 +42,8 @@ export type OwnerStoreHarness = {
   /** Next `dispatchAgentTurn` outcome; undefined succeeds. */
   dispatchOutcome: Error | undefined;
   cancelOutcome: "canceled" | "changed";
+  /** Answers `runConversationEdit`; defaults to the orchestrators finishing in one pass. */
+  editResponder: (request: ConversationEditRequest) => ConversationEditResult | Promise<ConversationEditResult>;
   caller(overrides?: Partial<OwnerCaller>): OwnerCaller;
   call<T = any>(name: string, args: unknown, caller?: OwnerCaller): Promise<T>;
   callError(name: string, args: unknown, caller?: OwnerCaller): Promise<{ code: string; message: string; reason?: string }>;
@@ -56,7 +63,7 @@ export const createOwnerStoreHarness = (
     ...sampleOwnerSnapshot({ ownerId: OWNER_ID }),
     ...options.snapshot,
   } as OwnerSnapshot;
-  const host: HostCalls = { dispatched: [], canceled: [], cards: [] };
+  const host: HostCalls = { dispatched: [], canceled: [], cards: [], edits: [] };
   const harness = {} as OwnerStoreHarness;
   const ownerHost: OwnerHost = {
     snapshot: async () => harness.snapshot,
@@ -72,6 +79,10 @@ export const createOwnerStoreHarness = (
     },
     postConversationCard: async (input) => {
       host.cards.push(input);
+    },
+    runConversationEdit: async (request) => {
+      host.edits.push(request);
+      return await harness.editResponder(request);
     },
   };
   const store = new OwnerStore({
@@ -107,6 +118,7 @@ export const createOwnerStoreHarness = (
     host,
     dispatchOutcome: undefined,
     cancelOutcome: "canceled",
+    editResponder: completeConversationEdit,
     caller,
     async call(name: string, args: unknown, who = caller()) {
       const response = await store.call(name, args, who);
@@ -146,3 +158,31 @@ export const createOwnerStoreHarness = (
   } satisfies Partial<OwnerStoreHarness>);
   return harness;
 };
+
+/** What the orchestrators answer when an edit finishes in one pass. */
+export const completeConversationEdit = (request: ConversationEditRequest): ConversationEditResult =>
+  request.kind === "fork"
+    ? {
+        complete: true,
+        kind: "fork",
+        operationId: request.operationId,
+        sourceConversationId: request.sourceConversationId,
+        targetConversationId: request.targetConversationId,
+        sourceEpoch: request.expectedEpoch,
+        throughSeq: request.throughSeq,
+        targetEpoch: 1,
+        lastSeq: request.throughSeq,
+        lastPreview: "kept",
+        lastRole: "assistant",
+      }
+    : {
+        complete: true,
+        kind: "rewind",
+        operationId: request.operationId,
+        conversationId: request.conversationId,
+        previousEpoch: request.expectedEpoch,
+        nextEpoch: request.expectedEpoch + 1,
+        lastSeq: request.throughSeq,
+        lastPreview: "kept",
+        lastRole: "user",
+      };

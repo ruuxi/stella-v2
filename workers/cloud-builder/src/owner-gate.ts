@@ -935,6 +935,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       snapshot: () => this.snapshot(),
       admit: (input) => this.admit(input),
       release: (input) => this.release(input),
+      fence: (path, body) => this.ownerFenceCall(path, body),
       log,
     });
   }

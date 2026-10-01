@@ -8,7 +8,9 @@ import { convexSiteBase } from "./convex-site.js";
 import { verifyConvexToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
 import { ownerRegistry } from "./owner-store/domains.js";
-import type { OwnerCaller, OwnerRegistry } from "./owner-store/registry.js";
+import type { OwnerCaller, OwnerHost, OwnerRegistry } from "./owner-store/registry.js";
+import { createGateHost } from "./owner-store/gate-host.js";
+import { applyOwnerOutbox } from "./owner-store/outbox-apply.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
   HEADER_ANONYMOUS,
@@ -921,9 +923,20 @@ const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
 export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
   private ownerStoreState?: OwnerStore;
+  private ownerHostState?: OwnerHost;
   /** The domains this object serves. Test fixtures substitute their own. */
   protected backendRegistry(): OwnerRegistry {
     return ownerRegistry;
+  }
+  private ownerHost(): OwnerHost {
+    return this.ownerHostState ??= createGateHost({
+      ownerId: () => this.ownerId(),
+      env: this.env as unknown as Cloudflare.Env,
+      snapshot: () => this.snapshot(),
+      admit: (input) => this.admit(input),
+      release: (input) => this.release(input),
+      log,
+    });
   }
   /** The owner's database: backend calls, live views and jobs. */
   ownerStore(): OwnerStore {
@@ -932,6 +945,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       env: this.env as unknown as Cloudflare.Env,
       ownerId: () => this.ownerId(),
       registry: this.backendRegistry(),
+      host: this.ownerHost(),
       verifyToken: async (token) => {
         const issuer = convexSiteBase(this.env);
         if (!issuer) return null;
@@ -940,6 +954,44 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       },
       log,
     });
+  }
+
+  /**
+   * This owner's share of a `TURN_OUTBOX` batch: the conversation and
+   * agent-thread index, plus the terminal receipts mobile polls. Events from
+   * another owner or an owner generation since reset are dropped. Throws only
+   * when the batch should be redelivered.
+   */
+  async applyOutboxEvents(events: OutboxEvent[]): Promise<void> {
+    const ownerId = this.ownerId();
+    let generation: string | null = null;
+    try {
+      generation = (await this.snapshot()).ownerGeneration;
+    } catch {
+      // Without a snapshot the events still land; a reset is rare and its
+      // fences catch anything that matters.
+    }
+    const current = events.filter(
+      (event) =>
+        event.ownerId === ownerId &&
+        (generation === null || event.ownerGeneration === generation),
+    );
+    const store = this.ownerStore();
+    const effects = applyOwnerOutbox(store.context(null).db, current);
+    store.flush();
+    for (const event of current) {
+      if (event.kind !== "turn.event" || !event.terminal) continue;
+      const outcome = event.terminalStatus;
+      if (outcome !== "completed" && outcome !== "failed" && outcome !== "canceled") continue;
+      await this.recordCloudDispatchTerminal({
+        ownerGeneration: event.ownerGeneration,
+        turnId: event.turnId,
+        outcome,
+        ...(event.resultJson ? { resultJson: event.resultJson } : {}),
+        ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+      });
+    }
+    for (const card of effects.cards) await this.ownerHost().postConversationCard(card);
   }
 
   /** `POST /api/rpc/<name>` for owner-scoped functions, verified by the Worker. */

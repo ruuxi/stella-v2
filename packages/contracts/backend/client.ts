@@ -33,12 +33,14 @@ export class BackendRequestError extends Error {
   readonly code: BackendError["code"];
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
+  readonly reason?: string;
   constructor(error: BackendError) {
     super(error.message);
     this.name = "BackendRequestError";
     this.code = error.code;
     this.retryable = error.retryable;
     if (error.retryAfterMs !== undefined) this.retryAfterMs = error.retryAfterMs;
+    if (error.reason !== undefined) this.reason = error.reason;
   }
 }
 

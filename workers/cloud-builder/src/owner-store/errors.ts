@@ -8,10 +8,11 @@ export class RpcError extends Error {
   readonly code: BackendErrorCode;
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
+  readonly reason?: string;
   constructor(
     code: BackendErrorCode,
     message: string,
-    options: { retryable?: boolean; retryAfterMs?: number } = {},
+    options: { retryable?: boolean; retryAfterMs?: number; reason?: string } = {},
   ) {
     super(message);
     this.name = "RpcError";
@@ -22,6 +23,7 @@ export class RpcError extends Error {
     if (options.retryAfterMs !== undefined) {
       this.retryAfterMs = options.retryAfterMs;
     }
+    if (options.reason !== undefined) this.reason = options.reason;
   }
 }
 
@@ -38,6 +40,7 @@ export const toBackendError = (error: unknown): BackendError =>
         ...(error.retryAfterMs !== undefined
           ? { retryAfterMs: error.retryAfterMs }
           : {}),
+        ...(error.reason !== undefined ? { reason: error.reason } : {}),
       }
     : {
         code: "INTERNAL",

@@ -108,11 +108,13 @@ const environment = (
     snapshot: ReturnType<typeof sampleOwnerSnapshot>;
   }> = [];
   const submissions: unknown[] = [];
+  const outboxApplied: Array<{ ownerId: string; events: unknown[] }> = [];
   return {
     forwarded,
     invalidated,
     replaced,
     submissions,
+    outboxApplied,
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
       STELLA_CONVEX_SITE_URL: ISSUER,
@@ -153,6 +155,9 @@ const environment = (
           },
           invalidate: async () => {
             invalidated.push(ownerId);
+          },
+          applyOutboxEvents: async (events: unknown[]) => {
+            outboxApplied.push({ ownerId, events });
           },
           replaceSnapshot: async (
             snapshot: ReturnType<typeof sampleOwnerSnapshot>,
@@ -633,6 +638,7 @@ describe("POST /internal/owners/snapshot-changed", () => {
 
 describe("queue consumer export", () => {
   test("delivers a batch to Convex and acks it", async () => {
+    const queueEnvironment = environment();
     let posted: unknown;
     let ackedAll = 0;
     const previous = globalThis.fetch;
@@ -677,12 +683,16 @@ describe("queue consumer export", () => {
           },
           retryAll: () => undefined,
         } as unknown as MessageBatch<unknown>,
-        environment().env,
+        queueEnvironment.env,
         {} as ExecutionContext,
       );
     } finally {
       globalThis.fetch = previous;
     }
+    // The owner's object gets its share before Convex does.
+    expect(queueEnvironment.outboxApplied).toEqual([
+      { ownerId: "owner-1", events: [expect.objectContaining({ kind: "turn.event", key: "k" })] },
+    ]);
     expect((posted as { events: unknown[] }).events).toHaveLength(1);
     expect(ackedAll).toBe(1);
   });

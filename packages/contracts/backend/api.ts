@@ -5,13 +5,16 @@
  * changed argument fails to compile on both sides.
  */
 
+import type { AgentThreadCalls, AgentThreadViews } from "./agent-threads.js";
+import type { ConversationCalls, ConversationViews } from "./conversations.js";
+
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
   "system.ping": { args: Record<string, never>; result: { now: number } };
 };
 
-export type BackendCalls = SystemCalls;
-export type BackendViews = Record<never, never>;
+export type BackendCalls = SystemCalls & ConversationCalls & AgentThreadCalls;
+export type BackendViews = ConversationViews & AgentThreadViews;
 
 export type CallName = keyof BackendCalls & string;
 export type ViewName = keyof BackendViews & string;

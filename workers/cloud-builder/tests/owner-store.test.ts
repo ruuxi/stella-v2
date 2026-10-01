@@ -138,6 +138,7 @@ const createHarness = (domains: OwnerDomain[] = [notesDomain]): Harness => {
     env: {} as Cloudflare.Env,
     ownerId: () => OWNER,
     registry: createOwnerRegistry(domains),
+    host: { snapshot: async () => { throw new Error("no snapshot in tests"); } },
     verifyToken: async (token) => verified.get(token) ?? null,
   });
   return {
@@ -174,6 +175,7 @@ describe("OwnerStore", () => {
       env: {} as Cloudflare.Env,
       ownerId: () => OWNER,
       registry: createOwnerRegistry([notesDomain]),
+      host: { snapshot: async () => { throw new Error("no snapshot in tests"); } },
       verifyToken: async () => null,
     });
     second.ensureSchema();

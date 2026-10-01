@@ -8,6 +8,7 @@ import {
   TURN_PLANE_PROTOCOL,
   TURN_PROMPT_MAX_CHARS,
   type CloudAgentSteerMessage,
+  type CloudAgentTurnSource,
   type CloudAgentTurnStartRequest,
   type CloudAgentTurnStartResponse,
   type CloudAgentWorkspace,
@@ -321,7 +322,8 @@ export type CloudAgentDispatchCaller = Readonly<{
   ownerId: string;
   ownerGeneration: string;
   conversationId: string;
-  parentTurnId: string;
+  /** Absent for a desktop dispatch: no cloud turn sits above it. */
+  parentTurnId?: string;
   parentThreadId?: string;
   agentDepth: number;
   workspaceForkId?: string;
@@ -337,7 +339,20 @@ export type CloudAgentDispatchAttempt = Readonly<{
   execution: CloudExecutionSelection;
   workspace?: CloudAgentWorkspace;
   workspaceForkId?: string;
+  /** Defaults to `agent-thread`; a desktop's own dispatch is `desktop`. */
+  source?: CloudAgentTurnSource;
+  /** The desktop and local conversation that receive a desktop dispatch's result. */
+  originDeviceId?: string;
+  originConversationId?: string;
 }>;
+
+/** A refusal that trying again cannot fix (admission said no, or the request was bad). */
+export class CloudAgentDispatchRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CloudAgentDispatchRefused";
+  }
+}
 
 type CloudAgentDispatchEnv = Pick<Cloudflare.Env, "BUILD_SESSIONS" | "WORLDS"> &
   Partial<Pick<Cloudflare.Env, "CLOUD_BUILDER_PUBLIC_URL">>;
@@ -419,7 +434,11 @@ export const dispatchCloudAgentTurn = async (args: {
     conversationId: caller.conversationId,
     expectedGeneration: caller.ownerGeneration,
   });
-  if (!admission.ok) throw new Error(admission.message);
+  if (!admission.ok) {
+    throw admission.retryable
+      ? new Error(admission.message)
+      : new CloudAgentDispatchRefused(admission.message);
+  }
   const ownerSnapshot = admission.snapshot;
   const release = () =>
     dependencies.releaseOwnerGate({
@@ -428,7 +447,7 @@ export const dispatchCloudAgentTurn = async (args: {
     });
   if (!snapshotAllowsExecutionEngine(ownerSnapshot, attempt.execution.engine)) {
     await release();
-    throw new Error(
+    throw new CloudAgentDispatchRefused(
       attempt.execution.engine === "anthropic"
         ? "Connect Claude before using that cloud execution route."
         : "Connect ChatGPT before using that cloud execution route.",
@@ -484,11 +503,15 @@ export const dispatchCloudAgentTurn = async (args: {
     execution: attempt.execution,
     audience: ownerSnapshot.allowance.audience,
     budgetMicroCents: ownerSnapshot.allowance.budgetMicroCents,
-    source: "agent-thread",
+    source: attempt.source ?? "agent-thread",
     clientMsgId: attempt.clientMsgId,
-    parentTurnId: caller.parentTurnId,
+    ...(caller.parentTurnId ? { parentTurnId: caller.parentTurnId } : {}),
     workspace,
     ...(workspaceForkId ? { workspaceForkId } : {}),
+    ...(attempt.originDeviceId ? { originDeviceId: attempt.originDeviceId } : {}),
+    ...(attempt.originConversationId
+      ? { originConversationId: attempt.originConversationId }
+      : {}),
   };
   let response: Response;
   try {
@@ -523,7 +546,9 @@ export const dispatchCloudAgentTurn = async (args: {
         : typeof body.message === "string"
           ? body.message
           : `Spawning the agent failed (${response.status}).`;
-    throw new Error(detail);
+    throw response.status >= 500 || response.status === 429
+      ? new Error(detail)
+      : new CloudAgentDispatchRefused(detail);
   }
   const accepted = (await response
     .json()
@@ -550,7 +575,11 @@ export const dispatchCloudAgentTurn = async (args: {
       kind: "thread.spawned",
       threadId: attempt.threadId,
       conversationId: caller.conversationId,
-      parentTurnId: caller.parentTurnId,
+      parentTurnId: caller.parentTurnId ?? attempt.turnId,
+      ...(attempt.originDeviceId ? { originDeviceId: attempt.originDeviceId } : {}),
+      ...(attempt.originConversationId
+        ? { originConversationId: attempt.originConversationId }
+        : {}),
       ...(caller.parentThreadId
         ? { parentThreadId: caller.parentThreadId }
         : {}),

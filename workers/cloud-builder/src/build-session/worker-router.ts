@@ -92,6 +92,7 @@ import {
 } from "../memory-wipe.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
 import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
+import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
   HEADER_PRESENCE_DEVICE_ID,
@@ -2332,34 +2333,24 @@ const router = {
    * `max_retries` the queue parks the batch on the dead-letter queue.
    */
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-    // Persist terminal receipts before acknowledging queue delivery. Mobile
-    // polls the owner gate, while transcript events are projected to Convex.
+    // Each owner's object applies its share first: the conversation and
+    // agent-thread index clients read, and the terminal receipts mobile polls.
+    // The batch is acknowledged only once every owner has it.
     try {
+      const byOwner = new Map<string, OutboxEvent[]>();
       for (const { body } of batch.messages) {
-        if (
-          !isOutboxEvent(body) ||
-          body.kind !== "turn.event" ||
-          !body.terminal
-        )
-          continue;
-        const outcome = body.terminalStatus;
-        if (
-          outcome !== "completed" &&
-          outcome !== "failed" &&
-          outcome !== "canceled"
-        )
-          continue;
-        await env.OWNER_GATES.getByName(
-          body.ownerId,
-        ).recordCloudDispatchTerminal({
-          ownerGeneration: body.ownerGeneration,
-          turnId: body.turnId,
-          outcome,
-          ...(body.resultJson ? { resultJson: body.resultJson } : {}),
-          ...(body.errorMessage ? { errorMessage: body.errorMessage } : {}),
-        });
+        if (!isOutboxEvent(body)) continue;
+        const events = byOwner.get(body.ownerId) ?? [];
+        events.push(body);
+        byOwner.set(body.ownerId, events);
       }
-    } catch {
+      for (const [ownerId, events] of byOwner) {
+        await env.OWNER_GATES.getByName(ownerId).applyOutboxEvents(events);
+      }
+    } catch (error) {
+      log("error", "outbox_owner_apply_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
       batch.retryAll();
       return;
     }

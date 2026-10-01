@@ -28,6 +28,7 @@ import type {
   OwnerCaller,
   OwnerContext,
   OwnerDb,
+  OwnerHost,
   OwnerJobs,
   OwnerRegistry,
   OwnerViewContext,
@@ -98,6 +99,7 @@ export type OwnerStoreOptions = {
   env: Cloudflare.Env;
   ownerId: () => string;
   registry: OwnerRegistry;
+  host: OwnerHost;
   /** Verifies a refreshed JWT sent on a live socket. */
   verifyToken: (token: string) => Promise<OwnerCaller | null>;
   log?: OwnerStoreLog;
@@ -124,6 +126,7 @@ export class OwnerStore {
   private readonly env: Cloudflare.Env;
   private readonly ownerIdOf: () => string;
   private readonly registry: OwnerRegistry;
+  private readonly host: OwnerHost;
   private readonly verifyToken: OwnerStoreOptions["verifyToken"];
   private readonly log: OwnerStoreLog;
   private schemaReady = false;
@@ -135,6 +138,7 @@ export class OwnerStore {
     this.env = options.env;
     this.ownerIdOf = options.ownerId;
     this.registry = options.registry;
+    this.host = options.host;
     this.verifyToken = options.verifyToken;
     this.log = options.log ?? (() => {});
   }
@@ -220,6 +224,7 @@ export class OwnerStore {
     this.ensureSchema();
     return {
       ownerId: this.ownerIdOf(),
+      host: this.host,
       caller,
       db: this.reader(),
       jobs: this.jobs(),

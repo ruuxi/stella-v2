@@ -15,6 +15,7 @@ import type {
   ViewName,
   ViewResult,
 } from "@stella/contracts/backend/api";
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { Parser } from "./args.js";
 
 /** The verified user behind a request. `null` for jobs and internal calls. */
@@ -47,8 +48,61 @@ export type OwnerJobs = {
   cancel(id: string): void;
 };
 
+/**
+ * What the owner object offers domains beyond its database. Grows as domains
+ * move in; the snapshot shrinks as its fields become local tables.
+ */
+export type OwnerHost = {
+  /** The owner's control-plane snapshot (plan, generation, devices). */
+  snapshot(): Promise<OwnerSnapshot>;
+  /**
+   * Start an agent attempt the domain already recorded, on its BuildSession.
+   * Throws on refusal; `retryable` says whether trying again can help.
+   */
+  dispatchAgentTurn(input: AgentTurnDispatch): Promise<void>;
+  /** Stop one exact running attempt. `changed` means it is no longer that attempt. */
+  cancelAgentTurn(input: {
+    threadId: string;
+    turnId: string;
+    attemptGeneration: number;
+    ownerGeneration: string;
+    cancelRequestId: string;
+  }): Promise<"canceled" | "changed">;
+  /** Append a card to a conversation's journal. Best effort. */
+  postConversationCard(input: {
+    conversationId: string;
+    ownerGeneration: string;
+    sourceTurnId: string;
+    card: unknown;
+  }): Promise<void>;
+};
+
+export type AgentTurnDispatch = {
+  ownerGeneration: string;
+  conversationId: string;
+  threadId: string;
+  turnId: string;
+  attemptGeneration: number;
+  clientMsgId: string;
+  description: string;
+  prompt: string;
+  execution: import("@stella/contracts/agent-engine").CloudExecutionSelection;
+  originDeviceId?: string;
+  originConversationId?: string;
+};
+
+export class DispatchError extends Error {
+  readonly retryable: boolean;
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "DispatchError";
+    this.retryable = retryable;
+  }
+}
+
 export type OwnerContext = {
   ownerId: string;
+  host: OwnerHost;
   caller: OwnerCaller | null;
   db: OwnerDb;
   jobs: OwnerJobs;

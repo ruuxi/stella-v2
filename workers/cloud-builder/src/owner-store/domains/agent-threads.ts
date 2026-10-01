@@ -1,0 +1,1241 @@
+/**
+ * The owner's agent threads: cloud agents (each a `BuildSession`) and
+ * desktop agents ("computer" placement), for Activity, the running pill,
+ * reports and the originating desktop's delivery.
+ *
+ * Cloud threads are written from two directions. A desktop's spawn, continue
+ * and cancel calls land here first and record the attempt before dispatching
+ * it; the BuildSession's outbox events (`turn.started`, `turn.event`,
+ * `thread.spawned`, `thread.completed`) then confirm it. Every write is fenced
+ * on the thread's `attempt_generation`, so a late event from an older attempt
+ * never rewrites a newer one.
+ */
+
+import type {
+  AgentThreadCalls,
+  AgentThreadControl,
+  AgentThreadSummary,
+  ComputerThreadRecord,
+  DeviceAgentThread,
+} from "@stella/contracts/backend/agent-threads";
+import {
+  AGENT_PROMPT_MAX_CHARS,
+  AGENT_THREAD_PAGE_MAX,
+  RUNNING_AGENT_THREADS_LIMIT,
+} from "@stella/contracts/backend/agent-threads";
+import { CONVERSATION_TITLE_MAX } from "@stella/contracts/backend/conversations";
+import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type {
+  ThreadCompletedEvent,
+  ThreadSpawnedEvent,
+  TurnEventEvent,
+  TurnStartedEvent,
+} from "@stella/contracts/turn-plane/outbox";
+import { parseCloudExecutionSelection } from "../../turn-start-request.js";
+import { literal, number, object, optional, string, type Parser } from "../args.js";
+import { RpcError } from "../errors.js";
+import { enforceOwnerRateLimit } from "../rate-limit.js";
+import {
+  DispatchError,
+  type OwnerContext,
+  type OwnerDb,
+  type OwnerDbReader,
+  type OwnerDomain,
+} from "../registry.js";
+
+type ThreadRow = {
+  thread_id: string;
+  conversation_id: string;
+  owner_generation: string | null;
+  parent_turn_id: string | null;
+  parent_thread_id: string | null;
+  workspace_fork_id: string | null;
+  origin_device_id: string | null;
+  origin_conversation_id: string | null;
+  origin_delivery_ack_at: number | null;
+  description: string;
+  placement: string;
+  agent_type: string;
+  execution_json: string | null;
+  attempt_generation: number;
+  status: string;
+  result_json: string | null;
+  error_message: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+type TurnRow = {
+  turn_id: string;
+  thread_id: string | null;
+  conversation_id: string | null;
+  owner_generation: string | null;
+  attempt_generation: number | null;
+  status: string;
+  client_msg_id: string | null;
+  spawn_fingerprint: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export const AGENT_THREADS_MIGRATION = {
+  id: "agent-threads.1-init",
+  statements: [
+    `CREATE TABLE agent_threads (
+       thread_id TEXT PRIMARY KEY,
+       conversation_id TEXT NOT NULL,
+       owner_generation TEXT,
+       parent_turn_id TEXT,
+       parent_thread_id TEXT,
+       workspace_fork_id TEXT,
+       origin_device_id TEXT,
+       origin_conversation_id TEXT,
+       origin_delivery_ack_at INTEGER,
+       description TEXT NOT NULL,
+       placement TEXT NOT NULL,
+       agent_type TEXT NOT NULL,
+       execution_json TEXT,
+       attempt_generation INTEGER NOT NULL DEFAULT 0,
+       status TEXT NOT NULL,
+       result_json TEXT,
+       error_message TEXT,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL
+     )`,
+    "CREATE INDEX agent_threads_conversation ON agent_threads (conversation_id, updated_at DESC)",
+    "CREATE INDEX agent_threads_updated ON agent_threads (updated_at DESC)",
+    `CREATE INDEX agent_threads_device ON agent_threads (origin_device_id, owner_generation, updated_at DESC)
+       WHERE origin_delivery_ack_at IS NULL`,
+    // Agent attempts only: the spawn replay key, the running turn a cancel
+    // targets, and the files a completed thread produced.
+    `CREATE TABLE agent_turns (
+       turn_id TEXT PRIMARY KEY,
+       thread_id TEXT,
+       conversation_id TEXT,
+       owner_generation TEXT,
+       attempt_generation INTEGER,
+       status TEXT NOT NULL,
+       client_msg_id TEXT,
+       spawn_fingerprint TEXT,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL
+     )`,
+    "CREATE UNIQUE INDEX agent_turns_client_msg ON agent_turns (client_msg_id) WHERE client_msg_id IS NOT NULL",
+    "CREATE INDEX agent_turns_thread ON agent_turns (thread_id, created_at DESC)",
+    `CREATE TABLE agent_turn_files (
+       turn_id TEXT NOT NULL,
+       path TEXT NOT NULL,
+       entry_json TEXT NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY (turn_id, path)
+     )`,
+    `CREATE TABLE agent_cancel_receipts (
+       cancel_request_id TEXT PRIMARY KEY,
+       thread_id TEXT NOT NULL,
+       result_json TEXT NOT NULL,
+       created_at INTEGER NOT NULL
+     )`,
+  ],
+};
+
+const CLIENT_MSG_ID_PATTERN = /^[A-Za-z0-9._:-]{8,64}$/;
+const CONTROL_REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
+const OUTPUT_FILE_CARD_MAX = 20;
+const DISPATCH_MAX_ATTEMPTS = 3;
+const DISPATCH_RETRY_MS = 15_000;
+const TERMINAL_STATUSES = new Set(["completed", "failed", "canceled"]);
+const ACTIVE_STATUSES = new Set(["running", "resuming"]);
+
+// ── Projections ───────────────────────────────────────────────────────────
+
+const summary = (row: ThreadRow): AgentThreadSummary => ({
+  threadId: row.thread_id,
+  conversationId: row.conversation_id,
+  ...(row.parent_turn_id !== null ? { parentTurnId: row.parent_turn_id } : {}),
+  ...(row.parent_thread_id !== null ? { parentThreadId: row.parent_thread_id } : {}),
+  ...(row.workspace_fork_id !== null ? { workspaceForkId: row.workspace_fork_id } : {}),
+  description: row.description,
+  placement: row.placement === "computer" ? "computer" : "cloud",
+  agentType: row.agent_type,
+  status: row.status,
+  attemptGeneration: row.attempt_generation,
+  ...(row.result_json !== null ? { resultJson: row.result_json } : {}),
+  ...(row.error_message !== null ? { errorMessage: row.error_message } : {}),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const control = (row: ThreadRow): AgentThreadControl => ({
+  threadId: row.thread_id,
+  conversationId: row.conversation_id,
+  attemptGeneration: row.attempt_generation,
+  threadUpdatedAt: row.updated_at,
+  status: row.status,
+});
+
+const readThread = (db: OwnerDbReader, threadId: string): ThreadRow | null =>
+  db.one<ThreadRow>("SELECT * FROM agent_threads WHERE thread_id = ?", threadId);
+
+const readTurn = (db: OwnerDbReader, turnId: string): TurnRow | null =>
+  db.one<TurnRow>("SELECT * FROM agent_turns WHERE turn_id = ?", turnId);
+
+const clip = (value: string, max: number): string =>
+  value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
+const sha256Hex = async (text: string): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
+// ── Fences ────────────────────────────────────────────────────────────────
+
+const assertGeneration = async (ctx: OwnerContext, ownerGeneration: string): Promise<void> => {
+  const snapshot = await ctx.host.snapshot();
+  if (snapshot.ownerGeneration !== ownerGeneration) {
+    throw new RpcError("CONFLICT", "This request started before the account data was reset.", {
+      reason: OWNER_GENERATION_STALE,
+    });
+  }
+  if (!snapshot.writable) {
+    throw new RpcError("CONFLICT", "Account data is currently being reset or deleted.");
+  }
+};
+
+const threadChanged = (threadId: string): RpcError =>
+  new RpcError(
+    "CONFLICT",
+    `That cloud thread changed while this request was in flight. Refresh ${threadId} and try again.`,
+    { reason: "thread_changed" },
+  );
+
+// ── Cloud dispatch from a desktop ─────────────────────────────────────────
+
+type DispatchJob = {
+  threadId: string;
+  turnId: string;
+  attemptGeneration: number;
+  attempt: number;
+};
+
+const failAttempt = (db: OwnerDb, job: DispatchJob, message: string, now: number): void => {
+  db.run(
+    "UPDATE agent_turns SET status = 'failed', updated_at = ? WHERE turn_id = ? AND status IN ('running', 'resuming')",
+    now,
+    job.turnId,
+  );
+  db.run(
+    `UPDATE agent_threads SET status = 'failed', error_message = ?, updated_at = ?
+      WHERE thread_id = ? AND attempt_generation = ? AND status = 'running'`,
+    clip(message, 2_000),
+    now,
+    job.threadId,
+    job.attemptGeneration,
+  );
+};
+
+const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> => {
+  const thread = readThread(ctx.db, job.threadId);
+  const turn = readTurn(ctx.db, job.turnId);
+  if (
+    !thread ||
+    !turn ||
+    thread.attempt_generation !== job.attemptGeneration ||
+    thread.status !== "running" ||
+    turn.status !== "running"
+  ) {
+    return;
+  }
+  const execution = thread.execution_json
+    ? (JSON.parse(thread.execution_json) as CloudExecutionSelection)
+    : (await ctx.host.snapshot()).execution;
+  try {
+    await ctx.host.dispatchAgentTurn({
+      ownerGeneration: thread.owner_generation ?? "",
+      conversationId: thread.conversation_id,
+      threadId: thread.thread_id,
+      turnId: turn.turn_id,
+      attemptGeneration: thread.attempt_generation,
+      clientMsgId: turn.client_msg_id ?? turn.turn_id,
+      description: thread.description,
+      prompt: (ctx.db.one<{ prompt: string }>(
+        "SELECT prompt FROM agent_dispatch_prompts WHERE turn_id = ?",
+        turn.turn_id,
+      ))?.prompt ?? thread.description,
+      execution,
+      ...(thread.origin_device_id ? { originDeviceId: thread.origin_device_id } : {}),
+      ...(thread.origin_conversation_id
+        ? { originConversationId: thread.origin_conversation_id }
+        : {}),
+    });
+    ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const retryable = !(error instanceof DispatchError) || error.retryable;
+    if (retryable && job.attempt < DISPATCH_MAX_ATTEMPTS) {
+      ctx.jobs.schedule(
+        "agentThreads.dispatch",
+        ctx.now + DISPATCH_RETRY_MS,
+        { ...job, attempt: job.attempt + 1 },
+        { id: `dispatch:${job.turnId}` },
+      );
+      return;
+    }
+    failAttempt(ctx.db, job, message, ctx.now);
+    ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
+  }
+};
+
+/** Record one attempt and queue its dispatch. */
+const startAttempt = (
+  ctx: OwnerContext,
+  input: {
+    thread: ThreadRow;
+    turnId: string;
+    clientMsgId: string;
+    fingerprint: string;
+    prompt: string;
+  },
+): void => {
+  ctx.db.run(
+    `INSERT INTO agent_turns
+       (turn_id, thread_id, conversation_id, owner_generation, attempt_generation,
+        status, client_msg_id, spawn_fingerprint, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)`,
+    input.turnId,
+    input.thread.thread_id,
+    input.thread.conversation_id,
+    input.thread.owner_generation,
+    input.thread.attempt_generation,
+    input.clientMsgId,
+    input.fingerprint,
+    ctx.now,
+    ctx.now,
+  );
+  ctx.db.run(
+    "INSERT INTO agent_dispatch_prompts (turn_id, prompt) VALUES (?, ?)",
+    input.turnId,
+    input.prompt,
+  );
+  ctx.jobs.schedule(
+    "agentThreads.dispatch",
+    ctx.now,
+    {
+      threadId: input.thread.thread_id,
+      turnId: input.turnId,
+      attemptGeneration: input.thread.attempt_generation,
+      attempt: 1,
+    } satisfies DispatchJob,
+    { id: `dispatch:${input.turnId}` },
+  );
+};
+
+/** A retried request with the same id: return the attempt it already started. */
+const replayAttempt = (
+  db: OwnerDbReader,
+  clientMsgId: string,
+  fingerprint: string,
+  ownerGeneration: string,
+): AgentThreadControl | null => {
+  const turn = db.one<TurnRow>("SELECT * FROM agent_turns WHERE client_msg_id = ?", clientMsgId);
+  if (!turn) return null;
+  if (
+    turn.spawn_fingerprint !== fingerprint ||
+    turn.owner_generation !== ownerGeneration ||
+    !turn.thread_id
+  ) {
+    throw new RpcError("CONFLICT", "That request id was already used for a different agent request.");
+  }
+  const thread = readThread(db, turn.thread_id);
+  if (!thread || thread.owner_generation !== ownerGeneration) {
+    throw new RpcError("CONFLICT", "That request id was already used for a different agent request.");
+  }
+  return {
+    threadId: thread.thread_id,
+    conversationId: thread.conversation_id,
+    attemptGeneration: turn.attempt_generation ?? thread.attempt_generation,
+    threadUpdatedAt: turn.created_at,
+    status: "running",
+  };
+};
+
+const executionParser: Parser<CloudExecutionSelection> = (value, path = "") => {
+  const parsed = parseCloudExecutionSelection(value);
+  if (!parsed) throw new RpcError("BAD_REQUEST", `${path || "execution"} is invalid.`);
+  return parsed;
+};
+
+const assertExecutionAvailable = async (
+  ctx: OwnerContext,
+  execution: CloudExecutionSelection,
+): Promise<void> => {
+  if (execution.engine === "stella") return;
+  const snapshot = await ctx.host.snapshot();
+  if (!(snapshot.connectedEngines ?? []).includes(execution.engine)) {
+    throw new RpcError(
+      "CONFLICT",
+      execution.engine === "anthropic"
+        ? "Connect Claude before using that cloud execution route."
+        : "Connect ChatGPT before using that cloud execution route.",
+    );
+  }
+};
+
+const assertPrompt = (prompt: string, description: string): void => {
+  if (!prompt.trim() || prompt.length > AGENT_PROMPT_MAX_CHARS) {
+    throw new RpcError("BAD_REQUEST", `The agent prompt must be 1 to ${AGENT_PROMPT_MAX_CHARS} characters.`);
+  }
+  if (!description.trim()) throw new RpcError("BAD_REQUEST", "The agent needs a description.");
+};
+
+type SpawnArgs = AgentThreadCalls["agentThreads.spawnFromDesktop"]["args"];
+
+const spawnFromDesktop = async (ctx: OwnerContext, args: SpawnArgs): Promise<AgentThreadControl> => {
+  if (!CLIENT_MSG_ID_PATTERN.test(args.clientMsgId)) {
+    throw new RpcError("BAD_REQUEST", "That agent request could not be sent. Try again.");
+  }
+  assertPrompt(args.prompt, args.description);
+  const fingerprint = await sha256Hex(
+    JSON.stringify([
+      "spawn-agent-intent/v3",
+      args.conversationId ?? null,
+      args.description,
+      args.prompt,
+      args.execution ?? null,
+      args.originDeviceId,
+      args.originConversationId,
+    ]),
+  );
+  const replay = replayAttempt(ctx.db, args.clientMsgId, fingerprint, args.ownerGeneration);
+  if (replay) return replay;
+  await assertGeneration(ctx, args.ownerGeneration);
+  enforceOwnerRateLimit(
+    ctx.db,
+    ctx.now,
+    "agentThreads.spawn",
+    { count: 30, windowMs: 10 * 60_000 },
+    "Too many cloud agents started at once. Wait a moment and try again.",
+  );
+  const conversation = args.conversationId
+    ? ctx.db.one<{ conversation_id: string; execution_json: string | null }>(
+        "SELECT conversation_id, execution_json FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
+        args.conversationId,
+      )
+    : ctx.db.one<{ conversation_id: string; execution_json: string | null }>(
+        `SELECT conversation_id, execution_json FROM conversations WHERE deleted_at IS NULL
+          ORDER BY updated_at DESC, conversation_id DESC LIMIT 1`,
+      );
+  if (args.conversationId && !conversation) {
+    throw new RpcError("NOT_FOUND", "Conversation not found.", { reason: "conversation_not_found" });
+  }
+  const snapshot = await ctx.host.snapshot();
+  const execution =
+    args.execution ??
+    (conversation?.execution_json
+      ? (JSON.parse(conversation.execution_json) as CloudExecutionSelection)
+      : snapshot.execution);
+  await assertExecutionAvailable(ctx, execution);
+  // A replay may have landed during the awaits above.
+  const raced = replayAttempt(ctx.db, args.clientMsgId, fingerprint, args.ownerGeneration);
+  if (raced) return raced;
+
+  let conversationId = conversation?.conversation_id;
+  if (!conversationId) {
+    conversationId = crypto.randomUUID();
+    ctx.db.run(
+      `INSERT INTO conversations (conversation_id, title, created_at, updated_at, execution_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      conversationId,
+      clip(args.description.trim(), CONVERSATION_TITLE_MAX),
+      ctx.now,
+      ctx.now,
+      JSON.stringify(execution),
+    );
+  } else {
+    ctx.db.run(
+      "UPDATE conversations SET updated_at = MAX(updated_at, ?), allow_empty = 0 WHERE conversation_id = ?",
+      ctx.now,
+      conversationId,
+    );
+  }
+  const threadId = `thr-${crypto.randomUUID().replaceAll("-", "").slice(0, 18)}`;
+  ctx.db.run(
+    `INSERT INTO agent_threads
+       (thread_id, conversation_id, owner_generation, origin_device_id, origin_conversation_id,
+        description, placement, agent_type, execution_json, attempt_generation, status,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'cloud', 'general', ?, 1, 'running', ?, ?)`,
+    threadId,
+    conversationId,
+    args.ownerGeneration,
+    args.originDeviceId,
+    args.originConversationId,
+    clip(args.description.trim(), 1_000),
+    JSON.stringify(execution),
+    ctx.now,
+    ctx.now,
+  );
+  const thread = readThread(ctx.db, threadId)!;
+  startAttempt(ctx, {
+    thread,
+    turnId: crypto.randomUUID(),
+    clientMsgId: args.clientMsgId,
+    fingerprint,
+    prompt: args.prompt,
+  });
+  return control(thread);
+};
+
+type ContinueArgs = AgentThreadCalls["agentThreads.continueFromDesktop"]["args"];
+
+const continueFromDesktop = async (
+  ctx: OwnerContext,
+  args: ContinueArgs,
+): Promise<AgentThreadControl> => {
+  if (!CONTROL_REQUEST_ID_PATTERN.test(args.controlRequestId)) {
+    throw new RpcError("BAD_REQUEST", "That follow-up could not be sent. Try again.");
+  }
+  assertPrompt(args.prompt, args.description);
+  const fingerprint = await sha256Hex(
+    JSON.stringify([
+      "continue-agent-intent/v1",
+      args.threadId,
+      args.expectedAttemptGeneration,
+      args.expectedTerminalUpdatedAt,
+      args.description,
+      args.prompt,
+      args.originDeviceId,
+      args.originConversationId,
+    ]),
+  );
+  const replay = replayAttempt(ctx.db, args.controlRequestId, fingerprint, args.ownerGeneration);
+  if (replay) return replay;
+  await assertGeneration(ctx, args.ownerGeneration);
+  const thread = readThread(ctx.db, args.threadId);
+  if (
+    !thread ||
+    thread.owner_generation !== args.ownerGeneration ||
+    thread.origin_device_id !== args.originDeviceId ||
+    thread.origin_conversation_id !== args.originConversationId
+  ) {
+    throw new RpcError("NOT_FOUND", "That cloud thread no longer exists.");
+  }
+  if (
+    thread.attempt_generation !== args.expectedAttemptGeneration ||
+    thread.updated_at !== args.expectedTerminalUpdatedAt ||
+    ACTIVE_STATUSES.has(thread.status)
+  ) {
+    throw threadChanged(thread.thread_id);
+  }
+  const attemptGeneration = thread.attempt_generation + 1;
+  ctx.db.run(
+    `UPDATE agent_threads SET
+       status = 'running', attempt_generation = ?, description = ?,
+       origin_delivery_ack_at = NULL, result_json = NULL, error_message = NULL, updated_at = ?
+     WHERE thread_id = ?`,
+    attemptGeneration,
+    clip(args.description.trim(), 1_000),
+    ctx.now,
+    thread.thread_id,
+  );
+  const continued = readThread(ctx.db, thread.thread_id)!;
+  startAttempt(ctx, {
+    thread: continued,
+    turnId: crypto.randomUUID(),
+    clientMsgId: args.controlRequestId,
+    fingerprint,
+    prompt: args.prompt,
+  });
+  return control(continued);
+};
+
+type CancelArgs = AgentThreadCalls["agentThreads.cancel"]["args"];
+type CancelResult = AgentThreadCalls["agentThreads.cancel"]["result"];
+
+const cancelThread = async (ctx: OwnerContext, args: CancelArgs): Promise<CancelResult> => {
+  if (!CONTROL_REQUEST_ID_PATTERN.test(args.controlRequestId)) {
+    throw new RpcError("BAD_REQUEST", "That stop request could not be sent. Try again.");
+  }
+  const receipt = ctx.db.one<{ thread_id: string; result_json: string }>(
+    "SELECT thread_id, result_json FROM agent_cancel_receipts WHERE cancel_request_id = ?",
+    args.controlRequestId,
+  );
+  if (receipt) {
+    if (receipt.thread_id !== args.threadId) {
+      throw new RpcError("CONFLICT", "That request id was already used for a different thread.");
+    }
+    return JSON.parse(receipt.result_json) as CancelResult;
+  }
+  await assertGeneration(ctx, args.ownerGeneration);
+  enforceOwnerRateLimit(
+    ctx.db,
+    ctx.now,
+    "agentThreads.cancel",
+    { count: 30, windowMs: 10 * 60_000 },
+    "Too many stop requests. Wait a moment and try again.",
+  );
+  const thread = readThread(ctx.db, args.threadId);
+  if (
+    !thread ||
+    thread.owner_generation !== args.ownerGeneration ||
+    thread.origin_device_id !== args.originDeviceId ||
+    thread.origin_conversation_id !== args.originConversationId
+  ) {
+    throw new RpcError("NOT_FOUND", "That cloud thread no longer exists.");
+  }
+  if (!ACTIVE_STATUSES.has(thread.status)) {
+    return { canceled: true, control: control(thread) };
+  }
+  if (
+    thread.attempt_generation !== args.expectedAttemptGeneration ||
+    thread.updated_at !== args.expectedThreadUpdatedAt
+  ) {
+    throw threadChanged(thread.thread_id);
+  }
+  const turn = ctx.db.one<TurnRow>(
+    `SELECT * FROM agent_turns WHERE thread_id = ? AND attempt_generation = ?
+       AND status IN ('running', 'resuming') ORDER BY created_at DESC LIMIT 1`,
+    thread.thread_id,
+    thread.attempt_generation,
+  );
+  if (!turn) throw threadChanged(thread.thread_id);
+  const outcome = await ctx.host.cancelAgentTurn({
+    threadId: thread.thread_id,
+    turnId: turn.turn_id,
+    attemptGeneration: thread.attempt_generation,
+    ownerGeneration: args.ownerGeneration,
+    cancelRequestId: args.controlRequestId,
+  });
+  if (outcome === "changed") throw threadChanged(thread.thread_id);
+  const now = Date.now();
+  ctx.db.run(
+    "UPDATE agent_turns SET status = 'canceled', updated_at = ? WHERE turn_id = ?",
+    now,
+    turn.turn_id,
+  );
+  ctx.db.run(
+    `UPDATE agent_threads SET status = 'canceled', error_message = 'Paused by orchestrator.', updated_at = ?
+      WHERE thread_id = ? AND attempt_generation = ? AND status IN ('running', 'resuming')`,
+    now,
+    thread.thread_id,
+    thread.attempt_generation,
+  );
+  ctx.jobs.cancel(`dispatch:${turn.turn_id}`);
+  const result: CancelResult = { canceled: true, control: control(readThread(ctx.db, thread.thread_id)!) };
+  ctx.db.run(
+    "INSERT INTO agent_cancel_receipts (cancel_request_id, thread_id, result_json, created_at) VALUES (?, ?, ?, ?)",
+    args.controlRequestId,
+    thread.thread_id,
+    JSON.stringify(result),
+    now,
+  );
+  return result;
+};
+
+const acknowledgeDelivery = (
+  ctx: OwnerContext,
+  args: AgentThreadCalls["agentThreads.acknowledgeDelivery"]["args"],
+): AgentThreadCalls["agentThreads.acknowledgeDelivery"]["result"] => {
+  const thread = readThread(ctx.db, args.threadId);
+  if (
+    !thread ||
+    thread.origin_device_id !== args.originDeviceId ||
+    thread.owner_generation !== args.ownerGeneration
+  ) {
+    throw new RpcError("NOT_FOUND", "That thread is not waiting for this device.");
+  }
+  if (
+    thread.attempt_generation !== args.attemptGeneration ||
+    thread.updated_at !== args.terminalUpdatedAt
+  ) {
+    return { acknowledged: false, superseded: true };
+  }
+  if (!TERMINAL_STATUSES.has(thread.status) && thread.status !== "waiting_for_user") {
+    throw new RpcError("CONFLICT", "That thread is still running.");
+  }
+  if (thread.origin_delivery_ack_at !== null) return { acknowledged: false, superseded: false };
+  ctx.db.run(
+    "UPDATE agent_threads SET origin_delivery_ack_at = ? WHERE thread_id = ?",
+    ctx.now,
+    thread.thread_id,
+  );
+  return { acknowledged: true, superseded: false };
+};
+
+// ── Desktop ("computer") threads ──────────────────────────────────────────
+
+const rejectStart = (reason: string, message: string): RpcError =>
+  new RpcError("CONFLICT", message, { reason });
+
+const startComputerThread = async (
+  ctx: OwnerContext,
+  args: AgentThreadCalls["computerThreads.start"]["args"],
+): Promise<{ threadId: string }> => {
+  await assertGeneration(ctx, args.ownerGeneration);
+  const conversation = ctx.db.one<{ conversation_id: string }>(
+    "SELECT conversation_id FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
+    args.conversationId,
+  );
+  if (!conversation) throw rejectStart("conversation_not_found", "That conversation no longer exists.");
+  const existing = readThread(ctx.db, args.threadId);
+  if (existing) {
+    if (
+      existing.placement !== "computer" ||
+      existing.conversation_id !== args.conversationId ||
+      existing.origin_device_id !== args.originDeviceId ||
+      existing.owner_generation !== args.ownerGeneration
+    ) {
+      throw rejectStart("thread_identity_conflict", "That agent id belongs to a different agent.");
+    }
+    if (args.attemptGeneration === existing.attempt_generation) {
+      if (existing.description !== args.description || existing.agent_type !== args.agentType) {
+        throw rejectStart("attempt_replay_conflict", "That agent attempt was already started differently.");
+      }
+      return { threadId: existing.thread_id };
+    }
+    if (args.attemptGeneration < existing.attempt_generation) {
+      throw rejectStart("attempt_stale", "A newer attempt of this agent already started.");
+    }
+    if (args.attemptGeneration !== existing.attempt_generation + 1) {
+      throw rejectStart("attempt_not_next", "That agent attempt is out of order.");
+    }
+    ctx.db.run(
+      `UPDATE agent_threads SET status = 'running', attempt_generation = ?, description = ?, agent_type = ?,
+         origin_delivery_ack_at = NULL, result_json = NULL, error_message = NULL, updated_at = ?
+       WHERE thread_id = ?`,
+      args.attemptGeneration,
+      args.description,
+      args.agentType,
+      ctx.now,
+      existing.thread_id,
+    );
+    return { threadId: existing.thread_id };
+  }
+  if (args.attemptGeneration !== 1) {
+    throw rejectStart("initial_attempt_invalid", "A new agent starts at attempt 1.");
+  }
+  ctx.db.run(
+    `INSERT INTO agent_threads
+       (thread_id, conversation_id, owner_generation, origin_device_id, origin_conversation_id,
+        description, placement, agent_type, attempt_generation, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'computer', ?, 1, 'running', ?, ?)`,
+    args.threadId,
+    args.conversationId,
+    args.ownerGeneration,
+    args.originDeviceId,
+    args.conversationId,
+    args.description,
+    args.agentType,
+    ctx.now,
+    ctx.now,
+  );
+  return { threadId: args.threadId };
+};
+
+const readComputerThread = (
+  db: OwnerDbReader,
+  args: { threadId: string; originDeviceId: string; ownerGeneration: string },
+): ThreadRow | null => {
+  const row = readThread(db, args.threadId);
+  return row &&
+    row.placement === "computer" &&
+    row.origin_device_id === args.originDeviceId &&
+    row.owner_generation === args.ownerGeneration
+    ? row
+    : null;
+};
+
+const completeComputerThread = async (
+  ctx: OwnerContext,
+  args: AgentThreadCalls["computerThreads.complete"]["args"],
+): Promise<AgentThreadCalls["computerThreads.complete"]["result"]> => {
+  await assertGeneration(ctx, args.ownerGeneration);
+  const row = readComputerThread(ctx.db, args);
+  if (!row) throw new RpcError("NOT_FOUND", "That agent no longer exists.");
+  if (row.attempt_generation !== args.attemptGeneration || row.status !== "running") {
+    return { updated: false, status: row.status };
+  }
+  ctx.db.run(
+    `UPDATE agent_threads SET status = ?, result_json = ?, error_message = ?, updated_at = ?
+      WHERE thread_id = ?`,
+    args.status,
+    args.result !== undefined ? JSON.stringify({ finalText: args.result }) : null,
+    args.error ?? null,
+    ctx.now,
+    row.thread_id,
+  );
+  return { updated: true, status: args.status };
+};
+
+const cancelComputerThread = async (
+  ctx: OwnerContext,
+  args: AgentThreadCalls["computerThreads.cancel"]["args"],
+): Promise<AgentThreadCalls["computerThreads.cancel"]["result"]> => {
+  await assertGeneration(ctx, args.ownerGeneration);
+  const row = readComputerThread(ctx.db, args);
+  if (!row) throw new RpcError("NOT_FOUND", "That agent no longer exists.");
+  if (row.attempt_generation !== args.attemptGeneration) return { canceled: false, status: row.status };
+  if (row.status !== "running") return { canceled: true, status: row.status };
+  ctx.db.run(
+    "UPDATE agent_threads SET status = 'canceled', error_message = ?, updated_at = ? WHERE thread_id = ?",
+    args.reason?.trim() || "Canceled on this computer.",
+    ctx.now,
+    row.thread_id,
+  );
+  return { canceled: true, status: "canceled" };
+};
+
+const computerRecord = (row: ThreadRow): ComputerThreadRecord => {
+  let result: string | null = null;
+  if (row.result_json) {
+    try {
+      const parsed = JSON.parse(row.result_json) as { finalText?: unknown };
+      result = typeof parsed.finalText === "string" ? parsed.finalText : null;
+    } catch {
+      result = null;
+    }
+  }
+  return {
+    threadId: row.thread_id,
+    status:
+      row.status === "failed"
+        ? "error"
+        : row.status === "completed" || row.status === "canceled"
+          ? row.status
+          : "running",
+    description: row.description,
+    attemptGeneration: row.attempt_generation,
+    startedAt: row.created_at,
+    completedAt: row.status === "running" ? null : row.updated_at,
+    result,
+    error: row.error_message,
+  };
+};
+
+// ── Outbox events from BuildSessions and the orchestrator ─────────────────
+
+export type AgentThreadEvent =
+  | TurnStartedEvent
+  | TurnEventEvent
+  | ThreadSpawnedEvent
+  | ThreadCompletedEvent;
+
+export type AgentThreadEffects = {
+  /** Cards to post once the events are applied. */
+  cards: Array<{ conversationId: string; ownerGeneration: string; sourceTurnId: string; card: unknown }>;
+};
+
+/** The newest entry per path across the thread's last three attempts. */
+const threadOutputFiles = (db: OwnerDbReader, threadId: string): unknown[] => {
+  const turns = db.all<{ turn_id: string }>(
+    "SELECT turn_id FROM agent_turns WHERE thread_id = ? ORDER BY created_at DESC LIMIT 3",
+    threadId,
+  );
+  const byPath = new Map<string, unknown>();
+  for (const { turn_id } of turns.reverse()) {
+    for (const file of db.all<{ path: string; entry_json: string }>(
+      "SELECT path, entry_json FROM agent_turn_files WHERE turn_id = ? ORDER BY updated_at",
+      turn_id,
+    )) {
+      byPath.set(file.path, JSON.parse(file.entry_json));
+    }
+  }
+  return [...byPath.values()].slice(0, OUTPUT_FILE_CARD_MAX);
+};
+
+/** Apply one event. Safe to replay; late events from older attempts are dropped. */
+export const applyAgentThreadEvent = (
+  db: OwnerDb,
+  event: AgentThreadEvent,
+  effects: AgentThreadEffects,
+): void => {
+  switch (event.kind) {
+    case "turn.started": {
+      if (event.turnKind !== "agent" || readTurn(db, event.turnId)) return;
+      db.run(
+        `INSERT INTO agent_turns
+           (turn_id, thread_id, conversation_id, owner_generation, attempt_generation,
+            status, client_msg_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
+         ON CONFLICT DO NOTHING`,
+        event.turnId,
+        event.threadId ?? null,
+        event.conversationId,
+        event.ownerGeneration,
+        event.attemptGeneration ?? null,
+        event.clientMsgId ?? null,
+        event.createdAt,
+        event.createdAt,
+      );
+      return;
+    }
+    case "turn.event": {
+      const turn = readTurn(db, event.turnId);
+      if (!turn || !turn.thread_id) return;
+      if (
+        event.attemptGeneration !== undefined &&
+        turn.attempt_generation !== null &&
+        event.attemptGeneration !== turn.attempt_generation
+      ) {
+        return;
+      }
+      if (event.eventKind === "output_files") {
+        const files = (event.payload as { files?: unknown } | null)?.files;
+        if (!Array.isArray(files)) return;
+        for (const entry of files) {
+          const path = (entry as { path?: unknown } | null)?.path;
+          if (typeof path !== "string" || !path) continue;
+          db.run(
+            `INSERT INTO agent_turn_files (turn_id, path, entry_json, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT (turn_id, path) DO UPDATE SET entry_json = excluded.entry_json, updated_at = excluded.updated_at`,
+            turn.turn_id,
+            path,
+            JSON.stringify(entry),
+            event.createdAt,
+          );
+        }
+        return;
+      }
+      if (!event.terminal && event.eventKind === "waiting_for_user") {
+        db.run(
+          "UPDATE agent_turns SET status = 'waiting_for_user', updated_at = ? WHERE turn_id = ? AND status IN ('running', 'resuming')",
+          event.createdAt,
+          turn.turn_id,
+        );
+        db.run(
+          `UPDATE agent_threads SET status = 'waiting_for_user', updated_at = MAX(updated_at, ?)
+            WHERE thread_id = ? AND attempt_generation = ? AND status IN ('running', 'resuming')`,
+          event.createdAt,
+          turn.thread_id,
+          turn.attempt_generation,
+        );
+        return;
+      }
+      if (event.terminal) {
+        db.run(
+          "UPDATE agent_turns SET status = ?, updated_at = ? WHERE turn_id = ? AND status IN ('running', 'resuming', 'waiting_for_user')",
+          event.terminalStatus ?? "failed",
+          event.createdAt,
+          turn.turn_id,
+        );
+      }
+      return;
+    }
+    case "thread.spawned": {
+      const thread = readThread(db, event.threadId);
+      if (!thread) {
+        db.run(
+          `INSERT INTO agent_threads
+             (thread_id, conversation_id, owner_generation, parent_turn_id, parent_thread_id,
+              workspace_fork_id, origin_device_id, origin_conversation_id, description, placement,
+              agent_type, execution_json, attempt_generation, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'cloud', 'general', ?, ?, 'running', ?, ?)`,
+          event.threadId,
+          event.conversationId,
+          event.ownerGeneration,
+          event.parentTurnId,
+          event.parentThreadId ?? null,
+          event.workspaceForkId ?? null,
+          event.originDeviceId ?? null,
+          event.originConversationId ?? null,
+          clip(event.description, 1_000),
+          JSON.stringify(event.execution),
+          event.attemptGeneration,
+          event.createdAt,
+          event.createdAt,
+        );
+        return;
+      }
+      // An attempt this object already recorded (a desktop spawn) or an
+      // older one arriving late.
+      if (event.attemptGeneration <= thread.attempt_generation) {
+        if (event.attemptGeneration === thread.attempt_generation && thread.parent_turn_id === null) {
+          db.run(
+            "UPDATE agent_threads SET parent_turn_id = ? WHERE thread_id = ?",
+            event.parentTurnId,
+            thread.thread_id,
+          );
+        }
+        return;
+      }
+      db.run(
+        `UPDATE agent_threads SET
+           status = 'running', attempt_generation = ?, description = ?, execution_json = ?,
+           workspace_fork_id = COALESCE(?, workspace_fork_id),
+           origin_delivery_ack_at = NULL, result_json = NULL, error_message = NULL,
+           updated_at = MAX(updated_at, ?)
+         WHERE thread_id = ?`,
+        event.attemptGeneration,
+        clip(event.description, 1_000),
+        JSON.stringify(event.execution),
+        event.workspaceForkId ?? null,
+        event.createdAt,
+        thread.thread_id,
+      );
+      return;
+    }
+    case "thread.completed": {
+      const thread = readThread(db, event.threadId);
+      if (!thread) return;
+      if (thread.owner_generation !== null && thread.owner_generation !== event.ownerGeneration) return;
+      if (event.attemptGeneration < thread.attempt_generation) return;
+      if (
+        event.attemptGeneration === thread.attempt_generation &&
+        !ACTIVE_STATUSES.has(thread.status) &&
+        thread.status !== "waiting_for_user"
+      ) {
+        return;
+      }
+      db.run(
+        `UPDATE agent_threads SET status = ?, attempt_generation = ?, result_json = ?, error_message = ?,
+           updated_at = MAX(updated_at + 1, ?)
+         WHERE thread_id = ?`,
+        event.status,
+        event.attemptGeneration,
+        event.resultJson ?? null,
+        event.errorMessage ?? null,
+        event.completedAt,
+        thread.thread_id,
+      );
+      // A desktop-dispatched thread delivers through that desktop; any
+      // other completed thread files its outputs under the turn that
+      // started it, where both clients attribute them.
+      if (event.status === "completed" && thread.origin_device_id === null) {
+        const files = threadOutputFiles(db, thread.thread_id);
+        if (files.length > 0) {
+          effects.cards.push({
+            conversationId: thread.conversation_id,
+            ownerGeneration: event.ownerGeneration,
+            sourceTurnId: thread.parent_turn_id ?? event.turnId,
+            card: { type: "files", files },
+          });
+        }
+      }
+      return;
+    }
+  }
+};
+
+// ── Views ─────────────────────────────────────────────────────────────────
+
+const recentThreads = (db: OwnerDbReader, limit: number): AgentThreadSummary[] =>
+  db
+    .all<ThreadRow>("SELECT * FROM agent_threads ORDER BY updated_at DESC, thread_id DESC LIMIT ?", limit)
+    .map(summary);
+
+const runningThreads = (db: OwnerDbReader, conversationId: string): AgentThreadSummary[] =>
+  db
+    .all<ThreadRow>(
+      `SELECT * FROM agent_threads WHERE conversation_id = ? AND status IN ('running', 'resuming')
+        ORDER BY updated_at DESC LIMIT ?`,
+      conversationId,
+      RUNNING_AGENT_THREADS_LIMIT,
+    )
+    .map(summary);
+
+const deviceThreads = (
+  db: OwnerDbReader,
+  args: { originDeviceId: string; ownerGeneration: string; limit?: number },
+): DeviceAgentThread[] =>
+  db
+    .all<ThreadRow>(
+      `SELECT * FROM agent_threads
+        WHERE origin_device_id = ? AND owner_generation = ? AND origin_delivery_ack_at IS NULL
+        ORDER BY updated_at DESC LIMIT ?`,
+      args.originDeviceId,
+      args.ownerGeneration,
+      Math.min(Math.max(args.limit ?? 100, 1), 100),
+    )
+    .map((row) => ({
+      ...summary(row),
+      originDeviceId: row.origin_device_id!,
+      originConversationId: row.origin_conversation_id ?? row.conversation_id,
+      ownerGeneration: row.owner_generation!,
+    }));
+
+const threadPage = (
+  db: OwnerDbReader,
+  args: AgentThreadCalls["agentThreads.page"]["args"],
+): AgentThreadCalls["agentThreads.page"]["result"] => {
+  const limit = Math.min(Math.max(args.limit ?? 30, 1), AGENT_THREAD_PAGE_MAX);
+  const rows = args.before
+    ? db.all<ThreadRow>(
+        `SELECT * FROM agent_threads WHERE conversation_id = ?
+           AND (updated_at < ? OR (updated_at = ? AND thread_id < ?))
+         ORDER BY updated_at DESC, thread_id DESC LIMIT ?`,
+        args.conversationId,
+        args.before.updatedAt,
+        args.before.updatedAt,
+        args.before.threadId,
+        limit + 1,
+      )
+    : db.all<ThreadRow>(
+        `SELECT * FROM agent_threads WHERE conversation_id = ?
+         ORDER BY updated_at DESC, thread_id DESC LIMIT ?`,
+        args.conversationId,
+        limit + 1,
+      );
+  return { threads: rows.slice(0, limit).map(summary), hasMore: rows.length > limit };
+};
+
+// ── Registration ──────────────────────────────────────────────────────────
+
+const id = (max = 128) => string({ min: 1, max });
+const generation = id(512);
+const origin = { originDeviceId: id(256), originConversationId: id(256) };
+
+export const agentThreadsDomain = {
+  name: "agent-threads",
+  migrations: [
+    AGENT_THREADS_MIGRATION,
+    {
+      id: "agent-threads.2-dispatch-prompts",
+      statements: [
+        "CREATE TABLE agent_dispatch_prompts (turn_id TEXT PRIMARY KEY, prompt TEXT NOT NULL)",
+      ],
+    },
+  ],
+  calls: {
+    "agentThreads.page": {
+      scope: "owner",
+      parse: object({
+        conversationId: id(),
+        before: optional(object({ updatedAt: number({ int: true, min: 0 }), threadId: id() })),
+        limit: optional(number({ int: true, min: 1, max: AGENT_THREAD_PAGE_MAX })),
+      }),
+      handler: (ctx, args) => threadPage(ctx.db, args),
+    },
+    "agentThreads.spawnFromDesktop": {
+      scope: "owner",
+      requireAccount: true,
+      parse: object({
+        ...origin,
+        ownerGeneration: generation,
+        clientMsgId: id(64),
+        description: string({ max: 2_000 }),
+        prompt: string({ max: AGENT_PROMPT_MAX_CHARS }),
+        conversationId: optional(id()),
+        execution: optional(executionParser),
+      }),
+      handler: spawnFromDesktop,
+    },
+    "agentThreads.continueFromDesktop": {
+      scope: "owner",
+      requireAccount: true,
+      parse: object({
+        ...origin,
+        ownerGeneration: generation,
+        threadId: id(),
+        expectedAttemptGeneration: number({ int: true, min: 1 }),
+        expectedTerminalUpdatedAt: number({ int: true, min: 0 }),
+        description: string({ max: 2_000 }),
+        prompt: string({ max: AGENT_PROMPT_MAX_CHARS }),
+        controlRequestId: id(),
+      }),
+      handler: continueFromDesktop,
+    },
+    "agentThreads.cancel": {
+      scope: "owner",
+      requireAccount: true,
+      parse: object({
+        ...origin,
+        ownerGeneration: generation,
+        threadId: id(),
+        expectedAttemptGeneration: number({ int: true, min: 1 }),
+        expectedThreadUpdatedAt: number({ int: true, min: 0 }),
+        controlRequestId: id(),
+      }),
+      handler: cancelThread,
+    },
+    "agentThreads.acknowledgeDelivery": {
+      scope: "owner",
+      parse: object({
+        threadId: id(),
+        originDeviceId: id(256),
+        ownerGeneration: generation,
+        attemptGeneration: number({ int: true, min: 1 }),
+        terminalUpdatedAt: number({ int: true, min: 0 }),
+      }),
+      handler: acknowledgeDelivery,
+    },
+    "computerThreads.start": {
+      scope: "owner",
+      parse: object({
+        threadId: id(),
+        ownerGeneration: generation,
+        conversationId: id(),
+        originDeviceId: id(256),
+        description: string({ max: 1_000 }),
+        agentType: string({ min: 1, max: 100 }),
+        attemptGeneration: number({ int: true, min: 1 }),
+      }),
+      handler: startComputerThread,
+    },
+    "computerThreads.complete": {
+      scope: "owner",
+      parse: object({
+        threadId: id(),
+        ownerGeneration: generation,
+        originDeviceId: id(256),
+        attemptGeneration: number({ int: true, min: 1 }),
+        status: literal("completed", "failed", "canceled"),
+        result: optional(string({ max: 30_000 })),
+        error: optional(string({ max: 10_000 })),
+      }),
+      handler: completeComputerThread,
+    },
+    "computerThreads.cancel": {
+      scope: "owner",
+      parse: object({
+        threadId: id(),
+        ownerGeneration: generation,
+        originDeviceId: id(256),
+        attemptGeneration: number({ int: true, min: 1 }),
+        reason: optional(string({ max: 2_000 })),
+      }),
+      handler: cancelComputerThread,
+    },
+    "computerThreads.get": {
+      scope: "owner",
+      parse: object({ threadId: id(), originDeviceId: id(256), ownerGeneration: generation }),
+      handler: async (ctx, args) => {
+        await assertGeneration(ctx, args.ownerGeneration);
+        const row = readComputerThread(ctx.db, args);
+        return row ? computerRecord(row) : null;
+      },
+    },
+  },
+  views: {
+    "agentThreads.recent": {
+      parse: object({ limit: optional(number({ int: true, min: 1, max: 100 })) }),
+      read: (ctx, args) => recentThreads(ctx.db, args.limit ?? 30),
+    },
+    "agentThreads.running": {
+      parse: object({ conversationId: id() }),
+      read: (ctx, args) => runningThreads(ctx.db, args.conversationId),
+    },
+    "agentThreads.get": {
+      parse: object({ conversationId: id(), threadId: id() }),
+      read: (ctx, args) => {
+        const row = readThread(ctx.db, args.threadId);
+        return row && row.conversation_id === args.conversationId ? summary(row) : null;
+      },
+    },
+    "agentThreads.forDevice": {
+      parse: object({
+        originDeviceId: id(256),
+        ownerGeneration: generation,
+        limit: optional(number({ int: true, min: 1, max: 100 })),
+      }),
+      read: (ctx, args) => deviceThreads(ctx.db, args),
+    },
+  },
+  jobs: {
+    "agentThreads.dispatch": {
+      // Retries are scheduled by the job itself so the last failure can mark
+      // the attempt failed; the store-level backoff is only for crashes.
+      maxAttempts: 3,
+      run: async (ctx, payload) => await runDispatch(ctx, payload as DispatchJob),
+    },
+  },
+} satisfies OwnerDomain;

@@ -40,7 +40,12 @@ export type BackendError = {
   message: string;
   retryable: boolean;
   retryAfterMs?: number;
+  /** A domain-specific discriminator clients branch on, e.g. `owner_generation_stale`. */
+  reason?: string;
 };
+
+/** The owner reset or deleted their data after the caller read its generation. */
+export const OWNER_GENERATION_STALE = "owner_generation_stale";
 
 export type RpcResponse<T = unknown> =
   | { ok: true; value: T }

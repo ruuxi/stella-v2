@@ -1,0 +1,130 @@
+/**
+ * What `OwnerGate` lends the owner-store domains: its snapshot, and direct
+ * calls into the BuildSession and OrchestratorSession objects the domains
+ * start, stop and annotate. These used to be Convex callbacks over the
+ * service secret; now they are object-to-object calls.
+ */
+
+import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import {
+  CloudAgentDispatchRefused,
+  dispatchCloudAgentTurn,
+} from "../cloud-agent-dispatch.js";
+import { enqueueOutbox } from "../outbox.js";
+import type { OwnerGateAdmission, OwnerGateAdmitInput } from "../owner-gate.js";
+import { DispatchError, type AgentTurnDispatch, type OwnerHost } from "./registry.js";
+
+type GateHostEnv = Pick<
+  Cloudflare.Env,
+  "BUILD_SESSIONS" | "WORLDS" | "ORCHESTRATOR_SESSIONS" | "TURN_OUTBOX"
+> &
+  Partial<Pick<Cloudflare.Env, "CLOUD_BUILDER_PUBLIC_URL">>;
+
+export type GateHostDependencies = {
+  ownerId: () => string;
+  env: GateHostEnv;
+  snapshot: () => Promise<OwnerSnapshot>;
+  admit: (input: OwnerGateAdmitInput) => Promise<OwnerGateAdmission>;
+  release: (input: { turnId: string }) => Promise<void>;
+  log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
+};
+
+export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
+  snapshot: deps.snapshot,
+
+  async dispatchAgentTurn(input: AgentTurnDispatch): Promise<void> {
+    try {
+      await dispatchCloudAgentTurn({
+        dependencies: {
+          env: deps.env,
+          ownerGateAdmit: async (admit) =>
+            await deps.admit({
+              lane: "agent",
+              turnId: admit.turnId,
+              conversationId: admit.conversationId,
+              expectedGeneration: admit.expectedGeneration,
+            }),
+          releaseOwnerGate: async ({ turnId }) => await deps.release({ turnId }),
+          enqueueOutbox: async (events) => await enqueueOutbox(deps.env, events),
+        },
+        caller: {
+          ownerId: deps.ownerId(),
+          ownerGeneration: input.ownerGeneration,
+          conversationId: input.conversationId,
+          agentDepth: 0,
+        },
+        attempt: {
+          threadId: input.threadId,
+          attemptGeneration: input.attemptGeneration,
+          turnId: input.turnId,
+          clientMsgId: input.clientMsgId,
+          description: input.description,
+          prompt: input.prompt,
+          execution: input.execution,
+          source: "desktop",
+          ...(input.originDeviceId ? { originDeviceId: input.originDeviceId } : {}),
+          ...(input.originConversationId
+            ? { originConversationId: input.originConversationId }
+            : {}),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new DispatchError(message, !(error instanceof CloudAgentDispatchRefused));
+    }
+  },
+
+  async cancelAgentTurn(input) {
+    const response = await deps.env.BUILD_SESSIONS.getByName(input.threadId).fetch(
+      "https://build-session/cancel",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ownerId: deps.ownerId(),
+          ownerGeneration: input.ownerGeneration,
+          turnId: input.turnId,
+          attemptGeneration: input.attemptGeneration,
+          cancelRequestId: input.cancelRequestId,
+          reason: "Paused by orchestrator.",
+        }),
+      },
+    );
+    if (response.status === 409) return "changed";
+    if (!response.ok) {
+      throw new Error(`Stopping the agent failed (${response.status}).`);
+    }
+    return "canceled";
+  },
+
+  async postConversationCard(input) {
+    try {
+      const response = await deps.env.ORCHESTRATOR_SESSIONS.getByName(input.conversationId).fetch(
+        "https://orchestrator-session/cards",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ownerId: deps.ownerId(),
+            ownerGeneration: input.ownerGeneration,
+            sourceTurnId: input.sourceTurnId,
+            card: input.card,
+          }),
+        },
+      );
+      if (!response.ok) {
+        deps.log("error", "conversation_card_refused", {
+          conversationId: input.conversationId,
+          status: response.status,
+        });
+      }
+    } catch (error) {
+      // A card is a receipt for work that already happened; losing one must
+      // never fail anything else.
+      deps.log("error", "conversation_card_failed", {
+        conversationId: input.conversationId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+});

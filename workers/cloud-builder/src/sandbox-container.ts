@@ -342,7 +342,7 @@ export class Sandbox extends DurableObject<Env> {
         if (Date.now() - startedAt > READY_DEADLINE_MS) {
           throw new Error("The sandbox container did not become ready.");
         }
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await scheduler.wait(delayMs);
         delayMs = Math.min(500, delayMs * 2);
       }
     } catch (error) {
@@ -636,27 +636,22 @@ export class Sandbox extends DurableObject<Env> {
     if (!this.ctx.container?.running) {
       throw new Error(`Sandbox process ${id} is not running.`);
     }
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), Math.max(1, timeoutMs));
-    try {
-      const process = await this.#container.exec(
-        ["bash", "-c", WAIT_FOR_EXIT_SCRIPT, "wait", processDirectory(id)],
-        { signal: abort.signal, env: { ...BASE_ENV } },
-      );
-      const output = await process.output();
-      if (abort.signal.aborted) {
-        throw new Error(`Sandbox process ${id} did not exit in time.`);
-      }
-      const value = decoder.decode(output.stdout).trim();
-      if (value === "lost") return { exitCode: 137 };
-      const exitCode = Number(value);
-      if (!Number.isSafeInteger(exitCode)) {
-        throw new Error(`Sandbox process ${id} reported no exit code.`);
-      }
-      return { exitCode };
-    } finally {
-      clearTimeout(timer);
+    const signal = AbortSignal.timeout(Math.max(1, timeoutMs));
+    const process = await this.#container.exec(
+      ["bash", "-c", WAIT_FOR_EXIT_SCRIPT, "wait", processDirectory(id)],
+      { signal, env: { ...BASE_ENV } },
+    );
+    const output = await process.output();
+    if (signal.aborted) {
+      throw new Error(`Sandbox process ${id} did not exit in time.`);
     }
+    const value = decoder.decode(output.stdout).trim();
+    if (value === "lost") return { exitCode: 137 };
+    const exitCode = Number(value);
+    if (!Number.isSafeInteger(exitCode)) {
+      throw new Error(`Sandbox process ${id} reported no exit code.`);
+    }
+    return { exitCode };
   }
 
   async killProcess(id: string, signal = "SIGTERM"): Promise<boolean> {

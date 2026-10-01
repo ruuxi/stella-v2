@@ -13,9 +13,8 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: () => ({}),
-  Sandbox: class {},
-  ContainerProxy: class {},
+  Files: class {},
+  SandboxFileError: { is: () => false },
 }));
 const worker = (await import("../src/index.js")).default;
 mock.restore();

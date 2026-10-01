@@ -15,9 +15,8 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: () => ({}),
-  Sandbox: class {},
-  ContainerProxy: class {},
+  Files: class {},
+  SandboxFileError: { is: () => false },
 }));
 const { parseAgentExecutorResult } = await import(
   "../src/build-session/public-helpers.js"

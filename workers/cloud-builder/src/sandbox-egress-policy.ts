@@ -16,8 +16,9 @@ const EGRESS_RATE_WINDOW_MS = 60_000;
 const EGRESS_STATE_RETENTION_MS = 60 * 60_000;
 
 /**
- * This outbound fetch handler only observes HTTP(S) requests routed to it by
- * the Sandbox SDK. It is not a firewall for non-HTTP traffic: port 22 remains
+ * This outbound fetch handler only observes the plain-HTTP requests the
+ * Sandbox object's intercept routes to it; HTTPS leaves directly. It is not a
+ * firewall for non-HTTP traffic: port 22 remains
  * enabled for legitimate Git SSH traffic and is outside this byte/rate meter.
  * Quota state is isolate-local and intentionally not described as durable.
  */

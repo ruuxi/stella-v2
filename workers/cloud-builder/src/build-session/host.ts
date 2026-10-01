@@ -11,7 +11,7 @@
  * This file is types only: it must never be imported with a value import, or
  * esbuild would stop erasing it and couple every module back to `index.ts`.
  */
-import type { ExecutionSession } from "@cloudflare/sandbox";
+import type { ExecutionSession } from "../sandbox-client.js";
 import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
@@ -42,7 +42,7 @@ import type {
   TurnComputePlan,
   TurnDurability,
 } from "../general-agent-turn.js";
-import type { AppBuildSandbox } from "../index.js";
+import type { SandboxHandle } from "../sandbox-client.js";
 import type { InstanceSize } from "../instance-size.js";
 import type { OwnerGate } from "../owner-gate.js";
 import type { SandboxTarget, SandboxWorkload } from "../sandbox-lifecycle.js";
@@ -301,7 +301,7 @@ export interface BuildSessionInternals {
     id: string,
     size?: InstanceSize,
     workload?: SandboxWorkload,
-  ): AppBuildSandbox;
+  ): SandboxHandle;
   sandboxContainerRunning(
     sandbox: ReturnType<BuildSessionInternals["sandbox"]>,
   ): Promise<boolean>;
@@ -315,7 +315,7 @@ export interface BuildSessionInternals {
   scheduleSandboxDestroyDebtAlarm(): Promise<void>;
   scheduleDurabilityAlarm(): Promise<void>;
   currentSandboxTarget(): Promise<SandboxTarget | undefined>;
-  currentSandbox(): Promise<AppBuildSandbox | undefined>;
+  currentSandbox(): Promise<SandboxHandle | undefined>;
   terminateCurrentAgentSession(turn: TurnRequest): Promise<void>;
   releaseAgentSessionResources(target: {
     sandboxId: string;

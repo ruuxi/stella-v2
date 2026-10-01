@@ -43,9 +43,11 @@
   },
   "vars": {
     "TELEMETRY_ENVIRONMENT": "development",
-    "SANDBOX_TRANSPORT": "rpc",
     "TURN_TIMEOUT_MS": "900000",
     "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+    // Snapshot a world container when its turn releases it and start the
+    // next cold container from that snapshot. "0" always starts from the image.
+    "SANDBOX_SNAPSHOTS": "1",
     "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
     "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
     // Pinned issuer for the conversation socket's JWT verification, and the
@@ -146,34 +148,16 @@
   ],
   "containers": [
     {
+      // Durable Object scheduling: the Sandbox object picks the image, the
+      // instance size (standard-2 small, standard-4 large), and whether the
+      // container may reach the Internet each time it starts one. This
+      // policy has no max_instances; account limits apply.
       "class_name": "Sandbox",
-      "image": "./Dockerfile",
-      "instance_type": "standard-4",
-      "max_instances": 2,
-      // TURN_TIMEOUT_MS plus one minute for exact Stop/teardown settlement.
-      "rollout_active_grace_period": 960,
-    },
-    {
-      // Every turn mints its own sandbox id and a follow-up dispatched from
-      // the completion wake attaches while the finished attempt is still
-      // tearing down, so two live containers per thread is normal for a
-      // moment. A cap of one starved the very next cloud agent turn
-      // (observed 2026-09-03: "Maximum number of running container instances
-      // exceeded"), and a teardown skipped under a successor turn leaked
-      // containers on keep-alive until it was fixed; six matches production
-      // and leaves room for the leak-fix rollout to retire stragglers.
-      "class_name": "SandboxSmall",
-      "image": "./Dockerfile",
-      "instance_type": "standard-2",
-      "max_instances": 6,
-      "rollout_active_grace_period": 960,
-    },
-    {
-      "class_name": "AppBuildSandbox",
-      "image": "./Dockerfile",
-      "instance_type": "standard-4",
-      "max_instances": 1,
-      "rollout_active_grace_period": 960,
+      "name": "stella-v2-cloud-builder-dev-sandbox-do",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "sandbox": { "dockerfile": "./Dockerfile" },
+      },
     },
   ],
   "durable_objects": {
@@ -181,14 +165,6 @@
       {
         "name": "Sandbox",
         "class_name": "Sandbox",
-      },
-      {
-        "name": "SANDBOX_SMALL",
-        "class_name": "SandboxSmall",
-      },
-      {
-        "name": "APP_BUILD_SANDBOX",
-        "class_name": "AppBuildSandbox",
       },
       {
         "name": "BUILD_SESSIONS",
@@ -257,6 +233,11 @@
       "tag": "v9",
       "new_sqlite_classes": ["WorldStore"],
     },
+    {
+      // One Sandbox class serves both sizes and both workloads.
+      "tag": "v10",
+      "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
+    },
   ],
   "queues": {
     "producers": [
@@ -284,9 +265,11 @@
       "preview_urls": false,
       "vars": {
         "TELEMETRY_ENVIRONMENT": "development",
-        "SANDBOX_TRANSPORT": "rpc",
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+        // Snapshot a world container when its turn releases it and start the
+        // next cold container from that snapshot. "0" always starts from the image.
+        "SANDBOX_SNAPSHOTS": "1",
         "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
         "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
         "STELLA_CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
@@ -363,25 +346,16 @@
       ],
       "containers": [
         {
+          // Durable Object scheduling: the Sandbox object picks the image, the
+          // instance size (standard-2 small, standard-4 large), and whether the
+          // container may reach the Internet each time it starts one. This
+          // policy has no max_instances; account limits apply.
           "class_name": "Sandbox",
-          "image": "./Dockerfile",
-          "instance_type": "standard-4",
-          "max_instances": 1,
-          "rollout_active_grace_period": 960,
-        },
-        {
-          "class_name": "SandboxSmall",
-          "image": "./Dockerfile",
-          "instance_type": "standard-2",
-          "max_instances": 6,
-          "rollout_active_grace_period": 960,
-        },
-        {
-          "class_name": "AppBuildSandbox",
-          "image": "./Dockerfile",
-          "instance_type": "standard-4",
-          "max_instances": 1,
-          "rollout_active_grace_period": 960,
+          "name": "stella-v2-cloud-builder-basic-nightingale-118-sandbox-do",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "sandbox": { "dockerfile": "./Dockerfile" },
+          },
         },
       ],
       "durable_objects": {
@@ -389,14 +363,6 @@
           {
             "name": "Sandbox",
             "class_name": "Sandbox",
-          },
-          {
-            "name": "SANDBOX_SMALL",
-            "class_name": "SandboxSmall",
-          },
-          {
-            "name": "APP_BUILD_SANDBOX",
-            "class_name": "AppBuildSandbox",
           },
           {
             "name": "BUILD_SESSIONS",
@@ -462,6 +428,11 @@
           "tag": "v9",
           "new_sqlite_classes": ["WorldStore"],
         },
+        {
+          // One Sandbox class serves both sizes and both workloads.
+          "tag": "v10",
+          "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
+        },
       ],
       "queues": {
         "producers": [
@@ -487,9 +458,11 @@
       "preview_urls": false,
       "vars": {
         "TELEMETRY_ENVIRONMENT": "production",
-        "SANDBOX_TRANSPORT": "rpc",
         "TURN_TIMEOUT_MS": "900000",
         "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+        // Snapshot a world container when its turn releases it and start the
+        // next cold container from that snapshot. "0" always starts from the image.
+        "SANDBOX_SNAPSHOTS": "1",
         "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-prod.lolruuxi.workers.dev",
         "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev",
         "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
@@ -565,27 +538,16 @@
       ],
       "containers": [
         {
+          // Durable Object scheduling: the Sandbox object picks the image, the
+          // instance size (standard-2 small, standard-4 large), and whether the
+          // container may reach the Internet each time it starts one. This
+          // policy has no max_instances; account limits apply.
           "class_name": "Sandbox",
-          "image": "./Dockerfile",
-          "instance_type": "standard-4",
-          "max_instances": 1,
-          "rollout_active_grace_period": 960,
-        },
-        {
-          // Physical capacity guard only. The model-gateway token budget is
-          // the only product limit.
-          "class_name": "SandboxSmall",
-          "image": "./Dockerfile",
-          "instance_type": "standard-2",
-          "max_instances": 24,
-          "rollout_active_grace_period": 960,
-        },
-        {
-          "class_name": "AppBuildSandbox",
-          "image": "./Dockerfile",
-          "instance_type": "standard-4",
-          "max_instances": 1,
-          "rollout_active_grace_period": 960,
+          "name": "stella-v2-cloud-builder-prod-sandbox-do",
+          "scheduling_policy": "durable_object",
+          "images": {
+            "sandbox": { "dockerfile": "./Dockerfile" },
+          },
         },
       ],
       "durable_objects": {
@@ -593,14 +555,6 @@
           {
             "name": "Sandbox",
             "class_name": "Sandbox",
-          },
-          {
-            "name": "SANDBOX_SMALL",
-            "class_name": "SandboxSmall",
-          },
-          {
-            "name": "APP_BUILD_SANDBOX",
-            "class_name": "AppBuildSandbox",
           },
           {
             "name": "BUILD_SESSIONS",
@@ -665,6 +619,11 @@
         {
           "tag": "v9",
           "new_sqlite_classes": ["WorldStore"],
+        },
+        {
+          // One Sandbox class serves both sizes and both workloads.
+          "tag": "v10",
+          "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
         },
       ],
       "queues": {

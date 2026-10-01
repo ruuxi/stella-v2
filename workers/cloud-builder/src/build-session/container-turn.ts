@@ -95,7 +95,7 @@ import type {
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
-import type { ExecutionSession } from "@cloudflare/sandbox";
+import type { ExecutionSession } from "../sandbox-client.js";
 import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { CLOUD_AGENT_TURN_RESULT_PATH } from "@stella/executor-cloud/agent-turn-result-file";
@@ -452,11 +452,9 @@ export const runContainerAgentTurn = async (
       : undefined;
     execution.assertActive();
 
-    // Without the small class bound there is only one rung, so start (and
-    // stay) on the large one rather than pretending to size anything.
-    const proposedSize: InstanceSize = !host.env.SANDBOX_SMALL
-      ? "large"
-      : initialInstanceSize({ prompt: turn.prompt });
+    const proposedSize: InstanceSize = initialInstanceSize({
+      prompt: turn.prompt,
+    });
     let size = await world.selectContainerSize(proposedSize);
     await host.ctx.storage.put("sandboxSize", size);
     execution.assertActive();

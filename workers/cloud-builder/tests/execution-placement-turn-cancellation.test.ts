@@ -32,9 +32,8 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: () => ({}),
-  Sandbox: class {},
-  ContainerProxy: class {},
+  Files: class {},
+  SandboxFileError: { is: () => false },
 }));
 const { OrchestratorSessionObject: OrchestratorSession } =
   await import("../src/orchestrator-session-object.js");
@@ -559,6 +558,7 @@ describe("BuildSession sandbox termination", () => {
           return { success: true };
         },
       }),
+      requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) =>
         calls.push(`delete:${sessionId}`),
       destroy: async () => calls.push("destroy"),
@@ -603,11 +603,12 @@ describe("BuildSession sandbox termination", () => {
     });
     const calls: string[] = [];
     harness.instance["sandbox"] = () => ({
-      getState: async () => ({ status: "healthy" }),
+      getState: async () => ({ status: "running" }),
       killAllProcesses: async (sessionId: string) =>
         calls.push(`kill:${sessionId}`),
       killProcess: async () => undefined,
       getSession: async () => ({ exec: async () => ({ success: true }) }),
+      requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) =>
         calls.push(`delete:${sessionId}`),
     });
@@ -634,6 +635,7 @@ describe("BuildSession sandbox termination", () => {
           `Session 'agent-run-${current.turnId}' does not exist.`,
         );
       },
+      requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) =>
         calls.push(`delete:${sessionId}`),
     });
@@ -4398,6 +4400,7 @@ const residentStopHarness = (turnId: string) => {
         groupCommands.push(command);
         return { success: true, stdout: "" };
       },
+      requestSnapshot: async () => undefined,
       deleteSession: async () => undefined,
       destroy: async () => {
         destroyed.push({ sandboxId, size });
@@ -4694,6 +4697,7 @@ describe("BuildSession teardown never revives the container it retires", () => {
       killProcess: async (processId: string, signal: string) => {
         calls.push(`process:${processId}:${signal}`);
       },
+      requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) => {
         calls.push(`delete:${sessionId}`);
       },

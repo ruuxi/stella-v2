@@ -23,9 +23,8 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: () => ({}),
-  Sandbox: class {},
-  ContainerProxy: class {},
+  Files: class {},
+  SandboxFileError: { is: () => false },
 }));
 const { BuildSessionObject: BuildSession } = await import(
   "../src/build-session/object.js"

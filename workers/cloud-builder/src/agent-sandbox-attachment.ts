@@ -14,7 +14,7 @@
  * decision this module gets to make.
  */
 
-import type { ExecutionSession, Process } from "@cloudflare/sandbox";
+import type { ExecutionSession, Process } from "./sandbox-client.js";
 import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import {

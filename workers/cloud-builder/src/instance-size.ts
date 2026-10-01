@@ -1,12 +1,9 @@
 /**
  * Right-sizing for agent sandboxes.
  *
- * A container's instance type is a deploy-time property of its class in
- * wrangler.jsonc — `ContainerStartupOptions` has no size field, so a single
- * class cannot be sized per turn. The ladder is therefore expressed as two
- * container classes over the same image: `SandboxSmall` for the default world
- * and `Sandbox` for heavy work and OOM retries. Deployments without the small
- * binding use the large class.
+ * The Sandbox object passes the tier's instance type to `ctx.container.start()`,
+ * so one class runs both sizes: small for the default world, large for heavy
+ * work and OOM retries.
  */
 
 export type InstanceSize = "small" | "large";
@@ -14,7 +11,6 @@ export type InstanceSize = "small" | "large";
 export const INSTANCE_TIERS: Record<
   InstanceSize,
   {
-    binding: string;
     instanceType: string;
     vCpu: number;
     memoryBytes: number;
@@ -22,14 +18,12 @@ export const INSTANCE_TIERS: Record<
   }
 > = {
   small: {
-    binding: "SANDBOX_SMALL",
     instanceType: "standard-2",
     vCpu: 1,
     memoryBytes: 6 * 1024 ** 3,
     diskBytes: 12 * 1024 ** 3,
   },
   large: {
-    binding: "Sandbox",
     instanceType: "standard-4",
     vCpu: 4,
     memoryBytes: 12 * 1024 ** 3,

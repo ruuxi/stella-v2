@@ -27,9 +27,8 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: () => ({}),
-  Sandbox: class {},
-  ContainerProxy: class {},
+  Files: class {},
+  SandboxFileError: { is: () => false },
 }));
 const { OrchestratorSessionObject: OrchestratorSession } = await import(
   "../src/orchestrator-session-object.js"

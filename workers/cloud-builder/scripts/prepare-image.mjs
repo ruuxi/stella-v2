@@ -105,10 +105,12 @@ const bunRuntimeMatch = dockerfile.match(
   /^FROM\s+docker\.io\/oven\/bun:([^\s-]+)-debian@sha256:[0-9a-f]+\s+AS\s+bun-runtime\s*$/m,
 );
 const bunRuntimeVersion = bunRuntimeMatch?.[1];
-const sandboxBaseMatch = dockerfile.match(
-  /^FROM\s+docker\.io\/cloudflare\/sandbox:([^\s]+)\s*$/m,
+// The SDK's helper binary is copied from the cloudflare/sandbox image whose
+// tag matches the installed package; a mismatched shim breaks `Files`.
+const sandboxToolsMatch = dockerfile.match(
+  /^FROM\s+docker\.io\/cloudflare\/sandbox:([^\s@]+)@sha256:[0-9a-f]+\s+AS\s+sandbox-tools\s*$/m,
 );
-const sandboxBaseVersion = sandboxBaseMatch?.[1];
+const sandboxToolsVersion = sandboxToolsMatch?.[1];
 if (
   typeof sandboxPackageVersion !== "string" ||
   !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(sandboxPackageVersion)
@@ -117,9 +119,9 @@ if (
     "Cloud image @cloudflare/sandbox dependency must use an exact version.",
   );
 }
-if (sandboxBaseVersion !== sandboxPackageVersion) {
+if (sandboxToolsVersion !== sandboxPackageVersion) {
   throw new Error(
-    `Cloud image Sandbox SDK ${sandboxPackageVersion} does not match Docker base ${sandboxBaseVersion ?? "<missing>"}.`,
+    `Cloud image Sandbox SDK ${sandboxPackageVersion} does not match sandbox-tools image ${sandboxToolsVersion ?? "<missing>"}.`,
   );
 }
 if (
@@ -214,7 +216,7 @@ await writeFile(
     {
       schemaVersion: 1,
       sandboxSdkVersion: sandboxPackageVersion,
-      sandboxBaseImage: `docker.io/cloudflare/sandbox:${sandboxBaseVersion}`,
+      sandboxToolsImage: `docker.io/cloudflare/sandbox:${sandboxToolsVersion}`,
       dependencyLockSha256: `sha256:${lockSha256}`,
     },
     null,

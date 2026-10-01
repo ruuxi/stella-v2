@@ -35,11 +35,32 @@ const sourceConfig = (config) => {
       ? {
           containers: config.containers.map((container) => ({
             ...container,
-            image:
-              typeof container.image === "string" &&
-              container.image.startsWith(".")
-                ? path.resolve(workerRoot, container.image)
-                : container.image,
+            ...(typeof container.image === "string"
+              ? {
+                  image: container.image.startsWith(".")
+                    ? path.resolve(workerRoot, container.image)
+                    : container.image,
+                }
+              : {}),
+            ...(container.images
+              ? {
+                  images: Object.fromEntries(
+                    Object.entries(container.images).map(([name, image]) => [
+                      name,
+                      typeof image.dockerfile === "string" &&
+                      image.dockerfile.startsWith(".")
+                        ? {
+                            ...image,
+                            dockerfile: path.resolve(
+                              workerRoot,
+                              image.dockerfile,
+                            ),
+                          }
+                        : image,
+                    ]),
+                  ),
+                }
+              : {}),
           })),
         }
       : {}),

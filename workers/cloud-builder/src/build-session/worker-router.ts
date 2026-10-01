@@ -53,6 +53,7 @@ import {
   readBoundedResponseBytes,
 } from "../bounded-body.js";
 import { withBrowserCors } from "../browser-cors.js";
+import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
 import { parseConversationEditRequest } from "../conversation-edit-protocol.js";
 import {
@@ -956,6 +957,8 @@ const router = {
     // gate would 401 every client. Both verify the JWT themselves and forward
     // the proven identity to the DO in x-stella-* headers, stripping whatever
     // the client sent under those names first.
+    const backendResponse = await handleBackendRoute(request, env);
+    if (backendResponse) return backendResponse;
     if (url.pathname === "/dictation/socket") {
       if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
         return json({ error: "This endpoint speaks WebSocket only." }, 426);

@@ -5,6 +5,18 @@ import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type 
 import { turnStartErrorResponse } from "./turn-start-request.js";
 import type { ModelGatewayControl } from "./managed-request-cancellation.js";
 import { convexSiteBase } from "./convex-site.js";
+import { verifyConvexToken } from "./auth-jwt.js";
+import { OwnerStore } from "./owner-store/store.js";
+import { ownerRegistry } from "./owner-store/domains.js";
+import type { OwnerCaller, OwnerRegistry } from "./owner-store/registry.js";
+import type { RpcResponse } from "@stella/contracts/backend/protocol";
+import {
+  HEADER_ANONYMOUS,
+  HEADER_OWNER,
+  HEADER_SESSION,
+  HEADER_SUBJECT,
+  HEADER_TOKEN_EXP,
+} from "./conversation-types.js";
 /**
  * The owner gate: one Durable Object per owner, named by ownerId, that
  * answers "may this owner start a turn right now?" without a synchronous
@@ -885,8 +897,57 @@ const fail = (
   error: dispatchError(code, message, retryable, retryAfterMs).error,
 });
 
+/**
+ * The caller the Worker verified, rebuilt from the `x-stella-*` headers it
+ * stamps after stripping the client's own. Null when any part is missing.
+ */
+const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
+  const ownerId = request.headers.get(HEADER_OWNER)?.trim() ?? "";
+  const subject = request.headers.get(HEADER_SUBJECT)?.trim() ?? "";
+  const sessionId = request.headers.get(HEADER_SESSION)?.trim() ?? "";
+  const expiresAtMs = Number(request.headers.get(HEADER_TOKEN_EXP));
+  if (!ownerId || !subject || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return null;
+  }
+  return {
+    ownerId,
+    subject,
+    sessionId,
+    expiresAtMs,
+    isAnonymous: request.headers.get(HEADER_ANONYMOUS) === "1",
+  };
+};
+
 export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private schemaReady = false;
+  private ownerStoreState?: OwnerStore;
+  /** The domains this object serves. Test fixtures substitute their own. */
+  protected backendRegistry(): OwnerRegistry {
+    return ownerRegistry;
+  }
+  /** The owner's database: backend calls, live views and jobs. */
+  ownerStore(): OwnerStore {
+    return this.ownerStoreState ??= new OwnerStore({
+      ctx: this.ctx,
+      env: this.env as unknown as Cloudflare.Env,
+      ownerId: () => this.ownerId(),
+      registry: this.backendRegistry(),
+      verifyToken: async (token) => {
+        const issuer = convexSiteBase(this.env);
+        if (!issuer) return null;
+        const verified = await verifyConvexToken(token, issuer);
+        return verified.ok ? verified.token : null;
+      },
+      log,
+    });
+  }
+
+  /** `POST /api/rpc/<name>` for owner-scoped functions, verified by the Worker. */
+  async ownerRpc(input: { name: string; args: unknown; caller: OwnerCaller }): Promise<RpcResponse> {
+    const response = await this.ownerStore().call(input.name, input.args, input.caller);
+    await this.scheduleAlarm(Date.now());
+    return response;
+  }
   private snapshotInflight: Promise<OwnerSnapshot> | null = null;
   private gatewayOwnerPreparation?: Promise<void>;
   private memoryPolicyState?: OwnerMemoryPolicy;
@@ -1746,6 +1807,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       }
       return response;
     }
+    if (url.pathname === "/live") {
+      if ((request.headers.get("upgrade") ?? "").toLowerCase() !== "websocket") {
+        return Response.json({ error: "This endpoint speaks WebSocket only." }, { status: 426 });
+      }
+      const caller = trustedOwnerCaller(request);
+      if (!caller || caller.ownerId !== this.ownerId()) {
+        return Response.json({ error: "Missing verified identity." }, { status: 401 });
+      }
+      const response = this.ownerStore().acceptLive(caller);
+      await this.scheduleAlarm(Date.now());
+      return response;
+    }
     if (url.pathname !== "/presence") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
@@ -1806,6 +1879,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     socket: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    if (this.ownerStore().isLiveSocket(socket)) {
+      await this.ownerStore().onLiveMessage(socket, message);
+      await this.scheduleAlarm(Date.now());
+      return;
+    }
     const text =
       typeof message === "string"
         ? message
@@ -1999,6 +2077,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   async webSocketClose(socket: WebSocket, code: number): Promise<void> {
+    if (this.ownerStore().isLiveSocket(socket)) {
+      this.ownerStore().onLiveClose(socket);
+      return;
+    }
     const attachment = this.attachment(socket);
     const now = Date.now();
     if (attachment?.phase === "connected") {
@@ -2009,6 +2091,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
+    if (this.ownerStore().isLiveSocket(socket)) {
+      this.ownerStore().onLiveClose(socket);
+      return;
+    }
     const attachment = this.attachment(socket);
     const now = Date.now();
     if (attachment?.phase === "connected") {
@@ -3713,9 +3799,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       preserveExisting?: boolean;
     } = {},
   ): Promise<void> {
+    this.ensureSchema();
     let next = options.fenceDeadline ?? Number.POSITIVE_INFINITY;
     if (await this.memoryPolicy().pending() || await this.modelGrants().pendingFenceBarrier())
       next = Math.min(next, now + 5_000);
+    next = Math.min(next, this.ownerStore().nextDeadline());
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
@@ -3779,6 +3867,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       fenceAlarmCompleted = true;
       await this.expirePresence(now);
       await this.expireDispatches(now);
+      await this.ownerStore().onAlarm(now);
       await this.memoryPolicy().retry().catch((error: unknown) => {
         log("error", "memory_policy_retry_pending", {
           message: error instanceof Error ? error.message : "Memory policy retry failed.",

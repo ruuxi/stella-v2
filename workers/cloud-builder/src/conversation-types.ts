@@ -307,6 +307,8 @@ export const HEADER_OWNER = "x-stella-owner";
 export const HEADER_SUBJECT = "x-stella-subject";
 export const HEADER_SESSION = "x-stella-session";
 export const HEADER_TOKEN_EXP = "x-stella-token-exp";
+/** `"1"` when the verified caller is an anonymous account. */
+export const HEADER_ANONYMOUS = "x-stella-anonymous";
 /**
  * The pinned Convex origin the worker verified against. It rides along so the
  * DO can verify a mid-life `auth` frame without needing its own copy of the

@@ -1492,11 +1492,6 @@
     "oauth": {
       "xaiCodeMessage": "Введите этот код, чтобы подключить xAI",
       "expectedValue": "Ожидаемое значение: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Выберите фото фигуры",
-      "pickClothesTitle": "Выберите изображения одежды",
-      "imageFilterName": "Изображение"
     }
   },
   "features": {

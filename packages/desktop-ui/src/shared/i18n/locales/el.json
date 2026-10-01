@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "Εισαγάγετε αυτόν τον κωδικό για σύνδεση με το xAI",
       "expectedValue": "Αναμενόμενη τιμή: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Επιλέξτε τη φωτογραφία σώματός σας",
-      "pickClothesTitle": "Επιλέξτε εικόνες ρούχων",
-      "imageFilterName": "Εικόνα"
     }
   },
   "features": {

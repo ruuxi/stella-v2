@@ -10,16 +10,13 @@ reason when available.
 managed gateway. `openai`, `openrouter`, and `fal` use the user's locally saved
 credential directly; reference images go only to that selected provider and
 do not pass through Stella managed storage. Local references are restricted to
-the active workspace and Stella attachment/media/output/Fashion roots, capped
-at 20MB after the descriptor read, and fully decoded before use. Reference reads
-use `O_NOFOLLOW`, reject files with multiple hardlinks, and compare two
+the active workspace and Stella attachment/media/output roots, capped at 20MB
+after the descriptor read, and fully decoded before use. Reference reads use
+`O_NOFOLLOW`, reject files with multiple hardlinks, and compare two
 descriptor-positioned byte snapshots plus device/inode/metadata before and
 after the bounded read so path, ancestor, or same-size content replacement
-cannot change the authorized object. Fashion's trusted picker stages references locally;
-accepted HEIC files are converted with a 30-second macOS `sips` process limit;
-missing/sandbox-denied conversion, oversized output, or an invalid JPEG fails
-closed and cleans temporary files. Managed local references additionally require
-explicit `allowManagedReferenceUpload` consent for the call.
+cannot change the authorized object. Managed local references additionally
+require explicit `allowManagedReferenceUpload` consent for the call.
 
 The `image_gen` schema and runtime accept at most four references total across
 paths and URLs. This count applies before provider selection. BYOK references

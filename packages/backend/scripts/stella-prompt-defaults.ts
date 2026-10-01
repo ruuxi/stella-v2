@@ -34,14 +34,6 @@ export const STELLA_PROMPT_SOURCE_ENTRIES = [
     },
   },
   {
-    id: "agents/fashion.md",
-    runtimeSource: {
-      kind: "agent-metadata",
-      relativePath:
-        "packages/runtime/extensions/stella-runtime/agent-metadata/fashion.md",
-    },
-  },
-  {
     id: "agents/explore.md",
     runtimeSource: {
       kind: "agent-metadata",

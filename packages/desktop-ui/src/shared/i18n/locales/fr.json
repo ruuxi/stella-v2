@@ -1485,11 +1485,6 @@
     "oauth": {
       "xaiCodeMessage": "Saisissez ce code pour connecter xAI",
       "expectedValue": "Valeur attendue : {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Choisissez votre photo de silhouette",
-      "pickClothesTitle": "Choisissez des images de vêtements",
-      "imageFilterName": "Image"
     }
   },
   "features": {

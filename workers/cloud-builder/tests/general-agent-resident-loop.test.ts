@@ -20,7 +20,7 @@ import type { AgentTurnJournal } from "../src/agent-turn-journal.js";
 
 /**
  * The load-bearing claim of the resident path is that a turn which never calls
- * a container tool never boots a container. Counting `getSandbox` is the only
+ * a container tool never boots a container. Counting `sandboxClient` is the only
  * way to state that as a fact rather than an intention, so the module is
  * mocked before `general-agent-turn.js` loads and the counter stays installed
  * for the whole file: a dynamic import on some later code path would be caught
@@ -28,12 +28,14 @@ import type { AgentTurnJournal } from "../src/agent-turn-journal.js";
  */
 let getSandboxCalls = 0;
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: () => {
+  Files: class {},
+  SandboxFileError: { is: () => false },
+}));
+mock.module("../src/sandbox-client.js", () => ({
+  sandboxClient: () => {
     getSandboxCalls += 1;
     return {};
   },
-  Sandbox: class {},
-  ContainerProxy: class {},
 }));
 
 const { runResidentStellaLoop } = await import("../src/general-agent-turn.js");

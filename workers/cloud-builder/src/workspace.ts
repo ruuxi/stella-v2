@@ -44,7 +44,7 @@ export const worldSandboxId = async (ownerId: string): Promise<string> =>
     workspaceKey: await checkpointKey(ownerId),
   });
 
-/** One persistent-shell session per agent turn, capped for the Sandbox SDK. */
+/** One command session (cwd, env, timeout) per agent turn. */
 export const agentTurnSessionId = (turnId: string): string =>
   `agent-run-${turnId}`
     .toLowerCase()

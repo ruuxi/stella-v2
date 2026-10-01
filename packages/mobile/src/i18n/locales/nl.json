@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "Voer deze code in om xAI te verbinden",
       "expectedValue": "Verwachte waarde: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Kies je lichaamsfoto",
-      "pickClothesTitle": "Kies kledingafbeeldingen",
-      "imageFilterName": "Afbeelding"
     }
   },
   "features": {

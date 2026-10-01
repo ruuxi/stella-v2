@@ -4,7 +4,6 @@
  *
  * @see src/build-session/host.ts for why every call out takes `host`.
  */
-import { getSandbox } from "@cloudflare/sandbox";
 import { Effect } from "effect";
 import {
   attachedToolPaths,
@@ -28,6 +27,7 @@ import {
   SANDBOX_WORKLOADS,
 } from "../sandbox-lifecycle.js";
 import { PREVIEW_ACCESS_STORAGE_KEY } from "../vite-preview-access.js";
+import { sandboxClient } from "../sandbox-client.js";
 import { agentTurnSessionId } from "../workspace.js";
 import type { InstanceSize } from "../instance-size.js";
 import type {
@@ -57,12 +57,6 @@ export type SessionSandboxHost = Pick<
   | "sandboxContainerRunning"
 >;
 
-/** Container states in which a process sweep reaches a running process. */
-const SANDBOX_RUNNING_STATUSES: ReadonlySet<string> = new Set([
-  "running",
-  "healthy",
-]);
-
 /** Idle timeout for an unpinned shared world or app-build container. */
 const sandboxSleepAfterMs = (
   env: Pick<Env, "SANDBOX_IDLE_TIMEOUT_MS">,
@@ -72,31 +66,18 @@ const sandboxSleepAfterMs = (
 };
 
 /**
- * One unpinned sandbox handle per exact tuple. Size selects the namespace as
- * much as the id does: the classes are separate namespaces, so a handle built
- * for the wrong size silently addresses a different container.
+ * One sandbox handle per exact tuple. Every workload and size shares one
+ * namespace: the object picks the instance size and network policy when it
+ * starts the container, so the id alone addresses the container.
  */
-export const sandboxHandle = (env: Env, target: SandboxTarget) => {
-  const namespace =
-    target.workload === "app-build"
-      ? env.APP_BUILD_SANDBOX
-      : target.size === "small" && env.SANDBOX_SMALL
-        ? env.SANDBOX_SMALL
-        : env.Sandbox;
-  const sleepAfter = sandboxSleepAfterMs(env);
-  return getSandbox(namespace, target.sandboxId, {
-    transport: "rpc",
-    enableDefaultSession: false,
-    keepAlive: false,
-    ...(sleepAfter === undefined ? {} : { sleepAfter }),
-    normalizeId: true,
-    containerTimeouts: {
-      instanceGetTimeoutMS: 60_000,
-      portReadyTimeoutMS: 120_000,
-    },
-    labels: { service: "stella-v2", workload: target.workload },
+export const sandboxHandle = (env: Env, target: SandboxTarget) =>
+  sandboxClient(env.Sandbox, target.sandboxId, {
+    size: target.size,
+    workload: target.workload,
+    ...(sandboxSleepAfterMs(env) === undefined
+      ? {}
+      : { idleTimeoutMs: sandboxSleepAfterMs(env) }),
   });
-};
 
 /** Every id this worker mints: a lifecycle fingerprint or a diagnostic echo. */
 const RETIRE_SANDBOX_ID =
@@ -186,17 +167,13 @@ export const sandboxContainerRunning = async (
   _host: SessionSandboxHost,
   sandbox: ReturnType<BuildSessionInternals["sandbox"]>,
 ): Promise<boolean> => {
-  const stateful = sandbox as typeof sandbox & {
-    getState?: () => Promise<{ status?: unknown } | undefined>;
-  };
-  if (typeof stateful.getState !== "function") return false;
   try {
     const state = await withInfrastructureDeadline(
-      stateful.getState(),
+      sandbox.getState(),
       10_000,
       "Sandbox state read did not settle.",
     );
-    return SANDBOX_RUNNING_STATUSES.has(String(state?.status ?? ""));
+    return state.status === "running";
   } catch (error) {
     log("error", "sandbox_state_read_failed", {
       ...sandboxLifecycleFailureFields(error),
@@ -235,7 +212,8 @@ export const destroySandboxDurably = async (
   const sandbox = host.sandbox(target.sandboxId, target.size, target.workload);
   try {
     await withInfrastructureDeadline(
-      sandbox.destroy(),
+      // A resize restarts the same world larger; every other reason discards it.
+      sandbox.destroy({ keepSnapshot: event === "agent_oom_resize" }),
       30_000,
       "Sandbox destruction did not settle.",
     );
@@ -295,9 +273,8 @@ export const scheduleSandboxDestroyDebtAlarm = async (
 };
 
 /**
- * The sandbox this DO is currently responsible for. Size matters as much as
- * id: the two container classes are separate namespaces, so destroying by
- * id alone against the wrong one silently leaves a live container behind.
+ * The sandbox this DO is currently responsible for. The id addresses the
+ * container; the size and workload say how to start it again.
  */
 export const currentSandboxTarget = async (
   host: SessionSandboxHost,
@@ -514,4 +491,7 @@ export const releaseAgentSessionResources = async (
     "Attached daemon directory removal did not settle.",
   ).catch(() => undefined);
   await sandbox.deleteSession(target.sessionId).catch(() => undefined);
+  // The released container is the warmest copy of this world; the next cold
+  // start resumes from its filesystem instead of rebuilding it.
+  await sandbox.requestSnapshot().catch(() => undefined);
 };

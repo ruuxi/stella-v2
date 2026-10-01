@@ -1470,11 +1470,6 @@
     "oauth": {
       "xaiCodeMessage": "Nhập mã này để kết nối xAI",
       "expectedValue": "Giá trị mong đợi: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Chọn ảnh toàn thân của bạn",
-      "pickClothesTitle": "Chọn ảnh quần áo",
-      "imageFilterName": "Hình ảnh"
     }
   },
   "features": {

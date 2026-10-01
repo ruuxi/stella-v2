@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { ExecutionSession } from "@cloudflare/sandbox";
+import type { ExecutionSession } from "../../sandbox-client.js";
 import type { CloudTurnSource } from "@stella/contracts/turn-plane/turn-start";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/outbox";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";

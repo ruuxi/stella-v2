@@ -1492,11 +1492,6 @@
     "oauth": {
       "xaiCodeMessage": "Zadejte tento kód pro připojení xAI",
       "expectedValue": "Očekávaná hodnota: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Vyberte fotku své postavy",
-      "pickClothesTitle": "Vyberte obrázky oblečení",
-      "imageFilterName": "Obrázek"
     }
   },
   "features": {

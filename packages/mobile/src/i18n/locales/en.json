@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "Enter this code to connect xAI",
       "expectedValue": "Expected value: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Pick your body photo",
-      "pickClothesTitle": "Pick clothes images",
-      "imageFilterName": "Image"
     }
   },
   "features": {

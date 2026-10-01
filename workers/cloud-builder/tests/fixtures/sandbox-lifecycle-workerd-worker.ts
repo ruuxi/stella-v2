@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { getSandbox } from "@cloudflare/sandbox";
 import {
   advanceSandboxDestroyDebt,
   clearSandboxDestroyDebt,
@@ -107,19 +106,8 @@ export class SandboxLifecycleProof extends DurableObject<FixtureEnv> {
     const debts = await listSandboxDestroyDebts(this.ctx.storage);
     if ((await this.ctx.storage.get<boolean>("aba")) === true) {
       for (const debt of debts) {
-        const sandbox = getSandbox(
-          this.env.SANDBOX_PROOF as DurableObjectNamespace<any>,
-          debt.target.sandboxId,
-          {
-            transport: "rpc",
-            enableDefaultSession: false,
-            keepAlive: false,
-            normalizeId: true,
-            labels: {
-              service: "sandbox-lifecycle-workerd-proof",
-              workload: debt.target.workload,
-            },
-          },
+        const sandbox = this.env.SANDBOX_PROOF.getByName(
+          debt.target.sandboxId.toLowerCase(),
         );
         await sandbox.destroy();
         await clearSandboxDestroyDebt(this.ctx.storage, debt);

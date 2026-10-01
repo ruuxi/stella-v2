@@ -18,7 +18,6 @@ import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
-import { registerFashionHandlers } from "../ipc/fashion-handlers.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
 import { registerThemeHandlers } from "../ipc/theme-handlers.js";
 import { registerWebsiteHandlers } from "../ipc/website-handlers.js";
@@ -341,13 +340,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerWebsiteHandlers({
         getWebsiteBaseUrl: readStellaWebBaseUrl,
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
-    registerFashionHandlers({
-        getStellaAppDir: lifecycle.getStellaAppDir,
-        getStellaDataDir: lifecycle.getStellaDataDir,
-        getStellaHostRunner: lifecycle.getRunner,
-        onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerNativeIntegrationHandlers({

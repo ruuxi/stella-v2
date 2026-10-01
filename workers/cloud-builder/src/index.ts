@@ -4,40 +4,22 @@ import type { Env } from "./build-session/shared/env.js";
 import { OrchestratorSession } from "./orchestrator-session.js";
 import { OwnerGate } from "./owner-gate.js";
 import { OwnerTransferCoordinator } from "./owner-transfer-coordinator-do.js";
-import {
-  AppBuildSandbox as AppBuildSandboxBase,
-  ContainerProxy,
-  GeneralAgentSandbox,
-} from "./sandbox-egress-classes.js";
-import { appBuildEgress, generalAgentEgress } from "./sandbox-egress-policy.js";
 import { inSubshell } from "./shell-subshell.js";
-export { ContainerProxy };
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };
 export { OwnerGate };
 export { WorldStore } from "./world-store.js";
 export { WorldShellFs } from "./world-shell-fs.js";
 
-/** Existing large general-agent namespace, retained migration-compatibly. */
-export class Sandbox extends GeneralAgentSandbox<Env> {}
-Sandbox.outbound = generalAgentEgress;
-
 /**
- * The small rung of the instance ladder. Container size is declared per class
- * in wrangler.jsonc and cannot be chosen per request, so a second class over
- * the same image is the only way to run a cheap turn cheaply. Behaviorally
- * identical to `Sandbox`.
+ * Every sandbox, of either size and either workload, is one object in this
+ * namespace; it starts its container through `ctx.container`.
  */
-export class SandboxSmall extends GeneralAgentSandbox<Env> {}
-SandboxSmall.outbound = generalAgentEgress;
-
-/** Permanently offline app-build namespace with baked dependencies. */
-export class AppBuildSandbox extends AppBuildSandboxBase<Env> {}
-AppBuildSandbox.outbound = appBuildEgress;
+export { Sandbox, SandboxEgress } from "./sandbox-container.js";
 
 /**
- * Run a strict (`set -eu`) script without leaving those options behind in
- * the session's persistent shell. The subshell's exit status is the script's.
+ * Run a strict (`set -eu`) script scoped to a subshell. The subshell's exit
+ * status is the script's.
  * Defined in `shell-subshell.ts` so the checkpoint archive scripts share it
  * without importing this module.
  */

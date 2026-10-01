@@ -74,8 +74,8 @@ describe("Sandbox image preparation", () => {
       ]);
       expect(metadata).toEqual({
         schemaVersion: 1,
-        sandboxSdkVersion: "0.12.9",
-        sandboxBaseImage: "docker.io/cloudflare/sandbox:0.12.9",
+        sandboxSdkVersion: "1.0.0",
+        sandboxToolsImage: "docker.io/cloudflare/sandbox:1.0.0",
         dependencyLockSha256: `sha256:${createHash("sha256")
           .update(lock)
           .digest("hex")}`,

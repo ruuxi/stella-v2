@@ -1,6 +1,5 @@
 export const AGENT_IDS = {
   ORCHESTRATOR: "orchestrator",
-  FASHION: "fashion",
   GENERAL: "general",
   OFFLINE_RESPONDER: "offline_responder",
   EXPLORE: "explore",
@@ -87,23 +86,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
       injectsUserProfile: true,
       injectsRuntimeReminders: true,
       injectsSkillCatalog: true,
-    },
-  },
-  {
-    id: AGENT_IDS.FASHION,
-    name: "Fashion",
-    description:
-      "Builds outfit batches for the Fashion tab: searches the global Shopify catalog, picks cohesive pieces across slots, and renders the user wearing each look on a clean white studio background by combining their body photo with product images.",
-    activityLabel: "Styling",
-    bundledCore: true,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Builds outfit looks and fashion outputs",
-      order: 8,
     },
   },
   {

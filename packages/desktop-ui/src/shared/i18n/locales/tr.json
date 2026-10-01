@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "xAI'yi bağlamak için bu kodu girin",
       "expectedValue": "Beklenen değer: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Vücut fotoğrafınızı seçin",
-      "pickClothesTitle": "Kıyafet görsellerini seçin",
-      "imageFilterName": "Görsel"
     }
   },
   "features": {

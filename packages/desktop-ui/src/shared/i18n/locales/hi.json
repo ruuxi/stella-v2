@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "xAI कनेक्ट करने के लिए यह कोड दर्ज करें",
       "expectedValue": "अपेक्षित मान: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "अपनी बॉडी फ़ोटो चुनें",
-      "pickClothesTitle": "कपड़ों की छवियाँ चुनें",
-      "imageFilterName": "छवि"
     }
   },
   "features": {

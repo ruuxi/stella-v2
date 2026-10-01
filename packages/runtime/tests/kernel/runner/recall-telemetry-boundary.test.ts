@@ -15,10 +15,6 @@ vi.mock("@stella/runtime/kernel/tools/host", () => ({
   }),
 }));
 
-vi.mock("@stella/runtime/kernel/runner/fashion-api", () => ({
-  createFashionApi: vi.fn(() => ({})),
-}));
-
 vi.mock("@stella/runtime/kernel/shared/runtime-paths", () => ({
   resolveRuntimeSourceAsset: vi.fn((name: string) => `/runtime/${name}`),
 }));

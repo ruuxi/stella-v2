@@ -1,4 +1,4 @@
-import type { DirectoryBackup } from "@cloudflare/sandbox";
+import type { LegacyDirectoryBackup as DirectoryBackup } from "../../sandbox-client.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type {
   CloudBrowserResumeReceipt,
@@ -398,9 +398,11 @@ export type WorkspaceCheckpointImports = {
  *    purged per conversation through `POST /conversations/:id/purge`, because
  *    only the DO can say its own storage is gone. The `conversations/` prefix
  *    sweep above is the backstop for segments whose index row was already lost.
- *  - Sandbox / SandboxSmall / BuildSession DOs hold no durable owner state:
- *    each is destroyed at the end of the turn that created it, and a workspace
- *    that must survive is a `backups/` archive, which IS here.
+ *  - BuildSession DOs hold no durable owner state. The world's Sandbox DO
+ *    keeps a handle to its last container filesystem snapshot; an owner purge
+ *    destroys that sandbox, which drops the handle. Cloudflare has no snapshot
+ *    delete, so the unreferenced snapshot itself expires after 30 days.
+ *    A workspace that must survive is a `backups/` archive, which IS here.
  *  - The per-user drive bucket is bound to Convex (the @convex-dev/r2
  *    component), not to this worker. Convex deletes it from its own file rows;
  *    see DRIVE in convex/cloud_purge.ts.

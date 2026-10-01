@@ -1470,11 +1470,6 @@
     "oauth": {
       "xaiCodeMessage": "輸入此代碼以連接 xAI",
       "expectedValue": "預期值：{value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "選擇你的全身照",
-      "pickClothesTitle": "選擇服裝圖片",
-      "imageFilterName": "圖片"
     }
   },
   "features": {

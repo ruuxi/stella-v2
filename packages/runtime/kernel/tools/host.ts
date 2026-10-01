@@ -213,8 +213,6 @@ export const createToolHost = ({
   captureSpawnModelConfig,
   resolveCloudExecutionSelection,
   scheduleApi,
-
-  fashionApi,
   extensionTools,
   webSearch,
   getStellaSiteAuth,
@@ -405,8 +403,6 @@ export const createToolHost = ({
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
     agentApi,
     scheduleApi,
-
-    fashionApi,
     extensionTools,
     webSearch,
     getStellaSiteAuth,
@@ -522,14 +518,11 @@ export const createToolHost = ({
     ) {
       const allowed = catalogEntry.agentTypes ?? [];
       // Format the denial message to match historical per-agent wording.
-      // Pre-migration the orchestrator helper read "only available to the
-      // orchestrator" (lowercase agent id, no " agent" suffix) and the
-      // Fashion helper read "only available to the Fashion agent." (capitalized
-      // display name, " agent" suffix). Use the agent definition's `name`
-      // field so the Fashion path doesn't degrade to "the fashion." (broken
-      // grammar, leaked internal id) — but special-case the orchestrator so
-      // existing UI/error consumers that depend on that exact substring
-      // keep working.
+      // The orchestrator reads "only available to the orchestrator"
+      // (lowercase agent id, no " agent" suffix) because existing UI/error
+      // consumers depend on that exact substring. Every other agent uses its
+      // definition's display `name` with an " agent" suffix, so the message
+      // never leaks a raw internal id.
       const formatAllowedAgent = (id: string): string => {
         if (id === AGENT_IDS.ORCHESTRATOR) return "the orchestrator";
         const def = getAgentDefinition(id);

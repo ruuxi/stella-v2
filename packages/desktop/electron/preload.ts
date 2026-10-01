@@ -1834,45 +1834,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onUpdated: onIpcSignal("schedule:updated"),
   },
 
-  fashion: {
-    pickAndSaveBodyPhoto: () =>
-      ipcRenderer.invoke("fashion:pickAndSaveBodyPhoto"),
-    getBodyPhotoInfo: () => ipcRenderer.invoke("fashion:getBodyPhotoInfo"),
-    getBodyPhotoDataUrl: () =>
-      ipcRenderer.invoke("fashion:getBodyPhotoDataUrl"),
-    deleteBodyPhoto: () => ipcRenderer.invoke("fashion:deleteBodyPhoto"),
-    getLocalImageDataUrl: (path: string) =>
-      ipcRenderer.invoke("fashion:getLocalImageDataUrl", { path }),
-    startOutfitBatch: (payload: {
-      prompt?: string;
-      batchId?: string;
-      count?: number;
-      excludeProductIds?: string[];
-      seedHints?: string[];
-    }) => ipcRenderer.invoke("fashion:startOutfitBatch", payload),
-    pickTryOnImages: () => ipcRenderer.invoke("fashion:pickTryOnImages"),
-    /**
-     * Resolves an absolute filesystem path for a `File` dropped into the
-     * fashion drop zone. Uses Electron's `webUtils.getPathForFile`
-     * (Electron ≥32) which works under `contextIsolation: true` where
-     * `File.path` is no longer exposed. Returns an empty string if the
-     * dropped item is not a real on-disk file (e.g. a generated File).
-     */
-    getDroppedFilePath: (file: File) => {
-      try {
-        return webUtils.getPathForFile(file) || "";
-      } catch {
-        return "";
-      }
-    },
-    startTryOn: (payload: {
-      prompt?: string;
-      batchId?: string;
-      imagePaths?: string[];
-      imageUrls?: string[];
-    }) => ipcRenderer.invoke("fashion:startTryOn", payload),
-  },
-
   localChat: {
     getOrCreateDefaultConversationId: () =>
       ipcRenderer.invoke("localChat:getOrCreateDefaultConversationId"),

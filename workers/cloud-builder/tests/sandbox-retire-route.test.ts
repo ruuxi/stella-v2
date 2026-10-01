@@ -1,45 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 
-type FakeSandbox = {
-  calls: string[];
-  destroy: () => Promise<void>;
-};
-
-const handles: Array<{
-  namespace: string;
-  id: string;
-  options: Record<string, unknown>;
-  sandbox: FakeSandbox;
-}> = [];
-let nextBehaviour: {
-  destroyFails?: boolean;
-} = {};
-
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
   RpcTarget: class {},
   WorkerEntrypoint: class {},
 }));
 mock.module("@cloudflare/sandbox", () => ({
-  getSandbox: (
-    namespace: { name: string },
-    id: string,
-    options: Record<string, unknown>,
-  ) => {
-    const calls: string[] = [];
-    const behaviour = nextBehaviour;
-    const sandbox: FakeSandbox = {
-      calls,
-      destroy: async () => {
-        calls.push("destroy");
-        if (behaviour.destroyFails) throw new Error("destroy rpc failed");
-      },
-    };
-    handles.push({ namespace: namespace.name, id, options, sandbox });
-    return sandbox;
-  },
-  Sandbox: class {},
-  ContainerProxy: class {},
+  Files: class {},
+  SandboxFileError: { is: () => false },
 }));
 const worker = (await import("../src/index.js")).default;
 mock.restore();
@@ -53,8 +21,6 @@ const namespace = (name: string) => ({ name, ...methods("getByName") });
 
 const environment = () => ({
   Sandbox: namespace("Sandbox"),
-  SANDBOX_SMALL: namespace("SANDBOX_SMALL"),
-  APP_BUILD_SANDBOX: namespace("APP_BUILD_SANDBOX"),
   BUILD_SESSIONS: methods("getByName"),
   ORCHESTRATOR_SESSIONS: methods("getByName"),
   OWNER_TRANSFER_COORDINATORS: methods("getByName"),
@@ -68,7 +34,6 @@ const environment = () => ({
   CONVERSATION_ARCHIVE: methods("get", "put", "delete", "list"),
   LOADER: methods("get", "load"),
   BUILDER_SERVICE_SECRET: SECRET,
-  SANDBOX_TRANSPORT: "rpc",
   TURN_TIMEOUT_MS: "900000",
   SANDBOX_IDLE_TIMEOUT_MS: "600000",
   APPS_HOST_BASE_URL: "https://apps-untrusted.example",
@@ -115,56 +80,7 @@ const silenced = async <T>(work: () => Promise<T>): Promise<T> => {
 };
 
 describe("POST /internal/sandboxes/retire", () => {
-  test("destroys the exact world tuple in its own namespace", async () => {
-    handles.length = 0;
-    nextBehaviour = {};
-    const response = await silenced(() =>
-      retire({ sandboxId: WORLD_ID, size: "small", workload: "world" }),
-    );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      ok: true,
-      target: { sandboxId: WORLD_ID, size: "small", workload: "world" },
-    });
-    expect(handles).toHaveLength(1);
-    const [handle] = handles;
-    // Size selects the namespace; a retire stub never carries keep-alive on.
-    expect(handle!.namespace).toBe("SANDBOX_SMALL");
-    expect(handle!.id).toBe(WORLD_ID);
-    expect(handle!.options).toMatchObject({
-      keepAlive: false,
-      sleepAfter: 600_000,
-      normalizeId: true,
-      transport: "rpc",
-    });
-    expect(handle!.sandbox.calls).toEqual(["destroy"]);
-  });
-
-  test("reports a destroy that did not settle as a 502 with safe diagnostics only", async () => {
-    handles.length = 0;
-    nextBehaviour = { destroyFails: true };
-    const response = await silenced(() =>
-      retire({
-        sandboxId: `app-${"b".repeat(40)}`,
-        size: "large",
-        workload: "app-build",
-      }),
-    );
-    expect(response.status).toBe(502);
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body).toMatchObject({
-      ok: false,
-      reason: "destroy_failed",
-      failureCode: "sandbox_rpc_failed",
-      errorName: "Error",
-    });
-    expect(JSON.stringify(body)).not.toContain("destroy rpc failed");
-    expect(handles[0]!.namespace).toBe("APP_BUILD_SANDBOX");
-  });
-
   test("refuses a tuple it did not mint", async () => {
-    handles.length = 0;
-    nextBehaviour = {};
     for (const body of [
       { sandboxId: "not-a-lifecycle-id", size: "small", workload: "world" },
       { sandboxId: WORLD_ID, size: "medium", workload: "world" },
@@ -185,16 +101,13 @@ describe("POST /internal/sandboxes/retire", () => {
         reason: "invalid_target",
       });
     }
-    expect(handles).toHaveLength(0);
   });
 
   test("requires the service bearer", async () => {
-    handles.length = 0;
     const response = await retire(
       { sandboxId: WORLD_ID, size: "small", workload: "world" },
       null,
     );
     expect(response.status).toBe(401);
-    expect(handles).toHaveLength(0);
   });
 });

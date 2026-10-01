@@ -1,7 +1,8 @@
+/// <reference types="bun-types" />
 /**
- * Minimal ambient types for `bun:test`, just enough for the pure-function
- * tests in this folder to typecheck without pulling `@types/bun` into the
- * Expo app. Run the tests with `bun test` from `packages/mobile/`.
+ * Test-only types: Bun's own (`bun:test`, `bun:sqlite`) plus a few
+ * declarations kept from when this file stood in for them. Run the tests
+ * with `bun test` from `packages/mobile/`.
  */
 declare module "bun:test" {
   interface Matchers {

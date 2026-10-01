@@ -2,7 +2,6 @@ import { isValidServiceBearerSecret } from "./service-bearer.js";
 
 export const CLOUD_BUILDER_REQUIRED_FIELDS = [
   "Sandbox",
-  "APP_BUILD_SANDBOX",
   "BUILD_SESSIONS",
   "ORCHESTRATOR_SESSIONS",
   "OWNER_TRANSFER_COORDINATORS",
@@ -17,7 +16,6 @@ export const CLOUD_BUILDER_REQUIRED_FIELDS = [
   "CONVERSATION_ARCHIVE",
   "LOADER",
   "BUILDER_SERVICE_SECRET",
-  "SANDBOX_TRANSPORT",
   "TURN_TIMEOUT_MS",
   "SANDBOX_IDLE_TIMEOUT_MS",
   "APPS_HOST_BASE_URL",
@@ -85,7 +83,6 @@ const validators: Readonly<
   Record<CloudBuilderRequiredField, (value: unknown) => boolean>
 > = {
   Sandbox: (value) => hasMethods(value, ["getByName"]),
-  APP_BUILD_SANDBOX: (value) => hasMethods(value, ["getByName"]),
   BUILD_SESSIONS: (value) => hasMethods(value, ["getByName"]),
   ORCHESTRATOR_SESSIONS: (value) => hasMethods(value, ["getByName"]),
   OWNER_TRANSFER_COORDINATORS: (value) => hasMethods(value, ["getByName"]),
@@ -101,7 +98,6 @@ const validators: Readonly<
     hasMethods(value, ["get", "put", "delete", "list"]),
   LOADER: (value) => hasMethods(value, ["get", "load"]),
   BUILDER_SERVICE_SECRET: isValidServiceBearerSecret,
-  SANDBOX_TRANSPORT: (value) => value === "rpc",
   TURN_TIMEOUT_MS: isPositiveIntegerString,
   SANDBOX_IDLE_TIMEOUT_MS: isPositiveIntegerString,
   APPS_HOST_BASE_URL: isHttpsOrigin,

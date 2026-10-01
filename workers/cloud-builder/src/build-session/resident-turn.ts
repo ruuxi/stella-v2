@@ -77,7 +77,7 @@ import type {
   TurnRequest,
   TurnStateCheckpointOperation,
 } from "./shared/types.js";
-import type { ExecutionSession } from "@cloudflare/sandbox";
+import type { ExecutionSession } from "../sandbox-client.js";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
@@ -397,9 +397,9 @@ export const runResidentAgentTurn = async (
   const sandboxId = await worldSandboxId(turn.ownerId);
   const ownerWorldName = await worldName(turn.ownerId);
   const world = host.env.WORLDS.getByName(ownerWorldName);
-  const proposedSize: InstanceSize = !host.env.SANDBOX_SMALL
-    ? "large"
-    : initialInstanceSize({ prompt: turn.prompt });
+  const proposedSize: InstanceSize = initialInstanceSize({
+    prompt: turn.prompt,
+  });
   const instanceSize = proposedSize;
   const sessionId = agentTurnSessionId(turn.turnId);
   const daemonDirectory = attachedToolPaths(identity).directory;

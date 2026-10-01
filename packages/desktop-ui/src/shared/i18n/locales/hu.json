@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "Add meg ezt a kódot az xAI csatlakoztatásához",
       "expectedValue": "Várt érték: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Válaszd ki az alakodról készült fotót",
-      "pickClothesTitle": "Válassz ruhaképeket",
-      "imageFilterName": "Kép"
     }
   },
   "features": {

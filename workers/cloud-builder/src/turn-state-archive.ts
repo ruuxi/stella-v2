@@ -1,4 +1,4 @@
-import type { ExecutionSession } from "@cloudflare/sandbox";
+import type { ExecutionSession } from "./sandbox-client.js";
 import { Effect, Fiber } from "effect";
 import {
   forkAbortTimer,

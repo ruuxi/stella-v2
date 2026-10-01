@@ -1478,11 +1478,6 @@
     "oauth": {
       "xaiCodeMessage": "Ange den här koden för att ansluta xAI",
       "expectedValue": "Förväntat värde: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Välj ditt kroppsfoto",
-      "pickClothesTitle": "Välj klädbilder",
-      "imageFilterName": "Bild"
     }
   },
   "features": {

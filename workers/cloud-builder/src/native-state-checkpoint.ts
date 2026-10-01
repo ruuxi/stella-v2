@@ -1,4 +1,4 @@
-import type { DirectoryBackup } from "@cloudflare/sandbox";
+import type { LegacyDirectoryBackup as DirectoryBackup } from "./sandbox-client.js";
 import { sha256Hex } from "./hash.js";
 
 export const NATIVE_STATE_CHECKPOINT_SCHEMA_VERSION = 1 as const;

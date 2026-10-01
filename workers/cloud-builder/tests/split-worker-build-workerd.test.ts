@@ -107,8 +107,7 @@ describe("Split Worker build in real Workerd", () => {
       "OwnerGate",
       "BuildSession",
       "Sandbox",
-      "SandboxSmall",
-      "AppBuildSandbox",
+      "SandboxEgress",
       "WorldStore",
     ]) {
       expect(report.exports).toContain(name);

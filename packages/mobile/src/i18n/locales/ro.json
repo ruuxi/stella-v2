@@ -1485,11 +1485,6 @@
     "oauth": {
       "xaiCodeMessage": "Introdu acest cod pentru a conecta xAI",
       "expectedValue": "Valoare așteptată: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "Alege fotografia ta de corp",
-      "pickClothesTitle": "Alege imagini cu haine",
-      "imageFilterName": "Imagine"
     }
   },
   "features": {

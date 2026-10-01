@@ -4,7 +4,7 @@
 // Durable Object instance, so there is no host interface: these are the
 // top-level collaborators that the worker router and a handful of class
 // methods call with an explicit `env`.
-import type { DirectoryBackup } from "@cloudflare/sandbox";
+import type { LegacyDirectoryBackup as DirectoryBackup } from "../sandbox-client.js";
 import { sha256Hex } from "../hash.js";
 import {
   checkpointBackupName,

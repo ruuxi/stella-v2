@@ -4,7 +4,7 @@ import type {
   ExecutionSession,
   Process,
   ProcessOptions,
-} from "@cloudflare/sandbox";
+} from "./sandbox-client.js";
 import { Effect } from "effect";
 import {
   runToolEffect,

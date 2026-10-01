@@ -1470,11 +1470,6 @@
     "oauth": {
       "xaiCodeMessage": "xAI를 연결하려면 이 코드를 입력하세요",
       "expectedValue": "예상 값: {value}"
-    },
-    "fashion": {
-      "pickBodyPhotoTitle": "전신 사진 선택",
-      "pickClothesTitle": "옷 이미지 선택",
-      "imageFilterName": "이미지"
     }
   },
   "features": {

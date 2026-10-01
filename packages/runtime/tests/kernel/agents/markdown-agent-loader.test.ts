@@ -34,7 +34,6 @@ describe("loadParsedAgentsFromDir", () => {
     expect(agents.map((agent) => agent.id).sort()).toEqual(
       [
         "explore",
-        "fashion",
         "general",
         "orchestrator",
       ].sort(),

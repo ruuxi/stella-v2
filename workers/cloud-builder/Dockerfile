@@ -58,7 +58,13 @@ COPY .image/bun.lock ./bun.lock
 COPY .image/image-build.json ./image-build.json
 RUN node --input-type=commonjs -e \
       'const fs = require("node:fs"); const crypto = require("node:crypto"); const childProcess = require("node:child_process"); const metadata = JSON.parse(fs.readFileSync("image-build.json", "utf8")); const digest = `sha256:${crypto.createHash("sha256").update(fs.readFileSync("bun.lock")).digest("hex")}`; const bunVersion = childProcess.execFileSync("bun", ["--version"], { encoding: "utf8" }).trim(); if (metadata.dependencyLockSha256 !== digest) throw new Error("Sandbox image lock digest mismatch"); if (metadata.sandboxSdkVersion !== "1.0.0") throw new Error("Sandbox SDK and sandbox-tools image versions differ"); if (bunVersion !== "1.4.0") throw new Error("Sandbox image Bun version differs from the pinned lock runtime");' \
-  && bun install --production --frozen-lockfile
+  && bun install --production --frozen-lockfile \
+  # Claude Code ships glibc and musl native builds as optional packages; this
+  # image is glibc, so the 258 MB musl binary is dead weight.
+  && rm -rf node_modules/.bun/@anthropic-ai+claude-code-linux-x64-musl@* \
+  # Bun's download cache (~700 MB) is only for installs; the image never
+  # installs again.
+  && rm -rf /root/.bun/install/cache
 
 # The checked-in stella-office binaries are macOS-only and are filtered out of
 # the image staging; fetch the matching Linux build instead. The package's own

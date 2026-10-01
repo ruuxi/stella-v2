@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { builtinModules, createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -135,13 +136,106 @@ if (bunRuntimeVersion !== imageBunVersion) {
     `Cloud image Bun build tool ${imageBunVersion} does not match Docker runtime ${bunRuntimeVersion ?? "<missing>"}.`,
   );
 }
+/**
+ * The npm packages the container can load: everything statically reachable
+ * from the executor CLI, the only script the container runs, through the
+ * staged workspaces. Bun installs each staged workspace's own dependencies;
+ * the rest are pinned to the root manifest's versions. The root manifest is
+ * the desktop app's, so it is never copied wholesale.
+ */
+const EXECUTOR_ENTRY = path.join(repoRoot, "packages/executor-cloud/src/cli.ts");
+const tracedImports = async (declared) => {
+  const esbuild = createRequire(path.join(repoRoot, "package.json"))("esbuild");
+  // Bun lists some npm packages (undici, ws) as built-ins and Node does not.
+  // A name a manifest declares is always a package, so either runtime traces
+  // the same set.
+  const builtins = new Set(
+    builtinModules.filter((name) => !declared.has(name)),
+  );
+  const nameOf = (specifier) =>
+    specifier.startsWith("@")
+      ? specifier.split("/").slice(0, 2).join("/")
+      : specifier.split("/")[0];
+  const names = new Set();
+  await esbuild.build({
+    entryPoints: [EXECUTOR_ENTRY],
+    bundle: true,
+    write: false,
+    platform: "node",
+    format: "esm",
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "image-dependencies",
+        setup(build) {
+          build.onResolve({ filter: /^[^./]/ }, ({ path: specifier }) => {
+            if (specifier.startsWith("@stella/")) return undefined;
+            const name = nameOf(specifier);
+            const builtin =
+              specifier.startsWith("node:") ||
+              specifier.startsWith("bun:") ||
+              specifier === "bun" ||
+              builtins.has(name);
+            if (!builtin) names.add(name);
+            return { path: specifier, external: true };
+          });
+        },
+      },
+    ],
+  });
+  return [...names].sort();
+};
+const workspaceDependencies = new Set();
+for (const packageName of imagePackages) {
+  const manifest = JSON.parse(
+    await readFile(
+      path.join(repoRoot, "packages", packageName, "package.json"),
+      "utf8",
+    ),
+  );
+  for (const name of Object.keys(manifest.dependencies ?? {})) {
+    workspaceDependencies.add(name);
+  }
+}
+// Every traced package goes at the image root. Bun installs a workspace's own
+// dependencies beside that workspace, where a sibling workspace that imports
+// the same package cannot resolve it.
+const workspaceVersions = new Map();
+for (const packageName of imagePackages) {
+  const manifest = JSON.parse(
+    await readFile(
+      path.join(repoRoot, "packages", packageName, "package.json"),
+      "utf8",
+    ),
+  );
+  for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
+    if (!version.startsWith("workspace:")) workspaceVersions.set(name, version);
+  }
+}
+const executorDependencies = {};
+for (const name of await tracedImports(
+  new Set([
+    ...workspaceDependencies,
+    ...Object.keys(rootPackage.dependencies ?? {}),
+  ]),
+)) {
+  const version =
+    rootPackage.dependencies?.[name] ?? workspaceVersions.get(name);
+  if (typeof version !== "string") {
+    throw new Error(
+      `The cloud executor imports ${name}, but no staged workspace or the root manifest declares it.`,
+    );
+  }
+  executorDependencies[name] = version;
+}
+
 const imagePackage = {
   name: "stella-cloud-executor-image",
   private: true,
   type: "module",
   workspaces: imagePackages.map((name) => `packages/${name}`),
   dependencies: {
-    ...rootPackage.dependencies,
+    ...executorDependencies,
     // Claude's native coding-agent runtime. This exact version is part of the
     // sandbox image contract: cloud turns must not change behavior merely
     // because a registry dist-tag moved between image builds.

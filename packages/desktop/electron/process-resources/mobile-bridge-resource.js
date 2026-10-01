@@ -113,11 +113,7 @@ export const createMobileBridgeResource = (options) => {
         if (bridge || options.processRuntime.isShuttingDown()) {
             return;
         }
-        bridge = new MobileBridgeService({
-            electronDir: options.electronDir,
-            isDev: options.isDev,
-            getDevServerUrl: options.getDevServerUrl,
-        });
+        bridge = new MobileBridgeService({});
         bridge.setBootstrapPayloadGetter(options.getBootstrapPayload);
         bridge.start();
         stopAuthSync = options.processRuntime.setManagedInterval(() => {

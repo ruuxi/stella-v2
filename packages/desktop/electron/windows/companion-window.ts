@@ -75,7 +75,6 @@ export type CompanionWindowOptions = {
   sessionPartition: string;
   electronDir: string;
   isDev: boolean;
-  getDevServerUrl: () => string;
   isQuitting: () => boolean;
   getStellaDataDir: () => string | null;
   /** Bring the full shell forward (context menu "Open Stella", bubble click). */
@@ -442,7 +441,6 @@ export class CompanionWindowController {
       electronDir: this.options.electronDir,
       isDev: this.options.isDev,
       mode: loadModeFor(slot.kind),
-      getDevServerUrl: this.options.getDevServerUrl,
     });
     this.attachDisplayListeners();
     return win;
@@ -458,7 +456,6 @@ export class CompanionWindowController {
         electronDir: this.options.electronDir,
         isDev: this.options.isDev,
         mode: loadModeFor(slot.kind),
-        getDevServerUrl: this.options.getDevServerUrl,
       });
     }, 300);
   }

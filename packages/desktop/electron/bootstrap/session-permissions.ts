@@ -1,4 +1,5 @@
 import { session, type WebContents } from "electron";
+import { RENDERER_ORIGIN } from "../source/origin.js";
 
 const APP_ALLOWED_PERMISSIONS = new Set([
   "media",
@@ -10,7 +11,9 @@ const APP_ALLOWED_PERMISSIONS = new Set([
 
 const originFromUrl = (value: string): string | null => {
   try {
-    return new URL(value).origin;
+    // `URL.origin` is "null" for the renderer's custom `stella-app:` scheme.
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
   } catch {
     return null;
   }
@@ -27,15 +30,13 @@ const getWebContentsOrigin = (webContents: WebContents | null | undefined) => {
 type ConfigureStellaSessionPermissionsOptions = {
   appPartition: string;
   isDev: boolean;
-  getDevServerUrl: () => string;
 };
 
 export const configureStellaSessionPermissions = ({
   appPartition,
   isDev,
-  getDevServerUrl,
 }: ConfigureStellaSessionPermissionsOptions) => {
-  const devOrigin = isDev ? originFromUrl(getDevServerUrl()) : null;
+  const devOrigin = isDev ? RENDERER_ORIGIN : null;
   const isTrustedAppContents = (
     webContents: WebContents | null | undefined,
   ) => {

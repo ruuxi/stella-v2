@@ -35,7 +35,6 @@ export class WindowManager {
             preloadPath: options.preloadPath,
             sessionPartition: options.sessionPartition,
             isDev: options.isDev,
-            getDevServerUrl: options.getDevServerUrl,
             setupExternalLinkHandlers: (window) => options.externalLinkService.setupExternalLinkHandlers(window),
             onDidFinishLoad: () => {
                 this.resetTransientReloadStateOnSuccess();

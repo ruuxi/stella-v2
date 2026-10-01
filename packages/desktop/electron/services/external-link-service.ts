@@ -15,7 +15,7 @@ export class ExternalLinkService {
     { windowStartMs: number; count: number; lastOpenedAtMs: number }
   >()
 
-  /** When set (dev: Vite on LAN), renderer at this origin may use privileged IPC. */
+  /** When set (the renderer served from source), this origin may use privileged IPC. */
   private trustedDevOrigin: string | null = null
   private trustedFileRendererRoot: string | null = null
 
@@ -39,6 +39,14 @@ export class ExternalLinkService {
     } catch {
       return false
     }
+  }
+
+  /**
+   * `scheme://host` of a URL. `URL.origin` is "null" for a custom scheme
+   * like the renderer's `stella-app:`, so it can't be compared directly.
+   */
+  private originOf(parsed: URL) {
+    return `${parsed.protocol}//${parsed.host}`
   }
 
   private parseUrl(value: string) {
@@ -69,7 +77,7 @@ export class ExternalLinkService {
     const parsed = this.parseUrl(url)
     if (!parsed) return false
     if (parsed.protocol === 'about:' && parsed.href === 'about:blank') return true
-    if (this.trustedDevOrigin && parsed.origin === this.trustedDevOrigin) {
+    if (this.trustedDevOrigin && this.originOf(parsed) === this.trustedDevOrigin) {
       return true
     }
     if (this.isTrustedFileRendererUrl(parsed)) {
@@ -78,15 +86,9 @@ export class ExternalLinkService {
     return false
   }
 
-  /**
-   * Call in dev with the same fixed loopback base URL used by Vite.
-   */
-  trustDevServerBaseUrl(baseUrl: string) {
-    const trimmed = baseUrl.trim()
-    if (!trimmed) return
-    const parsed = this.parseUrl(trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed)
-    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return
-    this.trustedDevOrigin = parsed.origin
+  /** Trust the origin the renderer is served from when it runs from source. */
+  trustRendererOrigin(origin: string) {
+    this.trustedDevOrigin = origin
   }
 
   trustFileRendererRoot(rootPath: string) {
@@ -105,7 +107,7 @@ export class ExternalLinkService {
     if (parsed.protocol === MOBILE_BRIDGE_PROTOCOL && parsed.href === MOBILE_BRIDGE_SENDER_URL) {
       return true
     }
-    if (this.trustedDevOrigin && parsed.origin === this.trustedDevOrigin) {
+    if (this.trustedDevOrigin && this.originOf(parsed) === this.trustedDevOrigin) {
       return true
     }
     if (this.isTrustedFileRendererUrl(parsed)) {

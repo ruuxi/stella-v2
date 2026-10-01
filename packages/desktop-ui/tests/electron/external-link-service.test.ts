@@ -9,18 +9,17 @@ import { resolveRendererRoot } from "@stella/desktop/electron/renderer-location"
 
 
 describe("ExternalLinkService renderer trust", () => {
-  it("trusts only the configured Stella dev origin for shell renderer URLs", () => {
+  it("trusts only the renderer's source origin for shell renderer URLs", () => {
     const service = new ExternalLinkService();
-    service.trustDevServerBaseUrl("http://localhost:57314/");
+    service.trustRendererOrigin("stella-app://desktop");
 
-    expect(service.isAppUrl("http://localhost:57314/index.html")).toBe(true);
+    expect(service.isAppUrl("stella-app://desktop/index.html")).toBe(true);
     expect(
-      service.isTrustedRendererUrl("http://localhost:57314/index.html"),
+      service.isTrustedRendererUrl("stella-app://desktop/overlay.html?window=overlay"),
     ).toBe(true);
 
-    expect(service.isAppUrl("http://localhost:3000")).toBe(false);
-    expect(service.isTrustedRendererUrl("http://localhost:3000")).toBe(false);
-    expect(service.isAppUrl("http://127.0.0.1:57314/index.html")).toBe(false);
+    expect(service.isTrustedRendererUrl("stella-app://other/index.html")).toBe(false);
+    expect(service.isAppUrl("http://localhost:57314/index.html")).toBe(false);
     expect(
       service.isTrustedRendererUrl("http://127.0.0.1:57314/index.html"),
     ).toBe(false);

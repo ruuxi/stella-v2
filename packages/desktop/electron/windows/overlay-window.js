@@ -185,7 +185,6 @@ class OverlayWindow {
             electronDir: this.options.electronDir,
             isDev: this.options.isDev,
             mode: 'overlay',
-            getDevServerUrl: this.options.getDevServerUrl,
         });
         this.window.on('closed', () => {
             this.window = null;
@@ -325,7 +324,6 @@ class OverlayWindow {
                 electronDir: this.options.electronDir,
                 isDev: this.options.isDev,
                 mode: 'overlay',
-                getDevServerUrl: this.options.getDevServerUrl,
             });
         }, delayMs);
     }

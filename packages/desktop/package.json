@@ -26,7 +26,6 @@
     "./electron/bootstrap/office-preview-bridge.js": "./electron/bootstrap/office-preview-bridge.js",
     "./electron/bootstrap/resets.js": "./electron/bootstrap/resets.js",
     "./electron/bootstrap/runtime.js": "./electron/bootstrap/runtime.js",
-    "./electron/dev-url.js": "./electron/dev-url.js",
     "./electron/input/mouse-hook.js": "./electron/input/mouse-hook.js",
     "./electron/ipc/agent-handlers.js": "./electron/ipc/agent-handlers.js",
     "./electron/ipc/browser-fetch-session.js": "./electron/ipc/browser-fetch-session.js",

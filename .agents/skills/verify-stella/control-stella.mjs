@@ -641,11 +641,8 @@ const doctorReport = async (run) => {
     runId: run.runId,
     dataDir: run.dataDir,
     userDataDir: run.userDataDir,
-    viteUrl: run.viteUrl,
     cdpPort: run.cdpPort,
-    vitePidAlive: isAlive(run.vitePid),
     electronPidAlive: isAlive(run.electronPid),
-    viteHttp: false,
     cdp: false,
     shellReady: false,
     hostReady: false,
@@ -653,15 +650,8 @@ const doctorReport = async (run) => {
     href: null,
     errors: [],
   };
-  if (!report.vitePidAlive) report.errors.push("Vite process is not running.");
   if (!report.electronPidAlive)
     report.errors.push("Electron process is not running.");
-  try {
-    await waitForHttp(run.viteUrl, 2_000);
-    report.viteHttp = true;
-  } catch (error) {
-    report.errors.push(error instanceof Error ? error.message : String(error));
-  }
   try {
     const target = await waitForCdp(run.cdpPort, 2_000);
     report.cdp = true;
@@ -708,9 +698,7 @@ const doctorReport = async (run) => {
     }
   }
   report.ok =
-    report.vitePidAlive &&
     report.electronPidAlive &&
-    report.viteHttp &&
     report.cdp &&
     report.shellReady &&
     report.hostReady;
@@ -721,7 +709,7 @@ const cmdLaunch = async (options) => {
   const existing = currentRun();
   if (
     existing &&
-    (isAlive(existing.vitePid) || isAlive(existing.electronPid))
+    isAlive(existing.electronPid)
   ) {
     if (!options.replace) {
       fail(
@@ -765,17 +753,12 @@ const cmdLaunch = async (options) => {
   mkdirSync(userDataDir, { recursive: true });
   seedDataDir(dataDir);
 
-  const [vitePort, cdpPort] = await Promise.all([
-    allocatePort(),
-    allocatePort(),
-  ]);
-  const viteUrl = `http://127.0.0.1:${vitePort}`;
+  const cdpPort = await allocatePort();
   const sharedEnv = {
     ...process.env,
     STELLA_SKIP_BROWSER_HYDRATE: "1",
     STELLA_DATA_DIR: dataDir,
     STELLA_V2_DEV_DATA_DIR: dataDir,
-    STELLA_DEV_SERVER_URL: viteUrl,
   };
 
   process.stderr.write("Building Electron main bundle if needed...\n");
@@ -791,34 +774,12 @@ const cmdLaunch = async (options) => {
   if (buildCode !== 0)
     fail(`dev-electron-build failed with exit ${buildCode}.`);
 
-  process.stderr.write("Starting Vite under bun...\n");
-  const vite = spawnLogged(
-    bunBin(),
-    [
-      "--bun",
-      path.join(repoRoot, "node_modules/vite/bin/vite.js"),
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(vitePort),
-      "--strictPort",
-    ],
-    {
-      cwd: path.join(repoRoot, "packages/desktop-ui"),
-      env: sharedEnv,
-      logPath: path.join(runDir, "vite.log"),
-    },
-  );
-
   const run = {
     runId,
     runDir,
     dataDir,
     userDataDir,
-    viteUrl,
-    vitePort,
     cdpPort,
-    vitePid: vite.pid,
     electronPid: null,
     startedAt: new Date().toISOString(),
     evidenceDir: DEFAULT_EVIDENCE_DIR,
@@ -828,14 +789,6 @@ const cmdLaunch = async (options) => {
   writeJson(path.join(runDir, "run.json"), run);
 
   try {
-    await delay(400);
-    if (!isAlive(vite.pid)) {
-      const log = existsSync(path.join(runDir, "vite.log"))
-        ? readFileSync(path.join(runDir, "vite.log"), "utf8")
-        : "";
-      throw new Error(`Vite exited before becoming ready.\n${log}`);
-    }
-    await waitForHttp(viteUrl, LAUNCH_TIMEOUT_MS);
     process.stderr.write("Starting Electron...\n");
     const softwareGl = linuxSoftwareGl();
     const electronArgs = [];
@@ -871,7 +824,6 @@ const cmdLaunch = async (options) => {
         STELLA_SKIP_BROWSER_HYDRATE: "1",
         STELLA_DATA_DIR: dataDir,
         STELLA_V2_DEV_DATA_DIR: dataDir,
-        STELLA_DEV_SERVER_URL: viteUrl,
         STELLA_DEV_HARNESS: "1",
         STELLA_DEV_HARNESS_STORAGE_KEY: randomBytes(32).toString("base64url"),
         ...(minted
@@ -941,10 +893,12 @@ const cmdLaunch = async (options) => {
       throw new Error(`Electron shell is ready but the runtime host did not become ready: ${lastHostError}`);
     }
   } catch (error) {
-    await stopPid(run.electronPid);
-    await stopPid(run.vitePid);
-    removeTemporaryUserData(run);
-    rmSync(POINTER_PATH, { force: true });
+    // STELLA_VERIFY_KEEP_ON_FAILURE=1 leaves a failed launch up to inspect.
+    if (process.env.STELLA_VERIFY_KEEP_ON_FAILURE !== "1") {
+      await stopPid(run.electronPid);
+      removeTemporaryUserData(run);
+      rmSync(POINTER_PATH, { force: true });
+    }
     throw error;
   }
 
@@ -965,7 +919,6 @@ const cmdStop = async ({ silent = false, dry_run: dryRun = false } = {}) => {
           runId: run.runId,
           wouldStop: {
             electronPid: run.electronPid,
-            vitePid: run.vitePid,
           },
           wouldRemove: [run.userDataDir, POINTER_PATH],
           wouldKeep: [run.dataDir, run.evidenceDir],
@@ -977,7 +930,6 @@ const cmdStop = async ({ silent = false, dry_run: dryRun = false } = {}) => {
     return;
   }
   await stopPid(run.electronPid);
-  await stopPid(run.vitePid);
   removeTemporaryUserData(run);
   rmSync(POINTER_PATH, { force: true });
   if (!silent) {
@@ -2067,14 +2019,12 @@ const cmdLogs = (options) => {
       .map(redactText);
   };
   const electronPath = path.join(run.runDir, "electron.log");
-  const vitePath = path.join(run.runDir, "vite.log");
   process.stdout.write(
     `${JSON.stringify(
       {
         runId: run.runId,
         tail,
         electron: { path: electronPath, lines: readTail(electronPath) },
-        vite: { path: vitePath, lines: readTail(vitePath) },
       },
       null,
       2,
@@ -2090,7 +2040,6 @@ const cmdCleanupPlan = () => {
     {
       wouldStop: {
         electronPid: run.electronPid,
-        vitePid: run.vitePid,
       },
       wouldRemove: [run.userDataDir, POINTER_PATH],
       wouldKeep: [run.dataDir, run.evidenceDir],

@@ -1,9 +1,6 @@
 import crypto from "crypto";
-import fs from "fs";
 import http, {} from "http";
 import os from "os";
-import path from "path";
-import { Readable } from "stream";
 import { WebSocketServer, WebSocket } from "ws";
 import { ConvexHttpClient } from "convex/browser";
 import { anyApi } from "convex/server";
@@ -16,7 +13,6 @@ import { guardMobileBridgeInvokeArgs } from "./invoke-guards.js";
 import { MOBILE_BRIDGE_SENDER_URL, containsPrivateChatData } from "./bridge-policy.js";
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
-import { resolveRendererRoot } from "../../renderer-location.js";
 export const MOBILE_BRIDGE_REGISTRATION_REFRESH_MS = 5 * 60_000;
 const REGISTER_DESKTOP_BRIDGE_MUTATION = anyApi.mobile_bridge.registerDesktopBridge;
 /**
@@ -326,7 +322,7 @@ export class MobileBridgeService {
     }
     /**
      * Set a callback that reads the desktop renderer's bootstrap payload.
-     * Used by `/bridge/bootstrap` to share session state with the mobile WebView.
+     * Used by `/bridge/bootstrap` to share session state with the phone app.
      */
     setBootstrapPayloadGetter(getter) {
         this.getBootstrapPayload = getter;
@@ -695,16 +691,8 @@ export class MobileBridgeService {
             await this.handleBinaryUploadRequest(req, res, requestOrigin, authenticated);
             return;
         }
-        // Everything else: serve the desktop frontend (requires auth)
-        const authenticated = await this.ensureAuthorized(req, res, requestOrigin);
-        if (!authenticated)
-            return;
-        if (this.options.isDev) {
-            await this.proxyToDevServer(req, res);
-        }
-        else {
-            await this.serveStaticRenderer(req, res, requestOrigin);
-        }
+        res.writeHead(404, { ...NO_STORE_HEADERS });
+        res.end();
     }
     // ── IPC routing ───────────────────────────────────────────────────────
     decryptBridgePayload(session, envelope) {
@@ -1246,131 +1234,6 @@ export class MobileBridgeService {
             throw new Error("Desktop bridge registration is missing Convex configuration or auth");
         }
         return client.mutation(REGISTER_DESKTOP_BRIDGE_MUTATION, args);
-    }
-    // ── Frontend serving ──────────────────────────────────────────────────
-    async proxyToDevServer(req, res) {
-        const target = new URL(req.url ?? "/", `${trimTrailingSlash(this.options.getDevServerUrl())}/`);
-        const method = req.method ?? "GET";
-        const body = method === "GET" || method === "HEAD" ? undefined : await readBody(req);
-        const headers = new Headers();
-        for (const [key, value] of Object.entries(req.headers)) {
-            if (!value)
-                continue;
-            const lower = key.toLowerCase();
-            if (lower === "host" ||
-                lower === "connection" ||
-                lower === "authorization" ||
-                lower === "cookie" ||
-                lower === "content-length") {
-                continue;
-            }
-            headers.set(key, Array.isArray(value) ? value.join(", ") : value);
-        }
-        headers.set("accept-encoding", "identity");
-        const upstream = await fetch(target, {
-            method,
-            headers,
-            body: body ?? undefined,
-            ...(body ? { duplex: "half" } : {}),
-        });
-        const responseHeaders = {};
-        upstream.headers.forEach((value, key) => {
-            const lower = key.toLowerCase();
-            if (lower === "content-length" ||
-                lower === "set-cookie" ||
-                lower === "content-encoding" ||
-                lower === "connection") {
-                return;
-            }
-            responseHeaders[key] = value;
-        });
-        res.writeHead(upstream.status, {
-            ...responseHeaders,
-            ...NO_STORE_HEADERS,
-        });
-        if (!upstream.body) {
-            res.end();
-            return;
-        }
-        await new Promise((resolve, reject) => {
-            Readable.fromWeb(upstream.body).pipe(res);
-            res.on("finish", resolve);
-            res.on("error", reject);
-        });
-    }
-    /**
-     * Resolve the built renderer root for static serving. Packaged builds ship
-     * the Vite output inside the asar at `app.asar/renderer` (the same tree
-     * `BrowserWindow.loadFile` uses); monorepo builds fall back to
-     * `packages/desktop-ui/dist` via `resolveRendererRoot`. The legacy
-     * `electronDir/../dist` location is kept as a last resort for old layouts.
-     * Returns null when no candidate actually contains an `index.html` so the
-     * caller can answer with an error instead of streaming a missing file.
-     */
-    resolveStaticRendererRoot() {
-        const candidates = [
-            resolveRendererRoot(this.options.electronDir),
-            path.resolve(this.options.electronDir, "../dist"),
-        ];
-        for (const candidate of candidates) {
-            try {
-                if (fs.statSync(path.join(candidate, "index.html")).isFile()) {
-                    return candidate;
-                }
-            }
-            catch {
-                // Candidate does not exist — try the next layout.
-            }
-        }
-        return null;
-    }
-    async serveStaticRenderer(req, res, requestOrigin) {
-        const requestUrl = new URL(req.url ?? "/", "http://localhost");
-        const relativePath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
-        const distRoot = this.resolveStaticRendererRoot();
-        if (!distRoot) {
-            console.warn("[mobile-bridge] No built renderer assets found to serve.");
-            sendJson(res, 503, { error: "Desktop renderer assets are unavailable." }, requestOrigin);
-            return;
-        }
-        const isServableFile = (candidate) => {
-            const relative = path.relative(distRoot, candidate);
-            if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-                return false;
-            }
-            try {
-                return fs.statSync(candidate).isFile();
-            }
-            catch {
-                return false;
-            }
-        };
-        const safePath = path.normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
-        const targetPath = path.join(distRoot, safePath);
-        const fallbackPath = path.join(distRoot, "index.html");
-        const filePath = isServableFile(targetPath) ? targetPath : fallbackPath;
-        if (!isServableFile(filePath)) {
-            sendJson(res, 503, { error: "Desktop renderer assets are unavailable." }, requestOrigin);
-            return;
-        }
-        const extension = path.extname(filePath).toLowerCase();
-        const contentType = MIME_TYPES[extension] ?? "application/octet-stream";
-        res.writeHead(200, {
-            "Content-Type": contentType,
-            ...NO_STORE_HEADERS,
-        });
-        const stream = fs.createReadStream(filePath);
-        // A read failure after the 200 head must abort the response, never
-        // surface as an unhandled 'error' event (which would take down the
-        // whole main process).
-        stream.on("error", (error) => {
-            console.warn(`[mobile-bridge] Failed to stream renderer asset ${filePath}:`, error instanceof Error ? error.message : String(error));
-            res.destroy();
-        });
-        res.on("close", () => {
-            stream.destroy();
-        });
-        stream.pipe(res);
     }
     // ── Convex registration ───────────────────────────────────────────────
     /**

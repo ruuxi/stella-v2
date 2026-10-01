@@ -13,7 +13,7 @@ import { IPC_AUTH_SESSION_INVALIDATED } from "@stella/contracts/desktop/ipc-chan
 import { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
-import { getDevServerUrl } from "../dev-url.js";
+import { RENDERER_ORIGIN } from "../source/origin.js";
 import { resolveRendererRoot } from "../renderer-location.js";
 import { initMainProcessTelemetry } from "../observability/main-telemetry.js";
 export const createBootstrapServices = (options) => {
@@ -38,7 +38,7 @@ export const createBootstrapServices = (options) => {
     });
     externalLinkService.setDevBuild(config.useDevServer);
     if (config.useDevServer) {
-        externalLinkService.trustDevServerBaseUrl(getDevServerUrl());
+        externalLinkService.trustRendererOrigin(RENDERER_ORIGIN);
     }
     else {
         externalLinkService.trustFileRendererRoot(resolveRendererRoot(config.electronDir));

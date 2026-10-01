@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { isLowMemoryWindowsDevice } from '../resource-profile.js'
 import { resolveRendererRoot } from '../renderer-location.js'
+import { RENDERER_ORIGIN } from '../source/origin.js'
 
 export type WindowLoadMode = 'full' | 'overlay' | 'companion' | 'companion-panel'
 
@@ -26,8 +27,9 @@ const applyWindowQueryParams = (url: URL, windowMode: WindowLoadMode) => {
   }
 }
 
-export const getDevUrl = (windowMode: WindowLoadMode, getDevServerUrl: () => string) => {
-  const url = new URL(getWindowEntryFile(windowMode), `${getDevServerUrl()}/`)
+/** The renderer served from source (see `source/renderer-source.ts`). */
+export const getSourceUrl = (windowMode: WindowLoadMode) => {
+  const url = new URL(getWindowEntryFile(windowMode), `${RENDERER_ORIGIN}/`)
   applyWindowQueryParams(url, windowMode)
   return url.toString()
 }
@@ -38,11 +40,10 @@ export const loadWindow = (
     electronDir: string
     isDev: boolean
     mode: WindowLoadMode
-    getDevServerUrl: () => string
   },
 ) => {
   if (options.isDev) {
-    window.loadURL(getDevUrl(options.mode, options.getDevServerUrl))
+    window.loadURL(getSourceUrl(options.mode))
     return
   }
 

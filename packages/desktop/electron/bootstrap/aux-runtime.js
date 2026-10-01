@@ -1,5 +1,4 @@
 import path from "path";
-import { getDevServerUrl } from "../renderer-location.js";
 import { buildMobileBridgeBootstrap } from "../services/mobile-bridge/bootstrap-payload.js";
 import { createStellaBrowserBridgeResource } from "../process-resources/browser-bridge-resource.js";
 import { broadcastStellaBrowserBridgeStatus, } from "./context.js";
@@ -35,8 +34,6 @@ export const startMobileBridge = async (context) => {
             return;
         }
         const resource = createMobileBridgeResource({
-            electronDir: context.config.electronDir,
-            isDev: context.config.useDevServer,
             getAuthToken: () => context.services.authService.getAuthToken(),
             getBootstrapPayload: () => readMobileBridgeBootstrap(context),
             getConvexUrl: () => context.services.authService.getPendingConvexUrl(),
@@ -47,7 +44,6 @@ export const startMobileBridge = async (context) => {
             getCloudflaredBinDir: () => context.state.stellaDataDirPath
                 ? path.join(context.state.stellaDataDirPath, "bin")
                 : null,
-            getDevServerUrl: () => getDevServerUrl() ?? "",
             getFullWindow: () => context.state.windowManager?.getFullWindow() ?? null,
             processRuntime: context.state.processRuntime,
         });

@@ -10,6 +10,8 @@ import {
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
   "http://localhost:57314",
   "https://stella.sh",
+  // The desktop renderer, served from source (desktop/electron/source).
+  "stella-app://desktop",
   "null",
 ];
 

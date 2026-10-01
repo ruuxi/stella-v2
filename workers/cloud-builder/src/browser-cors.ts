@@ -1,6 +1,8 @@
 // Keep these aligned with the browser origins trusted by Convex auth.
 const BROWSER_ORIGINS = new Set([
   "https://stella.sh",
+  // The desktop renderer, served from source (desktop/electron/source).
+  "stella-app://desktop",
   "http://localhost:57314",
   "http://127.0.0.1:57314",
 ]);

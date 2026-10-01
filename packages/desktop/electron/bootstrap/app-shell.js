@@ -2,7 +2,6 @@ import { app } from "electron";
 import { hasMacPermission } from "../utils/macos-permissions.js";
 import path from "path";
 import { resolveStellaDataDir } from "@stella/runtime/kernel/home/stella-home";
-import { getDevServerUrl } from "../renderer-location.js";
 import { OverlayWindowController } from "../windows/overlay-window.js";
 import { CompanionWindowController } from "../windows/companion-window.js";
 import { broadcastCompanionVisibility } from "../ipc/companion-handlers.js";
@@ -10,6 +9,7 @@ import { WindowManager } from "../windows/window-manager.js";
 import { TrayController } from "../windows/tray-controller.js";
 import { configureNotificationActivationHandling } from "../services/notification-service.js";
 import { configureStellaSessionPermissions } from "./session-permissions.js";
+import { serveRendererSource } from "../source/renderer-protocol.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startDeferredStartup } from "./deferred-startup.js";
 import { getMainLogger } from "../observability/main-logger.js";
@@ -29,15 +29,22 @@ const initializeWindowShell = (context) => {
     configureStellaSessionPermissions({
         appPartition: config.sessionPartition,
         isDev: config.useDevServer,
-        getDevServerUrl,
     });
+    // Unpackaged, the renderer runs from its source tree (see source/).
+    if (config.useDevServer) {
+        state.rendererSource = serveRendererSource({
+            partition: config.sessionPartition,
+            stellaAppDir: config.stellaAppDir,
+            isDev: config.useDevServer,
+            log: (message) => getMainLogger()?.process("renderer.source", { message }),
+        });
+    }
     configureNotificationActivationHandling(context);
     state.overlayController = new OverlayWindowController({
         preloadPath,
         sessionPartition: config.sessionPartition,
         electronDir: config.electronDir,
         isDev: config.useDevServer,
-        getDevServerUrl,
         isQuitting: () => state.isQuitting,
     });
     lifecycle.setWindowManager(new WindowManager({
@@ -45,7 +52,6 @@ const initializeWindowShell = (context) => {
         preloadPath,
         sessionPartition: config.sessionPartition,
         isDev: config.useDevServer,
-        getDevServerUrl,
         externalLinkService: services.externalLinkService,
         isQuitting: () => state.isQuitting,
         onMinimizeFullToTray: () => state.trayController?.notifyMinimizedToTray(),
@@ -55,7 +61,6 @@ const initializeWindowShell = (context) => {
         sessionPartition: config.sessionPartition,
         electronDir: config.electronDir,
         isDev: config.useDevServer,
-        getDevServerUrl,
         isQuitting: () => state.isQuitting,
         getStellaDataDir: () => state.stellaDataDirPath,
         onOpenMain: () => state.windowManager?.showWindow(),

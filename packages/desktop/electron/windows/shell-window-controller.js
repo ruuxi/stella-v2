@@ -19,7 +19,6 @@ export class ShellWindowController {
             mode: this.config.mode,
             electronDir: this.options.electronDir,
             isDev: this.options.isDev,
-            getDevServerUrl: this.options.getDevServerUrl,
             createWindow: () => this.config.createWindow(createOptions),
             setupExternalLinkHandlers: this.options.setupExternalLinkHandlers,
             onDidStartLoading: this.options.onDidStartLoading,
@@ -45,7 +44,6 @@ export class ShellWindowController {
             electronDir: this.options.electronDir,
             isDev: this.options.isDev,
             mode: this.config.mode,
-            getDevServerUrl: this.options.getDevServerUrl,
         });
     }
     destroy() {

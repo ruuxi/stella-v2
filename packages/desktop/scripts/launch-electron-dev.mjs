@@ -6,30 +6,10 @@ import {
   resolveMacDevResponsibilityLauncher,
 } from "./lib/macos-dev-permission-identity.mjs";
 
-const DEV_SERVER_URL =
-  process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314";
 const DEV_IN_APP_BROWSER_BOOTSTRAP_SESSION = "stella-app-bridge-development";
 const DEV_IN_APP_BROWSER_INIT_PORT = "39042";
-const START_TIMEOUT_MS = 30_000;
-const POLL_INTERVAL_MS = 100;
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const waitForVite = async () => {
-  const deadline = Date.now() + START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(DEV_SERVER_URL, { redirect: "manual" });
-      if (response.ok) return;
-    } catch {
-      // Vite is still starting.
-    }
-    await delay(POLL_INTERVAL_MS);
-  }
-  throw new Error(`Vite did not become ready at ${DEV_SERVER_URL}.`);
-};
-
-await waitForVite();
+// The renderer is served from source by Electron itself (electron/source),
+// so there is no dev server to wait for.
 
 const require = createRequire(import.meta.url);
 const electronBinary = require("electron");
@@ -63,7 +43,6 @@ const child = spawn(
     env: {
       ...devEnvironment,
       NODE_ENV: "development",
-      STELLA_DEV_SERVER_URL: DEV_SERVER_URL,
       STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION:
         DEV_IN_APP_BROWSER_BOOTSTRAP_SESSION,
       STELLA_IN_APP_BROWSER_INIT_PORT: DEV_IN_APP_BROWSER_INIT_PORT,

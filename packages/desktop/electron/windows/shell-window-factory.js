@@ -7,7 +7,6 @@ const loadShellMainWindow = (window, options) => {
         electronDir: options.electronDir,
         isDev: options.isDev,
         mode: options.mode,
-        getDevServerUrl: options.getDevServerUrl,
     });
 };
 export const createShellWindow = (options) => {

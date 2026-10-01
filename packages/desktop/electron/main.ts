@@ -6,7 +6,9 @@ import { runLifecycleVerificationFromArgs } from "./lifecycle-verification.js";
 import { configureLinuxGraphics } from "./linux-graphics.js";
 import { configureLinuxProtectedStorage } from "./linux-protected-storage.js";
 import { configureDevHarnessProtectedStorage } from "./bootstrap/dev-harness-protected-storage.js";
+import { registerRendererScheme } from "./source/renderer-protocol.js";
 
+registerRendererScheme();
 configureLinuxGraphics({
   commandLine: app.commandLine,
 });

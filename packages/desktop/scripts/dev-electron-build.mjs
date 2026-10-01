@@ -144,6 +144,16 @@ const publicTurnstileSiteKey =
 // Workspace packages are source inputs in this monorepo, not installed
 // runtime dependencies. Resolve them before `packages: "external"` is applied
 // so Electron never attempts to execute their TypeScript sources directly.
+/** Loaded by the renderer source server on first use, never bundled. */
+const rendererSourceExternals = [
+  "rolldown",
+  "rolldown/*",
+  "@tailwindcss/node",
+  "@tailwindcss/oxide",
+  "@tanstack/router-generator",
+  "cjs-module-lexer",
+];
+
 const workspaceAliases = {
   "@stella/contracts": path.join(repoRootDir, "packages", "contracts"),
   "@stella/runtime": path.join(repoRootDir, "packages", "runtime"),
@@ -240,6 +250,7 @@ const createBuildOptions = () => [
     external: [
       "electron",
       "electron-updater",
+      ...rendererSourceExternals,
       "bun:*",
       "@silvia-odwyer/photon-node",
       "mac-screen-capture-permissions",
@@ -346,7 +357,12 @@ const assertWorkerBundleBoundary = (metafile) => {
  * importer — is loaded on every launch before `ready`. They are loaded on
  * first use instead (see ipc/updates-handlers.ts, input/mouse-hook.js).
  */
-export const mainStartupDeferredExternals = ["electron-updater", "uiohook-napi"];
+export const mainStartupDeferredExternals = [
+  "electron-updater",
+  "uiohook-napi",
+  // The renderer source server's tooling (electron/source/tools.ts).
+  ...rendererSourceExternals,
+];
 /**
  * Bundled modules that must stay behind a dynamic `import()`: statically
  * reachable from the startup roots, their whole subgraph evaluates before the
@@ -356,6 +372,8 @@ export const mainStartupDeferredExternals = ["electron-updater", "uiohook-napi"]
 export const mainStartupDeferredInputs = [
   "packages/runtime/kernel/integrations/claude-code-session-runtime.js",
   "packages/desktop/electron/process-resources/mobile-bridge-resource.js",
+  "packages/desktop/electron/source/renderer-source.ts",
+  "packages/desktop/electron/source/tools.ts",
 ];
 const mainStartupRootInputs = [
   "packages/desktop/electron/main.ts",

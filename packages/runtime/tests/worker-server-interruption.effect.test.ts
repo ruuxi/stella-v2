@@ -31,6 +31,7 @@ const harness = vi.hoisted(() => {
   const makeRunner = () => ({
     setConvexUrl: () => undefined,
     setConvexSiteUrl: () => undefined,
+    setBackendUrl: () => undefined,
     setAuthToken: () => undefined,
     setHasConnectedAccount: () => undefined,
     setCloudSyncEnabled: () => undefined,

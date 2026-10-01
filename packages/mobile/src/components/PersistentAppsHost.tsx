@@ -14,8 +14,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useConvexAuth, useQuery } from "convex/react";
-import { makeFunctionReference } from "convex/server";
+import { useConvexAuth } from "convex/react";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBackdrop } from "./AppBackdrop";
@@ -27,18 +26,13 @@ import { getConvexTokenForSubject } from "../lib/auth-token";
 import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
+import { env } from "../config/env";
 import {
   appListCacheKey,
   reusableAppFrame,
   retainAppFrame,
   type AppFrame,
 } from "../lib/app-cache";
-
-const configQuery = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  { httpOrigin: string | null }
->("cloud_apps:getCloudRealtimeConfig");
 
 /**
  * Agent-authored apps are raw web pages. Pin them to a device-width, unzoomable
@@ -74,13 +68,14 @@ true;`;
 export function PersistentAppsHost({ visible }: { visible: boolean }) {
   const { isAuthenticated } = useConvexAuth();
   const { data: session } = authClient.useSession();
-  const config = useQuery(configQuery, isAuthenticated ? {} : "skip");
+  // Apps are served from the backend worker, whose origin is build config.
+  const origin = env.backendUrl || null;
   const owner = isAuthenticated ? session?.user.id : undefined;
-  if (!owner || !config?.httpOrigin)
+  if (!owner || !origin)
     return visible ? (
       <View style={StyleSheet.absoluteFill}>
         <MainDetailSurface>
-          {isAuthenticated && config === undefined ? (
+          {isAuthenticated && !session ? (
             <ActivityIndicator />
           ) : (
             <Text>Apps are unavailable. Please try again.</Text>
@@ -90,9 +85,9 @@ export function PersistentAppsHost({ visible }: { visible: boolean }) {
     ) : null;
   return (
     <AppsHost
-      key={appListCacheKey(owner, config.httpOrigin)}
+      key={appListCacheKey(owner, origin)}
       owner={owner}
-      origin={config.httpOrigin}
+      origin={origin}
       visible={visible}
     />
   );

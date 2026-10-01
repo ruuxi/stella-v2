@@ -5,17 +5,14 @@
  * with the same expand/updates/open affordances. Only a small placement
  * badge says where it ran.
  */
-import { useCallback, useMemo } from "react";
-import {
-  usePaginatedQuery_experimental,
-  useQueries,
-  type RequestForQueries,
-} from "convex/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
+import { CONVERSATION_AGENT_THREADS_MAX } from "@stella/contracts/backend/agent-threads";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import { cloudConversationBelongsToOwnerSubject } from "./cloud-conversation-selection";
-import { cloudApi, type CloudAgentThread } from "./cloud-api";
+import type { CloudAgentThread } from "./cloud-api";
 
 /** Human label for where a thread ran. */
 export const cloudPlacementLabel = (placement: string): string =>
@@ -119,28 +116,20 @@ const projectCloudActivity = (
  * touched last.
  */
 export const useCloudActivity = (): CloudActivity => {
-  const { isCloudConversationReady } = useCloudConversationSession();
-  // `useQueries`, not `useQuery`: this hook runs inside the left sidebar,
-  // which is not wrapped in a CloudBoundary. A deployment that does not have
-  // this function yet must cost the user their cloud rows, not the sidebar,
-  // so a failed query arrives as a value here instead of throwing in render.
-  // Convex's `useQueries` treats a changed request object as a changed
-  // subscription and schedules a render-phase state update. Keep this object
-  // stable or the sidebar re-renders forever while authenticated.
-  const activityQueries = useMemo<RequestForQueries>(() => {
-    const queries: RequestForQueries = {};
-    if (isCloudConversationReady) {
-      queries.threads = {
-        query: cloudApi.listMyRecentAgentThreads,
-        args: { limit: ACTIVITY_THREAD_LIMIT },
-      };
-    }
-    return queries;
-  }, [isCloudConversationReady]);
-  const results = useQueries(activityQueries);
-  const threads = Array.isArray(results.threads)
-    ? (results.threads as CloudAgentThread[])
-    : undefined;
+  const { isCloudConversationReady, ownerSubject } = useCloudConversationSession();
+  // Errors arrive as state, never as a throw: this runs in the left sidebar,
+  // which an unavailable backend must not take down.
+  const recent = useBackendView(
+    "agentThreads.recent",
+    isCloudConversationReady ? { limit: ACTIVITY_THREAD_LIMIT } : "skip",
+  );
+  const threads = useMemo(
+    () =>
+      recent.value
+        ? cloudThreadsForOwnerSubject(recent.value, ownerSubject)
+        : undefined,
+    [ownerSubject, recent.value],
+  );
   return useMemo(() => projectCloudActivity(threads), [threads]);
 };
 
@@ -188,40 +177,27 @@ export const mergeCloudThreadSnapshots = (
 export const useCloudConversationActivity = (
   conversationId: string | null,
 ): CloudConversationActivity => {
-  const { isCloudConversationReady, ownerSubject, identityRevision } =
+  const { isCloudConversationReady, ownerSubject } =
     useCloudConversationSession();
-  // Object-form pagination returns deployment-skew/auth-refresh errors as a
-  // value instead of throwing through the shell. That preserves the previous
-  // `useQueries` behavior while delegating cursor splitting and invalid-cursor
-  // recovery to Convex's official pagination implementation.
-  const page = usePaginatedQuery_experimental({
-    query: cloudApi.listMyAgentThreadsPage,
-    args:
-      isCloudConversationReady && conversationId
-        ? { conversationId, identityRevision }
-        : "skip",
-    initialNumItems: CLOUD_ACTIVITY_PAGE_SIZE,
-  });
-  const runningQueries = useMemo<RequestForQueries>(() => {
-    const queries: RequestForQueries = {};
-    if (isCloudConversationReady && conversationId) {
-      queries.running = {
-        query: cloudApi.listMyRunningAgentThreads,
-        args: { conversationId, identityRevision },
-      };
-    }
-    return queries;
-  }, [isCloudConversationReady, conversationId, identityRevision]);
-  const runningResults = useQueries(runningQueries);
-  const pageThreads = Array.isArray(page.data)
-    ? (page.data as CloudAgentThread[])
-    : undefined;
-  const runningThreads = Array.isArray(runningResults.running)
-    ? (runningResults.running as CloudAgentThread[])
-    : undefined;
-  // Convex authorization is the real boundary. This second owner check keeps
-  // a cached page from the previous account out of even one transition frame
-  // while the authenticated subscription is being replaced.
+  const enabled = isCloudConversationReady && Boolean(conversationId);
+  // History is the conversation's newest threads as one live view; "older"
+  // raises the window. Running threads are their own view so a long-running
+  // one never falls out behind newer completions.
+  const [limit, setLimit] = useState(CLOUD_ACTIVITY_PAGE_SIZE);
+  useEffect(() => setLimit(CLOUD_ACTIVITY_PAGE_SIZE), [conversationId]);
+  const page = useBackendView(
+    "agentThreads.forConversation",
+    enabled && conversationId ? { conversationId, limit } : "skip",
+    { keepPreviousValue: true },
+  );
+  const running = useBackendView(
+    "agentThreads.running",
+    enabled && conversationId ? { conversationId } : "skip",
+  );
+  const pageThreads = page.value?.threads;
+  const runningThreads = running.value;
+  // The backend authorizes every read. This second owner check keeps a value
+  // from the previous account out of even one transition frame.
   const ownedThreads = useMemo(
     () =>
       pageThreads
@@ -243,10 +219,7 @@ export const useCloudConversationActivity = (
     ownedRunningThreads?.length === runningThreads.length;
   const pageScopeIsCurrent =
     pageOwnedByCurrentScope && runningOwnedByCurrentScope;
-  const runningHasLoaded =
-    !isCloudConversationReady ||
-    !conversationId ||
-    runningResults.running !== undefined;
+  const runningHasLoaded = !enabled || running.status !== "loading";
   const threads = useMemo(
     () =>
       pageScopeIsCurrent
@@ -260,21 +233,25 @@ export const useCloudConversationActivity = (
   const hasLoaded =
     pageScopeIsCurrent &&
     runningHasLoaded &&
-    (!isCloudConversationReady ||
-      !conversationId ||
-      page.status === "error" ||
-      page.data !== undefined);
+    (!enabled || page.status !== "loading");
+  // A raised window loads as a fresh subscription; until it lands the
+  // previous rows stay on screen.
   const isLoadingOlder =
-    pageScopeIsCurrent && page.status === "pending" && page.data !== undefined;
+    pageScopeIsCurrent &&
+    page.status === "loading" &&
+    limit > CLOUD_ACTIVITY_PAGE_SIZE;
   const hasOlder =
     pageScopeIsCurrent &&
-    ((page.status === "success" && page.canLoadMore) || isLoadingOlder);
-  const loadMore = page.loadMore;
+    ((page.value?.hasMore ?? false) || isLoadingOlder) &&
+    limit < CONVERSATION_AGENT_THREADS_MAX;
+  const canLoadMore = page.status === "ready" && page.value.hasMore;
   const loadOlder = useCallback(() => {
-    if (pageScopeIsCurrent && page.status === "success" && page.canLoadMore) {
-      loadMore(CLOUD_ACTIVITY_PAGE_SIZE);
+    if (pageScopeIsCurrent && canLoadMore) {
+      setLimit((current) =>
+        Math.min(current + CLOUD_ACTIVITY_PAGE_SIZE, CONVERSATION_AGENT_THREADS_MAX),
+      );
     }
-  }, [loadMore, page.canLoadMore, page.status, pageScopeIsCurrent]);
+  }, [canLoadMore, pageScopeIsCurrent]);
   return useMemo(
     () => ({
       ...projectCloudActivity(threads),

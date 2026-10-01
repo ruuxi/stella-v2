@@ -1,4 +1,3 @@
-import { makeFunctionReference } from "convex/server";
 import {
   DEVICES_PATH,
   PLACEMENT_PROTOCOL,
@@ -16,7 +15,8 @@ import {
 } from "@stella/contracts/turn-plane/pairing-proof";
 import { getJson, postJson } from "./http";
 import { type StoredPhoneAccess } from "./phone-access";
-import { getConvexClient } from "./convex";
+import { env } from "../config/env";
+import { getBackendClient } from "./backend";
 import {
   AUTOMATIC_EXECUTION_TARGET,
   buildAutomaticExecutionAdmission,
@@ -79,46 +79,6 @@ export type SubmitAutomaticExecutionInput = AutomaticExecutionAdmissionInput & {
   builderOrigin?: string | null;
 };
 
-type CloudConversationProjection = {
-  conversationId: string;
-};
-
-const createConversationRef = makeFunctionReference<
-  "mutation",
-  {
-    clientCreateId: string;
-    expectedOwnerGeneration: string;
-    title?: string;
-  },
-  CloudConversationProjection
->("cloud_apps:createMyConversation");
-
-/**
- * The owner generation that fences conversation creation. This is the
- * conversation-domain query, not `execution_placement:*`: ordinary hosted chat
- * is open to the Better Auth anonymous owner, while the placement identity
- * query refuses anonymous callers because it exists to register desktops for
- * remote execution. Reusing it here made account-free chat fail on its very
- * first turn with "Sign in with an account to use execution placement."
- */
-const conversationIdentityRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  { ownerGeneration: string }
->("cloud_apps:getMyCloudConversationIdentity");
-
-const realtimeConfigRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  { httpOrigin?: string | null; socketOrigin?: string | null }
->("cloud_apps:getCloudRealtimeConfig");
-
-/**
- * The cloud builder's public origin. Placement lives in the per-owner Durable
- * Object there, so every dispatch route is on this origin rather than Convex.
- * It never changes for a deployment, so one resolution per app run is enough.
- */
-let cachedBuilderOrigin: string | null = null;
 
 const EXECUTION_PLACEMENT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   sign_in_required: "Sign in to Stella to use cloud agents.",
@@ -150,22 +110,19 @@ const executionPlacementRequest = async <T>(
   }
 };
 
+/**
+ * The backend worker's origin. Placement lives in the per-owner Durable
+ * Object there; the origin is build-time config.
+ */
 export const resolveExecutionBuilderOrigin = async (
   override?: string | null,
 ): Promise<string> => {
   const explicit = override?.trim().replace(/\/+$/, "");
   if (explicit) return explicit;
-  if (cachedBuilderOrigin) return cachedBuilderOrigin;
-  const config = await getConvexClient().query(realtimeConfigRef, {});
-  const origin =
-    typeof config?.httpOrigin === "string"
-      ? config.httpOrigin.trim().replace(/\/+$/, "")
-      : "";
-  if (!/^https?:\/\//.test(origin)) {
-    throw new Error("Stella's cloud isn't reachable yet. Try again shortly.");
+  if (!/^https?:\/\//.test(env.backendUrl)) {
+    throw new Error("Stella's cloud isn't configured in this build.");
   }
-  cachedBuilderOrigin = origin;
-  return origin;
+  return env.backendUrl;
 };
 
 /**
@@ -232,8 +189,9 @@ export const ensureAutomaticExecutionConversation = async (args: {
   threadId: string;
   title: string;
 }): Promise<string> => {
-  const identity = await getConvexClient().query(conversationIdentityRef, {});
-  const expectedOwnerGeneration = identity?.ownerGeneration?.trim();
+  // `owner.identity` is open to anonymous owners: hosted chat needs no account.
+  const identity = await getBackendClient().call("owner.identity", {});
+  const expectedOwnerGeneration = identity.ownerGeneration.trim();
   if (!expectedOwnerGeneration) {
     throw new Error(
       "Conversation admission could not establish owner authority.",
@@ -254,9 +212,8 @@ export const createAutomaticExecutionConversation = async (args: {
   title: string;
   expectedOwnerGeneration: string;
 }): Promise<string> => {
-  const conversation = await getConvexClient().mutation(createConversationRef, {
+  const conversation = await getBackendClient().call("conversations.create", {
     clientCreateId: automaticExecutionConversationClientCreateId(args.threadId),
-    expectedOwnerGeneration: args.expectedOwnerGeneration,
     title: args.title.trim().slice(0, 80),
   });
   if (

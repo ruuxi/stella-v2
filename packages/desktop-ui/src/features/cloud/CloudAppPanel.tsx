@@ -1,16 +1,13 @@
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getAuthHeaders } from "@/global/auth/services/auth-token";
-import { useQuery } from "convex/react";
 import { useEffect, useState } from "react";
-import { cloudApi } from "./cloud-api";
+import { backendUrl } from "@/platform/backend/backend-client";
 
 export function CloudAppPanel({ slug }: { slug: string }) {
   const { isCloudConversationReady, accountScope } =
     useCloudConversationSession();
-  const config = useQuery(
-    cloudApi.getCloudRealtimeConfig,
-    isCloudConversationReady ? {} : "skip",
-  );
+  const config =
+    isCloudConversationReady && backendUrl ? { httpOrigin: backendUrl } : null;
   const [state, setState] = useState<{
     url?: string;
     error?: string;

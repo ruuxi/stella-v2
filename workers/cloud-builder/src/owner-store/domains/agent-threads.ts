@@ -22,6 +22,7 @@ import {
   AGENT_PROMPT_MAX_CHARS,
   AGENT_THREAD_PAGE_MAX,
   RUNNING_AGENT_THREADS_LIMIT,
+  CONVERSATION_AGENT_THREADS_MAX,
 } from "@stella/contracts/backend/agent-threads";
 import { CONVERSATION_TITLE_MAX } from "@stella/contracts/backend/conversations";
 import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
@@ -149,7 +150,8 @@ const ACTIVE_STATUSES = new Set(["running", "resuming"]);
 
 // ── Projections ───────────────────────────────────────────────────────────
 
-const summary = (row: ThreadRow): AgentThreadSummary => ({
+const summary = (row: ThreadRow, ownerId: string): AgentThreadSummary => ({
+  ownerId,
   threadId: row.thread_id,
   conversationId: row.conversation_id,
   ...(row.parent_turn_id !== null ? { parentTurnId: row.parent_turn_id } : {}),
@@ -1018,12 +1020,12 @@ export const applyAgentThreadEvent = (
 
 // ── Views ─────────────────────────────────────────────────────────────────
 
-const recentThreads = (db: OwnerDbReader, limit: number): AgentThreadSummary[] =>
+const recentThreads = (db: OwnerDbReader, ownerId: string, limit: number): AgentThreadSummary[] =>
   db
     .all<ThreadRow>("SELECT * FROM agent_threads ORDER BY updated_at DESC, thread_id DESC LIMIT ?", limit)
-    .map(summary);
+    .map((row) => summary(row, ownerId));
 
-const runningThreads = (db: OwnerDbReader, conversationId: string): AgentThreadSummary[] =>
+const runningThreads = (db: OwnerDbReader, ownerId: string, conversationId: string): AgentThreadSummary[] =>
   db
     .all<ThreadRow>(
       `SELECT * FROM agent_threads WHERE conversation_id = ? AND status IN ('running', 'resuming')
@@ -1031,10 +1033,11 @@ const runningThreads = (db: OwnerDbReader, conversationId: string): AgentThreadS
       conversationId,
       RUNNING_AGENT_THREADS_LIMIT,
     )
-    .map(summary);
+    .map((row) => summary(row, ownerId));
 
 const deviceThreads = (
   db: OwnerDbReader,
+  ownerId: string,
   args: { originDeviceId: string; ownerGeneration: string; limit?: number },
 ): DeviceAgentThread[] =>
   db
@@ -1047,7 +1050,7 @@ const deviceThreads = (
       Math.min(Math.max(args.limit ?? 100, 1), 100),
     )
     .map((row) => ({
-      ...summary(row),
+      ...summary(row, ownerId),
       originDeviceId: row.origin_device_id!,
       originConversationId: row.origin_conversation_id ?? row.conversation_id,
       ownerGeneration: row.owner_generation!,
@@ -1055,6 +1058,7 @@ const deviceThreads = (
 
 const threadPage = (
   db: OwnerDbReader,
+  ownerId: string,
   args: AgentThreadCalls["agentThreads.page"]["args"],
 ): AgentThreadCalls["agentThreads.page"]["result"] => {
   const limit = Math.min(Math.max(args.limit ?? 30, 1), AGENT_THREAD_PAGE_MAX);
@@ -1075,7 +1079,7 @@ const threadPage = (
         args.conversationId,
         limit + 1,
       );
-  return { threads: rows.slice(0, limit).map(summary), hasMore: rows.length > limit };
+  return { threads: rows.slice(0, limit).map((row) => summary(row, ownerId)), hasMore: rows.length > limit };
 };
 
 // ── Registration ──────────────────────────────────────────────────────────
@@ -1103,7 +1107,7 @@ export const agentThreadsDomain = {
         before: optional(object({ updatedAt: number({ int: true, min: 0 }), threadId: id() })),
         limit: optional(number({ int: true, min: 1, max: AGENT_THREAD_PAGE_MAX })),
       }),
-      handler: (ctx, args) => threadPage(ctx.db, args),
+      handler: (ctx, args) => threadPage(ctx.db, ctx.ownerId, args),
     },
     "agentThreads.spawnFromDesktop": {
       scope: "owner",
@@ -1208,17 +1212,36 @@ export const agentThreadsDomain = {
   views: {
     "agentThreads.recent": {
       parse: object({ limit: optional(number({ int: true, min: 1, max: 100 })) }),
-      read: (ctx, args) => recentThreads(ctx.db, args.limit ?? 30),
+      read: (ctx, args) => recentThreads(ctx.db, ctx.ownerId, args.limit ?? 30),
     },
     "agentThreads.running": {
       parse: object({ conversationId: id() }),
-      read: (ctx, args) => runningThreads(ctx.db, args.conversationId),
+      read: (ctx, args) => runningThreads(ctx.db, ctx.ownerId, args.conversationId),
+    },
+    "agentThreads.forConversation": {
+      parse: object({
+        conversationId: id(),
+        limit: optional(number({ int: true, min: 1, max: CONVERSATION_AGENT_THREADS_MAX })),
+      }),
+      read: (ctx, args) => {
+        const limit = args.limit ?? 30;
+        const rows = ctx.db.all<ThreadRow>(
+          `SELECT * FROM agent_threads WHERE conversation_id = ?
+           ORDER BY updated_at DESC, thread_id DESC LIMIT ?`,
+          args.conversationId,
+          limit + 1,
+        );
+        return {
+          threads: rows.slice(0, limit).map((row) => summary(row, ctx.ownerId)),
+          hasMore: rows.length > limit,
+        };
+      },
     },
     "agentThreads.get": {
       parse: object({ conversationId: id(), threadId: id() }),
       read: (ctx, args) => {
         const row = readThread(ctx.db, args.threadId);
-        return row && row.conversation_id === args.conversationId ? summary(row) : null;
+        return row && row.conversation_id === args.conversationId ? summary(row, ctx.ownerId) : null;
       },
     },
     "agentThreads.forDevice": {
@@ -1227,7 +1250,7 @@ export const agentThreadsDomain = {
         ownerGeneration: generation,
         limit: optional(number({ int: true, min: 1, max: 100 })),
       }),
-      read: (ctx, args) => deviceThreads(ctx.db, args),
+      read: (ctx, args) => deviceThreads(ctx.db, ctx.ownerId, args),
     },
   },
   jobs: {

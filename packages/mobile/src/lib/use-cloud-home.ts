@@ -1,6 +1,4 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { useQuery } from "convex/react";
-import { makeFunctionReference } from "convex/server";
 import {
   MobileCloudHomeError,
   createMobileCloudHomeClient,
@@ -10,22 +8,14 @@ import {
 import { getConvexTokenForOwner } from "./auth-token";
 import type { CloudConversationIdentity } from "./cloud-conversation-auth";
 import { useConvexTokenOwner } from "./use-convex-token-owner";
-
-const realtimeConfigRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  {
-    httpOrigin: string | null;
-    socketOrigin: string | null;
-    protocol: number;
-  }
->("cloud_apps:getCloudRealtimeConfig");
+import { env } from "../config/env";
 
 /** Authenticated mobile list/read/write surface for a Memory settings editor. */
 export const useMobileCloudHome = (
   identity: CloudConversationIdentity | null,
 ) => {
-  const config = useQuery(realtimeConfigRef, {});
+  // Cloud Home lives on the backend worker, whose origin is build config.
+  const builderOrigin = env.backendUrl || null;
   const tokenOwner = useConvexTokenOwner(identity);
   const boundIdentity = useMemo(() => {
     const owner = tokenOwner.identity;
@@ -53,12 +43,10 @@ export const useMobileCloudHome = (
     };
   }, [boundIdentity]);
   const client = useMemo(() => {
-    if (!boundIdentity || config?.protocol !== 1 || !config.httpOrigin) {
-      return null;
-    }
+    if (!boundIdentity || !builderOrigin) return null;
     try {
       return createMobileCloudHomeClient({
-        builderOrigin: config.httpOrigin,
+        builderOrigin,
         identity: boundIdentity.requestIdentity,
         getCurrentIdentity: () => committedIdentityRef.current,
         getToken: () =>
@@ -72,7 +60,7 @@ export const useMobileCloudHome = (
       // in the explicit unavailable state instead of throwing during render.
       return null;
     }
-  }, [boundIdentity, config?.httpOrigin, config?.protocol]);
+  }, [boundIdentity, builderOrigin]);
   const listMemory = useCallback(async () => {
     if (!client) throw new MobileCloudHomeError("unavailable");
     return await client.listMemory();
@@ -93,9 +81,8 @@ export const useMobileCloudHome = (
   );
   return {
     available: Boolean(client),
-    loading: config === undefined || tokenOwner.loading,
-    unavailable:
-      config !== undefined && !tokenOwner.loading && Boolean(!client),
+    loading: tokenOwner.loading,
+    unavailable: !tokenOwner.loading && Boolean(!client),
     listMemory,
     readMemory,
     writeMemory,

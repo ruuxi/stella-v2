@@ -42,48 +42,36 @@ mock.module("../http", () => ({
   postJson: (path: string, body: unknown, options?: Record<string, unknown>) =>
     transport({ method: "POST", path, body, options: options ?? {} }),
 }));
-// Convex traffic is recorded by function name so a test can assert which
-// control-plane query fenced a call, not just that one did.
-let convexCalls: Array<{ kind: "query" | "mutation"; name: string }> = [];
-const convexFunction = (
-  kind: "query" | "mutation",
-  ref: unknown,
-  args: unknown,
-) => {
-  const name = getFunctionName(ref as FunctionReference<"query">);
-  convexCalls.push({ kind, name });
+// Backend traffic is recorded by function name so a test can assert which
+// call fenced an operation, not just that one did.
+let convexCalls: Array<{ kind: "call"; name: string }> = [];
+const backendCall = (name: string, args: unknown) => {
+  convexCalls.push({ kind: "call", name });
   switch (name) {
-    case "cloud_apps:getCloudRealtimeConfig":
-      return {
-        httpOrigin: BUILDER_ORIGIN,
-        socketOrigin: BUILDER_ORIGIN.replace(/^http/, "ws"),
-        protocol: 1,
-      };
-    case "cloud_apps:getMyCloudConversationIdentity":
-      return { ownerId: "owner-1", ownerGeneration: "gen-1" };
-    case "cloud_apps:createMyConversation":
+    case "owner.identity":
+      return { ownerId: "owner-1", ownerGeneration: "gen-1", isAnonymous: false };
+    case "conversations.create":
       return {
         conversationId: `conv:${(args as { clientCreateId: string }).clientCreateId}`,
       };
     default:
-      throw new Error(`unexpected convex ${kind} ${name}`);
+      throw new Error(`unexpected backend call ${name}`);
   }
 };
-mock.module("../convex", () => ({
-  getConvexClient: () => ({
-    query: async (ref: unknown, args: unknown) =>
-      convexFunction("query", ref, args),
-    mutation: async (ref: unknown, args: unknown) =>
-      convexFunction("mutation", ref, args),
+mock.module("../backend", () => ({
+  getBackendClient: () => ({
+    call: async (name: string, args: unknown) => backendCall(name, args),
   }),
 }));
 
 const BUILDER_ORIGIN = "https://builder.example";
+// Process-global in bun: keep every real export and override only the origin.
+const realEnv = await import("../../config/env");
+mock.module("../../config/env", () => ({
+  ...realEnv,
+  env: { ...realEnv.env, backendUrl: BUILDER_ORIGIN },
+}));
 
-const { getFunctionName } = await import("convex/server");
-type FunctionReference<T extends "query" | "mutation"> = import(
-  "convex/server"
-).FunctionReference<T>;
 const {
   cancelAutomaticExecution,
   ensureAutomaticExecutionConversation,
@@ -333,8 +321,8 @@ describe("mobile execution placement client", () => {
     });
     expect(conversationId).toBe("conv:mobile-placement:cloud");
     expect(convexCalls).toEqual([
-      { kind: "query", name: "cloud_apps:getMyCloudConversationIdentity" },
-      { kind: "mutation", name: "cloud_apps:createMyConversation" },
+      { kind: "call", name: "owner.identity" },
+      { kind: "call", name: "conversations.create" },
     ]);
     expect(convexCalls.map((call) => call.name)).not.toContain(
       "execution_placement:getMyExecutionPlacementIdentity",

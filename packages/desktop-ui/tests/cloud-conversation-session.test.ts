@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   resolveCloudConversationSession,
-  resolveOwnershipMigrationGate,
+
 } from "../src/global/auth/lib/cloud-conversation-session";
 
 describe("resolveCloudConversationSession", () => {
@@ -115,31 +115,5 @@ describe("resolveCloudConversationSession", () => {
         authBootstrapFailed: true,
       }),
     ).toEqual({ isCloudConversationReady: false, isLoading: false });
-  });
-});
-
-describe("resolveOwnershipMigrationGate", () => {
-  test("blocks selection until migration status has loaded", () => {
-    expect(resolveOwnershipMigrationGate(undefined, true)).toEqual({
-      isLoading: true,
-      isPending: false,
-      isFailed: false,
-      canSelectConversation: false,
-    });
-  });
-
-  test("blocks pending and failed handoffs, then allows a settled owner", () => {
-    expect(
-      resolveOwnershipMigrationGate("running", true).canSelectConversation,
-    ).toBe(false);
-    expect(
-      resolveOwnershipMigrationGate("failed", true).canSelectConversation,
-    ).toBe(false);
-    expect(
-      resolveOwnershipMigrationGate("complete", true).canSelectConversation,
-    ).toBe(true);
-    expect(
-      resolveOwnershipMigrationGate(null, true).canSelectConversation,
-    ).toBe(true);
   });
 });

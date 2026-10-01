@@ -428,6 +428,9 @@ export class RuntimeHostAdapter {
     setConvexSiteUrl(value) {
         this.queueRuntimeConfigPatch({ convexSiteUrl: value });
     }
+    setBackendUrl(value) {
+        this.queueRuntimeConfigPatch({ backendUrl: value ?? null });
+    }
     setAuthToken(value) {
         this.queueRuntimeConfigPatch({ authToken: value });
     }

@@ -9,6 +9,8 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
 export type AgentThreadPlacement = "cloud" | "computer";
 
 export type AgentThreadSummary = {
+  /** The account this row belongs to; clients drop rows for any other. */
+  ownerId: string;
   threadId: string;
   conversationId: string;
   parentTurnId?: string;
@@ -174,6 +176,11 @@ export type AgentThreadViews = {
     args: { conversationId: string };
     result: AgentThreadSummary[];
   };
+  /** One conversation's newest threads; raise `limit` to reach older ones. */
+  "agentThreads.forConversation": {
+    args: { conversationId: string; limit?: number };
+    result: { threads: AgentThreadSummary[]; hasMore: boolean };
+  };
   "agentThreads.get": {
     args: { conversationId: string; threadId: string };
     result: AgentThreadSummary | null;
@@ -187,4 +194,5 @@ export type AgentThreadViews = {
 
 export const RUNNING_AGENT_THREADS_LIMIT = 64;
 export const AGENT_THREAD_PAGE_MAX = 50;
+export const CONVERSATION_AGENT_THREADS_MAX = 500;
 export const AGENT_PROMPT_MAX_CHARS = 8_000;

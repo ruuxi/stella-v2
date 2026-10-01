@@ -1,9 +1,9 @@
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getAuthHeaders } from "@/global/auth/services/auth-token";
 import { parseWorkspaceApps } from "@stella/contracts/workspace-apps";
-import { useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
-import { cloudApi, type CloudApp } from "./cloud-api";
+import { backendUrl } from "@/platform/backend/backend-client";
+import type { CloudApp } from "./cloud-api";
 export type CloudAppsState = {
   accountScope: string;
   phase: "disabled" | "loading" | "ready" | "error";
@@ -15,11 +15,7 @@ export const isDeployedCloudApp = (app: CloudApp) => app.status === "ready";
 export function useCloudApps(): CloudAppsState {
   const { isCloudConversationReady, accountScope } =
     useCloudConversationSession();
-  const config = useQuery(
-    cloudApi.getCloudRealtimeConfig,
-    isCloudConversationReady ? {} : "skip",
-  );
-  const origin = config?.httpOrigin ?? null;
+  const origin = isCloudConversationReady && backendUrl ? backendUrl : null;
   const [result, setResult] = useState<{
     scope: string;
     apps: CloudApp[];

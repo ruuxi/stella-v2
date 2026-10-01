@@ -120,6 +120,7 @@ import {
 } from "./agent-model-config.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
+import { createBackendSession, initialBackendUrl } from "./backend-session.js";
 import {
   APPLY_PATCH_TOOL_NAME,
   getFileEditToolFamily,
@@ -524,6 +525,7 @@ export const createRunnerContext = ({
   const context = {} as RunnerContext;
   const hookEmitter = new HookEmitter();
   const recallRunCache = new RecallRunCache();
+  const backend = createBackendSession(() => context.state);
 
   const convexCall = async (
     kind: "action" | "mutation" | "query",
@@ -569,87 +571,48 @@ export const createRunnerContext = ({
     await convexCall("action", ref, args);
 
   const getCloudOwnerGeneration = async (): Promise<string> => {
-    const identity = (await convexCall(
-      "query",
-      (
-        anyApi as {
-          execution_placement: {
-            getMyExecutionPlacementIdentity: unknown;
-          };
-        }
-      ).execution_placement.getMyExecutionPlacementIdentity,
-      {},
-    )) as { ownerGeneration?: unknown } | null;
-    if (
-      typeof identity?.ownerGeneration !== "string" ||
-      !identity.ownerGeneration.trim()
-    ) {
+    const identity = await backend.ownerIdentity();
+    if (!identity.ownerGeneration.trim()) {
       throw new Error("Cloud owner generation is unavailable.");
     }
     return identity.ownerGeneration.trim();
   };
 
+  const cloudAgentBackend = {
+    spawn: async (args: Record<string, unknown>) =>
+      await backend
+        .require()
+        .call("agentThreads.spawnFromDesktop", args as never),
+    continue: async (args: Record<string, unknown>) =>
+      await backend
+        .require()
+        .call("agentThreads.continueFromDesktop", args as never),
+    cancel: async (args: Record<string, unknown>) =>
+      await backend.require().call("agentThreads.cancel", args as never),
+  };
+  const isCloudSignedIn = () =>
+    Boolean(
+      context.state?.backendUrl &&
+        (context.state?.authToken ?? envAuthToken ?? "").trim(),
+    );
   const cloudDispatch = createCloudSpawnDispatcher({
-    convexApi: anyApi,
+    backend: cloudAgentBackend,
     deviceId,
-    mutation: async (ref, args) => await convexCall("mutation", ref, args),
-    action: async (ref, args) => await convexCall("action", ref, args),
-    query: async (ref, args) => await convexCall("query", ref, args),
     getOwnerGeneration: getCloudOwnerGeneration,
     store: runtimeStore,
-    isSignedIn: () =>
-      Boolean(
-        sanitizeConvexDeploymentUrl(
-          context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
-        ) && (context.state?.authToken ?? envAuthToken ?? "").trim(),
-      ),
+    isSignedIn: isCloudSignedIn,
   });
   const cloudThreadController = createCloudThreadController({
-    convexApi: anyApi,
+    backend: cloudAgentBackend,
     deviceId,
-    mutation: async (ref, args) => await convexCall("mutation", ref, args),
-    action: async (ref, args) => await convexCall("action", ref, args),
-    query: async (ref, args) => await convexCall("query", ref, args),
     getOwnerGeneration: getCloudOwnerGeneration,
     store: runtimeStore,
-    isSignedIn: () =>
-      Boolean(
-        sanitizeConvexDeploymentUrl(
-          context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
-        ) && (context.state?.authToken ?? envAuthToken ?? "").trim(),
-      ),
+    isSignedIn: isCloudSignedIn,
   });
 
-  /**
-   * Where the conversation Durable Objects live. Convex resolves it from
-   * `CLOUD_BUILDER_URL` and hands it out to authenticated callers, so the
-   * origin never has to be a second build-time variable on every client.
-   */
-  let cloudRealtime: { baseUrl: string | null; atMs: number } | null = null;
-  const cloudRealtimeBaseUrl = async (): Promise<string | null> => {
-    const ttlMs = cloudRealtime?.baseUrl ? 5 * 60_000 : 30_000;
-    if (cloudRealtime && Date.now() - cloudRealtime.atMs < ttlMs) {
-      return cloudRealtime.baseUrl;
-    }
-    let baseUrl: string | null = null;
-    try {
-      const config = await convexCall(
-        "query",
-        (anyApi as { cloud_apps: { getCloudRealtimeConfig: unknown } })
-          .cloud_apps.getCloudRealtimeConfig,
-        {},
-      );
-      // `httpOrigin`, not `socketOrigin`: the journal append is a POST.
-      const value = (config as { httpOrigin?: unknown } | null)?.httpOrigin;
-      baseUrl = typeof value === "string" && value ? value : null;
-    } catch {
-      // Signed out, offline, or a deployment without the function. The writer
-      // treats a missing origin as "retry later", never as a failure to show.
-      baseUrl = null;
-    }
-    cloudRealtime = { baseUrl, atMs: Date.now() };
-    return baseUrl;
-  };
+  /** The conversation Durable Objects live on the backend worker. */
+  const cloudRealtimeBaseUrl = async (): Promise<string | null> =>
+    context.state?.backendUrl ?? null;
 
   const cloudTranscript = createCloudTranscriptWriter({
     deviceId,
@@ -1076,6 +1039,7 @@ export const createRunnerContext = ({
 
   Object.assign(context, {
     convexApi: anyApi,
+    backend,
     deviceId,
     stellaAppDir,
     stellaDataDir,
@@ -1115,6 +1079,7 @@ export const createRunnerContext = ({
     },
     state: {
       convexSiteUrl: envProxyBaseUrl,
+      backendUrl: initialBackendUrl(),
       authToken: envAuthToken,
       convexDeploymentUrl: envConvexDeploymentUrl,
       convexClient: null,

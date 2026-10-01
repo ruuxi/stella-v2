@@ -60,6 +60,10 @@ vi.mock("@/global/auth/services/auth-token", () => ({
   getConvexTokenForSubject: mocks.getTokenForSubject,
 }));
 
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendUrl: "https://builder.example",
+}));
+
 vi.mock("@/shared/lib/convex-urls", () => ({
   readConfiguredConvexSiteUrl: () => "https://site.example",
 }));
@@ -131,34 +135,20 @@ describe("useCloudHomeMemory", () => {
     container.remove();
   });
 
-  it("turns a realtime-config query error into an explicit unavailable state", async () => {
-    mocks.queryResults = {
-      realtime: new Error("deployment unavailable"),
-      memoryLifecycle: lifecycle,
-    };
+  it("asks only for the exact-subject memory lifecycle", async () => {
+    mocks.queryResults = {};
     await render();
 
-    expect(observed).toMatchObject({
-      available: false,
-      loading: false,
-      unavailable: true,
-    });
-    expect(mocks.createClient).not.toHaveBeenCalled();
-    expect(mocks.queryRequests).toMatchObject({
-      realtime: { args: {} },
-      memoryLifecycle: {
+    expect(observed).toMatchObject({ available: false, loading: true });
+    expect(mocks.queryRequests).toEqual({
+      memoryLifecycle: expect.objectContaining({
         args: { expectedSubject: "https://site.example|owner-a" },
-      },
+      }),
     });
   });
 
   it("pins issuer, subject, account, and session revision in the client", async () => {
     mocks.queryResults = {
-      realtime: {
-        protocol: 1,
-        httpOrigin: "https://builder.example",
-        socketOrigin: null,
-      },
       memoryLifecycle: lifecycle,
     };
     await render();
@@ -197,11 +187,6 @@ describe("useCloudHomeMemory", () => {
 
   it("fails closed while the exact-subject lifecycle is wiping", async () => {
     mocks.queryResults = {
-      realtime: {
-        protocol: 1,
-        httpOrigin: "https://builder.example",
-        socketOrigin: null,
-      },
       memoryLifecycle: {
         ...lifecycle,
         state: "wiping",
@@ -229,11 +214,6 @@ describe("useCloudHomeMemory", () => {
 
   it("rejects a lifecycle echo for a different exact subject", async () => {
     mocks.queryResults = {
-      realtime: {
-        protocol: 1,
-        httpOrigin: "https://builder.example",
-        socketOrigin: null,
-      },
       memoryLifecycle: {
         ...lifecycle,
         subject: "https://site.example|owner-b",

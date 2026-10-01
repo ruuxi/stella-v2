@@ -22,12 +22,11 @@ import {
   Text,
   View,
 } from "react-native";
-import { makeFunctionReference } from "convex/server";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { ChatMessage } from "../types";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
-import { getConvexClient } from "../lib/convex";
+import { getBackendClient } from "../lib/backend";
 import {
   mobileReplyContexts,
   mobileReplyLineage,
@@ -43,11 +42,11 @@ export { replyTitle } from "./ReplyPreview";
 
 export type AgentReplyRef = Extract<ReplyRef, { kind: "agent" }>;
 
-const reportQuery = makeFunctionReference<
-  "query",
-  { conversationId: string; threadId: string },
-  { resultJson?: string; errorMessage?: string; status: string } | null
->("cloud_apps:getMyAgentThread");
+type ReportThread = {
+  resultJson?: string;
+  errorMessage?: string;
+  status: string;
+} | null;
 
 /** Live text of a task's report, or a placeholder while it loads or runs. */
 function useAgentReport(
@@ -57,14 +56,8 @@ function useAgentReport(
   const [report, setReport] = useState<string | null>(null);
   useEffect(() => {
     setReport(null);
-    const watch = getConvexClient().watchQuery(reportQuery, {
-      conversationId,
-      threadId,
-    });
-    const update = () => {
+    const render = (thread: ReportThread) => {
       try {
-        const thread = watch.localQueryResult();
-        if (thread === undefined) return;
         let text = thread?.errorMessage || "";
         if (thread?.resultJson) {
           try {
@@ -91,9 +84,18 @@ function useAgentReport(
         setReport("Couldn’t load the report. Close and reopen it to retry.");
       }
     };
-    const unsubscribe = watch.onUpdate(update);
-    update();
-    return unsubscribe;
+    try {
+      return getBackendClient().watch(
+        "agentThreads.get",
+        { conversationId, threadId },
+        render,
+        () =>
+          setReport("Couldn’t load the report. Close and reopen it to retry."),
+      );
+    } catch {
+      setReport("Couldn’t load the report. Close and reopen it to retry.");
+      return undefined;
+    }
   }, [conversationId, threadId]);
   return report;
 }

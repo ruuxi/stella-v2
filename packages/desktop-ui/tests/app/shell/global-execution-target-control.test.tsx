@@ -7,20 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   hasConnectedAccount: false,
   isCloudConversationReady: true,
-  queryCalls: [] as unknown[],
   deviceReads: [] as unknown[],
-  realtime: {
-    httpOrigin: null as string | null,
-    socketOrigin: "https://builder.example",
-    protocol: 1,
-  },
 }));
 
-vi.mock("convex/react", () => ({
-  useQuery: (_reference: unknown, args: unknown) => {
-    mocks.queryCalls.push(args);
-    return args === "skip" ? undefined : { ...mocks.realtime };
-  },
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendUrl: "https://backend.example",
 }));
 
 vi.mock("@/features/cloud/placement-client", async (importOriginal) => ({
@@ -113,13 +104,7 @@ describe("GlobalExecutionTargetControl", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     mocks.hasConnectedAccount = false;
     mocks.isCloudConversationReady = true;
-    mocks.queryCalls = [];
     mocks.deviceReads = [];
-    mocks.realtime = {
-      httpOrigin: null,
-      socketOrigin: "https://builder.example",
-      protocol: 1,
-    };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -130,91 +115,46 @@ describe("GlobalExecutionTargetControl", () => {
     container.remove();
   });
 
-  it("keeps local and cloud targets visible without querying account devices", async () => {
+  const openPicker = async () => {
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("button[data-open-picker]")
+        ?.click();
+    });
+  };
+
+  it("keeps local and cloud targets visible without reading account devices", async () => {
     await act(async () => {
       root.render(<GlobalExecutionTargetControl />);
     });
+    await openPicker();
 
-    expect(mocks.queryCalls).toEqual(["skip"]);
+    expect(mocks.deviceReads).toEqual([]);
     expect(container.textContent).toContain("This computer");
     expect(container.textContent).toContain("Cloud");
   });
 
-  it("looks up the owner gate only after an account is connected", async () => {
+  it("reads devices only while the picker is open", async () => {
     mocks.hasConnectedAccount = true;
     await act(async () => {
       root.render(<GlobalExecutionTargetControl />);
     });
-
-    expect(mocks.queryCalls).toEqual([{}]);
-    // Presence is read from the gate, and only while the picker is open.
     expect(mocks.deviceReads).toEqual([]);
   });
 
-  it("reads live device presence from the owner gate while open", async () => {
+  it("reads live device presence from the backend's owner gate", async () => {
     mocks.hasConnectedAccount = true;
     await act(async () => {
       root.render(<GlobalExecutionTargetControl />);
     });
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("button[data-open-picker]")
-        ?.click();
-    });
+    await openPicker();
 
     expect(mocks.deviceReads).toEqual([
       {
-        socketOrigin: "https://builder.example",
+        socketOrigin: "https://backend.example",
         getToken: expect.any(Function),
       },
     ]);
     expect(container.textContent).toContain("Studio iMac");
-  });
-
-  it("reads device presence over HTTPS even when the config only names the wss origin", async () => {
-    // The realtime config advertises the presence socket. Electron's fetch
-    // rejects "wss:" outright, which is how the picker used to fail silently.
-    mocks.hasConnectedAccount = true;
-    mocks.realtime = {
-      httpOrigin: null,
-      socketOrigin: "wss://builder.example",
-      protocol: 1,
-    };
-    await act(async () => {
-      root.render(<GlobalExecutionTargetControl />);
-    });
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("button[data-open-picker]")
-        ?.click();
-    });
-
-    expect(mocks.deviceReads).toEqual([
-      {
-        socketOrigin: "https://builder.example",
-        getToken: expect.any(Function),
-      },
-    ]);
-  });
-
-  it("prefers the config's HTTP origin for device reads", async () => {
-    mocks.hasConnectedAccount = true;
-    mocks.realtime = {
-      httpOrigin: "https://gate.example",
-      socketOrigin: "wss://gate.example",
-      protocol: 1,
-    };
-    await act(async () => {
-      root.render(<GlobalExecutionTargetControl />);
-    });
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("button[data-open-picker]")
-        ?.click();
-    });
-
-    expect(mocks.deviceReads).toEqual([
-      { socketOrigin: "https://gate.example", getToken: expect.any(Function) },
-    ]);
   });
 });

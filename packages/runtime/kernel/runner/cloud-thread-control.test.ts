@@ -13,7 +13,40 @@ import type { AgentToolApi, ToolContext } from "../tools/types.js";
 import { initializeDesktopDatabase } from "../storage/database-init.js";
 import { SessionStore } from "../storage/session-store.js";
 import type { SqliteDatabase } from "../storage/shared.js";
-import { createCloudThreadController } from "./cloud-spawn-dispatch.js";
+import { createCloudThreadController as createDispatcherRaw } from "./cloud-spawn-dispatch.js";
+/**
+ * These cases were written against Convex-shaped fakes (`mutation(ref, args)`
+ * and `action(ref, args)` with string refs). This maps them onto the backend
+ * calls the dispatcher now takes, one for one, so the refs still name what
+ * was sent.
+ */
+type DispatcherOptions = Parameters<typeof createDispatcherRaw>[0];
+type LegacyDispatcherOptions = Omit<DispatcherOptions, "backend"> & {
+  convexApi: { cloud_apps: Record<string, unknown> };
+  mutation: (ref: unknown, args: unknown) => Promise<unknown>;
+  action: (ref: unknown, args: unknown) => Promise<unknown>;
+  query?: (ref: unknown, args: unknown) => Promise<unknown>;
+};
+
+const adaptLegacyDispatcherOptions = (
+  options: LegacyDispatcherOptions,
+): DispatcherOptions => {
+  const { convexApi, mutation, action, query: _query, ...rest } = options;
+  const refs = convexApi.cloud_apps;
+  return {
+    ...rest,
+    backend: {
+      spawn: async (args) => await mutation(refs.spawnCloudAgentFromDesktop, args),
+      continue: async (args) =>
+        await mutation(refs.continueMyCloudAgentFromDesktop, args),
+      cancel: async (args) => await action(refs.cancelMyCloudAgentThread, args),
+    },
+  };
+};
+
+const createCloudThreadController = (options: LegacyDispatcherOptions) =>
+  createDispatcherRaw(adaptLegacyDispatcherOptions(options));
+
 
 const OWNER_GENERATION = "owner-generation-1";
 

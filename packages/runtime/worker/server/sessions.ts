@@ -327,6 +327,9 @@ export const layer = Layer.effect(
       if (patch.convexSiteUrl !== undefined) {
         runner?.setConvexSiteUrl(patch.convexSiteUrl);
       }
+      if (patch.backendUrl !== undefined) {
+        runner?.setBackendUrl(patch.backendUrl);
+      }
       if (patch.authToken !== undefined) {
         runner?.setAuthToken(patch.authToken);
         updateRuntimeTelemetryAuth(patch.authToken);

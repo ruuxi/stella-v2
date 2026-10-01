@@ -525,17 +525,14 @@ describe("cloud chat bridge authority", () => {
     expect(root).toMatch(
       /createCloudConversationDraft\(\s*accountScope,\s*clientCreateId,?\s*\)/,
     );
-    expect(conversationSource).toContain(
-      "cloudApi.getMyCloudConversationIdentity",
-    );
-    expect(conversationSource).not.toContain(
-      "cloudApi.getMyExecutionPlacementIdentity",
-    );
-    expect(root).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
+    // Selection reads the conversation index; the owner generation comes from
+    // the session's verified identity, never from the placement endpoint.
+    expect(conversationSource).toContain('"conversations.recent"');
+    expect(conversationSource).not.toContain("getMyExecutionPlacementIdentity");
+    expect(root).not.toContain("getMyExecutionPlacementIdentity");
     expect(root).toContain(
       "retireCloudConversationClientAuthority(accountScope)",
     );
     expect(root).toContain("retireCloudExecutionClientAuthority(accountScope)");
-    expect(root).toContain("ownershipMigrationRetryRef.current !== operation");
   });
 });

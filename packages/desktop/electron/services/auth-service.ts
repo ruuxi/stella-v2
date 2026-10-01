@@ -154,6 +154,7 @@ type AuthServiceOptions = {
 export class AuthService {
   private pendingConvexUrl: string | null = null;
   private pendingConvexSiteUrl: string | null = null;
+  private pendingBackendUrl: string | null = null;
   private hostAuthAuthenticated = false;
   private hostHasConnectedAccount = false;
   private hostAuthToken: string | null = null;
@@ -1037,8 +1038,18 @@ export class AuthService {
     return this.hostHasConnectedAccount;
   }
 
-  configurePiRuntime(config: { convexUrl: string; convexSiteUrl?: string }) {
+  /** The Stella backend worker the renderer was built against. */
+  getBackendUrl(): string | null {
+    return this.pendingBackendUrl;
+  }
+
+  configurePiRuntime(config: {
+    convexUrl: string;
+    convexSiteUrl?: string;
+    backendUrl?: string | null;
+  }) {
     this.pendingConvexUrl = config.convexUrl;
+    if (config.backendUrl) this.pendingBackendUrl = config.backendUrl;
     this.pendingConvexSiteUrl = readConfiguredConvexSiteUrl(
       config.convexSiteUrl,
     );
@@ -1051,6 +1062,7 @@ export class AuthService {
     const runner = this.options.runnerTarget.getRunner();
     runner?.setConvexUrl(config.convexUrl);
     runner?.setConvexSiteUrl(this.getConvexSiteUrl());
+    runner?.setBackendUrl(this.pendingBackendUrl);
     this.hydrateSessionStateFromDisk();
     if (this.hostAuthToken) {
       runner?.setAuthToken(this.hostAuthToken);

@@ -1088,6 +1088,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     configurePiRuntime: (config: {
       convexUrl?: string;
       convexSiteUrl?: string;
+      backendUrl?: string;
     }) => ipcRenderer.invoke("host:configurePiRuntime", config),
     getAuthSession: (options?: { allowCached?: boolean }) =>
       ipcRenderer.invoke(IPC_AUTH_GET_SESSION, options),

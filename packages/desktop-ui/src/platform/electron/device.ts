@@ -26,9 +26,13 @@ const runConfigurePiRuntime = async () => {
   if (!api?.system?.configurePiRuntime || !convexUrl || !convexSiteUrl) {
     return;
   }
+  const backendUrl = (
+    (import.meta.env.VITE_STELLA_BACKEND_URL as string | undefined) ?? ""
+  ).trim();
   const response = await api.system.configurePiRuntime({
     convexUrl,
     convexSiteUrl,
+    ...(backendUrl ? { backendUrl } : {}),
   });
   if (response?.deviceId) {
     writeLocalDeviceId(response.deviceId);

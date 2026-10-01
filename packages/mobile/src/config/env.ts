@@ -26,6 +26,8 @@ const deriveConvexSiteUrl = () => {
 export const env = {
   convexSiteUrl: deriveConvexSiteUrl(),
   convexUrl: cleanUrl(process.env.EXPO_PUBLIC_CONVEX_URL),
+  /** The Stella backend worker: backend calls, live views, conversation sockets. */
+  backendUrl: cleanUrl(process.env.EXPO_PUBLIC_STELLA_BACKEND_URL),
   playIntegrityProjectNumber:
     process.env.EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER?.trim() ?? "",
   mobileScheme:

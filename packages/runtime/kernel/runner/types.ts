@@ -283,6 +283,8 @@ export type RunnerPaths = {
 
 export type RunnerState = {
   convexSiteUrl: string | null;
+  /** The Stella backend worker origin; see `backend-session.ts`. */
+  backendUrl: string | null;
   authToken: string | null;
   convexDeploymentUrl: string | null;
   convexClient: ConvexClient | null;
@@ -382,6 +384,8 @@ export type RunnerState = {
 export type RunnerContext = {
   loadExecutionContext?: () => Promise<import("@stella/contracts/execution-context").ExecutionContextSnapshot>;
   convexApi: unknown;
+  /** The Stella backend worker (backend calls and live views). */
+  backend: import("./backend-session.js").BackendSession;
   deviceId: string;
   stellaAppDir: string;
   stellaDataDir: string;
@@ -450,6 +454,7 @@ export type RunnerPublicApi = {
   hookEmitter: HookEmitter;
   setConvexUrl: (value: string | null) => void;
   setConvexSiteUrl: (value: string | null) => void;
+  setBackendUrl: (value: string | null) => void;
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;
   setCloudSyncEnabled: (enabled: boolean) => void;

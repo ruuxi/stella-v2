@@ -15,6 +15,8 @@ export const initializeParamsSchema = Type.Object({
 export const runtimeConfigureParamsSchema = Type.Object({
   convexUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   convexSiteUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  /** The Stella backend worker (backend calls and live views). */
+  backendUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   authToken: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   hasConnectedAccount: Type.Optional(Type.Boolean()),
   cloudSyncEnabled: Type.Optional(Type.Boolean()),

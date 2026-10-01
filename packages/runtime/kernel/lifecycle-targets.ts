@@ -11,6 +11,7 @@ export type PiRunnerAuthHandle = {
   setHasConnectedAccount: (value: boolean) => void;
   setConvexUrl: (value: string | null) => void;
   setConvexSiteUrl: (value: string | null) => void;
+  setBackendUrl: (value: string | null) => void;
 };
 
 export type WindowManagerLike<TWindow = unknown> = {

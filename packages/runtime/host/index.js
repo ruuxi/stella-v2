@@ -2397,6 +2397,7 @@ export class StellaRuntimeHost {
             authToken: this.configCache.authToken ?? null,
             convexUrl: this.configCache.convexUrl ?? null,
             convexSiteUrl: this.configCache.convexSiteUrl ?? null,
+            backendUrl: this.configCache.backendUrl ?? null,
             hasConnectedAccount: this.configCache.hasConnectedAccount ?? false,
             cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? false,
             modelCatalogUpdatedAt: this.configCache.modelCatalogUpdatedAt ?? null,

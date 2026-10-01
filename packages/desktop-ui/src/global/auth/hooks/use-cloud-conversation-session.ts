@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { useConvexAuth, useQuery } from "convex/react";
-import { cloudApi } from "@/features/cloud/cloud-api";
+import { useConvexAuth } from "convex/react";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { setBackendAccount } from "@/platform/backend/backend-client";
+import { useOwnerIdentity } from "@/platform/backend/use-owner-identity";
 import { useAuthBootstrapState } from "../DesktopConvexAuthProvider";
 import {
   resolveCloudConversationSession,
@@ -15,8 +16,12 @@ import { reportCloudReadiness } from "@/features/cloud/cloud-readiness-timing";
  *
  * Both anonymous and connected Better Auth sessions own cloud conversations.
  * There is deliberately no signed-out/local fallback: while automatic
- * anonymous auth or Convex token exchange is incomplete, conversation
- * selection remains in a loading state.
+ * anonymous auth or token exchange is incomplete, conversation selection
+ * remains in a loading state.
+ *
+ * The identity proof is the backend's own answer: `owner.identity` returns
+ * the owner it verified from the current token, and selection waits until
+ * that is the account the renderer expects.
  */
 export function useCloudConversationSession() {
   const convex = useConvexAuth();
@@ -35,18 +40,17 @@ export function useCloudConversationSession() {
       expectedSubject &&
       convex.isAuthenticated,
   );
-  const identityConfirmed = useQuery(
-    cloudApi.confirmMySessionIdentity,
-    shouldConfirmIdentity && expectedSubject
-      ? {
-          expectedSubject,
-          identityRevision: session.identityRevision,
-        }
-      : "skip",
+  const accountKey =
+    shouldConfirmIdentity && ownerSubject
+      ? `${ownerSubject}\u0000${session.identityRevision}`
+      : null;
+  useEffect(() => {
+    if (!session.isLoading) setBackendAccount(accountKey);
+  }, [accountKey, session.isLoading]);
+  const { identity } = useOwnerIdentity(accountKey);
+  const identityConfirmed = Boolean(
+    identity && ownerSubject && identity.ownerId === ownerSubject,
   );
-  // Everything the readiness decision needs except the identity proof, so a
-  // caller holding its own proof (the shell bootstrap query) can resolve the
-  // same decision without waiting for `confirmMySessionIdentity`.
   const sessionGate: CloudConversationSessionGate = {
     hasSession: session.hasSession,
     sessionIsLoading: session.isLoading,
@@ -58,8 +62,8 @@ export function useCloudConversationSession() {
   };
   const mode = resolveCloudConversationSession({
     ...sessionGate,
-    identityConfirmed: identityConfirmed === true,
-    identityIsLoading: shouldConfirmIdentity && identityConfirmed === undefined,
+    identityConfirmed,
+    identityIsLoading: shouldConfirmIdentity && identity === undefined,
   });
   useEffect(() => {
     if (authBootstrap.status === "ready") {
@@ -73,7 +77,7 @@ export function useCloudConversationSession() {
     if (!convex.isLoading && convex.isAuthenticated) {
       reportCloudReadiness("cloud.convex-auth-ready", { outcome: "success" });
     }
-    if (identityConfirmed === true) {
+    if (identityConfirmed) {
       reportCloudReadiness("cloud.identity-confirmed", { outcome: "success" });
     }
     if (mode.isCloudConversationReady) {
@@ -91,11 +95,11 @@ export function useCloudConversationSession() {
   return {
     ...mode,
     sessionGate,
-    /** True once the identity proof may be requested (same gate for both). */
-    canConfirmIdentity: shouldConfirmIdentity,
     accountScope: session.cacheScope,
     expectedSubject,
     ownerSubject,
+    /** The verified owner's generation, once the identity is confirmed. */
+    ownerGeneration: identityConfirmed ? (identity?.ownerGeneration ?? null) : null,
     identityRevision: session.identityRevision,
     error: authBootstrap.error,
     authBootstrapStatus: authBootstrap.status,

@@ -1,9 +1,7 @@
 import { isPrivateConversationId } from "@/features/chat/services/chat-storage-preference";
-import { useMemo } from "react";
-import { useQueries, type RequestForQueries } from "convex/react";
 import type { LocalChatAgentReport } from "@stella/contracts/local-chat";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { cloudApi, type CloudAgentThread } from "./cloud-api";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import { cloudConversationBelongsToOwnerSubject } from "./cloud-conversation-selection";
 import { cloudThreadReport } from "./use-cloud-activity";
 
@@ -15,23 +13,17 @@ export function useCloudAgentReport(
 ): LocalChatAgentReport | null | undefined {
   const { isCloudConversationReady: authCloudReady, ownerSubject } = useCloudConversationSession();
   const isCloudConversationReady = authCloudReady && !isPrivateConversationId(conversationId);
-  const queries = useMemo<RequestForQueries>(() => {
-    const requests: RequestForQueries = {};
-    if (enabled && isCloudConversationReady) {
-      requests.report = {
-        query: cloudApi.getMyAgentThread,
-        args: { conversationId, threadId },
-      };
-    }
-    return requests;
-  }, [conversationId, enabled, isCloudConversationReady, threadId]);
-  const results = useQueries(queries);
+  const report = useBackendView(
+    "agentThreads.get",
+    enabled && isCloudConversationReady ? { conversationId, threadId } : "skip",
+  );
   if (!enabled || !isCloudConversationReady) return null;
-  // useQueries exposes errors as values so an unavailable deployment does not
-  // take down chat. Local-only tasks can still use the desktop report reader.
-  const thread = results.report as CloudAgentThread | null | undefined | Error;
-  if (thread === undefined) return undefined;
-  if (!thread || thread instanceof Error) return null;
+  // An unavailable backend costs the report, not the chat: local-only tasks
+  // still use the desktop report reader.
+  if (report.status === "error") return null;
+  if (report.status === "loading") return undefined;
+  const thread = report.value;
+  if (!thread) return null;
   if (!cloudConversationBelongsToOwnerSubject(thread, ownerSubject)) return undefined;
   const status = thread.status === "running" || thread.status === "completed" || thread.status === "canceled"
     ? thread.status : "error";

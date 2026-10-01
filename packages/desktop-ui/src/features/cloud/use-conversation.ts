@@ -22,9 +22,10 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import { useQueries, useQuery, type RequestForQueries } from "convex/react";
+import { useQuery } from "convex/react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getConvexToken } from "@/global/auth/services/auth-token";
+import { backendSocketUrl } from "@/platform/backend/backend-client";
 import { cloudApi } from "./cloud-api";
 import { markCloudConversationCreated } from "./cloud-conversation-selection";
 import {
@@ -57,7 +58,6 @@ import {
   PlacementClientError,
   submitDispatch,
 } from "./placement-client";
-import { PROTOCOL_VERSION } from "./conversation-protocol";
 import type { ConversationState } from "./conversation-store";
 import {
   activateCloudConversationClientAuthority,
@@ -92,38 +92,16 @@ const UNSUPPORTED_CONFIG: CloudRealtimeConfig = {
 };
 
 /**
- * `useQueries` rather than `useQuery` on purpose: this runs above the
- * `CloudBoundary`, and a deployment that does not have this function yet must
- * cost the user their cloud tail, not the whole shell.
+ * The conversation socket lives on the backend worker, whose origin is
+ * build-time config: there is nothing to look up.
  */
 export const useCloudRealtimeConfig = (): CloudRealtimeConfig => {
   const { isCloudConversationReady } = useCloudConversationSession();
-  const request = useMemo<RequestForQueries>(() => {
-    const queries: RequestForQueries = {};
-    if (isCloudConversationReady) {
-      queries.realtime = { query: cloudApi.getCloudRealtimeConfig, args: {} };
-    }
-    return queries;
-  }, [isCloudConversationReady]);
-  const results = useQueries(request);
   const config = useMemo(() => {
     if (!isCloudConversationReady) return OFFLINE_CONFIG;
-    const value = results.realtime;
-    if (value === undefined) return OFFLINE_CONFIG;
-    if (value instanceof Error) return UNSUPPORTED_CONFIG;
-    const config = value as { socketOrigin?: unknown; protocol?: unknown };
-    // A deployment speaking a different wire version would only get as far as
-    // a 4409 close. Not connecting at all is the same outcome without the
-    // round trip, and it keeps the reason in one place.
-    if (config.protocol !== PROTOCOL_VERSION) return UNSUPPORTED_CONFIG;
-    return {
-      socketBaseUrl:
-        typeof config.socketOrigin === "string" && config.socketOrigin
-          ? config.socketOrigin
-          : null,
-      resolved: true,
-    };
-  }, [isCloudConversationReady, results.realtime]);
+    if (!backendSocketUrl) return UNSUPPORTED_CONFIG;
+    return { socketBaseUrl: backendSocketUrl, resolved: true };
+  }, [isCloudConversationReady]);
   useEffect(() => {
     if (!isCloudConversationReady || !config.resolved) return;
     reportCloudReadiness("cloud.realtime-config", {
@@ -321,35 +299,20 @@ export const useConversation = (
 ): CloudConversationView => {
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
-  const { isCloudConversationReady: authCloudReady, accountScope, ownerSubject } =
-    useCloudConversationSession();
+  const {
+    isCloudConversationReady: authCloudReady,
+    accountScope,
+    ownerGeneration,
+  } = useCloudConversationSession();
   const storageMode = useChatStorageMode();
   const isCloudConversationReady = authCloudReady && storageMode === "cloud";
   const webShell = isWebShell();
-  const conversationIdentity = useQuery(
-    cloudApi.getMyCloudConversationIdentity,
-    isCloudConversationReady ? {} : "skip",
-  );
+  // The session's verified identity is the send authority: its generation
+  // fences every queued turn against an owner reset.
   const authority = useMemo<CloudConversationOutboxAuthority | null>(() => {
-    if (
-      !isCloudConversationReady ||
-      !ownerSubject ||
-      !conversationIdentity ||
-      conversationIdentity.ownerId !== ownerSubject ||
-      !conversationIdentity.ownerGeneration
-    ) {
-      return null;
-    }
-    return {
-      accountScope,
-      ownerGeneration: conversationIdentity.ownerGeneration,
-    };
-  }, [
-    accountScope,
-    isCloudConversationReady,
-    conversationIdentity,
-    ownerSubject,
-  ]);
+    if (!isCloudConversationReady || !ownerGeneration) return null;
+    return { accountScope, ownerGeneration };
+  }, [accountScope, isCloudConversationReady, ownerGeneration]);
   const activeAuthorityKey = authority
     ? `${authority.accountScope}\u0000${authority.ownerGeneration}`
     : null;

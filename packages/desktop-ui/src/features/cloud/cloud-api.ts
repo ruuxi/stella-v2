@@ -1,9 +1,5 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import {
-  makeFunctionReference,
-  type PaginationOptions,
-  type PaginationResult,
-} from "convex/server";
+import { makeFunctionReference } from "convex/server";
 
 export type CloudConversation = {
   conversationId: string;
@@ -84,116 +80,7 @@ export type CloudProject = {
   updatedAt: number;
 };
 
-/** `auth_migration:getMyOwnershipMigrationStatus` (null: nothing to move). */
-export type CloudOwnershipMigrationStatus = {
-  status: "pending" | "running" | "failed" | "complete";
-  updatedAt: number;
-  error?: string;
-} | null;
-
-/**
- * `cloud_apps:getMyShellBootstrap`: the shell's conversation-selection reads
- * in one query. `ready` is only returned once the Convex connection holds
- * `expectedOwnerId`; `selection` is null while an account-link transfer
- * blocks selection.
- */
-export type CloudShellBootstrap =
-  | { status: "identity_pending" }
-  | {
-      status: "ready";
-      ownerId: string;
-      migration: CloudOwnershipMigrationStatus;
-      selection: {
-        ownerGeneration: string;
-        conversations: CloudConversation[];
-        /** Owner-scoped `getMyConversation` projections of the looked-up ids. */
-        routeConversation: CloudConversation | null;
-        cachedConversation: CloudConversation | null;
-      } | null;
-    };
-
 export const cloudApi = {
-  confirmMySessionIdentity: makeFunctionReference<
-    "query",
-    { expectedSubject: string; identityRevision: number },
-    boolean
-  >("cloud_apps:confirmMySessionIdentity"),
-  getMyCloudConversationIdentity: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    {
-      ownerId: string;
-      ownerGeneration: string;
-    }
-  >("cloud_apps:getMyCloudConversationIdentity"),
-  getMyOwnershipMigrationStatus: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    CloudOwnershipMigrationStatus
-  >("auth_migration:getMyOwnershipMigrationStatus"),
-  getMyShellBootstrap: makeFunctionReference<
-    "query",
-    {
-      expectedSubject: string;
-      expectedOwnerId: string;
-      identityRevision: number;
-      routeConversationId?: string;
-      cachedConversationId?: string;
-    },
-    CloudShellBootstrap
-  >("cloud_apps:getMyShellBootstrap"),
-  retryMyLatestFailedOwnershipMigration: makeFunctionReference<
-    "mutation",
-    Record<string, never>,
-    { scheduled: boolean }
-  >("auth_migration:retryMyLatestFailedOwnershipMigration"),
-  listMyConversations: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    CloudConversation[]
-  >("cloud_apps:listMyConversations"),
-  getMyConversationHistorySnapshot: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    { snapshotUpdatedAt: number }
-  >("cloud_apps:getMyConversationHistorySnapshot"),
-  listMyConversationsPage: makeFunctionReference<
-    "query",
-    { snapshotUpdatedAt: number; paginationOpts: PaginationOptions },
-    PaginationResult<CloudConversation>
-  >("cloud_apps:listMyConversationsPage"),
-  createMyConversation: makeFunctionReference<
-    "mutation",
-    {
-      clientCreateId: string;
-      requestedConversationId?: string;
-      expectedOwnerGeneration: string;
-      title?: string;
-      execution?: CloudExecutionSelection;
-    },
-    CloudConversation
-  >("cloud_apps:createMyConversation"),
-  getMyConversation: makeFunctionReference<
-    "query",
-    { conversationId: string },
-    CloudConversation | null
-  >("cloud_apps:getMyConversation"),
-  // The transcript is not a Convex table any more: it lives in the
-  // conversation's Durable Object and reaches the client over a WebSocket.
-  // This query only says where that socket is, so mobile and web both learn
-  // the builder origin without a new build-time variable.
-  getCloudRealtimeConfig: makeFunctionReference<
-    "query",
-    Record<string, never>,
-    {
-      /** Builder origin for HTTP (the desktop journal append). */
-      httpOrigin: string | null;
-      /** Same origin as `ws:`/`wss:`, for the conversation socket. */
-      socketOrigin: string | null;
-      /** Wire version the deployment speaks. A mismatch is not connectable. */
-      protocol: number;
-    }
-  >("cloud_apps:getCloudRealtimeConfig"),
   // Renderer-side model calls (dictation cleanup and the like) talk to the
   // model gateway directly; this says where it lives.
   getModelGatewayConfig: makeFunctionReference<
@@ -201,11 +88,6 @@ export const cloudApi = {
     Record<string, never>,
     { origin: string }
   >("gateway_capabilities:getModelGatewayConfig"),
-  deleteMyConversation: makeFunctionReference<
-    "action",
-    { conversationId: string },
-    { ok: boolean }
-  >("cloud_apps:deleteMyConversation"),
   forkMyConversation: makeFunctionReference<
     "action",
     {
@@ -280,38 +162,6 @@ export const cloudApi = {
     { execution: CloudExecutionSelection },
     null
   >("cloud_engines:setMyCloudExecution"),
-  getMyAgentThread: makeFunctionReference<
-    "query",
-    { conversationId: string; threadId: string },
-    CloudAgentThread | null
-  >("cloud_apps:getMyAgentThread"),
-  listMyAgentThreads: makeFunctionReference<
-    "query",
-    { conversationId: string },
-    CloudAgentThread[]
-  >("cloud_apps:listMyAgentThreads"),
-  listMyAgentThreadsPage: makeFunctionReference<
-    "query",
-    {
-      conversationId: string;
-      identityRevision: number;
-      paginationOpts: PaginationOptions;
-    },
-    PaginationResult<CloudAgentThread>
-  >("cloud_apps:listMyAgentThreadsPage"),
-  listMyRunningAgentThreads: makeFunctionReference<
-    "query",
-    { conversationId: string; identityRevision: number },
-    CloudAgentThread[]
-  >("cloud_apps:listMyRunningAgentThreads"),
-  // Activity is owner-scoped, not conversation-scoped: a cloud thread the
-  // desktop dispatched, a scheduled run, and a thread the phone started all
-  // live in different cloud conversations and all belong in the same list.
-  listMyRecentAgentThreads: makeFunctionReference<
-    "query",
-    { limit?: number },
-    CloudAgentThread[]
-  >("cloud_apps:listMyRecentAgentThreads"),
 };
 
 /**

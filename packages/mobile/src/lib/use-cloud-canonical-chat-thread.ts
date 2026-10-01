@@ -7,7 +7,6 @@ import {
   type CloudOfflineWindow,
   type CloudSocketStatus,
 } from "@stella/contracts/cloud-connection-notice";
-import { makeFunctionReference } from "convex/server";
 import {
   useCallback,
   useEffect,
@@ -55,7 +54,8 @@ import {
   projectCloudConversationMessages,
   rebindCanonicalCloudMessages,
 } from "./cloud-journal-projection";
-import { getConvexClient } from "./convex";
+import { getBackendClient } from "./backend";
+import { env } from "../config/env";
 import {
   AUTOMATIC_EXECUTION_TARGET,
   automaticExecutionConversationClientCreateId,
@@ -79,16 +79,6 @@ import {
   type ChatTransport,
 } from "./use-chat-thread";
 
-const chatBootstrapRef = makeFunctionReference<
-  "query",
-  {
-    expectedSubject: string;
-    expectedOwnerId: string;
-    identityRevision: number;
-    clientCreateId: string;
-  },
-  CloudChatBootstrap
->("cloud_apps:getMyChatBootstrap");
 
 const safeAuthorityIssue = (
   error: unknown,
@@ -137,18 +127,27 @@ export type CloudAuthorityHookState =
 const CHAT_THREAD_ID = "cloud";
 const CHAT_TITLE = "Chat";
 
-const readChatBootstrap = async (
-  identity: CloudConversationIdentity,
-  ownerSubject: string,
-): Promise<CloudChatBootstrap> =>
-  await getConvexClient().query(chatBootstrapRef, {
-    expectedSubject: identity.expectedSubject,
-    expectedOwnerId: ownerSubject,
-    identityRevision: identity.revision,
-    clientCreateId: automaticExecutionConversationClientCreateId(
-      CHAT_THREAD_ID,
-    ),
+/**
+ * The backend verifies the token and answers for the owner it belongs to;
+ * the authority check compares that owner with the one this session expects.
+ * The conversation socket lives on the same backend origin.
+ */
+const readChatBootstrap = async (): Promise<CloudChatBootstrap> => {
+  const bootstrap = await getBackendClient().call("conversations.bootstrap", {
+    clientCreateId: automaticExecutionConversationClientCreateId(CHAT_THREAD_ID),
   });
+  return {
+    status: "ready",
+    ownerId: bootstrap.ownerId,
+    ownerGeneration: bootstrap.ownerGeneration,
+    conversationId: bootstrap.conversationId,
+    realtime: {
+      httpOrigin: env.backendUrl || null,
+      socketOrigin: env.backendUrl ? env.backendUrl.replace(/^http/, "ws") : null,
+      protocol: 1,
+    },
+  };
+};
 
 const resolveMobileCloudConversationAuthority = async (
   identity: CloudConversationIdentity,
@@ -158,7 +157,7 @@ const resolveMobileCloudConversationAuthority = async (
   );
   const ownerSubject = tokenOwner.tokenIdentifier;
   return loadCloudConversationAuthority(identity, ownerSubject, {
-    getBootstrap: () => readChatBootstrap(identity, ownerSubject),
+    getBootstrap: () => readChatBootstrap(),
     createConversation: (expectedOwnerGeneration) =>
       createAutomaticExecutionConversation({
         threadId: CHAT_THREAD_ID,

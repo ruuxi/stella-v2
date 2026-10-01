@@ -5,36 +5,22 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  page: {
-    data: [] as unknown[] | undefined,
-    status: "success" as "success" | "pending" | "error",
-    canLoadMore: false,
-    isLoading: false,
-    error: undefined as Error | undefined,
-    loadMore: vi.fn(),
-  },
   mode: {
     isCloudConversationReady: true,
     accountScope: "account:owner-a",
     ownerSubject: "owner-a",
     identityRevision: 1,
   },
-  running: [] as unknown[],
-  lastOptions: null as Record<string, unknown> | null,
 }));
 
-vi.mock("convex/react", () => ({
-  usePaginatedQuery_experimental: (options: Record<string, unknown>) => {
-    mocks.lastOptions = options;
-    return mocks.page;
-  },
-  useQueries: () => ({ running: mocks.running }),
-}));
-
+vi.mock("@/platform/backend/backend-client", async () =>
+  (await import("../../helpers/fake-backend")).fakeBackendModule(),
+);
 vi.mock("@/global/auth/hooks/use-cloud-conversation-session", () => ({
   useCloudConversationSession: () => mocks.mode,
 }));
 
+import { fakeBackend } from "../../helpers/fake-backend";
 import type { CloudAgentThread } from "@/features/cloud/cloud-api";
 import {
   CLOUD_ACTIVITY_PAGE_SIZE,
@@ -42,12 +28,13 @@ import {
   useCloudConversationActivity,
 } from "@/features/cloud/use-cloud-activity";
 
+const CONVERSATION = "conversation-1";
 let latest: CloudConversationActivity | null = null;
 
 const thread = (threadId: string, ownerId: string): CloudAgentThread => ({
   threadId,
   ownerId,
-  conversationId: "conversation-1",
+  conversationId: CONVERSATION,
   description: threadId,
   placement: "cloud",
   agentType: "general",
@@ -56,29 +43,28 @@ const thread = (threadId: string, ownerId: string): CloudAgentThread => ({
   updatedAt: 2,
 });
 
+const page = (limit: number, threads: CloudAgentThread[], hasMore: boolean) =>
+  fakeBackend.emit("agentThreads.forConversation", { conversationId: CONVERSATION, limit }, { threads, hasMore });
+
+const running = (threads: CloudAgentThread[]) =>
+  fakeBackend.emit("agentThreads.running", { conversationId: CONVERSATION }, threads);
+
 function Harness() {
-  latest = useCloudConversationActivity("conversation-1");
+  latest = useCloudConversationActivity(CONVERSATION);
   return null;
 }
 
-describe("cloud Activity pagination hook", () => {
+describe("cloud Activity history hook", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    mocks.page.data = [];
-    mocks.page.status = "success";
-    mocks.page.canLoadMore = false;
-    mocks.page.isLoading = false;
-    mocks.page.error = undefined;
-    mocks.page.loadMore.mockReset();
+    fakeBackend.reset();
     mocks.mode.isCloudConversationReady = true;
     mocks.mode.accountScope = "account:owner-a";
     mocks.mode.ownerSubject = "owner-a";
     mocks.mode.identityRevision = 1;
-    mocks.running = [];
-    mocks.lastOptions = null;
     latest = null;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -92,79 +78,70 @@ describe("cloud Activity pagination hook", () => {
 
   const render = async () => {
     await act(async () => root.render(<Harness />));
-    expect(latest).not.toBeNull();
     return latest!;
   };
 
-  it("loads one older page and keys the cursor set to the identity revision", async () => {
-    mocks.page.data = [thread("thread-1", "owner-a")];
-    mocks.page.canLoadMore = true;
-
-    const activity = await render();
+  it("raises the history window for older threads and keeps showing the current rows meanwhile", async () => {
+    await render();
+    await act(async () => {
+      page(CLOUD_ACTIVITY_PAGE_SIZE, [thread("thread-1", "owner-a")], true);
+      running([]);
+    });
+    let activity = latest!;
     expect(activity.hasLoaded).toBe(true);
     expect(activity.hasOlder).toBe(true);
     expect(activity.isLoadingOlder).toBe(false);
 
-    act(() => activity.loadOlder());
-    expect(mocks.page.loadMore).toHaveBeenCalledWith(CLOUD_ACTIVITY_PAGE_SIZE);
-    expect(mocks.lastOptions).toMatchObject({
-      args: { conversationId: "conversation-1", identityRevision: 1 },
-      initialNumItems: CLOUD_ACTIVITY_PAGE_SIZE,
-    });
-  });
-
-  it("does not request another cursor while a page is loading or exhausted", async () => {
-    mocks.page.data = [thread("thread-1", "owner-a")];
-    mocks.page.status = "pending";
-    mocks.page.isLoading = true;
-
-    let activity = await render();
-    expect(activity.hasOlder).toBe(true);
+    await act(async () => activity.loadOlder());
+    activity = latest!;
+    const raised = CLOUD_ACTIVITY_PAGE_SIZE * 2;
+    expect(fakeBackend.isSubscribed("agentThreads.forConversation", { conversationId: CONVERSATION, limit: raised })).toBe(true);
     expect(activity.isLoadingOlder).toBe(true);
-    act(() => activity.loadOlder());
-    expect(mocks.page.loadMore).not.toHaveBeenCalled();
+    expect(activity.tasks.map((task) => task.id)).toEqual(["thread-1"]);
 
-    mocks.page.status = "success";
-    mocks.page.isLoading = false;
-    mocks.page.canLoadMore = false;
-    activity = await render();
+    await act(async () =>
+      page(raised, [thread("thread-1", "owner-a"), { ...thread("thread-0", "owner-a"), updatedAt: 1 }], false),
+    );
+    activity = latest!;
+    expect(activity.tasks.map((task) => task.id)).toEqual(["thread-1", "thread-0"]);
     expect(activity.hasOlder).toBe(false);
-    expect(activity.isLoadingOlder).toBe(false);
-    act(() => activity.loadOlder());
-    expect(mocks.page.loadMore).not.toHaveBeenCalled();
   });
 
-  it("fails closed for a cached page from another account", async () => {
-    mocks.page.data = [thread("stale-a", "owner-a")];
-    mocks.page.canLoadMore = true;
+  it("does not raise the window when there is nothing older", async () => {
+    await render();
+    await act(async () => {
+      page(CLOUD_ACTIVITY_PAGE_SIZE, [thread("thread-1", "owner-a")], false);
+      running([]);
+    });
+    await act(async () => latest!.loadOlder());
+    expect(fakeBackend.subscribed()).toEqual([
+      `agentThreads.forConversation{"conversationId":"${CONVERSATION}","limit":${CLOUD_ACTIVITY_PAGE_SIZE}}`,
+      `agentThreads.running{"conversationId":"${CONVERSATION}"}`,
+    ]);
+  });
+
+  it("fails closed for rows from another account", async () => {
     mocks.mode.accountScope = "account:owner-b";
     mocks.mode.ownerSubject = "owner-b";
-    mocks.mode.identityRevision = 2;
-
-    const activity = await render();
+    await render();
+    await act(async () => {
+      page(CLOUD_ACTIVITY_PAGE_SIZE, [thread("stale-a", "owner-a")], true);
+      running([]);
+    });
+    const activity = latest!;
     expect(activity.tasks).toEqual([]);
     expect(activity.hasLoaded).toBe(false);
     expect(activity.hasOlder).toBe(false);
-    expect(activity.isLoadingOlder).toBe(false);
-    act(() => activity.loadOlder());
-    expect(mocks.page.loadMore).not.toHaveBeenCalled();
   });
 
-  it("merges an old running row that is outside the newest history page", async () => {
-    mocks.page.data = [thread("newer-terminal", "owner-a")];
-    mocks.running = [
-      {
-        ...thread("long-running", "owner-a"),
-        status: "running",
-        updatedAt: 1,
-      },
-    ];
-
-    const activity = await render();
-    expect(activity.tasks.map((task) => task.id)).toEqual([
-      "newer-terminal",
-      "long-running",
-    ]);
+  it("merges an old running row that is outside the newest history window", async () => {
+    await render();
+    await act(async () => {
+      page(CLOUD_ACTIVITY_PAGE_SIZE, [thread("newer-terminal", "owner-a")], false);
+      running([{ ...thread("long-running", "owner-a"), status: "running", updatedAt: 1 }]);
+    });
+    const activity = latest!;
+    expect(activity.tasks.map((task) => task.id)).toEqual(["newer-terminal", "long-running"]);
     expect(activity.hasRunning).toBe(true);
   });
 });

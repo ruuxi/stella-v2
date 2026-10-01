@@ -295,6 +295,7 @@ export const layer = Layer.effect(
       const cfg = config.get();
       runner.setConvexUrl(cfg.convexUrl);
       runner.setConvexSiteUrl(cfg.convexSiteUrl);
+      runner.setBackendUrl(cfg.backendUrl ?? null);
       runner.setAuthToken(cfg.authToken);
       runner.setHasConnectedAccount(cfg.hasConnectedAccount);
       runner.setCloudSyncEnabled(cfg.cloudSyncEnabled);

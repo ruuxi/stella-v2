@@ -10,7 +10,6 @@ import {
 } from "@/ui/dialog";
 import { MagicLinkAuthFlow } from "./MagicLinkAuthFlow";
 import { authClient } from "./lib/auth-client";
-import { useOwnershipMigrationInProgress } from "@/global/auth/hooks/use-ownership-migration-in-progress";
 import { useAuthSessionState } from "./hooks/use-auth-session-state";
 import {
   applyAndVerifyAccountSessionToken,
@@ -134,61 +133,25 @@ const pollDesktopSocialAuth = async (
 export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
   const t = useT();
   const { hasConnectedAccount } = useAuthSessionState();
-  // Signing in from anonymous moves the anonymous data to the new account.
-  // The dialog owns that wait: it stays open in a finishing state until the
-  // transfer lands, then closes onto a shell that is already up to date.
-  // The shell itself is never swapped out for a placeholder.
-  const migrationInProgress = useOwnershipMigrationInProgress();
-  const finishing = hasConnectedAccount && migrationInProgress;
-
+  // Signing in keeps the anonymous account's data (it is upgraded in place),
+  // so the dialog closes as soon as the account is connected.
   useEffect(() => {
-    if (hasConnectedAccount && !migrationInProgress && open) {
-      onOpenChange(false);
-    }
-  }, [hasConnectedAccount, migrationInProgress, open, onOpenChange]);
+    if (hasConnectedAccount && open) onOpenChange(false);
+  }, [hasConnectedAccount, open, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fit className="auth-dialog-content">
         <VisuallyHidden asChild>
-          <DialogTitle>
-            {t(
-              finishing
-                ? "global.auth.finishingTitle"
-                : "global.auth.welcomeTitle",
-            )}
-          </DialogTitle>
+          <DialogTitle>{t("global.auth.welcomeTitle")}</DialogTitle>
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            {t(
-              finishing
-                ? "global.auth.finishingSub"
-                : "global.auth.welcomeDescription",
-            )}
+            {t("global.auth.welcomeDescription")}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="auth-dialog-close" />
-        {finishing ? (
-          <DialogBody
-            className="auth-dialog-body auth-dialog-body--finishing"
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div className="auth-dialog-hero">
-              <p className="auth-dialog-headline">
-                {t("global.auth.finishingTitle")}
-              </p>
-              <p className="auth-dialog-sub">{t("global.auth.finishingSub")}</p>
-            </div>
-            <div className="auth-dialog-finishing-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-          </DialogBody>
-        ) : (
+        {
           <DialogBody className="auth-dialog-body">
             <div className="auth-dialog-hero">
               <p className="auth-dialog-headline">
@@ -222,7 +185,7 @@ export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
               errorClassName="auth-dialog-error"
             />
           </DialogBody>
-        )}
+        }
       </DialogContent>
     </Dialog>
   );

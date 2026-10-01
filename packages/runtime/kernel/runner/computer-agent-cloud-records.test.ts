@@ -20,10 +20,63 @@ const activeRecords = new Set<
 >();
 const openDatabases = new Set<Database>();
 
-const createComputerAgentCloudRecords = (
-  options: Parameters<typeof createComputerAgentCloudRecordsRaw>[0],
-) => {
-  const records = createComputerAgentCloudRecordsRaw(options);
+/**
+ * These cases were written against Convex-shaped fakes (`mutation(ref,
+ * args)`, errors carrying `data.code`). This maps them onto the backend
+ * calls the records now use, so each case still drives the same protocol:
+ * refs name the call, and Convex error codes become backend reasons.
+ */
+type LegacyOptions = Omit<
+  Parameters<typeof createComputerAgentCloudRecordsRaw>[0],
+  "backend"
+> & {
+  convexApi: typeof refs;
+  mutation: (ref: unknown, args: unknown) => Promise<unknown>;
+  query: (ref: unknown, args: unknown) => Promise<unknown>;
+};
+
+const asBackendError = (error: unknown): unknown => {
+  const data = (error as { data?: { code?: unknown; reason?: unknown } } | null)
+    ?.data;
+  if (data?.code === "OWNER_DATA_GENERATION_STALE") {
+    return Object.assign(new Error((error as Error).message), {
+      code: "CONFLICT",
+      reason: "owner_generation_stale",
+    });
+  }
+  if (data?.code === "COMPUTER_AGENT_START_REJECTED") {
+    return Object.assign(new Error((error as Error).message), {
+      code: "CONFLICT",
+      reason: typeof data.reason === "string" ? data.reason : "attempt_stale",
+    });
+  }
+  return error;
+};
+
+const createComputerAgentCloudRecords = (options: LegacyOptions) => {
+  const { convexApi, mutation, query, ...rest } = options;
+  const via =
+    (send: (ref: unknown, args: unknown) => Promise<unknown>, ref: unknown) =>
+    async (args: Record<string, unknown>) => {
+      try {
+        const result = await send(ref, args);
+        const record = result as { agentId?: unknown } | null;
+        return record && typeof record === "object" && "agentId" in record
+          ? { ...record, threadId: record.agentId }
+          : result;
+      } catch (error) {
+        throw asBackendError(error);
+      }
+    };
+  const records = createComputerAgentCloudRecordsRaw({
+    ...rest,
+    backend: {
+      start: via(mutation, convexApi.local_agent_threads.startMyComputerAgentThread),
+      complete: via(mutation, convexApi.local_agent_threads.completeMyComputerAgentThread),
+      cancel: via(mutation, convexApi.local_agent_threads.cancelMyComputerAgentThread),
+      get: via(query, convexApi.local_agent_threads.getMyComputerAgentThread),
+    },
+  });
   activeRecords.add(records);
   return records;
 };

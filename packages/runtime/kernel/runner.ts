@@ -213,25 +213,18 @@ export const createStellaHostRunner = (
   // upload existing transcripts or wait for a history transfer.
 
   const computerAgentCloudRecords = createComputerAgentCloudRecords({
-    convexApi: context.convexApi,
     deviceId: context.deviceId,
     store: context.runtimeStore,
     getAuthToken: () => context.state.authToken?.trim() || null,
-    mutation: async (ref, args) => {
-      const client = convexSession.ensureStoreClient();
-      return await (
-        client as unknown as {
-          mutation: (query: unknown, args: unknown) => Promise<unknown>;
-        }
-      ).mutation(ref, args);
-    },
-    query: async (ref, args) => {
-      const client = convexSession.ensureStoreClient();
-      return await (
-        client as unknown as {
-          query: (query: unknown, args: unknown) => Promise<unknown>;
-        }
-      ).query(ref, args);
+    backend: {
+      start: async (args) =>
+        await context.backend.require().call("computerThreads.start", args as never),
+      complete: async (args) =>
+        await context.backend.require().call("computerThreads.complete", args as never),
+      cancel: async (args) =>
+        await context.backend.require().call("computerThreads.cancel", args as never),
+      get: async (args) =>
+        await context.backend.require().call("computerThreads.get", args as never),
     },
   });
   resumeComputerAgentCloudRecords = computerAgentCloudRecords.resume;
@@ -348,28 +341,22 @@ export const createStellaHostRunner = (
     cloudAgentRecords: computerAgentCloudRecords,
   });
   const cloudAgentLifecycle = createCloudAgentLifecycleMonitor({
-    convexApi: context.convexApi,
     deviceId: context.deviceId,
-    subscribeQuery: convexSession.subscribeQuery,
-    query: async (ref, args) => {
-      const client = convexSession.ensureStoreClient();
-      return await (
-        client as unknown as {
-          query: (query: unknown, args: unknown) => Promise<unknown>;
-        }
-      ).query(ref, args);
+    getOwnerGeneration: async () =>
+      (await context.backend.ownerIdentity()).ownerGeneration,
+    watchDeviceThreads: (args, onUpdate, onError) => {
+      const client = context.backend.client();
+      if (!client) return null;
+      return client.watch("agentThreads.forDevice", args, onUpdate, onError);
     },
-    mutation: async (ref, args) => {
-      const client = convexSession.ensureStoreClient();
-      return await (
-        client as unknown as {
-          mutation: (query: unknown, args: unknown) => Promise<unknown>;
-        }
-      ).mutation(ref, args);
-    },
+    acknowledge: async (args) =>
+      await context.backend
+        .require()
+        .call("agentThreads.acknowledgeDelivery", args),
     canStart: () =>
       context.state.hasConnectedAccount === true &&
-      Boolean(context.state.authToken?.trim()),
+      Boolean(context.state.authToken?.trim()) &&
+      Boolean(context.backend.client()),
     hasDurableLifecycleEvent:
       taskOrchestration.hasDurableExternalLifecycleEvent,
     onLifecycleEvent: taskOrchestration.handleExternalAgentLifecycleEvent,
@@ -491,8 +478,14 @@ export const createStellaHostRunner = (
       computerAgentCloudRecords.resume();
     },
     setConvexSiteUrl: convexSession.setConvexSiteUrl,
+    setBackendUrl: (value) => {
+      context.backend.setBackendUrl(value);
+      queueMicrotask(() => cloudAgentLifecycle.start());
+      computerAgentCloudRecords.resume();
+    },
     setAuthToken: (value) => {
       convexSession.setAuthToken(value);
+      context.backend.noteAuthToken();
     },
     setHasConnectedAccount,
     setCloudSyncEnabled: convexSession.setCloudSyncEnabled,

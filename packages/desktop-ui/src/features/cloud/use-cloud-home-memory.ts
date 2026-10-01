@@ -11,6 +11,7 @@ import { resolveAuthSessionCacheScope } from "@/global/auth/lib/auth-session-sco
 import { getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
 import { getConvexTokenForSubject } from "@/global/auth/services/auth-token";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { backendUrl } from "@/platform/backend/backend-client";
 import { cloudHomeApi, type CloudMemoryWipeStatus } from "./cloud-home-api";
 import {
   beginCloudMemoryDocumentWrite,
@@ -98,10 +99,6 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
   const requests = useMemo<RequestForQueries>(() => {
     const next: RequestForQueries = {};
     if (identity) {
-      next.realtime = {
-        query: cloudHomeApi.getCloudRealtimeConfig,
-        args: {},
-      };
       next.memoryLifecycle = {
         query: cloudHomeApi.getMyMemoryWipeStatus,
         args: { expectedSubject: identity.expectedSubject },
@@ -110,12 +107,7 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     return next;
   }, [identity]);
   const queryResults = useQueries(requests);
-  const configResult = queryResults.realtime;
   const lifecycleResult = queryResults.memoryLifecycle;
-  const config =
-    configResult === undefined || configResult instanceof Error
-      ? null
-      : configResult;
   const lifecycle = useMemo<CloudMemoryWipeStatus | null>(() => {
     if (
       !identity ||
@@ -134,10 +126,10 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     }
   }, [identity, lifecycleResult]);
   const client = useMemo(() => {
-    if (!identity || config?.protocol !== 1 || !config.httpOrigin) return null;
+    if (!identity || !backendUrl) return null;
     try {
       return createCloudHomeMemoryClient({
-        builderOrigin: config.httpOrigin,
+        builderOrigin: backendUrl,
         identity,
         getCurrentIdentity: identityFromCurrentSession,
         getTokenForSubject: readOwnerToken,
@@ -145,7 +137,7 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     } catch {
       return null;
     }
-  }, [config?.httpOrigin, config?.protocol, identity]);
+  }, [identity]);
   const listMemory = useCallback(async () => {
     if (!client) throw new CloudHomeMemoryError("unavailable");
     return await client.listMemory();
@@ -170,14 +162,9 @@ export const useCloudHomeMemory = (): UseCloudHomeMemoryResult => {
     identity,
     lifecycle,
     available: Boolean(client && lifecycle?.state === "open"),
-    loading: Boolean(
-      identity && (configResult === undefined || lifecycleResult === undefined),
-    ),
+    loading: Boolean(identity && lifecycleResult === undefined),
     unavailable: Boolean(
-      identity &&
-        configResult !== undefined &&
-        lifecycleResult !== undefined &&
-        (!client || !lifecycle),
+      identity && lifecycleResult !== undefined && (!client || !lifecycle),
     ),
     listMemory,
     writeMemory,

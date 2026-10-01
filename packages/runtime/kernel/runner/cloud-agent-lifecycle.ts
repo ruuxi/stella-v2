@@ -18,16 +18,23 @@ type CloudAgentThreadRow = {
 };
 
 type CloudAgentLifecycleMonitorOptions = {
-  convexApi: unknown;
   deviceId: string;
-  subscribeQuery: (
-    query: unknown,
-    args: Record<string, unknown>,
+  /** The verified owner generation; this device's rows are scoped to it. */
+  getOwnerGeneration: () => Promise<string>;
+  /** The backend's `agentThreads.forDevice` view. */
+  watchDeviceThreads: (
+    args: { originDeviceId: string; ownerGeneration: string; limit: number },
     onUpdate: (value: unknown) => void,
     onError?: (error: Error) => void,
   ) => (() => void) | null;
-  query: (ref: unknown, args: unknown) => Promise<unknown>;
-  mutation: (ref: unknown, args: unknown) => Promise<unknown>;
+  /** The backend's `agentThreads.acknowledgeDelivery` call. */
+  acknowledge: (args: {
+    threadId: string;
+    originDeviceId: string;
+    ownerGeneration: string;
+    attemptGeneration: number;
+    terminalUpdatedAt: number;
+  }) => Promise<unknown>;
   hasDurableLifecycleEvent: (event: AgentLifecycleEvent) => boolean;
   onLifecycleEvent: (event: AgentLifecycleEvent) => void | Promise<void>;
   /** Persist exact control authority before a terminal row can be ACKed. */
@@ -78,7 +85,9 @@ const parseThreadRow = (
   const record = asRecord(value);
   if (!record) return null;
   const threadId = readString(record, "threadId");
-  const cloudConversationId = readString(record, "cloudConversationId");
+  const cloudConversationId =
+    readString(record, "cloudConversationId") ??
+    readString(record, "conversationId");
   const originDeviceId = readString(record, "originDeviceId");
   const originConversationId = readString(record, "originConversationId");
   const description = readString(record, "description");
@@ -178,36 +187,13 @@ const toLifecycleEvent = (
 
 /**
  * Mirrors desktop-originated cloud threads into the local runtime's existing
- * lifecycle channel. Convex keeps terminal rows in the subscription until the
+ * lifecycle channel. The backend keeps terminal rows in the view until the
  * local event and its orchestrator reminder are durable, so closing Stella
  * while an agent runs does not lose the completion.
  */
 export const createCloudAgentLifecycleMonitor = (
   options: CloudAgentLifecycleMonitorOptions,
 ) => {
-  const queryRef = () =>
-    (
-      options.convexApi as {
-        cloud_apps: { listMyDeviceAgentThreads: unknown };
-      }
-    ).cloud_apps.listMyDeviceAgentThreads;
-  const acknowledgeRef = () =>
-    (
-      options.convexApi as {
-        cloud_apps: {
-          acknowledgeMyDeviceAgentThreadDelivery: unknown;
-        };
-      }
-    ).cloud_apps.acknowledgeMyDeviceAgentThreadDelivery;
-  const ownerIdentityRef = () =>
-    (
-      options.convexApi as {
-        execution_placement: {
-          getMyExecutionPlacementIdentity: unknown;
-        };
-      }
-    ).execution_placement.getMyExecutionPlacementIdentity;
-
   let unsubscribe: (() => void) | null = null;
   let stopped = false;
   let epoch = 0;
@@ -236,7 +222,7 @@ export const createCloudAgentLifecycleMonitor = (
 
   const acknowledge = async (row: CloudAgentThreadRow): Promise<boolean> => {
     try {
-      await options.mutation(acknowledgeRef(), {
+      await options.acknowledge({
         threadId: row.threadId,
         originDeviceId: options.deviceId,
         ownerGeneration: row.ownerGeneration,
@@ -272,8 +258,8 @@ export const createCloudAgentLifecycleMonitor = (
       if (options.hasDurableLifecycleEvent(event)) {
         await acknowledge(row);
       } else {
-        // Admission and local persistence are distinct phases. Keep the Convex
-        // row unacknowledged and retry until the exact event is durably visible;
+        // Admission and local persistence are distinct phases. Keep the
+        // backend row unacknowledged and retry until the exact event is durably visible;
         // a callback that merely started an async turn is not an ACK.
         scheduleRetry(row);
       }
@@ -315,20 +301,16 @@ export const createCloudAgentLifecycleMonitor = (
     restartCancel = null;
     cancelRowRetries();
     void options
-      .query(ownerIdentityRef(), {})
+      .getOwnerGeneration()
       .then((value) => {
         if (stopped || startEpoch !== epoch) return;
-        const identity = asRecord(value);
-        const ownerGeneration = identity
-          ? readString(identity, "ownerGeneration")
-          : null;
+        const ownerGeneration = value.trim() || null;
         if (!ownerGeneration) {
           scheduleRestart();
           return;
         }
         activeOwnerGeneration = ownerGeneration;
-        unsubscribe = options.subscribeQuery(
-          queryRef(),
+        unsubscribe = options.watchDeviceThreads(
           {
             originDeviceId: options.deviceId,
             ownerGeneration,

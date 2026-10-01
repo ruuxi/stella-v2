@@ -10,7 +10,6 @@ import {
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
 import {
   lazy,
   Suspense,
@@ -30,7 +29,6 @@ import { conversationTabs } from "@/features/chat/services/conversation-tabs-sto
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useShellConversationSource } from "@/global/auth/hooks/use-shell-conversation-source";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
-import { cloudApi } from "@/features/cloud/cloud-api";
 import {
   acknowledgeCloudConversation,
   cloudConversationBelongsToOwnerSubject,
@@ -237,16 +235,11 @@ function RootLayout() {
   ]);
   const activeRouteIntentRef = useRef(routeIntent);
   activeRouteIntentRef.current = routeIntent;
-  // Everything conversation selection reads from Convex arrives in one
-  // self-certifying query (the identity proof, migration status, list, owner
-  // generation and route/cached ownership), so selection is one round trip
-  // after Convex auth. The shell's readiness comes from that query, not from
-  // the separate identity confirmation other surfaces use.
+  // Conversation selection reads the owner's recent conversations as a live
+  // backend view, with exact lookups for the routed and last-open ids.
   const {
     isCloudConversationReady,
     isLoading: isAuthLoading,
-    ownershipMigration,
-    ownershipMigrationGate,
     cloudConversations,
     scopedCloudConversations,
     ownerGeneration,
@@ -260,9 +253,6 @@ function RootLayout() {
     isPrivate,
     routeConversationId: routerConversationId,
   });
-  const retryOwnershipMigrationMutation = useMutation(
-    cloudApi.retryMyLatestFailedOwnershipMigration,
-  );
   const cloudCreateRequestRef = useRef<{
     accountScope: string;
     routeIntent: string;
@@ -270,10 +260,6 @@ function RootLayout() {
     clientCreateId: string;
     attempt: number;
     inFlight: boolean;
-  } | null>(null);
-  const ownershipMigrationRetryRef = useRef<{
-    accountScope: string;
-    requestId: string;
   } | null>(null);
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
@@ -286,8 +272,6 @@ function RootLayout() {
     routeIntent: string;
     message: string;
   } | null>(null);
-  const [ownershipMigrationRetryFailure, setOwnershipMigrationRetryFailure] =
-    useState<string | null>(null);
 
   const routeOwnershipIsLoading = Boolean(
     isCloudConversationReady &&
@@ -330,9 +314,6 @@ function RootLayout() {
     ...scopedCloudConversations,
   ];
   const shellConversationSelectionIsLoading =
-    ownershipMigrationGate.isLoading ||
-    ownershipMigrationGate.isPending ||
-    ownershipMigrationGate.isFailed ||
     cloudConversations === undefined ||
     (isOnChatRoute ? routeOwnershipIsLoading : cachedOwnershipIsLoading);
   const conversationId = isPrivate
@@ -340,7 +321,7 @@ function RootLayout() {
       ? privateSelection.id
       : null
     : !isAuthLoading &&
-        ownershipMigrationGate.canSelectConversation &&
+        isCloudConversationReady &&
         !shellConversationSelectionIsLoading
       ? resolveCloudConversationForShell({
           isOnChatRoute,
@@ -374,9 +355,7 @@ function RootLayout() {
   useLayoutEffect(() => {
     clearCloudCreateRetryTimer();
     cloudCreateRequestRef.current = null;
-    ownershipMigrationRetryRef.current = null;
     setCloudCreateFailure(null);
-    setOwnershipMigrationRetryFailure(null);
     retireCloudConversationClientAuthority(accountScope);
     retireCloudExecutionClientAuthority(accountScope);
     cloudAttachmentsStore.clear();
@@ -415,47 +394,6 @@ function RootLayout() {
     setCloudCreateRetrySignal((signal) => signal + 1);
   }, [accountScope, clearCloudCreateRetryTimer, routeIntent]);
 
-  const retryOwnershipMigration = useCallback(() => {
-    const operation = {
-      accountScope,
-      requestId: crypto.randomUUID(),
-    };
-    ownershipMigrationRetryRef.current = operation;
-    setOwnershipMigrationRetryFailure(null);
-    void (async () => {
-      try {
-        const { scheduled } = await retryOwnershipMigrationMutation({});
-        if (
-          activeAccountScopeRef.current !== operation.accountScope ||
-          ownershipMigrationRetryRef.current !== operation
-        ) {
-          return;
-        }
-        if (!scheduled) {
-          setOwnershipMigrationRetryFailure(
-            "Stella couldn't find the failed account-link transfer to retry.",
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          activeAccountScopeRef.current !== operation.accountScope ||
-          ownershipMigrationRetryRef.current !== operation
-        ) {
-          return;
-        }
-        setOwnershipMigrationRetryFailure(
-          error instanceof Error && error.message.trim()
-            ? error.message
-            : "Stella couldn't retry the account-link transfer.",
-        );
-      } finally {
-        if (ownershipMigrationRetryRef.current === operation) {
-          ownershipMigrationRetryRef.current = null;
-        }
-      }
-    })();
-  }, [accountScope, retryOwnershipMigrationMutation]);
-
   useEffect(() => {
     const priorRequest = cloudCreateRequestRef.current;
     if (priorRequest && priorRequest.routeIntent !== routeIntent) {
@@ -465,13 +403,6 @@ function RootLayout() {
       setCloudCreateFailure(null);
     }
     if (isAuthLoading || !isOnChatRoute || !isCloudConversationReady) return;
-    if (
-      ownershipMigrationGate.isLoading ||
-      ownershipMigrationGate.isPending ||
-      ownershipMigrationGate.isFailed
-    ) {
-      return;
-    }
     if (cloudConversations === undefined || routeOwnershipIsLoading) return;
     for (const item of scopedCloudConversations) {
       acknowledgeCloudConversation(item.conversationId, accountScope);
@@ -606,9 +537,6 @@ function RootLayout() {
     scopedExactCachedCloudConversation,
     isAuthLoading,
     isOnChatRoute,
-    ownershipMigrationGate.isFailed,
-    ownershipMigrationGate.isLoading,
-    ownershipMigrationGate.isPending,
     routeIsOwnedCloudConversation,
     routeOwnershipIsLoading,
     router,
@@ -648,20 +576,11 @@ function RootLayout() {
   // held until then (bounded in `launch-splash.ts`) so the window reveals
   // once, fully working. Startup failures and the re-auth prompt also drop
   // the splash — they need to be seen, and liveness will not arrive.
-  //
-  // Note that a loading or pending ownership migration does NOT swap the
-  // chrome for a placeholder. The shell is already mounted before cloud auth
-  // is ready with `conversationId` null, the composer disabled and every
-  // ownership-fenced query skipped, so a pending migration is simply that
-  // same state for a little longer. Unmounting the chrome here produced a
-  // visible remount on every launch; the sign-in dialog owns the wait for
-  // a post-sign-in migration instead (see `useOwnershipMigrationInProgress`).
   const shellIsLive =
     conversationId !== null || (!isOnChatRoute && isCloudConversationReady);
   const shouldDismissLaunchSplash =
     shellIsLive ||
     Boolean(authBootstrapError) ||
-    ownershipMigrationGate.isFailed ||
     showsCloudCreateFailure ||
     authBootstrapStatus === "reauth_required";
   useEffect(() => {
@@ -682,19 +601,6 @@ function RootLayout() {
       <CloudStartupFailure
         message={authBootstrapError}
         onRetry={retryAuthBootstrap}
-      />
-    );
-  }
-
-  if (!isPrivate && ownershipMigrationGate.isFailed) {
-    return (
-      <CloudStartupFailure
-        message={
-          ownershipMigrationRetryFailure ??
-          ownershipMigration?.error ??
-          "Stella couldn't finish moving your anonymous cloud data to this account."
-        }
-        onRetry={retryOwnershipMigration}
       />
     );
   }

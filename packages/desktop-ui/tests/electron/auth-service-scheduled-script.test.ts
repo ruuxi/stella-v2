@@ -74,6 +74,7 @@ const createService = () => {
     setHasConnectedAccount: vi.fn(),
     setConvexUrl: vi.fn(),
     setConvexSiteUrl: vi.fn(),
+    setBackendUrl: vi.fn(),
   };
   const onSessionInvalidated = vi.fn();
   const service = new AuthService({

@@ -20,6 +20,7 @@ export type WorkerInitializationState = {
   authToken: string | null;
   convexUrl: string | null;
   convexSiteUrl: string | null;
+  backendUrl: string | null;
   hasConnectedAccount: boolean;
   cloudSyncEnabled: boolean;
   modelCatalogUpdatedAt: number | null;

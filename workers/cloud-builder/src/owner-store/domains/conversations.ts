@@ -81,7 +81,8 @@ const MAX_PAGE = 50;
 const clip = (value: string, max: number): string =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
-const summary = (row: ConversationRow): ConversationSummary => ({
+const summary = (row: ConversationRow, ownerId: string): ConversationSummary => ({
+  ownerId,
   conversationId: row.conversation_id,
   title: row.title,
   createdAt: row.created_at,
@@ -102,20 +103,21 @@ const readConversation = (db: OwnerDbReader, conversationId: string): Conversati
 /** A live conversation this owner has, or null. */
 export const liveConversation = (
   db: OwnerDbReader,
+  ownerId: string,
   conversationId: string,
 ): ConversationSummary | null => {
   const row = readConversation(db, conversationId);
-  return row && row.deleted_at === null ? summary(row) : null;
+  return row && row.deleted_at === null ? summary(row, ownerId) : null;
 };
 
-const recentConversations = (db: OwnerDbReader): ConversationSummary[] =>
+const recentConversations = (db: OwnerDbReader, ownerId: string): ConversationSummary[] =>
   db
     .all<ConversationRow>(
       `SELECT * FROM conversations WHERE deleted_at IS NULL
         ORDER BY updated_at DESC, conversation_id DESC LIMIT ?`,
       RECENT_CONVERSATIONS_LIMIT,
     )
-    .map(summary);
+    .map((row) => summary(row, ownerId));
 
 const executionParser: Parser<CloudExecutionSelection> = (value, path = "") => {
   const parsed = parseCloudExecutionSelection(value);
@@ -165,7 +167,7 @@ const createConversation = async (
   );
   if (existing) {
     if (existing.deleted_at !== null) throw new RpcError("NOT_FOUND", "Conversation not found.");
-    return summary(existing);
+    return summary(existing, ctx.ownerId);
   }
   if (args.execution) await assertExecutionAvailable(ctx, args.execution);
   // Re-read after the await: a retried create may have landed meanwhile.
@@ -173,7 +175,7 @@ const createConversation = async (
     "SELECT * FROM conversations WHERE client_create_id = ?",
     args.clientCreateId,
   );
-  if (raced) return summary(raced);
+  if (raced) return summary(raced, ctx.ownerId);
   enforceOwnerRateLimit(
     ctx.db,
     ctx.now,
@@ -196,11 +198,12 @@ const createConversation = async (
     args.clientCreateId,
     args.execution ? JSON.stringify(args.execution) : null,
   );
-  return summary(readConversation(ctx.db, conversationId)!);
+  return summary(readConversation(ctx.db, conversationId)!, ctx.ownerId);
 };
 
 const page = (
   db: OwnerDbReader,
+  ownerId: string,
   args: ConversationCalls["conversations.page"]["args"],
 ): ConversationCalls["conversations.page"]["result"] => {
   const limit = Math.min(Math.max(args.limit ?? 25, 1), MAX_PAGE);
@@ -220,7 +223,7 @@ const page = (
         limit + 1,
       );
   return {
-    conversations: rows.slice(0, limit).map(summary),
+    conversations: rows.slice(0, limit).map((row) => summary(row, ownerId)),
     hasMore: rows.length > limit,
   };
 };
@@ -380,18 +383,18 @@ export const conversationsDomain = {
       before: optional(object({ updatedAt: number({ int: true, min: 0 }), conversationId: string({ max: 64 }) })),
       limit: optional(number({ int: true, min: 1, max: MAX_PAGE })),
     }),
-    handler: (ctx: OwnerContext, args: ConversationCalls["conversations.page"]["args"]) => page(ctx.db, args),
+    handler: (ctx: OwnerContext, args: ConversationCalls["conversations.page"]["args"]) => page(ctx.db, ctx.ownerId, args),
   },
   },
   views: {
   "conversations.recent": {
     parse: empty(),
-    read: (ctx: { db: OwnerDbReader }) => recentConversations(ctx.db),
+    read: (ctx: { db: OwnerDbReader; ownerId: string }) => recentConversations(ctx.db, ctx.ownerId),
   },
   "conversations.get": {
     parse: object({ conversationId: conversationIdArg }),
-    read: (ctx: { db: OwnerDbReader }, args: { conversationId: string }) =>
-      liveConversation(ctx.db, args.conversationId),
+    read: (ctx: { db: OwnerDbReader; ownerId: string }, args: { conversationId: string }) =>
+      liveConversation(ctx.db, ctx.ownerId, args.conversationId),
   },
   },
 } satisfies OwnerDomain;

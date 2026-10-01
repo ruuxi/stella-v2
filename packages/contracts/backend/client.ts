@@ -61,11 +61,14 @@ type SocketLike = {
 
 type SocketConstructor = new (url: string, protocols: string[]) => SocketLike;
 
+/** The slice of `fetch` the client uses; runtimes' `typeof fetch` differ. */
+type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+
 export type BackendClientOptions = {
   /** Backend worker origin, e.g. `https://api.stella.sh`. */
   baseUrl: string;
   getToken: TokenProvider;
-  fetch?: typeof fetch;
+  fetch?: FetchLike;
   WebSocket?: SocketConstructor;
   /** Upper bound on reconnect backoff. */
   maxReconnectDelayMs?: number;
@@ -122,7 +125,7 @@ const toError = (error: unknown): BackendRequestError =>
 export class BackendClient {
   private readonly baseUrl: string;
   private readonly getToken: TokenProvider;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly SocketImpl: SocketConstructor | undefined;
   private readonly maxReconnectDelayMs: number;
   private readonly onConnectionChange?: (connected: boolean) => void;
@@ -143,7 +146,7 @@ export class BackendClient {
   constructor(options: BackendClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.getToken = options.getToken;
-    this.fetchImpl = options.fetch ?? ((...args) => fetch(...args));
+    this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
     this.SocketImpl =
       options.WebSocket ??
       (typeof WebSocket === "undefined"
@@ -231,10 +234,22 @@ export class BackendClient {
     this.closeSocket(1000, "client_disposed");
   }
 
-  /** Reconnect now with a freshly fetched token (e.g. after sign-in). */
+  /**
+   * Reconnect now with a freshly fetched token, e.g. after the signed-in
+   * account changed. Cached values are dropped, so no listener added from
+   * here on sees the previous account's data.
+   */
   reconnect(): void {
+    for (const subscription of this.subscriptions.values()) {
+      subscription.hasValue = false;
+      subscription.value = undefined;
+    }
     this.forceTokenOnConnect = true;
     this.closeSocket(1000, "client_reconnect");
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.reconnectAttempt = 0;
     this.ensureSocket();
   }

@@ -73,12 +73,16 @@ export type ComputerAgentCloudRecords = {
 };
 
 type ComputerAgentCloudRecordOptions = {
-  convexApi: unknown;
   deviceId: string;
   store: ComputerAgentCloudOutboxStore;
   getAuthToken: () => string | null;
-  mutation: (ref: unknown, args: unknown) => Promise<unknown>;
-  query: (ref: unknown, args: unknown) => Promise<unknown>;
+  /** The backend's `computerThreads.*` calls. */
+  backend: {
+    start: (args: Record<string, unknown>) => Promise<unknown>;
+    complete: (args: Record<string, unknown>) => Promise<unknown>;
+    cancel: (args: Record<string, unknown>) => Promise<unknown>;
+    get: (args: Record<string, unknown>) => Promise<unknown>;
+  };
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -99,7 +103,7 @@ const withTimeout = <T>(promise: Promise<T>): Promise<T> =>
 const parseSnapshot = (value: unknown): AgentToolSnapshot | null => {
   const record = asRecord(value);
   if (!record) return null;
-  const id = record.id;
+  const id = record.id ?? record.threadId;
   const status = record.status;
   const description = record.description;
   const startedAt = record.startedAt;
@@ -154,21 +158,25 @@ const errorMessage = (error: unknown): string =>
 const parsePayload = <T>(payloadJson: string): T =>
   JSON.parse(payloadJson) as T;
 
-const isOwnerGenerationStale = (error: unknown): boolean => {
-  const record = asRecord(error);
-  const data = asRecord(record?.data);
-  return (
-    data?.code === "OWNER_DATA_GENERATION_STALE" ||
-    errorMessage(error).includes("OWNER_DATA_GENERATION_STALE")
-  );
-};
+const isOwnerGenerationStale = (error: unknown): boolean =>
+  asRecord(error)?.reason === "owner_generation_stale" ||
+  errorMessage(error).includes("OWNER_DATA_GENERATION_STALE");
 
-const convexErrorCode = (error: unknown): string | null => {
-  const record = asRecord(error);
-  const direct = record?.code;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
-  const nested = asRecord(record?.data)?.code;
-  return typeof nested === "string" && nested.trim() ? nested.trim() : null;
+/** The backend's `computerThreads.start` refusals (`BackendError.reason`). */
+const START_REJECTION_REASONS = new Set([
+  "conversation_not_found",
+  "thread_identity_conflict",
+  "attempt_replay_conflict",
+  "attempt_stale",
+  "attempt_not_next",
+  "initial_attempt_invalid",
+]);
+
+const startRejectionCode = (error: unknown): string | null => {
+  const reason = asRecord(error)?.reason;
+  return typeof reason === "string" && START_REJECTION_REASONS.has(reason)
+    ? "COMPUTER_AGENT_START_REJECTED"
+    : null;
 };
 
 export class CloudAgentStartAdmissionError extends Error {
@@ -243,15 +251,6 @@ export const resolveConvexJwtOwnerScope = (
 export const createComputerAgentCloudRecords = (
   options: ComputerAgentCloudRecordOptions,
 ): ComputerAgentCloudRecords => {
-  const api = options.convexApi as {
-    local_agent_threads: {
-      startMyComputerAgentThread: unknown;
-      completeMyComputerAgentThread: unknown;
-      getMyComputerAgentThread: unknown;
-      cancelMyComputerAgentThread: unknown;
-    };
-  };
-
   /** Cancel thunk for the pending drain-delay fiber (the old `clearTimeout`). */
   let cancelRetryDelay: (() => void) | null = null;
   let activeDrainPromise: Promise<void> | null = null;
@@ -345,7 +344,7 @@ export const createComputerAgentCloudRecords = (
         entry.payloadJson,
       );
       const raw = await withTimeout(
-        options.mutation(api.local_agent_threads.startMyComputerAgentThread, {
+        options.backend.start({
           threadId: entry.threadId,
           conversationId: payload.conversationId,
           originDeviceId: options.deviceId,
@@ -355,7 +354,7 @@ export const createComputerAgentCloudRecords = (
           ownerGeneration: entry.ownerGeneration,
         }),
       );
-      if (asRecord(raw)?.agentId !== entry.threadId) {
+      if (asRecord(raw)?.threadId !== entry.threadId) {
         throw admissionError({
           code: "COMPUTER_AGENT_START_PROTOCOL_INVALID",
           retryable: false,
@@ -371,25 +370,22 @@ export const createComputerAgentCloudRecords = (
         entry.payloadJson,
       );
       await withTimeout(
-        options.mutation(
-          api.local_agent_threads.completeMyComputerAgentThread,
-          {
-            threadId: entry.threadId,
-            originDeviceId: options.deviceId,
-            attemptGeneration: entry.attemptGeneration,
-            ownerGeneration: entry.ownerGeneration,
-            status: payload.status === "error" ? "failed" : payload.status,
-            ...(payload.result ? { result: payload.result } : {}),
-            ...(payload.error ? { error: payload.error } : {}),
-          },
-        ),
+        options.backend.complete({
+          threadId: entry.threadId,
+          originDeviceId: options.deviceId,
+          attemptGeneration: entry.attemptGeneration,
+          ownerGeneration: entry.ownerGeneration,
+          status: payload.status === "error" ? "failed" : payload.status,
+          ...(payload.result ? { result: payload.result } : {}),
+          ...(payload.error ? { error: payload.error } : {}),
+        }),
       );
       return;
     }
 
     const payload = parsePayload<ComputerAgentCancelPayload>(entry.payloadJson);
     await withTimeout(
-      options.mutation(api.local_agent_threads.cancelMyComputerAgentThread, {
+      options.backend.cancel({
         threadId: entry.threadId,
         originDeviceId: options.deviceId,
         attemptGeneration: entry.attemptGeneration,
@@ -526,7 +522,7 @@ export const createComputerAgentCloudRecords = (
           });
           continue;
         }
-        const code = convexErrorCode(error);
+        const code = startRejectionCode(error);
         if (
           entry.kind === "start" &&
           (isCloudAgentStartAdmissionError(error) ||
@@ -717,7 +713,7 @@ export const createComputerAgentCloudRecords = (
       try {
         return parseSnapshot(
           await withTimeout(
-            options.query(api.local_agent_threads.getMyComputerAgentThread, {
+            options.backend.get({
               threadId: agentId,
               originDeviceId: options.deviceId,
               ownerGeneration: authority.ownerGeneration,

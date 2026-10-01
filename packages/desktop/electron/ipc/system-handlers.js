@@ -565,10 +565,12 @@ export const registerSystemHandlers = (options) => {
         }
         const convexUrl = sanitizeOptionalHttpUrl(config?.convexUrl, "convexUrl");
         const convexSiteUrl = sanitizeOptionalHttpUrl(config?.convexSiteUrl, "convexSiteUrl");
+        const backendUrl = sanitizeOptionalHttpUrl(config?.backendUrl, "backendUrl");
         if (convexUrl) {
             options.authService.configurePiRuntime({
                 convexUrl,
                 convexSiteUrl,
+                backendUrl,
             });
             if (convexSiteUrl) {
             }

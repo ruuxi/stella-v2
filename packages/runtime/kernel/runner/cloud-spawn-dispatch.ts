@@ -56,10 +56,16 @@ type CloudAgentControlStore = {
 };
 
 export type CloudSpawnDispatcherOptions = {
-  convexApi: unknown;
-  mutation: (ref: unknown, args: unknown) => Promise<unknown>;
-  action: (ref: unknown, args: unknown) => Promise<unknown>;
-  query?: (ref: unknown, args: unknown) => Promise<unknown>;
+  /**
+   * The backend's desktop agent calls (`agentThreads.spawnFromDesktop`,
+   * `continueFromDesktop`, `cancel`). Requests are the stored JSON exactly as
+   * persisted, so a replay sends what the first attempt sent.
+   */
+  backend: {
+    spawn: (args: Record<string, unknown>) => Promise<unknown>;
+    continue: (args: Record<string, unknown>) => Promise<unknown>;
+    cancel: (args: Record<string, unknown>) => Promise<unknown>;
+  };
   isSignedIn: () => boolean;
   deviceId: string;
   /** Reads the active epoch once; the operation ledger makes it immutable. */
@@ -265,13 +271,19 @@ const parseRunningResult = (
   };
 };
 
+/**
+ * The backend answers `{ canceled, control }`; receipts stored before the
+ * move carried the control twice (top level and `currentControl`).
+ */
 const parseCancelResponse = (raw: unknown): CancelResponse => {
   const result = asRecord(raw);
-  const current = asRecord(result?.currentControl);
-  const threadId = readString(result, "threadId");
-  const status = readStatus(result);
-  const attemptGeneration = readGeneration(result, "attemptGeneration");
-  const threadUpdatedAt = readTimestamp(result, "threadUpdatedAt");
+  const control = asRecord(result?.control);
+  const current = control ?? asRecord(result?.currentControl);
+  const source = control ?? result;
+  const threadId = readString(source, "threadId");
+  const status = readStatus(source);
+  const attemptGeneration = readGeneration(source, "attemptGeneration");
+  const threadUpdatedAt = readTimestamp(source, "threadUpdatedAt");
   const currentThreadId = readString(current, "threadId");
   const currentStatus = readStatus(current);
   const currentAttemptGeneration = readGeneration(
@@ -387,21 +399,9 @@ const completeOperation = (
 export const createCloudSpawnDispatcher = (
   options: CloudSpawnDispatcherOptions,
 ) => {
+  // A local conversation keeps reporting into the cloud conversation its
+  // first agent landed in. Without one, the backend picks the owner's newest.
   const cloudConversationIds = new Map<string, string>();
-  const conversationsRef = () =>
-    (options.convexApi as { cloud_apps: { listMyConversations: unknown } })
-      .cloud_apps.listMyConversations;
-
-  const activeCloudConversationId = async (): Promise<string | undefined> => {
-    if (!options.query) return undefined;
-    try {
-      const rows = await options.query(conversationsRef(), {});
-      if (!Array.isArray(rows)) return undefined;
-      return readString(asRecord(rows[0]), "conversationId") ?? undefined;
-    } catch {
-      return undefined;
-    }
-  };
 
   return async (
     request: CloudDispatchRequest,
@@ -442,9 +442,7 @@ export const createCloudSpawnDispatcher = (
         ? { explicitOwnerGeneration: request.ownerGeneration }
         : {}),
       buildRequest: async (ownerGeneration) => {
-        const conversationId =
-          (await activeCloudConversationId()) ??
-          cloudConversationIds.get(request.conversationId);
+        const conversationId = cloudConversationIds.get(request.conversationId);
         return {
           ownerGeneration,
           clientMsgId: request.requestId,
@@ -467,16 +465,11 @@ export const createCloudSpawnDispatcher = (
       return replay;
     }
 
-    const ref = (
-      options.convexApi as {
-        cloud_apps: { spawnCloudAgentFromDesktop: unknown };
-      }
-    ).cloud_apps.spawnCloudAgentFromDesktop;
     let requestJson = operation.requestJson;
     let requestArgs = parseJsonRecord(requestJson, "spawn request");
     const send = async () =>
       parseRunningResult(
-        await withTimeout(options.mutation(ref, requestArgs)),
+        await withTimeout(options.backend.spawn(requestArgs)),
         operation.ownerGeneration,
       );
     let result: CloudDispatchResult;
@@ -608,14 +601,9 @@ export const createCloudThreadController = (
         args,
         "expectedAttemptGeneration",
       );
-      const ref = (
-        options.convexApi as {
-          cloud_apps: { continueMyCloudAgentFromDesktop: unknown };
-        }
-      ).cloud_apps.continueMyCloudAgentFromDesktop;
       const result = parseRunningResult(
         await withControlTimeout(
-          options.mutation(ref, args),
+          options.backend.continue(args),
           "continue that agent",
         ),
         operation.ownerGeneration,
@@ -719,14 +707,9 @@ export const createCloudThreadController = (
           parseJsonRecord(operation.resultJson, "pause result"),
         );
       } else {
-        const ref = (
-          options.convexApi as {
-            cloud_apps: { cancelMyCloudAgentThread: unknown };
-          }
-        ).cloud_apps.cancelMyCloudAgentThread;
         result = parseCancelResponse(
           await withControlTimeout(
-            options.action(ref, args),
+            options.backend.cancel(args),
             "pause that agent",
           ),
         );

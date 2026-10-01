@@ -1,13 +1,13 @@
 import {
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useSyncExternalStore,
 } from "react";
-import { useConvex, useQueries, type RequestForQueries } from "convex/react";
+import { useConvex } from "convex/react";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { getConvexTokenForSubject } from "@/global/auth/services/auth-token";
+import { backendUrl } from "@/platform/backend/backend-client";
 import { uiState } from "@/platform/ui-state";
 import { cloudHomeApi } from "./cloud-home-api";
 import {
@@ -48,17 +48,6 @@ export function CloudHomeSyncBridge() {
     cloudHomeSyncRetryStore.getSnapshot,
     cloudHomeSyncRetryStore.getServerSnapshot,
   );
-  const requests = useMemo<RequestForQueries>(() => {
-    const queries: RequestForQueries = {};
-    if (isCloudConversationReady) {
-      queries.realtime = {
-        query: cloudHomeApi.getCloudRealtimeConfig,
-        args: {},
-      };
-    }
-    return queries;
-  }, [isCloudConversationReady]);
-  const results = useQueries(requests);
   const identityKey = `${accountScope}:${identityRevision}:${ownerSubject ?? "missing"}`;
   const activeIdentityRef = useRef(identityKey);
 
@@ -84,24 +73,7 @@ export function CloudHomeSyncBridge() {
       );
       return;
     }
-    const configResult = results.realtime;
-    if (configResult === undefined) return;
-    if (configResult instanceof Error) {
-      unavailable(
-        accountScope,
-        "Cloud Home is not available in this deployment.",
-      );
-      return;
-    }
-    const config = configResult as {
-      httpOrigin?: unknown;
-      protocol?: unknown;
-    };
-    if (
-      config.protocol !== 1 ||
-      typeof config.httpOrigin !== "string" ||
-      !config.httpOrigin
-    ) {
+    if (!backendUrl) {
       unavailable(
         accountScope,
         "Cloud Home is not available in this deployment.",
@@ -129,7 +101,7 @@ export function CloudHomeSyncBridge() {
       await runCloudHomeSync({
         accountScope: scopeAtStart,
         expectedSubject: ownerSubject!,
-        builderOrigin: config.httpOrigin as string,
+        builderOrigin: backendUrl,
         token,
         scanLocal: () => cloudHome.scanLocal(scopeAtStart),
         readImportOwnership: cloudHome.getImportOwnership,
@@ -172,7 +144,6 @@ export function CloudHomeSyncBridge() {
     convex,
     identityKey,
     ownerSubject,
-    results.realtime,
     retry,
   ]);
 

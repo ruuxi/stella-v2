@@ -7,6 +7,8 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  */
 
 export type ConversationSummary = {
+  /** The account this row belongs to; clients drop rows for any other. */
+  ownerId: string;
   conversationId: string;
   title: string;
   createdAt: number;

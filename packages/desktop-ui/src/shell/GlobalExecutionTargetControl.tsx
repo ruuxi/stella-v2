@@ -1,12 +1,8 @@
 import { useChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
 import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
-import { cloudApi } from "@/features/cloud/cloud-api";
-import {
-  listExecutionDevices,
-  placementHttpOrigin,
-} from "@/features/cloud/placement-client";
+import { listExecutionDevices } from "@/features/cloud/placement-client";
+import { backendUrl } from "@/platform/backend/backend-client";
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -36,21 +32,12 @@ export function GlobalExecutionTargetControl() {
   const [open, setOpen] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const target = useExecutionTarget();
-  // Placement lives on the cloud builder, so the only Convex read left here
-  // is where that builder is.
-  const realtime = useQuery(
-    cloudApi.getCloudRealtimeConfig,
-    isCloudConversationReady && hasConnectedAccount ? {} : "skip",
-  );
-  // The device list is an HTTPS read of the gate. Prefer the config's HTTP
-  // origin and fall back to the socket origin normalized to HTTP; a raw
-  // `wss://` origin cannot be fetched.
+  // Placement lives on the backend worker; the device list is an HTTPS read
+  // of the owner's gate there.
   const socketOrigin =
-    typeof realtime?.httpOrigin === "string" && realtime.httpOrigin
-      ? realtime.httpOrigin
-      : typeof realtime?.socketOrigin === "string" && realtime.socketOrigin
-        ? placementHttpOrigin(realtime.socketOrigin)
-        : null;
+    isCloudConversationReady && hasConnectedAccount && backendUrl
+      ? backendUrl
+      : null;
   const [destinations, setDestinations] = useState<
     DeviceDestination[] | undefined
   >(undefined);

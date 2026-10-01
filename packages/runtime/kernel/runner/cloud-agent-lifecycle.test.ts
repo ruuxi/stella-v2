@@ -1,6 +1,45 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentLifecycleEvent } from "../agents/local-agent-manager.js";
-import { createCloudAgentLifecycleMonitor } from "./cloud-agent-lifecycle.js";
+import { createCloudAgentLifecycleMonitor as createMonitor } from "./cloud-agent-lifecycle.js";
+
+/**
+ * These cases were written against Convex-shaped fakes (an identity query, a
+ * device-thread subscription, an ACK mutation). This maps them onto the
+ * backend calls the monitor now takes, one for one.
+ */
+type MonitorOptions = Parameters<typeof createMonitor>[0];
+type LegacyMonitorOptions = Omit<
+  MonitorOptions,
+  "getOwnerGeneration" | "watchDeviceThreads" | "acknowledge"
+> & {
+  convexApi: unknown;
+  subscribeQuery: (
+    query: unknown,
+    args: Record<string, unknown>,
+    onUpdate: (value: unknown) => void,
+    onError?: (error: Error) => void,
+  ) => (() => void) | null;
+  query: (ref: unknown, args: unknown) => Promise<unknown>;
+  mutation: (ref: unknown, args: unknown) => Promise<unknown>;
+};
+
+const createCloudAgentLifecycleMonitor = (options: LegacyMonitorOptions) => {
+  const { convexApi: _api, subscribeQuery, query, mutation, ...rest } = options;
+  return createMonitor({
+    ...rest,
+    getOwnerGeneration: async () => {
+      const identity = (await query("identity", {})) as {
+        ownerGeneration?: unknown;
+      } | null;
+      return typeof identity?.ownerGeneration === "string"
+        ? identity.ownerGeneration
+        : "";
+    },
+    watchDeviceThreads: (args, onUpdate, onError) =>
+      subscribeQuery("list", args, onUpdate, onError),
+    acknowledge: async (args) => await mutation("ack", args),
+  });
+};
 
 const flush = async () => {
   await Promise.resolve();

@@ -131,10 +131,6 @@ export const createConvexSession = (
       }
       context.state.convexDeploymentUrl = nextConvexDeploymentUrl;
     }
-    if (!process.env.STELLA_LLM_PROXY_URL) {
-      context.state.convexSiteUrl = sanitizeStellaBase(value);
-      scheduleRemotePromptRevalidation();
-    }
   };
 
   const setConvexSiteUrl = (value: string | null) => {

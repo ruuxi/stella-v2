@@ -1,19 +1,9 @@
-import {
-  RECALL_DESCRIPTION,
-  RECALL_PARAMETERS,
-  RECALL_CONTEXT_MESSAGES,
-  recallRequest,
-  renderRecallExchanges,
-  type RecallExchange,
-  type RecallMessage,
-} from "@stella/contracts/recall";
-
 /**
  * The orchestrator's memory and scheduling tools.
  *
- * `Remember` writes the R2 agent home. `Recall` reads the canonical journal in
- * this conversation's Durable Object. Schedules remain in Convex so owner-wide
- * listing, billing, deletion, and dispatch share one control-plane authority.
+ * `Remember` writes the R2 agent home. Schedules remain in Convex so
+ * owner-wide listing, billing, deletion, and dispatch share one control-plane
+ * authority.
  *
  * Tool definitions are pinned here in code and passed to the loop by the DO —
  * nothing about the orchestrator's execution surface is data-driven.
@@ -26,8 +16,6 @@ import {
   type ProfileAction,
 } from "./agent-home.js";
 import { sha256Hex } from "./hash.js";
-import { extractMessageText } from "./journal.js";
-import type { JournalRecord } from "./conversation-types.js";
 import type { ReplayableAgentTool } from "./tool-replay.js";
 
 export type OrchestratorAgentTool = ReplayableAgentTool;
@@ -42,14 +30,6 @@ export type OrchestratorToolContext = {
    */
   conversationId: string;
   agentHome: AgentHome;
-  recall: {
-    search: (terms: readonly string[], limit: number) => RecallHit[];
-    hydrate: (
-      seq: number,
-      before: number,
-      after: number,
-    ) => Promise<JournalRecord[]>;
-  };
   /** POST to a Convex HTTP route with the builder service secret. */
   post: (
     path: string,
@@ -57,21 +37,6 @@ export type OrchestratorToolContext = {
     signal?: AbortSignal,
   ) => Promise<Response>;
 };
-
-export type RecallHit = Readonly<{
-  seq: number;
-  turnId: string;
-  role: string;
-  createdAt: number;
-  snippet: string;
-  matchTerms?: string[];
-  rank: number;
-}>;
-
-type HydratedRecallHit = Readonly<{
-  hit: RecallHit;
-  records: JournalRecord[];
-}>;
 
 const readJson = async (
   response: Response,
@@ -83,132 +48,9 @@ const readJson = async (
   }
 };
 
-const renderHydratedHits = (
-  hydrated: readonly HydratedRecallHit[],
-  scope: string,
-  terms: readonly string[],
-): string => {
-  const exchanges: RecallExchange[] = hydrated.map(({ hit, records }) => ({
-    matchedIds: [`${hit.seq}/${hit.turnId}`],
-    messages: records.flatMap((record): RecallMessage[] => {
-      if (
-        record.kind !== "message" ||
-        record.hidden ||
-        (record.role !== "user" && record.role !== "assistant")
-      )
-        return [];
-      return [
-        {
-          scope,
-          id: `${record.seq}/${record.turnId}`,
-          order: record.seq,
-          atMs: record.createdAtMs,
-          role: record.role,
-          text: extractMessageText(record.payload),
-          ...(record.seq === hit.seq ? { matchTerms: hit.matchTerms } : {}),
-        },
-      ];
-    }),
-  }));
-  return renderRecallExchanges(exchanges, terms);
-};
-
 export const createMemoryTools = (
   context: OrchestratorToolContext,
 ): OrchestratorAgentTool[] => [
-  {
-    name: "Recall",
-    label: "Recall",
-    replay: "safe",
-    description: RECALL_DESCRIPTION,
-    parameters: RECALL_PARAMETERS as unknown as TSchema,
-    execute: async (_id, params, signal) => {
-      signal?.throwIfAborted();
-      const { terms, limit } = recallRequest(params);
-      let hits: RecallHit[] = [];
-      let hydrated: HydratedRecallHit[] = [];
-      let status: "found" | "no_match" | "retrieval_error" = "no_match";
-      let failure = "";
-      try {
-        hits = context.recall.search(terms, limit).slice(0, limit);
-        for (const hit of hits) {
-          const records = await context.recall.hydrate(hit.seq, 32, 32);
-          signal?.throwIfAborted();
-          if (
-            !records.some(
-              (record) =>
-                record.seq === hit.seq &&
-                record.turnId === hit.turnId &&
-                record.kind === "message" &&
-                !record.hidden,
-            )
-          ) {
-            throw new Error(
-              "A matching message could not be loaded from the transcript.",
-            );
-          }
-          const visible = records
-            .filter(
-              (record) =>
-                record.kind === "message" &&
-                !record.hidden &&
-                (record.role === "user" || record.role === "assistant") &&
-                extractMessageText(record.payload).trim(),
-            )
-            .sort((a, b) => a.seq - b.seq);
-          hydrated.push({
-            hit,
-            records: [
-              ...visible
-                .filter((record) => record.seq < hit.seq)
-                .slice(-RECALL_CONTEXT_MESSAGES),
-              ...visible.filter((record) => record.seq === hit.seq),
-              ...visible
-                .filter((record) => record.seq > hit.seq)
-                .slice(0, RECALL_CONTEXT_MESSAGES),
-            ],
-          });
-        }
-        status = hits.length > 0 ? "found" : "no_match";
-      } catch (error) {
-        // A turn cancellation is control flow, not a failed memory lookup. If
-        // it is flattened into retrieval_error the agent loop can continue
-        // after its caller has already canceled the turn.
-        signal?.throwIfAborted();
-        status = "retrieval_error";
-        failure =
-          error instanceof Error
-            ? `Searching this conversation failed: ${error.message}`
-            : "Searching this conversation failed.";
-      }
-      const sections: string[] = [`status: ${status}`];
-      if (hydrated.length > 0) {
-        const renderedTranscript = renderHydratedHits(
-          hydrated,
-          context.conversationId,
-          terms,
-        );
-        if (renderedTranscript) {
-          sections.push(
-            `Conversation transcript matches (${hits.length}):\n${renderedTranscript}`,
-          );
-        }
-      }
-      if (failure) sections.push(failure);
-      if (sections.length === 1) {
-        sections.push(
-          "Nothing stored matches those terms. There may simply be no prior context for this.",
-        );
-      }
-      return {
-        content: [{ type: "text", text: sections.join("\n\n") }],
-        details: {
-          status,
-          matchCount: hits.length,
-        },
-      };
-    },
-  },
   {
     name: "Remember",
     label: "Remember",

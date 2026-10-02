@@ -1,16 +1,8 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Context, Effect, Layer } from "effect";
-import {
-  METHOD_NAMES,
-  NOTIFICATION_NAMES,
-  type HostAppBrowserContextSnapshot,
-} from "@stella/contracts/protocol";
+import { METHOD_NAMES, NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { resolveBundledRuntimeFile } from "../../../kernel/shared/runtime-paths.js";
-import {
-  listTranscriptNeighborsBatch,
-  readRecallFtsHealth,
-} from "../../../kernel/storage/recall-read-queries.js";
 // Runner subgraph imported as types only — the values are loaded lazily by
 // RunnerModule (a dynamic import the entry starts right after the transport
 // attaches) so this ~68%-of-bundle subgraph isn't parsed before the
@@ -134,23 +126,10 @@ export const layer = Layer.effect(
       stellaAppDir: init.stellaAppDir,
       stellaDataDir: init.stellaDataDirPath,
       runtimeStore: storage.runtimeStore,
-      getAppBrowserContext: async () =>
-        (await hostBus.request(
-          METHOD_NAMES.HOST_APP_BROWSER_CONTEXT_GET,
-          undefined,
-          {
-            retryOnDisconnect: true,
-          },
-        )) as HostAppBrowserContextSnapshot,
       listLocalChatEvents: (conversationId, maxItems) =>
         storage.chatStore.listEvents(conversationId, maxItems),
       openLocalChatEventWindow: (conversationId, maxItems) =>
         storage.chatStore.openEventWindow(conversationId, maxItems),
-      recallReadQueries: {
-        getFtsHealth: () => readRecallFtsHealth(storage.db),
-        listTranscriptNeighborsBatch: (targets, options) =>
-          listTranscriptNeighborsBatch(storage.db, targets, options),
-      },
       appendLocalChatEvent: (args) => {
         storage.appendChatEventAndNotify(args);
       },

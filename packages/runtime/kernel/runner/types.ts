@@ -38,14 +38,9 @@ import type {
   LocalAgentManager,
   AgentLifecycleEvent,
 } from "../agents/local-agent-manager.js";
-import type { RecallFtsHealth } from "../storage/recall-read-queries.js";
-import type {
-  RuntimeStore,
-  TranscriptSearchHit,
-} from "../storage/runtime-store.js";
+import type { RuntimeStore } from "../storage/runtime-store.js";
 import type {} from "@stella/contracts";
 import type {
-  HostAppBrowserContextSnapshot,
   HostRuntimeAuthRefreshResult,
   RuntimeActiveRun,
   RuntimeAuthRefreshSource,
@@ -139,9 +134,6 @@ export type StellaHostRunnerOptions = {
   getDeviceSigner?: () => Promise<DeviceSigner> | DeviceSigner;
   scheduleApi?: ScheduleToolApi;
   runtimeStore: RuntimeStore;
-  getAppBrowserContext?: () =>
-    | Promise<HostAppBrowserContextSnapshot>
-    | HostAppBrowserContextSnapshot;
   listLocalChatEvents?: (
     conversationId: string,
     maxItems: number,
@@ -153,13 +145,6 @@ export type StellaHostRunnerOptions = {
     conversationId: string,
     maxItems: number,
   ) => LocalChatEventWindow;
-  recallReadQueries?: {
-    getFtsHealth: () => RecallFtsHealth;
-    listTranscriptNeighborsBatch: (
-      targets: readonly { conversationId: string; atMs: number }[],
-      options?: { before?: number; after?: number; windowMs?: number },
-    ) => TranscriptSearchHit[][];
-  };
   appendLocalChatEvent?: (args: LocalChatAppendEventArgs) => void;
   /** Fired after every `runtime_agents` write with the durable keyed row. */
   notifyThreadActivityUpdated?: (payload: ThreadActivityUpdatedPayload) => void;
@@ -424,7 +409,6 @@ export type RunnerContext = {
   runtimeStore: RuntimeStore;
   listLocalChatEvents?: StellaHostRunnerOptions["listLocalChatEvents"];
   openLocalChatEventWindow?: StellaHostRunnerOptions["openLocalChatEventWindow"];
-  recallReadQueries?: StellaHostRunnerOptions["recallReadQueries"];
   appendLocalChatEvent?: StellaHostRunnerOptions["appendLocalChatEvent"];
   notifyThreadActivityUpdated?: StellaHostRunnerOptions["notifyThreadActivityUpdated"];
   getDefaultConversationId?: StellaHostRunnerOptions["getDefaultConversationId"];

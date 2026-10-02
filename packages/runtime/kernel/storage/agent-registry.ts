@@ -17,8 +17,6 @@ import {
 } from "./shared.js";
 import {
   AGENT_ASSISTANT_UPDATE_LIMITS,
-  RECALL_THREAD_ERROR_EXCERPT_CHARS,
-  RECALL_THREAD_RESULT_EXCERPT_CHARS,
   authoredTextFromAssistantPayload,
   parseJsonValue,
   truncateAuthoredUpdate,
@@ -367,34 +365,6 @@ export class AgentRegistry {
       )
       .all(conversationId, MAX_ACTIVE_RUNTIME_THREADS);
     return rows.map((row) => deserializeRuntimeThread(row));
-  }
-
-  listThreadResultExcerpts(
-    threadIds: string[],
-  ): Map<string, { resultExcerpt?: string; errorExcerpt?: string }> {
-    const ids = [...new Set(threadIds)].slice(0, 64);
-    const map = new Map<string, { resultExcerpt?: string; errorExcerpt?: string }>();
-    if (ids.length === 0) return map;
-    const rows = this.db
-      .prepare(
-        `SELECT thread_id AS threadId,
-                substr(result, 1, ${RECALL_THREAD_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
-                substr(error, 1, ${RECALL_THREAD_ERROR_EXCERPT_CHARS}) AS errorExcerpt
-         FROM agent
-         WHERE thread_id IN (${ids.map(() => "?").join(", ")})`,
-      )
-      .all(...ids) as Array<{
-      threadId: string;
-      resultExcerpt: string | null;
-      errorExcerpt: string | null;
-    }>;
-    for (const row of rows) {
-      map.set(row.threadId, {
-        ...(row.resultExcerpt?.trim() ? { resultExcerpt: row.resultExcerpt } : {}),
-        ...(row.errorExcerpt?.trim() ? { errorExcerpt: row.errorExcerpt } : {}),
-      });
-    }
-    return map;
   }
 
   /* ------------------------------------------------------------------ */

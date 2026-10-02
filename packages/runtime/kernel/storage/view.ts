@@ -51,36 +51,6 @@ export const AGENT_ASSISTANT_UPDATE_LIMITS = {
   scanRowsPerMessage: 8,
 };
 
-export const RECALL_THREAD_RESULT_EXCERPT_CHARS = 1_600;
-export const RECALL_THREAD_ERROR_EXCERPT_CHARS = 300;
-export const TRANSCRIPT_SEARCH_TEXT_CAP = 4_000;
-export const THREAD_SEARCH_FTS_CANDIDATE_CAP = 200;
-
-export class FtsSearchUnavailableError extends Error {
-  index: string;
-  override name = "FtsSearchUnavailableError";
-  constructor(index: string, message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.index = index;
-  }
-}
-
-export const throwFtsSearchUnavailable = (
-  index: string,
-  reason: string,
-  cause?: unknown,
-): never => {
-  console.error(
-    "[stella:recall:fts-degraded]",
-    JSON.stringify({ index, reason }),
-  );
-  throw new FtsSearchUnavailableError(
-    index,
-    `Recall ${index} FTS unavailable: ${reason}`,
-    cause === undefined ? undefined : { cause },
-  );
-};
-
 export const parseJsonValue = (value: unknown): any => {
   if (!value || typeof value !== "string") return undefined;
   try {
@@ -259,35 +229,6 @@ export const projectLocalChatUpdateEvent = (
   event: LocalChatEventRecord,
 ): LocalChatEventRecord =>
   projectLocalChatUpdateEventWithMetadata(event).event;
-
-/* ------------------------------------------------------------------ */
-/* Search tokenization                                                 */
-/* ------------------------------------------------------------------ */
-
-const SEARCH_STOPWORDS = new Set([
-  "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at",
-  "for", "with", "from", "by", "about", "into", "over", "after", "before",
-  "during", "between", "is", "am", "are", "was", "were", "be", "been",
-  "being", "do", "does", "did", "doing", "have", "has", "had", "having",
-  "will", "would", "can", "could", "should", "shall", "may", "might",
-  "i", "me", "my", "we", "us", "our", "you", "your", "it", "its", "they",
-  "them", "their", "he", "him", "his", "she", "her", "that", "this",
-  "these", "those", "there", "here", "what", "which", "who", "whom",
-  "whose", "when", "where", "why", "how", "not", "no", "so", "if",
-  "then", "than", "too", "very", "just", "also", "any", "some", "thing",
-  "stuff", "one", "ago", "last", "recent",
-]);
-
-export const tokenizeSearchQuery = (query: string | undefined): string[] => {
-  const rawTokens = (query ?? "")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-  const meaningful = rawTokens.filter(
-    (token) => !SEARCH_STOPWORDS.has(token.toLowerCase()),
-  );
-  return (meaningful.length > 0 ? meaningful : rawTokens).slice(0, 12);
-};
 
 /* ------------------------------------------------------------------ */
 /* Message previews                                                    */

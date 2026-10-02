@@ -25,7 +25,6 @@ import { AGENT_HISTORY_MAX_ROWS } from "@stella/executor-cloud/agent-history";
 import {
   TranscriptSearchIndex,
   transcriptSearchDdl,
-  type TranscriptSearchHit,
 } from "./transcript-search.js";
 
 const THREAD_SEARCH_TABLE = "thread_fts";
@@ -299,19 +298,6 @@ export const appendThreadMessages = (
       payload,
     });
   }
-};
-
-/** Search this thread's canonical SQLite transcript. */
-export const searchThreadTranscript = (
-  sql: SqlStorage,
-  terms: readonly string[],
-  limit: number,
-): TranscriptSearchHit[] => {
-  ensureThreadTranscriptSchema(sql);
-  return new TranscriptSearchIndex(sql, THREAD_SEARCH_TABLE).search(
-    terms,
-    limit,
-  );
 };
 
 /**

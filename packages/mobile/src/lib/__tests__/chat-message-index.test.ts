@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 const rebuildKey = "stella-mobile-chat-index-rebuild-required-v1";
@@ -36,9 +35,7 @@ import {
   initMessageIndex,
   indexMessages,
   rebuildMessageIndex,
-  searchMessages,
 } from "../chat-message-index";
-import { formatRecallResults } from "../chat-recall";
 import {
   CHAT_ACCOUNT_CLEANUP_REQUIRED_KEY,
   beginAccountChatCleanupIntent,
@@ -285,60 +282,5 @@ describe("message-index rebuild ownership", () => {
       rebuilding: false,
     });
     expect(database.deleteCalls).toBe(3);
-  });
-});
-
-describe("message-index recall search", () => {
-  test("Recall broadens sparse phrases, preserves corrections and follows long-message references", async () => {
-    const sqlite = new Database(":memory:");
-    sqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, role TEXT, text TEXT, created_at INTEGER);
-      CREATE VIRTUAL TABLE messages_fts USING fts5(text, content='messages', content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');
-      CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT);
-      INSERT INTO index_meta VALUES ('canonical-transcript-backfill-v1', 'done');`);
-    try {
-      const insert = sqlite.prepare("INSERT INTO messages VALUES (?, ?, ?, ?)");
-      insert.run(
-        "A",
-        "assistant",
-        "red blue " + "x".repeat(9000) + " running " + "y".repeat(5000),
-        1000,
-      );
-      insert.run("B", "user", "Correction: red gap blue stays.", 1000);
-      sqlite.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
-      await __setMessageIndexDatabaseForTests({
-        getAllAsync: async (sql: string, ...params: never[]) =>
-          sqlite.prepare(sql).all(...params),
-        getFirstAsync: async (sql: string, ...params: never[]) =>
-          sqlite.prepare(sql).get(...params),
-        execAsync: async (sql: string) => {
-          sqlite.exec(sql);
-        },
-        runAsync: async (sql: string, ...params: never[]) =>
-          sqlite.prepare(sql).run(...params),
-        withTransactionAsync: async (task: () => Promise<void>) => task(),
-      });
-      const hits = await searchMessages("red blue");
-      expect(hits.map((hit) => hit.id).sort()).toEqual(["A", "B"]);
-      const text = formatRecallResults(hits, "red blue");
-      expect(text.match(/Correction: red gap blue stays\./g)).toHaveLength(1);
-      expect(text.indexOf("red blue")).toBeLessThan(
-        text.indexOf("Correction:"),
-      );
-      const deep = formatRecallResults(await searchMessages("run"), "run");
-      expect(deep).toContain("running");
-      const next = deep.match(/next: (recall:\S+)/)?.[1];
-      expect(next).toBeTruthy();
-      expect(formatRecallResults(await searchMessages(next!), next!)).toContain(
-        "y".repeat(100),
-      );
-      expect(await searchMessages("recall:other:A:0")).toEqual([]);
-      expect(
-        await searchMessages("red blue", { excludeIds: new Set(["A", "B"]) }),
-      ).toEqual([]);
-      sqlite.exec("DELETE FROM messages WHERE id = 'A'");
-      expect(await searchMessages(next!)).toEqual([]);
-    } finally {
-      sqlite.close();
-    }
   });
 });

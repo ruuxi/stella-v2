@@ -181,14 +181,6 @@ const snapshot = (store: SessionStore, threadKey: string) => {
     activity: store.listActivity(CONVERSATION),
     recentActivity: store.listRecentActivitySince({ sinceMs: 0, limit: 500 }),
     summaries: store.listConversationSummaries({}),
-    search: store.searchTranscripts({ query: "zebra", limit: 20 }),
-    neighbors: store.listTranscriptNeighbors({
-      conversationId: CONVERSATION,
-      atMs: firstUser.timestamp,
-      sequence: firstUser.sequence,
-      before: 4,
-      after: 4,
-    }),
     thread: store.loadThreadMessages(threadKey),
   };
 };
@@ -300,7 +292,7 @@ describe("run_event writes", () => {
 });
 
 describe("legacy run_event rows are unobservable", () => {
-  test("every chat, thread and search read is identical before and after the sweep", async () => {
+  test("every chat and thread read is identical before and after the sweep", async () => {
     const { db, store } = createStore();
     seedConversation(db, store, CONVERSATION, 10_000);
     seedConversation(db, store, OTHER_CONVERSATION, 20_000);
@@ -324,7 +316,6 @@ describe("legacy run_event rows are unobservable", () => {
     // Sanity: the snapshot actually exercises the tail and tool attachment.
     expect(before.messages.messages.length).toBeGreaterThan(0);
     expect(before.messages.nextCursor?.id).toBe(`${CONVERSATION}-assistant-2`);
-    expect(before.search.length).toBeGreaterThan(0);
     expect(before.thread.length).toBe(2);
 
     const result = await sweepLegacyRunEventEntries(db, {

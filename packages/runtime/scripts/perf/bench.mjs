@@ -478,8 +478,6 @@ class WorkerClient {
           : { ok: true, value: null };
       case "host.runtimeAuth.refresh":
         return { authenticated: false, token: null, hasConnectedAccount: false };
-      case "host.appBrowserContext.get":
-        return { apps: [], activeBrowserTab: null };
       default:
         return null;
     }

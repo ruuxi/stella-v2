@@ -176,7 +176,7 @@ export const layer = Layer.effect(
           });
         }
         runEventLog.startBackgroundSweep();
-        // Recall's durable summaries live in the main database and have their
+        // Durable thread summaries live in the main database and have their
         // own retention bound; same post-ready slot as the run-event sweep.
         threadSummaryStore.startBackgroundSweep();
       },

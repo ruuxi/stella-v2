@@ -8,7 +8,7 @@ const logger = createRuntimeLogger("stella-runtime.thread-summaries-record");
 /**
  * Thread-summaries record (stella-runtime).
  *
- * Records one durable summary per finalized delegated run for Recall.
+ * Records one durable summary per finalized delegated run.
  *
  * Pre-migration this was an inline branch inside
  * `finalizeSubagentSuccess` gated on

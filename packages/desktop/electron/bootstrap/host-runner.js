@@ -11,8 +11,6 @@ import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastUserAppsUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
 import { showStellaNotification } from "../services/notification-service.js";
-import { getActiveBrowserTabForBundleId } from "../active-browser-tab.js";
-import { listRecentApps } from "../recent-apps.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
@@ -196,23 +194,6 @@ export const createHostRunnerHandlers = (context, options) => ({
     requestRuntimeAuthRefresh: async () => await context.services.authService.refreshRuntimeAuth(),
     getChallengeToken: async () => await context.services.authService.getChallengeToken(),
     getScheduleScriptAuth: async () => await context.services.authService.getScheduleScriptAuth(),
-    getAppBrowserContext: async () => {
-        const apps = (await listRecentApps(3)) ?? [];
-        const activeApp = apps.find((app) => app.isActive && app.bundleId);
-        const activeBrowserTab = activeApp?.bundleId
-            ? await getActiveBrowserTabForBundleId(activeApp.bundleId)
-            : null;
-        return {
-            apps: apps.map((app) => ({
-                name: app.name,
-                pid: app.pid,
-                isActive: app.isActive,
-                ...(app.bundleId ? { bundleId: app.bundleId } : {}),
-                ...(app.windowTitle ? { windowTitle: app.windowTitle } : {}),
-            })),
-            activeBrowserTab,
-        };
-    },
     requestCredential: (payload) => context.services.credentialService.requestCredential(payload),
     requestLlmCredentials: async (request) => {
         const stellaDataDir = context.state.stellaDataDirPath;

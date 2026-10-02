@@ -3,7 +3,7 @@
  * (several related threads spawned for one request) occupies one slot,
  * and an ungrouped thread is its own slot. Eviction flips whole slots
  * to 'evicted'; the rows survive and stay resumable via `send_input`
- * and discoverable via `Recall`.
+ * and stay in the `thread` table.
  */
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 
@@ -89,9 +89,8 @@ export const formatRuntimeThreadStatusLabel = (
 };
 
 /**
- * The shared `(<status>, last active <age>)` suffix used verbatim by both the
- * injected "# Other Threads" roster and Recall's thread search, so both
- * surfaces read the same live state from the same signal.
+ * The `(<status>, last active <age>)` suffix of the injected "# Other Threads"
+ * roster.
  */
 export const formatRuntimeThreadStatusSuffix = (
   record: Pick<
@@ -165,7 +164,7 @@ export const buildActiveThreadsPrompt = (
         a.threadId.localeCompare(b.threadId),
     )
     .slice(0, MAX_ACTIVE_RUNTIME_THREADS);
-  return `# Other Threads\nDurable past and ongoing work. Each entry shows its live state: "active" means the agent is executing a turn right now; "paused" means idle but resumable. Any thread_id can be reused later with send_input, even after cancellation or completion. Older work not listed here is searchable with Recall.\n${ordered
+  return `# Other Threads\nDurable past and ongoing work. Each entry shows its live state: "active" means the agent is executing a turn right now; "paused" means idle but resumable. Any thread_id can be reused later with send_input, even after cancellation or completion. Older threads not listed here are in the thread table of the history database.\n${ordered
     .map((thread) => formatThreadLines(thread, now, ""))
     .join("\n")}`;
 };

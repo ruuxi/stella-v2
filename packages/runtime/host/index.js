@@ -2560,12 +2560,6 @@ export class StellaRuntimeHost {
         peer.registerRequestHandler(METHOD_NAMES.HOST_REMOTE_TURN_ADMIT, async (params) => {
             return this.admitRemoteTurnAttempt(params);
         });
-        peer.registerRequestHandler(METHOD_NAMES.HOST_APP_BROWSER_CONTEXT_GET, async () => {
-            return ((await this.options.hostHandlers.getAppBrowserContext?.()) ?? {
-                apps: [],
-                activeBrowserTab: null,
-            });
-        });
         peer.registerRequestHandler(METHOD_NAMES.HOST_CREDENTIALS_REQUEST, async (params) => {
             return await this.options.hostHandlers.requestCredential(params);
         });

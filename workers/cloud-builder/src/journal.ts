@@ -47,7 +47,6 @@ import {
   collapseWhitespace,
   extractMessageText,
   transcriptSearchDdl,
-  type TranscriptSearchHit,
 } from "./transcript-search.js";
 
 export { collapseWhitespace, extractMessageText } from "./transcript-search.js";
@@ -2278,16 +2277,6 @@ export class Journal {
       if (text) return { text: text.slice(0, maxChars), role: row.role ?? "" };
     }
     return null;
-  }
-
-  searchTranscript(
-    terms: readonly string[],
-    limit: number,
-  ): TranscriptSearchHit[] {
-    if (terms.length === 1 && terms[0]?.startsWith("recall:")) {
-      return this.transcriptSearch.readReference(terms[0], this.meta().conversation_id ?? "");
-    }
-    return this.transcriptSearch.search(terms, limit);
   }
 
   // -------------------------------------------------------------------------

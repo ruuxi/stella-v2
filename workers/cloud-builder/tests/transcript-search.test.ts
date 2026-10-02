@@ -42,6 +42,15 @@ const openIndex = (table = "test_fts") => {
   return { sql: fake.sql, index: new TranscriptSearchIndex(fake.sql, table) };
 };
 
+const matches = (sql: SqlStorage, query: string, table = "test_fts") =>
+  sql
+    .exec<{ seq: number }>(
+      `SELECT rowid AS seq FROM ${table} WHERE ${table} MATCH ? ORDER BY rowid`,
+      query,
+    )
+    .toArray()
+    .map((row) => row.seq);
+
 const openJournal = async () => {
   const fake = openSqlStorageFake();
   cleanups.push(fake.close);
@@ -69,7 +78,7 @@ const openJournal = async () => {
 
 describe("TranscriptSearchIndex", () => {
   test("indexes only visible, resident user and assistant text", () => {
-    const { index } = openIndex();
+    const { sql, index } = openIndex();
     index.index(searchRow(1, "user", "visible user"));
     index.index(searchRow(2, "assistant", "visible assistant"));
     index.index(searchRow(3, "toolResult", "tool output"));
@@ -84,59 +93,24 @@ describe("TranscriptSearchIndex", () => {
     );
 
     expect(index.count()).toBe(2);
-    expect(
-      index
-        .search(["visible"], 30)
-        .map((hit) => hit.seq)
-        .sort(),
-    ).toEqual([1, 2]);
-    expect(index.search(["tool output", "hidden", "spill"], 30)).toEqual([]);
-  });
-
-  test("prefers phrases, falls back to words, ranks with bm25, and returns snippets", () => {
-    const { index } = openIndex();
-    index.index(
-      searchRow(1, "assistant", "red blue cobalt cobalt cobalt cobalt"),
-    );
-    index.index(searchRow(2, "assistant", "red gap blue cobalt"));
-
-    const phrase = index.search(["red blue"], 10);
-    expect(phrase.map((hit) => hit.seq)).toEqual([1, 2]);
-    expect(index.search(["red blue"], 1).map((hit) => hit.seq)).toEqual([1]);
-
-    const fallback = index.search(["red absentword"], 10);
-    expect(fallback.map((hit) => hit.seq).sort()).toEqual([1, 2]);
-
-    const ranked = index.search(["cobalt"], 10);
-    expect(ranked[0]?.seq).toBe(1);
-    expect(ranked[0]?.rank).toBeLessThanOrEqual(ranked[1]!.rank);
-    expect(ranked[0]?.snippet).toContain("cobalt");
-    expect(() => index.search(['cobalt" OR *'], 10)).not.toThrow();
+    expect(matches(sql, "visible")).toEqual([1, 2]);
+    expect(matches(sql, '"tool output" OR hidden OR spill')).toEqual([]);
   });
 
   test("removes exact rows and suffixes", () => {
-    const { index } = openIndex();
+    const { sql, index } = openIndex();
     for (let seq = 1; seq <= 3; seq += 1) {
       index.index(searchRow(seq, "user", `removable ${seq}`));
     }
 
     index.removeAbove(1);
-    expect(index.search(["removable"], 10).map((hit) => hit.seq)).toEqual([1]);
+    expect(matches(sql, "removable")).toEqual([1]);
     index.remove(1);
     expect(index.count()).toBe(0);
   });
 
-  test("caps result sets at thirty hits", () => {
-    const { index } = openIndex();
-    for (let seq = 1; seq <= 35; seq += 1) {
-      index.index(searchRow(seq, "assistant", `common result ${seq}`));
-    }
-
-    expect(index.search(["common"], 1_000)).toHaveLength(30);
-  });
-
   test("caps indexed message text at 64 KiB", () => {
-    const { index } = openIndex();
+    const { sql, index } = openIndex();
     index.index(
       searchRow(
         1,
@@ -145,14 +119,14 @@ describe("TranscriptSearchIndex", () => {
       ),
     );
 
-    expect(index.search(["startneedle"], 10)).toHaveLength(1);
-    expect(index.search(["endneedle"], 10)).toEqual([]);
+    expect(matches(sql, "startneedle")).toHaveLength(1);
+    expect(matches(sql, "endneedle")).toEqual([]);
   });
 });
 
 describe("journal transcript search integration", () => {
   test("survives commitSegment deleting the resident journal row", async () => {
-    const { journal } = await openJournal();
+    const { journal, sql } = await openJournal();
     journal.appendMessage({
       turnId: "turn-1",
       writer: "orchestrator",
@@ -161,7 +135,7 @@ describe("journal transcript search integration", () => {
       message: message("user", "rollover keeps searchable history"),
       createdAt: 1,
     });
-    expect(journal.searchTranscript(["searchable history"], 10)).toHaveLength(
+    expect(matches(sql, '"searchable history"', "journal_fts")).toHaveLength(
       1,
     );
 
@@ -177,11 +151,7 @@ describe("journal transcript search integration", () => {
     journal.commitSegment(0, 0);
 
     expect(journal.hotStats().rows).toBe(0);
-    expect(
-      journal
-        .searchTranscript(["searchable history"], 10)
-        .map((hit) => hit.seq),
-    ).toEqual([0]);
+    expect(matches(sql, '"searchable history"', "journal_fts")).toEqual([0]);
   });
 
   test("schema version 8 backfills resident rows and removes the excerpt table", async () => {
@@ -231,14 +201,8 @@ describe("journal transcript search integration", () => {
     await journal.bootstrap();
 
     expect(journal.meta().schema_version).toBe(8);
-    expect(
-      journal
-        .searchTranscript(["migration backfill"], 10)
-        .map((hit) => hit.seq),
-    ).toEqual([0]);
-    expect(journal.searchTranscript(["hiddenonly", "spilledonly"], 10)).toEqual(
-      [],
-    );
+    expect(matches(sql, '"migration backfill"', "journal_fts")).toEqual([0]);
+    expect(matches(sql, "hiddenonly OR spilledonly", "journal_fts")).toEqual([]);
     expect(
       sql
         .exec<{ count: number }>(
@@ -248,17 +212,4 @@ describe("journal transcript search integration", () => {
         .one().count,
     ).toBe(0);
   });
-});
-
-test("references are scoped and reject replaced or deleted messages", () => {
-  const { index } = openIndex();
-  index.index(searchRow(1, "user", "original"));
-  expect(index.readReference("recall:conv:1%2Fturn-1:0", "other")).toEqual([]);
-  expect(
-    index.readReference("recall:conv:1%2Fturn-1:1500", "conv"),
-  ).toHaveLength(1);
-  index.index(searchRow(1, "user", "replacement", { turnId: "new-turn" }));
-  expect(index.readReference("recall:conv:1%2Fturn-1:0", "conv")).toEqual([]);
-  index.remove(1);
-  expect(index.readReference("recall:conv:1%2Fnew-turn:0", "conv")).toEqual([]);
 });

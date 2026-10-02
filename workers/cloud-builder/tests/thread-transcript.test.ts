@@ -6,7 +6,6 @@ import {
   purgeThreadTranscript,
   readThreadHistory,
   reserveTurnEventSeq,
-  searchThreadTranscript,
 } from "../src/thread-transcript.js";
 import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 
@@ -17,6 +16,15 @@ import { openSqlStorageFake } from "./fixtures/sql-storage.js";
 
 const payload = (text: string): string =>
   JSON.stringify({ role: "assistant", content: [{ type: "text", text }] });
+
+const ftsSeqs = (sql: SqlStorage, term: string): number[] =>
+  sql
+    .exec<{ seq: number }>(
+      "SELECT rowid AS seq FROM thread_fts WHERE thread_fts MATCH ?",
+      term,
+    )
+    .toArray()
+    .map((row) => row.seq);
 
 describe("thread transcript rows", () => {
   test("reads back oldest-first with a monotonic seq across turns", () => {
@@ -94,7 +102,7 @@ describe("thread transcript rows", () => {
     });
 
     expect(readThreadHistory(sql, {})).toHaveLength(1);
-    expect(searchThreadTranscript(sql, ["once"], 10)).toHaveLength(1);
+    expect(ftsSeqs(sql, "once")).toHaveLength(1);
     close();
   });
 
@@ -117,9 +125,7 @@ describe("thread transcript rows", () => {
     });
 
     expect(readThreadHistory(sql, {})).toHaveLength(2);
-    expect(
-      searchThreadTranscript(sql, ["new"], 10).map((hit) => hit.seq),
-    ).toEqual([2]);
+    expect(ftsSeqs(sql, "new")).toEqual([2]);
     close();
   });
 
@@ -232,7 +238,6 @@ describe("per-attempt ordinals", () => {
     purgeThreadTranscript(sql);
 
     expect(readThreadHistory(sql, {})).toEqual([]);
-    expect(searchThreadTranscript(sql, ["a"], 10)).toEqual([]);
     expect(nextTurnEventSeq(sql, "turn-1", 1)).toBe(1);
     close();
   });

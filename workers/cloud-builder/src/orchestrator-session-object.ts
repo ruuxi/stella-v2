@@ -56,7 +56,8 @@ import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-run
  * `thread.spawned`, `conversation.deleted`. No Convex call sits on a turn's
  * critical path; the synchronous callbacks that remain (web search, schedules,
  * drive attachments, integrations, the agent home) present the turn's
- * control-plane capability. Recall searches the local journal.
+ * control-plane capability. The model queries the local journal through
+ * `history.sql` in code.
  *
  * What did NOT change, deliberately: the turn lifecycle. Accepted turns are
  * still durable under `queued:*` before the 202, the alarm still retries
@@ -227,6 +228,7 @@ import {
 import { getResponseLanguageSystemPrompt } from "@stella/runtime/kernel/runner/locale-prompt.js";
 import { createMemoryTools } from "./orchestrator-tools.js";
 import { resolveOpenToolCall } from "./tool-replay.js";
+import { runHistoryQuery } from "./history-sql.js";
 import {
   createCloudCodeAgentTool,
   type CloudCodeSourceAgentTool,
@@ -2903,7 +2905,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // unconditionally, on the delivered and the re-armed path alike. A
     // timed-out turn owes the same post-terminal work as a completed one:
     // without it the whole turn, including everything the model produced
-    // before the watchdog fired, is absent from Recall forever, and any card
+    // before the watchdog fired, is absent from the search index forever, and any card
     // staged while it ran sits in the inbox until the user happens to send
     // another message in that conversation.
     await this.finalizeTerminalTurn(turn);
@@ -5438,7 +5440,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ) {
           // The prompt row is already committed, so this turn has content
           // worth indexing even though the loop never ran. Returning without
-          // this is how a canceled turn used to vanish from Recall permanently.
+          // this is how a canceled turn used to vanish from the search index permanently.
           await this.afterTerminal(turn);
           return json({ ok: false, canceled: true });
         }
@@ -9815,10 +9817,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /**
    * The cloud orchestrator's tool catalog: the desktop orchestrator's exact
    * model-visible contract (`orchestrator.md`'s allowlist — code, html,
-   * image_gen, web, map, Read, Recall, Remember, spawn_agent, send_input,
+   * image_gen, web, map, Read, Remember, spawn_agent, send_input,
    * pause_agent, agent_status, merge_workspace — plus the demoted
    * schedule_* and connector_status tools reachable inside code, and the
-   * `connect` client inside code). The model reads one description and
+   * `connect` and `history` clients inside code). The model reads one description and
    * calls one shape on either host; only the execution behind each tool
    * differs, and every cloud-specific difference is stated in the cloud
    * session overlay.
@@ -9838,20 +9840,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ownerGeneration: turn.ownerGeneration,
       conversationId: turn.conversationId,
       agentHome,
-      recall: {
-        search: (terms: readonly string[], limit: number) =>
-          this.journal.searchTranscript(terms, limit),
-        hydrate: async (seq: number, before: number, after: number) => {
-          const rowsBefore = Math.max(0, Math.trunc(before));
-          const rowsAfter = Math.max(0, Math.trunc(after));
-          const range = await this.archive.readRange(
-            Math.max(0, seq - rowsBefore),
-            seq + rowsAfter,
-            rowsBefore + rowsAfter + 1,
-          );
-          return range.records;
-        },
-      },
       post: (path: string, body: unknown, signal?: AbortSignal) =>
         this.convexPost(path, body, {
           capability: controlPlane.token,
@@ -10471,6 +10459,20 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       tools,
       executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
       connect: createCloudConnectClient(connectors),
+      ...(memoryEnabled
+        ? {
+            history: {
+              sql: (query: string, params: readonly SqlStorageValue[]) =>
+                runHistoryQuery(this.ctx.storage, query, params),
+              read: (fromSeq: number, toSeq: number) =>
+                this.archive.readRange(
+                  Math.max(0, fromSeq),
+                  toSeq,
+                  BACKFILL_BATCH_RECORDS,
+                ),
+            },
+          }
+        : {}),
     });
     // Demotion, the device rule: with code in the active set a demoted tool
     // leaves the direct list and is callable only as tools.<name> inside

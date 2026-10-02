@@ -17,10 +17,12 @@ type CloudflareCodeModeModule = typeof import("@cloudflare/codemode");
 export const CLOUD_CODE_SEARCH_INTRINSIC = "$search";
 export const CLOUD_CODE_DESCRIBE_INTRINSIC = "$describe";
 export const CLOUD_CODE_CONNECT_INTRINSIC = "$connect";
+export const CLOUD_CODE_HISTORY_INTRINSIC = "$history";
 export const CLOUD_CODE_INTRINSIC_NAMES: ReadonlySet<string> = new Set([
   CLOUD_CODE_SEARCH_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
   CLOUD_CODE_CONNECT_INTRINSIC,
+  CLOUD_CODE_HISTORY_INTRINSIC,
 ]);
 
 let cloudflareCodeModePromise: Promise<CloudflareCodeModeModule> | undefined;
@@ -388,6 +390,11 @@ const buildWorkerModule = (
     '      call: (id, action, args) => __connectCall("call", [__requireNonEmptyString(id, "id"), __requireNonEmptyString(action, "action"), args === undefined ? {} : __requirePlainObject(args, "args")]),',
     '      addMcp: (options) => __connectCall("addMcp", [__requirePlainObject(options, "options")]),',
     '      remove: (id) => __connectCall("remove", [__requireNonEmptyString(id, "id")]),',
+    "    });",
+    '    const __historyCall = (method, args) => __dispatch("$history", [{ method, args }]);',
+    "    const history = Object.freeze({",
+    '      sql: (query, params = []) => __historyCall("sql", [query, params]),',
+    '      read: (fromSeq, toSeq) => __historyCall("read", [fromSeq, toSeq]),',
     "    });",
     "    try {",
     "      __startClock();",

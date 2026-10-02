@@ -1,7 +1,5 @@
 export {
   SessionStore as RuntimeStore,
-  tokenizeSearchQuery,
-  FtsSearchUnavailableError,
   type CloudTranscriptOutboxKind,
   type CloudTranscriptOutboxRecord,
   type CloudJournalOutboxRecord,
@@ -16,4 +14,3 @@ export {
   type VoiceToolCallReceipt,
 } from "./session-store.js";
 export type { PersistedAgentRecord } from "./agent-registry.js";
-export type { TranscriptSearchHit } from "./search.js";

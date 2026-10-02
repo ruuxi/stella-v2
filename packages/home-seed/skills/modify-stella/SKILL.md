@@ -24,7 +24,7 @@ git -C "$STELLA_APP_DIR" worktree add "$STELLA_DRAFTS_DIR/<name>" -b draft/<name
 cd "$STELLA_DRAFTS_DIR/<name>" && bun install
 ```
 
-Edit only inside the draft. Typecheck from the draft root with what you touched:
+Use a real `bun install`, not a symlink to the app's `node_modules`: the preview resolves packages inside the draft. Edit only inside the draft. Typecheck from the draft root with what you touched:
 
 - Renderer: `node node_modules/typescript-7/bin/tsc --build packages/desktop-ui`
 - Runtime: `node node_modules/typescript-7/bin/tsc -p packages/runtime/tsconfig.json --noEmit`
@@ -32,7 +32,7 @@ Edit only inside the draft. Typecheck from the draft root with what you touched:
 
 ## Check it
 
-**UI changes:** open a live preview of the draft in the in-app browser with the `code` tool (see the stella-browser skill):
+**UI changes:** always look at the change in a live preview of the draft before you finish; a typecheck does not show you the result. Open it in the in-app browser with the `code` tool (see the stella-browser skill):
 
 ```js
 var tab = await browser.tabs.new("stella-preview://<name>");
@@ -46,6 +46,8 @@ Click through the UI to reach what you changed, and `await tab.reload()` after f
 **Main/preload changes:** typecheck only.
 
 ## Finish
+
+Finish only after the check above passed (for UI changes, after you saw the change in the preview).
 
 1. Commit everything as one normal commit with a plain, descriptive message (no tags or trailers). If git has no identity, add `-c user.name=Stella -c user.email=stella@localhost`.
 2. Rebase onto the checkout's current branch so the draft is a fast-forward: `git rebase "$(git -C "$STELLA_APP_DIR" branch --show-current)"`. Resolve any conflicts yourself, then typecheck again.

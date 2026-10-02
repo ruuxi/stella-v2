@@ -12,6 +12,8 @@ export type RelayUsage = {
   totalTokens?: number;
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
+  /** Subset of `cacheWriteInputTokens` written to a 1-hour cache entry. */
+  cacheWrite1hInputTokens?: number;
   reasoningTokens?: number;
   /** Exact upstream-reported spend, normalized to Stella's micro-cent unit. */
   costMicroCents?: number;
@@ -96,7 +98,8 @@ const parseResponsesUsage = (usage: unknown): RelayUsage => {
  * zero on any cached conversation — so `grossAnthropicInput` folds the cache
  * counts back in once the stream's fields have merged. Extended thinking is
  * already inside `output_tokens` and is never broken out, so there is no
- * reasoning bucket to report.
+ * reasoning bucket to report. `cache_creation` splits the writes by TTL;
+ * the 1-hour share is priced at its own (2x input) rate.
  */
 const parseAnthropicUsage = (usage: unknown): RelayUsage => {
   const record = asRecord(usage);
@@ -106,6 +109,9 @@ const parseAnthropicUsage = (usage: unknown): RelayUsage => {
     outputTokens: toInt(record.output_tokens),
     cachedInputTokens: toInt(record.cache_read_input_tokens),
     cacheWriteInputTokens: toInt(record.cache_creation_input_tokens),
+    cacheWrite1hInputTokens: toInt(
+      asRecord(record.cache_creation)?.ephemeral_1h_input_tokens,
+    ),
   };
 };
 

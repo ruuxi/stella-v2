@@ -110,10 +110,21 @@ export type UsageCostArgs = {
   outputTokens: number;
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
+  /**
+   * The part of `cacheWriteInputTokens` written to a 1-hour cache entry
+   * (Anthropic `ttl: "1h"`, reported as
+   * `cache_creation.ephemeral_1h_input_tokens`). Anthropic bills these at 2x
+   * the input rate; the remaining (5-minute) writes keep the catalog's
+   * cache-write rate, which models.dev publishes as 1.25x input.
+   */
+  cacheWrite1hInputTokens?: number;
   reasoningTokens?: number;
   /** Explicit price; wins over any catalog lookup. */
   price?: TokenPriceConfig;
 };
+
+/** Anthropic's 1-hour cache writes cost twice the base input rate. */
+export const LONG_CACHE_WRITE_INPUT_MULTIPLIER = 2;
 
 export const computeUsageCostMicroCents = (
   args: UsageCostArgs & {
@@ -126,6 +137,10 @@ export const computeUsageCostMicroCents = (
   const price = args.price ?? catalog.models[args.model] ?? catalog.default;
   const cachedInputTokens = Math.max(0, args.cachedInputTokens ?? 0);
   const cacheWriteInputTokens = Math.max(0, args.cacheWriteInputTokens ?? 0);
+  const cacheWrite1hInputTokens = Math.min(
+    cacheWriteInputTokens,
+    Math.max(0, args.cacheWrite1hInputTokens ?? 0),
+  );
   const billableInputTokens = Math.max(
     0,
     args.inputTokens - cachedInputTokens - cacheWriteInputTokens,
@@ -137,7 +152,10 @@ export const computeUsageCostMicroCents = (
   const cachedInputUsd =
     (cachedInputTokens / 1_000_000) * (price.cacheReadPerMillionUsd ?? 0);
   const cacheWriteUsd =
-    (cacheWriteInputTokens / 1_000_000) * (price.cacheWritePerMillionUsd ?? 0);
+    ((cacheWriteInputTokens - cacheWrite1hInputTokens) / 1_000_000) *
+      (price.cacheWritePerMillionUsd ?? 0) +
+    (cacheWrite1hInputTokens / 1_000_000) *
+      (LONG_CACHE_WRITE_INPUT_MULTIPLIER * price.inputPerMillionUsd);
   const outputUsd = (textOutputTokens / 1_000_000) * price.outputPerMillionUsd;
   // A zero reasoning rate means "not published", not "free" — models.dev
   // omits `cost.reasoning` for most models and the sync stores 0. No provider

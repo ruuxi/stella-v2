@@ -963,6 +963,7 @@ export const handleManagedRelay = async (args: {
         outputTokens: usage.outputTokens ?? 0,
         cachedInputTokens: usage.cachedInputTokens,
         cacheWriteInputTokens: usage.cacheWriteInputTokens,
+        cacheWrite1hInputTokens: usage.cacheWrite1hInputTokens,
         reasoningTokens: usage.reasoningTokens,
         price,
       });

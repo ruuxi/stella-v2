@@ -140,6 +140,11 @@ export const bootstrapMainProcess = () => {
     startupRuntimeWarmupDelayMs: STARTUP_RUNTIME_WARMUP_DELAY_MS,
   });
 
+  // The verification harness (`--inspect` on main) reaches the live services here.
+  if (isDev && process.env.STELLA_DEV_HARNESS === "1") {
+    (globalThis as { __stellaHarnessContext?: unknown }).__stellaHarnessContext = context;
+  }
+
   initializeBootstrapSingleInstance(context);
   registerBootstrapLifecycle(context);
 };

@@ -801,6 +801,10 @@ const cmdLaunch = async (options) => {
       );
     }
     electronArgs.push("--remote-allow-origins=*");
+    // Main-process inspector for evaluating in main (e.g. hot-update checks).
+    if (process.env.STELLA_VERIFY_INSPECT_MAIN) {
+      electronArgs.push(`--inspect=127.0.0.1:${process.env.STELLA_VERIFY_INSPECT_MAIN}`);
+    }
     electronArgs.push(repoRoot, "--dev");
     const electron = spawnLogged(electronBin(), electronArgs, {
       cwd: repoRoot,

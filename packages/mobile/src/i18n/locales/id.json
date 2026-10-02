@@ -1567,6 +1567,24 @@
         "failedTitle": "Pembaruan desktop gagal"
       }
     },
+    "appSource": {
+      "update": "Perbarui",
+      "title": "Perubahan pada Stella",
+      "ready": "Siap",
+      "attention": "Perlu perhatian",
+      "recent": "Perubahan terbaru",
+      "apply": "Terapkan",
+      "undo": "Urungkan",
+      "ask": "Tanya Stella",
+      "fromOtherComputer": "Perubahan dari komputer Anda yang lain",
+      "diverged": "Perubahan dari komputer Anda yang lain berbeda dengan yang ini",
+      "outdated": "Dibuat pada versi lama",
+      "undoConflict": "Bertentangan dengan perubahan berikutnya",
+      "failed": "Tidak dapat menerapkan perubahan",
+      "askRebase": "Rebase draf saya \"{name}\" ke versi saat ini.",
+      "askMerge": "Gabungkan perubahan dari komputer saya yang lain.",
+      "askUndo": "Urungkan \"{subject}\" (bertentangan dengan perubahan berikutnya)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

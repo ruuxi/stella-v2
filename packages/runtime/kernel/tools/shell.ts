@@ -2222,6 +2222,19 @@ const resolveManagedShellCommand = (
       "state",
     );
   }
+  // The app's own checkout and where drafts of changes to it live (see the
+  // modify-stella skill). Drafts stay outside the checkout.
+  if (context?.executionHost !== "sandbox") {
+    if (context?.stellaAppDir) {
+      envOverrides.STELLA_APP_DIR = path.resolve(context.stellaAppDir);
+    }
+    if (context?.stellaDataDir) {
+      envOverrides.STELLA_DRAFTS_DIR = path.join(
+        path.resolve(context.stellaDataDir),
+        "drafts",
+      );
+    }
+  }
   const stellaComputerSessionId = getStellaComputerSessionId(context);
   const localBinPaths = [
     ...(context?.stellaDataDir

@@ -1578,6 +1578,24 @@
         "failedTitle": "Työpöytäpäivitys epäonnistui"
       }
     },
+    "appSource": {
+      "update": "Päivitä",
+      "title": "Muutokset Stellaan",
+      "ready": "Valmis",
+      "attention": "Vaatii huomiota",
+      "recent": "Viimeaikaiset muutokset",
+      "apply": "Ota käyttöön",
+      "undo": "Kumoa",
+      "ask": "Kysy Stellalta",
+      "fromOtherComputer": "Muutokset toiselta tietokoneeltasi",
+      "diverged": "Toisen tietokoneesi muutokset poikkeavat tästä",
+      "outdated": "Tehty vanhempaan versioon",
+      "undoConflict": "Ristiriidassa myöhempien muutosten kanssa",
+      "failed": "Muutosta ei voitu ottaa käyttöön",
+      "askRebase": "Siirrä luonnokseni \"{name}\" nykyisen version päälle.",
+      "askMerge": "Yhdistä muutokset toiselta tietokoneeltani.",
+      "askUndo": "Kumoa \"{subject}\" (se on ristiriidassa myöhempien muutosten kanssa)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

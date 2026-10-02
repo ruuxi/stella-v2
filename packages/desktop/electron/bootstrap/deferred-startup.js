@@ -64,6 +64,14 @@ const createDeferredStartupTasks = (context) => {
             },
         },
         {
+            // Drafts, undo and fork sync for the app's own checkout (from
+            // source only). Every git call is async.
+            label: "app-source",
+            run: () => {
+                state.appSourceService?.start();
+            },
+        },
+        {
             label: "overlay-warmup-schedule",
             run: () => {
                 scheduleOverlayWarmup(context);

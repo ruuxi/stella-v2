@@ -1578,6 +1578,24 @@
         "failedTitle": "Masaüstü güncellemesi başarısız oldu"
       }
     },
+    "appSource": {
+      "update": "Güncelle",
+      "title": "Stella'daki değişiklikler",
+      "ready": "Hazır",
+      "attention": "İlgi gerekiyor",
+      "recent": "Son değişiklikler",
+      "apply": "Uygula",
+      "undo": "Geri al",
+      "ask": "Stella'ya sor",
+      "fromOtherComputer": "Diğer bilgisayarınızdan gelen değişiklikler",
+      "diverged": "Diğer bilgisayarınızdaki değişiklikler bundan farklı",
+      "outdated": "Eski bir sürümde yapıldı",
+      "undoConflict": "Sonraki değişikliklerle çakışıyor",
+      "failed": "Değişiklik uygulanamadı",
+      "askRebase": "\"{name}\" taslağımı güncel sürüme rebase et.",
+      "askMerge": "Diğer bilgisayarımdaki değişiklikleri birleştir.",
+      "askUndo": "\"{subject}\" değişikliğini geri al (sonraki değişikliklerle çakışıyor)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

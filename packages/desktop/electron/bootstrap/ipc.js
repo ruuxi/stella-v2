@@ -12,11 +12,11 @@ import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
-import { ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { toggleRealtimeVoice, } from "../services/realtime-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_SOURCE_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
 import { registerThemeHandlers } from "../ipc/theme-handlers.js";
@@ -41,6 +41,12 @@ import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
 import { loadStellaDeviceId, loadStellaDeviceSigner } from "./host-runner.js";
+import path from "path";
+import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
+import { registerAppSourceHandlers } from "../ipc/app-source-handlers.js";
+import { AppSourceService } from "../services/app-source/app-source-service.js";
+import { getMainLogger } from "../observability/main-logger.js";
+import { openDraftPreview } from "../services/app-source/draft-preview.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
@@ -100,6 +106,14 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 }
                 return resource.subscribeCookieEvents(onEvent);
             },
+            // Agents check UI drafts in the running app (running from source only).
+            openPreview: config.useDevServer
+                ? (name) => openDraftPreview({
+                    name,
+                    stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
+                    preloadPath: path.join(config.electronDir, "preload.js"),
+                })
+                : undefined,
             connectionTimeoutMs: 4 * 60 * 1000,
             connectionPollMs: 1000,
             automaticConnectionTimeoutMs: 15 * 1000,
@@ -133,12 +147,16 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             ...(capability.recover ? { recover: true } : {}),
         }, route.cdpUrl);
     };
+    // Agent routing does not wait for the extension: draft previews need none,
+    // and web tabs still require it when they are created (see
+    // InAppBrowserService.createDebuggerTarget). The connect attempt starts
+    // here so cookie seeding overlaps the routing setup.
     const ensureInAppBrowserReady = async (capability) => {
-        const browserState = await state.inAppBrowserService.connect();
-        if (browserState.connection !== "connected") {
-            throw new Error(browserState.error ??
-                "Connect the Stella browser extension before using Stella Browser.");
+        if (!isStellaBrowserBridgeBinaryInstalled()) {
+            throw new Error(BROWSER_BRIDGE_MISSING_ERROR);
         }
+        void state.inAppBrowserService.connect().catch(() => { });
+        startStellaBrowserBridge(context);
         return await ensureInAppBrowserAgentRouting(capability);
     };
     if (!state.inAppBrowserBootstrapServer) {
@@ -370,6 +388,40 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 console.error("Failed to destroy overlay window for update restart.", error);
             }
         },
+    });
+    // Drafts, undo and fork sync for the app's own checkout (running from
+    // source only). Deferred startup starts it.
+    if (config.useDevServer && !state.appSourceService) {
+        const appSourceService = new AppSourceService({
+            stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
+            broadcast: (next) => {
+                for (const window of getAllWindows(context)) {
+                    if (!window.isDestroyed()) {
+                        window.webContents.send(IPC_APP_SOURCE_STATE, next);
+                    }
+                }
+            },
+            isAnyWindowVisible: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isVisible() && !window.isMinimized()),
+            requestRuntimeRestart: () => state.stellaHostRunner?.requestRuntimeRestart(),
+            applyRendererChanges: (paths) => state.rendererSource?.applyChanges(paths),
+            relaunch: () => {
+                app.relaunch();
+                app.quit();
+            },
+            hasConnectedAccount: () => services.authService.getHostHasConnectedAccount(),
+            getBackendUrl: () => services.authService.getBackendUrl(),
+            getAuthToken: () => services.authService.getConvexAuthToken(),
+            log: (event, data) => getMainLogger()?.process(event, data),
+        });
+        state.appSourceService = appSourceService;
+        state.processRuntime.registerCleanup("will-quit", "app-source", () => {
+            appSourceService.dispose();
+        });
+    }
+    registerAppSourceHandlers({
+        getService: () => state.appSourceService ?? null,
+        appPartition: config.sessionPartition,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     const toggleRealtimeVoiceImpl = () => toggleRealtimeVoice({
         uiStateService: services.uiStateService,

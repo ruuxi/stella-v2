@@ -1588,6 +1588,24 @@
         "failedTitle": "Échec de la mise à jour de l’app"
       }
     },
+    "appSource": {
+      "update": "Mettre à jour",
+      "title": "Modifications de Stella",
+      "ready": "Prêt",
+      "attention": "À vérifier",
+      "recent": "Modifications récentes",
+      "apply": "Appliquer",
+      "undo": "Annuler",
+      "ask": "Demander à Stella",
+      "fromOtherComputer": "Modifications de votre autre ordinateur",
+      "diverged": "Les modifications de votre autre ordinateur diffèrent de celui-ci",
+      "outdated": "Faite sur une version antérieure",
+      "undoConflict": "En conflit avec des modifications ultérieures",
+      "failed": "Impossible d'appliquer la modification",
+      "askRebase": "Rebase mon brouillon « {name} » sur la version actuelle.",
+      "askMerge": "Fusionne les modifications de mon autre ordinateur.",
+      "askUndo": "Annule « {subject} » (en conflit avec des modifications ultérieures)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

@@ -109,8 +109,17 @@ import {
   IPC_UPDATES_GET_STATE,
   IPC_UPDATES_RESTART_AND_INSTALL,
   IPC_UPDATES_STATE_CHANGED,
+  IPC_APP_SOURCE_APPLY,
+  IPC_APP_SOURCE_APPLY_REMOTE,
+  IPC_APP_SOURCE_GET_STATE,
+  IPC_APP_SOURCE_STATE,
+  IPC_APP_SOURCE_UNDO,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
 } from "@stella/contracts/desktop/ipc-channels";
+import type {
+  AppSourceActionResult,
+  AppSourceState,
+} from "@stella/contracts/desktop/app-source";
 import type {
   OnboardingSynthesisRequest,
   OnboardingSynthesisResponse,
@@ -495,6 +504,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     restartAndInstall: () =>
       invokeIpc<{ accepted: true }>(IPC_UPDATES_RESTART_AND_INSTALL),
     onStateChanged: onIpc<DesktopUpdateSnapshot>(IPC_UPDATES_STATE_CHANGED),
+  },
+
+  /** The app's own checkout when running from source; state is null otherwise. */
+  appSource: {
+    getState: () => invokeIpc<AppSourceState | null>(IPC_APP_SOURCE_GET_STATE),
+    onState: onIpc<AppSourceState>(IPC_APP_SOURCE_STATE),
+    apply: (name: string) =>
+      invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_APPLY, name),
+    undo: (sha: string) =>
+      invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_UNDO, sha),
+    applyRemote: () =>
+      invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_APPLY_REMOTE),
   },
 
   capture: {

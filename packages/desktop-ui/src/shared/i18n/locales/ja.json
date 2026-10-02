@@ -1567,6 +1567,24 @@
         "failedTitle": "デスクトップのアップデートに失敗しました"
       }
     },
+    "appSource": {
+      "update": "アップデート",
+      "title": "Stella への変更",
+      "ready": "準備完了",
+      "attention": "対応が必要",
+      "recent": "最近の変更",
+      "apply": "適用",
+      "undo": "元に戻す",
+      "ask": "Stella に頼む",
+      "fromOtherComputer": "別のコンピューターからの変更",
+      "diverged": "別のコンピューターの変更がこのコンピューターと分岐しています",
+      "outdated": "古いバージョンで作成",
+      "undoConflict": "後の変更と競合しています",
+      "failed": "変更を適用できませんでした",
+      "askRebase": "下書き「{name}」を現在のバージョンにリベースしてください。",
+      "askMerge": "別のコンピューターの変更をマージしてください。",
+      "askUndo": "「{subject}」を元に戻してください（後の変更と競合しています）。"
+    },
     "display": {
       "homeLauncher": {
         "files": {

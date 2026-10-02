@@ -1578,6 +1578,24 @@
         "failedTitle": "Desktop-update mislukt"
       }
     },
+    "appSource": {
+      "update": "Bijwerken",
+      "title": "Wijzigingen in Stella",
+      "ready": "Klaar",
+      "attention": "Vraagt aandacht",
+      "recent": "Recente wijzigingen",
+      "apply": "Toepassen",
+      "undo": "Ongedaan maken",
+      "ask": "Vraag het Stella",
+      "fromOtherComputer": "Wijzigingen van je andere computer",
+      "diverged": "De wijzigingen van je andere computer wijken af van deze",
+      "outdated": "Gemaakt op een oudere versie",
+      "undoConflict": "Conflicteert met latere wijzigingen",
+      "failed": "Kan de wijziging niet toepassen",
+      "askRebase": "Rebase mijn concept \"{name}\" op de huidige versie.",
+      "askMerge": "Voeg de wijzigingen van mijn andere computer samen.",
+      "askUndo": "Maak \"{subject}\" ongedaan (het conflicteert met latere wijzigingen)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

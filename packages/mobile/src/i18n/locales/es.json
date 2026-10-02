@@ -1588,6 +1588,24 @@
         "failedTitle": "Error en la actualización del escritorio"
       }
     },
+    "appSource": {
+      "update": "Actualizar",
+      "title": "Cambios en Stella",
+      "ready": "Listo",
+      "attention": "Requiere atención",
+      "recent": "Cambios recientes",
+      "apply": "Aplicar",
+      "undo": "Deshacer",
+      "ask": "Preguntar a Stella",
+      "fromOtherComputer": "Cambios de tu otro ordenador",
+      "diverged": "Los cambios de tu otro ordenador difieren de este",
+      "outdated": "Hecho sobre una versión anterior",
+      "undoConflict": "Entra en conflicto con cambios posteriores",
+      "failed": "No se pudo aplicar el cambio",
+      "askRebase": "Haz rebase de mi borrador \"{name}\" sobre la versión actual.",
+      "askMerge": "Fusiona los cambios de mi otro ordenador.",
+      "askUndo": "Deshaz \"{subject}\" (entra en conflicto con cambios posteriores)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

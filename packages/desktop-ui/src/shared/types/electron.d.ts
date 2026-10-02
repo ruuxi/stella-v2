@@ -86,6 +86,10 @@ import type {
 import type { DisplayPayload } from "@stella/contracts/display-payload";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type {
+  AppSourceActionResult,
+  AppSourceState,
+} from "@stella/contracts/desktop/app-source";
+import type {
   CloudHomeImportOwnership,
   LocalCloudHomeScan,
 } from "@stella/contracts/cloud-home-sync";
@@ -1608,6 +1612,15 @@ export type ElectronUpdatesApi = {
   ) => () => void;
 };
 
+/** The app's own checkout when running from source; state is null otherwise. */
+export type ElectronAppSourceApi = {
+  getState: () => Promise<AppSourceState | null>;
+  onState: (callback: (state: AppSourceState) => void) => () => void;
+  apply: (name: string) => Promise<AppSourceActionResult>;
+  undo: (sha: string) => Promise<AppSourceActionResult>;
+  applyRemote: () => Promise<AppSourceActionResult>;
+};
+
 export type ElectronApi = {
   platform: string;
   arch: string;
@@ -1673,6 +1686,7 @@ export type ElectronApi = {
   agent: ElectronAgentApi;
   system: ElectronSystemApi;
   updates: ElectronUpdatesApi;
+  appSource: ElectronAppSourceApi;
   onboarding: ElectronOnboardingApi;
   discovery: ElectronDiscoveryApi;
   browser: ElectronBrowserApi;

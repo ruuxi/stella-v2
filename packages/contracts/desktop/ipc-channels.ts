@@ -62,6 +62,14 @@ export const IPC_UPDATES_RESTART_AND_INSTALL =
   "updates:restartAndInstall" as const;
 export const IPC_UPDATES_STATE_CHANGED = "updates:stateChanged" as const;
 
+// ── App source (drafts, undo, fork sync when running from source) ─────────
+
+export const IPC_APP_SOURCE_GET_STATE = "appSource:getState" as const;
+export const IPC_APP_SOURCE_STATE = "appSource:state" as const;
+export const IPC_APP_SOURCE_APPLY = "appSource:apply" as const;
+export const IPC_APP_SOURCE_UNDO = "appSource:undo" as const;
+export const IPC_APP_SOURCE_APPLY_REMOTE = "appSource:applyRemote" as const;
+
 // ── Capture ─────────────────────────────────────────────────────────────────
 
 export const IPC_CHAT_CONTEXT_GET = "chatContext:get" as const;

@@ -1567,6 +1567,24 @@
         "failedTitle": "桌面版更新失敗"
       }
     },
+    "appSource": {
+      "update": "更新",
+      "title": "Stella 的變更",
+      "ready": "就緒",
+      "attention": "需要處理",
+      "recent": "最近的變更",
+      "apply": "套用",
+      "undo": "復原",
+      "ask": "詢問 Stella",
+      "fromOtherComputer": "來自你另一台電腦的變更",
+      "diverged": "來自你另一台電腦的變更與這台電腦不一致",
+      "outdated": "基於舊版本建立",
+      "undoConflict": "與之後的變更衝突",
+      "failed": "無法套用此變更",
+      "askRebase": "把我的草稿「{name}」rebase 到目前的版本。",
+      "askMerge": "合併我另一台電腦上的變更。",
+      "askUndo": "復原「{subject}」（它與之後的變更衝突）。"
+    },
     "display": {
       "homeLauncher": {
         "files": {

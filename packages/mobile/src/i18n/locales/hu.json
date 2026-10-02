@@ -1578,6 +1578,24 @@
         "failedTitle": "Az asztali frissítés sikertelen"
       }
     },
+    "appSource": {
+      "update": "Frissítés",
+      "title": "Stella módosításai",
+      "ready": "Kész",
+      "attention": "Figyelmet igényel",
+      "recent": "Legutóbbi módosítások",
+      "apply": "Alkalmaz",
+      "undo": "Visszavonás",
+      "ask": "Kérdezd Stellát",
+      "fromOtherComputer": "Módosítások a másik számítógépedről",
+      "diverged": "A másik számítógéped módosításai eltérnek ettől",
+      "outdated": "Régebbi verzión készült",
+      "undoConflict": "Ütközik későbbi módosításokkal",
+      "failed": "Nem sikerült alkalmazni a módosítást",
+      "askRebase": "Rebase-eld a(z) „{name}” piszkozatomat a jelenlegi verzióra.",
+      "askMerge": "Egyesítsd a másik számítógépem módosításait.",
+      "askUndo": "Vond vissza: „{subject}” (ütközik későbbi módosításokkal)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

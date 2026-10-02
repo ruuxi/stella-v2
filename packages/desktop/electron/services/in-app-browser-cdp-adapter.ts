@@ -145,11 +145,16 @@ const withTimeout = async <T>(
   }
 };
 
-const isSafeNavigationUrl = (value: string) => {
+const isSafeTargetUrl = (value: string) => {
   if (value === "about:blank") return true;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    // `stella-preview://<draft>` opens the app's own UI from a draft.
+    return (
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "stella-preview:"
+    );
   } catch {
     return false;
   }
@@ -450,7 +455,7 @@ export class InAppBrowserCdpAdapter {
       }
       case "Target.createTarget": {
         const url = String(params.url ?? "about:blank");
-        if (!isSafeNavigationUrl(url)) {
+        if (!isSafeTargetUrl(url)) {
           throw new Error(
             "Only http, https, and about:blank URLs are allowed.",
           );

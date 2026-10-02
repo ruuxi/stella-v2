@@ -1588,6 +1588,24 @@
         "failedTitle": "Actualizarea pentru desktop a eșuat"
       }
     },
+    "appSource": {
+      "update": "Actualizează",
+      "title": "Modificări în Stella",
+      "ready": "Gata",
+      "attention": "Necesită atenție",
+      "recent": "Modificări recente",
+      "apply": "Aplică",
+      "undo": "Anulează",
+      "ask": "Întreab-o pe Stella",
+      "fromOtherComputer": "Modificări de pe celălalt computer",
+      "diverged": "Modificările de pe celălalt computer diferă de acesta",
+      "outdated": "Făcută pe o versiune mai veche",
+      "undoConflict": "Intră în conflict cu modificări ulterioare",
+      "failed": "Modificarea nu a putut fi aplicată",
+      "askRebase": "Fă rebase la ciorna mea „{name}” pe versiunea curentă.",
+      "askMerge": "Îmbină modificările de pe celălalt computer al meu.",
+      "askUndo": "Anulează „{subject}” (intră în conflict cu modificări ulterioare)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

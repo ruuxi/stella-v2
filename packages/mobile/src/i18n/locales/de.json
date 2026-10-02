@@ -1578,6 +1578,24 @@
         "failedTitle": "Desktop-Update fehlgeschlagen"
       }
     },
+    "appSource": {
+      "update": "Update",
+      "title": "Änderungen an Stella",
+      "ready": "Bereit",
+      "attention": "Erfordert Aufmerksamkeit",
+      "recent": "Letzte Änderungen",
+      "apply": "Übernehmen",
+      "undo": "Rückgängig",
+      "ask": "Stella fragen",
+      "fromOtherComputer": "Änderungen von deinem anderen Computer",
+      "diverged": "Die Änderungen von deinem anderen Computer weichen von diesem ab",
+      "outdated": "Auf einer älteren Version erstellt",
+      "undoConflict": "Steht im Konflikt mit späteren Änderungen",
+      "failed": "Die Änderung konnte nicht übernommen werden",
+      "askRebase": "Setze meinen Entwurf „{name}“ auf die aktuelle Version auf.",
+      "askMerge": "Führe die Änderungen von meinem anderen Computer zusammen.",
+      "askUndo": "Mache „{subject}“ rückgängig (es steht im Konflikt mit späteren Änderungen)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

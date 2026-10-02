@@ -52,6 +52,7 @@ export const createBootstrapContext = (config) => {
     const processRuntime = new ProcessRuntime();
     const state = {
         appReady: false,
+        appSourceService: null,
         appSessionStartedAt: Date.now(),
         deferredStartupSequence: null,
         startHostRunner: null,

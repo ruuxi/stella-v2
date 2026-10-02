@@ -1578,6 +1578,24 @@
         "failedTitle": "Desktop update failed"
       }
     },
+    "appSource": {
+      "update": "Update",
+      "title": "Changes to Stella",
+      "ready": "Ready",
+      "attention": "Needs attention",
+      "recent": "Recent changes",
+      "apply": "Apply",
+      "undo": "Undo",
+      "ask": "Ask Stella",
+      "fromOtherComputer": "Changes from your other computer",
+      "diverged": "Changes from your other computer differ from this one",
+      "outdated": "Made on an older version",
+      "undoConflict": "Conflicts with later changes",
+      "failed": "Couldn't apply the change",
+      "askRebase": "Rebase my draft \"{name}\" onto the current version.",
+      "askMerge": "Merge the changes from my other computer.",
+      "askUndo": "Undo \"{subject}\" (it conflicts with later changes)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

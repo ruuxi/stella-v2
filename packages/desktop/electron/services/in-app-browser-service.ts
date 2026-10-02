@@ -38,6 +38,7 @@ import type {
   StellaBrowserBridgeStatus,
 } from "../process-resources/browser-bridge-resource.js";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
+import { RENDERER_ORIGIN } from "../source/origin.js";
 
 export type BrowserViewConnection = "checking" | "disconnected" | "connected";
 export type BrowserViewUnavailableReason =
@@ -125,6 +126,14 @@ type ManagedTab = {
   faviconUrl?: string;
   faviconLoadId: number;
   loading: boolean;
+  /** A `stella-preview://` tab: the app's own UI from a draft worktree. */
+  preview?: { name: string; dispose: () => void };
+};
+
+export type InAppBrowserPreview = {
+  view: WebContentsView;
+  url: string;
+  dispose: () => void;
 };
 
 type OwnerTabRegistry = {
@@ -184,9 +193,17 @@ type InAppBrowserServiceOptions = {
   wait?: (delayMs: number) => Promise<void>;
   debuggerRecoveryTimeoutMs?: number;
   runtimeUserAgent?: string;
+  /**
+   * Opens `stella-preview://<draft>` for agents. Only set when Stella runs
+   * from source.
+   */
+  openPreview?: (name: string) => Promise<InAppBrowserPreview>;
 };
 
 const DEFAULT_URL = "about:blank";
+const PREVIEW_URL_PREFIX = "stella-preview://";
+const isRendererUrl = (value: string) =>
+  value.startsWith(`${RENDERER_ORIGIN}/`);
 const MANUAL_OWNER_ID = "stella:manual";
 const DRAWABLE_HOST_BOUNDS: Rectangle = {
   x: -100_000,
@@ -615,25 +632,7 @@ export class InAppBrowserService {
     } catch {
       // Injected/mock views in tests may not implement setUserAgent.
     }
-    const tab: ManagedTab = {
-      id,
-      ownerId,
-      view,
-      title: "New Tab",
-      faviconLoadId: 0,
-      loading: false,
-    };
-    this.tabs.set(id, tab);
-    const owner = this.getOrCreateOwner(ownerId);
-    owner.tabIds.add(id);
-    owner.activeTabId = id;
-    this.latestOwnerId = ownerId;
-    if (this.shouldActivateOwner(ownerId, options.activate)) {
-      this.visibleOwnerId = ownerId;
-    }
-    this.bindTab(tab);
-    this.syncState();
-    this.attachActiveView();
+    const tab = this.addTab({ id, view, ownerId, activate: options.activate });
     try {
       const url = normalizeWebUrl(options.url);
       await this.prepareGoogleNavigation(view.webContents.id, url);
@@ -646,6 +645,89 @@ export class InAppBrowserService {
     }
     this.syncState();
     return this.snapshot(ownerId);
+  }
+
+  private addTab(options: {
+    id: string;
+    view: WebContentsView;
+    ownerId: string;
+    activate?: boolean;
+    preview?: ManagedTab["preview"];
+  }): ManagedTab {
+    const { id, view, ownerId } = options;
+    const tab: ManagedTab = {
+      id,
+      ownerId,
+      view,
+      title: options.preview ? `Preview: ${options.preview.name}` : "New Tab",
+      faviconLoadId: 0,
+      loading: false,
+      ...(options.preview ? { preview: options.preview } : {}),
+    };
+    this.tabs.set(id, tab);
+    const owner = this.getOrCreateOwner(ownerId);
+    owner.tabIds.add(id);
+    owner.activeTabId = id;
+    this.latestOwnerId = ownerId;
+    if (this.shouldActivateOwner(ownerId, options.activate)) {
+      this.visibleOwnerId = ownerId;
+    }
+    this.bindTab(tab);
+    this.syncState();
+    this.attachActiveView();
+    return tab;
+  }
+
+  /**
+   * The app's own UI from a draft worktree, as an ordinary tab of the owner,
+   * so drawable mounting, screenshots, CDP and the browser panel all apply.
+   */
+  private async createPreviewTab(name: string, ownerId: string) {
+    const openPreview = this.options.openPreview;
+    if (!openPreview) {
+      throw new Error(
+        "Stella previews are available only when Stella runs from source.",
+      );
+    }
+    // One preview per draft: its session serves one source tree.
+    for (const existing of [...this.tabs.values()]) {
+      if (existing.preview?.name !== name) continue;
+      existing.preview.dispose();
+      this.closeTabInternal(existing.id, existing.ownerId);
+    }
+    const preview = await openPreview(name);
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      preview.dispose();
+    };
+    const contents = preview.view.webContents;
+    contents.once("destroyed", dispose);
+    const tab = this.addTab({
+      id: (this.options.createId ?? randomUUID)(),
+      view: preview.view,
+      ownerId,
+      preview: { name, dispose },
+    });
+    try {
+      await contents.loadURL(preview.url);
+    } catch (error) {
+      if (!contents.isDestroyed()) this.setError(errorMessage(error), ownerId);
+    }
+    this.syncState();
+    return tab.id;
+  }
+
+  /** Agent web tabs need the extension's cookie mirror; previews do not. */
+  private async requireAgentWebConnection() {
+    const state = await this.connect();
+    if (state.connection !== "connected") {
+      throw new Error(
+        state.error ??
+          "Connect the Stella browser extension before using Stella Browser.",
+      );
+    }
   }
 
   async selectTab(options: {
@@ -681,6 +763,7 @@ export class InAppBrowserService {
   }): Promise<BrowserViewState> {
     const ownerId = this.resolveOwnerId(options.ownerId);
     const tab = this.requireTab(options.tabId, ownerId);
+    if (tab.preview) throw new Error("A Stella preview tab only shows Stella.");
     this.clearOwnerError(ownerId);
     const url = normalizeWebUrl(options.url);
     await this.prepareGoogleNavigation(tab.view.webContents.id, url);
@@ -740,8 +823,17 @@ export class InAppBrowserService {
     ownerId?: string,
   ): Promise<InAppBrowserDebuggerTarget> {
     const resolvedOwnerId = this.resolveOwnerId(ownerId);
-    const state = await this.createTab({ url, ownerId: resolvedOwnerId });
-    const tabId = state.activeTabId;
+    let tabId: string | undefined;
+    if (url.startsWith(PREVIEW_URL_PREFIX)) {
+      tabId = await this.createPreviewTab(
+        url.slice(PREVIEW_URL_PREFIX.length).replace(/\/$/, ""),
+        resolvedOwnerId,
+      );
+    } else {
+      await this.requireAgentWebConnection();
+      tabId = (await this.createTab({ url, ownerId: resolvedOwnerId }))
+        .activeTabId;
+    }
     const target = tabId
       ? this.listDebuggerTargets(resolvedOwnerId).find(
           (candidate) => candidate.id === tabId,
@@ -771,6 +863,15 @@ export class InAppBrowserService {
   ): Promise<unknown> {
     const resolvedOwnerId = this.resolveOwnerId(ownerId);
     const tab = this.requireTab(tabId, resolvedOwnerId);
+    if (
+      tab.preview &&
+      method === "Page.navigate" &&
+      !isRendererUrl(String(params?.url ?? ""))
+    ) {
+      throw new Error(
+        "A Stella preview tab only shows Stella. Open web pages in a new tab.",
+      );
+    }
     const tabDebugger = tab.view.webContents.debugger;
     if (!tabDebugger.isAttached()) tabDebugger.attach();
     // Electron gives an unattached WebContentsView a 0x0 layout viewport. CDP
@@ -1602,7 +1703,10 @@ export class InAppBrowserService {
       this.attachActiveView();
     });
     contents.on("will-navigate", (event) => {
-      if (!isAllowedNavigationUrl(event.url)) event.preventDefault();
+      const allowed = tab.preview
+        ? isRendererUrl(event.url)
+        : isAllowedNavigationUrl(event.url);
+      if (!allowed) event.preventDefault();
     });
     contents.setWindowOpenHandler(({ url }) => {
       // Real auth / reauth popups (Google "confirm it's you", passkey, OAuth

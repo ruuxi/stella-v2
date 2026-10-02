@@ -1578,6 +1578,24 @@
         "failedTitle": "Computeropdatering mislykkedes"
       }
     },
+    "appSource": {
+      "update": "Opdater",
+      "title": "Ændringer i Stella",
+      "ready": "Klar",
+      "attention": "Kræver opmærksomhed",
+      "recent": "Seneste ændringer",
+      "apply": "Anvend",
+      "undo": "Fortryd",
+      "ask": "Spørg Stella",
+      "fromOtherComputer": "Ændringer fra din anden computer",
+      "diverged": "Ændringerne fra din anden computer afviger fra denne",
+      "outdated": "Lavet på en ældre version",
+      "undoConflict": "Er i konflikt med senere ændringer",
+      "failed": "Ændringen kunne ikke anvendes",
+      "askRebase": "Rebase mit udkast \"{name}\" på den aktuelle version.",
+      "askMerge": "Flet ændringerne fra min anden computer.",
+      "askUndo": "Fortryd \"{subject}\" (den er i konflikt med senere ændringer)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

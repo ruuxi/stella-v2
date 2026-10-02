@@ -1567,6 +1567,24 @@
         "failedTitle": "Cập nhật ứng dụng máy tính thất bại"
       }
     },
+    "appSource": {
+      "update": "Cập nhật",
+      "title": "Thay đổi đối với Stella",
+      "ready": "Sẵn sàng",
+      "attention": "Cần chú ý",
+      "recent": "Thay đổi gần đây",
+      "apply": "Áp dụng",
+      "undo": "Hoàn tác",
+      "ask": "Hỏi Stella",
+      "fromOtherComputer": "Thay đổi từ máy tính khác của bạn",
+      "diverged": "Thay đổi từ máy tính khác của bạn khác với máy này",
+      "outdated": "Được tạo trên phiên bản cũ hơn",
+      "undoConflict": "Xung đột với các thay đổi sau đó",
+      "failed": "Không thể áp dụng thay đổi",
+      "askRebase": "Rebase bản nháp \"{name}\" của tôi lên phiên bản hiện tại.",
+      "askMerge": "Hợp nhất các thay đổi từ máy tính khác của tôi.",
+      "askUndo": "Hoàn tác \"{subject}\" (nó xung đột với các thay đổi sau đó)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

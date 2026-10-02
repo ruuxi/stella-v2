@@ -1588,6 +1588,24 @@
         "failedTitle": "Aggiornamento dell'app per computer non riuscito"
       }
     },
+    "appSource": {
+      "update": "Aggiorna",
+      "title": "Modifiche a Stella",
+      "ready": "Pronto",
+      "attention": "Richiede attenzione",
+      "recent": "Modifiche recenti",
+      "apply": "Applica",
+      "undo": "Annulla",
+      "ask": "Chiedi a Stella",
+      "fromOtherComputer": "Modifiche dall'altro computer",
+      "diverged": "Le modifiche dall'altro computer differiscono da questo",
+      "outdated": "Creata su una versione precedente",
+      "undoConflict": "In conflitto con modifiche successive",
+      "failed": "Impossibile applicare la modifica",
+      "askRebase": "Esegui il rebase della mia bozza \"{name}\" sulla versione attuale.",
+      "askMerge": "Unisci le modifiche dal mio altro computer.",
+      "askUndo": "Annulla \"{subject}\" (è in conflitto con modifiche successive)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

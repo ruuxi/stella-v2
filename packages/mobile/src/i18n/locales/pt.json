@@ -1588,6 +1588,24 @@
         "failedTitle": "Falha na atualização do app para computador"
       }
     },
+    "appSource": {
+      "update": "Atualizar",
+      "title": "Alterações no Stella",
+      "ready": "Pronto",
+      "attention": "Precisa de atenção",
+      "recent": "Alterações recentes",
+      "apply": "Aplicar",
+      "undo": "Desfazer",
+      "ask": "Perguntar ao Stella",
+      "fromOtherComputer": "Alterações do seu outro computador",
+      "diverged": "As alterações do seu outro computador diferem deste",
+      "outdated": "Feito numa versão anterior",
+      "undoConflict": "Entra em conflito com alterações posteriores",
+      "failed": "Não foi possível aplicar a alteração",
+      "askRebase": "Faz rebase do meu rascunho \"{name}\" sobre a versão atual.",
+      "askMerge": "Junta as alterações do meu outro computador.",
+      "askUndo": "Desfaz \"{subject}\" (entra em conflito com alterações posteriores)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

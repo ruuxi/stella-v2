@@ -1598,6 +1598,24 @@
         "failedTitle": "Aktualizace aplikace selhala"
       }
     },
+    "appSource": {
+      "update": "Aktualizovat",
+      "title": "Změny ve Stelle",
+      "ready": "Připraveno",
+      "attention": "Vyžaduje pozornost",
+      "recent": "Nedávné změny",
+      "apply": "Použít",
+      "undo": "Vrátit",
+      "ask": "Zeptat se Stelly",
+      "fromOtherComputer": "Změny z vašeho druhého počítače",
+      "diverged": "Změny z vašeho druhého počítače se liší od tohoto",
+      "outdated": "Vytvořeno ve starší verzi",
+      "undoConflict": "Je v konfliktu s pozdějšími změnami",
+      "failed": "Změnu se nepodařilo použít",
+      "askRebase": "Přenes můj koncept „{name}“ na aktuální verzi.",
+      "askMerge": "Slouč změny z mého druhého počítače.",
+      "askUndo": "Vrať „{subject}“ (je v konfliktu s pozdějšími změnami)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

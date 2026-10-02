@@ -1578,6 +1578,24 @@
         "failedTitle": "Skrivbordsuppdateringen misslyckades"
       }
     },
+    "appSource": {
+      "update": "Uppdatera",
+      "title": "Ändringar i Stella",
+      "ready": "Klar",
+      "attention": "Behöver åtgärdas",
+      "recent": "Senaste ändringar",
+      "apply": "Tillämpa",
+      "undo": "Ångra",
+      "ask": "Fråga Stella",
+      "fromOtherComputer": "Ändringar från din andra dator",
+      "diverged": "Ändringarna från din andra dator skiljer sig från den här",
+      "outdated": "Gjord på en äldre version",
+      "undoConflict": "Krockar med senare ändringar",
+      "failed": "Det gick inte att tillämpa ändringen",
+      "askRebase": "Rebasa mitt utkast \"{name}\" på den aktuella versionen.",
+      "askMerge": "Slå ihop ändringarna från min andra dator.",
+      "askUndo": "Ångra \"{subject}\" (den krockar med senare ändringar)."
+    },
     "display": {
       "homeLauncher": {
         "files": {

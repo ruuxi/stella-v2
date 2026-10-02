@@ -47,6 +47,7 @@ import { registerAppSourceHandlers } from "../ipc/app-source-handlers.js";
 import { AppSourceService } from "../services/app-source/app-source-service.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { openDraftPreview } from "../services/app-source/draft-preview.js";
+import { restoreDevHarnessStorageKeyForRelaunch } from "./dev-harness-protected-storage.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
@@ -405,6 +406,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             requestRuntimeRestart: () => state.stellaHostRunner?.requestRuntimeRestart(),
             applyRendererChanges: (paths) => state.rendererSource?.applyChanges(paths),
             relaunch: () => {
+                restoreDevHarnessStorageKeyForRelaunch();
                 app.relaunch();
                 app.quit();
             },

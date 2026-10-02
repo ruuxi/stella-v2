@@ -67,6 +67,9 @@ export const createDevHarnessSafeStorage = (
   };
 };
 
+/** The consumed key, so a relaunch can hand it to the next process. */
+let consumedHarnessKey: string | null = null;
+
 export const configureDevHarnessProtectedStorage = ({
   env = process.env,
   isPackaged,
@@ -84,6 +87,18 @@ export const configureDevHarnessProtectedStorage = ({
   }
 
   setProtectedStorageProviderOverride(createDevHarnessSafeStorage(encodedKey));
+  consumedHarnessKey = encodedKey;
   delete env[HARNESS_STORAGE_KEY_ENV];
   return true;
+};
+
+/**
+ * `app.relaunch()` inherits this process's environment, where the key was
+ * deleted after use; without it the relaunched harness instance fails at
+ * startup. Put it back just before relaunching.
+ */
+export const restoreDevHarnessStorageKeyForRelaunch = (
+  env: NodeJS.ProcessEnv = process.env,
+) => {
+  if (consumedHarnessKey) env[HARNESS_STORAGE_KEY_ENV] = consumedHarnessKey;
 };

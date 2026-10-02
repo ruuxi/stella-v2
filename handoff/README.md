@@ -65,37 +65,11 @@ Order: Cloudflare 1–2 → v3 1–2 → Cloudflare 3–4 → v3 3–4 → then 
   - **Cloud orchestrator:** `history.sql(query, params)` and `history.read(fromSeq, toSeq)` inside `code`. They query the session DO's `journal` / `journal_fts` read-only (`workers/cloud-builder/src/history-sql.ts`), and the cloud prompt overlay names them. **Not yet verified live in a cloud chat.**
   - **Desktop orchestrator:** a `## History Database` section in its context plus a prompt line pointing at `<stellaDataDir>/stella.sqlite` (`entry`, `entry_fts`, `conversation`, `thread`, opened with `node:sqlite` read-only). Live check: the orchestrator did open the DB read-only from `code` and query it.
 
-## Open problem you should pick up first: desktop history lives in the cloud
+## Desktop history (done 2026-10-02, `61136df1a`)
 
-**The finding.** For signed-in desktop accounts the local `entry` table is **empty**. The conversation is owned by the cloud session DO (local turns are written there through `local-turns/begin|finish`). Locally there is only `cloud_conversation_cache_records`, which is a bounded cache: 3,000 records and 8 conversations (`packages/contracts/cloud-conversation-cache.ts`). So the desktop prompt line points the model at the wrong place, and its query returned `[]`.
+Signed-in desktop history lives in the cloud session DO, so the desktop `code` runtime now has the same `history.sql()` / `history.read()` as the cloud, served by `POST /conversations/:id/history/query`. One shared line in `orchestrator.md` names `journal` / `journal_fts`. Verified live on desktop and in a cloud chat (see the plan's Status).
 
-**The fix in progress** (decided; nothing written yet):
-
-- **One API for both orchestrators.**
-  - Give the desktop `code` runtime the same `history.sql()` / `history.read()` the cloud has.
-  - Put a single history line in the shared `orchestrator.md`, naming `journal` (seq, turn_id, kind, role, created_at ms, hidden, payload_json, spill_key) and FTS5 `journal_fts` (text, turn_id, role, created_at, rowid = seq).
-  - Delete the cloud overlay's copy of that line, the desktop `## History Database` context section (`packages/runtime/kernel/runner/context.ts`), and the `entry`-table wording.
-- **Cloud-builder.** Add `POST /conversations/:id/history/query` with body `{op:"sql", query, params}` or `{op:"read", fromSeq, toSeq}`.
-  - **Route:** in `src/build-session/worker-router.ts`, next to the `GET /conversations/:id/history` route. Use the same pattern: `authenticateConversationCaller` → `boundedIngressRequest(request, publicJsonBodyLimit(...))` → `forwardToConversation(..., "/history/query", auth.caller)`.
-  - **Body limit:** add the path to `publicJsonBodyLimit` in `src/request-ingress.ts` as `tinyControl`.
-  - **Session object:** in `src/orchestrator-session-object.ts`, handle `/history/query` before the POST edit-lock section, since it is read-only:
-    - `op:"sql"`: run `runHistoryQuery(this.ctx.storage, query, params)`, with params filtered to string/number/null;
-    - `op:"read"`: run `this.archive.readRange(max(0, fromSeq), toSeq, BACKFILL_BATCH_RECORDS)`;
-    - errors return 400 with the message.
-- **Desktop runtime (`packages/runtime/kernel/computer-use/`).**
-  - Ride the existing tool-call path rather than adding a protocol message:
-    - in `kernel-worker.ts`, define a frozen `history` global whose `sql` and `read` call `callTool("$history", {op, …})`;
-    - in `kernel.ts`, intercept `$history` next to the `$search` / `$describe` intrinsics (around line 1650) and call a new `queryHistory?(args, context)` option.
-  - `kernel/tools/host.ts` (where `searchTools` is wired) implements it:
-    - POST to `<backend>/conversations/<context.conversationId>/history/query` with the runtime's auth token. Look at how `kernel/runner/cloud-transcript-write.ts` builds its URL and token.
-    - Throw "history is unavailable" when signed out.
-  - Mention `history` in the `code` tool description (`kernel/tools/defs/code-def.ts`), which lists the globals.
-- **After building:**
-  1. Typecheck.
-  2. Deploy cloud-builder dev and republish the prompts (see above).
-  3. Verify live on desktop and in a cloud chat by asking for something only the journal knows, e.g. "query your history for my message containing X and give its seq and created_at", and confirm from the turn records that `history.sql` was called.
-
-**Known environment issue:** the dev default model (`stella/default` → `meta/muse-spark-1.3-contributor` via OpenRouter) often takes 25–30+ s per call, and the desktop aborts at 30 s ("Request was aborted.", turn canceled). This predates the changes above. When verifying, retry, or check the gateway with `bunx wrangler tail stella-v2-model-gateway-dev --format json`; `gateway_relay_timing` shows `upstreamBodyComplete`. It may be worth raising with the user as its own fix.
+**Known environment issue:** the dev default model (`stella/default` → `meta/muse-spark-1.3-contributor` via OpenRouter) often takes 25–30+ s per call, and the desktop aborts at 30 s ("Request was aborted.", turn canceled). When verifying, retry, or check the gateway with `bunx wrangler tail stella-v2-model-gateway-dev --format json`; `gateway_relay_timing` shows `upstreamBodyComplete`.
 
 ## After that, the queue
 

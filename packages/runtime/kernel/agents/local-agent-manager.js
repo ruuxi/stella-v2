@@ -605,6 +605,18 @@ export class LocalAgentManager {
         });
         this.enqueueTask(task, true);
     }
+    /** Active tasks with the durable run their live attempt is executing. */
+    listActiveAttemptRuns() {
+        const attempts = [];
+        for (const task of this.tasks.values()) {
+            if (!this.isActiveAgentState(task)) continue;
+            attempts.push({
+                threadId: task.threadId,
+                runId: task.status === "running" ? (task.currentRunId ?? null) : null,
+            });
+        }
+        return attempts;
+    }
     /**
      * Resolve once the boot sweep has finished (or was interrupted) and every
      * replay it started has settled. Never rejects.

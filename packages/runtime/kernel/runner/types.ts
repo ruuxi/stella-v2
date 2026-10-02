@@ -541,6 +541,14 @@ export type RunnerPublicApi = {
       launch: OrchestratorRunLaunch & { runId: string },
     ) => AgentCallbacks;
   }) => Promise<{ resumed: string[]; failed: string[] }>;
+  /**
+   * What would keep a worker restart from being invisible right now: unsafe
+   * tool calls in flight, and active runs that would not resume after it.
+   */
+  getRestartBlockers: () => {
+    unsafeToolCalls: number;
+    nonDurableRuns: number;
+  };
   sendMessage: (input: RuntimeSendMessageInput) => Promise<void>;
   sendUserMessage: (input: RuntimeSendUserMessageInput) => Promise<void>;
   runAutomationTurn: (

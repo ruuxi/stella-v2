@@ -109,10 +109,16 @@ const bufferAgentEvent = (buffers, event) => {
  * means the worker is unreachable, so there is nothing to preserve.
  */
 export const isWorkerBusyForRestart = (health) => health != null &&
-    (health.activeRun != null ||
-        health.activeAgentCount > 0 ||
-        health.voiceBusy === true ||
-        (health.pendingVoiceRequestCount ?? 0) > 0);
+    (health.voiceBusy === true ||
+        (health.pendingVoiceRequestCount ?? 0) > 0 ||
+        // A worker with durable runs reports what a restart would actually
+        // interrupt: an unsafe tool call in flight, or an active run that
+        // would not resume (`run-task.ts`). Durable runs resume in the
+        // replacement worker, so they no longer hold the restart. Older
+        // workers without the report keep the conservative rule.
+        (health.durableRestart
+            ? health.durableRestart.blocked === true
+            : health.activeRun != null || health.activeAgentCount > 0));
 export const shouldAckWorkerRunEvent = (event) => {
     if (!Number.isFinite(event.seq))
         return false;
@@ -150,6 +156,8 @@ export class StellaRuntimeHost {
     cloudScheduleUnsubscribe = null;
     cloudSchedules = null;
     reloadTimer = null;
+    /** Debounced restart re-check at a tool boundary (see RUN_EVENT handler). */
+    durableBoundaryFlushTimer = null;
     deferredRuntimeReload = false;
     // Coalescing for the requested-reload path only: while a
     // scheduled reload's restart is queued or running, further reload requests
@@ -1697,6 +1705,8 @@ export class StellaRuntimeHost {
         this.stopStaleWorkerQuiescencePoll();
         this.reloadTimer?.cancel();
         this.reloadTimer = null;
+        this.durableBoundaryFlushTimer?.cancel();
+        this.durableBoundaryFlushTimer = null;
         await this.workerController.stop(options?.killWorker ? "restart" : "stopped");
         await this.stopHostServices();
         this.deviceIdentity = null;
@@ -2703,6 +2713,17 @@ export class StellaRuntimeHost {
                         void this.flushWorkerRestart();
                     });
                 }
+            }
+            else if ((payload.type === AGENT_STREAM_EVENT_TYPES.TOOL_END ||
+                payload.type === AGENT_STREAM_EVENT_TYPES.AGENT_PROGRESS) &&
+                this.hasPendingWorkerRestartIntent() &&
+                !this.durableBoundaryFlushTimer) {
+                // A restart held only by an unsafe tool call can proceed at the
+                // next tool boundary (durable runs resume in the new worker).
+                this.durableBoundaryFlushTimer = forkDelayed(500, () => {
+                    this.durableBoundaryFlushTimer = null;
+                    void this.flushWorkerRestart();
+                });
             }
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.VOICE_AGENT_EVENT, (params) => {

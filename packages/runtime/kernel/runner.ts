@@ -623,6 +623,22 @@ export const createStellaHostRunner = (
       }
       return { resumed, failed };
     },
+    getRestartBlockers: () => {
+      const runTasks = context.runtimeStore.runTasks;
+      const durable = (runId: string | null | undefined): boolean =>
+        Boolean(runId) && (runTasks?.isLiveRunResumable(runId!) ?? false);
+      let nonDurableRuns = 0;
+      const activeRunId = context.state.activeOrchestratorRunId;
+      if (activeRunId && !durable(activeRunId)) nonDurableRuns += 1;
+      for (const attempt of context.state.localAgentManager?.listActiveAttemptRuns() ??
+        []) {
+        if (!durable(attempt.runId)) nonDurableRuns += 1;
+      }
+      return {
+        unsafeToolCalls: runTasks?.liveUnsafeIntentCount() ?? 0,
+        nonDurableRuns,
+      };
+    },
     sendMessage: orchestratorController.sendMessage,
     sendUserMessage: orchestratorController.sendUserMessage,
     runAutomationTurn: orchestratorController.runAutomationTurn,

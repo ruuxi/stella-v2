@@ -66,6 +66,10 @@ export const createCloudHtmlTool = (
   context: CloudHtmlToolContext,
 ): CloudCodeSourceAgentTool => ({
   name: HTML_TOOL_NAME,
+  // The drive write lands at the slug's fixed path with the tool call id as
+  // its batch key, and the files card is keyed `html:<toolCallId>`: a rerun
+  // rewrites the same bytes to the same file and the same card.
+  replay: "keyed",
   label: "Canvas",
   workingText: "Writing canvas",
   description: HTML_TOOL_DESCRIPTION,

@@ -24,6 +24,7 @@ import {
   WRITE_STDIN_TOOL_NAME,
   WRITE_STDIN_TOOL_PARAMETERS,
   WRITE_STDIN_TOOL_PROMPT_SNIPPET,
+  WRITE_STDIN_TOOL_REPLAY,
 } from "./write-stdin-def.js";
 
 export { WRITE_STDIN_TOOL_PARAMETERS } from "./write-stdin-def.js";
@@ -38,6 +39,7 @@ export const createWriteStdinTool = (
   options: WriteStdinToolOptions = {},
 ): ToolDefinition => ({
   name: WRITE_STDIN_TOOL_NAME,
+  replay: WRITE_STDIN_TOOL_REPLAY,
   description: WRITE_STDIN_TOOL_DESCRIPTION,
   promptSnippet: WRITE_STDIN_TOOL_PROMPT_SNIPPET,
   parameters: WRITE_STDIN_TOOL_PARAMETERS,

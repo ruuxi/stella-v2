@@ -20,6 +20,7 @@ import {
   WEB_TOOL_PARAMETERS,
   WEB_TOOL_PROMPT_SNIPPET,
   type WebSearchCapability,
+  WEB_TOOL_REPLAY,
 } from "./web-def.js";
 
 // Re-export the model-visible schema so tool-host consumers (and tests) can
@@ -32,6 +33,7 @@ export type WebToolOptions = {
 
 export const createWebTool = (options: WebToolOptions = {}): ToolDefinition => ({
   name: WEB_TOOL_NAME,
+  replay: WEB_TOOL_REPLAY,
   description: WEB_TOOL_DESCRIPTION,
   promptSnippet: WEB_TOOL_PROMPT_SNIPPET,
   parameters: WEB_TOOL_PARAMETERS,

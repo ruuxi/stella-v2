@@ -67,3 +67,6 @@ export const WEB_TOOL_PARAMETERS: Record<string, unknown> = {
     { required: ["url"], not: { required: ["query"] } },
   ],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). A search or a page fetch has no effect beyond the result. */
+export const WEB_TOOL_REPLAY = "safe" as const;

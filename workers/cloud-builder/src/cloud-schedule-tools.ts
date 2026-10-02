@@ -235,6 +235,11 @@ export const createCloudScheduleTools = (
     description: descriptor.description,
     parameters: descriptor.parameters as unknown as TSchema,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
+    // Every write carries a request id derived from the tool call id, and
+    // Convex replays the receipt it stored for it (`replayed: true`), so a
+    // rerun reports the first attempt's schedule instead of adding a twin.
+    replay:
+      descriptor.name === SCHEDULE_LIST_TOOL_DESCRIPTOR.name ? "safe" : "keyed",
     execute,
   });
 

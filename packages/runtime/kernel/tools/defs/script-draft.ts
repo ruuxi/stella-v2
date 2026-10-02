@@ -69,6 +69,7 @@ export const createScriptDraftTool = (
   options: ScriptDraftToolOptions,
 ): ToolDefinition => ({
   name: "ScriptDraft",
+  replay: "unsafe",
   agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.GENERAL],
   demoted: {
     searchTerms: [

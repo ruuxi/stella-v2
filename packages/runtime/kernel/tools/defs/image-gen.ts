@@ -18,6 +18,9 @@ export const createImageGenTool = (
   const handler = handlers.image_gen as ToolHandler;
   return {
     name: "image_gen",
+    // The image operation store keys every job by (conversation, tool call)
+    // and reattaches to it; a BYOK submit is at-most-once behind its CAS.
+    replay: "keyed",
     // Audience declaration: image generation is for the orchestrator. The
     // General agent (and any other subagent) is denied at both the catalog
     // filter and executeTool via this gate.

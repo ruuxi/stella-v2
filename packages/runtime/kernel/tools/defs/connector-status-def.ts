@@ -46,3 +46,6 @@ export const CONNECTOR_STATUS_TOOL_PARAMETERS: Record<string, unknown> = {
   required: ["connector"],
   additionalProperties: false,
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). A status read. The connect card it may show is not a durable effect on desktop (it dies with the process) and is deduplicated per turn and integration in the cloud. */
+export const CONNECTOR_STATUS_TOOL_REPLAY = "safe" as const;

@@ -17,6 +17,7 @@ import {
   READ_TOOL_DESCRIPTION,
   READ_TOOL_NAME,
   READ_TOOL_PARAMETERS,
+  READ_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/read-def.js";
 import { sanitizeToolVisibleText } from "@stella/runtime/kernel/tools/safety.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
@@ -81,6 +82,7 @@ export const createCloudReadTool = (
   options: CloudReadToolOptions,
 ): CloudCodeSourceAgentTool => ({
   name: READ_TOOL_NAME,
+  replay: READ_TOOL_REPLAY,
   label: "Read",
   workingText: "Reading",
   description: READ_TOOL_DESCRIPTION,

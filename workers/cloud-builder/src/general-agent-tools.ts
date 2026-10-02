@@ -24,51 +24,65 @@ import type {
 import {
   AGENT_ORCHESTRATION_TOOL_DESCRIPTORS,
   AGENT_ORCHESTRATION_TOOL_NAMES,
+  AGENT_STATUS_TOOL_REPLAY,
+  MERGE_WORKSPACE_TOOL_REPLAY,
+  PAUSE_AGENT_TOOL_REPLAY,
+  SEND_INPUT_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import {
   APPLY_PATCH_TOOL_DESCRIPTION,
   APPLY_PATCH_TOOL_NAME,
   APPLY_PATCH_TOOL_PARAMETERS,
+  APPLY_PATCH_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/apply-patch-def.js";
 import {
   CODE_TOOL_DESCRIPTION,
   CODE_TOOL_NAME,
   CODE_TOOL_PARAMETERS,
+  CODE_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/code-def.js";
 import {
   EDIT_TOOL_DESCRIPTION,
   EDIT_TOOL_NAME,
   EDIT_TOOL_PARAMETERS,
+  EDIT_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/edit-def.js";
 import {
   EXEC_COMMAND_TOOL_DESCRIPTION,
   EXEC_COMMAND_TOOL_NAME,
   EXEC_COMMAND_TOOL_PARAMETERS,
+  EXEC_COMMAND_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/exec-command-def.js";
 import {
   GREP_TOOL_DESCRIPTION,
   GREP_TOOL_NAME,
   GREP_TOOL_PARAMETERS,
+  GREP_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/grep-def.js";
 import {
   READ_TOOL_DESCRIPTION,
   READ_TOOL_NAME,
   READ_TOOL_PARAMETERS,
+  READ_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/read-def.js";
 import {
   WRITE_STDIN_TOOL_DESCRIPTION,
   WRITE_STDIN_TOOL_NAME,
   WRITE_STDIN_TOOL_PARAMETERS,
+  WRITE_STDIN_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/write-stdin-def.js";
 import {
   WRITE_TOOL_DESCRIPTION,
   WRITE_TOOL_NAME,
   WRITE_TOOL_PARAMETERS,
+  WRITE_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/write-def.js";
+import type { ReplayableAgentTool, ToolReplayPolicy } from "./tool-replay.js";
 import {
   WEB_TOOL_DESCRIPTION,
   WEB_TOOL_NAME,
   WEB_TOOL_PARAMETERS,
+  WEB_TOOL_REPLAY,
 } from "@stella/runtime/kernel/tools/defs/web-def.js";
 
 /**
@@ -113,6 +127,37 @@ const GENERAL_AGENT_TOOL_COMPUTE = {
 } as const satisfies Record<string, GeneralAgentToolCompute>;
 
 export type GeneralAgentToolName = keyof typeof GENERAL_AGENT_TOOL_COMPUTE;
+
+/**
+ * What a resumed resident turn may do with each tool's unanswered call
+ * (`tool-replay.ts`). Shared policies come from the desktop def modules; the
+ * one cloud-specific entry is `spawn_agent`, which is keyed here: the child's
+ * thread and turn ids derive from the tool call id and the outcome ledger
+ * replays a committed spawn, so a rerun reaches the agent it already started.
+ */
+const GENERAL_AGENT_TOOL_REPLAY = {
+  [EXEC_COMMAND_TOOL_NAME]: EXEC_COMMAND_TOOL_REPLAY,
+  [WRITE_STDIN_TOOL_NAME]: WRITE_STDIN_TOOL_REPLAY,
+  [APPLY_PATCH_TOOL_NAME]: APPLY_PATCH_TOOL_REPLAY,
+  [WEB_TOOL_NAME]: WEB_TOOL_REPLAY,
+  [READ_TOOL_NAME]: READ_TOOL_REPLAY,
+  [WRITE_TOOL_NAME]: WRITE_TOOL_REPLAY,
+  [EDIT_TOOL_NAME]: EDIT_TOOL_REPLAY,
+  [GREP_TOOL_NAME]: GREP_TOOL_REPLAY,
+  [CODE_TOOL_NAME]: CODE_TOOL_REPLAY,
+  spawn_agent: "keyed",
+  send_input: SEND_INPUT_TOOL_REPLAY,
+  pause_agent: PAUSE_AGENT_TOOL_REPLAY,
+  agent_status: AGENT_STATUS_TOOL_REPLAY,
+  merge_workspace: MERGE_WORKSPACE_TOOL_REPLAY,
+} as const satisfies Record<GeneralAgentToolName, ToolReplayPolicy>;
+
+export const replayForGeneralAgentTool = (
+  toolName: string,
+): ToolReplayPolicy =>
+  (GENERAL_AGENT_TOOL_REPLAY as Record<string, ToolReplayPolicy | undefined>)[
+    toolName
+  ] ?? "unsafe";
 
 export const GENERAL_AGENT_TOOL_NAMES = Object.keys(
   GENERAL_AGENT_TOOL_COMPUTE,
@@ -342,29 +387,39 @@ export const createResidentGeneralAgentTools = (
   compute?: GeneralAgentComputeBridge,
   jsSandbox?: ReadonlyMap<string, AgentTool>,
   options: Readonly<{ agentDepth?: number }> = {},
-): readonly AgentTool[] =>
+): readonly ReplayableAgentTool[] =>
   GENERAL_AGENT_TOOL_DESCRIPTORS.filter(
     (descriptor) =>
       (options.agentDepth ?? 0) < 2 ||
       !AGENT_ORCHESTRATION_TOOL_NAMES.includes(descriptor.name),
-  ).map((descriptor) => {
-    const placement = computeForTool(descriptor.name);
-    if (placement === "container") {
-      return compute && BRIDGED_TOOL_NAMES.has(descriptor.name)
-        ? bridgedTool(descriptor, compute)
-        : refusalStub(descriptor);
-    }
-    if (placement === "js_sandbox") {
-      return (
-        jsSandbox?.get(descriptor.name) ??
-        refusalStub(descriptor, NO_JS_SANDBOX_MESSAGE)
-      );
-    }
-    const tool = doLocal.get(descriptor.name);
-    if (!tool) {
-      throw new Error(
-        `The resident catalog is missing its ${descriptor.name} implementation.`,
-      );
-    }
-    return tool;
-  });
+  ).map((descriptor): ReplayableAgentTool => ({
+    ...residentToolFor(descriptor, doLocal, compute, jsSandbox),
+    replay: replayForGeneralAgentTool(descriptor.name),
+  }));
+
+const residentToolFor = (
+  descriptor: GeneralAgentToolDescriptor,
+  doLocal: ReadonlyMap<string, AgentTool>,
+  compute: GeneralAgentComputeBridge | undefined,
+  jsSandbox: ReadonlyMap<string, AgentTool> | undefined,
+): AgentTool => {
+  const placement = computeForTool(descriptor.name);
+  if (placement === "container") {
+    return compute && BRIDGED_TOOL_NAMES.has(descriptor.name)
+      ? bridgedTool(descriptor, compute)
+      : refusalStub(descriptor);
+  }
+  if (placement === "js_sandbox") {
+    return (
+      jsSandbox?.get(descriptor.name) ??
+      refusalStub(descriptor, NO_JS_SANDBOX_MESSAGE)
+    );
+  }
+  const tool = doLocal.get(descriptor.name);
+  if (!tool) {
+    throw new Error(
+      `The resident catalog is missing its ${descriptor.name} implementation.`,
+    );
+  }
+  return tool;
+};

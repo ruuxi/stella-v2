@@ -19,6 +19,7 @@ import {
   CONNECTOR_STATUS_TOOL_LABEL,
   CONNECTOR_STATUS_TOOL_NAME,
   CONNECTOR_STATUS_TOOL_PARAMETERS,
+  CONNECTOR_STATUS_TOOL_REPLAY,
   CONNECTOR_STATUS_TOOL_WORKING_TEXT,
 } from "@stella/runtime/kernel/tools/defs/connector-status-def.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
@@ -81,6 +82,7 @@ export const createCloudConnectorStatusTool = (
   options: CloudConnectorStatusToolOptions,
 ): CloudCodeSourceAgentTool => ({
   name: CONNECTOR_STATUS_TOOL_NAME,
+  replay: CONNECTOR_STATUS_TOOL_REPLAY,
   label: CONNECTOR_STATUS_TOOL_LABEL,
   workingText: CONNECTOR_STATUS_TOOL_WORKING_TEXT,
   description: CONNECTOR_STATUS_TOOL_DESCRIPTION,

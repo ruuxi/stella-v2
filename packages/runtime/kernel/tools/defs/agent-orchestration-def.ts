@@ -125,3 +125,22 @@ export const AGENT_ORCHESTRATION_TOOL_NAMES: readonly string[] = [
   "agent_status",
   "merge_workspace",
 ];
+
+/**
+ * Replay policies (`ToolReplayPolicy` in ../types.ts) shared by every host.
+ * `spawn_agent` is per host: the cloud derives the child's thread and turn
+ * ids from the tool call id (keyed), the desktop's local spawn mints a random
+ * thread key (unsafe), so each host declares its own.
+ */
+/** A status snapshot; no effect. */
+export const AGENT_STATUS_TOOL_REPLAY = "safe" as const;
+/** Pausing an agent that is already paused or finished is a no-op. */
+export const PAUSE_AGENT_TOOL_REPLAY = "safe" as const;
+/**
+ * A steer is keyed by an id derived from the tool call, but the child deletes
+ * the mailbox row once it consumes it, so a rerun after consumption delivers
+ * the instruction twice.
+ */
+export const SEND_INPUT_TOOL_REPLAY = "unsafe" as const;
+/** A merge mutates the shared world; a rerun merges whatever changed since. */
+export const MERGE_WORKSPACE_TOOL_REPLAY = "unsafe" as const;

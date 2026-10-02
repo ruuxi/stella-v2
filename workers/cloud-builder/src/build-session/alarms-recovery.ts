@@ -98,6 +98,7 @@ export type AlarmsRecoveryHost = Pick<
   | "recoverObservedBrowserSuspension"
   | "recoverResidentAgentTurn"
   | "registerTurn"
+  | "resumeResidentAgentTurn"
   | "releaseAgentSessionResources"
   | "repairedResidentJournal"
   | "retainPendingBrowserSuspension"
@@ -204,9 +205,13 @@ export const runAlarmWithLease = async (
   let auxiliaryGeneration: string | undefined;
   let retireOriginalLease = false;
   try {
+    // A resident attempt may be resumed by this alarm, and a resumed loop
+    // runs under the turn's own run lease, never under an auxiliary lease
+    // this handler retires on the way out.
     const useRunLeaseForRecovery =
       turn.kind === "agent" &&
-      (Boolean(
+      ((await host.admittedResidentPlacement(turn)) ||
+        Boolean(
         await host.ctx.storage.get(
           agentComputeKey(turn.turnId, turn.attemptGeneration!),
         ),
@@ -564,6 +569,10 @@ export const runAlarm = async (
     const computeRecovery = await recoverOrphanedAgentCompute(host, turn);
     if (computeRecovery === "retry") return;
     if (resident) {
+      // Continue the attempt if its bounds allow; otherwise fail it exactly
+      // as before. Both read the same journal, so a refused resume loses
+      // nothing the failure path would have kept.
+      if (await host.resumeResidentAgentTurn(turn)) return;
       await host.recoverResidentAgentTurn(turn);
       return;
     }

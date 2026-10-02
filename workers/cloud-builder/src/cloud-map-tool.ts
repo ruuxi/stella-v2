@@ -11,6 +11,7 @@ import {
   MAP_TOOL_DESCRIPTION,
   MAP_TOOL_NAME,
   MAP_TOOL_PARAMETERS,
+  MAP_TOOL_REPLAY,
   MAP_TOOL_SEARCH_TERMS,
   MAP_TOOL_WORKING_TEXT,
 } from "@stella/runtime/kernel/tools/defs/map-def.js";
@@ -30,6 +31,7 @@ export const createCloudMapTool = (
   options: CloudMapToolOptions = {},
 ): CloudCodeSourceAgentTool => ({
   name: MAP_TOOL_NAME,
+  replay: MAP_TOOL_REPLAY,
   label: "Map",
   workingText: MAP_TOOL_WORKING_TEXT,
   description: MAP_TOOL_DESCRIPTION,

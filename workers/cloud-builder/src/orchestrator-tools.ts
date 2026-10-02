@@ -19,7 +19,6 @@ import {
  * nothing about the orchestrator's execution surface is data-driven.
  */
 
-import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import type { TSchema } from "@sinclair/typebox";
 import {
   AgentHomeUnavailableError,
@@ -29,8 +28,9 @@ import {
 import { sha256Hex } from "./hash.js";
 import { extractMessageText } from "./journal.js";
 import type { JournalRecord } from "./conversation-types.js";
+import type { ReplayableAgentTool } from "./tool-replay.js";
 
-export type OrchestratorAgentTool = AgentTool;
+export type OrchestratorAgentTool = ReplayableAgentTool;
 
 export type OrchestratorToolContext = {
   ownerId: string;
@@ -119,6 +119,7 @@ export const createMemoryTools = (
   {
     name: "Recall",
     label: "Recall",
+    replay: "safe",
     description: RECALL_DESCRIPTION,
     parameters: RECALL_PARAMETERS as unknown as TSchema,
     execute: async (_id, params, signal) => {
@@ -211,6 +212,9 @@ export const createMemoryTools = (
   {
     name: "Remember",
     label: "Remember",
+    // The profile write carries an idempotency key derived from the tool call
+    // id, so a rerun replays the stored receipt instead of writing twice.
+    replay: "keyed",
     description:
       "Persist a durable fact about the user into their profile (name, location, stable preferences, ongoing situation). These facts are injected into your context at the start of every conversation, so use this for things the user would expect you to still know later — not transient task state. " +
       "action=add stores a new fact; action=replace swaps an outdated one (provide old_content); action=remove forgets one. Keep each fact short and high-signal; the profile has a size cap.",

@@ -20,6 +20,7 @@ import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import { readBoundedResponseBytes } from "./bounded-body.js";
 import { sha256Hex } from "./hash.js";
+import type { ReplayableAgentTool } from "./tool-replay.js";
 
 export const CLOUD_IMAGE_GEN_TOOL_NAME = "image_gen";
 
@@ -412,8 +413,11 @@ const drivePathFor = (jobId: string, index: number, mimeType: string, now: numbe
 
 export const createCloudImageGenTool = (
   context: CloudImageGenToolContext,
-): AgentTool => ({
+): ReplayableAgentTool => ({
   name: CLOUD_IMAGE_GEN_TOOL_NAME,
+  // One gateway job per (owner generation, conversation, turn, tool call):
+  // a rerun reattaches to the job it already submitted, never regenerates.
+  replay: "keyed",
   label: "Generate image",
   workingText: "Generating image",
   description: CLOUD_IMAGE_GEN_TOOL_DESCRIPTION,

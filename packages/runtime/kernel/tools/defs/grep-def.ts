@@ -27,3 +27,6 @@ export const GREP_TOOL_PARAMETERS: Record<string, unknown> = {
   },
   required: ["pattern"],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). A search has no effect beyond the result. */
+export const GREP_TOOL_REPLAY = "safe" as const;

@@ -25,6 +25,7 @@ import {
   MAP_TOOL_NAME,
   MAP_TOOL_PARAMETERS,
   MAP_TOOL_PROMPT_SNIPPET,
+  MAP_TOOL_REPLAY,
   MAP_TOOL_SEARCH_TERMS,
   MAP_TOOL_WORKING_TEXT,
 } from "./map-def.js";
@@ -47,6 +48,7 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
 
   return {
     name: MAP_TOOL_NAME,
+    replay: MAP_TOOL_REPLAY,
     // Chat-surface artifact: only the orchestrator drops map cards into the
     // conversation, mirroring the html/canvas tool.
     agentTypes: [AGENT_IDS.ORCHESTRATOR],

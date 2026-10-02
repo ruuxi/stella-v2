@@ -16,6 +16,7 @@ export const createRequestCredentialTool = (
   options: RequestCredentialOptions,
 ): ToolDefinition => ({
   name: "RequestCredential",
+  replay: "unsafe",
   description:
     "Request an API key or secret via a secure UI prompt. Returns a `secretId` handle that can be passed to other tools/integrations.",
   promptSnippet: "Securely request a credential from the user",

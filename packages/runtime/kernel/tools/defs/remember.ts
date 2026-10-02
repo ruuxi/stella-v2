@@ -15,6 +15,8 @@ export const createRememberTool = (
   options: RememberToolOptions,
 ): ToolDefinition => ({
   name: "Remember",
+  // The local profile write has no per-call receipt.
+  replay: "unsafe",
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   description:
     "Persist a durable fact about the user into their always-resident profile " +

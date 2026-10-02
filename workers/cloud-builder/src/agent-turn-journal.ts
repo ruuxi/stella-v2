@@ -81,9 +81,30 @@ const DDL = [
      sealed             INTEGER NOT NULL DEFAULT 0,
      row_count          INTEGER NOT NULL DEFAULT 0,
      history_cursor     TEXT    NOT NULL DEFAULT '',
+     resume_count       INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (turn_id, attempt_generation)
    )`,
 ] as const;
+
+/**
+ * Objects created before resume existed have the meta table without
+ * `resume_count`. SQLite has no `ADD COLUMN IF NOT EXISTS`, so probe once per
+ * isolate and add it when the probe fails; a concurrent add is impossible in
+ * a single-threaded Durable Object.
+ */
+const migratedSql = new WeakSet<SqlStorage>();
+const ensureResumeCountColumn = (sql: SqlStorage): void => {
+  if (migratedSql.has(sql)) return;
+  try {
+    sql.exec(`SELECT resume_count FROM agent_turn_journal_meta LIMIT 0`);
+  } catch {
+    sql.exec(
+      `ALTER TABLE agent_turn_journal_meta
+         ADD COLUMN resume_count INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  migratedSql.add(sql);
+};
 
 type JournalRow = {
   ordinal: number;
@@ -96,6 +117,7 @@ type MetaRow = {
   sealed: number;
   row_count: number;
   history_cursor: string;
+  resume_count: number;
 };
 
 /**
@@ -205,6 +227,7 @@ export class AgentTurnJournal {
     now: number;
   }): AgentTurnJournal {
     for (const statement of DDL) args.sql.exec(statement);
+    ensureResumeCountColumn(args.sql);
     args.sql.exec(
       `INSERT OR IGNORE INTO agent_turn_journal_meta
          (turn_id, attempt_generation, opened_at) VALUES (?, ?, ?)`,
@@ -247,12 +270,40 @@ export class AgentTurnJournal {
   private meta(): MetaRow {
     return this.sql
       .exec<MetaRow>(
-        `SELECT sealed, row_count, history_cursor FROM agent_turn_journal_meta
+        `SELECT sealed, row_count, history_cursor, resume_count
+           FROM agent_turn_journal_meta
           WHERE turn_id = ? AND attempt_generation = ?`,
         this.identity.turnId,
         this.identity.attemptGeneration,
       )
       .one();
+  }
+
+  /** How many times a replacement isolate has resumed this exact attempt. */
+  get resumeCount(): number {
+    return this.meta().resume_count;
+  }
+
+  /**
+   * Count one resume, durably, before the resumed loop does anything. A
+   * resume that itself dies still spends its slot, which is what bounds a
+   * turn that kills every isolate it runs in.
+   */
+  bumpResume(): number {
+    this.sql.exec(
+      `UPDATE agent_turn_journal_meta SET resume_count = resume_count + 1
+        WHERE turn_id = ? AND attempt_generation = ?`,
+      this.identity.turnId,
+      this.identity.attemptGeneration,
+    );
+    return this.resumeCount;
+  }
+
+  /** The journaled messages, exactly as the loop produced them. */
+  messages(): AgentMessage[] {
+    return this.rows().map(
+      (row) => JSON.parse(row.payloadJson) as AgentMessage,
+    );
   }
 
   rows(): readonly StagedTurnRow[] {
@@ -357,6 +408,26 @@ export class AgentTurnJournal {
     }
     if (this.rowCount === 0) this.appendSyntheticTerminal();
     return await this.commit();
+  }
+
+  /**
+   * Resume after isolate loss: answer every unanswered call in the tail and
+   * leave the journal open, so the resumed loop continues from a context the
+   * provider accepts. `index` is the call's position among the unanswered
+   * ones; with sequential tool execution only index 0 can have started.
+   */
+  async repairOpenCalls(
+    resolve: (
+      call: JournaledToolCall,
+      index: number,
+    ) => Promise<AgentMessage>,
+  ): Promise<number> {
+    if (this.sealed) return 0;
+    const open = this.openToolCalls();
+    for (let index = 0; index < open.length; index += 1) {
+      this.append(await resolve(open[index]!, index));
+    }
+    return open.length;
   }
 
   /**

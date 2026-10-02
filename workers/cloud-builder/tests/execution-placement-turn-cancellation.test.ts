@@ -2142,8 +2142,8 @@ describe("execution-placement exact cloud turn cancellation", () => {
     // Re-armed for the live fiber's next heartbeat, never past the watchdog.
     const rearmed = await harness.storage.getAlarm();
     expect(rearmed).not.toBeNull();
-    expect(rearmed!).toBeGreaterThanOrEqual(before + 60_000);
-    expect(rearmed!).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(rearmed!).toBeGreaterThanOrEqual(before + 15_000);
+    expect(rearmed!).toBeLessThanOrEqual(Date.now() + 15_000);
     expect(rearmed!).toBeLessThan(watchdogDeadlineAt);
     expect(harness.values.get("turn")).toEqual(current);
     expect(harness.values.get("terminal")).toBe(false);

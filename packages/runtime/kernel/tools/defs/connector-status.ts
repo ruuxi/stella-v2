@@ -39,6 +39,7 @@ import {
   CONNECTOR_STATUS_TOOL_LABEL,
   CONNECTOR_STATUS_TOOL_NAME,
   CONNECTOR_STATUS_TOOL_PARAMETERS,
+  CONNECTOR_STATUS_TOOL_REPLAY,
   CONNECTOR_STATUS_TOOL_WORKING_TEXT,
 } from "./connector-status-def.js";
 
@@ -164,6 +165,7 @@ export const createConnectorStatusTool = (
   options: ConnectorStatusToolOptions,
 ): ToolDefinition => ({
   name: CONNECTOR_STATUS_TOOL_NAME,
+  replay: CONNECTOR_STATUS_TOOL_REPLAY,
   label: CONNECTOR_STATUS_TOOL_LABEL,
   workingText: CONNECTOR_STATUS_TOOL_WORKING_TEXT,
   // Orchestrator-only chat affordance, mirroring the map/html tools.

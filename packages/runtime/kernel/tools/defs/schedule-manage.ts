@@ -54,6 +54,8 @@ export const createScheduleManageTools = (
 ): ToolDefinition[] => [
   {
     ...SCHEDULE_ADD_TOOL_DESCRIPTOR,
+    // The local cron store has no per-call request id; a rerun adds a twin.
+    replay: "unsafe",
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     execute: async (args, context) => {
@@ -66,6 +68,7 @@ export const createScheduleManageTools = (
   },
   {
     ...SCHEDULE_LIST_TOOL_DESCRIPTOR,
+    replay: "safe",
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     execute: async (_args, context) => {
@@ -78,6 +81,7 @@ export const createScheduleManageTools = (
   },
   {
     ...SCHEDULE_UPDATE_TOOL_DESCRIPTOR,
+    replay: "unsafe",
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     execute: async (args) => {
@@ -90,6 +94,7 @@ export const createScheduleManageTools = (
   },
   {
     ...SCHEDULE_REMOVE_TOOL_DESCRIPTOR,
+    replay: "unsafe",
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     execute: async (args) => {

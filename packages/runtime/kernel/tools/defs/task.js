@@ -19,9 +19,13 @@ import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   AGENT_ORCHESTRATION_TOOL_NAMES,
   AGENT_STATUS_TOOL_DESCRIPTOR,
+  AGENT_STATUS_TOOL_REPLAY,
   MERGE_WORKSPACE_TOOL_DESCRIPTOR,
+  MERGE_WORKSPACE_TOOL_REPLAY,
   PAUSE_AGENT_TOOL_DESCRIPTOR,
+  PAUSE_AGENT_TOOL_REPLAY,
   SEND_INPUT_TOOL_DESCRIPTOR,
+  SEND_INPUT_TOOL_REPLAY,
   SPAWN_AGENT_MODEL_DESCRIPTION,
   SPAWN_AGENT_TOOL_DESCRIPTOR,
 } from "./agent-orchestration-def.js";
@@ -40,30 +44,36 @@ export { AGENT_ORCHESTRATION_TOOL_NAMES, SPAWN_AGENT_MODEL_DESCRIPTION };
 export const createAgentTools = (stateContext) => [
   {
     ...SPAWN_AGENT_TOOL_DESCRIPTOR,
+    // A local spawn mints a random thread key, so a rerun is a second agent.
+    replay: /** @type {const} */ ("unsafe"),
     agentTypes: AGENT_SPAWNERS,
     execute: async (args, context) =>
       handleSpawnAgent(stateContext, args, context),
   },
   {
     ...SEND_INPUT_TOOL_DESCRIPTOR,
+    replay: SEND_INPUT_TOOL_REPLAY,
     agentTypes: AGENT_SPAWNERS,
     execute: async (args, context) =>
       handleSendInput(stateContext, args, context),
   },
   {
     ...PAUSE_AGENT_TOOL_DESCRIPTOR,
+    replay: PAUSE_AGENT_TOOL_REPLAY,
     agentTypes: AGENT_SPAWNERS,
     execute: async (args, context) =>
       handleSpawnAgent(stateContext, { ...args, action: "cancel" }, context),
   },
   {
     ...AGENT_STATUS_TOOL_DESCRIPTOR,
+    replay: AGENT_STATUS_TOOL_REPLAY,
     agentTypes: AGENT_SPAWNERS,
     execute: async (args, context) =>
       handleAgentStatus(stateContext, args, context),
   },
   {
     ...MERGE_WORKSPACE_TOOL_DESCRIPTOR,
+    replay: MERGE_WORKSPACE_TOOL_REPLAY,
     agentTypes: AGENT_SPAWNERS,
     execute: async () => handleMergeWorkspace(),
   },

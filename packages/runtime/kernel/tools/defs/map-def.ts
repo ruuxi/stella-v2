@@ -54,3 +54,6 @@ export const MAP_TOOL_PARAMETERS: Record<string, unknown> = {
     },
   },
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). A geocode/route lookup has no effect beyond the result. */
+export const MAP_TOOL_REPLAY = "safe" as const;

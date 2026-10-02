@@ -45,6 +45,7 @@ import {
   CLOUD_CODE_SEARCH_INTRINSIC,
 } from "./cloud-code-worker-executor.js";
 import { sha256Hex } from "./hash.js";
+import type { ToolReplayPolicy } from "./tool-replay.js";
 
 const CLOUD_CODE_MODEL_OUTPUT_MAX_BYTES = 50_000;
 const CLOUD_CODE_NESTED_RESULT_MAX_BYTES = 128 * 1024;
@@ -115,6 +116,8 @@ export type CloudCodeSourceAgentTool = AgentTool & {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };
+  /** Recovery policy for an unanswered call of this tool (`tool-replay.ts`). */
+  replay?: ToolReplayPolicy;
 };
 
 /** Host-side implementation of the sandbox's frozen `connect` global. */

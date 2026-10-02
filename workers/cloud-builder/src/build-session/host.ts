@@ -61,6 +61,7 @@ import type { Env } from "./shared/env.js";
 import type {
   AgentExecutionMarker,
   AgentExecutorResult,
+  AgentTurnRunOptions,
   BuildOwnerFenceLeaseReceipt,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
@@ -139,6 +140,7 @@ export interface BuildSessionInternals {
   startAgentTurn(
     turn: TurnRequest,
     sandboxId: string | undefined,
+    options?: AgentTurnRunOptions,
   ): Promise<void>;
   abortResidentAgent(turn: TurnRequest): void;
   callOwnerFence(
@@ -218,6 +220,7 @@ export interface BuildSessionInternals {
     message: string,
   ): Promise<SealedTurnTranscript>;
   recoverResidentAgentTurn(turn: TurnRequest): Promise<void>;
+  resumeResidentAgentTurn(turn: TurnRequest): Promise<boolean>;
   recoverAgentTurnAfterExecutorLoss(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
@@ -442,6 +445,7 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     sandboxId: string | undefined,
     execution: TurnExecutionContext,
+    options?: AgentTurnRunOptions,
   ): Promise<void>;
   resolveAgentWorldRestore(
     turn: TurnRequest,
@@ -475,6 +479,7 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
     execution: TurnExecutionContext,
+    options?: AgentTurnRunOptions,
   ): Promise<GeneralAgentTurnResult>;
   finishResidentAgentTurn(
     turn: TurnRequest,

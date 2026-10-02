@@ -45,6 +45,7 @@ import {
 } from "./shared/keys.js";
 import type {
   AgentExecutionMarker,
+  AgentTurnRunOptions,
   BuilderFallbackTranscript,
   ObservedBrowserSuspension,
   PendingBrowserSuspension,
@@ -119,11 +120,12 @@ export const startAgentTurn = (
   host: AdmissionHost,
   turn: TurnRequest,
   sandboxId: string | undefined,
+  options: AgentTurnRunOptions = {},
 ): Promise<void> => {
   const existing = host.agentTurnExecutions.get(turn.turnId);
   if (existing) return existing.settled;
   const execution = startTurnExecution({
-    work: (context) => host.runAgentTurn(turn, sandboxId, context),
+    work: (context) => host.runAgentTurn(turn, sandboxId, context, options),
     // Cleanup is part of fiber interruption and is bounded by the Effect
     // facade. A Stop ACK therefore means the exact command session and
     // container teardown completed (or the cancellation failed visibly).
@@ -687,6 +689,7 @@ export const runAgentTurn = async (
   turn: TurnRequest,
   sandboxId: string | undefined,
   execution: TurnExecutionContext,
+  options: AgentTurnRunOptions = {},
 ): Promise<void> => {
   const identity = {
     turnId: turn.turnId,
@@ -707,7 +710,8 @@ export const runAgentTurn = async (
         reason: "unplaced",
       } as const),
     context: execution,
-    resident: (plan) => host.runResidentAgentTurn(turn, plan, execution),
+    resident: (plan) =>
+      host.runResidentAgentTurn(turn, plan, execution, options),
     native: async () => {
       // Admission mints the id for every plan that keeps the container
       // path, so an absent one here means this isolate is running a turn

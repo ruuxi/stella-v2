@@ -53,3 +53,6 @@ export const EXEC_COMMAND_TOOL_PARAMETERS: Record<string, unknown> = {
   },
   required: ["cmd"],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). An arbitrary process; its effect cannot be proven or repeated safely. */
+export const EXEC_COMMAND_TOOL_REPLAY = "unsafe" as const;

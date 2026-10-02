@@ -22,3 +22,6 @@ export const READ_TOOL_PARAMETERS: Record<string, unknown> = {
   },
   required: ["file_path"],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). Reading a file again has no effect beyond the result. */
+export const READ_TOOL_REPLAY = "safe" as const;

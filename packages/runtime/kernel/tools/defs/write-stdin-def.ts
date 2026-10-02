@@ -65,3 +65,6 @@ export const WRITE_STDIN_TOOL_PARAMETERS: Record<string, unknown> = {
   },
   required: ["session_id"],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). Input to a live process; the process (and its session) died with the call. */
+export const WRITE_STDIN_TOOL_REPLAY = "unsafe" as const;

@@ -22,6 +22,7 @@ import type {
 } from "../runtime-threads.js";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RecallLookupResult } from "../agent-runtime/recall-run-cache.js";
+import type { ToolReplayPolicy } from "./defs/replay-policy.js";
 
 /**
  * Trusted-host-only OS identity for model-authored child processes. This is
@@ -570,6 +571,9 @@ export type ToolHandler = (
   extras?: ToolHandlerExtras,
 ) => Promise<ToolResult>;
 
+/** @see ./defs/replay-policy.ts */
+export type { ToolReplayPolicy };
+
 /**
  * Self-contained tool definition. One file per tool under
  * `runtime/kernel/tools/defs/` exports either a `ToolDefinition` directly (for
@@ -604,6 +608,11 @@ export type ToolDefinition = {
   approval?: unknown;
   /** Side-effect metadata supplied by the tool source. */
   sideEffects?: unknown;
+  /**
+   * What recovery may do with a call that was in flight when its process was
+   * lost. Omitted means `"unsafe"`. See {@link ToolReplayPolicy}.
+   */
+  replay?: ToolReplayPolicy;
   /** Reversibility hint supplied by the tool source. */
   reversible?: boolean;
   /** MCP-style callable annotations supplied by the tool source. */

@@ -22,3 +22,6 @@ export const APPLY_PATCH_TOOL_PARAMETERS: Record<string, unknown> = {
   },
   required: ["input"],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). A rerun applies the patch to files the first attempt may already have changed. */
+export const APPLY_PATCH_TOOL_REPLAY = "unsafe" as const;

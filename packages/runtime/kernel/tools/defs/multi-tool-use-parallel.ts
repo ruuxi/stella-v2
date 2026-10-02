@@ -32,6 +32,9 @@ export const createMultiToolUseParallelTool = (
   options: MultiToolUseParallelOptions,
 ): ToolDefinition => ({
   name: "multi_tool_use_parallel",
+  // Derived per call, not static: a batch is replayable only if every inner
+  // call's tool is `safe`. The static default stays conservative.
+  replay: "unsafe",
   description:
     "Run several independent tool calls concurrently. Pass `tool_uses` as an array of `{ recipient_name, parameters }` entries; each entry runs in parallel and the combined results are returned. Only batch calls that don't depend on each other (e.g. multiple file reads) and stay within the same tool family.",
   promptSnippet: "Fan out independent tool calls in parallel",

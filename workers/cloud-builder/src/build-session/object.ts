@@ -57,6 +57,7 @@ import {
   publishResidentTurnWorkspace,
   recoverResidentAgentTurn,
   repairedResidentJournal,
+  resumeResidentAgentTurn,
   residentAttachHistory,
   runResidentAgentTurn,
 } from "../build-session/resident-turn.js";
@@ -125,6 +126,7 @@ import {
 } from "../build-session/shared/keys.js";
 import type {
   AgentExecutionMarker,
+  AgentTurnRunOptions,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
   BuildOwnerFenceLeaseReceipt,
@@ -342,8 +344,9 @@ export class BuildSessionObject extends DurableObject<Env> {
   private startAgentTurn(
     turn: TurnRequest,
     sandboxId: string | undefined,
+    options?: AgentTurnRunOptions,
   ): Promise<void> {
-    return startAgentTurn(this.self, turn, sandboxId);
+    return startAgentTurn(this.self, turn, sandboxId, options);
   }
 
   /** @see src/build-session/session-core.ts */
@@ -506,6 +509,11 @@ export class BuildSessionObject extends DurableObject<Env> {
   /** @see src/build-session/resident-turn.ts */
   private recoverResidentAgentTurn(turn: TurnRequest): Promise<void> {
     return recoverResidentAgentTurn(this.self, turn);
+  }
+
+  /** @see src/build-session/resident-turn.ts */
+  private resumeResidentAgentTurn(turn: TurnRequest): Promise<boolean> {
+    return resumeResidentAgentTurn(this.self, turn);
   }
 
   /** @see src/build-session/alarms-recovery.ts */
@@ -1167,10 +1175,16 @@ export class BuildSessionObject extends DurableObject<Env> {
               ),
             ),
           ]);
-          if (executionMarker || fallbackJournal) {
+          if (
+            executionMarker ||
+            fallbackJournal ||
+            (await this.admittedResidentPlacement(storedTurn))
+          ) {
             // The prior isolate admitted model-controlled work. Its sandbox
             // and durable checkpoint/publication journal are the authority;
             // never replace them with a failed terminal on a lost /turn ACK.
+            // A resident attempt's journal is that authority too: the alarm
+            // resumes it, or fails it the way recovery always has.
             await this.setExactTurnAlarm(storedTurn, Date.now());
             return json(
               { accepted: false, replayed: true, recoveryPending: true },
@@ -1319,8 +1333,9 @@ export class BuildSessionObject extends DurableObject<Env> {
     turn: TurnRequest,
     sandboxId: string | undefined,
     execution: TurnExecutionContext,
+    options?: AgentTurnRunOptions,
   ): Promise<void> {
-    return runAgentTurn(this.self, turn, sandboxId, execution);
+    return runAgentTurn(this.self, turn, sandboxId, execution, options);
   }
 
   /** @see src/build-session/resident-turn.ts */
@@ -1328,8 +1343,9 @@ export class BuildSessionObject extends DurableObject<Env> {
     turn: TurnRequest,
     plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
     execution: TurnExecutionContext,
+    options?: AgentTurnRunOptions,
   ): Promise<GeneralAgentTurnResult> {
-    return runResidentAgentTurn(this.self, turn, plan, execution);
+    return runResidentAgentTurn(this.self, turn, plan, execution, options);
   }
 
   /** @see src/build-session/resident-turn.ts */

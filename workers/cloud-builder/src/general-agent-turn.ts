@@ -57,6 +57,7 @@ import type {
   GeneralAgentControlPlane,
 } from "./agent-control-plane.js";
 import { AgentTurnJournal } from "./agent-turn-journal.js";
+import { resolveOpenToolCall } from "./tool-replay.js";
 import type { SealedTurnTranscript } from "./agent-turn-journal.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 import { assertTurnExecutionActive } from "./turn-cancellation.js";
@@ -746,7 +747,47 @@ export type ResidentStellaLoopInput = Readonly<{
     /** The turn's final assistant text; the delivery file list derives from its links. */
     finalText: string,
   ) => Promise<Exclude<TurnDurability, { kind: "none" }>>;
+  /**
+   * Continue the journaled attempt a lost isolate left behind instead of
+   * starting it. The prompt is already the journal's first row, so it is not
+   * appended again; the journal's rows follow the same Convex history the
+   * first isolate read, which keeps the provider request prefix byte-identical
+   * for prompt caching. Unanswered tool calls are answered by their replay
+   * policy (`tool-replay.ts`) before the loop continues.
+   */
+  resume?: Readonly<{
+    onRepaired?: (summary: ResidentResumeSummary) => void;
+  }>;
 }>;
+
+export type ResidentResumeSummary = Readonly<{
+  journalRows: number;
+  sealed: boolean;
+  rerun: number;
+  interrupted: number;
+  notStarted: number;
+  /** The final reply was journaled; only the commit was lost. */
+  finishedBeforeLoss: boolean;
+}>;
+
+/**
+ * The usage a lost isolate already spent, recovered from its journaled
+ * assistant rows so a resumed turn reports the whole turn rather than only
+ * its own half. Each row is one provider response; the gateway billed each
+ * exactly once when it happened.
+ */
+const journaledUsage = (messages: readonly AgentMessage[]): TurnUsage => {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let llmCalls = 0;
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    llmCalls += 1;
+    inputTokens += message.usage?.input ?? 0;
+    outputTokens += message.usage?.output ?? 0;
+  }
+  return { inputTokens, outputTokens, llmCalls };
+};
 
 /**
  * The resident Stella agent loop.
@@ -819,127 +860,189 @@ export const runResidentStellaLoop = async (
     }
     return messages;
   };
-  const promptMessage: AgentMessage = {
-    role: "user",
-    content: [{ type: "text", text: turn.prompt }],
-    timestamp: input.now(),
-  };
-  journal.append(promptMessage);
-  // Start evaluating the loop only after this attempt and its prompt are
-  // durably journaled. History validation and non-turn routes avoid the cost.
-  const agentRuntimeWork = loadRuntimeAgent();
-  void agentRuntimeWork.catch(() => undefined);
-  let initialSteer: AgentMessage[];
-  try {
-    initialSteer = await drainSteer();
-  } catch (error) {
-    return preflightFailure(
-      `Persisting agent input failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+  // A journal with rows under this exact attempt is the record a lost isolate
+  // left. Without rows there is nothing to continue: the loss came before the
+  // prompt was journaled, so the attempt simply starts.
+  const resuming = input.resume !== undefined && journal.rowCount > 0;
+  const resumedSealed = resuming && journal.sealed;
+  let resumeSummary: ResidentResumeSummary | undefined;
+  if (resuming && !resumedSealed) {
+    context.assertActive();
+    const counts = { rerun: 0, interrupted: 0, notStarted: 0 };
+    try {
+      await journal.repairOpenCalls(async (call, index) => {
+        const resolved = await resolveOpenToolCall({
+          tools: input.tools,
+          call,
+          started: index === 0,
+          signal: context.signal,
+          now: input.now,
+        });
+        if (resolved.disposition === "rerun") counts.rerun += 1;
+        else if (resolved.disposition === "interrupted") counts.interrupted += 1;
+        else counts.notStarted += 1;
+        return resolved.message;
+      });
+    } catch (error) {
+      context.assertActive();
+      return preflightFailure(
+        `Resuming the agent failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    resumeSummary = {
+      journalRows: journal.rowCount,
+      sealed: false,
+      ...counts,
+      finishedBeforeLoss: journal.messages().at(-1)?.role === "assistant",
+    };
+  } else if (resumedSealed) {
+    resumeSummary = {
+      journalRows: journal.rowCount,
+      sealed: true,
+      rerun: 0,
+      interrupted: 0,
+      notStarted: 0,
+      finishedBeforeLoss: true,
+    };
   }
+  if (resumeSummary) input.resume?.onRepaired?.(resumeSummary);
+  const journaled = resuming ? journal.messages() : [];
+  const priorUsage = journaledUsage(journaled);
+  let inputTokens = priorUsage.inputTokens;
+  let outputTokens = priorUsage.outputTokens;
+  let llmCalls = priorUsage.llmCalls;
+  let finalText = "";
+  let runError: string | undefined;
 
-  context.assertActive();
-  const model = await (input.createModel ?? relayModelFactory)({
-    gatewayOrigin: input.modelGateway.origin,
-    capability: input.modelGateway.capability,
-    execution: input.execution,
-    signal: context.signal,
-    ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
-  });
+  if (resumeSummary?.finishedBeforeLoss) {
+    // The reply is already journaled; only its commit was lost. Asking the
+    // model again would bill a second reply nobody needs and could differ
+    // from the one the journal will commit.
+    const completion = getAgentCompletion({
+      state: { messages: journaled, error: undefined },
+    } as unknown as Parameters<typeof getAgentCompletion>[0]);
+    finalText = completion.finalText.trim();
+    runError = completion.errorMessage;
+  } else {
+    const promptMessage: AgentMessage = {
+      role: "user",
+      content: [{ type: "text", text: turn.prompt }],
+      timestamp: input.now(),
+    };
+    if (!resuming) journal.append(promptMessage);
+    // Start evaluating the loop only after this attempt and its prompt are
+    // durably journaled. History validation and non-turn routes avoid the cost.
+    const agentRuntimeWork = loadRuntimeAgent();
+    void agentRuntimeWork.catch(() => undefined);
+    let initialSteer: AgentMessage[];
+    try {
+      initialSteer = await drainSteer();
+    } catch (error) {
+      return preflightFailure(
+        `Persisting agent input failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
-  // The model registry is a lazy import in the Worker (it is 433 KB of
-  // catalog that must not be evaluated on every object wake). The relay
-  // factory loads it, but a caller may inject its own model, and the Agent's
-  // defaults still read the registry synchronously — so settle it here,
-  // before the latch below, where an await is still allowed.
-  await loadModelRegistry();
-  const Agent = await agentRuntimeWork;
-  context.assertActive();
-  // No await between this synchronous latch and constructing the Agent. The
-  // next async admission boundary repeats the check.
-  assertTurnExecutionActive(context.cancellation, context.signal);
-  const agent = new Agent({
-    initialState: {
-      systemPrompt: buildGeneralAgentPrompt({
-        workspace: "lazy",
-        office: input.workspacePrompt.office,
-        ...(input.workspacePrompt.workspaceRoot
-          ? { workspaceRoot: input.workspacePrompt.workspaceRoot }
-          : {}),
-        ...(input.workspacePrompt.skills
-          ? { skills: input.workspacePrompt.skills }
-          : {}),
-      }),
-      model,
-      tools: [...input.tools],
-      messages: [...history, promptMessage, ...initialSteer],
-    },
-    sessionId: turn.identity.threadId,
-    getApiKey: () => input.modelGateway.capability,
-    toolExecution: "sequential",
-    toolInactivityTimeoutMs: 5 * 60_000,
-    transformContext: buildDefaultTransformContext({ model }),
-    degenerateResponseRetries: 0,
-    providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-    onTurnBoundary: async ({ context: boundaryContext }) => {
+    context.assertActive();
+    const model = await (input.createModel ?? relayModelFactory)({
+      gatewayOrigin: input.modelGateway.origin,
+      capability: input.modelGateway.capability,
+      execution: input.execution,
+      signal: context.signal,
+      ...(input.modelGateway.fetch ? { fetch: input.modelGateway.fetch } : {}),
+    });
+
+    // The model registry is a lazy import in the Worker (it is 433 KB of
+    // catalog that must not be evaluated on every object wake). The relay
+    // factory loads it, but a caller may inject its own model, and the Agent's
+    // defaults still read the registry synchronously — so settle it here,
+    // before the latch below, where an await is still allowed.
+    await loadModelRegistry();
+    const Agent = await agentRuntimeWork;
+    context.assertActive();
+    // No await between this synchronous latch and constructing the Agent. The
+    // next async admission boundary repeats the check.
+    assertTurnExecutionActive(context.cancellation, context.signal);
+    const agent = new Agent({
+      initialState: {
+        systemPrompt: buildGeneralAgentPrompt({
+          workspace: "lazy",
+          office: input.workspacePrompt.office,
+          ...(input.workspacePrompt.workspaceRoot
+            ? { workspaceRoot: input.workspacePrompt.workspaceRoot }
+            : {}),
+          ...(input.workspacePrompt.skills
+            ? { skills: input.workspacePrompt.skills }
+            : {}),
+        }),
+        model,
+        tools: [...input.tools],
+        messages: resuming
+          ? [...history, ...journaled, ...initialSteer]
+          : [...history, promptMessage, ...initialSteer],
+      },
+      sessionId: turn.identity.threadId,
+      getApiKey: () => input.modelGateway.capability,
+      toolExecution: "sequential",
+      toolInactivityTimeoutMs: 5 * 60_000,
+      transformContext: buildDefaultTransformContext({ model }),
+      degenerateResponseRetries: 0,
+      providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
+      onTurnBoundary: async ({ context: boundaryContext }) => {
+        try {
+          const steering = await drainSteer();
+          return steering.length > 0
+            ? [...boundaryContext.messages, ...steering]
+            : undefined;
+        } catch (error) {
+          journalError ??=
+            error instanceof Error ? error.message : "journal append failed";
+          return undefined;
+        }
+      },
+      ...(input.streamFn ? { streamFn: input.streamFn } : {}),
+    });
+    input.onAgentStarted?.(() => agent.abort());
+
+    const unsubscribe = agent.subscribe((event: AgentEvent) => {
+      if (context.cancellation.aborted || context.signal.aborted) return;
+      if (event.type !== "message_end") return;
       try {
-        const steering = await drainSteer();
-        return steering.length > 0
-          ? [...boundaryContext.messages, ...steering]
-          : undefined;
+        journal.append(event.message);
       } catch (error) {
         journalError ??=
           error instanceof Error ? error.message : "journal append failed";
-        return undefined;
+        agent.abort();
+        return;
       }
-    },
-    ...(input.streamFn ? { streamFn: input.streamFn } : {}),
-  });
-  input.onAgentStarted?.(() => agent.abort());
-
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let llmCalls = 0;
-  const unsubscribe = agent.subscribe((event: AgentEvent) => {
-    if (context.cancellation.aborted || context.signal.aborted) return;
-    if (event.type !== "message_end") return;
-    try {
-      journal.append(event.message);
-    } catch (error) {
-      journalError ??=
-        error instanceof Error ? error.message : "journal append failed";
-      agent.abort();
-      return;
-    }
-    if (event.message.role !== "assistant") return;
-    llmCalls += 1;
-    inputTokens += event.message.usage.input;
-    outputTokens += event.message.usage.output;
-  });
-
-  let finalText = "";
-  let runError: string | undefined;
-  try {
-    const execution = await executeAgentRunWithRetry({
-      state: { attemptsUsed: 0, retriesUsed: 0 },
-      isCanceled: () => context.cancellation.aborted,
-      sleep: (milliseconds) => context.cancellation.sleep(milliseconds),
-      execute: async (resume) => {
-        context.assertActive();
-        assertTurnExecutionActive(context.cancellation, context.signal);
-        await agent.continue();
-        const completion = getAgentCompletion(agent);
-        return { ...completion, finalText: completion.finalText.trim() };
-      },
-      prepareResume: (_reason, classification) =>
-        prepareTransientResumeTail(agent.state.messages, classification),
+      if (event.message.role !== "assistant") return;
+      llmCalls += 1;
+      inputTokens += event.message.usage.input;
+      outputTokens += event.message.usage.output;
     });
-    finalText = execution.finalText;
-    runError = execution.errorMessage;
-  } catch (error) {
-    runError = error instanceof Error ? error.message : String(error);
-  } finally {
-    unsubscribe();
+
+    try {
+      const execution = await executeAgentRunWithRetry({
+        state: { attemptsUsed: 0, retriesUsed: 0 },
+        isCanceled: () => context.cancellation.aborted,
+        sleep: (milliseconds) => context.cancellation.sleep(milliseconds),
+        execute: async (resume) => {
+          context.assertActive();
+          assertTurnExecutionActive(context.cancellation, context.signal);
+          await agent.continue();
+          const completion = getAgentCompletion(agent);
+          return { ...completion, finalText: completion.finalText.trim() };
+        },
+        prepareResume: (_reason, classification) =>
+          prepareTransientResumeTail(agent.state.messages, classification),
+      });
+      finalText = execution.finalText;
+      runError = execution.errorMessage;
+    } catch (error) {
+      runError = error instanceof Error ? error.message : String(error);
+    } finally {
+      unsubscribe();
+    }
   }
 
   const usage: TurnUsage = { inputTokens, outputTokens, llmCalls };

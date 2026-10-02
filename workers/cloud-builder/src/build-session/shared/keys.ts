@@ -296,9 +296,11 @@ export const builderFallbackRetryKey = (
  * lease renewal) would. The alarm is the only thing that notices a turn whose
  * isolate was replaced under it — a deploy, an eviction — so without this a
  * resident turn lost that way sat as "running" until its full watchdog
- * deadline, holding the owner's agent lane for the whole wait.
+ * deadline, holding the owner's agent lane for the whole wait. Short because
+ * a lost resident turn now resumes on this alarm: the beat is the stall a
+ * deploy costs the user. A beat on a live turn is a few storage reads.
  */
-export const AGENT_TURN_HEARTBEAT_MS = 60_000;
+export const AGENT_TURN_HEARTBEAT_MS = 15_000;
 
 export const AGENT_RECOVERY_PENDING_KEY = "agentRecoveryPending";
 

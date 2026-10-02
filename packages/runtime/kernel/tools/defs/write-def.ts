@@ -25,3 +25,6 @@ export const WRITE_TOOL_PARAMETERS: Record<string, unknown> = {
   },
   required: ["file_path", "content"],
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). The file may already hold this content, or newer content written after it. */
+export const WRITE_TOOL_REPLAY = "unsafe" as const;

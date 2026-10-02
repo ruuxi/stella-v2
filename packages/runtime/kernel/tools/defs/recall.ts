@@ -26,6 +26,7 @@ export const createRecallTool = (
   options: RecallToolOptions,
 ): ToolDefinition => ({
   name: "Recall",
+  replay: "safe",
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   description: RECALL_DESCRIPTION,
   parameters: RECALL_PARAMETERS,

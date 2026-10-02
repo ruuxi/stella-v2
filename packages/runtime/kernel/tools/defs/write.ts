@@ -8,12 +8,14 @@ import {
   WRITE_TOOL_DESCRIPTION,
   WRITE_TOOL_NAME,
   WRITE_TOOL_PARAMETERS,
+  WRITE_TOOL_REPLAY,
 } from "./write-def.js";
 
 export { WRITE_TOOL_PARAMETERS } from "./write-def.js";
 
 export const writeTool: ToolDefinition = {
   name: WRITE_TOOL_NAME,
+  replay: WRITE_TOOL_REPLAY,
   description: WRITE_TOOL_DESCRIPTION,
   parameters: WRITE_TOOL_PARAMETERS,
   promptSnippet: "Create or overwrite a text file",

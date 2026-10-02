@@ -24,7 +24,11 @@ import { createResidentGeneralAgentTools } from "../general-agent-tools.js";
 import { createWorkerShellRouter } from "../worker-shell-router.js";
 import { hydrateResidentDrive } from "../resident-drive.js";
 import { createWorkerShellRunner } from "../worker-shell-runner.js";
-import { runResidentStellaLoop } from "../general-agent-turn.js";
+import {
+  parseTurnComputePlan,
+  runResidentStellaLoop,
+  turnComputePlanKey,
+} from "../general-agent-turn.js";
 import { sha256Hex } from "../hash.js";
 import { INSTANCE_TIERS, initialInstanceSize } from "../instance-size.js";
 import { nativeHistoryCursorFromRows } from "../native-state-checkpoint.js";
@@ -66,6 +70,8 @@ import {
   isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
+  AGENT_TURN_HEARTBEAT_MS,
+  AGENT_WATCHDOG_DEADLINE_KEY,
   errorMessage,
   log,
   mintAgentTurnModelGateway,
@@ -88,6 +94,7 @@ export type ResidentTurnHost = Pick<
   BuildSessionInternals,
   | "ctx"
   | "env"
+  | "startAgentTurn"
   | "residentAgentAborts"
   | "turnStateCheckpointRuns"
   | "agentTurnExecutions"
@@ -221,6 +228,167 @@ export const recoverResidentAgentTurn = async (
     turnId: turn.turnId,
     threadId: turn.threadId,
   });
+};
+
+/** How many replacement isolates may continue one resident attempt. */
+export const RESIDENT_RESUME_MAX = 2;
+/** A turn older than this fails the way it always has instead of resuming. */
+export const RESIDENT_RESUME_MAX_AGE_MS = 15 * 60_000;
+/**
+ * Resuming this close to the watchdog would only buy a timeout mid-reply, so
+ * the turn takes the ordinary failure path while it still can.
+ */
+const RESIDENT_RESUME_DEADLINE_MARGIN_MS = 30_000;
+
+/**
+ * The persisted model-gateway capability of one attempt. A resumed attempt
+ * presents the same token, so the gateway's per-capability ledger keeps
+ * counting the turn's spend and requests instead of granting a fresh budget.
+ */
+const residentModelGatewayKey = (
+  turnId: string,
+  attemptGeneration: number,
+): string => `residentModelGateway:${turnId}:${attemptGeneration}`;
+
+type PersistedResidentModelGateway = Readonly<{
+  schemaVersion: 1;
+  turnId: string;
+  attemptGeneration: number;
+  origin: string;
+  capability: string;
+  expiresAt: number;
+}>;
+
+/** A reused capability must outlive the rest of the turn's watchdog. */
+const residentModelGateway = async (
+  host: ResidentTurnHost,
+  turn: TurnRequest,
+  execution: Parameters<typeof mintAgentTurnModelGateway>[2],
+  resume: boolean,
+): Promise<{ origin: string; capability: string; reused: boolean }> => {
+  const attemptGeneration = turn.attemptGeneration!;
+  const key = residentModelGatewayKey(turn.turnId, attemptGeneration);
+  if (resume) {
+    const [stored, deadline] = await Promise.all([
+      host.ctx.storage.get<PersistedResidentModelGateway>(key),
+      host.ctx.storage.get<number>(AGENT_WATCHDOG_DEADLINE_KEY),
+    ]);
+    if (
+      stored?.schemaVersion === 1 &&
+      stored.turnId === turn.turnId &&
+      stored.attemptGeneration === attemptGeneration &&
+      typeof deadline === "number" &&
+      stored.expiresAt > deadline + 60_000
+    ) {
+      return {
+        origin: stored.origin,
+        capability: stored.capability,
+        reused: true,
+      };
+    }
+  }
+  const minted = await mintAgentTurnModelGateway(host.env, turn, execution);
+  await host.ctx.storage.put(key, {
+    schemaVersion: 1,
+    turnId: turn.turnId,
+    attemptGeneration,
+    origin: minted.origin,
+    capability: minted.capability,
+    expiresAt: minted.expiresAt,
+  } satisfies PersistedResidentModelGateway);
+  return { origin: minted.origin, capability: minted.capability, reused: false };
+};
+
+/**
+ * D9's first choice for a resident turn whose isolate was replaced (a
+ * deploy, an eviction): continue it rather than fail it.
+ *
+ * Bounded three ways. At most {@link RESIDENT_RESUME_MAX} resumes per attempt,
+ * counted durably before the resumed loop runs, so a turn that kills every
+ * isolate it lands in still ends; only turns younger than
+ * {@link RESIDENT_RESUME_MAX_AGE_MS}; and only while the original watchdog
+ * deadline, which a resume never extends, leaves room to finish. Anything
+ * else returns false and the caller takes {@link recoverResidentAgentTurn},
+ * today's failure path.
+ *
+ * Only an unattached turn reaches here: a world attach writes the execution
+ * marker, and a marked turn is recovered by archiving its disk.
+ */
+export const resumeResidentAgentTurn = async (
+  host: ResidentTurnHost,
+  turn: TurnRequest,
+): Promise<boolean> => {
+  if (!turn.threadId || !turn.turnBrokerRoute) return false;
+  if (host.agentTurnExecutions.has(turn.turnId)) return false;
+  const attemptGeneration = turn.attemptGeneration!;
+  const identity = { turnId: turn.turnId, attemptGeneration };
+  const now = Date.now();
+  const [rawPlan, deadline] = await Promise.all([
+    host.ctx.storage.get(turnComputePlanKey(turn.turnId, attemptGeneration)),
+    host.ctx.storage.get<number>(AGENT_WATCHDOG_DEADLINE_KEY),
+  ]);
+  const plan = parseTurnComputePlan(rawPlan, identity);
+  const journal = AgentTurnJournal.open({
+    sql: host.ctx.storage.sql,
+    identity,
+    terminal: {
+      prompt: turn.prompt,
+      provider: turn.execution?.provider ?? "stella",
+      model: turn.execution?.model ?? "unknown",
+      finalText: "",
+      timestamp: now,
+    },
+    now,
+  });
+  const resumeCount = journal.resumeCount;
+  const ageMs = plan ? now - plan.decidedAt : Number.POSITIVE_INFINITY;
+  const refusal =
+    plan?.plan.kind !== "resident_stella"
+      ? "not_resident"
+      : resumeCount >= RESIDENT_RESUME_MAX
+        ? "resume_cap"
+        : ageMs >= RESIDENT_RESUME_MAX_AGE_MS
+          ? "too_old"
+          : typeof deadline !== "number" ||
+              !Number.isFinite(deadline) ||
+              deadline - now <= RESIDENT_RESUME_DEADLINE_MARGIN_MS
+            ? "watchdog"
+            : undefined;
+  if (refusal) {
+    log("info", "resident_agent_turn_not_resumable", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      reason: refusal,
+      resumeCount,
+      ageMs: Number.isFinite(ageMs) ? ageMs : null,
+    });
+    return false;
+  }
+  const count = journal.bumpResume();
+  if (
+    !(await host.setExactTurnAlarm(
+      turn,
+      Math.min(deadline!, now + AGENT_TURN_HEARTBEAT_MS),
+    ))
+  ) {
+    return false;
+  }
+  log("info", "resident_agent_turn_resumed", {
+    turnId: turn.turnId,
+    threadId: turn.threadId,
+    attemptGeneration,
+    resumeCount: count,
+    journalRows: journal.rowCount,
+    openToolCalls: journal.openToolCalls().length,
+    sealed: journal.sealed,
+    ageMs,
+  });
+  host.ctx.waitUntil(
+    host
+      .startAgentTurn(turn, undefined, { resume: true })
+      .catch(() => undefined),
+  );
+  return true;
 };
 
 /**
@@ -365,7 +533,9 @@ export const runResidentAgentTurn = async (
   turn: TurnRequest,
   plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
   execution: TurnExecutionContext,
+  options: Readonly<{ resume?: boolean }> = {},
 ): Promise<GeneralAgentTurnResult> => {
+  const resume = options.resume === true;
   const requestStarted = performance.now();
   const commandTimeoutMs = Number(host.env.TURN_TIMEOUT_MS);
   await host.assertAgentExecutionActive(turn, execution);
@@ -378,14 +548,18 @@ export const runResidentAgentTurn = async (
   // Clear a predecessor before this resident attempt can attach; an exact
   // replay with a compute record keeps the mirror for its existing session.
   await host.clearUnattachedAgentSandboxTuple(turn);
-  await host.event(
-    turn,
-    "auto",
-    "started",
-    { threadId: turn.threadId },
-    false,
-    execution.signal,
-  );
+  // A resumed attempt already projected its start; Convex still reads it as
+  // running, which is exactly what it is.
+  if (!resume) {
+    await host.event(
+      turn,
+      "auto",
+      "started",
+      { threadId: turn.threadId },
+      false,
+      execution.signal,
+    );
+  }
   execution.assertActive();
 
   const control = host.agentControlPlane(
@@ -689,10 +863,11 @@ export const runResidentAgentTurn = async (
   let computeReleased = false;
   try {
     execution.assertActive();
-    const modelGateway = await mintAgentTurnModelGateway(
-      host.env,
+    const modelGateway = await residentModelGateway(
+      host,
       turn,
       plan.execution,
+      resume,
     );
     execution.assertActive();
     const modelGatewayBinding = host.env.MODEL_GATEWAY;
@@ -748,6 +923,20 @@ export const runResidentAgentTurn = async (
       onAgentStarted: (abort) => {
         host.residentAgentAborts.set(turn.turnId, abort);
       },
+      ...(resume
+        ? {
+            resume: {
+              onRepaired: (summary) => {
+                log("info", "resident_agent_turn_resume_repaired", {
+                  turnId: turn.turnId,
+                  threadId: turn.threadId,
+                  modelGatewayReused: modelGateway.reused,
+                  ...summary,
+                });
+              },
+            },
+          }
+        : {}),
       commit: async (sealed, finalText) =>
         await commitResidentTurnDurability(host, {
           turn,

@@ -52,3 +52,6 @@ export const CODE_TOOL_PARAMETERS: Record<string, unknown> = {
     },
   },
 };
+
+/** Replay policy (`ToolReplayPolicy` in ../types.ts). Arbitrary code that can call effectful nested tools. */
+export const CODE_TOOL_REPLAY = "unsafe" as const;

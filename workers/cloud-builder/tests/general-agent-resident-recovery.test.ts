@@ -338,8 +338,8 @@ describe("resident agent turn recovery", () => {
 
     const alarm = await harness.storage.getAlarm();
     expect(alarm).not.toBeNull();
-    expect(alarm!).toBeGreaterThanOrEqual(now + 60_000);
-    expect(alarm!).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(alarm!).toBeGreaterThanOrEqual(now + 15_000);
+    expect(alarm!).toBeLessThanOrEqual(Date.now() + 15_000);
     expect(alarm!).toBeLessThan(watchdogDeadlineAt);
     // A heartbeat is not a recovery: the live turn was left alone.
     expect(harness.delivered).toHaveLength(0);

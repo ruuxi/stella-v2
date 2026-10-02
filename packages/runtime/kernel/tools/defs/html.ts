@@ -36,6 +36,9 @@ export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
   const { stellaDataDir } = options;
   return {
     name: HTML_TOOL_NAME,
+    // The canvas file and its open event may already exist; the desktop has
+    // no per-call receipt to prove which.
+    replay: "unsafe",
     agentTypes: [AGENT_IDS.ORCHESTRATOR],
     description: HTML_TOOL_DESCRIPTION,
     promptSnippet: HTML_TOOL_PROMPT_SNIPPET,

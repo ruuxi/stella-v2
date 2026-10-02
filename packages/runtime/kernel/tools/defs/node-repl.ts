@@ -10,6 +10,7 @@ import {
   CODE_TOOL_DESCRIPTION,
   CODE_TOOL_PARAMETERS,
   CODE_TOOL_PROMPT_SNIPPET,
+  CODE_TOOL_REPLAY,
 } from "./code-def.js";
 import { isAgentToolSuspendedError } from "../../agent-core/suspension.js";
 
@@ -96,6 +97,7 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
   };
   return {
     name: CODE_TOOL_NAME,
+    replay: CODE_TOOL_REPLAY,
     agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.GENERAL],
     description: CODE_TOOL_DESCRIPTION,
     promptSnippet: CODE_TOOL_PROMPT_SNIPPET,

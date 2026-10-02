@@ -335,15 +335,16 @@ const pollFollowUpMessages = (
  */
 const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 		Effect.gen(function* () {
-			const { currentContext, newMessages, config, emit } = env;
+			const { currentContext, newMessages, emit } = env;
 			let firstTurn = true;
-			let pendingMessages: AgentMessage[] = yield* pollSteeringMessages(config);
+			let pendingMessages: AgentMessage[] = yield* pollSteeringMessages(env.config);
 			let completedTurnMessages: AgentMessage[] = [];
 
 			const refreshAtTurnBoundary = (
 				nextMessages: AgentMessage[] = pendingMessages,
 			): Effect.Effect<void, unknown> =>
 				Effect.gen(function* () {
+					const { config } = env;
 					if (!config.onTurnBoundary || completedTurnMessages.length === 0) return;
 					const replacement = yield* Effect.promise(() =>
 						config.onTurnBoundary!(
@@ -365,7 +366,6 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 
 		for (;;) {
 			let hasMoreToolCalls = true;
-			let steeringAfterTools: AgentMessage[] | null = null;
 
 			while (hasMoreToolCalls || pendingMessages.length > 0) {
 				if (!firstTurn) {
@@ -384,6 +384,7 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 					pendingMessages = [];
 				}
 
+				yield* applyRequestUpdate(env);
 				const message = yield* streamAssistantResponse(env);
 				newMessages.push(message);
 
@@ -393,14 +394,22 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 					return;
 				}
 
-				const toolCalls = message.content.filter((c) => c.type === "toolCall");
+				const toolCalls = message.content.filter(
+					(c): c is AgentToolCall => c.type === "toolCall",
+				);
 				hasMoreToolCalls = toolCalls.length > 0;
 
 				const toolResults: ToolResultMessage[] = [];
 				if (hasMoreToolCalls) {
-					const toolExecution = yield* executeToolCalls(env, message);
+					// A "length" stop means the output hit the token limit, so every
+					// tool call in it may carry silently truncated arguments (the
+					// streaming JSON parser salvages partial objects). Fail them all
+					// instead of executing possibly-borked calls; the model re-issues.
+					const toolExecution =
+						message.stopReason === "length"
+							? yield* failToolCallsFromTruncatedMessage(env, toolCalls)
+							: yield* executeToolCalls(env, message);
 					toolResults.push(...toolExecution.toolResults);
-					steeringAfterTools = toolExecution.steeringMessages ?? null;
 
 						for (const result of toolResults) {
 							currentContext.messages.push(result);
@@ -411,19 +420,34 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 
 					yield* emitEvent(emit, { type: "turn_end", message, toolResults });
 
-				if (steeringAfterTools && steeringAfterTools.length > 0) {
-					pendingMessages = steeringAfterTools;
-					steeringAfterTools = null;
-					} else {
-						pendingMessages = yield* pollSteeringMessages(config);
+					if (env.config.finishTurn) {
+						const finishTurn = env.config.finishTurn;
+						const decision = yield* Effect.promise(() =>
+							finishTurn({ message, toolResults, context: currentContext }, env.signal),
+						);
+						if (decision?.action === "end") {
+							yield* emitEvent(emit, { type: "agent_end", messages: newMessages });
+							return;
+						}
 					}
+
+					// Steering is polled only after `finishTurn` declines to end the
+					// run, so ending never strands an already-dequeued message.
+					pendingMessages = yield* pollSteeringMessages(env.config);
 
 					if (hasMoreToolCalls || pendingMessages.length > 0) {
 						yield* refreshAtTurnBoundary();
+						// Boundary work (compaction) can run long: pick up steering queued
+						// meanwhile so it is not held back a full turn. Only re-poll when
+						// the earlier poll was empty so one-at-a-time mode still delivers
+						// a single message per turn.
+						if (pendingMessages.length === 0) {
+							pendingMessages = yield* pollSteeringMessages(env.config);
+						}
 					}
 				}
 
-				const followUpMessages = yield* pollFollowUpMessages(config);
+				const followUpMessages = yield* pollFollowUpMessages(env.config);
 				if (followUpMessages.length > 0) {
 					yield* refreshAtTurnBoundary(followUpMessages);
 					pendingMessages = followUpMessages;
@@ -434,6 +458,38 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 		}
 
 		yield* emitEvent(emit, { type: "agent_end", messages: newMessages });
+	});
+
+/**
+ * Give `prepareRequest` the run's current model / thinking level and adopt
+ * any replacement for this and later requests (the loop config is per-run
+ * state, so the swap persists until the run ends).
+ */
+const applyRequestUpdate = (env: LoopEnv): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		const prepareRequest = env.config.prepareRequest;
+		if (!prepareRequest) return;
+		const update = yield* Effect.promise(() =>
+			prepareRequest(
+				{
+					context: env.currentContext,
+					model: env.config.model,
+					thinkingLevel: env.config.reasoning ?? "off",
+				},
+				env.signal,
+			),
+		);
+		if (!update) return;
+		env.config = {
+			...env.config,
+			model: update.model ?? env.config.model,
+			reasoning:
+				update.thinkingLevel === undefined
+					? env.config.reasoning
+					: update.thinkingLevel === "off"
+						? undefined
+						: update.thinkingLevel,
+		};
 	});
 
 /**
@@ -652,15 +708,45 @@ const streamAssistantResponse = (
 	});
 
 /**
+ * Fail every tool call from an assistant message the provider cut off at the
+ * output token limit. None are safe to execute (their arguments may be
+ * salvaged-but-incomplete JSON), so each gets an error result telling the
+ * model to re-issue it, keeping every call paired with a result.
+ */
+const failToolCallsFromTruncatedMessage = (
+	env: LoopEnv,
+	toolCalls: AgentToolCall[],
+): Effect.Effect<{ toolResults: ToolResultMessage[] }> =>
+	Effect.gen(function* () {
+		const toolResults: ToolResultMessage[] = [];
+		for (const toolCall of toolCalls) {
+			yield* emitEvent(env.emit, {
+				type: "tool_execution_start",
+				toolCallId: toolCall.id,
+				toolName: toolCall.name,
+				args: toolCall.arguments,
+			});
+			toolResults.push(
+				yield* emitToolCallOutcome(
+					env.emit,
+					toolCall,
+					createErrorToolResult(
+						`Tool call "${toolCall.name}" was not executed: your response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments, splitting large content across smaller calls if needed.`,
+					),
+					true,
+				),
+			);
+		}
+		return { toolResults };
+	});
+
+/**
  * Execute tool calls from an assistant message.
  */
 const executeToolCalls = (
 	env: LoopEnv,
 	assistantMessage: AssistantMessage,
-): Effect.Effect<
-	{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] },
-	unknown
-> => {
+): Effect.Effect<{ toolResults: ToolResultMessage[] }, unknown> => {
 	const toolCalls = assistantMessage.content.filter(
 		(c): c is AgentToolCall => c.type === "toolCall",
 	);
@@ -686,29 +772,25 @@ const canonicalizeToolCallValue = (value: unknown): unknown => {
 const toolCallExecutionKey = (toolCall: AgentToolCall): string =>
 	`${toolCall.name}\u0000${JSON.stringify(canonicalizeToolCallValue(toolCall.arguments))}`;
 
-const createDuplicateToolCallResult = (original: ToolResultMessage): AgentToolResult<unknown> => ({
+const createDuplicateToolCallResult = (originalToolCallId: string): AgentToolResult<unknown> => ({
 	content: [
 		{
 			type: "text",
-			text: `[Exact duplicate skipped. Reused the result from tool call ${original.toolCallId}; do not run this identical call again.]`,
+			text: `[Exact duplicate skipped. Reused the result from tool call ${originalToolCallId}; do not run this identical call again.]`,
 		},
 	],
-	details: { deduplicated: true, reusedToolCallId: original.toolCallId },
+	details: { deduplicated: true, reusedToolCallId: originalToolCallId },
 });
 
 const executeToolCallsSequential = (
 	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	toolCalls: AgentToolCall[],
-): Effect.Effect<
-	{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] },
-	unknown
-> =>
+): Effect.Effect<{ toolResults: ToolResultMessage[] }, unknown> =>
 	Effect.gen(function* () {
 		const { currentContext, config, emit } = env;
 		const results: ToolResultMessage[] = [];
 		const resultByExecutionKey = new Map<string, ToolResultMessage>();
-		let steeringMessages: AgentMessage[] | undefined;
 
 		for (const toolCall of toolCalls) {
 			const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
@@ -727,7 +809,7 @@ const executeToolCallsSequential = (
 					yield* emitToolCallOutcome(
 						emit,
 						toolCall,
-						createDuplicateToolCallResult(originalResult),
+						createDuplicateToolCallResult(originalResult.toolCallId),
 						originalResult.isError,
 					),
 				);
@@ -752,44 +834,37 @@ const executeToolCallsSequential = (
 					emit,
 					inactivityTimeoutMs: config.toolInactivityTimeoutMs,
 				});
-				const result = yield* finalizeExecutedToolCall(
+				const finalized = yield* finalizeExecutedToolCall(
 					env,
 					assistantMessage,
 					preparation,
 					executed,
+				);
+				const result = yield* emitToolCallOutcome(
+					emit,
+					toolCall,
+					finalized.result,
+					finalized.isError,
 				);
 				results.push(result);
 				resultByExecutionKey.set(executionKey, result);
 			}
 		}
 
-		if (config.getSteeringMessages) {
-			const getSteeringMessages = config.getSteeringMessages;
-			const steering = yield* Effect.promise(() => getSteeringMessages());
-			if (steering.length > 0) {
-				steeringMessages = steering;
-			}
-		}
-
-		return { toolResults: results, steeringMessages };
+		return { toolResults: results };
 	});
 
 const executeToolCallsParallel = (
 	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	toolCalls: AgentToolCall[],
-): Effect.Effect<
-	{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] },
-	unknown
-> =>
+): Effect.Effect<{ toolResults: ToolResultMessage[] }, unknown> =>
 	Effect.gen(function* () {
 		const { currentContext, config, emit } = env;
-		const results: ToolResultMessage[] = [];
 		const runnableCalls: PreparedToolCall[] = [];
 		const originalCallByExecutionKey = new Map<string, AgentToolCall>();
 		const duplicateOriginalByCall = new Map<AgentToolCall, AgentToolCall>();
-		const resultByCall = new Map<AgentToolCall, ToolResultMessage>();
-		let steeringMessages: AgentMessage[] | undefined;
+		const finalizedByCall = new Map<AgentToolCall, FinalizedToolCallOutcome>();
 
 		for (const toolCall of toolCalls) {
 			const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
@@ -811,77 +886,91 @@ const executeToolCallsParallel = (
 
 			const preparation = yield* prepareToolCall(env, assistantMessage, toolCall);
 			if (preparation.kind === "immediate") {
-				const result = yield* emitToolCallOutcome(
-					emit,
+				const finalized = {
 					toolCall,
-					preparation.result,
-					preparation.isError,
-				);
-				results.push(result);
-				resultByCall.set(toolCall, result);
+					result: preparation.result,
+					isError: preparation.isError,
+				};
+				yield* emitToolExecutionEnd(emit, finalized);
+				finalizedByCall.set(toolCall, finalized);
 			} else {
 				runnableCalls.push(preparation);
 			}
 		}
 
 		// Fork every runnable window eagerly (the legacy `.map(execute)` start
-		// order), then join in assistant source order so final tool events are
-		// emitted in-order while executions overlap. The children are fibers of
-		// this turn's fiber: joins settle before the turn continues.
+		// order). Each fiber finalizes and emits its own `tool_execution_end`
+		// the moment its tool settles, so a fast tool is not reported as running
+		// behind a slow sibling. The children are fibers of this turn's fiber:
+		// joins settle before the turn continues.
 		const runningCalls: Array<{
 			prepared: PreparedToolCall;
-			fiber: Fiber.Fiber<ExecutedToolCallOutcome, AgentToolSuspendedError>;
+			fiber: Fiber.Fiber<FinalizedToolCallOutcome, AgentToolSuspendedError>;
 		}> = [];
 		for (const prepared of runnableCalls) {
 			const fiber = yield* Effect.forkChild(
-				executeToolWindow({
-					prepared,
-					signal: env.signal,
-					abortLatch: env.abortLatch,
-					emit,
-					inactivityTimeoutMs: config.toolInactivityTimeoutMs,
+				Effect.gen(function* () {
+					const executed = yield* executeToolWindow({
+						prepared,
+						signal: env.signal,
+						abortLatch: env.abortLatch,
+						emit,
+						inactivityTimeoutMs: config.toolInactivityTimeoutMs,
+					});
+					const finalized = yield* finalizeExecutedToolCall(
+						env,
+						assistantMessage,
+						prepared,
+						executed,
+					);
+					yield* emitToolExecutionEnd(emit, finalized);
+					return finalized;
 				}),
 				{ startImmediately: true },
 			);
 			runningCalls.push({ prepared, fiber });
 		}
 
+		// Tool-result messages go out in assistant source order once every call
+		// has settled (duplicates reuse their original's result in place).
+		const emitResultMessages = (
+			includeDuplicates: boolean,
+		): Effect.Effect<ToolResultMessage[]> =>
+			Effect.gen(function* () {
+				const results: ToolResultMessage[] = [];
+				for (const toolCall of toolCalls) {
+					let finalized = finalizedByCall.get(toolCall);
+					const originalCall = duplicateOriginalByCall.get(toolCall);
+					if (!finalized && originalCall && includeDuplicates) {
+						const original = finalizedByCall.get(originalCall);
+						if (!original) continue;
+						finalized = {
+							toolCall,
+							result: createDuplicateToolCallResult(original.toolCall.id),
+							isError: original.isError,
+						};
+						yield* emitToolExecutionEnd(emit, finalized);
+					}
+					if (!finalized) continue;
+					results.push(yield* emitToolResultMessage(emit, finalized));
+				}
+				return results;
+			});
+
 		for (const running of runningCalls) {
-			const executed = yield* Fiber.join(running.fiber);
-			const result = yield* finalizeExecutedToolCall(
-				env,
-				assistantMessage,
-				running.prepared,
-				executed,
-			);
-			results.push(result);
-			resultByCall.set(running.prepared.toolCall, result);
-		}
-
-		for (const toolCall of toolCalls) {
-			const originalCall = duplicateOriginalByCall.get(toolCall);
-			if (!originalCall) continue;
-			const originalResult = resultByCall.get(originalCall);
-			if (!originalResult) continue;
-			results.push(
-				yield* emitToolCallOutcome(
-					emit,
-					toolCall,
-					createDuplicateToolCallResult(originalResult),
-					originalResult.isError,
-				),
-			);
-		}
-
-		if (!steeringMessages && config.getSteeringMessages) {
-			const getSteeringMessages = config.getSteeringMessages;
-			const steering = yield* Effect.promise(() => getSteeringMessages());
-			if (steering.length > 0) {
-				steeringMessages = steering;
+			const joined = yield* Effect.exit(Fiber.join(running.fiber));
+			if (Exit.isFailure(joined)) {
+				// A suspension fails the window: still surface the results that
+				// settled ahead of it in join order (legacy in-order join behavior).
+				yield* emitResultMessages(false);
+				return yield* Effect.failCause(joined.cause);
 			}
+			finalizedByCall.set(running.prepared.toolCall, joined.value);
 		}
 
-		return { toolResults: results, steeringMessages };
+		const results = yield* emitResultMessages(true);
+
+		return { toolResults: results };
 	});
 
 export type PreparedToolCall = {
@@ -902,6 +991,17 @@ type ExecutedToolCallOutcome = {
 	isError: boolean;
 };
 
+/** A tool call's final result after `afterToolCall`, not yet emitted. */
+type FinalizedToolCallOutcome = ExecutedToolCallOutcome & {
+	toolCall: AgentToolCall;
+};
+
+const abortedToolCallOutcome = (): ImmediateToolCallOutcome => ({
+	kind: "immediate",
+	result: createErrorToolResult("Operation aborted"),
+	isError: true,
+});
+
 const prepareToolCall = (
 	env: LoopEnv,
 	assistantMessage: AssistantMessage,
@@ -910,7 +1010,7 @@ const prepareToolCall = (
 	PreparedToolCall | ImmediateToolCallOutcome,
 	AgentToolSuspendedError
 > => {
-	const { currentContext, config, signal } = env;
+	const { currentContext, config, signal, abortLatch } = env;
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
 		return Effect.succeed<ImmediateToolCallOutcome>({
@@ -920,7 +1020,7 @@ const prepareToolCall = (
 		});
 	}
 
-	return Effect.tryPromise({
+	const prepare = Effect.tryPromise({
 		try: async (): Promise<PreparedToolCall | ImmediateToolCallOutcome> => {
 			const { validateToolArguments } = await loadToolValidation();
 			const validatedArgs = validateToolArguments(tool, toolCall);
@@ -964,6 +1064,18 @@ const prepareToolCall = (
 			});
 		}),
 	);
+	// Once the run is cancelled, stop preparing: no validation, no
+	// `beforeToolCall` (which may prompt the user), no execution. Each
+	// remaining call still gets an error result so it stays paired.
+	return Effect.gen(function* () {
+		if (yield* Deferred.isDone(abortLatch)) return abortedToolCallOutcome();
+		const preparation = yield* prepare;
+		// `beforeToolCall` can await for a long time (permission prompts).
+		if (preparation.kind === "prepared" && (yield* Deferred.isDone(abortLatch))) {
+			return abortedToolCallOutcome();
+		}
+		return preparation;
+	});
 };
 
 /**
@@ -1041,6 +1153,10 @@ const executeToolWindow = (
 			const toolAbort = new AbortController();
 			const updateEvents: Promise<void>[] = [];
 			let timedOut = false;
+			// Set once the execution race settles: progress a tool reports after
+			// that (or after its watchdog fired) would land after its
+			// `tool_execution_end`, so it is dropped.
+			let settled = false;
 			let lastActivityAt = Date.now();
 
 			// Failure latch: the watchdog and the post-abort grace fail it; the
@@ -1055,7 +1171,7 @@ const executeToolWindow = (
 			}
 
 			const onUpdate = (partialResult: AgentToolResult<unknown>) => {
-				if (timedOut) return;
+				if (timedOut || settled) return;
 				lastActivityAt = Date.now();
 				updateEvents.push(
 					Promise.resolve(
@@ -1123,6 +1239,7 @@ const executeToolWindow = (
 					catch: (error) => error,
 				}).pipe(Effect.raceFirst(Deferred.await(failure))),
 			);
+			settled = true;
 
 			const updatesExit = yield* Effect.exit(
 				Effect.promise(() => Promise.all(updateEvents)),
@@ -1189,9 +1306,9 @@ const finalizeExecutedToolCall = (
 	assistantMessage: AssistantMessage,
 	prepared: PreparedToolCall,
 	executed: ExecutedToolCallOutcome,
-): Effect.Effect<ToolResultMessage> =>
+): Effect.Effect<FinalizedToolCallOutcome> =>
 	Effect.gen(function* () {
-		const { currentContext, config, signal, emit } = env;
+		const { currentContext, config, signal } = env;
 		let result = executed.result;
 		let isError = executed.isError;
 
@@ -1219,7 +1336,7 @@ const finalizeExecutedToolCall = (
 			}
 		}
 
-		return yield* emitToolCallOutcome(emit, prepared.toolCall, result, isError);
+		return { toolCall: prepared.toolCall, result, isError };
 	});
 
 function createErrorToolResult(message: string): AgentToolResult<unknown> {
@@ -1229,6 +1346,39 @@ function createErrorToolResult(message: string): AgentToolResult<unknown> {
 	};
 }
 
+const emitToolExecutionEnd = (
+	emit: AgentEventSink,
+	finalized: FinalizedToolCallOutcome,
+): Effect.Effect<void> =>
+	emitEvent(emit, {
+		type: "tool_execution_end",
+		toolCallId: finalized.toolCall.id,
+		toolName: finalized.toolCall.name,
+		result: finalized.result,
+		isError: finalized.isError,
+	});
+
+const emitToolResultMessage = (
+	emit: AgentEventSink,
+	finalized: FinalizedToolCallOutcome,
+): Effect.Effect<ToolResultMessage> =>
+	Effect.gen(function* () {
+		const toolResultMessage: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: finalized.toolCall.id,
+			toolName: finalized.toolCall.name,
+			content: finalized.result.content,
+			details: finalized.result.details,
+			isError: finalized.isError,
+			timestamp: Date.now(),
+		};
+
+		yield* emitEvent(emit, { type: "message_start", message: toolResultMessage });
+		yield* emitEvent(emit, { type: "message_end", message: toolResultMessage });
+		return toolResultMessage;
+	});
+
+/** End event immediately followed by the result message (sequential paths). */
 const emitToolCallOutcome = (
 	emit: AgentEventSink,
 	toolCall: AgentToolCall,
@@ -1236,25 +1386,7 @@ const emitToolCallOutcome = (
 	isError: boolean,
 ): Effect.Effect<ToolResultMessage> =>
 	Effect.gen(function* () {
-		yield* emitEvent(emit, {
-			type: "tool_execution_end",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			result,
-			isError,
-		});
-
-		const toolResultMessage: ToolResultMessage = {
-			role: "toolResult",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			content: result.content,
-			details: result.details,
-			isError,
-			timestamp: Date.now(),
-		};
-
-		yield* emitEvent(emit, { type: "message_start", message: toolResultMessage });
-		yield* emitEvent(emit, { type: "message_end", message: toolResultMessage });
-		return toolResultMessage;
+		const finalized = { toolCall, result, isError };
+		yield* emitToolExecutionEnd(emit, finalized);
+		return yield* emitToolResultMessage(emit, finalized);
 	});

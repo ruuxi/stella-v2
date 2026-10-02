@@ -45,6 +45,7 @@ type RuntimeExecutableAgent = {
   followUp: (message: AgentMessage) => void;
   continue: () => Promise<void>;
   abort: () => void;
+  finishAfterTurn: () => void;
 };
 
 const DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
@@ -400,7 +401,9 @@ export const executeRuntimeAgentPrompt = async (args: {
       }
       // Do not let a continuously steered/follow-up prompt begin another
       // provider turn after its completed group failed to become durable.
-      args.agent.abort();
+      // This fires from the `turn_end` listener, so ending after the turn
+      // stops the loop at this boundary without an aborted placeholder.
+      args.agent.finishAfterTurn();
     },
   });
 

@@ -65,6 +65,7 @@ const createTurnEndingAgent = (
     followUp: vi.fn(),
     continue: vi.fn(),
     abort: vi.fn(),
+    finishAfterTurn: vi.fn(),
   };
   return agent;
 };
@@ -201,7 +202,7 @@ describe("executeRuntimeAgentPrompt", () => {
     expect(onThreadPersistenceError).toHaveBeenCalledOnce();
     expect(onThreadPersistenceRecovered).not.toHaveBeenCalled();
     expect(appendThreadMessages).toHaveBeenCalledTimes(2);
-    expect(agent.abort).toHaveBeenCalledOnce();
+    expect(agent.finishAfterTurn).toHaveBeenCalledOnce();
   });
 
   it("classifies durable and one-shot internal prompts for page-in", () => {

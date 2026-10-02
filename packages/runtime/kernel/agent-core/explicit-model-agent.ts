@@ -210,6 +210,7 @@ export class ExplicitModelAgent {
   private _degenerateResponseRetries: number;
   private runningPrompt?: Promise<void>;
   private resolveRunningPrompt?: () => void;
+  private finishAfterTurnRequested = false;
   private _thinkingBudgets?: ThinkingBudgets;
   private _transport: Transport;
   private _serviceTier?: ServiceTier;
@@ -496,7 +497,23 @@ export class ExplicitModelAgent {
     return this.runningPrompt ?? Promise.resolve();
   }
 
+  /**
+   * End the active run once the current turn (assistant response plus its
+   * tool results) completes, instead of issuing another provider request.
+   * Unlike `abort()`, in-flight work finishes normally and no aborted
+   * assistant placeholder is produced; queued steering/follow-up messages
+   * stay queued. A no-op when idle.
+   */
+  finishAfterTurn() {
+    if (this.runningPrompt) this.finishAfterTurnRequested = true;
+  }
+
   reset() {
+    if (this.runningPrompt) {
+      throw new Error(
+        "Agent is already processing. Wait for completion before resetting.",
+      );
+    }
     this._state.messages = [];
     this._state.isStreaming = false;
     this._state.streamMessage = null;
@@ -661,6 +678,7 @@ export class ExplicitModelAgent {
     // raw signal into its latch and still emits the normal terminal
     // events); interrupting a fiber here would break that ordering.
     this.abortController = new AbortController();
+    this.finishAfterTurnRequested = false;
     this._state.isStreaming = true;
     this._state.streamMessage = null;
     this._state.error = undefined;
@@ -693,6 +711,22 @@ export class ExplicitModelAgent {
       requestBudget: this._requestBudget,
       toolExecution: this._toolExecution,
       toolInactivityTimeoutMs: this._toolInactivityTimeoutMs,
+      finishTurn: async () => {
+        if (!this.finishAfterTurnRequested) return undefined;
+        this.finishAfterTurnRequested = false;
+        return { action: "end" };
+      },
+      // Model and thinking level are read from live state before every
+      // request, so a swap made while a run is in flight (e.g. a route
+      // change that `getApiKey` already follows) applies to the next request
+      // instead of pairing new credentials with the run-start model.
+      prepareRequest: async (request) => {
+        const { model: liveModel, thinkingLevel } = this._state;
+        if (liveModel === request.model && thinkingLevel === request.thinkingLevel) {
+          return undefined;
+        }
+        return { model: liveModel, thinkingLevel };
+      },
       onTurnBoundary: this._onTurnBoundary
         ? async (boundaryContext, signal) => {
             try {
@@ -754,7 +788,7 @@ export class ExplicitModelAgent {
       refreshApiKey: this.refreshApiKey
         ? async () => {
             try {
-              return await this.refreshApiKey?.(model.provider);
+              return await this.refreshApiKey?.(this._state.model.provider);
             } catch {
               return undefined;
             }
@@ -860,6 +894,7 @@ export class ExplicitModelAgent {
       this._state.streamMessage = null;
       this._state.pendingToolCalls = new Set<string>();
       this.abortController = undefined;
+      this.finishAfterTurnRequested = false;
       this.resolveRunningPrompt?.();
       this.runningPrompt = undefined;
       this.resolveRunningPrompt = undefined;

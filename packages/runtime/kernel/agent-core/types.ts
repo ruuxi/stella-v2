@@ -32,7 +32,8 @@ export type StreamFn = (
  *
  * - "sequential": each tool call is prepared, executed, and finalized before the next one starts.
  * - "parallel": tool calls are prepared sequentially, then allowed tools execute concurrently.
- *   Final tool results are still emitted in assistant source order.
+ *   `tool_execution_end` fires as each tool finalizes (completion order); tool-result
+ *   messages are still emitted in assistant source order once every tool settles.
  */
 export const ToolExecutionModeSchema = StringEnum(
 	["sequential", "parallel"] as const,
@@ -103,6 +104,29 @@ export interface AgentTurnBoundaryContext {
 	completedMessages: AgentMessage[];
 	/** Messages already dequeued for the next provider call but not emitted yet. */
 	pendingMessages: AgentMessage[];
+}
+
+/** A completed assistant turn: the response plus every tool result it produced. */
+export interface AgentTurnContext {
+	message: AssistantMessage;
+	toolResults: ToolResultMessage[];
+	context: AgentContext;
+}
+
+/** Returned by `finishTurn`; `{ action: "end" }` ends the run after this turn. */
+export type AgentTurnDecision = { action: "end" };
+
+/** Runtime state immediately before a provider request. */
+export interface AgentRequestContext {
+	context: AgentContext;
+	model: Model<Api>;
+	thinkingLevel: ThinkingLevel;
+}
+
+/** Replacement model / thinking level for this and later requests in the run. */
+export interface AgentRequestUpdate {
+	model?: Model<Api>;
+	thinkingLevel?: ThinkingLevel;
 }
 
 /**
@@ -244,6 +268,29 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 		context: AgentTurnBoundaryContext,
 		signal?: AbortSignal,
 	) => Promise<AgentMessage[] | undefined>;
+
+	/**
+	 * Called after `turn_end` for a completed (non-error, non-aborted) turn,
+	 * before the steering/follow-up queues are polled or any boundary work
+	 * runs. Running after `turn_end` lets a `turn_end` listener (durable
+	 * group persistence) request the end for the turn it just observed.
+	 * `{ action: "end" }` emits `agent_end` without another provider request;
+	 * queued steering/follow-up messages stay queued.
+	 */
+	finishTurn?: (
+		turn: AgentTurnContext,
+		signal?: AbortSignal,
+	) => Promise<AgentTurnDecision | undefined>;
+
+	/**
+	 * Called immediately before every provider request, including the first.
+	 * A returned model / thinking level replaces the run's values for this and
+	 * later requests.
+	 */
+	prepareRequest?: (
+		request: AgentRequestContext,
+		signal?: AbortSignal,
+	) => Promise<AgentRequestUpdate | undefined>;
 
 	/**
 	 * Called before a tool is executed, after arguments have been validated.

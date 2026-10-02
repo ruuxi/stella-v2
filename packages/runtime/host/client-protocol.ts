@@ -8,6 +8,7 @@ export const RUNTIME_HOST_CALLS = [
   "healthCheck",
   "configure",
   "ensureWorkerStarted",
+  "requestRuntimeRestart",
   "getActiveRun",
   "listActiveRuns",
   "listModels",

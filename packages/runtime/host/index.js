@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, promises as fs, readFileSync, watch, } from "node:fs";
+import { existsSync, promises as fs, readFileSync, } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
@@ -32,7 +32,6 @@ import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { buildInprocConnectionFactory } from "./inproc-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { resolveRuntimeCodeRoots } from "../worker/runtime-build-stamp.js";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
@@ -150,13 +149,12 @@ export class StellaRuntimeHost {
     schedulerSubscription = null;
     cloudScheduleUnsubscribe = null;
     cloudSchedules = null;
-    watcher = null;
     reloadTimer = null;
     deferredRuntimeReload = false;
-    // Coalescing for the dev-watcher reload path only: while a
+    // Coalescing for the requested-reload path only: while a
     // scheduled reload's restart is queued or running, further reload requests
     // collapse into a single trailing re-run instead of stacking one full restart
-    // per file event. This does NOT guard direct restartWorker() callers (e.g.
+    // per request. This does NOT guard direct restartWorker() callers (e.g.
     // the runtime.restartWorker IPC action) — those run their own full restart;
     // the controller's stop/start promises keep concurrent calls safe.
     restartInProgress = false;
@@ -317,12 +315,19 @@ export class StellaRuntimeHost {
     }
     /*
      * In the runtime process, the host and its services (the scheduler,
-     * remote-turn subscriptions, the connector outbox, the dev watcher) run
+     * remote-turn subscriptions, the connector outbox) run
      * beside the worker and keep running while the app restarts. Only the
      * callbacks that need the app wait for it to reattach.
      */
     /**
-     * Dev source watcher trigger: runtime code changed on disk.
+     * The app applied an update that changed runtime code: restart the
+     * runtime as soon as it is idle (between turns).
+     */
+    async requestRuntimeRestart() {
+        this.scheduleRuntimeReload();
+        return { ok: true };
+    }
+    /**
      * Records the reload intent and debounces a gated flush. The actual restart
      * only proceeds when {@link canRestartWorkerNow} holds (worker not busy) — evaluated in
      * `flushWorkerRestart`.
@@ -463,16 +468,16 @@ export class StellaRuntimeHost {
     /**
      * Unified gate for restarting the runtime worker. A restart may only proceed
      * when the worker is not busy (an agent run / voice request is in flight).
-     * Both restart triggers (dev source watcher, stale-worker detection)
-     * and every unblock hook route through this, so the dev-watcher path honors
+     * Both restart triggers (a requested restart, stale-worker detection)
+     * and every unblock hook route through this, so a requested restart honors
      * the worker-busy deferral exactly like the stale-worker path.
      */
     canRestartWorkerNow(health = this.workerHealthCache) {
         return !isWorkerBusyForRestart(health);
     }
     /**
-     * Whether some trigger wants the worker restarted: a dev-watcher runtime
-     * reload (`deferredRuntimeReload`) or a persisted stale-worker restart
+     * Whether some trigger wants the worker restarted: a requested runtime
+     * restart (`deferredRuntimeReload`) or a persisted stale-worker restart
      * (`pendingStaleWorkerRestart`).
      */
     hasPendingWorkerRestartIntent() {
@@ -527,7 +532,7 @@ export class StellaRuntimeHost {
                 if (!this.canRestartWorkerNow(health))
                     return;
                 const reason = this.pendingStaleWorkerRestart?.reason ?? "runtime-reload";
-                // Consume the watcher intent before the replacement worker starts.
+                // Consume the requested intent before the replacement worker starts.
                 // Worker initialization resets reload pauses and flushes pending
                 // restart intent; leaving this bit set there re-arms the restart
                 // forever, producing a spawn/ready/kill loop until Electron exits.
@@ -539,7 +544,7 @@ export class StellaRuntimeHost {
                     await this.restartWorker(reason);
                 }
                 catch (error) {
-                    // A failed restart did not satisfy the watcher request. Preserve it
+                    // A failed restart did not satisfy the request. Preserve it
                     // for the next explicit readiness/recovery attempt.
                     if (consumedDeferredRuntimeReload) {
                         this.deferredRuntimeReload = true;
@@ -1661,7 +1666,6 @@ export class StellaRuntimeHost {
         await this.syncHostExecutionPlacement();
         this.events.emit("runtime-connected", undefined);
         this.events.emit("runtime-ready", await this.health());
-        this.startDevWatcher(resolveDefaultWorkerEntryPath(this.options));
     }
     async stop(options) {
         if (options?.killWorker) {
@@ -1688,8 +1692,6 @@ export class StellaRuntimeHost {
         this.stopStaleWorkerQuiescencePoll();
         this.reloadTimer?.cancel();
         this.reloadTimer = null;
-        this.watcher?.close();
-        this.watcher = null;
         await this.workerController.stop(options?.killWorker ? "restart" : "stopped");
         await this.stopHostServices();
         this.deviceIdentity = null;
@@ -2681,27 +2683,7 @@ export class StellaRuntimeHost {
             this.events.emit("projects-updated", undefined);
         });
     }
-    startDevWatcher(workerEntryPath) {
-        if (!this.options.initializeParams.isDev || this.watcher)
-            return;
-        // Any change to the code the runtime loads restarts it (the host runs
-        // in the runtime process too): the runtime and contracts sources, or
-        // the bundled `runtime/` subtree. Edits to main or tests never do.
-        const watchers = resolveRuntimeCodeRoots(workerEntryPath).map((root) => watch(root, { recursive: true }, (_eventType, filename) => {
-            if (typeof filename !== "string" || !isRuntimeCodeChange(filename))
-                return;
-            void this.scheduleRuntimeReload();
-        }));
-        this.watcher = { close: () => watchers.forEach((watcher) => watcher.close()) };
-    }
 }
-const isRuntimeCodeChange = (filename) => {
-    const segments = filename.split(/[\\/]/);
-    const name = segments.at(-1) ?? "";
-    return (/\.(?:[cm]?js|[cm]?ts)$/.test(name) &&
-        !name.includes(".test.") &&
-        !segments.some((segment) => segment === "node_modules" || segment === "tests" || segment === "scripts"));
-};
 const resolveDefaultWorkerEntryPath = (options) => {
     if (options.workerEntryPath) {
         return options.workerEntryPath;

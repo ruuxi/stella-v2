@@ -352,6 +352,10 @@ export class RuntimeHostAdapter {
         this.lastHealth = await this.host.healthCheck();
         this.emitAvailabilityChange();
     }
+    /** An update changed runtime code: the runtime restarts once it is idle (between turns). */
+    requestRuntimeRestart() {
+        return this.host.requestRuntimeRestart();
+    }
     queueRuntimeConfigPatch(patch) {
         this.pendingConfig = {
             ...this.pendingConfig,

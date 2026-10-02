@@ -1,8 +1,31 @@
 import type { AssistantMessage, AssistantMessageEvent } from "./types";
 
+/** Two-stack FIFO with amortized O(1) dequeue (`Array.shift()` is O(n)). */
+class FifoQueue<T> {
+  private incoming: T[] = [];
+  private outgoing: T[] = [];
+
+  get length(): number {
+    return this.incoming.length + this.outgoing.length;
+  }
+
+  enqueue(value: T): void {
+    this.incoming.push(value);
+  }
+
+  dequeue(): T | undefined {
+    if (this.outgoing.length === 0) {
+      while (this.incoming.length > 0) {
+        this.outgoing.push(this.incoming.pop()!);
+      }
+    }
+    return this.outgoing.pop();
+  }
+}
+
 export class EventStream<T, R = T> implements AsyncIterable<T> {
-  private queue: T[] = [];
-  private waiting: Array<(value: IteratorResult<T>) => void> = [];
+  private queue = new FifoQueue<T>();
+  private waiting = new FifoQueue<(value: IteratorResult<T>) => void>();
   private done = false;
   private finalResultPromise: Promise<R>;
   private resolveFinalResult!: (result: R) => void;
@@ -26,13 +49,13 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
       this.resolveFinalResult(this.extractResult(event));
     }
 
-    const waiter = this.waiting.shift();
+    const waiter = this.waiting.dequeue();
     if (waiter) {
       waiter({ value: event, done: false });
       return;
     }
 
-    this.queue.push(event);
+    this.queue.enqueue(event);
   }
 
   end(result?: R): void {
@@ -42,7 +65,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
     }
 
     while (this.waiting.length > 0) {
-      const waiter = this.waiting.shift();
+      const waiter = this.waiting.dequeue();
       waiter?.({ value: undefined as T, done: true });
     }
   }
@@ -50,7 +73,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     while (true) {
       if (this.queue.length > 0) {
-        yield this.queue.shift()!;
+        yield this.queue.dequeue()!;
         continue;
       }
 
@@ -59,7 +82,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
       }
 
       const result = await new Promise<IteratorResult<T>>((resolve) =>
-        this.waiting.push(resolve),
+        this.waiting.enqueue(resolve),
       );
       if (result.done) {
         return;

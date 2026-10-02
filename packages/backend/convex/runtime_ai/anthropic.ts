@@ -108,6 +108,7 @@ type AnthropicStreamEvent = {
     type?: string;
     text?: string;
     thinking?: string;
+    signature?: string;
     data?: string;
     id?: string;
     name?: string;
@@ -356,19 +357,19 @@ export function convertMessages(
             }
             continue;
           }
-          if (block.thinking.trim()) {
-            if (block.thinkingSignature?.trim()) {
-              content.push({
-                type: "thinking",
-                thinking: sanitizeSurrogates(block.thinking),
-                signature: block.thinkingSignature,
-              });
-            } else {
-              content.push({
-                type: "text",
-                text: sanitizeSurrogates(block.thinking),
-              });
-            }
+          // Signed blocks replay even with empty text (summarized display);
+          // dropping them fails the next request.
+          if (block.thinkingSignature?.trim()) {
+            content.push({
+              type: "thinking",
+              thinking: sanitizeSurrogates(block.thinking),
+              signature: block.thinkingSignature,
+            });
+          } else if (block.thinking.trim()) {
+            content.push({
+              type: "text",
+              text: sanitizeSurrogates(block.thinking),
+            });
           }
           continue;
         }
@@ -621,7 +622,7 @@ export const streamAnthropic: StreamFunction<
             output.content.push({
               type: "thinking",
               thinking: event.content_block.thinking ?? "",
-              thinkingSignature: "",
+              thinkingSignature: event.content_block.signature ?? "",
             });
             stream.push({
               type: "thinking_start",

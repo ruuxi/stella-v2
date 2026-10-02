@@ -3,11 +3,11 @@ import type {
 	Tool as OpenAITool,
 	ResponseCreateParamsStreaming,
 	ResponseFunctionCallOutputItemList,
-	ResponseFunctionToolCall,
 	ResponseInput,
 	ResponseInputContent,
 	ResponseInputImage,
 	ResponseInputText,
+	ResponseOutputItem,
 	ResponseOutputMessage,
 	ResponseReasoningItem,
 	ResponseStreamEvent,
@@ -270,7 +270,7 @@ export function convertResponsesMessages<TApi extends Api>(
 			messages.push({
 				type: "function_call_output",
 				call_id: callId,
-				output: sanitizeSurrogates(hasText ? textResult : "(see attached image)"),
+				output: sanitizeSurrogates(hasText ? textResult : hasImages ? "(see attached image)" : "(no tool output)"),
 			});
 
 			if (hasImages && model.input.includes("image")) {
@@ -343,8 +343,8 @@ export function synthesizeResponsesStreamEvents(response: OpenAI.Responses.Respo
 
 	response.output.forEach((item, outputIndex) => {
 		if (item.type === "reasoning") {
-			// The assembler mutates `currentItem.summary`; hand it a copy so the
-			// original item's JSON (the thinking signature) stays byte-identical.
+			// Hand the added event a copy so the original item's JSON (the
+			// thinking signature) stays byte-identical.
 			events.push({
 				type: "response.output_item.added",
 				item: { ...item, summary: [] },
@@ -365,8 +365,8 @@ export function synthesizeResponsesStreamEvents(response: OpenAI.Responses.Respo
 				});
 			}
 		} else if (item.type === "message") {
-			// The text-delta handler mirrors deltas into `currentItem.content`;
-			// start it empty so the mirrored copy never doubles the item's text.
+			// Start the added item empty, as a live stream does; the full text
+			// arrives as one delta and again on output_item.done.
 			events.push({
 				type: "response.output_item.added",
 				item: { ...item, content: [], status: "in_progress" },
@@ -427,6 +427,13 @@ export function synthesizeResponsesStreamEvents(response: OpenAI.Responses.Respo
 	return events;
 }
 
+type StreamingToolCall = ToolCall & { partialJson?: string };
+
+type ResponsesOutputSlot =
+	| { type: "thinking"; block: ThinkingContent; contentIndex: number }
+	| { type: "text"; block: TextContent; contentIndex: number }
+	| { type: "toolCall"; block: StreamingToolCall; contentIndex: number };
+
 export async function processResponsesStream<TApi extends Api>(
 	openaiStream: AsyncIterable<ResponseStreamEvent> | Iterable<ResponseStreamEvent>,
 	output: AssistantMessage,
@@ -434,258 +441,172 @@ export async function processResponsesStream<TApi extends Api>(
 	model: Model<TApi>,
 	options?: OpenAIResponsesStreamOptions,
 ): Promise<void> {
-	let currentItem: ResponseReasoningItem | ResponseOutputMessage | ResponseFunctionToolCall | null = null;
-	let currentBlock: ThinkingContent | TextContent | (ToolCall & { partialJson: string }) | null = null;
-	const blocks = output.content;
-	const blockIndex = () => blocks.length - 1;
+	// Stream state is tracked per `output_index`, not as a single "current"
+	// item: providers interleave items and complete them out of order (a
+	// reasoning item finishing after the message that follows it), and a
+	// single cursor would drop the reasoning or land deltas in the wrong
+	// block. Servers that omit `output_index` all share the `undefined` key,
+	// which degrades to the sequential behavior.
+	const outputSlots = new Map<number | undefined, ResponsesOutputSlot>();
+	const getSlot = <TType extends ResponsesOutputSlot["type"]>(
+		outputIndex: number | undefined,
+		type: TType,
+	): Extract<ResponsesOutputSlot, { type: TType }> | undefined => {
+		const slot = outputSlots.get(outputIndex);
+		return slot?.type === type ? (slot as Extract<ResponsesOutputSlot, { type: TType }>) : undefined;
+	};
+	const createSlot = (
+		outputIndex: number | undefined,
+		item: ResponseOutputItem,
+	): ResponsesOutputSlot | undefined => {
+		let slot: ResponsesOutputSlot;
+		if (item.type === "reasoning") {
+			const block: ThinkingContent = { type: "thinking", thinking: "" };
+			output.content.push(block);
+			slot = { type: "thinking", block, contentIndex: output.content.length - 1 };
+			stream.push({ type: "thinking_start", contentIndex: slot.contentIndex, partial: output });
+		} else if (item.type === "message") {
+			const block: TextContent = { type: "text", text: "" };
+			output.content.push(block);
+			slot = { type: "text", block, contentIndex: output.content.length - 1 };
+			stream.push({ type: "text_start", contentIndex: slot.contentIndex, partial: output });
+		} else if (item.type === "function_call") {
+			const block: StreamingToolCall = {
+				type: "toolCall",
+				id: `${item.call_id}|${item.id}`,
+				name: item.name,
+				arguments: {},
+				partialJson: item.arguments || "",
+			};
+			output.content.push(block);
+			slot = { type: "toolCall", block, contentIndex: output.content.length - 1 };
+			stream.push({ type: "toolcall_start", contentIndex: slot.contentIndex, partial: output });
+		} else {
+			return undefined;
+		}
+		outputSlots.set(outputIndex, slot);
+		return slot;
+	};
 
 	// Fireworks's Responses API for kimi-k2p6 and kimi-k2p5 sometimes emits
-	// `response.output_text.delta`
-	// BEFORE the matching `response.output_item.added` for the message
-	// they belong to. Without this helper, those early deltas would be
-	// silently dropped — the assistant reply still ends up correct
-	// (because `response.output_item.done` writes the full text from
-	// `item.content` at the end), but no `text_delta` events are emitted
+	// `response.output_text.delta` BEFORE the matching
+	// `response.output_item.added` for the message they belong to. Without
+	// this helper, those early deltas would be silently dropped — the reply
+	// still ends up correct (because `response.output_item.done` writes the
+	// full text from `item.content`), but no `text_delta` events are emitted
 	// during streaming and the reply pops in all at once instead of
-	// typewriter-ing. `ensureTextBlock` lazy-creates the text block + a
-	// matching `output_text` part on the first delta. The
-	// `response.output_item.added` handler below then ADOPTS this
-	// already-existing block instead of allocating a second one, which
-	// would otherwise render the reply twice in the UI.
-	const ensureTextBlock = (): TextContent => {
-		if (currentItem?.type === "message" && currentBlock?.type === "text") {
-			return currentBlock;
-		}
-		currentItem = {
-			type: "message",
-			id: `msg_${output.content.length}`,
-			role: "assistant",
-			content: [{ type: "output_text", text: "", annotations: [] }],
-			status: "in_progress",
-		} as ResponseOutputMessage;
-		currentBlock = { type: "text", text: "" };
-		output.content.push(currentBlock);
-		stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
-		return currentBlock;
+	// typewriter-ing. `ensureTextSlot` lazy-creates the text slot on the first
+	// delta; the `response.output_item.added` handler below then ADOPTS it
+	// instead of allocating a second block, which would otherwise render the
+	// reply twice in the UI.
+	const ensureTextSlot = (outputIndex: number | undefined) =>
+		getSlot(outputIndex, "text") ??
+		(createSlot(outputIndex, { type: "message" } as ResponseOutputMessage) as Extract<
+			ResponsesOutputSlot,
+			{ type: "text" }
+		>);
+
+	const pushThinkingDelta = (slot: Extract<ResponsesOutputSlot, { type: "thinking" }>, delta: string) => {
+		slot.block.thinking += delta;
+		stream.push({ type: "thinking_delta", contentIndex: slot.contentIndex, delta, partial: output });
 	};
 
 	for await (const event of openaiStream) {
 		if (event.type === "response.created") {
 			output.responseId = event.response.id;
 		} else if (event.type === "response.output_item.added") {
-			const item = event.item;
-			if (item.type === "reasoning") {
-				currentItem = item;
-				currentBlock = { type: "thinking", thinking: "" };
-				output.content.push(currentBlock);
-				stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
-			} else if (item.type === "message") {
-				// If the delta handler already lazy-created a text block
-				// for this message (Fireworks kimi-k2p6 ordering quirk —
-				// see `ensureTextBlock`), adopt it instead of pushing a
-				// duplicate. Without this guard we'd end up with two
-				// text blocks: the lazy one accumulating deltas and a
-				// fresh one that `output_item.done` would write the full
-				// text into, rendering the assistant reply twice.
-				if (currentBlock?.type === "text") {
-					currentItem = item;
-				} else {
-					currentItem = item;
-					currentBlock = { type: "text", text: "" };
-					output.content.push(currentBlock);
-					stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
-				}
-			} else if (item.type === "function_call") {
-				currentItem = item;
-				currentBlock = {
-					type: "toolCall",
-					id: `${item.call_id}|${item.id}`,
-					name: item.name,
-					arguments: {},
-					partialJson: item.arguments || "",
-				};
-				output.content.push(currentBlock);
-				stream.push({ type: "toolcall_start", contentIndex: blockIndex(), partial: output });
-			}
-		} else if (event.type === "response.reasoning_summary_part.added") {
-			if (currentItem && currentItem.type === "reasoning") {
-				currentItem.summary = currentItem.summary || [];
-				currentItem.summary.push(event.part);
+			const existing = outputSlots.get(event.output_index);
+			// Adopt a text slot lazily created by an early delta (see ensureTextSlot).
+			if (!(event.item.type === "message" && existing?.type === "text")) {
+				createSlot(event.output_index, event.item);
 			}
 		} else if (event.type === "response.reasoning_summary_text.delta") {
-			if (currentItem?.type === "reasoning" && currentBlock?.type === "thinking") {
-				currentItem.summary = currentItem.summary || [];
-				const lastPart = currentItem.summary[currentItem.summary.length - 1];
-				if (lastPart) {
-					currentBlock.thinking += event.delta;
-					lastPart.text += event.delta;
-					stream.push({
-						type: "thinking_delta",
-						contentIndex: blockIndex(),
-						delta: event.delta,
-						partial: output,
-					});
-				}
-			}
+			const slot = getSlot(event.output_index, "thinking");
+			if (slot) pushThinkingDelta(slot, event.delta);
 		} else if (event.type === "response.reasoning_summary_part.done") {
-			if (currentItem?.type === "reasoning" && currentBlock?.type === "thinking") {
-				currentItem.summary = currentItem.summary || [];
-				const lastPart = currentItem.summary[currentItem.summary.length - 1];
-				if (lastPart) {
-					currentBlock.thinking += "\n\n";
-					lastPart.text += "\n\n";
-					stream.push({
-						type: "thinking_delta",
-						contentIndex: blockIndex(),
-						delta: "\n\n",
-						partial: output,
-					});
-				}
-			}
+			const slot = getSlot(event.output_index, "thinking");
+			if (slot) pushThinkingDelta(slot, "\n\n");
 		} else if (event.type === "response.reasoning_text.delta") {
-			if (currentItem?.type === "reasoning" && currentBlock?.type === "thinking") {
-				currentBlock.thinking += event.delta;
-				stream.push({
-					type: "thinking_delta",
-					contentIndex: blockIndex(),
-					delta: event.delta,
-					partial: output,
-				});
-			}
-		} else if (event.type === "response.content_part.added") {
-			if (currentItem?.type === "message") {
-				currentItem.content = currentItem.content || [];
-				// Filter out ReasoningText, only accept output_text and refusal
-				if (event.part.type === "output_text" || event.part.type === "refusal") {
-					currentItem.content.push(event.part);
-				}
-			}
-		} else if (event.type === "response.output_text.delta") {
-			// Lazy-create the text block if the delta arrived before
-			// `output_item.added` (Fireworks kimi-k2p6 ordering). Mirror
-			// the delta into `currentItem.content` so the existing
-			// `content_part.added` invariants stay intact for the OpenAI
-			// path.
-			const textBlock = ensureTextBlock();
-			textBlock.text += event.delta;
-			if (currentItem?.type === "message") {
-				currentItem.content = currentItem.content || [];
-				const lastPart = currentItem.content[currentItem.content.length - 1];
-				if (lastPart?.type === "output_text") {
-					lastPart.text += event.delta;
-				} else {
-					currentItem.content.push({
-						type: "output_text",
-						text: event.delta,
-						annotations: [],
-					});
-				}
-			}
+			const slot = getSlot(event.output_index, "thinking");
+			if (slot) pushThinkingDelta(slot, event.delta);
+		} else if (event.type === "response.output_text.delta" || event.type === "response.refusal.delta") {
+			const slot = ensureTextSlot(event.output_index);
+			slot.block.text += event.delta;
 			stream.push({
 				type: "text_delta",
-				contentIndex: blockIndex(),
-				delta: event.delta,
-				partial: output,
-			});
-		} else if (event.type === "response.refusal.delta") {
-			const textBlock = ensureTextBlock();
-			textBlock.text += event.delta;
-			if (currentItem?.type === "message") {
-				currentItem.content = currentItem.content || [];
-				const lastPart = currentItem.content[currentItem.content.length - 1];
-				if (lastPart?.type === "refusal") {
-					lastPart.refusal += event.delta;
-				} else {
-					currentItem.content.push({
-						type: "refusal",
-						refusal: event.delta,
-					});
-				}
-			}
-			stream.push({
-				type: "text_delta",
-				contentIndex: blockIndex(),
+				contentIndex: slot.contentIndex,
 				delta: event.delta,
 				partial: output,
 			});
 		} else if (event.type === "response.function_call_arguments.delta") {
-			if (currentItem?.type === "function_call" && currentBlock?.type === "toolCall") {
-				currentBlock.partialJson += event.delta;
-				currentBlock.arguments = parseStreamingJson(currentBlock.partialJson);
-				stream.push({
-					type: "toolcall_delta",
-					contentIndex: blockIndex(),
-					delta: event.delta,
-					partial: output,
-				});
-			}
+			const slot = getSlot(event.output_index, "toolCall");
+			if (!slot || slot.block.partialJson === undefined) continue;
+			slot.block.partialJson += event.delta;
+			slot.block.arguments = parseStreamingJson(slot.block.partialJson);
+			stream.push({
+				type: "toolcall_delta",
+				contentIndex: slot.contentIndex,
+				delta: event.delta,
+				partial: output,
+			});
 		} else if (event.type === "response.function_call_arguments.done") {
-			if (currentItem?.type === "function_call" && currentBlock?.type === "toolCall") {
-				const previousPartialJson = currentBlock.partialJson;
-				currentBlock.partialJson = event.arguments;
-				currentBlock.arguments = parseStreamingJson(currentBlock.partialJson);
+			const slot = getSlot(event.output_index, "toolCall");
+			if (!slot || slot.block.partialJson === undefined) continue;
+			const previousPartialJson = slot.block.partialJson;
+			slot.block.partialJson = event.arguments;
+			slot.block.arguments = parseStreamingJson(slot.block.partialJson);
 
-				if (event.arguments.startsWith(previousPartialJson)) {
-					const delta = event.arguments.slice(previousPartialJson.length);
-					if (delta.length > 0) {
-						stream.push({
-							type: "toolcall_delta",
-							contentIndex: blockIndex(),
-							delta,
-							partial: output,
-						});
-					}
+			if (event.arguments.startsWith(previousPartialJson)) {
+				const delta = event.arguments.slice(previousPartialJson.length);
+				if (delta.length > 0) {
+					stream.push({
+						type: "toolcall_delta",
+						contentIndex: slot.contentIndex,
+						delta,
+						partial: output,
+					});
 				}
 			}
 		} else if (event.type === "response.output_item.done") {
 			const item = event.item;
+			const slot = outputSlots.get(event.output_index) ?? createSlot(event.output_index, item);
 
-			if (item.type === "reasoning" && currentBlock?.type === "thinking") {
+			if (item.type === "reasoning" && slot?.type === "thinking") {
 				const summaryText = item.summary?.map((s) => s.text).join("\n\n") || "";
 				const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
-				currentBlock.thinking = summaryText || contentText || currentBlock.thinking;
-				currentBlock.thinkingSignature = JSON.stringify(item);
+				slot.block.thinking = summaryText || contentText || slot.block.thinking;
+				slot.block.thinkingSignature = JSON.stringify(item);
 				stream.push({
 					type: "thinking_end",
-					contentIndex: blockIndex(),
-					content: currentBlock.thinking,
+					contentIndex: slot.contentIndex,
+					content: slot.block.thinking,
 					partial: output,
 				});
-				currentBlock = null;
-			} else if (item.type === "message" && currentBlock?.type === "text") {
-				currentBlock.text = item.content.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("");
-				currentBlock.textSignature = encodeTextSignatureV1(item.id, item.phase ?? undefined);
+				outputSlots.delete(event.output_index);
+			} else if (item.type === "message" && slot?.type === "text") {
+				slot.block.text = item.content.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("");
+				slot.block.textSignature = encodeTextSignatureV1(item.id, item.phase ?? undefined);
 				stream.push({
 					type: "text_end",
-					contentIndex: blockIndex(),
-					content: currentBlock.text,
+					contentIndex: slot.contentIndex,
+					content: slot.block.text,
 					partial: output,
 				});
-				currentBlock = null;
-			} else if (item.type === "function_call") {
-				const args =
-					currentBlock?.type === "toolCall" && currentBlock.partialJson
-						? parseStreamingJson(currentBlock.partialJson)
-						: parseStreamingJson(item.arguments || "{}");
-
-				let toolCall: ToolCall;
-				if (currentBlock?.type === "toolCall") {
-					// Finalize in-place and strip the scratch buffer so replay only
-					// carries parsed arguments.
-					currentBlock.arguments = args;
-					delete (currentBlock as { partialJson?: string }).partialJson;
-					toolCall = currentBlock;
-				} else {
-					toolCall = {
-						type: "toolCall",
-						id: `${item.call_id}|${item.id}`,
-						name: item.name,
-						arguments: args,
-					};
-				}
-
-				currentBlock = null;
-				stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
+				outputSlots.delete(event.output_index);
+			} else if (item.type === "function_call" && slot?.type === "toolCall") {
+				slot.block.arguments = slot.block.partialJson
+					? parseStreamingJson(slot.block.partialJson)
+					: parseStreamingJson(item.arguments || "{}");
+				// Finalize in-place and strip the scratch buffer so replay only
+				// carries parsed arguments (and so the call counts as finished).
+				delete slot.block.partialJson;
+				stream.push({
+					type: "toolcall_end",
+					contentIndex: slot.contentIndex,
+					toolCall: slot.block,
+					partial: output,
+				});
+				outputSlots.delete(event.output_index);
 			}
 		} else if (event.type === "response.completed" || event.type === "response.incomplete") {
 			const response = event.response;
@@ -713,23 +634,29 @@ export async function processResponsesStream<TApi extends Api>(
 				options.applyServiceTierPricing(output.usage, serviceTier);
 			}
 			// The terminal event is authoritative when compatible endpoints omit
-			// status. An explicit incomplete event is never a clean stop.
-			output.stopReason =
-				event.type === "response.incomplete" ? "length" : mapStopReason(response?.status);
+			// status. An explicit incomplete event is never a clean stop: only
+			// max_output_tokens truncation is a length stop; content_filter and
+			// any other reason are errors.
+			const incompleteReason = response?.incomplete_details?.reason ?? undefined;
+			output.stopReason = mapStopReason(
+				event.type === "response.incomplete" ? "incomplete" : response?.status,
+				incompleteReason,
+			);
 			if (output.content.some((b) => b.type === "toolCall") && output.stopReason === "stop") {
 				output.stopReason = "toolUse";
 			}
 			// Keep the raw terminal status (and any error/incomplete detail on the
-			// response) so the surfaced error explains why the stream died.
+			// response) so the surfaced error explains why the stream died. An
+			// incomplete reason is the more specific raw stop reason: it lets a
+			// content_filter stop read as a content abort.
 			if (output.stopReason === "error" && !output.errorMessage) {
 				const responseError = response?.error;
-				const incompleteReason = response?.incomplete_details?.reason;
 				const detail = responseError
 					? ` — ${responseError.code || "unknown"}: ${responseError.message || "no message"}`
 					: incompleteReason
 						? ` — incomplete: ${incompleteReason}`
 						: "";
-				output.errorMessage = `${providerAbortedStopMessage(String(response?.status))}${detail}`;
+				output.errorMessage = `${providerAbortedStopMessage(incompleteReason ?? String(response?.status ?? "incomplete"))}${detail}`;
 			}
 		} else if (event.type === "error") {
 			throw new Error(`Error Code ${event.code}: ${event.message}` || "Unknown error");
@@ -744,15 +671,32 @@ export async function processResponsesStream<TApi extends Api>(
 			throw new Error(msg);
 		}
 	}
+
+	// Every tool call in the final message gets executed. Refuse to hand over
+	// calls whose output_item.done never arrived: their arguments may be cut
+	// off or mixed up (e.g. a server that omits output_index). Finished calls
+	// have their scratch buffer removed.
+	if (output.stopReason === "toolUse") {
+		for (const block of output.content) {
+			if (block.type === "toolCall" && (block as StreamingToolCall).partialJson !== undefined) {
+				throw new Error(
+					`OpenAI Responses stream completed with an unfinished tool call: ${block.name} (${block.id})`,
+				);
+			}
+		}
+	}
 }
 
-function mapStopReason(status: OpenAI.Responses.ResponseStatus | undefined): StopReason {
+function mapStopReason(
+	status: OpenAI.Responses.ResponseStatus | undefined,
+	incompleteReason?: string,
+): StopReason {
 	if (!status) return "stop";
 	switch (status) {
 		case "completed":
 			return "stop";
 		case "incomplete":
-			return "length";
+			return incompleteReason === "max_output_tokens" ? "length" : "error";
 		case "failed":
 		case "cancelled":
 			return "error";

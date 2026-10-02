@@ -11,6 +11,7 @@ import type {
 import { AssistantMessageEventStream } from "./event_stream";
 import { headersToRecord } from "./headers";
 import { parseStreamingJson } from "./json_parse";
+import { shortHash } from "./openai_responses_shared";
 import { isRetryableProviderError } from "./retry";
 import { supportsXhigh } from "./model_utils";
 import { sanitizeSurrogates } from "./sanitize_unicode";
@@ -99,12 +100,121 @@ function normalizeChatToolChoice(
 }
 
 type ReasoningField = "reasoning_content" | "reasoning" | "reasoning_text";
-type ReasoningDetail = { type?: string; id?: string; data?: string };
+/**
+ * OpenRouter `reasoning_details` entries, replayed verbatim and in their
+ * original order on later same-model turns.
+ */
+type ReasoningDetail = Record<string, unknown> & {
+  type: "reasoning.summary" | "reasoning.encrypted" | "reasoning.text";
+  id?: string | null;
+  format?: string;
+  index?: number;
+  summary?: string;
+  data?: string;
+  text?: string;
+  signature?: string | null;
+};
+
+const REASONING_FIELDS: readonly string[] = [
+  "reasoning_content",
+  "reasoning",
+  "reasoning_text",
+];
+
+function isReasoningDetail(detail: unknown): detail is ReasoningDetail {
+  if (typeof detail !== "object" || detail === null || Array.isArray(detail)) {
+    return false;
+  }
+  const candidate = detail as Record<string, unknown>;
+  if (
+    !(candidate.id === undefined || candidate.id === null || typeof candidate.id === "string") ||
+    !(candidate.format === undefined || typeof candidate.format === "string") ||
+    !(candidate.index === undefined || typeof candidate.index === "number")
+  ) {
+    return false;
+  }
+  switch (candidate.type) {
+    case "reasoning.summary":
+      return typeof candidate.summary === "string";
+    case "reasoning.encrypted":
+      return typeof candidate.data === "string";
+    case "reasoning.text":
+      return (
+        typeof candidate.text === "string" &&
+        (candidate.signature === undefined ||
+          candidate.signature === null ||
+          typeof candidate.signature === "string")
+      );
+    default:
+      return false;
+  }
+}
+
+/** The full detail sequence persisted on a thinking block's signature. */
+function parseReasoningDetails(
+  signature: string | undefined,
+): ReasoningDetail[] | undefined {
+  if (!signature?.startsWith("[")) return undefined;
+  try {
+    const parsed = JSON.parse(signature) as unknown;
+    return Array.isArray(parsed) && parsed.length > 0 && parsed.every(isReasoningDetail)
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Older messages stored single encrypted details on tool calls. */
+function parseLegacyEncryptedReasoningDetail(
+  signature: string | undefined,
+): ReasoningDetail | undefined {
+  if (!signature?.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(signature) as unknown;
+    return isReasoningDetail(parsed) &&
+      parsed.type === "reasoning.encrypted" &&
+      typeof parsed.id === "string" &&
+      parsed.id.length > 0 &&
+      !!parsed.data
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * OpenRouter streams reasoning_details as deltas: consecutive text/summary
+ * deltas merge into one logical entry, encrypted entries stay discrete.
+ */
+function appendReasoningDetail(
+  details: ReasoningDetail[],
+  detail: ReasoningDetail,
+): void {
+  const last = details[details.length - 1];
+  const mergeable =
+    last?.type === detail.type &&
+    (detail.type === "reasoning.text" || detail.type === "reasoning.summary");
+  if (!last || !mergeable) {
+    details.push({ ...detail });
+    return;
+  }
+  if (detail.type === "reasoning.text") {
+    last.text = (last.text ?? "") + (detail.text ?? "");
+    last.signature ||= detail.signature;
+  } else {
+    last.summary = (last.summary ?? "") + (detail.summary ?? "");
+  }
+  last.id ??= detail.id;
+  last.format ||= detail.format;
+  last.index ??= detail.index;
+}
 type CompletionDeltaWithReasoning = NonNullable<
   ChatCompletionChunk.Choice["delta"]
 > &
   Partial<Record<ReasoningField, string | null>> & {
-    reasoning_details?: ReasoningDetail[];
+    reasoning_details?: unknown[];
   };
 type AssistantMessageWithExtras = ChatCompletionAssistantMessageParam &
   Partial<Record<ReasoningField, string>> & {
@@ -162,6 +272,31 @@ export const streamOpenAICompletions: StreamFunction<
       },
       stopReason: "stop",
       timestamp: Date.now(),
+    };
+
+    // OpenRouter requires the complete reasoning_details sequence replayed
+    // unmodified and in order. They can arrive at any point (encrypted
+    // entries often before their tool call), so collect them and persist the
+    // sequence once at the end as the first thinking block's signature,
+    // adding an empty block when no visible reasoning streamed.
+    let streamedReasoningDetails: ReasoningDetail[] | undefined;
+    const applyStreamedReasoningDetails = (emitEvents: boolean) => {
+      if (!streamedReasoningDetails) return;
+      const thinkingSignature = JSON.stringify(streamedReasoningDetails);
+      streamedReasoningDetails = undefined;
+      const existing = output.content.find(
+        (block): block is ThinkingContent => block.type === "thinking",
+      );
+      if (existing) {
+        existing.thinkingSignature = thinkingSignature;
+        return;
+      }
+      output.content.push({ type: "thinking", thinking: "", thinkingSignature });
+      if (emitEvents) {
+        const contentIndex = output.content.length - 1;
+        stream.push({ type: "thinking_start", contentIndex, partial: output });
+        stream.push({ type: "thinking_end", contentIndex, content: "", partial: output });
+      }
     };
 
     try {
@@ -412,25 +547,17 @@ export const streamOpenAICompletions: StreamFunction<
           }
         }
 
-        if (deltaWithReasoning.reasoning_details) {
+        if (Array.isArray(deltaWithReasoning.reasoning_details)) {
           for (const detail of deltaWithReasoning.reasoning_details) {
-            if (
-              detail.type === "reasoning.encrypted" &&
-              detail.id &&
-              detail.data
-            ) {
-              const matchingToolCall = output.content.find(
-                (block) => block.type === "toolCall" && block.id === detail.id,
-              );
-              if (matchingToolCall?.type === "toolCall") {
-                matchingToolCall.thoughtSignature = JSON.stringify(detail);
-              }
-            }
+            if (!isReasoningDetail(detail)) continue;
+            streamedReasoningDetails ??= [];
+            appendReasoningDetail(streamedReasoningDetails, detail);
           }
         }
       }
 
       finishCurrentBlock(currentBlock);
+      applyStreamedReasoningDetails(true);
 
       if (options?.signal?.aborted) {
         throw new Error("Request was aborted");
@@ -447,6 +574,7 @@ export const streamOpenAICompletions: StreamFunction<
       stream.push({ type: "done", reason: output.stopReason, message: output });
       stream.end();
     } catch (error) {
+      applyStreamedReasoningDetails(false);
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
         error instanceof Error ? error.message : JSON.stringify(error);
@@ -506,7 +634,13 @@ function createClient(
     defaultHeaders["X-OpenRouter-Title"] ??= "Stella";
   }
   Object.assign(defaultHeaders, optionsHeaders);
-  if (sessionId && compat.sendSessionAffinityHeaders) {
+  const isOpenRouter =
+    model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai");
+  if (sessionId && isOpenRouter && model.compat?.sendSessionAffinityHeaders !== false) {
+    // OpenRouter pins a session to one upstream provider via `x-session-id`,
+    // keeping that provider's prompt cache warm across turns.
+    defaultHeaders["x-session-id"] = sessionId;
+  } else if (sessionId && compat.sendSessionAffinityHeaders) {
     defaultHeaders.session_id = sessionId;
     defaultHeaders["x-client-request-id"] = sessionId;
     defaultHeaders["x-session-affinity"] = sessionId;
@@ -671,13 +805,19 @@ function maybeAddOpenRouterAnthropicCacheControl(
   model: Model<"openai-completions">,
   messages: ChatCompletionMessageParam[],
 ) {
-  if (model.provider !== "openrouter" || !model.id.startsWith("anthropic/")) {
+  // `~anthropic/*-latest` aliases route to Anthropic too.
+  if (model.provider !== "openrouter" || !/^~?anthropic\//.test(model.id)) {
     return;
   }
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message.role !== "user" && message.role !== "assistant") {
+    // A trailing tool result is the last turn in an agent loop.
+    if (
+      message.role !== "user" &&
+      message.role !== "assistant" &&
+      message.role !== "tool"
+    ) {
       continue;
     }
 
@@ -718,9 +858,16 @@ export function convertMessages<TApi extends Api>(
     if (compat.requiresMistralToolIds) {
       return normalizeMistralToolId(id);
     }
+    // Parallel Responses calls can share a call_id and differ only by item
+    // id; Chat Completions requires distinct tool call ids.
     if (id.includes("|")) {
-      const [callId] = id.split("|");
-      return callId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+      const separatorIndex = id.indexOf("|");
+      const callId = id.slice(0, separatorIndex).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const itemId = id.slice(separatorIndex + 1).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const combinedId = itemId.length > 0 ? `${callId}_${itemId}` : callId;
+      if (combinedId.length <= 40) return combinedId;
+      const hash = shortHash(id).slice(0, 8);
+      return `${callId.slice(0, Math.max(1, 40 - hash.length - 1))}_${hash}`;
     }
     return model.provider === "openai" && id.length > 40 ? id.slice(0, 40) : id;
   };
@@ -820,22 +967,39 @@ export function convertMessages<TApi extends Api>(
           .join("");
       }
 
+      const toolCalls = message.content.filter(
+        (block): block is ToolCall => block.type === "toolCall",
+      );
+      // Same-model reasoning_details replay verbatim; they replace the raw
+      // reasoning field. Older messages carried encrypted details on tool calls.
+      const signedReasoningDetails = message.content
+        .filter((block): block is ThinkingContent => block.type === "thinking")
+        .map((block) => parseReasoningDetails(block.thinkingSignature))
+        .find((details) => details !== undefined);
+      const legacyReasoningDetails = toolCalls
+        .map((toolCall) => parseLegacyEncryptedReasoningDetail(toolCall.thoughtSignature))
+        .filter((detail): detail is ReasoningDetail => detail !== undefined);
+      const preservedReasoningDetails =
+        signedReasoningDetails ??
+        (legacyReasoningDetails.length > 0 ? legacyReasoningDetails : undefined);
+
       const thinkingBlocks = message.content.filter(
         (block): block is ThinkingContent =>
           block.type === "thinking" && block.thinking.trim().length > 0,
       );
-      if (thinkingBlocks.length > 0 && !compat.requiresThinkingAsText) {
+      if (
+        thinkingBlocks.length > 0 &&
+        !compat.requiresThinkingAsText &&
+        !preservedReasoningDetails
+      ) {
         const signature = thinkingBlocks[0].thinkingSignature;
-        if (signature) {
+        if (signature && REASONING_FIELDS.includes(signature)) {
           assistantMessage[signature as ReasoningField] = thinkingBlocks
             .map((block) => block.thinking)
             .join("\n");
         }
       }
 
-      const toolCalls = message.content.filter(
-        (block): block is ToolCall => block.type === "toolCall",
-      );
       if (toolCalls.length > 0) {
         assistantMessage.tool_calls = toolCalls.map((toolCall) => ({
           id: toolCall.id,
@@ -845,19 +1009,9 @@ export function convertMessages<TApi extends Api>(
             arguments: JSON.stringify(toolCall.arguments),
           },
         }));
-        const reasoningDetails = toolCalls
-          .filter((toolCall) => toolCall.thoughtSignature)
-          .map((toolCall) => {
-            try {
-              return JSON.parse(toolCall.thoughtSignature!);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-        if (reasoningDetails.length > 0) {
-          assistantMessage.reasoning_details = reasoningDetails;
-        }
+      }
+      if (preservedReasoningDetails) {
+        assistantMessage.reasoning_details = preservedReasoningDetails;
       }
 
       const hasContent =
@@ -891,9 +1045,15 @@ export function convertMessages<TApi extends Api>(
         .filter((block): block is TextContent => block.type === "text")
         .map((block) => block.text)
         .join("\n");
+      const hasImages = toolMessage.content.some(
+        (block) => block.type === "image",
+      );
       const toolResult: ToolResultMessageWithName = {
         role: "tool",
-        content: sanitizeSurrogates(textResult || "(see attached image)"),
+        content: sanitizeSurrogates(
+          textResult ||
+            (hasImages ? "(see attached image)" : "(no tool output)"),
+        ),
         tool_call_id: toolMessage.toolCallId,
       };
       if (compat.requiresToolResultName && toolMessage.toolName) {

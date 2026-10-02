@@ -490,7 +490,7 @@ export interface OpenAICompletionsCompat {
   supportsStrictMode?: boolean;
   /** Cache control convention for prompt caching. */
   cacheControlFormat?: "anthropic";
-  /** Whether to send known session-affinity headers from `options.sessionId` when caching is enabled. Default: false. */
+  /** Whether to send known session-affinity headers from `options.sessionId` when caching is enabled. OpenRouter gets `x-session-id`. Default: true for Fireworks and OpenRouter, false otherwise. */
   sendSessionAffinityHeaders?: boolean;
   /** Whether the provider supports long prompt cache retention. Default: true. */
   supportsLongCacheRetention?: boolean;

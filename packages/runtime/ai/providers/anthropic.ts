@@ -75,7 +75,7 @@ function getCacheControl(
 }
 
 // Stealth mode: Mimic Claude Code's tool naming exactly
-const claudeCodeVersion = "2.1.75";
+const claudeCodeVersion = "2.1.280";
 
 // Claude Code 2.x tool names (canonical casing)
 // Source: https://cchistory.mariozechner.at/data/prompts-2.1.11.md
@@ -684,9 +684,11 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					calculateCost(model, output.usage);
 				} else if (event.type === "content_block_start") {
 					if (event.content_block.type === "text") {
+						// Some providers (and proxies) carry the opening content in
+						// content_block_start instead of a first delta; keep it.
 						const block: Block = {
 							type: "text",
-							text: "",
+							text: event.content_block.text ?? "",
 							index: event.index,
 						};
 						output.content.push(block);
@@ -695,8 +697,8 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 						abortGate.openThinkingBlock();
 						const block: Block = {
 							type: "thinking",
-							thinking: "",
-							thinkingSignature: "",
+							thinking: event.content_block.thinking ?? "",
+							thinkingSignature: event.content_block.signature ?? "",
 							index: event.index,
 						};
 						output.content.push(block);
@@ -819,7 +821,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 						if (output.stopReason === "error" && !output.errorMessage) {
 							output.errorMessage = pausedTurn
 								? pausedTurnStopMessage()
-								: providerAbortedStopMessage(event.delta.stop_reason);
+								: anthropicStopMessage(event.delta.stop_reason, event.delta.stop_details);
 							requestBudget.exhaustionReason = output.errorMessage;
 						}
 					}
@@ -958,6 +960,22 @@ export function supportsDisablingThinking(modelId: string): boolean {
 	const match = CLAUDE_FAMILY_VERSION_PATTERN.exec(modelId.toLowerCase());
 	if (!match) return true;
 	return match[1] !== "fable";
+}
+
+/**
+ * Check if a model accepts the `temperature` request field. Opus 4.7+,
+ * Sonnet 5.5+ and Fable (whose thinking cannot be turned off) reject it.
+ */
+export function supportsTemperature(modelId: string): boolean {
+	const match = CLAUDE_FAMILY_VERSION_PATTERN.exec(modelId.toLowerCase());
+	if (!match) return true;
+	const family = match[1];
+	const major = Number(match[2]);
+	const minor = match[3] !== undefined ? Number(match[3]) : 0;
+	if (family === "fable") return false;
+	if (family === "opus") return !(major > 4 || (major === 4 && minor >= 7));
+	if (family === "sonnet") return !(major > 5 || (major === 5 && minor >= 5));
+	return true;
 }
 
 /**
@@ -1262,7 +1280,9 @@ export function messageToAssistant(
 		pausedTurn = message.stop_reason === "pause_turn";
 		output.stopReason = mapStopReason(message.stop_reason);
 		if (output.stopReason === "error" && !output.errorMessage) {
-			output.errorMessage = pausedTurn ? pausedTurnStopMessage() : providerAbortedStopMessage(message.stop_reason);
+			output.errorMessage = pausedTurn
+				? pausedTurnStopMessage()
+				: anthropicStopMessage(message.stop_reason, message.stop_details);
 		}
 	}
 	return { pausedTurn, sawUncapturedBlock };
@@ -1318,8 +1338,13 @@ function buildParams(
 		];
 	}
 
-	// Temperature is incompatible with extended thinking (adaptive or budget-based).
-	if (options?.temperature !== undefined && !options?.thinkingEnabled) {
+	// Temperature is incompatible with extended thinking (adaptive or budget-based)
+	// and rejected outright by newer models.
+	if (
+		options?.temperature !== undefined &&
+		!options?.thinkingEnabled &&
+		supportsTemperature(resolveModelIdForCapabilities(model))
+	) {
 		params.temperature = options.temperature;
 	}
 
@@ -1666,14 +1691,19 @@ function convertAssistantContentBlocks(
 				blocks.push({ type: "redacted_thinking", data: block.thinkingSignature! });
 				continue;
 			}
-			if (block.thinking.trim().length === 0) continue;
-			if (!block.thinkingSignature || block.thinkingSignature.trim().length === 0) {
+			const thinkingSignature = block.thinkingSignature?.trim() ? block.thinkingSignature : undefined;
+			// A signed block must replay even when its text is empty: summarized
+			// display (Opus 5) returns signed blocks with no visible thinking, and
+			// dropping them fails the next request with "thinking blocks cannot be
+			// modified".
+			if (block.thinking.trim().length === 0 && !thinkingSignature) continue;
+			if (!thinkingSignature) {
 				blocks.push({ type: "text", text: sanitizeSurrogates(block.thinking) });
 			} else {
 				blocks.push({
 					type: "thinking",
 					thinking: sanitizeSurrogates(block.thinking),
-					signature: block.thinkingSignature,
+					signature: thinkingSignature,
 				});
 			}
 		} else if (block.type === "toolCall") {
@@ -1850,6 +1880,22 @@ export function convertTools(
 			...(cacheControl && index === tools.length - 1 ? { cache_control: cacheControl } : {}),
 		};
 	});
+}
+
+/**
+ * Error text for a stop reason that maps to "error". Refusals carry
+ * `stop_details` with the policy category and explanation; append them so
+ * the surfaced error says why, keeping the classifiable prefix intact.
+ */
+function anthropicStopMessage(
+	reason: string,
+	stopDetails?: Anthropic.Messages.RefusalStopDetails | null,
+): string {
+	const base = providerAbortedStopMessage(reason);
+	const explanation = stopDetails?.explanation?.trim();
+	const category = stopDetails?.category;
+	if (!explanation && !category) return base;
+	return `${base} Refusal details${category ? ` (${category})` : ""}: ${explanation || "no explanation provided"}`;
 }
 
 function mapStopReason(reason: Anthropic.Messages.StopReason | string): StopReason {

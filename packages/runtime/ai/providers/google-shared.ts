@@ -94,7 +94,12 @@ function resolveThoughtSignature(isSameProviderAndModel: boolean, signature: str
  * Models via Google APIs that require explicit tool call IDs in function calls/responses.
  */
 export function requiresToolCallId(modelId: string): boolean {
-	return modelId.startsWith("claude-") || modelId.startsWith("gpt-oss-");
+	const geminiMajorVersion = getGeminiMajorVersion(modelId);
+	return (
+		modelId.startsWith("claude-") ||
+		modelId.startsWith("gpt-oss-") ||
+		(geminiMajorVersion !== undefined && geminiMajorVersion >= 3)
+	);
 }
 
 function getGeminiMajorVersion(modelId: string): number | undefined {
@@ -157,26 +162,30 @@ export function convertMessages<T extends GoogleApiType>(model: Model<T>, contex
 
 			for (const block of msg.content) {
 				if (block.type === "text") {
-					// Skip empty text blocks.
-					if (!block.text || block.text.trim() === "") continue;
 					const thoughtSignature = resolveThoughtSignature(isSameProviderAndModel, block.textSignature);
+					// Skip empty text blocks unless they carry a thought signature: Gemini can sign
+					// a part with no visible text and requires it echoed back, or the reasoning
+					// chain breaks and the model ends turns with a thought-only STOP.
+					if ((!block.text || block.text.trim() === "") && !thoughtSignature) continue;
 					parts.push({
 						text: sanitizeSurrogates(block.text),
 						...(thoughtSignature && { thoughtSignature }),
 					});
 				} else if (block.type === "thinking") {
-					// Skip empty thinking blocks
-					if (!block.thinking || block.thinking.trim() === "") continue;
 					// Only keep as thinking block if same provider AND same model
 					// Otherwise convert to plain text (no tags to avoid model mimicking them)
 					if (isSameProviderAndModel) {
 						const thoughtSignature = resolveThoughtSignature(isSameProviderAndModel, block.thinkingSignature);
+						// Same rule as text: an empty thinking block is dropped only when unsigned.
+						if ((!block.thinking || block.thinking.trim() === "") && !thoughtSignature) continue;
 						parts.push({
 							thought: true,
 							text: sanitizeSurrogates(block.thinking),
 							...(thoughtSignature && { thoughtSignature }),
 						});
 					} else {
+						// Cross-provider/model: the signature is unusable, empty blocks stay dropped.
+						if (!block.thinking || block.thinking.trim() === "") continue;
 						parts.push({
 							text: sanitizeSurrogates(block.thinking),
 						});

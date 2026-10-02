@@ -248,7 +248,9 @@ export const streamGoogle: StreamFunction<"google-generative-ai", GoogleOptions>
 
 				if (candidate?.finishReason) {
 					output.stopReason = mapStopReason(candidate.finishReason);
-					if (output.content.some((b) => b.type === "toolCall")) {
+					// Only a clean STOP becomes toolUse; MAX_TOKENS/SAFETY/... keep their
+					// stop reason so a truncated or blocked tool call is not executed.
+					if (output.stopReason === "stop" && output.content.some((b) => b.type === "toolCall")) {
 						output.stopReason = "toolUse";
 					}
 					// Keep the raw finish reason (SAFETY/PROHIBITED_CONTENT/...) so the
@@ -347,8 +349,8 @@ export const streamSimpleGoogle: StreamFunction<"google-generative-ai", SimpleSt
 		return streamGoogle(model, context, { ...base, thinking: { enabled: false } } satisfies GoogleOptions);
 	}
 
-	const effort = clampReasoning(options.reasoning)!;
 	const googleModel = model as Model<"google-generative-ai">;
+	const effort = resolveGoogleThinkingLevel(googleModel, options.reasoning);
 
 	if (isGemini3ProModel(googleModel) || isGemini3FlashModel(googleModel) || isGemma4Model(googleModel)) {
 		return streamGoogle(model, context, {
@@ -497,6 +499,28 @@ function getDisabledThinkingConfig(model: Model<"google-generative-ai">): Thinki
 
 	// Gemini 2.x supports disabling via thinkingBudget = 0.
 	return { thinkingBudget: 0 };
+}
+
+/**
+ * Resolve the requested level through the model's thinkingLevelMap (a model
+ * may remap e.g. `minimal` to `low`), falling back to the clamped level when
+ * the map has no standard Google level for it.
+ */
+function resolveGoogleThinkingLevel(
+	model: Model<"google-generative-ai">,
+	level: ThinkingLevel,
+): ClampedThinkingLevel {
+	const mapped = model.thinkingLevelMap?.[level];
+	const resolved = typeof mapped === "string" ? mapped.toLowerCase() : undefined;
+	switch (resolved) {
+		case "minimal":
+		case "low":
+		case "medium":
+		case "high":
+			return resolved;
+		default:
+			return clampReasoning(level)!;
+	}
 }
 
 function getThinkingLevel(effort: ClampedThinkingLevel, model: Model<"google-generative-ai">): GoogleThinkingLevel {

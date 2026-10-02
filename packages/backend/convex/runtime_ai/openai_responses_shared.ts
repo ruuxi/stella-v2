@@ -33,7 +33,7 @@ import type {
   Usage,
 } from "./types";
 
-function shortHash(value: string): string {
+export function shortHash(value: string): string {
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
   for (let index = 0; index < value.length; index += 1) {
@@ -333,7 +333,9 @@ export function convertResponsesMessages<TApi extends Api>(
     messages.push({
       type: "function_call_output",
       call_id: callId,
-      output: sanitizeSurrogates(textResult || "(see attached image)"),
+      output: sanitizeSurrogates(
+        textResult || (hasImages ? "(see attached image)" : "(no tool output)"),
+      ),
     });
 
     if (hasImages && model.input.includes("image")) {
@@ -674,9 +676,20 @@ export async function processResponsesStream<TApi extends Api>(
           response.service_tier ?? options.serviceTier,
         );
       }
-      output.stopReason = mapStopReason(response?.status);
+      // Only max_output_tokens truncation is a length stop; an incomplete
+      // response for content_filter or any other reason is an error.
+      const incompleteReason = response?.incomplete_details?.reason ?? undefined;
+      output.stopReason = mapStopReason(
+        event.type === "response.incomplete" ? "incomplete" : response?.status,
+        incompleteReason,
+      );
       if (output.stopReason === "stop" && output.content.some((block) => block.type === "toolCall")) {
         output.stopReason = "toolUse";
+      }
+      if (output.stopReason === "error" && !output.errorMessage) {
+        output.errorMessage = incompleteReason
+          ? `Response incomplete: ${incompleteReason}`
+          : `Response ended with status ${response?.status ?? "unknown"}`;
       }
       continue;
     }
@@ -702,6 +715,7 @@ export async function processResponsesStream<TApi extends Api>(
 
 function mapStopReason(
   status: OpenAI.Responses.ResponseStatus | undefined,
+  incompleteReason?: string,
 ): StopReason {
   switch (status) {
     case undefined:
@@ -710,7 +724,7 @@ function mapStopReason(
     case "queued":
       return "stop";
     case "incomplete":
-      return "length";
+      return incompleteReason === "max_output_tokens" ? "length" : "error";
     case "failed":
     case "cancelled":
     default:

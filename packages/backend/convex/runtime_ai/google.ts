@@ -405,7 +405,10 @@ export const streamGoogle: StreamFunction<
           });
         }
       }
+      // Only a clean stop becomes toolUse; a MAX_TOKENS-truncated tool call
+      // keeps "length" so it is not executed.
       if (
+        output.stopReason === "stop" &&
         output.content.some(
           (block): block is ToolCall => block.type === "toolCall",
         )

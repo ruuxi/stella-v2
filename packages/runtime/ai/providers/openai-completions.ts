@@ -36,6 +36,7 @@ import type {
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { readRetryAfterMs } from "../utils/retry.js";
+import { shortHash } from "../utils/hash.js";
 import { headersToRecord } from "../utils/headers.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
@@ -85,6 +86,118 @@ function isToolCallBlock(block: { type: string }): block is ToolCall {
 
 function isImageContentBlock(block: { type: string }): block is ImageContent {
   return block.type === "image";
+}
+
+/**
+ * OpenRouter `reasoning_details` entries. Replayed verbatim and in their
+ * original order on later same-model turns; the encrypted entries are opaque.
+ */
+type OpenAIReasoningDetailBase = Record<string, unknown> & {
+  id?: string | null;
+  format?: string;
+  index?: number;
+};
+
+type OpenAIReasoningDetail =
+  | (OpenAIReasoningDetailBase & { type: "reasoning.summary"; summary: string })
+  | (OpenAIReasoningDetailBase & { type: "reasoning.encrypted"; data: string })
+  | (OpenAIReasoningDetailBase & {
+      type: "reasoning.text";
+      text: string;
+      signature?: string | null;
+    });
+
+function isOpenAIReasoningDetail(detail: unknown): detail is OpenAIReasoningDetail {
+  if (typeof detail !== "object" || detail === null || Array.isArray(detail)) {
+    return false;
+  }
+  const candidate = detail as Record<string, unknown>;
+  if (
+    !(candidate.id === undefined || candidate.id === null || typeof candidate.id === "string") ||
+    !(candidate.format === undefined || typeof candidate.format === "string") ||
+    !(candidate.index === undefined || typeof candidate.index === "number")
+  ) {
+    return false;
+  }
+  switch (candidate.type) {
+    case "reasoning.summary":
+      return typeof candidate.summary === "string";
+    case "reasoning.encrypted":
+      return typeof candidate.data === "string";
+    case "reasoning.text":
+      return (
+        typeof candidate.text === "string" &&
+        (candidate.signature === undefined ||
+          candidate.signature === null ||
+          typeof candidate.signature === "string")
+      );
+    default:
+      return false;
+  }
+}
+
+/** The full detail sequence persisted on a thinking block's signature. */
+function parseOpenAIReasoningDetails(
+  signature: string | undefined,
+): OpenAIReasoningDetail[] | undefined {
+  if (!signature?.startsWith("[")) return undefined;
+  try {
+    const parsed = JSON.parse(signature) as unknown;
+    return Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(isOpenAIReasoningDetail)
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Older sessions stored single encrypted details on tool calls. */
+function parseLegacyEncryptedReasoningDetail(
+  signature: string | undefined,
+): OpenAIReasoningDetail | undefined {
+  if (!signature?.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(signature) as unknown;
+    return isOpenAIReasoningDetail(parsed) &&
+      parsed.type === "reasoning.encrypted" &&
+      typeof parsed.id === "string" &&
+      parsed.id.length > 0 &&
+      parsed.data.length > 0
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * OpenRouter streams reasoning_details as deltas: consecutive text/summary
+ * deltas merge into one logical entry, encrypted entries stay discrete.
+ */
+function appendOpenAIReasoningDetail(
+  details: OpenAIReasoningDetail[],
+  detail: OpenAIReasoningDetail,
+): void {
+  const last = details[details.length - 1];
+  const fillCommon = (target: OpenAIReasoningDetailBase) => {
+    target.id ??= detail.id;
+    target.format ||= detail.format;
+    target.index ??= detail.index;
+  };
+  if (detail.type === "reasoning.text" && last?.type === "reasoning.text") {
+    last.text += detail.text;
+    last.signature ||= detail.signature;
+    fillCommon(last);
+    return;
+  }
+  if (detail.type === "reasoning.summary" && last?.type === "reasoning.summary") {
+    last.summary += detail.summary;
+    fillCommon(last);
+    return;
+  }
+  details.push({ ...detail });
 }
 
 export interface OpenAICompletionsOptions extends StreamOptions {
@@ -166,6 +279,32 @@ export const streamOpenAICompletions: StreamFunction<
       // A response is successful only after finish_reason arrives.
       stopReason: "error",
       timestamp: Date.now(),
+    };
+
+    // OpenRouter requires the complete reasoning_details sequence replayed
+    // unmodified and in order. They are replay metadata, not visible deltas,
+    // and can arrive at any point (encrypted entries often before the tool
+    // call they belong to), so collect them during the stream and persist
+    // the sequence once at the end as the signature of the first
+    // thinking block (adding an empty one when the provider sent no visible
+    // reasoning, e.g. encrypted-only details).
+    let streamedReasoningDetails: OpenAIReasoningDetail[] | undefined;
+    const applyStreamedReasoningDetails = (emitEvents: boolean) => {
+      if (!streamedReasoningDetails) return;
+      const thinkingSignature = JSON.stringify(streamedReasoningDetails);
+      streamedReasoningDetails = undefined;
+      const existing = output.content.find(isThinkingContentBlock);
+      if (existing) {
+        existing.thinkingSignature = thinkingSignature;
+        return;
+      }
+      const block: ThinkingContent = { type: "thinking", thinking: "", thinkingSignature };
+      output.content.push(block);
+      if (emitEvents) {
+        const contentIndex = output.content.length - 1;
+        stream.push({ type: "thinking_start", contentIndex, partial: output });
+        stream.push({ type: "thinking_end", contentIndex, content: "", partial: output });
+      }
     };
 
     try {
@@ -494,27 +633,21 @@ export const streamOpenAICompletions: StreamFunction<
             }
           }
 
-          const reasoningDetails = (choice.delta as any).reasoning_details;
-          if (reasoningDetails && Array.isArray(reasoningDetails)) {
+          const reasoningDetails = (
+            choice.delta as { reasoning_details?: unknown }
+          ).reasoning_details;
+          if (Array.isArray(reasoningDetails)) {
             for (const detail of reasoningDetails) {
-              if (
-                detail.type === "reasoning.encrypted" &&
-                detail.id &&
-                detail.data
-              ) {
-                const matchingToolCall = output.content.find(
-                  (b) => b.type === "toolCall" && b.id === detail.id,
-                ) as ToolCall | undefined;
-                if (matchingToolCall) {
-                  matchingToolCall.thoughtSignature = JSON.stringify(detail);
-                }
-              }
+              if (!isOpenAIReasoningDetail(detail)) continue;
+              streamedReasoningDetails ??= [];
+              appendOpenAIReasoningDetail(streamedReasoningDetails, detail);
             }
           }
         }
       }
 
       finishCurrentBlock(currentBlock);
+      applyStreamedReasoningDetails(true);
       if (options?.signal?.aborted) {
         throw new Error("Request was aborted");
       }
@@ -529,6 +662,7 @@ export const streamOpenAICompletions: StreamFunction<
       stream.push({ type: "done", reason: output.stopReason, message: output });
       stream.end();
     } catch (error) {
+      applyStreamedReasoningDetails(false);
       for (const block of output.content) {
         delete (block as { index?: number }).index;
         // Streaming scratch buffers are only used during parsing; never persist them.
@@ -607,10 +741,9 @@ function createClientOptions(
   }
 
   const headers = { ...model.headers };
-  if (
-    model.provider === "openrouter" ||
-    model.baseUrl.includes("openrouter.ai")
-  ) {
+  const isOpenRouter =
+    model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai");
+  if (isOpenRouter) {
     headers["HTTP-Referer"] ??= "https://stella.sh";
     headers["X-OpenRouter-Title"] ??= "Stella";
   }
@@ -623,7 +756,13 @@ function createClientOptions(
     Object.assign(headers, copilotHeaders);
   }
 
-  if (compat.sendSessionAffinityHeaders) {
+  if (compat.sendSessionAffinityHeaders && isOpenRouter) {
+    // OpenRouter pins a session to one upstream provider via `x-session-id`,
+    // which keeps that provider's prompt cache warm across turns.
+    if (sessionId) {
+      headers["x-session-id"] = sessionId;
+    }
+  } else if (compat.sendSessionAffinityHeaders) {
     if (sessionId) {
       headers.session_id = sessionId;
       headers["x-client-request-id"] = sessionId;
@@ -1029,7 +1168,13 @@ function addCacheControlToLastConversationMessage(
 ): void {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (message.role === "user" || message.role === "assistant") {
+    // A trailing tool result is the last conversation turn in an agent loop;
+    // skipping it would leave the whole tool exchange outside the cache.
+    if (
+      message.role === "user" ||
+      message.role === "assistant" ||
+      message.role === "tool"
+    ) {
       if (addCacheControlToMessage(message, cacheControl)) {
         return;
       }
@@ -1062,7 +1207,11 @@ function addCacheControlToMessage(
   message: ChatCompletionMessageParam,
   cacheControl: OpenAICompatCacheControl,
 ): boolean {
-  if (message.role === "user" || message.role === "assistant") {
+  if (
+    message.role === "user" ||
+    message.role === "assistant" ||
+    message.role === "tool"
+  ) {
     return addCacheControlToTextContent(message, cacheControl);
   }
   return false;
@@ -1072,6 +1221,7 @@ function addCacheControlToTextContent(
   message:
     | ChatCompletionInstructionMessageParam
     | ChatCompletionAssistantMessageParam
+    | ChatCompletionToolMessageParam
     | Extract<ChatCompletionMessageParam, { role: "user" }>,
   cacheControl: OpenAICompatCacheControl,
 ): boolean {
@@ -1116,12 +1266,18 @@ export function convertMessages(
   const normalizeToolCallId = (id: string): string => {
     // Handle pipe-separated IDs from OpenAI Responses API
     // Format: {call_id}|{id} where {id} can be 400+ chars with special chars (+, /, =)
-    // These come from providers like github-copilot, openai-codex, opencode
-    // Extract just the call_id part and normalize it
+    // These come from providers like github-copilot, openai-codex, opencode.
+    // Parallel calls in one turn can share a call_id and differ only by item
+    // id, while Chat Completions requires distinct tool call ids, so keep the
+    // item id (or a hash of the whole id once it exceeds the 40-char limit).
     if (id.includes("|")) {
-      const [callId] = id.split("|");
-      // Sanitize to allowed chars and truncate to 40 chars (OpenAI limit)
-      return callId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+      const separatorIndex = id.indexOf("|");
+      const callId = id.slice(0, separatorIndex).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const itemId = id.slice(separatorIndex + 1).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const combinedId = itemId.length > 0 ? `${callId}_${itemId}` : callId;
+      if (combinedId.length <= 40) return combinedId;
+      const hash = shortHash(id).slice(0, 8);
+      return `${callId.slice(0, Math.max(1, 40 - hash.length - 1))}_${hash}`;
     }
 
     if (model.provider === "openai")
@@ -1210,9 +1366,24 @@ export function convertMessages(
         .map((part) => part.text)
         .join("");
 
-      const nonEmptyThinkingBlocks = msg.content
-        .filter(isThinkingContentBlock)
-        .filter((block) => block.thinking.trim().length > 0);
+      const thinkingBlocks = msg.content.filter(isThinkingContentBlock);
+      const toolCalls = msg.content.filter(isToolCallBlock);
+      // Same-model reasoning_details replay verbatim (transformMessages drops
+      // cross-model thinking blocks and tool-call signatures). Older sessions
+      // carried single encrypted details on their tool calls.
+      const signedReasoningDetails = thinkingBlocks
+        .map((block) => parseOpenAIReasoningDetails(block.thinkingSignature))
+        .find((details) => details !== undefined);
+      const legacyReasoningDetails = toolCalls
+        .map((tc) => parseLegacyEncryptedReasoningDetail(tc.thoughtSignature))
+        .filter((detail): detail is OpenAIReasoningDetail => detail !== undefined);
+      const preservedReasoningDetails =
+        signedReasoningDetails ??
+        (legacyReasoningDetails.length > 0 ? legacyReasoningDetails : undefined);
+
+      const nonEmptyThinkingBlocks = thinkingBlocks.filter(
+        (block) => block.thinking.trim().length > 0,
+      );
       if (nonEmptyThinkingBlocks.length > 0) {
         if (compat.requiresThinkingAsText) {
           // Convert thinking blocks to plain text (no tags to avoid model mimicking them)
@@ -1242,10 +1413,11 @@ export function convertMessages(
           // plaintext reasoning field on input, so gate it on the compat
           // flag (default off, on only for local endpoints). Cross-turn
           // continuity for cloud reasoning models rides on opaque
-          // `reasoning_details` (see the tool-call `thoughtSignature` path
-          // below), which is unaffected by this gate.
+          // `reasoning_details` (see below), which is unaffected by this
+          // gate and replaces the raw field when present.
           const signature = nonEmptyThinkingBlocks[0].thinkingSignature;
           if (
+            !preservedReasoningDetails &&
             compat.replayReasoningContentField &&
             signature &&
             signature.length > 0
@@ -1264,7 +1436,6 @@ export function convertMessages(
         assistantMsg.content = assistantText;
       }
 
-      const toolCalls = msg.content.filter(isToolCallBlock);
       if (toolCalls.length > 0) {
         assistantMsg.tool_calls = toolCalls.map((tc) => ({
           id: tc.id,
@@ -1274,19 +1445,10 @@ export function convertMessages(
             arguments: JSON.stringify(tc.arguments),
           },
         }));
-        const reasoningDetails = toolCalls
-          .filter((tc) => tc.thoughtSignature)
-          .map((tc) => {
-            try {
-              return JSON.parse(tc.thoughtSignature!);
-            } catch {
-              return null;
-            }
-          })
-          .filter(Boolean);
-        if (reasoningDetails.length > 0) {
-          (assistantMsg as any).reasoning_details = reasoningDetails;
-        }
+      }
+      if (preservedReasoningDetails) {
+        (assistantMsg as { reasoning_details?: OpenAIReasoningDetail[] }).reasoning_details =
+          preservedReasoningDetails;
       }
       if (
         compat.requiresReasoningContentOnAssistantMessages &&
@@ -1331,14 +1493,18 @@ export function convertMessages(
           .join("\n");
         const hasImages = toolMsg.content.some((c) => c.type === "image");
 
-        // Always send tool result with text (or placeholder if only images)
+        // Always send tool result with text (or a placeholder). An empty
+        // result must not claim an image, or the model hallucinates one.
         const hasText = textResult.length > 0;
+        const toolResultText = hasText
+          ? textResult
+          : hasImages
+            ? "(see attached image)"
+            : "(no tool output)";
         // Some providers require the 'name' field in tool results
         const toolResultMsg: ChatCompletionToolMessageParam = {
           role: "tool",
-          content: sanitizeSurrogates(
-            hasText ? textResult : "(see attached image)",
-          ),
+          content: sanitizeSurrogates(toolResultText),
           tool_call_id: toolMsg.toolCallId,
         };
         if (compat.requiresToolResultName && toolMsg.toolName) {
@@ -1583,8 +1749,10 @@ function detectCompat(
   // only endpoints that expect their prior reasoning replayed back as a
   // plaintext field. Cloud providers reject it.
   const isLocal = provider === "local" || isLocalOrLoopbackUrl(baseUrl);
+  // OpenRouter's floating aliases (`~anthropic/claude-sonnet-latest`) route
+  // to Anthropic too and need the same cache markers.
   const cacheControlFormat =
-    provider === "openrouter" && model.id.startsWith("anthropic/")
+    provider === "openrouter" && /^~?anthropic\//.test(model.id)
       ? "anthropic"
       : undefined;
 
@@ -1612,7 +1780,10 @@ function detectCompat(
     zaiToolStream: false,
     supportsStrictMode: !isMoonshot,
     cacheControlFormat,
-    sendSessionAffinityHeaders: isFireworks,
+    sendSessionAffinityHeaders:
+      isFireworks ||
+      provider === "openrouter" ||
+      baseUrl.includes("openrouter.ai"),
     supportsLongCacheRetention: true,
   };
 }

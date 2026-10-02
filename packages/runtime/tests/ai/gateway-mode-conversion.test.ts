@@ -755,14 +755,13 @@ describe("OpenAI Completions gateway mode", () => {
     expect(direct.result.stopReason).toBe("toolUse");
     expect(comparable(gateway.result)).toEqual(comparable(direct.result));
     expect(gateway.result.content).toEqual([
-      { type: "thinking", thinking: "Consider this.", thinkingSignature: "reasoning" },
+      { type: "thinking", thinking: "Consider this.", thinkingSignature: JSON.stringify([reasoningDetail]) },
       { type: "text", text: "Hello world" },
       {
         type: "toolCall",
         id: "call_1",
         name: "read_file",
         arguments: { path: "/tmp/a.txt" },
-        thoughtSignature: JSON.stringify(reasoningDetail),
       },
     ]);
     expect(gateway.result.usage).toMatchObject({

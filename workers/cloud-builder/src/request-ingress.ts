@@ -28,6 +28,9 @@ export const publicJsonBodyLimit = (
   if (/^\/conversations\/[^/]+\/journal$/u.test(pathname)) {
     return CLOUD_BUILDER_BODY_LIMITS.conversationAppend;
   }
+  if (/^\/conversations\/[^/]+\/history\/query$/u.test(pathname)) {
+    return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
+  }
   if (pathname === "/owners/me/dispatches") {
     return CLOUD_BUILDER_BODY_LIMITS.turn;
   }

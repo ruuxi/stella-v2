@@ -9,6 +9,7 @@ import {
   LEGACY_NODE_REPL_TOOL_NAME,
   toolRequiresExplicitApproval,
 } from "@stella/runtime/kernel/tools/code-tool.js";
+import { CODE_TOOL_HISTORY_SENTENCE } from "@stella/runtime/kernel/tools/defs/code-def.js";
 import {
   buildDemotedCodeSuffix,
   describeToolCatalogEntry,
@@ -75,7 +76,8 @@ const CODE_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
  * computer-use globals because the cloud orchestrator has no device.
  */
 export const CLOUD_CODE_TOOL_DESCRIPTION =
-  "Run JavaScript with top-level await in Stella's cloud code runtime — a fresh isolated sandbox per call. Call the immutable globals directly: connect and tools. End with an expression to return its value; console.log lines come back in a [console] section. Bindings do not persist between calls and there is no cell_id, codeRuntime, sky, or browser in this session, so do the whole computation in one call and return a structured-cloneable value. The sandbox has no network and no secrets of its own; reach the outside world only through tools and connect. tools exposes allowed Stella tools. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools[\"mcp.server/tool\"](...). Use tools.$search({ query: \"<capability>\" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, and route artifacts, and a failing nested call rejects with the tool's own error so you can catch it; tools requiring explicit approval are unavailable inside code and must be called directly. connect is the connector client for the user's connected services (connect.documentation() explains it): discover → actions → schema → call. " +
+  "Run JavaScript with top-level await in Stella's cloud code runtime — a fresh isolated sandbox per call. Call the immutable globals directly: connect, history, and tools. End with an expression to return its value; console.log lines come back in a [console] section. Bindings do not persist between calls and there is no cell_id, codeRuntime, sky, or browser in this session, so do the whole computation in one call and return a structured-cloneable value. The sandbox has no network and no secrets of its own; reach the outside world only through tools and connect. tools exposes allowed Stella tools. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools[\"mcp.server/tool\"](...). Use tools.$search({ query: \"<capability>\" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, and route artifacts, and a failing nested call rejects with the tool's own error so you can catch it; tools requiring explicit approval are unavailable inside code and must be called directly. connect is the connector client for the user's connected services (connect.documentation() explains it): discover → actions → schema → call. " +
+  `${CODE_TOOL_HISTORY_SENTENCE} ` +
   `One execution may make at most ${CLOUD_CODE_MAX_TOOL_CALLS} nested tool calls, with at most ${CLOUD_CODE_MAX_CONCURRENT_TOOL_CALLS} running concurrently, and runs for at most ${Math.round(CLOUD_CODE_MAX_TIMEOUT_MS / 1000)} seconds.`;
 
 const CLOUD_CODE_PARAMETERS = {

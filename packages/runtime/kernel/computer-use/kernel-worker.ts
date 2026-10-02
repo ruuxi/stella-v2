@@ -489,6 +489,14 @@ const nodeReplWorkerMain = async (
       return callTool("$describe", { ...options, name });
     },
   );
+  // `history.sql` / `history.read` ride the tool-call path as the `$history`
+  // intrinsic; the host answers them from the conversation's cloud journal.
+  const history = Object.freeze({
+    sql: (query: string, params: unknown[] = []) =>
+      callTool("$history", { op: "sql", query, params }),
+    read: (fromSeq: number, toSeq: number) =>
+      callTool("$history", { op: "read", fromSeq, toSeq }),
+  });
   const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
   const toolAccess = (name: string) =>
     IDENTIFIER_RE.test(name)
@@ -915,6 +923,12 @@ const nodeReplWorkerMain = async (
     },
     connect: {
       value: connect,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    },
+    history: {
+      value: history,
       enumerable: true,
       writable: false,
       configurable: false,

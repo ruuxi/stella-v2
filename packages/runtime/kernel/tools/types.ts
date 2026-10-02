@@ -484,6 +484,11 @@ export type ToolHostOptions = {
    */
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
   /**
+   * The cloud backend worker origin and the runtime's auth token, or null
+   * while signed out. Backs `history.sql` / `history.read` in `code`.
+   */
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
+  /**
    * Optional authenticated Convex query bridge for polling backend-owned state
    * such as media job completion.
    */

@@ -2947,6 +2947,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
+    // Read-only, so an in-progress edit does not block it.
+    if (url.pathname === "/history/query") {
+      return this.handleHistoryQuery(request);
+    }
     const conversationEdit = await this.activeConversationEditLock();
     // `/turn` re-checks the lock inside its own admission critical section
     // and answers with the turn-start contract's `conversation_locked`.
@@ -7798,6 +7802,54 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // exclusion key cannot match a real turn id, so this is the same bounded,
     // spill-hydrated canonical window used to seed a local cloud turn.
     return json(await this.localTurnHistory(""));
+  }
+
+  /**
+   * The desktop code tool's `history.sql` / `history.read`, answered with
+   * exactly what the cloud code tool's history client runs.
+   */
+  private async handleHistoryQuery(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    const body = (await request.json().catch(() => null)) as {
+      op?: unknown;
+      query?: unknown;
+      params?: unknown;
+      fromSeq?: unknown;
+      toSeq?: unknown;
+    } | null;
+    try {
+      if (body?.op === "sql") {
+        if (typeof body.query !== "string" || !body.query.trim()) {
+          throw new Error("history.sql requires a non-empty query string.");
+        }
+        const params = (Array.isArray(body.params) ? body.params : []).filter(
+          (value): value is string | number | null =>
+            value === null ||
+            typeof value === "string" ||
+            typeof value === "number",
+        );
+        return json(runHistoryQuery(this.ctx.storage, body.query, params));
+      }
+      if (body?.op === "read") {
+        if (
+          !Number.isSafeInteger(body.fromSeq) ||
+          !Number.isSafeInteger(body.toSeq)
+        ) {
+          throw new Error("history.read requires integer fromSeq and toSeq.");
+        }
+        return json(
+          await this.archive.readRange(
+            Math.max(0, body.fromSeq as number),
+            body.toSeq as number,
+            BACKFILL_BATCH_RECORDS,
+          ),
+        );
+      }
+      throw new Error('history query op must be "sql" or "read".');
+    } catch (error) {
+      return json({ error: errorMessage(error) }, 400);
+    }
   }
 
   /**

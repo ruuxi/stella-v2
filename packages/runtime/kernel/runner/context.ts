@@ -1,4 +1,3 @@
-import path from "path";
 import { loadDeviceExecutionContext } from "./execution-context.js";
 import { resolveRuntimeSourceAsset } from "../shared/runtime-paths.js";
 import { stripMessageRefTag } from "@stella/contracts/reply-refs";
@@ -778,6 +777,11 @@ export const createRunnerContext = ({
       }
       return await handler(query, searchOptions);
     },
+    getCloudBackendAuth: () => {
+      const baseUrl = context.state?.backendUrl?.trim();
+      const authToken = (context.state?.authToken ?? envAuthToken ?? "").trim();
+      return baseUrl && authToken ? { baseUrl, authToken } : null;
+    },
     getStellaSiteAuth: () => {
       const baseUrl = sanitizeStellaBase(
         context.state?.convexSiteUrl ?? envProxyBaseUrl,
@@ -1510,11 +1514,6 @@ export const buildAgentContext = async (
         "Use relative paths unless an absolute path under this workspace is already shown by a tool.",
         "File tools are restricted to this workspace root.",
       ].join("\n"),
-    );
-  }
-  if (args.agentType === AGENT_IDS.ORCHESTRATOR) {
-    dynamicContextSections.push(
-      `## History Database\n${path.join(context.stellaDataDir, "stella.sqlite")}`,
     );
   }
   const reminderState =

@@ -277,12 +277,12 @@ describe("buildActiveThreadsPrompt", () => {
     expect(prompt).toContain(
       "\n- errored-thread (paused (last run errored), last active 2m ago)",
     );
-    // The roster is flat and recency-ordered, and still points at the history database.
+    // The roster is flat and recency-ordered, and still points at history.
     expect(prompt.indexOf("running-now")).toBeLessThan(
       prompt.indexOf("errored-thread"),
     );
     expect(prompt).not.toContain("##");
-    expect(prompt).toContain("history database");
+    expect(prompt).toContain("found with history in code");
   });
 
   it("derives active vs paused end-to-end from the runtime_agents.status join", () => {

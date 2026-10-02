@@ -63,6 +63,7 @@ import {
   MAX_NODE_REPL_PENDING_TOOL_CALLS,
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
   NODE_REPL_TOOL_DESCRIBE_NAME,
+  NODE_REPL_TOOL_HISTORY_NAME,
   NODE_REPL_TOOL_SEARCH_NAME,
   type ConnectMethod,
   type NodeReplContentItem,
@@ -224,6 +225,15 @@ export type NodeReplKernelManagerOptions = {
     context: ToolContext,
     cursor?: number,
   ) => Promise<unknown> | unknown;
+  /**
+   * Host-side handler for `history.sql(query, params)` (`op: "sql"`) and
+   * `history.read(fromSeq, toSeq)` (`op: "read"`) over the calling
+   * conversation's history. Intercepted before the allowlist gate.
+   */
+  queryHistory?: (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<unknown>;
 };
 
 export type ComputerUseSessionFactoryOptions = Readonly<{
@@ -703,6 +713,7 @@ class NodeReplKernel {
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
   private readonly describeTool?: NodeReplKernelManagerOptions["describeTool"];
+  private readonly queryHistory?: NodeReplKernelManagerOptions["queryHistory"];
   private readonly connectClient?: ReplConnectClient;
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
@@ -742,6 +753,7 @@ class NodeReplKernel {
       executeTool?: NodeReplKernelManagerOptions["executeTool"];
       searchTools?: NodeReplKernelManagerOptions["searchTools"];
       describeTool?: NodeReplKernelManagerOptions["describeTool"];
+      queryHistory?: NodeReplKernelManagerOptions["queryHistory"];
       connectClient?: ReplConnectClient;
       toolNames: string[];
       browserSessionId: string;
@@ -757,6 +769,7 @@ class NodeReplKernel {
     this.executeTool = options.executeTool;
     this.searchTools = options.searchTools;
     this.describeTool = options.describeTool;
+    this.queryHistory = options.queryHistory;
     this.connectClient = options.connectClient;
     this.browserSessionId = options.browserSessionId;
     const getSignal = () => this.active?.controller.signal;
@@ -1739,6 +1752,33 @@ class NodeReplKernel {
       return;
     }
 
+    if (message.toolName === NODE_REPL_TOOL_HISTORY_NAME) {
+      try {
+        if (!this.queryHistory) {
+          throw new Error("history is unavailable in this session.");
+        }
+        const result = await this.queryHistory(message.args, active.context);
+        if (serializedSize(result) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
+          throw new Error(
+            "history result exceeds the code-runtime protocol limit; add a LIMIT or select fewer columns.",
+          );
+        }
+        if (!this.closed && this.active === active) {
+          this.post({
+            type: "tool-result",
+            callId: message.callId,
+            ok: true,
+            value: result,
+          });
+        }
+      } catch (error) {
+        if (!this.closed && this.active === active) {
+          this.postToolError(message.callId, error);
+        }
+      }
+      return;
+    }
+
     const allowedToolNames = new Set(active.context.allowedToolNames ?? []);
     if (
       !this.executeTool ||
@@ -2564,6 +2604,7 @@ export class NodeReplKernelRegistry {
         executeTool: this.options.executeTool,
         searchTools: this.options.searchTools,
         describeTool: this.options.describeTool,
+        queryHistory: this.options.queryHistory,
         connectClient: this.options.connectClient,
         toolNames: replToolNamesForContext(context),
         browserSessionId,

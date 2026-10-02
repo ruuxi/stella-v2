@@ -221,6 +221,7 @@ export const createToolHost = ({
   extensionTools,
   webSearch,
   getStellaSiteAuth,
+  getCloudBackendAuth,
   queryConvex,
   actionConvex,
 }: ToolHostOptions) => {
@@ -347,6 +348,37 @@ export const createToolHost = ({
         query,
         limit,
       ),
+    // `history.sql` / `history.read`: the conversation lives in its cloud
+    // session DO, which answers both exactly as the cloud code tool does.
+    queryHistory: async (args, context) => {
+      const auth = getCloudBackendAuth?.();
+      if (!auth || context.agentType !== AGENT_IDS.ORCHESTRATOR) {
+        throw new Error("history is unavailable in this session.");
+      }
+      const response = await fetch(
+        `${auth.baseUrl.replace(/\/+$/, "")}/conversations/${encodeURIComponent(
+          context.conversationId,
+        )}/history/query`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${auth.authToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(args),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) {
+        const message =
+          body && typeof body === "object" && "error" in body
+            ? String((body as { error: unknown }).error)
+            : `history request failed (${response.status}).`;
+        throw new Error(message);
+      }
+      return body;
+    },
     describeTool: (name, context, cursor) => {
       const tool = collectReplSearchableTools(
         toolCatalog.values(),

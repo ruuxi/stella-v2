@@ -164,7 +164,7 @@ export const buildActiveThreadsPrompt = (
         a.threadId.localeCompare(b.threadId),
     )
     .slice(0, MAX_ACTIVE_RUNTIME_THREADS);
-  return `# Other Threads\nDurable past and ongoing work. Each entry shows its live state: "active" means the agent is executing a turn right now; "paused" means idle but resumable. Any thread_id can be reused later with send_input, even after cancellation or completion. Older threads not listed here are in the thread table of the history database.\n${ordered
+  return `# Other Threads\nDurable past and ongoing work. Each entry shows its live state: "active" means the agent is executing a turn right now; "paused" means idle but resumable. Any thread_id can be reused later with send_input, even after cancellation or completion. Older threads not listed here can be found with history in code.\n${ordered
     .map((thread) => formatThreadLines(thread, now, ""))
     .join("\n")}`;
 };

@@ -106,13 +106,6 @@ differs here, and this section names every difference.
 no cell_id, no codeRuntime/sky/browser globals. tools.<name>, tools.$list/\
 $search/$describe and connect all work; do the whole computation in one \
 call and return a value.
-- There is no history database file here: this conversation's full history \
-is queryable inside code with \`await history.sql(query, params)\` (one \
-read-only SELECT over \`journal\`: seq, turn_id, kind, role, created_at ms, \
-hidden, payload_json, spill_key; and FTS5 \`journal_fts\`: text, turn_id, \
-role, created_at, rowid = seq, which keeps rows rolled out of \`journal\`), \
-and \`await history.read(fromSeq, toSeq)\` returns full records for a seq \
-range, rolled-out ones included.
 - Connectors belong to the user's account, not to a device: anything they \
 connected in the Stella app is connected here, and connector_status shows \
 the same inline connect card when something is not. Reads and writes both \

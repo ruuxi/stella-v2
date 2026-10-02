@@ -1109,6 +1109,28 @@ const router = {
         auth.caller,
       );
     }
+    const historyQueryMatch = url.pathname.match(
+      /^\/conversations\/([^/]+)\/history\/query$/,
+    );
+    if (request.method === "POST" && historyQueryMatch) {
+      const auth = await authenticateConversationCaller(
+        request,
+        env,
+        false,
+        requestId,
+      );
+      if (!auth.ok) return auth.response;
+      const bodyLimit = publicJsonBodyLimit(request.method, url.pathname)!;
+      const bounded = await boundedIngressRequest(request, bodyLimit);
+      if (bounded instanceof Response) return bounded;
+      return await forwardToConversation(
+        bounded,
+        env,
+        conversationName(historyQueryMatch[1]!),
+        "/history/query",
+        auth.caller,
+      );
+    }
     const journalAppendMatch = url.pathname.match(
       /^\/conversations\/([^/]+)\/journal$/,
     );

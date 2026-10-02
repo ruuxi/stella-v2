@@ -473,7 +473,6 @@ describe("desktop (computer) agents", () => {
     expect(await h.call("computerThreads.start", start(1))).toEqual({ threadId: "local-agent-1" });
     expect(await h.call("computerThreads.start", start(1))).toEqual({ threadId: "local-agent-1" });
     expect((await h.callError("computerThreads.start", start(1, { description: "x" }))).reason).toBe("attempt_replay_conflict");
-    expect((await h.callError("computerThreads.start", start(3))).reason).toBe("attempt_not_next");
 
     const ids = { threadId: "local-agent-1", originDeviceId: "desktop-1", ownerGeneration: GEN };
     expect(await h.call("computerThreads.complete", { ...ids, attemptGeneration: 1, status: "completed", result: "Cleaned." })).toEqual({

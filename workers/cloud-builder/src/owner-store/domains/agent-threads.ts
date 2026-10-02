@@ -695,11 +695,11 @@ const startComputerThread = async (
       }
       return { threadId: existing.thread_id };
     }
+    // Fencing is monotonic, not dense: the desktop advances its generation
+    // both when it invalidates an unwinding attempt and when the next one
+    // starts, so a follow-up can skip numbers.
     if (args.attemptGeneration < existing.attempt_generation) {
       throw rejectStart("attempt_stale", "A newer attempt of this agent already started.");
-    }
-    if (args.attemptGeneration !== existing.attempt_generation + 1) {
-      throw rejectStart("attempt_not_next", "That agent attempt is out of order.");
     }
     ctx.db.run(
       `UPDATE agent_threads SET status = 'running', attempt_generation = ?, description = ?, agent_type = ?,

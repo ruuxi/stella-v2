@@ -16,8 +16,9 @@ import type { ManagedModelAudience } from "./agent/model";
  * Convex's way to billing while some metered features still run here.
  * Billing lives in each owner's object on cloud-builder; this asks it what an
  * owner may spend and reports what they spent, over `/internal/billing/*`
- * with the builder service secret. It shrinks as media, voice, dictation and
- * search move to Cloudflare, and goes with them.
+ * with the builder service secret, and closes the owner's devices on account
+ * deletion over `/internal/devices/close`. It shrinks as media, voice,
+ * dictation and search move to Cloudflare, and goes with them.
  */
 
 export type BillingAccess = {
@@ -37,7 +38,7 @@ export type BillingAccess = {
 const BILLING_TIMEOUT_MS = 10_000;
 const USAGE_RETRY_LIMIT = 8;
 
-const callBilling = async <T>(action: string, body: Record<string, unknown>): Promise<T> => {
+const callBuilder = async <T>(path: string, body: Record<string, unknown>): Promise<T> => {
   const endpoint = resolveBuilderEndpoint();
   if (!endpoint) {
     throw new ConvexError({
@@ -47,7 +48,7 @@ const callBilling = async <T>(action: string, body: Record<string, unknown>): Pr
   }
   let response: Response;
   try {
-    response = await fetch(`${endpoint.url}/internal/billing/${action}`, {
+    response = await fetch(`${endpoint.url}${path}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${endpoint.secret}`,
@@ -70,6 +71,9 @@ const callBilling = async <T>(action: string, body: Record<string, unknown>): Pr
   }
   return (await response.json()) as T;
 };
+
+const callBilling = <T>(action: string, body: Record<string, unknown>): Promise<T> =>
+  callBuilder<T>(`/internal/billing/${action}`, body);
 
 /** What the owner may spend now. Actions only. */
 export const fetchBillingAccess = (
@@ -97,6 +101,10 @@ export const setBillingPlan = (
 /** Account deletion: end the owner's Stripe customer. */
 export const closeBilling = (ownerId: string): Promise<{ ok: true }> =>
   callBilling("close", { ownerId });
+
+/** Account deletion: delete the owner's Cloudflare tunnels. */
+export const closeDevices = (ownerId: string): Promise<{ ok: true }> =>
+  callBuilder("/internal/devices/close", { ownerId });
 
 /** Price token usage with the synced model prices. */
 export const priceManagedUsage = async (

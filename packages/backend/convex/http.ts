@@ -9,7 +9,7 @@ import { corsPreflightHandler } from "./http_shared/cors";
 import { registerAdminRoutes } from "./http_routes/admin";
 import { registerDesktopReleaseRoutes } from "./http_routes/desktop_releases";
 import { registerMediaRoutes } from "./http_routes/media";
-import { registerMobileRoutes } from "./http_routes/mobile";
+import { registerAuthHandoffRoutes } from "./http_routes/auth_handoff";
 import { registerNativeOAuthRoutes } from "./http_routes/native_oauth";
 
 import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
@@ -63,7 +63,7 @@ registerSynthesisRoutes(http);
 registerDesktopReleaseRoutes(http);
 registerMusicRoutes(http);
 registerMediaRoutes(http);
-registerMobileRoutes(http);
+registerAuthHandoffRoutes(http);
 registerNativeOAuthRoutes(http);
 registerVoiceRoutes(http);
 registerDictationRoutes(http);

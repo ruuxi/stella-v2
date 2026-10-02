@@ -13,8 +13,7 @@ const createService = () =>
 const configureReadyService = (service: MobileBridgeService) => {
   const anyService = service as any;
   anyService.port = 4318;
-  anyService.convexDeploymentUrl = "https://example.convex.cloud";
-  anyService.convexSiteUrl = "https://example.convex.site";
+  anyService.backendUrl = "https://backend.example";
   anyService.hostAuthToken = "desktop-token";
   anyService.deviceId = "desktop-device";
   anyService.tunnelUrl = TUNNEL_URL;

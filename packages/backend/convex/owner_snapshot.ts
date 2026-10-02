@@ -22,7 +22,6 @@ import {
 } from "./lib/cloud_execution";
 import { readOwnerDataAccessState } from "./owner_lifecycle";
 import { readOwnerEnforcement } from "./owner_enforcement";
-import { executionCapabilityValidator } from "./schema/execution_placement";
 import {
   identityLevelValidator,
   resolveIdentityLevel,
@@ -36,39 +35,17 @@ import {
  * The owner snapshot: the one control-plane read the cloud-builder's owner
  * gate performs (`@stella/contracts/turn-plane/owner-snapshot`). Everything a
  * turn admission needs to know about an owner — write fence and generation,
- * plan, model allowance, default execution, execution devices and
- * their public keys, paired phones — in one document the gate caches for
- * `ttlMs`; Convex pushes a fresh replacement on change.
+ * plan, model allowance and default execution — in one document the gate
+ * caches for `ttlMs`; Convex pushes a fresh replacement on change. The gate
+ * overlays the owner's own data (billing, devices) from its database.
  */
 
 export const OWNER_SNAPSHOT_TTL_MS = 300_000;
-const MAX_PAIRED_DEVICES = 100;
-/** Matches `MAX_EXECUTION_DEVICES` in execution_placement.ts. */
-const MAX_EXECUTION_DEVICES = 64;
 
 const connectedEngineValidator = v.union(
   v.literal("anthropic"),
   v.literal("openai-codex"),
 );
-
-const pairedDeviceValidator = v.object({
-  mobileDeviceId: v.string(),
-  desktopDeviceId: v.string(),
-  /**
-   * The pairing proof's HMAC key (`sha256hex(pairSecret)`). The worker
-   * verifies the phone's `X-Stella-Mobile-Pair-Proof` header with it instead
-   * of calling back into Convex on every mobile submit.
-   */
-  mobilePublicKey: v.optional(v.string()),
-});
-
-const executionDeviceValidator = v.object({
-  deviceId: v.string(),
-  publicKey: v.string(),
-  remoteExecutionEnabled: v.boolean(),
-  label: v.optional(v.string()),
-  capabilities: v.optional(v.array(executionCapabilityValidator)),
-});
 
 export const ownerSnapshotValidator = v.object({
   v: v.literal(1),
@@ -85,8 +62,6 @@ export const ownerSnapshotValidator = v.object({
     maxRequests: v.optional(v.number()),
   }),
   execution: cloudExecutionSelectionValidator,
-  pairedDevices: v.optional(v.array(pairedDeviceValidator)),
-  devices: v.optional(v.array(executionDeviceValidator)),
   connectedEngines: v.optional(v.array(connectedEngineValidator)),
   fetchedAt: v.number(),
   ttlMs: v.number(),
@@ -102,8 +77,6 @@ type OwnerSnapshotFields = {
   plan: OwnerSnapshot["plan"];
   allowance: OwnerSnapshot["allowance"];
   execution: CloudExecutionSelection;
-  pairedDevices: NonNullable<OwnerSnapshot["pairedDevices"]>;
-  devices: NonNullable<OwnerSnapshot["devices"]>;
   connectedEngines: Array<"anthropic" | "openai-codex">;
 };
 
@@ -121,8 +94,6 @@ const ownerSnapshotFieldsValidator = v.object({
     maxRequests: v.optional(v.number()),
   }),
   execution: cloudExecutionSelectionValidator,
-  pairedDevices: v.array(pairedDeviceValidator),
-  devices: v.array(executionDeviceValidator),
   connectedEngines: v.array(connectedEngineValidator),
 });
 
@@ -173,16 +144,6 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
           .unique(),
       })),
     );
-    const paired = await ctx.db
-      .query("paired_mobile_devices")
-      .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-        q.eq("ownerId", ownerId),
-      )
-      .take(MAX_PAIRED_DEVICES);
-    const devices = await ctx.db
-      .query("devices")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .take(MAX_EXECUTION_DEVICES);
     return {
       ownerId,
       ownerGeneration: access.generation,
@@ -193,32 +154,6 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       plan,
       allowance,
       execution,
-      pairedDevices: paired
-        .filter((device) => device.revokedAt === undefined)
-        .map((device) => ({
-          mobileDeviceId: device.mobileDeviceId,
-          desktopDeviceId: device.desktopDeviceId,
-          mobilePublicKey: device.pairSecretHash,
-        })),
-      // Only a device that registered an execution key can present itself on
-      // the gate's presence socket; the rest are bridge/tunnel rows.
-      devices: devices.flatMap((device) =>
-        device.devicePublicKey
-          ? [
-              {
-                deviceId: device.deviceId,
-                publicKey: device.devicePublicKey,
-                remoteExecutionEnabled: device.remoteExecutionEnabled !== false,
-                ...(device.deviceName?.trim()
-                  ? { label: device.deviceName.trim() }
-                  : {}),
-                ...(device.executionCapabilities?.length
-                  ? { capabilities: device.executionCapabilities }
-                  : {}),
-              },
-            ]
-          : [],
-      ),
       connectedEngines: credentials.flatMap(({ provider, row }) =>
         row ? [provider] : [],
       ),

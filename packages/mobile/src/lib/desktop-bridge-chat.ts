@@ -43,7 +43,7 @@ import {
   requestDesktopConnection,
   type StoredPhoneAccess,
 } from "./phone-access";
-import { postJson } from "./http";
+import { backendOrigin, postJson } from "./http";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
 import type { ToolStep } from "./tool-activity";
 import { agentWorkArtifactId, parseChatArtifacts } from "./mobile-artifacts";
@@ -420,6 +420,7 @@ export const createDesktopBridgeSession = async (
           challenge.challenge,
           keyPair.publicKey,
         ),
+        origin: backendOrigin(),
       },
     ),
   );

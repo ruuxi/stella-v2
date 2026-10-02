@@ -1,7 +1,7 @@
 import { useBackendValue } from "@/platform/backend/use-backend-view";
+import type { BillingStatus } from "@stella/contracts/backend/billing";
 import { useCallback, useMemo } from "react";
 import { isWebsiteHost } from "@/platform/capabilities";
-import { api } from "@/convex/api";
 import { useDesktopAuthSession, getAuthSessionSnapshot } from "@/global/auth/services/auth-session";
 import { readModelCatalogUpdatedAtSnapshot, useModelCatalogUpdatedAt } from "@/global/settings/hooks/model-catalog-updated-at";
 import { createServiceRequest } from "@/platform/http/service-request";
@@ -27,7 +27,6 @@ import {
   createResourceStore,
   useResourceStore,
 } from "@/shared/lib/resource-cache";
-import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 
 type StellaCatalogPayload = {
   models: CatalogModel[];
@@ -47,18 +46,6 @@ type AuthSessionData =
     }
   | null
   | undefined;
-
-type BillingStatus = {
-  plan: "free" | "go" | "pro";
-  usage: {
-    rollingUsedUsd: number;
-    rollingLimitUsd: number;
-    weeklyUsedUsd: number;
-    weeklyLimitUsd: number;
-    monthlyUsedUsd: number;
-    monthlyLimitUsd: number;
-  };
-};
 
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -129,9 +116,10 @@ function getBillingAudienceKey(
   const { plan, usage } = billingStatus;
   if (plan === "free") return "free";
   const isDowngraded =
-    usage.rollingUsedUsd >= usage.rollingLimitUsd ||
+    usage !== null &&
+    (usage.rollingUsedUsd >= usage.rollingLimitUsd ||
     usage.weeklyUsedUsd >= usage.weeklyLimitUsd ||
-    usage.monthlyUsedUsd >= usage.monthlyLimitUsd;
+    usage.monthlyUsedUsd >= usage.monthlyLimitUsd);
   return isDowngraded ? `${plan}_fallback` : plan;
 }
 
@@ -157,7 +145,7 @@ export function useModelCatalog() {
     sessionData && user?.isAnonymous !== true,
   );
   const sessionCacheScope = getSessionCacheKey(sessionData);
-  const billingStatus: BillingStatus | undefined = useBackendValue(
+  const billingStatus = useBackendValue(
     "billing.status",
     hasConnectedAccount ? {} : "skip",
   );

@@ -1,28 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
 import QRCode from "qrcode";
-import { api } from "@/convex/api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { getOrCreateDeviceId } from "@/platform/electron/device";
-
-type PairingSessionState = {
-  pairingCode: string;
-  expiresAt: number;
-  createdAt: number;
-} | null;
-
-type PairedPhoneRecord = {
-  mobileDeviceId: string;
-  displayName?: string;
-  platform?: string;
-  approvedAt: number;
-  lastSeenAt: number;
-};
-
-type PhoneAccessState = {
-  activePairing: PairingSessionState;
-  pairedDevices: PairedPhoneRecord[];
-};
 
 type UsePhoneAccessControllerOptions = {
   qrCodeWidth?: number;
@@ -46,17 +27,10 @@ export function usePhoneAccessController(
   const [now, setNow] = useState(() => Date.now());
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
-  const createPairingSession = useMutation(
-    api.mobile_access.createPairingSession,
-  );
-  const revokePairedMobileDevice = useMutation(
-    api.mobile_access.revokePairedMobileDevice,
-  );
-
-  const phoneAccessState = useQuery(
-    api.mobile_access.getPhoneAccessState,
+  const phoneAccessState = useBackendView(
+    "phone.access",
     hasConnectedAccount && desktopDeviceId ? { desktopDeviceId } : "skip",
-  ) as PhoneAccessState | undefined;
+  ).value;
 
   useEffect(() => {
     if (!hasConnectedAccount) {
@@ -153,12 +127,12 @@ export function usePhoneAccessController(
     }
     setIsCreating(true);
     try {
-      await createPairingSession({ desktopDeviceId });
+      await backendClient.call("phone.createPairing", { desktopDeviceId });
       return true;
     } finally {
       setIsCreating(false);
     }
-  }, [createPairingSession, desktopDeviceId, isCreating]);
+  }, [desktopDeviceId, isCreating]);
 
   const removePhone = useCallback(
     async (mobileDeviceId: string): Promise<boolean> => {
@@ -167,13 +141,16 @@ export function usePhoneAccessController(
       }
       setRemovingMobileDeviceId(mobileDeviceId);
       try {
-        await revokePairedMobileDevice({ desktopDeviceId, mobileDeviceId });
+        await backendClient.call("phone.revoke", {
+          desktopDeviceId,
+          mobileDeviceId,
+        });
         return true;
       } finally {
         setRemovingMobileDeviceId(null);
       }
     },
-    [desktopDeviceId, removingMobileDeviceId, revokePairedMobileDevice],
+    [desktopDeviceId, removingMobileDeviceId],
   );
 
   return {

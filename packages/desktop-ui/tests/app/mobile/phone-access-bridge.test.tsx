@@ -17,36 +17,25 @@ const probe = vi.hoisted(() => ({
         expiresAt: number;
       }
     | null,
-  getPhoneAccessState: { name: "getPhoneAccessState" },
-  watchIncomingConnectIntent: { name: "watchIncomingConnectIntent" },
-  acknowledgeConnectIntent: { name: "acknowledgeConnectIntent" },
   acknowledgeIntent: vi.fn(),
   getDeviceIdOrNull: vi.fn(),
 }));
 
-vi.mock("@/convex/api", () => ({
-  api: {
-    mobile_access: {
-      getPhoneAccessState: probe.getPhoneAccessState,
-      watchIncomingConnectIntent: probe.watchIncomingConnectIntent,
-      acknowledgeConnectIntent: probe.acknowledgeConnectIntent,
-    },
+vi.mock("@/platform/backend/use-backend-view", () => ({
+  useBackendView: (view: string, args: unknown) => {
+    if (args === "skip") return { value: undefined };
+    if (view === "phone.access") return { value: probe.phoneAccessState };
+    if (view === "phone.connectIntent") return { value: probe.intent };
+    return { value: undefined };
   },
 }));
 
-vi.mock("convex/react", () => ({
-  useMutation: () => probe.acknowledgeIntent,
-  useQuery: (query: unknown, args: unknown) => {
-    if (args === "skip") {
-      return undefined;
-    }
-    if (query === probe.getPhoneAccessState) {
-      return probe.phoneAccessState;
-    }
-    if (query === probe.watchIncomingConnectIntent) {
-      return probe.intent;
-    }
-    return undefined;
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendClient: {
+    call: (name: string, args: unknown) =>
+      name === "phone.acknowledgeIntent"
+        ? probe.acknowledgeIntent(args)
+        : Promise.resolve(null),
   },
 }));
 

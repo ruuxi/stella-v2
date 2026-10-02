@@ -24,10 +24,10 @@ import {
   tunnelNames,
   writeTunnelDns,
 } from "../../devices/cloudflare-tunnels.js";
-import { array, empty, literal, object, optional, string } from "../args.js";
+import { array, literal, object, optional, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
-import type { OwnerCaller, OwnerContext, OwnerDb, OwnerDbReader, OwnerDomain } from "../registry.js";
+import type { OwnerCaller, OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
 
 const MAX_DEVICES = 64;
 const MAX_TUNNELS = 3;
@@ -1165,6 +1165,3 @@ export const devicesDomain = {
     [DEVICES_SWEEP_JOB]: { run: (ctx) => sweep(ctx), maxAttempts: 10 },
   },
 } satisfies OwnerDomain;
-
-export type { OwnerDb };
-void empty;

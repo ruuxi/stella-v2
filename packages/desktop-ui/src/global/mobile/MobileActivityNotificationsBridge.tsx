@@ -1,6 +1,5 @@
-import { useAction } from "convex/react";
 import { useEffect, useMemo, useRef } from "react";
-import { api } from "@/convex/api";
+import { backendClient } from "@/platform/backend/backend-client";
 import { type TaskItem } from "@/features/chat/lib/event-transforms";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -150,9 +149,6 @@ export function collectActivityNotificationKinds(
 export function MobileActivityNotificationsBridge() {
   const { hasConnectedAccount } = useAuthSessionState();
   const chat = useChatRuntime();
-  const sendActivityNotification = useAction(
-    api.mobile_push.sendActivityNotification,
-  );
   const mountedAtMsRef = useRef(Date.now());
   const recordsRef = useRef<Map<string, TaskNotificationRecord>>(new Map());
 
@@ -163,7 +159,7 @@ export function MobileActivityNotificationsBridge() {
 
   useEffect(() => {
     const send = (kind: ActivityNotificationKind) => {
-      void sendActivityNotification({ kind }).catch((error) => {
+      void backendClient.call("phone.notifyActivity", { kind }).catch((error) => {
         console.warn("[mobile-activity] Failed to send notification:", error);
       });
     };
@@ -181,7 +177,7 @@ export function MobileActivityNotificationsBridge() {
     for (const kind of kinds) {
       send(kind);
     }
-  }, [allTasks, hasConnectedAccount, sendActivityNotification]);
+  }, [allTasks, hasConnectedAccount]);
 
   return null;
 }

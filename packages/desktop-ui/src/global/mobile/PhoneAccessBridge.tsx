@@ -1,29 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendView } from "@/platform/backend/use-backend-view";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { getDeviceIdOrNull } from "@/platform/electron/device";
 
 const DEVICE_ID_RETRY_LIMIT = 8;
 const DEVICE_ID_RETRY_BASE_DELAY_MS = 2_000;
 
-type AcknowledgeIntentArgs = Parameters<
-  ReturnType<
-    typeof useMutation<typeof api.mobile_access.acknowledgeConnectIntent>
-  >
->[0];
-
-type PhoneAccessState = {
-  pairedDevices: Array<{ mobileDeviceId: string }>;
-};
-
 type BridgeRuntimeState = "unknown" | "started" | "stopped";
 
 export function PhoneAccessBridge() {
   const { hasConnectedAccount } = useAuthSessionState();
-  const acknowledgeIntent = useMutation(
-    api.mobile_access.acknowledgeConnectIntent,
-  );
   const [desktopDeviceId, setDesktopDeviceId] = useState<string | null>(null);
   const lastHandledIntentKeyRef = useRef<string | null>(null);
   const desiredBridgeStateRef = useRef<boolean | null>(null);
@@ -133,10 +120,10 @@ export function PhoneAccessBridge() {
     };
   }, [hasConnectedAccount]);
 
-  const phoneAccessState = useQuery(
-    api.mobile_access.getPhoneAccessState,
+  const phoneAccessState = useBackendView(
+    "phone.access",
     hasConnectedAccount && desktopDeviceId ? { desktopDeviceId } : "skip",
-  ) as PhoneAccessState | undefined;
+  ).value;
 
   const pairedDeviceCount = phoneAccessState?.pairedDevices.length;
   useEffect(() => {
@@ -153,21 +140,11 @@ export function PhoneAccessBridge() {
     });
   }, [hasConnectedAccount, pairedDeviceCount, requestBridgeState]);
 
-  // Omit `nowMs` so this subscription stays reactively cacheable on the
-  // backend (a per-tick client clock would bust Convex's cache every poll).
-  // The query returns `expiresAt`; expiry is checked client-side below.
-  const intent = useQuery(
-    api.mobile_access.watchIncomingConnectIntent,
+  // The view returns `expiresAt`; expiry is checked client-side below.
+  const intent = useBackendView(
+    "phone.connectIntent",
     hasConnectedAccount && desktopDeviceId ? { desktopDeviceId } : "skip",
-  ) as
-    | {
-        intentId: AcknowledgeIntentArgs["intentId"];
-        mobileDeviceId: string;
-        createdAt: number;
-        expiresAt: number;
-      }
-    | null
-    | undefined;
+  ).value;
   const intentDeviceIsPaired =
     phoneAccessState?.pairedDevices.some(
       (device) => device.mobileDeviceId === intent?.mobileDeviceId,
@@ -201,7 +178,9 @@ export function PhoneAccessBridge() {
         if (!started) {
           return;
         }
-        await acknowledgeIntent({ intentId: intent.intentId });
+        await backendClient.call("phone.acknowledgeIntent", {
+          intentId: intent.intentId,
+        });
         if (!cancelled) {
           lastHandledIntentKeyRef.current = intentKey;
         }
@@ -214,7 +193,7 @@ export function PhoneAccessBridge() {
     return () => {
       cancelled = true;
     };
-  }, [acknowledgeIntent, intent, intentDeviceIsPaired, requestBridgeState]);
+  }, [intent, intentDeviceIsPaired, requestBridgeState]);
 
   return null;
 }

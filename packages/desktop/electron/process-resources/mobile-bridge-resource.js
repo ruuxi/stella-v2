@@ -16,7 +16,7 @@ export const createMobileBridgeResource = (options) => {
         tunnel = createCloudflareTunnelResource({
             processRuntime: options.processRuntime,
             getAuthToken: options.getAuthToken,
-            getConvexSiteUrl: options.getConvexSiteUrl,
+            getBackendUrl: options.getBackendUrl,
             getDeviceId: options.getDeviceId,
             getCloudflaredBinDir: options.getCloudflaredBinDir,
             onTunnelUrl: (url, readiness) => {
@@ -45,8 +45,7 @@ export const createMobileBridgeResource = (options) => {
         }
         activeBridge.setDeviceId(options.getDeviceId());
         activeBridge.setHostAuthToken(await options.getAuthToken());
-        activeBridge.setConvexDeploymentUrl(options.getConvexUrl());
-        activeBridge.setConvexSiteUrl(options.getConvexSiteUrl());
+        activeBridge.setBackendUrl(options.getBackendUrl());
     };
     const attachWindowMirror = (candidateSessionId) => {
         if (isInactiveSession(candidateSessionId)) {

@@ -1,4 +1,4 @@
-import { closeBilling } from "./billing_bridge";
+import { closeBilling, closeDevices } from "./billing_bridge";
 import {
   internalAction,
   internalMutation,
@@ -25,8 +25,6 @@ import { purgeOwnerMigrationSourceDependencies } from "./lib/owner_migration_pur
 
 const OWNER_TABLES = [
   "user_preferences",
-  "devices",
-  "device_identity_successors",
   "auth_revoked_sessions",
   "auth_link_requests",
   "auth_browser_handoffs",
@@ -74,144 +72,6 @@ const remainingOwnerComposioProvisioningRef = makeFunctionReference<
 >(
   "composio_session_dispatch:remainingOwnerComposioSessionProvisioningInternal",
 );
-
-/**
- * Mobile pairing/bridge/push tables hold device credentials and push tokens
- * that must not survive account deletion. Drained here because
- * `reset._deleteOwnerTableBatch` does not cover them.
- */
-const MOBILE_TABLES = [
-  "mobile_pairing_sessions",
-  "paired_mobile_devices",
-  "mobile_connect_intents",
-  "mobile_bridge_registrations",
-  "mobile_bridge_registration_limits",
-  "mobile_bridge_sessions",
-  "mobile_push_tokens",
-] as const;
-
-type MobileTable = (typeof MOBILE_TABLES)[number];
-
-const MOBILE_BATCH = 200;
-
-async function deleteOneMobileTableBatch(
-  ctx: MutationCtx,
-  ownerId: string,
-  table: MobileTable,
-): Promise<number> {
-  let ids: Id<MobileTable>[] = [];
-  switch (table) {
-    case "mobile_pairing_sessions": {
-      const rows = await ctx.db
-        .query("mobile_pairing_sessions")
-        .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    case "paired_mobile_devices": {
-      const rows = await ctx.db
-        .query("paired_mobile_devices")
-        .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    case "mobile_connect_intents": {
-      const rows = await ctx.db
-        .query("mobile_connect_intents")
-        .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    case "mobile_bridge_registrations": {
-      const rows = await ctx.db
-        .query("mobile_bridge_registrations")
-        .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    case "mobile_bridge_registration_limits": {
-      const rows = await ctx.db
-        .query("mobile_bridge_registration_limits")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    case "mobile_bridge_sessions": {
-      const rows = await ctx.db
-        .query("mobile_bridge_sessions")
-        .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    case "mobile_push_tokens": {
-      const rows = await ctx.db
-        .query("mobile_push_tokens")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(MOBILE_BATCH);
-      ids = rows.map((r) => r._id) as Id<MobileTable>[];
-      break;
-    }
-    default: {
-      const exhaustive: never = table;
-      throw new Error(`Unhandled mobile table: ${String(exhaustive)}`);
-    }
-  }
-  await Promise.all(ids.map((id) => ctx.db.delete(id)));
-  return ids.length;
-}
-
-export const _deleteMobileTableBatch = internalMutation({
-  args: {
-    ownerId: v.string(),
-    operationId: v.string(),
-    generation: v.string(),
-    table: v.union(
-      v.literal("mobile_pairing_sessions"),
-      v.literal("paired_mobile_devices"),
-      v.literal("mobile_connect_intents"),
-      v.literal("mobile_bridge_registrations"),
-      v.literal("mobile_bridge_registration_limits"),
-      v.literal("mobile_bridge_sessions"),
-      v.literal("mobile_push_tokens"),
-    ),
-  },
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const { ownerId, table } = args;
-    const deleted = await deleteOneMobileTableBatch(ctx, ownerId, table);
-    return { hasMore: deleted === MOBILE_BATCH };
-  },
-});
-
-const drainMobileTable = async (
-  ctx: ActionCtx,
-  fence: { ownerId: string; operationId: string; generation: string },
-  table: MobileTable,
-) => {
-  let hasMore = true;
-  while (hasMore) {
-    const result: { hasMore: boolean } = await ctx.runMutation(
-      internal.account_deletion._deleteMobileTableBatch,
-      { ...fence, table },
-    );
-    hasMore = result.hasMore;
-  }
-};
 
 /**
  * Owner-keyed tables not covered by `reset._deleteOwnerTableBatch` (whose
@@ -592,56 +452,6 @@ export const remainingOwnerAccountCoreStoresInternal = internalQuery({
           )
           .take(1),
       ),
-      accountResidueCheck("mobile_pairing_sessions", () =>
-        ctx.db
-          .query("mobile_pairing_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("paired_mobile_devices", () =>
-        ctx.db
-          .query("paired_mobile_devices")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("mobile_connect_intents", () =>
-        ctx.db
-          .query("mobile_connect_intents")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("mobile_bridge_registrations", () =>
-        ctx.db
-          .query("mobile_bridge_registrations")
-          .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("mobile_bridge_registration_limits", () =>
-        ctx.db
-          .query("mobile_bridge_registration_limits")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("mobile_bridge_sessions", () =>
-        ctx.db
-          .query("mobile_bridge_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("mobile_push_tokens", () =>
-        ctx.db
-          .query("mobile_push_tokens")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
       accountResidueCheck("secrets", () =>
         ctx.db
           .query("secrets")
@@ -934,9 +744,11 @@ export const purgeOwnerCloudData = internalAction({
           `Account deletion is waiting for TTS cleanup: ${tts.pending.join(", ")}`,
         );
       }
-      // Billing lives in the owner's object on cloud-builder; deleting the
-      // Stripe customer there ends any subscription.
+      // Billing and devices live in the owner's object on cloud-builder:
+      // deleting the Stripe customer ends any subscription, and the owner's
+      // Cloudflare tunnels go with the account.
       await closeBilling(ownerId);
+      await closeDevices(ownerId);
       let cursor: string | null = null;
       while (true) {
         const page: { ids: Id<"conversations">[]; nextCursor: string | null } =
@@ -961,14 +773,7 @@ export const purgeOwnerCloudData = internalAction({
       // Owner-scoped tables are independent — drain them concurrently.
       await Promise.all([
         ...OWNER_TABLES.map((table) => drainOwnerTable(ctx, fence, table)),
-        ...MOBILE_TABLES.map((table) => drainMobileTable(ctx, fence, table)),
         ...EXTRA_TABLES.map((table) => drainExtraTable(ctx, fence, table)),
-        // Cloudflare DNS/tunnel first; the exact Convex locator row last.
-        ctx.runAction(internal.cloudflare_tunnels.purgeOwnerTunnels, {
-          ...fence,
-          leaseId,
-          mode: "delete",
-        }),
         // Canvas shares: delete R2 objects + rows for this owner.
         ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
           ownerUserId: ownerId,
@@ -1019,11 +824,6 @@ export const purgeOwnerCloudData = internalAction({
       // Final external re-drain closes the window for a creator that reserved
       // its durable locator immediately before the deletion fence. Active
       // reservations remain retry debt until their bounded lease ends.
-      await ctx.runAction(internal.cloudflare_tunnels.purgeOwnerTunnels, {
-        ...fence,
-        leaseId,
-        mode: "delete",
-      });
       await ctx.runAction(
         internal.data.canvas_shares_actions.purgeOwnerShares,
         {

@@ -3,7 +3,7 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import { postJson } from "./http";
+import { backendOrigin, postJson } from "./http";
 import { getOrCreateMobileDeviceId } from "./phone-access";
 import { getNotificationsMuted } from "./notifications-prefs";
 
@@ -108,7 +108,7 @@ async function registerOnce(): Promise<void> {
       token,
       platform: Platform.OS,
       mobileDeviceId,
-    });
+    }, { origin: backendOrigin() });
     registered = true;
   } catch {
     // Best-effort — don't block the app if registration fails.
@@ -121,7 +121,7 @@ export async function unregisterForPushNotifications(): Promise<void> {
     const mobileDeviceId = await getOrCreateMobileDeviceId();
     await postJson("/api/mobile/push-token/unregister", {
       mobileDeviceId,
-    });
+    }, { origin: backendOrigin() });
     registered = false;
   } catch {
     // Best-effort — sign-out should still work even if the network is down.

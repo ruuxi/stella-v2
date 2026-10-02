@@ -37,6 +37,7 @@ class MockHttpRequestError extends Error {
 // (route, origin, body, proof headers), which is what this stub records.
 mock.module("../http", () => ({
   HttpRequestError: MockHttpRequestError,
+  backendOrigin: () => "https://backend.example",
   getJson: (path: string, options?: Record<string, unknown>) =>
     transport({ method: "GET", path, body: undefined, options: options ?? {} }),
   postJson: (path: string, body: unknown, options?: Record<string, unknown>) =>

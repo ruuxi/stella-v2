@@ -112,6 +112,7 @@ import {
 } from "../request-ingress.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { handleBillingRoute } from "../billing/routes.js";
+import { handleDevicesRoute } from "../devices/routes.js";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import type { TurnAuthKind } from "../turn-start-request.js";
 import {
@@ -959,6 +960,8 @@ const router = {
     // service secret themselves.
     const billingResponse = await handleBillingRoute(request, env);
     if (billingResponse) return billingResponse;
+    const devicesResponse = await handleDevicesRoute(request, env);
+    if (devicesResponse) return devicesResponse;
     if (url.pathname === "/dictation/socket") {
       if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
         return json({ error: "This endpoint speaks WebSocket only." }, 426);

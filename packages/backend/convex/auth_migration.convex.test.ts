@@ -927,209 +927,6 @@ describe("crash-safe ownership migration lifecycle", () => {
     ).resolves.toEqual({ kind: "clear" });
   });
 
-  it("rewrites retained mobile pairings and push bindings to the destination generation", async () => {
-    const t = createTest();
-    const args = {
-      fromOwnerId: "mobile-generation-source",
-      toOwnerId: "mobile-generation-destination",
-    };
-    await t.mutation(migrationInternal.prepareOwnershipMigration, args);
-    const claim = await t.mutation(migrationInternal.claimOwnershipMigration, {
-      ...args,
-      leaseId: "mobile-generation-migration",
-      now: 1_000,
-    });
-    await t.run(async (ctx) => {
-      for (const [ownerId, generation, lastSeenAt] of [
-        [args.fromOwnerId, claim.fromOwnerGeneration!, 20],
-        [args.toOwnerId, "stale-destination-generation", 10],
-      ] as const) {
-        await ctx.db.insert("paired_mobile_devices", {
-          ownerId,
-          ownerGeneration: generation,
-          desktopDeviceId: "desktop-mobile-generation",
-          mobileDeviceId: "mobile-generation",
-          pairSecretHash: "same-pair-secret",
-          approvedAt: 1,
-          lastSeenAt,
-        });
-        await ctx.db.insert("mobile_push_tokens", {
-          ownerId,
-          ownerGeneration: generation,
-          mobileDeviceId: "mobile-generation",
-          expoPushToken: "same-expo-token",
-          platform: "ios",
-          updatedAt: lastSeenAt,
-        });
-      }
-      await ctx.db.insert("mobile_pairing_sessions", {
-        ownerId: args.toOwnerId,
-        ownerGeneration: claim.toOwnerGeneration!,
-        desktopDeviceId: "desktop-mobile-generation",
-        pairingCode: "654321",
-        createdAt: 1,
-        expiresAt: 10_000,
-      });
-      await ctx.db.insert("mobile_connect_intents", {
-        ownerId: args.toOwnerId,
-        ownerGeneration: claim.toOwnerGeneration!,
-        desktopDeviceId: "desktop-mobile-generation",
-        mobileDeviceId: "mobile-generation",
-        createdAt: 1,
-        expiresAt: 10_000,
-      });
-      await ctx.db.insert("mobile_bridge_sessions", {
-        ownerId: args.toOwnerId,
-        ownerGeneration: claim.toOwnerGeneration!,
-        desktopDeviceId: "desktop-mobile-generation",
-        mobileDeviceId: "mobile-generation",
-        sessionId: "migration-destination-bridge-session",
-        sessionSecretHash: "bridge-session-secret",
-        desktopChallenge: "bridge-challenge",
-        desktopPublicKey: "desktop-public-key",
-        mobilePublicKey: "mobile-public-key",
-        createdAt: 1,
-        expiresAt: 10_000,
-        lastSeenAt: 1,
-      });
-      for (const [ownerId, updatedAt, prefix] of [
-        [args.fromOwnerId, 20, "source"],
-        [args.toOwnerId, 10, "destination"],
-      ] as const) {
-        await ctx.db.insert("mobile_bridge_registrations", {
-          ownerId,
-          deviceId: "desktop-mobile-generation",
-          baseUrls: Array.from(
-            { length: 8 },
-            (_, index) => `https://${prefix}-${index}.example.test`,
-          ),
-          desktopPublicKey: "shared-desktop-public-key",
-          updatedAt,
-        });
-        await ctx.db.insert("mobile_bridge_registration_limits", {
-          ownerId,
-          windowStartedAt: updatedAt,
-          count: ownerId === args.fromOwnerId ? 2 : 3,
-        });
-      }
-    });
-
-    const leaseArgs = {
-      ...args,
-      leaseId: "mobile-generation-migration",
-      leaseGeneration: claim.leaseGeneration!,
-      leaseNow: 1_001,
-    };
-    for (let pass = 0; pass < 8; pass += 1) {
-      await t.mutation(
-        migrationInternal.discardAnonymousTransientHandshakesBatch,
-        leaseArgs,
-      );
-    }
-    await expect(
-      t.run(async (ctx) => ({
-        pairing: await ctx.db.query("mobile_pairing_sessions").collect(),
-        connects: await ctx.db.query("mobile_connect_intents").collect(),
-        bridges: await ctx.db.query("mobile_bridge_sessions").collect(),
-      })),
-    ).resolves.toEqual({ pairing: [], connects: [], bridges: [] });
-    for (let pass = 0; pass < 4; pass += 1) {
-      const result = await t.mutation(
-        migrationInternal.migrateDeviceExtensionsForAccountLink,
-        leaseArgs,
-      );
-      if (!result.hasMore) break;
-    }
-    const rows = await t.run(async (ctx) => ({
-      pairings: await ctx.db.query("paired_mobile_devices").collect(),
-      pushes: await ctx.db.query("mobile_push_tokens").collect(),
-      registrations: await ctx.db
-        .query("mobile_bridge_registrations")
-        .collect(),
-      registrationLimits: await ctx.db
-        .query("mobile_bridge_registration_limits")
-        .collect(),
-    }));
-    expect(rows.pairings).toHaveLength(1);
-    expect(rows.pairings[0]).toMatchObject({
-      ownerId: args.toOwnerId,
-      ownerGeneration: claim.toOwnerGeneration,
-      lastSeenAt: 20,
-    });
-    expect(rows.pushes).toHaveLength(1);
-    expect(rows.pushes[0]).toMatchObject({
-      ownerId: args.toOwnerId,
-      ownerGeneration: claim.toOwnerGeneration,
-      updatedAt: 20,
-    });
-    expect(rows.registrations).toHaveLength(1);
-    expect(rows.registrations[0]).toMatchObject({
-      ownerId: args.toOwnerId,
-      desktopPublicKey: "shared-desktop-public-key",
-      updatedAt: 20,
-    });
-    expect(rows.registrations[0]?.baseUrls).toHaveLength(8);
-    expect(
-      rows.registrations[0]?.baseUrls.every((url) =>
-        url.includes("destination-"),
-      ),
-    ).toBe(true);
-    expect(rows.registrationLimits).toEqual([
-      expect.objectContaining({
-        ownerId: args.toOwnerId,
-        windowStartedAt: 20,
-        count: 5,
-      }),
-    ]);
-    await expect(
-      t.mutation(internal.mobile_bridge.upsertRegistration, {
-        ownerId: args.fromOwnerId,
-        ownerGeneration: claim.fromOwnerGeneration!,
-        deviceId: "desktop-mobile-generation",
-        baseUrls: ["https://stale-source.example.test"],
-        updatedAt: 30,
-      }),
-    ).rejects.toThrow(/linked|migration/i);
-  });
-
-  it("fails closed when mobile bridge public keys conflict during account linking", async () => {
-    const t = createTest();
-    const args = {
-      fromOwnerId: "mobile-key-conflict-source",
-      toOwnerId: "mobile-key-conflict-destination",
-    };
-    await t.mutation(migrationInternal.prepareOwnershipMigration, args);
-    const claim = await t.mutation(migrationInternal.claimOwnershipMigration, {
-      ...args,
-      leaseId: "mobile-key-conflict",
-      now: 1_000,
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.insert("mobile_bridge_registrations", {
-        ownerId: args.fromOwnerId,
-        deviceId: "desktop-key-conflict",
-        baseUrls: ["https://source.example.test"],
-        desktopPublicKey: "source-public-key",
-        updatedAt: 20,
-      });
-      await ctx.db.insert("mobile_bridge_registrations", {
-        ownerId: args.toOwnerId,
-        deviceId: "desktop-key-conflict",
-        baseUrls: ["https://destination.example.test"],
-        desktopPublicKey: "destination-public-key",
-        updatedAt: 10,
-      });
-    });
-    await expect(
-      t.mutation(migrationInternal.migrateDeviceExtensionsForAccountLink, {
-        ...args,
-        leaseId: "mobile-key-conflict",
-        leaseGeneration: claim.leaseGeneration!,
-        leaseNow: 1_001,
-      }),
-    ).rejects.toThrow(/different bridge keys/i);
-  });
-
   it("rewrites a retained X credential to the destination generation", async () => {
     const t = createTest();
     const args = {
@@ -1618,12 +1415,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         expiresAt: 100_000,
         createdAt: 1,
       });
-      await ctx.db.insert("device_identity_successors", {
-        ownerId: toOwnerId,
-        previousDeviceId: "deleted-device-old",
-        deviceId: "deleted-device-new",
-        rotatedAt: 1,
-      });
       await ctx.db.insert("conversations", {
         ownerId: fromOwnerId,
         title: "source residue during destination deletion",
@@ -1879,16 +1670,12 @@ describe("crash-safe ownership migration lifecycle", () => {
     ).resolves.toEqual([
       "auth_link_requests",
       "auth_browser_handoffs",
-      "device_identity_successors",
     ]);
     await t.run(async (ctx) => {
       const links = await ctx.db.query("auth_link_requests").collect();
       const handoffs = await ctx.db.query("auth_browser_handoffs").collect();
-      const successors = await ctx.db
-        .query("device_identity_successors")
-        .collect();
       await Promise.all(
-        [...links, ...handoffs, ...successors].map((row) =>
+        [...links, ...handoffs].map((row) =>
           ctx.db.delete(row._id),
         ),
       );
@@ -2287,46 +2074,6 @@ describe("crash-safe ownership migration lifecycle", () => {
         .unique(),
     );
     expect(sourcePreference?.ownerId).toBe(fromOwnerId);
-  });
-
-  it("migrates device successor records with deterministic dedupe", async () => {
-    const t = createTest();
-    await t.mutation(migrationInternal.prepareOwnershipMigration, ownerArgs);
-    await t.mutation(migrationInternal.claimOwnershipMigration, {
-      ...ownerArgs,
-      leaseId: "device-lease",
-      now: 1_000,
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.insert("device_identity_successors", {
-        ownerId: fromOwnerId,
-        previousDeviceId: "retired-device",
-        deviceId: "current-device",
-        rotatedAt: 1,
-      });
-      await ctx.db.insert("device_identity_successors", {
-        ownerId: toOwnerId,
-        previousDeviceId: "retired-device",
-        deviceId: "current-device",
-        rotatedAt: 2,
-      });
-    });
-
-    await t.mutation(migrationInternal.migrateDeviceIdentitySuccessorsBatch, {
-      ...ownerArgs,
-      leaseId: "device-lease",
-      leaseGeneration: 1,
-      leaseNow: 1_001,
-    });
-    const sourceRows = await t.run(async (ctx) =>
-      ctx.db
-        .query("device_identity_successors")
-        .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-          q.eq("ownerId", fromOwnerId),
-        )
-        .collect(),
-    );
-    expect(sourceRows).toEqual([]);
   });
 
   it("retains the exact external receipt across a crash after projection commit", async () => {

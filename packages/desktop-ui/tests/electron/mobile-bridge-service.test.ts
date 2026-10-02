@@ -20,8 +20,7 @@ const createService = () =>
 const configureReadyService = (service: MobileBridgeService) => {
   const anyService = service as any;
   anyService.port = 4318;
-  anyService.convexDeploymentUrl = "https://example.convex.cloud";
-  anyService.convexSiteUrl = "https://example.convex.site";
+  anyService.backendUrl = "https://backend.example";
   anyService.hostAuthToken = "desktop-token";
   anyService.deviceId = "desktop-device";
   anyService.tunnelUrl = "https://desktop.example.com";
@@ -72,36 +71,6 @@ describe("MobileBridgeService registration lease", () => {
     expect(anyService.registrationLeaseExpiresAt).toBe(leaseExpiresAt);
     expect(anyService.hasRegisteredBridge).toBe(true);
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
-  });
-
-  it("reuses the registration client while updating rotated auth and deployment URLs", () => {
-    const service = createService();
-    const anyService = configureReadyService(service);
-    const client = {
-      setAuth: vi.fn(),
-      clearAuth: vi.fn(),
-      mutation: vi.fn(),
-    };
-    anyService.convexHttpClient = client;
-    anyService.convexHttpClientUrl = anyService.convexDeploymentUrl;
-    anyService.convexHttpClientAuthToken = "desktop-token";
-    anyService.hasRegisteredBridge = true;
-    const scheduleRegistrationSync = vi
-      .spyOn(anyService, "scheduleRegistrationSync")
-      .mockImplementation(() => undefined);
-
-    service.setHostAuthToken("rotated-token");
-
-    expect(client.setAuth).toHaveBeenCalledWith("rotated-token");
-    expect(anyService.convexHttpClient).toBe(client);
-    expect(scheduleRegistrationSync).not.toHaveBeenCalled();
-
-    service.setConvexDeploymentUrl(" https://next.convex.cloud/ ");
-
-    expect(anyService.convexDeploymentUrl).toBe("https://next.convex.cloud");
-    expect(anyService.convexHttpClient).toBeNull();
-    expect(anyService.convexHttpClientAuthToken).toBeNull();
-    expect(scheduleRegistrationSync).toHaveBeenCalledOnce();
   });
 
   it("schedules registration when auth first becomes available", () => {
@@ -276,7 +245,7 @@ describe("MobileBridgeService registration lease", () => {
     await anyService.clearRegistration();
 
     expect(anyService.postBridgeJson).toHaveBeenCalledWith(
-      "https://example.convex.site",
+      "https://backend.example",
       "/api/mobile/desktop-bridge/clear",
       "Bearer desktop-token",
       { deviceId: "desktop-device" },
@@ -443,7 +412,7 @@ describe("MobileBridgeService registration lease", () => {
 
     service.setDeviceId("desktop-device");
     service.setHostAuthToken("desktop-token");
-    service.setConvexSiteUrl("https://example.convex.site");
+    service.setBackendUrl("https://backend.example");
     service.setTunnelUrl("https://desktop.example.com");
     expect(schedule).not.toHaveBeenCalled();
 

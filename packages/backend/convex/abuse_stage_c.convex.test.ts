@@ -31,26 +31,6 @@ const consumeXBotRef = makeFunctionReference<
   { allowed: boolean; scope: "author" | "global" | null; retryAt: number }
 >("owner_daily_counters:consumeXBotDailyAllowanceInternal");
 
-const reserveTunnelRef = makeFunctionReference<
-  "mutation",
-  {
-    ownerId: string;
-    ownerGeneration: string;
-    deviceId: string;
-    tunnelName: string;
-    hostname: string;
-    now: number;
-    leaseExpiresAt: number;
-  },
-  string
->("cloudflare_tunnels:reserveTunnelProvision");
-
-const getOrProvisionTunnelRef = makeFunctionReference<
-  "action",
-  { ownerId: string; deviceId: string },
-  { tunnelToken: string; hostname: string }
->("cloudflare_tunnels:getOrProvisionTunnel");
-
 const recomputeRiskRef = makeFunctionReference<
   "mutation",
   { now?: number; cursor?: string },
@@ -297,71 +277,6 @@ describe("daily cost counters", () => {
 });
 
 describe("tunnel and artifact quotas", () => {
-  it("requires identity level 2 before tunnel provider I/O", async () => {
-    const t = convexTest(schema, modules);
-    const ownerId = "email-only-tunnel-owner";
-    const now = Date.now();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_owner_lifecycles", {
-        ownerId,
-        generation: OWNER_GENERATION,
-        state: "open",
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-    await expect(
-      t.action(getOrProvisionTunnelRef, { ownerId, deviceId: "device" }),
-    ).rejects.toSatisfy(
-      (error: unknown) => convexErrorCode(error) === "SIGN_IN_REQUIRED",
-    );
-  });
-
-  it("allows three tunnel rows per owner and rejects the fourth", async () => {
-    const t = convexTest(schema, modules);
-    const ownerId = "tunnel-owner";
-    const now = Date.now();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_owner_lifecycles", {
-        ownerId,
-        generation: OWNER_GENERATION,
-        state: "open",
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-    for (let index = 0; index < 3; index += 1) {
-      await t.mutation(reserveTunnelRef, {
-        ownerId,
-        ownerGeneration: OWNER_GENERATION,
-        deviceId: `device-${index}`,
-        tunnelName: `tunnel-${index}`,
-        hostname: `tunnel-${index}.example.test`,
-        now,
-        leaseExpiresAt: now + 60_000,
-      });
-    }
-    await expect(
-      t.mutation(reserveTunnelRef, {
-        ownerId,
-        ownerGeneration: OWNER_GENERATION,
-        deviceId: "device-3",
-        tunnelName: "tunnel-3",
-        hostname: "tunnel-3.example.test",
-        now,
-        leaseExpiresAt: now + 60_000,
-      }),
-    ).rejects.toSatisfy(
-      (error: unknown) => convexErrorCode(error) === "TUNNEL_LIMIT",
-    );
-    expect(
-      await t.run(async (ctx) =>
-        (await ctx.db.query("cloudflare_tunnels").collect()).every(
-          (row) => row.lastUsedAt === now,
-        ),
-      ),
-    ).toBe(true);
-  });
 
   it("counts recorded mini-app bytes against the plan quota", async () => {
     process.env.STELLA_APP_ARTIFACT_QUOTA_MB_FREE = "1";

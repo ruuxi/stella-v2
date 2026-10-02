@@ -36,8 +36,7 @@ export const startMobileBridge = async (context) => {
         const resource = createMobileBridgeResource({
             getAuthToken: () => context.services.authService.getAuthToken(),
             getBootstrapPayload: () => readMobileBridgeBootstrap(context),
-            getConvexUrl: () => context.services.authService.getPendingConvexUrl(),
-            getConvexSiteUrl: () => context.services.authService.getConvexSiteUrl(),
+            getBackendUrl: () => context.services.authService.getBackendUrl(),
             getDeviceId: () => context.state.deviceId,
             // `~/.stella/bin` — writable and untouched by app updates, unlike
             // the cloudflared package's own default path inside `app.asar`.

@@ -102,14 +102,16 @@ type BillingUsage = {
 
 type ResolvableBillingStatus = {
   plan: SubscriptionPlan;
-  usage: BillingUsage;
+  /** Null for anonymous owners, who have no spend windows. */
+  usage: BillingUsage | null;
   authenticated?: boolean;
 };
 
-const isUsageExceeded = (usage: BillingUsage): boolean =>
-  usage.rollingUsedUsd >= usage.rollingLimitUsd ||
+const isUsageExceeded = (usage: BillingUsage | null): boolean =>
+  usage !== null &&
+  (usage.rollingUsedUsd >= usage.rollingLimitUsd ||
   usage.weeklyUsedUsd >= usage.weeklyLimitUsd ||
-  usage.monthlyUsedUsd >= usage.monthlyLimitUsd;
+  usage.monthlyUsedUsd >= usage.monthlyLimitUsd);
 
 /**
  * Resolves the desktop-side audience the same way the backend's

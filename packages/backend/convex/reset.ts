@@ -62,18 +62,6 @@ const CONVERSATION_PAGE = 200;
  */
 const OWNER_TABLES = [
   ["user_preferences", "by_ownerId_and_key"],
-  ["devices", "by_ownerId"],
-  ["mobile_pairing_sessions", "by_ownerId_and_desktopDeviceId"],
-  ["paired_mobile_devices", "by_ownerId_and_desktopDeviceId"],
-  ["mobile_connect_intents", "by_ownerId_and_desktopDeviceId_and_expiresAt"],
-  ["mobile_bridge_registrations", "by_ownerId_and_deviceId"],
-  ["mobile_bridge_registration_limits", "by_ownerId"],
-  [
-    "mobile_bridge_sessions",
-    "by_ownerId_and_desktopDeviceId_and_mobileDeviceId",
-  ],
-  ["mobile_push_tokens", "by_ownerId"],
-  ["device_identity_successors", "by_ownerId_and_previousDeviceId"],
   ["auth_revoked_sessions", "by_ownerId_and_sessionId"],
   ["auth_link_requests", "by_fromOwnerId_and_createdAt"],
   ["auth_browser_handoffs", "by_fromOwnerId"],
@@ -252,11 +240,6 @@ const runOwnerReset = async (
           hasMore = result.hasMore;
         }
       }),
-      ctx.runAction(internal.cloudflare_tunnels.purgeOwnerTunnels, {
-        ...fence,
-        leaseId,
-        mode: "reset",
-      }),
       ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
         ownerUserId: fence.ownerId,
         operationId: fence.operationId,
@@ -268,11 +251,6 @@ const runOwnerReset = async (
 
     // Close the admission-to-dispatch edge for creators that reserved their
     // external locator just before the lifecycle fence became visible.
-    await ctx.runAction(internal.cloudflare_tunnels.purgeOwnerTunnels, {
-      ...fence,
-      leaseId,
-      mode: "reset",
-    });
     await ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
       ownerUserId: fence.ownerId,
       operationId: fence.operationId,
@@ -477,70 +455,6 @@ export const remainingOwnerResetStoresInternal = internalQuery({
           .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId))
           .first(),
       ),
-      ownerResidueCheck("devices", () =>
-        ctx.db
-          .query("devices")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .first(),
-      ),
-      ownerResidueCheck("mobile_pairing_sessions", () =>
-        ctx.db
-          .query("mobile_pairing_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("paired_mobile_devices", () =>
-        ctx.db
-          .query("paired_mobile_devices")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("mobile_connect_intents", () =>
-        ctx.db
-          .query("mobile_connect_intents")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("mobile_bridge_registrations", () =>
-        ctx.db
-          .query("mobile_bridge_registrations")
-          .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-          .first(),
-      ),
-      ownerResidueCheck("mobile_bridge_registration_limits", () =>
-        ctx.db
-          .query("mobile_bridge_registration_limits")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .first(),
-      ),
-      ownerResidueCheck("mobile_bridge_sessions", () =>
-        ctx.db
-          .query("mobile_bridge_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
-      ownerResidueCheck("mobile_push_tokens", () =>
-        ctx.db
-          .query("mobile_push_tokens")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .first(),
-      ),
-      ownerResidueCheck("device_identity_successors", () =>
-        ctx.db
-          .query("device_identity_successors")
-          .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .first(),
-      ),
       ownerResidueCheck("auth_link_requests.fromOwnerId", () =>
         ctx.db
           .query("auth_link_requests")
@@ -589,12 +503,6 @@ export const remainingOwnerResetStoresInternal = internalQuery({
           .withIndex("by_ownerId_and_createdAt", (q) =>
             q.eq("ownerId", ownerId),
           )
-          .first(),
-      ),
-      ownerResidueCheck("cloudflare_tunnels", () =>
-        ctx.db
-          .query("cloudflare_tunnels")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .first(),
       ),
       ownerResidueCheck("canvas_shares", () =>
@@ -804,15 +712,6 @@ export const _deleteConversationBatch = internalMutation({
 
 const ownerTableValidator = v.union(
   v.literal("user_preferences"),
-  v.literal("devices"),
-  v.literal("mobile_pairing_sessions"),
-  v.literal("paired_mobile_devices"),
-  v.literal("mobile_connect_intents"),
-  v.literal("mobile_bridge_registrations"),
-  v.literal("mobile_bridge_registration_limits"),
-  v.literal("mobile_bridge_sessions"),
-  v.literal("mobile_push_tokens"),
-  v.literal("device_identity_successors"),
   v.literal("auth_revoked_sessions"),
   v.literal("auth_link_requests"),
   v.literal("auth_browser_handoffs"),
@@ -874,88 +773,6 @@ async function deleteOneOwnerTableBatch(
       const rows = await ctx.db
         .query("user_preferences")
         .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((r) => r._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "devices": {
-      const rows = await ctx.db
-        .query("devices")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((r) => r._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "mobile_pairing_sessions": {
-      const rows = await ctx.db
-        .query("mobile_pairing_sessions")
-        .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "paired_mobile_devices": {
-      const rows = await ctx.db
-        .query("paired_mobile_devices")
-        .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "mobile_connect_intents": {
-      const rows = await ctx.db
-        .query("mobile_connect_intents")
-        .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "mobile_bridge_registrations": {
-      const rows = await ctx.db
-        .query("mobile_bridge_registrations")
-        .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "mobile_bridge_registration_limits": {
-      const rows = await ctx.db
-        .query("mobile_bridge_registration_limits")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "mobile_bridge_sessions": {
-      const rows = await ctx.db
-        .query("mobile_bridge_sessions")
-        .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "mobile_push_tokens": {
-      const rows = await ctx.db
-        .query("mobile_push_tokens")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "device_identity_successors": {
-      const rows = await ctx.db
-        .query("device_identity_successors")
-        .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-          q.eq("ownerId", ownerId),
-        )
         .take(BATCH);
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];
       break;

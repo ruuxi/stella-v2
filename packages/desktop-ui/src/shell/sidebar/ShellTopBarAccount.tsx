@@ -14,9 +14,7 @@ import {
   preloadAuthDialog,
   preloadBillingScreen,
 } from "@/shell/topbar/nav-surface-preloads";
-import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 import { SUBSCRIPTION_UPGRADED_EVENT } from "@/global/billing/SubscriptionUpgradeDialog";
-import { api } from "@/convex/api";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useCurrentUser } from "@/global/auth/hooks/use-current-user";
 import { useNickname } from "@/global/auth/hooks/use-nickname";
@@ -78,7 +76,7 @@ interface ShellTopBarAccountProps {
 export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
   const t = useT();
   const { user: convexUser, hasConnectedAccount } = useCurrentUser();
-  const { cacheScope, user: sessionUser } = useAuthSessionState();
+  const { user: sessionUser } = useAuthSessionState();
   const { nickname } = useNickname();
   const user = {
     email: convexUser?.email ?? sessionUser?.email ?? undefined,

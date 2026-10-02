@@ -55,7 +55,7 @@ export class CloudflareTunnelService {
   constructor(
     private readonly options: {
       getAuthToken: () => Promise<string | null>;
-      getConvexSiteUrl: () => string | null;
+      getBackendUrl: () => string | null;
       getDeviceId: () => string | null;
       /**
        * Writable directory the cloudflared binary is installed into. Required
@@ -330,11 +330,11 @@ export class CloudflareTunnelService {
   private async fetchTunnelToken(
     options: { repair?: boolean } = {},
   ): Promise<TunnelTokenResponse> {
-    const siteUrl = this.options.getConvexSiteUrl();
+    const backendUrl = this.options.getBackendUrl();
     const token = await this.options.getAuthToken();
 
-    if (!siteUrl || !token) {
-      throw new Error("Missing site URL or auth token");
+    if (!backendUrl || !token) {
+      throw new Error("Missing backend URL or auth token");
     }
 
     const deviceId = this.options.getDeviceId()?.trim();
@@ -343,7 +343,7 @@ export class CloudflareTunnelService {
     }
 
     const response = await fetch(
-      `${siteUrl.replace(/\/+$/, "")}/api/mobile/desktop-bridge/tunnel-token`,
+      `${backendUrl.replace(/\/+$/, "")}/api/mobile/desktop-bridge/tunnel-token`,
       {
         method: "POST",
         headers: {

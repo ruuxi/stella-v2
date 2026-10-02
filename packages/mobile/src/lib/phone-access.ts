@@ -5,7 +5,7 @@ import {
   createBridgeProofChallenge,
   createMobileBridgePairProof,
 } from "./bridge-crypto";
-import { getJson, postJson } from "./http";
+import { backendOrigin, getJson, postJson } from "./http";
 import type { DesktopBridgeStatus } from "../types";
 import { readDesktopBridgeRegistrationDescriptor } from "./desktop-bridge-discovery";
 
@@ -291,7 +291,7 @@ export async function completePhonePairing(args: {
         ? { displayName: args.displayName.trim().slice(0, 64) }
         : {}),
       platform: readPlatformLabel(),
-    }),
+    }, { origin: backendOrigin() }),
   );
 
   const access: StoredPhoneAccess = {
@@ -323,7 +323,7 @@ export async function requestDesktopConnection(access: StoredPhoneAccess) {
   await postJson(
     "/api/mobile/desktop-bridge/request",
     { desktopDeviceId: access.desktopDeviceId },
-    { headers: buildPhonePairProofHeaders(access, challenge) },
+    { headers: buildPhonePairProofHeaders(access, challenge), origin: backendOrigin() },
   );
 }
 
@@ -382,7 +382,7 @@ export async function getDesktopBridgeStatus(desktopDeviceId?: string) {
     ? `?desktopDeviceId=${encodeURIComponent(desktopDeviceId)}`
     : "";
   const status = readDesktopBridgeStatus(
-    await getJson(`/api/mobile/desktop-bridge${query}`),
+    await getJson(`/api/mobile/desktop-bridge${query}`, { origin: backendOrigin() }),
   );
 
   // Only meaningful when we asked about a specific desktop: with no id the

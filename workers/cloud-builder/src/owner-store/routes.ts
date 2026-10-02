@@ -41,7 +41,7 @@ type Verified =
   | { ok: true; caller: OwnerCaller }
   | { ok: false; error: RpcError };
 
-const verifyCaller = async (env: RouteEnv, token: string): Promise<Verified> => {
+export const verifyCaller = async (env: RouteEnv, token: string): Promise<Verified> => {
   const issuer = convexSiteBase(env as unknown as Cloudflare.Env);
   if (!issuer) {
     return { ok: false, error: new RpcError("UNAVAILABLE", "Sign-in is not configured.") };

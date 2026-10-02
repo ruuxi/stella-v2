@@ -14,7 +14,7 @@ export type CloudflareTunnelResource = {
 export const createCloudflareTunnelResource = (options: {
   processRuntime: ProcessRuntime;
   getAuthToken: () => Promise<string | null>;
-  getConvexSiteUrl: () => string | null;
+  getBackendUrl: () => string | null;
   getDeviceId: () => string | null;
   getCloudflaredBinDir?: () => string | null;
   onTunnelUrl: (
@@ -31,7 +31,7 @@ export const createCloudflareTunnelResource = (options: {
       create: ({ onUnexpectedExit }) =>
         new CloudflareTunnelService({
           getAuthToken: options.getAuthToken,
-          getConvexSiteUrl: options.getConvexSiteUrl,
+          getBackendUrl: options.getBackendUrl,
           getDeviceId: options.getDeviceId,
           ...(options.getCloudflaredBinDir
             ? { getCloudflaredBinDir: options.getCloudflaredBinDir }

@@ -10,15 +10,12 @@
  */
 import { useBackendValue } from "@/platform/backend/use-backend-view";
 import { useCallback, useEffect, useMemo } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/api";
 import { useDesktopAuthSession } from "@/global/auth/services/auth-session";
 import {
   resolveBillingAudience,
   resolveFreeAllowance,
   type FreeAllowance,
   type ManagedModelAudience,
-  type SubscriptionPlan,
 } from "./audience";
 import {
   canUseCapability,
@@ -39,21 +36,6 @@ type AuthSessionData =
   | null
   | undefined;
 
-type BillingStatusLite = {
-  plan: SubscriptionPlan;
-  usage: {
-    rollingUsedUsd: number;
-    rollingLimitUsd: number;
-    weeklyUsedUsd: number;
-    weeklyLimitUsd: number;
-    monthlyUsedUsd: number;
-    monthlyLimitUsd: number;
-    lifetimeUsedUsd?: number;
-    lifetimeLimitUsd?: number | null;
-  };
-  authenticated?: boolean;
-};
-
 export type CapabilityAccess = {
   /** `null` while billing is still resolving for a signed-in user. */
   audience: ManagedModelAudience | null;
@@ -72,7 +54,7 @@ export function useCapabilityAccess(): CapabilityAccess {
     sessionData && user?.isAnonymous !== true,
   );
 
-  const billingStatus: BillingStatusLite | undefined = useBackendValue(
+  const billingStatus = useBackendValue(
     "billing.status",
     hasConnectedAccount ? {} : "skip",
   );

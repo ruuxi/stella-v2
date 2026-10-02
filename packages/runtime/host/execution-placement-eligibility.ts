@@ -20,7 +20,7 @@ export type ExecutionPlacementEligibilityInput = {
   hasConnectedAccount: boolean | undefined;
   cloudSyncEnabled: boolean | undefined;
   authToken: string | null;
-  convexUrl: string | null;
+  backendUrl: string | null;
   canSignDeviceInput: boolean;
 };
 
@@ -37,5 +37,5 @@ export const isExecutionPlacementEligible = (
       input.hasConnectedAccount &&
       input.cloudSyncEnabled &&
       input.authToken &&
-      input.convexUrl,
+      input.backendUrl,
   );

@@ -43,12 +43,6 @@ const purgeExpiredAppIntegrityNoncesRef = makeFunctionReference<
   { deleted: number; hasMore: boolean }
 >("app_integrity:purgeExpiredNoncesInternal");
 
-const purgeIdleTunnelsRef = makeFunctionReference<
-  "action",
-  { now?: number; limit?: number },
-  unknown
->("cloudflare_tunnels:purgeIdleTunnelsInternal");
-
 crons.interval(
   "transient connector turn payload cleanup",
   { minutes: 5 },
@@ -152,12 +146,6 @@ crons.interval(
   "recompute owner risk scores",
   { minutes: 15 },
   recomputeRiskScoresRef,
-  {},
-);
-crons.interval(
-  "purge idle cloudflare tunnels",
-  { hours: 24 },
-  purgeIdleTunnelsRef,
   {},
 );
 crons.interval(

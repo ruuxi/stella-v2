@@ -6,6 +6,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConvexClient } from "convex/browser";
+import { BackendClient, BackendRequestError } from "@stella/contracts/backend/client";
 import { anyApi } from "convex/server";
 import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
@@ -181,6 +182,8 @@ export class StellaRuntimeHost {
     hostConvexClient = null;
     hostConvexClientUrl = null;
     hostConvexClientAuthToken = null;
+    hostBackendClient = null;
+    hostBackendClientUrl = null;
     hostRemoteTurnBridge = null;
     hostExecutionPlacementBridge = null;
     hostExecutionPlacementSyncQueue = Promise.resolve();
@@ -591,6 +594,33 @@ export class StellaRuntimeHost {
             void client.close().catch(() => undefined);
         }
     }
+    getConfiguredHostBackendUrl() {
+        const value = (this.configCache.backendUrl ?? process.env.STELLA_BACKEND_URL ?? "").trim().replace(/\/+$/, "");
+        return /^https?:\/\//.test(value) ? value : null;
+    }
+    disposeHostBackendClient() {
+        this.hostBackendClient?.dispose();
+        this.hostBackendClient = null;
+        this.hostBackendClientUrl = null;
+    }
+    /** The backend worker client for owner-object calls; the token is read per request. */
+    ensureHostBackendClient() {
+        const baseUrl = this.getConfiguredHostBackendUrl();
+        if (!baseUrl) {
+            this.disposeHostBackendClient();
+            return null;
+        }
+        if (this.hostBackendClient && this.hostBackendClientUrl === baseUrl) {
+            return this.hostBackendClient;
+        }
+        this.disposeHostBackendClient();
+        this.hostBackendClient = new BackendClient({
+            baseUrl,
+            getToken: async () => this.getConfiguredHostAuthToken() || null,
+        });
+        this.hostBackendClientUrl = baseUrl;
+        return this.hostBackendClient;
+    }
     ensureHostConvexClient() {
         const deploymentUrl = this.getConfiguredHostConvexUrl();
         const authToken = this.getConfiguredHostAuthToken();
@@ -710,12 +740,12 @@ export class StellaRuntimeHost {
         }
     }
     async runDeviceIdentitySuccessionClaim(previousDeviceId, deviceId) {
-        const client = this.ensureHostConvexClient();
+        const client = this.getConfiguredHostAuthToken() ? this.ensureHostBackendClient() : null;
         if (!client) {
             return;
         }
         try {
-            await client.mutation(anyApi.device_identity.adoptDeviceIdentitySuccession, {
+            await client.call("devices.adoptSuccession", {
                 previousDeviceId,
                 deviceId,
             });
@@ -723,8 +753,8 @@ export class StellaRuntimeHost {
         catch (error) {
             // A CONFLICT means the retired id was already succeeded elsewhere;
             // there is nothing left to claim, so stop retrying it.
-            const code = getConvexErrorCode(error);
-            if (code !== "CONFLICT" && code !== "INVALID_ARGUMENT") {
+            const code = error instanceof BackendRequestError ? error.code : null;
+            if (code !== "CONFLICT" && code !== "BAD_REQUEST") {
                 console.warn("[device-identity] Failed to claim device identity succession; will retry.", error);
                 return;
             }
@@ -1211,10 +1241,10 @@ export class StellaRuntimeHost {
             hasConnectedAccount: this.configCache.hasConnectedAccount,
             cloudSyncEnabled: this.configCache.cloudSyncEnabled,
             authToken: this.getConfiguredHostAuthToken(),
-            convexUrl: this.getConfiguredHostConvexUrl(),
+            backendUrl: this.getConfiguredHostBackendUrl(),
             canSignDeviceInput: typeof this.options.hostHandlers.signDeviceInput === "function",
         });
-        const client = eligible ? this.ensureHostConvexClient() : null;
+        const client = eligible ? this.ensureHostBackendClient() : null;
         if (this.hostExecutionPlacementBridge &&
             client &&
             this.hostExecutionPlacementBridge.client === client &&
@@ -2366,6 +2396,7 @@ export class StellaRuntimeHost {
         this.hostRemoteTurnBridge?.stop();
         this.hostRemoteTurnBridge = null;
         this.disposeHostConvexClient();
+        this.disposeHostBackendClient();
         this.hostRemoteTurnAuthWindowStartedAt = 0;
         this.hostRemoteTurnUnauthenticatedFailures = 0;
         this.hostRemoteTurnAuthRecoveryPromise = null;

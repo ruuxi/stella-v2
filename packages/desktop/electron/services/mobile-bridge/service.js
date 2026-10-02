@@ -2,9 +2,6 @@ import crypto from "crypto";
 import http, {} from "http";
 import os from "os";
 import { WebSocketServer, WebSocket } from "ws";
-import { ConvexHttpClient } from "convex/browser";
-import { anyApi } from "convex/server";
-import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import { isMobileBridgeEventChannel, isMobileBridgeRequestChannel, } from "./bridge-policy.js";
 import { encodeBridgeBinaryValues } from "./binary-codec.js";
 import { BRIDGE_CRYPTO_PROTOCOL, BRIDGE_FEATURE_DEFLATE, createBridgeKeyPair, createBridgeReplayGuard, decryptBridgeBytes, decryptBridgePayload, deriveBridgeCryptoSession, encryptBridgeBytes, encryptBridgePayload, isBridgeEncryptedEnvelope, } from "./crypto.js";
@@ -14,10 +11,9 @@ import { MOBILE_BRIDGE_SENDER_URL, containsPrivateChatData } from "./bridge-poli
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 export const MOBILE_BRIDGE_REGISTRATION_REFRESH_MS = 5 * 60_000;
-const REGISTER_DESKTOP_BRIDGE_MUTATION = anyApi.mobile_bridge.registerDesktopBridge;
 /**
  * Debounce window for setter-driven registration syncs. The desktop learns its
- * endpoints (device id, auth token, Convex site URL, tunnel URL) from several
+ * endpoints (device id, auth token, backend URL, tunnel URL) from several
  * setters that fire in a burst ~0.5s apart during bootstrap and each refresh
  * cycle. Coalescing them into one mutation avoids duplicate registration
  * writes. Kept above the ~0.5s inter-setter gap so the whole burst lands in one
@@ -25,7 +21,7 @@ const REGISTER_DESKTOP_BRIDGE_MUTATION = anyApi.mobile_bridge.registerDesktopBri
  */
 const REGISTRATION_SYNC_DEBOUNCE_MS = 750;
 /**
- * Local cap on bridge session lifetime. Convex mints sessions with its own
+ * Local cap on bridge session lifetime. The backend mints sessions with its own
  * TTL (currently 60 minutes) and `authorizeBridgeSession` takes the min of
  * both, so this mostly guards against a misconfigured backend expiry.
  */
@@ -299,11 +295,7 @@ export class MobileBridgeService {
     hasRegisteredBridge = false;
     deviceId = null;
     hostAuthToken = null;
-    convexDeploymentUrl = null;
-    convexSiteUrl = null;
-    convexHttpClient = null;
-    convexHttpClientUrl = null;
-    convexHttpClientAuthToken = null;
+    backendUrl = null;
     tunnelUrl = null;
     healthFailureStreak = 0;
     lastHealthyProbeAt = 0;
@@ -344,15 +336,6 @@ export class MobileBridgeService {
         if (nextToken === previousToken)
             return;
         this.hostAuthToken = nextToken;
-        if (this.convexHttpClient) {
-            if (nextToken) {
-                this.convexHttpClient.setAuth(nextToken);
-            }
-            else {
-                this.convexHttpClient.clearAuth();
-            }
-            this.convexHttpClientAuthToken = nextToken;
-        }
         if (!this.hostAuthToken && previousToken) {
             this.invalidateBridgeAccess("Desktop signed out");
             void this.clearRegistrationWithToken(previousToken);
@@ -362,21 +345,12 @@ export class MobileBridgeService {
             this.scheduleRegistrationSync();
         }
     }
-    setConvexDeploymentUrl(value) {
-        const next = readConfiguredConvexUrl(value);
-        if (next === this.convexDeploymentUrl)
-            return;
-        this.convexDeploymentUrl = next;
-        this.convexHttpClient = null;
-        this.convexHttpClientUrl = null;
-        this.convexHttpClientAuthToken = null;
-        this.scheduleRegistrationSync();
-    }
-    setConvexSiteUrl(value) {
+    /** The backend worker that serves `/api/mobile/*`. */
+    setBackendUrl(value) {
         const next = value?.trim() || null;
-        if (next === this.convexSiteUrl)
+        if (next === this.backendUrl)
             return;
-        this.convexSiteUrl = next;
+        this.backendUrl = next;
         this.scheduleRegistrationSync();
     }
     setTunnelUrl(url, readiness) {
@@ -605,7 +579,7 @@ export class MobileBridgeService {
     isBridgeAccessEnabled() {
         return Boolean(this.hasRegisteredBridge &&
             this.hostAuthToken &&
-            this.convexSiteUrl &&
+            this.backendUrl &&
             this.deviceId);
     }
     // ── HTTP request handling ─────────────────────────────────────────────
@@ -1071,7 +1045,7 @@ export class MobileBridgeService {
             }
         }
     }
-    // ── Auth (Convex-mediated) ────────────────────────────────────────────
+    // ── Auth (backend-mediated) ──────────────────────────────────────────
     hasExplicitSessionHeaders(req) {
         const id = req.headers["x-stella-bridge-session-id"];
         return typeof id === "string" && id.trim().length > 0;
@@ -1132,10 +1106,10 @@ export class MobileBridgeService {
         return resolved.session;
     }
     async authorizeBridgeSession(requestHeaders) {
-        const convexSiteUrl = this.convexSiteUrl;
+        const backendUrl = this.backendUrl;
         const deviceId = this.deviceId;
         const hostAuthToken = this.hostAuthToken;
-        if (!convexSiteUrl || !deviceId || !hostAuthToken)
+        if (!backendUrl || !deviceId || !hostAuthToken)
             return null;
         const sessionId = typeof requestHeaders["x-stella-bridge-session-id"] === "string"
             ? requestHeaders["x-stella-bridge-session-id"].trim()
@@ -1161,7 +1135,7 @@ export class MobileBridgeService {
             return null;
         }
         try {
-            const response = await this.postBridgeJson(convexSiteUrl, "/api/mobile/desktop-bridge/session/consume", `Bearer ${hostAuthToken}`, {
+            const response = await this.postBridgeJson(backendUrl, "/api/mobile/desktop-bridge/session/consume", `Bearer ${hostAuthToken}`, {
                 deviceId,
                 sessionId,
                 sessionSecret,
@@ -1209,33 +1183,17 @@ export class MobileBridgeService {
             body: JSON.stringify(body),
         });
     }
-    getRegistrationConvexClient() {
-        const deploymentUrl = readConfiguredConvexUrl(this.convexDeploymentUrl);
-        const authToken = this.hostAuthToken?.trim() || null;
-        if (!deploymentUrl || !authToken) {
-            return null;
+    async registerDesktopBridge(args) {
+        const response = await this.postBridgeJson(this.backendUrl, "/api/mobile/desktop-bridge/register", `Bearer ${this.hostAuthToken}`, args);
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+            const error = new Error(body?.error ?? `Desktop bridge registration failed: ${response.status}`);
+            error.code = response.status === 401 ? "UNAUTHENTICATED" : response.status === 403 ? "FORBIDDEN" : null;
+            throw error;
         }
-        if (!this.convexHttpClient || this.convexHttpClientUrl !== deploymentUrl) {
-            this.convexHttpClient = new ConvexHttpClient(deploymentUrl, {
-                logger: false,
-            });
-            this.convexHttpClientUrl = deploymentUrl;
-            this.convexHttpClientAuthToken = null;
-        }
-        if (this.convexHttpClientAuthToken !== authToken) {
-            this.convexHttpClient.setAuth(authToken);
-            this.convexHttpClientAuthToken = authToken;
-        }
-        return this.convexHttpClient;
+        return body ?? {};
     }
-    registerDesktopBridge(args) {
-        const client = this.getRegistrationConvexClient();
-        if (!client) {
-            throw new Error("Desktop bridge registration is missing Convex configuration or auth");
-        }
-        return client.mutation(REGISTER_DESKTOP_BRIDGE_MUTATION, args);
-    }
-    // ── Convex registration ───────────────────────────────────────────────
+    // ── Backend registration ──────────────────────────────────────────────
     /**
      * Debounced entry point for the endpoint setters. A bootstrap/refresh cycle
      * updates several fields ~0.5s apart; coalescing them here means the whole
@@ -1280,8 +1238,7 @@ export class MobileBridgeService {
     }
     async performRegistrationSync() {
         if (!this.port ||
-            !this.convexDeploymentUrl ||
-            !this.convexSiteUrl ||
+            !this.backendUrl ||
             !this.hostAuthToken ||
             !this.deviceId) {
             await this.clearRegistration();
@@ -1384,7 +1341,7 @@ export class MobileBridgeService {
         await this.clearRegistrationWithToken(this.hostAuthToken);
     }
     async clearRegistrationWithToken(token) {
-        if (!this.convexSiteUrl ||
+        if (!this.backendUrl ||
             !this.deviceId) {
             this.clearRegistrationLeaseTimer();
             this.registrationLeaseExpiresAt = null;
@@ -1394,7 +1351,7 @@ export class MobileBridgeService {
             return;
         }
         try {
-            await this.postBridgeJson(this.convexSiteUrl, "/api/mobile/desktop-bridge/clear", `Bearer ${token}`, { deviceId: this.deviceId });
+            await this.postBridgeJson(this.backendUrl, "/api/mobile/desktop-bridge/clear", `Bearer ${token}`, { deviceId: this.deviceId });
         }
         catch {
             // Ignore

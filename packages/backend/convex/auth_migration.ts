@@ -903,251 +903,6 @@ export const migrateXTokensBatch = internalMutation({
   },
 });
 
-/** Stable mobile and tunnel registrations survive account linking. Ephemeral
- * pairing/session rows are deliberately handled by the blocking residue gate. */
-export const migrateDeviceExtensionsForAccountLink = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const toOwnerGeneration = migration.toOwnerGeneration!;
-    const registration = (
-      await ctx.db
-        .query("mobile_bridge_registrations")
-        .withIndex("by_ownerId_and_deviceId", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (registration) {
-      const destination = await ctx.db
-        .query("mobile_bridge_registrations")
-        .withIndex("by_ownerId_and_deviceId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("deviceId", registration.deviceId),
-        )
-        .unique();
-      if (destination) {
-        if (
-          destination.desktopPublicKey &&
-          registration.desktopPublicKey &&
-          destination.desktopPublicKey !== registration.desktopPublicKey
-        ) {
-          blockOwnershipMigration(
-            `Both identities have different bridge keys for desktop device ${registration.deviceId}.`,
-          );
-        }
-        await ctx.db.patch(destination._id, {
-          // Keep the destination's priority order and the same hard cap used
-          // by live registration writes; linking must not create an oversized
-          // row by concatenating two individually valid URL lists.
-          baseUrls: Array.from(
-            new Set([...destination.baseUrls, ...registration.baseUrls]),
-          ).slice(0, 8),
-          updatedAt: Math.max(destination.updatedAt, registration.updatedAt),
-          platform: destination.platform ?? registration.platform,
-          desktopPublicKey:
-            destination.desktopPublicKey ?? registration.desktopPublicKey,
-        });
-        await ctx.db.delete(registration._id);
-      } else {
-        await ctx.db.patch(registration._id, { ownerId: args.toOwnerId });
-      }
-      return { hasMore: true };
-    }
-    const paired = (
-      await ctx.db
-        .query("paired_mobile_devices")
-        .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (paired) {
-      const destination = await ctx.db
-        .query("paired_mobile_devices")
-        .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-          q
-            .eq("ownerId", args.toOwnerId)
-            .eq("desktopDeviceId", paired.desktopDeviceId)
-            .eq("mobileDeviceId", paired.mobileDeviceId),
-        )
-        .unique();
-      if (destination) {
-        if (destination.pairSecretHash !== paired.pairSecretHash) {
-          blockOwnershipMigration(
-            `Both identities have different mobile pairing secrets for ${paired.desktopDeviceId}/${paired.mobileDeviceId}.`,
-          );
-        }
-        const newer =
-          paired.lastSeenAt > destination.lastSeenAt ? paired : destination;
-        await ctx.db.patch(destination._id, {
-          ownerGeneration: toOwnerGeneration,
-          pairSecretHash: newer.pairSecretHash,
-          displayName: newer.displayName,
-          platform: newer.platform,
-          approvedAt: Math.min(destination.approvedAt, paired.approvedAt),
-          lastSeenAt: Math.max(destination.lastSeenAt, paired.lastSeenAt),
-          revokedAt:
-            destination.revokedAt === undefined ||
-            paired.revokedAt === undefined
-              ? undefined
-              : Math.max(destination.revokedAt, paired.revokedAt),
-        });
-        await ctx.db.delete(paired._id);
-      } else {
-        await ctx.db.patch(paired._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: toOwnerGeneration,
-        });
-      }
-      return { hasMore: true };
-    }
-    const push = (
-      await ctx.db
-        .query("mobile_push_tokens")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-        .take(1)
-    )[0];
-    if (push) {
-      const destination = await ctx.db
-        .query("mobile_push_tokens")
-        .withIndex("by_ownerId_and_mobileDeviceId", (q) =>
-          q
-            .eq("ownerId", args.toOwnerId)
-            .eq("mobileDeviceId", push.mobileDeviceId),
-        )
-        .unique();
-      const tokenHolders = await ctx.db
-        .query("mobile_push_tokens")
-        .withIndex("by_expoPushToken", (q) =>
-          q.eq("expoPushToken", push.expoPushToken),
-        )
-        .take(8);
-      if (
-        tokenHolders.some(
-          (holder) =>
-            holder._id !== push._id && holder._id !== destination?._id,
-        )
-      ) {
-        blockOwnershipMigration(
-          "The anonymous push token is already bound to a different mobile device.",
-        );
-      }
-      if (destination) {
-        if (destination.expoPushToken !== push.expoPushToken) {
-          blockOwnershipMigration(
-            `Both identities have different push tokens for mobile device ${push.mobileDeviceId}.`,
-          );
-        }
-        await ctx.db.patch(destination._id, {
-          ownerGeneration: toOwnerGeneration,
-          ...(push.updatedAt > destination.updatedAt
-            ? {
-                expoPushToken: push.expoPushToken,
-                platform: push.platform,
-                updatedAt: push.updatedAt,
-              }
-            : {}),
-        });
-        await ctx.db.delete(push._id);
-      } else {
-        await ctx.db.patch(push._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: toOwnerGeneration,
-        });
-      }
-      return { hasMore: true };
-    }
-    const registrationLimit = await ctx.db
-      .query("mobile_bridge_registration_limits")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique();
-    if (registrationLimit) {
-      const destination = await ctx.db
-        .query("mobile_bridge_registration_limits")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-        .unique();
-      if (destination) {
-        await ctx.db.patch(destination._id, {
-          windowStartedAt: Math.max(
-            destination.windowStartedAt,
-            registrationLimit.windowStartedAt,
-          ),
-          count: Math.min(
-            Number.MAX_SAFE_INTEGER,
-            destination.count + registrationLimit.count,
-          ),
-        });
-        await ctx.db.delete(registrationLimit._id);
-      } else {
-        await ctx.db.patch(registrationLimit._id, {
-          ownerId: args.toOwnerId,
-        });
-      }
-      return { hasMore: true };
-    }
-    const tunnel = (
-      await ctx.db
-        .query("cloudflare_tunnels")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-        .take(1)
-    )[0];
-    if (tunnel) {
-      const destination = tunnel.deviceId
-        ? await ctx.db
-            .query("cloudflare_tunnels")
-            .withIndex("by_ownerId_and_deviceId", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("deviceId", tunnel.deviceId),
-            )
-            .unique()
-        : null;
-      if (destination) {
-        blockOwnershipMigration(
-          `Both identities own a Cloudflare tunnel for device ${tunnel.deviceId}.`,
-        );
-      }
-      await ctx.db.patch(tunnel._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
-    }
-    return { hasMore: false };
-  },
-});
-
-export const migrateDeviceIdentitySuccessorsBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    await requireActiveOwnershipMigrationLease(ctx, args);
-    const rows = await ctx.db
-      .query("device_identity_successors")
-      .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    for (const row of rows) {
-      const destination = await ctx.db
-        .query("device_identity_successors")
-        .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-          q
-            .eq("ownerId", args.toOwnerId)
-            .eq("previousDeviceId", row.previousDeviceId),
-        )
-        .unique();
-      if (destination) {
-        if (destination.deviceId !== row.deviceId) {
-          blockOwnershipMigration(
-            `Device ${row.previousDeviceId} has conflicting successor identities.`,
-          );
-        }
-        await ctx.db.delete(row._id);
-      } else {
-        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-      }
-    }
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
 export const discardAnonymousTransientHandshakesBatch = internalMutation({
   args: leasedOwnerArgs,
   returns: hasMoreReturn,
@@ -1220,54 +975,6 @@ export const discardAnonymousTransientHandshakesBatch = internalMutation({
     }
     if (githubState) {
       await ctx.db.delete(githubState._id);
-      return { hasMore: true };
-    }
-    let bridgeSession: Doc<"mobile_bridge_sessions"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      bridgeSession = (
-        await ctx.db
-          .query("mobile_bridge_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1)
-      )[0];
-      if (bridgeSession) break;
-    }
-    if (bridgeSession) {
-      await ctx.db.delete(bridgeSession._id);
-      return { hasMore: true };
-    }
-    let pairingSession: Doc<"mobile_pairing_sessions"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      pairingSession = (
-        await ctx.db
-          .query("mobile_pairing_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1)
-      )[0];
-      if (pairingSession) break;
-    }
-    if (pairingSession) {
-      await ctx.db.delete(pairingSession._id);
-      return { hasMore: true };
-    }
-    let connectIntent: Doc<"mobile_connect_intents"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      connectIntent = (
-        await ctx.db
-          .query("mobile_connect_intents")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1)
-      )[0];
-      if (connectIntent) break;
-    }
-    if (connectIntent) {
-      await ctx.db.delete(connectIntent._id);
       return { hasMore: true };
     }
     let dispatch: Doc<"cloud_dispatches"> | undefined;
@@ -3102,7 +2809,6 @@ export const remainingOwnerAuthMigrationResidueInternal = internalMutation({
       linksFrom,
       linksTo,
       browserHandoffs,
-      successors,
       importedCredentials,
       importedSettings,
     ] = await Promise.all([
@@ -3122,12 +2828,6 @@ export const remainingOwnerAuthMigrationResidueInternal = internalMutation({
       ctx.db
         .query("auth_browser_handoffs")
         .withIndex("by_fromOwnerId", (q) => q.eq("fromOwnerId", args.ownerId))
-        .take(1),
-      ctx.db
-        .query("device_identity_successors")
-        .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-          q.eq("ownerId", args.ownerId),
-        )
         .take(1),
       ctx.db
         .query("cloud_llm_credentials")
@@ -3161,7 +2861,6 @@ export const remainingOwnerAuthMigrationResidueInternal = internalMutation({
       residue.push("auth_link_requests");
     }
     if (browserHandoffs.length > 0) residue.push("auth_browser_handoffs");
-    if (successors.length > 0) residue.push("device_identity_successors");
     if (importedCredentials.length > 0 || importedSettings.length > 0) {
       residue.push("cloud_engine_import_source_reference");
     }
@@ -4949,33 +4648,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "mobile_bridge_sessions",
-        await ctx.db
-          .query("mobile_bridge_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "mobile_pairing_sessions",
-        await ctx.db
-          .query("mobile_pairing_sessions")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "mobile_connect_intents",
-        await ctx.db
-          .query("mobile_connect_intents")
-          .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "media_private_blob_cleanup",
         await ctx.db
           .query("media_private_blob_cleanup")
@@ -5108,9 +4780,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
       "x_oauth_states",
       "cloud_engine_connects",
       "cloud_github_install_states",
-      "mobile_bridge_sessions",
-      "mobile_pairing_sessions",
-      "mobile_connect_intents",
       "media_private_blob_cleanup",
       "media_private_payload_manifests",
       "media_private_payload_chunks",
@@ -5240,29 +4909,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "mobile_bridge_registrations",
-        await ctx.db
-          .query("mobile_bridge_registrations")
-          .withIndex("by_ownerId_and_deviceId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "mobile_bridge_registration_limits",
-        await ctx.db
-          .query("mobile_bridge_registration_limits")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "device_identity_successors",
-        await ctx.db
-          .query("device_identity_successors")
-          .withIndex("by_ownerId_and_previousDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "cloud_dispatches",
         [
           ...(await ctx.db
@@ -5278,29 +4924,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
             )
             .take(1)),
         ],
-      ],
-      [
-        "paired_mobile_devices",
-        await ctx.db
-          .query("paired_mobile_devices")
-          .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "mobile_push_tokens",
-        await ctx.db
-          .query("mobile_push_tokens")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloudflare_tunnels",
-        await ctx.db
-          .query("cloudflare_tunnels")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
       ],
       [
         "media_jobs",
@@ -5477,13 +5100,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .withIndex("by_ownerId_and_updatedAt", (q) =>
             q.eq("ownerId", ownerId),
           )
-          .take(1),
-      ],
-      [
-        "devices",
-        await ctx.db
-          .query("devices")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ],
       [
@@ -5799,8 +5415,6 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateUserCountersBatch,
   internal.auth_migration.migrateAccountExternalMediaContentBatch,
   internal.auth_migration.migrateXTokensBatch,
-  internal.auth_migration.migrateDeviceExtensionsForAccountLink,
-  internal.auth_migration.migrateDeviceIdentitySuccessorsBatch,
   internal.auth_migration.discardAnonymousTransientHandshakesBatch,
 ] as const;
 
@@ -6235,9 +5849,7 @@ const acknowledgeCloudOwnerTransfer = async (
  *
  * Tables whose drain is independent run concurrently (`Promise.all`) so a
  * tenant with data in many tables doesn't pay the sum of every per-table
- * round-trip. The devices/presence/connections migration runs first and
- * sequentially because `migrateDevicesForAccountLink` enforces a strict
- * order across those three tables.
+ * round-trip.
  */
 export const migrateOwnership = internalAction({
   args: {
@@ -6881,12 +6493,6 @@ export const migrateOwnership = internalAction({
               Math.max(1_000, externalMediaCleanup.retryAfterMs ?? 5_000),
             );
           } else {
-            const deviceMigration = await ctx.runMutation(
-              internal.auth_migration.migrateDevicesForAccountLink,
-              {
-                ...leaseForCommit(),
-              },
-            );
             const independentMigrations = await Promise.all(
               PARALLEL_TABLE_MUTATIONS.map((mutation) =>
                 ctx.runMutation(mutation as OwnerBatchMutation, {
@@ -6894,10 +6500,7 @@ export const migrateOwnership = internalAction({
                 }),
               ),
             );
-            if (
-              deviceMigration.hasMore ||
-              independentMigrations.some((result) => result.hasMore)
-            ) {
+            if (independentMigrations.some((result) => result.hasMore)) {
               retryAfterMs = 1_000;
             } else {
               // These depend on all source-owner rows having drained.
@@ -6968,69 +6571,3 @@ export const migrateOwnership = internalAction({
   },
 });
 
-/** Migrate stable device profiles for an account-link in bounded batches. */
-export const migrateDevicesForAccountLink = internalMutation({
-  args: leasedOwnerArgs,
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    if ((migration.cloudProductStage ?? "owner-namespaces") !== "complete") {
-      throw new ConvexError({
-        code: "STALE_OWNERSHIP_MIGRATION_STAGE",
-        message: "Device ownership moved before cloud transfer completed.",
-      });
-    }
-    const deviceRows = await ctx.db
-      .query("devices")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .take(BATCH_SIZE);
-
-    for (const row of deviceRows) {
-      if (
-        row.ownerGeneration !== undefined &&
-        row.ownerGeneration !== migration.fromOwnerGeneration
-      ) {
-        blockOwnershipMigration(
-          "A device registration belongs to a stale source generation.",
-        );
-      }
-      const existing = await ctx.db
-        .query("devices")
-        .withIndex("by_ownerId_and_deviceId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("deviceId", row.deviceId),
-        )
-        .unique();
-
-      if (existing) {
-        if (
-          existing.ownerGeneration !== undefined &&
-          existing.ownerGeneration !== migration.toOwnerGeneration
-        ) {
-          blockOwnershipMigration(
-            "A destination device registration belongs to a stale generation.",
-          );
-        }
-        if (
-          existing.devicePublicKey !== undefined &&
-          row.devicePublicKey !== undefined &&
-          existing.devicePublicKey !== row.devicePublicKey
-        ) {
-          blockOwnershipMigration(
-            "Both identities contain different public keys for the same device.",
-          );
-        }
-        await ctx.db.patch(existing._id, {
-          ownerGeneration: migration.toOwnerGeneration!,
-          devicePublicKey: existing.devicePublicKey ?? row.devicePublicKey,
-        });
-        await ctx.db.delete(row._id);
-      } else {
-        await ctx.db.patch(row._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: migration.toOwnerGeneration!,
-        });
-      }
-    }
-    return { hasMore: deviceRows.length === BATCH_SIZE };
-  },
-});

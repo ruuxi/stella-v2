@@ -147,6 +147,13 @@ async function requestJson(
   }
 }
 
+/** The backend worker's origin, for the routes it serves instead of Convex. */
+export const backendOrigin = (): string => {
+  const origin = env.backendUrl?.trim();
+  assert(origin, "EXPO_PUBLIC_STELLA_BACKEND_URL is not configured.");
+  return origin;
+};
+
 export const getJson = (
   path: string,
   options?: {

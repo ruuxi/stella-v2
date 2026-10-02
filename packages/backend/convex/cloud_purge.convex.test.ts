@@ -145,78 +145,6 @@ const purgeFunctions = internal as unknown as {
       string[]
     >;
   };
-  cloudflare_tunnels: {
-    deleteConfirmedOwnerTunnelRows: FunctionReference<
-      "mutation",
-      "internal",
-      Fence & {
-        leaseId: string;
-        mode: PurgeMode;
-        refs: Array<{
-          id: Id<"cloudflare_tunnels">;
-          tunnelId: string;
-          dnsRecordId?: string;
-          tunnelName: string;
-          hostname: string;
-          provisionState?: "provisioning" | "ready";
-          provisionLeaseExpiresAt?: number;
-        }>;
-      },
-      { deleted: number }
-    >;
-    reserveTunnelProvision: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        ownerId: string;
-        ownerGeneration: string;
-        deviceId: string;
-        tunnelName: string;
-        hostname: string;
-        now: number;
-        leaseExpiresAt: number;
-      },
-      Id<"cloudflare_tunnels">
-    >;
-    recordTunnelProvisionExternalRefs: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        id: Id<"cloudflare_tunnels">;
-        ownerId: string;
-        ownerGeneration: string;
-        tunnelId?: string;
-        dnsRecordId?: string;
-        now: number;
-      },
-      boolean
-    >;
-    finishTunnelProvision: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        id: Id<"cloudflare_tunnels">;
-        ownerId: string;
-        ownerGeneration: string;
-        tunnelId: string;
-        tunnelToken: string;
-        dnsRecordId: string;
-        now: number;
-      },
-      boolean
-    >;
-    deleteConfirmedTunnelProvision: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        id: Id<"cloudflare_tunnels">;
-        ownerId: string;
-        ownerGeneration: string;
-        tunnelName: string;
-      },
-      boolean
-    >;
-  };
   reset: {
     _deleteConversationBatch: FunctionReference<
       "mutation",
@@ -230,15 +158,7 @@ const purgeFunctions = internal as unknown as {
       Fence & {
         table:
           | "auth_browser_handoffs"
-          | "auth_link_requests"
-          | "device_identity_successors"
-          | "mobile_pairing_sessions"
-          | "paired_mobile_devices"
-          | "mobile_connect_intents"
-          | "mobile_bridge_registrations"
-          | "mobile_bridge_registration_limits"
-          | "mobile_bridge_sessions"
-          | "mobile_push_tokens";
+          | "auth_link_requests";
       },
       { hasMore: boolean }
     >;
@@ -656,144 +576,6 @@ describe("owner purge adversarial invariants", () => {
       ),
     ).toBe(true);
     expect(await t.run(async (ctx) => ctx.db.get(publicationId))).toBeNull();
-  });
-
-  it("retains failed Cloudflare locators and deletes only exact confirmed refs", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(t, "tunnel-owner", "delete", "core");
-    const rows = await t.run(async (ctx) => ({
-      confirmed: await ctx.db.insert("cloudflare_tunnels", {
-        ownerId: fence.ownerId,
-        deviceId: "device-a",
-        tunnelId: "tunnel-a",
-        tunnelName: "t-owner-device-a",
-        tunnelToken: "token-a",
-        hostname: "a.stellatunnel.com",
-        dnsRecordId: "dns-a",
-        provisionState: "ready",
-        createdAt: 1,
-        lastUsedAt: 1,
-        updatedAt: 1,
-      }),
-      failed: await ctx.db.insert("cloudflare_tunnels", {
-        ownerId: fence.ownerId,
-        deviceId: "device-b",
-        tunnelId: "tunnel-b",
-        tunnelName: "t-owner-device-b",
-        tunnelToken: "token-b",
-        hostname: "b.stellatunnel.com",
-        dnsRecordId: "dns-b",
-        provisionState: "ready",
-        createdAt: 2,
-        lastUsedAt: 2,
-        updatedAt: 2,
-      }),
-    }));
-
-    expect(
-      await t.mutation(
-        purgeFunctions.cloudflare_tunnels.deleteConfirmedOwnerTunnelRows,
-        {
-          ...fence,
-          leaseId: "tunnel-owner-core-lease",
-          mode: "delete",
-          refs: [
-            {
-              id: rows.confirmed,
-              tunnelId: "tunnel-a",
-              tunnelName: "t-owner-device-a",
-              hostname: "a.stellatunnel.com",
-              dnsRecordId: "dns-a",
-              provisionState: "ready",
-            },
-          ],
-        },
-      ),
-    ).toEqual({ deleted: 1 });
-    expect(await t.run(async (ctx) => ctx.db.get(rows.failed))).toMatchObject({
-      tunnelId: "tunnel-b",
-    });
-
-    expect(
-      await t.mutation(
-        purgeFunctions.cloudflare_tunnels.deleteConfirmedOwnerTunnelRows,
-        {
-          ...fence,
-          leaseId: "tunnel-owner-core-lease",
-          mode: "delete",
-          refs: [
-            {
-              id: rows.failed,
-              tunnelId: "tunnel-b",
-              tunnelName: "t-owner-device-b",
-              hostname: "b.stellatunnel.com",
-              dnsRecordId: "dns-b",
-              provisionState: "ready",
-            },
-          ],
-        },
-      ),
-    ).toEqual({ deleted: 1 });
-    expect(await t.run(async (ctx) => ctx.db.get(rows.failed))).toBeNull();
-  });
-
-  it("keeps tunnel cleanup locators writable after the lifecycle closes", async () => {
-    const t = createTest();
-    const ownerId = "tunnel-race-owner";
-    const id = await t.mutation(
-      purgeFunctions.cloudflare_tunnels.reserveTunnelProvision,
-      {
-        ownerId,
-        ownerGeneration: "legacy",
-        deviceId: "device-race",
-        tunnelName: "t-race-device",
-        hostname: "race.stellatunnel.com",
-        now: 1,
-        leaseExpiresAt: 50_000,
-      },
-    );
-    await beginAndClaim(t, ownerId, "delete", "core");
-    expect(
-      await t.mutation(
-        purgeFunctions.cloudflare_tunnels.recordTunnelProvisionExternalRefs,
-        {
-          id,
-          ownerId,
-          ownerGeneration: "legacy",
-          tunnelId: "late-tunnel",
-          dnsRecordId: "late-dns",
-          now: 2_000,
-        },
-      ),
-    ).toBe(true);
-    await expect(
-      t.mutation(purgeFunctions.cloudflare_tunnels.finishTunnelProvision, {
-        id,
-        ownerId,
-        ownerGeneration: "legacy",
-        tunnelId: "late-tunnel",
-        tunnelToken: "late-token",
-        dnsRecordId: "late-dns",
-        now: 2_001,
-      }),
-    ).rejects.toThrow();
-    expect(await t.run(async (ctx) => ctx.db.get(id))).toMatchObject({
-      provisionState: "provisioning",
-      tunnelId: "late-tunnel",
-      dnsRecordId: "late-dns",
-    });
-    expect(
-      await t.mutation(
-        purgeFunctions.cloudflare_tunnels.deleteConfirmedTunnelProvision,
-        {
-          id,
-          ownerId,
-          ownerGeneration: "legacy",
-          tunnelName: "t-race-device",
-        },
-      ),
-    ).toBe(true);
-    expect(await t.run(async (ctx) => ctx.db.get(id))).toBeNull();
   });
 
   it("uses exact-key CAS and retains live presigned upload locators", async () => {
@@ -1686,98 +1468,7 @@ describe("owner purge adversarial invariants", () => {
     ).toMatchObject({ owned: null, unrelated: { requestId: "other-request" } });
   });
 
-  it("drains every mobile pairing, bridge, and push credential on reset", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(t, "reset-mobile-owner", "reset", "core");
-    await t.run(async (ctx) => {
-      await ctx.db.insert("mobile_pairing_sessions", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        desktopDeviceId: "desktop-reset",
-        pairingCode: "123456",
-        createdAt: 1,
-        expiresAt: 10_000,
-      });
-      await ctx.db.insert("paired_mobile_devices", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        desktopDeviceId: "desktop-reset",
-        mobileDeviceId: "mobile-reset",
-        pairSecretHash: "pair-secret",
-        approvedAt: 1,
-        lastSeenAt: 1,
-      });
-      await ctx.db.insert("mobile_connect_intents", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        desktopDeviceId: "desktop-reset",
-        mobileDeviceId: "mobile-reset",
-        createdAt: 1,
-        expiresAt: 10_000,
-      });
-      await ctx.db.insert("mobile_bridge_registrations", {
-        ownerId: fence.ownerId,
-        deviceId: "desktop-reset",
-        baseUrls: ["https://desktop.test"],
-        updatedAt: 1,
-      });
-      await ctx.db.insert("mobile_bridge_registration_limits", {
-        ownerId: fence.ownerId,
-        windowStartedAt: 1,
-        count: 1,
-      });
-      await ctx.db.insert("mobile_bridge_sessions", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        desktopDeviceId: "desktop-reset",
-        mobileDeviceId: "mobile-reset",
-        sessionId: "mobile-session-reset",
-        sessionSecretHash: "session-secret",
-        desktopChallenge: "challenge",
-        desktopPublicKey: "desktop-key",
-        mobilePublicKey: "mobile-key",
-        createdAt: 1,
-        expiresAt: 10_000,
-        lastSeenAt: 1,
-      });
-      await ctx.db.insert("mobile_push_tokens", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        mobileDeviceId: "mobile-reset",
-        expoPushToken: "ExponentPushToken[reset]",
-        platform: "ios",
-        updatedAt: 1,
-      });
-    });
-
-    const mobileTables = [
-      "mobile_pairing_sessions",
-      "paired_mobile_devices",
-      "mobile_connect_intents",
-      "mobile_bridge_registrations",
-      "mobile_bridge_registration_limits",
-      "mobile_bridge_sessions",
-      "mobile_push_tokens",
-    ] as const;
-    await expect(
-      t.query(purgeFunctions.reset.remainingOwnerResetStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toEqual(expect.arrayContaining([...mobileTables]));
-    for (const table of mobileTables) {
-      await t.mutation(purgeFunctions.reset._deleteOwnerTableBatch, {
-        ...fence,
-        table,
-      });
-    }
-    await expect(
-      t.query(purgeFunctions.reset.remainingOwnerResetStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toEqual([]);
-  });
-
-  it("drains both auth-link principals and device successors while retaining reset security and quota state", async () => {
+  it("drains both auth-link principals while retaining reset security and quota state", async () => {
     const t = createTest();
     const fence = await beginAndClaim(t, "reset-auth-owner", "reset", "core");
     const rows = await t.run(async (ctx) => {
@@ -1809,12 +1500,6 @@ describe("owner purge adversarial invariants", () => {
           tokenEnc: "enc:secret-bearer",
           expiresAt: 50_000,
           createdAt: 2,
-        }),
-        successor: await ctx.db.insert("device_identity_successors", {
-          ownerId: fence.ownerId,
-          previousDeviceId: "old-device",
-          deviceId: "new-device",
-          rotatedAt: 3,
         }),
         policy: await ctx.db.insert("auth_revoked_sessions", {
           ownerId: fence.ownerId,
@@ -1855,7 +1540,6 @@ describe("owner purge adversarial invariants", () => {
         ownerId: fence.ownerId,
       }),
     ).toEqual([
-      "device_identity_successors",
       "auth_link_requests.fromOwnerId",
       "auth_link_requests.toOwnerId",
     ]);
@@ -1863,10 +1547,6 @@ describe("owner purge adversarial invariants", () => {
     await t.mutation(purgeFunctions.reset._deleteOwnerTableBatch, {
       ...fence,
       table: "auth_link_requests",
-    });
-    await t.mutation(purgeFunctions.reset._deleteOwnerTableBatch, {
-      ...fence,
-      table: "device_identity_successors",
     });
 
     expect(
@@ -1883,6 +1563,5 @@ describe("owner purge adversarial invariants", () => {
     ).not.toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(rows.fromLink))).toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(rows.toLink))).toBeNull();
-    expect(await t.run(async (ctx) => ctx.db.get(rows.successor))).toBeNull();
   });
 });

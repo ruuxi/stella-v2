@@ -63,14 +63,15 @@ describe("runtime host device identity succession", () => {
       supersededDeviceId: "old-device",
     };
     const clearSupersededDeviceId = vi.fn().mockResolvedValue(undefined);
-    const mutation = vi.fn().mockResolvedValue(null);
+    const call = vi.fn().mockResolvedValue(null);
     const host = createHost({ clearSupersededDeviceId }) as any;
     host.deviceIdentity = identity;
-    host.ensureHostConvexClient = vi.fn(() => ({ mutation }));
+    host.getConfiguredHostAuthToken = vi.fn(() => "token");
+    host.ensureHostBackendClient = vi.fn(() => ({ call }));
 
     await host.claimDeviceIdentitySuccession();
 
-    expect(mutation).toHaveBeenCalledWith(expect.anything(), {
+    expect(call).toHaveBeenCalledWith("devices.adoptSuccession", {
       previousDeviceId: "old-device",
       deviceId: "new-device",
     });
@@ -88,8 +89,9 @@ describe("runtime host device identity succession", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const host = createHost({ clearSupersededDeviceId }) as any;
     host.deviceIdentity = identity;
-    host.ensureHostConvexClient = vi.fn(() => ({
-      mutation: vi.fn(async () => {
+    host.getConfiguredHostAuthToken = vi.fn(() => "token");
+    host.ensureHostBackendClient = vi.fn(() => ({
+      call: vi.fn(async () => {
         throw new Error("offline");
       }),
     }));

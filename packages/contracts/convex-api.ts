@@ -135,7 +135,7 @@ export type PublicApiType = {
       "listTagFacets": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "getByPackId": FunctionReference<'query', 'public', { packId: string; }, any, string | undefined>;
-      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; ownerGeneration: string; displayName: string; packId: string; coverEmoji: string; sheetUrls: string[]; visibility: 'public' | 'unlisted' | 'private'; uploadId: string; }, any, string | undefined>;
+      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; ownerGeneration: string; packId: string; displayName: string; coverEmoji: string; sheetUrls: string[]; visibility: 'public' | 'unlisted' | 'private'; uploadId: string; }, any, string | undefined>;
       "setVisibility": FunctionReference<'mutation', 'public', { packId: string; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
       "deletePack": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
       "recordInstall": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
@@ -161,20 +161,10 @@ export type PublicApiType = {
       "listXBotRunsByHandle": FunctionReference<'query', 'public', { handle: string; }, any, string | undefined>;
     };
   };
-  "device_identity": {
-    "adoptDeviceIdentitySuccession": FunctionReference<'mutation', 'public', { deviceId: string; previousDeviceId: string; }, any, string | undefined>;
-  };
   "events": {
     "subscribeRemoteTurnRequestsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "subscribeRemoteTurnCancelsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "isRemoteTurnClaimed": FunctionReference<'query', 'public', { requestId: string; }, any, string | undefined>;
-  };
-  "execution_placement": {
-    "getMyExecutionPlacementIdentity": FunctionReference<'query', 'public', { deviceId?: string | undefined; }, any, string | undefined>;
-    "registerMyExecutionDevice": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; capabilities?: ('agent' | 'attachments' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[] | undefined; deviceId: string; devicePublicKey: string; }, any, string | undefined>;
-    "setMyExecutionDeviceRemoteEnabled": FunctionReference<'mutation', 'public', { deviceId: string; enabled: boolean; }, any, string | undefined>;
-    "removeMyExecutionDevice": FunctionReference<'mutation', 'public', { deviceId: string; }, any, string | undefined>;
-    "listMyExecutionActivity": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
   };
   "feedback": {
     "submitFeedback": FunctionReference<'mutation', 'public', { platform?: string | undefined; appVersion?: string | undefined; message: string; }, any, string | undefined>;
@@ -186,19 +176,6 @@ export type PublicApiType = {
     "getByJobId": FunctionReference<'query', 'public', { jobId: string; }, any, string | undefined>;
     "listSucceededSince": FunctionReference<'query', 'public', { limit?: number | undefined; includeLogs?: boolean | undefined; since: number; }, any, string | undefined>;
     "listFailedSince": FunctionReference<'query', 'public', { limit?: number | undefined; includeLogs?: boolean | undefined; since: number; }, any, string | undefined>;
-  };
-  "mobile_access": {
-    "getPhoneAccessState": FunctionReference<'query', 'public', { desktopDeviceId: string; }, any, string | undefined>;
-    "createPairingSession": FunctionReference<'mutation', 'public', { desktopDeviceId: string; }, any, string | undefined>;
-    "revokePairedMobileDevice": FunctionReference<'mutation', 'public', { desktopDeviceId: string; mobileDeviceId: string; }, any, string | undefined>;
-    "watchIncomingConnectIntent": FunctionReference<'query', 'public', { nowMs?: number | undefined; desktopDeviceId: string; }, any, string | undefined>;
-    "acknowledgeConnectIntent": FunctionReference<'mutation', 'public', { intentId: Id<'mobile_connect_intents'>; }, any, string | undefined>;
-  };
-  "mobile_bridge": {
-    "registerDesktopBridge": FunctionReference<'mutation', 'public', { platform?: string | undefined; desktopPublicKey?: string | undefined; deviceId: string; baseUrls: string[]; }, any, string | undefined>;
-  };
-  "mobile_push": {
-    "sendActivityNotification": FunctionReference<'action', 'public', { kind: 'failed' | 'completed' | 'started'; }, any, string | undefined>;
   };
   "r2_files": {
     "generateUploadUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;

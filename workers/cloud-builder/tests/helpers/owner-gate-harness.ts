@@ -299,6 +299,39 @@ export const createGateHarness = (
     fetchSnapshot: async () => snapshot,
   });
 
+  // Devices and pairings live in the owner's own tables, which overlay the
+  // control snapshot; seed the ones the fixture names there.
+  if (snapshot.devices?.length || snapshot.pairedDevices?.length) {
+    const store = (instance as unknown as {
+      ownerStore(): {
+        context(caller: null): { db: { run(sql: string, ...args: unknown[]): void } };
+        flush(): void;
+      };
+    }).ownerStore();
+    const { db } = store.context(null);
+    for (const device of snapshot.devices ?? []) {
+      db.run(
+        `INSERT INTO devices (device_id, public_key, name, platform, remote_execution_enabled, capabilities, registered_at, updated_at)
+         VALUES (?, ?, ?, NULL, ?, ?, 0, 0)`,
+        device.deviceId,
+        device.publicKey,
+        device.label ?? null,
+        device.remoteExecutionEnabled ? 1 : 0,
+        JSON.stringify(device.capabilities ?? []),
+      );
+    }
+    for (const phone of snapshot.pairedDevices ?? []) {
+      db.run(
+        `INSERT INTO paired_phones (desktop_device_id, mobile_device_id, pair_secret_hash, approved_at, last_seen_at)
+         VALUES (?, ?, ?, 0, 0)`,
+        phone.desktopDeviceId,
+        phone.mobileDeviceId,
+        phone.mobilePublicKey ?? "",
+      );
+    }
+    store.flush();
+  }
+
   const sendFrame = async (
     socket: FakeSocket,
     frame: DevicePresenceDeviceFrame,

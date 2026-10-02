@@ -38,6 +38,7 @@ mock.module("../bridge-crypto", () => ({
 
 let bridgeResponse: unknown = null;
 mock.module("../http", () => ({
+  backendOrigin: () => "https://backend.example",
   getJson: async () => bridgeResponse,
   postJson: async () => ({}),
 }));

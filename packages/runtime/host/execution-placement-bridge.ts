@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { anyApi } from "convex/server";
+import type { BackendClient } from "@stella/contracts/backend/client";
 import WebSocket from "ws";
 import {
   DEVICE_PRESENCE_PING_INTERVAL_MS,
@@ -85,14 +85,11 @@ export type ExecutionPlacementRunResult = {
 };
 
 /**
- * The Convex surface the bridge still needs: who the owner is, where the
+ * The backend calls the bridge still needs: who the owner is, where the
  * owner gate lives, and this device's public key. Every placement verb is a
  * socket frame or an owner-gate route.
  */
-export type ExecutionPlacementClient = {
-  query(reference: unknown, args: Record<string, unknown>): Promise<unknown>;
-  mutation(reference: unknown, args: Record<string, unknown>): Promise<unknown>;
-};
+export type ExecutionPlacementClient = Pick<BackendClient, "call">;
 
 /** Minimal `ws` shape; the tests drive a real socket against a fake gate. */
 export type ExecutionPlacementSocket = {
@@ -1439,10 +1436,9 @@ export class ExecutionPlacementBridge {
 
   private async readIdentity() {
     const identity = parseRecord(
-      await this.client.query(
-        anyApi.execution_placement.getMyExecutionPlacementIdentity,
-        { deviceId: this.options.deviceIdentity.deviceId },
-      ),
+      await this.client.call("devices.identity", {
+        deviceId: this.options.deviceIdentity.deviceId,
+      }),
     );
     if (
       typeof identity.ownerId !== "string" ||
@@ -1467,8 +1463,8 @@ export class ExecutionPlacementBridge {
   /** One idempotent registration of this device's key and capabilities. */
   private async registerDevice() {
     const availability = await this.options.getAvailability();
-    await this.client.mutation(
-      anyApi.execution_placement.registerMyExecutionDevice,
+    await this.client.call(
+      "devices.register",
       executionDeviceRegistration({
         deviceId: this.options.deviceIdentity.deviceId,
         devicePublicKey: this.options.deviceIdentity.publicKey,

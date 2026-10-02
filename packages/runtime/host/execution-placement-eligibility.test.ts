@@ -45,7 +45,7 @@ const readyHost = async (handlers: {
   hasConnectedAccount: true,
   cloudSyncEnabled: true,
   authToken: "jwt-host",
-  convexUrl: "https://deployment.convex.cloud",
+  backendUrl: "https://backend.example",
   canSignDeviceInput: typeof handlers.signDeviceInput === "function",
 });
 
@@ -79,7 +79,7 @@ describe("execution placement eligibility", () => {
       ["hasConnectedAccount", undefined],
       ["cloudSyncEnabled", false],
       ["authToken", null],
-      ["convexUrl", null],
+      ["backendUrl", null],
     ] as const) {
       expect(
         isExecutionPlacementEligible({ ...ready, [key]: value }),

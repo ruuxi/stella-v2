@@ -8,6 +8,7 @@ import { agentThreadsDomain } from "./domains/agent-threads.js";
 import { billingDomain } from "./domains/billing.js";
 import { conversationEditsDomain } from "./domains/conversation-edits.js";
 import { conversationsDomain } from "./domains/conversations.js";
+import { devicesDomain } from "./domains/devices.js";
 import { RATE_LIMIT_MIGRATION } from "./rate-limit.js";
 import { createOwnerRegistry, type OwnerDomain } from "./registry.js";
 
@@ -29,6 +30,7 @@ export const ownerDomains: OwnerDomain[] = [
   agentThreadsDomain,
   conversationEditsDomain,
   billingDomain,
+  devicesDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

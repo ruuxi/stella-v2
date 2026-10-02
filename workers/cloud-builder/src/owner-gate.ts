@@ -82,6 +82,7 @@ import {
   type BillingAccess,
   type UsageBatchResult,
 } from "./owner-store/domains/billing.js";
+import { deleteTunnels, handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
 import type { StripeEvent } from "./billing/stripe.js";
 import { BillingConfigError } from "./billing/plans.js";
 import { capabilitySigningKey } from "./capability-signer.js";
@@ -1019,7 +1020,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   // ── Billing ─────────────────────────────────────────────────────────────
 
-  /** Run a billing write on the owner's ledger, then push views and arm jobs. */
+  /** Run a write on the owner's database outside a backend call, then push views and arm jobs. */
   private async billingWrite<T>(write: (ctx: ReturnType<OwnerStore["context"]>) => T | Promise<T>): Promise<T> {
     const store = this.ownerStore();
     try {
@@ -1207,6 +1208,19 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   /** Account deletion: end the Stripe customer and its subscription. */
   async closeBilling(): Promise<void> {
     await closeStripeCustomer(this.ownerStore().context(null));
+  }
+
+  // ── Devices ─────────────────────────────────────────────────────────────
+
+  /** `/api/mobile/*` for phones and the desktop's bridge, verified by the Worker. */
+  async mobileRoute(input: MobileRouteInput): Promise<{ status: number; json: string }> {
+    const result = await this.billingWrite((ctx) => handleMobileRoute(ctx, input));
+    return { status: result.status, json: JSON.stringify(result.body) };
+  }
+
+  /** Account deletion: delete the owner's Cloudflare tunnels. */
+  async closeDevices(): Promise<void> {
+    await this.billingWrite((ctx) => deleteTunnels(ctx, { idleOnly: false }));
   }
   private snapshotInflight: Promise<OwnerSnapshot> | null = null;
   private gatewayOwnerPreparation?: Promise<void>;
@@ -1525,39 +1539,43 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     options: { refresh?: boolean; now?: number } = {},
   ): Promise<OwnerSnapshot> {
     const control = await this.controlSnapshot(options);
-    return this.withBilling(control, options.now ?? Date.now());
+    return this.withOwnerData(control, options.now ?? Date.now());
   }
 
   /**
-   * The plan and turn allowance from the owner's billing ledger, over the
-   * control-plane snapshot. The identity Convex reports is noted on the
-   * ledger so allowance shares follow sign-in changes.
+   * The owner's own data over the control-plane snapshot: devices and
+   * pairings, and the plan and turn allowance from the billing ledger. The
+   * identity Convex reports is noted on the ledger so allowance shares
+   * follow sign-in changes.
    */
-  private withBilling(control: OwnerSnapshot, now: number): OwnerSnapshot {
+  private withOwnerData(control: OwnerSnapshot, now: number): OwnerSnapshot {
     const store = this.ownerStore();
     const ctx = store.context(null, now);
-    let billing: ReturnType<typeof turnAllowance>;
     try {
-      recordBillingIdentity(ctx, {
-        isAnonymous: control.isAnonymous,
-        identityLevel: control.identityLevel,
-      });
-      billing = turnAllowance(ctx);
-    } catch (error) {
-      if (!(error instanceof BillingConfigError)) throw error;
-      // Unconfigured billing serves the control snapshot's own allowance,
-      // which Convex sends as zero: turns fail closed until it is set.
-      log("error", "billing_unconfigured", { message: error.message });
-      return control;
+      const owned = { ...control, ...snapshotDevices(ctx.db) };
+      let billing: ReturnType<typeof turnAllowance>;
+      try {
+        recordBillingIdentity(ctx, {
+          isAnonymous: control.isAnonymous,
+          identityLevel: control.identityLevel,
+        });
+        billing = turnAllowance(ctx);
+      } catch (error) {
+        if (!(error instanceof BillingConfigError)) throw error;
+        // Unconfigured billing serves the control snapshot's own allowance,
+        // which Convex sends as zero: turns fail closed until it is set.
+        log("error", "billing_unconfigured", { message: error.message });
+        return owned;
+      }
+      return {
+        ...owned,
+        plan: billing.plan,
+        identityLevel: billing.identityLevel,
+        allowance: billing.allowance,
+      };
     } finally {
       store.flush();
     }
-    return {
-      ...control,
-      plan: billing.plan,
-      identityLevel: billing.identityLevel,
-      allowance: billing.allowance,
-    };
   }
 
   private async controlSnapshot(

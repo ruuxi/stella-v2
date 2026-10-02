@@ -1,0 +1,31 @@
+- [Greenfield two-plane architecture](greenfield-two-plane-architecture.md) — 2026-09-01 proposal: CF data plane, Convex control plane, request/response model calls
+- [Docs go to ~/Documents](docs-go-to-home-documents.md) — write design docs to home Documents folder, not repo docs/
+- [No users, greenfield OK](no-users-greenfield-ok.md) — as of 2026-09-01 no dev/prod users; no compat or migrations needed
+- [Subagent lanes, not Codex](use-codex-agents-and-review-diffs.md) — 2026-10-01: parallel lanes = Claude subagents in worktrees; I integrate, deploy and verify serially; no Codex
+- [Stella product model](stella-product-model.md) — one ongoing orchestrator chat; Recall = current conversation only, no cross-conversation/semantic; agents lack Recall for now
+- [Recall search in conversation DO](recall-search-in-conversation-do.md) — 2026-09-01 decision: FTS5 index inside the DO, Convex excerpt/thread/legacy tables deleted; follow-ups done: gate snapshot push-through, worker bundle 10.5→6.8 MB
+- [No-flicker launch UX](no-flicker-launch-ux.md) — splash held until live, no placeholders/toasts for system waits, dialogs own their waits
+- [Chat onboarding replaces legacy](chat-onboarding-alongside-legacy.md) — 2026-09-01: first run is the chat flow in global/onboarding/chat; legacy split-screen flow deleted in db3a90761
+- [DO placement follows first caller](do-placement-follows-first-caller.md) — never create per-user Durable Objects from Convex pushes; 2026-09-02 gate placement regression
+- [Abuse protection shipped](abuse-protection-shipped.md) — 2026-09-02 phases 0-2 on master; deploy checklist in the Documents proposal §12; challenged owners re-challenge every mint; mobile uses App Attest/Play Integrity, never Turnstile
+- [Keep plans minimal](keep-plans-minimal.md) — user rejected doctor/devcontainer/per-vendor scaffolding as overcomplicated; smallest thing first
+- [Theme parity, Liquid Glass exception](theme-parity-liquid-glass-exception.md) — 2026-09-02: one shared TS theme derivation for desktop+mobile; iOS glass is the only sanctioned divergence
+- [Mobile verification is Android-only here](mobile-verification-android-only.md) — local machine has Android, no iOS; Android only exercises the glass fallback path
+- [Reply refs and focus view](reply-refs-and-focus-view.md) — 2026-09-02: model cites replies via a trailing refs fence; iMessage previews + focus overlay; agent-thread transcript tab deleted
+- [Prompts: Convex authoritative](prompts-convex-authoritative.md) — 2026-09-02: edit bundle → sync → Convex deploy; desktop+cloud revalidate per turn; home-file sync deleted; Aug 26 merge regression dropped orchestrator tools (fixed)
+- [Cloud-builder dev ops gotchas](cloud-builder-dev-ops-gotchas.md) — rollout counter lag, lossy tail, token scopes, retire script usage
+- [World DO decision](world-do-decision.md) — 2026-09-03 five-step cloud plan: no quotas/world lease, cloud generals spawn, per-owner world DO, shared container, sync at command boundaries, isolation on request
+- [Cloud lifecycle rows pending](cloud-lifecycle-rows-pending.md) — 2026-09-03: cloud-executed turns show no spawn/follow-up/completion rows; journal lacks lifecycle records; deferred until outside cloud work lands
+- [Codex full access always](codex-full-access-always.md) — always pass -s danger-full-access; the workspace-write sandbox blocks workerd/Docker/loopback
+- [Desktop companion window](desktop-companion-window.md) — 2026-09-03 floating pet design: resize-based pass-through, full shell as brain, toggle dictation; Hyprland scale/XWayland verification quirks
+- [BuildSession module layout](build-session-module-layout.md) — 2026-09-04 index.ts split into src/build-session/* with a structural host interface; rules for adding behavior
+- [bun mock.module leaks](bun-mock-module-leaks.md) — process-global mocks leak across test files; gate with a flag + captured real exports
+- [Message privacy assessment](message-privacy-assessment.md) — 2026-09-10: no E2EE possible with server-composed prompts; client-held key + transient server use is the target, doc in ~/Documents
+- [Stella model defaults backend-owned](stella-model-defaults-backend-owned.md) — 2026-09-10: backend owns default model + effort for stella/ models; no user effort control for Stella routes, no "Default" effort option; delete client mirrors
+- [Stella v3 + all-Cloudflare](stella-v3-and-all-cloudflare.md) — 2026-10-01: delete Convex, self-modifying v3 with native per-OS launchers, Artifacts source, auto-apply; Rust port paused
+- [Decide, don't ask](decide-dont-ask.md) — 2026-10-01: make the calls myself; no decision menus or "blockers for you"; work around env blockers
+- [Evidence, not tests](verify-with-evidence-not-tests.md) — 2026-10-01: don't write tests; prove changes live in the real product with evidence
+- [Fetch origin before work/deploys](fetch-origin-before-work.md) — other sessions push master + deploy dev; rebase before work and before any deploy; push after
+- [Keep going until done](keep-going-until-done.md) — 2026-10-01: no stopping between steps to report; run the program continuously
+- [Stripe account is shared + live](stripe-shared-live-account.md) — CLI is live-only on FromYou, LLC; user OK with live Stripe + live webhook on dev (no users)
+- [App source on Artifacts](app-source-on-artifacts.md) — v3 step 3: namespaces, publish script, per-owner forks, 1 h tokens; client side lands with step 4: worktree drafts, preview renderer window, user-clicked Update, fast-forward only, fork sync

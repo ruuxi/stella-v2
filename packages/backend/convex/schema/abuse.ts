@@ -16,6 +16,17 @@ const appIntegrityPlatformValidator = v.union(
 );
 
 export const abuseSchema = {
+  /**
+   * The plan and paying bit the owner's billing ledger on cloud-builder last
+   * reported. Read by the plan quotas and identity ladder still in Convex.
+   */
+  owner_billing_plans: defineTable({
+    ownerId: v.string(),
+    plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
+    paying: v.boolean(),
+    unlimited: v.boolean(),
+    updatedAt: v.number(),
+  }).index("by_ownerId", ["ownerId"]),
   owner_origins: defineTable({
     ownerId: v.string(),
     deviceKeyHash: v.optional(v.string()),

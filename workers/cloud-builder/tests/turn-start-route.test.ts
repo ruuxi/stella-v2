@@ -614,7 +614,17 @@ describe("POST /internal/owners/snapshot-changed", () => {
       {} as ExecutionContext,
     );
     expect(replacedResponse.status).toBe(200);
-    expect(replaced).toEqual([{ ownerId: "owner-2", snapshot }]);
+    // Convex's plan and allowance are dropped: the owner's ledger supplies them.
+    expect(replaced).toEqual([
+      {
+        ownerId: "owner-2",
+        snapshot: {
+          ...snapshot,
+          plan: "free",
+          allowance: { audience: "free", budgetMicroCents: 0 },
+        },
+      },
+    ]);
 
     const malformed = await worker.fetch(
       request({ authorization: `Bearer ${SERVICE_SECRET}` }, { reason: "x" }),

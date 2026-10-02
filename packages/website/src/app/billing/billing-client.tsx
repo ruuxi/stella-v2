@@ -1,7 +1,6 @@
 "use client";
 
-import { useAction, useQuery } from "convex/react";
-import { makeFunctionReference } from "convex/server";
+import { getBackendClient, useBackendValue } from "@/lib/backend";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { openSignInDialog } from "@/components/auth/sign-in-dialog";
 import { isConvexConfigured } from "@/lib/convex-urls";
@@ -73,42 +72,6 @@ type UsageCreditStatus = {
   totalPurchasedUsd: number;
   totalConsumedUsd: number;
 };
-
-const getSubscriptionStatus = makeFunctionReference<
-  "query",
-  { now: number },
-  BillingStatus
->("billing:getSubscriptionStatus");
-
-const createCheckoutSession = makeFunctionReference<
-  "action",
-  { plan: PaidBillingPlan; returnUrl: string },
-  CheckoutSessionPayload
->("billing:createCheckoutSession");
-
-const createBillingPortalSession = makeFunctionReference<
-  "action",
-  { returnUrl: string },
-  BillingPortalSessionPayload
->("billing:createBillingPortalSession");
-
-const getUsageCreditPurchaseOptions = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  UsageCreditPurchaseOptions
->("billing:getUsageCreditPurchaseOptions");
-
-const getUsageCreditStatus = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  UsageCreditStatus
->("billing:getUsageCreditStatus");
-
-const createUsageCreditCheckoutSession = makeFunctionReference<
-  "action",
-  { amountCents: number; returnUrl: string },
-  CheckoutSessionPayload
->("billing:createUsageCreditCheckoutSession");
 
 const PLAN_ORDER: BillingPlan[] = ["free", "go", "pro"];
 const VISIBLE_PLAN_ORDER = PLAN_ORDER;
@@ -286,14 +249,29 @@ function BillingInteractive() {
     window.history.replaceState(null, "", url.toString());
   }, []);
 
-  const billingStatus = useQuery(getSubscriptionStatus, {
-    now: billingNowMs,
-  });
-  const creditOptions = useQuery(getUsageCreditPurchaseOptions, {});
-  const creditStatus = useQuery(getUsageCreditStatus, {});
-  const startCheckout = useAction(createCheckoutSession);
-  const openPortal = useAction(createBillingPortalSession);
-  const startCreditCheckout = useAction(createUsageCreditCheckoutSession);
+  // The owner's billing ledger, live; the clock only re-renders labels.
+  void billingNowMs;
+  const ledger = useBackendValue("billing.status", {});
+  const billingStatus = ledger as BillingStatus | undefined;
+  const creditOptions: UsageCreditPurchaseOptions | undefined = ledger?.creditPurchase;
+  const creditStatus: UsageCreditStatus | undefined = ledger
+    ? { authenticated: !ledger.isAnonymous, ...ledger.credits }
+    : undefined;
+  const startCheckout = useCallback(
+    (args: { plan: PaidBillingPlan; returnUrl: string }): Promise<CheckoutSessionPayload> =>
+      getBackendClient().call("billing.checkout", args),
+    [],
+  );
+  const openPortal = useCallback(
+    (args: { returnUrl: string }): Promise<BillingPortalSessionPayload> =>
+      getBackendClient().call("billing.portal", args),
+    [],
+  );
+  const startCreditCheckout = useCallback(
+    (args: { amountCents: number; returnUrl: string }): Promise<CheckoutSessionPayload> =>
+      getBackendClient().call("billing.creditCheckout", args),
+    [],
+  );
 
   const planCatalog = billingStatus?.plans;
   const currentPlan = billingStatus?.plan ?? "free";

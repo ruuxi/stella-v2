@@ -124,14 +124,10 @@ describe("POST /api/admin/test-accounts/session", () => {
     expect(secondBody.ownerId).toBe(firstBody.ownerId);
     expect(secondBody.sessionToken).not.toBe(firstBody.sessionToken);
 
-    const billing = await t.run(async (ctx) =>
-      ctx.db
-        .query("billing_profiles")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", firstBody.ownerId))
-        .unique(),
-    );
-    expect(billing).toMatchObject({
-      activePlan: "pro",
+    // The plan is set on the owner's billing ledger through the bridge.
+    const { setBillingPlan } = await import("./billing_bridge");
+    expect(setBillingPlan).toHaveBeenCalledWith(firstBody.ownerId, {
+      plan: "pro",
       usageMode: "unlimited",
     });
   });

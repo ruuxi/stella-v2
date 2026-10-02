@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { useQuery } from "convex/react";
 import { useRouter } from "expo-router";
-import { getSubscriptionStatusRef } from "../lib/billing-refs";
+import { useBackendView } from "../lib/backend";
 import {
   setDebugStorefrontOverride,
   useStorefrontEligibility,
@@ -55,7 +54,7 @@ export function SubscriptionSection() {
   const router = useRouter();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const status = useQuery(getSubscriptionStatusRef, {});
+  const status = useBackendView("billing.status", {}).value;
   const storefront = useStorefrontEligibility();
   const checkout = useMobileCheckout();
 

@@ -61,7 +61,7 @@ const lookupModalitiesInput = async (
   ctx: RunQueryCtx,
   model: string,
 ): Promise<("text" | "image" | "audio" | "video" | "pdf")[]> => {
-  const row = await ctx.runQuery(internal.billing.getManagedModelPrice, {
+  const row = await ctx.runQuery(internal.model_prices.getManagedModelPrice, {
     model,
   });
   if (!row) return TEXT_ONLY;

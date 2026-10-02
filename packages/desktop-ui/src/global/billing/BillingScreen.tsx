@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useQuery } from "convex/react";
-import { api } from "@/convex/api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 // Imported from the module rather than the `@/shared/i18n` barrel on
 // purpose: the barrel re-exports `RemoteI18nProvider`, which pulls in
 // `convex/react` and the auth provider. This component only needs the
@@ -18,10 +18,11 @@ import "./BillingScreen.css";
  *
  * This used to be an embedded stella.sh `<webview>` (a holdover from the
  * self-modifying-app era, when billing had to live out of the agent's
- * reach). It now talks to the same Convex `billing` module the website
- * uses; the only surfaces that leave the app are Stripe-hosted Checkout
- * and the Stripe Customer Portal, which open in the system browser. Plan
- * changes land back here reactively via Stripe webhooks → Convex.
+ * reach). It reads the owner's billing ledger (`billing.status`, a live
+ * backend view) like the website does; the only surfaces that leave the app
+ * are Stripe-hosted Checkout and the Stripe Customer Portal, which open in
+ * the system browser. Plan changes land back here as Stripe webhooks update
+ * the ledger.
  */
 
 type BillingPlan = "free" | "go" | "pro";
@@ -259,30 +260,32 @@ export function BillingPanel() {
     [formatters],
   );
 
-  // Bucketed clock for usage-window recomputation: refreshing every 60s
-  // keeps the query cache stable between ticks (see getSubscriptionStatus).
-  const [billingNowMs, setBillingNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setBillingNowMs(Date.now()), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const billingStatus = useQuery(
-    api.billing.getSubscriptionStatus,
-    hasConnectedAccount ? { now: billingNowMs } : "skip",
-  ) as BillingStatus | undefined;
-  const creditOptions = useQuery(
-    api.billing.getUsageCreditPurchaseOptions,
-    hasConnectedAccount ? {} : "skip",
-  ) as UsageCreditOptions | undefined;
-  const creditStatus = useQuery(
-    api.billing.getUsageCreditStatus,
-    hasConnectedAccount ? {} : "skip",
-  ) as UsageCreditStatus | undefined;
-  const startCheckout = useAction(api.billing.createCheckoutSession);
-  const openPortal = useAction(api.billing.createBillingPortalSession);
-  const startCreditCheckout = useAction(
-    api.billing.createUsageCreditCheckoutSession,
+  const ledger = useBackendValue("billing.status", hasConnectedAccount ? {} : "skip");
+  const billingStatus: BillingStatus | undefined = ledger;
+  const creditOptions: UsageCreditOptions | undefined = ledger?.creditPurchase;
+  const creditStatus: UsageCreditStatus | undefined = ledger
+    ? { authenticated: !ledger.isAnonymous, ...ledger.credits }
+    : undefined;
+  const startCheckout = useCallback(
+    (args: { plan: PaidBillingPlan; returnUrl: string; requestId: string }) =>
+      backendClient.call("billing.checkout", {
+        plan: args.plan,
+        returnUrl: args.returnUrl,
+      }),
+    [],
+  );
+  const openPortal = useCallback(
+    (args: { returnUrl: string; requestId: string }) =>
+      backendClient.call("billing.portal", { returnUrl: args.returnUrl }),
+    [],
+  );
+  const startCreditCheckout = useCallback(
+    (args: { amountCents: number; returnUrl: string; requestId: string }) =>
+      backendClient.call("billing.creditCheckout", {
+        amountCents: args.amountCents,
+        returnUrl: args.returnUrl,
+      }),
+    [],
   );
 
   const [startingPlan, setStartingPlan] = useState<PaidBillingPlan | null>(

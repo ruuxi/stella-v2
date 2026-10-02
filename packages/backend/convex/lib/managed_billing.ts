@@ -19,29 +19,39 @@ import type {
 } from "../runtime_ai/managed";
 import {
   MANAGED_USAGE_BILLING_KIND,
+  PARALLEL_SEARCH_FAST_BILLING_KIND,
   type ManagedDispatchBillingEnvelope,
   type ManagedDispatchCapturedUsage,
 } from "./managed_dispatch";
 import { hashSha256Hex } from "./crypto_utils";
+import {
+  fetchBillingAccess,
+  priceManagedUsage,
+  recordBillingUsage,
+  type BillingAccess,
+} from "../billing_bridge";
 
-type BillingMutationCtx = {
+/**
+ * Plan checks and metering for Convex code that still spends on managed
+ * providers (media, music, synthesis, search, emoji packs). Billing itself
+ * lives in each owner's object on cloud-builder; this facade keeps the shape
+ * its callers were written against and talks to it through the bridge.
+ */
+
+type BillingCtx = {
+  runQuery: ActionCtx["runQuery"];
   runMutation: ActionCtx["runMutation"];
 };
 
-type BillingAdmissionCtx = BillingMutationCtx & {
-  runQuery: ActionCtx["runQuery"];
-};
+/** The dispatch guard prices captured usage when it can query; else baseline prices apply. */
+type DispatchCtx = Pick<BillingCtx, "runMutation"> & Partial<Pick<BillingCtx, "runQuery">>;
 
-type BillingSchedulerCtx = {
-  scheduler: ActionCtx["scheduler"];
-};
-
-// Must stay comfortably below billing.ts' 60s managed execution lease.
-const MANAGED_EXECUTION_HEARTBEAT_INTERVAL_MS = 15_000;
+/** The longest one physical provider attempt may run. */
+const PROVIDER_ATTEMPT_MAX_MS = 10 * 60_000;
 
 export type ManagedUsageLogArgs = {
   ownerId: string;
-  /** Captured before provider dispatch; fences delayed scheduled metering. */
+  /** Captured before provider dispatch. */
   ownerGeneration: string;
   agentType: string;
   model: string;
@@ -64,111 +74,80 @@ export type ManagedModelAccess = {
   ownerGeneration: string;
 };
 
-const toLogPayload = (args: ManagedUsageLogArgs) => ({
-  ownerId: args.ownerId,
-  ownerGeneration: args.ownerGeneration,
-  agentType: args.agentType,
-  model: args.model,
-  durationMs: args.durationMs,
-  success: args.success,
-  ...(args.conversationId ? { conversationId: args.conversationId } : {}),
-  ...(args.usage?.inputTokens !== undefined
-    ? { inputTokens: args.usage.inputTokens }
-    : {}),
-  ...(args.usage?.outputTokens !== undefined
-    ? { outputTokens: args.usage.outputTokens }
-    : {}),
-  ...(args.usage?.totalTokens !== undefined
-    ? { totalTokens: args.usage.totalTokens }
-    : {}),
-  ...(args.usage?.cachedInputTokens !== undefined
-    ? { cachedInputTokens: args.usage.cachedInputTokens }
-    : {}),
-  ...(args.usage?.cacheWriteInputTokens !== undefined
-    ? { cacheWriteInputTokens: args.usage.cacheWriteInputTokens }
-    : {}),
-  ...(args.usage?.reasoningTokens !== undefined
-    ? { reasoningTokens: args.usage.reasoningTokens }
-    : {}),
-  ...(args.costMicroCents !== undefined
-    ? { costMicroCents: args.costMicroCents }
-    : args.usage?.costMicroCents !== undefined
-      ? { costMicroCents: args.usage.costMicroCents }
-      : {}),
+const toManagedModelAccess = (
+  access: BillingAccess,
+  ownerGeneration: string,
+): ManagedModelAccess => ({
+  allowed: access.allowed,
+  plan: access.plan,
+  unlimited: access.unlimited,
+  downgraded: access.downgraded,
+  modelAudience: access.audience,
+  retryAfterMs: access.retryAfterMs,
+  message: access.message,
+  ownerGeneration,
 });
 
 export async function checkManagedUsageLimit(
-  ctx: BillingAdmissionCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   ownerId: string,
   options?: {
     minimumRemainingMicroCents?: number;
   },
 ) {
-  const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
-    ctx,
-    ownerId,
-  );
-  const result = await ctx.runMutation(
-    internal.billing.enforceManagedUsageLimit,
-    {
-      ownerId,
-      ownerGeneration,
-      ...(options?.minimumRemainingMicroCents !== undefined
-        ? { minimumRemainingMicroCents: options.minimumRemainingMicroCents }
-        : {}),
-    },
-  );
-  return { ...result, ownerGeneration };
+  const { generation: ownerGeneration } = await assertOwnerDataAccessActive(ctx, ownerId);
+  const access = await fetchBillingAccess(ownerId);
+  const minimum = options?.minimumRemainingMicroCents ?? 0;
+  const enough =
+    access.remainingMicroCents === null || access.remainingMicroCents >= minimum;
+  return {
+    allowed: access.allowed && enough,
+    plan: access.plan,
+    unlimited: access.unlimited,
+    retryAfterMs: access.retryAfterMs,
+    message:
+      access.allowed && !enough
+        ? "Not enough managed usage left for this request."
+        : access.message,
+    ownerGeneration,
+  };
 }
 
 export async function resolveManagedModelAccess(
-  ctx: BillingAdmissionCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   ownerId: string,
   options?: {
     isAnonymous?: boolean;
   },
 ): Promise<ManagedModelAccess> {
-  const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
-    ctx,
-    ownerId,
-  );
-  const access = await ctx.runMutation(
-    internal.billing.resolveManagedModelAccess,
-    {
-      ownerId,
-      ownerGeneration,
-      ...(options?.isAnonymous !== undefined
-        ? { isAnonymous: options.isAnonymous }
-        : {}),
-    },
-  );
-  return { ...access, ownerGeneration };
+  const { generation: ownerGeneration } = await assertOwnerDataAccessActive(ctx, ownerId);
+  const access = await fetchBillingAccess(ownerId, {
+    ...(options?.isAnonymous !== undefined ? { isAnonymous: options.isAnonymous } : {}),
+  });
+  return toManagedModelAccess(access, ownerGeneration);
 }
 
 /**
- * Last transaction-plane check before upstream managed-provider I/O.
- *
- * The generation was captured at admission; this closes the period spent
- * preparing a request, so a reset/delete that begins just before `fetch`
- * cannot let that request cross the provider boundary.
+ * Last check before upstream managed-provider I/O: the owner's data
+ * generation is still the one admitted, so a reset or deletion that began
+ * while the request was prepared stops it.
  */
 export async function assertManagedUsageDispatchAllowed(
-  ctx: BillingMutationCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   args: { ownerId: string; ownerGeneration: string },
 ): Promise<void> {
-  await ctx.runMutation(
-    internal.billing.assertManagedUsageDispatchAllowedInternal,
-    args,
-  );
+  const { generation } = await assertOwnerDataAccessActive(ctx, args.ownerId);
+  if (generation !== args.ownerGeneration) {
+    throw new ConvexError({
+      code: "OWNER_GENERATION_STALE",
+      message: "This account was reset while the request was being prepared.",
+    });
+  }
 }
 
-/**
- * Persist a logical request/body binding before constructing a physical
- * managed-provider attempt. The returned fingerprint is the receipt identity;
- * an identical replay gets the same value and changed canonical bytes fail.
- */
+/** A stable fingerprint for one logical request and its exact body. */
 export async function bindManagedProviderRequest(
-  ctx: BillingMutationCtx,
+  _ctx: unknown,
   args: {
     ownerId: string;
     ownerGeneration: string;
@@ -177,270 +156,96 @@ export async function bindManagedProviderRequest(
     canonicalBody: string;
   },
 ): Promise<{ requestFingerprint: string; replayed: boolean }> {
-  return await ctx.runMutation(
-    internal.billing.bindManagedProviderRequestInternal,
-    {
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      route: args.route,
-      requestId: args.requestId,
-      bodyFingerprint: await hashSha256Hex(args.canonicalBody),
-      now: Date.now(),
-    },
-  );
+  return {
+    requestFingerprint: await hashSha256Hex(
+      `${args.ownerId}\0${args.route}\0${args.requestId}\0${await hashSha256Hex(args.canonicalBody)}`,
+    ),
+    replayed: false,
+  };
 }
 
-const managedDispatchAbortError = (message: string, cause?: unknown) => {
+const managedDispatchAbortError = (message: string) => {
   const error = new Error(message);
   error.name = "AbortError";
-  (error as Error & { cause?: unknown }).cause = cause;
   return error;
 };
 
 /**
- * Durable per-physical-attempt barrier for user-owned managed provider I/O.
- * The billing claim is acquired before any additional row-specific fence, so
- * reset/delete/migration must wait while the final preparation and request are
- * live. A failed secondary fence settles the claim before propagating.
+ * Meters one user-owned managed provider call. A fixed-cost attempt is
+ * charged once it may have reached the provider; a variable-cost attempt is
+ * charged its captured usage, or its declared fallback when the outcome left
+ * the provider's work unknown.
  */
 export function createManagedUsageDispatchGuard(
-  ctx: BillingMutationCtx,
+  ctx: DispatchCtx,
   args: {
     ownerId: string;
     ownerGeneration: string;
     executionId?: string;
-    /** Keep a renewable DB lease across model-adjacent nested tool work. */
     spanExecution?: boolean;
-    /** Immutable exact-attempt billing authority for fixed-cost provider I/O. */
     billing?: ManagedDispatchBillingEnvelope;
-    /**
-     * Optional cloud turn rechecked by the durable pre-I/O billing marker: the
-     * turn capability already authenticated the caller, this only refuses once
-     * Convex has seen the turn end. Not persisted as billing attribution.
-     */
+    /** A cloud turn the call runs for: refused once that turn has ended. */
     turnAuthority?: { turnId: string };
     beforeDispatch?: () => Promise<void>;
   },
 ): ManagedDispatchGuard {
-  const executionId = args.executionId ?? crypto.randomUUID();
   const runController = new AbortController();
-  const executionLeaseId = crypto.randomUUID();
-  let executionStarted = false;
-  let executionFinished = false;
-  let executionStart: Promise<void> | undefined;
-  let executionMonitor: Promise<void> | undefined;
-  let wakeExecutionMonitor: (() => void) | undefined;
-  let executionLeaseExpiresAt = 0;
-  let executionHardExpiresAt = 0;
-  let executionAuthorityTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const abortRun = (error: unknown) => {
-    if (!runController.signal.aborted) {
-      runController.abort(
-        error instanceof Error
-          ? error
-          : managedDispatchAbortError(
-              "Managed provider execution lost dispatch authority.",
-              error,
-            ),
-      );
-    }
-  };
-
-  const armExecutionAuthorityTimer = () => {
-    if (executionAuthorityTimer) clearTimeout(executionAuthorityTimer);
-    if (!executionStarted || executionFinished) return;
-    const deadlineAt = Math.min(
-      executionLeaseExpiresAt,
-      executionHardExpiresAt,
-    );
-    executionAuthorityTimer = setTimeout(
-      () =>
-        abortRun(
-          managedDispatchAbortError(
-            "Managed model/tool execution authority expired.",
-          ),
-        ),
-      Math.max(1, deadlineAt - Date.now()),
-    );
-  };
-
-  const ensureExecutionLease = async () => {
-    if (!args.spanExecution || executionStarted) return;
-    executionStart ??= (async () => {
-      const timing = await ctx.runMutation(
-        internal.billing.acquireManagedExecutionInternal,
-        {
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          executionId,
-          leaseId: executionLeaseId,
-          now: Date.now(),
-        },
-      );
-      executionStarted = true;
-      executionLeaseExpiresAt = timing.leaseExpiresAt;
-      executionHardExpiresAt = timing.hardExpiresAt;
-      armExecutionAuthorityTimer();
-      executionMonitor = (async () => {
-        while (!executionFinished && !runController.signal.aborted) {
-          await Promise.race([
-            new Promise<void>((resolve) =>
-              setTimeout(resolve, MANAGED_EXECUTION_HEARTBEAT_INTERVAL_MS),
-            ),
-            new Promise<void>((resolve) => {
-              wakeExecutionMonitor = resolve;
-            }),
-          ]);
-          wakeExecutionMonitor = undefined;
-          if (executionFinished || runController.signal.aborted) break;
-          try {
-            const renewed = await ctx.runMutation(
-              internal.billing.heartbeatManagedExecutionInternal,
-              {
-                ownerId: args.ownerId,
-                ownerGeneration: args.ownerGeneration,
-                executionId,
-                leaseId: executionLeaseId,
-                now: Date.now(),
-              },
-            );
-            if (!renewed) {
-              throw new Error("Managed execution lease could not be renewed.");
-            }
-            executionLeaseExpiresAt = renewed.leaseExpiresAt;
-            executionHardExpiresAt = renewed.hardExpiresAt;
-            armExecutionAuthorityTimer();
-          } catch (error) {
-            abortRun(error);
-          }
-        }
-      })();
-    })().catch((error) => {
-      abortRun(error);
+  let finished = false;
+  // A refused fence aborts the whole execution, so callers see an abort
+  // rather than an ordinary provider failure.
+  const abortOnFailure = async <T>(check: () => Promise<T>): Promise<T> => {
+    try {
+      return await check();
+    } catch (error) {
+      if (!runController.signal.aborted) runController.abort(error);
       throw error;
-    });
-    await executionStart;
+    }
   };
 
   return {
     signal: runController.signal,
     beginDispatch: async (attemptBilling) => {
-      if (executionFinished) {
-        throw managedDispatchAbortError(
-          "Managed provider execution is already terminal.",
-        );
-      }
-      if (runController.signal.aborted) {
-        throw runController.signal.reason instanceof Error
-          ? runController.signal.reason
-          : managedDispatchAbortError(
-              "Managed provider execution was aborted.",
-            );
-      }
-      await ensureExecutionLease();
-
+      if (finished) throw managedDispatchAbortError("Managed provider execution is already terminal.");
+      if (runController.signal.aborted) throw managedDispatchAbortError("Managed provider execution was aborted.");
       if (args.billing && attemptBilling) {
-        throw new Error(
-          "Managed provider billing descriptor was supplied twice.",
-        );
+        throw new Error("Managed provider billing descriptor was supplied twice.");
       }
       const billing = attemptBilling ?? args.billing;
       const attemptId = crypto.randomUUID();
-      const leaseId = crypto.randomUUID();
-      const timing = await ctx
-        .runMutation(internal.billing.acquireManagedProviderDispatchInternal, {
+      let mayHaveDispatched = false;
+      let captured: ManagedDispatchCapturedUsage | null = null;
+      // A reset or deletion since admission stops the attempt before any I/O.
+      await abortOnFailure(() =>
+        ctx.runMutation(internal.billing_bridge.assertDispatchAllowedInternal, {
           ownerId: args.ownerId,
           ownerGeneration: args.ownerGeneration,
-          executionId,
-          attemptId,
-          leaseId,
-          ...(billing ? { billing } : {}),
-          now: Date.now(),
-        })
-        .catch((error) => {
-          abortRun(error);
-          throw error;
-        });
+        }),
+      );
+      await args.beforeDispatch?.();
 
-      const settle = async (outcome: ManagedDispatchOutcome) => {
-        try {
-          const settled = await ctx.runMutation(
-            internal.billing.settleManagedProviderDispatchInternal,
-            {
-              ownerId: args.ownerId,
-              ownerGeneration: args.ownerGeneration,
-              executionId,
-              attemptId,
-              leaseId,
-              outcome,
-              now: Date.now(),
-            },
-          );
-          if (!settled) {
-            throw new Error("Managed provider dispatch lease disappeared.");
-          }
-        } catch (error) {
-          abortRun(error);
-          throw error;
-        }
+      const charge = async (costMicroCents: number) => {
+        if (costMicroCents <= 0) return;
+        await recordBillingUsage(args.ownerId, [{ id: `attempt:${attemptId}`, costMicroCents }]);
       };
-
-      try {
-        await args.beforeDispatch?.();
-      } catch (error) {
-        try {
-          await settle("aborted");
-        } finally {
-          abortRun(error);
-        }
-        throw error;
-      }
 
       return {
         signal: runController.signal,
-        deadlineAt: timing.providerDeadlineAt,
+        deadlineAt: Date.now() + PROVIDER_ATTEMPT_MAX_MS,
         ...(billing || args.turnAuthority
           ? {
               markMayHaveDispatched: async () => {
-                try {
-                  if (billing) {
-                    const marked = await ctx.runMutation(
-                      internal.billing
-                        .markManagedProviderDispatchMayHaveStartedInternal,
-                      {
-                        ownerId: args.ownerId,
-                        ownerGeneration: args.ownerGeneration,
-                        executionId,
-                        attemptId,
-                        leaseId,
-                        billing,
-                        ...(args.turnAuthority
-                          ? { turnAuthority: args.turnAuthority }
-                          : {}),
-                        now: Date.now(),
-                      },
-                    );
-                    if (!marked) {
-                      throw new Error(
-                        "Managed provider dispatch marker disappeared.",
-                      );
-                    }
-                  } else {
-                    await ctx.runMutation(
-                      internal.cloud_apps.assertActiveTurnDispatchInternal,
-                      {
-                        ownerId: args.ownerId,
-                        ownerGeneration: args.ownerGeneration,
-                        turnId: args.turnAuthority!.turnId,
-                        now: Date.now(),
-                      },
-                    );
-                  }
-                } catch (error) {
-                  abortRun(error);
-                  throw error;
+                if (args.turnAuthority) {
+                  const turnId = args.turnAuthority.turnId;
+                  await abortOnFailure(() =>
+                    ctx.runMutation(internal.cloud_apps.assertActiveTurnDispatchInternal, {
+                      ownerId: args.ownerId,
+                      ownerGeneration: args.ownerGeneration,
+                      turnId,
+                      now: Date.now(),
+                    }),
+                  );
                 }
+                mayHaveDispatched = true;
               },
             }
           : {}),
@@ -448,65 +253,47 @@ export function createManagedUsageDispatchGuard(
           ? {
               requiresUsageCapture: true,
               captureUsage: async (usage: ManagedDispatchCapturedUsage) => {
-                try {
-                  const captured = await ctx.runMutation(
-                    internal.billing
-                      .captureManagedProviderDispatchUsageInternal,
-                    {
-                      ownerId: args.ownerId,
-                      ownerGeneration: args.ownerGeneration,
-                      executionId,
-                      attemptId,
-                      leaseId,
-                      billing,
-                      usage,
-                      now: Date.now(),
-                    },
-                  );
-                  if (!captured) {
-                    throw new Error(
-                      "Managed provider usage receipt disappeared.",
-                    );
-                  }
-                } catch (error) {
-                  abortRun(error);
-                  throw error;
-                }
+                captured = usage;
               },
             }
           : {}),
-        settle,
+        settle: async (outcome: ManagedDispatchOutcome) => {
+          if (!billing) return;
+          if (billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND) {
+            if (mayHaveDispatched) await charge(billing.chargeMicroCents);
+            return;
+          }
+          const usage = captured as ManagedDispatchCapturedUsage | null;
+          if (usage) {
+            await charge(
+              await priceManagedUsage(ctx, {
+                model: billing.model,
+                ...(usage.costMicroCents !== undefined ? { costMicroCents: usage.costMicroCents } : {}),
+                ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+                ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+                ...(usage.cachedInputTokens !== undefined ? { cachedInputTokens: usage.cachedInputTokens } : {}),
+                ...(usage.cacheWriteInputTokens !== undefined
+                  ? { cacheWriteInputTokens: usage.cacheWriteInputTokens }
+                  : {}),
+                ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
+              }),
+            );
+            return;
+          }
+          if (mayHaveDispatched && outcome !== "failed" && outcome !== "succeeded") {
+            await charge(billing.fallbackCostMicroCents);
+          }
+        },
       };
     },
-    finishExecution: async (outcome) => {
-      if (!args.spanExecution || executionFinished) return;
-      executionFinished = true;
-      if (executionAuthorityTimer) clearTimeout(executionAuthorityTimer);
-      wakeExecutionMonitor?.();
-      await executionMonitor?.catch(() => undefined);
-      if (!executionStarted) return;
-      const settled = await ctx.runMutation(
-        internal.billing.settleManagedExecutionInternal,
-        {
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          executionId,
-          leaseId: executionLeaseId,
-          outcome,
-          now: Date.now(),
-        },
-      );
-      if (!settled) {
-        const error = new Error("Managed execution lease disappeared.");
-        abortRun(error);
-        throw error;
-      }
+    finishExecution: async () => {
+      finished = true;
     },
   };
 }
 
 export async function assertManagedUsageAllowed(
-  ctx: BillingAdmissionCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   ownerId: string,
   options?: {
     isAnonymous?: boolean;
@@ -524,19 +311,10 @@ export async function assertManagedUsageAllowed(
 }
 
 /**
- * Capability gating — "is this surface on your plan at all".
+ * Capability gating ("is this surface on your plan at all"), layered on top
+ * of usage accounting. Routes run both checks.
  *
- * Strictly layered on top of usage accounting, never a replacement for it:
- * a denial here does not touch the per-user media cost tracking in
- * `media_billing.ts`, and passing here says nothing about whether the
- * caller is still inside their spend window. Routes run both checks.
- */
-
-/**
- * Fail closed on an audience we cannot place. `toCapabilityAudience`
- * returns `null` only for a value outside the managed union, which means
- * the audience vocabulary drifted — treat that as the weakest plan rather
- * than handing out Pro surfaces on a typo.
+ * An audience we cannot place fails closed onto the weakest plan.
  */
 const capabilityAudienceFor = (
   audience: ManagedModelAudience,
@@ -552,7 +330,7 @@ export type CapabilityAccess =
     };
 
 export async function resolveCapabilityAccess(
-  ctx: BillingAdmissionCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   ownerId: string,
   capability: Capability,
   options?: {
@@ -573,24 +351,18 @@ export async function resolveCapabilityAccess(
 }
 
 /**
- * Throwing variant for Convex actions/mutations, which have no Response to
- * return. The `ConvexError` data is the same payload the HTTP routes put in
- * their 402 body, so the desktop parses one shape either way.
+ * Throwing variant for actions, which have no Response to return. The
+ * `ConvexError` data is the payload the HTTP routes put in their 402 body.
  */
 export async function assertPaidMediaTier(
-  ctx: BillingAdmissionCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   ownerId: string,
   capability: Capability,
   options?: {
     isAnonymous?: boolean;
   },
 ): Promise<ManagedModelAccess> {
-  const result = await resolveCapabilityAccess(
-    ctx,
-    ownerId,
-    capability,
-    options,
-  );
+  const result = await resolveCapabilityAccess(ctx, ownerId, capability, options);
   if (!result.allowed) {
     throw new ConvexError({
       code: result.denial.code,
@@ -603,23 +375,46 @@ export async function assertPaidMediaTier(
   return result.access;
 }
 
+const usageCost = (ctx: Pick<BillingCtx, "runQuery">, args: ManagedUsageLogArgs) =>
+  priceManagedUsage(ctx, {
+    model: args.model,
+    ...(args.costMicroCents !== undefined
+      ? { costMicroCents: args.costMicroCents }
+      : args.usage?.costMicroCents !== undefined
+        ? { costMicroCents: args.usage.costMicroCents }
+        : {}),
+    ...(args.usage?.inputTokens !== undefined ? { inputTokens: args.usage.inputTokens } : {}),
+    ...(args.usage?.outputTokens !== undefined ? { outputTokens: args.usage.outputTokens } : {}),
+    ...(args.usage?.cachedInputTokens !== undefined
+      ? { cachedInputTokens: args.usage.cachedInputTokens }
+      : {}),
+    ...(args.usage?.cacheWriteInputTokens !== undefined
+      ? { cacheWriteInputTokens: args.usage.cacheWriteInputTokens }
+      : {}),
+    ...(args.usage?.reasoningTokens !== undefined ? { reasoningTokens: args.usage.reasoningTokens } : {}),
+  });
+
+/** Charge spend now. */
 export async function recordManagedUsage(
-  ctx: BillingMutationCtx,
+  ctx: Pick<BillingCtx, "runQuery">,
   args: ManagedUsageLogArgs,
 ) {
-  return await ctx.runMutation(
-    internal.billing.logManagedUsage,
-    toLogPayload(args),
-  );
+  const costMicroCents = await usageCost(ctx, args);
+  if (costMicroCents <= 0) return;
+  await recordBillingUsage(args.ownerId, [{ id: crypto.randomUUID(), costMicroCents }]);
 }
 
+/** Charge spend in the background; the report retries until it lands. */
 export async function scheduleManagedUsage(
-  ctx: BillingSchedulerCtx,
+  ctx: Pick<BillingCtx, "runQuery"> & { scheduler: ActionCtx["scheduler"] },
   args: ManagedUsageLogArgs,
 ) {
-  await ctx.scheduler.runAfter(
-    0,
-    internal.billing.logManagedUsage,
-    toLogPayload(args),
-  );
+  const costMicroCents = await usageCost(ctx, args);
+  if (costMicroCents <= 0) return;
+  await ctx.scheduler.runAfter(0, internal.billing_bridge.recordUsageInternal, {
+    ownerId: args.ownerId,
+    id: crypto.randomUUID(),
+    costMicroCents,
+    attempt: 0,
+  });
 }

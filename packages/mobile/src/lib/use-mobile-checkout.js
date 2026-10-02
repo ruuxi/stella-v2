@@ -1,24 +1,20 @@
 import { useCallback, useRef, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
 import * as Crypto from "expo-crypto";
-import { useAction } from "convex/react";
-import {
-  createBillingPortalSessionRef,
-  createCheckoutSessionRef,
-} from "./billing-refs";
+import { getBackendClient } from "./backend";
 import { userFacingError } from "./user-facing-error";
 
 // Stripe requires an HTTPS return URL (the backend rejects custom schemes), so
 // Checkout returns to the existing web billing page. The native app does not
-// depend on reading that redirect: entitlement is confirmed by the reactive
-// `getSubscriptionStatus` query once Stripe's webhook lands, never by the
-// client's browser result.
+// depend on reading that redirect: entitlement is confirmed by the live
+// `billing.status` view once Stripe's webhook lands, never by the client's
+// browser result.
 const CHECKOUT_RETURN_URL = "https://stella.sh/billing";
 
+/** The backend's `{ code, message }` for a refused call. */
 function convexErrorData(error) {
-  if (error && typeof error === "object" && "data" in error) {
-    const data = error.data;
-    if (data && typeof data === "object") return data;
+  if (error && typeof error === "object" && typeof error.code === "string") {
+    return { code: error.code, message: error.message };
   }
   return null;
 }
@@ -41,8 +37,20 @@ function messageFromError(error) {
  * and "error" on failure.
  */
 export function useMobileCheckout() {
-  const createCheckout = useAction(createCheckoutSessionRef);
-  const createPortal = useAction(createBillingPortalSessionRef);
+  const createCheckout = useCallback(
+    ({ plan, returnUrl, source, appStoreCountry }) =>
+      getBackendClient().call("billing.checkout", {
+        plan,
+        returnUrl,
+        ...(source ? { source } : {}),
+        ...(appStoreCountry ? { appStoreCountry } : {}),
+      }),
+    [],
+  );
+  const createPortal = useCallback(
+    ({ returnUrl }) => getBackendClient().call("billing.portal", { returnUrl }),
+    [],
+  );
   const [phase, setPhase] = useState("idle");
   const [error, setError] = useState(null); // { code, message } | null
   const inFlightRef = useRef(false);

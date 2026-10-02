@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import { setTestBillingPlan } from "../tests/setup/billing-plan";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -62,10 +63,7 @@ const onPlan = async (
   t: ReturnType<typeof createTest>,
   plan: "free" | "go" | "pro",
 ) => {
-  await t.mutation(internal.billing.setAdminBillingPlan, {
-    ownerId: OWNER_ID,
-    plan,
-  });
+  setTestBillingPlan(plan);
   return asOwner(t);
 };
 
@@ -332,57 +330,6 @@ describe("media capability gating", () => {
 });
 
 describe("orchestration is not a capability", () => {
-  // The owner decided orchestration stays open to every plan: it costs
-  // more usage, which is why Pro suits it, but usage is the billing axis and
-  // this table is the entitlement one. Pro lists it as marketing copy only.
-  //
-  // This test exists to keep it that way. Model access is now granted by a
-  // session capability the model gateway meters locally, so the invariant is
-  // that a free-plan owner's allowance is positive and a capability can be
-  // minted for them — with no agent-type restriction, so `orchestrator` (what
-  // every ordinary desktop chat sends) is never locked out. Anyone who wires
-  // the string into the capability path would silently lock Free and Go out
-  // of chat entirely — a failure that would otherwise surface as a support
-  // ticket rather than a red test.
-  it("never denies model access on the free plan for orchestrator", async () => {
-    ensureEnv();
-    const t = createTest();
-    await openOwnerLifecycle(t);
-    await onPlan(t, "free");
-
-    const allowance = await t.mutation(
-      internal.gateway_capabilities.getOwnerModelAllowanceInternal,
-      { ownerId: OWNER_ID, ownerGeneration: OWNER_GENERATION },
-    );
-    expect(allowance.audience).toBe("free");
-    expect(allowance.unlimited || allowance.budgetMicroCents > 0).toBe(true);
-
-    const session = await t.action(
-      internal.gateway_capabilities.signSessionCapabilityInternal,
-      {
-        ownerId: OWNER_ID,
-        isAnonymous: false,
-        deviceKeyHash: DEVICE_KEY_HASH,
-      },
-    );
-    expect(session.audience).toBe("free");
-    expect(session.budgetMicroCents).toBe(allowance.budgetMicroCents);
-    expect(session.maxRequests).toBeUndefined();
-
-    const [, payload] = session.capability.split(".");
-    const claims = JSON.parse(
-      Buffer.from(payload!, "base64url").toString("utf8"),
-    ) as Record<string, unknown>;
-    expect(claims).toMatchObject({
-      sub: OWNER_ID,
-      gen: OWNER_GENERATION,
-      kind: "session",
-      audience: "free",
-    });
-    // No agent-type claim: the capability acts as any agent type, orchestrator included.
-    expect(claims.agentTypes).toBeUndefined();
-  });
-
   it("has no orchestrator row to enforce", () => {
     expect(CAPABILITIES as readonly string[]).not.toContain("orchestrator");
   });

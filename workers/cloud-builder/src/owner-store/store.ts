@@ -493,6 +493,7 @@ export class OwnerStore {
         ownerId: this.ownerIdOf(),
         caller: attachment.caller,
         db: this.reader(),
+        env: this.env,
         now: Date.now(),
       };
       const value = def.read(viewContext, args as never);

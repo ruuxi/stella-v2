@@ -455,9 +455,11 @@ describe("OwnerGate snapshot cache", () => {
 
 describe("owner snapshot parsing", () => {
   test("accepts a well-formed snapshot for the addressed owner only", () => {
+    // Plan and allowance come from the owner's billing ledger, not Convex.
     expect(parseOwnerSnapshot(sampleOwnerSnapshot(), "owner-1")).toMatchObject({
       ownerId: "owner-1",
-      plan: "pro",
+      plan: "free",
+      allowance: { audience: "free", budgetMicroCents: 0 },
     });
     expect(parseOwnerSnapshot(sampleOwnerSnapshot(), "owner-2")).toBeNull();
     for (const identityLevel of [0, 1, 2, 3] as const) {
@@ -468,7 +470,7 @@ describe("owner snapshot parsing", () => {
     }
   });
 
-  test("rejects malformed allowances, executions, and engines", () => {
+  test("rejects malformed executions and engines", () => {
     const base = sampleOwnerSnapshot();
     for (const broken of [
       { ...base, v: 2 },
@@ -481,9 +483,6 @@ describe("owner snapshot parsing", () => {
       { ...base, identityLevel: 4 },
       { ...base, enforcement: { status: "blocked" } },
       { ...base, enforcement: { status: "suspended", until: "later" } },
-      { ...base, plan: "enterprise" },
-      { ...base, allowance: { ...base.allowance, audience: "vip" } },
-      { ...base, allowance: { ...base.allowance, budgetMicroCents: NaN } },
       { ...base, execution: { ...base.execution, provider: "anthropic" } },
       { ...base, execution: { ...base.execution, model: "" } },
       { ...base, connectedEngines: ["gemini"] },

@@ -7,11 +7,10 @@ import {
   CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
-  CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
+  CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   GATEWAY_USAGE_EVENT_VERSION,
   type ConvexEngineAccessResponse,
-  type ConvexSessionCapabilityRequest,
   type GatewayConfigSnapshot,
   type GatewayUsageBatchResult,
   type ConvexOwnerEnforcementState,
@@ -34,13 +33,14 @@ import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import { postAlert } from "../lib/alerts";
 
 /**
- * Service routes for the model gateway worker. Every route requires
+ * Service routes for the model gateway worker. They require
  * `Authorization: Bearer ${GATEWAY_SERVICE_SECRET}`; nothing here is reachable
  * by end users. Bodies follow `@stella/contracts/gateway/usage`.
  *
- * The one exception is `GET /api/gateway/owner-snapshot`, read by the
- * cloud-builder's owner gate with that worker's own `BUILDER_SERVICE_SECRET`
- * (`@stella/contracts/turn-plane/owner-snapshot`).
+ * The cloud-builder owner object's routes take that worker's own
+ * `BUILDER_SERVICE_SECRET`: the owner snapshot
+ * (`@stella/contracts/turn-plane/owner-snapshot`), session admission, and the
+ * plan its billing ledger reports.
  */
 
 export const GATEWAY_SERVICE_SECRET_ENV = "GATEWAY_SERVICE_SECRET";
@@ -57,7 +57,7 @@ const MAX_ALERT_TEXT_LENGTH = 8_000;
 const GATEWAY_ALERTS_PATH = "/api/gateway/alerts";
 
 type UsageEventInput = FunctionArgs<
-  typeof internal.billing.ingestGatewayUsageBatchInternal
+  typeof internal.gateway_usage.ingestGatewayUsageBatchInternal
 >["events"][number];
 
 const json = (body: unknown, status = 200) =>
@@ -152,17 +152,18 @@ const convexErrorCode = (error: unknown): string | null => {
 };
 
 // ---------------------------------------------------------------------------
-// POST /api/gateway/session-capability
+// POST /api/gateway/session-admission (cloud-builder owner object)
 // ---------------------------------------------------------------------------
 
-const sessionCapability = httpAction(async (ctx, request) => {
-  const denied = requireGatewayServiceRequest(request);
+const sessionAdmission = httpAction(async (ctx, request) => {
+  const denied = requireBuilderServiceRequest(request);
   if (denied) return denied;
   const body = await readJsonObject(request);
   if (
     !body ||
     !isId(body.ownerId) ||
     typeof body.isAnonymous !== "boolean" ||
+    typeof body.paying !== "boolean" ||
     typeof body.deviceKeyHash !== "string" ||
     !DEVICE_KEY_HASH_PATTERN.test(body.deviceKeyHash) ||
     (body.ipHash !== undefined &&
@@ -176,44 +177,36 @@ const sessionCapability = httpAction(async (ctx, request) => {
     return json({ error: "bad_request" }, 400);
   }
   const ownerId = body.ownerId;
-  const deviceKeyHash = body.deviceKeyHash;
   const account = await resolveOwnerAccountAction(ctx, ownerId);
   if (!account) return json({ error: "owner_unknown" }, 404);
-  // The account record is authoritative. The gateway's flag is checked by
-  // contract above but cannot change the owner's tier.
-  const isAnonymous = account.isAnonymous;
   const ipHash =
     typeof body.ipHash === "string" && body.ipHash.trim()
       ? body.ipHash.trim()
       : undefined;
-  const networkClass = isNetworkClass(body.networkClass)
-    ? body.networkClass
-    : undefined;
   const turnstileToken =
     typeof body.turnstileToken === "string" && body.turnstileToken.trim()
       ? body.turnstileToken.trim()
       : undefined;
-  const capabilityRequest: ConvexSessionCapabilityRequest = {
-    ownerId,
-    isAnonymous,
-    deviceKeyHash,
-    ...(ipHash ? { ipHash } : {}),
-    ...(networkClass ? { networkClass } : {}),
-    ...(turnstileToken ? { turnstileToken } : {}),
-  };
   try {
-    const result = await ctx.runAction(
-      internal.gateway_capabilities.signSessionCapabilityInternal,
-      capabilityRequest,
+    return json(
+      await ctx.runAction(internal.gateway_capabilities.admitSessionInternal, {
+        ownerId,
+        // The account record is authoritative over the gateway's token flag.
+        isAnonymous: account.isAnonymous,
+        paying: body.paying,
+        deviceKeyHash: body.deviceKeyHash,
+        ...(ipHash ? { ipHash } : {}),
+        ...(isNetworkClass(body.networkClass)
+          ? { networkClass: body.networkClass }
+          : {}),
+        ...(turnstileToken ? { turnstileToken } : {}),
+      }),
     );
-    return json(result);
   } catch (error) {
     switch (convexErrorCode(error)) {
       case "OWNER_DATA_PURGE_ACTIVE":
       case "OWNERSHIP_MIGRATED":
         return json({ error: "owner_unavailable" }, 404);
-      case "SERVICE_UNAVAILABLE":
-        return json({ error: "capability_signing_unavailable" }, 503);
       case "OWNER_SUSPENDED":
         return json({ error: "owner_suspended" }, 403);
       case "CHALLENGE_REQUIRED":
@@ -224,6 +217,34 @@ const sessionCapability = httpAction(async (ctx, request) => {
         throw error;
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/billing/owner-plan (cloud-builder owner object)
+// ---------------------------------------------------------------------------
+
+const ownerPlan = httpAction(async (ctx, request) => {
+  const denied = requireBuilderServiceRequest(request);
+  if (denied) return denied;
+  const body = await readJsonObject(request);
+  const plan = body?.plan;
+  if (
+    !body ||
+    !isId(body.ownerId) ||
+    (plan !== "free" && plan !== "go" && plan !== "pro") ||
+    typeof body.paying !== "boolean" ||
+    typeof body.unlimited !== "boolean"
+  ) {
+    return json({ error: "bad_request" }, 400);
+  }
+  await ctx.runMutation(internal.lib.owner_plan.setOwnerBillingPlanInternal, {
+    ownerId: body.ownerId,
+    plan,
+    paying: body.paying,
+    unlimited: body.unlimited,
+    now: Date.now(),
+  });
+  return json({ ok: true });
 });
 
 const alerts = httpAction(async (_ctx, request) => {
@@ -409,7 +430,7 @@ const usage = httpAction(async (ctx, request) => {
     index += GATEWAY_USAGE_INGEST_CHUNK
   ) {
     const chunk = await ctx.runMutation(
-      internal.billing.ingestGatewayUsageBatchInternal,
+      internal.gateway_usage.ingestGatewayUsageBatchInternal,
       {
         events: events.slice(index, index + GATEWAY_USAGE_INGEST_CHUNK),
         now: Date.now(),
@@ -439,7 +460,7 @@ const config = httpAction(async (ctx, request) => {
   const denied = requireGatewayServiceRequest(request);
   if (denied) return denied;
   const { prices, updatedAt } = await ctx.runQuery(
-    internal.billing.listGatewayModelPricesInternal,
+    internal.model_prices.listGatewayModelPricesInternal,
     {},
   );
   const snapshot: GatewayConfigSnapshot = {
@@ -572,9 +593,14 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     handler: ownerSnapshot,
   });
   http.route({
-    path: CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
+    path: CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
     method: "POST",
-    handler: sessionCapability,
+    handler: sessionAdmission,
+  });
+  http.route({
+    path: "/api/billing/owner-plan",
+    method: "POST",
+    handler: ownerPlan,
   });
   http.route({
     path: CONVEX_GATEWAY_USAGE_PATH,

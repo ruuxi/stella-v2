@@ -105,33 +105,17 @@ describe("identity ladder", () => {
     const subscriber = await seedOwner(t, "subscriber");
     const credited = await seedOwner(t, "credited");
     const now = Date.now();
+    // The owner's billing ledger reports who pays.
     await t.run(async (ctx) => {
-      await ctx.db.insert("billing_profiles", {
-        ownerId: subscriber,
-        activePlan: "go",
-        subscriptionStatus: "trialing",
-        stripeCustomerId: "cus_test",
-        stripeSubscriptionId: "sub_test",
-        stripePriceId: "price_test",
-        defaultPaymentMethodId: "",
-        paymentMethodBrand: "",
-        paymentMethodLast4: "",
-        currentPeriodStart: now,
-        currentPeriodEnd: now + 60_000,
-        cancelAtPeriodEnd: false,
-        monthlyAnchorAt: now,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await ctx.db.insert("billing_usage_credits", {
-        ownerId: credited,
-        balanceMicroCents: 1,
-        totalPurchasedMicroCents: 1,
-        totalConsumedMicroCents: 0,
-        currency: "usd",
-        createdAt: now,
-        updatedAt: now,
-      });
+      for (const ownerId of [subscriber, credited]) {
+        await ctx.db.insert("owner_billing_plans", {
+          ownerId,
+          plan: ownerId === subscriber ? "go" : "free",
+          paying: true,
+          unlimited: false,
+          updatedAt: now,
+        });
+      }
     });
 
     expect((await snapshotFields(t, anonymous, true)).identityLevel).toBe(0);
@@ -139,34 +123,5 @@ describe("identity ladder", () => {
     expect((await snapshotFields(t, social)).identityLevel).toBe(2);
     expect((await snapshotFields(t, subscriber)).identityLevel).toBe(3);
     expect((await snapshotFields(t, credited)).identityLevel).toBe(3);
-  });
-
-  it("gives email-only Free owners forty percent of the model allowance", async () => {
-    process.env.STELLA_FREE_EMAIL_ALLOWANCE_SHARE = "0.4";
-    const t = createTest();
-    const ownerId = await seedOwner(t, "limited-email");
-    const now = Date.now();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("billing_usage_windows", {
-        ownerId,
-        rollingUsageMicroCents: 0,
-        rollingWindowStartedAt: now,
-        weeklyUsageMicroCents: 0,
-        weeklyWindowStartedAt: now,
-        monthlyUsageMicroCents: 0,
-        monthlyWindowStartedAt: now,
-        totalUsageMicroCents: dollarsToMicroCents(2.5),
-        totalRequestCount: 1,
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-
-    const snapshot = await snapshotFields(t, ownerId);
-    expect(snapshot.identityLevel).toBe(1);
-    expect(snapshot.allowance).toMatchObject({
-      audience: "free",
-      budgetMicroCents: dollarsToMicroCents(0.7),
-    });
   });
 });

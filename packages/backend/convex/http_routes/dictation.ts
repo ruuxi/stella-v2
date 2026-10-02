@@ -24,9 +24,8 @@ import {
   MUSE_STT_USD_PER_SECOND,
   PCM_BYTES_PER_SECOND,
   SESSION_ID_PATTERN,
-  sessionAuthority,
-  sessionBilling,
 } from "../dictation_sessions";
+import { fetchBillingAccess, recordBillingUsage } from "../billing_bridge";
 
 export {
   MUSE_DICTATION_MODEL,
@@ -108,10 +107,15 @@ export const registerDictationRoutes = (http: HttpRouter) => {
       ) {
         return Response.json({ error: "Invalid sessionId" }, { status: 400 });
       }
+      const access = await fetchBillingAccess(ownerId);
       const prepared = await ctx.runMutation(internal.dictation_sessions.prepare, {
         ownerId,
         sessionId: requestedSessionId ?? `muse_${crypto.randomUUID()}`,
         now: Date.now(),
+        allowed: access.allowed,
+        message: access.message,
+        retryAfterMs: access.retryAfterMs,
+        remainingMicroCents: access.remainingMicroCents,
       });
       if (prepared.ok) {
         const { ok: _ok, ...session } = prepared;
@@ -174,51 +178,15 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         return Response.json({ error: "Invalid settlement" }, { status: 400 });
       }
 
+      // The relay capped the stream at the session's audio allowance; the
+      // charge is recorded once per session id.
       const audioSeconds = audioBytes / PCM_BYTES_PER_SECOND;
-      const receipt = await ctx.runQuery(internal.dictation_sessions.receipt, {
-        ownerId,
-        ownerGeneration,
-        sessionId,
-      });
-      if (!receipt)
-        return Response.json({ error: "Session unavailable" }, { status: 409 });
-      if (audioBytes > (receipt.maxMs / 1000) * PCM_BYTES_PER_SECOND)
-        return Response.json(
-          { error: "Audio exceeds the reserved session allowance" },
-          { status: 400 },
-        );
-      const authority = sessionAuthority(ownerId, ownerGeneration, sessionId);
-      const captured = await ctx.runMutation(
-        internal.billing.captureManagedProviderDispatchUsageInternal,
+      await recordBillingUsage(ownerId, [
         {
-          ...authority,
-          billing: sessionBilling(sessionId, receipt.fallbackCostMicroCents),
-          now: Date.now(),
-          usage: {
-            durationMs:
-              typeof body?.durationMs === "number" &&
-              Number.isFinite(body.durationMs)
-                ? Math.max(0, Math.round(body.durationMs))
-                : Math.round(audioSeconds * 1000),
-            success: body?.success === true,
-            costMicroCents: dollarsToMicroCents(
-              audioSeconds * MUSE_STT_USD_PER_SECOND,
-            ),
-          },
+          id: `dictation:${sessionId}`,
+          costMicroCents: dollarsToMicroCents(audioSeconds * MUSE_STT_USD_PER_SECOND),
         },
-      );
-      if (!captured)
-        return Response.json({ error: "Session unavailable" }, { status: 409 });
-      const settled = await ctx.runMutation(
-        internal.billing.settleManagedProviderDispatchInternal,
-        {
-          ...authority,
-          outcome: body?.success === true ? "succeeded" : "failed",
-          now: Date.now(),
-        },
-      );
-      if (!settled)
-        return Response.json({ error: "Session unavailable" }, { status: 409 });
+      ]);
       return Response.json({ ok: true });
     }),
   });

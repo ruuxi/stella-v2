@@ -66,10 +66,17 @@ const batchOf = (bodies: unknown[], attempts = 1) => {
   };
 };
 
+const settled: unknown[] = [];
 const env = {
   STELLA_CONVEX_SITE_URL: CONVEX_SITE,
   GATEWAY_SERVICE_SECRET: SERVICE_SECRET,
-} as Env;
+  BILLING: {
+    ingestUsage: async (batch: unknown) => {
+      settled.push(batch);
+      return { accepted: [], duplicate: [], rejected: [] };
+    },
+  },
+} as unknown as Env;
 
 describe("usage queue consumer", () => {
   test("posts one batch with the service secret and acks on 2xx", async () => {

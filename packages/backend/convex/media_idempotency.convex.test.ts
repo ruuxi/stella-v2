@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import { setTestBillingPlan } from "../tests/setup/billing-plan";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,10 +22,7 @@ const MEDIA_OWNER_ID = "https://issuer.test|media-owner";
 const createTest = async () => {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
-  await t.mutation(internal.billing.setAdminBillingPlan, {
-    ownerId: MEDIA_OWNER_ID,
-    plan: "pro",
-  });
+  setTestBillingPlan("pro");
   return t;
 };
 

@@ -1,3 +1,4 @@
+import { fetchBillingAccess, setBillingPlan } from "../billing_bridge";
 import { makeFunctionReference, type HttpRouter } from "convex/server";
 import {
   type OwnerEnforcement,
@@ -59,29 +60,8 @@ type AdminAuthUser = {
   isAnonymous?: boolean | null;
 };
 
-type AdminBillingWindow = {
-  usedMicroCents: number;
-  limitMicroCents: number;
-  remainingMicroCents: number | null;
-  resetAt: number;
-};
-
-type AdminBillingSummary = {
-  plan: "free" | "go" | "pro";
-  unlimited: boolean;
-  creditMicroCents: number;
-  reservedMicroCents: number;
-  totalUsageMicroCents: number;
-  totalRequestCount: number;
-  rolling: AdminBillingWindow;
-  weekly: AdminBillingWindow;
-  monthly: AdminBillingWindow;
-  lifetime: AdminBillingWindow | null;
-};
-
 type AdminGatewayState = {
   enforcement: OwnerEnforcement;
-  unreleasedGrants: unknown[];
   usageReceipts: unknown[];
   riskSignals: unknown[];
 };
@@ -103,12 +83,6 @@ const getOwnerGatewayAdminStateRef = makeFunctionReference<
   { ownerId: string },
   AdminGatewayState
 >("owner_enforcement:getOwnerGatewayAdminStateInternal");
-
-const getOwnerBillingWindowSummaryRef = makeFunctionReference<
-  "query",
-  { ownerId: string; isAnonymous: boolean },
-  AdminBillingSummary
->("billing:getOwnerBillingWindowSummaryInternal");
 
 const listTopOwnerRiskSignalsRef = makeFunctionReference<
   "query",
@@ -382,15 +356,13 @@ export const registerAdminRoutes = (http: HttpRouter) => {
       const ownerId = tokenIdentifierForBetterAuthUserId(userId);
       let activePlan: "free" | "go" | "pro" = "free";
       if (parsed.plan) {
-        const billing = await ctx.runMutation(
-          internal.billing.setAdminBillingPlan,
-          {
-            ownerId,
-            plan: parsed.plan,
-            ...(parsed.usageMode ? { usageMode: parsed.usageMode } : {}),
-          },
-        );
-        activePlan = billing.activePlan;
+        // Test accounts only: this first touch places the owner's object
+        // near Convex rather than the tester, which dev tolerates.
+        await setBillingPlan(ownerId, {
+          plan: parsed.plan,
+          ...(parsed.usageMode ? { usageMode: parsed.usageMode } : {}),
+        });
+        activePlan = parsed.plan;
       }
 
       return jsonResponse(200, {
@@ -464,10 +436,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
       if (!resolved) return jsonResponse(404, { error: "Owner not found." });
       const isAnonymous = resolved.user.isAnonymous === true;
       const [billing, gateway] = await Promise.all([
-        ctx.runQuery(getOwnerBillingWindowSummaryRef, {
-          ownerId: resolved.ownerId,
-          isAnonymous,
-        }),
+        fetchBillingAccess(resolved.ownerId, { isAnonymous }),
         ctx.runQuery(getOwnerGatewayAdminStateRef, {
           ownerId: resolved.ownerId,
         }),
@@ -478,18 +447,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
         ...(resolved.user.email ? { email: resolved.user.email } : {}),
         plan: billing.plan,
         enforcement: gateway.enforcement,
-        billingWindows: {
-          unlimited: billing.unlimited,
-          creditMicroCents: billing.creditMicroCents,
-          reservedMicroCents: billing.reservedMicroCents,
-          totalUsageMicroCents: billing.totalUsageMicroCents,
-          totalRequestCount: billing.totalRequestCount,
-          rolling: billing.rolling,
-          weekly: billing.weekly,
-          monthly: billing.monthly,
-          lifetime: billing.lifetime,
-        },
-        unreleasedGrants: gateway.unreleasedGrants,
+        billing,
         usageReceipts: gateway.usageReceipts,
         riskSignals: gateway.riskSignals,
       });
@@ -537,10 +495,13 @@ export const registerAdminRoutes = (http: HttpRouter) => {
       const parsed = await readBillingPlanBody(request);
       if (parsed instanceof Response) return parsed;
 
-      return jsonResponse(
-        200,
-        await ctx.runMutation(internal.billing.setAdminBillingPlan, parsed),
-      );
+      const { ownerId, plan, usageMode, resetUsage } = parsed;
+      await setBillingPlan(ownerId, {
+        ...(plan ? { plan } : {}),
+        ...(usageMode ? { usageMode } : {}),
+        ...(resetUsage !== undefined ? { resetUsage } : {}),
+      });
+      return jsonResponse(200, await fetchBillingAccess(ownerId));
     }),
   });
 

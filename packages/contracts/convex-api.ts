@@ -26,15 +26,6 @@ export type PublicApiType = {
     "getMyOwnershipMigrationStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "retryMyLatestFailedOwnershipMigration": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
   };
-  "billing": {
-    "getSubscriptionStatus": FunctionReference<'query', 'public', { now?: number | undefined; }, any, string | undefined>;
-    "createCheckoutSession": FunctionReference<'action', 'public', { source?: string | undefined; appStoreCountry?: string | undefined; requestId: string; plan: 'go' | 'pro'; returnUrl: string; }, any, string | undefined>;
-    "getUsageCreditPurchaseOptions": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "getUsageCreditStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "createUsageCreditCheckoutSession": FunctionReference<'action', 'public', { requestId: string; amountCents: number; returnUrl: string; }, any, string | undefined>;
-    "createBillingPortalSession": FunctionReference<'action', 'public', { requestId: string; returnUrl: string; }, any, string | undefined>;
-    "getCurrentPlan": FunctionReference<'query', 'public', {}, any, string | undefined>;
-  };
   "channels": {
     "connector_delivery": {
       "claimRemoteTurn": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
@@ -50,7 +41,7 @@ export type PublicApiType = {
     "getMyBrowserInteraction": FunctionReference<'action', 'public', { interactionId: string; }, any, string | undefined>;
     "mintMyBrowserLiveViewCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
     "mintMyBrowserSessionTransferCapability": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; }, any, string | undefined>;
-    "importMyBrowserSessionTransfer": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; transfer: { schemaVersion: 1; capabilityId: string; algorithm: 'x25519-hkdf-sha256-aes-256-gcm-v1'; clientPublicKey: string; iv: string; ciphertext: string; }; }, any, string | undefined>;
+    "importMyBrowserSessionTransfer": FunctionReference<'action', 'public', { interactionId: string; expectedRevision: number; transfer: { schemaVersion: 1; algorithm: 'x25519-hkdf-sha256-aes-256-gcm-v1'; capabilityId: string; clientPublicKey: string; iv: string; ciphertext: string; }; }, any, string | undefined>;
     "decideMyBrowserInteraction": FunctionReference<'action', 'public', { requestId: string; interactionId: string; decision: 'done' | 'cancel'; expectedRevision: number; }, any, string | undefined>;
     "resetMyBrowserProfile": FunctionReference<'action', 'public', { requestId: string; }, any, string | undefined>;
   };

@@ -83,6 +83,15 @@
     { "tag": "v3", "new_sqlite_classes": ["OwnerCapabilityLedger"] },
     { "tag": "v4", "deleted_classes": ["OwnerCapabilityLedger"] },
   ],
+  "services": [
+    {
+      // Billing lives in each owner's object on cloud-builder: session
+      // capabilities and usage settlement go through this entrypoint.
+      "binding": "BILLING",
+      "service": "stella-v2-cloud-builder-dev",
+      "entrypoint": "BillingControl",
+    },
+  ],
   "kv_namespaces": [
     {
       "binding": "CONFIG_SNAPSHOT",
@@ -189,6 +198,13 @@
         },
         { "tag": "v3", "new_sqlite_classes": ["OwnerCapabilityLedger"] },
         { "tag": "v4", "deleted_classes": ["OwnerCapabilityLedger"] },
+      ],
+      "services": [
+        {
+          "binding": "BILLING",
+          "service": "stella-v2-cloud-builder-prod",
+          "entrypoint": "BillingControl",
+        },
       ],
       "kv_namespaces": [
         {

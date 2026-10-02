@@ -1,3 +1,4 @@
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 import { useCallback, useMemo } from "react";
 import { isWebsiteHost } from "@/platform/capabilities";
 import { api } from "@/convex/api";
@@ -156,14 +157,10 @@ export function useModelCatalog() {
     sessionData && user?.isAnonymous !== true,
   );
   const sessionCacheScope = getSessionCacheKey(sessionData);
-  const billingStatus = usePersistentConvexOneShot(
-    api.billing.getSubscriptionStatus,
+  const billingStatus: BillingStatus | undefined = useBackendValue(
+    "billing.status",
     hasConnectedAccount ? {} : "skip",
-    {
-      scope: sessionCacheScope,
-      ttlMs: 5 * 60 * 1000,
-    },
-  ) as BillingStatus | undefined;
+  );
   const billingAudienceKey = getBillingAudienceKey(billingStatus);
   const audience = useMemo<ManagedModelAudience | null>(
     () =>

@@ -20,7 +20,7 @@ import {
 import { r2 } from "./r2_files";
 import { enforceActionRateLimit } from "./lib/rate_limits";
 import { hashSha256Hex } from "./lib/crypto_utils";
-import type { SubscriptionPlan } from "./lib/billing_plans";
+import { readOwnerBillingPlan, type SubscriptionPlan } from "./lib/owner_plan";
 import {
   priorDriveObjectKeyForCleanup,
   shouldDeleteReplacedDriveObjectKey,
@@ -101,27 +101,17 @@ const UNLIMITED_CLOUD_DRIVE_QUOTA: CloudDriveQuota = {
   maxFileBytes: 2_048 * MB,
 };
 
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
 /** Mirrors `resolveCloudPlan` in cloud_apps.ts, against the drive ceilings. */
 const resolveDrivePlan = async (
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   ownerId: string,
 ): Promise<{ plan: SubscriptionPlan; quota: CloudDriveQuota }> => {
-  const profile = await ctx.db
-    .query("billing_profiles")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  const plan: SubscriptionPlan =
-    profile &&
-    ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus) &&
-    profile.activePlan !== "free"
-      ? profile.activePlan
-      : "free";
+  const { plan, unlimited } = await readOwnerBillingPlan(ctx, ownerId);
   return {
     plan,
     quota:
-      profile?.usageMode === "unlimited"
+      unlimited
         ? UNLIMITED_CLOUD_DRIVE_QUOTA
         : CLOUD_DRIVE_PLAN_QUOTAS[plan],
   };

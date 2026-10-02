@@ -8,6 +8,7 @@
  * right call to action without billing state being threaded through the
  * transport.
  */
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/api";
@@ -71,10 +72,10 @@ export function useCapabilityAccess(): CapabilityAccess {
     sessionData && user?.isAnonymous !== true,
   );
 
-  const billingStatus = useQuery(
-    api.billing.getSubscriptionStatus,
+  const billingStatus: BillingStatusLite | undefined = useBackendValue(
+    "billing.status",
     hasConnectedAccount ? {} : "skip",
-  ) as BillingStatusLite | undefined;
+  );
 
   const audience = useMemo<ManagedModelAudience | null>(
     () => resolveBillingAudience({ hasConnectedAccount, billingStatus }),

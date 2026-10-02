@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "edge-runtime",
     include: ["convex/**/*.convex.test.ts"],
+    setupFiles: ["tests/setup/billing-bridge.ts"],
     env: {
       SITE_URL: "https://stella.test",
       CONVEX_SITE_URL: "https://convex.test",

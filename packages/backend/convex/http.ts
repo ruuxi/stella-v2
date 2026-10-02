@@ -23,7 +23,6 @@ import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
 import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerMusicRoutes } from "./http_routes/music";
 import { registerOutboxRoutes } from "./http_routes/outbox";
-import { registerStripeRoutes } from "./http_routes/stripe";
 import { registerSynthesisRoutes } from "./http_routes/synthesis";
 import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerXRoutes } from "./http_routes/x";
@@ -80,7 +79,6 @@ registerCloudIntegrationRoutes(http);
 registerCloudConnectorConnectRoutes(http);
 registerAppIntegrityRoutes(http);
 
-registerStripeRoutes(http);
 
 // ---------------------------------------------------------------------------
 // Model gateway service routes (GATEWAY_SERVICE_SECRET)

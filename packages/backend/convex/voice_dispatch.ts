@@ -15,7 +15,6 @@ import {
   VOICE_REALTIME_AUTHORITY_QUIESCENCE_MS,
   voiceAuthorityQuiescentAfter,
 } from "./lib/voice_authority";
-import { adjustManagedUsageReservationAuthorized } from "./lib/managed_usage_reservation";
 
 export const VOICE_PROVIDER_TRANSPORT_TIMEOUT_MS = 45_000;
 export const VOICE_PROVIDER_DISPATCH_LEASE_MS = 60_000;
@@ -509,14 +508,6 @@ const expireVoiceAuthority = async (
     session.usageReservationState === "active" &&
     (session.usageReservedMicroCents ?? 0) > 0
   ) {
-    await adjustManagedUsageReservationAuthorized(ctx, {
-      ownerId: session.ownerId,
-      deltaMicroCents: -Math.max(
-        0,
-        Math.floor(session.usageReservedMicroCents ?? 0),
-      ),
-      now,
-    });
   }
   await ctx.db.patch(session._id, {
     status: "client_expired",
@@ -550,7 +541,7 @@ const expireVoiceAuthority = async (
   if (usagePending && !exactUndispatched) {
     await ctx.scheduler.runAfter(
       0,
-      internal.billing.finalizeExpiredVoiceRealtimeUsageInternal,
+      internal.provider_usage.finalizeExpiredVoiceRealtimeUsageInternal,
       {
         ownerId: session.ownerId,
         ownerGeneration: session.ownerGeneration ?? "legacy",
@@ -597,7 +588,7 @@ const requestBoundOpenAiHangup = async (
   });
   await ctx.scheduler.runAfter(
     0,
-    internal.billing.hangupOpenAiVoiceCallInternal,
+    internal.provider_usage.hangupOpenAiVoiceCallInternal,
     {
       ownerId: session.ownerId,
       ownerGeneration: session.ownerGeneration ?? "legacy",
@@ -818,11 +809,6 @@ const quiesceOwnerRows = async (
           Math.floor(session.usageReservedMicroCents ?? 0),
         );
         if (remaining > 0) {
-          await adjustManagedUsageReservationAuthorized(ctx, {
-            ownerId: session.ownerId,
-            deltaMicroCents: -remaining,
-            now: args.now,
-          });
         }
         await ctx.db.patch(session._id, {
           status: "failed",
@@ -841,7 +827,7 @@ const quiesceOwnerRows = async (
       }
       await ctx.scheduler.runAfter(
         0,
-        internal.billing.releaseUndispatchedVoiceRealtimeLeaseInternal,
+        internal.provider_usage.releaseUndispatchedVoiceRealtimeLeaseInternal,
         {
           ownerId: session.ownerId,
           ownerGeneration: session.ownerGeneration ?? "legacy",

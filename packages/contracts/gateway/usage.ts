@@ -3,16 +3,20 @@ import type {
   ManagedModelAudience,
 } from "./capability.js";
 import type {
+  GatewayErrorCode,
   GatewayProtocol,
   GatewayProvider,
+  GatewaySessionCapabilityResponse,
   IdentityLevel,
   NetworkClass,
 } from "./api.js";
 
 /**
  * Usage events are the gateway's only write toward the control plane. They
- * travel gateway -> Cloudflare Queue -> Convex `POST /api/gateway/usage` in
- * batches, and are idempotent on `requestId`.
+ * travel gateway -> Cloudflare Queue -> cloud-builder (`BillingControl`),
+ * which settles them into each owner's ledger, in batches, idempotent on
+ * `requestId`. Until abuse accounting leaves Convex, the same batch also
+ * goes to Convex `POST /api/gateway/usage` for risk signals only.
  */
 
 export const GATEWAY_USAGE_EVENT_VERSION = 1 as const;
@@ -79,8 +83,9 @@ export type GatewayUsageBatchResult = {
 /** Convex HTTP routes the gateway talks to, all authenticated by GATEWAY_SERVICE_SECRET. */
 export const CONVEX_GATEWAY_USAGE_PATH = "/api/gateway/usage" as const;
 export const CONVEX_GATEWAY_CONFIG_PATH = "/api/gateway/config" as const;
-export const CONVEX_GATEWAY_SESSION_CAPABILITY_PATH =
-  "/api/gateway/session-capability" as const;
+/** Abuse admission for a session exchange; the owner object calls it before reserving budget. */
+export const CONVEX_GATEWAY_SESSION_ADMISSION_PATH =
+  "/api/gateway/session-admission" as const;
 export const CONVEX_GATEWAY_ENGINE_ACCESS_PATH =
   "/api/gateway/engine-access" as const;
 export const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH =
@@ -152,7 +157,7 @@ export type GatewayConfigSnapshot = {
   updatedAt: number;
 };
 
-/** `POST /api/gateway/session-capability` request from the gateway to Convex. */
+/** A session capability exchange, as the gateway forwards it to `BillingControl`. */
 export type ConvexSessionCapabilityRequest = {
   ownerId: string;
   isAnonymous: boolean;
@@ -164,6 +169,34 @@ export type ConvexSessionCapabilityRequest = {
   turnstileToken?: string;
   /** `dpk` the gateway verified for this exchange; recorded on the grant and origins. */
   deviceKeyHash: string;
+};
+
+/** `POST /api/gateway/session-admission`: the exchange plus what billing knows. */
+export type ConvexSessionAdmissionRequest = ConvexSessionCapabilityRequest & {
+  /** The owner pays (an active paid plan or credit); Convex's identity ladder needs it. */
+  paying: boolean;
+};
+
+export type ConvexSessionAdmissionResponse = {
+  ownerGeneration: string;
+  /** The account record's answer, authoritative over the gateway's token flag. */
+  isAnonymous: boolean;
+  identityLevel: IdentityLevel;
+  /** Anonymous trials: the request chunk this capability may spend. */
+  maxRequests?: number;
+};
+
+/** Result of a `BillingControl` call, shaped like the gateway's control-plane results. */
+export type BillingControlResult<T> =
+  | { ok: true; body: T }
+  | { ok: false; status: number | null; code: GatewayErrorCode | null; retryable: boolean };
+
+/** cloud-builder's `BillingControl` entrypoint, reached over a service binding. */
+export type BillingControlRpc = {
+  issueSessionCapability(
+    request: ConvexSessionCapabilityRequest,
+  ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>>;
+  ingestUsage(batch: GatewayUsageBatch): Promise<GatewayUsageBatchResult>;
 };
 
 /** Convex answers the exchange with this when step-up is required and no valid token came. */

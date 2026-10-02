@@ -41,24 +41,6 @@ export const gatewaySchema = {
     .index("by_requestId", ["requestId"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"]),
 
-  gateway_capability_grants: defineTable({
-    jti: v.string(),
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    audience: managedModelAudienceValidator,
-    deviceKeyHash: v.string(),
-    budgetMicroCents: v.number(),
-    maxRequests: v.optional(v.number()),
-    issuedAt: v.number(),
-    expiresAt: v.number(),
-    settledMicroCents: v.number(),
-    settledRequests: v.number(),
-    released: v.boolean(),
-  })
-    .index("by_jti", ["jti"])
-    .index("by_owner_released", ["ownerId", "released"])
-    .index("by_released_expires", ["released", "expiresAt"]),
-
   owner_enforcement: defineTable({
     ownerId: v.string(),
     status: ownerEnforcementStatusValidator,

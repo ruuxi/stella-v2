@@ -1,3 +1,4 @@
+import { closeBilling } from "./billing_bridge";
 import {
   internalAction,
   internalMutation,
@@ -855,25 +856,6 @@ export const purgeOwnerCloudData = internalAction({
           `Account deletion is waiting for voice provider dispatch quiescence: ${voiceDispatches.pending.join(", ")}`,
         );
       }
-      const managedDispatches = await ctx.runMutation(
-        internal.account_billing_purge.quiesceOwnerManagedDispatchesInternal,
-        { ...fence, leaseId, mode: "delete", now: Date.now() },
-      );
-      if (!managedDispatches.ready) {
-        throw new Error(
-          `Account deletion is waiting for managed provider dispatch quiescence: ${managedDispatches.pending.join(", ")}`,
-        );
-      }
-      const stripeDispatches = await ctx.runMutation(
-        internal.stripe_operation_dispatch
-          .quiesceOwnerStripeOperationsForPurgeInternal,
-        { ...fence, leaseId, mode: "delete", now: Date.now() },
-      );
-      if (!stripeDispatches.ready) {
-        throw new Error(
-          `Account deletion is waiting for Stripe operation reconciliation: ${stripeDispatches.pending.join(", ")}`,
-        );
-      }
       const remoteTurns = await ctx.runMutation(
         internal.channels.connector_delivery
           .quiesceOwnerRemoteTurnsForPurgeInternal,
@@ -952,15 +934,9 @@ export const purgeOwnerCloudData = internalAction({
           `Account deletion is waiting for TTS cleanup: ${tts.pending.join(", ")}`,
         );
       }
-      const billing = await ctx.runAction(
-        internal.account_billing_purge.purgeOwnerBillingInternal,
-        { ...fence, leaseId },
-      );
-      if (!billing.ready) {
-        throw new Error(
-          `Account deletion is waiting for billing cleanup: ${billing.pending.join(", ")}`,
-        );
-      }
+      // Billing lives in the owner's object on cloud-builder; deleting the
+      // Stripe customer there ends any subscription.
+      await closeBilling(ownerId);
       let cursor: string | null = null;
       while (true) {
         const page: { ids: Id<"conversations">[]; nextCursor: string | null } =
@@ -1083,13 +1059,11 @@ export const purgeOwnerCloudData = internalAction({
         remainingResetCore,
         remainingAccountCore,
         remainingExternalMedia,
-        remainingBilling,
         remainingTtsSocial,
         remainingVoice,
         remainingMedia,
         remainingComposio,
         remainingComposioProvisioning,
-        remainingStripeDispatches,
       ] = await Promise.all([
         ctx.runQuery(internal.reset.remainingOwnerResetStoresInternal, {
           ownerId,
@@ -1100,10 +1074,6 @@ export const purgeOwnerCloudData = internalAction({
         ),
         ctx.runAction(
           internal.account_external_media.remainingOwnerExternalMediaInternal,
-          { ownerId },
-        ),
-        ctx.runQuery(
-          internal.account_billing_purge.remainingOwnerBillingInternal,
           { ownerId },
         ),
         ctx.runQuery(
@@ -1120,23 +1090,16 @@ export const purgeOwnerCloudData = internalAction({
         ),
         ctx.runAction(remainingOwnerComposioSessionsRef, { ownerId }),
         ctx.runQuery(remainingOwnerComposioProvisioningRef, { ownerId }),
-        ctx.runQuery(
-          internal.stripe_operation_dispatch
-            .remainingOwnerStripeOperationDispatchesInternal,
-          { ownerId, now: Date.now() },
-        ),
       ]);
       const remainingCore = [
         ...remainingResetCore,
         ...remainingAccountCore,
         ...remainingExternalMedia,
-        ...remainingBilling,
         ...remainingTtsSocial,
         ...remainingVoice,
         ...remainingMedia,
         ...remainingComposio,
         ...remainingComposioProvisioning,
-        ...remainingStripeDispatches,
       ];
       if (remainingCore.length > 0) {
         throw new Error(

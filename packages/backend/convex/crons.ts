@@ -31,10 +31,6 @@ const sweepComposioSessionCleanupRef = makeFunctionReference<
   "composio_session_dispatch:sweepDueComposioSessionProvisioningCleanupInternal",
 );
 
-const drainLateStripeCleanupRef = makeFunctionReference<"action", {}, null>(
-  "stripe_operation_dispatch:drainLateStripeCleanupInternal",
-);
-
 const recomputeRiskScoresRef = makeFunctionReference<
   "mutation",
   { now?: number },
@@ -127,16 +123,10 @@ crons.interval(
 crons.interval(
   "managed model price sync",
   { hours: 24 },
-  internal.billing.syncManagedModelPricesFromModelsDev,
+  internal.model_prices.syncManagedModelPricesFromModelsDev,
   {},
 );
 
-crons.interval(
-  "managed provider dispatch lease cleanup",
-  { minutes: 1 },
-  internal.billing.sweepManagedProviderDispatchesInternal,
-  {},
-);
 
 crons.interval(
   "recover Composio session cleanup dispatches",
@@ -157,12 +147,6 @@ crons.interval(
   { hours: 24 },
   internal.ai_proxy_data.purgeStaleDeviceUsage,
   { batchSize: 1000 },
-);
-crons.interval(
-  "release expired gateway capability grants",
-  { minutes: 10 },
-  internal.gateway_capabilities.releaseExpiredGatewayCapabilityGrantsInternal,
-  {},
 );
 crons.interval(
   "recompute owner risk scores",
@@ -292,18 +276,6 @@ crons.interval(
   { minutes: 1 },
   internal.owner_lifecycle.sweepDueOwnerPurgeJobsInternal,
   { limit: 10 },
-);
-
-// A platform-suspended Stripe action can report a provider success only after
-// permanent account deletion removed its owner-scoped operation row. The mark
-// retained a hash-only physical receipt; every write that makes a cleanup
-// locator due (enqueue, claim, deferral, failure backoff) schedules its own
-// drain, so this hourly sweep only recovers a lost or killed wake.
-crons.interval(
-  "drain late Stripe deletion locators",
-  { hours: 1 },
-  drainLateStripeCleanupRef,
-  {},
 );
 
 // Better Auth's delete-user route can time out after publishing the durable

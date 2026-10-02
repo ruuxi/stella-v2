@@ -1,20 +1,10 @@
-import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import {
   GATEWAY_ANONYMOUS_REQUEST_CHUNK,
   GATEWAY_NETWORK_POLICY,
-  GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS,
-  limitsAudienceFor,
-  type GatewaySessionCapabilityResponse,
   type IdentityLevel,
   type NetworkClass,
 } from "@stella/contracts/gateway/api";
-import {
-  GATEWAY_BUDGET_UNLIMITED,
-  GATEWAY_CAPABILITY_ISSUERS,
-  GATEWAY_SESSION_CAPABILITY_TTL_MS,
-  type ManagedModelAudience,
-} from "@stella/contracts/gateway/capability";
 import {
   internalAction,
   internalMutation,
@@ -29,14 +19,8 @@ import {
   anonymousTrialOwnerKey,
   consumeDeviceAllowanceBulkAuthorized,
   readDeviceAllowance,
-  refundDeviceAllowanceAuthorized,
 } from "./ai_proxy_data";
 import { assertOwnerMigrationWriteAllowed, requireUserId } from "./auth";
-import {
-  runPeekManagedModelAllowance,
-  runResolveManagedModelAllowance,
-  type ManagedModelAllowanceResult,
-} from "./billing";
 import {
   isAnonDeviceHashSaltMissingError,
   logMissingSaltOnce,
@@ -49,17 +33,9 @@ import {
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
 } from "./lib/anonymous_usage";
-import {
-  importCapabilitySigningKey,
-  signCapability,
-  type CapabilitySigningKey,
-} from "./lib/capability_signing";
 import { readOwnerEnforcement } from "./owner_enforcement";
 import { assertOwnerDataAccessActive } from "./owner_lifecycle";
-import {
-  managedModelAudienceValidator,
-  ownerEnforcementStatusValidator,
-} from "./schema/gateway";
+import { ownerEnforcementStatusValidator } from "./schema/gateway";
 import {
   identityLevelValidator,
   resolveIdentityLevel,
@@ -73,18 +49,13 @@ import { evaluateSybilPressure, type SybilPressure } from "./lib/sybil";
 import { recordOwnerOrigin } from "./owner_origins";
 import { recordOwnerRiskSignals } from "./risk";
 
-export const CAPABILITY_SIGNING_KEY_ENV = "CAPABILITY_SIGNING_KEY";
-export const CAPABILITY_SIGNING_KID_ENV = "CAPABILITY_SIGNING_KID";
-export const GATEWAY_GRANT_SETTLEMENT_GRACE_MS = 10 * 60_000;
-
-const MAX_UNRELEASED_GRANTS_PER_OWNER = 256;
-const GRANT_RELEASE_BATCH_SIZE = 200;
-
-const releaseExpiredGatewayCapabilityGrantsRef = makeFunctionReference<
-  "mutation",
-  { now?: number; batchSize?: number },
-  { released: number; refundedRequests: number; hasMore: boolean }
->("gateway_capabilities:releaseExpiredGatewayCapabilityGrantsInternal");
+/**
+ * Abuse admission for model-gateway session capabilities. The owner's object
+ * on cloud-builder reserves the budget and signs the capability; before it
+ * does, it asks here whether this owner, device and network may have one:
+ * suspension, step-up challenges, sybil pressure, and the anonymous trial's
+ * request chunk. Moves with abuse protection.
+ */
 
 export const getModelGatewayConfig = query({
   args: {},
@@ -100,22 +71,6 @@ export const getModelGatewayConfig = query({
     }
     return { origin };
   },
-});
-
-export type OwnerModelAllowance = {
-  audience: ManagedModelAudience;
-  budgetMicroCents: number;
-  maxRequests?: number;
-  unlimited: boolean;
-  identityLevel: IdentityLevel;
-};
-
-const ownerModelAllowanceValidator = v.object({
-  audience: managedModelAudienceValidator,
-  budgetMicroCents: v.number(),
-  maxRequests: v.optional(v.number()),
-  unlimited: v.boolean(),
-  identityLevel: identityLevelValidator,
 });
 
 const networkClassValidator = v.union(
@@ -169,6 +124,7 @@ const resolveOwnerSessionChallengeState = async (
   args: {
     ownerId: string;
     isAnonymous: boolean;
+    paying: boolean;
     networkClass?: NetworkClass;
   },
 ): Promise<OwnerSessionChallengeState> => {
@@ -176,7 +132,7 @@ const resolveOwnerSessionChallengeState = async (
     readOwnerEnforcement(ctx, args.ownerId),
     args.isAnonymous
       ? Promise.resolve(0 as const)
-      : resolveIdentityLevel(ctx, args.ownerId),
+      : resolveIdentityLevel(ctx, args.ownerId, { paying: args.paying }),
   ]);
   if (
     args.isAnonymous &&
@@ -202,6 +158,7 @@ export const getOwnerSessionChallengeStateInternal = internalQuery({
   args: {
     ownerId: v.string(),
     isAnonymous: v.boolean(),
+    paying: v.boolean(),
     networkClass: v.optional(networkClassValidator),
   },
   returns: v.object({
@@ -213,16 +170,9 @@ export const getOwnerSessionChallengeStateInternal = internalQuery({
     await resolveOwnerSessionChallengeState(ctx, args),
 });
 
-type OwnerModelAllowanceArgs = {
-  ownerId: string;
-  ownerGeneration: string;
-  isAnonymous?: boolean;
-  ipHash?: string;
-};
-
 const readAnonymousRequestAllowance = async (
   ctx: QueryCtx | MutationCtx,
-  args: Pick<OwnerModelAllowanceArgs, "ownerId" | "ipHash">,
+  args: { ownerId: string; ipHash?: string },
 ): Promise<number> => {
   try {
     const owner = await readDeviceAllowance(ctx, {
@@ -251,206 +201,47 @@ const readAnonymousRequestAllowance = async (
   }
 };
 
-const listUnreleasedOwnerGrants = async (
-  ctx: QueryCtx | MutationCtx,
-  ownerId: string,
-) =>
-  await ctx.db
-    .query("gateway_capability_grants")
-    .withIndex("by_owner_released", (q) =>
-      q.eq("ownerId", ownerId).eq("released", false),
-    )
-    .take(MAX_UNRELEASED_GRANTS_PER_OWNER + 1);
-
-const reservedGrantMicroCents = async (
-  ctx: QueryCtx | MutationCtx,
-  ownerId: string,
-  now: number,
-): Promise<number> => {
-  const grants = await listUnreleasedOwnerGrants(ctx, ownerId);
-  if (grants.length > MAX_UNRELEASED_GRANTS_PER_OWNER) {
-    return Number.POSITIVE_INFINITY;
-  }
-  return grants.reduce(
-    (total, grant) =>
-      grant.expiresAt + GATEWAY_GRANT_SETTLEMENT_GRACE_MS < now
-        ? total
-        : total + Math.max(0, grant.budgetMicroCents - grant.settledMicroCents),
-    0,
-  );
-};
-
-const toOwnerModelAllowance = (
-  resolved: ManagedModelAllowanceResult,
-  reservedMicroCents: number,
-  maxRequests: number | undefined,
-  identityLevel: IdentityLevel,
-): OwnerModelAllowance => {
-  if (resolved.access.unlimited || resolved.remainingMicroCents === null) {
-    return {
-      audience: resolved.access.modelAudience,
-      budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
-      unlimited: true,
-      identityLevel,
-    };
-  }
-  const chunk =
-    GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS[
-      limitsAudienceFor(resolved.access.modelAudience)
-    ];
-  const headroom = Math.max(
-    0,
-    Math.floor(resolved.remainingMicroCents - reservedMicroCents),
-  );
-  return {
-    audience: resolved.access.modelAudience,
-    budgetMicroCents: Math.min(headroom, chunk),
-    ...(maxRequests !== undefined ? { maxRequests } : {}),
-    unlimited: false,
-    identityLevel,
-  };
-};
-
-export const runPeekOwnerModelAllowance = async (
-  ctx: QueryCtx | MutationCtx,
-  args: OwnerModelAllowanceArgs,
-): Promise<OwnerModelAllowance> => {
-  const [resolved, maxRequests, reservedMicroCents, identityLevel] =
-    await Promise.all([
-      runPeekManagedModelAllowance(ctx, {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        isAnonymous: args.isAnonymous,
-      }),
-      args.isAnonymous
-        ? readAnonymousRequestAllowance(ctx, args)
-        : Promise.resolve(undefined),
-      reservedGrantMicroCents(ctx, args.ownerId, Date.now()),
-      args.isAnonymous
-        ? Promise.resolve(0 as const)
-        : resolveIdentityLevel(ctx, args.ownerId),
-    ]);
-  return toOwnerModelAllowance(
-    resolved,
-    reservedMicroCents,
-    maxRequests,
-    identityLevel,
-  );
-};
-
-export const peekOwnerModelAllowanceInternal = internalQuery({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    isAnonymous: v.optional(v.boolean()),
-    ipHash: v.optional(v.string()),
-  },
-  returns: ownerModelAllowanceValidator,
-  handler: async (ctx, args): Promise<OwnerModelAllowance> =>
-    await runPeekOwnerModelAllowance(ctx, args),
+const sessionAdmissionValidator = v.object({
+  ownerGeneration: v.string(),
+  isAnonymous: v.boolean(),
+  identityLevel: identityLevelValidator,
+  maxRequests: v.optional(v.number()),
 });
 
-const releaseGrant = async (
-  ctx: MutationCtx,
-  grant: Awaited<ReturnType<typeof listUnreleasedOwnerGrants>>[number],
-): Promise<number> => {
-  if (grant.released) return 0;
-  const unusedRequests =
-    grant.audience === "anonymous" && grant.maxRequests !== undefined
-      ? Math.max(0, grant.maxRequests - grant.settledRequests)
-      : 0;
-  let refundedRequests = 0;
-  if (unusedRequests > 0) {
-    try {
-      refundedRequests = await refundDeviceAllowanceAuthorized(ctx, {
-        deviceId: anonymousTrialOwnerKey(grant.ownerId),
-        count: unusedRequests,
-      });
-    } catch (error) {
-      if (!isAnonDeviceHashSaltMissingError(error)) throw error;
-      logMissingSaltOnce("gateway-grant-release");
-    }
-  }
-  await ctx.db.patch(grant._id, { released: true });
-  return refundedRequests;
+type SessionAdmission = {
+  ownerGeneration: string;
+  isAnonymous: boolean;
+  identityLevel: IdentityLevel;
+  maxRequests?: number;
 };
 
-const releaseExpiredOwnerGrants = async (
-  ctx: MutationCtx,
-  ownerId: string,
-  now: number,
-): Promise<void> => {
-  const grants = await listUnreleasedOwnerGrants(ctx, ownerId);
-  for (const grant of grants.slice(0, MAX_UNRELEASED_GRANTS_PER_OWNER)) {
-    if (grant.expiresAt + GATEWAY_GRANT_SETTLEMENT_GRACE_MS < now) {
-      await releaseGrant(ctx, grant);
-    }
-  }
-};
-
-export const getOwnerModelAllowanceInternal = internalMutation({
+/**
+ * Sybil pressure, step-up, origins and risk for one exchange, and the
+ * anonymous trial's request chunk, in one transaction.
+ */
+export const admitOwnerSessionInternal = internalMutation({
   args: {
     ownerId: v.string(),
     ownerGeneration: v.string(),
-    isAnonymous: v.optional(v.boolean()),
-  },
-  returns: ownerModelAllowanceValidator,
-  handler: async (ctx, args): Promise<OwnerModelAllowance> => {
-    const enforcement = await readOwnerEnforcement(ctx, args.ownerId);
-    if (enforcement.status === "suspended") {
-      throw new ConvexError({
-        code: "OWNER_SUSPENDED",
-        message: "This owner is suspended.",
-      });
-    }
-    const resolved = await runResolveManagedModelAllowance(ctx, args);
-    const identityLevel = args.isAnonymous
-      ? 0
-      : await resolveIdentityLevel(ctx, args.ownerId);
-    const reservedMicroCents = await reservedGrantMicroCents(
-      ctx,
-      args.ownerId,
-      Date.now(),
-    );
-    return toOwnerModelAllowance(
-      resolved,
-      reservedMicroCents,
-      undefined,
-      identityLevel,
-    );
-  },
-});
-
-export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    isAnonymous: v.optional(v.boolean()),
+    isAnonymous: v.boolean(),
+    paying: v.boolean(),
     ipHash: v.optional(v.string()),
     networkClass: v.optional(networkClassValidator),
     deviceKeyHash: v.string(),
     challengeVerified: v.boolean(),
-    jti: v.string(),
-    issuedAt: v.number(),
-    expiresAt: v.number(),
+    now: v.number(),
   },
-  returns: ownerModelAllowanceValidator,
-  handler: async (ctx, args): Promise<OwnerModelAllowance> => {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
+  returns: sessionAdmissionValidator,
+  handler: async (ctx, args): Promise<SessionAdmission> => {
+    await assertOwnerMigrationWriteAllowed(ctx, args.ownerId, args.ownerGeneration);
     const challengeState = await resolveOwnerSessionChallengeState(ctx, {
       ownerId: args.ownerId,
-      isAnonymous: args.isAnonymous === true,
+      isAnonymous: args.isAnonymous,
+      paying: args.paying,
       ...(args.networkClass ? { networkClass: args.networkClass } : {}),
     });
     if (challengeState.enforcementStatus === "suspended") {
-      throw new ConvexError({
-        code: "OWNER_SUSPENDED",
-        message: "This owner is suspended.",
-      });
+      throw new ConvexError({ code: "OWNER_SUSPENDED", message: "This owner is suspended." });
     }
     const sybil = await evaluateSybilPressure(ctx, {
       ownerId: args.ownerId,
@@ -458,11 +249,9 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
       ...(args.ipHash ? { ipHash: args.ipHash } : {}),
       ...(args.networkClass ? { networkClass: args.networkClass } : {}),
       identityLevel: challengeState.identityLevel,
-      now: args.issuedAt,
+      now: args.now,
     });
-    if (sybil.action === "sign_in_required") {
-      throw signInRequiredError(sybil);
-    }
+    if (sybil.action === "sign_in_required") throw signInRequiredError(sybil);
     // A challenge is only meaningful when Turnstile can verify an answer.
     // Without TURNSTILE_SECRET_KEY (dev deployments) no client can satisfy
     // one, so the challenge outcomes are skipped; sign-in and suspension
@@ -475,220 +264,56 @@ export const reserveOwnerSessionModelAllowanceInternal = internalMutation({
       if (sybil.action === "challenge") throw challengeRequiredError(sybil);
       throw challengeRequiredError();
     }
-
     await recordOwnerOrigin(ctx, {
       ownerId: args.ownerId,
       deviceKeyHash: args.deviceKeyHash,
       ...(args.ipHash ? { ipHash: args.ipHash } : {}),
       ...(args.networkClass ? { networkClass: args.networkClass } : {}),
       identityLevel: challengeState.identityLevel,
-      now: args.issuedAt,
+      now: args.now,
     });
     if (sybil.action !== "ok") {
-      await recordOwnerRiskSignals(
-        ctx,
-        args.ownerId,
-        { sybilFlags: 1 },
-        args.issuedAt,
-      );
+      await recordOwnerRiskSignals(ctx, args.ownerId, { sybilFlags: 1 }, args.now);
     }
-
-    await releaseExpiredOwnerGrants(ctx, args.ownerId, args.issuedAt);
-    const resolved = await runResolveManagedModelAllowance(ctx, {
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      isAnonymous: args.isAnonymous,
-    });
-    const unlimited =
-      resolved.access.unlimited || resolved.remainingMicroCents === null;
-    const maxRequests =
-      !unlimited && args.isAnonymous
-        ? await readAnonymousRequestAllowance(ctx, args)
-        : undefined;
-    const reservedMicroCents = unlimited
-      ? 0
-      : await reservedGrantMicroCents(ctx, args.ownerId, args.issuedAt);
-    const allowance = toOwnerModelAllowance(
-      resolved,
-      reservedMicroCents,
-      maxRequests,
-      challengeState.identityLevel,
-    );
-
-    const existing = await ctx.db
-      .query("gateway_capability_grants")
-      .withIndex("by_jti", (q) => q.eq("jti", args.jti))
-      .unique();
-    if (existing) {
-      throw new ConvexError({
-        code: "IDEMPOTENCY_CONFLICT",
-        message: "Capability grant id already exists.",
-      });
-    }
-    if (args.isAnonymous && maxRequests !== undefined && maxRequests > 0) {
-      await consumeDeviceAllowanceBulkAuthorized(ctx, {
-        deviceId: anonymousTrialOwnerKey(args.ownerId),
-        maxRequests: getMaxAnonRequests(),
-        count: maxRequests,
-      });
-    }
-    await ctx.db.insert("gateway_capability_grants", {
-      jti: args.jti,
-      ownerId: args.ownerId,
-      ownerGeneration: args.ownerGeneration,
-      deviceKeyHash: args.deviceKeyHash,
-      audience: allowance.audience,
-      budgetMicroCents: allowance.budgetMicroCents,
-      ...(allowance.maxRequests !== undefined
-        ? { maxRequests: allowance.maxRequests }
-        : {}),
-      issuedAt: args.issuedAt,
-      expiresAt: args.expiresAt,
-      settledMicroCents: 0,
-      settledRequests: 0,
-      released: false,
-    });
-    return allowance;
-  },
-});
-
-export const releaseExpiredGatewayCapabilityGrantsInternal = internalMutation({
-  args: {
-    now: v.optional(v.number()),
-    batchSize: v.optional(v.number()),
-  },
-  returns: v.object({
-    released: v.number(),
-    refundedRequests: v.number(),
-    hasMore: v.boolean(),
-  }),
-  handler: async (ctx, args) => {
-    const now = args.now ?? Date.now();
-    const batchSize = Math.max(
-      1,
-      Math.min(
-        GRANT_RELEASE_BATCH_SIZE,
-        Math.floor(args.batchSize ?? GRANT_RELEASE_BATCH_SIZE),
-      ),
-    );
-    const cutoff = now - GATEWAY_GRANT_SETTLEMENT_GRACE_MS;
-    const grants = await ctx.db
-      .query("gateway_capability_grants")
-      .withIndex("by_released_expires", (q) =>
-        q.eq("released", false).lt("expiresAt", cutoff),
-      )
-      .take(batchSize);
-    let refundedRequests = 0;
-    for (const grant of grants) {
-      refundedRequests += await releaseGrant(ctx, grant);
-    }
-    const hasMore = grants.length === batchSize;
-    if (hasMore) {
-      await ctx.scheduler.runAfter(
-        0,
-        releaseExpiredGatewayCapabilityGrantsRef,
-        { now, batchSize },
-      );
+    let maxRequests: number | undefined;
+    if (args.isAnonymous) {
+      maxRequests = await readAnonymousRequestAllowance(ctx, args);
+      if (maxRequests > 0) {
+        await consumeDeviceAllowanceBulkAuthorized(ctx, {
+          deviceId: anonymousTrialOwnerKey(args.ownerId),
+          maxRequests: getMaxAnonRequests(),
+          count: maxRequests,
+        });
+      }
     }
     return {
-      released: grants.length,
-      refundedRequests,
-      hasMore,
+      ownerGeneration: args.ownerGeneration,
+      isAnonymous: args.isAnonymous,
+      identityLevel: challengeState.identityLevel,
+      ...(maxRequests !== undefined ? { maxRequests } : {}),
     };
   },
 });
 
-let cachedSigningKey: {
-  pem: string;
-  kid: string;
-  key: Promise<CapabilitySigningKey>;
-} | null = null;
-
-export const loadCapabilitySigningKey = (): Promise<CapabilitySigningKey> => {
-  const pem = process.env[CAPABILITY_SIGNING_KEY_ENV]?.trim();
-  const kid = process.env[CAPABILITY_SIGNING_KID_ENV]?.trim();
-  if (!pem || !kid) {
-    throw new ConvexError({
-      code: "SERVICE_UNAVAILABLE",
-      message: `Capability signing is not configured (${CAPABILITY_SIGNING_KEY_ENV} / ${CAPABILITY_SIGNING_KID_ENV}).`,
-    });
-  }
-  if (
-    !cachedSigningKey ||
-    cachedSigningKey.pem !== pem ||
-    cachedSigningKey.kid !== kid
-  ) {
-    const key = importCapabilitySigningKey(pem.replace(/\\n/g, "\n"), kid);
-    key.catch(() => {
-      cachedSigningKey = null;
-    });
-    cachedSigningKey = { pem, kid, key };
-  }
-  return cachedSigningKey.key;
-};
-
-const getOwnerModelAllowanceRef = makeFunctionReference<
-  "mutation",
-  {
-    ownerId: string;
-    ownerGeneration: string;
-    isAnonymous?: boolean;
-    ipHash?: string;
-    networkClass?: NetworkClass;
-    deviceKeyHash: string;
-    challengeVerified: boolean;
-    jti: string;
-    issuedAt: number;
-    expiresAt: number;
-  },
-  OwnerModelAllowance
->("gateway_capabilities:reserveOwnerSessionModelAllowanceInternal");
-
-const getOwnerSessionChallengeStateRef = makeFunctionReference<
-  "query",
-  {
-    ownerId: string;
-    isAnonymous: boolean;
-    networkClass?: NetworkClass;
-  },
-  OwnerSessionChallengeState
->("gateway_capabilities:getOwnerSessionChallengeStateInternal");
-
-const recordGatewayMintRiskSignalRef = makeFunctionReference<
-  "mutation",
-  { ownerId: string; mints: number; sybilFlags: number; now: number },
-  null
->("risk:recordGatewayMintRiskSignalInternal");
-
-export const signSessionCapabilityInternal = internalAction({
+export const admitSessionInternal = internalAction({
   args: {
     ownerId: v.string(),
     isAnonymous: v.boolean(),
+    paying: v.boolean(),
     ipHash: v.optional(v.string()),
     networkClass: v.optional(networkClassValidator),
     turnstileToken: v.optional(v.string()),
     deviceKeyHash: v.string(),
   },
-  returns: v.object({
-    capability: v.string(),
-    expiresAt: v.number(),
-    audience: v.string(),
-    budgetMicroCents: v.number(),
-    maxRequests: v.optional(v.number()),
-    identityLevel: identityLevelValidator,
-  }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<
-    GatewaySessionCapabilityResponse & { identityLevel: IdentityLevel }
-  > => {
+  returns: sessionAdmissionValidator,
+  handler: async (ctx, args): Promise<SessionAdmission> => {
     const { generation } = await assertOwnerDataAccessActive(ctx, args.ownerId);
     const challengeState: OwnerSessionChallengeState = await ctx.runQuery(
-      getOwnerSessionChallengeStateRef,
+      internal.gateway_capabilities.getOwnerSessionChallengeStateInternal,
       {
         ownerId: args.ownerId,
         isAnonymous: args.isAnonymous,
+        paying: args.paying,
         ...(args.networkClass ? { networkClass: args.networkClass } : {}),
       },
     );
@@ -697,37 +322,37 @@ export const signSessionCapabilityInternal = internalAction({
     if (!challengesEnabled) logTurnstileDisabledOnce();
     let challengeVerified = false;
     if (turnstileToken && challengesEnabled) {
-      const verification = await verifyTurnstileToken(turnstileToken);
-      challengeVerified = verification.ok;
+      challengeVerified = (await verifyTurnstileToken(turnstileToken)).ok;
     }
-    if (challengeState.challengeRequired && challengesEnabled) {
-      if (!turnstileToken) throw challengeRequiredError();
-      if (!challengeVerified) throw challengeRequiredError();
+    if (challengeState.challengeRequired && challengesEnabled && !challengeVerified) {
+      throw challengeRequiredError();
     }
-    const signingKey = await loadCapabilitySigningKey();
     const now = Date.now();
-    const jti = crypto.randomUUID();
-    const expiresAt =
-      (Math.floor(now / 1_000) +
-        Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1_000)) *
-      1_000;
-    let allowance: OwnerModelAllowance;
     try {
-      allowance = await ctx.runMutation(getOwnerModelAllowanceRef, {
+      const admission: SessionAdmission = await ctx.runMutation(
+        internal.gateway_capabilities.admitOwnerSessionInternal,
+        {
+          ownerId: args.ownerId,
+          ownerGeneration: generation,
+          isAnonymous: args.isAnonymous,
+          paying: args.paying,
+          ...(args.ipHash ? { ipHash: args.ipHash } : {}),
+          ...(args.networkClass ? { networkClass: args.networkClass } : {}),
+          deviceKeyHash: args.deviceKeyHash,
+          challengeVerified,
+          now,
+        },
+      );
+      await ctx.runMutation(internal.risk.recordGatewayMintRiskSignalInternal, {
         ownerId: args.ownerId,
-        ownerGeneration: generation,
-        isAnonymous: args.isAnonymous,
-        ...(args.ipHash ? { ipHash: args.ipHash } : {}),
-        ...(args.networkClass ? { networkClass: args.networkClass } : {}),
-        deviceKeyHash: args.deviceKeyHash,
-        challengeVerified,
-        jti,
-        issuedAt: now,
-        expiresAt,
+        mints: 1,
+        sybilFlags: 0,
+        now,
       });
+      return admission;
     } catch (error) {
       if (isSybilPressureError(error)) {
-        await ctx.runMutation(recordGatewayMintRiskSignalRef, {
+        await ctx.runMutation(internal.risk.recordGatewayMintRiskSignalInternal, {
           ownerId: args.ownerId,
           mints: 0,
           sybilFlags: 1,
@@ -736,38 +361,5 @@ export const signSessionCapabilityInternal = internalAction({
       }
       throw error;
     }
-    const { token, claims } = await signCapability(
-      {
-        iss: GATEWAY_CAPABILITY_ISSUERS.convex,
-        sub: args.ownerId,
-        jti,
-        gen: generation,
-        dpk: args.deviceKeyHash,
-        kind: "session",
-        audience: allowance.audience,
-        budgetMicroCents: allowance.budgetMicroCents,
-        ...(allowance.maxRequests !== undefined
-          ? { maxRequests: allowance.maxRequests }
-          : {}),
-      },
-      signingKey,
-      { ttlMs: GATEWAY_SESSION_CAPABILITY_TTL_MS, now },
-    );
-    await ctx.runMutation(recordGatewayMintRiskSignalRef, {
-      ownerId: args.ownerId,
-      mints: 1,
-      sybilFlags: 0,
-      now,
-    });
-    return {
-      capability: token,
-      expiresAt: claims.exp * 1_000,
-      audience: allowance.audience,
-      budgetMicroCents: allowance.budgetMicroCents,
-      identityLevel: allowance.identityLevel,
-      ...(allowance.maxRequests !== undefined
-        ? { maxRequests: allowance.maxRequests }
-        : {}),
-    };
   },
 });

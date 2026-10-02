@@ -8,6 +8,7 @@ import { inSubshell } from "./shell-subshell.js";
 export { OrchestratorSession };
 export { OwnerTransferCoordinator };
 export { OwnerGate };
+export { BillingControl } from "./billing/control.js";
 export { WorldStore } from "./world-store.js";
 export { WorldShellFs } from "./world-shell-fs.js";
 

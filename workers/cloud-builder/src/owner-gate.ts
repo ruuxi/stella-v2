@@ -44,9 +44,13 @@ import {
 
 import { DurableObject } from "cloudflare:workers";
 import {
+  GATEWAY_CAPABILITY_ISSUERS,
+  GATEWAY_SESSION_CAPABILITY_TTL_MS,
   isManagedModelAudience,
   type GatewayNativeCredentialProvider,
 } from "@stella/contracts/gateway/capability";
+import { signCapability } from "@stella/contracts/gateway/jwt";
+import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
 import {
   CONVEX_OWNER_SNAPSHOT_PATH,
   OWNER_SNAPSHOT_VERSION,
@@ -54,9 +58,33 @@ import {
   type OwnerSnapshot,
 } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
+  CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
   OWNER_ENFORCEMENT_STATUSES,
+  type BillingControlResult,
+  type ConvexSessionAdmissionResponse,
+  type ConvexSessionCapabilityRequest,
+  type GatewayUsageEvent,
   type OwnerEnforcement,
 } from "@stella/contracts/gateway/usage";
+import type { BillingPlan } from "@stella/contracts/backend/billing";
+import type { TelemetryEventV1 } from "@stella/contracts/telemetry";
+import {
+  applyGatewayUsage,
+  applyStripeEvent,
+  billingAccess,
+  billingPaying,
+  closeStripeCustomer,
+  recordBillingIdentity,
+  recordUsage,
+  reserveSessionGrant,
+  setAdminPlan,
+  turnAllowance,
+  type BillingAccess,
+  type UsageBatchResult,
+} from "./owner-store/domains/billing.js";
+import type { StripeEvent } from "./billing/stripe.js";
+import { BillingConfigError } from "./billing/plans.js";
+import { capabilitySigningKey } from "./capability-signer.js";
 import {
   CLOUD_CAPABILITIES,
   DEVICE_PRESENCE_CLOSE,
@@ -147,6 +175,10 @@ export type OwnerGateEnv = Pick<
       | "ORCHESTRATOR_SESSIONS"
       | "BUILD_SESSIONS"
       | "TURN_OUTBOX"
+      | "CAPABILITY_SIGNING_KEY"
+      | "CAPABILITY_SIGNING_KID"
+      | "TELEMETRY"
+      | "TELEMETRY_ENVIRONMENT"
     >
   >;
 
@@ -532,22 +564,8 @@ export const parseOwnerSnapshot = (
       ? undefined
       : parseOwnerEnforcement(value.enforcement);
   if (value.enforcement !== undefined && !enforcement) return null;
-  const plan = value.plan;
-  if (plan !== "free" && plan !== "go" && plan !== "pro") return null;
-  if (!isRecord(value.allowance)) return null;
-  if (!isManagedModelAudience(value.allowance.audience)) return null;
-  if (
-    typeof value.allowance.budgetMicroCents !== "number" ||
-    !Number.isFinite(value.allowance.budgetMicroCents)
-  ) {
-    return null;
-  }
-  if (
-    value.allowance.maxRequests !== undefined &&
-    !isCount(value.allowance.maxRequests)
-  ) {
-    return null;
-  }
+  // Plan and allowance come from the owner's own billing ledger (see
+  // `OwnerGate.snapshot`); Convex no longer serves them.
   const execution = value.execution;
   if (!isRecord(execution)) return null;
   const pair = `${String(execution.engine)}/${String(execution.provider)}`;
@@ -590,13 +608,10 @@ export const parseOwnerSnapshot = (
     isAnonymous: value.isAnonymous,
     identityLevel,
     ...(enforcement ? { enforcement } : {}),
-    plan: plan as CloudPlanId,
+    plan: "free" as CloudPlanId,
     allowance: {
-      audience: value.allowance.audience,
-      budgetMicroCents: value.allowance.budgetMicroCents,
-      ...(value.allowance.maxRequests !== undefined
-        ? { maxRequests: value.allowance.maxRequests }
-        : {}),
+      audience: value.isAnonymous ? "anonymous" : "free",
+      budgetMicroCents: 0,
     },
     execution: {
       engine: execution.engine,
@@ -1001,6 +1016,198 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     await this.scheduleAlarm(Date.now());
     return response;
   }
+
+  // ── Billing ─────────────────────────────────────────────────────────────
+
+  /** Run a billing write on the owner's ledger, then push views and arm jobs. */
+  private async billingWrite<T>(write: (ctx: ReturnType<OwnerStore["context"]>) => T | Promise<T>): Promise<T> {
+    const store = this.ownerStore();
+    try {
+      return await write(store.context(null));
+    } finally {
+      store.flush();
+      await this.scheduleAlarm(Date.now());
+    }
+  }
+
+  /**
+   * A session capability for a client runtime, asked for by the model
+   * gateway. Convex rules on abuse (step-up, sybil pressure, suspension, the
+   * anonymous request chunk); this ledger reserves the budget, and this
+   * Worker signs the capability.
+   */
+  async issueSessionCapability(
+    request: ConvexSessionCapabilityRequest,
+  ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>> {
+    const now = Date.now();
+    const paying = billingPaying(this.ownerStore().context(null, now));
+    const admission = await this.sessionAdmission({ ...request, paying });
+    if (!admission.ok) return admission;
+    const { ownerGeneration, isAnonymous, identityLevel, maxRequests } = admission.body;
+    const jti = crypto.randomUUID();
+    const expiresAt =
+      (Math.floor(now / 1000) + Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1000)) * 1000;
+    const grant = await this.billingWrite((ctx) => {
+      recordBillingIdentity(ctx, { isAnonymous, identityLevel });
+      return reserveSessionGrant(ctx, { jti, expiresAt });
+    });
+    const signed = await signCapability(
+      {
+        iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
+        sub: this.ownerId(),
+        jti,
+        gen: ownerGeneration,
+        dpk: request.deviceKeyHash,
+        kind: "session",
+        audience: grant.audience,
+        budgetMicroCents: grant.budgetMicroCents,
+        ...(maxRequests !== undefined ? { maxRequests } : {}),
+      },
+      await capabilitySigningKey(this.env),
+      { ttlMs: GATEWAY_SESSION_CAPABILITY_TTL_MS, now },
+    );
+    return {
+      ok: true,
+      body: {
+        capability: signed.token,
+        expiresAt: signed.claims.exp * 1000,
+        audience: grant.audience,
+        budgetMicroCents: grant.budgetMicroCents,
+        identityLevel: grant.identityLevel,
+        ...(maxRequests !== undefined ? { maxRequests } : {}),
+      },
+    };
+  }
+
+  private async sessionAdmission(
+    request: ConvexSessionCapabilityRequest & { paying: boolean },
+  ): Promise<BillingControlResult<ConvexSessionAdmissionResponse>> {
+    const base = convexSiteBase(this.env);
+    const secret = this.env.BUILDER_SERVICE_SECRET;
+    if (!base || !secret) return { ok: false, status: null, code: "internal", retryable: true };
+    let response: Response;
+    try {
+      response = await fetch(`${base}${CONVEX_GATEWAY_SESSION_ADMISSION_PATH}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...request, ownerId: this.ownerId() }),
+        signal: AbortSignal.timeout(OWNER_GATE_SNAPSHOT_TIMEOUT_MS * 3),
+      });
+    } catch {
+      return { ok: false, status: null, code: null, retryable: true };
+    }
+    const body = (await response.json().catch(() => null)) as
+      | (ConvexSessionAdmissionResponse & { error?: { code?: string } | string })
+      | null;
+    if (response.ok && body && typeof body.ownerGeneration === "string") return { ok: true, body };
+    const rawCode = typeof body?.error === "string" ? body.error : body?.error?.code;
+    const code =
+      rawCode === "challenge_required" ||
+      rawCode === "sign_in_required" ||
+      rawCode === "owner_suspended" ||
+      rawCode === "rate_limited"
+        ? rawCode
+        : null;
+    return {
+      ok: false,
+      status: response.status,
+      code,
+      retryable: response.status >= 500 || response.status === 429,
+    };
+  }
+
+  /** The gateway's settled usage for this owner. */
+  async applyGatewayUsage(events: GatewayUsageEvent[]): Promise<UsageBatchResult> {
+    const result = await this.billingWrite((ctx) => applyGatewayUsage(ctx, events));
+    await this.reportCharges(events.filter((event) => result.accepted.includes(event.requestId)));
+    return result;
+  }
+
+  /**
+   * Charged model calls to analytics, under this owner's pseudonym: what
+   * Convex's usage ledger used to log. Best effort.
+   */
+  private async reportCharges(events: GatewayUsageEvent[]): Promise<void> {
+    const telemetry = this.env.TELEMETRY as
+      | { ingestForOwner(ownerId: string, events: TelemetryEventV1[]): Promise<void> }
+      | undefined;
+    const charged = events.filter((event) => event.billable && event.outcome !== "failed");
+    if (!telemetry || charged.length === 0) return;
+    const environment = this.env.TELEMETRY_ENVIRONMENT === "production" ? "production" : "development";
+    await telemetry
+      .ingestForOwner(
+        this.ownerId(),
+        charged.map((event) => ({
+          schemaVersion: 1,
+          eventId: crypto.randomUUID(),
+          occurredAtMs: event.finishedAt,
+          project: "stella",
+          environment,
+          source: "cloud-builder",
+          event: {
+            type: "inference.completed",
+            provider: event.provider,
+            model: event.resolvedModel,
+            agentType: event.agentType,
+            durationMs: Math.max(0, event.finishedAt - event.startedAt),
+            success: event.outcome === "succeeded",
+            inputTokens: event.usage.inputTokens,
+            outputTokens: event.usage.outputTokens,
+            ...(event.usage.cachedInputTokens !== undefined
+              ? { cachedInputTokens: event.usage.cachedInputTokens }
+              : {}),
+            ...(event.usage.cacheWriteTokens !== undefined
+              ? { cacheWriteInputTokens: event.usage.cacheWriteTokens }
+              : {}),
+            ...(event.usage.reasoningTokens !== undefined
+              ? { reasoningTokens: event.usage.reasoningTokens }
+              : {}),
+            totalTokens: event.usage.inputTokens + event.usage.outputTokens,
+            costMicroCents: event.chargedMicroCents,
+          },
+        })),
+      )
+      .catch((error: unknown) => {
+        log("error", "billing_telemetry_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
+  /** A verified Stripe event addressed to this owner. */
+  async applyStripeEvent(event: StripeEvent): Promise<void> {
+    await this.billingWrite((ctx) => applyStripeEvent(ctx, event));
+  }
+
+  /** What this owner may spend now, for Convex code that still meters. */
+  async billingAccess(identity?: { isAnonymous: boolean }): Promise<BillingAccess> {
+    if (!identity) return billingAccess(this.ownerStore().context(null));
+    return await this.billingWrite((ctx) => {
+      recordBillingIdentity(ctx, identity);
+      return billingAccess(ctx);
+    });
+  }
+
+  /** Spend metered outside the gateway. Idempotent on each record's id. */
+  async recordBillingUsage(
+    records: Array<{ id: string; costMicroCents: number }>,
+  ): Promise<{ recorded: number; duplicate: number }> {
+    return await this.billingWrite((ctx) => recordUsage(ctx, records));
+  }
+
+  /** Admin and test accounts: set the plan outside Stripe. */
+  async setBillingPlan(input: {
+    plan?: BillingPlan;
+    usageMode?: "default" | "unlimited";
+    resetUsage?: boolean;
+  }): Promise<void> {
+    await this.billingWrite((ctx) => setAdminPlan(ctx, input));
+  }
+
+  /** Account deletion: end the Stripe customer and its subscription. */
+  async closeBilling(): Promise<void> {
+    await closeStripeCustomer(this.ownerStore().context(null));
+  }
   private snapshotInflight: Promise<OwnerSnapshot> | null = null;
   private gatewayOwnerPreparation?: Promise<void>;
   private memoryPolicyState?: OwnerMemoryPolicy;
@@ -1315,6 +1522,45 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * closed.
    */
   async snapshot(
+    options: { refresh?: boolean; now?: number } = {},
+  ): Promise<OwnerSnapshot> {
+    const control = await this.controlSnapshot(options);
+    return this.withBilling(control, options.now ?? Date.now());
+  }
+
+  /**
+   * The plan and turn allowance from the owner's billing ledger, over the
+   * control-plane snapshot. The identity Convex reports is noted on the
+   * ledger so allowance shares follow sign-in changes.
+   */
+  private withBilling(control: OwnerSnapshot, now: number): OwnerSnapshot {
+    const store = this.ownerStore();
+    const ctx = store.context(null, now);
+    let billing: ReturnType<typeof turnAllowance>;
+    try {
+      recordBillingIdentity(ctx, {
+        isAnonymous: control.isAnonymous,
+        identityLevel: control.identityLevel,
+      });
+      billing = turnAllowance(ctx);
+    } catch (error) {
+      if (!(error instanceof BillingConfigError)) throw error;
+      // Unconfigured billing serves the control snapshot's own allowance,
+      // which Convex sends as zero: turns fail closed until it is set.
+      log("error", "billing_unconfigured", { message: error.message });
+      return control;
+    } finally {
+      store.flush();
+    }
+    return {
+      ...control,
+      plan: billing.plan,
+      identityLevel: billing.identityLevel,
+      allowance: billing.allowance,
+    };
+  }
+
+  private async controlSnapshot(
     options: { refresh?: boolean; now?: number } = {},
   ): Promise<OwnerSnapshot> {
     const now = options.now ?? Date.now();

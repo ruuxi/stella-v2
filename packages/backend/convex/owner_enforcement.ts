@@ -106,20 +106,6 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
   args: { ownerId: v.string() },
   returns: v.object({
     enforcement: ownerEnforcementValidator,
-    unreleasedGrants: v.array(
-      v.object({
-        jti: v.string(),
-        ownerGeneration: v.string(),
-        deviceKeyHash: v.string(),
-        audience: managedModelAudienceValidator,
-        budgetMicroCents: v.number(),
-        maxRequests: v.optional(v.number()),
-        issuedAt: v.number(),
-        expiresAt: v.number(),
-        settledMicroCents: v.number(),
-        settledRequests: v.number(),
-      }),
-    ),
     usageReceipts: v.array(
       v.object({
         requestId: v.string(),
@@ -146,15 +132,8 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
     ),
   }),
   handler: async (ctx, args) => {
-    const [enforcement, grants, receipts, riskSignals] = await Promise.all([
+    const [enforcement, receipts, riskSignals] = await Promise.all([
       readOwnerEnforcement(ctx, args.ownerId),
-      ctx.db
-        .query("gateway_capability_grants")
-        .withIndex("by_owner_released", (q) =>
-          q.eq("ownerId", args.ownerId).eq("released", false),
-        )
-        .order("desc")
-        .take(100),
       ctx.db
         .query("gateway_usage_receipts")
         .withIndex("by_ownerId_and_createdAt", (q) =>
@@ -169,20 +148,6 @@ export const getOwnerGatewayAdminStateInternal = internalQuery({
     ]);
     return {
       enforcement,
-      unreleasedGrants: grants.map((grant) => ({
-        jti: grant.jti,
-        ownerGeneration: grant.ownerGeneration,
-        deviceKeyHash: grant.deviceKeyHash,
-        audience: grant.audience,
-        budgetMicroCents: grant.budgetMicroCents,
-        ...(grant.maxRequests !== undefined
-          ? { maxRequests: grant.maxRequests }
-          : {}),
-        issuedAt: grant.issuedAt,
-        expiresAt: grant.expiresAt,
-        settledMicroCents: grant.settledMicroCents,
-        settledRequests: grant.settledRequests,
-      })),
       usageReceipts: receipts.map((receipt) => ({
         requestId: receipt.requestId,
         ownerGeneration: receipt.ownerGeneration,

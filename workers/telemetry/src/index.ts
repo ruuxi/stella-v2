@@ -616,6 +616,24 @@ export const fetchHandler = async (
 };
 
 export class TelemetryService extends WorkerEntrypoint<Env> {
+  /**
+   * Events about one owner from a trusted Worker (cloud-builder's billing
+   * ledger), pseudonymized under that owner like a signed-in client's.
+   */
+  async ingestForOwner(ownerId: string, events: TelemetryEventV1[]): Promise<void> {
+    if (typeof ownerId !== "string" || !ownerId.trim()) {
+      throw new TypeError("Invalid telemetry owner.");
+    }
+    const parsed = parseBatch(batchFromEvents(events));
+    if (!parsed.ok)
+      throw new TypeError(`Invalid telemetry payload: ${parsed.error}`);
+    await ingestValidated(
+      parsed.batch.events,
+      { kind: "user", identity: ownerId },
+      this.env,
+    );
+  }
+
   async ingest(events: TelemetryEventV1[]): Promise<void> {
     const parsed = parseBatch(batchFromEvents(events));
     if (!parsed.ok)

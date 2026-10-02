@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import type { SubscriptionPlan } from "./lib/billing_plans";
+import { readOwnerPlan, type SubscriptionPlan } from "./lib/owner_plan";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 
 const TTS_DAILY_DEFAULTS: Readonly<Record<SubscriptionPlan, number>> = {
@@ -11,7 +11,6 @@ const TTS_DAILY_DEFAULTS: Readonly<Record<SubscriptionPlan, number>> = {
 const CLOUD_APP_OPERATION_DAILY_LIMIT = 200;
 const X_BOT_AUTHOR_DAILY_LIMIT = 10;
 const X_BOT_GLOBAL_DAILY_LIMIT = 500;
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
 const toUtcDay = (timestamp: number): string => {
   const date = new Date(timestamp);
@@ -54,13 +53,7 @@ const resolveOwnerPlan = async (
   ctx: MutationCtx,
   ownerId: string,
 ): Promise<SubscriptionPlan> => {
-  const profile = await ctx.db
-    .query("billing_profiles")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  return profile && ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus)
-    ? profile.activePlan
-    : "free";
+  return await readOwnerPlan(ctx, ownerId);
 };
 
 type DailyCounterResult = {

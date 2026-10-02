@@ -1822,36 +1822,6 @@ describe("owner purge adversarial invariants", () => {
           revokedAt: 4,
           expiresAt: 50_000,
         }),
-        billingWindow: await ctx.db.insert("billing_usage_windows", {
-          ownerId: fence.ownerId,
-          rollingUsageMicroCents: 1,
-          rollingWindowStartedAt: 1,
-          weeklyUsageMicroCents: 2,
-          weeklyWindowStartedAt: 1,
-          monthlyUsageMicroCents: 3,
-          monthlyWindowStartedAt: 1,
-          totalUsageMicroCents: 6,
-          totalRequestCount: 1,
-          createdAt: 1,
-          updatedAt: 4,
-        }),
-        billingProfile: await ctx.db.insert("billing_profiles", {
-          ownerId: fence.ownerId,
-          activePlan: "pro",
-          subscriptionStatus: "active",
-          stripeCustomerId: "cus_reset_audit",
-          stripeSubscriptionId: "sub_reset_audit",
-          stripePriceId: "price_reset_audit",
-          defaultPaymentMethodId: "pm_reset_audit",
-          paymentMethodBrand: "visa",
-          paymentMethodLast4: "4242",
-          currentPeriodStart: 1,
-          currentPeriodEnd: 10,
-          cancelAtPeriodEnd: false,
-          monthlyAnchorAt: 1,
-          createdAt: 1,
-          updatedAt: 4,
-        }),
         usageLog: await ctx.db.insert("usage_logs", {
           ownerId: fence.ownerId,
           conversationId: auditConversation,
@@ -1905,12 +1875,6 @@ describe("owner purge adversarial invariants", () => {
       }),
     ).toEqual([]);
     expect(await t.run(async (ctx) => ctx.db.get(rows.policy))).not.toBeNull();
-    expect(
-      await t.run(async (ctx) => ctx.db.get(rows.billingWindow)),
-    ).not.toBeNull();
-    expect(
-      await t.run(async (ctx) => ctx.db.get(rows.billingProfile)),
-    ).not.toBeNull();
     expect(
       await t.run(async (ctx) => ctx.db.get(rows.usageLog)),
     ).not.toBeNull();

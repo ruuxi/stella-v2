@@ -16,7 +16,7 @@ import {
   markBrowserResumeDispatchFailed,
   projectCloudBrowserSuspension,
 } from "./cloud_browser";
-import type { SubscriptionPlan } from "./lib/billing_plans";
+import { readOwnerBillingPlan, type SubscriptionPlan } from "./lib/owner_plan";
 import {
   DEFAULT_CLOUD_ANTHROPIC_EXECUTION,
   DEFAULT_CLOUD_CODEX_EXECUTION,
@@ -31,46 +31,19 @@ import {
   assertOwnerPurgeOperation,
 } from "./owner_lifecycle";
 
-type OwnerModelAllowance = {
-  audience: ManagedModelAudience;
-  budgetMicroCents: number;
-  maxRequests?: number;
-  unlimited: boolean;
-};
-
 /**
- * The managed-model allowance a Builder turn capability is minted from.
- * Convex is the only party that knows the owner's plan and remaining managed
- * balance; the admitting Durable Object signs exactly these numbers into the
- * capability and the model gateway meters against them without calling back.
+ * Placeholders for a Convex-dispatched cloud turn's audience and budget: the
+ * admitting Durable Object replaces both from the owner's billing ledger
+ * before it mints the turn's capability.
  */
-const resolveOwnerModelAllowance = async (
-  ctx: ActionCtx,
-  ownerId: string,
-  ownerGeneration: string,
-): Promise<OwnerModelAllowance> =>
-  (await ctx.runMutation(
-    internal.gateway_capabilities.getOwnerModelAllowanceInternal,
-    { ownerId, ownerGeneration },
-  )) as OwnerModelAllowance;
-
 export const ownerModelAllowanceFields = async (
-  ctx: ActionCtx,
-  ownerId: string,
-  ownerGeneration: string,
-): Promise<{ audience: ManagedModelAudience; budgetMicroCents: number }> => {
-  const allowance = await resolveOwnerModelAllowance(
-    ctx,
-    ownerId,
-    ownerGeneration,
-  );
-  return {
-    audience: allowance.audience,
-    budgetMicroCents: allowance.budgetMicroCents,
-  };
-};
-
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+  _ctx: ActionCtx,
+  _ownerId: string,
+  _ownerGeneration: string,
+): Promise<{ audience: ManagedModelAudience; budgetMicroCents: number }> => ({
+  audience: "free",
+  budgetMicroCents: 0,
+});
 
 export const resolveCloudPlan = async (
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
@@ -79,19 +52,10 @@ export const resolveCloudPlan = async (
   plan: SubscriptionPlan;
   usageMode: "default" | "unlimited";
 }> => {
-  const profile = await ctx.db
-    .query("billing_profiles")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  const plan: SubscriptionPlan =
-    profile &&
-    ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus) &&
-    profile.activePlan !== "free"
-      ? profile.activePlan
-      : "free";
+  const { plan, unlimited } = await readOwnerBillingPlan(ctx, ownerId);
   return {
     plan,
-    usageMode: profile?.usageMode ?? "default",
+    usageMode: unlimited ? "unlimited" : "default",
   };
 };
 const getEngineSettingsRef = makeFunctionReference<

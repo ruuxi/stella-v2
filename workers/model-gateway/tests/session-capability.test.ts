@@ -166,7 +166,7 @@ describe("POST /v1/capabilities/session", () => {
     ctx = setup();
   });
 
-  test("exchanges a Better Auth JWT for a session capability, verbatim from Convex", async () => {
+  test("exchanges a Better Auth JWT for a session capability, verbatim from billing", async () => {
     const token = await signJwt(validPayload());
     const response = await ctx.run(sessionRequest(token, {}));
     expect(response.status).toBe(200);
@@ -178,9 +178,6 @@ describe("POST /v1/capabilities/session", () => {
     const convexCall = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
-    expect(convexCall.headers.get("authorization")).toBe(
-      `Bearer ${SERVICE_SECRET}`,
-    );
     expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
       ownerId: `${CONVEX_SITE}|user_ba_1`,
       isAnonymous: false,

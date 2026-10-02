@@ -29,7 +29,7 @@ import {
 import { internal } from "./_generated/api";
 import { isAnonymousIdentity, requireUserIdentity } from "./auth";
 import { cronScheduleValidator } from "./schema/scheduling";
-import type { SubscriptionPlan } from "./lib/billing_plans";
+import { readOwnerBillingPlan, type SubscriptionPlan } from "./lib/owner_plan";
 import { scheduleOwnershipClaimAllowed } from "./lib/auth_migration_paths";
 import {
   assertOwnerDataAccessActive,
@@ -111,27 +111,17 @@ const SCHEDULE_DAILY_FIRES: Record<SubscriptionPlan, number> = {
 
 const UNLIMITED_SCHEDULE_DAILY_FIRES = 800;
 
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
 /** Mirrors `resolveCloudPlan` in cloud_apps.ts, against the schedule budget. */
 const resolveScheduleBudget = async (
   ctx: Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">,
   ownerId: string,
 ): Promise<{ plan: SubscriptionPlan; dailyFires: number }> => {
-  const profile = await ctx.db
-    .query("billing_profiles")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  const plan: SubscriptionPlan =
-    profile &&
-    ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus) &&
-    profile.activePlan !== "free"
-      ? profile.activePlan
-      : "free";
+  const { plan, unlimited } = await readOwnerBillingPlan(ctx, ownerId);
   return {
     plan,
     dailyFires:
-      profile?.usageMode === "unlimited"
+      unlimited
         ? UNLIMITED_SCHEDULE_DAILY_FIRES
         : SCHEDULE_DAILY_FIRES[plan],
   };

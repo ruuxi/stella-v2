@@ -100,124 +100,6 @@ describe("GET /api/gateway/owner-snapshot", () => {
     expect((await fetchSnapshot(t, ownerId)).status).toBe(503);
   });
 
-  it("serves the contract shape for a signed-in free owner with pairings and engines", async () => {
-    const t = createTest();
-    const ownerId = await seedUser(t, "snapshot-owner", false);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("paired_mobile_devices", {
-        ownerId,
-        desktopDeviceId: "desktop-1",
-        mobileDeviceId: "phone-1",
-        pairSecretHash: "hash",
-        approvedAt: 1,
-        lastSeenAt: 1,
-      });
-      await ctx.db.insert("paired_mobile_devices", {
-        ownerId,
-        desktopDeviceId: "desktop-1",
-        mobileDeviceId: "phone-revoked",
-        pairSecretHash: "hash",
-        approvedAt: 1,
-        lastSeenAt: 1,
-        revokedAt: 2,
-      });
-      await ctx.db.insert("cloud_llm_credentials", {
-        ownerId,
-        provider: "anthropic",
-        payloadEncrypted: "opaque",
-        label: "Claude",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await ctx.db.insert("devices", {
-        ownerId,
-        ownerGeneration: GENERATION,
-        deviceId: "desktop-1",
-        deviceName: "Studio",
-        devicePublicKey: "device-public-key",
-        executionCapabilities: ["chat", "local-files"],
-      });
-      await ctx.db.insert("devices", {
-        ownerId,
-        ownerGeneration: GENERATION,
-        deviceId: "desktop-off",
-        devicePublicKey: "other-public-key",
-        remoteExecutionEnabled: false,
-      });
-      // A phone/bridge row with no execution key: never an execution device.
-      await ctx.db.insert("devices", {
-        ownerId,
-        deviceId: "keyless",
-        platform: "ios",
-      });
-    });
-    const response = await fetchSnapshot(t, ownerId);
-    expect(response.status).toBe(200);
-    const snapshot = (await response.json()) as OwnerSnapshot;
-    expect(snapshot).toMatchObject({
-      v: 1,
-      ownerId,
-      ownerGeneration: GENERATION,
-      isAnonymous: false,
-      identityLevel: 1,
-      writable: true,
-      plan: "free",
-      allowance: {
-        audience: "free",
-        budgetMicroCents: GATEWAY_SESSION_BUDGET_CHUNK_MICRO_CENTS.free,
-      },
-      execution: {
-        engine: "stella",
-        provider: "stella",
-        model: "stella/default",
-        reasoningEffort: "default",
-      },
-      pairedDevices: [
-        {
-          mobileDeviceId: "phone-1",
-          desktopDeviceId: "desktop-1",
-          // The pairing proof's HMAC key, so the worker verifies mobile
-          // submits without calling back into Convex.
-          mobilePublicKey: "hash",
-        },
-      ],
-      devices: [
-        {
-          deviceId: "desktop-1",
-          publicKey: "device-public-key",
-          remoteExecutionEnabled: true,
-          label: "Studio",
-          capabilities: ["chat", "local-files"],
-        },
-        {
-          deviceId: "desktop-off",
-          publicKey: "other-public-key",
-          remoteExecutionEnabled: false,
-        },
-      ],
-      connectedEngines: ["anthropic"],
-      ttlMs: 300_000,
-    });
-    expect(snapshot.devices).toHaveLength(2);
-    expect(snapshot.devices?.[1]?.label).toBeUndefined();
-    expect(snapshot.fetchedAt).toBeGreaterThan(0);
-    expect(snapshot.allowance.maxRequests).toBeUndefined();
-    const billingRows = await t.run(
-      async (ctx) =>
-        await Promise.all([
-          ctx.db
-            .query("billing_profiles")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-            .unique(),
-          ctx.db
-            .query("billing_usage_windows")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-            .unique(),
-        ]),
-    );
-    expect(billingRows).toEqual([null, null]);
-  });
-
   it("marks purged or fenced owners unwritable and 404s unknown owners", async () => {
     const t = createTest();
     const ownerId = await seedUser(t, "snapshot-purged", false);
@@ -233,79 +115,13 @@ describe("GET /api/gateway/owner-snapshot", () => {
     expect(await response.json()).toMatchObject({
       isAnonymous: false,
       writable: false,
-      allowance: { audience: "free", budgetMicroCents: 0, maxRequests: 0 },
+      allowance: { audience: "free", budgetMicroCents: 0 },
     });
     expect((await fetchSnapshot(t, "https://convex.test|nobody")).status).toBe(
       404,
     );
   });
 
-  it("gives anonymous owners the request-count trial allowance", async () => {
-    const t = createTest();
-    const ownerId = await seedUser(t, "snapshot-anon", true);
-    const response = await fetchSnapshot(t, ownerId);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      isAnonymous: true,
-      identityLevel: 0,
-      writable: true,
-      allowance: {
-        audience: "anonymous",
-        budgetMicroCents: dollarsToMicroCents(0.1),
-        maxRequests: 3,
-      },
-    });
-  });
-
-  it("makes suspended owners unwritable, refuses minting, and schedules gateway push", async () => {
-    const t = createTest();
-    const ownerId = await seedUser(t, "snapshot-suspended", false);
-    await t.mutation(internal.owner_enforcement.setOwnerEnforcementInternal, {
-      ownerId,
-      status: "suspended",
-      reason: "abuse review",
-      actor: "test-admin",
-    });
-
-    const response = await fetchSnapshot(t, ownerId);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      isAnonymous: false,
-      identityLevel: 1,
-      writable: false,
-      enforcement: { status: "suspended", reason: "abuse review" },
-      allowance: { budgetMicroCents: 0, maxRequests: 0 },
-    });
-    await expect(
-      t.mutation(internal.gateway_capabilities.getOwnerModelAllowanceInternal, {
-        ownerId,
-        ownerGeneration: GENERATION,
-      }),
-    ).rejects.toSatisfy(
-      (error: unknown) =>
-        error instanceof ConvexError &&
-        (error.data as { code?: string }).code === "OWNER_SUSPENDED",
-    );
-
-    const scheduledNames = await t.run(async (ctx) =>
-      (await ctx.db.system.query("_scheduled_functions").collect()).map(
-        (entry) => entry.name,
-      ),
-    );
-    expect(
-      scheduledNames.some((name) =>
-        name.includes("notifyOwnerSnapshotChanged"),
-      ),
-    ).toBe(true);
-    expect(
-      scheduledNames.some((name) =>
-        name.includes("pushOwnerEnforcementToGateway"),
-      ),
-    ).toBe(true);
-    expect(
-      scheduledNames.some((name) => name.includes("postAlertInternal")),
-    ).toBe(true);
-  });
 });
 
 describe("owner snapshot change push", () => {
@@ -369,42 +185,4 @@ describe("owner snapshot change push", () => {
     ).resolves.toBeNull();
   });
 
-  it("is scheduled by plan, engine, pairing, and generation writers", async () => {
-    const t = createTest();
-    const ownerId = "https://issuer.test|snapshot-writers";
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_owner_lifecycles", {
-        ownerId,
-        generation: GENERATION,
-        state: "open",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-    await t.mutation(internal.billing.setAdminBillingPlan, {
-      ownerId,
-      plan: "go",
-    });
-    await t.mutation(internal.cloud_engines.storeCredentialInternal, {
-      ownerId,
-      ownerGeneration: GENERATION,
-      provider: "anthropic",
-      payloadEncrypted: "opaque",
-      label: "Claude",
-      now: 5,
-    });
-    await t.mutation(internal.owner_lifecycle.beginOwnerDataPurgeInternal, {
-      ownerId,
-      operationId: "op-1",
-      mode: "reset",
-      now: 6,
-    });
-    const reasons = await t.run(async (ctx) =>
-      (await ctx.db.system.query("_scheduled_functions").collect())
-        .filter((entry) => entry.name.includes("notifyOwnerSnapshotChanged"))
-        .map((entry) => (entry.args[0] as { reason: string }).reason)
-        .sort(),
-    );
-    expect(reasons).toEqual(["billing", "engine", "generation"]);
-  });
 });

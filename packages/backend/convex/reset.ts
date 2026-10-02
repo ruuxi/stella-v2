@@ -167,25 +167,6 @@ const runOwnerReset = async (
         `Owner reset is waiting for voice provider dispatch quiescence: ${voiceDispatches.pending.join(", ")}`,
       );
     }
-    const managedDispatches = await ctx.runMutation(
-      internal.account_billing_purge.quiesceOwnerManagedDispatchesInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    if (!managedDispatches.ready) {
-      throw new Error(
-        `Owner reset is waiting for managed provider dispatch quiescence: ${managedDispatches.pending.join(", ")}`,
-      );
-    }
-    const stripeDispatches = await ctx.runMutation(
-      internal.stripe_operation_dispatch
-        .quiesceOwnerStripeOperationsForPurgeInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    if (!stripeDispatches.ready) {
-      throw new Error(
-        `Owner reset is waiting for Stripe operation reconciliation: ${stripeDispatches.pending.join(", ")}`,
-      );
-    }
     const remoteTurns = await ctx.runMutation(
       internal.channels.connector_delivery
         .quiesceOwnerRemoteTurnsForPurgeInternal,
@@ -315,7 +296,6 @@ const runOwnerReset = async (
       remainingVoice,
       remainingMedia,
       remainingComposioProvisioning,
-      remainingStripeDispatches,
     ] = await Promise.all([
       ctx.runQuery(internal.reset.remainingOwnerResetStoresInternal, {
         ownerId: fence.ownerId,
@@ -335,11 +315,6 @@ const runOwnerReset = async (
       ctx.runQuery(remainingOwnerComposioProvisioningRef, {
         ownerId: fence.ownerId,
       }),
-      ctx.runQuery(
-        internal.stripe_operation_dispatch
-          .remainingOwnerStripeOperationDispatchesInternal,
-        { ownerId: fence.ownerId, now: Date.now() },
-      ),
     ]);
     const remainingCore = [
       ...remainingResetCore,
@@ -347,30 +322,10 @@ const runOwnerReset = async (
       ...remainingVoice,
       ...remainingMedia,
       ...remainingComposioProvisioning,
-      ...remainingStripeDispatches,
     ];
     if (remainingCore.length > 0) {
       throw new Error(
         `Owner reset core purge is incomplete: ${remainingCore.join(", ")}`,
-      );
-    }
-    const finalManagedDispatches = await ctx.runMutation(
-      internal.account_billing_purge.quiesceOwnerManagedDispatchesInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    if (!finalManagedDispatches.ready) {
-      throw new Error(
-        `Owner reset managed dispatch residue remains: ${finalManagedDispatches.pending.join(", ")}`,
-      );
-    }
-    const finalStripeDispatches = await ctx.runMutation(
-      internal.stripe_operation_dispatch
-        .quiesceOwnerStripeOperationsForPurgeInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    if (!finalStripeDispatches.ready) {
-      throw new Error(
-        `Owner reset Stripe operation debt remains: ${finalStripeDispatches.pending.join(", ")}`,
       );
     }
     const remainingAuth = await ctx.runMutation(

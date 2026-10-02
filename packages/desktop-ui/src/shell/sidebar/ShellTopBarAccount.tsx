@@ -1,3 +1,4 @@
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 import {
   Fragment,
   lazy,
@@ -112,15 +113,12 @@ export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
       window.removeEventListener(SUBSCRIPTION_UPGRADED_EVENT, handler);
   }, []);
 
-  const billingStatus = usePersistentConvexOneShot(
-    api.billing.getSubscriptionStatus,
+  // A live view of the owner's billing ledger; upgrades land on their own.
+  void billingRefreshKey;
+  const billingStatus: BillingStatusLite | undefined = useBackendValue(
+    "billing.status",
     hasConnectedAccount && billingQueryReady ? {} : "skip",
-    {
-      scope: cacheScope,
-      ttlMs: 5 * 60 * 1000,
-      refreshKey: billingRefreshKey,
-    },
-  ) as BillingStatusLite | undefined;
+  );
 
   const pendingSignOutRef = useRef(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);

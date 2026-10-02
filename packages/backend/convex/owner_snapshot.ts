@@ -14,7 +14,6 @@ import {
   resolveOwnerExecutionInMutation,
 } from "./cloud_apps";
 import { CLOUD_ENGINE_PROVIDERS } from "./cloud_engines";
-import { runPeekOwnerModelAllowance } from "./gateway_capabilities";
 import { resolveBuilderEndpoint } from "./lib/builder_turns";
 import {
   cloudExecutionSelectionValidator,
@@ -144,29 +143,13 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       : await resolveIdentityLevel(ctx, ownerId);
     const writable =
       access.allowed && !migrationFenced && enforcement.status !== "suspended";
+    // Plan and allowance live in the owner's billing ledger on cloud-builder,
+    // which overlays them on this snapshot; these keep the wire shape total.
     const { plan } = await resolveCloudPlan(ctx, ownerId);
-    const resolvedAllowance = writable
-      ? await runPeekOwnerModelAllowance(ctx, {
-          ownerId,
-          ownerGeneration: access.generation,
-          isAnonymous: args.isAnonymous,
-        })
-      : null;
-    const allowance: OwnerSnapshot["allowance"] = resolvedAllowance
-      ? {
-          audience: resolvedAllowance.audience,
-          budgetMicroCents: resolvedAllowance.budgetMicroCents,
-          ...(resolvedAllowance.maxRequests !== undefined
-            ? { maxRequests: resolvedAllowance.maxRequests }
-            : {}),
-        }
-      : {
-          // A fenced owner admits nothing. Keep the shape total so the gate
-          // does not need a separate allowance state.
-          audience: args.isAnonymous ? "anonymous" : "free",
-          budgetMicroCents: 0,
-          maxRequests: 0,
-        };
+    const allowance: OwnerSnapshot["allowance"] = {
+      audience: args.isAnonymous ? "anonymous" : "free",
+      budgetMicroCents: 0,
+    };
     let execution: CloudExecutionSelection;
     try {
       execution = await resolveOwnerExecutionInMutation(ctx, ownerId);

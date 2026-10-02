@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { components } from "../_generated/api";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalQuery } from "../_generated/server";
+import { readOwnerPaying } from "./owner_plan";
 
 type IdentityReadCtx =
   | Pick<QueryCtx, "db" | "runQuery">
@@ -15,7 +16,6 @@ export const identityLevelValidator = v.union(
   v.literal(3),
 );
 
-const ACTIVE_PAID_STATUSES = new Set(["active", "trialing"]);
 const SOCIAL_PROVIDERS = new Set(["google", "apple"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -65,31 +65,17 @@ const readBetterAuthRows = async (
 export const resolveIdentityLevel = async (
   ctx: IdentityReadCtx,
   ownerId: string,
+  options: { paying?: boolean } = {},
 ): Promise<IdentityLevel> => {
   const userId = betterAuthUserIdFromOwnerId(ownerId);
-  const [auth, profile, credit] = await Promise.all([
+  const [auth, paying] = await Promise.all([
     userId
       ? readBetterAuthRows(ctx, userId)
       : Promise.resolve({ anonymous: false, social: false }),
-    ctx.db
-      .query("billing_profiles")
-      .withIndex("by_ownerId", (query) => query.eq("ownerId", ownerId))
-      .unique(),
-    ctx.db
-      .query("billing_usage_credits")
-      .withIndex("by_ownerId", (query) => query.eq("ownerId", ownerId))
-      .unique(),
+    options.paying ?? readOwnerPaying(ctx, ownerId),
   ]);
-
   if (auth.anonymous) return 0;
-  if (
-    (profile !== null &&
-      profile.activePlan !== "free" &&
-      ACTIVE_PAID_STATUSES.has(profile.subscriptionStatus)) ||
-    (credit?.balanceMicroCents ?? 0) > 0
-  ) {
-    return 3;
-  }
+  if (paying) return 3;
   if (auth.social) return 2;
   return 1;
 };
@@ -100,3 +86,4 @@ export const resolveIdentityLevelInternal = internalQuery({
   handler: async (ctx, args): Promise<IdentityLevel> =>
     await resolveIdentityLevel(ctx, args.ownerId),
 });
+

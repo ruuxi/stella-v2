@@ -1,3 +1,4 @@
+import { billingControl } from "./billing-control.js";
 import {
   GATEWAY_HEALTH_PATH,
   GATEWAY_MODEL_REVISION_HEADER,
@@ -310,7 +311,7 @@ const handleSessionCapability = async (
       );
     }
   }
-  const result = await convex.sessionCapability({
+  const result = await billingControl(env).issueSessionCapability({
     ownerId,
     isAnonymous: verified.token.isAnonymous,
     ipHash,

@@ -939,10 +939,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           const xaiModel = body.model ?? "grok-voice-think-fast-1.0";
           const xaiVoice = body.voice ?? "eve";
           const lease = (await ctx.runMutation(
-            internal.billing.prepareVoiceRealtimeLease,
+            internal.provider_usage.prepareVoiceRealtimeLease,
             {
               ownerId,
               ownerGeneration: gate.ownerGeneration,
+              availableManagedUsageMicroCents: gate.remainingMicroCents,
               provider: "xai" as const,
               model: xaiModel,
               voice: xaiVoice,
@@ -967,7 +968,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           if (!dispatch) {
             await ctx
               .runMutation(
-                internal.billing.releaseUndispatchedVoiceRealtimeLeaseInternal,
+                internal.provider_usage.releaseUndispatchedVoiceRealtimeLeaseInternal,
                 {
                   ownerId,
                   ownerGeneration: lease.ownerGeneration,
@@ -1009,7 +1010,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 xaiResponse.status,
                 xaiText,
               );
-              await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+              await ctx.runMutation(internal.provider_usage.failVoiceRealtimeLease, {
                 ownerId,
                 ownerGeneration: lease.ownerGeneration,
                 stellaSessionId: lease.stellaSessionId,
@@ -1026,7 +1027,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             const xaiData = JSON.parse(xaiText) as ProviderClientSecretPayload;
             const xaiClientSecret = readProviderClientSecret(xaiData);
             if (!xaiClientSecret) {
-              await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+              await ctx.runMutation(internal.provider_usage.failVoiceRealtimeLease, {
                 ownerId,
                 ownerGeneration: lease.ownerGeneration,
                 stellaSessionId: lease.stellaSessionId,
@@ -1048,7 +1049,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               );
             }
             const activation = await ctx.runMutation(
-              internal.billing.activateVoiceRealtimeLease,
+              internal.provider_usage.activateVoiceRealtimeLease,
               {
                 ownerId,
                 ownerGeneration: lease.ownerGeneration,
@@ -1090,7 +1091,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           } catch (error) {
             await ctx
-              .runMutation(internal.billing.failVoiceRealtimeLease, {
+              .runMutation(internal.provider_usage.failVoiceRealtimeLease, {
                 ownerId,
                 ownerGeneration: lease.ownerGeneration,
                 stellaSessionId: lease.stellaSessionId,
@@ -1146,10 +1147,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               ? body.ttsModel.trim()
               : DEFAULT_INWORLD_REALTIME_TTS_MODEL;
           const lease = (await ctx.runMutation(
-            internal.billing.prepareVoiceRealtimeLease,
+            internal.provider_usage.prepareVoiceRealtimeLease,
             {
               ownerId,
               ownerGeneration: gate.ownerGeneration,
+              availableManagedUsageMicroCents: gate.remainingMicroCents,
               provider: "inworld" as const,
               model: inworldModel,
               voice: inworldVoice,
@@ -1178,7 +1180,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           if (!dispatch) {
             await ctx
               .runMutation(
-                internal.billing.releaseUndispatchedVoiceRealtimeLeaseInternal,
+                internal.provider_usage.releaseUndispatchedVoiceRealtimeLeaseInternal,
                 {
                   ownerId,
                   ownerGeneration: lease.ownerGeneration,
@@ -1236,7 +1238,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               );
             }
             const activation = await ctx
-              .runMutation(internal.billing.activateVoiceRealtimeLease, {
+              .runMutation(internal.provider_usage.activateVoiceRealtimeLease, {
                 ownerId,
                 ownerGeneration: lease.ownerGeneration,
                 stellaSessionId: lease.stellaSessionId,
@@ -1349,10 +1351,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             },
           });
           const lease = (await ctx.runMutation(
-            internal.billing.prepareVoiceRealtimeLease,
+            internal.provider_usage.prepareVoiceRealtimeLease,
             {
               ownerId,
               ownerGeneration: gate.ownerGeneration,
+              availableManagedUsageMicroCents: gate.remainingMicroCents,
               provider: "openai" as const,
               model,
               voice,
@@ -1372,7 +1375,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           const providerDispatchId = `voice:openai_call:${lease.stellaSessionId}`;
           const providerAttemptId = crypto.randomUUID();
           const activation = await ctx.runMutation(
-            internal.billing.issueOpenAiVoiceRealtimeAuthority,
+            internal.provider_usage.issueOpenAiVoiceRealtimeAuthority,
             {
               ownerId,
               ownerGeneration: lease.ownerGeneration,
@@ -1384,7 +1387,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           if (!activation.activated) {
             await ctx
               .runMutation(
-                internal.billing.releaseUndispatchedVoiceRealtimeLeaseInternal,
+                internal.provider_usage.releaseUndispatchedVoiceRealtimeLeaseInternal,
                 {
                   ownerId,
                   ownerGeneration: lease.ownerGeneration,
@@ -1425,10 +1428,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
         }
         const lease = (await ctx.runMutation(
-          internal.billing.prepareVoiceRealtimeLease,
+          internal.provider_usage.prepareVoiceRealtimeLease,
           {
             ownerId,
             ownerGeneration: gate.ownerGeneration,
+            availableManagedUsageMicroCents: gate.remainingMicroCents,
             provider: "openai" as const,
             model,
             voice,
@@ -1454,7 +1458,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!dispatch) {
           await ctx
             .runMutation(
-              internal.billing.releaseUndispatchedVoiceRealtimeLeaseInternal,
+              internal.provider_usage.releaseUndispatchedVoiceRealtimeLeaseInternal,
               {
                 ownerId,
                 ownerGeneration: lease.ownerGeneration,
@@ -1536,7 +1540,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               openaiResponse.status,
               responseText,
             );
-            await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+            await ctx.runMutation(internal.provider_usage.failVoiceRealtimeLease, {
               ownerId,
               ownerGeneration: lease.ownerGeneration,
               stellaSessionId: lease.stellaSessionId,
@@ -1556,7 +1560,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           ) as ProviderClientSecretPayload;
           const openaiClientSecret = readProviderClientSecret(openaiData);
           if (!openaiClientSecret) {
-            await ctx.runMutation(internal.billing.failVoiceRealtimeLease, {
+            await ctx.runMutation(internal.provider_usage.failVoiceRealtimeLease, {
               ownerId,
               ownerGeneration: lease.ownerGeneration,
               stellaSessionId: lease.stellaSessionId,
@@ -1579,7 +1583,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const openaiSessionId = readProviderSessionId(openaiData);
           const activation = await ctx.runMutation(
-            internal.billing.activateVoiceRealtimeLease,
+            internal.provider_usage.activateVoiceRealtimeLease,
             {
               ownerId,
               ownerGeneration: lease.ownerGeneration,
@@ -1625,7 +1629,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
         } catch (error) {
           await ctx
-            .runMutation(internal.billing.failVoiceRealtimeLease, {
+            .runMutation(internal.provider_usage.failVoiceRealtimeLease, {
               ownerId,
               ownerGeneration: lease.ownerGeneration,
               stellaSessionId: lease.stellaSessionId,
@@ -1697,7 +1701,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           return errorResponse(400, "Missing or invalid SDP offer.", origin);
         }
         const fence = await ctx.runQuery(
-          internal.billing.getOpenAiVoiceCallFence,
+          internal.provider_usage.getOpenAiVoiceCallFence,
           { ownerId: auth.ownerId, stellaSessionId },
         );
         if (
@@ -1736,7 +1740,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         let boundCallId: string | null = null;
         try {
           const started = await ctx.runMutation(
-            internal.billing.markOpenAiVoiceProviderCallStarted,
+            internal.provider_usage.markOpenAiVoiceProviderCallStarted,
             {
               ownerId: auth.ownerId,
               ownerGeneration,
@@ -1773,7 +1777,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           providerOutcomeKnown = !openaiResponse.ok || providerCallId !== null;
           if (!openaiResponse.ok) {
             await ctx.runMutation(
-              internal.billing.markOpenAiVoiceProviderCallNotCreated,
+              internal.provider_usage.markOpenAiVoiceProviderCallNotCreated,
               {
                 ownerId: auth.ownerId,
                 ownerGeneration,
@@ -1805,7 +1809,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           boundCallId = providerCallId;
           const binding = await ctx.runMutation(
-            internal.billing.bindOpenAiVoiceProviderCall,
+            internal.provider_usage.bindOpenAiVoiceProviderCall,
             {
               ownerId: auth.ownerId,
               ownerGeneration,
@@ -1826,7 +1830,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           const sdpAnswer = await openaiResponse.text();
           if (!(await dispatch.checkAllowed())) {
             await ctx.runMutation(
-              internal.billing.requestOpenAiVoiceHangupInternal,
+              internal.provider_usage.requestOpenAiVoiceHangupInternal,
               {
                 ownerId: auth.ownerId,
                 ownerGeneration,
@@ -1851,7 +1855,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         } catch (error) {
           if (boundCallId) {
             await ctx
-              .runMutation(internal.billing.requestOpenAiVoiceHangupInternal, {
+              .runMutation(internal.provider_usage.requestOpenAiVoiceHangupInternal, {
                 ownerId: auth.ownerId,
                 ownerGeneration,
                 stellaSessionId,
@@ -1949,7 +1953,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         const leaseFence = await ctx.runQuery(
-          internal.billing.getVoiceRealtimeLeaseFence,
+          internal.provider_usage.getVoiceRealtimeLeaseFence,
           { ownerId: auth.ownerId, stellaSessionId },
         );
         if (
@@ -1997,7 +2001,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           if (!inworldResponse.ok) {
             if (stellaSessionId) {
               await ctx
-                .runMutation(internal.billing.failVoiceRealtimeLease, {
+                .runMutation(internal.provider_usage.failVoiceRealtimeLease, {
                   ownerId: auth.ownerId,
                   ownerGeneration: leaseFence.ownerGeneration,
                   stellaSessionId,
@@ -2039,7 +2043,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         } catch (error) {
           if (stellaSessionId) {
             await ctx
-              .runMutation(internal.billing.failVoiceRealtimeLease, {
+              .runMutation(internal.provider_usage.failVoiceRealtimeLease, {
                 ownerId: auth.ownerId,
                 ownerGeneration: leaseFence.ownerGeneration,
                 stellaSessionId,
@@ -2977,7 +2981,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         const leaseFence = await ctx.runQuery(
-          internal.billing.getVoiceRealtimeLeaseFence,
+          internal.provider_usage.getVoiceRealtimeLeaseFence,
           { ownerId: auth.ownerId, stellaSessionId },
         );
         if (
@@ -2995,7 +2999,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         const result = await ctx.runMutation(
-          internal.billing.recordVoiceRealtimeLeaseEvent,
+          internal.provider_usage.recordVoiceRealtimeLeaseEvent,
           {
             ownerId: auth.ownerId,
             ownerGeneration: leaseFence.ownerGeneration,
@@ -3055,7 +3059,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         const result = await ctx.runMutation(
-          internal.billing.recordVoiceRealtimeUsage,
+          internal.provider_usage.recordVoiceRealtimeUsage,
           {
             ownerId: identity.tokenIdentifier,
             ownerGeneration: parsed.ownerGeneration,

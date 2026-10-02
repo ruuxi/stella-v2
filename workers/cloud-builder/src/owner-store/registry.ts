@@ -124,6 +124,7 @@ export type OwnerViewContext = {
   ownerId: string;
   caller: OwnerCaller | null;
   db: OwnerDbReader;
+  env: Cloudflare.Env;
   now: number;
 };
 

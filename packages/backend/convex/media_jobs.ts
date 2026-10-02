@@ -38,7 +38,7 @@ import {
   LEGACY_OWNER_GENERATION,
 } from "./owner_lifecycle";
 import { ownerPurgeModeValidator } from "./schema/owner_lifecycle";
-import { recordMediaCompletedUsageAuthorized } from "./billing";
+import { recordMediaCompletedUsageAuthorized } from "./provider_usage";
 import {
   meterCompletedMediaJob,
   type MediaBillingRecord,

@@ -3,17 +3,21 @@ import {
   type GatewayUsageBatch,
   type GatewayUsageEvent,
 } from "@stella/contracts/gateway/usage";
+import type { BillingControlRpc } from "@stella/contracts/gateway/usage";
+import { billingControl } from "./billing-control.js";
 import { createConvexClient, type ConvexClient } from "./convex-client.js";
 
 /**
- * USAGE_QUEUE consumer: one `POST /api/gateway/usage` per batch.
+ * USAGE_QUEUE consumer. Each batch settles into the owners' billing ledgers
+ * on cloud-builder (`BillingControl.ingestUsage`), then goes to Convex
+ * `POST /api/gateway/usage` for abuse accounting only (risk signals and the
+ * anonymous IP allowance) until that moves too. Both are idempotent on
+ * `requestId`, so a retried batch is safe.
  *
- *   2xx           ack the whole batch (Convex reports duplicates/rejections
- *                 per event in its body; those are logged, never retried —
- *                 the batch is idempotent on requestId).
- *   5xx / timeout retry the whole batch with a growing delay.
- *   other 4xx     log and ack: a bad batch must not poison the queue. The
- *                 malformed messages are already acked individually below.
+ *   settled + 2xx  ack the whole batch (rejections are logged, never retried).
+ *   a failure      retry the whole batch with a growing delay, unless Convex
+ *                  refused it with a 4xx, which is logged and acked: a bad
+ *                  batch must not poison the queue.
  */
 const RETRY_DELAY_SECONDS = [5, 15, 60, 180, 600] as const;
 
@@ -33,8 +37,9 @@ export const isUsageEvent = (value: unknown): value is GatewayUsageEvent => {
 
 export const handleUsageBatch = async (
   batch: MessageBatch<unknown>,
-  env: Pick<Env, "STELLA_CONVEX_SITE_URL" | "GATEWAY_SERVICE_SECRET">,
+  env: Pick<Env, "STELLA_CONVEX_SITE_URL" | "GATEWAY_SERVICE_SECRET" | "BILLING">,
   convex: ConvexClient = createConvexClient(env),
+  billing: BillingControlRpc = billingControl(env),
 ): Promise<void> => {
   const events: GatewayUsageEvent[] = [];
   let maxAttempts = 1;
@@ -52,6 +57,24 @@ export const handleUsageBatch = async (
   if (events.length === 0) return;
 
   const payload: GatewayUsageBatch = { v: GATEWAY_USAGE_EVENT_VERSION, events };
+  const retryDelay = () =>
+    RETRY_DELAY_SECONDS[Math.min(maxAttempts, RETRY_DELAY_SECONDS.length) - 1] ??
+    RETRY_DELAY_SECONDS[RETRY_DELAY_SECONDS.length - 1];
+  try {
+    const settled = await billing.ingestUsage(payload);
+    if (settled.rejected.length > 0) {
+      console.error(
+        `[model-gateway:usage] billing rejected ${settled.rejected.length}/${events.length} events: ${JSON.stringify(settled.rejected).slice(0, 2_000)}`,
+      );
+    }
+  } catch (error) {
+    const delaySeconds = retryDelay();
+    console.warn(
+      `[model-gateway:usage] billing unavailable (${error instanceof Error ? error.message : String(error)}); retrying ${events.length} events in ${delaySeconds}s`,
+    );
+    batch.retryAll({ delaySeconds });
+    return;
+  }
   const result = await convex.usage(payload);
   if (result.ok) {
     const body = result.body;
@@ -64,10 +87,7 @@ export const handleUsageBatch = async (
     return;
   }
   if (result.status === null || result.retryable) {
-    const delaySeconds =
-      RETRY_DELAY_SECONDS[
-        Math.min(maxAttempts, RETRY_DELAY_SECONDS.length) - 1
-      ] ?? RETRY_DELAY_SECONDS[RETRY_DELAY_SECONDS.length - 1];
+    const delaySeconds = retryDelay();
     console.warn(
       `[model-gateway:usage] convex unavailable status=${result.status ?? "none"}; retrying ${events.length} events in ${delaySeconds}s`,
     );

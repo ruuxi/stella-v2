@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/api";
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useCurrentUser } from "@/global/auth/hooks/use-current-user";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, } from "@/ui/dialog";
@@ -34,12 +33,10 @@ export const SUBSCRIPTION_UPGRADED_EVENT = "stella:subscription-upgraded";
  * cancellations are also silent — we just update the stored baseline so a
  * future upgrade re-celebrates.
  *
- * Convex is reactive end-to-end here: Stripe's `checkout.session.completed`
- * (and `customer.subscription.*`) webhook lands in
- * `backend/convex/http_routes/stripe.ts`, which writes the new plan to the
- * user's billing row; this `useQuery` pushes the change to the desktop
- * over the existing Convex WebSocket within ~1s. No extra IPC or deep-link
- * channel is needed.
+ * Billing is reactive end-to-end here: Stripe's `checkout.session.completed`
+ * (and `customer.subscription.*`) webhook lands on cloud-builder, which
+ * writes the new plan to the owner's billing ledger; the live `billing.status` view pushes the change
+ * to the desktop within ~1s. No extra IPC or deep-link channel is needed.
  */
 export function SubscriptionUpgradeDialog() {
     const t = useT();
@@ -49,7 +46,7 @@ export function SubscriptionUpgradeDialog() {
     // accounts on the same machine doesn't cross-fire (or silently mask) a
     // celebration that belongs to the other identity.
     const accountKey = user?.email?.toLowerCase() ?? "";
-    const billingStatus = useQuery(api.billing.getSubscriptionStatus, hasConnectedAccount ? {} : "skip");
+    const billingStatus = useBackendValue("billing.status", hasConnectedAccount ? {} : "skip");
     const [shownPlan, setShownPlan] = useState(null);
     // Guard against the React 18 StrictMode double-effect in dev firing the
     // seed/celebrate logic twice for the same account+plan tuple. We only

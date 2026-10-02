@@ -173,7 +173,7 @@ const parseOnboardingStartersOutput = (
 };
 
 const createSynthesisDispatchGuard = (
-  ctx: Pick<ActionCtx, "runMutation">,
+  ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   fence: { ownerId: string; ownerGeneration: string },
 ) =>
   createManagedUsageDispatchGuard(ctx, {
@@ -204,7 +204,7 @@ const createSynthesisModelBilling = async (args: {
 });
 
 const generateWelcomeHtml = async (
-  ctx: Pick<ActionCtx, "runMutation">,
+  ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   coreMemory: string,
   fence: {
     ownerId: string;

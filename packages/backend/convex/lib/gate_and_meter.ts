@@ -22,9 +22,9 @@
  * 402 capability), so a route replaces ~15 lines of serial checks with one
  * call.
  *
- * Billing deliberately does not live in this gate module. Every paid physical
- * provider attempt owns one durable receipt, preventing an admitted request
- * from escaping or duplicating its charge across a crash or lifecycle fence.
+ * The plan and usage verdicts come from the owner's billing ledger on
+ * cloud-builder (one bridge call, made by the action before the mutation);
+ * the rate limit and the lifecycle generation stay in the one transaction.
  */
 import { v, type ObjectType } from "convex/values";
 import {
@@ -33,12 +33,8 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
-import {
-  runEnforceManagedUsageLimit,
-  runResolveManagedModelAccess,
-  type ManagedModelAccessResult,
-} from "../billing";
 import { assertOwnerMigrationWriteAllowed } from "../auth";
+import { fetchBillingAccess } from "../billing_bridge";
 import { runConsumeWebhookRateLimit } from "../rate_limits";
 import {
   buildCapabilityDenial,
@@ -58,6 +54,22 @@ export type GateFailure =
   | { ok: false; gate: "rate"; retryAfterMs: number }
   | { ok: false; gate: "capability"; denial: CapabilityDenial }
   | { ok: false; gate: "usage"; message: string; retryAfterMs: number };
+
+export type ManagedModelAccessResult = {
+  allowed: boolean;
+  plan: "free" | "go" | "pro";
+  unlimited: boolean;
+  downgraded: boolean;
+  modelAudience:
+    | "anonymous"
+    | "free"
+    | "go"
+    | "pro"
+    | "go_fallback"
+    | "pro_fallback";
+  retryAfterMs: number;
+  message: string;
+};
 
 type GateSuccess = {
   ok: true;
@@ -159,6 +171,10 @@ const enforceManagedGateArgs = {
       minimumRemainingMicroCents: v.optional(v.number()),
     }),
   ),
+  /** The billing verdict the action fetched; required by capability and usage steps. */
+  access: v.optional(managedModelAccessResultValidator),
+  /** Spend available when the action fetched `access`; null when unlimited. */
+  remainingMicroCents: v.optional(v.union(v.number(), v.null())),
 };
 
 /**
@@ -178,19 +194,7 @@ export const runEnforceManagedGate = async (
   // reopened generation.
   const { generation: ownerGeneration } =
     await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
-  let access: ManagedModelAccessResult | null = null;
-  const ensureAccess = async (): Promise<ManagedModelAccessResult> => {
-    if (!access) {
-      access = await runResolveManagedModelAccess(ctx, {
-        ownerId: args.ownerId,
-        ownerGeneration,
-        ...(args.isAnonymous !== undefined
-          ? { isAnonymous: args.isAnonymous }
-          : {}),
-      });
-    }
-    return access;
-  };
+  const access: ManagedModelAccessResult | null = args.access ?? null;
 
   for (const step of args.order) {
     if (step === "rate") {
@@ -201,9 +205,9 @@ export const runEnforceManagedGate = async (
       }
     } else if (step === "capability") {
       if (!args.capability) continue;
+      if (!access) throw new Error("The capability gate needs a billing verdict.");
       const capability = args.capability as Capability;
-      const resolved = await ensureAccess();
-      const audience = collapseAudience(resolved.modelAudience);
+      const audience = collapseAudience(access.modelAudience);
       if (!hasCapability(audience, capability)) {
         return {
           ok: false,
@@ -213,22 +217,17 @@ export const runEnforceManagedGate = async (
       }
     } else if (step === "usage") {
       if (!args.usage) continue;
-      const usage = await runEnforceManagedUsageLimit(ctx, {
-        ownerId: args.ownerId,
-        ownerGeneration,
-        ...(args.usage.minimumRemainingMicroCents !== undefined
-          ? {
-              minimumRemainingMicroCents:
-                args.usage.minimumRemainingMicroCents,
-            }
-          : {}),
-      });
-      if (!usage.allowed) {
+      if (!access) throw new Error("The usage gate needs a billing verdict.");
+      const minimum = args.usage.minimumRemainingMicroCents ?? 0;
+      const remaining = args.remainingMicroCents ?? null;
+      if (!access.allowed || (remaining !== null && remaining < minimum)) {
         return {
           ok: false,
           gate: "usage",
-          message: usage.message,
-          retryAfterMs: usage.retryAfterMs,
+          message: access.allowed
+            ? "Not enough managed usage left for this request."
+            : access.message,
+          retryAfterMs: access.retryAfterMs,
         };
       }
     }
@@ -265,6 +264,8 @@ export type ManagedGateOutcome =
       ok: true;
       access: ManagedModelAccessResult | null;
       ownerGeneration: string;
+      /** Spend available at the gate (null: unlimited or not checked). */
+      remainingMicroCents: number | null;
     }
   | { ok: false; response: Response };
 
@@ -280,9 +281,31 @@ export const runManagedGate = async (
   origin: string | null,
   spec: ManagedGateSpec,
 ): Promise<ManagedGateOutcome> => {
+  const needsBilling =
+    (spec.capability !== undefined && spec.order.includes("capability")) ||
+    (spec.usage !== undefined && spec.order.includes("usage"));
+  const billing = needsBilling
+    ? await fetchBillingAccess(spec.ownerId, {
+        ...(spec.isAnonymous !== undefined ? { isAnonymous: spec.isAnonymous } : {}),
+      })
+    : null;
   const result = await ctx.runMutation(
     internal.lib.gate_and_meter.enforceManagedGate,
     {
+      ...(billing
+        ? {
+            access: {
+              allowed: billing.allowed,
+              plan: billing.plan,
+              unlimited: billing.unlimited,
+              downgraded: billing.downgraded,
+              modelAudience: billing.audience,
+              retryAfterMs: billing.retryAfterMs,
+              message: billing.message,
+            },
+            remainingMicroCents: billing.remainingMicroCents,
+          }
+        : {}),
       ownerId: spec.ownerId,
       order: spec.order,
       ...(spec.isAnonymous !== undefined
@@ -299,6 +322,7 @@ export const runManagedGate = async (
       ok: true,
       access: result.access,
       ownerGeneration: result.ownerGeneration,
+      remainingMicroCents: billing?.remainingMicroCents ?? null,
     };
   }
   return {

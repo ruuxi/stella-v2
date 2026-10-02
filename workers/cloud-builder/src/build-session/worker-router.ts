@@ -111,6 +111,7 @@ import {
   serviceJsonBodyLimit,
 } from "../request-ingress.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
+import { handleBillingRoute } from "../billing/routes.js";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import type { TurnAuthKind } from "../turn-start-request.js";
 import {
@@ -954,6 +955,10 @@ const router = {
     // the client sent under those names first.
     const backendResponse = await handleBackendRoute(request, env);
     if (backendResponse) return backendResponse;
+    // Stripe signs its webhooks; the internal billing routes check the
+    // service secret themselves.
+    const billingResponse = await handleBillingRoute(request, env);
+    if (billingResponse) return billingResponse;
     if (url.pathname === "/dictation/socket") {
       if (request.method !== "GET" || !isWebSocketUpgrade(request)) {
         return json({ error: "This endpoint speaks WebSocket only." }, 426);

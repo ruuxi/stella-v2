@@ -5,6 +5,7 @@
 
 import { empty } from "./args.js";
 import { agentThreadsDomain } from "./domains/agent-threads.js";
+import { billingDomain } from "./domains/billing.js";
 import { conversationEditsDomain } from "./domains/conversation-edits.js";
 import { conversationsDomain } from "./domains/conversations.js";
 import { RATE_LIMIT_MIGRATION } from "./rate-limit.js";
@@ -27,6 +28,7 @@ export const ownerDomains: OwnerDomain[] = [
   conversationsDomain,
   agentThreadsDomain,
   conversationEditsDomain,
+  billingDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

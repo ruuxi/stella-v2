@@ -1,16 +1,13 @@
 import type {
   GatewayErrorCode,
-  GatewaySessionCapabilityResponse,
 } from "@stella/contracts/gateway/api";
 import {
   CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
-  CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   type ConvexEngineAccessRequest,
   type ConvexEngineAccessResponse,
-  type ConvexSessionCapabilityRequest,
   type GatewayConfigSnapshot,
   type GatewayUsageBatch,
   type GatewayUsageBatchResult,
@@ -41,9 +38,6 @@ export type ConvexResult<T> =
     };
 
 export type ConvexClient = {
-  sessionCapability(
-    request: ConvexSessionCapabilityRequest,
-  ): Promise<ConvexResult<GatewaySessionCapabilityResponse>>;
   engineAccess(
     request: ConvexEngineAccessRequest,
   ): Promise<ConvexResult<ConvexEngineAccessResponse>>;
@@ -150,12 +144,6 @@ export const createConvexClient = (
   };
 
   return {
-    sessionCapability: (request) =>
-      call<GatewaySessionCapabilityResponse>(
-        CONVEX_GATEWAY_SESSION_CAPABILITY_PATH,
-        "POST",
-        request,
-      ),
     engineAccess: (request) =>
       call<ConvexEngineAccessResponse>(
         CONVEX_GATEWAY_ENGINE_ACCESS_PATH,

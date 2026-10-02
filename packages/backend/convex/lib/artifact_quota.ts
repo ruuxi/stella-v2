@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import type { SubscriptionPlan } from "./billing_plans";
+import { readOwnerBillingPlan, type SubscriptionPlan } from "./owner_plan";
 
 const MEBIBYTE = 1024 * 1024;
 const ARTIFACT_QUOTA_DEFAULT_MB: Readonly<Record<SubscriptionPlan, number>> = {
@@ -8,7 +8,6 @@ const ARTIFACT_QUOTA_DEFAULT_MB: Readonly<Record<SubscriptionPlan, number>> = {
   go: 1024,
   pro: 5120,
 };
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 const MAX_RECORDED_BUILDS = 2_000;
 
 type ArtifactQuotaCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
@@ -48,16 +47,7 @@ export const resolveOwnerArtifactQuotaBytes = async (
   ctx: ArtifactQuotaCtx,
   ownerId: string,
 ): Promise<number> => {
-  const profile = await ctx.db
-    .query("billing_profiles")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  const plan: SubscriptionPlan =
-    profile &&
-    ACTIVE_SUBSCRIPTION_STATUSES.has(profile.subscriptionStatus) &&
-    profile.activePlan !== "free"
-      ? profile.activePlan
-      : "free";
+  const { plan, unlimited } = await readOwnerBillingPlan(ctx, ownerId);
   const quotaMb = readPositiveNumberEnv(
     `STELLA_APP_ARTIFACT_QUOTA_MB_${plan.toUpperCase()}`,
     ARTIFACT_QUOTA_DEFAULT_MB[plan],

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import { setTestBillingPlan } from "../tests/setup/billing-plan";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,9 +43,16 @@ const createTest = () => {
 };
 
 const asOwner = async (t: ReturnType<typeof createTest>) => {
-  await t.mutation(internal.billing.setAdminBillingPlan, {
-    ownerId: OWNER_ID,
-    plan: "go",
+  setTestBillingPlan("go");
+  // Daily caps read the plan the owner's billing ledger last reported.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("owner_billing_plans", {
+      ownerId: OWNER_ID,
+      plan: "go",
+      paying: true,
+      unlimited: false,
+      updatedAt: Date.now(),
+    });
   });
   return t.withIdentity({
     issuer: "https://issuer.test",

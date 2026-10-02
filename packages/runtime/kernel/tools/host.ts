@@ -77,6 +77,9 @@ import { cleanupWindowsStellaComputerSessionDaemon } from "../cli/stella-compute
 import { createReplConnectClient } from "../connectors/connect-service.js";
 
 import type { ToolDefinition } from "../extensions/types.js";
+import type { HookEmitter } from "../extensions/hook-emitter.js";
+import { runToolCallPipeline } from "./tool-call-pipeline.js";
+import { getToolArgumentPreparer } from "./argument-preparers.js";
 
 export type { ToolContext, ToolHandlerExtras, ToolResult };
 
@@ -248,6 +251,55 @@ export const createToolHost = ({
     signal?: AbortSignal,
     onUpdate?: ToolHandlerExtras["onUpdate"],
   ) => Promise<ToolResult>;
+  // Extension hooks for calls that do not come through the runtime adapter
+  // (nested `code` / `multi_tool_use_parallel` calls, voice). Attached by
+  // the runner once its emitter exists.
+  let toolCallHooks: Pick<HookEmitter, "emit"> | undefined;
+  /**
+   * Dispatch with the same validate + before_tool/after_tool step a
+   * model-issued top-level call gets in the runtime adapter.
+   */
+  const executeToolCall = (
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    context: ToolContext,
+    signal?: AbortSignal,
+    onUpdate?: ToolHandlerExtras["onUpdate"],
+  ): Promise<ToolResult> => {
+    const parameters = toolCatalog.get(toolName)?.parameters;
+    const prepareArguments = getToolArgumentPreparer(toolName);
+    return runToolCallPipeline({
+      toolName,
+      args: toolArgs,
+      context,
+      ...(toolCallHooks ? { hookEmitter: toolCallHooks } : {}),
+      ...(parameters && typeof parameters === "object"
+        ? { parameters: parameters as Record<string, unknown> }
+        : {}),
+      ...(prepareArguments ? { prepareArguments } : {}),
+      execute: (effectiveArgs) =>
+        executeTool(toolName, effectiveArgs, context, signal, onUpdate),
+    });
+  };
+  /**
+   * Re-entry from inside another tool. Tools requiring explicit approval
+   * stay top-level only so nesting cannot bypass their approval flow.
+   */
+  const executeNestedToolCall = (
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    context: ToolContext,
+    signal?: AbortSignal,
+    onUpdate?: ToolHandlerExtras["onUpdate"],
+  ): Promise<ToolResult> => {
+    const metadata = toolCatalog.get(toolName);
+    if (toolRequiresExplicitApproval(metadata?.approval)) {
+      return Promise.resolve({
+        error: `${toolName} requires explicit approval and cannot be invoked from code or multi_tool_use_parallel. Call it directly so the approval flow can run.`,
+      });
+    }
+    return executeToolCall(toolName, toolArgs, context, signal, onUpdate);
+  };
   const nodeReplRegistry = new NodeReplKernelRegistry({
     browserBinPath: _stellaBrowserBinPath,
     ...(requestBrowserExtensionConnect
@@ -283,15 +335,7 @@ export const createToolHost = ({
         shutdownMacStellaComputerSession(sessionId);
       }
     },
-    executeTool: (toolName, args, context, signal, onUpdate) => {
-      const metadata = toolCatalog.get(toolName);
-      if (toolRequiresExplicitApproval(metadata?.approval)) {
-        return Promise.resolve({
-          error: `${toolName} requires explicit approval and cannot be invoked from code. Call it directly so the approval flow can run.`,
-        });
-      }
-      return executeTool(toolName, args, context, signal, onUpdate);
-    },
+    executeTool: executeNestedToolCall,
     // In-REPL `tools.$search` — runs host-side over the LIVE catalog so
     // connector/extension changes are visible immediately. Scope: exactly
     // the tools the calling context can invoke as `tools.<name>` in the
@@ -412,8 +456,7 @@ export const createToolHost = ({
     shellState,
     stateContext,
     nodeReplRegistry,
-    executeTool: (toolName, toolArgs, context, signal, onUpdate) =>
-      executeTool(toolName, toolArgs, context, signal, onUpdate),
+    executeTool: executeNestedToolCall,
   });
   // Names of built-in tools live in a dedicated Set so the
   // extension-registration paths below can reject collisions instead
@@ -683,6 +726,11 @@ export const createToolHost = ({
 
   return {
     executeTool,
+    executeToolCall,
+    /** Attach the runner's extension hooks to host-dispatched tool calls. */
+    setToolCallHooks: (hooks: Pick<HookEmitter, "emit"> | undefined) => {
+      toolCallHooks = hooks;
+    },
     getToolCatalog,
     getHandlerNames: () => Object.keys(handlers),
     getShells: () => Array.from(shellState.shells.values()),

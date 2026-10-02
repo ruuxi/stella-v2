@@ -409,6 +409,12 @@ export interface AgentTool<
 	label: string;
 	// User-facing status text while the tool is running.
 	workingText?: string;
+	/**
+	 * Optional compatibility shim for raw tool-call arguments, run before
+	 * schema validation. Must return an object that matches `TParameters`;
+	 * return the input unchanged when no rewrite applies.
+	 */
+	prepareArguments?: (args: unknown) => Static<TParameters>;
 	execute: (
 		toolCallId: string,
 		params: Static<TParameters>,

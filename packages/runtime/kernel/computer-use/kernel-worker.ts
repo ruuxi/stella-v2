@@ -378,7 +378,12 @@ const nodeReplWorkerMain = async (
       serializedSize(args) > workerData.maxProtocolMessageBytes
     ) {
       return Promise.reject(
-        new Error(`Invalid arguments for tools.${toolName}.`),
+        new Error(
+          `Invalid arguments for ${toolAccess(toolName)}: pass one plain JSON object, e.g. ${toolAccess(toolName)}({ ... }).` +
+            (toolName.startsWith("$")
+              ? ""
+              : ` Run await tools.$describe(${JSON.stringify(toolName)}) for its argument shape.`),
+        ),
       );
     }
     if (pendingToolCalls.size >= workerData.maxPendingToolCalls) {
@@ -508,6 +513,101 @@ const nodeReplWorkerMain = async (
           : typeof property === "string"
             ? toolFunctions.get(property)
             : undefined;
+  // Reading a tool that does not exist throws an error naming close matches
+  // instead of a later bare "is not a function". `"name" in tools` still
+  // probes safely; Promise/JSON/inspect protocol reads stay undefined.
+  const comparableToolName = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const toolNameDistance = (left: string, right: string): number => {
+    let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= left.length; i++) {
+      const current = [i];
+      for (let j = 1; j <= right.length; j++) {
+        current[j] = Math.min(
+          current[j - 1]! + 1,
+          previous[j]! + 1,
+          previous[j - 1]! + (left[i - 1] === right[j - 1] ? 0 : 1),
+        );
+      }
+      previous = current;
+    }
+    return previous[right.length]!;
+  };
+  // Common names models carry over from other harnesses.
+  const toolNameAliases: Record<string, readonly string[]> = {
+    bash: ["exec_command"],
+    shell: ["exec_command"],
+    sh: ["exec_command"],
+    terminal: ["exec_command"],
+    exec: ["exec_command"],
+    run: ["exec_command"],
+    websearch: ["web"],
+    webfetch: ["web"],
+    fetch: ["web"],
+    search: ["$search", "Grep"],
+    glob: ["Grep"],
+    multiedit: ["Edit"],
+    str_replace: ["Edit"],
+  };
+  const PASSTHROUGH_TOOL_PROPERTIES = new Set([
+    "then",
+    "catch",
+    "finally",
+    "toJSON",
+    "constructor",
+    "inspect",
+    "asymmetricMatch",
+    "$$typeof",
+    "nodeType",
+    "@@__IMMUTABLE_ITERABLE__@@",
+  ]);
+  const unknownToolError = (property: string): Error => {
+    const names = [
+      "$search",
+      "$describe",
+      "$list",
+      ...[...toolFunctions.keys()].sort(),
+    ];
+    const wanted = comparableToolName(property);
+    const scored = names
+      .map((name) => {
+        const comparable = comparableToolName(name);
+        const distance =
+          comparable === wanted
+            ? 0
+            : wanted &&
+                comparable &&
+                (comparable.includes(wanted) || wanted.includes(comparable))
+              ? 1
+              : toolNameDistance(comparable, wanted) + 1;
+        return { name, distance };
+      })
+      .filter(
+        ({ distance }) =>
+          distance <= Math.max(2, Math.ceil(wanted.length / 3)),
+      )
+      .sort(
+        (left, right) =>
+          left.distance - right.distance || left.name.localeCompare(right.name),
+      )
+      .map(({ name }) => name);
+    const aliased = (toolNameAliases[wanted] ?? []).filter(
+      (name) => name.startsWith("$") || toolFunctions.has(name),
+    );
+    const close = [...new Set([...aliased, ...scored])].slice(0, 5);
+    let message = `${toolAccess(property)} does not exist.`;
+    if (close.length > 0) {
+      message += ` Did you mean ${close.map(toolAccess).join(", ")}?`;
+      const firstTool = close.find((name) => !name.startsWith("$"));
+      if (firstTool) {
+        message += ` Run await tools.$describe(${JSON.stringify(firstTool)}) for its argument shape.`;
+      }
+    } else if (toolFunctions.size <= 20) {
+      message += ` Available: ${[...toolFunctions.keys()].sort().join(", ") || "(none)"}.`;
+    }
+    message += ` tools.$list() lists every callable tool; await tools.$search({ query }) finds tools by capability. Probe with ${JSON.stringify(property)} in tools.`;
+    return new TypeError(message);
+  };
   // The Proxy target stays EXTENSIBLE on purpose: JS Proxy invariants forbid
   // a non-extensible target from reporting own keys it does not have, which
   // would break dynamic key refresh. Immutability from REPL code is enforced
@@ -516,7 +616,18 @@ const nodeReplWorkerMain = async (
   // throw). Descriptors report configurable: true — required by the
   // invariants for keys the target does not own.
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
-    get: (_target, property) => lookupTool(property),
+    get: (_target, property) => {
+      const value = lookupTool(property);
+      if (
+        value !== undefined ||
+        typeof property !== "string" ||
+        PASSTHROUGH_TOOL_PROPERTIES.has(property) ||
+        property in Object.prototype
+      ) {
+        return value;
+      }
+      throw unknownToolError(property);
+    },
     has: (_target, property) => lookupTool(property) !== undefined,
     ownKeys: () => ["$search", "$describe", "$list", ...toolFunctions.keys()],
     getOwnPropertyDescriptor: (_target, property) => {

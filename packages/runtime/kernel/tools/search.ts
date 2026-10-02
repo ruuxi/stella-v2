@@ -118,9 +118,10 @@ const buildProbeArgs = (args: {
   if (args.caseInsensitive) probe.push("-i");
   if (args.literal) probe.push("-F");
   if (args.hidden) probe.push("--hidden", "--no-ignore");
-  if (args.glob) probe.push("--glob", args.glob);
-  if (args.type) probe.push("--type", args.type);
-  probe.push(args.pattern, args.basePath);
+  if (args.glob) probe.push(`--glob=${args.glob}`);
+  if (args.type) probe.push(`--type=${args.type}`);
+  // `--` ends option parsing so a pattern like `--pre=<cmd>` stays a pattern.
+  probe.push("--", args.pattern, args.basePath);
   return probe;
 };
 
@@ -307,10 +308,13 @@ export const handleGrep = async (
     if (contextLines) rgArgs.push("-C", String(contextLines));
   }
   if (caseInsensitive) rgArgs.push("-i");
-  if (glob) rgArgs.push("--glob", glob);
-  if (type) rgArgs.push("--type", type);
+  // Model-controlled values ride in `--flag=value` form, and `--` ends option
+  // parsing before the pattern: otherwise a pattern such as `--pre=<cmd>`
+  // becomes a ripgrep flag that executes a program.
+  if (glob) rgArgs.push(`--glob=${glob}`);
+  if (type) rgArgs.push(`--type=${type}`);
   rgArgs.push("--max-count", String(maxResults));
-  rgArgs.push(pattern, basePath);
+  rgArgs.push("--", pattern, basePath);
 
   const rgResult = await runRipgrep(rgArgs, searchCwd, context);
   if (rgResult.ok) {

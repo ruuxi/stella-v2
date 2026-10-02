@@ -428,6 +428,16 @@ export type RunnerContext = {
       signal?: AbortSignal,
       onUpdate?: ToolUpdateCallback,
     ) => Promise<ToolResult>;
+    /** `executeTool` plus schema validation and before_tool/after_tool hooks. */
+    executeToolCall: (
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      context: ToolContext,
+      signal?: AbortSignal,
+      onUpdate?: ToolUpdateCallback,
+    ) => Promise<ToolResult>;
+    /** Attach extension hooks to host-dispatched (nested, voice) tool calls. */
+    setToolCallHooks: (hooks: Pick<HookEmitter, "emit"> | undefined) => void;
     endBrowserTurn: (
       runId: string,
       behavior: import("../browser-use/client.js").BrowserTurnEndBehavior,

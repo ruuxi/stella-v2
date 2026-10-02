@@ -10,7 +10,7 @@
  * the hinted line number) before giving up.
  */
 
-import { normalizeToLF } from "./utils.js";
+import { normalizeToLF } from "./edit-diff.js";
 
 /** Number of base36 characters in a line hash tag. */
 const HASH_TAG_LENGTH = 3;

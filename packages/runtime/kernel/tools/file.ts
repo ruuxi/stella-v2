@@ -13,7 +13,6 @@ import {
 import {
   expandHomePath,
   detectLineEnding,
-  fuzzyFindText,
   MAX_FILE_BYTES,
   normalizeToLF,
   restoreLineEndings,
@@ -36,6 +35,12 @@ import {
 } from "./skill-read-dedup.js";
 import { readWorkspaceFileNoFollow } from "./workspace-file-boundary.js";
 import { decodeAndValidateImage } from "./image-decode-validation.js";
+import {
+  applyEditsToContent,
+  applyStringReplacement,
+  parseEditSpecs,
+  prepareEditArguments,
+} from "./edit-text.js";
 
 const isPathInsideRoot = (candidate: string, root: string): boolean => {
   const relative = path.relative(root, candidate);
@@ -185,127 +190,20 @@ export const replaceTextInFile = async (
 
     const { bom, text: content } = stripBom(rawContent);
     const originalEnding = detectLineEnding(content);
-    const normalizedContent = normalizeToLF(content);
-    const normalizedOld = normalizeToLF(args.oldString);
-    const normalizedNew = normalizeToLF(args.newString);
-
-    if (!normalizedOld.trim()) {
-      throw new Error(
-        "old_string is empty or only whitespace; provide non-blank text to match.",
-      );
-    }
-
-    const editAlreadyApplied =
-      normalizedNew.length >= 8 &&
-      normalizedContent.includes(normalizedNew) &&
-      (normalizedOld === normalizedNew ||
-        !normalizedContent.includes(normalizedOld));
-    if (editAlreadyApplied) {
+    const applied = applyStringReplacement(
+      normalizeToLF(content),
+      args.oldString,
+      args.newString,
+      replaceAll,
+    );
+    if (applied.noChange) {
       return { path: filePath, replacements: 0, noChange: true };
     }
 
-    const exactLocations: number[] = [];
-    let exactCursor = 0;
-    while (exactCursor <= normalizedContent.length - normalizedOld.length) {
-      const index = normalizedContent.indexOf(normalizedOld, exactCursor);
-      if (index === -1) break;
-      exactLocations.push(index);
-      exactCursor = index + Math.max(1, normalizedOld.length);
-    }
-
-    if (!replaceAll && exactLocations.length > 1) {
-      const lineAt = (index: number) =>
-        normalizedContent.slice(0, index).split("\n").length;
-      const snippets = exactLocations.slice(0, 5).map((index) => {
-        const lineNumber = lineAt(index);
-        const line = normalizedContent.split("\n")[lineNumber - 1] ?? "";
-        const snippet = line.trim().replace(/\s+/g, " ").slice(0, 100);
-        return `L${lineNumber}: ${snippet}`;
-      });
-      throw new Error(
-        `old_string matches ${exactLocations.length} locations. Add surrounding context or set replace_all=true.\nMatches:\n${snippets.join("\n")}${
-          exactLocations.length > snippets.length
-            ? `\n… and ${exactLocations.length - snippets.length} more.`
-            : ""
-        }`,
-      );
-    }
-
-    if (replaceAll) {
-      const occurrences = normalizedContent.split(normalizedOld).length - 1;
-      if (occurrences === 0) {
-        throw new Error("old_string not found in file.");
-      }
-      const replaced = normalizedContent
-        .split(normalizedOld)
-        .join(normalizedNew);
-      const final = bom + restoreLineEndings(replaced, originalEnding);
-      await writeFileWithNulGuard(filePath, final);
-      return { path: filePath, replacements: occurrences };
-    }
-
-    const matchResult = fuzzyFindText(normalizedContent, normalizedOld);
-    if (!matchResult.found) {
-      const oldAnchor = normalizedOld
-        .split("\n")
-        .filter((line) => line.trim().length >= 4)
-        .sort((left, right) => right.trim().length - left.trim().length)[0];
-      const lines = normalizedContent.split("\n");
-      const matchingLines = oldAnchor
-        ? lines
-            .map((line, index) => ({ line, index }))
-            .filter(({ line }) => line.trim() === oldAnchor.trim())
-        : [];
-      const hintParts: string[] = [];
-      if (matchingLines.length > 0) {
-        hintParts.push(
-          `Matching anchor location${matchingLines.length === 1 ? "" : "s"}:\n${matchingLines
-            .slice(0, 5)
-            .map(
-              ({ line, index }) =>
-                `L${index + 1}: ${line.trim().replace(/\s+/g, " ").slice(0, 100)}`,
-            )
-            .join("\n")}`,
-        );
-        const whitespaceMatch = matchingLines.find(
-          ({ line }) => line !== oldAnchor,
-        );
-        if (whitespaceMatch) {
-          const visualize = (line: string) => {
-            const leading = line.match(/^[\t ]*/)?.[0] ?? "";
-            return `${leading.replaceAll("\t", "→").replaceAll(" ", "·")}${line.slice(leading.length)}`;
-          };
-          hintParts.push(
-            `Leading whitespace differs:\nfile has: ${visualize(whitespaceMatch.line)}\nyou sent: ${visualize(oldAnchor)}`,
-          );
-        }
-      }
-      hintParts.push(
-        matchingLines.length > 0
-          ? "Re-read around those lines and retry with unique surrounding context."
-          : "Re-read the file and retry with current, unique text.",
-      );
-      throw new Error(
-        `old_string not found in file.\n\n${hintParts.join("\n\n")}`,
-      );
-    }
-
-    const baseContent = matchResult.contentForReplacement;
-    const replaced =
-      baseContent.substring(0, matchResult.index) +
-      normalizedNew +
-      baseContent.substring(matchResult.index + matchResult.matchLength);
-
-    if (baseContent === replaced) {
-      throw new Error(
-        "old_string and new_string are identical — no changes made.",
-      );
-    }
-
-    const final = bom + restoreLineEndings(replaced, originalEnding);
+    const final = bom + restoreLineEndings(applied.content, originalEnding);
     await writeFileWithNulGuard(filePath, final);
 
-    return { path: filePath, replacements: 1 };
+    return { path: filePath, replacements: applied.replacements };
   });
 };
 
@@ -362,6 +260,38 @@ export const applyAnchoredEditToFile = async (
     const final = bom + restoreLineEndings(applied.content, originalEnding);
     await writeFileWithNulGuard(filePath, final);
     return { path: filePath, ...applied };
+  });
+};
+
+/**
+ * Multi-edit form: every entry matches the ORIGINAL file inside one write
+ * lock, overlaps are rejected, and the file is written once or not at all.
+ */
+export const applyEditsToFile = async (
+  args: { filePath: unknown; edits: unknown },
+  context?: ToolContext,
+): Promise<{ path: string; edits: number; lines: number[] }> => {
+  const filePath = resolveFilePath(args.filePath, context);
+  const pathBlock = isBlockedPath(filePath, context);
+  if (pathBlock) {
+    throw new Error(pathBlock);
+  }
+  const specs = parseEditSpecs(args.edits);
+
+  return withFileWriteLock(filePath, async () => {
+    let rawContent: string;
+    try {
+      rawContent = await fs.readFile(filePath, "utf-8");
+    } catch (error) {
+      throw new Error(`Error reading file: ${(error as Error).message}`);
+    }
+
+    const { bom, text } = stripBom(rawContent);
+    const originalEnding = detectLineEnding(text);
+    const applied = applyEditsToContent(normalizeToLF(text), specs);
+    const final = bom + restoreLineEndings(applied.content, originalEnding);
+    await writeFileWithNulGuard(filePath, final);
+    return { path: filePath, edits: specs.length, lines: applied.lines };
   });
 };
 
@@ -516,6 +446,27 @@ export const handleEdit = async (
   context?: ToolContext,
 ): Promise<ToolResult> => {
   try {
+    const prepared = prepareEditArguments(args);
+    if (prepared.edits !== undefined) {
+      if (prepared.replace_all === true) {
+        throw new Error(
+          "replace_all is not supported with edits[]; make a single old_string call with replace_all=true instead.",
+        );
+      }
+      const applied = await applyEditsToFile(
+        { filePath: prepared.file_path, edits: prepared.edits },
+        context,
+      );
+      return {
+        result: `Applied ${applied.edits} edit(s) to ${applied.path} (at line${applied.lines.length === 1 ? "" : "s"} ${applied.lines.join(", ")})`,
+      };
+    }
+
+    if (args.new_string === undefined || args.new_string === null) {
+      throw new Error(
+        'new_string is required (use "" to delete), or pass edits[] for several replacements.',
+      );
+    }
     const hasAnchor =
       args.anchor !== undefined && args.anchor !== null && args.anchor !== "";
     if (hasAnchor) {

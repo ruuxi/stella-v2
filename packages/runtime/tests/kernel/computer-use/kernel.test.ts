@@ -2025,7 +2025,7 @@ describe("persistent Node REPL kernels", () => {
       expect(String(output)).toContain("evil");
 
       const keys = await registry.evaluate(
-        "({ keys: Object.keys(tools), shadow: typeof tools.$evil, freezeFails: (() => { try { Object.freeze(tools); return false; } catch { return true; } })() })",
+        "({ keys: Object.keys(tools), shadow: '$evil' in tools, freezeFails: (() => { try { Object.freeze(tools); return false; } catch { return true; } })() })",
         {
           ...context("agent-proxy"),
           allowedToolNames: ["node_repl", "$evil", "real_tool"],
@@ -2035,7 +2035,7 @@ describe("persistent Node REPL kernels", () => {
       expect(keys).toContain("'$search'");
       expect(keys).toContain("'$describe'");
       expect(keys).not.toContain("$evil");
-      expect(keys).toContain("shadow: 'undefined'");
+      expect(keys).toContain("shadow: false");
       // Object.freeze(tools) THROWS by design: the Proxy target must stay
       // extensible for the per-evaluate key refresh (JS invariants forbid a
       // non-extensible target from reporting keys it doesn't own), so the

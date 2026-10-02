@@ -177,6 +177,10 @@ export const createStellaHostRunner = (
   options: StellaHostRunnerOptions,
 ): RunnerPublicApi => {
   const context = createRunnerContext(options);
+  // Nested (`code`, `multi_tool_use_parallel`) and voice calls dispatch
+  // through the host, so they need the same extension hooks the runtime
+  // adapter applies to model-issued top-level calls.
+  context.toolHost.setToolCallHooks(context.hookEmitter);
   let restartCloudAgentLifecycle = () => {};
   let resumeComputerAgentCloudRecords = () => {};
   const convexSession = createConvexSession(context, {
@@ -505,8 +509,10 @@ export const createStellaHostRunner = (
     getStellaSiteAuth: convexSession.getStellaSiteAuth,
     killAllShells: () => context.toolHost.killAllShells(),
     killShellsByPort: (port) => context.toolHost.killShellsByPort(port),
+    // Voice tool calls are model-issued; validate and run hooks like any
+    // top-level call.
     executeTool: (toolName, toolArgs, toolContext, signal, onUpdate) =>
-      context.toolHost.executeTool(
+      context.toolHost.executeToolCall(
         toolName,
         toolArgs,
         toolContext,

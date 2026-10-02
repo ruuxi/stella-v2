@@ -27,6 +27,8 @@ import {
   textFromUnknown,
 } from "./shared.js";
 import { dispatchLocalTool } from "../tools/local-tool-dispatch.js";
+import { runToolCallPipeline } from "../tools/tool-call-pipeline.js";
+import { getToolArgumentPreparer } from "../tools/argument-preparers.js";
 import {
   sanitizeToolError,
   sanitizeToolResult,
@@ -1090,48 +1092,23 @@ export const executeRuntimeToolCall = async (
   }
 
   const context = buildRuntimeToolContext(args);
-  let effectiveArgs = args.args;
-  if (args.hookEmitter) {
-    const hookResult = await args.hookEmitter.emit(
-      "before_tool",
-      { tool: args.toolName, args: args.args, context },
-      { tool: args.toolName, agentType: args.agentType },
-    );
-    if (hookResult?.cancel) {
-      return {
-        error: `Tool blocked: ${hookResult.reason ?? "blocked by hook"}`,
-      };
-    }
-    if (hookResult?.args) {
-      effectiveArgs = hookResult.args;
-    }
-  }
-
-  let toolResult = await args.toolExecutor(
-    args.toolName,
-    effectiveArgs,
+  // The agent loop already validated these args against the same schema;
+  // nested calls run this step with validation (see tools/host.ts).
+  return await runToolCallPipeline({
+    toolName: args.toolName,
+    args: args.args,
     context,
-    args.signal,
-    args.onUpdate,
-  );
-
-  if (args.hookEmitter) {
-    const hookResult = await args.hookEmitter.emit(
-      "after_tool",
-      {
-        tool: args.toolName,
-        args: effectiveArgs,
-        result: toolResult,
+    ...(args.hookEmitter ? { hookEmitter: args.hookEmitter } : {}),
+    agentType: args.agentType,
+    execute: (effectiveArgs) =>
+      args.toolExecutor(
+        args.toolName,
+        effectiveArgs,
         context,
-      },
-      { tool: args.toolName, agentType: args.agentType },
-    );
-    if (hookResult?.result) {
-      toolResult = hookResult.result;
-    }
-  }
-
-  return toolResult;
+        args.signal,
+        args.onUpdate,
+      ),
+  });
 };
 
 export const createPiTools = (opts: {
@@ -1370,6 +1347,7 @@ export const createPiTools = (opts: {
           : {}),
       };
     };
+    const prepareArguments = getToolArgumentPreparer(toolName);
     const tool: AgentTool = {
       name: toolName,
       label: metadata.label ?? formatToolLabel(toolName),
@@ -1379,6 +1357,13 @@ export const createPiTools = (opts: {
           ? `${metadata.description}${codeDescriptionSuffix}`
           : metadata.description,
       parameters: metadata.parameters as typeof AnyToolArgsSchema,
+      ...(prepareArguments
+        ? {
+            prepareArguments: prepareArguments as NonNullable<
+              AgentTool["prepareArguments"]
+            >,
+          }
+        : {}),
       // Tool executions supervise as child fibers of the owning run: the
       // body observes a child signal derived from the loop's per-tool
       // signal, run cancel/shutdown interrupts it, and settlement joins

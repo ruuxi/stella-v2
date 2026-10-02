@@ -10,6 +10,12 @@ import {
 } from "./hashline.js";
 import type { WorldEntry, WorldToolCall, WorldToolResult } from "./types.js";
 import { sanitizeToolVisibleText } from "@stella/runtime/kernel/tools/safety.js";
+import {
+  applyEditsToContent,
+  applyStringReplacement,
+  parseEditSpecs,
+  prepareEditArguments,
+} from "@stella/runtime/kernel/tools/edit-text.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -74,16 +80,6 @@ const stripBom = (text: string): { bom: string; text: string } =>
   text.startsWith("\uFEFF")
     ? { bom: "\uFEFF", text: text.slice(1) }
     : { bom: "", text };
-
-const fuzzyNormalizeText = (text: string): string =>
-  text
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .join("\n")
-    .replace(/[‘’‚‛]/gu, "'")
-    .replace(/[“”„‟]/gu, '"')
-    .replace(/[‐‑‒–—―−]/gu, "-")
-    .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/gu, " ");
 
 const readText = async (
   api: WorldToolFileApi,
@@ -343,101 +339,16 @@ const exactEdit = (
   replaceAll: boolean,
 ): { content: string; replacements: number; noChange?: true } => {
   const { bom, text } = stripBom(content);
-  const normalized = normalizeLf(text);
-  const oldValue = normalizeLf(oldText);
-  const newValue = normalizeLf(newText);
-  if (!oldValue.trim())
-    throw new Error(
-      "old_string is empty or only whitespace; provide non-blank text to match.",
-    );
-  if (
-    newValue.length >= 8 &&
-    normalized.includes(newValue) &&
-    (oldValue === newValue || !normalized.includes(oldValue))
-  ) {
-    return { content, replacements: 0, noChange: true };
-  }
-  const locations: number[] = [];
-  for (let cursor = 0; cursor <= normalized.length - oldValue.length;) {
-    const index = normalized.indexOf(oldValue, cursor);
-    if (index < 0) break;
-    locations.push(index);
-    cursor = index + Math.max(1, oldValue.length);
-  }
-  if (!replaceAll && locations.length > 1) {
-    const lines = normalized.split("\n");
-    const snippets = locations.slice(0, 5).map((index) => {
-      const lineNumber = normalized.slice(0, index).split("\n").length;
-      return `L${lineNumber}: ${(lines[lineNumber - 1] ?? "").trim().replace(/\s+/gu, " ").slice(0, 100)}`;
-    });
-    throw new Error(
-      `old_string matches ${locations.length} locations. Add surrounding context or set replace_all=true.\nMatches:\n${snippets.join("\n")}${locations.length > snippets.length ? `\n… and ${locations.length - snippets.length} more.` : ""}`,
-    );
-  }
-  let replacementContent = normalized;
-  let replacementIndex = locations[0] ?? -1;
-  let replacementLength = oldValue.length;
-  if (replacementIndex < 0 && !replaceAll) {
-    const fuzzyContent = fuzzyNormalizeText(normalized);
-    const fuzzyOld = fuzzyNormalizeText(oldValue);
-    replacementIndex = fuzzyContent.indexOf(fuzzyOld);
-    replacementLength = fuzzyOld.length;
-    replacementContent = fuzzyContent;
-  }
-  if (replacementIndex < 0) {
-    const oldAnchor = oldValue
-      .split("\n")
-      .filter((line) => line.trim().length >= 4)
-      .sort((left, right) => right.trim().length - left.trim().length)[0];
-    const matchingLines = oldAnchor
-      ? normalized
-          .split("\n")
-          .map((line, index) => ({ line, index }))
-          .filter(({ line }) => line.trim() === oldAnchor.trim())
-      : [];
-    const hints: string[] = [];
-    if (matchingLines.length > 0) {
-      hints.push(
-        `Matching anchor location${matchingLines.length === 1 ? "" : "s"}:\n${matchingLines
-          .slice(0, 5)
-          .map(
-            ({ line, index }) =>
-              `L${index + 1}: ${line.trim().replace(/\s+/gu, " ").slice(0, 100)}`,
-          )
-          .join("\n")}`,
-      );
-      const whitespaceMatch = matchingLines.find(
-        ({ line }) => line !== oldAnchor,
-      );
-      if (whitespaceMatch) {
-        const visualize = (line: string): string => {
-          const leading = line.match(/^[\t ]*/u)?.[0] ?? "";
-          return `${leading.replaceAll("\t", "→").replaceAll(" ", "·")}${line.slice(leading.length)}`;
-        };
-        hints.push(
-          `Leading whitespace differs:\nfile has: ${visualize(whitespaceMatch.line)}\nyou sent: ${visualize(oldAnchor)}`,
-        );
-      }
-    }
-    hints.push(
-      matchingLines.length > 0
-        ? "Re-read around those lines and retry with unique surrounding context."
-        : "Re-read the file and retry with current, unique text.",
-    );
-    throw new Error(`old_string not found in file.\n\n${hints.join("\n\n")}`);
-  }
-  if (oldValue === newValue)
-    throw new Error(
-      "old_string and new_string are identical — no changes made.",
-    );
-  const next = replaceAll
-    ? normalized.split(oldValue).join(newValue)
-    : replacementContent.slice(0, replacementIndex) +
-      newValue +
-      replacementContent.slice(replacementIndex + replacementLength);
+  const applied = applyStringReplacement(
+    normalizeLf(text),
+    oldText,
+    newText,
+    replaceAll,
+  );
+  if (applied.noChange) return { content, replacements: 0, noChange: true };
   return {
-    content: bom + restoreLineEnding(next, lineEnding(text)),
-    replacements: replaceAll ? locations.length : 1,
+    content: bom + restoreLineEnding(applied.content, lineEnding(text)),
+    replacements: applied.replacements,
   };
 };
 
@@ -450,6 +361,28 @@ const handleEdit = async (
   const content = await readText(api, path, root).catch((error) => {
     throw new Error(`Error reading file: ${asError(error)}`);
   });
+  const prepared = prepareEditArguments(args);
+  if (prepared.edits !== undefined) {
+    if (prepared.replace_all === true)
+      throw new Error(
+        "replace_all is not supported with edits[]; make a single old_string call with replace_all=true instead.",
+      );
+    const specs = parseEditSpecs(prepared.edits);
+    const { bom, text } = stripBom(content);
+    const applied = applyEditsToContent(normalizeLf(text), specs);
+    await api.writeFile(
+      path,
+      encoder.encode(
+        bom + restoreLineEnding(applied.content, lineEnding(text)),
+      ),
+      {},
+    );
+    return `Applied ${specs.length} edit(s) to ${absoluteWorldPath(path, root)} (at line${applied.lines.length === 1 ? "" : "s"} ${applied.lines.join(", ")})`;
+  }
+  if (args.new_string === undefined || args.new_string === null)
+    throw new Error(
+      'new_string is required (use "" to delete), or pass edits[] for several replacements.',
+    );
   const hasAnchor =
     args.anchor !== undefined && args.anchor !== null && args.anchor !== "";
   if (hasAnchor) {

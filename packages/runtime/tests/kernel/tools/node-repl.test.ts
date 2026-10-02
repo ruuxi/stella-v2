@@ -90,7 +90,7 @@ describe("code tool (local Node kernel)", () => {
           "tools.injected = () => 'nope';",
           "delete tools.fake_tool;",
           "({",
-          "  injected: typeof tools.injected,",
+          "  injected: 'injected' in tools,",
           "  stillCallable: typeof tools.fake_tool,",
           "  frozenFn: Object.isFrozen(tools.fake_tool),",
           "  names: Object.keys(tools),",
@@ -98,7 +98,7 @@ describe("code tool (local Node kernel)", () => {
         ].join("\n"),
         context,
       );
-      expect(output).toContain("injected: 'undefined'");
+      expect(output).toContain("injected: false");
       expect(output).toContain("stillCallable: 'function'");
       expect(output).toContain("frozenFn: true");
       expect(output).toContain("fake_tool");
@@ -115,7 +115,7 @@ describe("code tool (local Node kernel)", () => {
           ...context,
           allowedToolNames: ["code"],
         }),
-      ).rejects.toThrow("tools.fake_tool is not a function");
+      ).rejects.toThrow("tools.fake_tool does not exist");
     } finally {
       await registry.dispose();
     }

@@ -973,6 +973,28 @@ const executeToolCallsParallel = (
 		return { toolResults: results };
 	});
 
+/**
+ * Run the tool's compatibility shim over raw model arguments before schema
+ * validation (e.g. a JSON-string array the schema declares as an array).
+ * Hooks and the transcript still see the original call.
+ */
+const prepareToolCallArguments = (
+	tool: AgentTool,
+	toolCall: AgentToolCall,
+): AgentToolCall => {
+	if (!tool.prepareArguments) {
+		return toolCall;
+	}
+	const preparedArguments = tool.prepareArguments(toolCall.arguments);
+	if (preparedArguments === toolCall.arguments) {
+		return toolCall;
+	}
+	return {
+		...toolCall,
+		arguments: preparedArguments as Record<string, any>,
+	};
+};
+
 export type PreparedToolCall = {
 	kind: "prepared";
 	toolCall: AgentToolCall;
@@ -1023,7 +1045,10 @@ const prepareToolCall = (
 	const prepare = Effect.tryPromise({
 		try: async (): Promise<PreparedToolCall | ImmediateToolCallOutcome> => {
 			const { validateToolArguments } = await loadToolValidation();
-			const validatedArgs = validateToolArguments(tool, toolCall);
+			const validatedArgs = validateToolArguments(
+				tool,
+				prepareToolCallArguments(tool, toolCall),
+			);
 			if (config.beforeToolCall) {
 				const beforeResult = await config.beforeToolCall(
 					{

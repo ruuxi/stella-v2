@@ -580,6 +580,8 @@ export const createAgentOrchestration = (
         settled: attempt.settled,
       }),
     runSubagent: async ({
+      durableRunId,
+      resume,
       conversationId,
       userMessageId,
       agentType,
@@ -599,7 +601,12 @@ export const createAgentOrchestration = (
       onToolEnd,
       toolExecutor,
     }: Record<string, any>) => {
-      const runId = `local:sub:${crypto.randomUUID()}`;
+      // Manager attempts run durably under the id the manager minted (or,
+      // resuming, the dead run's id); ephemeral workflow agents do not.
+      const runId =
+        typeof durableRunId === "string" && durableRunId
+          ? durableRunId
+          : `local:sub:${crypto.randomUUID()}`;
       const site = createRunnerSiteConfig(context);
       const resolvedLlm =
         agentContext.resolvedLlm ??
@@ -635,6 +642,7 @@ export const createAgentOrchestration = (
 
       let exploreFindingsBlock = "";
       if (
+        !resume &&
         agentType === AGENT_IDS.GENERAL &&
         (await shouldUseAutomaticSkillExplore(context.stellaDataDir))
       ) {
@@ -652,6 +660,15 @@ export const createAgentOrchestration = (
         : `${taskDescription}\n\n${taskPrompt}`;
 
       const result = await runSubagentTask({
+        ...(typeof durableRunId === "string" && durableRunId
+          ? {
+              durable: {
+                launch: { kind: "agent", threadId: agentId },
+                background: true,
+              },
+            }
+          : {}),
+        ...(resume ? { resume } : {}),
         executionHost: "device",
         conversationId,
         storageMode: persistToConvex ? "cloud" : "local",
@@ -842,6 +859,54 @@ export const createAgentOrchestration = (
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
     persistBootInterruptionSnapshot: (threads: any) =>
       writeRestartInterruptedSnapshot(context.stellaDataDir, threads),
+    // Durable agent runs (`run-task.ts`): a thread still running at boot
+    // whose run the recovery plan kept resumable resumes instead of being
+    // canceled; aborts are marked before they signal; a graceful stop
+    // suspends live runs instead of canceling them.
+    findResumableAgentRun: (record: { threadId: string }) => {
+      const row = context.runtimeStore.runTasks?.resumableForThread(
+        record.threadId,
+      );
+      return row && row.checkpoint.launch?.kind === "agent"
+        ? { runId: row.runId }
+        : null;
+    },
+    claimAgentResume: (runId: string) => {
+      const runTasks = context.runtimeStore.runTasks;
+      if (!runTasks?.isResumable(runId)) return null;
+      const record = runTasks.get(runId);
+      if (!record) return null;
+      const resumeCount = runTasks.markResumed(runId);
+      return {
+        record: { ...record, resumeCount },
+        intents: runTasks.listIntents(runId),
+      };
+    },
+    abandonAgentRun: (runId: string) => {
+      context.runtimeStore.runTasks?.abandon(runId);
+    },
+    abandonUnclaimedAgentRuns: (claimedRunIds: string[]) => {
+      const runTasks = context.runtimeStore.runTasks;
+      if (!runTasks) return;
+      const claimed = new Set(claimedRunIds);
+      for (const row of runTasks.recoveryPlan().resumable) {
+        if (row.checkpoint.launch?.kind !== "agent") continue;
+        if (claimed.has(row.runId)) continue;
+        runTasks.abandon(row.runId);
+      }
+    },
+    requestRunAbort: (runId: string) => {
+      context.runtimeStore.runTasks?.requestAbort(runId);
+    },
+    finishAgentRun: (runId: string, status: "failed" | "canceled") => {
+      context.runtimeStore.runTasks?.finish(runId, status);
+    },
+    isRunSuspended: (runId: string) =>
+      context.runtimeStore.runTasks?.isSuspended(runId) ?? false,
+    isCloudAgentAdmissionReady: () =>
+      context.state.hasConnectedAccount === true &&
+      Boolean(context.state.authToken?.trim()) &&
+      Boolean(context.backend.client()),
     // The persisted terminal-receipt replay is off the boot critical path: it
     // parks until the runtime has started and initialized, so the wake it
     // repairs can actually be admitted (a parent wake needs the installed

@@ -27,7 +27,7 @@ import {
   legacyTablesPresent,
 } from "./legacy-import.js";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const FTS_TOKENIZER = "'porter unicode61 remove_diacritics 2'";
 
@@ -258,6 +258,56 @@ CREATE INDEX IF NOT EXISTS idx_run_admission_run
   ON run_admission(conversation_id, run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_run_admission_created
   ON run_admission(created_at);
+`;
+
+/**
+ * Durable runs (`run-task.ts`, schema v5). One `run_task` row per native
+ * orchestrator chat run or local agent run, with the launch metadata and the
+ * in-flight checkpoint needed to resume it after the worker dies; one
+ * `tool_intent` row per tool call, written before the tool starts and settled
+ * when it returns. Recovery reads them to decide, per unanswered call, whether
+ * to reuse a stored result, rerun a replay-safe tool, or answer it as
+ * interrupted. `abort_requested` is committed before a cancel signals, so a
+ * canceled run is never resumed. Both tables stay small: one row per run and
+ * per tool call, results are cleared once the thread holds them, and idle
+ * maintenance deletes terminal rows after 7 days. Never in `entry`.
+ */
+export const RUN_TASK_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS run_task (
+  run_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  thread_key TEXT NOT NULL,
+  agent_type TEXT NOT NULL,
+  owner_run_id TEXT,
+  background INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (
+    status IN ('running', 'done', 'failed', 'canceled', 'interrupted')
+  ),
+  abort_requested INTEGER NOT NULL DEFAULT 0,
+  resume_count INTEGER NOT NULL DEFAULT 0,
+  checkpoint_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_run_task_status
+  ON run_task(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_run_task_thread
+  ON run_task(thread_key, updated_at);
+CREATE TABLE IF NOT EXISTS tool_intent (
+  run_id TEXT NOT NULL,
+  tool_call_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  args_json TEXT,
+  replay TEXT NOT NULL CHECK (replay IN ('safe', 'keyed', 'unsafe')),
+  status TEXT NOT NULL CHECK (status IN ('running', 'done', 'interrupted')),
+  result_json TEXT,
+  attempts INTEGER NOT NULL DEFAULT 1,
+  started_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (run_id, tool_call_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tool_intent_updated
+  ON tool_intent(updated_at);
 `;
 
 /**
@@ -667,6 +717,14 @@ const MIGRATIONS: Migration[] = [
       // New, empty table + its own indexes only: constant time at open even
       // on a multi-GiB file (no scan of `entry`).
       db.exec(RUN_ADMISSION_SCHEMA_SQL);
+    },
+  },
+  {
+    version: 5,
+    apply: (db) => {
+      // Two new, empty tables + their own indexes (CREATE ... IF NOT EXISTS
+      // only): constant time at open on any file size.
+      db.exec(RUN_TASK_SCHEMA_SQL);
     },
   },
 ];

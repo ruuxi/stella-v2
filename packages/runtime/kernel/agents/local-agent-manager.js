@@ -31,6 +31,7 @@
  * @typedef {any} AgentLifecycleEvent
  */
 import path from "path";
+import { randomUUID } from "crypto";
 import { Cause, Deferred, Effect, Exit, Layer, ManagedRuntime, Scope, } from "effect";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
@@ -201,6 +202,8 @@ export const AGENT_ORPHANED_RESTART_CANCEL_REASON = "Canceled because Stella res
 // otherwise replace the user-facing reply with an empty silence.
 export const AGENT_PAUSE_CANCEL_REASON = "Paused by orchestrator.";
 export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
+/** How long a durable resume of a cloud-transcript agent waits for cloud auth. */
+const DURABLE_RESUME_CLOUD_READY_TIMEOUT_MS = 60_000;
 /**
  * Requirements-free runtime for the manager's supervisory fibers (house
  * convention: ONE module-level ManagedRuntime, context rides in closures —
@@ -282,6 +285,13 @@ export class LocalAgentManager {
     terminalReceiptRecoveries = new Set();
     /** Latest updatedAt among rows still `running` at boot, read before the flip. */
     bootPreviousActivityAt = 0;
+    /**
+     * Threads still `running` at boot whose durable run (`run_task`) the
+     * recovery plan kept resumable: they resume instead of being canceled.
+     */
+    bootResumableAgents = [];
+    /** Deferred durable-resume pass (see startDurableAgentResume). */
+    durableResumeFiber = null;
     /** Deferred local terminal-receipt sweep (see startTerminalLifecycleRecovery). */
     terminalLifecycleRecoveryFiber = null;
     terminalLifecycleRecoverySettled = Promise.resolve();
@@ -300,6 +310,7 @@ export class LocalAgentManager {
         const orphanedRecords = this.recoverOrCancelOrphanedPersistedAgents();
         this.recoverPersistedCloudTerminalReceipts(orphanedRecords);
         this.startTerminalLifecycleRecovery(orphanedRecords);
+        this.startDurableAgentResume();
     }
     /** Threads that were running at the previous shutdown (pre-sweep snapshot). */
     getBootInterruptedThreads() {
@@ -314,16 +325,40 @@ export class LocalAgentManager {
     }
     recoverOrCancelOrphanedPersistedAgents() {
         const now = Date.now();
-        const runningRecords = this.opts.listAgentRecordsByStatus?.("running") ?? [];
+        const allRunningRecords = this.opts.listAgentRecordsByStatus?.("running") ?? [];
+        const runningRecords = [];
         const orphanedRecords = [];
-        for (const record of runningRecords) {
+        for (const record of allRunningRecords) {
             // Pre-flip activity time: the flip below restamps updatedAt to now,
             // which would otherwise hide when the previous session last worked.
             this.bootPreviousActivityAt = Math.max(this.bootPreviousActivityAt, record.updatedAt ?? 0);
+            // A thread whose durable run is resumable resumes on this boot
+            // (bounded by the run's resume cap and freshness window) instead of
+            // being canceled; restart-continuation is only for the rest.
+            let durable = null;
+            try {
+                durable = this.opts.findResumableAgentRun?.(record) ?? null;
+            }
+            catch {
+                durable = null;
+            }
+            if (durable) {
+                this.bootResumableAgents.push({ record, runId: durable.runId });
+                continue;
+            }
+            runningRecords.push(record);
             this.bootInterruptedThreads.push({
                 threadId: record.threadId,
                 conversationId: record.conversationId,
             });
+        }
+        try {
+            // Resumable agent runs whose thread is not running anymore have no
+            // owner to resume them.
+            this.opts.abandonUnclaimedAgentRuns?.(this.bootResumableAgents.map((entry) => entry.runId));
+        }
+        catch {
+            // Next boot's recovery plan settles them.
         }
         if (this.bootInterruptedThreads.length > 0) {
             // Persist the snapshot BEFORE any row below is flipped: after the
@@ -490,6 +525,85 @@ export class LocalAgentManager {
         if (!done) {
             this.terminalLifecycleRecoveryFiber = fiber;
         }
+    }
+    /**
+     * Resume the threads `recoverOrCancelOrphanedPersistedAgents` kept for a
+     * durable resume. Parks on the same readiness gate as the receipt sweep
+     * (the resumed attempt needs an initialized runtime to resolve its model),
+     * then re-enqueues each thread as a new attempt that continues its dead
+     * run (same run id, same thread) instead of starting a new turn.
+     */
+    startDurableAgentResume() {
+        if (this.bootResumableAgents.length === 0 || this.supervisoryScopeClosed)
+            return;
+        const manager = this;
+        const program = Effect.gen(function* () {
+            const awaitReady = manager.opts.awaitTerminalLifecycleRecoveryReady;
+            if (awaitReady) {
+                const ready = yield* Effect.promise(() => Promise.resolve()
+                    .then(() => awaitReady())
+                    .then((value) => value !== false, () => false));
+                if (!ready) return;
+            }
+            // A cloud-transcript agent's attempt is admitted by the cloud before
+            // it may run; wait (bounded) for the signed-in cloud session the
+            // admission needs instead of failing the resume on a cold boot.
+            if (manager.bootResumableAgents.some((entry) => (entry.record.storageMode ?? "local") === "cloud") &&
+                manager.opts.isCloudAgentAdmissionReady) {
+                const deadline = Date.now() + DURABLE_RESUME_CLOUD_READY_TIMEOUT_MS;
+                while (!manager.opts.isCloudAgentAdmissionReady() && Date.now() < deadline) {
+                    yield* Effect.sleep(250);
+                }
+            }
+            const entries = manager.bootResumableAgents.splice(0);
+            for (const entry of entries) {
+                try {
+                    manager.resumeDurableAgent(entry);
+                }
+                catch (error) {
+                    console.warn("[runtime] durable agent resume failed", error instanceof Error ? error.message : error);
+                }
+            }
+        }).pipe(Effect.catchCause((cause) => Effect.sync(() => {
+            if (Cause.hasInterruptsOnly(cause)) return;
+            console.warn("[runtime] durable agent resume pass failed", Cause.pretty(cause));
+        })), Effect.ensuring(Effect.sync(() => {
+            this.durableResumeFiber = null;
+        })));
+        this.durableResumeFiber = managerRuntime.runSync(Effect.forkIn(program, this.supervisoryScope, { startImmediately: true }));
+    }
+    resumeDurableAgent(entry) {
+        const current = this.opts.getAgentRecord?.(entry.record.threadId) ?? entry.record;
+        if (current.status !== "running" || this.tasks.has(current.threadId)) {
+            this.opts.abandonAgentRun?.(entry.runId);
+            return;
+        }
+        const resume = this.opts.claimAgentResume?.(entry.runId) ?? null;
+        if (!resume) {
+            this.opts.abandonAgentRun?.(entry.runId);
+            return;
+        }
+        const statusText = "Resuming after Stella restarted";
+        const task = this.hydrateTaskFromRecord(current, current.prompt ?? current.description, statusText);
+        if (current.rootRunId) task.rootRunId = current.rootRunId;
+        // No predecessor attempt survives a process restart, so there is
+        // nothing to fence: start from the record's generation and let the
+        // scheduler take exactly the next one (the cloud admits only the
+        // next attempt generation).
+        task.attemptGeneration = Number.isInteger(current.attemptGeneration)
+            ? Math.max(0, current.attemptGeneration)
+            : 0;
+        // The resumed attempt continues a turn already in the thread; later
+        // updates are follow-ups, never the initial prompt again.
+        task.turnCount = 1;
+        task.resume = resume;
+        console.warn("[runtime] durable agent run resuming", {
+            threadId: task.threadId,
+            runId: entry.runId,
+            resumeCount: resume.record.resumeCount,
+            intents: resume.intents.length,
+        });
+        this.enqueueTask(task, true);
     }
     /**
      * Resolve once the boot sweep has finished (or was interrupted) and every
@@ -1525,6 +1639,12 @@ export class LocalAgentManager {
                 this.persistTask(task);
             }
             const runId = `run:${task.threadId}:${++this.nextId}`;
+            // The durable run this attempt executes: a resumed attempt continues
+            // its dead run under the same id (same row, same tool intents).
+            const resume = task.resume;
+            task.resume = undefined;
+            const durableRunId = resume?.record.runId ?? `local:sub:${randomUUID()}`;
+            task.currentRunId = durableRunId;
             // Create the session before the context load. A managed-child report
             // can persist while that async load (or prompt hooks) is in flight;
             // the session then retains `notifyHistoryChanged()` even before its Pi
@@ -1571,9 +1691,12 @@ export class LocalAgentManager {
                 );
             }
             context.attemptGeneration = attempt.generation;
-            const taskPrompt = this.buildTaskPrompt(task);
-            task.turnCount += 1;
+            // A resume sends no prompt: its turn is already in the thread.
+            const taskPrompt = resume ? "" : this.buildTaskPrompt(task);
+            if (!resume) task.turnCount += 1;
             const runSubagentArgs = {
+                durableRunId,
+                ...(resume ? { resume } : {}),
                 conversationId: task.conversationId,
                 userMessageId: runId,
                 agentType: task.agentType,
@@ -1717,6 +1840,9 @@ export class LocalAgentManager {
                     task.activeToolCount = 0;
                 }
             }
+            // A graceful stop suspended this attempt for resume: its row and
+            // thread stay exactly as a crash would leave them.
+            if (task.suspended) return;
             if (!isCurrentAttempt()) return;
             task.completedAt = Date.now();
             if (attempt.controller.signal.aborted || task.status === "canceled") {
@@ -1733,6 +1859,7 @@ export class LocalAgentManager {
                 task.result = result.result;
             }
         } catch (error) {
+            if (task.suspended) return;
             if (!isCurrentAttempt()) return;
             task.completedAt = Date.now();
             if (attempt.controller.signal.aborted) {
@@ -1758,6 +1885,16 @@ export class LocalAgentManager {
                 }
                 else {
                     task.error = error.message ?? "Task failed";
+                }
+            }
+            // The attempt ended before (or outside) its session's own
+            // settlement: settle its durable row so it is not resumed.
+            if (task.currentRunId) {
+                try {
+                    this.opts.finishAgentRun?.(task.currentRunId, task.status === "canceled" ? "canceled" : "failed");
+                }
+                catch {
+                    // The next boot's recovery plan settles it.
                 }
             }
         }
@@ -2177,8 +2314,20 @@ export class LocalAgentManager {
         // v2 performs a graceful Effect shutdown first, which durably cancels
         // those rows. Capture every resumable task before that cancellation so the
         // episode-stamped sidecar remains the authoritative recovery evidence.
+        // Attempts whose durable run the stop suspended are left exactly as a
+        // crash would leave them (running row, open intents): the next worker
+        // resumes them, so they are neither canceled nor snapshotted for
+        // restart-continuation.
+        this.durableResumeFiber?.interruptUnsafe();
+        for (const task of this.tasks.values()) {
+            if (task.status === "running" &&
+                task.currentRunId &&
+                this.opts.isRunSuspended?.(task.currentRunId)) {
+                task.suspended = true;
+            }
+        }
         this.persistInterruptionSnapshot([...this.tasks.values()]
-            .filter((task) => task.status === "pending" || task.status === "running")
+            .filter((task) => !task.suspended && (task.status === "pending" || task.status === "running"))
             .map(({ threadId, conversationId }) => ({
             threadId,
             conversationId,
@@ -2187,6 +2336,10 @@ export class LocalAgentManager {
         for (const task of this.tasks.values()) {
             if (!this.isActiveAgentState(task))
                 continue;
+            if (task.suspended) {
+                this.suspendTaskAttempt(task);
+                continue;
+            }
             cancels.push(this.cancelAgent(task.threadId, reason).catch(() => undefined));
         }
         await Promise.allSettled(cancels);
@@ -2197,6 +2350,24 @@ export class LocalAgentManager {
         // This never touches the run loops themselves — those were cancelled
         // cooperatively above and are joined by the kernel run supervisor.
         await this.closeSupervisoryScope();
+    }
+    /**
+     * Stop a suspended attempt without any durable transition: abort its
+     * loop (every write it would make on the way out is fenced by the
+     * suspension) and drop its live session.
+     */
+    suspendTaskAttempt(task) {
+        task.controller.abort(new Error(AGENT_SHUTDOWN_CANCEL_REASON));
+        const session = this.subagentSessions.get(task.threadId);
+        if (session) {
+            this.subagentSessions.delete(task.threadId);
+            try {
+                session.dispose();
+            }
+            catch {
+                // Best-effort.
+            }
+        }
     }
     /** Effect facade over `shutdown` for Effect-native callers. */
     shutdownEffect(reason = AGENT_SHUTDOWN_CANCEL_REASON) {
@@ -2215,6 +2386,12 @@ export class LocalAgentManager {
     }
     async cancelAgent(agentId, reason) {
         const local = this.tasks.get(agentId);
+        if (local?.suspended) {
+            // Shutdown suspended this attempt for resume; a supervisor abort
+            // must not turn that into a durable cancel.
+            this.suspendTaskAttempt(local);
+            return { canceled: true };
+        }
         if (local) {
             const wasParked = local.status === "completed" && local.descendantFinalParked;
             if (
@@ -2259,6 +2436,16 @@ export class LocalAgentManager {
                 attemptGeneration: canceledGeneration,
                 statusText: "Pausing",
             });
+            // Durable abort mark before the signal: a worker lost during the
+            // teardown below never resumes this run.
+            if (local.currentRunId) {
+                try {
+                    this.opts.requestRunAbort?.(local.currentRunId);
+                }
+                catch {
+                    // The cancel still proceeds; the boot sweep cancels the row.
+                }
+            }
             local.controller.abort(new Error(local.error));
             const activeAttempt = this.inFlightAttempts.get(agentId);
             if (activeAttempt) {

@@ -6,6 +6,7 @@ import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 import type { RuntimeRunEventRecorder } from "./run-events.js";
 import { compactRuntimeThreadHistory } from "./thread-memory.js";
 import type { ThreadCompactionResult } from "../thread-runtime.js";
+import type { RunTaskStore } from "../storage/run-task.js";
 import type {
   OrchestratorRunOptions,
   SubagentRunOptions,
@@ -13,6 +14,36 @@ import type {
 } from "./types.js";
 
 const logger = createRuntimeLogger("agent-runtime.completion");
+
+type DurableRunOptions = { store?: unknown };
+
+const runTasksOf = (opts: DurableRunOptions): RunTaskStore | undefined =>
+  (opts.store as { runTasks?: RunTaskStore } | undefined)?.runTasks;
+
+/**
+ * A run a graceful stop suspended for resume never settles: no terminal
+ * callback, no terminal row. The next worker resumes it.
+ */
+const isSuspendedRun = (opts: DurableRunOptions, runId?: string): boolean =>
+  Boolean(runId) && (runTasksOf(opts)?.isSuspended(runId) ?? false);
+
+/** Settle the run's durable row after its terminal callback was delivered. */
+const settleDurableRun = (
+  opts: DurableRunOptions,
+  runId: string | undefined,
+  status: "done" | "failed" | "canceled",
+): void => {
+  if (!runId) return;
+  try {
+    runTasksOf(opts)?.finish(runId, status);
+  } catch (error) {
+    logger.warn("run-task.finish-failed", {
+      runId,
+      status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
 
 /**
  * Ceiling on each awaited finalization stage between "final answer produced"
@@ -445,6 +476,7 @@ export const finalizeOrchestratorSuccess = async (args: {
       }),
   });
 
+  if (isSuspendedRun(args.opts, args.runId)) return;
   // Finish the visible turn before scheduling compaction.
   args.opts.callbacks.onEnd(
     args.runEvents.recordRunEnd({
@@ -452,6 +484,7 @@ export const finalizeOrchestratorSuccess = async (args: {
       ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
     }),
   );
+  settleDurableRun(args.opts, args.runId, "done");
 
   if (args.finalText.trim()) {
     void args.opts.compactionScheduler.schedule({
@@ -480,7 +513,9 @@ export const finalizeOrchestratorError = (args: {
   threadKey: string;
 }): string => {
   const errorMessage = safeErrorMessage(args.error, "Stella runtime failed");
+  if (isSuspendedRun(args.opts, args.runId)) return errorMessage;
   args.opts.callbacks.onError(args.runEvents.recordError(errorMessage));
+  settleDurableRun(args.opts, args.runId, "failed");
   if (args.runId && args.threadKey) {
     emitAgentEndCleanup(args.opts, {
       runId: args.runId,
@@ -499,9 +534,11 @@ export const finalizeOrchestratorInterrupted = (args: {
   runId?: string;
   threadKey?: string;
 }): string => {
+  if (isSuspendedRun(args.opts, args.runId)) return args.reason;
   args.opts.callbacks.onInterrupted?.(
     args.runEvents.recordInterrupted(args.reason),
   );
+  settleDurableRun(args.opts, args.runId, "canceled");
   if (args.runId && args.threadKey) {
     emitAgentEndCleanup(args.opts, {
       runId: args.runId,
@@ -538,6 +575,9 @@ export const finalizeSubagentSuccess = async (args: {
   // populated; each hook self-skips when its capability gate doesn't match.
   const trimmedResult = args.result.trim();
   const resolvedResult = trimmedResult || SUBAGENT_EMPTY_RESULT_SENTINEL;
+  if (isSuspendedRun(args.opts, args.runId)) {
+    return { runId: args.runId, result: "", interrupted: true };
+  }
   const sideEffectsAllowed = !args.opts.suppressCompletionSideEffects;
   emitSubagentAgentEnd(args.opts, {
     runId: args.runId,
@@ -553,6 +593,7 @@ export const finalizeSubagentSuccess = async (args: {
       args.runEvents.recordRunEnd({ finalText: resolvedResult }),
     );
   }
+  settleDurableRun(args.opts, args.runId, "done");
 
   // Only schedule compaction when the model actually produced output;
   // sentinel-only finals carry no new history worth compacting.
@@ -591,7 +632,11 @@ export const finalizeSubagentError = (args: {
   threadKey?: string;
 }): SubagentRunResult => {
   const errorMessage = safeErrorMessage(args.error, "Subagent failed");
+  if (isSuspendedRun(args.opts, args.runId)) {
+    return { runId: args.runId, result: "", interrupted: true };
+  }
   args.opts.callbacks?.onError?.(args.runEvents.recordError(errorMessage));
+  settleDurableRun(args.opts, args.runId, "failed");
   if (args.threadKey) {
     emitSubagentAgentEnd(args.opts, {
       runId: args.runId,
@@ -616,9 +661,13 @@ export const finalizeSubagentInterrupted = (args: {
   reason: string;
   threadKey?: string;
 }): SubagentRunResult => {
+  if (isSuspendedRun(args.opts, args.runId)) {
+    return { runId: args.runId, result: "", interrupted: true };
+  }
   args.opts.callbacks?.onInterrupted?.(
     args.runEvents.recordInterrupted(args.reason),
   );
+  settleDurableRun(args.opts, args.runId, "canceled");
   if (args.threadKey) {
     emitSubagentAgentEnd(args.opts, {
       runId: args.runId,

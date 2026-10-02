@@ -561,6 +561,19 @@ export const layer = Layer.effect(
                         (error as Error).message,
                       );
                     });
+                    // Durable runs the previous worker process left running
+                    // resume now that the runner can launch them (off the
+                    // boot report: a resumed run lasts as long as it lasts).
+                    if (builtRunner && currentSession === session) {
+                      void session.agentRuns
+                        .resumeInterruptedRuns()
+                        .catch((error) => {
+                          console.warn(
+                            "[runtime-worker] Durable run resume pass failed:",
+                            (error as Error).message,
+                          );
+                        });
+                    }
                   })(),
                 ]);
                 getFileLogger()?.process("startup.post-ready-complete", {

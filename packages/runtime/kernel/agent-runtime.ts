@@ -32,7 +32,11 @@ import type {
 export async function runOrchestratorTurn(
   opts: OrchestratorRunOptions,
 ): Promise<string> {
-  const integratedResult = await runExternalOrchestratorTurn(opts);
+  // A durable resume continues the native session that wrote the row; an
+  // external engine would re-send the prompt instead of continuing.
+  const integratedResult = opts.resume
+    ? null
+    : await runExternalOrchestratorTurn(opts);
   if (integratedResult) {
     return integratedResult;
   }
@@ -51,7 +55,9 @@ export async function runOrchestratorTurn(
 export async function runSubagentTask(
   opts: SubagentRunOptions,
 ): Promise<SubagentRunResult> {
-  const integratedResult = await runExternalSubagentTurn(opts);
+  const integratedResult = opts.resume
+    ? null
+    : await runExternalSubagentTurn(opts);
   if (integratedResult) {
     return integratedResult;
   }

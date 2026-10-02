@@ -33,6 +33,13 @@ export type CloudTranscriptBeginRequest = {
   onLeaseLost?: (reason: string) => void;
   /** Local cancellation stops waiting but keeps the durable begin for cleanup. */
   signal?: AbortSignal;
+  /**
+   * Replay the durable begin a previous process left for this exact turn id
+   * (its stored payload, byte for byte) instead of writing a new one: a
+   * resumed turn reacquires the lease its dead process held. Rejects when
+   * that begin no longer exists.
+   */
+  adoptExisting?: boolean;
 };
 
 export type CloudTranscriptBeginAck = {
@@ -145,6 +152,12 @@ export type CloudTranscriptWriterOptions = {
     event: string,
     fields: Record<string, unknown>,
   ) => void;
+  /**
+   * True for a local turn the runtime resumes this boot (`run-task.ts`). Its
+   * orphaned begin is left for that resume to replay instead of being
+   * recovered as an interrupted (canceled) finish.
+   */
+  isResumableTurn?: (localTurnId: string) => boolean;
 };
 
 export type CloudTranscriptWriter = {
@@ -987,6 +1000,20 @@ export const createCloudTranscriptWriter = (
     scheduleHeartbeat(nextHeartbeatMs);
   };
 
+  /**
+   * An orphaned begin of a turn this boot resumes waits for the resume's
+   * `begin({ adoptExisting })`; until then it is neither recovered nor
+   * retried.
+   */
+  const isParkedForResume = (entry: CloudTranscriptOutboxRecord): boolean => {
+    if (entry.kind !== "begin" || beginWaiters.has(entry.id)) return false;
+    try {
+      return options.isResumableTurn?.(entry.localTurnId) === true;
+    } catch {
+      return false;
+    }
+  };
+
   const drain = async (): Promise<void> => {
     if (draining || stopped) return;
     // Cloud outbox drain only applies to stores that support it; a local-only
@@ -997,7 +1024,9 @@ export const createCloudTranscriptWriter = (
     try {
       const entries = options.store
         .listCloudTranscriptOutbox()
-        .filter((entry) => !activeBegins.has(entry.id))
+        .filter(
+          (entry) => !activeBegins.has(entry.id) && !isParkedForResume(entry),
+        )
         .sort(
           (left, right) =>
             Number(beginWaiters.has(right.id)) -
@@ -1188,7 +1217,9 @@ export const createCloudTranscriptWriter = (
     if (stopped) return;
     const hasDeliverableRows = options.store
       .listCloudTranscriptOutbox()
-      .some((entry) => !activeBegins.has(entry.id));
+      .some(
+        (entry) => !activeBegins.has(entry.id) && !isParkedForResume(entry),
+      );
     if (hasDeliverableRows) {
       scheduleDrain(nextRetryMs ?? 0);
     }
@@ -1283,16 +1314,30 @@ export const createCloudTranscriptWriter = (
         userMessageJson: request.userMessageJson,
         ...(request.hidden ? { hidden: true } : {}),
       };
-      const payloadJson = JSON.stringify(payload);
-      const recoveryJson = request.recovery
-        ? JSON.stringify(request.recovery)
-        : null;
       const id = outboxId(
         "begin",
         options.deviceId,
         request.conversationId,
         request.localTurnId,
       );
+      const adopted = request.adoptExisting
+        ? options.store
+            .listCloudTranscriptOutbox()
+            .find((entry) => entry.id === id && entry.kind === "begin")
+        : undefined;
+      if (request.adoptExisting && !adopted && !activeBegins.has(id)) {
+        return Promise.reject(
+          new Error(
+            "The cloud turn's begin record is gone; the turn can no longer resume.",
+          ),
+        );
+      }
+      const payloadJson = adopted?.payloadJson ?? JSON.stringify(payload);
+      const recoveryJson = adopted
+        ? adopted.recoveryJson
+        : request.recovery
+          ? JSON.stringify(request.recovery)
+          : null;
       const active = activeBegins.get(id);
       if (active) {
         if (
@@ -1317,16 +1362,18 @@ export const createCloudTranscriptWriter = (
           ? Promise.reject(new Error("Run canceled."))
           : Promise.resolve(active.ack);
       }
-      options.store.putCloudTranscriptOutbox({
-        id,
-        kind: "begin",
-        conversationId: request.conversationId,
-        deviceId: options.deviceId,
-        ownerGeneration,
-        localTurnId: request.localTurnId,
-        payloadJson,
-        recoveryJson,
-      });
+      if (!adopted) {
+        options.store.putCloudTranscriptOutbox({
+          id,
+          kind: "begin",
+          conversationId: request.conversationId,
+          deviceId: options.deviceId,
+          ownerGeneration,
+          localTurnId: request.localTurnId,
+          payloadJson,
+          recoveryJson,
+        });
+      }
       return new Promise<CloudTranscriptBeginAck>((resolve, reject) => {
         const waiters = beginWaiters.get(id) ?? [];
         const onAbort = () => {

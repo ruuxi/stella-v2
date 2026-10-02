@@ -19,6 +19,10 @@ import type {
 } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type {
+  RunTaskRecord,
+  ToolIntentRecord,
+} from "../storage/run-task.js";
+import type {
   LocalChatAppendEventArgs,
   LocalContextEvent,
 } from "../storage/shared.js";
@@ -309,6 +313,24 @@ export type BaseRunOptions = {
    * double-overlay races when turns finalize back-to-back.
    */
   compactionScheduler: BackgroundCompactionScheduler;
+  /**
+   * Keep a durable `run_task` row for this run so it can resume after the
+   * worker process dies (`kernel/storage/run-task.ts`). `launch` is the
+   * caller's relaunch metadata, stored verbatim.
+   */
+  durable?: { launch: Record<string, unknown>; background?: boolean };
+  /**
+   * Resume this durable run from its row instead of sending a prompt
+   * (`agent-runtime/durable-resume.ts`). Native engine only.
+   */
+  resume?: DurableRunResume;
+};
+
+export type DurableRunResume = {
+  /** The run's row, `resumeCount` already counting this resume. */
+  record: RunTaskRecord;
+  /** Every tool intent the run wrote before its process died. */
+  intents: ToolIntentRecord[];
 };
 
 export type OrchestratorRunOptions = BaseRunOptions & {

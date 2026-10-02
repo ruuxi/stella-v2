@@ -619,6 +619,9 @@ export const createRunnerContext = ({
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     getBaseUrl: cloudRealtimeBaseUrl,
     getOwnerGeneration: getCloudOwnerGeneration,
+    // A turn the runtime resumes this boot replays its own begin.
+    isResumableTurn: (localTurnId: string) =>
+      runtimeStore.runTasks?.isResumeOwned(localTurnId) ?? false,
     ...(appendLocalChatEvent
       ? {
           onDurableDeliveryFailure: ({

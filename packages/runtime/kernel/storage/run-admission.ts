@@ -175,6 +175,47 @@ export class RunAdmissionStore {
     );
   }
 
+  /**
+   * At boot: settle every admission the previous process left open
+   * (`queued`, or `placed` on a run that is not resuming) as `unanswered`.
+   * An unplaced claim stays re-openable (`reopenUnplaced` keys on
+   * `run_id IS NULL`). Returns the number of admissions settled.
+   */
+  settleStale(args: {
+    keepRunIds: ReadonlySet<string>;
+    /** Only rows last touched before this process started. */
+    updatedBefore: number;
+    now?: number;
+  }): number {
+    const now = args.now ?? Date.now();
+    const open = this.cached
+      .prepare(
+        `SELECT conversation_id AS conversationId, request_id AS requestId,
+                run_id AS runId
+         FROM run_admission
+         WHERE status IN ('queued', 'placed') AND updated_at < ?`,
+      )
+      .all(args.updatedBefore) as Array<{
+      conversationId: string;
+      requestId: string;
+      runId: string | null;
+    }>;
+    let settled = 0;
+    for (const row of open) {
+      if (row.runId && args.keepRunIds.has(row.runId)) continue;
+      settled += changesOf(
+        this.cached
+          .prepare(
+            `UPDATE run_admission SET status = 'unanswered', updated_at = ?
+             WHERE conversation_id = ? AND request_id = ?
+               AND status IN ('queued', 'placed') AND updated_at < ?`,
+          )
+          .run(now, row.conversationId, row.requestId, args.updatedBefore),
+      );
+    }
+    return settled;
+  }
+
   /** Drop a claim no run ever owned, so a retry can admit the send again. */
   release(conversationId: string, requestId: string): void {
     this.cached

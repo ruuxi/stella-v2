@@ -25,12 +25,20 @@
  *   instead of silently double-running side effects. The guard clears on
  *   settlement so legitimate re-issues after completion still work.
  *
+ * - **Durable intent.** When the run keeps durable state, a `tool_intent`
+ *   row is written synchronously before the tool body starts and settled
+ *   with its result when the body returns or throws — both in this seam, so
+ *   recovery after process loss knows exactly which calls started, which
+ *   finished (and with what), and how each may be replayed.
+ *
  * Concurrency semantics are unchanged: sequential/parallel fan-out stays in
  * `agent-core/agent-loop.ts` (sequential = one at a time, parallel =
  * unbounded, results in source order).
  */
 
 import { createRuntimeLogger } from "../debug.js";
+import type { RunTaskStore } from "../storage/run-task.js";
+import type { ToolReplayPolicy } from "../tools/defs/replay-policy.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
 import {
   DuplicateToolExecutionError,
@@ -51,11 +59,31 @@ export const TOOL_ABORT_JOIN_GRACE_MS = 5_000;
 export type ToolExecutionSupervisor = <T>(args: {
   toolCallId: string;
   toolName: string;
+  /** The model-supplied arguments (recorded for replay-safe tools only). */
+  args?: unknown;
   /** The agent-loop per-tool signal (run signal + inactivity bound). */
   signal: AbortSignal | undefined;
   /** The tool body. Receives the signal it must observe. */
   run: (signal: AbortSignal | undefined) => Promise<T>;
 }) => Promise<T>;
+
+/** Where a run's tool intents are written (absent: no durable intents). */
+export type ToolIntentLog = {
+  store: Pick<RunTaskStore, "beginIntent" | "settleIntent">;
+  runId: string;
+  replayOf: (toolName: string, args: unknown) => ToolReplayPolicy;
+};
+
+const errorResult = (error: unknown) => ({
+  content: [
+    {
+      type: "text" as const,
+      text: error instanceof Error ? error.message : String(error),
+    },
+  ],
+  details: null,
+  isError: true,
+});
 
 /**
  * Build the per-turn tool execution supervisor. One instance per
@@ -67,11 +95,65 @@ export const createToolExecutionSupervisor = (opts: {
   supervise?: RunResourceRegistrar | undefined;
   /** Test seam; production uses {@link TOOL_ABORT_JOIN_GRACE_MS}. */
   abortJoinGraceMs?: number;
+  /** Durable intent log for the owning run (see {@link ToolIntentLog}). */
+  intents?: ToolIntentLog | undefined;
 }): ToolExecutionSupervisor => {
   const graceMs = opts.abortJoinGraceMs ?? TOOL_ABORT_JOIN_GRACE_MS;
   const inFlight = new Set<string>();
+  const intents = opts.intents;
 
-  return async ({ toolCallId, toolName, signal, run }) => {
+  // Intent bookkeeping never costs the tool call: a failed write is logged
+  // and the call runs (recovery then treats it as never started).
+  const withIntent = <T>(
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+    run: (signal: AbortSignal | undefined) => Promise<T>,
+  ): ((signal: AbortSignal | undefined) => Promise<T>) => {
+    if (!intents) return run;
+    return async (toolSignal) => {
+      try {
+        intents.store.beginIntent({
+          runId: intents.runId,
+          toolCallId,
+          toolName,
+          replay: intents.replayOf(toolName, args),
+          args,
+        });
+      } catch (error) {
+        logger.warn("tool-intent.begin-failed", {
+          toolName,
+          toolCallId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const settle = (result: unknown) => {
+        try {
+          intents.store.settleIntent({
+            runId: intents.runId,
+            toolCallId,
+            result,
+          });
+        } catch (error) {
+          logger.warn("tool-intent.settle-failed", {
+            toolName,
+            toolCallId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+      try {
+        const result = await run(toolSignal);
+        settle(result);
+        return result;
+      } catch (error) {
+        settle(errorResult(error));
+        throw error;
+      }
+    };
+  };
+
+  return async ({ toolCallId, toolName, args, signal, run: body }) => {
     if (inFlight.has(toolCallId)) {
       // Never double-run side effects: the first execution keeps the slot
       // until it settles. Surfaces as a canonical error tool result via the
@@ -79,6 +161,7 @@ export const createToolExecutionSupervisor = (opts: {
       throw new DuplicateToolExecutionError({ toolCallId, toolName });
     }
     inFlight.add(toolCallId);
+    const run = withIntent(toolCallId, toolName, args, body);
 
     if (!opts.supervise) {
       try {

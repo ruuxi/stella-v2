@@ -77,7 +77,17 @@ import {
   buildOrchestratorPromptMessages,
   buildRunThreadKey,
   persistThreadCustomMessage,
+  persistThreadPayloadMessages,
 } from "./thread-memory.js";
+import { prepareDurableResumeContext } from "./durable-resume.js";
+import { snapshotCapturedTranscript } from "./run-events.js";
+import { getAgentCompletion } from "./shared.js";
+import {
+  RUN_TASK_RESUME_SEQ_OFFSET,
+  type RunTaskStore,
+} from "../storage/run-task.js";
+import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
+import type { AgentMessage } from "../agent-core/types.js";
 import { createPiTools } from "./tool-adapters.js";
 import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
 import {
@@ -88,7 +98,11 @@ import {
 } from "./orchestrator-cache-retention.js";
 import { PromptCacheWarmer } from "./cache-warmer.js";
 import { streamSimple } from "../../ai/stream.js";
-import type { OrchestratorRunOptions, RuntimeRunCallbacks } from "./types.js";
+import type {
+  DurableRunResume,
+  OrchestratorRunOptions,
+  RuntimeRunCallbacks,
+} from "./types.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
 import type { Agent } from "../agent-core/agent.js";
 import type { AgentTurnBoundaryContext } from "../agent-core/types.js";
@@ -401,6 +415,9 @@ export class OrchestratorSession extends PiSessionCore {
   private async runActiveTurn(opts: OrchestratorRunOptions): Promise<string> {
     const runId = opts.runId ?? `local:${crypto.randomUUID()}`;
     const turnOpts = opts.runId === runId ? opts : { ...opts, runId };
+    // Durable run row before the first await: a process lost at any later
+    // point leaves a row the next worker can resume (`run-task.ts`).
+    const durableRunTasks = this.beginDurableRun(opts, runId);
     const effectiveSystemPrompt = await buildRuntimeSystemPrompt(turnOpts);
 
     // The recorder is side-effect-free to create and is needed this early
@@ -416,6 +433,12 @@ export class OrchestratorSession extends PiSessionCore {
       uiVisibility: opts.uiVisibility,
       getResponseTarget: () =>
         responseTargetTracker.resolve() ?? opts.responseTarget,
+      ...(opts.resume
+        ? {
+            initialSeq:
+              opts.resume.record.resumeCount * RUN_TASK_RESUME_SEQ_OFFSET,
+          }
+        : {}),
     });
     const emitCompactingStatus = () => {
       try {
@@ -428,13 +451,16 @@ export class OrchestratorSession extends PiSessionCore {
     };
     // Shrinking model switch: while the outgoing (larger-window) route is
     // still current, run a blocking compaction with it so the incoming
-    // smaller-window route starts on a context it can actually hold.
-    await this.maybeCompactForModelSwitch({
-      opts,
-      runId,
-      onCompacting: emitCompactingStatus,
-      logContext: { conversationId: this.conversationId, runId },
-    });
+    // smaller-window route starts on a context it can actually hold. A
+    // resume continues the exact context its dead process was sending.
+    if (!opts.resume) {
+      await this.maybeCompactForModelSwitch({
+        opts,
+        runId,
+        onCompacting: emitCompactingStatus,
+        logContext: { conversationId: this.conversationId, runId },
+      });
+    }
 
     // Keep the reused Agent pointed at this turn's model route.
     this.setResolvedLlm(opts.resolvedLlm);
@@ -640,21 +666,24 @@ export class OrchestratorSession extends PiSessionCore {
         contextDeltaMessages.length > 0
           ? [...contextDeltaMessages, ...(opts.promptMessages ?? [])]
           : opts.promptMessages;
-      const promptMessages = await buildOrchestratorPromptMessages({
-        context: opts.agentContext,
-        userPrompt: opts.userPrompt,
-        promptMessages: combinedPromptMessages,
-        stellaDataDir: opts.stellaDataDir,
-        stellaAppDir: opts.stellaAppDir,
-        agentType: opts.agentType,
-        hookContext: {
-          ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
-          conversationId: opts.conversationId,
-          threadKey: this.threadKey,
-          runId,
-          ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
-        },
-      });
+      // A resume sends no prompt: its prompt is already in the context.
+      const promptMessages = opts.resume
+        ? []
+        : await buildOrchestratorPromptMessages({
+            context: opts.agentContext,
+            userPrompt: opts.userPrompt,
+            promptMessages: combinedPromptMessages,
+            stellaDataDir: opts.stellaDataDir,
+            stellaAppDir: opts.stellaAppDir,
+            agentType: opts.agentType,
+            hookContext: {
+              ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
+              conversationId: opts.conversationId,
+              threadKey: this.threadKey,
+              runId,
+              ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
+            },
+          });
       const workingSetContext = this.currentActiveWorkingSetContext!;
       transientRuntimePromptInputs = promptMessages.filter(
         (message) =>
@@ -706,6 +735,20 @@ export class OrchestratorSession extends PiSessionCore {
             workingSetContext.refreshBlocked = false;
           }
         },
+        ...(durableRunTasks
+          ? {
+              // A cloud turn's prompt lives only in its in-memory capture;
+              // mirror it into the run's checkpoint before the provider call.
+              onPromptPersisted: () => {
+                const captured = snapshotCapturedTranscript(
+                  opts.store,
+                  this.threadKey,
+                  runId,
+                );
+                if (captured) durableRunTasks.checkpointCaptured(runId, captured);
+              },
+            }
+          : {}),
       };
       const retryState = { attemptsUsed: 0, retriesUsed: 0 };
       const executeWithTransientRetry = (initialResume = false) =>
@@ -734,15 +777,30 @@ export class OrchestratorSession extends PiSessionCore {
             );
           },
         });
-      let execution = await executeWithContextOverflowRecovery({
-        execute: executeWithTransientRetry,
-        agent,
-        opts,
-        threadKey: this.threadKey,
-        runId,
-        runEvents,
-        session: this,
-      });
+      const resumed = opts.resume
+        ? await this.prepareDurableResume({
+            agent,
+            opts,
+            runId,
+            runEvents,
+            resume: opts.resume,
+          })
+        : null;
+      let execution = resumed?.final
+        ? getAgentCompletion(agent)
+        : await executeWithContextOverflowRecovery({
+            // A resume continues from the restored context; it never
+            // re-sends the prompt.
+            execute: resumed
+              ? () => executeWithTransientRetry(true)
+              : executeWithTransientRetry,
+            agent,
+            opts,
+            threadKey: this.threadKey,
+            runId,
+            runEvents,
+            session: this,
+          });
 
       // Safety containment: a fable-5 refusal/safety abort first gets
       // retried on the configured model — refusals are often transient — up
@@ -888,6 +946,149 @@ export class OrchestratorSession extends PiSessionCore {
       this.currentImageDescriptionContext = null;
       this.currentActiveWorkingSetContext = null;
     }
+  }
+
+  /**
+   * Write (or, on resume, re-attach to) this run's durable row when the
+   * launcher asked for one. Bookkeeping never costs the turn.
+   */
+  private beginDurableRun(
+    opts: OrchestratorRunOptions,
+    runId: string,
+  ): RunTaskStore | undefined {
+    const runTasks = (opts.store as { runTasks?: RunTaskStore } | undefined)
+      ?.runTasks;
+    if (!runTasks || (!opts.durable && !opts.resume)) return undefined;
+    try {
+      runTasks.begin({
+        runId,
+        conversationId: opts.conversationId,
+        threadKey: this.threadKey,
+        agentType: opts.agentType,
+        ...(opts.durable ? { launch: opts.durable.launch } : {}),
+        ...(opts.durable?.background ? { background: true } : {}),
+      });
+      return runTasks;
+    } catch (error) {
+      this.logger.warn("durable-run.begin-failed", {
+        conversationId: this.conversationId,
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Restore the context a resumed run's dead process was working on and
+   * answer its open tool calls (`durable-resume.ts`). The restored messages
+   * and answers are persisted as the turn's group in one commit, exactly as
+   * the turn boundary would have, so the next request's prefix is the same
+   * bytes the dead process sent plus the answers.
+   */
+  private async prepareDurableResume(args: {
+    agent: Agent;
+    opts: OrchestratorRunOptions;
+    runId: string;
+    runEvents: RuntimeRunEventRecorder;
+    resume: DurableRunResume;
+  }): Promise<{ final: AgentMessage | null }> {
+    const { agent, opts, runId, runEvents, resume } = args;
+    if (opts.storageMode === "cloud" && !resume.record.checkpoint.captured) {
+      // A cloud turn's prompt and completed groups lived only in memory;
+      // without their checkpoint there is nothing to continue from.
+      throw new Error(
+        "This turn was interrupted before its progress was saved, so it could not resume.",
+      );
+    }
+    const restoredContext = await prepareDurableResumeContext({
+      messages: agent.state.messages,
+      checkpoint: resume.record.checkpoint,
+      intents: resume.intents,
+      tools: agent.state.tools,
+      ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
+    });
+    // A cloud turn's captured transcript goes back into its (re-seeded)
+    // in-memory capture so the turn's finish carries it to the cloud.
+    if (restoredContext.restored.length > 0) {
+      opts.store.appendThreadMessages(
+        (resume.record.checkpoint.captured ?? [])
+          .filter((message) => message.payload !== undefined)
+          .map((message) => ({
+            threadKey: this.threadKey,
+            timestamp: message.timestamp,
+            role: message.role as "user" | "assistant" | "toolResult",
+            content: message.content,
+            ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
+            payload: message.payload as PersistedRuntimeThreadPayload,
+            preservePayloadExactly: true,
+          })),
+      );
+    }
+    const group = [
+      ...(restoredContext.pendingAssistant
+        ? [restoredContext.pendingAssistant]
+        : []),
+      ...restoredContext.resolved.map((entry) => entry.message),
+    ] as PersistedRuntimeThreadPayload[];
+    if (group.length > 0) {
+      opts.store.commitRun((tasks) => {
+        persistThreadPayloadMessages(opts.store, {
+          threadKey: this.threadKey,
+          payloads: group,
+          runId,
+          ...(typeof opts.agentContext.attemptGeneration === "number"
+            ? { attemptGeneration: opts.agentContext.attemptGeneration }
+            : {}),
+          preservePayloadExactly: true,
+        });
+        const captured = snapshotCapturedTranscript(
+          opts.store,
+          this.threadKey,
+          runId,
+        );
+        tasks.commitTurn(runId, captured ? { captured } : {});
+      });
+    }
+    for (const entry of restoredContext.resolved) {
+      if (entry.disposition === "interrupted") {
+        opts.store.runTasks?.interruptIntent(runId, entry.call.id);
+      }
+      if (entry.disposition === "rerun") {
+        opts.callbacks.onToolStart(
+          runEvents.recordToolStart({
+            toolCallId: entry.call.id,
+            toolName: entry.call.name,
+            toolArgs: entry.call.arguments ?? {},
+          }),
+        );
+      }
+      opts.callbacks.onToolEnd(
+        runEvents.recordToolEnd({
+          toolCallId: entry.call.id,
+          toolName: entry.call.name,
+          result: entry.message.content,
+          details: entry.message.details,
+          isError: entry.message.isError,
+        }),
+      );
+    }
+    agent.replaceMessages(restoredContext.messages);
+    opts.agentContext.threadHistory = restoredContext.messages;
+    this.logger.info("durable-run.resumed", {
+      conversationId: this.conversationId,
+      runId,
+      resumeCount: resume.record.resumeCount,
+      restoredMessages: restoredContext.restored.length,
+      restoredPendingAssistant: restoredContext.pendingAssistant !== null,
+      finalAnswer: restoredContext.final !== null,
+      toolCalls: restoredContext.resolved.map((entry) => ({
+        toolCallId: entry.call.id,
+        toolName: entry.call.name,
+        disposition: entry.disposition,
+      })),
+    });
+    return { final: restoredContext.final };
   }
 
   /** Compaction swaps the prompt prefix at the next turn: stop warming it. */

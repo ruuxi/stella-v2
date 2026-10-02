@@ -239,6 +239,28 @@ export type AgentCallbacks = {
     reason: string;
   }) => void;
   onAgentEvent?: (event: AgentLifecycleEvent) => void;
+  /**
+   * Client-owned metadata a durable run stores with its launch record and
+   * hands back to `createCallbacks` when the run resumes in a new process
+   * (e.g. the worker's request id and timezone). Plain JSON only.
+   */
+  durableClient?: Record<string, unknown>;
+};
+
+/**
+ * What a durable orchestrator chat run stores to relaunch itself after the
+ * worker process died (`run_task.checkpoint_json.launch`).
+ */
+export type OrchestratorRunLaunch = {
+  kind: "orchestrator-chat";
+  conversationId: string;
+  agentType: string;
+  userMessageId: string;
+  uiVisibility?: "visible" | "hidden";
+  storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
+  responseTarget?: RuntimeAgentEventPayload["responseTarget"];
+  client?: Record<string, unknown>;
 };
 
 export type QueuedOrchestratorTurn = {
@@ -507,6 +529,18 @@ export type RunnerPublicApi = {
     payload: ChatPayload,
     callbacks: AgentCallbacks,
   ) => Promise<{ runId: string }>;
+  /**
+   * Relaunch the orchestrator chat runs a previous worker process left
+   * running and the recovery plan kept resumable (`run-task.ts`).
+   * `createCallbacks` rebuilds each run's client callbacks from its stored
+   * launch record. A run that cannot relaunch reports a fatal error through
+   * those callbacks and is settled as failed.
+   */
+  resumeInterruptedOrchestratorRuns: (args: {
+    createCallbacks: (
+      launch: OrchestratorRunLaunch & { runId: string },
+    ) => AgentCallbacks;
+  }) => Promise<{ resumed: string[]; failed: string[] }>;
   sendMessage: (input: RuntimeSendMessageInput) => Promise<void>;
   sendUserMessage: (input: RuntimeSendUserMessageInput) => Promise<void>;
   runAutomationTurn: (

@@ -10,6 +10,7 @@ import {
   sampleAgentEngineConfig,
 } from "./runner/context.js";
 import { createConvexSession } from "./runner/convex-session.js";
+import { forkDelayedCall } from "./runner/cloud-effect-runtime.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
 import { createRuntimeInitialization } from "./runner/runtime-initialization.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
@@ -36,9 +37,30 @@ import {
   readRestartInterruptionState,
 } from "./restart-continuation.js";
 import type {
+  OrchestratorRunLaunch,
   RunnerPublicApi,
   StellaHostRunnerOptions,
 } from "./runner/types.js";
+
+/** How long the boot resume pass waits for the runtime to be able to run. */
+const DURABLE_RESUME_READY_TIMEOUT_MS = 60_000;
+
+/** A stored launch record, or null when it is not an orchestrator chat run. */
+const parseOrchestratorRunLaunch = (
+  value: unknown,
+): OrchestratorRunLaunch | null => {
+  const launch = value as Partial<OrchestratorRunLaunch> | null | undefined;
+  if (
+    !launch ||
+    launch.kind !== "orchestrator-chat" ||
+    typeof launch.conversationId !== "string" ||
+    typeof launch.agentType !== "string" ||
+    typeof launch.userMessageId !== "string"
+  ) {
+    return null;
+  }
+  return launch as OrchestratorRunLaunch;
+};
 
 export type { StellaHostRunnerOptions } from "./runner/types.js";
 export {
@@ -538,6 +560,69 @@ export const createStellaHostRunner = (
     },
     webSearch: convexSession.webSearch,
     handleLocalChat: orchestratorController.handleLocalChat,
+    resumeInterruptedOrchestratorRuns: async ({ createCallbacks }) => {
+      const resumed: string[] = [];
+      const failed: string[] = [];
+      const runTasks = context.runtimeStore.runTasks;
+      if (!runTasks) return { resumed, failed };
+      const pending = runTasks
+        .recoveryPlan()
+        .resumable.filter((record) => runTasks.isResumable(record.runId));
+      if (pending.length > 0) {
+        // The account session and model route arrive after initialization
+        // (auth refresh, catalog); a resume launched before them fails on
+        // "no usable model route". Wait for the same readiness a user send
+        // needs, bounded so an unready runtime still settles the runs.
+        const deadline = Date.now() + DURABLE_RESUME_READY_TIMEOUT_MS;
+        while (
+          !orchestratorController.agentHealthCheck().ready &&
+          Date.now() < deadline
+        ) {
+          await new Promise<void>((resolve) => {
+            forkDelayedCall(250, resolve);
+          });
+        }
+      }
+      for (const record of pending) {
+        const launch = parseOrchestratorRunLaunch(record.checkpoint.launch);
+        // Agent rows belong to the LocalAgentManager's own resume pass.
+        if (!launch) {
+          if (record.agentType === AGENT_IDS.ORCHESTRATOR) {
+            runTasks.abandon(record.runId);
+          }
+          continue;
+        }
+        if (!runTasks.isResumable(record.runId)) continue;
+        const resumeCount = runTasks.markResumed(record.runId);
+        const intents = runTasks.listIntents(record.runId);
+        try {
+          await orchestratorController.resumeOrchestratorRun({
+            launch,
+            runId: record.runId,
+            state: { record: { ...record, resumeCount }, intents },
+            callbacks: createCallbacks({ ...launch, runId: record.runId }),
+          });
+          console.warn("[runner] durable orchestrator run resumed", {
+            runId: record.runId,
+            conversationId: launch.conversationId,
+            resumeCount,
+            intents: intents.length,
+          });
+          resumed.push(record.runId);
+        } catch (error) {
+          // The launch already reported the failure through the callbacks.
+          runTasks.abandon(record.runId);
+          // A cloud turn's begin is no longer owned: let the writer recover it.
+          context.cloudTranscript.resume();
+          console.warn("[runner] durable orchestrator run resume failed", {
+            runId: record.runId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          failed.push(record.runId);
+        }
+      }
+      return { resumed, failed };
+    },
     sendMessage: orchestratorController.sendMessage,
     sendUserMessage: orchestratorController.sendUserMessage,
     runAutomationTurn: orchestratorController.runAutomationTurn,

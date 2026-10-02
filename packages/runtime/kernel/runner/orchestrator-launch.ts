@@ -4,7 +4,11 @@ import {
   type RuntimeErrorEvent,
   type RuntimeRunCallbacks,
 } from "../agent-runtime.js";
-import type { RuntimeInterruptedEvent } from "../agent-runtime/types.js";
+import type {
+  DurableRunResume,
+  OrchestratorRunOptions,
+  RuntimeInterruptedEvent,
+} from "../agent-runtime/types.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { getOrCreateOrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import { createRuntimePromptAgentMessage } from "../agent-runtime/run-preparation.js";
@@ -218,6 +222,10 @@ export type PreparedOrchestratorRun = {
   agentContext: LocalAgentContext;
   resolvedLlm: ResolvedLlmRoute;
   abortController: AbortController;
+  /** Keep a durable `run_task` row (resumable after process loss). */
+  durable?: NonNullable<OrchestratorRunOptions["durable"]>;
+  /** Resume this durable run instead of prompting. */
+  resume?: DurableRunResume;
 };
 
 export const prepareOrchestratorRun = async (args: {
@@ -244,6 +252,8 @@ export const prepareOrchestratorRun = async (args: {
   /** Current turn's user-message id; excludes the just-appended display
    * event from the legacy pre-transition history shim. */
   userMessageId?: string;
+  durable?: PreparedOrchestratorRun["durable"];
+  resume?: DurableRunResume;
 }): Promise<PreparedOrchestratorRun> => {
   // Run admission is owned by the Effect run coordinator: it claims the
   // lane (throwing the canonical already-running error on a double
@@ -313,6 +323,8 @@ export const prepareOrchestratorRun = async (args: {
       agentContext,
       resolvedLlm,
       abortController,
+      ...(args.durable ? { durable: args.durable } : {}),
+      ...(args.resume ? { resume: args.resume } : {}),
     };
     return prepared;
   } catch (error) {
@@ -403,6 +415,9 @@ export const launchPreparedOrchestratorRun = (args: {
               );
             },
             signal: prepared.abortController.signal,
+            // A resumed turn reacquires the lease its dead process held by
+            // replaying that exact begin (same turn id and payload).
+            ...(prepared.resume ? { adoptExisting: true } : {}),
           });
         const seedCloudHistory = (window: CloudTranscriptHistory): void => {
           const canonicalHistory = parseCanonicalCloudHistory(window.history);
@@ -507,6 +522,8 @@ export const launchPreparedOrchestratorRun = (args: {
         hookEmitter: context.hookEmitter,
         onExecutionSessionCreated: args.onExecutionSessionCreated,
         orchestratorSession,
+        ...(prepared.durable ? { durable: prepared.durable } : {}),
+        ...(prepared.resume ? { resume: prepared.resume } : {}),
         // Provider streams and tool calls opened by this turn supervise as
         // child fibers of the run's scope, so cancelRun/shutdown interrupts
         // them and joins their teardown.
@@ -543,6 +560,21 @@ export const launchPreparedOrchestratorRun = (args: {
       }
     }
 
+    // A graceful stop suspended this run for resume: leave its cloud begin
+    // in place (the next worker replays it to reacquire the lease) and
+    // publish no terminal.
+    const suspended = context.runtimeStore.runTasks?.isSuspended(
+      prepared.runId,
+    );
+    if (suspended) {
+      if (isCloudTurn && ephemeralCaptureStarted) {
+        context.runtimeStore.endEphemeralThreadCapture({
+          threadKey: orchestratorSession.threadKey,
+          captureId: prepared.runId,
+        });
+      }
+      return;
+    }
     if (isCloudTurn && leaseToken) {
       try {
         const records = !ephemeralCaptureStarted
@@ -619,6 +651,14 @@ export const launchPreparedOrchestratorRun = (args: {
       return;
     }
     args.cleanupRun(prepared.runId);
+    if (context.runtimeStore.runTasks?.isSuspended(prepared.runId)) return;
+    // Settle a durable row the session never reached (e.g. a resumed cloud
+    // turn whose lease could not be reacquired). No-op once settled.
+    try {
+      context.runtimeStore.runTasks?.finish(prepared.runId, "failed");
+    } catch {
+      /* the run's recovery plan settles it next boot */
+    }
     args.onFatalError(error);
   });
 
@@ -656,6 +696,8 @@ export const startPreparedOrchestratorRun = async (args: {
   cleanupRun: (runId: string, onCleanup?: () => void) => void;
   onFatalError: (error: unknown) => void;
   onPrepared?: (prepared: PreparedOrchestratorRun) => void | Promise<void>;
+  durable?: PreparedOrchestratorRun["durable"];
+  resume?: DurableRunResume;
   onExecutionSessionCreated?: NonNullable<
     Parameters<typeof runOrchestratorTurn>[0]["onExecutionSessionCreated"]
   >;
@@ -678,6 +720,8 @@ export const startPreparedOrchestratorRun = async (args: {
       ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
       : {}),
     userMessageId: args.userMessageId,
+    ...(args.durable ? { durable: args.durable } : {}),
+    ...(args.resume ? { resume: args.resume } : {}),
   });
 
   try {

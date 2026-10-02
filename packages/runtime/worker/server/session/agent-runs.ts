@@ -45,6 +45,7 @@ import * as SessionStorage from "./storage.js";
 import * as RunEventBus from "./run-events.js";
 import * as RunnerHandle from "./runner.js";
 import type { AgentEventPayload } from "../types.js";
+import type { AgentCallbacks } from "../../../kernel/runner/types.js";
 import { HOST_CHALLENGE_TOKEN_METHOD } from "../../../host/challenge-token-method.js";
 import {
   createRemoteDeviceSigner,
@@ -95,6 +96,12 @@ export interface Interface {
   readonly oneShotCompletion: (
     request: RuntimeOneShotCompletionRequest,
   ) => Promise<RuntimeOneShotCompletionResult>;
+  /**
+   * Relaunch the chat runs a previous worker process left running, with
+   * client callbacks rebuilt from each run's launch record. Runs post-ready,
+   * once the runner is initialized.
+   */
+  readonly resumeInterruptedRuns: () => Promise<void>;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -267,6 +274,521 @@ export const layer = Layer.effect(
     };
 
     /**
+     * The client callbacks of one chat run: persist assistant/tool rows for
+     * local transcripts, settle the run's admissions, and emit run events.
+     * Built per `startChat`, and again from the run's stored launch record
+     * when a durable run resumes in a new worker process
+     * (`resumeInterruptedRuns`).
+     */
+    const createChatRunCallbacks = (ctx: {
+      conversationId: string;
+      userMessageId: string;
+      requestId: string | undefined;
+      timezone: string | undefined;
+      persistLocalTranscript: boolean;
+      appendUserMessageEvent: () => void;
+      markAdmissionPlaced: (runId: string) => void;
+    }): AgentCallbacks => {
+      const {
+        conversationId,
+        userMessageId,
+        requestId,
+        timezone,
+        persistLocalTranscript,
+        appendUserMessageEvent,
+        markAdmissionPlaced,
+      } = ctx;
+      // Settles every open admission on the run, including sends steered into
+      // it as live follow-ups (they were placed on this same run id).
+      const settleAdmissions = (
+        runId: string | undefined,
+        status: "done" | "unanswered",
+      ) => {
+        if (!runId) return;
+        try {
+          admissions.settleRun({
+            conversationId,
+            runId,
+            status,
+          });
+        } catch (error) {
+          logger.warn("startChat.admission-write-failed", {
+            conversationId,
+            runId,
+            step: status,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+      const createSyntheticSeq = () => {
+        let seq = Date.now();
+        return () => {
+          seq += 1;
+          return seq;
+        };
+      };
+      const nextSyntheticSeq = createSyntheticSeq();
+      const hiddenSystemRunIds = new Set<string>();
+      let lastVisibleRunId = "";
+      let lastVisibleRequestId = requestId;
+      const hasActiveAgentForRootRun = (runId: string | undefined): boolean => {
+        if (!runId) return false;
+        return (
+          runnerHandle
+            .tryCurrent()
+            ?.listActiveAgentRuns()
+            .some((agentRun) => agentRun.runId === runId) ?? false
+        );
+      };
+      /**
+       * Tracks the most-recently persisted orchestrator assistant message for
+       * this run. Successful completion patches this final segment with the
+       * durable turn-complete receipt used to distinguish the run's final
+       * segment from an interim assistant segment that handed off to a tool.
+       */
+      let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
+      const emitRunEvent = (event: AgentEventPayload) => runEvents.emit(event);
+      return {
+        durableClient: {
+          ...(requestId ? { requestId } : {}),
+          ...(timezone ? { timezone } : {}),
+          persistLocalTranscript,
+        },
+        onAssistantMessage: (ev) => {
+          if (
+            (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) !==
+            AGENT_IDS.ORCHESTRATOR
+          ) {
+            return;
+          }
+          // Chronological anchor for this text block: the moment the
+          // segment produced its first character. Assistant text no longer
+          // streams chunk by chunk, so the runtime recorder stamps this on
+          // the segment (`firstTextAtMs`) instead of the worker deriving it
+          // from the first STREAM chunk it forwarded. Persisted as
+          // `metadata.runtime.streamStartedAtMs`, which is what orders
+          // lifecycle cards before and after the block. Falls back to now()
+          // so an engine that never reports deltas still gets an anchor.
+          const streamStartedAtMs = ev.firstTextAtMs ?? Date.now();
+          const appended = persistLocalTranscript
+            ? appendAssistantMessageForTurn({
+                conversationId,
+                text: ev.text,
+                userMessageId: ev.userMessageId,
+                runId: ev.runId,
+                seq: ev.seq,
+                timezone,
+                ...(ev.followedByToolCall
+                  ? { followedByToolCall: true }
+                  : {}),
+                responseTarget: ev.responseTarget,
+                ...(ev.replyRefs ? { replyRefs: ev.replyRefs } : {}),
+                streamStartedAtMs,
+              })
+            : null;
+          const assistantEvent = appended?.event ?? null;
+          if (assistantEvent) {
+            lastAssistantMessageEvent = assistantEvent;
+          }
+          // Sole text-delivery event: one per completed assistant message
+          // segment, carrying the full canonical text plus the persisted
+          // row id. A run may emit several (preamble → post-tool answer),
+          // and the renderer paints each whole.
+          //
+          // Use the recorder's own seq for this event (`ev.seq`) — the
+          // renderer's per-conversation seq guard drops any event whose
+          // seq is `<= previousSeq`. A `Date.now()`-style synthetic seq
+          // here would clobber the cursor with a huge number and silently
+          // drop every subsequent small-seq event in the run. For the
+          // rare hidden→visible mirror path the boundary seq has to
+          // belong to the visible run's cursor; fall back to a
+          // synthetic value there since the visible recorder is not
+          // reachable from this closure.
+          const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
+          const targetRunId = isHiddenRun ? lastVisibleRunId : ev.runId;
+          const targetRequestId = isHiddenRun
+            ? lastVisibleRequestId
+            : requestId;
+          const boundarySeq = isHiddenRun ? nextSyntheticSeq() : ev.seq;
+          if (targetRunId) {
+            emitRunEvent({
+              type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
+              runId: targetRunId,
+              seq: boundarySeq,
+              conversationId,
+              ...(targetRequestId ? { requestId: targetRequestId } : {}),
+              userMessageId: ev.userMessageId,
+              agentType: ev.agentType,
+              ...(assistantEvent
+                ? { assistantMessageEventId: assistantEvent._id }
+                : {}),
+              assistantMessageText: ev.text,
+              ...(ev.responseTarget
+                ? { responseTarget: ev.responseTarget }
+                : {}),
+              ...(appended && appended.replyRefs.length > 0
+                ? { replyRefs: appended.replyRefs }
+                : {}),
+              // Preamble → tool-call handoff: when this finalized message
+              // ends with a tool call, the renderer keeps the working
+              // indicator up across the gap until the tool starts, instead
+              // of dismissing on the painted preamble text.
+              ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
+            });
+          }
+        },
+        onRunStarted: (ev) => {
+          if (ev.userMessageId === userMessageId) {
+            appendUserMessageEvent();
+          }
+          const isHiddenRun = ev.uiVisibility === "hidden";
+          if (isHiddenRun) {
+            hiddenSystemRunIds.add(ev.runId);
+            if (lastVisibleRunId && ev.responseTarget) {
+              emitRunEvent({
+                ...ev,
+                runId: lastVisibleRunId,
+                seq: nextSyntheticSeq(),
+                type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
+                conversationId,
+                uiVisibility: "visible",
+                ...(lastVisibleRequestId
+                  ? { requestId: lastVisibleRequestId }
+                  : {}),
+              });
+            }
+            return;
+          }
+          lastVisibleRunId = ev.runId;
+          lastVisibleRequestId = requestId;
+          if (ev.userMessageId === userMessageId) {
+            markAdmissionPlaced(ev.runId);
+          }
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+          });
+        },
+        onUserMessage: (ev) => {
+          if (!persistLocalTranscript || ev.uiVisibility === "hidden") {
+            return;
+          }
+          storage.appendChatEventAndNotify({
+            conversationId,
+            type: "user_message",
+            requestId: ev.userMessageId,
+            timestamp: ev.timestamp,
+            payload: prepareStoredLocalChatPayload({
+              type: "user_message",
+              payload: {
+                text: ev.text,
+                metadata: {
+                  ui: {
+                    visibility: ev.uiVisibility ?? "visible",
+                  },
+                },
+              },
+              timestamp: ev.timestamp,
+              timezone,
+            }),
+          });
+        },
+        onStatus: (ev) => {
+          if (hiddenSystemRunIds.has(ev.runId)) {
+            if (lastVisibleRunId) {
+              emitRunEvent({
+                ...ev,
+                runId: lastVisibleRunId,
+                seq: nextSyntheticSeq(),
+                type: AGENT_STREAM_EVENT_TYPES.STATUS,
+                conversationId,
+                ...(lastVisibleRequestId
+                  ? { requestId: lastVisibleRequestId }
+                  : {}),
+              });
+            }
+            return;
+          }
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.STATUS,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+          });
+        },
+        onProviderLifecycle: (ev) => {
+          if (hiddenSystemRunIds.has(ev.runId)) return;
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+          });
+        },
+        onToolStart: (ev) => {
+          if (hiddenSystemRunIds.has(ev.runId)) {
+            return;
+          }
+          if (persistLocalTranscript) {
+            storage.appendChatEventAndNotify({
+              conversationId,
+              type: "tool_request",
+              requestId: ev.toolCallId,
+              payload: {
+                toolName: ev.toolName,
+                ...(ev.args ? { args: ev.args } : {}),
+                ...(ev.agentType ? { agentType: ev.agentType } : {}),
+              },
+            });
+          }
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+          });
+        },
+        onToolEnd: (ev) => {
+          if (hiddenSystemRunIds.has(ev.runId)) {
+            return;
+          }
+          const details =
+            ev.details && typeof ev.details === "object"
+              ? (ev.details as Record<string, unknown>)
+              : undefined;
+          if (persistLocalTranscript) {
+            storage.appendChatEventAndNotify({
+              conversationId,
+              type: "tool_result",
+              requestId: ev.toolCallId,
+              payload: {
+                toolName: ev.toolName,
+                result: details ?? ev.resultPreview,
+                resultPreview: ev.resultPreview,
+                ...(details ? details : {}),
+                ...(ev.agentType ? { agentType: ev.agentType } : {}),
+                // Attributes the tool result to a spawned agent's thread so
+                // per-agent file lists (left sidebar Activity tray) can pick
+                // up file changes live, before `agent-completed` rolls up.
+                ...(ev.agentId ? { agentId: ev.agentId } : {}),
+              },
+            });
+          }
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.TOOL_END,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+          });
+        },
+        onError: (ev) => {
+          const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
+          hiddenSystemRunIds.delete(ev.runId);
+          if (isHiddenRun) {
+            if (lastVisibleRunId) {
+              if (hasActiveAgentForRootRun(lastVisibleRunId)) {
+                return;
+              }
+              emitRunEvent({
+                ...ev,
+                runId: lastVisibleRunId,
+                seq: nextSyntheticSeq(),
+                type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+                outcome: AGENT_RUN_FINISH_OUTCOMES.ERROR,
+                reason: ev.error,
+                conversationId,
+                ...(lastVisibleRequestId
+                  ? { requestId: lastVisibleRequestId }
+                  : {}),
+                rootRunId: lastVisibleRunId,
+              });
+            }
+            return;
+          }
+          if (
+            (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
+              AGENT_IDS.ORCHESTRATOR &&
+            hasActiveAgentForRootRun(ev.runId)
+          ) {
+            return;
+          }
+          if (
+            ev.fatal &&
+            (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
+              AGENT_IDS.ORCHESTRATOR
+          ) {
+            settleAdmissions(ev.runId, "unanswered");
+          }
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+            outcome: AGENT_RUN_FINISH_OUTCOMES.ERROR,
+            reason: ev.error,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+            ...(ev.runId ? { rootRunId: ev.runId } : {}),
+          });
+        },
+        onAgentEvent: (ev) => {
+          if (!ev.rootRunId) {
+            logger.warn("task-event-missing-root-run-id", {
+              conversationId: ev.conversationId,
+              agentId: ev.agentId,
+              type: ev.type,
+            });
+            return;
+          }
+          if (
+            ev.type === AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED &&
+            ev.agentType === AGENT_IDS.GENERAL
+          ) {
+            const notificationText =
+              ev.description?.trim() || "Task complete";
+            void hostBus
+              .request(METHOD_NAMES.HOST_NOTIFICATION_SHOW, {
+                title: notificationText,
+                body: "",
+                sound: "Glass",
+              })
+              .catch((error) => {
+                logger.debug("agent-completion-notification-failed", {
+                  conversationId,
+                  agentId: ev.agentId,
+                  error:
+                    error instanceof Error ? error.message : String(error),
+                });
+              });
+          }
+          emitRunEvent({
+            type: ev.type,
+            runId: ev.rootRunId,
+            seq: nextSyntheticSeq(),
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+            userMessageId,
+            agentId: ev.agentId,
+            rootRunId: ev.rootRunId,
+            agentType: ev.agentType,
+            description: ev.description,
+            parentAgentId: ev.parentAgentId,
+            result: ev.result,
+            error: ev.error,
+            statusText: ev.statusText,
+            ...(ev.toolActivity ? { toolActivity: ev.toolActivity } : {}),
+            ...(ev.groupKey ? { groupKey: ev.groupKey } : {}),
+            ...(ev.groupLabel ? { groupLabel: ev.groupLabel } : {}),
+          });
+        },
+        onAgentReasoning: (ev) => {
+          if (!ev.agentId) {
+            return;
+          }
+          const runId = ev.rootRunId ?? ev.runId;
+          emitRunEvent({
+            type: AGENT_STREAM_EVENT_TYPES.AGENT_REASONING,
+            runId,
+            seq: nextSyntheticSeq(),
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+            userMessageId,
+            agentId: ev.agentId,
+            rootRunId: runId,
+            agentType: ev.agentType,
+            ...(ev.description ? { description: ev.description } : {}),
+            chunk: ev.chunk,
+          });
+        },
+        onEnd: (ev) => {
+          const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
+          hiddenSystemRunIds.delete(ev.runId);
+          if (
+            (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
+            AGENT_IDS.ORCHESTRATOR
+          ) {
+            // Each assistant message in the run was already persisted
+            // by `onAssistantMessage` as its own row, so end-of-run no
+            // longer writes a new row from `finalText` (doing so would
+            // append a duplicate of the last message).
+            // Mark only the last segment terminal so the renderer can
+            // distinguish it from an interim segment followed by a tool.
+            lastAssistantMessageEvent = markAssistantTurnComplete({
+              conversationId,
+              event: lastAssistantMessageEvent,
+            });
+          }
+          if (isHiddenRun) {
+            if (lastVisibleRunId) {
+              emitRunEvent({
+                ...ev,
+                runId: lastVisibleRunId,
+                seq: nextSyntheticSeq(),
+                type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+                outcome: AGENT_RUN_FINISH_OUTCOMES.COMPLETED,
+                conversationId,
+                ...(lastVisibleRequestId
+                  ? { requestId: lastVisibleRequestId }
+                  : {}),
+                rootRunId: lastVisibleRunId,
+              });
+            }
+            return;
+          }
+          if (
+            (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
+            AGENT_IDS.ORCHESTRATOR
+          ) {
+            settleAdmissions(ev.runId, "done");
+          }
+          emitRunEvent({
+            ...ev,
+            type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+            outcome: AGENT_RUN_FINISH_OUTCOMES.COMPLETED,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+            ...(ev.runId ? { rootRunId: ev.runId } : {}),
+          });
+        },
+        onInterrupted: (ev) => {
+          const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
+          hiddenSystemRunIds.delete(ev.runId);
+          if (isHiddenRun) {
+            if (lastVisibleRunId) {
+              emitRunEvent({
+                type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+                runId: lastVisibleRunId,
+                seq: Number.MAX_SAFE_INTEGER,
+                conversationId,
+                ...(lastVisibleRequestId
+                  ? { requestId: lastVisibleRequestId }
+                  : {}),
+                agentType: ev.agentType,
+                outcome: AGENT_RUN_FINISH_OUTCOMES.CANCELED,
+                reason: ev.reason,
+                rootRunId: lastVisibleRunId,
+              });
+            }
+            return;
+          }
+          settleAdmissions(ev.runId, "unanswered");
+          emitRunEvent({
+            type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+            runId: ev.runId,
+            seq: Number.MAX_SAFE_INTEGER,
+            conversationId,
+            ...(requestId ? { requestId } : {}),
+            agentType: ev.agentType,
+            userMessageId: ev.userMessageId,
+            outcome: AGENT_RUN_FINISH_OUTCOMES.CANCELED,
+            reason: ev.reason,
+            rootRunId: ev.runId,
+          });
+        },
+      };
+    };
+
+    /**
      * The admitted half of `startChat`. `admissionKey` is set when the send
      * holds a `run_admission` claim; the runner callbacks move that claim to
      * `placed` (with its run) and settle it when the run ends.
@@ -406,28 +928,6 @@ export const layer = Layer.effect(
           });
         }
       };
-      // Settles every open admission on the run, including sends steered into
-      // it as live follow-ups (they were placed on this same run id).
-      const settleAdmissions = (
-        runId: string | undefined,
-        status: "done" | "unanswered",
-      ) => {
-        if (!runId) return;
-        try {
-          admissions.settleRun({
-            conversationId: payload.conversationId,
-            runId,
-            status,
-          });
-        } catch (error) {
-          logger.warn("startChat.admission-write-failed", {
-            conversationId: payload.conversationId,
-            runId,
-            step: status,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      };
       let userMessageEventAppended = false;
       const appendUserMessageEvent = (timestamp = userMessageTimestamp) => {
         if (!persistLocalTranscript || userMessageEventAppended) {
@@ -532,33 +1032,6 @@ export const layer = Layer.effect(
         appendUserMessageEvent();
       }
 
-      const createSyntheticSeq = () => {
-        let seq = Date.now();
-        return () => {
-          seq += 1;
-          return seq;
-        };
-      };
-      const nextSyntheticSeq = createSyntheticSeq();
-      const hiddenSystemRunIds = new Set<string>();
-      let lastVisibleRunId = "";
-      let lastVisibleRequestId = requestId;
-      const hasActiveAgentForRootRun = (runId: string | undefined): boolean => {
-        if (!runId) return false;
-        return (
-          runnerHandle
-            .tryCurrent()
-            ?.listActiveAgentRuns()
-            .some((agentRun) => agentRun.runId === runId) ?? false
-        );
-      };
-      /**
-       * Tracks the most-recently persisted orchestrator assistant message for
-       * this run. Successful completion patches this final segment with the
-       * durable turn-complete receipt used to distinguish the run's final
-       * segment from an interim assistant segment that handed off to a tool.
-       */
-      let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       const mergedAttachments = [
         ...modelImageAttachments,
         ...modelFileAttachments,
@@ -584,7 +1057,15 @@ export const layer = Layer.effect(
         spilledImageAttachmentCount: spilledImageAttachments.length,
         hasWindowScreenshotAttachment: Boolean(windowScreenshotAttachment),
       });
-      const emitRunEvent = (event: AgentEventPayload) => runEvents.emit(event);
+      const callbacks = createChatRunCallbacks({
+        conversationId: payload.conversationId,
+        userMessageId,
+        requestId,
+        timezone: payload.timezone,
+        persistLocalTranscript,
+        appendUserMessageEvent: () => appendUserMessageEvent(),
+        markAdmissionPlaced,
+      });
       const result = await (
         await runnerHandle.ensureInitialized()
       ).handleLocalChat(
@@ -601,439 +1082,7 @@ export const layer = Layer.effect(
           storageMode,
           ...(ownerGeneration ? { ownerGeneration } : {}),
         },
-        {
-          onAssistantMessage: (ev) => {
-            if (
-              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) !==
-              AGENT_IDS.ORCHESTRATOR
-            ) {
-              return;
-            }
-            // Chronological anchor for this text block: the moment the
-            // segment produced its first character. Assistant text no longer
-            // streams chunk by chunk, so the runtime recorder stamps this on
-            // the segment (`firstTextAtMs`) instead of the worker deriving it
-            // from the first STREAM chunk it forwarded. Persisted as
-            // `metadata.runtime.streamStartedAtMs`, which is what orders
-            // lifecycle cards before and after the block. Falls back to now()
-            // so an engine that never reports deltas still gets an anchor.
-            const streamStartedAtMs = ev.firstTextAtMs ?? Date.now();
-            const appended = persistLocalTranscript
-              ? appendAssistantMessageForTurn({
-                  conversationId: payload.conversationId,
-                  text: ev.text,
-                  userMessageId: ev.userMessageId,
-                  runId: ev.runId,
-                  seq: ev.seq,
-                  timezone: payload.timezone,
-                  ...(ev.followedByToolCall
-                    ? { followedByToolCall: true }
-                    : {}),
-                  responseTarget: ev.responseTarget,
-                  ...(ev.replyRefs ? { replyRefs: ev.replyRefs } : {}),
-                  streamStartedAtMs,
-                })
-              : null;
-            const assistantEvent = appended?.event ?? null;
-            if (assistantEvent) {
-              lastAssistantMessageEvent = assistantEvent;
-            }
-            // Sole text-delivery event: one per completed assistant message
-            // segment, carrying the full canonical text plus the persisted
-            // row id. A run may emit several (preamble → post-tool answer),
-            // and the renderer paints each whole.
-            //
-            // Use the recorder's own seq for this event (`ev.seq`) — the
-            // renderer's per-conversation seq guard drops any event whose
-            // seq is `<= previousSeq`. A `Date.now()`-style synthetic seq
-            // here would clobber the cursor with a huge number and silently
-            // drop every subsequent small-seq event in the run. For the
-            // rare hidden→visible mirror path the boundary seq has to
-            // belong to the visible run's cursor; fall back to a
-            // synthetic value there since the visible recorder is not
-            // reachable from this closure.
-            const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
-            const targetRunId = isHiddenRun ? lastVisibleRunId : ev.runId;
-            const targetRequestId = isHiddenRun
-              ? lastVisibleRequestId
-              : requestId;
-            const boundarySeq = isHiddenRun ? nextSyntheticSeq() : ev.seq;
-            if (targetRunId) {
-              emitRunEvent({
-                type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
-                runId: targetRunId,
-                seq: boundarySeq,
-                conversationId: payload.conversationId,
-                ...(targetRequestId ? { requestId: targetRequestId } : {}),
-                userMessageId: ev.userMessageId,
-                agentType: ev.agentType,
-                ...(assistantEvent
-                  ? { assistantMessageEventId: assistantEvent._id }
-                  : {}),
-                assistantMessageText: ev.text,
-                ...(ev.responseTarget
-                  ? { responseTarget: ev.responseTarget }
-                  : {}),
-                ...(appended && appended.replyRefs.length > 0
-                  ? { replyRefs: appended.replyRefs }
-                  : {}),
-                // Preamble → tool-call handoff: when this finalized message
-                // ends with a tool call, the renderer keeps the working
-                // indicator up across the gap until the tool starts, instead
-                // of dismissing on the painted preamble text.
-                ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
-              });
-            }
-          },
-          onRunStarted: (ev) => {
-            if (ev.userMessageId === userMessageId) {
-              appendUserMessageEvent();
-            }
-            const isHiddenRun = ev.uiVisibility === "hidden";
-            if (isHiddenRun) {
-              hiddenSystemRunIds.add(ev.runId);
-              if (lastVisibleRunId && ev.responseTarget) {
-                emitRunEvent({
-                  ...ev,
-                  runId: lastVisibleRunId,
-                  seq: nextSyntheticSeq(),
-                  type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
-                  conversationId: payload.conversationId,
-                  uiVisibility: "visible",
-                  ...(lastVisibleRequestId
-                    ? { requestId: lastVisibleRequestId }
-                    : {}),
-                });
-              }
-              return;
-            }
-            lastVisibleRunId = ev.runId;
-            lastVisibleRequestId = requestId;
-            if (ev.userMessageId === userMessageId) {
-              markAdmissionPlaced(ev.runId);
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-            });
-          },
-          onUserMessage: (ev) => {
-            if (!persistLocalTranscript || ev.uiVisibility === "hidden") {
-              return;
-            }
-            storage.appendChatEventAndNotify({
-              conversationId: payload.conversationId,
-              type: "user_message",
-              requestId: ev.userMessageId,
-              timestamp: ev.timestamp,
-              payload: prepareStoredLocalChatPayload({
-                type: "user_message",
-                payload: {
-                  text: ev.text,
-                  metadata: {
-                    ui: {
-                      visibility: ev.uiVisibility ?? "visible",
-                    },
-                  },
-                },
-                timestamp: ev.timestamp,
-                timezone: payload.timezone,
-              }),
-            });
-          },
-          onStatus: (ev) => {
-            if (hiddenSystemRunIds.has(ev.runId)) {
-              if (lastVisibleRunId) {
-                emitRunEvent({
-                  ...ev,
-                  runId: lastVisibleRunId,
-                  seq: nextSyntheticSeq(),
-                  type: AGENT_STREAM_EVENT_TYPES.STATUS,
-                  conversationId: payload.conversationId,
-                  ...(lastVisibleRequestId
-                    ? { requestId: lastVisibleRequestId }
-                    : {}),
-                });
-              }
-              return;
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.STATUS,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-            });
-          },
-          onProviderLifecycle: (ev) => {
-            if (hiddenSystemRunIds.has(ev.runId)) return;
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-            });
-          },
-          onToolStart: (ev) => {
-            if (hiddenSystemRunIds.has(ev.runId)) {
-              return;
-            }
-            if (persistLocalTranscript) {
-              storage.appendChatEventAndNotify({
-                conversationId: payload.conversationId,
-                type: "tool_request",
-                requestId: ev.toolCallId,
-                payload: {
-                  toolName: ev.toolName,
-                  ...(ev.args ? { args: ev.args } : {}),
-                  ...(ev.agentType ? { agentType: ev.agentType } : {}),
-                },
-              });
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-            });
-          },
-          onToolEnd: (ev) => {
-            if (hiddenSystemRunIds.has(ev.runId)) {
-              return;
-            }
-            const details =
-              ev.details && typeof ev.details === "object"
-                ? (ev.details as Record<string, unknown>)
-                : undefined;
-            if (persistLocalTranscript) {
-              storage.appendChatEventAndNotify({
-                conversationId: payload.conversationId,
-                type: "tool_result",
-                requestId: ev.toolCallId,
-                payload: {
-                  toolName: ev.toolName,
-                  result: details ?? ev.resultPreview,
-                  resultPreview: ev.resultPreview,
-                  ...(details ? details : {}),
-                  ...(ev.agentType ? { agentType: ev.agentType } : {}),
-                  // Attributes the tool result to a spawned agent's thread so
-                  // per-agent file lists (left sidebar Activity tray) can pick
-                  // up file changes live, before `agent-completed` rolls up.
-                  ...(ev.agentId ? { agentId: ev.agentId } : {}),
-                },
-              });
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.TOOL_END,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-            });
-          },
-          onError: (ev) => {
-            const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
-            hiddenSystemRunIds.delete(ev.runId);
-            if (isHiddenRun) {
-              if (lastVisibleRunId) {
-                if (hasActiveAgentForRootRun(lastVisibleRunId)) {
-                  return;
-                }
-                emitRunEvent({
-                  ...ev,
-                  runId: lastVisibleRunId,
-                  seq: nextSyntheticSeq(),
-                  type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-                  outcome: AGENT_RUN_FINISH_OUTCOMES.ERROR,
-                  reason: ev.error,
-                  conversationId: payload.conversationId,
-                  ...(lastVisibleRequestId
-                    ? { requestId: lastVisibleRequestId }
-                    : {}),
-                  rootRunId: lastVisibleRunId,
-                });
-              }
-              return;
-            }
-            if (
-              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
-                AGENT_IDS.ORCHESTRATOR &&
-              hasActiveAgentForRootRun(ev.runId)
-            ) {
-              return;
-            }
-            if (
-              ev.fatal &&
-              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
-                AGENT_IDS.ORCHESTRATOR
-            ) {
-              settleAdmissions(ev.runId, "unanswered");
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-              outcome: AGENT_RUN_FINISH_OUTCOMES.ERROR,
-              reason: ev.error,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-              ...(ev.runId ? { rootRunId: ev.runId } : {}),
-            });
-          },
-          onAgentEvent: (ev) => {
-            if (!ev.rootRunId) {
-              logger.warn("task-event-missing-root-run-id", {
-                conversationId: ev.conversationId,
-                agentId: ev.agentId,
-                type: ev.type,
-              });
-              return;
-            }
-            if (
-              ev.type === AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED &&
-              ev.agentType === AGENT_IDS.GENERAL
-            ) {
-              const notificationText =
-                ev.description?.trim() || "Task complete";
-              void hostBus
-                .request(METHOD_NAMES.HOST_NOTIFICATION_SHOW, {
-                  title: notificationText,
-                  body: "",
-                  sound: "Glass",
-                })
-                .catch((error) => {
-                  logger.debug("agent-completion-notification-failed", {
-                    conversationId: payload.conversationId,
-                    agentId: ev.agentId,
-                    error:
-                      error instanceof Error ? error.message : String(error),
-                  });
-                });
-            }
-            emitRunEvent({
-              type: ev.type,
-              runId: ev.rootRunId,
-              seq: nextSyntheticSeq(),
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-              userMessageId,
-              agentId: ev.agentId,
-              rootRunId: ev.rootRunId,
-              agentType: ev.agentType,
-              description: ev.description,
-              parentAgentId: ev.parentAgentId,
-              result: ev.result,
-              error: ev.error,
-              statusText: ev.statusText,
-              ...(ev.toolActivity ? { toolActivity: ev.toolActivity } : {}),
-              ...(ev.groupKey ? { groupKey: ev.groupKey } : {}),
-              ...(ev.groupLabel ? { groupLabel: ev.groupLabel } : {}),
-            });
-          },
-          onAgentReasoning: (ev) => {
-            if (!ev.agentId) {
-              return;
-            }
-            const runId = ev.rootRunId ?? ev.runId;
-            emitRunEvent({
-              type: AGENT_STREAM_EVENT_TYPES.AGENT_REASONING,
-              runId,
-              seq: nextSyntheticSeq(),
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-              userMessageId,
-              agentId: ev.agentId,
-              rootRunId: runId,
-              agentType: ev.agentType,
-              ...(ev.description ? { description: ev.description } : {}),
-              chunk: ev.chunk,
-            });
-          },
-          onEnd: (ev) => {
-            const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
-            hiddenSystemRunIds.delete(ev.runId);
-            if (
-              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
-              AGENT_IDS.ORCHESTRATOR
-            ) {
-              // Each assistant message in the run was already persisted
-              // by `onAssistantMessage` as its own row, so end-of-run no
-              // longer writes a new row from `finalText` (doing so would
-              // append a duplicate of the last message).
-              // Mark only the last segment terminal so the renderer can
-              // distinguish it from an interim segment followed by a tool.
-              lastAssistantMessageEvent = markAssistantTurnComplete({
-                conversationId: payload.conversationId,
-                event: lastAssistantMessageEvent,
-              });
-            }
-            if (isHiddenRun) {
-              if (lastVisibleRunId) {
-                emitRunEvent({
-                  ...ev,
-                  runId: lastVisibleRunId,
-                  seq: nextSyntheticSeq(),
-                  type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-                  outcome: AGENT_RUN_FINISH_OUTCOMES.COMPLETED,
-                  conversationId: payload.conversationId,
-                  ...(lastVisibleRequestId
-                    ? { requestId: lastVisibleRequestId }
-                    : {}),
-                  rootRunId: lastVisibleRunId,
-                });
-              }
-              return;
-            }
-            if (
-              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
-              AGENT_IDS.ORCHESTRATOR
-            ) {
-              settleAdmissions(ev.runId, "done");
-            }
-            emitRunEvent({
-              ...ev,
-              type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-              outcome: AGENT_RUN_FINISH_OUTCOMES.COMPLETED,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-              ...(ev.runId ? { rootRunId: ev.runId } : {}),
-            });
-          },
-          onInterrupted: (ev) => {
-            const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
-            hiddenSystemRunIds.delete(ev.runId);
-            if (isHiddenRun) {
-              if (lastVisibleRunId) {
-                emitRunEvent({
-                  type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-                  runId: lastVisibleRunId,
-                  seq: Number.MAX_SAFE_INTEGER,
-                  conversationId: payload.conversationId,
-                  ...(lastVisibleRequestId
-                    ? { requestId: lastVisibleRequestId }
-                    : {}),
-                  agentType: ev.agentType,
-                  outcome: AGENT_RUN_FINISH_OUTCOMES.CANCELED,
-                  reason: ev.reason,
-                  rootRunId: lastVisibleRunId,
-                });
-              }
-              return;
-            }
-            settleAdmissions(ev.runId, "unanswered");
-            emitRunEvent({
-              type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-              runId: ev.runId,
-              seq: Number.MAX_SAFE_INTEGER,
-              conversationId: payload.conversationId,
-              ...(requestId ? { requestId } : {}),
-              agentType: ev.agentType,
-              userMessageId: ev.userMessageId,
-              outcome: AGENT_RUN_FINISH_OUTCOMES.CANCELED,
-              reason: ev.reason,
-              rootRunId: ev.runId,
-            });
-          },
-        },
+        callbacks,
       );
       markAdmissionPlaced(result.runId);
       return { ...result, userMessageId };
@@ -1262,6 +1311,46 @@ export const layer = Layer.effect(
       });
     };
 
-    return { startChat, sendAgentInput, runAutomation, oneShotCompletion };
+    const resumeInterruptedRuns: Interface["resumeInterruptedRuns"] =
+      async () => {
+        const runner = await runnerHandle.ensureInitialized();
+        const { resumed, failed } =
+          await runner.resumeInterruptedOrchestratorRuns({
+            createCallbacks: (launch) => {
+              const client = launch.client ?? {};
+              return createChatRunCallbacks({
+                conversationId: launch.conversationId,
+                userMessageId: launch.userMessageId,
+                requestId:
+                  typeof client.requestId === "string"
+                    ? client.requestId
+                    : undefined,
+                timezone:
+                  typeof client.timezone === "string"
+                    ? client.timezone
+                    : undefined,
+                persistLocalTranscript:
+                  typeof client.persistLocalTranscript === "boolean"
+                    ? client.persistLocalTranscript
+                    : shouldPersistLocalChatTranscript(launch.storageMode),
+                // The dead process appended the user row and placed the
+                // admission; a resume only continues the run.
+                appendUserMessageEvent: () => {},
+                markAdmissionPlaced: () => {},
+              });
+            },
+          });
+        if (resumed.length > 0 || failed.length > 0) {
+          logger.info("durable-runs.resume-pass", { resumed, failed });
+        }
+      };
+
+    return {
+      startChat,
+      sendAgentInput,
+      runAutomation,
+      oneShotCompletion,
+      resumeInterruptedRuns,
+    };
   }),
 );

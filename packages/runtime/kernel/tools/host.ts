@@ -107,6 +107,8 @@ const copyCallableMetadata = (
   ...(tool.resultSchema ? { resultSchema: tool.resultSchema } : {}),
   ...(tool.approval !== undefined ? { approval: tool.approval } : {}),
   ...(tool.sideEffects !== undefined ? { sideEffects: tool.sideEffects } : {}),
+  // Extension tools declare no replay policy and stay unsafe.
+  ...("replay" in tool && tool.replay ? { replay: tool.replay } : {}),
   ...(tool.reversible !== undefined ? { reversible: tool.reversible } : {}),
   ...(tool.annotations ? { annotations: tool.annotations } : {}),
   ...(tool.demoted ? { demoted: tool.demoted } : {}),

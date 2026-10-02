@@ -262,6 +262,12 @@ export const executeRuntimeAgentPrompt = async (args: {
    * assistant message (callers pop the errored assistant before resuming).
    */
   resume?: boolean;
+  /**
+   * Fired once the prompt messages are in the thread store and before the
+   * provider is called — the durable-run seam for checkpointing a cloud
+   * turn's in-memory prompt.
+   */
+  onPromptPersisted?: () => void;
   onAfterPrompt?: () => Promise<void> | void;
   onCleanup?: () => Promise<void> | void;
   onThreadPersistenceError?: (error: unknown) => void;
@@ -589,6 +595,7 @@ export const executeRuntimeAgentPrompt = async (args: {
     // were awaited. Agent.abort() is a no-op before Agent.prompt() creates
     // its controller, so recheck before provider dispatch.
     throwIfPromptAborted();
+    args.onPromptPersisted?.();
     const promptPromise = args.agent.prompt(
       promptMessages.map((message) => message.message),
     );

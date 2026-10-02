@@ -13,6 +13,7 @@ import type {
 } from "../extensions/types.js";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
+import type { RunTaskCapturedMessage } from "../storage/run-task.js";
 import { assistantMessageHasUsableOutput } from "./run-shared.js";
 import {
   assistantMessageHasToolCall,
@@ -61,6 +62,11 @@ type RunRecorderArgs = {
   userMessageId: string;
   uiVisibility?: "visible" | "hidden";
   getResponseTarget?: () => RuntimeAgentEventPayload["responseTarget"];
+  /**
+   * First seq is `initialSeq + 1`. A resumed run starts past every seq its
+   * dead process could have written to the `(run_id, seq)` event log.
+   */
+  initialSeq?: number;
 };
 
 export type RuntimeRunEventRecorder = ReturnType<typeof createRunEventRecorder>;
@@ -71,8 +77,9 @@ export const createRunEventRecorder = ({
   userMessageId,
   uiVisibility,
   getResponseTarget,
+  initialSeq = 0,
 }: RunRecorderArgs) => {
-  let seq = 0;
+  let seq = initialSeq;
   let currentUserMessageId = userMessageId;
   let currentUiVisibility = uiVisibility;
   /**
@@ -464,7 +471,15 @@ export const subscribeRuntimeAgentEvents = ({
   });
   const hookFilter = { agentType };
 
+  // Durable run bookkeeping (`run-task.ts`); absent on stores without it.
+  const runTasks = (threadStore as Partial<Pick<RuntimeStore, "runTasks">>)
+    ?.runTasks;
+
   return agent.subscribe((event) => {
+    // A graceful stop suspended this run for resume: nothing it does while
+    // being torn down (aborted tails, interrupted tool results, terminal
+    // callbacks) may become durable or reach the client.
+    if (runTasks?.isSuspended(runId)) return;
     if (event.type === "agent_start") {
       emitHook(
         hookEmitter,
@@ -508,6 +523,11 @@ export const subscribeRuntimeAgentEvents = ({
               : {}),
           });
           afterDurableMessagePersisted?.(payload);
+          if (payload.role === "toolResult") {
+            // The thread holds this result now; the intent's copy is
+            // redundant (recovery reads the thread first).
+            dropIntentResultQuietly(runTasks, runId, payload.toolCallId);
+          }
           if (
             payload.role === "toolResult" &&
             payload.toolName === "image_gen" &&
@@ -517,6 +537,31 @@ export const subscribeRuntimeAgentEvents = ({
               stellaDataDir,
               conversationId,
               toolCallId: payload.toolCallId,
+            });
+          }
+        }
+      }
+
+      if (
+        runTasks &&
+        threadStore &&
+        threadKey &&
+        agentType === "orchestrator" &&
+        event.message.role === "assistant" &&
+        assistantMessageHasToolCall(event.message) &&
+        event.message.stopReason !== "error" &&
+        event.message.stopReason !== "aborted"
+      ) {
+        // The orchestrator persists this message only with its tool results
+        // at turn_end; until then the checkpoint is its durable copy.
+        const pending = toPersistedThreadPayload(event.message);
+        if (pending) {
+          try {
+            runTasks.checkpointPending(runId, pending);
+          } catch (error) {
+            logger.warn("run-task.checkpoint-failed", {
+              runId,
+              error: error instanceof Error ? error.message : String(error),
             });
           }
         }
@@ -726,7 +771,7 @@ export const subscribeRuntimeAgentEvents = ({
               payload !== null,
           );
         if (payloads.length > 0) {
-          const persistCompletedGroup = () =>
+          const persistGroup = () =>
             persistThreadPayloadMessages(threadStore, {
               threadKey,
               payloads,
@@ -736,6 +781,21 @@ export const subscribeRuntimeAgentEvents = ({
                 : {}),
               preservePayloadExactly: true,
             });
+          // The group and the run's checkpoint advance in one transaction:
+          // after it, the thread (or a cloud turn's captured transcript)
+          // holds everything the pending checkpoint and stored results held.
+          const persistCompletedGroup = runTasks
+            ? () =>
+                threadStore.commitRun((tasks) => {
+                  persistGroup();
+                  const captured = snapshotCapturedTranscript(
+                    threadStore,
+                    threadKey,
+                    runId,
+                  );
+                  tasks.commitTurn(runId, captured ? { captured } : {});
+                })
+            : persistGroup;
           try {
             persistCompletedGroup();
           } catch (error) {
@@ -763,7 +823,45 @@ export const subscribeRuntimeAgentEvents = ({
   });
 };
 
-const toPersistedThreadPayload = (
+const dropIntentResultQuietly = (
+  runTasks: RuntimeStore["runTasks"] | undefined,
+  runId: string,
+  toolCallId: string,
+): void => {
+  if (!runTasks) return;
+  try {
+    runTasks.dropIntentResult(runId, toolCallId);
+  } catch {
+    // Retention clears it with the run; never fail the persisted message.
+  }
+};
+
+/**
+ * A cloud-owned turn's in-memory transcript (prompt + completed groups), or
+ * undefined when the run does not own an ephemeral capture.
+ */
+export const snapshotCapturedTranscript = (
+  store: RuntimeStore,
+  threadKey: string,
+  runId: string,
+): RunTaskCapturedMessage[] | undefined => {
+  if (typeof store.readEphemeralThreadCapture !== "function") return undefined;
+  let messages: ReturnType<RuntimeStore["readEphemeralThreadCapture"]>;
+  try {
+    messages = store.readEphemeralThreadCapture({ threadKey, captureId: runId });
+  } catch {
+    return undefined;
+  }
+  return messages.map((message) => ({
+    timestamp: message.timestamp,
+    role: message.role,
+    content: message.content,
+    ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
+    ...(message.payload !== undefined ? { payload: message.payload } : {}),
+  }));
+};
+
+export const toPersistedThreadPayload = (
   message: AgentMessage,
 ): PersistedRuntimeThreadPayload | null => {
   if (message.role === "assistant") {

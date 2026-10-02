@@ -32,6 +32,13 @@ import {
   persistThreadPayloadMessage,
 } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
+import { prepareDurableResumeContext } from "./durable-resume.js";
+import { getAgentCompletion } from "./shared.js";
+import {
+  RUN_TASK_RESUME_SEQ_OFFSET,
+  type RunTaskStore,
+} from "../storage/run-task.js";
+import type { Agent } from "../agent-core/agent.js";
 import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
 import {
   enrichImageContentForTextOnlyModel,
@@ -42,6 +49,7 @@ import type { AgentMessage } from "../agent-core/types.js";
 import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
 import { streamSimple } from "../../ai/stream.js";
 import type {
+  DurableRunResume,
   RuntimeRunCallbacks,
   SubagentRunOptions,
   SubagentRunResult,
@@ -171,6 +179,8 @@ export class SubagentSession extends PiSessionCore {
     // any hook that keys on it (e.g. a baseline cache) silently fails
     // to set up its run-scoped state.
     const runId = opts.runId ?? `local:sub:${crypto.randomUUID()}`;
+    // Durable run row before the first await (see OrchestratorSession).
+    this.beginDurableRun(opts, runId);
     const effectiveSystemPrompt = await buildSubagentSystemPrompt({
       ...opts,
       runId,
@@ -183,6 +193,12 @@ export class SubagentSession extends PiSessionCore {
       agentType: opts.agentType,
       userMessageId: opts.userMessageId,
       uiVisibility: opts.uiVisibility,
+      ...(opts.resume
+        ? {
+            initialSeq:
+              opts.resume.record.resumeCount * RUN_TASK_RESUME_SEQ_OFFSET,
+          }
+        : {}),
     });
     const emitCompactingStatus = () => {
       try {
@@ -195,13 +211,16 @@ export class SubagentSession extends PiSessionCore {
     };
     // Shrinking model switch: while the outgoing (larger-window) route is
     // still current, run a blocking compaction with it so the incoming
-    // smaller-window route starts on a context it can actually hold.
-    await this.maybeCompactForModelSwitch({
-      opts,
-      runId,
-      onCompacting: emitCompactingStatus,
-      logContext: { threadId: this.threadId, runId },
-    });
+    // smaller-window route starts on a context it can actually hold. A
+    // resume continues the exact context its dead process was sending.
+    if (!opts.resume) {
+      await this.maybeCompactForModelSwitch({
+        opts,
+        runId,
+        onCompacting: emitCompactingStatus,
+        logContext: { threadId: this.threadId, runId },
+      });
+    }
 
     // Keep the reused Agent pointed at the current model route.
     this.setResolvedLlm(opts.resolvedLlm);
@@ -360,21 +379,24 @@ export class SubagentSession extends PiSessionCore {
         contextDeltaMessages.length > 0
           ? [...contextDeltaMessages, ...(opts.promptMessages ?? [])]
           : opts.promptMessages;
-      const promptMessages = await buildSubagentPromptMessages({
-        context: effectiveAgentContext,
-        userPrompt: prompt,
-        promptMessages: combinedPromptMessages,
-        stellaDataDir: opts.stellaDataDir,
-        stellaAppDir: opts.stellaAppDir,
-        agentType: opts.agentType,
-        hookContext: {
-          ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
-          conversationId: opts.conversationId,
-          threadKey: this.threadKey,
-          runId,
-          ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
-        },
-      });
+      // A resume sends no prompt: its prompt is already in the thread.
+      const promptMessages = opts.resume
+        ? []
+        : await buildSubagentPromptMessages({
+            context: effectiveAgentContext,
+            userPrompt: prompt,
+            promptMessages: combinedPromptMessages,
+            stellaDataDir: opts.stellaDataDir,
+            stellaAppDir: opts.stellaAppDir,
+            agentType: opts.agentType,
+            hookContext: {
+              ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
+              conversationId: opts.conversationId,
+              threadKey: this.threadKey,
+              runId,
+              ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
+            },
+          });
       const executionArgs = {
         agent,
         promptMessages: promptMessages.map(
@@ -430,15 +452,28 @@ export class SubagentSession extends PiSessionCore {
             );
           },
         });
-      let execution = await executeWithContextOverflowRecovery({
-        execute: executeWithTransientRetry,
-        agent,
-        opts,
-        threadKey: this.threadKey,
-        runId,
-        runEvents,
-        session: this,
-      });
+      const resumed = opts.resume
+        ? await this.prepareDurableResume({
+            agent,
+            opts,
+            runId,
+            runEvents,
+            resume: opts.resume,
+          })
+        : null;
+      let execution = resumed?.final
+        ? getAgentCompletion(agent)
+        : await executeWithContextOverflowRecovery({
+            execute: resumed
+              ? () => executeWithTransientRetry(true)
+              : executeWithTransientRetry,
+            agent,
+            opts,
+            threadKey: this.threadKey,
+            runId,
+            runEvents,
+            session: this,
+          });
 
       // Safety containment: a fable-5 refusal/safety abort first gets
       // retried on the configured model — refusals are often transient — up
@@ -574,6 +609,100 @@ export class SubagentSession extends PiSessionCore {
       this.currentRetryStatusContext = null;
       this.currentImageDescriptionContext = null;
     }
+  }
+
+  /** Write (or re-attach to) this agent run's durable row when asked. */
+  private beginDurableRun(opts: SubagentRunOptions, runId: string): void {
+    const runTasks = (opts.store as { runTasks?: RunTaskStore } | undefined)
+      ?.runTasks;
+    if (!runTasks || (!opts.durable && !opts.resume)) return;
+    try {
+      runTasks.begin({
+        runId,
+        conversationId: opts.conversationId,
+        threadKey: this.threadKey,
+        agentType: opts.agentType,
+        ...(opts.rootRunId ? { ownerRunId: opts.rootRunId } : {}),
+        background: true,
+        ...(opts.durable ? { launch: opts.durable.launch } : {}),
+      });
+    } catch (error) {
+      this.logger.warn("durable-run.begin-failed", {
+        threadId: this.threadId,
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Answer the open tool calls a resumed agent run's dead process left in
+   * its thread (`durable-resume.ts`). Agent threads persist every message as
+   * it ends, so the context is already the thread; each answer is persisted
+   * the same way before the loop continues.
+   */
+  private async prepareDurableResume(args: {
+    agent: Agent;
+    opts: SubagentRunOptions;
+    runId: string;
+    runEvents: RuntimeRunEventRecorder;
+    resume: DurableRunResume;
+  }): Promise<{ final: AgentMessage | null }> {
+    const { agent, opts, runId, runEvents, resume } = args;
+    const restoredContext = await prepareDurableResumeContext({
+      messages: agent.state.messages,
+      checkpoint: {},
+      intents: resume.intents,
+      tools: agent.state.tools,
+      ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
+    });
+    const runTasks = (opts.store as { runTasks?: RunTaskStore } | undefined)
+      ?.runTasks;
+    for (const entry of restoredContext.resolved) {
+      persistThreadPayloadMessage(opts.store, {
+        threadKey: this.threadKey,
+        payload: entry.message,
+        runId,
+        ...(typeof opts.agentContext.attemptGeneration === "number"
+          ? { attemptGeneration: opts.agentContext.attemptGeneration }
+          : {}),
+      });
+      runTasks?.dropIntentResult(runId, entry.call.id);
+      if (entry.disposition === "interrupted") {
+        runTasks?.interruptIntent(runId, entry.call.id);
+      }
+      if (entry.disposition === "rerun") {
+        opts.callbacks?.onToolStart?.(
+          runEvents.recordToolStart({
+            toolCallId: entry.call.id,
+            toolName: entry.call.name,
+            toolArgs: entry.call.arguments ?? {},
+          }),
+        );
+      }
+      opts.callbacks?.onToolEnd?.(
+        runEvents.recordToolEnd({
+          toolCallId: entry.call.id,
+          toolName: entry.call.name,
+          result: entry.message.content,
+          details: entry.message.details,
+          isError: entry.message.isError,
+        }),
+      );
+    }
+    agent.replaceMessages(restoredContext.messages);
+    this.logger.info("durable-run.resumed", {
+      threadId: this.threadId,
+      runId,
+      resumeCount: resume.record.resumeCount,
+      finalAnswer: restoredContext.final !== null,
+      toolCalls: restoredContext.resolved.map((entry) => ({
+        toolCallId: entry.call.id,
+        toolName: entry.call.name,
+        disposition: entry.disposition,
+      })),
+    });
+    return { final: restoredContext.final };
   }
 
   dispose(): void {

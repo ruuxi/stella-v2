@@ -793,6 +793,23 @@ export const createRuntimeInitialization = (
       conversationCallbacks: context.state.conversationCallbacks.size,
       runCallbacksByRunId: context.state.runCallbacksByRunId.size,
     });
+    // Suspend every live durable run before anything below aborts it: the
+    // teardown then leaves exactly the state a crash would (running rows,
+    // open intents, the cloud begin), and the next worker resumes the runs
+    // (`kernel/storage/run-task.ts`). Runs that cannot resume are canceled
+    // as before.
+    try {
+      const suspended = context.runtimeStore.runTasks?.suspendLiveRuns() ?? [];
+      if (suspended.length > 0) {
+        logger.warn("runner.stop.durable-runs-suspended", {
+          runIds: suspended,
+        });
+      }
+    } catch (error) {
+      logger.warn("runner.stop.durable-suspend-failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     stopExtensionWatcher();
     context.state.isRunning = false;
     context.state.isInitialized = false;

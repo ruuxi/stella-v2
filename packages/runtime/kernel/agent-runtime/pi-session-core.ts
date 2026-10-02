@@ -255,7 +255,7 @@ type FrozenToolSchemas = ReturnType<typeof snapshotToolSchemas>;
  * mirror only at turn boundaries after background compaction lands.
  */
 export class PiSessionCore {
-  private readonly logger;
+  protected readonly logger;
   protected agent: Agent | null = null;
   private currentResolvedLlm: ResolvedLlmRoute | null = null;
   private pendingHistoryRefresh = false;

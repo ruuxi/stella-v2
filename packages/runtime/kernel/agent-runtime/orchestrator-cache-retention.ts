@@ -34,21 +34,13 @@ import type {
 } from "../../ai/types.js";
 import type { StreamFn } from "../agent-core/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
+import {
+  LONG_PROMPT_CACHE_TTL_MS,
+  supportsLongPromptCacheRetention,
+} from "../../ai/prompt-cache-retention.js";
 
-/** Lifetime of an Anthropic `ttl: "1h"` cache entry. */
-export const LONG_PROMPT_CACHE_TTL_MS = 60 * 60 * 1000;
-
-/**
- * True when the adapter maps `cacheRetention: "long"` to Anthropic's 1h
- * tier: first-party Anthropic models, direct or through the Stella relay
- * (which forwards `cache_control` verbatim). Anthropic-compatible third
- * parties (Copilot, MiniMax, Kimi, gateways) may reject or ignore `ttl`.
- */
-export const supportsLongPromptCacheRetention = (model: Model<Api>): boolean =>
-  model.api === "anthropic-messages" &&
-  model.provider === "anthropic" &&
-  (model as Model<"anthropic-messages">).compat?.supportsLongCacheRetention !==
-    false;
+// The tier policy is shared with the cloud orchestrator (dependency-free).
+export { LONG_PROMPT_CACHE_TTL_MS, supportsLongPromptCacheRetention };
 
 /**
  * Whether a background agent spawned from this conversation is still

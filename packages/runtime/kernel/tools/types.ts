@@ -148,6 +148,11 @@ export type ToolMetadata = {
   approval?: unknown;
   /** Existing side-effect metadata, when the tool source provides it. */
   sideEffects?: unknown;
+  /**
+   * What recovery may do with a call cut off by process loss (the
+   * definition's `replay`; omitted means `"unsafe"`).
+   */
+  replay?: ToolReplayPolicy;
   /** Existing reversibility hint, when the tool source provides it. */
   reversible?: boolean;
   /** MCP-style callable annotations, when the tool source provides them. */

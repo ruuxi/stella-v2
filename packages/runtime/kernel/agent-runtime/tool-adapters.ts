@@ -15,6 +15,7 @@ import type {
   AuthorizedToolImage,
   ToolContext,
   ToolMetadata,
+  ToolReplayPolicy,
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
@@ -1111,6 +1112,32 @@ export const executeRuntimeToolCall = async (
   });
 };
 
+/**
+ * A call's replay policy from the catalog (undeclared = `unsafe`). A
+ * `multi_tool_use_parallel` batch is derived per call: replay-safe only when
+ * every inner call names a `safe` tool.
+ */
+export const resolveToolReplayPolicy = (
+  catalog: ReadonlyMap<string, Pick<ToolMetadata, "replay">>,
+  toolName: string,
+  args: unknown,
+): ToolReplayPolicy => {
+  if (toolName !== MULTI_TOOL_USE_PARALLEL_TOOL_NAME) {
+    return catalog.get(toolName)?.replay ?? "unsafe";
+  }
+  const uses = (args as { tool_uses?: unknown } | null)?.tool_uses;
+  if (!Array.isArray(uses) || uses.length === 0) return "unsafe";
+  return uses.every((use) => {
+    const recipient = (use as { recipient_name?: unknown } | null)
+      ?.recipient_name;
+    if (typeof recipient !== "string") return false;
+    const name = recipient.replace(/^functions\./, "");
+    return catalog.get(name)?.replay === "safe";
+  })
+    ? "safe"
+    : "unsafe";
+};
+
 export const createPiTools = (opts: {
   executionHost: "device" | "sandbox";
   runId: string;
@@ -1158,13 +1185,25 @@ export const createPiTools = (opts: {
    */
   superviseRunResource?: RunResourceRegistrar;
 }): AgentTool[] => {
-  const superviseToolExecution = createToolExecutionSupervisor({
-    supervise: opts.superviseRunResource,
-  });
   const requested = getRequestedRuntimeToolNames(opts.toolsAllowlist);
   const catalog = new Map<string, ToolMetadata>(
     (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
   );
+  const runTasks = (opts.store as Partial<Pick<RuntimeStore, "runTasks">>)
+    ?.runTasks;
+  const superviseToolExecution = createToolExecutionSupervisor({
+    supervise: opts.superviseRunResource,
+    ...(runTasks
+      ? {
+          intents: {
+            store: runTasks,
+            runId: opts.runId,
+            replayOf: (toolName: string, args: unknown) =>
+              resolveToolReplayPolicy(catalog, toolName, args),
+          },
+        }
+      : {}),
+  });
   const connectorProvider = opts.connectorDeliveryTarget?.provider;
   // Never-strand rule: demoted tools leave the direct list ONLY when code is
   // actually part of this turn's resolved active set. Profiles intentionally
@@ -1348,8 +1387,9 @@ export const createPiTools = (opts: {
       };
     };
     const prepareArguments = getToolArgumentPreparer(toolName);
-    const tool: AgentTool = {
+    const tool: AgentTool & { replay?: ToolReplayPolicy } = {
       name: toolName,
+      ...(metadata.replay ? { replay: metadata.replay } : {}),
       label: metadata.label ?? formatToolLabel(toolName),
       workingText: formatToolWorkingText(metadata),
       description:
@@ -1372,6 +1412,7 @@ export const createPiTools = (opts: {
         superviseToolExecution({
           toolCallId,
           toolName,
+          args: params,
           signal,
           run: (toolSignal) =>
             executeBody(toolCallId, params, toolSignal, onUpdate),

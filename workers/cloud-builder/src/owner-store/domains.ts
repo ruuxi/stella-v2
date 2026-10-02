@@ -5,6 +5,7 @@
 
 import { empty } from "./args.js";
 import { agentThreadsDomain } from "./domains/agent-threads.js";
+import { appSourceDomain } from "./domains/app-source.js";
 import { billingDomain } from "./domains/billing.js";
 import { conversationEditsDomain } from "./domains/conversation-edits.js";
 import { conversationsDomain } from "./domains/conversations.js";
@@ -31,6 +32,7 @@ export const ownerDomains: OwnerDomain[] = [
   conversationEditsDomain,
   billingDomain,
   devicesDomain,
+  appSourceDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

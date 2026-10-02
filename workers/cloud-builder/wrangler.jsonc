@@ -79,6 +79,13 @@
       "CAPABILITY_SIGNING_KEY",
     ],
   },
+  // The app's source: one upstream repo and a fork per owner (v3).
+  "artifacts": [
+    {
+      "binding": "ARTIFACTS",
+      "namespace": "stella-app-dev",
+    },
+  ],
   "worker_loaders": [
     {
       "binding": "LOADER",
@@ -287,6 +294,12 @@
           "CAPABILITY_SIGNING_KEY",
         ],
       },
+      "artifacts": [
+        {
+          "binding": "ARTIFACTS",
+          "namespace": "stella-app-acceptance",
+        },
+      ],
       "worker_loaders": [
         {
           "binding": "LOADER",
@@ -479,6 +492,12 @@
           "CAPABILITY_SIGNING_KEY",
         ],
       },
+      "artifacts": [
+        {
+          "binding": "ARTIFACTS",
+          "namespace": "stella-app-prod",
+        },
+      ],
       "worker_loaders": [
         {
           "binding": "LOADER",

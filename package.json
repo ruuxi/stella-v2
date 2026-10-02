@@ -68,6 +68,7 @@
     "website:typecheck": "cd packages/website && bun run typecheck",
     "prompts:sync-defaults": "cd packages/backend && bun run prompts:sync-defaults",
     "prompts:check-defaults": "cd packages/backend && bun run prompts:check-defaults",
+    "app-source:publish": "node scripts/publish-app-source.mjs",
     "check:generated": "bun run routes:check && bun run prompts:check-defaults && node packages/backend/scripts/check-convex-api-entrypoints.mjs && node packages/backend/scripts/generate-desktop-convex-api.mjs --check && node packages/desktop/scripts/derive-ipc-payload-contract.mjs --check && node packages/mobile/scripts/sync-i18n-catalogs.mjs --check && bun run i18n:parity && bun packages/runtime/kernel/connectors/generate-oauth-provider-catalog-index.ts --check",
     "mobile:start": "cd packages/mobile && bun run start",
     "mobile:ios": "cd packages/mobile && bun run ios",

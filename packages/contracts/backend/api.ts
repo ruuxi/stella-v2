@@ -6,6 +6,7 @@
  */
 
 import type { AgentThreadCalls, AgentThreadViews } from "./agent-threads.js";
+import type { AppSourceCalls } from "./app-source.js";
 import type { BillingCalls, BillingViews } from "./billing.js";
 import type { DeviceCalls, DeviceViews } from "./devices.js";
 import type { ConversationCalls, ConversationViews } from "./conversations.js";
@@ -19,7 +20,8 @@ export type BackendCalls = SystemCalls &
   ConversationCalls &
   AgentThreadCalls &
   BillingCalls &
-  DeviceCalls;
+  DeviceCalls &
+  AppSourceCalls;
 export type BackendViews = ConversationViews & AgentThreadViews & BillingViews & DeviceViews;
 
 export type CallName = keyof BackendCalls & string;

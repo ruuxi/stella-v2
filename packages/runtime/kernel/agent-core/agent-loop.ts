@@ -656,8 +656,12 @@ const streamAssistantResponse = (
 					),
 				);
 
+				// Record the requested level, whichever stream function answered
+				// (pi-mono `streamAssistantResponse`).
 				const next = normalizeFinalMessage(
-					yield* Effect.promise(() => response.result()),
+					Object.assign(yield* Effect.promise(() => response.result()), {
+						thinkingLevel: config.reasoning ?? "off",
+					} satisfies Pick<AssistantMessage, "thinkingLevel">),
 				);
 				if (requestBudget && next.stopReason !== "error" && next.stopReason !== "aborted") {
 					requestBudget.used = 0;

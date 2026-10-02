@@ -298,6 +298,13 @@ export interface Usage {
   reasoning?: number;
   cacheRead: number;
   cacheWrite: number;
+  /**
+   * The part of `cacheWrite` written to a 1-hour cache entry (Anthropic
+   * `cache_creation.ephemeral_1h_input_tokens`), billed at 2x input instead
+   * of the model's 5-minute `cacheWrite` rate. Absent when the provider does
+   * not report the TTL split.
+   */
+  cacheWrite1h?: number;
   totalTokens: number;
   cost: {
     input: number;
@@ -324,6 +331,8 @@ export interface AssistantMessage {
   model: string;
   responseModel?: string; // Concrete upstream model when different from the requested model.
   responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
+  /** Thinking level the agent loop requested for this response. Absent outside the agent loop and on legacy messages. */
+  thinkingLevel?: ModelThinkingLevel;
   diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
   usage: Usage;
   stopReason: StopReason;

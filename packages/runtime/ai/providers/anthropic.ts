@@ -74,6 +74,24 @@ function getCacheControl(
 	};
 }
 
+/**
+ * Record the 1-hour share of a response's cache writes
+ * (`cache_creation.ephemeral_1h_input_tokens`) so `calculateCost` can bill it
+ * at 2x input instead of the 5-minute rate. A usage block without the split
+ * (proxies, `message_delta` on older API versions) leaves the count as is.
+ */
+function applyLongCacheWrite(
+	usage: AssistantMessage["usage"],
+	usageBase: AssistantMessage["usage"],
+	reported: unknown,
+): void {
+	const split = (reported as { cache_creation?: { ephemeral_1h_input_tokens?: unknown } | null } | null | undefined)
+		?.cache_creation;
+	const tokens = split?.ephemeral_1h_input_tokens;
+	if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return;
+	usage.cacheWrite1h = (usageBase.cacheWrite1h ?? 0) + tokens;
+}
+
 // Stealth mode: Mimic Claude Code's tool naming exactly
 const claudeCodeVersion = "2.1.280";
 
@@ -678,6 +696,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					output.usage.output = usageBase.output + (event.message.usage.output_tokens || 0);
 					output.usage.cacheRead = usageBase.cacheRead + (event.message.usage.cache_read_input_tokens || 0);
 					output.usage.cacheWrite = usageBase.cacheWrite + (event.message.usage.cache_creation_input_tokens || 0);
+					applyLongCacheWrite(output.usage, usageBase, event.message.usage);
 					// Anthropic doesn't provide total_tokens, compute from components
 					output.usage.totalTokens =
 						output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
@@ -839,6 +858,7 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 					if (event.usage.cache_creation_input_tokens != null) {
 						output.usage.cacheWrite = usageBase.cacheWrite + event.usage.cache_creation_input_tokens;
 					}
+					applyLongCacheWrite(output.usage, usageBase, event.usage);
 					// Anthropic doesn't provide total_tokens, compute from components
 					output.usage.totalTokens =
 						output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
@@ -1214,6 +1234,7 @@ export function messageToAssistant(
 	output.usage.output = usageBase.output + (message.usage.output_tokens || 0);
 	output.usage.cacheRead = usageBase.cacheRead + (message.usage.cache_read_input_tokens || 0);
 	output.usage.cacheWrite = usageBase.cacheWrite + (message.usage.cache_creation_input_tokens || 0);
+	applyLongCacheWrite(output.usage, usageBase, message.usage);
 	// Anthropic doesn't provide total_tokens, compute from components
 	output.usage.totalTokens =
 		output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;

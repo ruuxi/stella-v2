@@ -1453,9 +1453,11 @@ describe("general/subagent compaction path", () => {
       };
       return context.messages[0]!.content[0]!.text;
     });
-    expect(prompts.some((prompt) => prompt.includes("PREFIX of a turn"))).toBe(
-      true,
-    );
+    expect(
+      prompts.some((prompt) =>
+        prompt.includes("Create a concise checkpoint of the user's request"),
+      ),
+    ).toBe(true);
     expect(compactCalls[0]!.summary).toContain("Turn Context (split turn)");
   });
 

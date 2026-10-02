@@ -1297,8 +1297,40 @@ export const formatThreadCheckpointMessage = (
 ): string =>
   [THREAD_CHECKPOINT_MARKER, "", checkpoint.summary.trim()].join("\n");
 
-const computeSummaryBudget = (messages: StoredThreadMessage[]): number =>
-  Math.max(100, Math.floor(getThreadTokenEstimate(messages) * 0.2));
+/**
+ * Output cap for one summary request (pi-mono `generateSummaryWithUsage` /
+ * `generateTurnPrefixSummary`): 0.8 × the compaction reserve for history
+ * summaries, 0.5 × for split-turn prefixes, never above the model's own
+ * output limit. A summary that hits the cap stops with "length" and is
+ * rejected below, so the requested target length stays well under it.
+ */
+const getSummaryMaxTokens = (
+  route: ResolvedLlmRoute,
+  promptKind: "history" | "turnPrefix",
+): number => {
+  const modelMaxTokens = Number(route.model.maxTokens);
+  return Math.min(
+    Math.floor(
+      (promptKind === "turnPrefix" ? 0.5 : 0.8) *
+        THREAD_COMPACTION_RESERVE_TOKENS,
+    ),
+    Number.isFinite(modelMaxTokens) && modelMaxTokens > 0
+      ? Math.floor(modelMaxTokens)
+      : Number.POSITIVE_INFINITY,
+  );
+};
+
+const computeSummaryBudget = (
+  messages: StoredThreadMessage[],
+  maxTokens: number,
+): number =>
+  Math.max(
+    100,
+    Math.min(
+      Math.floor(getThreadTokenEstimate(messages) * 0.2),
+      Math.floor(maxTokens * 0.5),
+    ),
+  );
 
 /**
  * Retry backoff for the summary request. Compaction runs at the moment of
@@ -1558,20 +1590,23 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.
 Preserve exact \`thread_id\` values from spawn_agent / send_input / check-status tool calls so follow-ups can resume existing threads.`;
 
-const GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+// Conversation content and instructions are separate sections, and the task
+// is framed as a continuation checkpoint: Claude Fable refused the earlier
+// "PREFIX / SUFFIX of a turn" wording (pi-mono d192bd6dc).
+const GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT = `The messages above are earlier context from an ongoing conversation. Later messages are stored separately and do not need to be reconstructed.
 
-Summarize the prefix to provide context for the retained suffix:
+Create a concise checkpoint of the user's request and the progress shown above. This checkpoint will be placed before the later messages so the conversation can continue with the necessary context.
 
 ## Original Request
-[What did the user ask for in this turn?]
+[What did the user ask for?]
 
-## Early Progress
-- [Key decisions and work done in the prefix]
+## Progress So Far
+- [Key decisions and work completed in these messages]
 
-## Context for Suffix
-- [Information needed to understand the retained recent work]
+## Context Needed to Continue
+- [Information from these messages needed to understand the later work]
 
-Be concise. Focus on what's needed to understand the kept suffix.`;
+Only summarize information explicitly present above. Do not infer or recreate later messages.`;
 
 export const buildGeneralSummaryPrompt = (
   formattedConversation: string,
@@ -1590,7 +1625,7 @@ export const buildGeneralSummaryPrompt = (
 export const buildGeneralTurnPrefixPrompt = (
   formattedConversation: string,
 ): string =>
-  `<conversation>\n${formattedConversation}\n</conversation>\n\n${GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+  `# Conversation\n${formattedConversation}\n\n# Instructions\n${GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
@@ -1677,6 +1712,10 @@ const generateThreadSummary = async (args: {
     };
   }
 
+  const maxTokens = getSummaryMaxTokens(
+    args.resolvedLlm,
+    args.promptKind ?? "history",
+  );
   const promptBody =
     policy === "general"
       ? args.promptKind === "turnPrefix"
@@ -1685,7 +1724,7 @@ const generateThreadSummary = async (args: {
       : buildSummaryPrompt(
           formattedConversation,
           previousSummary,
-          computeSummaryBudget(args.messages),
+          computeSummaryBudget(args.messages, maxTokens),
           args.durableMemoryReference,
         );
 
@@ -1723,8 +1762,15 @@ const generateThreadSummary = async (args: {
             },
           ],
         },
+        // A summary prompt is never replayed, so writing it to the prompt
+        // cache only pays the write premium (pi-mono 9b3a20591). No
+        // sessionId either: an absent id keeps this one-off request off the
+        // live session's routing affinity and Codex socket, which is the
+        // isolation a fresh per-summary id buys in pi-mono.
         {
           apiKey,
+          maxTokens,
+          cacheRetention: "none",
         },
       );
       const text = readAssistantText(message);

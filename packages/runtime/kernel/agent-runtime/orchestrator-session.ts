@@ -80,6 +80,13 @@ import {
 } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
 import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
+import {
+  LONG_PROMPT_CACHE_TTL_MS,
+  hasRunningBackgroundAgents,
+  withOrchestratorCacheRetention,
+  type PromptCacheRequest,
+} from "./orchestrator-cache-retention.js";
+import { PromptCacheWarmer } from "./cache-warmer.js";
 import { streamSimple } from "../../ai/stream.js";
 import type { OrchestratorRunOptions, RuntimeRunCallbacks } from "./types.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
@@ -194,6 +201,64 @@ export class OrchestratorSession extends PiSessionCore {
     refreshBlocked: boolean;
   } | null = null;
   private hasUnresolvedThreadPersistenceFailure = false;
+  /** Cache tier and time of the latest provider request this session sent. */
+  private lastPromptCacheRequest: PromptCacheRequest | null = null;
+  /** Store and route of the latest turn, read while the session idles. */
+  private idleContext: Pick<
+    OrchestratorRunOptions,
+    "store" | "resolvedLlm"
+  > | null = null;
+  private readonly cacheWarmer: PromptCacheWarmer;
+
+  private createCacheWarmer(): PromptCacheWarmer {
+    return new PromptCacheWarmer({
+      send: streamSimple,
+      shouldWarm: () =>
+        this.activeTurnCount === 0 &&
+        !this.canSteerLiveAgent &&
+        this.hasRunningBackgroundAgentsWhileIdle(),
+      getPromptTokens: () => {
+        const messages = this.agent?.state.messages ?? [];
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (message?.role === "assistant" && message.usage) {
+            const usage = message.usage;
+            return usage.input + usage.cacheRead + usage.cacheWrite;
+          }
+        }
+        return 0;
+      },
+      getApiKey: () => this.idleContext?.resolvedLlm.getApiKey(),
+      logContext: { conversationId: this.conversationId },
+    });
+  }
+
+  private hasRunningBackgroundAgentsWhileIdle(): boolean {
+    const store = this.idleContext?.store;
+    return store
+      ? hasRunningBackgroundAgents(store, this.conversationId)
+      : false;
+  }
+
+  /**
+   * While background agents run, keep the live Agent (and its frozen prompt
+   * bytes) for as long as the 1h cache entry its last request wrote: a
+   * rebuild from SQLite after eviction is not guaranteed byte-identical,
+   * which would forfeit the entry their completion is about to read.
+   */
+  private resolveIdleEvictionDelayMs(): number {
+    const last = this.lastPromptCacheRequest;
+    if (
+      last?.retention !== "long" ||
+      !this.hasRunningBackgroundAgentsWhileIdle()
+    ) {
+      return ORCHESTRATOR_AGENT_IDLE_EVICTION_MS;
+    }
+    return Math.max(
+      ORCHESTRATOR_AGENT_IDLE_EVICTION_MS,
+      last.at + LONG_PROMPT_CACHE_TTL_MS - Date.now(),
+    );
+  }
 
   private scheduleIdleEviction(): void {
     if (this.idleEvictionTimer) {
@@ -203,10 +268,15 @@ export class OrchestratorSession extends PiSessionCore {
     if (this.activeTurnCount > 0 || this.hasUnresolvedThreadPersistenceFailure)
       return;
     this.idleEvictionTimer = forkOrchestratorSessionTimer(
-      ORCHESTRATOR_AGENT_IDLE_EVICTION_MS,
+      this.resolveIdleEvictionDelayMs(),
       () => {
         this.idleEvictionTimer = null;
         if (this.activeTurnCount > 0) return;
+        // A scheduled keepalive still owns the cache entry; check back later.
+        if (this.cacheWarmer.armed) {
+          this.scheduleIdleEviction();
+          return;
+        }
         this.dispose();
       },
     );
@@ -222,6 +292,7 @@ export class OrchestratorSession extends PiSessionCore {
         runId: ORCHESTRATOR_SESSION_RUN_ID,
       }),
     });
+    this.cacheWarmer = this.createCacheWarmer();
   }
 
   /**
@@ -310,12 +381,20 @@ export class OrchestratorSession extends PiSessionCore {
       this.idleEvictionTimer.interruptUnsafe();
       this.idleEvictionTimer = null;
     }
+    // A real turn always supersedes a keepalive, including one in flight.
+    this.cacheWarmer.cancel();
     this.activeTurnCount += 1;
+    this.idleContext = { store: opts.store, resolvedLlm: opts.resolvedLlm };
     try {
       return await this.runActiveTurn(opts);
     } finally {
       this.activeTurnCount = Math.max(0, this.activeTurnCount - 1);
-      if (this.activeTurnCount === 0) this.scheduleIdleEviction();
+      if (this.activeTurnCount === 0) {
+        if (this.hasRunningBackgroundAgentsWhileIdle()) {
+          this.cacheWarmer.onIdle();
+        }
+        this.scheduleIdleEviction();
+      }
     }
   }
 
@@ -459,16 +538,27 @@ export class OrchestratorSession extends PiSessionCore {
     // Provider streams opened this turn supervise as child fibers of the
     // run's scope (fiber-derived abort, terminal-settlement join). Reset
     // every turn: the Agent is long-lived but the registrar is per-run.
-    agent.streamFn = opts.superviseRunResource
-      ? createRunScopedStreamFn({
-          supervise: opts.superviseRunResource,
-          runId,
-          onLifecycle: (event) =>
-            opts.callbacks?.onProviderLifecycle?.(
-              runEvents.recordProviderLifecycle(event),
-            ),
-        })
-      : streamSimple;
+    // Anthropic requests use the 1h cache tier so a background agent's
+    // completion (or the user returning) wakes this session on a warm
+    // prefix; see orchestrator-cache-retention.ts for the cost reasoning.
+    agent.streamFn = withOrchestratorCacheRetention(
+      opts.superviseRunResource
+        ? createRunScopedStreamFn({
+            supervise: opts.superviseRunResource,
+            runId,
+            onLifecycle: (event) =>
+              opts.callbacks?.onProviderLifecycle?.(
+                runEvents.recordProviderLifecycle(event),
+              ),
+          })
+        : streamSimple,
+      {
+        onRequest: (request) => {
+          this.lastPromptCacheRequest = request;
+          this.cacheWarmer.noteRequest(request);
+        },
+      },
+    );
 
     const containmentTurn = this.beginAbortContainmentTurn(
       agent,
@@ -800,12 +890,26 @@ export class OrchestratorSession extends PiSessionCore {
     }
   }
 
+  /** Compaction swaps the prompt prefix at the next turn: stop warming it. */
+  override notifyCompacted(): void {
+    this.cacheWarmer.cancel();
+    super.notifyCompacted();
+  }
+
+  override notifyHistoryChanged(): void {
+    this.cacheWarmer.cancel();
+    super.notifyHistoryChanged();
+  }
+
   dispose(): void {
     if (this.idleEvictionTimer) {
       this.idleEvictionTimer.interruptUnsafe();
       this.idleEvictionTimer = null;
     }
+    this.cacheWarmer.dispose();
     super.dispose();
+    this.lastPromptCacheRequest = null;
+    this.idleContext = null;
     this.currentResponseTargetTracker = null;
     this.currentRetryStatusContext = null;
     this.currentImageDescriptionContext = null;

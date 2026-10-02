@@ -17,6 +17,7 @@ import {
 import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
 import type { RawReplyRef, ReplyRef } from "@stella/contracts/reply-refs";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
+import { RunAdmissionStore } from "../../../kernel/storage/run-admission.js";
 import type { LocalChatEventRecord } from "../../../kernel/storage/shared.js";
 import {
   resolveConversationStorageMode,
@@ -108,6 +109,17 @@ export const layer = Layer.effect(
     const storage = yield* SessionStorage.Service;
     const runEvents = yield* RunEventBus.Service;
     const runnerHandle = yield* RunnerHandle.Service;
+    const admissions = new RunAdmissionStore(storage.db);
+    /**
+     * Admissions this worker process is still starting (attachment
+     * materialization, queued behind an active run), keyed by
+     * `[conversationId, admissionKey]`. A concurrent duplicate awaits the
+     * original instead of reading a row that has no run yet.
+     */
+    const inFlightAdmissions = new Map<
+      string,
+      Promise<Record<string, unknown>>
+    >();
     let deviceSignerPromise: ReturnType<typeof createRemoteDeviceSigner> | null =
       null;
     const getDeviceSigner = () => {
@@ -254,7 +266,15 @@ export const layer = Layer.effect(
       });
     };
 
-    const startChat: Interface["startChat"] = async (payload) => {
+    /**
+     * The admitted half of `startChat`. `admissionKey` is set when the send
+     * holds a `run_admission` claim; the runner callbacks move that claim to
+     * `placed` (with its run) and settle it when the run ends.
+     */
+    const startAdmittedChat = async (
+      payload: RuntimeChatPayload,
+      admissionKey: string | undefined,
+    ): Promise<Record<string, unknown>> => {
       const storageMode = resolveConversationStorageMode(payload.storageMode);
       const ownerGeneration = asTrimmedString(payload.ownerGeneration);
       if (storageMode === "cloud" && !ownerGeneration) {
@@ -369,6 +389,45 @@ export const layer = Layer.effect(
       const windowPreviewImageUrl = windowScreenshotAttachment?.url;
       const userMessageId =
         payload.userMessageEventId ?? `local:${crypto.randomUUID()}`;
+      const markAdmissionPlaced = (runId: string) => {
+        if (!admissionKey || !runId) return;
+        try {
+          admissions.markPlaced({
+            conversationId: payload.conversationId,
+            requestId: admissionKey,
+            runId,
+          });
+        } catch (error) {
+          logger.warn("startChat.admission-write-failed", {
+            conversationId: payload.conversationId,
+            requestId: admissionKey,
+            step: "placed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+      // Settles every open admission on the run, including sends steered into
+      // it as live follow-ups (they were placed on this same run id).
+      const settleAdmissions = (
+        runId: string | undefined,
+        status: "done" | "unanswered",
+      ) => {
+        if (!runId) return;
+        try {
+          admissions.settleRun({
+            conversationId: payload.conversationId,
+            runId,
+            status,
+          });
+        } catch (error) {
+          logger.warn("startChat.admission-write-failed", {
+            conversationId: payload.conversationId,
+            runId,
+            step: status,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
       let userMessageEventAppended = false;
       const appendUserMessageEvent = (timestamp = userMessageTimestamp) => {
         if (!persistLocalTranscript || userMessageEventAppended) {
@@ -650,6 +709,9 @@ export const layer = Layer.effect(
             }
             lastVisibleRunId = ev.runId;
             lastVisibleRequestId = requestId;
+            if (ev.userMessageId === userMessageId) {
+              markAdmissionPlaced(ev.runId);
+            }
             emitRunEvent({
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
@@ -800,6 +862,13 @@ export const layer = Layer.effect(
             ) {
               return;
             }
+            if (
+              ev.fatal &&
+              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
+                AGENT_IDS.ORCHESTRATOR
+            ) {
+              settleAdmissions(ev.runId, "unanswered");
+            }
             emitRunEvent({
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
@@ -914,6 +983,12 @@ export const layer = Layer.effect(
               }
               return;
             }
+            if (
+              (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
+              AGENT_IDS.ORCHESTRATOR
+            ) {
+              settleAdmissions(ev.runId, "done");
+            }
             emitRunEvent({
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
@@ -944,6 +1019,7 @@ export const layer = Layer.effect(
               }
               return;
             }
+            settleAdmissions(ev.runId, "unanswered");
             emitRunEvent({
               type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
               runId: ev.runId,
@@ -959,7 +1035,98 @@ export const layer = Layer.effect(
           },
         },
       );
+      markAdmissionPlaced(result.runId);
       return { ...result, userMessageId };
+    };
+
+    /**
+     * Run admission is idempotent per send: the key is the client's stable
+     * `userMessageEventId`, else its `requestId` (stable for mobile
+     * `clientRequestId` sends). A retry of an admitted send returns the
+     * original run (`deduplicated: true`) instead of appending the message
+     * and starting a second run. The claim is taken before the first await,
+     * so two racing calls in this process cannot both admit.
+     */
+    const startChat: Interface["startChat"] = async (payload) => {
+      // The exact id the run and its callbacks write under (not trimmed), so
+      // placement and settlement match the claimed row.
+      const conversationId = payload.conversationId;
+      const admissionKey =
+        asTrimmedString(payload.userMessageEventId) ||
+        asTrimmedString(payload.requestId);
+      if (!asTrimmedString(conversationId) || !admissionKey) {
+        return await startAdmittedChat(payload, undefined);
+      }
+      const inFlightKey = JSON.stringify([conversationId, admissionKey]);
+      const inFlight = inFlightAdmissions.get(inFlightKey);
+      if (inFlight) {
+        logger.info("startChat.duplicate-admission", {
+          conversationId,
+          requestId: admissionKey,
+          state: "in-flight",
+        });
+        return { ...(await inFlight), deduplicated: true };
+      }
+      let claimed = false;
+      try {
+        const claim = admissions.claim({
+          conversationId,
+          requestId: admissionKey,
+        });
+        if (!claim.admitted) {
+          const { existing } = claim;
+          if (existing.runId) {
+            logger.info("startChat.duplicate-admission", {
+              conversationId,
+              requestId: admissionKey,
+              state: existing.status,
+              runId: existing.runId,
+            });
+            return {
+              runId: existing.runId,
+              ...(payload.userMessageEventId
+                ? { userMessageId: payload.userMessageEventId }
+                : {}),
+              deduplicated: true,
+            };
+          }
+          // Admitted by a worker that exited before placing it on a run.
+          admissions.reopenUnplaced({ conversationId, requestId: admissionKey });
+          logger.info("startChat.admission-reopened", {
+            conversationId,
+            requestId: admissionKey,
+            previousStatus: existing.status,
+          });
+        }
+        claimed = true;
+      } catch (error) {
+        // Admission bookkeeping must never cost the user's send.
+        logger.warn("startChat.admission-write-failed", {
+          conversationId,
+          requestId: admissionKey,
+          step: "claim",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (!claimed) {
+        return await startAdmittedChat(payload, undefined);
+      }
+      const pending = startAdmittedChat(payload, admissionKey);
+      inFlightAdmissions.set(inFlightKey, pending);
+      try {
+        return await pending;
+      } catch (error) {
+        // No run owns the send (a placed claim is kept): free the key so the
+        // client can retry it.
+        try {
+          admissions.release(conversationId, admissionKey);
+        } catch {
+          /* the next retry reopens an unplaced claim anyway */
+        }
+        throw error;
+      } finally {
+        inFlightAdmissions.delete(inFlightKey);
+      }
     };
 
     const sendAgentInput: Interface["sendAgentInput"] = async (payload) => {

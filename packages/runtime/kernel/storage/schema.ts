@@ -27,7 +27,7 @@ import {
   legacyTablesPresent,
 } from "./legacy-import.js";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const FTS_TOKENIZER = "'porter unicode61 remove_diacritics 2'";
 
@@ -229,6 +229,35 @@ CREATE TABLE IF NOT EXISTS entry_ref (
 );
 CREATE INDEX IF NOT EXISTS idx_entry_ref_target
   ON entry_ref(conversation_id, target_kind, target_key, entry_seq);
+`;
+
+/**
+ * Run admission: one row per user send the worker admitted, keyed by the
+ * client's stable request identity (`userMessageEventId`, else the
+ * caller's `requestId`). `startChat` claims the key before it touches the
+ * transcript or the runner, so a retried send (host reconnect, worker
+ * restart, mobile resend) returns the original run instead of starting a
+ * second one. `status` follows the send: `queued` (admitted, not yet placed
+ * on a run), `placed` (a run owns it; `run_id` set), then `done` or
+ * `unanswered` once that run ends. Small and bounded: idle maintenance
+ * deletes rows older than 30 days (`run-admission.ts`). Never in `entry`.
+ */
+export const RUN_ADMISSION_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS run_admission (
+  conversation_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  run_id TEXT,
+  status TEXT NOT NULL CHECK (
+    status IN ('queued', 'placed', 'done', 'unanswered')
+  ),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_run_admission_run
+  ON run_admission(conversation_id, run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_run_admission_created
+  ON run_admission(created_at);
 `;
 
 /**
@@ -630,6 +659,14 @@ const MIGRATIONS: Migration[] = [
       } catch {
         /* Recall degrades to the LIKE path; summaries keep working */
       }
+    },
+  },
+  {
+    version: 4,
+    apply: (db) => {
+      // New, empty table + its own indexes only: constant time at open even
+      // on a multi-GiB file (no scan of `entry`).
+      db.exec(RUN_ADMISSION_SCHEMA_SQL);
     },
   },
 ];

@@ -14,6 +14,7 @@ import {
 } from "../runtime-threads.js";
 import { randomBytes } from "node:crypto";
 import { slugify } from "../shared/slug.js";
+import { getFileLogger } from "../../observability/file-logger.js";
 import {
   QUARANTINE_CUSTOM_TYPE,
   parseQuarantineRecord,
@@ -1105,7 +1106,11 @@ export class ThreadLog {
         },
       });
       if (coveredFromSeq !== null && coveredThroughSeq !== null) {
-        this.cached
+        // An older cut must never replace a newer checkpoint: two compactions
+        // racing on one thread (or a late-landing retry) would otherwise roll
+        // the materialized context back to a stale summary. The compaction
+        // entry itself stays in the log as a record either way.
+        const upsert = this.cached
           .prepare(
             `INSERT INTO thread_context (
                thread_id, compaction_entry_id, covered_from_seq,
@@ -1120,7 +1125,8 @@ export class ThreadLog {
                details = excluded.details,
                tokens_before = excluded.tokens_before,
                timestamp_iso = excluded.timestamp_iso,
-               updated_at = excluded.updated_at`,
+               updated_at = excluded.updated_at
+             WHERE excluded.covered_through_seq >= thread_context.covered_through_seq`,
           )
           .run(
             threadKey,
@@ -1133,7 +1139,21 @@ export class ThreadLog {
             toIsoTimestamp(timestamp),
             timestamp,
             timestamp,
+          ) as { changes?: number } | undefined;
+        if (upsert?.changes === 0) {
+          getFileLogger()?.warn(
+            "storage.thread-context.stale-compaction-rejected",
+            {
+              threadKey,
+              compactionEntryId: entryId,
+              coveredThroughSeq,
+              currentCompactionEntryId:
+                existingContext?.compactionEntryId ?? null,
+              currentCoveredThroughSeq:
+                existingContext?.coveredThroughSeq ?? null,
+            },
           );
+        }
       }
       this.touchThread(threadKey);
     });

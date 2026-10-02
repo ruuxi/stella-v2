@@ -203,7 +203,7 @@ const inBothStates = (db: SqliteDatabase, check: (state: string) => void) => {
 describe("recall search-text index (built by idle maintenance)", () => {
   it("is not created by the schema: fresh and migrated databases are identical", () => {
     const fresh = openMigrated();
-    expect(SCHEMA_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(4);
     expect(hasIndex(fresh)).toBe(false);
     migrateDesktopDatabase(fresh);
     expect(hasIndex(fresh)).toBe(false);

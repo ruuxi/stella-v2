@@ -175,7 +175,8 @@ describe("durable thread summary FTS", () => {
       "Legacy summary about the invoice reconciliation rollout.",
       1_000,
     );
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1};`);
+    // v2: the version before the summary FTS migration (v3).
+    db.exec("PRAGMA user_version = 2;");
 
     migrateDesktopDatabase(db);
 

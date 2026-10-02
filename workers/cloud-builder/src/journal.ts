@@ -485,6 +485,15 @@ export const stampUserMessageSequences = (
     return { ...message, content } as AgentMessage;
   });
 
+type WindowRow = {
+  seq: number;
+  role: string | null;
+  hidden: number;
+  tool_call_id: string | null;
+  payload_json: string;
+  spill_key: string | null;
+};
+
 export type WindowSelection = {
   messages: AgentMessage[];
   /** Journal row per message (same order), for sequence stamping. */
@@ -557,6 +566,37 @@ const toolCallIds = (message: unknown): string[] =>
         typeof (block as { id?: unknown }).id === "string",
     )
     .map((block) => block.id);
+
+const toolCallsOf = (
+  message: unknown,
+): Array<{ id: string; name: string; arguments: Record<string, unknown> }> =>
+  contentBlocks(message).flatMap((block) => {
+    const call = block as {
+      type?: unknown;
+      id?: unknown;
+      name?: unknown;
+      arguments?: unknown;
+    };
+    if (
+      call?.type !== "toolCall" ||
+      typeof call.id !== "string" ||
+      typeof call.name !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: call.id,
+        name: call.name,
+        arguments:
+          call.arguments &&
+          typeof call.arguments === "object" &&
+          !Array.isArray(call.arguments)
+            ? (call.arguments as Record<string, unknown>)
+            : {},
+      },
+    ];
+  });
 
 /** What `meta()` reads back once the storage has been destroyed by a purge. */
 const PURGED_META: MetaRow = Object.freeze({
@@ -1279,6 +1319,179 @@ export class Journal {
     return appended;
   }
 
+  /**
+   * The calls `repairTail` would close, with what a resume needs to rerun
+   * them: name and arguments, oldest first. Same scan, same skip of spilled
+   * rows, so a call this omits is one `repairTail` closes as interrupted.
+   */
+  openTailCalls(): Array<{
+    turnId: string;
+    toolCallId: string;
+    toolName: string;
+    params: Record<string, unknown>;
+  }> {
+    const rows = this.sql
+      .exec<{
+        turn_id: string;
+        role: string | null;
+        tool_call_id: string | null;
+        open_calls: number;
+        payload_json: string;
+        spill_key: string | null;
+      }>(
+        `SELECT turn_id, role, tool_call_id, open_calls, payload_json, spill_key
+           FROM journal
+          WHERE kind = 'message' AND model_skip = 0
+          ORDER BY seq DESC LIMIT ?`,
+        REPAIR_SCAN_ROW_CAP,
+      )
+      .toArray();
+    const answered = new Set<string>();
+    const open: Array<{
+      turnId: string;
+      toolCallId: string;
+      toolName: string;
+      params: Record<string, unknown>;
+    }> = [];
+    for (const row of rows) {
+      if (row.role === "user") break;
+      if (row.role === "toolResult") {
+        if (row.tool_call_id) answered.add(row.tool_call_id);
+        continue;
+      }
+      if (row.role !== "assistant" || row.open_calls === 0) continue;
+      if (row.spill_key) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.payload_json);
+      } catch {
+        continue;
+      }
+      // Reverse within the row so the final reverse below restores call order.
+      for (const call of toolCallsOf(parsed).reverse()) {
+        if (!answered.has(call.id))
+          open.push({
+            turnId: row.turn_id,
+            toolCallId: call.id,
+            toolName: call.name,
+            params: call.arguments,
+          });
+      }
+    }
+    return open.reverse();
+  }
+
+  /**
+   * Durable result for one call a resume answered. The writer key is the one
+   * `repairTail` uses, so a resume and a later repair of the same call can
+   * never both land.
+   */
+  appendRepairedResult(
+    turnId: string,
+    message: AgentMessage,
+    now: number,
+  ): AppendResult {
+    const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
+    if (typeof toolCallId !== "string" || !toolCallId) {
+      throw new Error("A repaired tool result needs its tool call id.");
+    }
+    return this.appendMessage({
+      turnId,
+      writer: "repair",
+      writerKey: `repair:${turnId}:${toolCallId}`,
+      role: "toolResult",
+      createdAt: now,
+      message,
+    });
+  }
+
+  /** Whether a row was written under this exact writer key. */
+  hasRow(writerKey: string): boolean {
+    return (
+      this.sql
+        .exec(`SELECT 1 FROM journal WHERE writer_key = ? LIMIT 1`, writerKey)
+        .toArray().length > 0
+    );
+  }
+
+  /** The history window a turn recorded at its start (`setTurnContext`). */
+  turnContextRange(turnId: string): { startSeq: number; endSeq: number } | null {
+    const row = this.sql
+      .exec<{ ctx_start_seq: number | null; ctx_end_seq: number | null }>(
+        `SELECT ctx_start_seq, ctx_end_seq FROM turns WHERE turn_id = ?`,
+        turnId,
+      )
+      .toArray()[0];
+    if (
+      !row ||
+      typeof row.ctx_start_seq !== "number" ||
+      typeof row.ctx_end_seq !== "number"
+    ) {
+      return null;
+    }
+    return { startSeq: row.ctx_start_seq, endSeq: row.ctx_end_seq };
+  }
+
+  /**
+   * Re-select exactly the history rows a turn started from: every model row
+   * of other turns inside its recorded window. Used by a resume, which must
+   * rebuild the same provider prefix the lost isolate sent.
+   */
+  selectRange(
+    excludeTurnId: string,
+    startSeq: number,
+    endSeq: number,
+  ): WindowSelection {
+    return this.windowFromRows(
+      this.sql
+        .exec<WindowRow>(
+          `SELECT seq, role, hidden, tool_call_id, payload_json, spill_key FROM journal
+            WHERE seq >= ? AND seq <= ? AND kind = 'message' AND model_skip = 0
+              AND turn_id != ?
+            ORDER BY seq ASC`,
+          startSeq,
+          endSeq,
+          excludeTurnId,
+        )
+        .toArray(),
+      startSeq,
+    );
+  }
+
+  /** A turn's own model rows, in order: its prompt, then what it produced. */
+  selectTurnMessages(turnId: string): WindowSelection {
+    const rows = this.sql
+      .exec<WindowRow>(
+        `SELECT seq, role, hidden, tool_call_id, payload_json, spill_key FROM journal
+          WHERE turn_id = ? AND kind = 'message' AND model_skip = 0
+          ORDER BY seq ASC`,
+        turnId,
+      )
+      .toArray();
+    return this.windowFromRows(rows, rows[0]?.seq ?? this.meta().next_seq);
+  }
+
+  /**
+   * The highest `turn:<id>:msg:<n>` index a turn's loop used, or -1. A resume
+   * numbers its own rows after it so none collides with (and is silently
+   * deduplicated against) a row the lost isolate already wrote.
+   */
+  maxProducedIndex(turnId: string): number {
+    const prefix = `turn:${turnId}:msg:`;
+    let max = -1;
+    for (const row of this.sql
+      .exec<{ writer_key: string }>(
+        `SELECT writer_key FROM journal WHERE turn_id = ? AND kind = 'message'`,
+        turnId,
+      )
+      .toArray()) {
+      if (!row.writer_key.startsWith(prefix)) continue;
+      const index = Number(row.writer_key.slice(prefix.length));
+      if (Number.isSafeInteger(index) && index > max) max = index;
+    }
+    return max;
+  }
+
   // -------------------------------------------------------------------------
   // Bounded dev-acceptance context fault
   // -------------------------------------------------------------------------
@@ -1537,14 +1750,7 @@ export class Journal {
     }
     const startSeq = scan[start]!.seq;
     const rows = this.sql
-      .exec<{
-        seq: number;
-        role: string | null;
-        hidden: number;
-        tool_call_id: string | null;
-        payload_json: string;
-        spill_key: string | null;
-      }>(
+      .exec<WindowRow>(
         `SELECT seq, role, hidden, tool_call_id, payload_json, spill_key FROM journal
           WHERE seq >= ? AND kind = 'message' AND model_skip = 0 AND turn_id != ?
           ORDER BY seq ASC`,
@@ -1552,6 +1758,13 @@ export class Journal {
         excludeTurnId,
       )
       .toArray();
+    return this.windowFromRows(rows, startSeq);
+  }
+
+  private windowFromRows(
+    rows: readonly WindowRow[],
+    startSeq: number,
+  ): WindowSelection {
     const messages: AgentMessage[] = [];
     const selectedRows: WindowSelection["rows"] = [];
     const spilled: WindowSelection["spilled"] = [];

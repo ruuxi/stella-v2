@@ -5,8 +5,8 @@ import { computeStatus, normalizeDisplayStatusText } from "./status-utils";
 export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
 
 /**
- * Duration of the indicator-to-reply morph and the fallback indicator exit.
- * Replies are published immediately; the rendered bubble owns the transition.
+ * Duration of the indicator's handoff exit. Replies are published
+ * immediately; the arriving row plays its own entry animation.
  */
 export const WORKING_INDICATOR_HANDOFF_MS = 240;
 
@@ -32,8 +32,8 @@ export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
    * terminal without producing an answer, e.g. a user cancel. */
   exitImmediately?: boolean;
   /**
-   * The final answer landed. Its bubble consumes the visible indicator.
-   * If no text bubble takes over, use the short fallback exit.
+   * The final answer landed. The indicator clears in the same commit so the
+   * reply takes the line it held.
    */
   handoff?: boolean;
 };

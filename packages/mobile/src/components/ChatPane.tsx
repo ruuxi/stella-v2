@@ -1,4 +1,4 @@
-import { BubbleMorphProvider, MorphingAssistantBubble } from "./BubbleMorph";
+import { AssistantBubble, SENT_BUBBLE_POP, useBubblePop } from "./BubblePop";
 import { toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
 import { replyCountFor } from "@stella/contracts/reply-context";
 import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
@@ -962,10 +962,10 @@ function useChatScroll(
 }
 
 // ---------------------------------------------------------------------------
-// Animated message wrapper — mirrors desktop stream-fade-blur-in.
+// Message wrapper — pops a just-sent message in, mirroring desktop `bubble-pop`.
 // ---------------------------------------------------------------------------
 
-function FadeInMessage({
+function MessageEntry({
   children,
   onLayout,
   animate,
@@ -974,32 +974,7 @@ function FadeInMessage({
   onLayout?: (event: LayoutChangeEvent) => void;
   animate: boolean;
 }) {
-  const opacity = useRef(new Animated.Value(animate ? 0 : 1)).current;
-  const translateY = useRef(new Animated.Value(animate ? 5 : 0)).current;
-
-  const animatedStyle = useMemo(
-    () => ({ opacity, transform: [{ translateY }] }),
-    [opacity, translateY],
-  );
-
-  useEffect(() => {
-    if (!animate) return;
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 450,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        damping: 14,
-        stiffness: 180,
-        mass: 0.8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [animate, opacity, translateY]);
-
+  const animatedStyle = useBubblePop(animate, SENT_BUBBLE_POP);
   return (
     <Animated.View onLayout={onLayout} style={animatedStyle}>
       {children}
@@ -1874,12 +1849,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
           ))
         : null}
       {hasText ? (
-        <MorphingAssistantBubble
+        <AssistantBubble
           style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
           animate={animate || mountedEmptyRef.current}
         >
           {renderAssistantMarkdown(item.text)}
-        </MorphingAssistantBubble>
+        </AssistantBubble>
       ) : null}
       {scheduleReceipts.map((receipt) => (
         <Text
@@ -4101,7 +4076,7 @@ export function ChatPane({
         item.id,
       );
       return (
-        <FadeInMessage
+        <MessageEntry
           key={item.id}
           animate={animate && item.role !== "assistant"}
           onLayout={
@@ -4133,7 +4108,7 @@ export function ChatPane({
             replyCount={replyCountFor(replyContexts.counts, [item.id, item.canonicalId])}
             desktopAccess={desktopAccess}
           />
-        </FadeInMessage>
+        </MessageEntry>
       );
     },
     [
@@ -4402,65 +4377,63 @@ export function ChatPane({
           </Pressable>
         ) : (
           <>
-            <BubbleMorphProvider key={conversationId}>
-              <LegendList<ChatMessage>
-                ref={scroll.listRef}
-                pointerEvents={replyFocus ? "none" : "auto"}
-                accessibilityElementsHidden={Boolean(replyFocus)}
-                importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
-                style={styles.messageList}
-                contentContainerStyle={listContentContainerStyle}
-                data={visibleMessages}
-                extraData={listExtraData}
-                // Short transcript rows measure roughly 44–70 pt. Reserve
-                // enough containers for those runs; measured heights still
-                // determine layout for longer replies and artifacts.
-                estimatedItemSize={64}
-                renderItem={renderItem}
-                keyExtractor={keyExtractor}
-                getItemType={getItemType}
-                ItemSeparatorComponent={renderSeparator}
-                ListFooterComponent={listFooter}
-                onScroll={handleListScroll}
-                onScrollBeginDrag={handleListScrollBeginDrag}
-                onScrollEndDrag={handleListScrollEndDrag}
-                onMomentumScrollBegin={handleListMomentumScrollBegin}
-                onMomentumScrollEnd={handleListMomentumScrollEnd}
-                onContentSizeChange={handleListContentSizeChange}
-                scrollEventThrottle={16}
-                showsVerticalScrollIndicator={false}
-                keyboardDismissMode="on-drag"
-                fadingEdgeLength={EDGE_FADE}
-                // Open at the latest message every time the tab mounts, instead
-                // of landing at the top of history. Short conversations that
-                // don't fill the viewport read top-down (no `alignItemsAtEnd`)
-                // so the first message sits at the top rather than the bottom.
-                initialScrollAtEnd={initialScrollAtEndRef.current === true}
-                // Keep the visible message anchored when the data array changes
-                // (e.g. messages syncing in from the desktop) so the list never
-                // snaps back to the top.
-                maintainVisibleContentPosition={maintainVisibleContentPosition}
-                // Pin to the tail only when new/synced messages arrive while the
-                // user is already near the bottom. Scoped to data changes so it
-                // doesn't fight the custom streaming-follow target updates,
-                // which own item-layout/size growth.
-                //
-                // While streaming, every token mutates the data array, so a
-                // dataChange-pinned tail would fire `scrollToEnd` on each token —
-                // overriding the custom "freeze once the message reaches the top"
-                // target and snapping the user back down whenever they try to
-                // scroll up. The custom follow loop already keeps the tail in view
-                // during streaming, so disable the built-in pin for that window.
-                // Position ownership is exclusive: history anchoring wins while
-                // follow is released, the custom loop owns streams/post-send
-                // placement, and this pin owns only ordinary live-tail appends.
-                maintainScrollAtEnd={
-                  dataChangeScrollOwner === "legend-tail"
-                    ? LEGEND_TAIL_SCROLL_AT_END
-                    : false
-                }
-              />
-            </BubbleMorphProvider>
+            <LegendList<ChatMessage>
+              ref={scroll.listRef}
+              pointerEvents={replyFocus ? "none" : "auto"}
+              accessibilityElementsHidden={Boolean(replyFocus)}
+              importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
+              style={styles.messageList}
+              contentContainerStyle={listContentContainerStyle}
+              data={visibleMessages}
+              extraData={listExtraData}
+              // Short transcript rows measure roughly 44–70 pt. Reserve
+              // enough containers for those runs; measured heights still
+              // determine layout for longer replies and artifacts.
+              estimatedItemSize={64}
+              renderItem={renderItem}
+              keyExtractor={keyExtractor}
+              getItemType={getItemType}
+              ItemSeparatorComponent={renderSeparator}
+              ListFooterComponent={listFooter}
+              onScroll={handleListScroll}
+              onScrollBeginDrag={handleListScrollBeginDrag}
+              onScrollEndDrag={handleListScrollEndDrag}
+              onMomentumScrollBegin={handleListMomentumScrollBegin}
+              onMomentumScrollEnd={handleListMomentumScrollEnd}
+              onContentSizeChange={handleListContentSizeChange}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              keyboardDismissMode="on-drag"
+              fadingEdgeLength={EDGE_FADE}
+              // Open at the latest message every time the tab mounts, instead
+              // of landing at the top of history. Short conversations that
+              // don't fill the viewport read top-down (no `alignItemsAtEnd`)
+              // so the first message sits at the top rather than the bottom.
+              initialScrollAtEnd={initialScrollAtEndRef.current === true}
+              // Keep the visible message anchored when the data array changes
+              // (e.g. messages syncing in from the desktop) so the list never
+              // snaps back to the top.
+              maintainVisibleContentPosition={maintainVisibleContentPosition}
+              // Pin to the tail only when new/synced messages arrive while the
+              // user is already near the bottom. Scoped to data changes so it
+              // doesn't fight the custom streaming-follow target updates,
+              // which own item-layout/size growth.
+              //
+              // While streaming, every token mutates the data array, so a
+              // dataChange-pinned tail would fire `scrollToEnd` on each token —
+              // overriding the custom "freeze once the message reaches the top"
+              // target and snapping the user back down whenever they try to
+              // scroll up. The custom follow loop already keeps the tail in view
+              // during streaming, so disable the built-in pin for that window.
+              // Position ownership is exclusive: history anchoring wins while
+              // follow is released, the custom loop owns streams/post-send
+              // placement, and this pin owns only ordinary live-tail appends.
+              maintainScrollAtEnd={
+                dataChangeScrollOwner === "legend-tail"
+                  ? LEGEND_TAIL_SCROLL_AT_END
+                  : false
+              }
+            />
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of
                 hard-cutting. Cross-platform (RN `fadingEdgeLength` is

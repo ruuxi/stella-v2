@@ -93,24 +93,53 @@
   max-width: 100%;
 }
 
-/* A reply arrives whole, so it gets one entry animation instead of growing
-   into place. Tagged from `ConversationEvents` for a single play. */
-.event-row--assistant--just-arrived .event-item.assistant {
-  animation: assistant-message-enter 360ms cubic-bezier(0.26, 1.08, 0.42, 1)
-    40ms both;
-  transform-origin: left bottom;
-  will-change: opacity, transform;
+/* iMessage-style pop shared by the sent bubble and the arriving reply: the
+   bubble springs up out of its tail corner while the fade finishes early, so
+   it reads as solid by the time it lands. `--bubble-spring` is a damped
+   spring (stiffness 420, damping 30) sampled into `linear()`; mobile runs the
+   same spring natively, and the `cubic-bezier` is the fallback for engines
+   without `linear()`. Both rows are tagged from `ConversationEvents` for a
+   single play, so history and remounts never replay it. */
+:root {
+  --bubble-spring: cubic-bezier(0.2, 1.1, 0.4, 1);
 }
 
-@keyframes assistant-message-enter {
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --bubble-spring: linear(0, 0.069, 0.222, 0.403, 0.577, 0.725, 0.841,
+      0.924, 0.979, 1.012, 1.029, 1.034, 1.033, 1.028, 1.022, 1.016, 1.011,
+      1.006, 1);
+  }
+}
+
+@keyframes bubble-pop {
+  from {
+    transform: translate3d(0, var(--bubble-pop-rise, 12px), 0)
+      scale(var(--bubble-pop-scale, 0.86));
+  }
+  to {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes bubble-pop-fade {
   from {
     opacity: 0;
-    transform: translate3d(0, 9px, 0) scale(0.975);
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
   }
+}
+
+/* A reply arrives whole, so it pops in once instead of growing into place. */
+.event-row--assistant--just-arrived .event-item.assistant {
+  --bubble-pop-rise: 10px;
+  --bubble-pop-scale: 0.9;
+  animation:
+    bubble-pop 360ms var(--bubble-spring) both,
+    bubble-pop-fade 140ms ease-out both;
+  transform-origin: left bottom;
+  will-change: opacity, transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -272,26 +301,17 @@
   padding: 5px 12px;
 }
 
-/* Freshly-sent user bubble grows/fades in once. Tagged from
-   `ConversationEvents` while `pendingUserMessageId` matches the row;
-   the class drops after one play so the animation never replays on
-   remount or scrollback. */
+/* Freshly-sent user bubble pops up out of the composer once (see
+   `bubble-pop` above). Tagged while `pendingUserMessageId` matches the row. */
 .event-row--user--just-sent .event-item.user {
-  animation: user-message-enter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --bubble-pop-rise: 14px;
+  --bubble-pop-scale: 0.84;
+  animation:
+    bubble-pop 360ms var(--bubble-spring) both,
+    bubble-pop-fade 120ms ease-out both;
   transform-origin: right bottom;
   will-change: opacity, transform;
   contain: paint;
-}
-
-@keyframes user-message-enter {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 10px, 0) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -708,21 +728,4 @@ button.event-context-chip--overflow:focus-visible {
 .chat-scrollbar__thumb:active {
   cursor: grabbing;
   background: color-mix(in srgb, var(--foreground) 35%, transparent);
-}
-
-/* The message keeps its final layout throughout the handoff. */
-.assistant-message-text { position: relative; }
-.assistant-bubble-morph-surface { display: none; }
-.assistant-message-text[data-morphing] { background: transparent; }
-.assistant-message-text[data-morphing] > .assistant-bubble-morph-surface {
-  display: block;
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background: var(--chat-assistant-bubble-fill);
-  transform-origin: left top;
-}
-.event-row--assistant--just-arrived .event-item.assistant.assistant-morphing {
-  animation: none;
 }

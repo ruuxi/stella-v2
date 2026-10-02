@@ -25,7 +25,7 @@ import { hasQueuedMessageEntryPlayed } from "@/features/chat/lib/message-entry-a
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 
 const USER_MESSAGE_ENTER_MS = 360;
-const ASSISTANT_MESSAGE_ENTER_MS = 300;
+const ASSISTANT_MESSAGE_ENTER_MS = 360;
 
 /**
  * Tracks message ids whose enter animation has already played. Module

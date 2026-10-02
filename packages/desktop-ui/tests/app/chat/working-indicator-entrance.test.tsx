@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import { act, useLayoutEffect } from "react";
-import { BubbleMorphProvider, useBubbleMorphSource } from "@/app/chat/BubbleMorph";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -55,25 +54,6 @@ describe("working indicator entrance", () => {
     render(false, { handoff: true });
     expect(indicator()).toBeNull();
     expect(shell()?.classList.contains("inline-working-indicator--vacated")).toBe(true);
-  });
-
-  it("restores a tool immediately after a preamble consumes the indicator", () => {
-    function Preamble({ consume }: { consume: boolean }) {
-      const morph = useBubbleMorphSource();
-      useLayoutEffect(() => { if (consume) morph?.source?.hide(); }, [consume, morph]);
-      return null;
-    }
-    const update = (consume: boolean, runningTool?: string) => act(() => root.render(
-      <BubbleMorphProvider>
-        <InlineWorkingIndicator active runningTool={runningTool} />
-        <Preamble consume={consume} />
-      </BubbleMorphProvider>,
-    ));
-    update(false);
-    update(true);
-    expect(indicator()).toBeNull();
-    update(true, "spawn_agent");
-    expect(indicator()).not.toBeNull();
   });
 
   it("cancellation keeps the exit animation and cannot trigger a later entrance", () => {

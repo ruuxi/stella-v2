@@ -36,7 +36,6 @@ import {
 } from "@/features/chat/working-indicator-state";
 import { WorkingIndicator } from "./WorkingIndicator";
 import "./indicators.css";
-import { useBubbleMorphSource } from "./BubbleMorph";
 
 export type {
   InlineWorkingIndicatorMountProps,
@@ -65,19 +64,6 @@ export function InlineWorkingIndicator({
   status,
   minimumVisibleMs,
 }: InlineWorkingIndicatorMountProps) {
-  const morph = useBubbleMorphSource();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [consumed, setConsumed] = useState(false);
-  useEffect(() => {
-    if (!consumed || !active) return;
-    if (runningTool) {
-      setConsumed(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setConsumed(false), 240);
-    return () => window.clearTimeout(timer);
-  }, [active, consumed, runningTool]);
-
   // Snapshot the live props the moment `active` flips false so the exit
   // animation displays a stable last-known label even though upstream
   // tool/status flags clear out.
@@ -98,9 +84,6 @@ export function InlineWorkingIndicator({
   // Stay mounted until the exit animation finishes. If `active` flips back
   // to true mid-animation, cancel the exit and resume live updates.
   const [renderShell, setRenderShell] = useState(active);
-  useEffect(() => {
-    if (!renderShell) setConsumed(false);
-  }, [renderShell]);
   const [entering, setEntering] = useState(active);
   const [leaving, setLeaving] = useState(false);
   const exitTimerRef = useRef<number | null>(null);
@@ -155,8 +138,9 @@ export function InlineWorkingIndicator({
     wasActiveRef.current = false;
     setEntering(false);
     if (!renderShell) return;
-    // Let the reply consume the registered morph source in this commit,
-    // then remove any remaining shell before the browser paints.
+    // The reply lands in this same commit, so clear the indicator before the
+    // browser paints: the reply takes its line, the way iMessage swaps the
+    // typing bubble for the message.
     if (handoff) {
       clearTimer();
       setRenderShell(false);
@@ -172,8 +156,8 @@ export function InlineWorkingIndicator({
         setLeaving(false);
       }, EXIT_ANIMATION_MS);
     };
-    // A text bubble normally consumes the indicator as it lands. Terminal
-    // runs and replies without a text bubble still clear promptly here.
+    // A terminal run may not leave a stale row behind, so it skips the
+    // minimum-visible hold.
     const remainingMs =
       exitImmediately || handoff
         ? 0
@@ -199,15 +183,7 @@ export function InlineWorkingIndicator({
   // remains after the grow-out exit completes (no layout shift). A new
   // turn replaces the wrapper entirely (different React key in
   // `ChatTimeline`), at which point the new wrapper occupies the slot.
-  const showInner = renderShell && !consumed;
-
-  useLayoutEffect(() => {
-    const element = rootRef.current?.querySelector<HTMLElement>(".working-indicator");
-    if (!morph || !element || !showInner) return;
-    const source = { element, hide: () => setConsumed(true) };
-    morph.source = source;
-    return () => { if (morph.source === source) morph.source = null; };
-  }, [morph, showInner]);
+  const showInner = renderShell;
 
   // The indicator is its own timeline item below the assistant row, so it
   // extends the live tail without touching any subtree the keyed scroll-follow
@@ -221,7 +197,6 @@ export function InlineWorkingIndicator({
 
   return (
     <div
-      ref={rootRef}
       className={`inline-working-indicator${entering ? " inline-working-indicator--entering" : ""}${leaving ? " inline-working-indicator--leaving" : ""}${leaving && handoff ? " inline-working-indicator--handoff" : ""}${showInner ? "" : " inline-working-indicator--vacated"}`}
       aria-live="polite"
     >

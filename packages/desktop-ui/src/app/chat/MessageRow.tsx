@@ -39,7 +39,6 @@ import type {
   Attachment,
   ChannelEnvelope,
 } from "@/features/chat/lib/event-transforms";
-import { AssistantBubble } from "./BubbleMorph";
 import { Markdown } from "@/app/chat/Markdown";
 import {
   EndResourceCard,
@@ -674,14 +673,14 @@ export const AssistantMessageRow = memo(
             <EndResourceCard payload={row.resourcePayload} />
           ) : null}
           {hasText && (
-            <AssistantBubble animate={Boolean(row.justArrived)}>
+            <div className="assistant-message-text chat-bubble-text">
               <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
                 hiddenFilePaths={[
                   ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
                   ...(row.linkedFiles ?? []),
                 ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`)}
               />
-            </AssistantBubble>
+            </div>
           )}
           {row.linkedFiles && row.linkedFiles.length > 0 ? (
             <FilePills files={row.linkedFiles} />

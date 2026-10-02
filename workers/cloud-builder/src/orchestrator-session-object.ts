@@ -135,6 +135,10 @@ import {
   GATEWAY_RESOLVE_PATH,
 } from "@stella/contracts/gateway/api";
 import { createCloudRelaySession } from "@stella/executor-cloud/relay-model";
+import {
+  withOrchestratorCacheRetention,
+  withoutPromptCache,
+} from "./orchestrator-cache-retention.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
@@ -5067,7 +5071,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               sessionId: turn.conversationId,
               degenerateResponseRetries: 0,
               providerRequestLimit: 1,
-              streamFn: relaySession.createStreamFn({ reasoningEffort: "none" }),
+              streamFn: withoutPromptCache(
+                relaySession.createStreamFn({ reasoningEffort: "none" }),
+              ),
             });
             this.currentAgent = summarizer;
             try {
@@ -5461,24 +5467,30 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         // as the desktop loop does. The journal window selected above is the
         // turn's base; without this per-call guard a tool-heavy turn (web
         // results at ~20KB each) grows unchecked toward the model's declared
-        // window with only the pre-turn budget as slack.
-        streamFn: turnRelaySession.createStreamFn({
-          reasoningEffort: executionSelection.reasoningEffort,
-          transformContext: async (resolvedModel, rawContext, signal) => {
-            const messages = await buildDefaultTransformContext({
-              model: resolvedModel,
-            })(rawContext.messages, signal);
-            return {
-              ...rawContext,
-              messages: messages.filter(
-                (message) =>
-                  message.role === "user" ||
-                  message.role === "assistant" ||
-                  message.role === "toolResult",
-              ),
-            };
-          },
-        }),
+        // window with only the pre-turn budget as slack. First-party
+        // Anthropic routes use the 1h cache tier so an agent completion
+        // wakes this conversation on a warm prefix; resumed turns derive the
+        // same tier from the same route (orchestrator-cache-retention.ts).
+        streamFn: withOrchestratorCacheRetention(
+          turnRelaySession.createStreamFn({
+            reasoningEffort: executionSelection.reasoningEffort,
+            transformContext: async (resolvedModel, rawContext, signal) => {
+              const messages = await buildDefaultTransformContext({
+                model: resolvedModel,
+              })(rawContext.messages, signal);
+              return {
+                ...rawContext,
+                messages: messages.filter(
+                  (message) =>
+                    message.role === "user" ||
+                    message.role === "assistant" ||
+                    message.role === "toolResult",
+                ),
+              };
+            },
+          }),
+          () => turnRelaySession.model,
+        ),
         // The outer ladder below owns empty completions and physical request
         // attempts — the same division of labor as the desktop runtime
         // (`createRuntimeAgent`), which disables the loop's built-in

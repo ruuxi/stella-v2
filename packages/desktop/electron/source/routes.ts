@@ -16,6 +16,7 @@ export const createRouteTreeGenerator = (tools: SourceTools, uiRoot: string) => 
   const routesDirectory = path.resolve(uiRoot, config.routesDirectory);
   return {
     routesDirectory,
+    routeTreeFile: path.resolve(uiRoot, config.generatedRouteTree),
     run: async (event?: { path: string; type: "create" | "update" | "delete" }) => {
       await generator.run(event);
     },

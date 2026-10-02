@@ -6,8 +6,10 @@ import type { SourceTools } from "./tools.js";
 /**
  * The renderer's source modules: resolve an import the way the browser build
  * did, transform TS/JSX with oxc, expand `import.meta.glob`, and rewrite every
- * import to a URL the source server answers. Transforms are cached in memory
- * and on disk by content, so a warm start transforms nothing.
+ * import to a URL the source server answers. Transforms are cached in memory,
+ * and on disk by content and repo-relative path; their output names no
+ * absolute path, so the checkout and every draft worktree share one cache and
+ * a warm start transforms nothing.
  */
 
 export type ImportRef = {
@@ -17,26 +19,28 @@ export type ImportRef = {
   dynamic: boolean;
 };
 
-export type TransformedModule = { code: string; map: string | null; imports: ImportRef[] };
+export type TransformedModule = {
+  code: string;
+  map: string | null;
+  imports: ImportRef[];
+  /** Exported names: "default" for the default export, "*" for `export *`. */
+  exports: string[];
+  /** Specifiers named in `import.meta.hot.accept("<specifier>", ...)`. */
+  hotAccepts: string[];
+};
 
 export type ResolvedImport =
   | { kind: "source"; file: string; url: string }
   | { kind: "dep"; file: string }
-  | { kind: "asset"; file: string; url: string }
-  | { kind: "virtual"; url: string };
+  | { kind: "asset"; file: string; url: string };
 
 /** Part of every cache key: bump it whenever transform output changes. */
-const TRANSFORM_VERSION = "3";
+const TRANSFORM_VERSION = "4";
 export const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"]);
-const VIRTUAL_MODULES: Record<string, string> = {
-  // React Fast Refresh needs the preamble; until the source server does
-  // refresh, the module has nothing to set up.
-  "@vitejs/plugin-react/preamble": "/@stella/preamble.js",
-};
 
 const toPosix = (value: string) => value.replace(/\\/g, "/");
 export const isInNodeModules = (file: string) => toPosix(file).includes("/node_modules/");
-const isInside = (root: string, file: string) => {
+export const isInside = (root: string, file: string) => {
   const relative = path.relative(root, file);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 };
@@ -47,6 +51,16 @@ const langFor = (file: string): "ts" | "tsx" | "jsx" => {
   if (ext === ".tsx") return "tsx";
   // Vite's React plugin let `.js` files carry JSX; `jsx` parses plain JS too.
   return "jsx";
+};
+
+const HOT_ACCEPT = /import\.meta\.hot\.accept\(\s*(?:(["'])([^"'\n]+)\1|\[([^\]]*)\])/g;
+const hotAcceptedSpecifiers = (code: string): string[] => {
+  const specifiers: string[] = [];
+  for (const match of code.matchAll(HOT_ACCEPT)) {
+    if (match[2]) specifiers.push(match[2]);
+    for (const listed of (match[3] ?? "").matchAll(/(["'])([^"'\n]+)\1/g)) specifiers.push(listed[2]!);
+  }
+  return specifiers;
 };
 
 export type ModuleGraphOptions = {
@@ -90,6 +104,9 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
   const memory = new Map<string, { mtimeMs: number; size: number; module: TransformedModule }>();
   const resolutions = new Map<string, ResolvedImport>();
 
+  /** A file's path from the repository root, which the cache and the output name it by. */
+  const repoPath = (file: string) => toPosix(path.relative(repoRoot, file));
+
   /** The URL the source server answers for a file. */
   const urlForFile = (file: string): string => {
     if (isInside(uiRoot, file) && !isInNodeModules(file)) {
@@ -110,8 +127,6 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
 
   const resolveImport = (specifier: string, importer: string): ResolvedImport | null => {
     if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(specifier) || specifier.startsWith("/@")) return null;
-    const virtual = VIRTUAL_MODULES[specifier];
-    if (virtual) return { kind: "virtual", url: virtual };
     const cacheKey = `${path.dirname(importer)}\0${specifier}`;
     const cached = resolutions.get(cacheKey);
     if (cached) return cached;
@@ -171,15 +186,21 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
     return hoisted.length > 0 ? `${hoisted.join("\n")}\n${expanded}` : expanded;
   };
 
-  const collectImports = async (file: string, code: string): Promise<ImportRef[]> => {
+  const collectImportsAndExports = async (
+    file: string,
+    code: string,
+  ): Promise<Pick<TransformedModule, "imports" | "exports">> => {
     const parsed = await parse(file, code, { lang: "js", sourceType: "module" });
     const imports: ImportRef[] = [];
+    const exports: string[] = [];
     for (const entry of parsed.module.staticImports) {
       const request = entry.moduleRequest;
       imports.push({ start: request.start, end: request.end, specifier: request.value, dynamic: false });
     }
     for (const entry of parsed.module.staticExports) {
       for (const exported of entry.entries) {
+        const name = exported.exportName;
+        exports.push(name.kind === "Default" ? "default" : name.kind === "Name" ? name.name! : "*");
         const request = exported.moduleRequest;
         if (request) {
           imports.push({ start: request.start, end: request.end, specifier: request.value, dynamic: false });
@@ -206,16 +227,29 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
     }
     // A re-export can repeat a static import's span; keep each span once.
     const seen = new Set<number>();
-    return imports
-      .filter((ref) => (seen.has(ref.start) ? false : (seen.add(ref.start), true)))
-      .sort((a, b) => a.start - b.start);
+    return {
+      imports: imports
+        .filter((ref) => (seen.has(ref.start) ? false : (seen.add(ref.start), true)))
+        .sort((a, b) => a.start - b.start),
+      exports,
+    };
   };
 
   const transformFile = async (file: string, source: string): Promise<TransformedModule> => {
-    const result = await transform(file, source, {
+    // Development JSX bakes the filename into the output and the source map
+    // names it; the repo-relative path keeps both the same in every worktree.
+    const result = await transform(repoPath(file), source, {
       lang: langFor(file),
       sourceType: "module",
-      jsx: { runtime: "automatic", importSource: "react", development: options.isDev },
+      jsx: {
+        runtime: "automatic",
+        importSource: "react",
+        development: options.isDev,
+        // React Fast Refresh registers through the module's hot context.
+        ...(options.isDev && langFor(file) !== "ts"
+          ? { refresh: { refreshReg: "__stella_hot.register", refreshSig: "__stella_hot.signature" } }
+          : {}),
+      },
       define: options.defines,
       target: "esnext",
       sourcemap: true,
@@ -229,7 +263,8 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
     return {
       code,
       map: result.map ? JSON.stringify(result.map) : null,
-      imports: await collectImports(file, code),
+      ...(await collectImportsAndExports(file, code)),
+      hotAccepts: hotAcceptedSpecifiers(code),
     };
   };
 
@@ -242,7 +277,7 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
     // Globs read the directory, so their output is never cached by content.
     const cacheable = !source.includes("import.meta.glob");
     const key = createHash("sha256")
-      .update(`${TRANSFORM_VERSION}\0${definesDigest}\0${file}\0${source}`)
+      .update(`${TRANSFORM_VERSION}\0${definesDigest}\0${repoPath(file)}\0${source}`)
       .digest("hex");
     const diskPath = path.join(moduleCacheDir, `${key}.json`);
     let module: TransformedModule | null = null;
@@ -263,8 +298,16 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
     return module;
   };
 
-  /** Rewrite a module's imports to the URLs `urlFor` gives them. */
-  const render = (module: TransformedModule, urlFor: (ref: ImportRef) => string | null): string => {
+  /**
+   * Rewrite a module's imports to the URLs `urlFor` gives them, behind
+   * `prefix` (kept on the first line, so only that line's columns shift).
+   */
+  const render = (
+    module: TransformedModule,
+    file: string,
+    urlFor: (ref: ImportRef) => string | null,
+    prefix = "",
+  ): string => {
     let code = module.code;
     for (let index = module.imports.length - 1; index >= 0; index -= 1) {
       const ref = module.imports[index]!;
@@ -273,9 +316,14 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
       code = `${code.slice(0, ref.start)}${JSON.stringify(url)}${code.slice(ref.end)}`;
     }
     if (module.map) {
-      code += `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(module.map).toString("base64")}`;
+      // Devtools shows the original source under the module's own URL.
+      const map = module.map.replace(
+        `"sources":[${JSON.stringify(repoPath(file))}]`,
+        `"sources":[${JSON.stringify(urlForFile(file))}]`,
+      );
+      code += `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(map).toString("base64")}`;
     }
-    return code;
+    return `${prefix}${code}`;
   };
 
   return {
@@ -284,6 +332,7 @@ export const createModuleGraph = (options: ModuleGraphOptions) => {
     render,
     urlForFile,
     fileForUrlPath,
+    isJsxLang: (file: string) => langFor(file) !== "ts",
     /** Forget a changed file and every cached resolution (files may have moved). */
     invalidate: (file?: string) => {
       if (file) memory.delete(file);

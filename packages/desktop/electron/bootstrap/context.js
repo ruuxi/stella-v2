@@ -73,6 +73,7 @@ export const createBootstrapContext = (config) => {
         stellaDataDirPath: null,
         stellaWorkspacePath: null,
         stellaHostRunner: null,
+        rendererSource: null,
         stellaBrowserBridgeService: null,
         inAppBrowserService: null,
         inAppBrowserCdpAdapter: null,

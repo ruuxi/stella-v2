@@ -31,10 +31,11 @@ const initializeWindowShell = (context) => {
         isDev: config.useDevServer,
     });
     // Unpackaged, the renderer runs from its source tree (see source/).
+    // The handle swaps updated files into the windows (`applyChanges`).
     if (config.useDevServer) {
         state.rendererSource = serveRendererSource({
             partition: config.sessionPartition,
-            stellaAppDir: config.stellaAppDir,
+            sourceRoot: config.stellaAppDir,
             isDev: config.useDevServer,
             log: (message) => getMainLogger()?.process("renderer.source", { message }),
         });

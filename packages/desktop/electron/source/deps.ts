@@ -100,7 +100,10 @@ const fileDigest = (file: string): string => {
   }
 };
 
-export const bundleDependencies = async (options: {
+/** Builds in flight by key: sources on several partitions share the cache. */
+const building = new Map<string, Promise<DepBundle>>();
+
+export const bundleDependencies = (options: {
   tools: SourceTools;
   files: Iterable<string>;
   cacheDir: string;
@@ -116,14 +119,25 @@ export const bundleDependencies = async (options: {
     .digest("hex")
     .slice(0, 16);
   const dir = path.join(options.cacheDir, "deps", key);
-  const manifestPath = path.join(dir, "manifest.json");
   try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, string>;
-    return { dir, entries: new Map(Object.entries(manifest)) };
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")) as Record<string, string>;
+    return Promise.resolve({ dir, entries: new Map(Object.entries(manifest)) });
   } catch {
     // Not built yet.
   }
+  let build = building.get(dir);
+  if (!build) {
+    build = buildBundle(options, files, dir).finally(() => building.delete(dir));
+    building.set(dir, build);
+  }
+  return build;
+};
 
+const buildBundle = async (
+  options: Parameters<typeof bundleDependencies>[0],
+  files: string[],
+  dir: string,
+): Promise<DepBundle> => {
   const { tools } = options;
   const startedAt = Date.now();
   const entries = new Map<string, string>();

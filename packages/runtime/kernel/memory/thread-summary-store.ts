@@ -1,9 +1,4 @@
-/** Durable delegated-thread summaries used by Recall. */
-
-import {
-  recallSearchPlan,
-  shouldBroadenRecall,
-} from "@stella/contracts/recall";
+/** Durable delegated-thread summaries. */
 
 import type { SqliteDatabase } from "../storage/shared.js";
 import { forkFixedRateFiber } from "../storage/effect-runtime.js";
@@ -46,21 +41,8 @@ const ROW_COLUMNS = `
   source_updated_at
 `;
 
-/** The FTS join repeats every column name, so hits must qualify them. */
-const QUALIFIED_ROW_COLUMNS = `
-  s.id AS id,
-  s.source_key AS source_key,
-  s.thread_id AS thread_id,
-  s.run_id AS run_id,
-  s.agent_type AS agent_type,
-  s.content AS content,
-  s.source_updated_at AS source_updated_at
-`;
-
-const FTS_TABLE = "durable_thread_summaries_fts";
-
 /**
- * Retention for Recall's durable summaries. Summaries are cheap but unbounded
+ * Retention for durable thread summaries. Summaries are cheap but unbounded
  * — a long-lived install would otherwise keep every delegated thread forever.
  * Age and count both apply; each pass deletes at most one batch so the sweep
  * never blocks the writer on a huge backlog.
@@ -80,13 +62,9 @@ const fromRow = (row: RawRow): ThreadSummaryRow => ({
   sourceUpdatedAt: row.source_updated_at,
 });
 
-const escapeLike = (value: string): string =>
-  value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-
 export class ThreadSummaryStore {
   /** Cancel thunk for the fixed-rate retention fiber. */
   private cancelSweep: (() => void) | null = null;
-  private hasFts: boolean | undefined;
 
   constructor(private readonly db: SqliteDatabase) {}
 
@@ -155,127 +133,6 @@ export class ThreadSummaryStore {
         )
         .all(limit) as RawRow[]
     ).map(fromRow);
-  }
-
-  /** The FTS table is absent on SQLite builds without FTS5 (see schema.ts). */
-  ftsAvailable(): boolean {
-    if (this.hasFts === undefined) {
-      try {
-        this.hasFts = Boolean(
-          this.db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            )
-            .get(FTS_TABLE),
-        );
-      } catch {
-        this.hasFts = false;
-      }
-    }
-    return this.hasFts;
-  }
-
-  searchThreadSummaries(
-    queryTokens: readonly string[],
-    args?: { limit?: number },
-  ): ThreadSummaryRow[] {
-    const tokens = [
-      ...new Set(queryTokens.map((token) => token.trim()).filter(Boolean)),
-    ].slice(0, 12);
-    const limit = Math.max(1, Math.min(args?.limit ?? 20, 100));
-    if (tokens.length === 0) return this.listRecentThreadSummaries({ limit });
-    // Same plan the cloud transcript index runs: quoted phrases first, then a
-    // broadened word query when the phrase pass is too thin to be useful.
-    const plan = this.ftsAvailable() ? recallSearchPlan(tokens) : null;
-    if (plan) {
-      try {
-        const phraseHits = this.matchThreadSummaries(plan.phrase, limit);
-        return plan.broad !== plan.phrase &&
-          shouldBroadenRecall(phraseHits.length, limit)
-          ? this.matchThreadSummaries(plan.broad, limit)
-          : phraseHits;
-      } catch {
-        // A corrupt or missing index must not take Recall offline.
-        this.hasFts = false;
-      }
-    }
-    return this.searchThreadSummariesLike(tokens, limit);
-  }
-
-  private matchThreadSummaries(
-    query: string,
-    limit: number,
-  ): ThreadSummaryRow[] {
-    return (
-      this.db
-        .prepare(
-          `
-          SELECT ${QUALIFIED_ROW_COLUMNS}
-          FROM ${FTS_TABLE} AS f
-          JOIN durable_thread_summaries AS s ON s.id = f.rowid
-          WHERE ${FTS_TABLE} MATCH ?
-          ORDER BY bm25(${FTS_TABLE}) ASC,
-                   s.source_updated_at DESC,
-                   s.id DESC
-          LIMIT ?
-          `,
-        )
-        .all(query, limit) as RawRow[]
-    ).map(fromRow);
-  }
-
-  private searchThreadSummariesLike(
-    tokens: readonly string[],
-    limit: number,
-  ): ThreadSummaryRow[] {
-    const matchClause = [
-      "content LIKE ? ESCAPE '\\'",
-      "thread_id LIKE ? ESCAPE '\\'",
-      "run_id LIKE ? ESCAPE '\\'",
-      "agent_type LIKE ? ESCAPE '\\'",
-    ].join(" OR ");
-    const patterns = tokens.map((token) => `%${escapeLike(token)}%`);
-    const parameters = patterns.flatMap((pattern) =>
-      Array.from({ length: 4 }, () => pattern),
-    );
-    return (
-      this.db
-        .prepare(
-          `
-          SELECT ${ROW_COLUMNS}
-          FROM durable_thread_summaries
-          WHERE ${tokens.map(() => `(${matchClause})`).join(" OR ")}
-          ORDER BY source_updated_at DESC, id DESC
-          LIMIT ?
-          `,
-        )
-        .all(...parameters, limit) as RawRow[]
-    ).map(fromRow);
-  }
-
-  findThreadSummariesByThreadIds(
-    threadIds: readonly string[],
-  ): ThreadSummaryRow[] {
-    const ids = [
-      ...new Set(threadIds.map((id) => id.trim()).filter(Boolean)),
-    ].slice(0, 100);
-    if (ids.length === 0) return [];
-    const rows = this.db
-      .prepare(
-        `
-        SELECT ${ROW_COLUMNS}
-        FROM durable_thread_summaries
-        WHERE thread_id IN (${ids.map(() => "?").join(", ")})
-        ORDER BY source_updated_at DESC, id DESC
-        `,
-      )
-      .all(...ids) as RawRow[];
-    const seen = new Set<string>();
-    return rows.flatMap((row) => {
-      if (seen.has(row.thread_id)) return [];
-      seen.add(row.thread_id);
-      return [fromRow(row)];
-    });
   }
 
   /**

@@ -218,7 +218,6 @@ export const createToolHost = ({
   getStellaSiteAuth,
   queryConvex,
   actionConvex,
-  contextProvider,
 }: ToolHostOptions) => {
   const stateRoot = stellaDataDir ?? stellaAppDir;
   const toolCatalog = new Map<string, ToolMetadata>();
@@ -408,7 +407,6 @@ export const createToolHost = ({
     getStellaSiteAuth,
     queryConvex,
     actionConvex,
-    contextProvider,
     shellState,
     stateContext,
     nodeReplRegistry,

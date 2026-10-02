@@ -123,7 +123,6 @@ export const METHOD_NAMES = {
   HOST_BROWSER_EXTENSION_CONNECT_REQUEST:
     "host.browserExtensionConnect.request",
   HOST_COMPUTER_USE_APP_APPROVAL_REQUEST: "host.computerUseAppApproval.request",
-  HOST_APP_BROWSER_CONTEXT_GET: "host.appBrowserContext.get",
   HOST_DISPLAY_UPDATE: "host.display.update",
   HOST_NOTIFICATION_SHOW: "host.notification.show",
   HOST_SYSTEM_REQUEST_PERMISSION: "host.system.requestPermission",
@@ -736,26 +735,6 @@ export type HostHeartbeatSignature = {
  * payload shape before routing it to the panel.
  */
 export type HostDisplayUpdateParams = { payload: unknown };
-
-export type HostRecentApp = {
-  name: string;
-  pid: number;
-  isActive: boolean;
-  bundleId?: string;
-  windowTitle?: string;
-};
-
-export type HostActiveBrowserTab = {
-  browser: string;
-  url: string;
-  bundleId?: string;
-  title?: string;
-};
-
-export type HostAppBrowserContextSnapshot = {
-  apps: HostRecentApp[];
-  activeBrowserTab: HostActiveBrowserTab | null;
-};
 
 export type RuntimeScheduleApi = {
   listCronJobs: () => Promise<LocalCronJobRecord[]>;

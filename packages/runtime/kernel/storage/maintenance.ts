@@ -30,7 +30,7 @@
  *   - streak >= analyzeIdleTicks: one bounded `ANALYZE` per schema version
  *     (meta-guarded), so the planner finally has `sqlite_stat1`;
  *   - zero RPC clients attached AND streak >= reclaimIdleTicks, while
- *     `idx_entry_search_conv_created` is missing: build recall's covering
+ *     `idx_entry_search_conv_created` is missing: build the search-text covering
  *     index (`SEARCH_TEXT_INDEX_SQL`, below) — before the reclaim, so the
  *     VACUUM that follows also compacts it;
  *   - the run_event sweep drained (deleted rows only return space through
@@ -86,7 +86,7 @@
  * VACUUM + FTS rebuild + final checkpoint — about 5–7 minutes for the
  * 13.3 GiB prod file (~6 GiB live).
  *
- * The search-text index. Recall's covering partial index is not in the
+ * The search-text index. The covering partial index is not in the
  * schema or a migration: building it is one full `entry` scan through every
  * row's payload overflow chain (~6 s warm, ~15–20 s cold on the 13 GiB prod
  * file) holding the write lock, which at open would freeze Electron main
@@ -435,7 +435,7 @@ export const searchTextIndexExists = (db: SqliteDatabase): boolean =>
   );
 
 /**
- * Build recall's covering index and its `sqlite_stat1` row in one
+ * Build the search-text covering index and its `sqlite_stat1` row in one
  * immediate transaction. Holds the write lock for the whole `entry` scan,
  * so callers run it only in the detached window. BUSY is a deferral.
  * `indexBytes` is the growth in live pages (the index plus its stat row).

@@ -232,13 +232,12 @@ CREATE INDEX IF NOT EXISTS idx_entry_ref_target
 `;
 
 /**
- * Recall's covering index over the rows that carry `search_text` (visible
+ * Covering index over the rows that carry `search_text` (visible
  * user/assistant messages: ~12k of prod's ~1.9M `entry` rows). `payload`
  * precedes `search_text`/`created_at` in `entry`, so any filter on those
  * columns that reads the table walks multi-MB payload overflow chains; this
- * partial index holds every column a transcript hit projects, so the recall
- * time-window neighbours (`recall-read-queries.ts`) and the transcript LIKE
- * fallback (`search.ts`) never touch the table row.
+ * partial index lets message-history queries by conversation and time skip
+ * the table row.
  *
  * Deliberately NOT part of the core schema or a migration: building it is
  * one full `entry` scan (~6 s warm, ~15-20 s cold on the 13 GiB prod file)
@@ -518,7 +517,7 @@ END;
 `;
 
 /**
- * Recall's durable thread summaries are searched with the same FTS5 shape as
+ * Durable thread summaries are indexed with the same FTS5 shape as
  * the cloud transcript index (`workers/cloud-builder/src/transcript-search.ts`):
  * a bm25-ranked MATCH over an external-content table, so the summary rows stay
  * the single copy of the text. Mirror triggers keep the index in step with the
@@ -589,8 +588,7 @@ const MIGRATIONS: Migration[] = [
       applyCloudColumnBackfills(db);
       db.exec(CLOUD_SCHEMA_SQL);
       // A SQLite build without FTS5 (some bun:sqlite linkages) must not lose
-      // chat storage entirely: skip the search indexes and let SearchIndex
-      // surface its typed degraded state ("index table is missing").
+      // chat storage entirely: skip the search indexes.
       let ftsReady = false;
       try {
         db.exec(FTS_SCHEMA_SQL);
@@ -620,7 +618,7 @@ const MIGRATIONS: Migration[] = [
     version: 3,
     apply: (db) => {
       // Same tolerance as migration 1: a SQLite build without FTS5 keeps the
-      // summaries table and falls back to the LIKE scan in ThreadSummaryStore.
+      // summaries table without its index.
       try {
         db.exec(THREAD_SUMMARY_FTS_SCHEMA_SQL);
         // Backfill: the triggers only see writes made after this point.
@@ -628,7 +626,7 @@ const MIGRATIONS: Migration[] = [
           "INSERT INTO durable_thread_summaries_fts(durable_thread_summaries_fts) VALUES ('rebuild');",
         );
       } catch {
-        /* Recall degrades to the LIKE path; summaries keep working */
+        /* summaries keep working without the index */
       }
     },
   },

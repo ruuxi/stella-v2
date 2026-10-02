@@ -1,25 +1,16 @@
 /**
- * SQLite FTS5-backed message index for the offline chat's recall tool.
+ * SQLite FTS5-backed message index for the offline chat.
  *
- * The recall search moved off the in-memory transcript scan onto a real
- * on-device SQLite database with an FTS5 full-text index over the chat's own
- * messages. Messages are mirrored into `messages` as they are persisted, an
- * external-content FTS5 table (`messages_fts`) is kept in sync by triggers, and
- * the `recall` tool runs bm25-ranked MATCH queries against it. On first run the
- * existing AsyncStorage transcript is backfilled once so past messages are
- * searchable.
+ * An on-device SQLite database with an FTS5 full-text index over the chat's
+ * own messages. Messages are mirrored into `messages` as they are persisted,
+ * and an external-content FTS5 table (`messages_fts`) is kept in sync by
+ * triggers. On first run the existing AsyncStorage transcript is backfilled
+ * once.
  *
  * The key/value memory (remember/forget) and checkpoint compaction stay on
  * AsyncStorage — only the search layer is SQLite-backed.
  */
 
-import {
-  parseRecallReference,
-  recallLimit,
-  recallSearchPlan,
-  shouldBroadenRecall,
-  RECALL_CONTEXT_MESSAGES,
-} from "@stella/contracts/recall";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type * as SQLite from "expo-sqlite";
 import type { ChatMessage } from "../types";
@@ -35,12 +26,6 @@ import {
   markAccountChatIndexCleared,
 } from "./chat-account-cleanup-state";
 import { accountChatMetadataReadsBlocked } from "./chat-account-metadata-queue";
-import {
-  normalizeRole,
-  rowToHit,
-  type MessageRow,
-  type RecallHit,
-} from "./chat-recall";
 
 const DB_NAME = "stella-chat-index.db";
 
@@ -403,117 +388,6 @@ export async function initMessageIndex(): Promise<void> {
   });
   initializationPromise = run;
   await run;
-}
-
-export type RecallSearchOptions = {
-  limit?: number;
-  /** Message ids to skip (e.g. the in-flight turn's own rows). */
-  excludeIds?: Set<string>;
-};
-
-/**
- * FTS5-ranked full-text search over the chat's own indexed messages. Returns
- * bm25-ordered hits, honouring `excludeIds` and a bounded `limit`.
- */
-export async function searchMessages(
-  query: string,
-  options: RecallSearchOptions = {},
-): Promise<RecallHit[]> {
-  if (rebuildBlocked) {
-    throw new Error("Message recall index is rebuilding");
-  }
-  const [storageBlocked, rebuildRequired] = await Promise.all([
-    accountChatMetadataReadsBlocked(),
-    readRebuildIntent().then(Boolean),
-  ]);
-  if (storageBlocked || rebuildRequired) {
-    throw new Error("Message recall index is rebuilding");
-  }
-  await initMessageIndex();
-  if (
-    rebuildBlocked ||
-    (await accountChatMetadataReadsBlocked()) ||
-    Boolean(await readRebuildIntent())
-  ) {
-    throw new Error("Message recall index is rebuilding");
-  }
-  const reference = parseRecallReference(query);
-  const plan = recallSearchPlan([query]);
-  if (reference && reference.scope !== "mobile") return [];
-  const limit = reference ? 1 : recallLimit(options.limit);
-  const exclude = options.excludeIds;
-  const fetchLimit = limit + (exclude ? exclude.size : 0);
-  const db = await getDb();
-  const search = (match: string) =>
-    db.getAllAsync<MessageRow & { rank: number }>(
-      `SELECT m.rowid AS sequence, m.id, m.role, m.text, m.created_at, bm25(messages_fts) AS rank,
-      snippet(messages_fts, 0, char(1), char(2), '…', 24) AS matches
-     FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid
-     WHERE messages_fts MATCH ? ORDER BY rank, m.rowid DESC LIMIT ?`,
-      match,
-      fetchLimit,
-    );
-  let rows: Array<MessageRow & { rank: number }>;
-  if (reference) {
-    rows = await db.getAllAsync<MessageRow & { rank: number }>(
-      `SELECT rowid AS sequence, id, role, text, created_at, 0 AS rank FROM messages WHERE id = ?`,
-      reference.id,
-    );
-  } else if (!plan) {
-    return [];
-  } else {
-    rows = await search(plan.phrase);
-    if (
-      plan.broad !== plan.phrase &&
-      shouldBroadenRecall(
-        rows.filter((row) => !exclude?.has(row.id)).length,
-        limit,
-      )
-    ) {
-      rows = await search(plan.broad);
-    }
-  }
-  const hits: RecallHit[] = [];
-  for (const row of rows) {
-    if (exclude?.has(row.id)) continue;
-    const neighbors = await db.getAllAsync<MessageRow>(
-      `SELECT * FROM (SELECT rowid AS sequence, id, role, text, created_at FROM messages
-         WHERE rowid < (SELECT rowid FROM messages WHERE id = ?) ORDER BY rowid DESC LIMIT ?)
-       UNION ALL
-       SELECT * FROM (SELECT rowid AS sequence, id, role, text, created_at FROM messages
-         WHERE rowid > (SELECT rowid FROM messages WHERE id = ?) ORDER BY rowid ASC LIMIT ?)`,
-      row.id,
-      RECALL_CONTEXT_MESSAGES,
-      row.id,
-      RECALL_CONTEXT_MESSAGES,
-    );
-    hits.push({
-      ...rowToHit(row, row.rank),
-      neighbors: neighbors
-        .filter(
-          (neighbor) =>
-            !exclude?.has(neighbor.id) &&
-            (neighbor.role === "user" || neighbor.role === "assistant"),
-        )
-        .map((neighbor) => ({
-          scope: "mobile",
-          id: neighbor.id,
-          role: normalizeRole(neighbor.role),
-          atMs: neighbor.created_at,
-          text: neighbor.text,
-          order: neighbor.sequence,
-        })),
-    });
-    if (hits.length >= limit) break;
-  }
-  if (
-    rebuildBlocked ||
-    (await accountChatMetadataReadsBlocked()) ||
-    Boolean(await readRebuildIntent())
-  ) {
-    throw new Error("Message recall index is rebuilding");
-  }
-  return hits;
 }
 
 /**

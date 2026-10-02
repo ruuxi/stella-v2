@@ -85,16 +85,6 @@ import {
 import { createKernelRunSupervisor } from "./supervision/run-supervisor.js";
 import { createReadinessLatch } from "../shared/readiness-latch.js";
 import {
-  isRecallNoMatchBrief,
-  RecallRetrievalError,
-  runRecall,
-} from "../agent-runtime/context-lookup.js";
-import type { RecallTelemetrySeed } from "../agent-runtime/recall-telemetry.js";
-import {
-  RecallRunCache,
-  type RecallLookupResult,
-} from "../agent-runtime/recall-run-cache.js";
-import {
   defaultPromptForAgentType,
   DEFAULT_MAX_AGENT_DEPTH,
   LOCAL_CONTEXT_EVENT_TYPES,
@@ -108,7 +98,6 @@ import {
 import {
   resolveRunnerLlmRoute,
   resolveRunnerLlmRouteWithMetadata,
-  resolveRunnerRecallLlmRoute,
 } from "./model-selection.js";
 import {
   captureEffectiveModelConfig,
@@ -504,10 +493,8 @@ export const createRunnerContext = ({
   getDeviceSigner,
   scheduleApi,
   runtimeStore,
-  getAppBrowserContext,
   listLocalChatEvents,
   openLocalChatEventWindow,
-  recallReadQueries,
   appendLocalChatEvent,
   notifyThreadActivityUpdated,
   getDefaultConversationId,
@@ -522,7 +509,6 @@ export const createRunnerContext = ({
 
   const context = {} as RunnerContext;
   const hookEmitter = new HookEmitter();
-  const recallRunCache = new RecallRunCache();
   const backend = createBackendSession(() => context.state);
 
   const convexCall = async (
@@ -831,116 +817,6 @@ export const createRunnerContext = ({
         void client.close().catch(() => undefined);
       }
     },
-    contextProvider: async (payload) => {
-      const runId = payload.runId ?? `request:${payload.requestId}`;
-      return await recallRunCache.getOrCreate(
-        runId,
-        payload.prompt,
-        payload.memorySearchTerms,
-        async (): Promise<RecallLookupResult> => {
-          try {
-            const recallStartedAtMs = performance.now();
-            // Resolve the Recall route lazily and memoized. Fast, indexed
-            // lookups return evidence with no model call, so they must never
-            // resolve — let alone require — a route or its credential.
-            // Resolving eagerly here made an unresolvable/ signed-out model
-            // selection fail EVERY Recall, including pure lookups.
-            let recallRoutePromise:
-              | ReturnType<typeof resolveRunnerRecallLlmRoute>
-              | undefined;
-            const resolveRecallRoute = (): ReturnType<
-              typeof resolveRunnerRecallLlmRoute
-            > =>
-              (recallRoutePromise ??= resolveRunnerRecallLlmRoute(
-                context,
-                AGENT_IDS.ORCHESTRATOR,
-                payload.modelConfigSnapshot,
-              ));
-            const sourceTimings: NonNullable<
-              RecallTelemetrySeed["sourceTimings"]
-            > = {};
-            const hostContextStartedAt = performance.now();
-            const localEventsStartedAt = performance.now();
-            const localEvents = context.listLocalChatEvents
-              ? context
-                  .listLocalChatEvents(payload.conversationId, 5)
-                  .filter((event) => LOCAL_CONTEXT_EVENT_TYPES.has(event.type))
-              : [];
-            sourceTimings["host.localEvents"] = {
-              kind: "sql",
-              calls: context.listLocalChatEvents ? 1 : 0,
-              ms: performance.now() - localEventsStartedAt,
-              chars: 0,
-            };
-            const appBrowserStartedAt = performance.now();
-            const appBrowserContext = getAppBrowserContext
-              ? await getAppBrowserContext()
-              : undefined;
-            sourceTimings["host.appBrowserContext"] = {
-              kind: "host",
-              calls: getAppBrowserContext ? 1 : 0,
-              ms: performance.now() - appBrowserStartedAt,
-              chars: appBrowserContext
-                ? JSON.stringify(appBrowserContext).length
-                : 0,
-            };
-            const hostContextMs = performance.now() - hostContextStartedAt;
-            let resultMetadata:
-              | Pick<RecallLookupResult, "intent" | "fastPath" | "sources">
-              | undefined;
-            const brief = await runRecall({
-              conversationId: payload.conversationId,
-              lookupPrompt: payload.prompt,
-              limit: payload.limit,
-              ...(payload.memorySearchTerms?.length
-                ? { memorySearchTerms: payload.memorySearchTerms }
-                : {}),
-              stellaAppDir,
-              stellaDataDir,
-              store: context.runtimeStore,
-              localEvents,
-              ...(appBrowserContext ? { appBrowserContext } : {}),
-              resolveRecallRoute,
-              ...(context.recallReadQueries
-                ? { recallReadQueries: context.recallReadQueries }
-                : {}),
-              telemetry: {
-                startedAtMs: recallStartedAtMs,
-                // Route resolution is deferred to the synthesis fallback, so
-                // it is folded into model timing rather than measured here.
-                routeMs: 0,
-                hostContextMs,
-                sourceTimings,
-              },
-              onResultMetadata: (metadata) => {
-                resultMetadata = metadata;
-              },
-              ...(payload.signal ? { signal: payload.signal } : {}),
-            });
-            return {
-              status: isRecallNoMatchBrief(brief)
-                ? "no_match"
-                : brief.startsWith("Recall failed:")
-                  ? "synthesis_error"
-                  : "found",
-              brief,
-              ...resultMetadata,
-            };
-          } catch (error) {
-            return {
-              status:
-                error instanceof RecallRetrievalError
-                  ? "retrieval_error"
-                  : "synthesis_error",
-              brief: `Recall failed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            };
-          }
-        },
-        payload.limit,
-      );
-    },
     agentApi: {
       // Cloud placements never touch LocalAgentManager: the subject lives off
       // this machine, so the spawn leaves the device entirely.
@@ -1047,7 +923,6 @@ export const createRunnerContext = ({
     runtimeStore,
     listLocalChatEvents,
     openLocalChatEventWindow,
-    recallReadQueries,
     appendLocalChatEvent,
     notifyThreadActivityUpdated,
     getDefaultConversationId,
@@ -1632,6 +1507,11 @@ export const buildAgentContext = async (
         "Use relative paths unless an absolute path under this workspace is already shown by a tool.",
         "File tools are restricted to this workspace root.",
       ].join("\n"),
+    );
+  }
+  if (args.agentType === AGENT_IDS.ORCHESTRATOR) {
+    dynamicContextSections.push(
+      `## History Database\n${path.join(context.stellaDataDir, "stella.sqlite")}`,
     );
   }
   const reminderState =

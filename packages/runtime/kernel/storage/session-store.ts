@@ -1,6 +1,6 @@
 /**
  * SessionStore: the storage layer's public API, composed from the typed
- * modules (ChatLog, ThreadLog, AgentRegistry, SearchIndex). Consumers keep
+ * modules (ChatLog, ThreadLog, AgentRegistry). Consumers keep
  * the same surface they had against the legacy store; the internals run on
  * the v1 schema where ordering, visibility, and turn structure are written
  * at insert time.
@@ -27,17 +27,13 @@ import {
 import { ChatLog, type ChatMessageWindow } from "./chat-log.js";
 import { ThreadLog } from "./thread-log.js";
 import { AgentRegistry, type AgentRecordInput } from "./agent-registry.js";
-import { SearchIndex } from "./search.js";
 import {
   AGENT_ASSISTANT_UPDATE_LIMITS,
   EAGER_TOOL_EVENT_LIMIT,
   EAGER_TOOL_EVENT_PAYLOAD_BYTES,
-  FtsSearchUnavailableError,
-  RECALL_THREAD_RESULT_EXCERPT_CHARS,
   buildFallbackThreadPayload,
   enforceThreadPayloadRowSizeLimit,
   projectLocalChatUpdateEvent,
-  tokenizeSearchQuery,
   type Cursor,
   type ThreadMessageInput,
 } from "./view.js";
@@ -46,10 +42,7 @@ export {
   AGENT_ASSISTANT_UPDATE_LIMITS,
   EAGER_TOOL_EVENT_LIMIT,
   EAGER_TOOL_EVENT_PAYLOAD_BYTES,
-  FtsSearchUnavailableError,
-  RECALL_THREAD_RESULT_EXCERPT_CHARS,
   projectLocalChatUpdateEvent,
-  tokenizeSearchQuery,
 };
 
 export type SessionStoreOptions = {
@@ -250,7 +243,6 @@ export class SessionStore {
   private readonly chat: ChatLog;
   private readonly threads: ThreadLog;
   private readonly agents: AgentRegistry;
-  private readonly search: SearchIndex;
   private threadSummaryStoreInstance: ThreadSummaryStore | null = null;
   private inTransaction = false;
   /**
@@ -279,7 +271,6 @@ export class SessionStore {
       refreshThreadSearchText: (threadId) =>
         this.threads.refreshThreadSearchText(threadId),
     });
-    this.search = new SearchIndex(db);
   }
 
   get threadSummaryStore(): ThreadSummaryStore {
@@ -2386,10 +2377,6 @@ export class SessionStore {
     return this.agents.listAgentRecordsByStatus(status);
   }
 
-  listThreadResultExcerpts(threadIds: string[]) {
-    return this.agents.listThreadResultExcerpts(threadIds);
-  }
-
   listAgentAssistantMessagesByThread(
     targets: Parameters<AgentRegistry["listAgentAssistantMessagesByThread"]>[0],
     limit?: number,
@@ -2448,32 +2435,6 @@ export class SessionStore {
         ...(record.rootRunId ? { rootRunId: record.rootRunId } : {}),
       },
     });
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* Search                                                              */
-  /* ------------------------------------------------------------------ */
-
-  searchThreads(args: Parameters<SearchIndex["searchThreads"]>[0]) {
-    return this.search.searchThreads(args);
-  }
-
-  searchTranscripts(args: Parameters<SearchIndex["searchTranscripts"]>[0]) {
-    return this.search.searchTranscripts(args);
-  }
-
-  listTranscriptNeighbors(
-    args: Parameters<SearchIndex["listTranscriptNeighbors"]>[0],
-  ) {
-    return this.search.listTranscriptNeighbors(args);
-  }
-
-  threadFtsAvailable(): boolean {
-    return this.search.threadFtsAvailable();
-  }
-
-  transcriptFtsAvailable(): boolean {
-    return this.search.transcriptFtsAvailable();
   }
 
   /* ------------------------------------------------------------------ */

@@ -74,7 +74,6 @@ export const RUNTIME_HOST_HANDLERS = [
   "requestRuntimeAuthRefresh",
   "getChallengeToken",
   "getScheduleScriptAuth",
-  "getAppBrowserContext",
   "requestCredential",
   "requestLlmCredentials",
   "requestConnectorTokenStore",

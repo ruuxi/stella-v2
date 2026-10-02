@@ -21,7 +21,6 @@ import type {
   RuntimeThreadRecord,
 } from "../runtime-threads.js";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
-import type { RecallLookupResult } from "../agent-runtime/recall-run-cache.js";
 
 /**
  * Trusted-host-only OS identity for model-authored child processes. This is
@@ -494,22 +493,6 @@ export type ToolHostOptions = {
     ref: unknown,
     args: Record<string, unknown>,
   ) => Promise<unknown>;
-  /**
-   * Optional context lookup backing the orchestrator's read-only `Recall`
-   * tool. The host runs unified durable-thread/transcript retrieval plus live
-   * machine context and returns its bounded brief.
-   */
-  contextProvider?: (payload: {
-    conversationId: string;
-    requestId: string;
-    runId?: string;
-    prompt: string;
-    memorySearchTerms?: string[];
-    limit?: number;
-    agentType?: string;
-    modelConfigSnapshot?: AgentModelConfigSnapshot;
-    signal?: AbortSignal;
-  }) => Promise<RecallLookupResult>;
   stellaDataDir?: string;
   requestCredential?: (payload: {
     provider: string;

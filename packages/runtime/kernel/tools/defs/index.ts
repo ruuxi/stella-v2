@@ -24,7 +24,6 @@ import type {
 } from "../types.js";
 
 import { applyPatchTool } from "./apply-patch.js";
-import { createRecallTool } from "./recall.js";
 import { editTool } from "./edit.js";
 import { createExecCommandTool } from "./exec-command.js";
 import { grepTool } from "./grep.js";
@@ -132,7 +131,6 @@ export const buildBuiltinTools = (
   // Orchestrator coordination surface
   tools.push(createHtmlTool({ stellaDataDir: options.stellaDataDir }));
   tools.push(createMapTool());
-  tools.push(createRecallTool({ contextProvider: options.contextProvider }));
   tools.push(
     createRememberTool({
       stellaDataDir: options.stellaDataDir,

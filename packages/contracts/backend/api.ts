@@ -7,6 +7,7 @@
 
 import type { AgentThreadCalls, AgentThreadViews } from "./agent-threads.js";
 import type { BillingCalls, BillingViews } from "./billing.js";
+import type { DeviceCalls, DeviceViews } from "./devices.js";
 import type { ConversationCalls, ConversationViews } from "./conversations.js";
 
 type SystemCalls = {
@@ -14,8 +15,12 @@ type SystemCalls = {
   "system.ping": { args: Record<string, never>; result: { now: number } };
 };
 
-export type BackendCalls = SystemCalls & ConversationCalls & AgentThreadCalls & BillingCalls;
-export type BackendViews = ConversationViews & AgentThreadViews & BillingViews;
+export type BackendCalls = SystemCalls &
+  ConversationCalls &
+  AgentThreadCalls &
+  BillingCalls &
+  DeviceCalls;
+export type BackendViews = ConversationViews & AgentThreadViews & BillingViews & DeviceViews;
 
 export type CallName = keyof BackendCalls & string;
 export type ViewName = keyof BackendViews & string;

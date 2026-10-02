@@ -153,8 +153,8 @@ describe("RuntimeClientServer", () => {
     await b.attach();
     hosts[0]!.events.emit("run-event", { runId: "r1" });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(a.events).toEqual([{ name: "run-event", payload: { runId: "r1" } }]);
-    expect(b.events).toEqual([{ name: "run-event", payload: { runId: "r1" } }]);
+    expect(a.events).toMatchObject([{ name: "run-event", payload: { runId: "r1" } }]);
+    expect(b.events).toMatchObject([{ name: "run-event", payload: { runId: "r1" } }]);
   });
 
   test("host callbacks go to the newest client, and wait for one across a restart", async () => {

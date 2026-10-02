@@ -11,6 +11,7 @@ import {
   removeStaleRuntimeArtifacts,
 } from "../../worker/lifecycle-server.js";
 import { getFileLogger } from "../../observability/file-logger.js";
+import type { ExpectedRuntimeServerIdentity } from "../../worker/server-identity.js";
 import {
   WorkerNotReadyError,
   WorkerProtocolMismatchError,
@@ -78,6 +79,8 @@ export const pollForWorkerReady = (
   timeoutMs: number,
   budgets: LifecycleBudgets,
   expectedProtocolVersion?: string,
+  expectedIdentity?: ExpectedRuntimeServerIdentity,
+  onReadyIdentity?: (identity: LifecycleConnection["identity"]) => void,
 ): Effect.Effect<
   Socket,
   WorkerProtocolMismatchError | WorkerReadyTimeoutError,
@@ -90,6 +93,7 @@ export const pollForWorkerReady = (
       paths.socketPath,
       budgets.socketConnectTimeoutMs,
       expectedProtocolVersion,
+      expectedIdentity,
     ).pipe(
       Effect.flatMap(
         (
@@ -99,8 +103,12 @@ export const pollForWorkerReady = (
           WorkerNotReadyError | WorkerProtocolMismatchError
         > =>
           result.status === "ready"
-            ? Effect.succeed(result.socket)
-            : result.status === "version-mismatch"
+            ? Effect.sync(() => {
+                onReadyIdentity?.(result.identity);
+                return result.socket;
+              })
+            : result.status === "version-mismatch" ||
+                result.status === "identity-mismatch"
               ? Effect.fail(
                   new WorkerProtocolMismatchError({
                     socketPath: paths.socketPath,
@@ -121,6 +129,19 @@ export const pollForWorkerReady = (
         : error,
     ),
   );
+
+const expectedIdentityFor = (
+  options: LifecycleStartOptions,
+  paths: RuntimePaths,
+  pid: number | undefined,
+): ExpectedRuntimeServerIdentity | undefined =>
+  options.verifyIdentity
+    ? {
+        rootHash: paths.rootHash,
+        ...(pid != null ? { pid } : {}),
+        launchEnv: options.verifyIdentity.launchEnv,
+      }
+    : undefined;
 
 const stopRunningWorkerForRestart = (
   stellaAppDir: string,
@@ -171,13 +192,47 @@ const discoverExistingWorker = (
       );
       return null;
     }
+    const expectedIdentity = expectedIdentityFor(options, paths, existingPid);
     const ready = yield* connectReadySocket(
       paths.socketPath,
       budgets.socketConnectTimeoutMs,
       options.expectedProtocolVersion,
+      expectedIdentity,
     );
     if (ready.status === "ready") {
-      return { socket: ready.socket, pid: existingPid, paths, spawned: false };
+      return {
+        socket: ready.socket,
+        pid: existingPid,
+        paths,
+        spawned: false,
+        ...(expectedIdentity ? { identity: ready.identity } : {}),
+      };
+    }
+    if (ready.status === "identity-mismatch") {
+      // Someone answers on this root's socket, but not the runtime this app
+      // may adopt: an older generation without the handshake, a process the
+      // pidfile does not name, or one booted with another app's shared
+      // environment. Replace it rather than route this app's traffic there.
+      console.warn(
+        `[runtime-host] Existing runtime failed the identity handshake (${ready.mismatch}); restarting detached worker (pid=${existingPid}).`,
+      );
+      getFileLogger()?.process("host.runtime-identity-mismatch", {
+        pid: existingPid,
+        mismatch: ready.mismatch,
+        serverId: ready.identity?.serverId ?? null,
+        reportedPid: ready.identity?.pid ?? null,
+      });
+      yield* stopRunningWorkerForRestart(options.stellaAppDir);
+      // A socket served by a pid the pidfile does not name survives the
+      // pidfile kill; reap whatever still runs this root.
+      const survivors = yield* Effect.promise(() =>
+        findSameRootWorkerPids(options.workerEntryPath, options.stellaAppDir),
+      );
+      if (survivors.length > 0) yield* stopPids(survivors);
+      yield* Effect.promise(() =>
+        removeStaleRuntimeArtifacts(options.stellaAppDir),
+      );
+      return null;
     }
     if (ready.status === "version-mismatch") {
       console.warn(
@@ -191,14 +246,25 @@ const discoverExistingWorker = (
     }
     // Pid is alive but socket isn't reachable — likely a worker that's
     // still binding the socket. Wait briefly before declaring it stale.
+    let retryIdentity: LifecycleConnection["identity"] = null;
     const retry = yield* pollForWorkerReady(
       paths,
       budgets.staleRetryTimeoutMs,
       budgets,
       options.expectedProtocolVersion,
+      expectedIdentity,
+      (identity) => {
+        retryIdentity = identity;
+      },
     ).pipe(Effect.catch(() => Effect.succeed(null)));
     if (retry) {
-      return { socket: retry, pid: existingPid, paths, spawned: false };
+      return {
+        socket: retry,
+        pid: existingPid,
+        paths,
+        spawned: false,
+        ...(expectedIdentity ? { identity: retryIdentity } : {}),
+      };
     }
     // Truly stale; only reap processes whose command line still matches
     // this Stella root. A pidfile can outlive the original worker, and
@@ -251,16 +317,31 @@ export const startOrAttachWorkerEffect = (
     }
 
     yield* spawnAdoptedWorker(options, paths);
+    // A fresh spawn has no pidfile pid to pin yet; root and shared
+    // environment still have to match, and the probed serverId fences the
+    // attach to the instance that answered.
+    const expectedIdentity = expectedIdentityFor(options, paths, undefined);
+    let spawnedIdentity: LifecycleConnection["identity"] = null;
     const socket = yield* pollForWorkerReady(
       paths,
       budgets.startTimeoutMs,
       budgets,
       options.expectedProtocolVersion,
+      expectedIdentity,
+      (identity) => {
+        spawnedIdentity = identity;
+      },
     );
     const newPid =
       (yield* Effect.promise(() => probeRunningWorker(options.stellaAppDir))) ??
       0;
-    return { socket, pid: newPid, paths, spawned: true };
+    return {
+      socket,
+      pid: newPid,
+      paths,
+      spawned: true,
+      ...(expectedIdentity ? { identity: spawnedIdentity } : {}),
+    };
   });
 
 /**

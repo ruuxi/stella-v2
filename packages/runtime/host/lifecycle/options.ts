@@ -1,5 +1,6 @@
 import type { Socket } from "node:net";
 import type { RuntimePaths } from "../../worker/runtime-paths.js";
+import type { RuntimeServerIdentity } from "../../worker/server-identity.js";
 
 export type LifecycleConnection = {
   socket: Socket;
@@ -7,6 +8,12 @@ export type LifecycleConnection = {
   paths: RuntimePaths;
   /** True if we spawned the worker; false if we attached to an existing one. */
   spawned: boolean;
+  /**
+   * The identity the runtime reported on the readiness probe, when the
+   * caller asked for identity verification. The caller names its
+   * `serverId` on attach so the peer socket is fenced to this instance.
+   */
+  identity?: RuntimeServerIdentity | null;
 };
 
 export type LifecycleStartOptions = {
@@ -21,6 +28,14 @@ export type LifecycleStartOptions = {
   env?: NodeJS.ProcessEnv;
   expectedProtocolVersion?: string;
   hostExecutablePath?: string;
+  /**
+   * Verify the runtime's identity before adopting it: same root, the
+   * pidfile's pid, and this environment shared with the app (see
+   * `worker/server-identity.ts`). A runtime that fails it, including one that
+   * predates the identity handshake, is replaced like a protocol mismatch.
+   * Omitted: no identity check (tests, legacy callers).
+   */
+  verifyIdentity?: { launchEnv: Record<string, string> };
 };
 
 /**

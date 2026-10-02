@@ -16,6 +16,7 @@ import {
 } from "@stella/contracts/protocol";
 import type { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
 import { workerRuntime } from "./effect-runtime.js";
+import type { RuntimeServerIdentity } from "./server-identity.js";
 import {
   isWindowsNamedPipePath,
   runtimeIpcPathUsesFilesystem,
@@ -116,6 +117,11 @@ export type StartTransportArgs = {
   attach: (peer: JsonRpcPeer) => void;
   /** What the readiness probe reports; defaults to the worker protocol. */
   protocolVersion?: string;
+  /**
+   * This process's identity, reported by the readiness probe so a client can
+   * verify which runtime instance owns the socket before adopting it.
+   */
+  identity?: RuntimeServerIdentity;
   onError?: (error: unknown) => void;
 };
 
@@ -271,6 +277,7 @@ const startIpcSocketTransport = async (
                   ok: true,
                   protocolVersion:
                     args.protocolVersion ?? STELLA_RUNTIME_PROTOCOL_VERSION,
+                  ...(args.identity ? { identity: args.identity } : {}),
                 },
               })}\n`,
               () => socket.end(),

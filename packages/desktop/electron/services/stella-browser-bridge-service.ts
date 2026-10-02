@@ -13,14 +13,26 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import {
-  STELLA_BROWSER_BRIDGE_PORT,
   STELLA_BROWSER_BRIDGE_SESSION,
   STELLA_BROWSER_BRIDGE_TOKEN,
   STELLA_BROWSER_EXTENSION_ID,
   STELLA_NATIVE_MESSAGING_HOST_NAME,
-  getStellaBrowserSocketDir,
 } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 import { registerStellaNativeMessagingHost } from "../utils/register-stella-native-messaging-host.js";
+import {
+  BROWSER_BRIDGE_INSTANCE_ID,
+  decideBrowserBridgeTakeover,
+  getBrowserBridgeNamespace,
+  pickFreeLoopbackPort,
+  pidIsAlive,
+  readBrowserBridgeBinaryIdentity,
+  readBrowserBridgeDaemonPid,
+  readBrowserBridgeOwner,
+  releaseBrowserBridgeOwner,
+  writeBrowserBridgeOwner,
+  type BrowserBridgeBinaryIdentity,
+  type BrowserBridgeNamespace,
+} from "./stella-browser-bridge-namespace.js";
 import {
   activateStagedStellaBrowserBinary,
   resolveLegacyStellaBrowserBinaryPath,
@@ -71,6 +83,9 @@ export const buildWindowsBundledBrowserProcessQuery = (
     [
       "Get-CimInstance Win32_Process",
       "| Where-Object { $_.ExecutablePath -and ($targets -contains $_.ExecutablePath) -and $_.ProcessId -ne $PID -and $_.CommandLine -notlike '*chrome-extension://*' }",
+      // Orphans only: a daemon whose parent still runs belongs to a live
+      // Stella instance (possibly another one) and is not ours to kill.
+      "| Where-Object { -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue) }",
       "| Select-Object -ExpandProperty ProcessId -Unique",
     ].join(" "),
   ].join("; ");
@@ -276,6 +291,9 @@ export class StellaBrowserBridgeService {
   private cdpRoutingGeneration = 0;
   private isLaunching = false;
   private stopped = false;
+  /** Which bridge this instance runs (shared vs isolated) and how it claims it. */
+  private readonly namespace: BrowserBridgeNamespace = getBrowserBridgeNamespace();
+  private binaryIdentity: BrowserBridgeBinaryIdentity | null = null;
 
   constructor(options: StellaBrowserBridgeServiceOptions) {
     this.stellaAppDir = options.stellaAppDir;
@@ -546,15 +564,20 @@ export class StellaBrowserBridgeService {
     this.agentBackendLaunches.clear();
     this.agentOwnerLeaseHighWater.clear();
 
-    const closePromise = this.sendCommand({
-      id: randomUUID(),
-      action: "close",
-    }).catch(() => undefined);
+    // Only close a daemon this instance started: whatever else answers on
+    // the socket belongs to another instance (or nobody we can vouch for).
+    if (this.daemonProcess) {
+      const closePromise = this.sendCommand({
+        id: randomUUID(),
+        action: "close",
+      }).catch(() => undefined);
 
-    await Promise.race([closePromise, delay(1_500)]).catch(() => undefined);
+      await Promise.race([closePromise, delay(1_500)]).catch(() => undefined);
+    }
     await this.killDaemonProcess();
     await this.stopOrphanedBundledDaemons();
     this.daemonProcess = null;
+    releaseBrowserBridgeOwner(this.namespace.socketDir, STELLA_BROWSER_BRIDGE_SESSION);
   }
 
   private async launchBridge() {
@@ -565,12 +588,24 @@ export class StellaBrowserBridgeService {
     this.isLaunching = true;
 
     try {
-      const registration = await registerStellaNativeMessagingHost();
-      if (!registration.ok) {
-        throw new Error(
-          registration.error ??
-            "Could not register the browser extension connector. Stella may need permission to update browser settings.",
-        );
+      // Handshake before touching anything in the namespace: which instance
+      // owns the daemon there, and may this one replace it?
+      const takeover = await this.claimNamespace();
+      if (this.stopped) return;
+      // Claim it before clearing it, so a concurrent launch in the same
+      // namespace sees a live owner and defers instead of racing this one.
+      this.recordOwnership();
+
+      // Only the shared bridge owns the Chrome extension's native-messaging
+      // host (one per user); an isolated bridge must not repoint it.
+      if (this.namespace.ownsExtensionChannel) {
+        const registration = await registerStellaNativeMessagingHost();
+        if (!registration.ok) {
+          throw new Error(
+            registration.error ??
+              "Could not register the browser extension connector. Stella may need permission to update browser settings.",
+          );
+        }
       }
 
       // stop() can run while native-host registration or stale-session cleanup
@@ -578,9 +613,12 @@ export class StellaBrowserBridgeService {
       // already completed its process sweep.
       if (this.stopped) return;
 
-      await this.closeExistingSession();
+      await this.closeExistingSession(takeover.replaceDaemonPid);
       if (this.stopped) return;
-      this.spawnDaemon();
+      const extPort = this.namespace.extPort ?? (await pickFreeLoopbackPort());
+      if (this.stopped) return;
+      this.spawnDaemon(extPort);
+      this.recordOwnership();
       await this.waitForDaemonReady();
       await this.sendCommand({
         id: randomUUID(),
@@ -600,7 +638,75 @@ export class StellaBrowserBridgeService {
     }
   }
 
-  private spawnDaemon() {
+  /**
+   * Decide whether this launch may replace the namespace's current daemon.
+   * Throws (and the resource retries later) when another live instance owns
+   * it with equal or higher priority, or when replacing it would downgrade
+   * the bridge binary; nothing is closed or killed in that case.
+   */
+  private async claimNamespace(): Promise<{ replaceDaemonPid: number | null }> {
+    const stellaBrowserRoot = resolveStellaBrowserRoot();
+    activateStagedStellaBrowserBinary(stellaBrowserRoot);
+    const binaryPath = resolveStellaBrowserBinaryPath(stellaBrowserRoot);
+    this.binaryIdentity = binaryPath
+      ? await readBrowserBridgeBinaryIdentity(binaryPath)
+      : null;
+    const owner = readBrowserBridgeOwner(
+      this.namespace.socketDir,
+      STELLA_BROWSER_BRIDGE_SESSION,
+    );
+    const decision = decideBrowserBridgeTakeover({
+      namespace: this.namespace,
+      owner,
+      binary: this.binaryIdentity,
+    });
+    if (decision.action === "defer") {
+      console.warn(`[stella-browser-bridge] ${decision.reason}`);
+      throw new Error(decision.reason);
+    }
+    if (decision.action === "replace-live") {
+      console.warn(
+        `[stella-browser-bridge] Claiming the shared browser bridge from pid ${decision.owner.ownerPid} (${decision.owner.packaged ? "installed app" : "dev checkout"}).`,
+      );
+      return { replaceDaemonPid: decision.owner.daemonPid };
+    }
+    // Our own previous daemon, or an orphan whose owner is gone.
+    return {
+      replaceDaemonPid:
+        decision.replacing === "orphan" ? (owner?.daemonPid ?? null) : null,
+    };
+  }
+
+  private recordOwnership() {
+    try {
+      writeBrowserBridgeOwner(
+        this.namespace.socketDir,
+        STELLA_BROWSER_BRIDGE_SESSION,
+        {
+          version: 1,
+          instanceId: BROWSER_BRIDGE_INSTANCE_ID,
+          ownerPid: process.pid,
+          daemonPid: this.daemonProcess?.pid ?? null,
+          mode: this.namespace.mode,
+          claim: this.namespace.claim,
+          packaged: this.namespace.packaged,
+          dataDir: this.namespace.dataDir,
+          stellaAppDir: this.stellaAppDir,
+          binary: this.binaryIdentity,
+          recordedAtMs: Date.now(),
+        },
+      );
+    } catch (error) {
+      // Without a record other instances treat the daemon as legacy and may
+      // replace it; the bridge itself still works.
+      console.warn(
+        "[stella-browser-bridge] Could not record bridge ownership:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  private spawnDaemon(extPort: number) {
     this.resetCdpRouting();
     const stellaBrowserRoot = resolveStellaBrowserRoot();
     activateStagedStellaBrowserBinary(stellaBrowserRoot);
@@ -625,7 +731,8 @@ export class StellaBrowserBridgeService {
         cwd: stellaBrowserRoot,
         env: {
           ...process.env,
-          STELLA_BROWSER_EXT_PORT: STELLA_BROWSER_BRIDGE_PORT,
+          STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
+          STELLA_BROWSER_EXT_PORT: String(extPort),
           STELLA_BROWSER_EXT_TOKEN: STELLA_BROWSER_BRIDGE_TOKEN,
           STELLA_BROWSER_CONTROL_TOKEN: this.controlToken,
         },
@@ -713,6 +820,7 @@ export class StellaBrowserBridgeService {
         cwd: stellaBrowserRoot,
         env: {
           ...process.env,
+          STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
           STELLA_BROWSER_CONTROL_TOKEN: controlToken,
           STELLA_BROWSER_EXTENSION_PROXY_SESSION:
             STELLA_BROWSER_BRIDGE_SESSION,
@@ -866,6 +974,18 @@ export class StellaBrowserBridgeService {
         throw new Error("Browser bridge daemon exited before it became ready.");
       }
 
+      // Client-side identity check: the daemon answering this socket must
+      // be the one this instance just spawned (it records its pid at boot).
+      // Anything else is another instance's daemon, never ours to drive.
+      const answeringPid = readBrowserBridgeDaemonPid(
+        this.namespace.socketDir,
+        STELLA_BROWSER_BRIDGE_SESSION,
+      );
+      if (answeringPid !== this.daemonProcess?.pid) {
+        await delay(100);
+        continue;
+      }
+
       try {
         await this.sendCommand(
           {
@@ -880,11 +1000,29 @@ export class StellaBrowserBridgeService {
       }
     }
 
+    const answeringPid = readBrowserBridgeDaemonPid(
+      this.namespace.socketDir,
+      STELLA_BROWSER_BRIDGE_SESSION,
+    );
+    if (answeringPid != null && answeringPid !== this.daemonProcess?.pid) {
+      throw new Error(
+        `Browser bridge socket is served by pid ${answeringPid}, not the daemon this instance started (pid ${String(this.daemonProcess?.pid)}).`,
+      );
+    }
     throw new Error("Browser bridge daemon did not become ready in time.");
   }
 
-  private async closeExistingSession() {
+  /**
+   * Clear the namespace for a fresh daemon. Only reached once
+   * `claimNamespace` allowed it: the daemon there is this instance's own, an
+   * orphan, a pre-ownership one, or one an opted-in claim replaces.
+   */
+  private async closeExistingSession(replaceDaemonPid: number | null = null) {
     const daemonPort = getPortForSession(STELLA_BROWSER_BRIDGE_SESSION);
+
+    if (replaceDaemonPid != null && replaceDaemonPid !== this.daemonProcess?.pid) {
+      await this.stopRecordedDaemon(replaceDaemonPid);
+    }
 
     await this.sendCommand(
       {
@@ -903,6 +1041,42 @@ export class StellaBrowserBridgeService {
       await this.waitForPortToClose(daemonPort, DAEMON_SHUTDOWN_TIMEOUT_MS);
     }
     await this.stopOrphanedBundledDaemons();
+  }
+
+  /**
+   * Stop a daemon named by an ownership record. Its control token is another
+   * instance's, so `close` would be refused; signal it directly after
+   * checking the pid still runs a bridge daemon (pids are reused). Windows
+   * daemons are cleared by their control port instead.
+   */
+  private async stopRecordedDaemon(pid: number) {
+    if (process.platform === "win32" || !pidIsAlive(pid)) return;
+    try {
+      const { stdout } = await execFileAsync(
+        "ps",
+        ["-o", "command=", "-p", String(pid)],
+        { encoding: "utf8" },
+      );
+      if (!stdout.includes("service run")) return;
+    } catch {
+      return;
+    }
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      return;
+    }
+    const deadline = Date.now() + DAEMON_SHUTDOWN_TIMEOUT_MS;
+    while (Date.now() < deadline && pidIsAlive(pid)) {
+      await delay(100);
+    }
+    if (pidIsAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
   }
 
   private sendCommand(
@@ -1277,7 +1451,7 @@ export class StellaBrowserBridgeService {
   }
 }
 
-const getSocketDir = getStellaBrowserSocketDir;
+const getSocketDir = () => getBrowserBridgeNamespace().socketDir;
 
 const requireCapabilityString = (value: string, name: string) => {
   const normalized = value.trim();

@@ -99,3 +99,64 @@ const handlers = new Set<string>(RUNTIME_HOST_HANDLERS);
 export const isRuntimeHostHandler = (
   name: unknown,
 ): name is RuntimeHostHandler => typeof name === "string" && handlers.has(name);
+
+/**
+ * Route fencing on the client protocol (after Pi's protocol: the client hello
+ * names the server it expects, and every session frame names its attachment).
+ *
+ * - `runtime.attach` may name the runtime instance the client probed
+ *   (`expectedServerId`) and its root; the runtime refuses a mismatch with
+ *   `RUNTIME_SERVER_MISMATCH` instead of adopting a client meant for another
+ *   instance.
+ * - Each attach carries a client-minted `attachmentId`. The runtime binds it
+ *   to that connection and stamps every event and host callback it sends there
+ *   with it; calls carry it back. A frame whose attachment is not the live one
+ *   on either side (a superseded or retired connection, a re-attach) is dropped
+ *   and logged rather than applied.
+ *
+ * All fields are optional on the wire so either side tolerates a peer that
+ * predates fencing.
+ */
+export const RUNTIME_SERVER_MISMATCH = "runtime-server-mismatch";
+export const RUNTIME_ATTACHMENT_STALE = "runtime-attachment-stale";
+
+export type RuntimeAttachFence = {
+  attachmentId?: string;
+  expectedServerId?: string;
+  expectedRootHash?: string;
+};
+
+export type FencedRuntimeAttachResult = {
+  pid: number;
+  hostCreated: boolean;
+  serverId?: string;
+  attachmentId?: string;
+};
+
+export type FencedRuntimeEventParams = {
+  name: string;
+  payload: unknown;
+  attachmentId?: string;
+};
+
+export type FencedRuntimeHostHandlerParams = {
+  name: string;
+  args: unknown[];
+  attachmentId?: string;
+};
+
+export type FencedRuntimeCallParams = {
+  method: string;
+  args: unknown[];
+  attachmentId?: string;
+};
+
+const MAX_ATTACHMENT_ID_LENGTH = 128;
+
+/** A well-formed attachment id, or undefined. */
+export const readAttachmentId = (value: unknown): string | undefined =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= MAX_ATTACHMENT_ID_LENGTH
+    ? value
+    : undefined;

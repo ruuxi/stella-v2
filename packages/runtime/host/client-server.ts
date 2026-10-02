@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { RPC_ERROR_CODES } from "@stella/contracts/protocol";
 import {
   createRuntimeUnavailableError,
@@ -7,11 +8,19 @@ import {
 import {
   RUNTIME_CLIENT_METHODS,
   type RuntimeClientAttachParams,
-  type RuntimeClientAttachResult,
 } from "@stella/contracts/protocol/runtime-client";
+import { getFileLogger } from "../observability/file-logger.js";
+import type { RuntimeServerIdentity } from "../worker/server-identity.js";
 import {
   isRuntimeHostCall,
+  readAttachmentId,
+  RUNTIME_ATTACHMENT_STALE,
   RUNTIME_HOST_HANDLERS,
+  RUNTIME_SERVER_MISMATCH,
+  type FencedRuntimeAttachResult,
+  type FencedRuntimeEventParams,
+  type FencedRuntimeHostHandlerParams,
+  type RuntimeAttachFence,
   type RuntimeHostHandler,
 } from "./client-protocol.js";
 import { forkDelayed, type HostTimerHandle } from "./effect-runtime.js";
@@ -39,6 +48,11 @@ export type RuntimeClientServerOptions = {
   clientWaitMs?: number;
   /** A client asked the runtime to exit. */
   onShutdownRequested?: () => void;
+  /**
+   * This runtime's identity. When set, an attach naming another instance or
+   * root is refused, and the attach result reports the `serverId`.
+   */
+  identity?: RuntimeServerIdentity;
 };
 
 const DEFAULT_CLIENT_WAIT_MS = 30_000;
@@ -77,6 +91,20 @@ const readAttachParams = (value: unknown): RuntimeClientAttachParams => {
   };
 };
 
+const readAttachFence = (value: unknown): RuntimeAttachFence => {
+  const params = value as Record<string, unknown> | null;
+  const attachmentId = readAttachmentId(params?.attachmentId);
+  return {
+    ...(attachmentId ? { attachmentId } : {}),
+    ...(typeof params?.expectedServerId === "string"
+      ? { expectedServerId: params.expectedServerId }
+      : {}),
+    ...(typeof params?.expectedRootHash === "string"
+      ? { expectedRootHash: params.expectedRootHash }
+      : {}),
+  };
+};
+
 const sameRoot = (
   a: RuntimeClientAttachParams,
   b: RuntimeClientAttachParams,
@@ -97,6 +125,8 @@ export class RuntimeClientServer {
   private readonly connections = new Set<JsonRpcPeer>();
   /** Attached clients, oldest first. The newest serves host callbacks. */
   private readonly clients: JsonRpcPeer[] = [];
+  /** The live attachment of each attached connection. */
+  private readonly attachments = new Map<JsonRpcPeer, string>();
   private readonly clientWaiters = new Set<() => void>();
   private host: RuntimeClientServerHost | null = null;
   private hostParams: RuntimeClientAttachParams | null = null;
@@ -130,6 +160,7 @@ export class RuntimeClientServer {
       this.connections.delete(peer);
       const index = this.clients.indexOf(peer);
       if (index >= 0) this.clients.splice(index, 1);
+      this.attachments.delete(peer);
     });
   }
 
@@ -152,13 +183,48 @@ export class RuntimeClientServer {
   private async handleAttach(
     peer: JsonRpcPeer,
     value: unknown,
-  ): Promise<RuntimeClientAttachResult> {
+  ): Promise<FencedRuntimeAttachResult> {
     const params = readAttachParams(value);
+    const fence = readAttachFence(value);
+    const identity = this.options.identity;
+    if (identity) {
+      const wrongServer =
+        fence.expectedServerId !== undefined &&
+        fence.expectedServerId !== identity.serverId;
+      const wrongRoot =
+        fence.expectedRootHash !== undefined &&
+        fence.expectedRootHash !== identity.rootHash;
+      if (wrongServer || wrongRoot) {
+        getFileLogger()?.process("runtime.attach-refused", {
+          reason: wrongServer ? "server" : "root",
+          expectedServerId: fence.expectedServerId,
+          expectedRootHash: fence.expectedRootHash,
+          serverId: identity.serverId,
+          rootHash: identity.rootHash,
+        });
+        throw invalidParams(
+          `${RUNTIME_SERVER_MISMATCH}: this is runtime ${identity.serverId} (root ${identity.rootHash}); the client expected ${
+            fence.expectedServerId ?? "any instance"
+          } (root ${fence.expectedRootHash ?? "any"}).`,
+        );
+      }
+    }
     if (this.hostParams && !sameRoot(this.hostParams, params)) {
       throw invalidParams(
         "This runtime serves a different Stella root; attach to that root's runtime.",
       );
     }
+    // Bind (or rebind) this connection's attachment before it can receive
+    // anything: every frame sent here from now on names it.
+    const attachmentId = fence.attachmentId ?? randomUUID();
+    const previousAttachment = this.attachments.get(peer);
+    if (previousAttachment && previousAttachment !== attachmentId) {
+      getFileLogger()?.process("runtime.attachment-replaced", {
+        previousAttachment,
+        attachmentId,
+      });
+    }
+    this.attachments.set(peer, attachmentId);
     // A client is a callback target before the host starts: starting reads
     // the device identity through it.
     if (!this.clients.includes(peer)) this.clients.push(peer);
@@ -178,7 +244,12 @@ export class RuntimeClientServer {
       );
     }
     if (!hostCreated) void this.host?.checkRuntimeStaleness().catch(() => undefined);
-    return { pid: process.pid, hostCreated };
+    return {
+      pid: process.pid,
+      hostCreated,
+      attachmentId,
+      ...(identity ? { serverId: identity.serverId } : {}),
+    };
   }
 
   private startHost(params: RuntimeClientAttachParams): void {
@@ -188,7 +259,11 @@ export class RuntimeClientServer {
     host.onAny((name, payload) => {
       for (const client of this.clients) {
         try {
-          client.notify(RUNTIME_CLIENT_METHODS.EVENT, { name, payload });
+          client.notify(RUNTIME_CLIENT_METHODS.EVENT, {
+            name,
+            payload,
+            attachmentId: this.attachments.get(client),
+          } satisfies FencedRuntimeEventParams);
         } catch {
           // A closing client drops its events; it reattaches and resyncs.
         }
@@ -213,7 +288,25 @@ export class RuntimeClientServer {
     if (!this.clients.includes(peer)) {
       throw invalidParams("Attach before calling the runtime.");
     }
-    const params = value as { method?: unknown; args?: unknown } | null;
+    const params = value as {
+      method?: unknown;
+      args?: unknown;
+      attachmentId?: unknown;
+    } | null;
+    // A call naming an attachment that is no longer this connection's live
+    // one was issued for a route that has since been replaced.
+    const callAttachment = readAttachmentId(params?.attachmentId);
+    const liveAttachment = this.attachments.get(peer);
+    if (callAttachment && callAttachment !== liveAttachment) {
+      getFileLogger()?.process("runtime.stale-call-dropped", {
+        method: String(params?.method),
+        attachmentId: callAttachment,
+        liveAttachment,
+      });
+      throw invalidParams(
+        `${RUNTIME_ATTACHMENT_STALE}: attachment ${callAttachment} is not live on this connection.`,
+      );
+    }
     if (!isRuntimeHostCall(params?.method)) {
       throw new RpcError(
         RPC_ERROR_CODES.METHOD_NOT_FOUND,
@@ -253,7 +346,8 @@ export class RuntimeClientServer {
     return await client.request(RUNTIME_CLIENT_METHODS.HOST_HANDLER, {
       name,
       args,
-    });
+      attachmentId: this.attachments.get(client),
+    } satisfies FencedRuntimeHostHandlerParams);
   }
 
   private async waitForClient(): Promise<JsonRpcPeer> {

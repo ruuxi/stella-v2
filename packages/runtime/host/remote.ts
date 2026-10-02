@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { rm } from "node:fs/promises";
 import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
@@ -7,17 +8,22 @@ import {
   RUNTIME_CLIENT_METHODS,
   STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION,
   type RuntimeClientAttachParams,
-  type RuntimeClientAttachResult,
-  type RuntimeClientEventParams,
-  type RuntimeClientHostHandlerParams,
 } from "@stella/contracts/protocol/runtime-client";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import {
   isRuntimeHostHandler,
+  RUNTIME_ATTACHMENT_STALE,
   RUNTIME_HOST_CALLS,
+  RUNTIME_SERVER_MISMATCH,
+  type FencedRuntimeAttachResult,
+  type FencedRuntimeCallParams,
+  type FencedRuntimeEventParams,
+  type FencedRuntimeHostHandlerParams,
+  type RuntimeAttachFence,
   type RuntimeHostCall,
   type RuntimeHostHandler,
 } from "./client-protocol.js";
+import { readRuntimeLaunchEnv } from "../worker/server-identity.js";
 import {
   probeRunningWorker,
   removeStaleRuntimeArtifacts,
@@ -43,7 +49,28 @@ export type RemoteRuntimeHostOptions = {
   bunBinaryPath?: string;
 };
 
-type Connection = { peer: JsonRpcPeer; dispose: () => void; pid: number };
+/**
+ * One socket to the runtime and the attachment it carries. Frames are only
+ * applied while the connection is live: `retired` is set the moment it is
+ * superseded, lost, or stopped, and every event and host callback must name
+ * this connection's `attachmentId` (see the fencing note in
+ * `client-protocol.ts`).
+ */
+type Connection = {
+  peer: JsonRpcPeer;
+  dispose: () => void;
+  pid: number;
+  attachmentId: string;
+  /** The runtime instance this connection was fenced to, when known. */
+  serverId: string | null;
+  retired: boolean;
+};
+
+/** How many times one connect re-probes after the runtime was swapped under it. */
+const SERVER_MISMATCH_RETRIES = 2;
+
+/** At most one warning per drop reason per window, so a flood stays legible. */
+const FENCE_LOG_WINDOW_MS = 10_000;
 
 /** How long `stop({ shutdownRuntime })` waits for the runtime to exit. */
 const RUNTIME_EXIT_TIMEOUT_MS = 15_000;
@@ -74,6 +101,8 @@ export class RemoteRuntimeHost {
   private started = false;
   private reconnectTimer: HostTimerHandle | null = null;
   private reconnectAttempt = 0;
+  private readonly fenceLogAt = new Map<string, number>();
+  private fenceDrops = 0;
 
   constructor(private readonly options: RemoteRuntimeHostOptions) {
     this.events.setMaxListeners(0);
@@ -106,12 +135,14 @@ export class RemoteRuntimeHost {
     this.reconnectTimer = null;
     const connection = this.connection;
     this.connection = null;
+    if (connection) connection.retired = true;
     connection?.dispose();
     // A connect still in flight lands after this; drop it unless restarted.
     void this.connecting?.then(
       (late) => {
         if (this.started || this.connection !== late) return;
         this.connection = null;
+        late.retired = true;
         late.dispose();
       },
       () => undefined,
@@ -138,7 +169,8 @@ export class RemoteRuntimeHost {
     return await connection.peer.request(RUNTIME_CLIENT_METHODS.CALL, {
       method,
       args,
-    });
+      attachmentId: connection.attachmentId,
+    } satisfies FencedRuntimeCallParams);
   }
 
   private async ensureConnected(): Promise<Connection> {
@@ -151,8 +183,27 @@ export class RemoteRuntimeHost {
   }
 
   private async connect(): Promise<Connection> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.connectOnce();
+      } catch (error) {
+        // The runtime that answered the probe was replaced before the attach
+        // landed on the peer socket. Probe again: the attach pipeline sees
+        // whichever runtime owns the socket now.
+        if (!isServerMismatch(error) || attempt >= SERVER_MISMATCH_RETRIES) {
+          throw error;
+        }
+        console.warn(
+          "[runtime-client] Runtime changed between probe and attach; re-probing.",
+        );
+      }
+    }
+  }
+
+  private async connectOnce(): Promise<Connection> {
+    const stellaAppDir = this.options.initializeParams.stellaAppDir;
     const attached = await startOrAttachWorker({
-      stellaAppDir: this.options.initializeParams.stellaAppDir,
+      stellaAppDir,
       workerEntryPath:
         this.options.workerEntryPath ??
         resolveBundledRuntimeFile("worker/entry.js"),
@@ -161,6 +212,9 @@ export class RemoteRuntimeHost {
       // Under Electron, the runtime's child processes use this binary as
       // Node (ELECTRON_RUN_AS_NODE); a different binary respawns the runtime.
       ...(process.versions.electron ? { hostExecutablePath: process.execPath } : {}),
+      // Adopt only a runtime that proves it is this root's, the pidfile's,
+      // and booted with the environment this app shares with it.
+      verifyIdentity: { launchEnv: readRuntimeLaunchEnv(process.env) },
     });
     const handle = attachJsonRpcPeerToStreams({
       input: attached.socket,
@@ -172,35 +226,73 @@ export class RemoteRuntimeHost {
     const connection: Connection = {
       peer: handle.peer,
       dispose: handle.dispose,
-      pid: attached.pid,
+      pid: attached.identity?.pid ?? attached.pid,
+      attachmentId: randomUUID(),
+      serverId: attached.identity?.serverId ?? null,
+      retired: false,
     };
     handle.peer.registerRequestHandler(
       RUNTIME_CLIENT_METHODS.HOST_HANDLER,
-      (params) => this.runHostHandler(params),
+      (params) => this.runHostHandler(connection, params),
     );
     handle.peer.registerNotificationHandler(
       RUNTIME_CLIENT_METHODS.EVENT,
       (params) => {
-        const event = params as RuntimeClientEventParams;
-        if (typeof event?.name === "string") {
-          this.events.emit(event.name, event.payload);
+        const event = params as FencedRuntimeEventParams;
+        if (typeof event?.name !== "string") return;
+        if (!this.acceptsFrame(connection, event.attachmentId, `event:${event.name}`)) {
+          return;
         }
+        this.events.emit(event.name, event.payload);
       },
     );
     handle.peer.on("closed", () => this.handleConnectionLost(connection));
+    const fence: RuntimeAttachFence = {
+      attachmentId: connection.attachmentId,
+      expectedRootHash: attached.paths.rootHash,
+      ...(connection.serverId ? { expectedServerId: connection.serverId } : {}),
+    };
     try {
-      await handle.peer.request<RuntimeClientAttachResult>(
+      const result = await handle.peer.request<FencedRuntimeAttachResult>(
         RUNTIME_CLIENT_METHODS.ATTACH,
         {
           initializeParams: this.options.initializeParams,
           ...(this.options.disableLocalScheduler
             ? { disableLocalScheduler: true }
             : {}),
-        } satisfies RuntimeClientAttachParams,
+          ...fence,
+        } satisfies RuntimeClientAttachParams & RuntimeAttachFence,
       );
+      // The runtime must echo the instance and attachment this client
+      // fenced to; anything else is a route this client did not ask for.
+      if (
+        (connection.serverId &&
+          result.serverId !== undefined &&
+          result.serverId !== connection.serverId) ||
+        (result.attachmentId !== undefined &&
+          result.attachmentId !== connection.attachmentId)
+      ) {
+        throw new RpcError(
+          RPC_ERROR_CODES.INVALID_PARAMS,
+          `${RUNTIME_SERVER_MISMATCH}: attached to runtime ${String(result.serverId)} / attachment ${String(result.attachmentId)}, expected ${String(connection.serverId)} / ${connection.attachmentId}.`,
+        );
+      }
     } catch (error) {
+      connection.retired = true;
       handle.dispose();
       throw error;
+    }
+    if (connection.retired) {
+      // Lost while attaching; handleConnectionLost already ran.
+      throw new RpcError(
+        RPC_ERROR_CODES.RUNTIME_UNAVAILABLE,
+        "The Stella runtime connection closed while attaching.",
+      );
+    }
+    const previous = this.connection;
+    if (previous && previous !== connection) {
+      previous.retired = true;
+      previous.dispose();
     }
     this.connection = connection;
     this.reconnectAttempt = 0;
@@ -212,6 +304,51 @@ export class RemoteRuntimeHost {
     return connection;
   }
 
+  /**
+   * Whether a frame from `connection` naming `attachmentId` may be applied.
+   * Frames on a retired connection (superseded, lost, or stopped), after
+   * stop(), or naming another attachment are dropped and logged. A frame without an attachment comes
+   * from a runtime that predates fencing (the identity handshake replaces
+   * those on connect) and is judged by its connection alone.
+   */
+  private acceptsFrame(
+    connection: Connection,
+    attachmentId: string | undefined,
+    label: string,
+  ): boolean {
+    let reason: string | null = null;
+    if (connection.retired) {
+      reason = "retired-connection";
+    } else if (!this.started) {
+      // stop() ran while this connection was still attaching.
+      reason = "client-stopped";
+    } else if (
+      attachmentId !== undefined &&
+      attachmentId !== connection.attachmentId
+    ) {
+      reason = "attachment-mismatch";
+    }
+    if (!reason) return true;
+    this.noteFenceDrop(reason, label, connection, attachmentId);
+    return false;
+  }
+
+  private noteFenceDrop(
+    reason: string,
+    label: string,
+    connection: Connection,
+    attachmentId: string | undefined,
+  ): void {
+    this.fenceDrops += 1;
+    const now = Date.now();
+    const last = this.fenceLogAt.get(reason) ?? 0;
+    if (now - last < FENCE_LOG_WINDOW_MS) return;
+    this.fenceLogAt.set(reason, now);
+    console.warn(
+      `[runtime-client] Dropped stale runtime frame (${reason}): ${label} attachment=${String(attachmentId)} connection=${connection.attachmentId} server=${String(connection.serverId)} totalDropped=${this.fenceDrops}`,
+    );
+  }
+
   private bunBinaryPath(): string | undefined {
     return (
       this.options.bunBinaryPath ?? (process.env.STELLA_BUN_PATH?.trim() || undefined)
@@ -219,6 +356,7 @@ export class RemoteRuntimeHost {
   }
 
   private handleConnectionLost(connection: Connection): void {
+    connection.retired = true;
     if (this.connection !== connection) return;
     this.connection = null;
     this.events.emit("runtime-disconnected", {
@@ -247,9 +385,24 @@ export class RemoteRuntimeHost {
     });
   }
 
-  private async runHostHandler(value: unknown): Promise<unknown> {
-    const params = value as RuntimeClientHostHandlerParams | null;
+  private async runHostHandler(
+    connection: Connection,
+    value: unknown,
+  ): Promise<unknown> {
+    const params = value as FencedRuntimeHostHandlerParams | null;
     const name = params?.name;
+    if (
+      !this.acceptsFrame(
+        connection,
+        params?.attachmentId,
+        `hostHandler:${String(name)}`,
+      )
+    ) {
+      throw new RpcError(
+        RPC_ERROR_CODES.INVALID_PARAMS,
+        `${RUNTIME_ATTACHMENT_STALE}: ${String(name)} was sent to a route this app no longer serves.`,
+      );
+    }
     const handler = isRuntimeHostHandler(name)
       ? this.options.hostHandlers[name]
       : undefined;
@@ -263,6 +416,9 @@ export class RemoteRuntimeHost {
     return await (handler as (...args: unknown[]) => unknown)(...args);
   }
 }
+
+const isServerMismatch = (error: unknown): boolean =>
+  error instanceof Error && error.message.includes(RUNTIME_SERVER_MISMATCH);
 
 /**
  * Permanently retire a runtime root the app no longer uses (a moved

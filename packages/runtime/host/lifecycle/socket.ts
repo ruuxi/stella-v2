@@ -6,6 +6,12 @@ import {
   type RuntimeInitializeResult,
 } from "@stella/contracts/protocol";
 import { runtimeIpcPathUsesFilesystem } from "../../worker/runtime-paths.js";
+import {
+  describeRuntimeServerIdentityMismatch,
+  parseRuntimeServerIdentity,
+  type ExpectedRuntimeServerIdentity,
+  type RuntimeServerIdentity,
+} from "../../worker/server-identity.js";
 import { WorkerNotReadyError } from "./errors.js";
 
 /**
@@ -18,11 +24,32 @@ import { WorkerNotReadyError } from "./errors.js";
 
 const WORKER_READY_PROBE_ID = "__stella_runtime_ready_probe__";
 
-export type ReadyProbeResult = "ready" | "version-mismatch" | "unavailable";
+export type ReadyProbeStatus =
+  | "ready"
+  | "version-mismatch"
+  | "identity-mismatch"
+  | "unavailable";
+
+/**
+ * The probe's verdict plus the identity the runtime reported (null for a
+ * pre-identity runtime, or when the probe got no answer).
+ */
+export type ReadyProbeResult = {
+  status: ReadyProbeStatus;
+  identity: RuntimeServerIdentity | null;
+  /** Why the identity was refused, for "identity-mismatch". */
+  mismatch?: string;
+};
 
 export type ReadySocketResult =
-  | { status: "ready"; socket: Socket }
-  | { status: "version-mismatch" | "unavailable" };
+  | { status: "ready"; socket: Socket; identity: RuntimeServerIdentity | null }
+  | { status: "version-mismatch" | "unavailable"; identity: RuntimeServerIdentity | null }
+  | { status: "identity-mismatch"; identity: RuntimeServerIdentity | null; mismatch: string };
+
+const unavailableProbe: ReadyProbeResult = {
+  status: "unavailable",
+  identity: null,
+};
 
 /**
  * Connect to the worker socket, failing WorkerNotReadyError when the path is
@@ -92,12 +119,14 @@ const connectSocket = (
  * request, parse newline-delimited JSON until the matching id answers.
  * Malformed or unrelated lines are ignored (the worker may interleave other
  * traffic); errors and the timeout resolve "unavailable" — never a failure,
- * matching the old probe's tri-state result.
+ * matching the old probe's tri-state result. With `expectedIdentity`, the
+ * reported identity must also match (see `worker/server-identity.ts`).
  */
 const probeWorkerRpcReadiness = (
   socket: Socket,
   timeoutMs: number,
   expectedProtocolVersion?: string,
+  expectedIdentity?: ExpectedRuntimeServerIdentity,
 ): Effect.Effect<ReadyProbeResult> =>
   Effect.callback<ReadyProbeResult>((resume) => {
     let buffer = "";
@@ -124,20 +153,31 @@ const probeWorkerRpcReadiness = (
             };
             if (message.id === WORKER_READY_PROBE_ID) {
               if (message.error) {
-                finish("unavailable");
+                finish(unavailableProbe);
                 return;
               }
               const result = message.result as
-                | Partial<RuntimeInitializeResult>
+                | (Partial<RuntimeInitializeResult> & { identity?: unknown })
                 | undefined;
+              const identity = parseRuntimeServerIdentity(result?.identity);
               if (
                 expectedProtocolVersion &&
                 result?.protocolVersion !== expectedProtocolVersion
               ) {
-                finish("version-mismatch");
+                finish({ status: "version-mismatch", identity });
                 return;
               }
-              finish("ready");
+              const mismatch = expectedIdentity
+                ? describeRuntimeServerIdentityMismatch(
+                    expectedIdentity,
+                    identity,
+                  )
+                : null;
+              if (mismatch) {
+                finish({ status: "identity-mismatch", identity, mismatch });
+                return;
+              }
+              finish({ status: "ready", identity });
               return;
             }
           } catch {
@@ -147,7 +187,7 @@ const probeWorkerRpcReadiness = (
         newlineIndex = buffer.indexOf("\n");
       }
     };
-    const onError = () => finish("unavailable");
+    const onError = () => finish(unavailableProbe);
     socket.on("data", onData);
     socket.once("error", onError);
     socket.write(
@@ -167,7 +207,7 @@ const probeWorkerRpcReadiness = (
     // never a failure, matching the old probe's tri-state result.
     Effect.timeoutOrElse({
       duration: timeoutMs,
-      orElse: () => Effect.succeed("unavailable" as ReadyProbeResult),
+      orElse: () => Effect.succeed(unavailableProbe),
     }),
   );
 
@@ -183,6 +223,7 @@ export const connectReadySocket = (
   socketPath: string,
   timeoutMs: number,
   expectedProtocolVersion?: string,
+  expectedIdentity?: ExpectedRuntimeServerIdentity,
 ): Effect.Effect<ReadySocketResult, never, Scope.Scope> =>
   Effect.gen(function* () {
     const probed = yield* Effect.scoped(
@@ -202,14 +243,21 @@ export const connectReadySocket = (
           probeSocket,
           timeoutMs,
           expectedProtocolVersion,
+          expectedIdentity,
         );
       }),
-    ).pipe(
-      Effect.catch(() => Effect.succeed("unavailable" as ReadyProbeResult)),
-    );
-    if (probed !== "ready") {
-      return { status: probed };
+    ).pipe(Effect.catch(() => Effect.succeed(unavailableProbe)));
+    if (probed.status === "identity-mismatch") {
+      return {
+        status: "identity-mismatch",
+        identity: probed.identity,
+        mismatch: probed.mismatch ?? "identity mismatch",
+      };
     }
+    if (probed.status !== "ready") {
+      return { status: probed.status, identity: probed.identity };
+    }
+    const probedIdentity = probed.identity;
     const socket = yield* Effect.acquireRelease(
       connectSocket(socketPath, timeoutMs),
       (acquired, exit) =>
@@ -224,10 +272,17 @@ export const connectReadySocket = (
             }),
     ).pipe(
       Effect.map(
-        (acquired): ReadySocketResult => ({ status: "ready", socket: acquired }),
+        (acquired): ReadySocketResult => ({
+          status: "ready",
+          socket: acquired,
+          identity: probedIdentity,
+        }),
       ),
       Effect.catch(() =>
-        Effect.succeed({ status: "unavailable" } as ReadySocketResult),
+        Effect.succeed({
+          status: "unavailable",
+          identity: null,
+        } as ReadySocketResult),
       ),
     );
     return socket;

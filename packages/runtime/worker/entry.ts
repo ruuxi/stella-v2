@@ -23,6 +23,10 @@ import {
   RUNTIME_BUILD_STAMP_UNAVAILABLE,
 } from "./runtime-build-stamp.js";
 import {
+  createRuntimeServerIdentity,
+  type RuntimeServerIdentity,
+} from "./server-identity.js";
+import {
   parseWorkerArgs,
   parseWorkerListenUrl,
   startWorkerTransport,
@@ -146,6 +150,7 @@ const main = async () => {
   let shuttingDown = false;
 
   let lifecycle: WorkerLifecycleServer | null = null;
+  let serverIdentity: RuntimeServerIdentity | undefined;
   let detachedMode = false;
   if (transport.kind !== "stdio") {
     if (!cliArgs.stellaAppDir) {
@@ -187,6 +192,20 @@ const main = async () => {
       );
       process.exit(3);
     }
+    serverIdentity = createRuntimeServerIdentity({
+      rootHash: lifecycle.paths.rootHash,
+      buildStamp:
+        runtimeBuildStamp !== RUNTIME_BUILD_STAMP_UNAVAILABLE
+          ? runtimeBuildStamp
+          : null,
+      protocolVersion: STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION,
+    });
+    logger.process("worker.identity", {
+      serverId: serverIdentity.serverId,
+      rootHash: serverIdentity.rootHash,
+      buildStamp: serverIdentity.buildStamp,
+      launchEnv: serverIdentity.launchEnv,
+    });
   }
 
   // Stdio: the parent is the host and talks to the worker directly. The
@@ -201,6 +220,7 @@ const main = async () => {
         Effect.sync(
           () =>
             new RuntimeClientServer({
+              ...(serverIdentity ? { identity: serverIdentity } : {}),
               createHost: (params, hostHandlers) =>
                 new StellaRuntimeHost({
                   initializeParams: params.initializeParams,
@@ -248,6 +268,7 @@ const main = async () => {
             transport,
             attach: attachPeer,
             ...(protocolVersion ? { protocolVersion } : {}),
+            ...(serverIdentity ? { identity: serverIdentity } : {}),
             onError: (error) => {
               console.error("[runtime-worker] transport error:", error);
             },

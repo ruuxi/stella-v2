@@ -175,6 +175,7 @@ export class StellaRuntimeHost {
     configCache = {};
     deviceIdentity = null;
     workerGeneration = 0;
+    staleWorkerFrameDrops = 0;
     started = false;
     hostReady = false;
     hostConvexClient = null;
@@ -251,8 +252,12 @@ export class StellaRuntimeHost {
             killWorkerOnStop: this.workerMode === "inproc" ? () => false : () => true,
             createConnectionAsync,
             initializeConnection: async (connection) => {
-                this.registerHostHandlers(connection.peer);
-                this.registerNotifications(connection.peer);
+                // Fence every worker frame to this connection: once it is no
+                // longer the controller's live one (stopped, replaced, exited),
+                // its late notifications and callbacks are dropped, not applied.
+                const fencedPeer = this.fenceWorkerPeer(connection.peer);
+                this.registerHostHandlers(fencedPeer);
+                this.registerNotifications(fencedPeer);
                 const initializeResult = await connection.peer.request(METHOD_NAMES.INTERNAL_WORKER_INITIALIZE, this.buildWorkerInitializationState());
                 if (initializeResult.protocolVersion !== STELLA_RUNTIME_PROTOCOL_VERSION) {
                     throw new Error(`Runtime worker protocol mismatch: host=${STELLA_RUNTIME_PROTOCOL_VERSION} worker=${initializeResult.protocolVersion ?? "unknown"}.`);
@@ -2468,6 +2473,47 @@ export class StellaRuntimeHost {
                 : {}),
             activeRunId: workerHealth?.activeRun?.runId ?? null,
             activeAgentCount: workerHealth?.activeAgentCount ?? 0,
+        };
+    }
+    /**
+     * The registration surface of a worker peer, gated on that peer still
+     * being the controller's live connection. A worker that was stopped or
+     * replaced (a restarted stdio child still draining, a detached in-process
+     * peer) can otherwise land run events or host callbacks on the new
+     * generation's state.
+     */
+    fenceWorkerPeer(peer) {
+        const isLive = () => this.workerController.getConnection()?.peer === peer;
+        const generation = this.workerGeneration + 1;
+        const noteDrop = (kind, method) => {
+            this.staleWorkerFrameDrops += 1;
+            getFileLogger()?.process("host.stale-worker-frame-dropped", {
+                kind,
+                method,
+                generation,
+                currentGeneration: this.workerGeneration,
+                totalDropped: this.staleWorkerFrameDrops,
+            });
+        };
+        return {
+            registerRequestHandler: (method, handler) => {
+                peer.registerRequestHandler(method, async (params) => {
+                    if (!isLive()) {
+                        noteDrop("request", method);
+                        throw createRuntimeUnavailableError("This runtime worker connection was replaced; the request was dropped.");
+                    }
+                    return await handler(params);
+                });
+            },
+            registerNotificationHandler: (method, handler) => {
+                peer.registerNotificationHandler(method, (params) => {
+                    if (!isLive()) {
+                        noteDrop("notification", method);
+                        return;
+                    }
+                    return handler(params);
+                });
+            },
         };
     }
     registerHostHandlers(peer) {

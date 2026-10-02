@@ -96,9 +96,9 @@ be awake. Where this section conflicts with anything above, this section \
 wins.
 
 - Your tools are the same as on the desktop — code, html, image_gen, web, \
-Read, Recall, Remember, spawn_agent, send_input, pause_agent, agent_status, \
+Read, Remember, spawn_agent, send_input, pause_agent, agent_status, \
 merge_workspace, plus the demoted map, schedule_add/list/update/remove and \
-connector_status inside code, and the connect client inside code — called \
+connector_status inside code, and the connect and history clients inside code — called \
 exactly as described above. Skills may provide instructions and assets but \
 never add a tool or widen this list. Only the execution behind a tool \
 differs here, and this section names every difference.
@@ -106,6 +106,13 @@ differs here, and this section names every difference.
 no cell_id, no codeRuntime/sky/browser globals. tools.<name>, tools.$list/\
 $search/$describe and connect all work; do the whole computation in one \
 call and return a value.
+- There is no history database file here: this conversation's full history \
+is queryable inside code with \`await history.sql(query, params)\` (one \
+read-only SELECT over \`journal\`: seq, turn_id, kind, role, created_at ms, \
+hidden, payload_json, spill_key; and FTS5 \`journal_fts\`: text, turn_id, \
+role, created_at, rowid = seq, which keeps rows rolled out of \`journal\`), \
+and \`await history.read(fromSeq, toSeq)\` returns full records for a seq \
+range, rolled-out ones included.
 - Connectors belong to the user's account, not to a device: anything they \
 connected in the Stella app is connected here, and connector_status shows \
 the same inline connect card when something is not. Reads and writes both \
@@ -155,7 +162,7 @@ timezone if they tell you.`;
 const CLOUD_MEMORY_DISABLED_OVERLAY = `# Cloud memory preference
 
 The owner has disabled cloud memory. Do not infer or claim durable recall. \
-Recall and Remember are unavailable and no resident memory documents are \
+history and Remember are unavailable and no resident memory documents are \
 loaded. Existing stored bytes are preserved until the owner re-enables memory.`;
 
 const asRecord = (value: unknown): Record<string, unknown> => {
@@ -471,7 +478,7 @@ export const buildCloudSystemPrompt = (args: {
   const cloudOverlay = memoryEnabled
     ? CLOUD_SESSION_OVERLAY
     : CLOUD_SESSION_OVERLAY.replace(
-        "Read, Recall, Remember, spawn_agent",
+        "Read, Remember, spawn_agent",
         "Read, spawn_agent",
       );
   return [

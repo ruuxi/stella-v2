@@ -86,7 +86,7 @@ describe("cloud code AgentTool adapter", () => {
     );
 
     expect([...providerKeys].sort()).toEqual(
-      ["$connect", "$describe", "$search", "mcp.server/tool"].sort(),
+      ["$connect", "$describe", "$history", "$search", "mcp.server/tool"].sort(),
     );
     expect(routed).toBeDefined();
     expect(output.isError).toBe(false);

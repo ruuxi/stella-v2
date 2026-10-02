@@ -5,7 +5,7 @@
  * Cloud Home import/sync copies applicable documents into generation-scoped R2
  * state, and the DO reads that authoritative cloud state at turn start.
  * Remember writes `profile.md`. `MEMORY.md`, `memory_map.md` and archive
- * documents are now read-only surfaces for Recall: nothing in the cloud writes
+ * documents are now read-only: nothing in the cloud writes
  * them, and they exist only when desktop or mobile sync imported them.
  * Explicit Cloud Home sync can also materialize personality and imported
  * user-owned Markdown.

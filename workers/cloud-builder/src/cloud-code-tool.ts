@@ -42,6 +42,7 @@ import {
 import {
   CLOUD_CODE_CONNECT_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
+  CLOUD_CODE_HISTORY_INTRINSIC,
   CLOUD_CODE_SEARCH_INTRINSIC,
 } from "./cloud-code-worker-executor.js";
 import { sha256Hex } from "./hash.js";
@@ -135,6 +136,15 @@ export type CloudConnectClient = Readonly<{
   remove(id: string): Promise<unknown>;
 }>;
 
+/**
+ * Host-side implementation of the sandbox's frozen `history` global: the
+ * conversation's own SQLite, plus rows rolled out of it into R2 segments.
+ */
+export type CloudHistoryClient = Readonly<{
+  sql(query: string, params: readonly SqlStorageValue[]): unknown;
+  read(fromSeq: number, toSeq: number): Promise<unknown>;
+}>;
+
 export type CloudCodeExecute = (
   request: CloudCodeExecutionRequest,
 ) => Promise<CloudCodeExecutionResult>;
@@ -146,6 +156,8 @@ export type CreateCloudCodeAgentToolOptions = Readonly<{
   executionScope: string;
   /** Absent means `connect.*` rejects with an explanation. */
   connect?: CloudConnectClient;
+  /** Absent means `history.*` rejects with an explanation. */
+  history?: CloudHistoryClient;
   /** Test seam; production always uses the official Dynamic Worker executor. */
   executeCode?: CloudCodeExecute;
 }>;
@@ -438,6 +450,36 @@ const connectIntrinsic =
     }
   };
 
+/** `history.sql(...)` / `history.read(...)` — forwarded to the host. */
+const historyIntrinsic =
+  (client: CloudHistoryClient | undefined): CloudCodeIntrinsic =>
+  async (input) => {
+    const request = asRecord(input);
+    const args = Array.isArray(request.args) ? request.args : [];
+    if (!client) {
+      throw new Error("history is unavailable in this session.");
+    }
+    switch (request.method) {
+      case "sql":
+        if (typeof args[0] !== "string" || !args[0].trim()) {
+          throw new Error("history.sql requires a non-empty query string.");
+        }
+        if (args[1] !== undefined && !Array.isArray(args[1])) {
+          throw new Error("history.sql params must be an array.");
+        }
+        return client.sql(args[0], (args[1] ?? []) as SqlStorageValue[]);
+      case "read":
+        if (!Number.isSafeInteger(args[0]) || !Number.isSafeInteger(args[1])) {
+          throw new Error("history.read requires integer fromSeq and toSeq.");
+        }
+        return client.read(args[0] as number, args[1] as number);
+      default:
+        throw new Error(
+          `history.${String(request.method ?? "?")} is not a history method.`,
+        );
+    }
+  };
+
 /**
  * Adapt the exact live AgentTool array — including discovered/MCP-style
  * names — into the cloud sandbox without putting host bindings or
@@ -458,6 +500,7 @@ export const createCloudCodeAgentTool = async (
     [CLOUD_CODE_SEARCH_INTRINSIC]: searchIntrinsic(catalog),
     [CLOUD_CODE_DESCRIBE_INTRINSIC]: describeIntrinsic(catalog),
     [CLOUD_CODE_CONNECT_INTRINSIC]: connectIntrinsic(options.connect),
+    [CLOUD_CODE_HISTORY_INTRINSIC]: historyIntrinsic(options.history),
   };
   const executeCode = options.executeCode ?? executeCloudCode;
 

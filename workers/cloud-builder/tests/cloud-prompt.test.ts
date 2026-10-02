@@ -346,7 +346,7 @@ describe("canonical cloud prompts", () => {
     });
   });
 
-  test("memory-off system prompt exposes no Recall/Remember tool contract", () => {
+  test("memory-off system prompt exposes no Remember tool contract", () => {
     const prompt = buildCloudSystemPrompt({
       canonicalBody: "canonical",
       personalityBody: null,
@@ -356,7 +356,7 @@ describe("canonical cloud prompts", () => {
       memoryEnabled: false,
     });
     expect(prompt).toContain("The owner has disabled cloud memory");
-    expect(prompt).not.toContain("Read, Recall, Remember, spawn_agent");
+    expect(prompt).not.toContain("Read, Remember, spawn_agent");
     expect(prompt).toContain("Read, spawn_agent");
   });
 });

@@ -138,14 +138,14 @@
       "ceiling": 24.67
     },
     "turn.plain.sqlStatements.p50": {
-      "value": 49,
+      "value": 60.75,
       "kind": "count",
-      "ceiling": 53.45
+      "ceiling": 65.79
     },
     "turn.plain.writeStatements.p50": {
-      "value": 22,
+      "value": 28,
       "kind": "count",
-      "ceiling": 25.1
+      "ceiling": 31.4
     },
     "turn.plain.sqlRows.p50": {
       "value": 56.75,
@@ -193,14 +193,14 @@
       "ceiling": 32.39
     },
     "turn.tool.sqlStatements.p50": {
-      "value": 84,
+      "value": 100.95,
       "kind": "count",
-      "ceiling": 90.2
+      "ceiling": 108.0
     },
     "turn.tool.writeStatements.p50": {
-      "value": 40,
+      "value": 51,
       "kind": "count",
-      "ceiling": 44
+      "ceiling": 55.55
     },
     "turn.tool.sqlRows.p50": {
       "value": 92.85,

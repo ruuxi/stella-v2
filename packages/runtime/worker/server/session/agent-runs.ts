@@ -911,14 +911,18 @@ export const layer = Layer.effect(
       const windowPreviewImageUrl = windowScreenshotAttachment?.url;
       const userMessageId =
         payload.userMessageEventId ?? `local:${crypto.randomUUID()}`;
+      // Placed from run start and again after handleLocalChat returns (the
+      // steer path never sees a run start); write it once.
+      let admissionPlaced = false;
       const markAdmissionPlaced = (runId: string) => {
-        if (!admissionKey || !runId) return;
+        if (!admissionKey || !runId || admissionPlaced) return;
         try {
           admissions.markPlaced({
             conversationId: payload.conversationId,
             requestId: admissionKey,
             runId,
           });
+          admissionPlaced = true;
         } catch (error) {
           logger.warn("startChat.admission-write-failed", {
             conversationId: payload.conversationId,

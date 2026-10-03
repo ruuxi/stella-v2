@@ -23,28 +23,7 @@ import type { TurnCredentialBrokerClient } from "./turn-credential-broker.js";
 
 export const CLOUD_BROWSER_COMMAND_PATH = "/api/cloud/browser/command";
 
-const MAX_CLOUD_BROWSER_RESPONSE_BYTES = 256 * 1024;
-const SENSITIVE_BROWSER_RESULT_KEYS = new Set([
-  "accesstoken",
-  "authorization",
-  "browsercapability",
-  "capability",
-  "capabilityurl",
-  "cookie",
-  "cookies",
-  "credential",
-  "credentials",
-  "devicesecret",
-  "liveviewcapability",
-  "liveviewcapabilityurl",
-  "password",
-  "polltoken",
-  "refreshtoken",
-  "secret",
-  "setcookie",
-  "storagestate",
-  "token",
-]);
+const MAX_CLOUD_BROWSER_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 type BrowserBroker = Pick<TurnCredentialBrokerClient, "postJson">;
 
@@ -226,18 +205,9 @@ const assertCapabilityFreeBrowserData = (
     for (const item of value) assertCapabilityFreeBrowserData(item, seen);
     return;
   }
-  for (const [key, nested] of Object.entries(
-    value as Record<string, unknown>,
-  )) {
-    if (
-      SENSITIVE_BROWSER_RESULT_KEYS.has(
-        key.toLowerCase().replace(/[^a-z0-9]/gu, ""),
-      )
-    ) {
-      throw new Error(
-        "Cloud browser response contained private browser state.",
-      );
-    }
+  // Cookies and page data are the agent's to read now; only a Live View
+  // capability (the human's handoff control) is refused.
+  for (const nested of Object.values(value as Record<string, unknown>)) {
     assertCapabilityFreeBrowserData(nested, seen);
   }
 };
@@ -598,7 +568,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
         return {
           action: `browser.${action}`,
           params: {
-            selector: requiredString(params.selector, "selector", 512),
+            selector: requiredString(params.selector, "selector", 4_096),
           },
           project: identity,
         };
@@ -609,7 +579,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
         return {
           action: "browser.text",
           params: {
-            selector: requiredString(params.selector, "selector", 512),
+            selector: requiredString(params.selector, "selector", 4_096),
           },
           project: identity,
         };
@@ -634,7 +604,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
             ...(params.selector === undefined
               ? {}
               : {
-                  selector: requiredString(params.selector, "selector", 512),
+                  selector: requiredString(params.selector, "selector", 4_096),
                 }),
           },
           project: identity,
@@ -661,7 +631,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
         return {
           action: "browser.click",
           params: {
-            selector: requiredString(params.selector, "selector", 512),
+            selector: requiredString(params.selector, "selector", 4_096),
           },
           project: identity,
         };
@@ -675,9 +645,11 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
         return {
           action: "browser.fill",
           params: {
-            selector: requiredString(params.selector, "selector", 512),
-            value: requiredString(params.value, "value"),
-            sensitivity: "non_secret",
+            selector: requiredString(params.selector, "selector", 4_096),
+            value:
+              typeof params.value === "string"
+                ? params.value
+                : requiredString(params.value, "value"),
           },
           project: identity,
         };
@@ -694,7 +666,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
             selector:
               params.selector === undefined
                 ? "body"
-                : requiredString(params.selector, "selector", 512),
+                : requiredString(params.selector, "selector", 4_096),
             key: requiredString(params.key, "key", 64),
           },
           project: identity,
@@ -712,7 +684,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
         return {
           action: "browser.select",
           params: {
-            selector: requiredString(params.selector, "selector", 512),
+            selector: requiredString(params.selector, "selector", 4_096),
             value: requiredString(params.values[0], "value", 1_024),
           },
           project: identity,
@@ -729,7 +701,7 @@ class TurnBrokerBrowserSession implements BrowserSessionClient {
         return {
           action: "browser.wait",
           params: {
-            selector: requiredString(params.selector, "selector", 512),
+            selector: requiredString(params.selector, "selector", 4_096),
             ...(timeoutValue === undefined
               ? {}
               : {

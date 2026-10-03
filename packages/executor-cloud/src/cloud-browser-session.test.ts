@@ -179,7 +179,6 @@ describe("turn-broker cloud browser session", () => {
         params: {
           selector: "#display-name",
           value: "Rahul",
-          sensitivity: "non_secret",
         },
       },
       {

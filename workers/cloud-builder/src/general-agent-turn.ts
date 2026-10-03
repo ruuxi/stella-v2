@@ -3,16 +3,13 @@
  * and what a completed one is allowed to have made durable.
  *
  * `selectGeneralAgentTurnPlan` is the only engine-placement branch in the
- * system. A Stella turn with no browser handoff runs its agent loop right here
- * in the Durable Object, the pattern `OrchestratorSession` already proves in
- * workerd; every other turn keeps today's eager-container executor path
- * byte-for-byte. The decision is persisted at admission as a reasoned
- * `TurnComputePlan` so a config flip cannot re-place a turn that is already
- * running, and so alarm recovery reads a fact instead of re-deriving a guess
- * from an environment that may have changed underneath it.
- *
- * Nothing here is wired into admission yet. The resident loop below is
- * exercised by tests; production still runs the container path.
+ * system. A Stella turn runs its agent loop right here in the Durable Object,
+ * the pattern `OrchestratorSession` already proves in workerd, including the
+ * turn that resumes a cloud browser handoff; every other turn keeps the
+ * eager-container executor path. The decision is persisted at admission as a
+ * reasoned `TurnComputePlan` so a config flip cannot re-place a turn that is
+ * already running, and so alarm recovery reads a fact instead of re-deriving
+ * a guess from an environment that may have changed underneath it.
  */
 
 import "./cloud-api-providers.js";
@@ -46,6 +43,11 @@ import {
 } from "@stella/contracts/cloud-browser";
 import type { TurnBrokerTurnStateCheckpointReceipt } from "@stella/contracts/turn-credential-broker";
 import { parseAuthoritativeAgentHistory } from "@stella/executor-cloud/agent-history";
+import { createCloudBrowserResumeToolResult } from "@stella/executor-cloud/cloud-browser-resume";
+import {
+  isAgentToolSuspendedError,
+  type AgentToolSuspendedError,
+} from "@stella/runtime/kernel/agent-core/suspension.js";
 import { pruneAgentHistory } from "@stella/executor-cloud/prune-history";
 import {
   buildGeneralAgentPrompt,
@@ -346,9 +348,11 @@ export const turnComputePlanKey = (
 ): string => `turnComputePlan:${turnId}:${attemptGeneration}`;
 
 /**
- * The one engine-placement branch. A browser handoff resumes inside the
- * container that suspended it, so it stays native regardless of engine, and
- * the kill switch demotes every Stella turn without touching the loop.
+ * The one engine-placement branch. A Stella browser handoff resumes resident
+ * like any other Stella turn: the cloud browser is a gateway command away,
+ * and the continuation seam is the canonical transcript, not a container. The
+ * kill switch demotes every Stella turn, resumes included, to the container
+ * executor, which can serve the same receipt.
  */
 export const selectGeneralAgentTurnPlan = (args: {
   execution: CloudExecutionSelection;
@@ -360,13 +364,6 @@ export const selectGeneralAgentTurnPlan = (args: {
       kind: "native_sandbox",
       execution: args.execution,
       reason: "native_engine",
-    };
-  }
-  if (args.browserResume) {
-    return {
-      kind: "native_sandbox",
-      execution: args.execution,
-      reason: "browser_resume",
     };
   }
   if (args.residentDisabled) {
@@ -430,9 +427,10 @@ const isTurnComputePlanRecord = (
  * Which container placements a Stella turn is allowed to hold.
  *
  * The executor's in-container Stella loop survives stage 6 only to serve
- * these three. A browser handoff resumes inside the container that suspended
- * it, the kill switch is the ladder's rollback lever, and an unplaced attempt
- * keeps the path it was admitted onto. A Stella turn reaching the container
+ * these. The kill switch is the ladder's rollback lever and an unplaced
+ * attempt keeps the path it was admitted onto. `browser_resume` is no longer
+ * selected, but a resume admitted onto the container before resident turns
+ * could hand off keeps that placement. A Stella turn reaching the container
  * for `native_engine` means something built a placement without the selector.
  */
 const STELLA_CONTAINER_REASONS: ReadonlySet<string> = new Set([
@@ -828,6 +826,25 @@ export const runResidentStellaLoop = async (
     );
   }
 
+  // A browser continuation answers the Code call the suspended turn ended
+  // on. The answer, not the prompt, is this turn's first row: the prompt only
+  // restates the receipt for the owner's records, exactly as on the container
+  // path.
+  let browserResumeMessage: AgentMessage | undefined;
+  if (turn.browserResume) {
+    try {
+      browserResumeMessage = createCloudBrowserResumeToolResult(
+        history,
+        turn.browserResume,
+        input.now(),
+      );
+    } catch {
+      return preflightFailure(
+        "Stella couldn't validate this browser continuation. Try again.",
+      );
+    }
+  }
+
   const journal = AgentTurnJournal.open({
     sql: input.sql,
     identity: {
@@ -913,6 +930,7 @@ export const runResidentStellaLoop = async (
   let llmCalls = priorUsage.llmCalls;
   let finalText = "";
   let runError: string | undefined;
+  let suspended: AgentToolSuspendedError | undefined;
 
   if (resumeSummary?.finishedBeforeLoss) {
     // The reply is already journaled; only its commit was lost. Asking the
@@ -924,7 +942,7 @@ export const runResidentStellaLoop = async (
     finalText = completion.finalText.trim();
     runError = completion.errorMessage;
   } else {
-    const promptMessage: AgentMessage = {
+    const promptMessage: AgentMessage = browserResumeMessage ?? {
       role: "user",
       content: [{ type: "text", text: turn.prompt }],
       timestamp: input.now(),
@@ -1039,7 +1057,14 @@ export const runResidentStellaLoop = async (
       finalText = execution.finalText;
       runError = execution.errorMessage;
     } catch (error) {
-      runError = error instanceof Error ? error.message : String(error);
+      if (isAgentToolSuspendedError(error)) {
+        // A login handoff, not a failure: the journal ends on the assistant
+        // row that holds the unanswered Code call, which is exactly the
+        // continuation seam the resume receipt answers.
+        suspended = error;
+      } else {
+        runError = error instanceof Error ? error.message : String(error);
+      }
     } finally {
       unsubscribe();
     }
@@ -1058,7 +1083,7 @@ export const runResidentStellaLoop = async (
     };
   }
 
-  const sealed = await journal.seal({ suspended: false });
+  const sealed = await journal.seal({ suspended: suspended !== undefined });
   // A commit that throws is still this turn's terminal. Letting it reject the
   // whole run left the thread "running" with no terminal ever delivered: the
   // teardown ran, the loop was gone, and only the watchdog could notice.
@@ -1083,6 +1108,16 @@ export const runResidentStellaLoop = async (
     };
   }
   journal.clearAfterCanonicalCommit();
+  if (suspended) {
+    return {
+      outcome: "suspended",
+      ok: false,
+      suspension: suspended.suspension,
+      usage,
+      compute: RESIDENT_COMPUTE,
+      durability,
+    };
+  }
   return error
     ? {
         outcome: "failed",

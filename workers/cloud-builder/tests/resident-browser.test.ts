@@ -1,0 +1,286 @@
+import { describe, expect, mock, test } from "bun:test";
+import type {
+  CloudBrowserCommandRequest,
+  CloudBrowserSuspension,
+} from "@stella/contracts/cloud-browser";
+import { isAgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/suspension.js";
+import type { CloudCodeExecutorFactory } from "../src/cloud-code-executor.js";
+import type { ForwardedBrowserGatewayCommand } from "../src/build-session/turn-broker.js";
+import type { ResidentBrowserTransport } from "../src/resident-browser.js";
+
+mock.module("cloudflare:workers", () => ({
+  DurableObject: class {},
+  RpcTarget: class {},
+  WorkerEntrypoint: class {},
+}));
+
+const { executeCloudCodeWithExecutorFactory } = await import(
+  "../src/cloud-code-executor.js"
+);
+const { createCloudCodeAgentTool } = await import("../src/cloud-code-tool.js");
+const { createResidentBrowserClient, ResidentBrowserSuspendedError } =
+  await import("../src/resident-browser.js");
+mock.restore();
+
+const loader = {} as WorkerLoader;
+const signal = new AbortController().signal;
+
+const forwarded = (body: unknown, status = 200): ForwardedBrowserGatewayCommand => ({
+  kind: "forwarded",
+  status,
+  statusText: "",
+  headers: new Headers(),
+  body: new TextEncoder().encode(JSON.stringify(body)),
+});
+
+const suspensionFor = (requestId: string): CloudBrowserSuspension => ({
+  schemaVersion: 1,
+  outcome: "waiting_for_user",
+  interactionId: "7c1f8e4a-0d2b-4c6e-9a1f-3b5d7e9f1a2c",
+  interactionRevision: 1,
+  interactionKind: "login_takeover",
+  toolCallId: requestId,
+  requestDigest: "a".repeat(64),
+  profileId: "default",
+  profileEpoch: 1,
+  displayOrigin: "https://example.com",
+  expiresAt: 1_900_000_000_000,
+});
+
+/** A gateway stand-in that answers each action the way Browser Run does. */
+const gateway = (
+  sent: CloudBrowserCommandRequest[],
+  answer: (
+    command: CloudBrowserCommandRequest,
+  ) => ForwardedBrowserGatewayCommand = (command) =>
+    forwarded({
+      schemaVersion: 1,
+      outcome: "completed",
+      requestId: command.requestId,
+      data:
+        command.action === "browser.open"
+          ? {
+              profileId: "default",
+              profileEpoch: 1,
+              restored: true,
+              observation: {
+                url: "https://example.com/",
+                title: "Example",
+                text: "Hello",
+              },
+            }
+          : { ok: true },
+    }),
+): ResidentBrowserTransport =>
+  async (command) => {
+    sent.push(command);
+    if (command.action === "browser.login_takeover") {
+      return forwarded({
+        schemaVersion: 1,
+        outcome: "suspended",
+        suspension: suspensionFor(command.requestId),
+      });
+    }
+    return answer(command);
+  };
+
+const TAKEOVER = {
+  allowedOrigins: ["https://example.com"],
+  displayOrigin: "https://example.com",
+  verification: {
+    expectedOrigin: "https://example.com",
+    authenticatedSelector: "#account",
+    loggedOutSelector: "#login",
+    resumeUrl: "https://example.com/",
+  },
+};
+
+describe("resident cloud browser client", () => {
+  test("opens a page limited to its own origin and returns the observation", async () => {
+    const sent: CloudBrowserCommandRequest[] = [];
+    const client = createResidentBrowserClient(gateway(sent));
+
+    const page = await client.call("open", ["https://example.com/inbox"], signal);
+
+    expect(sent[0]).toMatchObject({
+      schemaVersion: 1,
+      action: "browser.open",
+      params: {
+        allowedOrigins: ["https://example.com"],
+        startUrl: "https://example.com/inbox",
+      },
+    });
+    expect(page).toEqual({
+      url: "https://example.com/",
+      title: "Example",
+      text: "Hello",
+      restored: true,
+    });
+    expect(client.used()).toBe(true);
+  });
+
+  test("refuses a non-https start URL before reaching the gateway", async () => {
+    const sent: CloudBrowserCommandRequest[] = [];
+    const client = createResidentBrowserClient(gateway(sent));
+
+    await expect(
+      client.call("open", ["http://example.com"], signal),
+    ).rejects.toThrow("https://");
+    expect(sent).toHaveLength(0);
+  });
+
+  test("records a login handoff and fences every later command", async () => {
+    const sent: CloudBrowserCommandRequest[] = [];
+    const client = createResidentBrowserClient(gateway(sent));
+
+    await expect(
+      client.call("requestLoginTakeover", [TAKEOVER], signal),
+    ).rejects.toBeInstanceOf(ResidentBrowserSuspendedError);
+    expect(client.suspension()).toMatchObject({
+      interactionKind: "login_takeover",
+      toolCallId: sent[0]?.requestId,
+    });
+
+    await expect(client.call("observe", [], signal)).rejects.toBeInstanceOf(
+      ResidentBrowserSuspendedError,
+    );
+    // A profile under human control gets no checkpoint either.
+    await client.checkpoint(signal);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("surfaces the gateway's failure code, not its message", async () => {
+    const client = createResidentBrowserClient(
+      gateway([], (command) =>
+        forwarded(
+          {
+            schemaVersion: 1,
+            outcome: "failed",
+            requestId: command.requestId,
+            code: "navigation_denied",
+            message: "internal detail",
+          },
+          403,
+        ),
+      ),
+    );
+
+    await expect(
+      client.call("navigate", ["https://elsewhere.test"], signal),
+    ).rejects.toThrow("browser.navigate failed: navigation_denied.");
+  });
+
+  test("rejects a response that leaks private browser state", async () => {
+    const client = createResidentBrowserClient(
+      gateway([], (command) =>
+        forwarded({
+          schemaVersion: 1,
+          outcome: "completed",
+          requestId: command.requestId,
+          data: { cookies: [{ name: "sid" }] },
+        }),
+      ),
+    );
+
+    await expect(client.call("tabs", [], signal)).rejects.toThrow(
+      "private browser state",
+    );
+  });
+
+  test("checkpoints the profile only after it was used", async () => {
+    const sent: CloudBrowserCommandRequest[] = [];
+    const client = createResidentBrowserClient(gateway(sent));
+
+    await client.checkpoint(signal);
+    expect(sent).toHaveLength(0);
+
+    await client.call("observe", [], signal);
+    await client.checkpoint(signal);
+    expect(sent.map((command) => command.action)).toEqual([
+      "browser.observe",
+      "browser.checkpoint",
+    ]);
+  });
+});
+
+/** Runs the sandbox's `$browser` dispatch the way the generated module does. */
+const providerFactory = (
+  run: (
+    fns: Record<string, (...args: unknown[]) => Promise<unknown>>,
+  ) => Promise<unknown>,
+): CloudCodeExecutorFactory => () => ({
+  async execute(_source, providers) {
+    if (!Array.isArray(providers)) throw new Error("providers required");
+    try {
+      return { result: await run(providers[0]?.fns ?? {}) };
+    } catch (error) {
+      return {
+        result: undefined,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+});
+
+describe("cloud code with a resident browser", () => {
+  test("exposes the browser only when the turn holds one", async () => {
+    let keys: string[] = [];
+    const factory = providerFactory(async (fns) => {
+      keys = Object.keys(fns);
+      return null;
+    });
+    const without = await createCloudCodeAgentTool({
+      loader,
+      tools: [],
+      executionScope: "g:c:t",
+      executeCode: (request) =>
+        executeCloudCodeWithExecutorFactory(request, factory),
+    });
+    await without.execute("call", { code: "1" });
+    expect(keys).not.toContain("$browser");
+    expect(without.description).toContain("or browser in this session");
+
+    const withBrowser = await createCloudCodeAgentTool({
+      loader,
+      tools: [],
+      executionScope: "g:c:t",
+      browser: createResidentBrowserClient(gateway([])),
+      executeCode: (request) =>
+        executeCloudCodeWithExecutorFactory(request, factory),
+    });
+    await withBrowser.execute("call", { code: "1" });
+    expect(keys).toContain("$browser");
+    expect(withBrowser.description).toContain("browser.requestLoginTakeover");
+  });
+
+  test("ends the call as a suspension even when the cell catches the handoff", async () => {
+    const factory = providerFactory(async (fns) => {
+      try {
+        await fns.$browser?.({
+          method: "requestLoginTakeover",
+          args: [TAKEOVER],
+        });
+      } catch {
+        // The model's cell swallowed the error; the handoff still stands.
+      }
+      return "kept going";
+    });
+    const code = await createCloudCodeAgentTool({
+      loader,
+      tools: [],
+      executionScope: "g:c:t",
+      browser: createResidentBrowserClient(gateway([])),
+      executeCode: (request) =>
+        executeCloudCodeWithExecutorFactory(request, factory),
+    });
+
+    const outcome = await code
+      .execute("outer-call", { code: "await browser.requestLoginTakeover({})" })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(isAgentToolSuspendedError(outcome)).toBe(true);
+  });
+});

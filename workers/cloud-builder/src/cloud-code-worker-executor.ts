@@ -18,11 +18,14 @@ export const CLOUD_CODE_SEARCH_INTRINSIC = "$search";
 export const CLOUD_CODE_DESCRIBE_INTRINSIC = "$describe";
 export const CLOUD_CODE_CONNECT_INTRINSIC = "$connect";
 export const CLOUD_CODE_HISTORY_INTRINSIC = "$history";
+/** Present only for a turn that holds a cloud browser (resident agents). */
+export const CLOUD_CODE_BROWSER_INTRINSIC = "$browser";
 export const CLOUD_CODE_INTRINSIC_NAMES: ReadonlySet<string> = new Set([
   CLOUD_CODE_SEARCH_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
   CLOUD_CODE_CONNECT_INTRINSIC,
   CLOUD_CODE_HISTORY_INTRINSIC,
+  CLOUD_CODE_BROWSER_INTRINSIC,
 ]);
 
 let cloudflareCodeModePromise: Promise<CloudflareCodeModeModule> | undefined;
@@ -251,10 +254,39 @@ function __errorMessage(error) {
 }
 `;
 
+/**
+ * The sandbox `browser` global. Each method is a thin forwarder; the host
+ * validates arguments and owns the gateway contract. Trailing omitted
+ * arguments are dropped because the value bridge refuses `undefined`.
+ */
+const BROWSER_GLOBAL_LINES = [
+  "    const __browserCall = (method, args) => {",
+  "      let end = args.length;",
+  "      while (end > 0 && args[end - 1] === undefined) end -= 1;",
+  '      return __dispatch("$browser", [{ method, args: args.slice(0, end) }]);',
+  "    };",
+  "    const browser = Object.freeze({",
+  '      open: (url, options) => __browserCall("open", [url, options]),',
+  '      navigate: (url) => __browserCall("navigate", [url]),',
+  '      observe: () => __browserCall("observe", []),',
+  '      click: (selector) => __browserCall("click", [selector]),',
+  '      fill: (selector, value) => __browserCall("fill", [selector, value]),',
+  '      press: (selector, key) => __browserCall("press", [selector, key]),',
+  '      select: (selector, value) => __browserCall("select", [selector, value]),',
+  '      wait: (selector, timeoutMs) => __browserCall("wait", [selector, timeoutMs]),',
+  '      tabs: () => __browserCall("tabs", []),',
+  '      focusTab: (tabId) => __browserCall("focusTab", [tabId]),',
+  '      close: () => __browserCall("close", []),',
+  '      requestLoginTakeover: (options) => __browserCall("requestLoginTakeover", [options]),',
+  '      requestDeviceCodeFixture: (options) => __browserCall("requestDeviceCodeFixture", [options]),',
+  "    });",
+] as const;
+
 const buildWorkerModule = (
   normalizedCode: string,
   timeoutMs: number,
   toolNames: readonly string[],
+  browser: boolean,
 ): string =>
   [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
@@ -396,6 +428,7 @@ const buildWorkerModule = (
     '      sql: (query, params = []) => __historyCall("sql", [query, params]),',
     '      read: (fromSeq, toSeq) => __historyCall("read", [fromSeq, toSeq]),',
     "    });",
+    ...(browser ? BROWSER_GLOBAL_LINES : []),
     "    try {",
     "      __startClock();",
     "      const result = await Promise.race([",
@@ -531,6 +564,7 @@ export class StellaDynamicWorkerExecutor implements StellaDisposableExecutor {
             normalized,
             this.#timeoutMs,
             toolNames,
+            sanitizedNames.has(CLOUD_CODE_BROWSER_INTRINSIC),
           ),
         },
         globalOutbound: null,

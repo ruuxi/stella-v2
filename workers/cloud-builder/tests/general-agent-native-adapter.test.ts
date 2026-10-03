@@ -235,7 +235,7 @@ describe("native sandbox adapter", () => {
     ).rejects.toBeInstanceOf(NativeSandboxDurabilityError);
   });
 
-  test("a browser resume keeps a stella turn on the container path", () => {
+  test("a browser resume keeps a stella turn resident", () => {
     const plan = selectGeneralAgentTurnPlan({
       execution: {
         engine: "stella",
@@ -246,9 +246,6 @@ describe("native sandbox adapter", () => {
       browserResume: true,
       residentDisabled: false,
     });
-    expect(plan).toMatchObject({
-      kind: "native_sandbox",
-      reason: "browser_resume",
-    });
+    expect(plan).toMatchObject({ kind: "resident_stella" });
   });
 });

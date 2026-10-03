@@ -67,17 +67,27 @@ describe("general agent turn placement", () => {
    * it resident would resume a session whose profile and tab handles live in a
    * sandbox nobody attached.
    */
-  test("keeps a browser resume on the sandbox path even for Stella", () => {
+  test("keeps a Stella browser resume resident", () => {
     expect(
       selectGeneralAgentTurnPlan({
         execution: STELLA,
         browserResume: true,
         residentDisabled: false,
       }),
+    ).toEqual({ kind: "resident_stella", execution: STELLA });
+  });
+
+  test("the kill switch sends a Stella browser resume to the container", () => {
+    expect(
+      selectGeneralAgentTurnPlan({
+        execution: STELLA,
+        browserResume: true,
+        residentDisabled: true,
+      }),
     ).toEqual({
       kind: "native_sandbox",
       execution: STELLA,
-      reason: "browser_resume",
+      reason: "resident_disabled",
     });
   });
 
@@ -168,7 +178,7 @@ describe("general agent turn request parsing", () => {
         residentDisabled: false,
         now: 1,
       }).plan,
-    ).toMatchObject({ kind: "native_sandbox", reason: "browser_resume" });
+    ).toMatchObject({ kind: "resident_stella" });
   });
 
   test("bounds the prompt", () => {

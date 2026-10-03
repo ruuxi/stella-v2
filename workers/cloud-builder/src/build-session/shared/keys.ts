@@ -504,8 +504,32 @@ export const bindObservedBrowserSuspensionToCanonicalCodeCall = async (args: {
   checkpoint: TurnBrokerTurnStateCheckpointReceipt;
   rows: Array<{ turnId: string; role: string; payloadJson: string }>;
   now?: number;
+}): Promise<CloudBrowserSuspension | null> =>
+  validTurnStateCheckpointReceipt(args.checkpoint)
+    ? await bindObservedBrowserSuspensionToCanonicalCursor({
+        observation: args.observation,
+        turnId: args.turnId,
+        attemptGeneration: args.attemptGeneration,
+        historyCursor: args.checkpoint.historyCursor,
+        rows: args.rows,
+        ...(args.now === undefined ? {} : { now: args.now }),
+      })
+    : null;
+
+/**
+ * The same binding against a canonical history cursor alone. A resident turn
+ * that never attached a sandbox has no workspace checkpoint to name; its
+ * verified transcript receipt is the authoritative cursor instead.
+ */
+export const bindObservedBrowserSuspensionToCanonicalCursor = async (args: {
+  observation: ObservedBrowserSuspension;
+  turnId: string;
+  attemptGeneration: number;
+  historyCursor: string;
+  rows: Array<{ turnId: string; role: string; payloadJson: string }>;
+  now?: number;
 }): Promise<CloudBrowserSuspension | null> => {
-  const { observation, checkpoint, rows } = args;
+  const { observation, rows } = args;
   const now = args.now ?? Date.now();
   if (
     observation.schemaVersion !== 1 ||
@@ -519,9 +543,8 @@ export const bindObservedBrowserSuspensionToCanonicalCodeCall = async (args: {
     !SHA256_HEX.test(observation.responseBodySha256) ||
     !isCloudBrowserSuspension(observation.suspension) ||
     observation.suspension.expiresAt <= now ||
-    !validTurnStateCheckpointReceipt(checkpoint) ||
     rows.at(-1)?.turnId !== args.turnId ||
-    (await nativeHistoryCursorFromRows(rows)) !== checkpoint.historyCursor
+    (await nativeHistoryCursorFromRows(rows)) !== args.historyCursor
   ) {
     return null;
   }

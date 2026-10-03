@@ -21,6 +21,10 @@ import { createCloudCodeAgentTool } from "../cloud-code-tool.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
 import { createGeneralAgentDoLocalTools } from "../general-agent-do-local-tools.js";
 import { createResidentGeneralAgentTools } from "../general-agent-tools.js";
+import {
+  createResidentBrowserClient,
+  type ResidentBrowserClient,
+} from "../resident-browser.js";
 import { createWorkerShellRouter } from "../worker-shell-router.js";
 import { hydrateResidentDrive } from "../resident-drive.js";
 import { createWorkerShellRunner } from "../worker-shell-runner.js";
@@ -41,7 +45,10 @@ import {
   TURN_BROKER_DRIVE_PATHS,
 } from "../turn-credential-broker.js";
 import { issueWorldCapability } from "../world-capability.js";
-import { serveTurnDriveRequest } from "./turn-broker.js";
+import {
+  forwardBrowserGatewayCommand,
+  serveTurnDriveRequest,
+} from "./turn-broker.js";
 import { deliverWorldLinkedFiles } from "./world-linked-files.js";
 import {
   agentTurnSessionId,
@@ -73,6 +80,9 @@ import {
 import {
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
+  OBSERVED_BROWSER_SUSPENSION_KEY,
+  bindObservedBrowserSuspensionToCanonicalCursor,
+  cloudBrowserSuspensionMarker,
   errorMessage,
   log,
   mintAgentTurnModelGateway,
@@ -80,6 +90,8 @@ import {
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
 import type {
+  ObservedBrowserSuspension,
+  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
   TurnStateCheckpointOperation,
@@ -109,6 +121,7 @@ export type ResidentTurnHost = Pick<
   | "clearUnattachedAgentSandboxTuple"
   | "currentSandbox"
   | "deleteTurnStoragePreservingExactCancellations"
+  | "deliverBrowserSuspension"
   | "deliverResidentTerminal"
   | "deliverTerminal"
   | "destroySandboxDurably"
@@ -124,8 +137,10 @@ export type ResidentTurnHost = Pick<
   | "repairedResidentJournal"
   | "residentAttachHistory"
   | "resolveAgentTurnState"
+  | "retainPendingBrowserSuspension"
   | "sandbox"
   | "setExactTurnAlarm"
+  | "settleAgentTransientBackup"
 >;
 
 /**
@@ -797,11 +812,26 @@ export const runResidentAgentTurn = async (
     },
     signal: execution.signal,
   });
+  // The cloud browser needs no container: every command is one bounded
+  // request to the private Browser Gateway under this turn's authority, the
+  // same forward the turn broker makes for the container executor. A login
+  // handoff is observed here before the model ever sees it.
+  const browser: ResidentBrowserClient | undefined = host.env.BROWSER_GATEWAY
+    ? createResidentBrowserClient(async (command, request) =>
+        await forwardBrowserGatewayCommand(host, turn, {
+          command,
+          signal: request.signal,
+          brokerRequestId: command.requestId,
+          requestFingerprint: request.requestFingerprint,
+        }),
+      )
+    : undefined;
   // `code` runs in a Dynamic Worker the DO loads on demand, the same
   // executor the cloud orchestrator uses, so a resident agent evaluates
   // JavaScript without reserving a container. Only the DO-local tools are
-  // reachable from inside code, and only the read-only ones among them; a
-  // deployment without the loader keeps the model-visible refusal instead.
+  // reachable from inside code, and only the read-only ones among them, plus
+  // the turn's cloud browser; a deployment without the loader keeps the
+  // model-visible refusal instead.
   const jsSandbox = host.env.LOADER
     ? new Map([
         [
@@ -810,6 +840,7 @@ export const runResidentAgentTurn = async (
             loader: host.env.LOADER,
             tools: [...doLocal.values()],
             executionScope: `${turn.ownerGeneration}:${turn.threadId}:${turn.turnId}:${attemptGeneration}`,
+            ...(browser ? { browser } : {}),
           }),
         ],
       ])
@@ -878,6 +909,7 @@ export const runResidentAgentTurn = async (
         prompt: turn.prompt,
         brokerRoute: turn.turnBrokerRoute,
         execution: plan.execution,
+        ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
         audience: turn.audience,
         budgetMicroCents: turn.budgetMicroCents,
         watchdogMs: turn.watchdogMs ?? 15 * 60_000,
@@ -940,6 +972,24 @@ export const runResidentAgentTurn = async (
           driveKnown,
         }),
     });
+    // A turn that used the browser and is not handing it to the user saves
+    // the profile before its authority ends, as the container path does in
+    // `checkpointCloudBrowserTurnBeforeTeardown`. A suspended profile is
+    // under human control and receives no automation command.
+    if (
+      browser &&
+      result.outcome !== "suspended" &&
+      browser.used() &&
+      !execution.signal.aborted
+    ) {
+      await browser.checkpoint(execution.signal).catch((error) => {
+        log("error", "resident_browser_checkpoint_failed", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+          message: errorMessage(error),
+        });
+      });
+    }
     computeReleased = true;
     await host.finishResidentAgentTurn(turn, ladder, result, requestStarted);
     return result;
@@ -965,7 +1015,127 @@ export const finishResidentAgentTurn = async (
   requestStarted: number,
 ): Promise<void> => {
   await releaseResidentCompute(host, turn, ladder);
+  if (result.outcome === "suspended") {
+    if (await deliverResidentBrowserSuspension(host, turn, result, requestStarted)) {
+      return;
+    }
+    // The handoff could not be bound to the committed transcript. The turn
+    // ends as a failure the user can retry; the gateway interaction expires.
+    await host.deliverResidentTerminal(
+      turn,
+      {
+        outcome: "failed",
+        ok: false,
+        error: "Stella couldn't hand this sign-in over to you safely. Please try again.",
+        usage: result.usage,
+        compute: result.compute,
+        durability: result.durability,
+      },
+      requestStarted,
+    );
+    return;
+  }
   await host.deliverResidentTerminal(turn, result, requestStarted);
+};
+
+/**
+ * Park a resident turn on a login handoff, the way the container path does.
+ *
+ * The gateway's suspension was recorded as an observation when it arrived;
+ * it becomes user-visible only once the canonical transcript, which ends on
+ * the unanswered Code call, binds it to that call. Then the secret-free wait
+ * descriptor is retained durably (an alarm can redeliver it) and projected as
+ * a nonterminal `waiting_for_user`. Returns false when the binding fails or a
+ * terminal path already won, so the caller can fail the turn instead.
+ */
+export const deliverResidentBrowserSuspension = async (
+  host: ResidentTurnHost,
+  turn: TurnRequest,
+  result: Extract<GeneralAgentTurnResult, { outcome: "suspended" }>,
+  requestStarted: number,
+): Promise<boolean> => {
+  const observation = await host.ctx.storage.get<ObservedBrowserSuspension>(
+    OBSERVED_BROWSER_SUSPENSION_KEY,
+  );
+  const bound = observation
+    ? await bindObservedBrowserSuspensionToCanonicalCursor({
+        observation,
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration!,
+        historyCursor: result.durability.transcript.historyCursor,
+        rows: host.fetchCanonicalAgentHistory(turn, {
+          excludeCurrentTurn: false,
+        }),
+      })
+    : null;
+  if (
+    !bound ||
+    cloudBrowserSuspensionMarker(bound) !==
+      cloudBrowserSuspensionMarker(result.suspension)
+  ) {
+    log("error", "browser_suspension_checkpoint_mismatch", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      resident: true,
+    });
+    return false;
+  }
+  const wallClockMs = Math.round(performance.now() - requestStarted);
+  const compute = result.compute;
+  const coldContainerStartMs =
+    compute.kind === "sandbox" ? compute.coldStartMs : 0;
+  const restoreMs = compute.kind === "sandbox" ? compute.restoreMs : 0;
+  const instanceType =
+    compute.kind === "sandbox"
+      ? INSTANCE_TIERS[compute.instanceSize].instanceType
+      : undefined;
+  const pending: PendingBrowserSuspension = {
+    schemaVersion: 1,
+    turnId: turn.turnId,
+    attemptGeneration: turn.attemptGeneration!,
+    suspension: bound,
+    payload: {
+      suspension: bound,
+      usage: result.usage,
+      coldContainerStartMs,
+      restoreMs,
+      checkpointMs: 0,
+      wallClockMs,
+      ...(instanceType ? { instanceType } : {}),
+    },
+    createdAt: Date.now(),
+  };
+  // A stop that landed first owns the turn; the handoff is then moot.
+  if (!(await host.retainPendingBrowserSuspension(turn, pending))) return true;
+  const delivered = await host.deliverBrowserSuspension(turn, pending);
+  if (delivered && (await host.ownsExactTurn(turn))) {
+    if (await host.settleAgentTransientBackup(turn)) {
+      await host.deleteTurnStoragePreservingExactCancellations(turn, true);
+    } else {
+      await host.setExactTurnAlarm(turn, Date.now() + 30_000);
+    }
+  }
+  log("info", "agent_turn_suspended_for_browser_handoff", {
+    turnId: turn.turnId,
+    threadId: turn.threadId,
+    interactionId: bound.interactionId,
+    resident: true,
+    wallClockMs,
+  });
+  emitCloudTurnTelemetry(host.ctx, host.env, {
+    type: "cloud.turn",
+    workload: "agent",
+    phase: "suspended",
+    wallClockMs,
+    coldContainerStartMs,
+    restoreMs,
+    checkpointMs: 0,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    llmCalls: result.usage.llmCalls,
+    ...(instanceType ? { instanceType } : {}),
+  });
+  return true;
 };
 
 /** Release resident compute without withholding the turn terminal. */

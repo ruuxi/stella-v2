@@ -6,6 +6,7 @@
  */
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import { createCloudCodeAgentTool } from "../../src/cloud-code-tool.js";
+import { createResidentBrowserClient } from "../../src/resident-browser.js";
 
 type Env = { LOADER: WorkerLoader };
 
@@ -42,10 +43,60 @@ export default {
       },
     };
     const connectCalls: unknown[] = [];
+    // A Browser Gateway stand-in: pages complete, a login handoff suspends.
+    const browserActions: string[] = [];
+    const browser = createResidentBrowserClient(async (command) => {
+      browserActions.push(command.action);
+      const body =
+        command.action === "browser.login_takeover"
+          ? {
+              schemaVersion: 1,
+              outcome: "suspended",
+              suspension: {
+                schemaVersion: 1,
+                outcome: "waiting_for_user",
+                interactionId: "7c1f8e4a-0d2b-4c6e-9a1f-3b5d7e9f1a2c",
+                interactionRevision: 1,
+                interactionKind: "login_takeover",
+                toolCallId: command.requestId,
+                requestDigest: "c".repeat(64),
+                profileId: "default",
+                profileEpoch: 1,
+                displayOrigin: "https://example.com",
+                expiresAt: Date.now() + 600_000,
+              },
+            }
+          : {
+              schemaVersion: 1,
+              outcome: "completed",
+              requestId: command.requestId,
+              data:
+                command.action === "browser.open"
+                  ? {
+                      profileId: "default",
+                      profileEpoch: 1,
+                      restored: false,
+                      observation: {
+                        url: "https://example.com/a",
+                        title: "Example",
+                        text: "Sign in to continue",
+                      },
+                    }
+                  : { pressed: true },
+            };
+      return {
+        kind: "forwarded",
+        status: 200,
+        statusText: "OK",
+        headers: new Headers(),
+        body: new TextEncoder().encode(JSON.stringify(body)),
+      };
+    });
     const codeTool = await createCloudCodeAgentTool({
       loader: env.LOADER,
       tools: [readValue],
       executionScope: "workerd:code-contract-acceptance",
+      browser,
       connect: {
         discover: async (query) => {
           connectCalls.push(["discover", query]);
@@ -99,6 +150,8 @@ export default {
         } catch (error) {
           addMcp = error.message;
         }
+        const page = await browser.open("https://example.com/a");
+        const pressed = await browser.press("#q", "Enter");
         let outbound = "allowed";
         try {
           await fetch("https://example.com/");
@@ -117,10 +170,36 @@ export default {
           discovered: discovered.matches.map((match) => match.id),
           calledEmail: called.email,
           addMcp,
-          frozen: Object.isFrozen(connect) && Reflect.set(tools, "x", 1) === false,
+          frozen: Object.isFrozen(connect) && Object.isFrozen(browser) && Reflect.set(tools, "x", 1) === false,
+          pageTitle: page.title,
+          pressed: pressed.pressed,
         })
       `,
     });
+    // A handoff ends the call as a suspension even though the cell catches it.
+    let suspendedName: string | undefined;
+    try {
+      await codeTool.execute("workerd-takeover-call", {
+        timeout_ms: 5_000,
+        code: `
+          try {
+            await browser.requestLoginTakeover({
+              allowedOrigins: ["https://example.com"],
+              displayOrigin: "https://example.com",
+              verification: {
+                expectedOrigin: "https://example.com",
+                authenticatedSelector: "#account",
+                loggedOutSelector: "#login",
+                resumeUrl: "https://example.com/",
+              },
+            });
+          } catch {}
+          "continued"
+        `,
+      });
+    } catch (error) {
+      suspendedName = (error as Error).name;
+    }
     if (executed.isError) return Response.json(executed, { status: 500 });
     const visibleText = (executed.content[0] as { text?: string }).text ?? "";
     const result = JSON.parse(visibleText) as Record<string, unknown>;
@@ -131,6 +210,8 @@ export default {
         nestedCallCount: nestedCalls.length,
         nestedInputs: nestedCalls.map((call) => call.input),
         connectCallCount: connectCalls.length,
+        browserActions,
+        suspendedName,
         // The tool description and the connect result both carried the
         // marker; only the model-chosen return value may show it, and this
         // cell never returned it.

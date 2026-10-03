@@ -80,6 +80,11 @@ try {
     typeof result?.addMcp !== "string" ||
     !result.addMcp.includes("desktop-only") ||
     result?.frozen !== true ||
+    result?.pageTitle !== "Example" ||
+    result?.pressed !== true ||
+    payload?.hostProof?.browserActions?.join(",") !==
+      "browser.open,browser.press,browser.login_takeover" ||
+    payload?.hostProof?.suspendedName !== "AgentToolSuspendedError" ||
     payload?.hostProof?.nestedCallCount !== 2 ||
     payload?.hostProof?.connectCallCount !== 2 ||
     payload?.hostProof?.secretLeaked !== false
@@ -93,6 +98,8 @@ try {
       nestedCallCount: payload.hostProof.nestedCallCount,
       connectCallCount: payload.hostProof.connectCallCount,
       outbound: payload.result.outbound,
+      browserActions: payload.hostProof.browserActions,
+      suspended: payload.hostProof.suspendedName,
     })}\n`,
   );
 } finally {

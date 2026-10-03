@@ -10,7 +10,8 @@
     "./prune-history": "./src/prune-history.ts",
     "./agent-history": "./src/agent-history.ts",
     "./general-agent-prompt": "./src/general-agent-prompt.ts",
-    "./attached-tool-protocol": "./src/attached-tool-protocol.ts"
+    "./attached-tool-protocol": "./src/attached-tool-protocol.ts",
+    "./cloud-browser-resume": "./src/cloud-browser-resume.ts"
   },
   "scripts": {
     "stub": "bun src/cli.ts --stub",

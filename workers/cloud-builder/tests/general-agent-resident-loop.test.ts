@@ -356,3 +356,176 @@ describe("resident Stella loop", () => {
     expect(remaining.count).toBe(0);
   });
 });
+
+describe("resident Stella loop browser handoff", () => {
+  const SUSPENSION = {
+    schemaVersion: 1,
+    outcome: "waiting_for_user",
+    interactionId: "7c1f8e4a-0d2b-4c6e-9a1f-3b5d7e9f1a2c",
+    interactionRevision: 1,
+    interactionKind: "login_takeover",
+    // The gateway's neutral request id; the loop rebinds it to the Code call.
+    toolCallId: "3d9a6c2e-1b4f-4e8a-b7c5-0f2e4d6a8b1c",
+    requestDigest: "b".repeat(64),
+    profileId: "default",
+    profileEpoch: 1,
+    displayOrigin: "https://example.com",
+    expiresAt: 1_900_000_000_000,
+  } as const;
+
+  const codeCall: AssistantMessage = {
+    ...assistantHeader,
+    content: [
+      {
+        type: "toolCall",
+        id: "call-code",
+        name: "code",
+        arguments: { code: "await browser.requestLoginTakeover({})" },
+      },
+    ],
+    stopReason: "toolUse",
+    // A canonical row carries the full usage record the history parser checks.
+    usage: {
+      ...usage(9, 4),
+      totalTokens: 13,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+  };
+
+  const withCode = (code: AgentTool): AgentTool[] => [
+    ...RESIDENT_TOOLS.filter((tool) => tool.name !== "code"),
+    code,
+  ];
+
+  test("parks on a login handoff with the Code call unanswered", async () => {
+    const { AgentToolSuspendedError } = await import(
+      "@stella/runtime/kernel/agent-core/suspension.js"
+    );
+    const built = harness({ script: [codeCall, assistantText("unreachable")] });
+    openJournals.push(built);
+    const result = await runResidentStellaLoop({
+      ...built.input,
+      tools: withCode({
+        ...noopDoLocalTool("code"),
+        execute: async () => {
+          throw new AgentToolSuspendedError(SUSPENSION);
+        },
+      }),
+    });
+
+    expect(getSandboxCalls).toBe(0);
+    expect(result.outcome).toBe("suspended");
+    if (result.outcome !== "suspended") return;
+    expect(result.suspension).toMatchObject({
+      interactionId: SUSPENSION.interactionId,
+      toolCallId: "call-code",
+    });
+    expect(result.durability.kind).toBe("transcript_only");
+    // The model was asked exactly once: the handoff stopped the loop.
+    expect(built.contexts).toHaveLength(1);
+    const rows = built.appended[0]?.rows ?? [];
+    expect(rows.map((row) => row.role)).toEqual(["user", "assistant"]);
+    expect(rows.at(-1)?.payloadJson).toContain("call-code");
+  });
+
+  test("resumes by answering the suspended Code call instead of re-prompting", async () => {
+    const built = harness({
+      script: [assistantText("Signed in; carrying on.")],
+      history: [
+        {
+          seq: 0,
+          turnId: "turn-8",
+          role: "user",
+          payloadJson: JSON.stringify({
+            role: "user",
+            content: [{ type: "text", text: "Log in to example.com" }],
+            timestamp: 1_799_000_000_000,
+          }),
+        },
+        {
+          seq: 1,
+          turnId: "turn-8",
+          role: "assistant",
+          payloadJson: JSON.stringify(codeCall),
+        },
+      ],
+    });
+    openJournals.push(built);
+    const result = await runResidentStellaLoop({
+      ...built.input,
+      turn: {
+        ...TURN,
+        prompt: "[Browser approved] Sign-in finished.",
+        browserResume: {
+          schemaVersion: 1,
+          interactionId: SUSPENSION.interactionId,
+          interactionRevision: 1,
+          profileId: "default",
+          profileEpoch: 1,
+          toolCallId: "call-code",
+          requestDigest: SUSPENSION.requestDigest,
+          result: "approved",
+          safeMessage: "Sign-in finished.",
+        },
+      },
+    });
+
+    expect(result.outcome).toBe("completed");
+    const sent = built.contexts[0]?.messages ?? [];
+    expect(sent.at(-1)).toMatchObject({
+      role: "toolResult",
+      toolCallId: "call-code",
+      isError: false,
+    });
+    expect(
+      sent.some(
+        (message) =>
+          message.role === "user" &&
+          JSON.stringify(message.content).includes("[Browser approved]"),
+      ),
+    ).toBe(false);
+    expect(built.appended[0]?.rows.map((row) => row.role)).toEqual([
+      "toolResult",
+      "assistant",
+    ]);
+  });
+
+  test("refuses a resume receipt that names a different call", async () => {
+    const built = harness({
+      script: [assistantText("unreachable")],
+      history: [
+        {
+          seq: 0,
+          turnId: "turn-8",
+          role: "assistant",
+          payloadJson: JSON.stringify(codeCall),
+        },
+      ],
+    });
+    openJournals.push(built);
+    const result = await runResidentStellaLoop({
+      ...built.input,
+      turn: {
+        ...TURN,
+        browserResume: {
+          schemaVersion: 1,
+          interactionId: SUSPENSION.interactionId,
+          interactionRevision: 1,
+          profileId: "default",
+          profileEpoch: 1,
+          toolCallId: "some-other-call",
+          requestDigest: SUSPENSION.requestDigest,
+          result: "approved",
+          safeMessage: "Sign-in finished.",
+        },
+      },
+    });
+
+    expect(result.outcome).toBe("failed");
+    expect(result.durability).toEqual({
+      kind: "none",
+      reason: "preflight_failed",
+    });
+    expect(built.contexts).toHaveLength(0);
+  });
+});

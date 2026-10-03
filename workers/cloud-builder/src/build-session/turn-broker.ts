@@ -653,7 +653,7 @@ export const executeTurnStateCheckpoint = async (
 };
 
 const observeBrowserGatewaySuspension = async (
-  host: TurnBrokerHost,
+  host: Pick<TurnBrokerHost, "ctx">,
   turn: TurnRequest,
   input: {
     brokerRequestId: string;
@@ -702,6 +702,141 @@ const observeBrowserGatewaySuspension = async (
     await txn.put(OBSERVED_BROWSER_SUSPENSION_KEY, observation);
     return "stored" as const;
   });
+};
+
+export type ForwardedBrowserGatewayCommand =
+  | Readonly<{ kind: "failure"; status: number }>
+  | Readonly<{
+      kind: "forwarded";
+      status: number;
+      statusText: string;
+      headers: Headers;
+      body: Uint8Array;
+    }>;
+
+/**
+ * One turn command to the Browser Gateway under this turn's exact authority.
+ *
+ * Both requesters come through here: the container executor's broker route
+ * and a resident turn's `browser` global. A suspended response is recorded as
+ * an observation before anyone sees it, so the takeover it describes can only
+ * become user-visible once the canonical transcript binds it to the outer
+ * Code call (`bindObservedBrowserSuspensionToCanonicalCodeCall`).
+ */
+export const forwardBrowserGatewayCommand = async (
+  host: Pick<TurnBrokerHost, "ctx" | "env">,
+  turn: TurnRequest,
+  args: {
+    command: unknown;
+    signal: AbortSignal;
+    /** Idempotency identity of whoever asked: a broker request, or the command itself. */
+    brokerRequestId: string;
+    requestFingerprint: string;
+  },
+): Promise<ForwardedBrowserGatewayCommand> => {
+  const failure = (status: number) => ({ kind: "failure", status }) as const;
+  if (!host.env.BROWSER_GATEWAY) return failure(503);
+  const command = args.command;
+  if (!command || typeof command !== "object" || Array.isArray(command)) {
+    return failure(400);
+  }
+  try {
+    const upstream = await host.env.BROWSER_GATEWAY.fetch(
+      "https://browser-gateway/internal/turn/command",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        },
+        body: JSON.stringify({
+          schemaVersion: 1,
+          authority: {
+            ownerId: turn.ownerId,
+            ownerGeneration: turn.ownerGeneration,
+            conversationId: turn.conversationId,
+            threadId: turn.threadId,
+            turnId: turn.turnId,
+            attemptGeneration: turn.attemptGeneration,
+          },
+          command,
+        }),
+        signal: args.signal,
+        redirect: "manual",
+      },
+    );
+    if (upstream.status >= 300 && upstream.status < 400) {
+      await upstream.body?.cancel().catch(() => undefined);
+      return failure(502);
+    }
+    const upstreamBody = await readBrowserGatewayResponseBody(upstream);
+    let responsePayload: unknown;
+    try {
+      responsePayload = JSON.parse(
+        new TextDecoder("utf-8", {
+          fatal: true,
+          ignoreBOM: false,
+        }).decode(upstreamBody),
+      ) as unknown;
+    } catch {
+      responsePayload = undefined;
+    }
+    if (
+      responsePayload &&
+      typeof responsePayload === "object" &&
+      !Array.isArray(responsePayload) &&
+      (responsePayload as Record<string, unknown>).outcome === "suspended"
+    ) {
+      const responseRecord = responsePayload as Record<string, unknown>;
+      const commandRecord = command as Record<string, unknown>;
+      const suspension = responseRecord.suspension;
+      const commandRequestId = commandRecord.requestId;
+      if (
+        !upstream.ok ||
+        Object.keys(responseRecord).sort().join(",") !==
+          "outcome,schemaVersion,suspension" ||
+        responseRecord.schemaVersion !== 1 ||
+        Object.keys(commandRecord).sort().join(",") !==
+          "action,params,requestId,schemaVersion" ||
+        commandRecord.schemaVersion !== 1 ||
+        !canonicalToolCallId(commandRequestId) ||
+        !isCloudBrowserSuspension(suspension) ||
+        suspension.toolCallId !== commandRequestId
+      ) {
+        return failure(502);
+      }
+      const disposition = await observeBrowserGatewaySuspension(host, turn, {
+        brokerRequestId: args.brokerRequestId,
+        requestBodySha256: args.requestFingerprint,
+        responseBodySha256: await sha256BytesHex(upstreamBody),
+        suspension,
+      });
+      if (disposition === "conflict") {
+        log("error", "browser_suspension_observation_conflict", {
+          turnId: turn.turnId,
+          threadId: turn.threadId,
+        });
+        return failure(409);
+      }
+      if (disposition === "inactive") {
+        return failure(410);
+      }
+    }
+    return {
+      kind: "forwarded",
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: upstream.headers,
+      body: upstreamBody,
+    };
+  } catch {
+    log("error", "turn_broker_browser_gateway_failed", {
+      turnId: turn.turnId,
+      aborted: args.signal.aborted,
+      errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
+    });
+    return failure(args.signal.aborted ? 410 : 502);
+  }
 };
 
 const driveJson = (body: unknown, status = 200): Response =>
@@ -1106,119 +1241,27 @@ export const handleTurnBroker = async (
   }
   if (admission.kind === "forward") {
     if (admission.target.kind === "browser-gateway") {
-      if (!host.env.BROWSER_GATEWAY) return brokerFailure(503);
-      const command = decoded;
-      if (!command || typeof command !== "object" || Array.isArray(command)) {
-        return brokerFailure(400);
-      }
-      try {
-        const upstream = await host.env.BROWSER_GATEWAY.fetch(
-          "https://browser-gateway/internal/turn/command",
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "cache-control": "no-store",
-            },
-            body: JSON.stringify({
-              schemaVersion: 1,
-              authority: {
-                ownerId: turn.ownerId,
-                ownerGeneration: turn.ownerGeneration,
-                conversationId: turn.conversationId,
-                threadId: turn.threadId,
-                turnId: turn.turnId,
-                attemptGeneration: turn.attemptGeneration,
-              },
-              command,
-            }),
-            signal: admission.signal,
-            redirect: "manual",
-          },
-        );
-        if (upstream.status >= 300 && upstream.status < 400) {
-          await upstream.body?.cancel().catch(() => undefined);
-          return brokerFailure(502);
-        }
-        const upstreamBody = await readBrowserGatewayResponseBody(upstream);
-        let responsePayload: unknown;
-        try {
-          responsePayload = JSON.parse(
-            new TextDecoder("utf-8", {
-              fatal: true,
-              ignoreBOM: false,
-            }).decode(upstreamBody),
-          ) as unknown;
-        } catch {
-          responsePayload = undefined;
-        }
-        if (
-          responsePayload &&
-          typeof responsePayload === "object" &&
-          !Array.isArray(responsePayload) &&
-          (responsePayload as Record<string, unknown>).outcome === "suspended"
-        ) {
-          const responseRecord = responsePayload as Record<string, unknown>;
-          const commandRecord = command as Record<string, unknown>;
-          const suspension = responseRecord.suspension;
-          const commandRequestId = commandRecord.requestId;
-          if (
-            !upstream.ok ||
-            Object.keys(responseRecord).sort().join(",") !==
-              "outcome,schemaVersion,suspension" ||
-            responseRecord.schemaVersion !== 1 ||
-            Object.keys(commandRecord).sort().join(",") !==
-              "action,params,requestId,schemaVersion" ||
-            commandRecord.schemaVersion !== 1 ||
-            !canonicalToolCallId(commandRequestId) ||
-            !isCloudBrowserSuspension(suspension) ||
-            suspension.toolCallId !== commandRequestId
-          ) {
-            return brokerFailure(502);
-          }
-          const disposition = await observeBrowserGatewaySuspension(
-            host,
-            turn,
-            {
-              brokerRequestId: preflight.requestId,
-              requestBodySha256: requestFingerprint,
-              responseBodySha256: await sha256BytesHex(upstreamBody),
-              suspension,
-            },
-          );
-          if (disposition === "conflict") {
-            log("error", "browser_suspension_observation_conflict", {
-              turnId: turn.turnId,
-              threadId: turn.threadId,
-            });
-            return brokerFailure(409);
-          }
-          if (disposition === "inactive") {
-            return brokerFailure(410);
-          }
-        }
-        const responseHeaders = turnBrokerSandboxResponseHeaders(
-          upstream.headers,
-        );
-        // Fetch has decoded the buffered bytes. Do not make the sandbox
-        // decode them a second time or trust an upstream framing length.
-        responseHeaders.delete("content-encoding");
-        responseHeaders.delete("content-length");
-        responseHeaders.delete("transfer-encoding");
-        responseHeaders.set("cache-control", "no-store");
-        return new Response(upstreamBody, {
-          status: upstream.status,
-          statusText: upstream.statusText,
-          headers: responseHeaders,
-        });
-      } catch {
-        log("error", "turn_broker_browser_gateway_failed", {
-          turnId: turn.turnId,
-          aborted: admission.signal.aborted,
-          errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
-        });
-        return brokerFailure(admission.signal.aborted ? 410 : 502);
-      }
+      const forwarded = await forwardBrowserGatewayCommand(host, turn, {
+        command: decoded,
+        signal: admission.signal,
+        brokerRequestId: preflight.requestId,
+        requestFingerprint,
+      });
+      if (forwarded.kind === "failure") return brokerFailure(forwarded.status);
+      const responseHeaders = turnBrokerSandboxResponseHeaders(
+        forwarded.headers,
+      );
+      // Fetch has decoded the buffered bytes. Do not make the sandbox
+      // decode them a second time or trust an upstream framing length.
+      responseHeaders.delete("content-encoding");
+      responseHeaders.delete("content-length");
+      responseHeaders.delete("transfer-encoding");
+      responseHeaders.set("cache-control", "no-store");
+      return new Response(forwarded.body, {
+        status: forwarded.status,
+        statusText: forwarded.statusText,
+        headers: responseHeaders,
+      });
     }
     return brokerFailure(403);
   }

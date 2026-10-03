@@ -5,7 +5,7 @@ import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 
 /**
  * Restart-with-continuation: auto-resume of orchestrator/agent work after a
- * Stella self-restart (self-mod apply, dev relaunch, or any graceful quit).
+ * Stella self-restart (worker reload, dev relaunch, or any graceful quit).
  *
  * Two cooperating artifacts, both living in `stellaDataDir`:
  *
@@ -92,7 +92,7 @@ export const RESTART_INTERRUPTION_STATE_MAX_AGE_MS = 24 * 60 * 60_000;
 /**
  * Two shutdown-record writes within this window belong to the same restart
  * episode: the earliest reason wins (it is the most specific — e.g. the
- * self-mod apply that requested the restart), but the timestamp refreshes.
+ * stale-worker reload that requested the restart), but the timestamp refreshes.
  * Beyond the window the old record is a leftover from an episode that never
  * booted (or a much older shutdown) and is replaced wholesale.
  */
@@ -146,7 +146,7 @@ export type RestartShutdownRecord = {
    * leftovers from an earlier one.
    */
   episodeId: string;
-  /** e.g. "self-mod-apply-process-restart", "runtime-reload", "app-shutdown". */
+  /** e.g. "build-stamp-mismatch", "runtime-reload", "app-shutdown". */
   reason: string;
   createdAt: number;
   /** First `createdAt` of this episode id (merge-forward keeps it). */
@@ -914,7 +914,7 @@ const truncateText = (value: string, max: number): string =>
   value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`;
 
 const isSelfUpdateReason = (reason: string): boolean =>
-  /self-mod|self-update|desktop-update/i.test(reason);
+  /self-update|desktop-update/i.test(reason);
 
 /** User-visible one-liner appended to chat before the continuation turn. */
 export const buildRestartNoticeText = (reason: string): string =>

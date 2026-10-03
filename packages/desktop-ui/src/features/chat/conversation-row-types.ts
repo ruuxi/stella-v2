@@ -5,7 +5,6 @@ import type {
 } from "@/features/chat/lib/event-transforms";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import type { AgentResponseTarget } from "@/features/chat/streaming/streaming-types";
-import type { SelfModApplied } from "@/features/chat/self-mod-types";
 import type { WebSearchImageHit } from "@/features/chat/lib/derive-turn-web-search";
 import type { TaskToolActivity } from "@stella/contracts/agent-runtime";
 import type { TurnMapArtifact } from "@/features/chat/lib/derive-turn-map-artifacts";
@@ -147,7 +146,6 @@ export type AssistantRowViewModel = {
    * clicks the inline link / summary card.
    */
   sourceDiffPayloads?: DisplayPayload[];
-  selfModApplied?: SelfModApplied;
   /**
    * Present on the visible assistant message a realtime voice session
    * writes when it ends. Renders the polished "Voice session" summary

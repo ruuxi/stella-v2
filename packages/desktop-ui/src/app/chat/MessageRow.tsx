@@ -3,7 +3,7 @@
  *
  * Each message renders as a single row in chronological order, with no
  * per-turn user/assistant grouping. Tool-derived artifacts (web-search
- * badge, office preview, end-resource pill, self-mod undo) attach to
+ * badge, office preview, end-resource pill) attach to
  * the assistant row that immediately followed the producing tool events.
  *
  * A reply is delivered whole, so a row is never partially written. The

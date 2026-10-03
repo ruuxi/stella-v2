@@ -297,11 +297,6 @@ export function useAgentEventHandler({
           finalizeRunOnFinish({ runId: event.runId })
           setPendingUserMessageId(null)
         }
-        // `selfModApplied` is patched onto the persisted assistant
-        // message payload by the worker (`attachSelfModToAssistantMessage`
-        // in runtime/worker/server.ts → onEnd). The renderer projects it
-        // off the chat row in `use-event-rows.ts`, so we no longer mirror
-        // it in renderer-local state.
       }
 
       switch (event.type) {

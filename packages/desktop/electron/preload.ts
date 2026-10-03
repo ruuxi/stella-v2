@@ -111,6 +111,7 @@ import {
   IPC_UPDATES_STATE_CHANGED,
   IPC_APP_SOURCE_APPLY,
   IPC_APP_SOURCE_APPLY_REMOTE,
+  IPC_APP_SOURCE_APPLY_UPSTREAM,
   IPC_APP_SOURCE_GET_STATE,
   IPC_APP_SOURCE_STATE,
   IPC_APP_SOURCE_UNDO,
@@ -516,6 +517,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_UNDO, sha),
     applyRemote: () =>
       invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_APPLY_REMOTE),
+    applyUpstream: () =>
+      invokeIpc<AppSourceActionResult>(IPC_APP_SOURCE_APPLY_UPSTREAM),
   },
 
   capture: {

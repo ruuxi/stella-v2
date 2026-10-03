@@ -1583,7 +1583,10 @@
       "failed": "변경 사항을 적용하지 못했습니다",
       "askRebase": "내 초안 \"{name}\"을(를) 현재 버전으로 리베이스해 줘.",
       "askMerge": "다른 컴퓨터의 변경 사항을 병합해 줘.",
-      "askUndo": "\"{subject}\"을(를) 실행 취소해 줘 (이후 변경 사항과 충돌함)."
+      "askUndo": "\"{subject}\"을(를) 실행 취소해 줘 (이후 변경 사항과 충돌함).",
+      "updateAvailable": "업데이트 가능",
+      "updateNeedsMerge": "내 변경 사항과 병합해야 함",
+      "askUpdate": "Stella를 최신 버전으로 업데이트해 줘"
     },
     "display": {
       "homeLauncher": {

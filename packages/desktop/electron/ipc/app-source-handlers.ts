@@ -2,6 +2,7 @@ import { session, type IpcMainInvokeEvent } from "electron";
 import {
   IPC_APP_SOURCE_APPLY,
   IPC_APP_SOURCE_APPLY_REMOTE,
+  IPC_APP_SOURCE_APPLY_UPSTREAM,
   IPC_APP_SOURCE_GET_STATE,
   IPC_APP_SOURCE_UNDO,
 } from "@stella/contracts/desktop/ipc-channels";
@@ -56,5 +57,10 @@ export const registerAppSourceHandlers = (
     options,
     IPC_APP_SOURCE_APPLY_REMOTE,
     (event) => service(event)?.applyRemote() ?? unavailable,
+  );
+  registerPrivilegedHandle(
+    options,
+    IPC_APP_SOURCE_APPLY_UPSTREAM,
+    (event) => service(event)?.applyUpstream() ?? unavailable,
   );
 };

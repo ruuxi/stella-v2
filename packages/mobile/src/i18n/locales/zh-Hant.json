@@ -1583,7 +1583,10 @@
       "failed": "無法套用此變更",
       "askRebase": "把我的草稿「{name}」rebase 到目前的版本。",
       "askMerge": "合併我另一台電腦上的變更。",
-      "askUndo": "復原「{subject}」（它與之後的變更衝突）。"
+      "askUndo": "復原「{subject}」（它與之後的變更衝突）。",
+      "updateAvailable": "有可用的更新",
+      "updateNeedsMerge": "需要與你的變更合併",
+      "askUpdate": "把 Stella 更新到最新版本"
     },
     "display": {
       "homeLauncher": {

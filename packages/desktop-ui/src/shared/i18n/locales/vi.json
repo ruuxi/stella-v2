@@ -1583,7 +1583,10 @@
       "failed": "Không thể áp dụng thay đổi",
       "askRebase": "Rebase bản nháp \"{name}\" của tôi lên phiên bản hiện tại.",
       "askMerge": "Hợp nhất các thay đổi từ máy tính khác của tôi.",
-      "askUndo": "Hoàn tác \"{subject}\" (nó xung đột với các thay đổi sau đó)."
+      "askUndo": "Hoàn tác \"{subject}\" (nó xung đột với các thay đổi sau đó).",
+      "updateAvailable": "Có bản cập nhật",
+      "updateNeedsMerge": "Cần hợp nhất với các thay đổi của bạn",
+      "askUpdate": "Cập nhật Stella lên phiên bản mới nhất"
     },
     "display": {
       "homeLauncher": {

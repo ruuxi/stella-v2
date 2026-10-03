@@ -1614,7 +1614,10 @@
       "failed": "Změnu se nepodařilo použít",
       "askRebase": "Přenes můj koncept „{name}“ na aktuální verzi.",
       "askMerge": "Slouč změny z mého druhého počítače.",
-      "askUndo": "Vrať „{subject}“ (je v konfliktu s pozdějšími změnami)."
+      "askUndo": "Vrať „{subject}“ (je v konfliktu s pozdějšími změnami).",
+      "updateAvailable": "K dispozici je aktualizace",
+      "updateNeedsMerge": "Je potřeba sloučit s vašimi změnami",
+      "askUpdate": "Aktualizuj Stellu na nejnovější verzi"
     },
     "display": {
       "homeLauncher": {

@@ -1619,6 +1619,7 @@ export type ElectronAppSourceApi = {
   apply: (name: string) => Promise<AppSourceActionResult>;
   undo: (sha: string) => Promise<AppSourceActionResult>;
   applyRemote: () => Promise<AppSourceActionResult>;
+  applyUpstream: () => Promise<AppSourceActionResult>;
 };
 
 export type ElectronApi = {

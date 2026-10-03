@@ -1604,7 +1604,10 @@
       "failed": "Modificarea nu a putut fi aplicată",
       "askRebase": "Fă rebase la ciorna mea „{name}” pe versiunea curentă.",
       "askMerge": "Îmbină modificările de pe celălalt computer al meu.",
-      "askUndo": "Anulează „{subject}” (intră în conflict cu modificări ulterioare)."
+      "askUndo": "Anulează „{subject}” (intră în conflict cu modificări ulterioare).",
+      "updateAvailable": "Actualizare disponibilă",
+      "updateNeedsMerge": "Trebuie îmbinată cu modificările tale",
+      "askUpdate": "Actualizează Stella la cea mai nouă versiune"
     },
     "display": {
       "homeLauncher": {

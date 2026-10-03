@@ -1594,7 +1594,10 @@
       "failed": "Değişiklik uygulanamadı",
       "askRebase": "\"{name}\" taslağımı güncel sürüme rebase et.",
       "askMerge": "Diğer bilgisayarımdaki değişiklikleri birleştir.",
-      "askUndo": "\"{subject}\" değişikliğini geri al (sonraki değişikliklerle çakışıyor)."
+      "askUndo": "\"{subject}\" değişikliğini geri al (sonraki değişikliklerle çakışıyor).",
+      "updateAvailable": "Güncelleme mevcut",
+      "updateNeedsMerge": "Değişikliklerinizle birleştirilmesi gerekiyor",
+      "askUpdate": "Stella'yı en son sürüme güncelle"
     },
     "display": {
       "homeLauncher": {

@@ -1594,7 +1594,10 @@
       "failed": "Det gick inte att tillämpa ändringen",
       "askRebase": "Rebasa mitt utkast \"{name}\" på den aktuella versionen.",
       "askMerge": "Slå ihop ändringarna från min andra dator.",
-      "askUndo": "Ångra \"{subject}\" (den krockar med senare ändringar)."
+      "askUndo": "Ångra \"{subject}\" (den krockar med senare ändringar).",
+      "updateAvailable": "Uppdatering tillgänglig",
+      "updateNeedsMerge": "Måste slås ihop med dina ändringar",
+      "askUpdate": "Uppdatera Stella till den senaste versionen"
     },
     "display": {
       "homeLauncher": {

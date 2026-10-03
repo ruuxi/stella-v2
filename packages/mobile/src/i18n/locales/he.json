@@ -1604,7 +1604,10 @@
       "failed": "לא ניתן היה להחיל את השינוי",
       "askRebase": "בצע rebase לטיוטה שלי \"{name}\" על הגרסה הנוכחית.",
       "askMerge": "מזג את השינויים מהמחשב השני שלי.",
-      "askUndo": "בטל את \"{subject}\" (מתנגש בשינויים מאוחרים יותר)."
+      "askUndo": "בטל את \"{subject}\" (מתנגש בשינויים מאוחרים יותר).",
+      "updateAvailable": "עדכון זמין",
+      "updateNeedsMerge": "צריך למזג עם השינויים שלך",
+      "askUpdate": "עדכן את Stella לגרסה האחרונה"
     },
     "display": {
       "homeLauncher": {

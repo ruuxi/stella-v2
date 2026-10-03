@@ -1604,7 +1604,10 @@
       "failed": "Não foi possível aplicar a alteração",
       "askRebase": "Faz rebase do meu rascunho \"{name}\" sobre a versão atual.",
       "askMerge": "Junta as alterações do meu outro computador.",
-      "askUndo": "Desfaz \"{subject}\" (entra em conflito com alterações posteriores)."
+      "askUndo": "Desfaz \"{subject}\" (entra em conflito com alterações posteriores).",
+      "updateAvailable": "Atualização disponível",
+      "updateNeedsMerge": "Tem de ser junta com as suas alterações",
+      "askUpdate": "Atualiza a Stella para a versão mais recente"
     },
     "display": {
       "homeLauncher": {

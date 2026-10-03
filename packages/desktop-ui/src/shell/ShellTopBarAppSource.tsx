@@ -50,7 +50,8 @@ const formatAgo = (locale: string, date: number) => {
 
 /**
  * Changes to Stella itself when it runs from source: drafts an agent finished,
- * changes made on the user's other computers, and recent changes to undo.
+ * changes made on the user's other computers, updates to the published app,
+ * and recent changes to undo.
  * Release updates stay with `ShellTopBarUpdatePill`.
  */
 export const ShellTopBarAppSource = () => {
@@ -63,11 +64,17 @@ export const ShellTopBarAppSource = () => {
 
   const remoteAhead = state.remote.status === "ahead";
   const diverged = state.remote.status === "diverged";
-  const hasReady = state.ready.length > 0 || remoteAhead;
+  const upstreamAhead = state.upstream.status === "ahead";
+  const upstreamDiverged = state.upstream.status === "diverged";
+  const hasReady = state.ready.length > 0 || remoteAhead || upstreamAhead;
   const conflict = state.recent.find(
     (commit) => commit.sha === conflictingUndo,
   );
-  const hasAttention = state.stale.length > 0 || diverged || Boolean(conflict);
+  const hasAttention =
+    state.stale.length > 0 ||
+    diverged ||
+    upstreamDiverged ||
+    Boolean(conflict);
   if (!hasReady && !hasAttention && state.recent.length === 0) return null;
 
   const run = async (
@@ -166,6 +173,16 @@ export const ShellTopBarAppSource = () => {
                   onAction={() => void run(() => api.applyRemote())}
                 />
               ) : null}
+              {upstreamAhead ? (
+                <Row
+                  title={t("shell.appSource.updateAvailable")}
+                  detail={state.upstream.subject}
+                  action={t("shell.appSource.apply")}
+                  primary
+                  disabled={state.busy}
+                  onAction={() => void run(() => api.applyUpstream())}
+                />
+              ) : null}
             </section>
           ) : null}
           {hasAttention ? (
@@ -187,6 +204,14 @@ export const ShellTopBarAppSource = () => {
                   title={t("shell.appSource.diverged")}
                   action={t("shell.appSource.ask")}
                   onAction={() => ask(t("shell.appSource.askMerge"))}
+                />
+              ) : null}
+              {upstreamDiverged ? (
+                <Row
+                  title={t("shell.appSource.updateAvailable")}
+                  detail={t("shell.appSource.updateNeedsMerge")}
+                  action={t("shell.appSource.ask")}
+                  onAction={() => ask(t("shell.appSource.askUpdate"))}
                 />
               ) : null}
               {conflict ? (

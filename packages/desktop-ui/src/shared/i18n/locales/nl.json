@@ -1594,7 +1594,10 @@
       "failed": "Kan de wijziging niet toepassen",
       "askRebase": "Rebase mijn concept \"{name}\" op de huidige versie.",
       "askMerge": "Voeg de wijzigingen van mijn andere computer samen.",
-      "askUndo": "Maak \"{subject}\" ongedaan (het conflicteert met latere wijzigingen)."
+      "askUndo": "Maak \"{subject}\" ongedaan (het conflicteert met latere wijzigingen).",
+      "updateAvailable": "Update beschikbaar",
+      "updateNeedsMerge": "Moet worden samengevoegd met je wijzigingen",
+      "askUpdate": "Werk Stella bij naar de nieuwste versie"
     },
     "display": {
       "homeLauncher": {

@@ -1604,7 +1604,10 @@
       "failed": "Impossible d'appliquer la modification",
       "askRebase": "Rebase mon brouillon « {name} » sur la version actuelle.",
       "askMerge": "Fusionne les modifications de mon autre ordinateur.",
-      "askUndo": "Annule « {subject} » (en conflit avec des modifications ultérieures)."
+      "askUndo": "Annule « {subject} » (en conflit avec des modifications ultérieures).",
+      "updateAvailable": "Mise à jour disponible",
+      "updateNeedsMerge": "Doit être fusionnée avec vos modifications",
+      "askUpdate": "Mets Stella à jour vers la dernière version"
     },
     "display": {
       "homeLauncher": {

@@ -1614,7 +1614,10 @@
       "failed": "Nie udało się zastosować zmiany",
       "askRebase": "Zrób rebase mojego szkicu „{name}” na bieżącą wersję.",
       "askMerge": "Scal zmiany z mojego drugiego komputera.",
-      "askUndo": "Cofnij „{subject}” (koliduje z późniejszymi zmianami)."
+      "askUndo": "Cofnij „{subject}” (koliduje z późniejszymi zmianami).",
+      "updateAvailable": "Dostępna aktualizacja",
+      "updateNeedsMerge": "Wymaga scalenia z Twoimi zmianami",
+      "askUpdate": "Zaktualizuj Stellę do najnowszej wersji"
     },
     "display": {
       "homeLauncher": {

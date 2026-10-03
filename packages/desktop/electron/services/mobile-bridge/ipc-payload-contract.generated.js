@@ -24,6 +24,7 @@ export const IPC_PAYLOAD_CONTRACT = {
     "app:setReady": { kind: "passthrough" },
     "appSource:apply": { kind: "passthrough" },
     "appSource:applyRemote": { kind: "none" },
+    "appSource:applyUpstream": { kind: "none" },
     "appSource:getState": { kind: "none" },
     "appSource:undo": { kind: "passthrough" },
     "auth:applySessionToken": { kind: "object", fields: ["sessionToken"] },

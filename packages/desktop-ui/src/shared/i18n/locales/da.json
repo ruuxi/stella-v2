@@ -1594,7 +1594,10 @@
       "failed": "Ændringen kunne ikke anvendes",
       "askRebase": "Rebase mit udkast \"{name}\" på den aktuelle version.",
       "askMerge": "Flet ændringerne fra min anden computer.",
-      "askUndo": "Fortryd \"{subject}\" (den er i konflikt med senere ændringer)."
+      "askUndo": "Fortryd \"{subject}\" (den er i konflikt med senere ændringer).",
+      "updateAvailable": "Opdatering tilgængelig",
+      "updateNeedsMerge": "Skal flettes med dine ændringer",
+      "askUpdate": "Opdater Stella til den nyeste version"
     },
     "display": {
       "homeLauncher": {

@@ -1583,7 +1583,10 @@
       "failed": "変更を適用できませんでした",
       "askRebase": "下書き「{name}」を現在のバージョンにリベースしてください。",
       "askMerge": "別のコンピューターの変更をマージしてください。",
-      "askUndo": "「{subject}」を元に戻してください（後の変更と競合しています）。"
+      "askUndo": "「{subject}」を元に戻してください（後の変更と競合しています）。",
+      "updateAvailable": "アップデートがあります",
+      "updateNeedsMerge": "あなたの変更とのマージが必要です",
+      "askUpdate": "Stellaを最新バージョンにアップデートしてください"
     },
     "display": {
       "homeLauncher": {

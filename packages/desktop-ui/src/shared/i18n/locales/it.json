@@ -1604,7 +1604,10 @@
       "failed": "Impossibile applicare la modifica",
       "askRebase": "Esegui il rebase della mia bozza \"{name}\" sulla versione attuale.",
       "askMerge": "Unisci le modifiche dal mio altro computer.",
-      "askUndo": "Annulla \"{subject}\" (è in conflitto con modifiche successive)."
+      "askUndo": "Annulla \"{subject}\" (è in conflitto con modifiche successive).",
+      "updateAvailable": "Aggiornamento disponibile",
+      "updateNeedsMerge": "Da unire alle tue modifiche",
+      "askUpdate": "Aggiorna Stella all'ultima versione"
     },
     "display": {
       "homeLauncher": {

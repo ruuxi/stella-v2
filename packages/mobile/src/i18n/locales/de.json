@@ -1594,7 +1594,10 @@
       "failed": "Die Änderung konnte nicht übernommen werden",
       "askRebase": "Setze meinen Entwurf „{name}“ auf die aktuelle Version auf.",
       "askMerge": "Führe die Änderungen von meinem anderen Computer zusammen.",
-      "askUndo": "Mache „{subject}“ rückgängig (es steht im Konflikt mit späteren Änderungen)."
+      "askUndo": "Mache „{subject}“ rückgängig (es steht im Konflikt mit späteren Änderungen).",
+      "updateAvailable": "Update verfügbar",
+      "updateNeedsMerge": "Muss mit deinen Änderungen zusammengeführt werden",
+      "askUpdate": "Aktualisiere Stella auf die neueste Version"
     },
     "display": {
       "homeLauncher": {

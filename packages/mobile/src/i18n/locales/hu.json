@@ -1594,7 +1594,10 @@
       "failed": "Nem sikerült alkalmazni a módosítást",
       "askRebase": "Rebase-eld a(z) „{name}” piszkozatomat a jelenlegi verzióra.",
       "askMerge": "Egyesítsd a másik számítógépem módosításait.",
-      "askUndo": "Vond vissza: „{subject}” (ütközik későbbi módosításokkal)."
+      "askUndo": "Vond vissza: „{subject}” (ütközik későbbi módosításokkal).",
+      "updateAvailable": "Frissítés érhető el",
+      "updateNeedsMerge": "Egyesíteni kell a módosításaiddal",
+      "askUpdate": "Frissítsd a Stellát a legújabb verzióra"
     },
     "display": {
       "homeLauncher": {

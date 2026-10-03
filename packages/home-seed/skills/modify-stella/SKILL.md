@@ -1,6 +1,6 @@
 ---
 name: modify-stella
-description: Change Stella itself (its UI, runtime, or desktop shell) by preparing a draft in a git worktree that the user applies with the Update button. Use when the user asks to change, fix, or add to Stella, to rebase a draft, to merge changes from their other computer, or to undo a change that conflicts.
+description: Change Stella itself (its UI, runtime, or desktop shell) by preparing a draft in a git worktree that the user applies with the Update button. Use when the user asks to change, fix, or add to Stella, to rebase a draft, to merge changes from their other computer, to update Stella to the latest version, or to undo a change that conflicts.
 ---
 
 # Modifying Stella
@@ -69,3 +69,12 @@ The Update menu sends you these when git cannot do them alone. Do them in a draf
 - **Undo that conflicts:** start a draft, `git revert <sha>`, resolve, check, finish.
 
 If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" worktree prune`.
+
+## Updates
+
+When the user has changed Stella and a new version is published, the Update menu sends "Update Stella to the latest version". The published version is at `refs/remotes/stella-upstream/main` (Stella fetches it; never fetch or pull yourself). Merge it in a draft:
+
+1. Name the draft `update-<sha12>`, the first 12 characters of `git -C "$STELLA_APP_DIR" rev-parse refs/remotes/stella-upstream/main`, and start it as usual.
+2. In the draft, `git merge refs/remotes/stella-upstream/main`. Resolve every conflict keeping the user's changes: take the new version's code, then carry the user's changes over onto it so both work.
+3. `bun install`, then run all three typechecks (renderer, runtime, main/preload) and check the UI in a preview, as in "Check it", even if no conflict touched the UI.
+4. Finish as usual, but keep the merge commit: commit the merge resolution (`git commit --no-edit` after `git add`), and do not squash or rebase it.

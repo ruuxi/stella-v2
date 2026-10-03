@@ -3,6 +3,7 @@ import {
   BackendClient,
   BackendRequestError,
 } from "@stella/contracts/backend/client";
+import type { AppSourceRemote } from "@stella/contracts/backend/app-source";
 import type {
   AppSourceActionResult,
   AppSourceDraft,
@@ -20,12 +21,13 @@ import {
 
 /**
  * Applies finished drafts to the app's own checkout, undoes recent commits,
- * and keeps the checkout in step with the owner's fork on Artifacts.
+ * keeps the checkout in step with the owner's fork on Artifacts, and takes
+ * updates from the published app (upstream).
  *
  * Git is the only bookkeeping: drafts are `draft/<name>` branches (in
  * progress while a worktree has one checked out), "recent" is first-parent
- * history, and the fork is a remote-tracking ref. Every git call is async so
- * main never blocks on one.
+ * history, and the fork and upstream are remote-tracking refs. Every git call
+ * is async so main never blocks on one.
  */
 
 type AppSourceServiceOptions = {
@@ -39,6 +41,13 @@ type AppSourceServiceOptions = {
   getBackendUrl: () => string | null;
   getAuthToken: () => Promise<string | null>;
   log: (event: string, data: Record<string, unknown>) => void;
+  /** After a successful push to the fork. Not awaited by the push. */
+  onPushed?: (cwd: string) => void | Promise<void>;
+  /**
+   * After an apply, undo, applyRemote or applyUpstream lands in the checkout,
+   * before it is swapped in. A throw fails the action.
+   */
+  afterApply?: (cwd: string) => void | Promise<void>;
 };
 
 type ForkAccess = {
@@ -48,6 +57,9 @@ type ForkAccess = {
   expiresAt: number;
 };
 
+/** The fork exists only for a signed-in owner; upstream is always readable. */
+type SourceAccess = { fork: ForkAccess | null; upstream: AppSourceRemote };
+
 class ConflictError extends Error {}
 
 const STATE_POLL_MS = 10_000;
@@ -55,12 +67,22 @@ const FORK_FIRST_SYNC_DELAY_MS = 20_000;
 const FORK_SYNC_INTERVAL_MS = 30 * 60_000;
 const RECENT_COUNT = 8;
 const FORK_REF_PREFIX = "refs/remotes/stella-fork/";
+const UPSTREAM_REF = "refs/remotes/stella-upstream/main";
+/** Public: anonymous users read upstream with a shared, edge-cached token. */
+const BOOTSTRAP_PATH = "/api/app-source/bootstrap";
 const ACCESS_ATTEMPTS = 5;
+
+const NO_UPSTREAM: AppSourceState["upstream"] = {
+  status: "none",
+  count: 0,
+  subject: "",
+};
 
 const EMPTY_STATE: AppSourceState = {
   ready: [],
   stale: [],
   remote: { status: "none", count: 0 },
+  upstream: NO_UPSTREAM,
   recent: [],
   busy: false,
 };
@@ -92,10 +114,13 @@ export class AppSourceService {
   private syncing = false;
   private timers: NodeJS.Timeout[] = [];
   private backend: { baseUrl: string; client: BackendClient } | null = null;
-  private access: ForkAccess | null = null;
+  private access: SourceAccess | null = null;
   /** The fork's branch, once fetched and found to share history with HEAD. */
   private forkBranch: string | null = null;
   private forkUnrelated = false;
+  /** Upstream was fetched and shares history with HEAD. */
+  private upstreamTracked = false;
+  private upstreamUnrelated = false;
   private disposed = false;
   private readonly onFocus = () => void this.refresh();
 
@@ -208,6 +233,27 @@ export class AppSourceService {
     });
   }
 
+  /**
+   * Take the published app's update when this checkout has no changes of its
+   * own. With changes, an agent merges upstream in a draft instead.
+   */
+  applyUpstream() {
+    return this.exclusive(async (cwd) => {
+      if (!this.upstreamTracked) throw new Error("No update is available.");
+      const head = await git(cwd, ["rev-parse", "HEAD"]);
+      const tip = await git(cwd, [
+        "rev-parse",
+        "--verify",
+        `${UPSTREAM_REF}^{commit}`,
+      ]);
+      if (!(await isAncestor(cwd, head, tip))) {
+        throw new Error("This update has to be merged with your changes.");
+      }
+      await git(cwd, ["merge", "--ff-only", tip]);
+      await this.swapIn(cwd, head, tip);
+    });
+  }
+
   private exclusive(
     task: (cwd: string) => Promise<void>,
   ): Promise<AppSourceActionResult> {
@@ -237,6 +283,7 @@ export class AppSourceService {
 
   /** Make a change that just landed in the checkout take effect. */
   private async swapIn(cwd: string, from: string, to: string) {
+    await this.options.afterApply?.(cwd);
     const paths = (await git(cwd, ["diff", "--name-only", from, to]))
       .split("\n")
       .filter(Boolean);
@@ -358,38 +405,44 @@ export class AppSourceService {
         const [sha = "", subject = "", seconds = "0"] = line.split("\0");
         return { sha, subject, date: Number(seconds) * 1000 };
       });
-    return { ready, stale, remote: await this.readRemote(cwd, head), recent };
-  }
-
-  private async readRemote(
-    cwd: string,
-    head: string,
-  ): Promise<AppSourceState["remote"]> {
-    const none = { status: "none", count: 0 } as const;
-    if (!this.forkBranch) return none;
-    const fork = (
-      await gitRaw(cwd, [
-        "rev-parse",
-        "--verify",
-        "--quiet",
-        `${FORK_REF_PREFIX}${this.forkBranch}^{commit}`,
-      ])
-    ).stdout.trim();
-    if (!fork || fork === head || (await isAncestor(cwd, fork, head)))
-      return none;
-    const count = Number(
-      await git(cwd, ["rev-list", "--count", `${head}..${fork}`]),
-    );
+    const [remote, upstream] = await Promise.all([
+      this.forkBranch
+        ? this.compareRef(cwd, head, `${FORK_REF_PREFIX}${this.forkBranch}`)
+        : null,
+      this.upstreamTracked ? this.compareRef(cwd, head, UPSTREAM_REF) : null,
+    ]);
     return {
-      status: (await isAncestor(cwd, head, fork)) ? "ahead" : "diverged",
-      count,
+      ready,
+      stale,
+      remote: remote
+        ? { status: remote.status, count: remote.count }
+        : { status: "none", count: 0 },
+      upstream: upstream ?? NO_UPSTREAM,
+      recent,
     };
   }
 
-  /** Fetch the fork; push when this computer is ahead. */
+  /** A remote-tracking ref that has commits HEAD lacks, or null. */
+  private async compareRef(cwd: string, head: string, ref: string) {
+    const tip = (
+      await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
+    ).stdout.trim();
+    if (!tip || tip === head || (await isAncestor(cwd, tip, head))) return null;
+    const [count, subject, ahead] = await Promise.all([
+      git(cwd, ["rev-list", "--count", `${head}..${tip}`]),
+      git(cwd, ["log", "-1", "--format=%s", tip]),
+      isAncestor(cwd, head, tip),
+    ]);
+    return {
+      status: ahead ? ("ahead" as const) : ("diverged" as const),
+      count: Number(count),
+      subject,
+    };
+  }
+
+  /** Fetch the fork and upstream; push to the fork when this computer is ahead. */
   async syncFork() {
-    if (this.disposed || this.busy || this.syncing || this.forkUnrelated)
-      return;
+    if (this.disposed || this.busy || this.syncing) return;
     this.syncing = true;
     const cwd = this.options.stellaAppDir;
     try {
@@ -398,32 +451,21 @@ export class AppSourceService {
       if (worktrees.some((tree) => tree.branch?.startsWith(DRAFT_REF_PREFIX))) {
         return;
       }
-      const access = await this.forkAccess();
+      const access = await this.sourceAccess();
       if (!access) return;
-      const ref = `${FORK_REF_PREFIX}${access.branch}`;
-      await git(
-        cwd,
-        [
-          "fetch",
-          "--quiet",
-          "--no-tags",
-          "--no-write-fetch-head",
-          access.remote,
-          `+refs/heads/${access.branch}:${ref}`,
-        ],
-        { env: forkAuthEnv(access.token), timeoutMs: 5 * 60_000 },
-      );
-      // The dev repo's history is unrelated to the published fork; only
-      // checkouts cloned from the fork sync with it.
-      if ((await gitRaw(cwd, ["merge-base", "HEAD", ref])).code !== 0) {
-        this.forkUnrelated = true;
-        this.options.log("app-source.fork-unrelated", {});
-        return;
+      if (access.fork && !this.forkUnrelated) {
+        await this.syncWithFork(cwd, access.fork).catch((error) => {
+          this.options.log("app-source.fork-sync-failed", {
+            message: errorMessage(error),
+          });
+        });
       }
-      this.forkBranch = access.branch;
-      await this.pushIfAhead(cwd, access);
+      // A checkout unrelated to the fork is unrelated to upstream too.
+      if (!this.forkUnrelated && !this.upstreamUnrelated) {
+        await this.fetchUpstream(cwd, access.upstream);
+      }
     } catch (error) {
-      this.options.log("app-source.fork-sync-failed", {
+      this.options.log("app-source.sync-failed", {
         message: errorMessage(error),
       });
     } finally {
@@ -432,12 +474,59 @@ export class AppSourceService {
     }
   }
 
+  private async syncWithFork(cwd: string, fork: ForkAccess) {
+    const ref = `${FORK_REF_PREFIX}${fork.branch}`;
+    await git(
+      cwd,
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        fork.remote,
+        `+refs/heads/${fork.branch}:${ref}`,
+      ],
+      { env: forkAuthEnv(fork.token), timeoutMs: 5 * 60_000 },
+    );
+    // The dev repo's history is unrelated to the published fork; only
+    // checkouts cloned from the fork sync with it.
+    if ((await gitRaw(cwd, ["merge-base", "HEAD", ref])).code !== 0) {
+      this.forkUnrelated = true;
+      this.options.log("app-source.fork-unrelated", {});
+      return;
+    }
+    this.forkBranch = fork.branch;
+    await this.pushIfAhead(cwd, fork);
+  }
+
+  private async fetchUpstream(cwd: string, upstream: AppSourceRemote) {
+    await git(
+      cwd,
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        upstream.remote,
+        `+refs/heads/main:${UPSTREAM_REF}`,
+      ],
+      { env: forkAuthEnv(upstream.token), timeoutMs: 5 * 60_000 },
+    );
+    if ((await gitRaw(cwd, ["merge-base", "HEAD", UPSTREAM_REF])).code !== 0) {
+      this.upstreamUnrelated = true;
+      this.upstreamTracked = false;
+      this.options.log("app-source.upstream-unrelated", {});
+      return;
+    }
+    this.upstreamTracked = true;
+  }
+
   /** Best-effort, never awaited by an action. */
   private pushToFork() {
     if (!this.forkBranch) return;
     void (async () => {
-      const access = await this.forkAccess();
-      if (access) await this.pushIfAhead(this.options.stellaAppDir, access);
+      const fork = (await this.sourceAccess())?.fork;
+      if (fork) await this.pushIfAhead(this.options.stellaAppDir, fork);
     })()
       .catch((error) => {
         this.options.log("app-source.fork-push-failed", {
@@ -447,26 +536,76 @@ export class AppSourceService {
       .finally(() => void this.refresh());
   }
 
-  private async pushIfAhead(cwd: string, access: ForkAccess) {
-    const ref = `${FORK_REF_PREFIX}${access.branch}`;
+  private async pushIfAhead(cwd: string, fork: ForkAccess) {
+    const ref = `${FORK_REF_PREFIX}${fork.branch}`;
     const head = await git(cwd, ["rev-parse", "HEAD"]);
-    const fork = await git(cwd, ["rev-parse", "--verify", ref]);
+    const forkTip = await git(cwd, ["rev-parse", "--verify", ref]);
     // Only fast-forwards: a diverged fork is merged by an agent, never forced.
-    if (fork === head || !(await isAncestor(cwd, fork, head))) return;
+    if (forkTip === head || !(await isAncestor(cwd, forkTip, head))) return;
     await git(
       cwd,
-      ["push", "--quiet", access.remote, `HEAD:refs/heads/${access.branch}`],
-      { env: forkAuthEnv(access.token), timeoutMs: 5 * 60_000 },
+      ["push", "--quiet", fork.remote, `HEAD:refs/heads/${fork.branch}`],
+      { env: forkAuthEnv(fork.token), timeoutMs: 5 * 60_000 },
     );
     await git(cwd, ["update-ref", ref, head]);
+    const onPushed = this.options.onPushed;
+    if (onPushed) {
+      void Promise.resolve()
+        .then(() => onPushed(cwd))
+        .catch((error) => {
+          this.options.log("app-source.on-pushed-failed", {
+            message: errorMessage(error),
+          });
+        });
+    }
   }
 
-  private async forkAccess(): Promise<ForkAccess | null> {
+  /**
+   * A signed-in owner gets their fork (write) and upstream (read) from
+   * `appSource.access`; anyone else reads upstream through the public
+   * bootstrap endpoint.
+   */
+  private async sourceAccess(): Promise<SourceAccess | null> {
     const baseUrl = this.options.getBackendUrl();
-    if (!baseUrl || !this.options.hasConnectedAccount()) return null;
-    if (this.access && this.access.expiresAt - 60_000 > Date.now()) {
-      return this.access;
+    if (!baseUrl) return null;
+    const signedIn = this.options.hasConnectedAccount();
+    const cached = this.access;
+    if (
+      cached &&
+      (cached.fork !== null) === signedIn &&
+      Math.min(cached.upstream.expiresAt, cached.fork?.expiresAt ?? Infinity) -
+        60_000 >
+        Date.now()
+    ) {
+      return cached;
     }
+    this.access = signedIn
+      ? await this.accountAccess(baseUrl)
+      : { fork: null, upstream: await this.bootstrapAccess(baseUrl) };
+    return this.access;
+  }
+
+  private async bootstrapAccess(baseUrl: string): Promise<AppSourceRemote> {
+    const response = await fetch(
+      `${baseUrl.replace(/\/+$/, "")}${BOOTSTRAP_PATH}`,
+      { method: "POST", signal: AbortSignal.timeout(30_000) },
+    );
+    if (!response.ok) {
+      throw new Error(`Update check failed (${response.status}).`);
+    }
+    const body = (await response.json()) as { upstream?: AppSourceRemote };
+    const upstream = body.upstream;
+    if (
+      typeof upstream?.remote !== "string" ||
+      typeof upstream.token !== "string" ||
+      typeof upstream.expiresAt !== "number"
+    ) {
+      throw new Error("Update check returned an unexpected response.");
+    }
+    return upstream;
+  }
+
+  private async accountAccess(baseUrl: string): Promise<SourceAccess> {
     if (this.backend?.baseUrl !== baseUrl) {
       this.backend?.client.dispose();
       this.backend = {
@@ -479,14 +618,19 @@ export class AppSourceService {
     }
     for (let attempt = 1; ; attempt += 1) {
       try {
-        const { fork } = await this.backend.client.call("appSource.access", {});
-        this.access = {
-          remote: fork.remote,
-          branch: fork.defaultBranch,
-          token: fork.token,
-          expiresAt: fork.expiresAt,
+        const { fork, upstream } = await this.backend.client.call(
+          "appSource.access",
+          {},
+        );
+        return {
+          fork: {
+            remote: fork.remote,
+            branch: fork.defaultBranch,
+            token: fork.token,
+            expiresAt: fork.expiresAt,
+          },
+          upstream,
         };
-        return this.access;
       } catch (error) {
         // The fork is created on first use; the backend asks to retry.
         if (

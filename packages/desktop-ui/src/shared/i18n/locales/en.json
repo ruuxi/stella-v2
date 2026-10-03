@@ -1594,7 +1594,10 @@
       "failed": "Couldn't apply the change",
       "askRebase": "Rebase my draft \"{name}\" onto the current version.",
       "askMerge": "Merge the changes from my other computer.",
-      "askUndo": "Undo \"{subject}\" (it conflicts with later changes)."
+      "askUndo": "Undo \"{subject}\" (it conflicts with later changes).",
+      "updateAvailable": "Update available",
+      "updateNeedsMerge": "Needs merging with your changes",
+      "askUpdate": "Update Stella to the latest version"
     },
     "display": {
       "homeLauncher": {

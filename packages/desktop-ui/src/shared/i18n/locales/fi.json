@@ -1594,7 +1594,10 @@
       "failed": "Muutosta ei voitu ottaa käyttöön",
       "askRebase": "Siirrä luonnokseni \"{name}\" nykyisen version päälle.",
       "askMerge": "Yhdistä muutokset toiselta tietokoneeltani.",
-      "askUndo": "Kumoa \"{subject}\" (se on ristiriidassa myöhempien muutosten kanssa)."
+      "askUndo": "Kumoa \"{subject}\" (se on ristiriidassa myöhempien muutosten kanssa).",
+      "updateAvailable": "Päivitys saatavilla",
+      "updateNeedsMerge": "Täytyy yhdistää muutoksiisi",
+      "askUpdate": "Päivitä Stella uusimpaan versioon"
     },
     "display": {
       "homeLauncher": {

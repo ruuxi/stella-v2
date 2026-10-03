@@ -1583,7 +1583,10 @@
       "failed": "Tidak dapat menerapkan perubahan",
       "askRebase": "Rebase draf saya \"{name}\" ke versi saat ini.",
       "askMerge": "Gabungkan perubahan dari komputer saya yang lain.",
-      "askUndo": "Urungkan \"{subject}\" (bertentangan dengan perubahan berikutnya)."
+      "askUndo": "Urungkan \"{subject}\" (bertentangan dengan perubahan berikutnya).",
+      "updateAvailable": "Pembaruan tersedia",
+      "updateNeedsMerge": "Perlu digabungkan dengan perubahan Anda",
+      "askUpdate": "Perbarui Stella ke versi terbaru"
     },
     "display": {
       "homeLauncher": {

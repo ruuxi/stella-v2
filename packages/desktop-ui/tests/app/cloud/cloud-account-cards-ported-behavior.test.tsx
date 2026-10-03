@@ -4,16 +4,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const API = vi.hoisted(() => ({
-  projects: {
-    listMyProjects: "projects:listMyProjects",
-    listMyGithubInstallations: "projects:listMyGithubInstallations",
-    startGithubAppInstall: "projects:startGithubAppInstall",
-    createMyProject: "projects:createMyProject",
-    finishGithubConnect: "projects:finishGithubConnect",
-  },
-}));
-
 const mocks = vi.hoisted(() => ({
   authenticated: true,
   queries: new Map<unknown, unknown>(),
@@ -28,6 +18,13 @@ const mocks = vi.hoisted(() => ({
     finishConnect: vi.fn(),
     disconnect: vi.fn(),
     setExecution: vi.fn(),
+  },
+  projects: {
+    list: undefined as unknown,
+    github: undefined as unknown,
+    startGithubInstall: vi.fn(),
+    createCloudProject: vi.fn(),
+    finishGithubConnect: vi.fn(),
   },
 }));
 
@@ -52,7 +49,14 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock("@/features/cloud/cloud-api", () => ({
-  projectsApi: API.projects,
+}));
+
+vi.mock("@/features/cloud/cloud-projects-api", () => ({
+  useCloudProjects: () => mocks.projects.list,
+  useGithubConnections: () => mocks.projects.github,
+  startGithubInstall: mocks.projects.startGithubInstall,
+  createCloudProject: mocks.projects.createCloudProject,
+  finishGithubConnect: mocks.projects.finishGithubConnect,
 }));
 
 vi.mock("@/features/cloud/cloud-engines-api", () => ({
@@ -128,27 +132,19 @@ describe("ported cloud account cards", () => {
     mocks.enginesApi.finishConnect.mockReset().mockResolvedValue({ ok: true });
     mocks.enginesApi.disconnect.mockReset().mockResolvedValue(null);
     mocks.enginesApi.setExecution.mockReset().mockResolvedValue(null);
-
-    mocks.actions.set(
-      API.projects.startGithubAppInstall,
-      vi.fn().mockResolvedValue({
-        stateId: "state-1",
-        installUrl: "https://github.example/install",
-      }),
-    );
-
-    mocks.mutations.set(
-      API.projects.createMyProject,
-      vi.fn().mockResolvedValue({ projectId: "project-1" }),
-    );
-    mocks.mutations.set(
-      API.projects.finishGithubConnect,
-      vi.fn().mockResolvedValue({
-        ok: true,
-        accountLogin: "octocat",
-        accountType: "User",
-      }),
-    );
+    mocks.projects.list = undefined;
+    mocks.projects.github = undefined;
+    mocks.projects.startGithubInstall.mockReset().mockResolvedValue({
+      installUrl: "https://github.example/install",
+    });
+    mocks.projects.createCloudProject
+      .mockReset()
+      .mockResolvedValue({ projectId: "project-1" });
+    mocks.projects.finishGithubConnect.mockReset().mockResolvedValue({
+      ok: true,
+      accountLogin: "octocat",
+      accountType: "User",
+    });
 
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -201,11 +197,8 @@ describe("ported cloud account cards", () => {
   });
 
   it("requires the explicit GitHub connect-code step and names the account", async () => {
-    mocks.queries.set(API.projects.listMyProjects, []);
-    mocks.queries.set(API.projects.listMyGithubInstallations, {
-      appConfigured: true,
-      connections: [],
-    });
+    mocks.projects.list = [];
+    mocks.projects.github = { appConfigured: true, connections: [] };
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     await render();
 
@@ -235,9 +228,9 @@ describe("ported cloud account cards", () => {
       await Promise.resolve();
     });
 
-    expect(
-      mocks.mutations.get(API.projects.finishGithubConnect),
-    ).toHaveBeenCalledWith({ connectCode: "ABCD-EFGH-IJKL" });
+    expect(mocks.projects.finishGithubConnect).toHaveBeenCalledWith(
+      "ABCD-EFGH-IJKL",
+    );
     expect(mocks.showToast).toHaveBeenCalledWith({
       title: "GitHub connected as octocat.",
       variant: "success",
@@ -245,14 +238,10 @@ describe("ported cloud account cards", () => {
   });
 
   it("keeps project action failures contained in an error toast", async () => {
-    mocks.queries.set(API.projects.listMyProjects, []);
-    mocks.queries.set(API.projects.listMyGithubInstallations, {
-      appConfigured: true,
-      connections: [],
-    });
-    mocks.actions.set(
-      API.projects.startGithubAppInstall,
-      vi.fn().mockRejectedValue(new Error("GitHub is unavailable")),
+    mocks.projects.list = [];
+    mocks.projects.github = { appConfigured: true, connections: [] };
+    mocks.projects.startGithubInstall.mockRejectedValue(
+      new Error("GitHub is unavailable"),
     );
     await render();
 

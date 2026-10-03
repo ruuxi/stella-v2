@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import type {
   CloudBrowserInteractionDecision,
   CloudBrowserInteractionDetail,
   CloudBrowserInteractionSummary,
 } from "@stella/contracts/cloud-browser";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 import { cloudBrowserApi } from "./cloud-browser-api";
 
 const EMPTY_INTERACTIONS: readonly CloudBrowserInteractionSummary[] = [];
@@ -20,8 +21,8 @@ const newRequestId = (): string =>
 export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
   const { isAuthenticated } = useConvexAuth();
   const { hasConnectedAccount } = useAuthSessionState();
-  const interactions = useQuery(
-    cloudBrowserApi.listMyPendingBrowserInteractions,
+  const interactions = useBackendValue(
+    "browser.pending",
     isAuthenticated && hasConnectedAccount ? {} : "skip",
   );
   return interactions ?? EMPTY_INTERACTIONS;
@@ -35,7 +36,6 @@ export function useCloudBrowserInteraction(
   const revision = pending.find(
     (entry) => entry.interactionId === interactionId,
   )?.revision;
-  const getInteraction = useAction(cloudBrowserApi.getMyBrowserInteraction);
   const requestKey =
     isAuthenticated && interactionId
       ? `${interactionId}:${revision ?? "direct"}`
@@ -48,7 +48,8 @@ export function useCloudBrowserInteraction(
   useEffect(() => {
     if (!requestKey || !interactionId) return;
     let disposed = false;
-    void getInteraction({ interactionId })
+    void cloudBrowserApi
+      .getInteraction({ interactionId })
       .then((value) => {
         if (!disposed) setResult({ key: requestKey, value });
       })
@@ -58,7 +59,7 @@ export function useCloudBrowserInteraction(
     return () => {
       disposed = true;
     };
-  }, [getInteraction, interactionId, requestKey]);
+  }, [interactionId, requestKey]);
 
   return result?.key === requestKey ? result.value : undefined;
 }
@@ -79,11 +80,7 @@ export function useCurrentConversationBrowserInteraction(
 }
 
 export function useCloudBrowserActions() {
-  const mintLiveView = useAction(
-    cloudBrowserApi.mintMyBrowserLiveViewCapability,
-  );
-  const decideAction = useAction(cloudBrowserApi.decideMyBrowserInteraction);
-  const resetAction = useAction(cloudBrowserApi.resetMyBrowserProfile);
+  const mintLiveView = cloudBrowserApi.mintLiveView;
   const decide = useCallback(
     async (args: {
       interactionId: string;
@@ -93,19 +90,19 @@ export function useCloudBrowserActions() {
       const key = `${args.interactionId}:${args.expectedRevision}:${args.decision}`;
       const requestId = decisionRequestIds.get(key) ?? newRequestId();
       decisionRequestIds.set(key, requestId);
-      const result = await decideAction({ ...args, requestId });
+      const result = await cloudBrowserApi.decide({ ...args, requestId });
       decisionRequestIds.delete(key);
       return result;
     },
-    [decideAction],
+    [],
   );
   const resetProfile = useCallback(async () => {
     const requestId = resetRequestId ?? newRequestId();
     resetRequestId = requestId;
-    const result = await resetAction({ requestId });
+    const result = await cloudBrowserApi.resetProfile({ requestId });
     resetRequestId = null;
     return result;
-  }, [resetAction]);
+  }, []);
 
   return {
     mintLiveView,

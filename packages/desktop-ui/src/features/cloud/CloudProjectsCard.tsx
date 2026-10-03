@@ -1,10 +1,15 @@
 import { useCallback, useState } from "react";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
+import { useConvexAuth } from "convex/react";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
 import { CloudBoundary } from "./CloudBoundary";
-import { projectsApi } from "./cloud-api";
+import {
+  createCloudProject,
+  finishGithubConnect,
+  startGithubInstall,
+  useCloudProjects,
+  useGithubConnections,
+} from "./cloud-projects-api";
 
 /**
  * "Cloud projects" settings card: install the GitHub App once, then list the
@@ -17,27 +22,14 @@ const PROVIDER_LABEL: Record<string, string> = {
   stella: "Stella-hosted",
 };
 
-const projectErrorText = (error: unknown): string => {
-  if (error instanceof ConvexError) {
-    const data = error.data as { message?: string } | string;
-    if (typeof data === "string") return data;
-    if (data?.message) return data.message;
-  }
-  if (
-    error instanceof Error &&
-    !/Server Error|ConvexError/.test(error.message)
-  ) {
-    return error.message;
-  }
-  return "That didn't work. Try again.";
-};
+const projectErrorText = (error: unknown): string =>
+  error instanceof Error && error.message
+    ? error.message
+    : "That didn't work. Try again.";
 
 function CloudProjectsCardImpl() {
-  const projects = useQuery(projectsApi.listMyProjects, {});
-  const github = useQuery(projectsApi.listMyGithubInstallations, {});
-  const startInstall = useAction(projectsApi.startGithubAppInstall);
-  const createProject = useMutation(projectsApi.createMyProject);
-  const finishConnect = useMutation(projectsApi.finishGithubConnect);
+  const projects = useCloudProjects();
+  const github = useGithubConnections();
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [remoteUrl, setRemoteUrl] = useState("");
@@ -48,7 +40,7 @@ function CloudProjectsCardImpl() {
   const handleConnect = useCallback(async () => {
     setBusy(true);
     try {
-      const { installUrl } = await startInstall({});
+      const { installUrl } = await startGithubInstall();
       window.open(installUrl, "_blank", "noopener");
       // The code field only appears once an install is actually in flight,
       // so the card never invites a code that came from somewhere else.
@@ -58,7 +50,7 @@ function CloudProjectsCardImpl() {
     } finally {
       setBusy(false);
     }
-  }, [startInstall]);
+  }, []);
 
   /**
    * The bind. This is a deliberate, authenticated user action and nothing
@@ -72,7 +64,7 @@ function CloudProjectsCardImpl() {
     if (!code) return;
     setBusy(true);
     try {
-      const result = await finishConnect({ connectCode: code });
+      const result = await finishGithubConnect(code);
       if (!result.ok) {
         showToast({
           title: result.reason ?? "That connect code was not accepted.",
@@ -93,7 +85,7 @@ function CloudProjectsCardImpl() {
     } finally {
       setBusy(false);
     }
-  }, [connectCode, finishConnect]);
+  }, [connectCode]);
 
   const handleCreate = useCallback(async () => {
     const trimmedName = name.trim();
@@ -101,7 +93,7 @@ function CloudProjectsCardImpl() {
     setBusy(true);
     try {
       const remote = remoteUrl.trim();
-      await createProject({
+      await createCloudProject({
         name: trimmedName,
         ...(remote ? { remoteUrl: remote } : {}),
       });
@@ -112,7 +104,7 @@ function CloudProjectsCardImpl() {
     } finally {
       setBusy(false);
     }
-  }, [createProject, name, remoteUrl]);
+  }, [name, remoteUrl]);
 
   return (
     <div className="settings-card">

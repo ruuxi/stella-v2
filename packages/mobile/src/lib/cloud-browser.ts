@@ -1,8 +1,8 @@
-import { makeFunctionReference } from "convex/server";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useConvexAuth } from "convex/react";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { authClient } from "./auth-client";
+import { getBackendClient, useBackendView } from "./backend";
 import { selectCurrentConversationBrowserInteraction } from "./cloud-browser-interaction-selection";
 
 export type CloudBrowserInteractionKind = "login_takeover" | "device_code";
@@ -70,61 +70,6 @@ export type CloudBrowserEncryptedSessionTransfer = Readonly<{
   ciphertext: string;
 }>;
 
-const listRef = makeFunctionReference<
-  "query",
-  Record<string, never>,
-  CloudBrowserInteractionSummary[]
->("cloud_browser:listMyPendingBrowserInteractions");
-const detailRef = makeFunctionReference<
-  "action",
-  { interactionId: string },
-  CloudBrowserInteractionDetail | null
->("cloud_browser:getMyBrowserInteraction");
-const mintRef = makeFunctionReference<
-  "action",
-  { interactionId: string; expectedRevision: number },
-  CloudBrowserLiveViewCapability
->("cloud_browser:mintMyBrowserLiveViewCapability");
-const mintSessionTransferRef = makeFunctionReference<
-  "action",
-  { interactionId: string; expectedRevision: number },
-  CloudBrowserSessionTransferCapability
->("cloud_browser:mintMyBrowserSessionTransferCapability");
-const importSessionTransferRef = makeFunctionReference<
-  "action",
-  {
-    interactionId: string;
-    expectedRevision: number;
-    transfer: CloudBrowserEncryptedSessionTransfer;
-  },
-  {
-    schemaVersion: 1;
-    interactionId: string;
-    revision: number;
-    verified: true;
-  }
->("cloud_browser:importMyBrowserSessionTransfer");
-const decideRef = makeFunctionReference<
-  "action",
-  {
-    interactionId: string;
-    expectedRevision: number;
-    requestId: string;
-    decision: "done" | "cancel";
-  },
-  CloudBrowserInteractionSummary
->("cloud_browser:decideMyBrowserInteraction");
-const resetRef = makeFunctionReference<
-  "action",
-  { requestId: string },
-  {
-    schemaVersion: 1;
-    profileId: "default";
-    profileEpoch: number;
-    reset: true;
-  }
->("cloud_browser:resetMyBrowserProfile");
-
 const EMPTY_INTERACTIONS: readonly CloudBrowserInteractionSummary[] = [];
 const decisionRequestIds = new Map<string, string>();
 let resetRequestId: string | null = null;
@@ -132,11 +77,10 @@ let resetRequestId: string | null = null;
 const newRequestId = (): string => Crypto.randomUUID();
 
 /**
- * The cloud browser is a connected-account feature: every `cloud_browser:*`
- * function refuses the Better Auth anonymous owner. An anonymous session is
- * still an authenticated Convex connection, so `useConvexAuth` alone would
- * subscribe and the refused query would throw out of render and take the app
- * to the boot crash screen. Mirrors desktop's `hasConnectedAccount` gate.
+ * The cloud browser is a connected-account feature: every `browser.*`
+ * backend function refuses the Better Auth anonymous owner, so hold off until
+ * the session is a connected account. Mirrors desktop's
+ * `hasConnectedAccount` gate.
  */
 const useCloudBrowserAccess = (): boolean => {
   const { isAuthenticated } = useConvexAuth();
@@ -148,7 +92,10 @@ const useCloudBrowserAccess = (): boolean => {
 
 export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {
   const enabled = useCloudBrowserAccess();
-  return useQuery(listRef, enabled ? {} : "skip") ?? EMPTY_INTERACTIONS;
+  return (
+    useBackendView("browser.pending", enabled ? {} : "skip").value ??
+    EMPTY_INTERACTIONS
+  );
 }
 
 export function useCloudBrowserInteraction(
@@ -159,7 +106,6 @@ export function useCloudBrowserInteraction(
   const revision = pending.find(
     (entry) => entry.interactionId === interactionId,
   )?.revision;
-  const getDetail = useAction(detailRef);
   const key =
     enabled && interactionId
       ? `${interactionId}:${revision ?? "direct"}`
@@ -172,7 +118,8 @@ export function useCloudBrowserInteraction(
   useEffect(() => {
     if (!key || !interactionId) return;
     let disposed = false;
-    void getDetail({ interactionId })
+    void getBackendClient()
+      .call("browser.detail", { interactionId })
       .then((value) => {
         if (!disposed) setResult({ key, value });
       })
@@ -182,7 +129,7 @@ export function useCloudBrowserInteraction(
     return () => {
       disposed = true;
     };
-  }, [getDetail, interactionId, key]);
+  }, [interactionId, key]);
 
   return result?.key === key ? result.value : undefined;
 }
@@ -209,11 +156,24 @@ export function useCurrentConversationBrowserInteraction(
 }
 
 export function useCloudBrowserActions() {
-  const mintLiveView = useAction(mintRef);
-  const decideAction = useAction(decideRef);
-  const mintSessionTransfer = useAction(mintSessionTransferRef);
-  const importSessionTransfer = useAction(importSessionTransferRef);
-  const resetAction = useAction(resetRef);
+  const mintLiveView = useCallback(
+    (args: { interactionId: string; expectedRevision: number }) =>
+      getBackendClient().call("browser.liveView", args),
+    [],
+  );
+  const mintSessionTransfer = useCallback(
+    (args: { interactionId: string; expectedRevision: number }) =>
+      getBackendClient().call("browser.sessionTransferKey", args),
+    [],
+  );
+  const importSessionTransfer = useCallback(
+    (args: {
+      interactionId: string;
+      expectedRevision: number;
+      transfer: CloudBrowserEncryptedSessionTransfer;
+    }) => getBackendClient().call("browser.importSessionTransfer", args),
+    [],
+  );
   const decide = useCallback(
     async (args: {
       interactionId: string;
@@ -223,19 +183,24 @@ export function useCloudBrowserActions() {
       const key = `${args.interactionId}:${args.expectedRevision}:${args.decision}`;
       const requestId = decisionRequestIds.get(key) ?? newRequestId();
       decisionRequestIds.set(key, requestId);
-      const result = await decideAction({ ...args, requestId });
+      const result = await getBackendClient().call("browser.decide", {
+        ...args,
+        requestId,
+      });
       decisionRequestIds.delete(key);
       return result;
     },
-    [decideAction],
+    [],
   );
   const resetProfile = useCallback(async () => {
     const requestId = resetRequestId ?? newRequestId();
     resetRequestId = requestId;
-    const result = await resetAction({ requestId });
+    const result = await getBackendClient().call("browser.resetProfile", {
+      requestId,
+    });
     resetRequestId = null;
     return result;
-  }, [resetAction]);
+  }, []);
   return {
     mintLiveView,
     mintSessionTransfer,

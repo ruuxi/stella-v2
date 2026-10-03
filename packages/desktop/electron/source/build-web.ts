@@ -1,0 +1,332 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { compileTailwind, cssModule, isTailwindStylesheet } from "./css.js";
+import { envDefines, loadRendererEnv, type RendererEnv } from "./env.js";
+import { createModuleGraph, isInNodeModules, SOURCE_EXTENSIONS } from "./modules.js";
+import { createRouteTreeGenerator } from "./routes.js";
+import type { SourceTools } from "./tools.js";
+
+/**
+ * The browser build of the renderer, without Vite: rolldown bundles
+ * `index.html`'s entry, resolving and transforming through the same module
+ * graph the desktop source server uses (oxc, `import.meta.glob`, the `@`
+ * alias, one React). Stylesheets are compiled the same way (Tailwind when
+ * they ask for it) and applied by their modules, as on desktop.
+ *
+ * Every URL in the output is relative, so one build serves from any path:
+ * the shared `/chat-app/` and each owner's `/chat-app/u/<fork>/<tree>/`. The
+ * router keeps its location in memory, so the document's URL, and with it
+ * every document-relative URL, stays put for the page's life.
+ */
+
+const toPosix = (value: string) => value.replace(/\\/g, "/");
+const ASSETS = "assets";
+
+const KNOWN_DEPLOYMENTS: Record<string, string> = {
+  "https://outgoing-bulldog-865.convex.cloud": "dev",
+  "https://intent-jackal-330.convex.cloud": "prod",
+  "https://basic-nightingale-118.convex.cloud": "basic-nightingale-118",
+};
+
+/**
+ * The website's public config: `VITE_*`, then the website's `NEXT_PUBLIC_*`
+ * twin, then desktop-ui's `.env` files. The Apps hosts follow the backend.
+ */
+export const webBuildEnv = (
+  uiRoot: string,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): RendererEnv => {
+  const base = loadRendererEnv(uiRoot, "production");
+  const pick = (name: string): string =>
+    processEnv[`VITE_${name}`] ||
+    processEnv[`NEXT_PUBLIC_${name}`] ||
+    (typeof base[`VITE_${name}`] === "string" ? (base[`VITE_${name}`] as string) : "");
+  const convexUrl = pick("CONVEX_URL");
+  const convexSiteUrl =
+    processEnv.VITE_CONVEX_SITE_URL ||
+    processEnv.NEXT_PUBLIC_CONVEX_SITE_URL ||
+    (convexUrl.endsWith(".convex.cloud")
+      ? `${convexUrl.slice(0, -".convex.cloud".length)}.convex.site`
+      : pick("CONVEX_SITE_URL"));
+  const suffix = KNOWN_DEPLOYMENTS[convexUrl];
+  const appsHost =
+    pick("STELLA_APPS_HOST") ||
+    (suffix ? `https://stella-v2-apps-host-${suffix}.lolruuxi.workers.dev` : "");
+  const appsAuthHost =
+    pick("STELLA_APPS_AUTH_HOST") ||
+    (suffix ? `https://stella-v2-apps-auth-${suffix}.lolruuxi.workers.dev` : "");
+  if (!appsHost || !appsAuthHost) {
+    throw new Error("Configure both Stella Apps host origins for this backend.");
+  }
+  return {
+    ...base,
+    VITE_STELLA_WEB_BUILD: "1",
+    VITE_CONVEX_URL: convexUrl,
+    VITE_CONVEX_SITE_URL: convexSiteUrl,
+    VITE_TURNSTILE_SITE_KEY: pick("TURNSTILE_SITE_KEY"),
+    VITE_STELLA_APPS_HOST: appsHost,
+    VITE_STELLA_APPS_AUTH_HOST: appsAuthHost,
+    BASE_URL: "./",
+  };
+};
+
+export type WebBuildOptions = {
+  tools: SourceTools;
+  repoRoot: string;
+  outDir: string;
+  env: RendererEnv;
+  cacheDir: string;
+  log?: (message: string) => void;
+};
+
+const NEW_URL = /new\s+URL\(\s*(["'])([^"'\n]+)\1\s*,\s*import\.meta\.url\s*\)/g;
+const CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+const LAUNCH_RESCUE =
+  /    <div id="stella-launch"[\s\S]*?<script src="[^"\n]*\/stella-launch-rescue\.js"><\/script>\s*/;
+
+const isExternalUrl = (value: string) =>
+  !value || value.startsWith("#") || value.startsWith("//") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value);
+
+const exists = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() ?? false;
+
+export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ files: string[] }> => {
+  const { tools, repoRoot, outDir } = options;
+  const log = options.log ?? (() => undefined);
+  const uiRoot = path.join(repoRoot, "packages", "desktop-ui");
+  const publicDir = path.join(uiRoot, "public");
+  const defines = { ...envDefines(options.env), "import.meta.hot": "undefined" };
+  const graph = createModuleGraph({
+    tools,
+    uiRoot,
+    repoRoot,
+    cacheDir: options.cacheDir,
+    isDev: false,
+    defines,
+  });
+  await createRouteTreeGenerator(tools, uiRoot).run();
+
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(path.join(outDir, ASSETS), { recursive: true });
+
+  /** Copy a file into `assets/` under a content-hashed name; returns its output path. */
+  const emitted = new Map<string, string>();
+  const emitFile = (name: string, bytes: Uint8Array): string => {
+    const hash = createHash("sha256").update(bytes).digest("base64url").slice(0, 8);
+    const ext = path.extname(name);
+    const fileName = `${ASSETS}/${path.basename(name, ext)}-${hash}${ext}`;
+    fs.writeFileSync(path.join(outDir, fileName), bytes);
+    return fileName;
+  };
+  const emitAsset = (file: string): string => {
+    let fileName = emitted.get(file);
+    if (!fileName) {
+      fileName = emitFile(file, fs.readFileSync(file));
+      emitted.set(file, fileName);
+    }
+    return fileName;
+  };
+
+  /** A `url()` or attribute reference, made relative to the output root. */
+  const rewriteReference = (reference: string, fromFile: string): string | null => {
+    const trimmed = reference.trim();
+    if (isExternalUrl(trimmed)) return null;
+    const bare = trimmed.replace(/[?#].*$/, "");
+    const suffix = trimmed.slice(bare.length);
+    if (bare.startsWith("/")) {
+      if (exists(path.join(publicDir, bare))) return `${bare.slice(1)}${suffix}`;
+      const file = graph.fileForUrlPath(bare);
+      return file && exists(file) ? `${emitAsset(file)}${suffix}` : null;
+    }
+    const file = path.resolve(path.dirname(fromFile), bare);
+    return exists(file) ? `${emitAsset(file)}${suffix}` : null;
+  };
+
+  const rewriteCssUrls = (css: string, fromFile: string) =>
+    css.replace(CSS_URL, (match, quote: string, reference: string) => {
+      const rewritten = rewriteReference(reference, fromFile);
+      return rewritten === null ? match : `url(${quote}${rewritten}${quote})`;
+    });
+
+  const stylesheet = async (file: string): Promise<string> => {
+    const source = await fs.promises.readFile(file, "utf8");
+    const css = isTailwindStylesheet(source)
+      ? (await compileTailwind({ tools, file, source, root: uiRoot })).css
+      : source;
+    return rewriteCssUrls(css, file);
+  };
+
+  const rolldownOptions = (input: Record<string, string>) => ({
+    input,
+    platform: "browser" as const,
+    tsconfig: false,
+    transform: { define: defines },
+    plugins: [plugin],
+    onLog: (level: string, entry: { code?: string; message: string }) => {
+      if (level === "warn" && entry.code !== "IMPORT_IS_UNDEFINED" && entry.code !== "EVAL") {
+        log(`[web-build] ${entry.message}`);
+      }
+    },
+  });
+
+  /** A worker script, bundled on its own into one file. */
+  const workers = new Map<string, Promise<string>>();
+  const buildWorker = (file: string): Promise<string> => {
+    let build = workers.get(file);
+    if (!build) {
+      build = (async () => {
+        const bundle = await tools.rolldown(rolldownOptions({ worker: file }));
+        try {
+          const { output } = await bundle.generate({ format: "esm", minify: true, codeSplitting: false });
+          const chunk = output.find((item) => item.type === "chunk");
+          if (!chunk || chunk.type !== "chunk") throw new Error(`No output for worker ${file}`);
+          const ext = path.extname(file);
+          return emitFile(`${path.basename(file, ext)}.js`, Buffer.from(chunk.code));
+        } finally {
+          await bundle.close();
+        }
+      })();
+      workers.set(file, build);
+    }
+    return build;
+  };
+
+  /** `new URL("./x", import.meta.url)`: bundle a script, copy anything else. */
+  const rewriteModuleUrls = async (code: string, file: string): Promise<string> => {
+    const replacements = new Map<string, string>();
+    for (const match of code.matchAll(NEW_URL)) {
+      const reference = match[2]!;
+      if (isExternalUrl(reference) || replacements.has(match[0])) continue;
+      const target = path.resolve(path.dirname(file), reference);
+      if (!exists(target)) continue;
+      const fileName = SOURCE_EXTENSIONS.has(path.extname(target))
+        ? await buildWorker(target)
+        : emitAsset(target);
+      // Chunks live in `assets/` too.
+      replacements.set(match[0], `new URL(${JSON.stringify(`./${path.basename(fileName)}`)}, import.meta.url)`);
+    }
+    let result = code;
+    for (const [from, to] of replacements) result = result.split(from).join(to);
+    return result;
+  };
+
+  const plugin = {
+    name: "stella-web-source",
+    resolveId(source: string, importer: string | undefined, extra: { kind?: string }) {
+      if (!importer || source.startsWith("\0") || importer.startsWith("\0")) return null;
+      if (extra.kind === "require-call") return null;
+      try {
+        const resolved = graph.resolveImport(source, importer);
+        return resolved ? resolved.file : { id: source, external: true };
+      } catch (error) {
+        // Dependencies may import optional packages they guard at runtime.
+        if (isInNodeModules(importer)) return null;
+        throw error;
+      }
+    },
+    async load(id: string) {
+      if (id.startsWith("\0")) return null;
+      const ext = path.extname(id).toLowerCase();
+      if (ext === ".css") {
+        return { code: cssModule(await stylesheet(id), toPosix(path.relative(repoRoot, id))), moduleType: "js" as const };
+      }
+      if (SOURCE_EXTENSIONS.has(ext) || ext === ".cjs" || ext === ".json") {
+        if (isInNodeModules(id) || ext === ".cjs" || ext === ".json") return null;
+        const module = await graph.load(id);
+        return { code: await rewriteModuleUrls(module.code, id), moduleType: "js" as const };
+      }
+      return { code: `export default ${JSON.stringify(emitAsset(id))};\n`, moduleType: "js" as const };
+    },
+  };
+
+  // The entry, from the page's module script.
+  const htmlFile = path.join(uiRoot, "index.html");
+  let html = fs.readFileSync(htmlFile, "utf8");
+  const entryTag = /<script\s+type="module"\s+src="([^"]+)"><\/script>/.exec(html);
+  const entryFile = entryTag ? graph.fileForUrlPath(entryTag[1]!) : null;
+  if (!entryTag || !entryFile) throw new Error("index.html has no module script entry.");
+
+  const startedAt = Date.now();
+  const bundle = await tools.rolldown(rolldownOptions({ main: entryFile }));
+  let output;
+  try {
+    ({ output } = await bundle.write({
+      dir: outDir,
+      format: "esm",
+      minify: true,
+      entryFileNames: `${ASSETS}/[name]-[hash].js`,
+      chunkFileNames: `${ASSETS}/[name]-[hash].js`,
+      assetFileNames: `${ASSETS}/[name]-[hash][extname]`,
+    }));
+  } finally {
+    await bundle.close();
+  }
+  const chunks = new Map(
+    output.flatMap((item) => (item.type === "chunk" ? [[item.fileName, item] as const] : [])),
+  );
+  const entry = [...chunks.values()].find((chunk) => chunk.isEntry);
+  if (!entry) throw new Error("The build produced no entry chunk.");
+  // Preload the entry's static import graph so it doesn't load as a waterfall.
+  const preload = new Set<string>();
+  const walk = (fileName: string) => {
+    for (const imported of chunks.get(fileName)?.imports ?? []) {
+      if (preload.has(imported)) continue;
+      preload.add(imported);
+      walk(imported);
+    }
+  };
+  walk(entry.fileName);
+
+  const originOf = (value: unknown) => {
+    try {
+      return typeof value === "string" && value.trim() ? new URL(value.trim()).origin : null;
+    } catch {
+      return null;
+    }
+  };
+  const cloud = originOf(options.env.VITE_CONVEX_URL);
+  const site = originOf(options.env.VITE_CONVEX_SITE_URL);
+  html = html
+    .replace(LAUNCH_RESCUE, "")
+    .replace(
+      entryTag[0],
+      [
+        `<script type="module" crossorigin src="./${entry.fileName}"></script>`,
+        ...[...preload].map((fileName) => `<link rel="modulepreload" crossorigin href="./${fileName}">`),
+      ].join("\n    "),
+    )
+    .replace(/<style>([\s\S]*?)<\/style>/g, (_match, css: string) => `<style>${rewriteCssUrls(css, htmlFile)}</style>`)
+    .replace(/(<(?:link|script|img)\b[^>]*?\s(?:href|src)=")(\/[^"]*)"/g, (match, head: string, reference: string) => {
+      const rewritten = rewriteReference(reference, htmlFile);
+      return rewritten === null ? match : `${head}./${rewritten}"`;
+    })
+    .replace(
+      "</head>",
+      [
+        ...(cloud ? [`  <link rel="preconnect" href="${cloud}">`] : []),
+        ...(site ? [`  <link rel="preconnect" href="${site}" crossorigin="anonymous">`] : []),
+        "</head>",
+      ].join("\n  "),
+    );
+  fs.writeFileSync(path.join(outDir, "index.html"), html);
+
+  // Static files, and pdf.js's worker from the copy react-pdf imports.
+  fs.cpSync(publicDir, outDir, { recursive: true });
+  try {
+    const reactPdf = graph.resolveImport("react-pdf", path.join(uiRoot, "src", "main.tsx"));
+    const worker = reactPdf && graph.resolveImport("pdfjs-dist/build/pdf.worker.min.mjs", reactPdf.file);
+    if (worker) {
+      fs.mkdirSync(path.join(outDir, "vendor", "pdfjs"), { recursive: true });
+      fs.copyFileSync(worker.file, path.join(outDir, "vendor", "pdfjs", "pdf.worker.min.mjs"));
+    }
+  } catch (error) {
+    log(`[web-build] pdf.js worker not copied; PDF previews will not render: ${String(error)}`);
+  }
+
+  const files = (fs.readdirSync(outDir, { recursive: true }) as string[])
+    .map(toPosix)
+    .filter((name) => fs.statSync(path.join(outDir, name)).isFile())
+    .sort();
+  log(`[web-build] ${chunks.size} chunks, ${files.length} files in ${Date.now() - startedAt}ms`);
+  return { files };
+};

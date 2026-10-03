@@ -68,6 +68,16 @@ const openAuthority = (
       }
     : null;
 
+/**
+ * The memory lifecycle view reports no generation until the owner's first
+ * home write; an unbound authority accepts the generation the server returns.
+ */
+const generationMatches = (
+  authority: OpenMemoryAuthority,
+  ownerGeneration: string,
+): boolean =>
+  authority.ownerGeneration === "" || authority.ownerGeneration === ownerGeneration;
+
 const sameAuthority = (
   left: OpenMemoryAuthority | null,
   right: OpenMemoryAuthority | null,
@@ -201,7 +211,7 @@ export function CloudHomeMemorySettings() {
       );
       if (
         !sameAuthority(authorityAtStart, authorityNow) ||
-        snapshot.ownerGeneration !== authorityAtStart.ownerGeneration ||
+        !generationMatches(authorityAtStart, snapshot.ownerGeneration) ||
         snapshot.memoryEpoch !== authorityAtStart.memoryEpoch
       ) {
         throw new CloudHomeMemoryError("invalid");
@@ -297,7 +307,7 @@ export function CloudHomeMemorySettings() {
         );
         if (
           !sameAuthority(authorityAtStart, authorityNow) ||
-          snapshot.ownerGeneration !== authorityAtStart.ownerGeneration ||
+          !generationMatches(authorityAtStart, snapshot.ownerGeneration) ||
           snapshot.memoryEpoch !== authorityAtStart.memoryEpoch
         ) {
           throw new CloudHomeMemoryError("invalid");
@@ -429,7 +439,7 @@ export function CloudHomeMemorySettings() {
       );
       if (
         !sameAuthority(authorityAtStart, authorityNow) ||
-        snapshot.ownerGeneration !== authorityAtStart.ownerGeneration ||
+        !generationMatches(authorityAtStart, snapshot.ownerGeneration) ||
         snapshot.memoryEpoch !== authorityAtStart.memoryEpoch
       ) {
         throw new CloudHomeMemoryError("invalid");
@@ -537,7 +547,7 @@ export function CloudHomeMemorySettings() {
         return;
       }
       if (
-        snapshot.ownerGeneration !== authorityAtStart.ownerGeneration ||
+        !generationMatches(authorityAtStart, snapshot.ownerGeneration) ||
         snapshot.memoryEpoch !== authorityAtStart.memoryEpoch
       ) {
         await bridge.cancelMemoryExport(exportId);

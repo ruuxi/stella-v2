@@ -97,15 +97,7 @@ const newConversationEditRequestId = () =>
     ? crypto.randomUUID()
     : `edit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 export const cloudConversationEditFailureMessage = (error, fallback) => {
-  const data = error?.data;
-  if (typeof data === "string" && data.trim()) return data.trim();
-  if (typeof data?.message === "string" && data.message.trim())
-    return data.message.trim();
-  if (
-    error instanceof Error &&
-    error.message.trim() &&
-    !/Server Error|ConvexError|\[Request ID/.test(error.message)
-  ) {
+  if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
   }
   return fallback;

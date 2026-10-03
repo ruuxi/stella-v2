@@ -277,7 +277,7 @@ If you use Stella without an account, we track: an anonymous device identifier (
 
 10. Third-Party Services
 
-Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, Convex for backend infrastructure, and services you connect through Stella integrations. Supported BYOK model requests may go directly from your device to the provider without using the Stella Provider; the cloud-authoritative conversation record remains in Stella's hosted services.
+Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, Cloudflare for backend infrastructure, and services you connect through Stella integrations. Supported BYOK model requests may go directly from your device to the provider without using the Stella Provider; the cloud-authoritative conversation record remains in Stella's hosted services.
 
 
 11. Data Retention
@@ -317,7 +317,7 @@ Stella is not directed to children under 13 years of age. We do not knowingly co
 
 15. International Users
 
-Our current hosted backend uses Convex cloud infrastructure in the United States, including the US East (Northern Virginia) deployment region. Convex also offers an Ireland region, and a future deployment may use another disclosed region. If you access the Service from outside the hosting region, information that reaches the hosted Service may be transferred to and processed there.
+Our current hosted backend uses Cloudflare cloud infrastructure, including Cloudflare data centers in the United States. Cloudflare may place your account's data in the data center region nearest where it is first used, and a future deployment may use another disclosed region. If you access the Service from outside the hosting region, information that reaches the hosted Service may be transferred to and processed there.
 
 
 16. California Privacy Rights

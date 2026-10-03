@@ -25,13 +25,13 @@ describe("runScheduleScript", () => {
     expect(
       createScheduleScriptAuthEnv(
         {
-          baseUrl: " https://example.convex.site/ ",
+          baseUrl: " https://backend.stella.test/ ",
           authToken: " test-token ",
         },
         "https://backend.example",
       ),
     ).toEqual({
-      STELLA_SITE_BASE_URL: "https://example.convex.site/",
+      STELLA_SITE_BASE_URL: "https://backend.stella.test/",
       STELLA_SITE_AUTH_TOKEN: "test-token",
       STELLA_X_API_BASE_URL: "https://backend.example",
       STELLA_X_API_AUTH_TOKEN: "test-token",
@@ -55,14 +55,14 @@ describe("runScheduleScript", () => {
 
     const result = await runScheduleScript(scriptPath, {
       env: {
-        STELLA_SITE_BASE_URL: "https://example.convex.site",
+        STELLA_SITE_BASE_URL: "https://backend.stella.test",
         STELLA_SITE_AUTH_TOKEN: "test-token",
       },
     });
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout.trim())).toEqual({
-      baseUrl: "https://example.convex.site",
+      baseUrl: "https://backend.stella.test",
       authToken: "test-token",
       scriptPath,
     });
@@ -74,7 +74,7 @@ describe("runScheduleScript", () => {
     const tool = createScriptDraftTool({
       stellaDataDir: root,
       getStellaSiteAuth: () => ({
-        baseUrl: "https://example.convex.site",
+        baseUrl: "https://backend.stella.test",
         authToken: "draft-token",
       }),
       getCloudBackendAuth: () => ({
@@ -92,7 +92,7 @@ describe("runScheduleScript", () => {
     });
 
     expect(result.result).toContain(
-      '{"baseUrl":"https://example.convex.site","authToken":"draft-token","xToken":"draft-token"}',
+      '{"baseUrl":"https://backend.stella.test","authToken":"draft-token","xToken":"draft-token"}',
     );
   });
 

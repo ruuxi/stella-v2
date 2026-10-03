@@ -34,28 +34,13 @@ operation ID. That ID, its provider-job
 attachment, terminal result, tool-call aliases, and delivery acknowledgement
 live in `image-tool-operations.sqlite` under the Stella data directory.
 
-The gateway envelope-encrypts full inputs (including image-edit references)
-and writes them as bounded, owner- and operation-scoped Convex database chunks.
-A manifest exists transactionally before the first chunk; only a complete
-manifest can be attached to the atomically reserved media job and scheduled
-submission outbox. This makes partial uploads enumerable and purgeable after
-every crash boundary without a file-storage store-to-registration gap. A
-database CAS changes `pending` to `dispatching` exactly once immediately before
-the Fal POST. Concurrent HTTP retries and duplicate scheduled actions cannot
-pass that claim. `succeeded`, `failed`, `canceled`, and `unknown` are immutable;
-late or opposite webhooks are audit-only. Legacy jobs already backed by Convex
-file storage remain readable and cleanable during migration; new durable image
-submissions do not create those blobs.
-
-The gateway rejects a declared or streamed request body above 3 MiB before JSON
-parsing and independently repeats the four-item, 1 MiB-per-inline-image, and
-2 MiB aggregate checks. Encrypted manifests are capped at 4.5 MiB of serialized
-text. Dispatcher reconstruction is budgeted conservatively below Convex's
-64 MiB action ceiling: two UTF-16 encrypted representations, three UTF-16
-plaintext/provider-body representations, ciphertext and plaintext byte buffers,
-and 8 MiB of fixed runtime headroom total 50.125 MiB at the hard limits. Chunk
-arrays are released before decrypt/parse, and legacy storage bodies are streamed
-through the same encrypted-payload cap.
+On the backend, managed jobs are `media_jobs` rows in the owner's Durable
+Object (`workers/cloud-builder/src/owner-store/domains/media.ts`). Inline
+sources and provider outputs live in R2 under an owner-hashed prefix and are
+read through presigned GETs. The object is single-threaded, so a job is
+submitted to Fal once; a row left in `submitting` with no provider request id
+(the object restarted mid-submit) is failed, never resubmitted. Terminal rows
+are immutable: a late webhook for one is discarded.
 
 Fal assigns `request_id` only after accepting a queue submission and exposes no
 documented client submission idempotency key or lookup by a Stella key. This
@@ -130,29 +115,13 @@ animation frames, and worst-case decoded bytes are bounded before Photon/WASM
 decode. Detected bytes—not a requested destination extension—select renderer
 image validation.
 
-Webhook dedup, terminal CAS, connector scheduling, and billing eligibility are
-one Convex transaction. Only the transaction that changes a nonterminal job to
-success schedules idempotent billing. Late success after cancel/unknown/timeout
-is audit-only and never billed. Image connector delivery has a restart-durable
+Only the step that moves a nonterminal job to success bills it. Late success
+after cancel or timeout is discarded and never billed. Image connector delivery has a restart-durable
 five-attempt watchdog and records terminal abandonment after exhaustion.
 
-Encrypted managed inputs are deleted after submission settlement, cancellation,
-terminal webhook processing, or unknown classification. Their storage IDs live
-in a durable cleanup outbox from immediately after `storage.store` until a
-transaction containing both storage deletion and outbox acknowledgement
-succeeds; failures retain exponential-backoff retry state. Provably unsubmitted
-pending rows are abandoned after 24 hours. Delivered local operation aliases are
-pruned after 30 days; pending and undelivered terminal rows are retained for
-reattachment. Account deletion first opens a durable owner media-purge gate,
-then drains jobs, owner-tagged and legacy job-tagged webhook metadata, encrypted
-blob cleanup, and a durable provider-cancellation outbox. Reservations and
-dispatch claims fail closed while that gate exists; an in-flight accepted Fal
-request is retained until its provider ID can be canceled. A claimed request
-whose provider acceptance is still ambiguous leaves a sanitized canceled
-tombstone and makes account deletion fail closed for a later retry rather than
-hot-looping or discarding the only reconciliation handle. A late webhook may
-attach its provider ID only to the cancellation outbox; it cannot reverse the
-terminal result or bill the user. Local schema creation and column migration run under `BEGIN IMMEDIATE`
-to serialize concurrent desktop processes.
+Delivered local operation aliases are pruned after 30 days; pending and
+undelivered terminal rows are retained for reattachment. Local schema creation
+and column migration run under `BEGIN IMMEDIATE` to serialize concurrent
+desktop processes.
 
 These semantics apply only to `image_gen`. Other media behavior is unchanged.

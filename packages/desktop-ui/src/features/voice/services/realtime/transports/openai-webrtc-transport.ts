@@ -12,7 +12,7 @@
  * passed in by the provider module:
  *   - `sdpFetch`: takes the local SDP offer plus the transport-owned abort
  *     signal and returns the remote SDP answer. Provider chooses
- *     Bearer-against-public-endpoint vs Stella-proxied-with-Convex-auth.
+ *     Bearer-against-public-endpoint vs Stella-proxied-with-backend-auth.
  *   - `initialSessionConfig`: optional. When present, the transport applies
  *     it after the data channel opens and waits for `session.updated` before
  *     exposing the connection to the caller.

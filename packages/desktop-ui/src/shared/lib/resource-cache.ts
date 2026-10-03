@@ -206,7 +206,7 @@ export function createResourceStore<K extends string, T>(opts: {
 /**
  * Subscribe to a key on a `ResourceStore`. Triggers `ensure` on first mount
  * (and on key change) and re-renders when the entry changes. Pass `null` for
- * `key` to skip the subscription (mirrors Convex's `"skip"` sentinel).
+ * `key` to skip the subscription (mirrors `useBackendView`'s `"skip"` sentinel).
  */
 export function useResourceStore<K extends string, T>(
   store: ResourceStore<K, T>,

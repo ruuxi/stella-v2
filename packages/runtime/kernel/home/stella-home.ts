@@ -130,7 +130,7 @@ export const ensureStellaDataDirSeededEffect = (
       );
     }
 
-    // System prompts are not materialized here: the runtime reads the Convex
+    // System prompts are not materialized here: the runtime reads the backend
     // publication (bundle as fallback) — see `prompts/remote-prompts.ts`.
     return { synced: applied };
   });

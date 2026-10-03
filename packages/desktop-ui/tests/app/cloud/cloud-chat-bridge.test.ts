@@ -334,7 +334,7 @@ describe("cloud chat bridge authority", () => {
     await expect(
       classifyBrowserDispatchRejection(
         new Error(
-          `ConvexError: ${JSON.stringify({ code: staleCode, message: resetMessage })}`,
+          `Request failed: ${JSON.stringify({ code: staleCode, message: resetMessage })}`,
         ),
       ),
     ).resolves.toEqual({

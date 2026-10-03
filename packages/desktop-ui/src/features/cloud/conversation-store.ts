@@ -710,7 +710,7 @@ class ConversationStore {
   }
 
   /**
-   * The builder origin arrives from Convex, asynchronously and possibly after
+   * The builder origin arrives from the backend, asynchronously and possibly after
    * the first render. Setting it is what actually opens the socket.
    * `resolved` separates "still loading" from "this deployment has none",
    * which are the same `null` but very different things to show a user.
@@ -1350,7 +1350,7 @@ export const retireCloudConversationClientAuthority = (
 };
 
 /**
- * Completes the auth fence once Convex reports the canonical lifecycle
+ * Completes the auth fence once the backend reports the canonical lifecycle
  * generation. Old same-account sockets and persisted sends are retired before
  * the exact generation can connect or replay.
  */

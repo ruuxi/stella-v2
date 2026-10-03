@@ -2,7 +2,7 @@
  * Desktop-side mirror of the backend's `ManagedModelAudience` notion.
  *
  * Source of truth for the audience values and plan label mapping lives in
- * `backend/convex/agent/model.ts`. Which Stella models a restricted audience
+ * `@stella/contracts/gateway/capability`. Which Stella models a restricted audience
  * may pick is NOT mirrored here: the `/api/stella/models` catalog reports
  * `allowedForAudience` per row and the UI reads that.
  */
@@ -93,7 +93,7 @@ type BillingUsage = {
    * Cumulative managed-model spend, and the ceiling it is measured
    * against. Only present on plans the backend gives a lifetime
    * allowance (Free) — see `lifetimeLimitUsd` in
-   * `backend/convex/lib/billing_plans.ts`. Unlike the rolling / weekly /
+   * `workers/cloud-builder/src/billing/plans.ts`. Unlike the rolling / weekly /
    * monthly windows this never refreshes.
    */
   lifetimeUsedUsd?: number;

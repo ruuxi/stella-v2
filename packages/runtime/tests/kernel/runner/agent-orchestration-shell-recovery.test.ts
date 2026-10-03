@@ -90,7 +90,7 @@ describe("subagent shell recovery scope", () => {
       },
       taskDescription: "Inspect shell recovery",
       taskPrompt: "Run the checks",
-      persistToConvex: false,
+      persistToCloud: false,
       abortSignal: abortController.signal,
       toolExecutor: vi.fn(async () => ({ result: "unused" })),
     });

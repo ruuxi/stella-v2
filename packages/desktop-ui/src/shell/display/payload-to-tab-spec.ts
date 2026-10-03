@@ -4,7 +4,7 @@ import { CloudFileSource } from "@/features/cloud/CloudFileSource";
  * used by the media materializer and a few other channels) to the
  * `DisplayTabSpec` model.
  *
- * Keeping the bridge isolated means the worker / IPC / Convex hooks don't
+ * Keeping the bridge isolated means the worker / IPC / backend hooks don't
  * have to learn about the tab manager — they keep speaking
  * `DisplayPayload` and a single mapper turns each one into a tab spec at
  * the renderer boundary.

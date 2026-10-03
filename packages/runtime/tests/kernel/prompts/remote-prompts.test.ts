@@ -1,5 +1,5 @@
 /**
- * Remote system prompts: the Convex publication is the source of truth for
+ * Remote system prompts: the backend publication is the source of truth for
  * agent and auxiliary prompt bodies; the bundle is the fallback. Covers the
  * conditional fetch (200 / 304 / failure), the disk cache that seeds a cold
  * start, and both consumers preferring the served body.

@@ -2,7 +2,7 @@
  * Local preferences — reads/writes `~/.stella/preferences.json`.
  *
  * Serves as the local source of truth for user preferences. Model routing
- * preferences live here only; Convex does not own or sync them.
+ * preferences live here only; the backend does not own or sync them.
  *
  * Effect-native internals (M5): the mtime-cached load and the private-file
  * save live on a `LocalPreferences` service run by one module-level

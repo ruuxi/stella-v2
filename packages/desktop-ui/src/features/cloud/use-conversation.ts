@@ -3,7 +3,7 @@ import { useChatStorageMode } from "@/features/chat/services/chat-storage-prefer
  * The one hook the cloud chat surface consumes.
  *
  * It binds three things that arrive on different clocks — the conversation id
- * (a Convex query), the builder origin (another Convex query), and the socket
+ * (a backend view), the builder origin (another backend view), and the socket
  * (a long-lived connection) — into a single snapshot, and owns the outbound
  * side: sending a turn, cancelling one, and paging backwards.
  *
@@ -224,7 +224,7 @@ const serializedErrorPayload = (
   error: unknown,
 ): Record<string, unknown> | null => {
   // The owner gate answers with a typed client error carrying the contract's
-  // code; a Convex-shaped `data.code` and an embedded JSON body still parse.
+  // code; a structured `data.code` and an embedded JSON body still parse.
   if (error instanceof PlacementClientError) return { code: error.code };
   const data = (error as { data?: unknown })?.data;
   if (data && typeof data === "object" && !Array.isArray(data)) {
@@ -439,8 +439,8 @@ export const useConversation = (
             getToken: (options) => getAuthToken(options ?? {}),
           });
           if (!isCurrentAuthority()) return;
-          // Route validation must accept the client-minted id before Convex
-          // has projected the conversation row.
+          // Route validation must accept the client-minted id before the
+          // backend has projected the conversation row.
           if (result.createdConversation) {
             markCloudConversationCreated(
               result.conversationId,
@@ -825,28 +825,9 @@ export const useConversation = (
   };
 };
 
-/**
- * Convex wraps a thrown `ConvexError` in a request-id preamble and a stack.
- * The message we wrote is the only part a user should ever read.
- */
+/** The message the failing layer wrote, or a generic retry prompt. */
 const friendlySendError = (error: unknown): string => {
-  if (
-    error instanceof CloudTurnStartClientError ||
-    error instanceof CloudTurnStartTransportError
-  ) {
-    return error.message;
-  }
-  const data = (error as { data?: unknown })?.data;
-  if (typeof data === "string" && data.trim()) return data.trim();
-  const message = (data as { message?: unknown })?.message;
-  if (typeof message === "string" && message.trim()) return message.trim();
-  if (
-    error instanceof Error &&
-    error.message &&
-    !/Server Error|ConvexError|\[Request ID/.test(error.message)
-  ) {
-    return error.message;
-  }
+  if (error instanceof Error && error.message) return error.message;
   return "That didn't send. Try again.";
 };
 

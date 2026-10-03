@@ -43,7 +43,7 @@ returned private `deviceCode` in its Durable Object interaction record, and
 projects only the verification URI, complete URI, and user code. On a `done`
 decision it calls `status`, then idempotently consumes for that exact
 interaction if approved, and removes the encrypted grant at every terminal
-state. Abandoned grants are alarm-expired. Builder, Convex, the model
+state. Abandoned grants are alarm-expired. Builder, the model
 transcript, the client, logs, and evidence never receive the private field.
 
 There is intentionally no dev or production configuration or deploy script.

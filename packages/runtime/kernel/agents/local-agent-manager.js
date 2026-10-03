@@ -429,7 +429,7 @@ export class LocalAgentManager {
                 .then(async () => {
                 // Re-admit the deterministic start before its terminal. A crash
                 // during the original start write must never leave a terminal-only
-                // poison row that Convex can never apply.
+                // poison row that the backend can never apply.
                 if (this.opts.createCloudAgentRecord) {
                     await this.opts.createCloudAgentRecord({
                         agentId: record.threadId,
@@ -1719,7 +1719,7 @@ export class LocalAgentManager {
                 taskPrompt,
                 agentContext: context,
                 subagentSession,
-                persistToConvex: task.storageMode === "cloud",
+                persistToCloud: task.storageMode === "cloud",
                 ownerGeneration: task.ownerGeneration,
                 enableRemoteTools: true,
                 abortSignal: attempt.controller.signal,
@@ -2195,7 +2195,7 @@ export class LocalAgentManager {
                 taskPrompt: args.prompt,
                 agentContext,
                 subagentSession: session,
-                persistToConvex: false,
+                persistToCloud: false,
                 enableRemoteTools: true,
                 abortSignal: args.signal,
                 toolExecutor: async (toolName, toolArgs, toolContext, signal) => {

@@ -88,7 +88,7 @@ Use a backup of an existing installation when investigating migration behavior.
 
 `--run --database PATH` accepts a single JSON request on stdin with `agentType`,
 `prompt`, optional `model`, and optional `conversationId`. Set
-`STELLA_AUTH_TOKEN` to a Convex JWT and `STELLA_MODEL_GATEWAY_URL` to the managed
+`STELLA_AUTH_TOKEN` to a backend JWT and `STELLA_MODEL_GATEWAY_URL` to the managed
 gateway origin. This standalone entry point uses an ephemeral device signer;
 the desktop integration must use its existing protected device identity instead.
 It emits JSONL agent events and persists user and assistant chat entries.
@@ -123,8 +123,9 @@ python3 packages/runtime-rust/scripts/verify-live-agent.py --model anthropic/cla
 python3 packages/runtime-rust/scripts/verify-live-agent.py --image --model google/gemini-3-flash-preview --backend-provider-key
 ```
 
-The live check mints a dev Pro test account using the existing Convex login or
-`CONVEX_DEPLOY_KEY`. It makes real model requests, invokes the Rust file reader,
+The live check mints a dev Pro test account through the dev backend's admin
+API with `STELLA_ADMIN_API_SECRET` (from the environment or
+`workers/cloud-builder/.dev.vars`). It makes real model requests, invokes the Rust file reader,
 and checks the final answer against a nonce. Tokens stay in process memory.
 
 ## Remaining cutover work

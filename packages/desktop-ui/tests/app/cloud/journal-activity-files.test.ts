@@ -283,10 +283,10 @@ describe("cloud Activity authority", () => {
     expect(
       cloudThreadsForOwnerSubject(
         [
-          cloudThread("owned", "https://deployment.convex.site|owner-a"),
-          cloudThread("stale", "https://deployment.convex.site|owner-b"),
+          cloudThread("owned", "https://backend.stella.test|owner-a"),
+          cloudThread("stale", "https://backend.stella.test|owner-b"),
         ],
-        "https://deployment.convex.site|owner-a",
+        "https://backend.stella.test|owner-a",
       ).map((thread) => thread.threadId),
     ).toEqual(["owned"]);
     expect(
@@ -294,10 +294,10 @@ describe("cloud Activity authority", () => {
         [
           cloudThread(
             "anonymous",
-            "https://deployment.convex.site|anonymous-owner",
+            "https://backend.stella.test|anonymous-owner",
           ),
         ],
-        "https://deployment.convex.site|anonymous-owner",
+        "https://backend.stella.test|anonymous-owner",
       ).map((thread) => thread.threadId),
     ).toEqual(["anonymous"]);
   });

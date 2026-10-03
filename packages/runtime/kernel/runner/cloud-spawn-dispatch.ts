@@ -171,19 +171,8 @@ const parseJsonRecord = (json: string, label: string): Record<string, unknown> =
   throw new Error(`Stored cloud ${label} receipt is invalid.`);
 };
 
-const readConvexErrorText = (error: unknown): string => {
-  const data = asRecord(error)?.data;
-  if (typeof data === "string" && data.trim()) return data.trim();
-  const dataMessage = asRecord(data)?.message;
-  if (typeof dataMessage === "string" && dataMessage.trim()) {
-    return dataMessage.trim();
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  const uncaught = /Uncaught ConvexError:\s*([\s\S]*?)(?:\n\s+at\s|$)/.exec(
-    message,
-  );
-  return (uncaught?.[1] ?? message).trim();
-};
+const readServerErrorText = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).trim();
 
 const withTimeout = <T>(promise: Promise<T>): Promise<T> =>
   raceWithTimeoutError(
@@ -476,7 +465,7 @@ export const createCloudSpawnDispatcher = (
     try {
       result = await send();
     } catch (error) {
-      const text = readConvexErrorText(error);
+      const text = readServerErrorText(error);
       if (
         Object.hasOwn(requestArgs, "conversationId") &&
         /conversation not found/i.test(text)
@@ -630,7 +619,7 @@ export const createCloudThreadController = (
       completeOperation(options, request.requestId, result);
       return { delivered: true, control };
     } catch (error) {
-      return { delivered: false, reason: readConvexErrorText(error) };
+      return { delivered: false, reason: readServerErrorText(error) };
     }
   },
 
@@ -785,7 +774,7 @@ export const createCloudThreadController = (
       }
       return { canceled: true, control };
     } catch (error) {
-      return { canceled: false, reason: readConvexErrorText(error) };
+      return { canceled: false, reason: readServerErrorText(error) };
     }
   },
 });

@@ -43,7 +43,7 @@ export function GlobalExecutionTargetControl() {
   >(undefined);
 
   // The owner gate holds presence, so this is a read of live device state
-  // rather than a Convex subscription. Poll only while the picker is open.
+  // rather than a backend view subscription. Poll only while the picker is open.
   useEffect(() => {
     if (
       !open ||

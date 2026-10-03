@@ -340,9 +340,9 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
         return;
       }
       if (allowCached && getAuthSnapshotSession(first)) {
-        // Surface the cached session right away (isPending:false) so Convex sees
-        // isAuthenticated && !isLoading and starts fetching the access token /
-        // running authenticated queries before get-session revalidation settles.
+        // Surface the cached session right away (isPending:false) so the backend
+        // client starts fetching the access token / running authenticated
+        // views before get-session revalidation settles.
         setCurrentSession({ snapshot: first, isPending: false });
         emit();
       }
@@ -683,7 +683,7 @@ function startAuthSessionBootstrap(): void {
  * starting from the first mount effect.
  *
  * Only while the store has nothing to show: a browser shell with a cached
- * session renders (and starts Convex auth) from that cache first, and a
+ * session renders (and starts backend auth) from that cache first, and a
  * non-silent refresh here would flip it back to pending before that render.
  * Its refresh stays on the mount path, as do the secondary windows'.
  */

@@ -3,7 +3,7 @@ import { backendClient } from "@/platform/backend/backend-client";
 import { useBackendValue } from "@/platform/backend/use-backend-view";
 // Imported from the module rather than the `@/shared/i18n` barrel on
 // purpose: the barrel re-exports `RemoteI18nProvider`, which pulls in
-// `convex/react` and the auth provider. This component only needs the
+// the backend client and the auth provider. This component only needs the
 // active locale string, and the deep import keeps that dependency out.
 import { useLocale, useT } from "@/shared/i18n/I18nProvider";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -213,7 +213,7 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 /**
  * Stripe redirects back to the website's /billing after Checkout/Portal —
  * the browser tab shows the confirmation while the plan flows into the app
- * reactively over the Convex socket. Base URL comes from main so the
+ * reactively over the backend's live socket. Base URL comes from main so the
  * STELLA_WEB_URL override keeps working in dev.
  */
 const getBillingReturnUrl = async (): Promise<string> => {

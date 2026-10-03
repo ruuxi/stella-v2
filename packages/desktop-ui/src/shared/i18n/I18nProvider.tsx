@@ -151,9 +151,9 @@ export function I18nProviderBase({
     return () => window.removeEventListener("storage", handler);
   }, [locale]);
 
-  // Pull the user's stored locale from Convex when signed in. Treats
+  // Pull the user's stored locale from the backend when signed in. Treats
   // the renderer-local UI-state value as an instant cache, then
-  // upgrades once the server replies. The Convex query is the
+  // upgrades once the server replies. The backend view is the
   // external state we're syncing with — setting state in this effect
   // is exactly the "subscribe + setState" shape the lint rule
   // exempts.

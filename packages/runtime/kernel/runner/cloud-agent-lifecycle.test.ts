@@ -3,7 +3,7 @@ import type { AgentLifecycleEvent } from "../agents/local-agent-manager.js";
 import { createCloudAgentLifecycleMonitor as createMonitor } from "./cloud-agent-lifecycle.js";
 
 /**
- * These cases were written against Convex-shaped fakes (an identity query, a
+ * These cases were written against call-ref fakes (an identity query, a
  * device-thread subscription, an ACK mutation). This maps them onto the
  * backend calls the monitor now takes, one for one.
  */
@@ -12,7 +12,7 @@ type LegacyMonitorOptions = Omit<
   MonitorOptions,
   "getOwnerGeneration" | "watchDeviceThreads" | "acknowledge"
 > & {
-  convexApi: unknown;
+  backendRefs: unknown;
   subscribeQuery: (
     query: unknown,
     args: Record<string, unknown>,
@@ -24,7 +24,7 @@ type LegacyMonitorOptions = Omit<
 };
 
 const createCloudAgentLifecycleMonitor = (options: LegacyMonitorOptions) => {
-  const { convexApi: _api, subscribeQuery, query, mutation, ...rest } = options;
+  const { backendRefs: _api, subscribeQuery, query, mutation, ...rest } = options;
   return createMonitor({
     ...rest,
     getOwnerGeneration: async () => {
@@ -79,7 +79,7 @@ describe("cloud agent lifecycle monitor", () => {
     let connected = false;
     let queries = 0;
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -118,7 +118,7 @@ describe("cloud agent lifecycle monitor", () => {
     const durable = new Set<string>();
     const mutations: Array<{ ref: unknown; args: unknown }> = [];
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -189,7 +189,7 @@ describe("cloud agent lifecycle monitor", () => {
     const durable = new Set<string>();
     const controls: unknown[] = [];
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -256,7 +256,7 @@ describe("cloud agent lifecycle monitor", () => {
       `cloud-thread-1:${OWNER_GENERATION}:3:agent-failed`;
     const mutations: unknown[] = [];
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -312,7 +312,7 @@ describe("cloud agent lifecycle monitor", () => {
     const durable = new Set<string>();
     const acknowledged: string[] = [];
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -387,7 +387,7 @@ describe("cloud agent lifecycle monitor", () => {
     const events: string[] = [];
     const mutations: unknown[] = [];
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -452,7 +452,7 @@ describe("cloud agent lifecycle monitor", () => {
     let deliveries = 0;
     const mutations: unknown[] = [];
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -514,7 +514,7 @@ describe("cloud agent lifecycle monitor", () => {
     let deliveries = 0;
     let acknowledgements = 0;
     const monitor = trackMonitor(createCloudAgentLifecycleMonitor({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           listMyDeviceAgentThreads: "list",
           acknowledgeMyDeviceAgentThreadDelivery: "ack",
@@ -579,7 +579,7 @@ describe("cloud agent lifecycle monitor", () => {
     const acknowledgements: unknown[] = [];
     const monitor = trackMonitor(
       createCloudAgentLifecycleMonitor({
-        convexApi: {
+        backendRefs: {
           cloud_apps: {
             listMyDeviceAgentThreads: "list",
             acknowledgeMyDeviceAgentThreadDelivery: "ack",

@@ -3,7 +3,7 @@
  *
  * Calls go straight to the model gateway
  * (`{gateway.origin}/v1/relay/chat/completions`) with a session capability,
- * never through Convex. The managed lane is request/response only: the
+ * never through the backend. The managed lane is request/response only: the
  * gateway streams from the provider internally and returns one complete
  * ChatCompletion object, so `stream` is always `false` here.
  */

@@ -15,7 +15,7 @@
  *   per-row attempt counts in SQLite — a restart resumes the same backoff
  *   position, which an in-memory Schedule state could not); only the timers
  *   move onto Effect fibers.
- * - `fetch`/Convex seams keep their `AbortSignal` plumbing
+ * - `fetch`/backend seams keep their `AbortSignal` plumbing
  *   (`AbortSignal.timeout` at the fetch seam is a sanctioned pin).
  */
 

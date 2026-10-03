@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Headless cloud-turn harness: drives one cloud conversation turn against the
 // dev cloud-builder worker as a Pro test owner without launching the Electron
-// verifier, then polls the Convex event projection for the resulting agent
-// events.
+// verifier, then polls the conversation's canonical history on the worker
+// until the turn's final assistant message lands.
 //
 //   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180]
 //
@@ -15,8 +15,7 @@
 //
 // The route is `POST /conversations/:id/turns` with the test owner's JWT, as a
 // signed-in client sends it. Nothing here prints a secret; evidence is the
-// JSON the worker and Convex return.
-import { execFileSync } from "node:child_process";
+// JSON the worker returns.
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -80,23 +79,34 @@ const startedBody = await started.json().catch(() => null);
 console.log(JSON.stringify({ ownerId, email, conversationId, status: started.status, response: startedBody }));
 if (!started.ok) process.exit(1);
 
-// Poll the projection: the orchestrator's completion and any agent thread
-// events for this owner. Each row is what `bunx convex data` prints.
+// Poll `GET /conversations/:id/history` (the canonical window a local turn is
+// seeded from) and print each message that lands after the prompt. The turn
+// is done when the newest message is an assistant message that does not stop
+// for a tool call.
 const deadline = Date.now() + waitSeconds * 1000;
-const ownerKey = ownerId.split("|").at(-1);
-let last = "";
+let printed = -1;
+let promptAt = -1;
 while (Date.now() < deadline) {
-  const rows = execFileSync("bunx", ["convex", "data", "agent_events", "--limit", "20", "--order", "desc"], {
-    cwd: new URL("../../../packages/backend/", import.meta.url).pathname,
-    encoding: "utf8",
-  })
-    .split("\n")
-    .filter((line) => line.includes(ownerKey) && !line.startsWith("Showing"));
-  const snapshot = rows.join("\n");
-  if (snapshot !== last) {
-    last = snapshot;
-    console.log(snapshot);
+  const response = await fetch(`${builderUrl}/conversations/${conversationId}/history`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  });
+  const body = await response.json().catch(() => null);
+  const messages = Array.isArray(body?.history) ? body.history.map((entry) => JSON.parse(entry)) : [];
+  if (promptAt < 0) {
+    promptAt = messages.findLastIndex(
+      (message) =>
+        message.role === "user" &&
+        JSON.stringify(message.content ?? "").includes(JSON.stringify(prompt).slice(1, -1)),
+    );
+    printed = promptAt;
   }
-  if (rows.some((row) => row.includes('"completed"') || row.includes('"failed"'))) break;
+  for (let index = Math.max(printed + 1, 0); index < messages.length; index += 1) {
+    console.log(JSON.stringify(messages[index]));
+    printed = index;
+  }
+  const last = messages.at(-1);
+  if (promptAt >= 0 && messages.length - 1 > promptAt && last?.role === "assistant" && last.stopReason !== "toolUse") {
+    break;
+  }
   await new Promise((resolve) => setTimeout(resolve, 5000));
 }

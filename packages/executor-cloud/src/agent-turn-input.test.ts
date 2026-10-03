@@ -9,7 +9,7 @@ import {
  *
  * The executor holds exactly two credentials now: a one-shot pointer to the
  * BuildSession's turn broker, and a turn capability that is only meaningful at
- * the model gateway. There is no reusable Convex turn token and no Convex
+ * the model gateway. There is no reusable turn token and no backend
  * callback base — the control plane is unreachable from inside the sandbox,
  * and the broker is what mediates the calls a turn is still allowed to make.
  */

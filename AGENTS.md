@@ -15,23 +15,22 @@ Stella is always able to respond without being blocked.
 The clone plus `bun install --frozen-lockfile` is enough to typecheck and run
 every test suite (see `.github/workflows/ci.yml`). Anything that talks to a
 live deployment needs these variables in the agent's environment. If a
-`convex` or `wrangler` command fails on auth, a missing one of these is the
-blocker; report it rather than working around it.
+`wrangler` command fails on auth, a missing one of these is the blocker;
+report it rather than working around it.
 
 Secrets (set in the agent platform's secret store, never committed):
 
-- `CONVEX_DEPLOY_KEY`: deploy key for the dev deployment below.
 - `CLOUDFLARE_API_TOKEN`: token with Workers Scripts and Durable Objects edit.
 - `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account that owns the workers.
+- `STELLA_ADMIN_API_SECRET`: the dev backend's admin bearer (test accounts).
+  Export it, or put `STELLA_ADMIN_API_SECRET=...` in the gitignored
+  `workers/cloud-builder/.dev.vars`, which the verify-stella scripts read.
 
-Non-secret dev deployment values (public service locations, same tier as the
-tracked `VITE_CONVEX_URL`). Write them to `packages/backend/.env.local` if it
-is absent:
+The backend is the cloud-builder worker. Its dev URL is a public service
+location, the same one source builds use for `VITE_STELLA_BACKEND_URL`:
 
 ```
-CONVEX_DEPLOYMENT=dev:outgoing-bulldog-865
-CONVEX_URL=https://outgoing-bulldog-865.convex.cloud
-CONVEX_SITE_URL=https://outgoing-bulldog-865.convex.site
+STELLA_BACKEND_URL=https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
 ```
 
 ### Test accounts
@@ -39,11 +38,9 @@ CONVEX_SITE_URL=https://outgoing-bulldog-865.convex.site
 Launch Electron with a signed-in Pro test account:
 `node .agents/skills/verify-stella/control-stella.mjs session launch --account pro`.
 For other clients, use
-`curl -sS -X POST -H "Authorization: Bearer $STELLA_ADMIN_API_SECRET" -H "Content-Type: application/json" -d '{"email":"agent-manual@test.stella.local","plan":"pro","usageMode":"unlimited"}' "$CONVEX_SITE_URL/api/admin/test-accounts/session"`.
-Supply `STELLA_ADMIN_API_SECRET` through the agent secret store or read it from
-`packages/backend` with `bunx convex env get STELLA_ADMIN_API_SECRET`. The dev
-deployment has `STELLA_TEST_ACCOUNTS=1`; production never does. Test emails
-must end in `@test.stella.local`.
+`curl -sS -X POST -H "Authorization: Bearer $STELLA_ADMIN_API_SECRET" -H "Content-Type: application/json" -d '{"email":"agent-manual@test.stella.local","plan":"pro","usageMode":"unlimited"}' "$STELLA_BACKEND_URL/api/admin/test-accounts/session"`.
+The dev backend has `STELLA_TEST_ACCOUNTS=1`; production never does. Test
+emails must end in `@test.stella.local`.
 
 Build and setup steps are not scripted beyond CI; do them as needed. Desktop
 verification is documented in `TESTING.md` and driven through

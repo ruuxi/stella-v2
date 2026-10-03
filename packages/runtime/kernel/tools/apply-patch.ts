@@ -779,7 +779,7 @@ export const handleApplyPatch = async (
   args: Record<string, unknown>,
   context?: ToolContext,
 ): Promise<ToolResult> => {
-  // Stella's JSON tool uses `input`; Convex/device paths may send `patch`.
+  // Stella's JSON tool uses `input`; cloud/device paths may send `patch`.
   const patch = String(args.input ?? args.patch ?? "").trim();
   if (!patch) {
     return { error: "apply_patch requires a patch envelope." };

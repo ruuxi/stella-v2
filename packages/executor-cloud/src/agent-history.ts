@@ -165,7 +165,7 @@ const utf8Bytes = (value: string): number =>
   new TextEncoder().encode(value).byteLength;
 
 /**
- * Treat Convex thread history as authoritative input, not best-effort cache.
+ * Treat backend thread history as authoritative input, not best-effort cache.
  * Any malformed row rejects the whole preflight so an agent can never run on
  * silently truncated/corrupted context.
  */

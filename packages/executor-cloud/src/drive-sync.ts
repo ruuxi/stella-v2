@@ -1,7 +1,7 @@
 /**
  * Materialize the owner's drive into the turn's workspace.
  *
- * The drive (Convex rows + R2 bytes) and the sandbox workspace (a checkpoint
+ * The drive (owner-store rows + R2 bytes) and the sandbox workspace (a checkpoint
  * of one directory) are two views of the same files, and until this ran they
  * were disjoint: a file the user uploaded existed only in R2, so an agent told
  * "the files in your workspace are the user's files" could not read it — and,

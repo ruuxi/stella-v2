@@ -597,7 +597,7 @@ export const runAttachedToolHost = (
           // A reply that linked files but delivered none is worth a record
           // the turn's event stream keeps: what was linked, and what this
           // disk actually had at each path, so the gap is diagnosable from
-          // Convex instead of from a container that is about to be torn down.
+          // the backend instead of from a container that is about to be torn down.
           if (linkedPaths.length > 0) {
             const looked = await Promise.all(
               linkedPaths.slice(0, 8).map(async (linked) => {

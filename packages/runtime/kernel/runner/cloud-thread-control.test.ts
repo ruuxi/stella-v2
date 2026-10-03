@@ -15,14 +15,14 @@ import { SessionStore } from "../storage/session-store.js";
 import type { SqliteDatabase } from "../storage/shared.js";
 import { createCloudThreadController as createDispatcherRaw } from "./cloud-spawn-dispatch.js";
 /**
- * These cases were written against Convex-shaped fakes (`mutation(ref, args)`
+ * These cases were written against call-ref fakes (`mutation(ref, args)`
  * and `action(ref, args)` with string refs). This maps them onto the backend
  * calls the dispatcher now takes, one for one, so the refs still name what
  * was sent.
  */
 type DispatcherOptions = Parameters<typeof createDispatcherRaw>[0];
 type LegacyDispatcherOptions = Omit<DispatcherOptions, "backend"> & {
-  convexApi: { cloud_apps: Record<string, unknown> };
+  backendRefs: { cloud_apps: Record<string, unknown> };
   mutation: (ref: unknown, args: unknown) => Promise<unknown>;
   action: (ref: unknown, args: unknown) => Promise<unknown>;
   query?: (ref: unknown, args: unknown) => Promise<unknown>;
@@ -31,8 +31,8 @@ type LegacyDispatcherOptions = Omit<DispatcherOptions, "backend"> & {
 const adaptLegacyDispatcherOptions = (
   options: LegacyDispatcherOptions,
 ): DispatcherOptions => {
-  const { convexApi, mutation, action, query: _query, ...rest } = options;
-  const refs = convexApi.cloud_apps;
+  const { backendRefs, mutation, action, query: _query, ...rest } = options;
+  const refs = backendRefs.cloud_apps;
   return {
     ...rest,
     backend: {
@@ -193,7 +193,7 @@ describe("desktop cloud thread controls", () => {
       status: "completed",
     });
     const controller = createCloudThreadController({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           continueMyCloudAgentFromDesktop: "continue-ref",
           cancelMyCloudAgentThread: "cancel-ref",
@@ -303,7 +303,7 @@ describe("desktop cloud thread controls", () => {
     let mutations = 0;
     let actions = 0;
     const controller = createCloudThreadController({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           continueMyCloudAgentFromDesktop: "continue-ref",
           cancelMyCloudAgentThread: "cancel-ref",
@@ -367,7 +367,7 @@ describe("desktop cloud thread controls", () => {
         status: "failed",
       });
       const firstController = createCloudThreadController({
-        convexApi: {
+        backendRefs: {
           cloud_apps: {
             continueMyCloudAgentFromDesktop: "continue-ref",
             cancelMyCloudAgentThread: "cancel-ref",
@@ -399,7 +399,7 @@ describe("desktop cloud thread controls", () => {
       const restarted = createStore(restartedDatabase);
       let currentGeneration = "owner-generation-2";
       const restartedController = createCloudThreadController({
-        convexApi: {
+        backendRefs: {
           cloud_apps: {
             continueMyCloudAgentFromDesktop: "continue-ref",
             cancelMyCloudAgentThread: "cancel-ref",
@@ -446,7 +446,7 @@ describe("desktop cloud thread controls", () => {
       });
 
       const replayController = createCloudThreadController({
-        convexApi: {
+        backendRefs: {
           cloud_apps: {
             continueMyCloudAgentFromDesktop: "continue-ref",
             cancelMyCloudAgentThread: "cancel-ref",
@@ -502,7 +502,7 @@ describe("desktop cloud thread controls", () => {
     });
     let actions = 0;
     const controller = createCloudThreadController({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           continueMyCloudAgentFromDesktop: "continue-ref",
           cancelMyCloudAgentThread: "cancel-ref",
@@ -609,7 +609,7 @@ describe("desktop cloud thread controls", () => {
       status: "completed",
     });
     const controller = createCloudThreadController({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           continueMyCloudAgentFromDesktop: "continue-ref",
           cancelMyCloudAgentThread: "cancel-ref",
@@ -661,7 +661,7 @@ describe("desktop cloud thread controls", () => {
     });
     let mutations = 0;
     const controller = createCloudThreadController({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           continueMyCloudAgentFromDesktop: "continue-ref",
           cancelMyCloudAgentThread: "cancel-ref",

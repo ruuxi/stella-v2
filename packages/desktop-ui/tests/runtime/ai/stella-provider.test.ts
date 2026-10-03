@@ -6,7 +6,7 @@ import {
 } from "../../../src/shared/stella-api.js";
 
 describe("Stella site URLs", () => {
-  it("normalizes the Convex-hosted Stella endpoints back to the site root", () => {
+  it("normalizes the backend-hosted Stella endpoints back to the site root", () => {
     expect(normalizeStellaSiteUrl("https://example.test")).toBe(
       "https://example.test",
     );

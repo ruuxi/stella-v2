@@ -141,7 +141,7 @@ describe("mobile bridge replay end to end", () => {
     anyBridge.registrationState = "healthy";
     anyBridge.registrationLeaseExpiresAt = Date.now() + 60_000;
     anyBridge.hostAuthToken = "token";
-    anyBridge.convexSiteUrl = "https://example.convex.site";
+    anyBridge.backendUrl = "https://backend.stella.test";
     anyBridge.deviceId = "desktop-device";
     anyBridge.ensureAuthorized = vi.fn().mockResolvedValue({});
 
@@ -255,7 +255,7 @@ describe("mobile bridge replay end to end", () => {
     anyBridge.registrationState = "healthy";
     anyBridge.registrationLeaseExpiresAt = Date.now() + 60_000;
     anyBridge.hostAuthToken = "token";
-    anyBridge.convexSiteUrl = "https://example.convex.site";
+    anyBridge.backendUrl = "https://backend.stella.test";
     anyBridge.deviceId = "desktop-device";
     anyBridge.ensureAuthorized = vi.fn().mockResolvedValue({});
 
@@ -354,7 +354,7 @@ describe("mobile bridge replay end to end", () => {
     anyBridge.registrationState = "healthy";
     anyBridge.registrationLeaseExpiresAt = Date.now() + 60_000;
     anyBridge.hostAuthToken = "token";
-    anyBridge.convexSiteUrl = "https://example.convex.site";
+    anyBridge.backendUrl = "https://backend.stella.test";
     anyBridge.deviceId = "desktop-device";
     anyBridge.ensureAuthorized = vi.fn().mockResolvedValue({});
 

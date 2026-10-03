@@ -59,7 +59,7 @@ disabled while the profile is under human control.
 The `toolCallId` field required by the shared suspension/receipt wire shape is
 filled with the neutral command request ID. It is never treated as the outer
 tool-call authority, and neither takeover command accepts a caller-supplied
-tool-call ID. Convex validates interaction ID plus request digest and constructs
+tool-call ID. Builder validates interaction ID plus request digest and constructs
 the resume receipt with its own authoritative outer tool-call ID.
 
 Authenticated control-plane callers use:
@@ -85,8 +85,8 @@ post-sign-in verification remain the Gateway's alone.
 
 The session-transfer capability route returns a two-minute, one-use X25519
 public key bound to the exact owner, interaction, revision, profile epoch, and
-display origin. The client sends only an AES-GCM ciphertext through Convex and
-Builder. Those control-plane services cannot read the cookies. The Gateway
+display origin. The client sends only an AES-GCM ciphertext through Builder. That
+control-plane service cannot read the cookies. The Gateway
 decrypts a cookie-only Playwright storage state in memory, rejects unrelated
 domains and extra storage fields, and verifies it in a separate fresh Browser
 Run session. A failed import leaves the original Live View handoff available.
@@ -120,7 +120,7 @@ consumer fails closed. Pending stays pending, denial becomes canceled, expiry
 becomes expired, and an invalid grant fails closed. Device-code waits hold the
 durable profile interaction lock and an expiry alarm removes abandoned
 ciphertext. No device, access, refresh, or polling token is returned to Builder,
-Convex, the model transcript, the client, logs, or evidence.
+the model transcript, the client, logs, or evidence.
 
 ## Profile persistence
 

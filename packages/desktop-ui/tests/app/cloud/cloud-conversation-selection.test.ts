@@ -9,8 +9,8 @@ import {
   resolveCloudConversationRoute,
 } from "../../../src/features/cloud/cloud-conversation-selection";
 
-const OWNER_SUBJECT_A = "https://deployment.convex.site|a";
-const OWNER_SUBJECT_B = "https://deployment.convex.site|b";
+const OWNER_SUBJECT_A = "https://backend.stella.test|a";
+const OWNER_SUBJECT_B = "https://backend.stella.test|b";
 
 const conversation = (
   conversationId: string,

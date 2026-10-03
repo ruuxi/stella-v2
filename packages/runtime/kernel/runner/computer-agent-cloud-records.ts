@@ -209,8 +209,8 @@ type StartAdmissionWaiter = {
 };
 
 /**
- * Stable routing lane for one Convex identity. This is not an authentication
- * decision: Convex still verifies the JWT. It only prevents a durable row
+ * Stable routing lane for one account identity. This is not an authentication
+ * decision: the backend still verifies the JWT. It only prevents a durable row
  * admitted under account A from ever being attempted with account B's client.
  */
 export const resolveJwtOwnerScope = (
@@ -244,7 +244,7 @@ export const resolveJwtOwnerScope = (
  *
  * Every mutation is admitted to the runtime's operational SQLite outbox
  * before network I/O. The ordered drain survives worker restarts and retries
- * on auth/config/connectivity recovery. Convex independently fences each
+ * on auth/config/connectivity recovery. The backend independently fences each
  * transition by attemptGeneration, so an acknowledged response lost locally
  * or a late old-generation retry is idempotent.
  */
@@ -754,7 +754,7 @@ export const createComputerAgentCloudRecords = (
           ...(reason ? { reason } : {}),
         } satisfies ComputerAgentCancelPayload,
       });
-      // The local cancellation is durable even if Convex is temporarily
+      // The local cancellation is durable even if the backend is temporarily
       // unavailable; canonical convergence continues in the background.
       return { canceled: true };
     },

@@ -10,14 +10,14 @@ import type { SqliteDatabase } from "../storage/shared.js";
 import { toCloudExecutionSelection } from "./agent-model-config.js";
 import { createCloudSpawnDispatcher as createDispatcherRaw } from "./cloud-spawn-dispatch.js";
 /**
- * These cases were written against Convex-shaped fakes (`mutation(ref, args)`
+ * These cases were written against call-ref fakes (`mutation(ref, args)`
  * and `action(ref, args)` with string refs). This maps them onto the backend
  * calls the dispatcher now takes, one for one, so the refs still name what
  * was sent.
  */
 type DispatcherOptions = Parameters<typeof createDispatcherRaw>[0];
 type LegacyDispatcherOptions = Omit<DispatcherOptions, "backend"> & {
-  convexApi: { cloud_apps: Record<string, unknown> };
+  backendRefs: { cloud_apps: Record<string, unknown> };
   mutation: (ref: unknown, args: unknown) => Promise<unknown>;
   action: (ref: unknown, args: unknown) => Promise<unknown>;
   query?: (ref: unknown, args: unknown) => Promise<unknown>;
@@ -26,8 +26,8 @@ type LegacyDispatcherOptions = Omit<DispatcherOptions, "backend"> & {
 const adaptLegacyDispatcherOptions = (
   options: LegacyDispatcherOptions,
 ): DispatcherOptions => {
-  const { convexApi, mutation, action, query: _query, ...rest } = options;
-  const refs = convexApi.cloud_apps;
+  const { backendRefs, mutation, action, query: _query, ...rest } = options;
+  const refs = backendRefs.cloud_apps;
   return {
     ...rest,
     backend: {
@@ -372,10 +372,10 @@ describe("desktop cloud execution selection", () => {
     ).toThrow("desktop-only model route");
   });
 
-  test("includes the exact selection in the Convex spawn mutation", async () => {
+  test("includes the exact selection in the backend spawn call", async () => {
     const mutations: Array<{ ref: unknown; args: unknown }> = [];
     const dispatch = createCloudSpawnDispatcher({
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           spawnCloudAgentFromDesktop: "spawn-ref",
           listMyConversations: "list-ref",
@@ -424,7 +424,7 @@ describe("desktop cloud execution selection", () => {
     let loseResponse = true;
     let signedIn = true;
     const options = {
-      convexApi: {
+      backendRefs: {
         cloud_apps: {
           spawnCloudAgentFromDesktop: "spawn-ref",
           listMyConversations: "list-ref",

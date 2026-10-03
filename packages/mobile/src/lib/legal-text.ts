@@ -292,7 +292,7 @@ If you use Stella without an account, we track: an anonymous device identifier (
 
 10. Third-Party Services
 
-Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, DeepSeek, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, Convex for backend infrastructure, and services you connect through Stella integrations. Supported BYOK model requests may go directly from your device to the provider without using the Stella Provider; the cloud-authoritative conversation record remains in Stella's hosted services.
+Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, DeepSeek, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, Cloudflare for backend infrastructure, and services you connect through Stella integrations. Supported BYOK model requests may go directly from your device to the provider without using the Stella Provider; the cloud-authoritative conversation record remains in Stella's hosted services.
 
 
 11. Data Retention

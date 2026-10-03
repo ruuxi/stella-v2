@@ -62,9 +62,8 @@ const freeAllowanceMatchers = [
  * Structured capability denial. The authoritative signals are the
  * contract's `CAPABILITY_REQUIRED` code and the `[capability/<id>]`
  * marker it appends to the prose (see `buildCapabilityDenial`); the
- * remaining matchers cover the older paid-media rejections
- * (`assertPaidMediaTier` and the `PAID_PLAN_REQUIRED` ConvexError) that
- * predate the matrix.
+ * remaining matchers cover the older paid-media rejection wording
+ * (`PAID_PLAN_REQUIRED`) that predates the matrix.
  */
 const capabilityRequiredMatchers = [
   CAPABILITY_DENIED_CODE.toLowerCase(),

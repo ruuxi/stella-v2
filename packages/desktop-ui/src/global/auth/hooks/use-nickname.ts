@@ -42,9 +42,9 @@ interface UseNicknameResult {
 }
 
 export function useNickname(): UseNicknameResult {
-  const { user: convexUser, hasConnectedAccount } = useCurrentUser();
+  const { user: accountUser, hasConnectedAccount } = useCurrentUser();
   const { user: sessionUser } = useAuthSessionState();
-  const email = convexUser?.email ?? sessionUser?.email ?? undefined;
+  const email = accountUser?.email ?? sessionUser?.email ?? undefined;
   const [nickname, setNicknameState] = useState<string>(() =>
     getStoredNickname(email),
   );

@@ -7,19 +7,20 @@ teardown) is faster to drive headless:
 
 - `node .agents/skills/verify-stella/cloud-turn.mjs --prompt "<orchestrator prompt>"`
   mints a Pro test owner through the admin API, posts one turn to the dev
-  worker's `POST /conversations/:id/turns` with the service bearer and the
-  owner on the trusted headers, and polls `agent_events` until the turn
-  completes. Pass `--conversation <id>` to keep sending into one conversation
-  (follow-ups, `agent_status`, `pause_agent` all need that). Secrets come from
-  `bunx convex env get STELLA_ADMIN_API_SECRET` and `BUILDER_SERVICE_SECRET`;
-  the script never prints them.
-- Objective placement evidence is `bunx convex data agent_events --limit 20
-  --order desc` (`sandbox_ready` means a container attached; its absence on a
-  completed turn means the work stayed in the Durable Object) and
-  `bunx convex data cloud_agent_threads --limit 3 --order desc` for status,
-  attempt and error message. `bunx wrangler tail --format json` in
-  `workers/cloud-builder` captures worker logs, but it samples under load and
-  dies with the shell that started it; treat it as supplementary.
+  worker's `POST /conversations/:id/turns` with the owner's JWT, and polls
+  `GET /conversations/:id/history` until the turn's final assistant message
+  lands. Pass `--conversation <id>` (and the `--email` the first run printed)
+  to keep sending into one conversation (follow-ups, `agent_status`,
+  `pause_agent` all need that). `STELLA_ADMIN_API_SECRET` comes from the
+  environment or the gitignored `workers/cloud-builder/.dev.vars`; the script
+  never prints it.
+- Objective placement evidence is the owner's agent threads (the
+  `agentThreads.recent` and `agentThreads.page` backend calls the desktop
+  renders) and the worker tail: `bunx wrangler tail --format json` in
+  `workers/cloud-builder` (`sandbox_ready` means a container attached; its
+  absence on a completed turn means the work stayed in the Durable Object).
+  The tail samples under load and dies with the shell that started it, so
+  scope it to the tested owner, conversation and turn.
 - Reproduce executor bugs before deploying. The worker tests already run the
   real BuildSession and real Sandbox containers in workerd
   (`tests/general-agent-resident-workerd.test.ts`,

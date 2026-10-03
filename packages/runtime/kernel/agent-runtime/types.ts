@@ -236,7 +236,7 @@ export type BaseRunOptions = {
   /**
    * Transcript ownership follows the conversation, not where this particular
    * agent executes. Cloud conversations keep tool-spawned task lifecycle in
-   * Convex even when the task itself runs on this computer.
+   * the backend even when the task itself runs on this computer.
    */
   storageMode?: "cloud" | "local";
   /** Exact owner-data epoch captured at root turn admission. */

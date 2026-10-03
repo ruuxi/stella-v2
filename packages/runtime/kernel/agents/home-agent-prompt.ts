@@ -87,7 +87,7 @@ export const loadAgentSystemPrompt = async (
     presetPath ? statSignature(presetPath) : Promise.resolve(null),
   ]);
   const hasPreset = presetPath !== null && presetSig !== null;
-  // The Convex-served body is the source of truth once loaded
+  // The backend-served body is the source of truth once loaded
   // (`prompts/remote-prompts`); a user's selected preset still wins, and the
   // bundled file is the offline/BYOK fallback.
   if (!hasPreset) {

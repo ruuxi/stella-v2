@@ -115,7 +115,7 @@ const clearDisplayPanelWidthCssVar = (): void => {
  * workspace panel shell.
  *
  * Stateful tab list lives in the singleton `displayTabs` store so that
- * non-React surfaces (Convex materializer, IPC handlers, chat resource
+ * non-React surfaces (media materializer, IPC handlers, chat resource
  * pills) can register tabs with a single `displayTabs.openTab(spec)`
  * call. This component just observes the store and renders the active
  * tab's `render()`.

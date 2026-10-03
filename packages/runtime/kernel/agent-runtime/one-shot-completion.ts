@@ -1,7 +1,7 @@
 /**
  * Generic one-shot text completion driven by the runtime's BYOK-aware route
  * resolver. Used by renderer surfaces that previously rolled their own
- * `callChatCompletion`/Convex-action call (the music-prompt shaper, etc.) so
+ * `callChatCompletion`/backend call (the music-prompt shaper, etc.) so
  * the user's per-agent model override + local provider credentials are
  * honored just like the orchestrator and subsidiary agents.
  *

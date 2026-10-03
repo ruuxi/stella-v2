@@ -1,7 +1,7 @@
 /**
  * Pure decision behind the submit-time "model not available on your plan"
  * notice. It lives outside the hook so the engine gate sits next to the rule
- * it enforces and can be tested without React, Convex, or the IPC bridge.
+ * it enforces and can be tested without React, the backend, or the IPC bridge.
  */
 import {
   isRestrictedModelOverrideAudience,

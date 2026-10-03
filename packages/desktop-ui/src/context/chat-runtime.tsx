@@ -19,7 +19,7 @@ function NativeRuntimeBridges() {
  * Hoists `useFullShellChat`'s output into a single Context so the chat
  * route (`app/chat`) and the floating ChatSidebar / RightSidebar overlays
  * mounted by `__root.tsx` all consume the same conversation state. Running
- * the hook once also keeps Convex subscriptions deduplicated.
+ * the hook once also keeps backend subscriptions deduplicated.
  *
  * The matching `useChatRuntime` hook lives in
  * `@/context/use-chat-runtime` — they are deliberately split so this file

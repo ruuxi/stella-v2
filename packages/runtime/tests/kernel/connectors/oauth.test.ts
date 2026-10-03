@@ -605,7 +605,7 @@ describe("connector OAuth credentials", () => {
           );
           return;
         }
-        expect(req.headers.authorization).toBe("Bearer convex-token");
+        expect(req.headers.authorization).toBe("Bearer backend-token");
         expect(body.code).toBe("code-1");
         expect(body.redirect_uri).toContain("/callback/todoist");
         expect(body.code_verifier).toBeTruthy();
@@ -634,7 +634,7 @@ describe("connector OAuth credentials", () => {
           type: "backend",
           endpoint: `${server.baseUrl}/backend-token`,
           provider: "todoist",
-          authToken: "convex-token",
+          authToken: "backend-token",
         },
         openUrl: async (url) => {
           const authorizationUrl = new URL(url);
@@ -711,7 +711,7 @@ describe("connector OAuth credentials", () => {
           type: "backend",
           endpoint: `${server.baseUrl}/backend-token`,
           provider: "notion",
-          authToken: "convex-token",
+          authToken: "backend-token",
         },
         callbackWaiter: async ({ state, redirectUri }) => ({
           waitForCode: Promise.resolve(
@@ -748,7 +748,7 @@ describe("connector OAuth credentials", () => {
         const body = JSON.parse(
           Buffer.concat(chunks).toString("utf-8"),
         ) as Record<string, unknown>;
-        expect(req.headers.authorization).toBe("Bearer convex-token");
+        expect(req.headers.authorization).toBe("Bearer backend-token");
         expect(body.provider).toBe("figma");
         expect(body.client_id).toBe("figma-client");
         res.writeHead(200, { "content-type": "application/json" }).end(
@@ -774,7 +774,7 @@ describe("connector OAuth credentials", () => {
           type: "backend",
           endpoint: `${server.baseUrl}/backend-token`,
           provider: "figma",
-          authToken: "convex-token",
+          authToken: "backend-token",
         },
         openUrl: async (url) => {
           const authorizationUrl = new URL(url);
@@ -841,7 +841,7 @@ describe("connector OAuth credentials", () => {
           type: "backend",
           endpoint: `${server.baseUrl}/backend-token`,
           provider: "miro",
-          authToken: "convex-token",
+          authToken: "backend-token",
         },
         callbackWaiter: async () => ({
           waitForCode: Promise.resolve("miro-code"),

@@ -2,8 +2,8 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 
 /**
  * The execution fields the binding validators read. Structurally satisfied
- * by a contracts `CloudExecutionSelection` and by Convex's persisted
- * turn-token row, whose `engine` and `provider` are typed independently.
+ * by a contracts `CloudExecutionSelection` and by the model gateway's
+ * turn-token execution, whose `engine` and `provider` are typed independently.
  */
 export type CloudExecutionBinding = {
   engine: CloudExecutionSelection["engine"];
@@ -248,7 +248,7 @@ const validateNativeReasoning = (args: {
 /**
  * Bind an engine-credential relay request to the immutable route stored with
  * its turn token. This is deliberately pure so the authorization invariant can
- * be tested without constructing a Convex action context.
+ * be tested without constructing a gateway request context.
  */
 export const validateConnectedCloudBinding = (args: {
   execution?: CloudExecutionBinding;

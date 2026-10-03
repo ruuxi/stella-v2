@@ -210,7 +210,7 @@ export class DictationSession {
 
   /**
    * The microphone and the relay connection start together. The relay
-   * handshake (Convex gate, then the Meta upgrade) takes far longer than
+   * handshake (backend gate, then the Meta upgrade) takes far longer than
    * opening the mic, so recording shows as soon as the mic is live. Audio
    * captured while connecting is held in `pcmChunks` and flushed on connect.
    */

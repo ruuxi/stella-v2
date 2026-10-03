@@ -945,7 +945,7 @@ export class BrowserProfileSessionCore {
           state: "human_control",
           ...authorityDigests,
           attemptGeneration: envelope.authority.attemptGeneration,
-          // Neutral broker request identity only. Convex binds the suspension
+          // Neutral broker request identity only. Builder binds the suspension
           // to the authoritative outer Code tool-call identity.
           toolCallId: envelope.command.requestId,
           requestDigest,

@@ -251,7 +251,7 @@ If you use Stella's social features (friend system, chat rooms, collaborative se
 
 12. Third-Party Services and Provider Retention
 
-Stella uses third-party services including AI gateways and model providers (which may include OpenAI, Anthropic, Google, xAI, OpenRouter, and Fireworks), fal.ai and other media providers, Exa and other search providers, Convex for backend infrastructure, Stripe for billing, authentication and connected-service vendors, and Google Ads for advertising-referred download measurement.
+Stella uses third-party services including AI gateways and model providers (which may include OpenAI, Anthropic, Google, xAI, OpenRouter, and Fireworks), fal.ai and other media providers, Exa and other search providers, Cloudflare for backend infrastructure, Stripe for billing, authentication and connected-service vendors, and Google Ads for advertising-referred download measurement.
 
 These providers process data under their own terms, privacy policies, and account configurations. Depending on the provider and feature, they may retain prompts, outputs, uploaded files, generated media, search requests, or metadata for safety, abuse prevention, service operation, or other stated purposes. Some providers offer optional or account-specific zero-data-retention controls, but availability and coverage vary. FromYou does not make a blanket zero-data-retention promise for third-party processing. When using BYOK, a model request may go directly from your device to the provider, but that does not change the provider's own practices.
 

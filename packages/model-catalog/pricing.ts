@@ -129,7 +129,7 @@ export const LONG_CACHE_WRITE_INPUT_MULTIPLIER = 2;
 export const computeUsageCostMicroCents = (
   args: UsageCostArgs & {
     /** Price table consulted when `price` is absent. Defaults to the
-     * package baseline; Convex supplies its env-configured catalog. */
+     * package baseline; a host may supply an env-configured catalog. */
     catalog?: TokenPriceCatalog;
   },
 ) => {

@@ -8,8 +8,7 @@
  *
  * The per-owner Durable Object on the cloud-builder decides where a turn
  * runs: an eligible computer that claims the offer inside the window, else
- * Stella's cloud. Convex is not on this path — it only projects what the gate
- * reports — so the browser talks to the gate with the same Better Auth JWT
+ * Stella's cloud. The browser talks to the gate with the same Better Auth JWT
  * the conversation socket presents.
  *
  * Mirrors `turn-start-client.ts`: typed refusals, one silent retry after a

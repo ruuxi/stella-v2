@@ -14,8 +14,7 @@ export const MANAGED_GATEWAY_PROVIDERS = [
 export type ManagedGatewayProvider = (typeof MANAGED_GATEWAY_PROVIDERS)[number];
 
 /**
- * Wire protocol a managed gateway speaks. Mirrors the union the Convex
- * runtime declares in `runtime_ai/managed.ts`; the two must stay identical.
+ * Wire protocol a managed gateway speaks.
  */
 export type ManagedProtocol =
   | "openai-completions"
@@ -27,7 +26,7 @@ export type ManagedGatewayConfig = {
   provider: ManagedGatewayProvider;
   baseURL: string;
   /**
-   * Primary Convex env var name for the managed upstream key. Some providers
+   * Primary env var name for the managed upstream key. Some providers
    * accept additional documented aliases via `apiKeyEnvVarFallbacks`.
    */
   apiKeyEnvVar: string;

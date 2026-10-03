@@ -126,7 +126,7 @@ type PlacementBridgeOptions = {
   appVersion: string;
   deviceName?: string;
   platform?: string;
-  /** The same Better Auth JWT the host presents to Convex. */
+  /** The same Better Auth JWT the host presents to the backend. */
   getAuthToken?: () => string | null;
   getAvailability: () =>
     | ExecutionPlacementAvailability

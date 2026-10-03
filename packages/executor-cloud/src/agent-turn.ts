@@ -5,7 +5,7 @@
  * The BuildSession DO restores the workspace before invoking this and
  * checkpoints it after; this module only runs the loop. Model calls, events,
  * and transcript writes go through the short-lived Builder broker capability;
- * the reusable Convex turn token never enters this process. The final line on
+ * no reusable turn token ever enters this process. The final line on
  * stdout is the structured report the DO parses.
  */
 
@@ -1359,7 +1359,7 @@ export const runAgentTurn = (): Effect.Effect<AgentTurnResult, Error> =>
       // A normal cloud Code turn checkpoints its Browser Run profile before
       // the sandbox and its turn authority disappear. A suspended login/device
       // handoff is still under human control and must receive no automation
-      // command here; the next physical turn resumes it from Convex instead.
+      // command here; the next physical turn resumes it from the backend instead.
       const browserTurnFailure = yield* Effect.promise(async () => {
         try {
           await checkpointCloudBrowserTurnBeforeTeardown({

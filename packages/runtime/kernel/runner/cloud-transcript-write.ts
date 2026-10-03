@@ -126,9 +126,9 @@ export type CloudJournalAppendRequest = {
 export type CloudTranscriptWriterOptions = {
   deviceId: string;
   store: RuntimeStore;
-  /** The runtime's Convex JWT, or null while signed out. */
+  /** The runtime's backend JWT, or null while signed out. */
   getAuthToken: () => string | null;
-  /** Builder origin from Convex, or null when realtime is not configured. */
+  /** Builder origin from the backend, or null when realtime is not configured. */
   getBaseUrl: () => Promise<string | null>;
   /** Captures the current immutable owner epoch before a journal append is queued. */
   getOwnerGeneration?: () => Promise<string>;

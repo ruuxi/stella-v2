@@ -21,16 +21,16 @@ const activeRecords = new Set<
 const openDatabases = new Set<Database>();
 
 /**
- * These cases were written against Convex-shaped fakes (`mutation(ref,
+ * These cases were written against call-ref fakes (`mutation(ref,
  * args)`, errors carrying `data.code`). This maps them onto the backend
  * calls the records now use, so each case still drives the same protocol:
- * refs name the call, and Convex error codes become backend reasons.
+ * refs name the call, and `data.code` error codes become backend reasons.
  */
 type LegacyOptions = Omit<
   Parameters<typeof createComputerAgentCloudRecordsRaw>[0],
   "backend"
 > & {
-  convexApi: typeof refs;
+  backendRefs: typeof refs;
   mutation: (ref: unknown, args: unknown) => Promise<unknown>;
   query: (ref: unknown, args: unknown) => Promise<unknown>;
 };
@@ -54,7 +54,7 @@ const asBackendError = (error: unknown): unknown => {
 };
 
 const createComputerAgentCloudRecords = (options: LegacyOptions) => {
-  const { convexApi, mutation, query, ...rest } = options;
+  const { backendRefs, mutation, query, ...rest } = options;
   const via =
     (send: (ref: unknown, args: unknown) => Promise<unknown>, ref: unknown) =>
     async (args: Record<string, unknown>) => {
@@ -71,10 +71,10 @@ const createComputerAgentCloudRecords = (options: LegacyOptions) => {
   const records = createComputerAgentCloudRecordsRaw({
     ...rest,
     backend: {
-      start: via(mutation, convexApi.local_agent_threads.startMyComputerAgentThread),
-      complete: via(mutation, convexApi.local_agent_threads.completeMyComputerAgentThread),
-      cancel: via(mutation, convexApi.local_agent_threads.cancelMyComputerAgentThread),
-      get: via(query, convexApi.local_agent_threads.getMyComputerAgentThread),
+      start: via(mutation, backendRefs.local_agent_threads.startMyComputerAgentThread),
+      complete: via(mutation, backendRefs.local_agent_threads.completeMyComputerAgentThread),
+      cancel: via(mutation, backendRefs.local_agent_threads.cancelMyComputerAgentThread),
+      get: via(query, backendRefs.local_agent_threads.getMyComputerAgentThread),
     },
   });
   activeRecords.add(records);
@@ -144,7 +144,7 @@ describe("computer agent cloud lifecycle records", () => {
     const { database, store } = createStore();
     const calls: Array<{ ref: unknown; args: unknown }> = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-1",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -193,7 +193,7 @@ describe("computer agent cloud lifecycle records", () => {
     );
     const calls: Array<{ ref: unknown; args: unknown }> = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-1",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -247,7 +247,7 @@ describe("computer agent cloud lifecycle records", () => {
   test("reads canonical computer-agent snapshots and fails closed signed out", async () => {
     const signedInStorage = createStore();
     const signedIn = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-1",
       store: signedInStorage.store,
       getAuthToken: () => ownerAAuthToken,
@@ -278,7 +278,7 @@ describe("computer agent cloud lifecycle records", () => {
 
     const signedOutStorage = createStore();
     const signedOut = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-1",
       store: signedOutStorage.store,
       getAuthToken: () => null,
@@ -309,7 +309,7 @@ describe("computer agent cloud lifecycle records", () => {
     );
     let mutations = 0;
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-unknown-attempt",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -342,7 +342,7 @@ describe("computer agent cloud lifecycle records", () => {
     let token: string | null = ownerAAuthToken;
     const calls: unknown[] = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-auth-late",
       store,
       getAuthToken: () => token,
@@ -386,7 +386,7 @@ describe("computer agent cloud lifecycle records", () => {
     let failNetwork = true;
     const calls: unknown[] = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-network",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -433,7 +433,7 @@ describe("computer agent cloud lifecycle records", () => {
       },
     });
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-canonical-rejection",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -473,7 +473,7 @@ describe("computer agent cloud lifecycle records", () => {
     let loseResponse = true;
     let calls = 0;
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-lost-start-response",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -526,7 +526,7 @@ describe("computer agent cloud lifecycle records", () => {
     try {
       const firstStorage = createStore(new Database(databasePath));
       const first = createComputerAgentCloudRecords({
-        convexApi: refs,
+        backendRefs: refs,
         deviceId: "device-restart",
         store: firstStorage.store,
         getAuthToken: () => ownerAAuthToken,
@@ -565,7 +565,7 @@ describe("computer agent cloud lifecycle records", () => {
       const calls: Array<{ ref: unknown; args: unknown }> = [];
       const restartedStorage = createStore(new Database(databasePath));
       const restarted = createComputerAgentCloudRecords({
-        convexApi: refs,
+        backendRefs: refs,
         deviceId: "device-restart",
         store: restartedStorage.store,
         getAuthToken: () => ownerAAuthToken,
@@ -600,7 +600,7 @@ describe("computer agent cloud lifecycle records", () => {
     let ownerAOffline = true;
     const calls: Array<{ ownerScope: string | null; threadId: string }> = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-switch",
       store,
       getAuthToken: () => token,
@@ -665,7 +665,7 @@ describe("computer agent cloud lifecycle records", () => {
     let ownerAAttempts = 0;
     const calls: string[] = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-inflight-switch",
       store,
       getAuthToken: () => token,
@@ -739,7 +739,7 @@ describe("computer agent cloud lifecycle records", () => {
     });
     const calls: string[] = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-legacy",
       store,
       getAuthToken: () => ownerBAuthToken,
@@ -770,13 +770,13 @@ describe("computer agent cloud lifecycle records", () => {
     database.close();
   });
 
-  test("tombstones an exact generation when Convex reports it stale", async () => {
+  test("tombstones an exact generation when the backend reports it stale", async () => {
     const { database, store } = createStore();
     const stale = Object.assign(new Error("generation stale"), {
       data: { code: "OWNER_DATA_GENERATION_STALE" },
     });
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-stale",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -818,7 +818,7 @@ describe("computer agent cloud lifecycle records", () => {
     let offline = true;
     const delivered: Array<Record<string, unknown>> = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-aba",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -882,7 +882,7 @@ describe("computer agent cloud lifecycle records", () => {
     });
     const delivered: string[] = [];
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-inflight-aba",
       store,
       getAuthToken: () => ownerAAuthToken,
@@ -940,7 +940,7 @@ describe("computer agent cloud lifecycle records", () => {
     const generationTwo = "owner-a-generation-2";
     let calls = 0;
     const records = createComputerAgentCloudRecords({
-      convexApi: refs,
+      backendRefs: refs,
       deviceId: "device-reverse-aba",
       store,
       getAuthToken: () => ownerAAuthToken,

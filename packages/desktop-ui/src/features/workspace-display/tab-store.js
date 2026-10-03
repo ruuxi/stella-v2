@@ -2,7 +2,7 @@
  * Singleton store backing the workspace panel's tab manager.
  *
  * Exposed as a small custom store rather than a React context because the
- * tab list is mutated from many non-React surfaces — the Convex media
+ * tab list is mutated from many non-React surfaces — the media
  * materializer, the runtime `display:update` IPC, the chat surface's
  * resource-pill click handlers, the global keyboard shortcuts. Any caller
  * with `import { displayTabs } from ".../tab-store"` can register a tab

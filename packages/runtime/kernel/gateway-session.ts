@@ -4,7 +4,7 @@
  * A signed-in (or anonymous) runtime never sends its Better Auth JWT to the
  * gateway on model requests. It exchanges the JWT once at
  * `POST {gatewayOrigin}/v1/capabilities/session` for a session capability
- * (an ES256 JWT minted by Convex) and presents that capability as
+ * (an ES256 JWT minted by the backend) and presents that capability as
  * `Authorization: Bearer <capability>` on every relay call.
  *
  * This module owns two process-wide caches:

@@ -7,8 +7,7 @@
  * Auth JWT the conversation socket presents and hands the request to the
  * conversation's Durable Object, which owns admission (idempotency on
  * `clientMsgId`, owner adoption for a fresh conversation, policy, journaling)
- * and answers 202. Convex learns about the turn through the outbox, so no
- * Convex mutation is involved in starting one.
+ * and answers 202.
  *
  * Conversation ids are minted here, on the client: a brand-new conversation
  * is a UUID the renderer picked before the first turn was posted, and the

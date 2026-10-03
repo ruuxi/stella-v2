@@ -1,7 +1,7 @@
 /**
- * Map known `ConvexError` codes (as thrown by the backend) to
- * localized message keys in the renderer's i18n catalogs. Backend
- * `ConvexError` always carries an English `message` for logs/devs;
+ * Map known backend error codes to localized message keys in the
+ * renderer's i18n catalogs. A backend error always carries an
+ * English `message` for logs/devs;
  * the renderer should call `localizeBackendError` to surface the
  * user-friendly version in their language.
  */
@@ -15,7 +15,7 @@ const CODE_TO_KEY: Record<string, string> = {
   PERMISSION_DENIED: "errors.permissionDenied",
 };
 
-type ConvexErrorLike =
+type ServerErrorLike =
   | {
       data?: { code?: string; message?: string } | string;
       message?: string;
@@ -23,7 +23,7 @@ type ConvexErrorLike =
   | undefined
   | null;
 
-const extractCode = (error: ConvexErrorLike): string | undefined => {
+const extractCode = (error: ServerErrorLike): string | undefined => {
   if (!error || typeof error !== "object") return undefined;
   const data = (error as { data?: unknown }).data;
   if (data && typeof data === "object") {
@@ -33,7 +33,7 @@ const extractCode = (error: ConvexErrorLike): string | undefined => {
   return undefined;
 };
 
-const extractFallbackMessage = (error: ConvexErrorLike): string | undefined => {
+const extractFallbackMessage = (error: ServerErrorLike): string | undefined => {
   if (!error) return undefined;
   if (typeof error === "object") {
     const data = (error as { data?: unknown }).data;
@@ -61,11 +61,11 @@ export const localizeBackendError = (
   catalog: Catalog | undefined,
   params?: TranslateParams,
 ): string => {
-  const code = extractCode(error as ConvexErrorLike);
+  const code = extractCode(error as ServerErrorLike);
   if (code && CODE_TO_KEY[code]) {
     return translate(catalog, CODE_TO_KEY[code], params);
   }
-  const fallback = extractFallbackMessage(error as ConvexErrorLike);
+  const fallback = extractFallbackMessage(error as ServerErrorLike);
   if (fallback) return fallback;
   return translate(catalog, "errors.generic", params);
 };

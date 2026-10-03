@@ -30,7 +30,7 @@ skill becomes user-owned and is never overwritten. Legacy
 `~/.stella/system/skills/` content is migrated once into the canonical root
 without replacing collisions, then archived under `~/.stella/.trash/`.
 
-The cloud skill store (`cloud_skills` in Convex, package bytes in R2) is a
+The cloud skill store (skill heads in the owner store's `home` domain, package bytes in R2) is a
 mirror of that root, not a second catalog. Desktop sync is its only writer, and
 a cloud-executing turn materializes the mirror read-only into its sandbox. The
 cloud has no create, edit, enable, or authorize surface: a skill exists for a

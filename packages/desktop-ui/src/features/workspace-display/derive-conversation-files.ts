@@ -2,7 +2,7 @@
  * Walks an `EventRecord[]` for a conversation and returns the unique files
  * the assistant touched, most-recent first. Local-lane files are derived
  * from `stella://file` links in the response text; cloud-lane files arrive
- * as `cloudDriveFiles` on the event payload (projected from Convex
+ * as `cloudDriveFiles` on the event payload (projected from backend
  * `output_files` events).
  *
  * Used by both the inline chat home overview's Recent files list AND the

@@ -454,7 +454,7 @@ export class ConversationSocket {
       `/conversations/${encodeURIComponent(this.options.conversationId)}/socket`,
       socketBaseUrl,
     );
-    // Convex already hands out a `ws:`/`wss:` origin; these two lines only
+    // The backend already hands out a `ws:`/`wss:` origin; these two lines only
     // cover a caller that passed the http form. Blanket-forcing `wss:` would
     // break a local `ws://localhost` builder.
     if (url.protocol === "http:") url.protocol = "ws:";

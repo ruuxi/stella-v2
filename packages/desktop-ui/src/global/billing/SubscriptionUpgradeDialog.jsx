@@ -23,7 +23,7 @@ const storageKeyFor = (accountKey) => `stella-billing-last-seen-plan:${accountKe
  *  status without holding a live `useQuery` watcher of their own. */
 export const SUBSCRIPTION_UPGRADED_EVENT = "stella:subscription-upgraded";
 /**
- * Mounted once near the app root. Watches the Convex `billing` query (which
+ * Mounted once near the app root. Watches the backend `billing.status` view (which
  * is already updated reactively by Stripe webhooks on the backend) and
  * surfaces a celebratory dialog the first time the user's plan transitions
  * from one value to a different paid value.

@@ -7,7 +7,7 @@
  * the model wrote it into the reply — which is what a filesystem diff could
  * never tell apart from a dependency install.
  *
- * Reported files are registered in Convex and, when small enough, uploaded to
+ * Reported files are registered in the owner's drive and, when small enough, uploaded to
  * R2 so the chat surface can hand them back to the user. Anything larger stays
  * in the checkpointed workspace and is reported as metadata only.
  *
@@ -41,7 +41,7 @@ export const PRODUCED_FILE_AUTHORIZED_BYTES = Symbol(
 export type ProducedFileReport = {
   /**
    * Drive-relative POSIX path, no leading slash (contract C3). Non-drive
-   * workspaces are namespaced here rather than in the Convex route, because
+   * workspaces are namespaced here rather than in the backend route, because
    * the chat surface resolves the path it sees in the `output_files` event
    * straight against the drive — the two have to be the same string.
    */
@@ -327,7 +327,7 @@ export type ProducedFileDelivery = {
 };
 
 /**
- * Register the reported files with Convex, uploading bytes for everything
+ * Register the reported files with the backend, uploading bytes for everything
  * under the inline limit. Batched so one request never carries more than the
  * inline limit's worth of content.
  *

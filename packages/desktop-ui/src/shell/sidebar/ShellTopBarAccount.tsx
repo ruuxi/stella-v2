@@ -75,12 +75,12 @@ interface ShellTopBarAccountProps {
 
 export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
   const t = useT();
-  const { user: convexUser, hasConnectedAccount } = useCurrentUser();
+  const { user: accountUser, hasConnectedAccount } = useCurrentUser();
   const { user: sessionUser } = useAuthSessionState();
   const { nickname } = useNickname();
   const user = {
-    email: convexUser?.email ?? sessionUser?.email ?? undefined,
-    name: convexUser?.name ?? sessionUser?.name ?? undefined,
+    email: accountUser?.email ?? sessionUser?.email ?? undefined,
+    name: accountUser?.name ?? sessionUser?.name ?? undefined,
   };
 
   const [billingQueryReady, setBillingQueryReady] = useState(false);

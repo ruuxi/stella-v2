@@ -92,7 +92,7 @@ export interface VoiceSessionToken {
 }
 
 export interface ProviderTokenContext {
-  /** Convex conversation id, when available — used by Stella's backend. */
+  /** Cloud conversation id, when available — used by Stella's backend. */
   conversationId?: string;
   /** Full system prompt to inject at session start. */
   instructions: string;

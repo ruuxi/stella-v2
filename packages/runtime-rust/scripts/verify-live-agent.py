@@ -2,13 +2,19 @@
 import subprocess, pathlib, tempfile, os, urllib.request, json, uuid, sys
 root = pathlib.Path(__file__).resolve().parents[3]
 work = pathlib.Path(tempfile.mkdtemp(prefix='stella-native-live-'))
-site = 'https://outgoing-bulldog-865.convex.site'
-secret = subprocess.check_output(['bunx', 'convex', 'env', 'get', 'STELLA_ADMIN_API_SECRET'], cwd=root / 'packages/backend', text=True).strip().split('\n')[-1]
+site = os.environ.get('STELLA_BACKEND_URL', 'https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev').rstrip('/')
+def dev_var(name):
+    path = root / 'workers/cloud-builder/.dev.vars'
+    for line in (path.read_text().splitlines() if path.exists() else []):
+        if line.strip().startswith(name + '='):
+            return line.strip()[len(name) + 1:].strip().strip('"')
+    return ''
+secret = os.environ.get('STELLA_ADMIN_API_SECRET', '').strip() or dev_var('STELLA_ADMIN_API_SECRET')
+assert secret, 'STELLA_ADMIN_API_SECRET is unavailable: export it or set it in workers/cloud-builder/.dev.vars'
 request = urllib.request.Request(site + '/api/admin/test-accounts/session', data=json.dumps({'email': 'agent-rust-' + uuid.uuid4().hex[:8] + '@test.stella.local', 'plan': 'pro', 'usageMode': 'unlimited'}).encode(), headers={'Authorization': 'Bearer ' + secret, 'Content-Type': 'application/json'})
 with urllib.request.urlopen(request, timeout=30) as response:
     session = json.load(response)
-with urllib.request.urlopen(urllib.request.Request(site + '/api/auth/convex/token', headers={'Authorization': 'Bearer ' + session['sessionToken'], 'Accept': 'application/json'}), timeout=30) as response:
-    auth = json.load(response)['token']
+auth = session['token']
 nonce = 'rust-native-' + uuid.uuid4().hex
 file = work / 'verification.txt'
 file.write_text(nonce + '\n')
@@ -46,9 +52,8 @@ if '--model' in sys.argv:
     if '--backend-provider-key' in sys.argv:
         provider = request['model'].split('/')[0]
         name = {'anthropic':'ANTHROPIC_API_KEY','google':'GOOGLE_AI_API_KEY'}[provider]
-        result = subprocess.run(['bunx','convex','env','get',name],cwd=root / 'packages/backend',text=True,capture_output=True,check=True)
-        value = result.stdout.strip().split('\n')[-1]
-        assert value and value not in ['undefined','null'], 'Provider verification credential is unavailable: ' + name
+        value = os.environ.get(name, '').strip()
+        assert value, 'Provider verification credential is unavailable: export ' + name
         env[name] = value
 if image_mode:
     request['prompt'] = f'Use Read to inspect {file}. Reply with the two solid colours from left to right in lowercase, separated by a comma and a space. Do not delegate.'

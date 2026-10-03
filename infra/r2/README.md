@@ -1,8 +1,9 @@
 # Stella file bucket CORS
 
 `stella-files-cors.json` records the live policy for the shared `stella-files`
-bucket. Dev and production Convex were verified on 2026-09-10 to use this same
-bucket and endpoint.
+bucket, the file bucket dev and production used before phase 10. Nothing in the
+repo references it now; drive bytes live in the `R2_DRIVE_BUCKET` buckets set in
+`workers/cloud-builder/wrangler.jsonc`.
 
 Apply from `workers/cloud-builder`:
 

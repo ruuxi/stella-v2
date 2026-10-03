@@ -20,8 +20,8 @@ const emit = (): void => {
 };
 
 /**
- * Bridges the short gap between a successful settings mutation and Convex's
- * reactive query update. Turn dispatch reads this snapshot synchronously, so
+ * Bridges the short gap between a successful settings mutation and the backend's
+ * live view update. Turn dispatch reads this snapshot synchronously, so
  * closing the picker and immediately pressing Send cannot resurrect the old
  * cloud route.
  */

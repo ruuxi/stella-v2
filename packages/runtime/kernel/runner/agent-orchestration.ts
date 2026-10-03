@@ -397,7 +397,7 @@ export const createAgentOrchestration = (
     if (!userPrompt) {
       // Desktop-originated cloud pauses deliberately suppress a synthetic
       // orchestrator follow-up so it cannot overwrite the user's visible
-      // pause response. The Convex lifecycle monitor still needs a durable
+      // pause response. The cloud lifecycle monitor still needs a durable
       // event marker before it may ACK the terminal row; otherwise that row
       // remains subscribed forever and is replayed on every restart.
       if (
@@ -591,7 +591,7 @@ export const createAgentOrchestration = (
       agentContext,
       taskDescription,
       taskPrompt,
-      persistToConvex,
+      persistToCloud,
       ownerGeneration,
       abortSignal,
       subagentSession,
@@ -671,7 +671,7 @@ export const createAgentOrchestration = (
         ...(resume ? { resume } : {}),
         executionHost: "device",
         conversationId,
-        storageMode: persistToConvex ? "cloud" : "local",
+        storageMode: persistToCloud ? "cloud" : "local",
         ownerGeneration,
         userMessageId,
         runId,

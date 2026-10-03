@@ -43,17 +43,18 @@ Launch the isolated Electron verifier with a signed-in paid account:
 node .agents/skills/verify-stella/control-stella.mjs session launch --account pro
 ```
 
-The harness reads `CONVEX_SITE_URL` from the environment or
-`packages/backend/.env.local`. It reads `STELLA_ADMIN_API_SECRET` from the
-environment or runs `bunx convex env get STELLA_ADMIN_API_SECRET` in
-`packages/backend`. For a non-Electron client, mint a session directly:
+The harness targets `STELLA_BACKEND_URL` (default: the dev cloud-builder
+worker, `https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev`). It reads
+`STELLA_ADMIN_API_SECRET` from the environment or the gitignored
+`workers/cloud-builder/.dev.vars`. For a non-Electron client, mint a session
+directly:
 
 ```sh
 curl -sS -X POST \
   -H "Authorization: Bearer $STELLA_ADMIN_API_SECRET" \
   -H "Content-Type: application/json" \
   -d '{"email":"agent-manual@test.stella.local","plan":"pro","usageMode":"unlimited"}' \
-  "$CONVEX_SITE_URL/api/admin/test-accounts/session"
+  "$STELLA_BACKEND_URL/api/admin/test-accounts/session"
 ```
 
 The dev deployment has `STELLA_TEST_ACCOUNTS=1`; production never does. The
@@ -93,8 +94,8 @@ for `/Applications/Stella.app`.
   `codesign --verify --deep --strict --verbose=2 "$HOME/Applications/Stella V2 Test/Stella.app"`.
 - macOS notarization: check `spctl -a -vv "$HOME/Applications/Stella V2 Test/Stella.app"`.
   Gatekeeper must report `accepted`; July 17 build notarized successfully (submission f55e00c9-bbc1-4b4f-a7f8-f76df8f17a63, Accepted, staple validate ok, spctl: accepted Notarized Developer ID, keychain profile `stella-notary`).
-- Public production Convex configuration is baked at renderer build time:
-  `https://benevolent-minnow-586.convex.cloud` and `https://cloud.stella.sh`.
+- The public production backend URL is baked at renderer build time:
+  `https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev`.
   The first-run/auth flow should therefore be online, not the offline-only
   shell.
 - Keychain: real Developer-ID signing should eliminate the prior unsigned-build

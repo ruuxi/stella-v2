@@ -10,7 +10,6 @@ test("cloud hand-off balances the desktop start and ignores later dispatch updat
   let onStatus: (status: object) => void = () => {};
   let unsubscribed = 0;
   const host = {
-    ensureHostConvexClient: () => ({}),
     syncHostExecutionPlacement: async () => {},
     uploadPlacedAttachments: async () => [],
     placedDispatchByRunId: new Map(),

@@ -113,7 +113,7 @@ test("workflows keep the development host out of production packages", () => {
       const isDev = event === "workflow_dispatch" && target === "development";
       assert.equal(values.target, isDev ? "development" : "production");
       assert.equal(values.auto_update, event === "push" ? "true" : "false");
-      assert.equal(values.convex_url, `https://${isDev ? "outgoing-bulldog-865" : "intent-jackal-330"}.convex.cloud`);
+      assert.equal(values.backend_url, `https://stella-v2-cloud-builder-${isDev ? "dev" : "prod"}.lolruuxi.workers.dev`);
       const buildEnv = Object.fromEntries(Object.entries(buildStep.env).map(([key, value]) => [
         key,
         key === "VITE_STELLA_DEV_APPS_HOST_HARNESS" ? (isDev ? "1" : "0") : value.replace(

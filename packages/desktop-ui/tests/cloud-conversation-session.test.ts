@@ -21,7 +21,7 @@ describe("resolveCloudConversationSession", () => {
     ).toEqual({ isCloudConversationReady: false, isLoading: true });
   });
 
-  test("marks cloud conversations ready for any Better Auth session accepted by Convex", () => {
+  test("marks cloud conversations ready for any Better Auth session accepted by the backend", () => {
     expect(
       resolveCloudConversationSession({
         // This intentionally does not distinguish anonymous from connected:
@@ -39,7 +39,7 @@ describe("resolveCloudConversationSession", () => {
     ).toEqual({ isCloudConversationReady: true, isLoading: false });
   });
 
-  test("does not fall back locally while Convex token exchange is pending", () => {
+  test("does not fall back locally while backend token exchange is pending", () => {
     expect(
       resolveCloudConversationSession({
         hasSession: true,
@@ -71,7 +71,7 @@ describe("resolveCloudConversationSession", () => {
     ).toEqual({ isCloudConversationReady: false, isLoading: false });
   });
 
-  test("blocks cloud data until Convex proves it serves the current subject", () => {
+  test("blocks cloud data until the backend proves it serves the current subject", () => {
     expect(
       resolveCloudConversationSession({
         hasSession: true,

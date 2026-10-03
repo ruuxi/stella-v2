@@ -6,6 +6,7 @@
  */
 import { OwnerGate } from "../../src/owner-gate.js";
 import { number, object, string } from "../../src/owner-store/args.js";
+import { accountDomain } from "../../src/owner-store/domains/account.js";
 import {
   createOwnerRegistry,
   type OwnerCaller,
@@ -53,7 +54,8 @@ const notes = {
   },
 } as unknown as OwnerDomain;
 
-const registry = createOwnerRegistry([notes]);
+// The gate reads the account domain's owner state on every call.
+const registry = createOwnerRegistry([accountDomain, notes]);
 
 export class StoreTestOwnerGate extends OwnerGate {
   protected override backendRegistry() {

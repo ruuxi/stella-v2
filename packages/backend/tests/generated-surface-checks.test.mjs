@@ -18,7 +18,6 @@ import {
   findConvexEntryPointModules,
 } from "../scripts/check-convex-api-entrypoints.mjs";
 import { writeOrCheckDesktopConvexApi } from "../scripts/generate-desktop-convex-api.mjs";
-import { writeOrCheckStellaPromptDefaults } from "../scripts/sync-stella-prompt-defaults.ts";
 import { writeOrCheckIpcPayloadContract } from "../../desktop/scripts/derive-ipc-payload-contract.mjs";
 import { syncI18nCatalogs } from "../../mobile/scripts/sync-i18n-catalogs.mjs";
 
@@ -92,54 +91,6 @@ afterEach(() => {
 });
 
 describe("generated surface check modes", () => {
-  it("checks prompt defaults without writing pass, drift, or absent cases", async () => {
-    const root = temporaryDirectory();
-    const targetPath = path.join(root, "stella_prompt_defaults.generated.ts");
-    const expectedSource = "export const STELLA_PROMPT_DEFAULTS = {};\n";
-    const messages = logger();
-    const options = {
-      expectedSource,
-      targetPath,
-      promptCount: 10,
-      revision: "a".repeat(64),
-      logger: messages.value,
-      temporarySuffix: () => "test",
-    };
-
-    await expect(
-      writeOrCheckStellaPromptDefaults({ ...options, check: false }),
-    ).resolves.toBe(true);
-
-    ageFile(targetPath);
-    const passingSnapshot = fileSnapshot(targetPath);
-    await expect(
-      writeOrCheckStellaPromptDefaults({ ...options, check: true }),
-    ).resolves.toBe(true);
-    expect(fileSnapshot(targetPath)).toEqual(passingSnapshot);
-
-    writeFileSync(targetPath, "stale\n");
-    ageFile(targetPath);
-    const driftSnapshot = fileSnapshot(targetPath);
-    await expect(
-      writeOrCheckStellaPromptDefaults({ ...options, check: true }),
-    ).resolves.toBe(false);
-    expect(fileSnapshot(targetPath)).toEqual(driftSnapshot);
-    expect(messages.errors.at(-1)).toContain("prompts:sync-defaults");
-
-    const absentOutputRoot = path.join(root, "absent-prompt-output");
-    await expect(
-      writeOrCheckStellaPromptDefaults({
-        ...options,
-        check: true,
-        targetPath: path.join(
-          absentOutputRoot,
-          "stella_prompt_defaults.generated.ts",
-        ),
-      }),
-    ).resolves.toBe(false);
-    expect(existsSync(absentOutputRoot)).toBe(false);
-  });
-
   it("checks the desktop Convex contract without writing pass or drift cases", () => {
     const root = temporaryDirectory();
     const targetPath = path.join(root, "convex-api.ts");

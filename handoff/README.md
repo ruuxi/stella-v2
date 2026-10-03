@@ -36,12 +36,7 @@ Delete this `handoff/` folder in the commit that finishes the work it describes.
 4. Deploys (dev only):
    - **Cloud-builder:** `cd workers/cloud-builder && bun run deploy:dev`.
    - **Convex functions:** `cd packages/backend && bunx convex dev --once`. **Not** `bun run deploy`, which targets production.
-   - **Prompts:** edit `packages/runtime/extensions/stella-runtime/agent-metadata/*.md`, then run `bun run prompts:sync-defaults`. Deploying Convex alone does **not** republish prompts once a complete publication exists. Publish them explicitly:
-     ```
-     cd packages/backend
-     bunx convex run stella_prompts:publish "$(bun ../../handoff/scripts/prompt-publish-args.ts)"
-     ```
-     Check with `curl -s https://outgoing-bulldog-865.convex.site/api/stella/prompts`; the revision must match `prompts:check-defaults`.
+   - **Prompts:** edit `packages/runtime/extensions/stella-runtime/agent-metadata/*.md` or `prompts/*.md`, run `bun run prompts:sync-defaults` (writes `workers/cloud-builder/src/prompts/defaults.generated.ts`), commit, and deploy cloud-builder. That deploy is the publication. Check with `curl -s <cloud-builder URL>/api/stella/prompts`; the revision must match `prompts:check-defaults`.
    - **App source:** `bun run app-source:publish -- --namespace stella-app-dev` publishes the app to Artifacts.
 
 ## Where the program stands

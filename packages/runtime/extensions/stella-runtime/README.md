@@ -12,13 +12,14 @@ This is Stella's built-in Pi-style runtime extension.
 ## Shipping a prompt change
 
 Edit the file here, run `bun run prompts:sync-defaults` (CI's
-`prompts:check-defaults` fails if the Convex copy drifts), and deploy Convex.
-Both the desktop runtime and the cloud worker read the published set with a
-conditional GET on every orchestrator turn (`kernel/prompts/remote-prompts.ts`,
-`workers/cloud-builder/src/cloud-prompt.ts`), so the change reaches every
-client on the next message. The bundled files are the offline/BYOK fallback
-and the source the publication is generated from; nothing is written to the
-user's data dir.
+`prompts:check-defaults` fails if the cloud-builder copy drifts), and deploy
+cloud-builder. The cloud worker imports the generated module
+(`workers/cloud-builder/src/prompts/defaults.generated.ts`), and the desktop
+runtime reads cloud-builder's `/api/stella/prompts` with a conditional GET on
+every orchestrator turn (`kernel/prompts/remote-prompts.ts`), so the change
+reaches every client on the next message. The bundled files are the
+offline/BYOK fallback and the source the publication is generated from;
+nothing is written to the user's data dir.
 
 ## Why it exists
 
@@ -26,12 +27,10 @@ Stella's runtime was already partially derived from Pi, but core agent setup had
 drifted back into hardcoded runtime code. This extension keeps the agent layer
 shaped like Pi and remains authoritative for active bundled prompts:
 
-- the backend generator reads prompt bodies from this extension;
+- the cloud-builder generator reads prompt bodies from this extension;
 - it strips capability frontmatter from agent metadata before publication;
-- capability frontmatter remains runtime-only and never enters the backend
+- capability frontmatter remains runtime-only and never enters the served
   prompt manifest;
-- the backend prompt-source directory is reserved for genuinely cloud-only
-  prompts and may not duplicate an active bundled prompt;
 - the runtime loader discovers the extension from `runtime/extensions`
 
 There is one orchestrator definition. The retired direct/orchestrated dual-mode

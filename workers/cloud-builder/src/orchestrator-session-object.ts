@@ -219,11 +219,8 @@ import {
 } from "./dev-acceptance-probes.js";
 import {
   buildCloudSystemPrompt,
-  CanonicalPromptUnavailableError,
-  CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY,
-  refreshCanonicalPrompts,
-  type CanonicalPromptSnapshot,
-  type CanonicalPromptLoadResult,
+  CANONICAL_PROMPTS,
+  type CanonicalPrompts,
 } from "./cloud-prompt.js";
 import { getResponseLanguageSystemPrompt } from "@stella/runtime/kernel/runner/locale-prompt.js";
 import { createMemoryTools } from "./orchestrator-tools.js";
@@ -781,9 +778,6 @@ const requireCloudContext = async <T>(
     return await operation;
   } catch (error) {
     if (error instanceof CloudContextBlockedError) throw error;
-    if (error instanceof CanonicalPromptUnavailableError) {
-      throw new CloudContextBlockedError(error.component, error.reason);
-    }
     throw new CloudContextBlockedError(component, "read_failed");
   }
 };
@@ -803,9 +797,6 @@ const cloudContextFailure = (
     };
   }
   if (error instanceof CloudContextBlockedError) {
-    return { code: error.code, component: error.component };
-  }
-  if (error instanceof CanonicalPromptUnavailableError) {
     return { code: error.code, component: error.component };
   }
   return null;
@@ -3453,12 +3444,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       let combinedGeneration: string | undefined;
       let admittedHomeContext = handoff?.preparation.homeContext;
       let admittedDestinations = handoff?.preparation.destinations;
-      // Global prompt configuration is read-only. A cold read can overlap
-      // owner admission; its result is still consumed through the turn hook.
-      const canonicalPreparation = this.ctx.storage.kv
-        ? this.loadCanonicalPrompts(convexSiteBase(this.env))
-        : undefined;
-      void canonicalPreparation?.catch(() => undefined);
       // Existing conversations know the generation needed to persist an exact
       // lease intent before the combined remote call. Cold starts and uncertain
       // receipt replays retain the discovery/reconciliation path below.
@@ -3696,7 +3681,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         void work.catch(() => undefined);
         this.cloudHomePreparations.set(turnId, {
           home: work,
-          canonicalPrompts: canonicalPreparation,
           destinations: admittedDestinations
             ? Promise.resolve(admittedDestinations)
             : this.ownerGate(turn.ownerId)
@@ -4201,7 +4185,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     string,
     {
       home: ReturnType<OrchestratorSessionObject["prepareCloudHomeContext"]>;
-      canonicalPrompts?: Promise<CanonicalPromptSnapshot>;
       destinations: Promise<DevicesResponse | null>;
     }
   >();
@@ -4570,18 +4553,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       await assertExactTurnActive();
 
-      const base = convexSiteBase(this.env);
-      if (!base) throw new Error("Convex site URL is not configured.");
       const canonicalPromptsWork = measurePreparation(
         "canonicalPromptsMs",
         () =>
           requireCloudContext(
             "canonical_prompt",
-            this.loadCanonicalPromptsForTurn(
-              base,
-              executionSignal,
-              this.cloudHomePreparations.get(turn.turnId)?.canonicalPrompts,
-            ),
+            this.loadCanonicalPromptsForTurn(executionSignal),
           ),
       );
       // This work can reject before the other preparation joins it. Preserve
@@ -5794,97 +5771,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         releaseGateMs: Math.round(performance.now() - releaseAt),
       });
     }
-  }
-
-  private canonicalPromptRefresh?: Promise<void>;
-  private canonicalPromptSaved?: CanonicalPromptSnapshot;
-
-  private saveCanonicalPrompts(loaded: CanonicalPromptLoadResult): void {
-    if (
-      this.purged() ||
-      (loaded.disposition !== "fresh" &&
-        loaded.disposition !== "cache_not_modified")
-    )
-      return;
-    const current = this.canonicalPromptSaved;
-    // A slower background fetch cannot overwrite a newer foreground result.
-    if (
-      current &&
-      current.endpoint === loaded.snapshot.endpoint &&
-      (current.publishedAt > loaded.snapshot.publishedAt ||
-        current.fetchedAt > loaded.snapshot.fetchedAt)
-    )
-      return;
-    // A repeated foreground read of the same verified publication carries no
-    // new cache freshness or prompt content. Avoid making it part of the next
-    // storage output gate.
-    if (
-      current &&
-      current.endpoint === loaded.snapshot.endpoint &&
-      current.revision === loaded.snapshot.revision &&
-      current.etag === loaded.snapshot.etag &&
-      current.publishedAt === loaded.snapshot.publishedAt &&
-      current.fetchedAt === loaded.snapshot.fetchedAt
-    )
-      return;
-    this.ctx.storage.kv.put(CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY, loaded.snapshot);
-    this.canonicalPromptSaved = loaded.snapshot;
-  }
-
-  /** Revalidate stale, integrity-checked prompts in the background. Missing,
-   * corrupt and hard-expired publications still require a successful load. */
-  private async loadCanonicalPrompts(
-    convexSiteBase: string,
-    signal?: AbortSignal,
-  ): Promise<CanonicalPromptSnapshot> {
-    const started = performance.now();
-    signal?.throwIfAborted();
-    const cached = await this.ctx.storage.get<unknown>(
-      CLOUD_PROMPT_SNAPSHOT_STORAGE_KEY,
-    );
-    const storageMs = Math.round(performance.now() - started);
-    signal?.throwIfAborted();
-    const loaded = await refreshCanonicalPrompts(
-      convexSiteBase,
-      cached ?? null,
-      Date.now(),
-      signal,
-      (refresh) => {
-        if (this.canonicalPromptRefresh) return;
-        this.canonicalPromptRefresh = refresh()
-          .then((loaded) => {
-            this.saveCanonicalPrompts(loaded);
-            log("info", "canonical_prompt_background_refresh", {
-              disposition: loaded.disposition,
-              refreshErrorCode: loaded.refreshErrorCode,
-            });
-          })
-          .catch((error: unknown) => {
-            log("error", "canonical_prompt_background_refresh_failed", {
-              message: errorMessage(error),
-            });
-          })
-          .finally(() => {
-            this.canonicalPromptRefresh = undefined;
-          });
-        this.ctx.waitUntil(this.canonicalPromptRefresh);
-      },
-    );
-    signal?.throwIfAborted();
-    this.saveCanonicalPrompts(loaded);
-    if (loaded.disposition === "cache_recovery") {
-      log("error", "canonical_prompt_cache_recovery", {
-        revision: loaded.snapshot.revision,
-        refreshErrorCode: loaded.refreshErrorCode ?? "unknown",
-      });
-    }
-    log("info", "canonical_prompt_loaded", {
-      disposition: loaded.disposition,
-      storageMs,
-      totalMs: Math.round(performance.now() - started),
-      ageMs: Date.now() - loaded.snapshot.fetchedAt,
-    });
-    return loaded.snapshot;
   }
 
   /**
@@ -7569,10 +7455,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   private async loadCanonicalPromptsForTurn(
-    convexSiteBase: string,
     signal?: AbortSignal,
-    prepared?: Promise<CanonicalPromptSnapshot>,
-  ): Promise<CanonicalPromptSnapshot> {
+  ): Promise<CanonicalPrompts> {
     signal?.throwIfAborted();
     if (devAcceptanceProbesEnabled(this.env)) {
       const state = await this.ctx.storage.get<DevAcceptanceProbeState>(
@@ -7594,7 +7478,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         );
       }
     }
-    return prepared ?? this.loadCanonicalPrompts(convexSiteBase, signal);
+    return CANONICAL_PROMPTS;
   }
 
   private async observeDevAcceptanceContextFailure(

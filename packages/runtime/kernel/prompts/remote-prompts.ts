@@ -1,10 +1,10 @@
 /**
  * Remote system prompts: one source of truth, applied everywhere.
  *
- * Convex publishes the versioned prompt set (`/api/stella/prompts`), generated
- * from the bundled `stella-runtime` sources and kept identical to them by CI.
- * The cloud worker reads that publication per turn; this module gives the
- * desktop runtime the same behavior:
+ * The backend worker (cloud-builder) bundles the versioned prompt set and
+ * serves it at `/api/stella/prompts`, generated from the bundled
+ * `stella-runtime` sources and kept identical to them by CI. Cloud turns use
+ * that bundle directly; this module gives the desktop runtime the same text:
  *
  *   - The served bodies live in memory (and in a small disk cache so a cold
  *     start is not stale until the first fetch completes).
@@ -12,7 +12,7 @@
  *     turn, never on the critical path: a turn uses whatever is loaded and the
  *     conditional GET (`If-None-Match`, `304 Not Modified`) refreshes it for
  *     the next one. A prompt change reaches every client within one message
- *     of the Convex deploy.
+ *     of the cloud-builder deploy.
  *   - No home files, no user overrides, no merge rules. Offline, BYOK without a
  *     backend, or an invalid publication fall back to the bundled copy the
  *     consumers already read.
@@ -33,7 +33,7 @@ import {
   STELLA_PROMPT_REVISION_PATTERN,
   STELLA_PROMPT_SCHEMA_VERSION,
 } from "@stella/contracts/stella-prompts";
-import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
+import { STELLA_PROMPTS_PATH } from "@stella/contracts/stella-api";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import { createRuntimeLogger } from "../debug.js";
 
@@ -75,8 +75,8 @@ const revisionForPrompts = (prompts: readonly RemotePrompt[]): string =>
   );
 
 export const publicationEtag = (
-  manifest: Pick<RemotePromptManifest, "publishedAt" | "revision">,
-): string => `"${manifest.publishedAt}-${manifest.revision}"`;
+  manifest: Pick<RemotePromptManifest, "revision">,
+): string => `"${manifest.revision}"`;
 
 /**
  * Validate a served publication: schema, exact prompt set, per-prompt
@@ -137,7 +137,7 @@ type CachedManifest = { endpoint: string; manifest: RemotePromptManifest };
 
 type RemotePromptsState = {
   stellaDataDir: string | null;
-  getSiteUrl: () => string | null;
+  getBackendUrl: () => string | null;
   fetchImpl: typeof fetch;
   endpoint: string | null;
   manifest: RemotePromptManifest | null;
@@ -150,7 +150,7 @@ type RemotePromptsState = {
 
 const createState = (): RemotePromptsState => ({
   stellaDataDir: null,
-  getSiteUrl: () => null,
+  getBackendUrl: () => null,
   fetchImpl: fetch,
   endpoint: null,
   manifest: null,
@@ -211,8 +211,8 @@ const writeCache = async (cache: CachedManifest): Promise<void> => {
 };
 
 const currentEndpoint = (): string | null => {
-  const siteUrl = state.getSiteUrl()?.trim();
-  return siteUrl ? stellaPromptEndpointFromSiteUrl(siteUrl) : null;
+  const backendUrl = state.getBackendUrl()?.trim().replace(/\/+$/, "");
+  return backendUrl ? `${backendUrl}${STELLA_PROMPTS_PATH}` : null;
 };
 
 const readBoundedJson = async (response: Response): Promise<unknown> => {
@@ -247,11 +247,7 @@ const fetchOnce = async (
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const manifest = parseRemotePromptManifest(await readBoundedJson(response));
   if (!manifest) throw new Error("Invalid prompt publication");
-  if (
-    cachedForEndpoint &&
-    cachedForEndpoint.revision === manifest.revision &&
-    cachedForEndpoint.publishedAt === manifest.publishedAt
-  ) {
+  if (cachedForEndpoint && cachedForEndpoint.revision === manifest.revision) {
     return "not-modified";
   }
   adopt(endpoint, manifest);
@@ -260,17 +256,17 @@ const fetchOnce = async (
 };
 
 /**
- * Bind the store to a data dir and a site-URL resolver. Called once when the
- * runner context is created; the resolver is read at every revalidation so a
- * sign-in that changes the backend takes effect without re-configuring.
+ * Bind the store to a data dir and a backend-URL resolver. Called once when
+ * the runner context is created; the resolver is read at every revalidation
+ * so a sign-in that changes the backend takes effect without re-configuring.
  */
 export const configureRemotePrompts = (options: {
   stellaDataDir: string;
-  getSiteUrl: () => string | null;
+  getBackendUrl: () => string | null;
   fetchImpl?: typeof fetch;
 }): void => {
   state.stellaDataDir = options.stellaDataDir;
-  state.getSiteUrl = options.getSiteUrl;
+  state.getBackendUrl = options.getBackendUrl;
   if (options.fetchImpl) state.fetchImpl = options.fetchImpl;
   state.cacheLoaded = readCache();
 };

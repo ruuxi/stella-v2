@@ -78,6 +78,8 @@ import {
 } from "../dispatch-policy.js";
 import { sha256Hex } from "../hash.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
+import { STELLA_PROMPTS_PATH } from "@stella/contracts/stella-api";
+import { stellaPromptsResponse } from "../prompts/route.js";
 import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
 import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
 import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
@@ -873,6 +875,9 @@ const router = {
         },
         readiness.ready ? 200 : 503,
       );
+    }
+    if (request.method === "GET" && url.pathname === STELLA_PROMPTS_PATH) {
+      return stellaPromptsResponse(request);
     }
 
     const worldRoute =

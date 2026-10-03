@@ -1,14 +1,14 @@
 ---
 name: prompts-convex-authoritative
-description: 2026-09-02 decision: system prompts are edited in the repo bundle, published via Convex, and read by desktop + cloud per turn with a conditional GET; no home-file sync, no user overrides; also the Aug 26 merge regression that dropped all orchestrator tools
+description: 2026-09-02 decision, updated 2026-10-02: system prompts are edited in the repo bundle and bundled into cloud-builder; cloud imports them, desktop revalidates per turn with a conditional GET; no home-file sync, no user overrides; also the Aug 26 merge regression that dropped all orchestrator tools
 metadata:
   type: project
 ---
 
 Decision on 2026-09-02: one source of truth for system prompts, applied everywhere.
 
-- Edit `packages/runtime/extensions/stella-runtime/agent-metadata/*.md` or `prompts/*.md`, run `bun run prompts:sync-defaults`, deploy Convex (`cd packages/backend && bunx convex dev --once` for dev). CI `prompts:check-defaults` fails on drift.
-- Desktop runtime: `kernel/prompts/remote-prompts.ts` fetches `/api/stella/prompts` with `If-None-Match` at startup, on site-URL change, and on every orchestrator turn (stale-while-revalidate, never blocking). `loadAgentSystemPrompt` and `readRuntimePrompt` prefer the served body; bundle is the offline/BYOK fallback; disk cache at `<data>/cache/prompt-manifest.json`. Cloud worker (`cloud-prompt.ts`) revalidates per turn too (5-minute gate removed).
+- Edit `packages/runtime/extensions/stella-runtime/agent-metadata/*.md` or `prompts/*.md`, run `bun run prompts:sync-defaults` (writes `workers/cloud-builder/src/prompts/defaults.generated.ts`), deploy cloud-builder. CI `prompts:check-defaults` fails on drift. Since 2026-10-02 (Cloudflare phase 8) Convex no longer serves or stores prompts.
+- Desktop runtime: `kernel/prompts/remote-prompts.ts` fetches cloud-builder's `/api/stella/prompts` (ETag = revision) with `If-None-Match` at startup, on backend-URL change, and on every orchestrator turn (stale-while-revalidate, never blocking). `loadAgentSystemPrompt` and `readRuntimePrompt` prefer the served body; bundle is the offline/BYOK fallback; disk cache at `<data>/cache/prompt-manifest.json`. Cloud worker (`cloud-prompt.ts`) imports the bundled module: no fetch per turn.
 - Cloud journal (`workers/cloud-builder/src/journal.ts` `stampUserMessageSequences`) stamps visible user messages with `<system-reminder>message #seq</system-reminder>` when building model history, so cloud-mode replies can cite `#seq`; journal payloads stay raw.
 - The old home-file sync (`prompt-manifest-sync.ts`, `personality-sync.ts`, hash/override semantics) was deleted. User prompt presets (`~/.stella/prompts/<agent>/*.md`) still win when selected.
 - Regression found the same day: merge `0fd31a775` (Aug 26) pointed the extension loader at `<data>/extensions`, which nothing seeds, so the bundled `stella-runtime` extension (4 agents, 5 hooks) never loaded and the orchestrator ran with the fallback prompt and no tools. Fixed by restoring `resolveRuntimeSourceAsset("extensions")` in `runner/context.ts`.

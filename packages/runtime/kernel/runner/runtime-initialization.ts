@@ -302,12 +302,12 @@ export const createRuntimeInitialization = (
       providers: extensions.providers.length,
       prompts: extensions.prompts.length,
     });
-    // System prompts come from the Convex publication (bundle as fallback).
+    // System prompts come from the backend worker (bundle as fallback).
     // Bind the store now and start the first conditional fetch off the
     // critical path; every orchestrator turn revalidates again.
     configureRemotePrompts({
       stellaDataDir: context.stellaDataDir,
-      getSiteUrl: () => context.state.convexSiteUrl ?? null,
+      getBackendUrl: () => context.state.backendUrl ?? null,
     });
     scheduleRemotePromptRevalidation();
   };

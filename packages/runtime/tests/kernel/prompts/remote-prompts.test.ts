@@ -102,7 +102,7 @@ describe("remote prompts", () => {
     );
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://site.example",
+      getBackendUrl: () => "https://site.example",
       fetchImpl: impl,
     });
     expect(getRemotePromptBody("agents/orchestrator.md")).toBeUndefined();
@@ -118,7 +118,7 @@ describe("remote prompts", () => {
     resetRemotePromptsForTests();
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://site.example",
+      getBackendUrl: () => "https://site.example",
       fetchImpl: impl,
     });
     await remotePromptsReady();
@@ -151,14 +151,14 @@ describe("remote prompts", () => {
     });
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://site.example",
+      getBackendUrl: () => "https://site.example",
       fetchImpl: impl,
     });
     expect(await revalidateRemotePrompts()).toBe("fresh");
     resetRemotePromptsForTests();
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://site.example",
+      getBackendUrl: () => "https://site.example",
       fetchImpl: impl,
     });
     await remotePromptsReady();
@@ -168,7 +168,7 @@ describe("remote prompts", () => {
     resetRemotePromptsForTests();
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://site.example",
+      getBackendUrl: () => "https://site.example",
       fetchImpl: impl,
     });
     await remotePromptsReady();
@@ -182,14 +182,14 @@ describe("remote prompts", () => {
     const { impl, calls } = fakeFetch(() => Response.json(buildManifest()));
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://one.example",
+      getBackendUrl: () => "https://one.example",
       fetchImpl: impl,
     });
     expect(await revalidateRemotePrompts()).toBe("fresh");
     resetRemotePromptsForTests();
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://two.example",
+      getBackendUrl: () => "https://two.example",
       fetchImpl: impl,
     });
     await remotePromptsReady();
@@ -197,7 +197,7 @@ describe("remote prompts", () => {
     resetRemotePromptsForTests();
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => null,
+      getBackendUrl: () => null,
       fetchImpl: impl,
     });
     expect(await revalidateRemotePrompts()).toBe("unconfigured");
@@ -238,7 +238,7 @@ describe("remote prompts", () => {
     );
     configureRemotePrompts({
       stellaDataDir: dataDir,
-      getSiteUrl: () => "https://site.example",
+      getBackendUrl: () => "https://site.example",
       fetchImpl: impl,
     });
     expect(await revalidateRemotePrompts()).toBe("fresh");

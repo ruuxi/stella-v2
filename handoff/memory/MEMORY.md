@@ -12,7 +12,7 @@
 - [Theme parity, Liquid Glass exception](theme-parity-liquid-glass-exception.md) — 2026-09-02: one shared TS theme derivation for desktop+mobile; iOS glass is the only sanctioned divergence
 - [Mobile verification is Android-only here](mobile-verification-android-only.md) — local machine has Android, no iOS; Android only exercises the glass fallback path
 - [Reply refs and focus view](reply-refs-and-focus-view.md) — 2026-09-02: model cites replies via a trailing refs fence; iMessage previews + focus overlay; agent-thread transcript tab deleted
-- [Prompts: Convex authoritative](prompts-convex-authoritative.md) — 2026-09-02: edit bundle → sync → Convex deploy; desktop+cloud revalidate per turn; home-file sync deleted; Aug 26 merge regression dropped orchestrator tools (fixed)
+- [Prompts: bundled in cloud-builder](prompts-convex-authoritative.md) — 2026-10-02: edit bundle → sync → cloud-builder deploy; cloud imports the module, desktop revalidates per turn; home-file sync deleted; Aug 26 merge regression dropped orchestrator tools (fixed)
 - [Cloud-builder dev ops gotchas](cloud-builder-dev-ops-gotchas.md) — rollout counter lag, lossy tail, token scopes, retire script usage
 - [World DO decision](world-do-decision.md) — 2026-09-03 five-step cloud plan: no quotas/world lease, cloud generals spawn, per-owner world DO, shared container, sync at command boundaries, isolation on request
 - [Cloud lifecycle rows pending](cloud-lifecycle-rows-pending.md) — 2026-09-03: cloud-executed turns show no spawn/follow-up/completion rows; journal lacks lifecycle records; deferred until outside cloud work lands

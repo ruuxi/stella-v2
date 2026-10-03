@@ -957,7 +957,7 @@ const router = {
     if (backendResponse) return backendResponse;
     // Public: the model catalog (an optional bearer picks the audience).
     const modelsResponse = await handleStellaModelsRoute(request, env);
-    if (modelsResponse) return modelsResponse &
+    if (modelsResponse) return modelsResponse;
     // Managed media and music; fal's webhook carries its own signed token.
     const mediaResponse = await handleMediaRoute(request, env);
     if (mediaResponse) return mediaResponse;

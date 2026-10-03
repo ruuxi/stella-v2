@@ -8,13 +8,12 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  * database: who pays, which audience rules apply, how much may be spent,
  * and (for turns) the exact execution the turn was admitted with.
  *
- * Two issuers sign capabilities:
- *   - Convex mints `session` capabilities for signed-in and anonymous desktop
- *     runtimes (exchanged for a Better Auth JWT at the gateway).
- *   - cloud-builder mints `turn` capabilities inside the Durable Object that
- *     admitted the turn, from its cached owner snapshot.
+ * cloud-builder signs every capability, inside the owner's Durable Object:
+ *   - `session` capabilities for signed-in and anonymous desktop runtimes
+ *     (exchanged for a Better Auth JWT at the gateway);
+ *   - `turn` capabilities for the turn it admitted, from its owner snapshot.
  *
- * The gateway verifies signatures against a static JWKS of both issuers'
+ * The gateway verifies signatures against a static JWKS of the issuer's
  * public keys. Revocation is by expiry plus the per-capability budget ledger;
  * there is deliberately no per-request lookup.
  */
@@ -24,7 +23,6 @@ export const GATEWAY_CAPABILITY_AUDIENCE = "stella-model-gateway" as const;
 export type CapabilityAudience = typeof GATEWAY_CAPABILITY_AUDIENCE;
 
 export const GATEWAY_CAPABILITY_ISSUERS = {
-  convex: "stella-convex",
   cloudBuilder: "stella-cloud-builder",
 } as const;
 

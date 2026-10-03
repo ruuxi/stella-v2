@@ -6,9 +6,7 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  * A dispatch is "run this prompt somewhere": on the owner's desktop when one
  * is present and capable, else in Stella's cloud. The per-owner Durable
  * Object (OwnerGate) owns the dispatch row, the device presence sockets, the
- * offer window, the claim/ack handoff, and the cloud fallback. Convex learns
- * about dispatches through `dispatch.*` outbox events and keeps only a
- * projection for the activity UI.
+ * offer window, the claim/ack handoff, and the cloud fallback.
  *
  * Routes on the cloud-builder worker:
  *   POST /owners/me/dispatches                 submit (user JWT, or service secret + owner headers)
@@ -73,9 +71,8 @@ export const CLOUD_CAPABILITIES: readonly ExecutionCapability[] = [
 ];
 
 /**
- * The argument shape of the Convex mutation
- * `execution_placement.registerMyExecutionDevice`, shared so the desktop
- * bridge that sends it and the backend test that accepts it cannot drift
+ * The argument shape of the backend call `devices.register`, shared so the
+ * desktop bridge that sends it and the backend that accepts it cannot drift
  * apart again. The bridge once sent `publicKey`/`label` against a validator
  * that wanted `devicePublicKey`/`deviceName`, and every registration failed
  * with an opaque server error.
@@ -123,7 +120,7 @@ export const TERMINAL_DISPATCH_STATES: readonly DispatchState[] = [
   "blocked",
 ];
 
-/** Timings, unchanged from the Convex implementation they replace. */
+/** Dispatch timings. */
 export const DISPATCH_OFFER_WINDOW_MS = 4_000;
 export const DISPATCH_CLAIM_LEASE_MS = 30_000;
 export const DISPATCH_ACCEPTED_LEASE_MS = 120_000;

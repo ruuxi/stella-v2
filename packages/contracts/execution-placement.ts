@@ -184,7 +184,7 @@ export type ExecutionDeviceProofInput = {
 
 /**
  * Canonical signed envelope. A tuple avoids object-key ordering differences
- * across Node, React Native, and Convex runtimes.
+ * across Node, React Native, and Workers runtimes.
  */
 export const executionDeviceProofMessage = (
   input: ExecutionDeviceProofInput,

@@ -4,18 +4,12 @@ import type { OwnerEnforcement } from "../gateway/usage.js";
 import type { IdentityLevel } from "../gateway/api.js";
 
 /**
- * The owner snapshot is the one control-plane read the owner gate Durable
- * Object performs. Convex serves it; the gate caches it for `ttlMs` and Convex
- * pushes a replacement when owner state changes.
+ * The owner snapshot is what the owner gate Durable Object admits turns
+ * against. The gate builds it locally from its own domains (account, abuse,
+ * billing, engines, devices) and the caller's verified claims.
  */
 
 export const OWNER_SNAPSHOT_VERSION = 1 as const;
-
-export const CONVEX_OWNER_SNAPSHOT_PATH =
-  "/api/gateway/owner-snapshot" as const;
-/** cloud-builder route Convex calls (service secret) when an owner's plan changes. */
-export const BUILDER_OWNER_SNAPSHOT_CHANGED_PATH =
-  "/internal/owners/snapshot-changed" as const;
 
 export type CloudPlanId = "free" | "go" | "pro";
 
@@ -49,10 +43,10 @@ export type OwnerSnapshot = {
   /**
    * Paired mobile devices allowed to submit against this owner's desktops
    * (Stage 3 placement). `mobilePublicKey` is the phone's pairing key so the
-   * worker can verify its proof headers without a Convex round trip: the
+   * worker can verify its proof headers without another round trip: the
    * pairing proof is an HMAC-SHA256, and this value is its key —
-   * `sha256hex(pairSecret)`, the same `pairSecretHash` Convex stores on the
-   * grant. Only active (non-revoked) grants appear.
+   * `sha256hex(pairSecret)`, the same `pairSecretHash` the devices domain
+   * stores on the grant. Only active (non-revoked) grants appear.
    */
   pairedDevices?: Array<{
     mobileDeviceId: string;
@@ -88,35 +82,4 @@ export type OwnerSnapshot = {
   connectedEngines?: Array<"anthropic" | "openai-codex">;
   fetchedAt: number;
   ttlMs: number;
-};
-
-/**
- * What Convex serves and pushes: the owner's identity, generation and write
- * fence. The gate fills the plan and allowance from its billing ledger,
- * enforcement from its abuse domain, and `execution` and `connectedEngines`
- * from its engines domain.
- */
-export type ControlPlaneOwnerSnapshot = Omit<
-  OwnerSnapshot,
-  "execution" | "connectedEngines" | "plan" | "allowance" | "enforcement"
->;
-
-export type OwnerSnapshotChangedRequest = {
-  ownerId: string;
-  /**
-   * A push with a snapshot replaces the gate's cached copy. A push without
-   * one marks the existing copy stale so the gate refreshes it in the
-   * background on its next read.
-   */
-  snapshot?: ControlPlaneOwnerSnapshot;
-  reason:
-    | "billing"
-    | "generation"
-    | "engine"
-    | "pairing"
-    /** A device was registered, removed, or had remote execution toggled. */
-    | "device"
-    /** Enforcement status changed (suspend, throttle, clear). */
-    | "enforcement"
-    | "manual";
 };

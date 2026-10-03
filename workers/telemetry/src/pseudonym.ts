@@ -2,12 +2,9 @@ const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /**
- * Canonical privacy boundary shared with Convex telemetry producers.
- *
- * Convex Log Streams cannot carry the raw owner identifier, so backend
- * metrics publish this one-way key. Authenticated HTTP ingestion applies the
- * same transform before the environment-scoped HMAC. That keeps one person's
- * desktop and backend events joinable without exposing their account key.
+ * Canonical one-way owner key. Authenticated ingestion applies this transform
+ * before the environment-scoped HMAC, so one person's desktop and backend
+ * events stay joinable without exposing their account key.
  */
 export const canonicalUserOwnerKey = async (
   ownerId: string,

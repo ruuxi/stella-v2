@@ -4,7 +4,7 @@
  * Native apps do not run a CAPTCHA. Instead the OS vouches that the request
  * comes from Stella's unmodified app on a real device:
  *
- *   1. The app asks Convex for a nonce (`POST /api/auth/integrity/challenge`).
+ *   1. The app asks the backend for a nonce (`POST /api/auth/integrity/challenge`).
  *   2. iOS: the app generates an App Attest key once per install and attests
  *      it against the nonce the first time; afterwards it produces an
  *      assertion against the nonce. Android: the app requests a Play
@@ -12,7 +12,7 @@
  *   3. The proof travels as `x-stella-app-integrity` (base64url JSON) on the
  *      account-creation endpoints that web clients protect with Turnstile.
  *
- * Convex verifies the proof (App Attest cert chain and counter, or Google's
+ * The backend verifies the proof (App Attest cert chain and counter, or Google's
  * decode API and verdicts), consumes the nonce, and accepts the request. A
  * request may present either a Turnstile token or an integrity proof; the
  * server decides which it requires by which one is configured for the

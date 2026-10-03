@@ -194,7 +194,7 @@ export const probeCapability = (
   if (!header || !secret || !constantTimeEqual(header, secret)) return null;
   const nowSeconds = Math.floor(now / 1000);
   return {
-    iss: GATEWAY_CAPABILITY_ISSUERS.convex,
+    iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
     aud: GATEWAY_CAPABILITY_AUDIENCE,
     sub: "probe|stella-ops",
     jti: `probe-${crypto.randomUUID()}`,

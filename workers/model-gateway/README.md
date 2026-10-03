@@ -38,10 +38,10 @@ request id. Owner limits span generations while budgets, replies and refunds
 stay capability-local. Never fall back between the two routes on an error:
 that would create a second budget and replay authority.
 
-Pricing comes from `GET /api/gateway/config` on Convex, cached per isolate for
+Pricing comes from cloud-builder's `BillingControl.gatewayConfig()`, cached per isolate for
 `CONFIG_TTL_MS` with stale-while-revalidate. A cron publishes the complete
 snapshot to `CONFIG_SNAPSHOT` KV, and owner objects keep the same record in
-their own storage, so a cold owner serves warm pricing without a Convex call.
+their own storage, so a cold owner serves warm pricing without a control-plane call.
 
 ## Relay timing
 

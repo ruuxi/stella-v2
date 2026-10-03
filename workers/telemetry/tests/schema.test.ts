@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { isTelemetryEventBody } from "@stella/contracts/telemetry";
-import { parseConvexLogStream } from "../src/convex-log-stream.js";
 import { createPseudonymizer } from "../src/pseudonym.js";
 import { parseBatch } from "../src/schema.js";
 import { verifyServiceBearer } from "../src/service-bearer.js";
@@ -166,45 +165,6 @@ describe("closed telemetry schema", () => {
         events: [{ ...event, release: "releases/private-build" }],
       }).ok,
     ).toBe(false);
-  });
-
-  test("applies the same model, label, and int32 boundary to Convex metrics", () => {
-    const metric = (overrides: Record<string, unknown> = {}) => ({
-      kind: "inference.completed",
-      ownerKey: "c".repeat(64),
-      occurredAtMs: Date.now(),
-      model: "stella/openai/gpt-5.6-sol",
-      agentType: "orchestrator",
-      durationMs: 12,
-      success: true,
-      toolCalls: 2_147_483_647,
-      ...overrides,
-    });
-    const batch = (payload: Record<string, unknown>) => [
-      {
-        topic: "console",
-        timestamp: Date.now(),
-        convex: { deployment_name: "test-deployment" },
-        function: { request_id: "request-1" },
-        message: `_stella_metric:${JSON.stringify(payload)}`,
-        is_truncated: false,
-      },
-    ];
-
-    expect(parseConvexLogStream(batch(metric()))?.metrics).toHaveLength(1);
-    expect(
-      parseConvexLogStream(batch(metric({ toolCalls: 2_147_483_648 })))
-        ?.metrics,
-    ).toHaveLength(0);
-    expect(
-      parseConvexLogStream(
-        batch(metric({ model: "https://example.test/model" })),
-      )?.metrics,
-    ).toHaveLength(0);
-    expect(
-      parseConvexLogStream(batch(metric({ agentType: "agents/private" })))
-        ?.metrics,
-    ).toHaveLength(0);
   });
 
   test("enforces the ingestion cap of 100", () => {

@@ -16,22 +16,17 @@ Stella producers
 The ingestion Worker is the only public edge. The Pipelines HTTP endpoint is
 disabled, so no Cloudflare API token is embedded in a desktop or mobile build.
 
-Current producers are Electron main, the detached runtime worker, Cloud
-Builder, and Convex. Desktop/runtime delivery is an authenticated, bounded,
+Current producers are Electron main, the detached runtime worker, and Cloud
+Builder. Desktop/runtime delivery is an authenticated, bounded,
 durable at-least-once spool; the example R2 SQL queries deduplicate on
 `event_id`. Cloud Builder uses a private named-entrypoint service binding and
 never blocks turn delivery on analytics.
 
-Convex mirrors OpenCode's Tail Worker pattern through its native Log Streams:
-authoritative billing/tool transactions emit a closed `_stella_metric:` JSON
-line, and a deployment-specific HMAC-signed webhook delivers logs to
-`/v1/convex-logs`. The Worker ignores every non-marker log and pseudonymizes the
-already-hashed owner key before writing to Pipelines. Convex `usage_logs` remain
-the operational billing/diagnostic record; there is intentionally no duplicate
-analytics outbox table in Convex. Convex Log Streams are best-effort, so lake
-counts and costs are observability estimates, not billing authority. Billing,
-credits, disputes, and exact financial reconciliation must read Convex's
-transactional records.
+Cloud Builder's billing ledger reports managed inference through
+`TelemetryService.ingestForOwner`, pseudonymized under the owner like a
+signed-in client's events. Lake counts and costs are observability estimates,
+not billing authority. Billing, credits, disputes, and exact financial
+reconciliation must read the owner object's billing ledger.
 
 ## Layout
 

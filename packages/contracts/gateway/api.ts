@@ -32,13 +32,6 @@ export const GATEWAY_PREPARE_PATH = "/v1/models/prepare" as const;
 export const GATEWAY_RESOLVE_PATH = "/v1/models/resolve" as const;
 export const GATEWAY_SESSION_CAPABILITY_PATH = "/v1/capabilities/session" as const;
 export const GATEWAY_HEALTH_PATH = "/healthz" as const;
-/**
- * Service route (GATEWAY_SERVICE_SECRET) Convex calls when an owner's
- * enforcement status changes. The gateway stores the status in KV so every
- * colo refuses that owner's outstanding capabilities within a minute, with no
- * Convex call and no Durable Object creation on the push.
- */
-export const GATEWAY_OWNER_ENFORCEMENT_PATH = "/internal/owners/enforcement" as const;
 
 /** Caller-minted idempotency key. Same id + same body => cached result. */
 export const GATEWAY_REQUEST_ID_HEADER = "x-stella-request-id" as const;
@@ -244,7 +237,7 @@ export type GatewayErrorBody = {
 
 // ---------------------------------------------------------------------------
 // Tier policy the gateway enforces locally. Values are starting points; the
-// monetary ceilings live in Convex env and arrive through the config snapshot.
+// monetary ceilings live in cloud-builder config and arrive through the config snapshot.
 // ---------------------------------------------------------------------------
 
 export type GatewayOwnerRelayLimit = {

@@ -16,13 +16,6 @@
 9. Confirm the canary appears after the sink's roll interval and confirm all
    Pipeline health counters are consistent.
 
-For each Convex deployment, configure a Pro-plan **Webhook Log Stream** whose
-URL is the matching telemetry Worker plus `/v1/convex-logs`. Copy the generated
-HMAC secret into that Worker's `CONVEX_LOG_STREAM_SECRET` Wrangler secret. Never
-reuse the development secret in production. The Worker accepts the current
-Convex log-stream schema, ignores ordinary logs, and returns 202 for batches
-that contain no Stella metric markers.
-
 Development must be proven before production. A development token or Stream ID
 must never be copied into production.
 
@@ -84,21 +77,14 @@ validator. Do not weaken the Worker or add an arbitrary payload field.
 Check issuer/JWKS health or the service credential in the Worker. Do not bypass
 authentication by enabling the Stream HTTP endpoint.
 
-For `/v1/convex-logs`, a 401 means the deployment's webhook HMAC secret and the
-Worker secret differ. Rotate/update the Worker secret from the Convex
-integration and use the integration health display to trigger a new
-verification delivery. A 403 means the signed batch is older than the webhook
-replay window; verify clocks and current delivery health before widening that
-window.
+### Billing ledger and lake totals differ
 
-### Convex usage and lake totals differ
-
-Convex Log Streams are best-effort and may drop or duplicate events. Treat the
+Telemetry delivery is best-effort and may drop or duplicate events. Treat the
 deduplicated lake as telemetry only. Reconcile managed inference cost against
-Convex `usage_logs` and billing receipts for the same bounded period; those
-transactional records are authoritative. Do not issue credits, invoices, or
-quota decisions from R2 SQL. A persistent mismatch is a Log Stream or Pipeline
-health incident, not a reason to copy row-level analytics into a Convex outbox.
+the owner objects' billing ledgers and Stripe receipts for the same bounded
+period; those transactional records are authoritative. Do not issue credits,
+invoices, or quota decisions from R2 SQL. A persistent mismatch is a Pipeline
+health incident, not a reason to copy row-level analytics elsewhere.
 
 ### Worker returns 503 ingestion unavailable
 

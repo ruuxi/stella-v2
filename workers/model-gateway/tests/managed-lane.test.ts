@@ -14,7 +14,7 @@ import {
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
 /** The fake BillingControl's label for its ownerEnforcement read (helpers/env.ts). */
-const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH = "/api/gateway/owner-enforcement";
+const OWNER_ENFORCEMENT_PATH = "/api/gateway/owner-enforcement";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
 import type { RelayTiming } from "../src/relay-timing.js";
 import { GATEWAY_REPLAY_HEADER } from "../src/managed-lane.js";
@@ -153,7 +153,7 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
   const harness = createTestEnv(envOverrides);
   const fetchMock = createFetchMock()
     .on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       () => json({ enforcement: { status: "ok" }, updatedAt: null }),
     )
     .on(
@@ -426,9 +426,9 @@ describe("managed lane: authorization matrix", () => {
       "capability_invalid",
     );
 
-    // Claims say Convex, signature is cloud-builder's real key: issuer_mismatch.
+    // Claims name a retired issuer, signature is cloud-builder's real key: issuer_mismatch.
     const crossed = await signSession(
-      {},
+      { iss: "stella-retired" as never },
       { key: issuers.cloudBuilder.signing },
     );
     const crossedResponse = await ctx.run(
@@ -1540,7 +1540,7 @@ describe("owner-local model execution", () => {
     expect((await send()).status).toBe(200);
     expect(
       ctx.fetchMock.calls.filter(
-        (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+        (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       ),
     ).toHaveLength(1);
     expect(
@@ -1552,7 +1552,7 @@ describe("owner-local model execution", () => {
     const ctx = setup();
     seedLegacyEnforcement(ownerStateFor(ctx));
     ctx.fetchMock.on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       () =>
         json({ enforcement: { status: "suspended" }, updatedAt: Date.now() }),
     );
@@ -1567,7 +1567,7 @@ describe("owner-local model execution", () => {
     expect(response.status).toBe(403);
     expect(
       ctx.fetchMock.calls.filter(
-        (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+        (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       ),
     ).toHaveLength(1);
   });
@@ -1582,7 +1582,7 @@ describe("owner-local model execution", () => {
       expiresAt: staleUpdatedAt + 7 * 24 * 60 * 60 * 1_000,
     });
     ctx.fetchMock.on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       () =>
         json({ enforcement: { status: "suspended" }, updatedAt: Date.now() }),
     );
@@ -1600,7 +1600,7 @@ describe("owner-local model execution", () => {
     ).toBe(403);
     expect(
       ctx.fetchMock.calls.filter(
-        (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+        (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       ),
     ).toHaveLength(1);
   });
@@ -1612,7 +1612,7 @@ describe("owner-local model execution", () => {
       JSON.stringify({ status: "ok", updatedAt: 1 }),
     );
     ctx.fetchMock.on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       () =>
         json({
           enforcement: { status: "suspended" },
@@ -1637,7 +1637,7 @@ describe("owner-local model execution", () => {
   test("keeps the seven-day expiry anchored to the authoritative update", async () => {
     const ctx = setup();
     ctx.fetchMock.on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       () =>
         json({
           enforcement: { status: "suspended" },
@@ -1672,7 +1672,7 @@ describe("owner-local model execution", () => {
     for (const body of responses) {
       const ctx = setup();
       ctx.fetchMock.on(
-        (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+        (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
         () => json(body),
       );
       const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
@@ -1723,7 +1723,7 @@ describe("owner-local model execution", () => {
     expect(response.status).toBe(200);
     expect(
       ctx.fetchMock.calls.filter(
-        (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+        (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       ),
     ).toHaveLength(0);
   });
@@ -1760,9 +1760,9 @@ describe("owner-local model execution", () => {
   test("fails closed when the one-time enforcement bootstrap fails", async () => {
     const ctx = setup();
     ctx.fetchMock.on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       () => {
-        throw new Error("Convex unavailable");
+        throw new Error("billing control unavailable");
       },
     );
     const { token } = await signTurn({ ledgerScope: "owner-relay-v2" });
@@ -1782,7 +1782,7 @@ describe("owner-local model execution", () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<Response>();
     ctx.fetchMock.on(
-      (call) => call.url.pathname === CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
+      (call) => call.url.pathname === OWNER_ENFORCEMENT_PATH,
       async () => {
         entered.resolve();
         return await release.promise;
@@ -2058,7 +2058,7 @@ describe("acknowledged owner preparation", () => {
     const snapshot = completeConfigSnapshot();
     const record: SharedGatewayConfigRecord = {
       version: 1,
-      source: "https://outgoing-bulldog-865.convex.site",
+      source: "https://backend.stella.test",
       originalFetchedAt: Date.now() - 1_000,
       revision: await gatewayConfigRevision(snapshot),
       snapshot,

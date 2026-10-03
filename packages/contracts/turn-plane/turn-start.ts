@@ -8,13 +8,13 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  * Authentication is one of:
  *   - `Authorization: Bearer <Better Auth JWT>` (desktop, web shell, mobile);
  *   - `Authorization: Bearer <BUILDER_SERVICE_SECRET>` plus
- *     `x-stella-owner-id` and `x-stella-owner-generation` (Convex-originated
+ *     `x-stella-owner-id` and `x-stella-owner-generation` (service-originated
  *     turns: schedules, execution placement's cloud branch).
  *
  * The conversation Durable Object owns admission: idempotency on
  * `clientMsgId`, owner adoption for a fresh conversation, policy through the
  * owner gate, journaling the prompt, minting the turn capabilities, and
- * queueing the run. Convex learns about the turn through the outbox.
+ * queueing the run.
  */
 
 export const TURN_PLANE_PROTOCOL = 1 as const;
@@ -121,10 +121,9 @@ export type CloudTurnStartError = {
 //   POST {socketOrigin}/sessions/{threadId}/turns
 //
 // Service-authenticated only (`Authorization: Bearer <BUILDER_SERVICE_SECRET>`):
-// Convex starts these for desktop-dispatched cloud agents, execution
+// service callers start these for desktop-dispatched cloud agents, execution
 // placement's agent branch, and hosted-browser resumes. The orchestrator's
-// own spawns never pass through Convex (OrchestratorSession -> BuildSession).
-// Convex learns about the turn through `turn.started` / `thread.spawned`.
+// own spawns never pass through this route (OrchestratorSession -> BuildSession).
 // ---------------------------------------------------------------------------
 
 export const AGENT_TURN_START_PATH_PREFIX = "/sessions" as const;
@@ -181,7 +180,7 @@ export type CloudAgentTurnStartRequest = {
   /** 1 for a fresh thread; N+1 for a continuation of an existing thread. */
   attemptGeneration: number;
   /**
-   * Convex-minted turn id the session must adopt when present, so a row it
+   * Caller-minted turn id the session must adopt when present, so a row it
    * projected optimistically (desktop delivery) and the `turn.started` event
    * name the same turn. Absent means the session mints one.
    */

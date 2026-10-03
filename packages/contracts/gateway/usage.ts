@@ -101,7 +101,7 @@ export type OwnerEnforcement = {
 };
 
 /** Authenticated one-owner enforcement read used to seed a gateway owner DO. */
-export type ConvexOwnerEnforcementState = {
+export type OwnerEnforcementState = {
   enforcement: OwnerEnforcement;
   /** Null means this owner has never had an enforcement row. */
   updatedAt: number | null;
@@ -147,26 +147,20 @@ export type GatewayConfigSnapshot = {
 };
 
 /** A session capability exchange, as the gateway forwards it to `BillingControl`. */
-export type ConvexSessionCapabilityRequest = {
+export type SessionCapabilityRequest = {
   ownerId: string;
   isAnonymous: boolean;
   /** sha256hex(client ip).slice(0, 32) as the gateway computes it for usage events. */
   ipHash?: string;
   /** Edge classification of the caller's network. */
   networkClass?: NetworkClass;
-  /** Turnstile token presented for step-up; Convex verifies it with the secret key. */
+  /** Turnstile token presented for step-up; the owner object verifies it with the secret key. */
   turnstileToken?: string;
   /** `dpk` the gateway verified for this exchange; recorded on the grant and origins. */
   deviceKeyHash: string;
 };
 
-/** `POST /api/gateway/session-admission`: the exchange plus what billing knows. */
-export type ConvexSessionAdmissionRequest = ConvexSessionCapabilityRequest & {
-  /** The owner pays (an active paid plan or credit); Convex's identity ladder needs it. */
-  paying: boolean;
-};
-
-export type ConvexSessionAdmissionResponse = {
+export type SessionAdmissionResponse = {
   ownerGeneration: string;
   /** The account record's answer, authoritative over the gateway's token flag. */
   isAnonymous: boolean;
@@ -183,21 +177,18 @@ export type BillingControlResult<T> =
 /** cloud-builder's `BillingControl` entrypoint, reached over a service binding. */
 export type BillingControlRpc = {
   issueSessionCapability(
-    request: ConvexSessionCapabilityRequest,
+    request: SessionCapabilityRequest,
   ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>>;
   ingestUsage(batch: GatewayUsageBatch): Promise<GatewayUsageBatchResult>;
   /** Prices, anonymous ceilings and tier breakers; throws while unavailable. */
   gatewayConfig(): Promise<GatewayConfigSnapshot>;
   /** One owner's enforcement, seeding the gateway's owner object; throws while unavailable. */
-  ownerEnforcement(ownerId: string): Promise<ConvexOwnerEnforcementState>;
+  ownerEnforcement(ownerId: string): Promise<OwnerEnforcementState>;
   /** A fresh access token for the owner's connected engine, for the native lane. */
   engineAccess(
     request: EngineAccessRequest,
   ): Promise<BillingControlResult<EngineAccessResponse>>;
 };
-
-/** Convex answers the exchange with this when step-up is required and no valid token came. */
-export const CONVEX_SESSION_CHALLENGE_REQUIRED = "challenge_required" as const;
 
 export type { IdentityLevel };
 

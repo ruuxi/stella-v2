@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { resetJwksCacheForTests } from "../src/auth-jwt.js";
 import { handleRequest } from "../src/router.js";
 import {
-  CONVEX_SITE,
+  BACKEND_URL,
   createFetchMock,
   createTestEnv,
   fakeExecutionContext,
@@ -66,7 +66,7 @@ const signJwt = async (
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 const validPayload = (overrides: Record<string, unknown> = {}) => ({
-  iss: CONVEX_SITE,
+  iss: BACKEND_URL,
   aud: "stella",
   sub: "user_ba_1",
   iat: nowSeconds() - 5,
@@ -174,11 +174,11 @@ describe("POST /v1/capabilities/session", () => {
     const jwksCall = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/auth/jwks",
     )!;
-    expect(jwksCall.url.origin).toBe(CONVEX_SITE);
-    const convexCall = ctx.fetchMock.calls.find(
+    expect(jwksCall.url.origin).toBe(BACKEND_URL);
+    const billingCall = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
-    expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
+    expect(JSON.parse(billingCall.body ?? "{}")).toEqual({
       ownerId: "user_ba_1",
       isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
@@ -193,10 +193,10 @@ describe("POST /v1/capabilities/session", () => {
     );
     const response = await ctx.run(sessionRequest(token));
     expect(response.status).toBe(200);
-    const convexCall = ctx.fetchMock.calls.find(
+    const billingCall = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
-    expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
+    expect(JSON.parse(billingCall.body ?? "{}")).toEqual({
       ownerId: "anon_7",
       isAnonymous: true,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
@@ -231,7 +231,7 @@ describe("POST /v1/capabilities/session", () => {
     ).toHaveLength(0);
   });
 
-  test("passes the edge class and bounded Turnstile token to Convex", async () => {
+  test("passes the edge class and bounded Turnstile token to billing control", async () => {
     const token = await signJwt(validPayload());
     const response = await ctx.run(
       sessionRequest(
@@ -241,10 +241,10 @@ describe("POST /v1/capabilities/session", () => {
       ),
     );
     expect(response.status).toBe(200);
-    const convexCall = ctx.fetchMock.calls.find(
+    const billingCall = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
-    expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
+    expect(JSON.parse(billingCall.body ?? "{}")).toEqual({
       ownerId: "user_ba_1",
       isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
@@ -325,7 +325,7 @@ describe("POST /v1/capabilities/session", () => {
     ).toHaveLength(0);
   });
 
-  test("a bad signature is 401; an unreachable JWKS or Convex is 503 retryable", async () => {
+  test("a bad signature is 401; an unreachable JWKS or billing control is 503 retryable", async () => {
     const [header, payload] = (await signJwt(validPayload())).split(".");
     const forged = await ctx.run(
       sessionRequest(
@@ -358,17 +358,17 @@ describe("POST /v1/capabilities/session", () => {
       (call) => call.url.pathname === "/api/gateway/session-capability",
       () => new Response("down", { status: 502 }),
     );
-    const noConvex = await ctx.run(
+    const noBilling = await ctx.run(
       sessionRequest(await signJwt(validPayload()), {}),
     );
-    expect(noConvex.status).toBe(503);
-    expect((await readError(noConvex)).error).toMatchObject({
+    expect(noBilling.status).toBe(503);
+    expect((await readError(noBilling)).error).toMatchObject({
       code: "internal",
       retryable: true,
     });
   });
 
-  test("refuses a suspended owner from KV before mint admission or Convex", async () => {
+  test("refuses a suspended owner from KV before mint admission or billing control", async () => {
     ctx.harness.enforcementValues.set(
       "user_ba_1",
       JSON.stringify({ status: "suspended", updatedAt: Date.now() }),
@@ -386,7 +386,7 @@ describe("POST /v1/capabilities/session", () => {
     ).toHaveLength(0);
   });
 
-  test("maps Convex's flat owner_suspended refusal", async () => {
+  test("maps billing control's flat owner_suspended refusal", async () => {
     ctx.fetchMock.on(
       (call) => call.url.pathname === "/api/gateway/session-capability",
       () => json({ error: "owner_suspended" }, 403),
@@ -398,7 +398,7 @@ describe("POST /v1/capabilities/session", () => {
     expect((await readError(response)).error.code).toBe("owner_suspended");
   });
 
-  test("maps Convex challenge and sign-in refusals", async () => {
+  test("maps billing control challenge and sign-in refusals", async () => {
     const token = await signJwt(validPayload());
     for (const code of ["challenge_required", "sign_in_required"] as const) {
       ctx.fetchMock.on(

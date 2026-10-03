@@ -55,8 +55,8 @@ export type NetworkGateInstance = InstanceType<typeof NetworkGate>;
 export type OwnerRelayGateInstance = InstanceType<typeof OwnerRelayGate>;
 export type TierBudgetInstance = InstanceType<typeof TierBudget>;
 
-export const CONVEX_SITE = "https://outgoing-bulldog-865.convex.site";
-export const OWNER_ID = `${CONVEX_SITE}|user_test_1`;
+export const BACKEND_URL = "https://backend.stella.test";
+export const OWNER_ID = "user_test_1";
 export const SERVICE_SECRET = "gateway-service-secret-for-tests";
 export const PROBE_SECRET = "relay-probe-secret-for-tests";
 export const OPENROUTER_KEY = "sk-or-v1-openrouter-test-key-0123456789";
@@ -262,7 +262,7 @@ const makeIssuer = async (kid: string): Promise<Issuer> => {
 };
 
 export const issuers = {
-  convex: await makeIssuer("convex-k1"),
+  session: await makeIssuer("session-k1"),
   cloudBuilder: await makeIssuer("cb-k1"),
   /** Valid key pair that is NOT in the gateway's JWKS. */
   rogue: await makeIssuer("rogue-k1"),
@@ -271,9 +271,9 @@ export const issuers = {
 export const jwks: GatewayJwks = {
   keys: [
     {
-      kid: issuers.convex.kid,
-      jwk: issuers.convex.jwk,
-      issuer: GATEWAY_CAPABILITY_ISSUERS.convex,
+      kid: issuers.session.kid,
+      jwk: issuers.session.jwk,
+      issuer: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
     },
     {
       kid: issuers.cloudBuilder.kid,
@@ -289,7 +289,7 @@ export const MUSE_RESOLVED = "meta/muse-spark-1.3-contributor";
 export const CROF_RESOLVED = "crof/deepseek-v4-flash-0731";
 
 const baseSessionClaims = (): UnsignedCapabilityClaims => ({
-  iss: GATEWAY_CAPABILITY_ISSUERS.convex,
+  iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
   sub: OWNER_ID,
   gen: "gen-1",
   kind: "session",
@@ -326,7 +326,7 @@ export const signSession = async (
 ): Promise<{ token: string; claims: GatewayCapabilityClaims }> => {
   const signed = await signCapability(
     { ...baseSessionClaims(), ...overrides },
-    options.key ?? issuers.convex.signing,
+    options.key ?? issuers.session.signing,
     { ttlMs: options.ttlMs ?? 60 * 60_000, now: options.now },
   );
   sessionDpopIdentities.set(signed.token, {
@@ -597,7 +597,7 @@ export const hangingSseResponse = (
 /** `BillingControl.gatewayConfig()`, served by a test's fetch mock at the old config path. */
 export const billingConfigLoader =
   (fetchImpl: typeof fetch) => async (): Promise<GatewayConfigSnapshot> => {
-    const response = await fetchImpl(`${CONVEX_SITE}/api/gateway/config`);
+    const response = await fetchImpl(`${BACKEND_URL}/api/gateway/config`);
     if (!response.ok) throw new Error(`config ${response.status}`);
     return (await response.json()) as GatewayConfigSnapshot;
   };
@@ -613,7 +613,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const billingCall = async (path: string, request: unknown) => {
     let response: Response;
     try {
-      response = await billingFetch(`${CONVEX_SITE}${path}`, {
+      response = await billingFetch(`${BACKEND_URL}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(request),
@@ -645,7 +645,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     gatewayConfig: () => billingConfigLoader(billingFetch)(),
     ownerEnforcement: async (ownerId: string) => {
       const response = await billingFetch(
-        `${CONVEX_SITE}/api/gateway/owner-enforcement?ownerId=${encodeURIComponent(ownerId)}`,
+        `${BACKEND_URL}/api/gateway/owner-enforcement?ownerId=${encodeURIComponent(ownerId)}`,
       );
       if (!response.ok) throw new Error(`owner enforcement ${response.status}`);
       return (await response.json()) as unknown;
@@ -673,7 +673,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   > = [];
   env = {
     ENVIRONMENT: "development",
-    STELLA_BACKEND_URL: CONVEX_SITE,
+    STELLA_BACKEND_URL: BACKEND_URL,
     CAPABILITY_JWKS: JSON.stringify(jwks),
     OPENROUTER_API_KEY: OPENROUTER_KEY,
     FIREWORKS_API_KEY: "fw-test",

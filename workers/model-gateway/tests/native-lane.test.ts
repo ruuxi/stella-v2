@@ -402,7 +402,7 @@ describe("native lane", () => {
     expect((await readError(stale)).error.code).toBe("generation_stale");
   });
 
-  test("Convex unreachable for engine access -> 503 retryable", async () => {
+  test("billing control unreachable for engine access -> 503 retryable", async () => {
     ctx.fetchMock.on(
       (call) => call.url.pathname === "/api/gateway/engine-access",
       () => new Response("down", { status: 503 }),

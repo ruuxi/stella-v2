@@ -6,11 +6,10 @@
  * sides keep only `sha256(pairSecret)` — the *pairing key* — and the phone
  * proves possession by HMAC-ing a canonical message with it. The owner
  * snapshot carries that key as `pairedDevices[].mobilePublicKey`, so the
- * cloud-builder can verify a submit without a Convex round trip.
+ * cloud-builder can verify a submit without an extra round trip.
  *
- * The scheme is byte-for-byte the one Convex's `/api/mobile/execution/submit`
- * used, so the phone, the worker, and Convex can all import this module and
- * agree without a second implementation:
+ * The phone and the worker both import this module, so they agree on the
+ * scheme without a second implementation:
  *
  *   pairingKey = lowercase-hex sha256(pairSecret)
  *   challenge  = "execution-placement-v1:{idempotencyKey}:{conversationId}
@@ -28,7 +27,7 @@
  * be replayed under another.
  *
  * Everything here is WebCrypto only: no node builtins, no third-party hashes,
- * so the same file runs in the worker, in Convex, and in React Native.
+ * so the same file runs in the worker and in React Native.
  */
 
 import type { DispatchPayload } from "./placement.js";
@@ -150,7 +149,7 @@ export const hmacSha256Hex = async (
 };
 
 /**
- * The verifiable half of a pairing secret. The phone and Convex both store
+ * The verifiable half of a pairing secret. The phone and the backend both store
  * only this; the raw secret never leaves the pairing exchange.
  */
 export const deriveMobilePairingKey = (pairSecret: string): Promise<string> =>

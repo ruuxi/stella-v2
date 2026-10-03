@@ -13,7 +13,7 @@ import {
 
 /**
  * Compact-JWS capability signing and verification on WebCrypto only, so the
- * same code runs in Convex, workerd, Node, and Bun. ES256 (ECDSA P-256 with
+ * same code runs in workerd, Node, and Bun. ES256 (ECDSA P-256 with
  * SHA-256). WebCrypto emits and expects the raw `r || s` signature layout,
  * which is exactly what JWS specifies, so no DER conversion is needed.
  */

@@ -4,12 +4,12 @@
  *
  * Better Auth's captcha plugin reads the token from `x-captcha-response` on
  * the endpoints listed below. The gateway's session-capability exchange takes
- * the same token in its JSON body (`turnstileToken`) when Convex has marked
+ * the same token in its JSON body (`turnstileToken`) when the backend has marked
  * the owner `challenged` or the caller's network class requires step-up.
  *
  * Web and desktop clients obtain a token from the Turnstile widget (website,
  * Electron hidden window) using the public site key; the secret key lives in
- * Convex env only. Mobile presents an app-integrity proof instead.
+ * the backend's env only. Mobile presents an app-integrity proof instead.
  */
 
 export const AUTH_CAPTCHA_HEADER = "x-captcha-response" as const;

@@ -18,7 +18,6 @@ export type TelemetryEnvironment =
 export type TelemetrySource =
   | "desktop-main"
   | "runtime-worker"
-  | "convex-backend"
   | "cloud-builder"
   | "executor-cloud"
   | "apps-host"
@@ -180,7 +179,6 @@ const ENVIRONMENTS = new Set<TelemetryEnvironment>([
 const SOURCES = new Set<TelemetrySource>([
   "desktop-main",
   "runtime-worker",
-  "convex-backend",
   "cloud-builder",
   "executor-cloud",
   "apps-host",

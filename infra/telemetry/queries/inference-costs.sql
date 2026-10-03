@@ -4,7 +4,7 @@
 -- counting tokens or cost so a lost HTTP acknowledgement cannot double bill
 -- an analytical report.
 --
--- Convex billing is authoritative for Stella-managed inference. Runtime
+-- cloud-builder's billing ledger is authoritative for Stella-managed inference. Runtime
 -- observations for provider='stella' describe the same managed call and are
 -- excluded here; non-managed/BYOK runtime observations remain included.
 WITH deduped AS (
@@ -22,7 +22,7 @@ WITH deduped AS (
     duration_ms
   FROM telemetry.events_v1
   WHERE event_type = 'inference.completed'
-    AND (source = 'convex-backend' OR provider <> 'stella')
+    AND (source = 'cloud-builder' OR provider <> 'stella')
     AND __ingest_ts >= TIMESTAMP '{{START_UTC}}'
     AND __ingest_ts < TIMESTAMP '{{END_UTC}}'
 )

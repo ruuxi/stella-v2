@@ -18,7 +18,7 @@ import {
 
 /**
  * These are the wire vectors three implementations have to agree on — the
- * phone that signs, the worker that verifies, and Convex that serves the
+ * phone that signs, the worker that verifies, and the owner store that serves the
  * pairing key. Each assertion below is therefore about exact bytes, not just
  * "a round trip works".
  */
@@ -113,7 +113,7 @@ describe("mobile pairing challenge", () => {
 });
 
 describe("mobile pairing proof message", () => {
-  test("is the newline tuple Convex signs, with an empty bridge key slot", () => {
+  test("is the newline tuple the phone signs, with an empty bridge key slot", () => {
     expect(
       buildMobilePairingProofMessage({
         desktopDeviceId: "desktop-1",

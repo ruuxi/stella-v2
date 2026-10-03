@@ -9,10 +9,3 @@ export type AccountCalls = {
    */
   "account.reset": { args: Record<string, never>; result: null };
 };
-
-/**
- * Convex service route the owner object posts to for `account.reset`
- * (`Authorization: Bearer ${BUILDER_SERVICE_SECRET}`, body `{ ownerId }`).
- * Convex still owns the owner generation and the purge job until phase 10.
- */
-export const CONVEX_OWNER_RESET_PATH = "/api/cloud/owners/reset" as const;

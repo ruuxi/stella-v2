@@ -201,12 +201,12 @@ describe("gateway config cache", () => {
     expect(saved?.originalFetchedAt).toBe(CONFIG_TTL_MS + 1_000);
   });
 
-  test("a cold owner restores a fresh complete shared snapshot without calling Convex", async () => {
+  test("a cold owner restores a fresh complete shared snapshot without calling billing control", async () => {
     const snapshot = completeConfigSnapshot();
     const record = await sharedRecord(snapshot);
-    let convexCalls = 0;
+    let billingCalls = 0;
     const client = billingConfigLoader((async () => {
-      convexCalls += 1;
+      billingCalls += 1;
       return json(configSnapshot());
     }) as typeof fetch);
     let saved: SharedGatewayConfigRecord | undefined;
@@ -223,13 +223,13 @@ describe("gateway config cache", () => {
       },
       { source: record.source, read: async () => structuredClone(record) },
     );
-    expect(convexCalls).toBe(0);
+    expect(billingCalls).toBe(0);
     expect(restored.fetchedAt).toBe(record.originalFetchedAt);
     expect(restored.snapshot).toEqual(snapshot);
     expect(saved?.originalFetchedAt).toBe(record.originalFetchedAt);
   });
 
-  test("invalid shared snapshots fall back to Convex without extending their age", async () => {
+  test("invalid shared snapshots fall back to billing control without extending their age", async () => {
     const complete = completeConfigSnapshot();
     const base = await sharedRecord(complete);
     const cases: unknown[] = [
@@ -241,9 +241,9 @@ describe("gateway config cache", () => {
     ];
     for (const value of cases) {
       resetConfigCacheForTests();
-      let convexCalls = 0;
+      let billingCalls = 0;
       const client = billingConfigLoader((async () => {
-        convexCalls += 1;
+        billingCalls += 1;
         return json(complete);
       }) as typeof fetch);
       const loaded = await getGatewayConfig(
@@ -253,7 +253,7 @@ describe("gateway config cache", () => {
         undefined,
         { source: base.source, read: async () => structuredClone(value) },
       );
-      expect(convexCalls).toBe(1);
+      expect(billingCalls).toBe(1);
       expect(loaded.fetchedAt).toBe(CONFIG_TTL_MS + 1_000);
     }
   });
@@ -271,7 +271,7 @@ describe("gateway config cache", () => {
       },
     };
     const offline = billingConfigLoader((async () => {
-      throw new Error("No Convex request expected");
+      throw new Error("No billing control request expected");
     }) as typeof fetch);
     const [first, second] = await Promise.all([
       getGatewayConfig(
@@ -306,7 +306,7 @@ describe("gateway config cache", () => {
       releaseShared = resolve;
     });
     const offline = billingConfigLoader((async () => {
-      throw new Error("No Convex request expected");
+      throw new Error("No billing control request expected");
     }) as typeof fetch);
     const olderLoad = getGatewayConfig(
       offline,

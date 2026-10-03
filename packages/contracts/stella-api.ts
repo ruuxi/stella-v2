@@ -1,7 +1,7 @@
 /**
- * Convex-hosted Stella endpoints: the model catalog and the prompt bundle.
+ * Backend-hosted Stella endpoints: the model catalog and the prompt bundle.
  * Model traffic itself goes to the model gateway advertised by the catalog
- * (`gateway.origin`, see `@stella/contracts/gateway/api`), never to Convex.
+ * (`gateway.origin`, see `@stella/contracts/gateway/api`), never to the backend.
  */
 const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
@@ -19,7 +19,7 @@ export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.3-contributor";
  * the older DeepSeek and Fireworks spellings
  * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stay routable through
  * the verbatim `stella/<provider>/<model>` path — see
- * `DEEPSEEK_V4_FLASH_ROUTE` in `convex/agent/model.ts`.
+ * `DEEPSEEK_V4_FLASH_ROUTE` in `@stella/model-catalog/model`.
  */
 export const STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL =
   "crof/deepseek-v4-flash-0731";
@@ -57,7 +57,7 @@ export type StellaRelayProvider = (typeof STELLA_RELAY_PROVIDERS)[number];
 
 /**
  * Reduce a configured Stella site URL to its root. Accepts the root itself or
- * one of the Convex-hosted Stella endpoints (`/api/stella`, `/models`,
+ * one of the backend-hosted Stella endpoints (`/api/stella`, `/models`,
  * `/prompts`), with or without a trailing slash.
  */
 export const normalizeStellaSiteUrl = (value: string): string =>

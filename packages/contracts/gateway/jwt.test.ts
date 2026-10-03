@@ -15,16 +15,16 @@ import {
 } from "./capability.js";
 
 const setup = async () => {
-  const convexPair = await generateCapabilityKeyPair();
+  const sessionPair = await generateCapabilityKeyPair();
   const builderPair = await generateCapabilityKeyPair();
   const jwks: GatewayJwks = {
     keys: [
-      { kid: "convex-1", jwk: convexPair.publicJwk, issuer: GATEWAY_CAPABILITY_ISSUERS.convex },
+      { kid: "builder-2", jwk: sessionPair.publicJwk, issuer: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder },
       { kid: "builder-1", jwk: builderPair.publicJwk, issuer: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder },
     ],
   };
   return {
-    convexKey: await importCapabilitySigningKey(convexPair.privateKeyPem, "convex-1"),
+    sessionKey: await importCapabilitySigningKey(sessionPair.privateKeyPem, "builder-2"),
     builderKey: await importCapabilitySigningKey(builderPair.privateKeyPem, "builder-1"),
     verification: await importCapabilityVerificationKeys(jwks),
   };
@@ -32,28 +32,28 @@ const setup = async () => {
 
 describe("capability jwt", () => {
   test("round-trips a session capability", async () => {
-    const { convexKey, verification } = await setup();
+    const { sessionKey, verification } = await setup();
     const signed = await signCapability(
       {
-        iss: GATEWAY_CAPABILITY_ISSUERS.convex,
-        sub: "https://x.convex.site|user_1",
+        iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
+        sub: "user_1",
         gen: "gen-1",
         kind: "session",
         audience: "pro",
         budgetMicroCents: 5_000_000,
       },
-      convexKey,
+      sessionKey,
       { ttlMs: 60_000 },
     );
     const result = await verifyCapability(signed.token, verification);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.claims.sub).toBe("https://x.convex.site|user_1");
+    expect(result.claims.sub).toBe("user_1");
     expect(result.claims.kind).toBe("session");
     expect(result.claims.jti).toBe(signed.claims.jti);
     expect(validateCapabilityClaims({ ...signed.claims, ledgerScope: "owner-relay-v2" })).toBe(true);
     expect(validateCapabilityClaims({ ...signed.claims, ledgerScope: "unsupported" })).toBe(false);
-    expect(result.kid).toBe("convex-1");
+    expect(result.kid).toBe("builder-2");
   });
 
   test("round-trips a turn capability with execution binding", async () => {
@@ -89,8 +89,26 @@ describe("capability jwt", () => {
     expect(result.claims.turn?.execution.model).toBe("stella/light");
   });
 
-  test("rejects a token signed by a key registered to another issuer", async () => {
-    const { convexKey, verification } = await setup();
+  test("rejects a token whose issuer is not a known issuer", async () => {
+    const { sessionKey, verification } = await setup();
+    const signed = await signCapability(
+      {
+        iss: "stella-retired" as never,
+        sub: "owner",
+        gen: "gen-1",
+        kind: "session",
+        audience: "pro",
+        budgetMicroCents: 1,
+      },
+      sessionKey,
+      { ttlMs: 60_000 },
+    );
+    const result = await verifyCapability(signed.token, verification);
+    expect(result).toEqual({ ok: false, reason: "invalid_claims" });
+  });
+
+  test("rejects tampered payloads and expired tokens", async () => {
+    const { sessionKey, verification } = await setup();
     const signed = await signCapability(
       {
         iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
@@ -100,25 +118,7 @@ describe("capability jwt", () => {
         audience: "pro",
         budgetMicroCents: 1,
       },
-      convexKey,
-      { ttlMs: 60_000 },
-    );
-    const result = await verifyCapability(signed.token, verification);
-    expect(result).toEqual({ ok: false, reason: "issuer_mismatch" });
-  });
-
-  test("rejects tampered payloads and expired tokens", async () => {
-    const { convexKey, verification } = await setup();
-    const signed = await signCapability(
-      {
-        iss: GATEWAY_CAPABILITY_ISSUERS.convex,
-        sub: "owner",
-        gen: "gen-1",
-        kind: "session",
-        audience: "pro",
-        budgetMicroCents: 1,
-      },
-      convexKey,
+      sessionKey,
       { ttlMs: 60_000, now: Date.now() - 10 * 60_000 },
     );
     const expired = await verifyCapability(signed.token, verification);
@@ -129,7 +129,7 @@ describe("capability jwt", () => {
       now: Date.now() - 10 * 60_000,
     });
     expect(bad.ok).toBe(false);
-    const unknown = await verifyCapability(`${h}.${p}.${s}`.replace("convex-1", "nope"), verification);
+    const unknown = await verifyCapability(`${h}.${p}.${s}`.replace("builder-2", "nope"), verification);
     expect(unknown.ok).toBe(false);
   });
 });

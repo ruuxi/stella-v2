@@ -16,13 +16,6 @@ import {
   type TelemetryEventV1,
 } from "./schema.js";
 import { verifyServiceBearer } from "./service-bearer.js";
-import {
-  MAX_CONVEX_LOG_STREAM_BODY_BYTES,
-  hasFreshConvexLogStreamTimestamps,
-  parseConvexLogStream,
-  verifyConvexLogStreamSignature,
-  type ParsedConvexMetric,
-} from "./convex-log-stream.js";
 
 export type { TelemetryEventV1 } from "./schema.js";
 
@@ -33,7 +26,6 @@ type TelemetryEnv = Pick<
   | "ENABLE_SERVER_BEARER"
   | "TELEMETRY_PSEUDONYM_KEY"
   | "TELEMETRY_SERVER_SECRET"
-  | "CONVEX_LOG_STREAM_SECRET"
   | "EVENTS_PIPELINE"
   | "TELEMETRY_RATE_LIMITER"
 >;
@@ -353,152 +345,6 @@ const ingestValidated = async (
   return ownerIdSha256;
 };
 
-const deterministicEventId = async (material: string): Promise<string> => {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(material)),
-  );
-  digest[6] = ((digest[6] ?? 0) & 0x0f) | 0x80;
-  digest[8] = ((digest[8] ?? 0) & 0x3f) | 0x80;
-  const hex = Array.from(digest.slice(0, 16), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
-
-const ingestConvexMetrics = async (
-  metrics: ParsedConvexMetric[],
-  env: TelemetryEnv,
-): Promise<void> => {
-  const pseudonymize = await createPseudonymizer(
-    env.TELEMETRY_PSEUDONYM_KEY,
-    env.ENVIRONMENT,
-  );
-  const ingestedAtMs = Date.now();
-  for (let offset = 0; offset < metrics.length; offset += 100) {
-    const chunk = metrics.slice(offset, offset + 100);
-    const events = await Promise.all(
-      chunk.map(async (metric) => ({
-        schemaVersion: 1 as const,
-        eventId: await deterministicEventId(metric.identityMaterial),
-        occurredAtMs: metric.timestamp,
-        project: "stella" as const,
-        environment: env.ENVIRONMENT,
-        source: "convex-backend" as const,
-        event: metric.event,
-      })),
-    );
-    const parsed = parseBatch(batchFromEvents(events));
-    if (!parsed.ok) throw new TypeError(`invalid_metric:${parsed.error}`);
-    const now = Date.now();
-    if (
-      events.some(
-        (event) =>
-          event.occurredAtMs < now - MAX_EVENT_AGE_MS ||
-          event.occurredAtMs > now + MAX_FUTURE_SKEW_MS,
-      )
-    ) {
-      throw new TypeError("event_time_out_of_range");
-    }
-    const output = await Promise.all(
-      chunk.map(async (metric, index) =>
-        flattenEvent(
-          events[index]!,
-          await pseudonymize("owner", metric.ownerKey),
-          "service",
-          ingestedAtMs,
-        ),
-      ),
-    );
-    await env.EVENTS_PIPELINE.send(
-      output as unknown as TelemetryPipelineRecord[],
-    );
-  }
-};
-
-const handleConvexLogStream = async (
-  request: Request,
-  env: TelemetryEnv,
-  requestId: string,
-): Promise<Response> => {
-  if (request.method !== "POST") {
-    const response = json(405, { error: "method_not_allowed" }, requestId);
-    response.headers.set("allow", "POST");
-    return response;
-  }
-  const mediaType = request.headers
-    .get("content-type")
-    ?.split(";", 1)[0]
-    ?.trim()
-    .toLowerCase();
-  if (mediaType !== "application/json") {
-    return json(415, { error: "unsupported_media_type" }, requestId);
-  }
-  let bytes: Uint8Array;
-  try {
-    bytes = await readBoundedBytes(request, MAX_CONVEX_LOG_STREAM_BODY_BYTES);
-  } catch (error) {
-    return json(
-      error instanceof Error && error.message === "body_too_large" ? 413 : 400,
-      {
-        error:
-          error instanceof Error && error.message === "body_too_large"
-            ? "body_too_large"
-            : "invalid_json",
-      },
-      requestId,
-    );
-  }
-  if (
-    !(await verifyConvexLogStreamSignature(
-      bytes,
-      request.headers.get("x-webhook-signature"),
-      env.CONVEX_LOG_STREAM_SECRET,
-    ))
-  ) {
-    console.warn({
-      event: "telemetry.convex_log_stream_auth_rejected",
-      requestId,
-    });
-    return json(401, { error: "unauthorized" }, requestId);
-  }
-  let body: unknown;
-  try {
-    body = parseJsonBytes(bytes);
-  } catch {
-    return json(400, { error: "invalid_json" }, requestId);
-  }
-  if (!hasFreshConvexLogStreamTimestamps(body)) {
-    return json(403, { error: "request_expired" }, requestId);
-  }
-  const parsed = parseConvexLogStream(body);
-  if (!parsed) {
-    return json(400, { error: "invalid_payload" }, requestId);
-  }
-  try {
-    if (parsed.metrics.length > 0) {
-      await ingestConvexMetrics(parsed.metrics, env);
-    }
-  } catch (error) {
-    console.error({
-      event: "telemetry.convex_log_stream_pipeline_failed",
-      requestId,
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    });
-    return json(503, { error: "ingestion_unavailable" }, requestId);
-  }
-  console.log({
-    event: "telemetry.convex_log_stream_accepted",
-    requestId,
-    accepted: parsed.metrics.length,
-    ignored: parsed.ignored,
-  });
-  return json(
-    202,
-    { accepted: parsed.metrics.length, ignored: parsed.ignored, requestId },
-    requestId,
-  );
-};
-
 export const fetchHandler = async (
   request: Request,
   env: TelemetryEnv,
@@ -518,9 +364,6 @@ export const fetchHandler = async (
           requestId,
         )
       : json(405, { error: "method_not_allowed" }, requestId);
-  }
-  if (path === "/v1/convex-logs") {
-    return await handleConvexLogStream(request, env, requestId);
   }
   if (path !== "/v1/events")
     return json(404, { error: "not_found" }, requestId);

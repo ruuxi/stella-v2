@@ -28,8 +28,7 @@
   "secrets": {
     "required": [
       "TELEMETRY_PSEUDONYM_KEY",
-      "TELEMETRY_SERVER_SECRET",
-      "CONVEX_LOG_STREAM_SECRET"
+      "TELEMETRY_SERVER_SECRET"
     ]
   },
   "pipelines": [
@@ -60,8 +59,7 @@
       "secrets": {
         "required": [
           "TELEMETRY_PSEUDONYM_KEY",
-          "TELEMETRY_SERVER_SECRET",
-          "CONVEX_LOG_STREAM_SECRET"
+          "TELEMETRY_SERVER_SECRET"
         ]
       },
       "pipelines": [

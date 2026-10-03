@@ -146,8 +146,8 @@ export const CAPABILITY_PLAN_LABELS: Record<CapabilityAudience, string> = {
 };
 
 /**
- * Machine-readable code carried by every capability denial, on both the
- * HTTP envelope (`code`) and the `ConvexError` data payload.
+ * Machine-readable code carried by every capability denial in the HTTP
+ * envelope (`code`).
  */
 export const CAPABILITY_DENIED_CODE = "CAPABILITY_REQUIRED" as const;
 

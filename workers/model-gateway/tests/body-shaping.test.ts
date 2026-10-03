@@ -10,7 +10,7 @@ import {
 import type { ManagedRoute } from "../src/resolve.js";
 
 /**
- * Parity with the legacy Convex relay for the shaping cases that still apply:
+ * Parity with the legacy relay for the shaping cases that still apply:
  * the gateway hands `@stella/model-catalog` the same inputs the relay did and
  * forces streaming on top. Routes are constructed directly so providers the
  * alias catalog does not currently expose (DeepSeek direct, Anthropic) are

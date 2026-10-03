@@ -21,7 +21,7 @@ export const IN_FLIGHT_ABANDON_AFTER_MS =
  * It is the gateway's only source of truth for "may this capability spend
  * more": budget, reservation, and request-count accounting, plus the
  * replayable result cache that makes retries with the same request id
- * idempotent. No Convex call is ever on this path.
+ * idempotent. No control-plane call is ever on this path.
  *
  * Semantics
  *   reserve   Refuses when `requests >= max_requests` (request_limit) or when

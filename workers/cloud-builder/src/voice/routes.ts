@@ -15,6 +15,7 @@
  * (`tts_usage`), not charged, since read-aloud is free on every plan.
  */
 
+import { Effect } from "effect";
 import {
   rpcErrorStatus,
   type BackendError,
@@ -357,7 +358,7 @@ const ttsHls = async (request: Request, env: VoiceEnv, path: string): Promise<Re
     const deadline = Date.now() + PLAYLIST_WAIT_MS;
     let manifest = await readManifest(env.MEDIA, ticket.ticket);
     while ((!manifest || (manifest.segments.length === 0 && !manifest.done)) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, PLAYLIST_POLL_MS));
+      await Effect.runPromise(Effect.sleep(PLAYLIST_POLL_MS));
       manifest = await readManifest(env.MEDIA, ticket.ticket);
     }
     if (manifest && (manifest.error || (manifest.done && manifest.segments.length === 0))) {

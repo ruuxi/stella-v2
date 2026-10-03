@@ -54,7 +54,7 @@ const fixtureControl = (ownerId: string): MuseControl => ({
     };
   },
   async settle(usage) {
-    state.settlements.push(usage);
+    state.settlements.push({ ownerId, ...usage });
   },
 });
 

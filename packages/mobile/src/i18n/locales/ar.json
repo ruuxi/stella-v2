@@ -1980,7 +1980,7 @@
     "boot": {
       "crashTitle": "حدث خلل عند التشغيل",
       "missingConfigTitle": "أضف متغيرات بيئة تطبيق الجوال",
-      "missingConfigBody": "اضبط EXPO_PUBLIC_CONVEX_URL، واختياريًا EXPO_PUBLIC_CONVEX_SITE_URL، قبل تشغيل التطبيق.",
+      "missingConfigBody": "اضبط EXPO_PUBLIC_STELLA_BACKEND_URL قبل تشغيل التطبيق.",
       "checkingSessionTitle": "جارٍ التحقق من جلستك",
       "checkingSessionBody": "انتظر قليلًا ريثما تستيقظ Stella."
     },

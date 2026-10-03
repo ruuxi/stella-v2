@@ -14,7 +14,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { useConvexAuth } from "convex/react";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBackdrop } from "./AppBackdrop";
@@ -22,7 +21,7 @@ import { publishBackOverride } from "../lib/main-shell-store";
 import { useT } from "../i18n";
 import { MainDetailSurface } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
-import { getConvexTokenForSubject } from "../lib/auth-token";
+import { getAuthTokenForSubject } from "../lib/auth-token";
 import { useShellBottomInset } from "../lib/shell-bottom-inset";
 import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
@@ -66,16 +65,15 @@ true;`;
 
 /** Owned by the shell: navigating away must not discard the library or WebViews. */
 export function PersistentAppsHost({ visible }: { visible: boolean }) {
-  const { isAuthenticated } = useConvexAuth();
-  const { data: session } = authClient.useSession();
+  const { data: session, isPending } = authClient.useSession();
   // Apps are served from the backend worker, whose origin is build config.
   const origin = env.backendUrl || null;
-  const owner = isAuthenticated ? session?.user.id : undefined;
+  const owner = session?.user.id;
   if (!owner || !origin)
     return visible ? (
       <View style={StyleSheet.absoluteFill}>
         <MainDetailSurface>
-          {isAuthenticated && !session ? (
+          {isPending ? (
             <ActivityIndicator />
           ) : (
             <Text>Apps are unavailable. Please try again.</Text>
@@ -180,7 +178,7 @@ function AppsHost({
       controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60_000);
       try {
-        const token = await getConvexTokenForSubject(owner);
+        const token = await getAuthTokenForSubject(owner);
         if (cancelled) return;
         const response = await fetch(`${origin}/owners/me/apps`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -240,7 +238,7 @@ function AppsHost({
     setOpening(app.slug);
     setError(null);
     try {
-      const token = await getConvexTokenForSubject(owner);
+      const token = await getAuthTokenForSubject(owner);
       if (!mounted.current || id !== request.current) return;
       const response = await fetch(
         `${origin}/owners/me/apps/${encodeURIComponent(app.slug)}/session`,

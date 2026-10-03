@@ -1929,7 +1929,7 @@
     "boot": {
       "crashTitle": "Un problème est survenu au démarrage",
       "missingConfigTitle": "Ajoutez les variables d'environnement mobiles",
-      "missingConfigBody": "Définissez EXPO_PUBLIC_CONVEX_URL et, éventuellement, EXPO_PUBLIC_CONVEX_SITE_URL avant de lancer l'app.",
+      "missingConfigBody": "Définissez EXPO_PUBLIC_STELLA_BACKEND_URL avant de lancer l'app.",
       "checkingSessionTitle": "Vérification de votre session",
       "checkingSessionBody": "Patientez le temps que Stella se réveille."
     },

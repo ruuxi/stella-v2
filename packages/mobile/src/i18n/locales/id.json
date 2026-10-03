@@ -1892,7 +1892,7 @@
     "boot": {
       "crashTitle": "Ada masalah saat memulai",
       "missingConfigTitle": "Tambahkan variabel lingkungan seluler",
-      "missingConfigBody": "Atur EXPO_PUBLIC_CONVEX_URL dan, jika perlu, EXPO_PUBLIC_CONVEX_SITE_URL sebelum memulai aplikasi.",
+      "missingConfigBody": "Atur EXPO_PUBLIC_STELLA_BACKEND_URL sebelum memulai aplikasi.",
       "checkingSessionTitle": "Memeriksa sesi Anda",
       "checkingSessionBody": "Tunggu sebentar selagi Stella bangun."
     },

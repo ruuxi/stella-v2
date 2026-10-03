@@ -12,7 +12,7 @@ import { userFacingError } from "./user-facing-error";
 const CHECKOUT_RETURN_URL = "https://stella.sh/billing";
 
 /** The backend's `{ code, message }` for a refused call. */
-function convexErrorData(error) {
+function backendErrorData(error) {
   if (error && typeof error === "object" && typeof error.code === "string") {
     return { code: error.code, message: error.message };
   }
@@ -20,7 +20,7 @@ function convexErrorData(error) {
 }
 
 function messageFromError(error) {
-  const data = convexErrorData(error);
+  const data = backendErrorData(error);
   if (data && typeof data.message === "string" && data.message.trim()) {
     return data.message.trim();
   }
@@ -98,7 +98,7 @@ export function useMobileCheckout() {
         // Remain "pending": the section flips to success when the plan
         // updates, or lets the user retry if they dismissed without paying.
       } catch (err) {
-        const data = convexErrorData(err);
+        const data = backendErrorData(err);
         setError({
           code: data && typeof data.code === "string" ? data.code : null,
           message: messageFromError(err),

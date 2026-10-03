@@ -1929,7 +1929,7 @@
     "boot": {
       "crashTitle": "משהו השתבש בהפעלה",
       "missingConfigTitle": "הוסיפו את משתני הסביבה של האפליקציה הניידת",
-      "missingConfigBody": "הגדירו את EXPO_PUBLIC_CONVEX_URL ואופציונלית גם את EXPO_PUBLIC_CONVEX_SITE_URL לפני הפעלת האפליקציה.",
+      "missingConfigBody": "הגדירו את EXPO_PUBLIC_STELLA_BACKEND_URL לפני הפעלת האפליקציה.",
       "checkingSessionTitle": "בודקים את ההתחברות שלכם",
       "checkingSessionBody": "רגע אחד, Stella מתעוררת."
     },

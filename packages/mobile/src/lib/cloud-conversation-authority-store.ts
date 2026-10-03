@@ -37,7 +37,7 @@ export type CloudAuthorityStorePorts = {
  *
  * The handshake used to live in component state, so every mount of the chat
  * screen (each return from Settings, the CarPlay bridge attaching) started it
- * from zero behind a full-screen spinner and threw away a still-valid Convex
+ * from zero behind a full-screen spinner and threw away a still-valid backend
  * JWT on the way. Here the resolved authority and the in-flight promise
  * outlive any one mount: a remount reads the cached value synchronously, two
  * surfaces on the same session share one handshake, and the root layout can

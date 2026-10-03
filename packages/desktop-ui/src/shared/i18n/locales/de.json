@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Beim Start ist etwas kaputtgegangen",
       "missingConfigTitle": "Mobile Umgebungsvariablen hinzufügen",
-      "missingConfigBody": "Setze EXPO_PUBLIC_CONVEX_URL und optional EXPO_PUBLIC_CONVEX_SITE_URL, bevor du die App startest.",
+      "missingConfigBody": "Setze EXPO_PUBLIC_STELLA_BACKEND_URL, bevor du die App startest.",
       "checkingSessionTitle": "Deine Sitzung wird geprüft",
       "checkingSessionBody": "Einen Moment, Stella wacht gerade auf."
     },

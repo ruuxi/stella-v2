@@ -1892,7 +1892,7 @@
     "boot": {
       "crashTitle": "Có lỗi khi khởi động",
       "missingConfigTitle": "Thêm biến môi trường cho ứng dụng di động",
-      "missingConfigBody": "Đặt EXPO_PUBLIC_CONVEX_URL và tùy chọn EXPO_PUBLIC_CONVEX_SITE_URL trước khi khởi động ứng dụng.",
+      "missingConfigBody": "Đặt EXPO_PUBLIC_STELLA_BACKEND_URL trước khi khởi động ứng dụng.",
       "checkingSessionTitle": "Đang kiểm tra phiên của bạn",
       "checkingSessionBody": "Chờ một chút trong khi Stella khởi động."
     },

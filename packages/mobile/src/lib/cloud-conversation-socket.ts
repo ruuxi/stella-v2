@@ -69,7 +69,7 @@ export type ConversationSocketOptions = {
   conversationId: string;
   /** Builder origin, e.g. `https://stella-v2-cloud-builder-dev…workers.dev`. */
   baseUrl: string;
-  /** Resolves the owner's Convex JWT. `forceRefresh` bypasses every cache. */
+  /** Resolves the owner's backend JWT. `forceRefresh` bypasses every cache. */
   getToken: (options?: { forceRefresh?: boolean }) => Promise<string | null>;
   /** Native lifecycle gate. Background sockets may lapse and reconnect later. */
   isActive?: () => boolean;
@@ -455,7 +455,7 @@ export class ConversationSocket {
       `/conversations/${encodeURIComponent(this.options.conversationId)}/socket`,
       this.options.baseUrl,
     );
-    // Convex already hands out a `ws:`/`wss:` origin; these two lines only
+    // The backend may already hand out a `ws:`/`wss:` origin; these two lines only
     // cover a caller that passed the http form. Blanket-forcing `wss:` would
     // break a local `ws://localhost` builder.
     if (url.protocol === "http:") url.protocol = "ws:";

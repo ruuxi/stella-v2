@@ -10,7 +10,7 @@ import {
   type BackendRequestError,
 } from "@stella/contracts/backend/client";
 import { env } from "../config/env";
-import { getConvexToken } from "./auth-token";
+import { getAuthToken } from "./auth-token";
 
 /**
  * The app's one connection to the Stella backend worker: calls over HTTP and
@@ -27,7 +27,7 @@ export function getBackendClient(): BackendClient {
   cachedClient = new BackendClient({
     baseUrl: env.backendUrl,
     getToken: (options) =>
-      getConvexToken(options?.force ? { forceRefresh: true } : undefined),
+      getAuthToken(options?.force ? { forceRefresh: true } : undefined),
   });
   return cachedClient;
 }

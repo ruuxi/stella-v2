@@ -9,7 +9,7 @@ import {
 type MobileSchedule = schedules.MobileSchedule;
 
 describe("toMobileSchedule", () => {
-  test("maps a Convex row onto the tab's row shape", () => {
+  test("maps a backend row onto the tab's row shape", () => {
     expect(
       schedules.toMobileSchedule({
         scheduleId: "sch-1",

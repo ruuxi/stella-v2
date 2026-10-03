@@ -1,4 +1,3 @@
-import { useConvexAuth } from "convex/react";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { authClient } from "./auth-client";
@@ -83,11 +82,8 @@ const newRequestId = (): string => Crypto.randomUUID();
  * `hasConnectedAccount` gate.
  */
 const useCloudBrowserAccess = (): boolean => {
-  const { isAuthenticated } = useConvexAuth();
   const session = authClient.useSession();
-  const hasConnectedAccount =
-    Boolean(session.data) && session.data?.user?.isAnonymous !== true;
-  return isAuthenticated && hasConnectedAccount;
+  return Boolean(session.data) && session.data?.user?.isAnonymous !== true;
 };
 
 export function usePendingCloudBrowserInteractions(): readonly CloudBrowserInteractionSummary[] {

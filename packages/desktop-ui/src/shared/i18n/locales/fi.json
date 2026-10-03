@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Jokin meni pieleen käynnistyksessä",
       "missingConfigTitle": "Lisää mobiilin ympäristömuuttujat",
-      "missingConfigBody": "Aseta EXPO_PUBLIC_CONVEX_URL ja halutessasi EXPO_PUBLIC_CONVEX_SITE_URL ennen sovelluksen käynnistämistä.",
+      "missingConfigBody": "Aseta EXPO_PUBLIC_STELLA_BACKEND_URL ennen sovelluksen käynnistämistä.",
       "checkingSessionTitle": "Tarkistetaan istuntoasi",
       "checkingSessionBody": "Hetki pieni, Stella herää."
     },

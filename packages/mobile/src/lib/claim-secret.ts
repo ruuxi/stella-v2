@@ -38,11 +38,11 @@ export const hashClaimSecret = async (secret: string): Promise<string> => {
  * so a failure here is terminal for this attempt.
  */
 export const claimSessionToken = async (
-  convexSiteUrl: string,
+  backendUrl: string,
   requestId: string,
   claimSecret: string,
 ): Promise<string | null> => {
-  const response = await fetch(`${convexSiteUrl}/api/auth/link/claim`, {
+  const response = await fetch(`${backendUrl}/api/auth/link/claim`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requestId, claimSecret }),

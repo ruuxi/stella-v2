@@ -92,11 +92,11 @@ mock.module("expo-crypto", () => ({
 }));
 
 mock.module("../../config/env", () => ({
-  env: { convexSiteUrl: "https://example.convex.site" },
+  env: { backendUrl: "https://backend.example" },
 }));
 
 mock.module("../auth-token", () => ({
-  getConvexToken: async () => "token",
+  getAuthToken: async () => "token",
 }));
 
 // `tts.prepare` goes through the backend client; route it through the fake

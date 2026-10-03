@@ -5,9 +5,9 @@ import {
   type MobileCloudHomeClientIdentity,
   type MobileCloudMemoryWrite,
 } from "./cloud-home";
-import { getConvexTokenForOwner } from "./auth-token";
+import { getAuthTokenForSubject } from "./auth-token";
 import type { CloudConversationIdentity } from "./cloud-conversation-auth";
-import { useConvexTokenOwner } from "./use-convex-token-owner";
+import { useTokenOwner } from "./use-token-owner";
 import { env } from "../config/env";
 
 /** Authenticated mobile list/read/write surface for a Memory settings editor. */
@@ -16,7 +16,7 @@ export const useMobileCloudHome = (
 ) => {
   // Cloud Home lives on the backend worker, whose origin is build config.
   const builderOrigin = env.backendUrl || null;
-  const tokenOwner = useConvexTokenOwner(identity);
+  const tokenOwner = useTokenOwner(identity);
   const boundIdentity = useMemo(() => {
     const owner = tokenOwner.identity;
     if (!owner) return null;
@@ -27,7 +27,6 @@ export const useMobileCloudHome = (
         identityRevision: owner.identityRevision,
         expectedSubject: owner.expectedSubject,
       }) satisfies MobileCloudHomeClientIdentity,
-      tokenSubject: owner.userSubject,
     });
   }, [tokenOwner.identity]);
   const committedIdentityRef = useRef<MobileCloudHomeClientIdentity | null>(
@@ -50,10 +49,7 @@ export const useMobileCloudHome = (
         identity: boundIdentity.requestIdentity,
         getCurrentIdentity: () => committedIdentityRef.current,
         getToken: () =>
-          getConvexTokenForOwner(
-            boundIdentity.tokenSubject,
-            boundIdentity.requestIdentity.expectedSubject,
-          ),
+          getAuthTokenForSubject(boundIdentity.requestIdentity.expectedSubject),
       });
     } catch {
       // A malformed/non-TLS origin is a deployment capability problem. Keep it

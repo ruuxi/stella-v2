@@ -1946,7 +1946,7 @@
     "boot": {
       "crashTitle": "Při spuštění se něco pokazilo",
       "missingConfigTitle": "Přidejte proměnné prostředí pro mobil",
-      "missingConfigBody": "Před spuštěním aplikace nastavte EXPO_PUBLIC_CONVEX_URL a případně EXPO_PUBLIC_CONVEX_SITE_URL.",
+      "missingConfigBody": "Před spuštěním aplikace nastavte EXPO_PUBLIC_STELLA_BACKEND_URL.",
       "checkingSessionTitle": "Kontrolujeme vaši relaci",
       "checkingSessionBody": "Vydržte chvíli, Stella se probouzí."
     },

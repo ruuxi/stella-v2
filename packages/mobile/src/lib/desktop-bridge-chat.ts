@@ -428,7 +428,7 @@ export const createDesktopBridgeSession = async (
     session.desktopPublicKey !== challenge.desktopPublicKey ||
     session.desktopPublicKey.trim().length === 0
   ) {
-    throw new Error("Desktop bridge public key did not match Convex.");
+    throw new Error("Desktop bridge public key did not match the backend.");
   }
   return {
     session,
@@ -677,7 +677,7 @@ async function handshakeDesktopBridge(
 
   // The tunnel hostname is stable per desktop, so probe the last-known URL
   // directly *in parallel with* the wake intent. When the desktop is already
-  // up this removes the Convex status round-trips (and their 3s poll
+  // up this removes the backend status round-trips (and their 3s poll
   // granularity) from the connect path entirely; the wake intent still lands
   // either way for compatibility and recovery on older or restarted desktops.
   const cachedBaseUrl = await loadCachedBridgeBaseUrl(access.desktopDeviceId);
@@ -692,7 +692,7 @@ async function handshakeDesktopBridge(
   } else {
     // Slow path: the cached URL missed (asleep desktop, rotated tunnel, or
     // first connect). Preserve the original behavior — a failed wake request
-    // is fatal here — then poll Convex for the advertised URL.
+    // is fatal here — then poll the backend for the advertised URL.
     const wakeError = await wakePromise;
     if (wakeError) throw wakeError;
   }

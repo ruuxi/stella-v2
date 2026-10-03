@@ -1929,7 +1929,7 @@
     "boot": {
       "crashTitle": "Algo falló al iniciar",
       "missingConfigTitle": "Añade las variables de entorno del móvil",
-      "missingConfigBody": "Define EXPO_PUBLIC_CONVEX_URL y, opcionalmente, EXPO_PUBLIC_CONVEX_SITE_URL antes de iniciar la app.",
+      "missingConfigBody": "Define EXPO_PUBLIC_STELLA_BACKEND_URL antes de iniciar la app.",
       "checkingSessionTitle": "Comprobando tu sesión",
       "checkingSessionBody": "Espera un momento mientras Stella se despierta."
     },

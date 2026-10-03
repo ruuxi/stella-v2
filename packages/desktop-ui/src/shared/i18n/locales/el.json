@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Κάτι χάλασε κατά την εκκίνηση",
       "missingConfigTitle": "Προσθέστε τις μεταβλητές περιβάλλοντος για κινητά",
-      "missingConfigBody": "Ορίστε το EXPO_PUBLIC_CONVEX_URL και προαιρετικά το EXPO_PUBLIC_CONVEX_SITE_URL πριν ξεκινήσετε την εφαρμογή.",
+      "missingConfigBody": "Ορίστε το EXPO_PUBLIC_STELLA_BACKEND_URL πριν ξεκινήσετε την εφαρμογή.",
       "checkingSessionTitle": "Έλεγχος της συνεδρίας σας",
       "checkingSessionBody": "Μια στιγμή, η Stella ξυπνάει."
     },

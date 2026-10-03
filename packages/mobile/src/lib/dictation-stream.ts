@@ -1,4 +1,4 @@
-import { getConvexToken } from "./auth-token";
+import { getAuthToken } from "./auth-token";
 import { getBackendClient } from "./backend";
 
 // The relay accepts at most one second of 16 kHz mono signed PCM per frame.
@@ -105,7 +105,7 @@ export class DictationStream {
   async open(): Promise<void> {
     const [config, token] = await Promise.all([
       loadDictationRealtimeConfig(),
-      getConvexToken(),
+      getAuthToken(),
     ]);
     if (this.cancelled) throw new Error("Dictation cancelled.");
     const relayOrigin = config.relayOrigin;

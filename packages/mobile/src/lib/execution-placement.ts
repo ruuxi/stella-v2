@@ -317,7 +317,7 @@ export const cancelAutomaticExecution = async (args: {
 };
 
 /**
- * Reconnectable terminal observer. Convex queries are snapshots here instead
+ * Reconnectable terminal observer. Backend reads are snapshots here instead
  * of a component subscription so the durable outbox can own this lifecycle
  * across hook remounts. Transient read failures keep polling the same committed
  * dispatch; they never authorize a second executor or a transport fallback.

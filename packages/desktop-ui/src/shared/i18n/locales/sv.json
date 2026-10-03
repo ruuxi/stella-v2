@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Något gick sönder vid starten",
       "missingConfigTitle": "Lägg till miljövariabler för mobilen",
-      "missingConfigBody": "Ange EXPO_PUBLIC_CONVEX_URL och eventuellt EXPO_PUBLIC_CONVEX_SITE_URL innan du startar appen.",
+      "missingConfigBody": "Ange EXPO_PUBLIC_STELLA_BACKEND_URL innan du startar appen.",
       "checkingSessionTitle": "Kontrollerar din session",
       "checkingSessionBody": "Ha tålamod medan Stella vaknar."
     },

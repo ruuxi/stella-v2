@@ -523,7 +523,7 @@ const decodeLive = (value: unknown): LiveTurnSnapshot | null => {
 };
 
 /**
- * RFC 6455 subprotocol values must be RFC 7230 tokens. A Convex JWT is
+ * RFC 6455 subprotocol values must be RFC 7230 tokens. A backend JWT is
  * base64url with `.` separators, all of which are legal — but a token that
  * somehow is not would throw a `SyntaxError` out of the `WebSocket`
  * constructor, which is a crash rather than a readable failure.

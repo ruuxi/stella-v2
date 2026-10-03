@@ -79,7 +79,7 @@ export function ComputerSection({
   }, [refreshPaired, chatPaired]);
 
   // Device presence lives on the owner gate, so this is a poll while
-  // Settings is on screen rather than a Convex subscription.
+  // Settings is on screen rather than a backend subscription.
   const hasControl = control !== null;
   useEffect(() => {
     if (!focused || !hasControl) return;

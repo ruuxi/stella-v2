@@ -17,8 +17,7 @@
       "autoIncrement": true,
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_CONVEX_URL": "https://outgoing-bulldog-865.convex.cloud",
-        "EXPO_PUBLIC_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+        "EXPO_PUBLIC_STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
         "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "450329171803"
       },
       "android": {
@@ -31,8 +30,7 @@
       "channel": "production",
       "env": {
         "EXPO_NO_CAPABILITY_SYNC": "1",
-        "EXPO_PUBLIC_CONVEX_URL": "https://intent-jackal-330.convex.cloud",
-        "EXPO_PUBLIC_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
+        "EXPO_PUBLIC_STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
         "EXPO_PUBLIC_PLAY_INTEGRITY_PROJECT_NUMBER": "450329171803"
       }
     }

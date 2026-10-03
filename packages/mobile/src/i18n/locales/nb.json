@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Noe gikk galt ved oppstart",
       "missingConfigTitle": "Legg til miljøvariabler for mobil",
-      "missingConfigBody": "Angi EXPO_PUBLIC_CONVEX_URL og eventuelt EXPO_PUBLIC_CONVEX_SITE_URL før du starter appen.",
+      "missingConfigBody": "Angi EXPO_PUBLIC_STELLA_BACKEND_URL før du starter appen.",
       "checkingSessionTitle": "Sjekker økten din",
       "checkingSessionBody": "Vent litt mens Stella våkner."
     },

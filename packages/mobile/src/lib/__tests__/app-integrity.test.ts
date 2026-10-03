@@ -70,7 +70,7 @@ mock.module("@expo/app-integrity", () => ({
 
 mock.module("../../config/env", () => ({
   env: {
-    convexSiteUrl: "https://convex.example",
+    backendUrl: "https://backend.example",
     playIntegrityProjectNumber: "1234567890",
   },
 }));

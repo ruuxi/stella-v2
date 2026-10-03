@@ -52,7 +52,7 @@ Wiring lives in:
   the connect/takeover hardening (setRootTemplate retries, checkForConnection
   polling), and the `carPlayLog` diagnostics writer.
 - `src/carplay/CarPlayBridge.tsx` — headless component (mounted in
-  `app/_layout.tsx`, inside the Convex/auth providers) that drives the loop with
+  `app/_layout.tsx`, inside the auth providers) that drives the loop with
   the hooks above and binds tap callbacks to the session.
 
 ## Carrying Stella's design language into the templates

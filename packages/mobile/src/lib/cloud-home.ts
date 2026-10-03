@@ -81,7 +81,7 @@ export type MobileCloudHomeClientIdentity = Readonly<{
   accountScope: string;
   identityKey: string;
   identityRevision: number;
-  /** Exact issuer-qualified tokenIdentifier echoed by the Cloud Home worker. */
+  /** The JWT `sub` echoed by the Cloud Home worker. */
   expectedSubject: string;
 }>;
 

@@ -20,7 +20,7 @@ import { AppState } from "react-native";
 import { notifySuccess } from "./haptics";
 import { ReplyArrivalHaptics } from "./reply-arrival-haptics";
 import { authClient } from "./auth-client";
-import { clearCachedToken, getConvexTokenOwnerForSubject } from "./auth-token";
+import { clearCachedToken, getTokenOwnerForSubject } from "./auth-token";
 import {
   observeCloudConversationIdentity,
   type CloudConversationIdentity,
@@ -152,10 +152,10 @@ const readChatBootstrap = async (): Promise<CloudChatBootstrap> => {
 const resolveMobileCloudConversationAuthority = async (
   identity: CloudConversationIdentity,
 ): Promise<CloudConversationAuthority> => {
-  const tokenOwner = await getConvexTokenOwnerForSubject(
+  const tokenOwner = await getTokenOwnerForSubject(
     identity.expectedSubject,
   );
-  const ownerSubject = tokenOwner.tokenIdentifier;
+  const ownerSubject = tokenOwner.subject;
   return loadCloudConversationAuthority(identity, ownerSubject, {
     getBootstrap: () => readChatBootstrap(),
     createConversation: (expectedOwnerGeneration) =>

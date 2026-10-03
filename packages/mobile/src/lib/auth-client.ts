@@ -1,4 +1,3 @@
-import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import {
   anonymousClient,
@@ -24,7 +23,6 @@ const plugins = [
   nativeBearerClient({
     scheme: env.mobileScheme,
   }),
-  convexClient(),
   anonymousClient(),
   magicLinkClient(),
   jwtClient(),
@@ -40,11 +38,11 @@ export const authClient = new Proxy({} as AuthClient, {
   get(_target, prop, receiver) {
     if (!instance) {
       assert(
-        env.convexSiteUrl,
-        "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.",
+        env.backendUrl,
+        "EXPO_PUBLIC_STELLA_BACKEND_URL is not configured.",
       );
       instance = createAuthClient({
-        baseURL: env.convexSiteUrl,
+        baseURL: env.backendUrl,
         plugins,
       });
     }

@@ -1946,7 +1946,7 @@
     "boot": {
       "crashTitle": "Coś się zepsuło przy uruchamianiu",
       "missingConfigTitle": "Dodaj zmienne środowiskowe aplikacji mobilnej",
-      "missingConfigBody": "Ustaw EXPO_PUBLIC_CONVEX_URL i opcjonalnie EXPO_PUBLIC_CONVEX_SITE_URL przed uruchomieniem aplikacji.",
+      "missingConfigBody": "Ustaw EXPO_PUBLIC_STELLA_BACKEND_URL przed uruchomieniem aplikacji.",
       "checkingSessionTitle": "Sprawdzamy twoją sesję",
       "checkingSessionBody": "Chwileczkę, Stella się budzi."
     },

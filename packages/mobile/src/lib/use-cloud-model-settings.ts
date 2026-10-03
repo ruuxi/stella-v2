@@ -9,9 +9,9 @@ import {
 import { useT } from "../i18n";
 import { getBackendClient, readBackendView } from "./backend";
 import { authClient } from "./auth-client";
-import { getConvexTokenForOwner } from "./auth-token";
+import { getAuthTokenForSubject } from "./auth-token";
 import { observeCloudConversationIdentity } from "./cloud-conversation-auth";
-import { useConvexTokenOwner } from "./use-convex-token-owner";
+import { useTokenOwner } from "./use-token-owner";
 import { runOwnerBoundModelRequest } from "./cloud-model-selection";
 import {
   fetchStellaCatalog,
@@ -83,7 +83,7 @@ export function useCloudModelSettings(active: boolean) {
     () => observeCloudConversationIdentity(session.data),
     [session.data?.user?.id, session.data?.session?.id],
   );
-  const owner = useConvexTokenOwner(identity).identity;
+  const owner = useTokenOwner(identity).identity;
   const scope = owner ? `${owner.identityKey}:${owner.identityRevision}` : null;
   const currentScope = useRef<string | null>(scope);
   const writePending = useRef(false);
@@ -110,7 +110,7 @@ export function useCloudModelSettings(active: boolean) {
     setLoading(true);
     try {
       const next = await runOwnerBoundModelRequest({
-        getToken: () => getConvexTokenForOwner(owner.userSubject, owner.expectedSubject),
+        getToken: () => getAuthTokenForSubject(owner.expectedSubject),
         isCurrent: () => currentScope.current === scope && readRevision.current === revision,
         request: async (token) => {
           const [settings, catalog] = await Promise.all([
@@ -147,7 +147,7 @@ export function useCloudModelSettings(active: boolean) {
     setState({ ...loaded, execution: next });
     try {
       await runOwnerBoundModelRequest({
-        getToken: () => getConvexTokenForOwner(owner.userSubject, owner.expectedSubject),
+        getToken: () => getAuthTokenForSubject(owner.expectedSubject),
         isCurrent: () => currentScope.current === scope,
         request: async () => {
           await getBackendClient().call("engines.setExecution", { execution: next });

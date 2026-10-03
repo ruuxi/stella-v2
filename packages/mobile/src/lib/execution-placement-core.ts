@@ -62,7 +62,7 @@ const readOptionalString = (
   return value;
 };
 
-/** Runtime validation for untrusted HTTP/Convex snapshots. */
+/** Runtime validation for untrusted HTTP snapshots. */
 export const readAutomaticExecutionDispatch = (
   value: unknown,
   expected?: { idempotencyKey?: string; dispatchId?: string },

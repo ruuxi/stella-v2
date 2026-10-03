@@ -10,7 +10,7 @@ type Props = {
 type State = { failed: boolean };
 
 /**
- * Containment for a cloud surface that depends on account-scoped Convex
+ * Containment for a cloud surface that depends on account-scoped backend
  * functions, mirroring desktop's `features/cloud/CloudBoundary`. A
  * subscription the backend refuses throws out of render; without this the
  * nearest boundary is the root layout's, which replaces the whole app with

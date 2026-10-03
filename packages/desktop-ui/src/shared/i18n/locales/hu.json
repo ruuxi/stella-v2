@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Hiba történt indításkor",
       "missingConfigTitle": "Add meg a mobil környezeti változóit",
-      "missingConfigBody": "Állítsd be az EXPO_PUBLIC_CONVEX_URL és opcionálisan az EXPO_PUBLIC_CONVEX_SITE_URL értékét az alkalmazás indítása előtt.",
+      "missingConfigBody": "Állítsd be az EXPO_PUBLIC_STELLA_BACKEND_URL értékét az alkalmazás indítása előtt.",
       "checkingSessionTitle": "Munkamenet ellenőrzése",
       "checkingSessionBody": "Egy pillanat, a Stella most ébred."
     },

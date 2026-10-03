@@ -38,8 +38,8 @@ fi
 
 # The export bakes EXPO_PUBLIC_* in at bundle time; a missing env produced
 # the first broken OTA of 2026-07-02. Expo CLI auto-loads .env.local.
-if [[ ! -f .env.local ]] && [[ -z "${EXPO_PUBLIC_CONVEX_URL:-}" ]]; then
-  echo "REFUSING to publish: no .env.local and EXPO_PUBLIC_CONVEX_URL unset." >&2
+if [[ ! -f .env.local ]] && [[ -z "${EXPO_PUBLIC_STELLA_BACKEND_URL:-}" ]]; then
+  echo "REFUSING to publish: no .env.local and EXPO_PUBLIC_STELLA_BACKEND_URL unset." >&2
   exit 1
 fi
 

@@ -1892,7 +1892,7 @@
     "boot": {
       "crashTitle": "起動時に問題が発生しました",
       "missingConfigTitle": "モバイルの環境変数を追加してください",
-      "missingConfigBody": "アプリを起動する前に EXPO_PUBLIC_CONVEX_URL を、必要に応じて EXPO_PUBLIC_CONVEX_SITE_URL を設定してください。",
+      "missingConfigBody": "アプリを起動する前に EXPO_PUBLIC_STELLA_BACKEND_URL を設定してください。",
       "checkingSessionTitle": "セッションを確認しています",
       "checkingSessionBody": "Stella が起動するまでお待ちください。"
     },

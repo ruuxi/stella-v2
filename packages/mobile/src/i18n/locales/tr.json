@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Başlatılırken bir sorun oluştu",
       "missingConfigTitle": "Mobil ortam değişkenlerini ekleyin",
-      "missingConfigBody": "Uygulamayı başlatmadan önce EXPO_PUBLIC_CONVEX_URL ve isteğe bağlı olarak EXPO_PUBLIC_CONVEX_SITE_URL değerlerini ayarlayın.",
+      "missingConfigBody": "Uygulamayı başlatmadan önce EXPO_PUBLIC_STELLA_BACKEND_URL değerini ayarlayın.",
       "checkingSessionTitle": "Oturumunuz denetleniyor",
       "checkingSessionBody": "Stella uyanırken biraz bekleyin."
     },

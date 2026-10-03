@@ -1946,7 +1946,7 @@
     "boot": {
       "crashTitle": "Что-то сломалось при запуске",
       "missingConfigTitle": "Добавьте переменные окружения для мобильного приложения",
-      "missingConfigBody": "Задайте EXPO_PUBLIC_CONVEX_URL и при необходимости EXPO_PUBLIC_CONVEX_SITE_URL перед запуском приложения.",
+      "missingConfigBody": "Задайте EXPO_PUBLIC_STELLA_BACKEND_URL перед запуском приложения.",
       "checkingSessionTitle": "Проверяем вашу сессию",
       "checkingSessionBody": "Подождите немного, Stella просыпается."
     },

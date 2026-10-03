@@ -149,7 +149,7 @@ export default function LoginScreen() {
           purpose: "magic-link",
           request: async (proof) => {
             const response = await fetch(
-              `${env.convexSiteUrl}/api/auth/link/send`,
+              `${env.backendUrl}/api/auth/link/send`,
               {
                 method: "POST",
                 headers: buildMagicLinkHeaders(proof),
@@ -317,7 +317,7 @@ export default function LoginScreen() {
 
         try {
           const res = await fetch(
-            `${env.convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
+            `${env.backendUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
           );
           if (!res.ok) continue;
           const data = (await res.json()) as { status: string };
@@ -330,7 +330,7 @@ export default function LoginScreen() {
               // device generated, which is the only thing that can claim it.
               const secret = claimSecretRef.current;
               const token = secret
-                ? await claimSessionToken(env.convexSiteUrl, requestId, secret)
+                ? await claimSessionToken(env.backendUrl, requestId, secret)
                 : null;
               if (!token) {
                 throw new Error("Handoff could not be claimed.");

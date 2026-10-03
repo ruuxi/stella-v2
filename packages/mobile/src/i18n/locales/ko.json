@@ -1892,7 +1892,7 @@
     "boot": {
       "crashTitle": "실행 중 문제가 발생했습니다",
       "missingConfigTitle": "모바일 환경 변수를 추가하세요",
-      "missingConfigBody": "앱을 시작하기 전에 EXPO_PUBLIC_CONVEX_URL을, 필요하면 EXPO_PUBLIC_CONVEX_SITE_URL도 설정하세요.",
+      "missingConfigBody": "앱을 시작하기 전에 EXPO_PUBLIC_STELLA_BACKEND_URL을 설정하세요.",
       "checkingSessionTitle": "세션 확인 중",
       "checkingSessionBody": "Stella가 준비되는 동안 잠시 기다려 주세요."
     },

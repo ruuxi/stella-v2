@@ -40,7 +40,7 @@ export const loadPersistedBridgeSession = async (
 /**
  * The last tunnel URL that worked, even if the session on it has expired —
  * hostnames are stable per desktop, so this seeds the parallel direct-probe
- * on reconnect (skipping the Convex status poll when the desktop is up).
+ * on reconnect (skipping the backend status poll when the desktop is up).
  */
 export const loadCachedBridgeBaseUrl = async (
   desktopDeviceId: string,

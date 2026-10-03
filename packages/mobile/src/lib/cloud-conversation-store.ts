@@ -151,7 +151,7 @@ class ConversationStore {
   getSnapshot = (): ConversationState => this.state;
 
   /**
-   * The builder origin arrives from Convex, asynchronously and possibly after
+   * The builder origin arrives from the backend, asynchronously and possibly after
    * the first render. Setting it is what actually opens the socket.
    * `resolved` separates "still loading" from "this deployment has none",
    * which are the same `null` but very different things to show a user.
@@ -336,8 +336,8 @@ class ConversationStore {
       // `auth-token` reaches the native auth client, which reducer tests and
       // server-side rendering must not eagerly evaluate.
       getToken: async (options) => {
-        const { getConvexToken } = await import("./auth-token");
-        return getConvexToken(options);
+        const { getAuthToken } = await import("./auth-token");
+        return getAuthToken(options);
       },
       isActive: () => appActive,
       onEvent: (event) => this.onEvent(event),

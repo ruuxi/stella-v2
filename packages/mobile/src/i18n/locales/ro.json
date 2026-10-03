@@ -1929,7 +1929,7 @@
     "boot": {
       "crashTitle": "Ceva s-a stricat la pornire",
       "missingConfigTitle": "Adaugă variabilele de mediu pentru mobil",
-      "missingConfigBody": "Setează EXPO_PUBLIC_CONVEX_URL și, opțional, EXPO_PUBLIC_CONVEX_SITE_URL înainte de a porni aplicația.",
+      "missingConfigBody": "Setează EXPO_PUBLIC_STELLA_BACKEND_URL înainte de a porni aplicația.",
       "checkingSessionTitle": "Îți verificăm sesiunea",
       "checkingSessionBody": "Așteaptă puțin cât timp Stella se trezește."
     },

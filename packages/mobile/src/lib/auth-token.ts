@@ -1,10 +1,10 @@
 import { authClient } from "./auth-client";
 import { assert } from "./assert";
 import {
-  decodeConvexTokenOwner,
-  resolveConvexTokenOwner,
-  type AuthenticatedConvexTokenOwner,
-} from "./convex-token-owner";
+  decodeTokenOwner,
+  resolveTokenOwner,
+  type AuthenticatedTokenOwner,
+} from "./token-owner";
 
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
@@ -15,25 +15,21 @@ let cacheGeneration = 0;
 
 const REFRESH_MARGIN_MS = 60_000;
 
-async function loadConvexToken() {
+async function loadAuthToken() {
   const generation = cacheGeneration;
-  const convex = (
-    authClient as unknown as {
-      convex: { token(): Promise<{ data?: { token?: string } }> };
-    }
-  ).convex;
-  const result = await convex.token();
+  // Better Auth's jwt plugin mints the backend JWT at GET /api/auth/token.
+  const result = await authClient.token();
   const token = result.data?.token;
   assert(token, "You need to sign in again.");
   if (generation === cacheGeneration) {
-    const claims = decodeConvexTokenOwner(token);
+    const claims = decodeTokenOwner(token);
     cachedToken = token;
     cachedTokenExpiresAt = claims.expiresAtSeconds * 1000 - REFRESH_MARGIN_MS;
   }
   return token;
 }
 
-export async function getConvexToken(
+export async function getAuthToken(
   options: {
     forceRefresh?: boolean;
   } = {},
@@ -51,7 +47,7 @@ export async function getConvexToken(
     return inflightTokenPromise;
   }
 
-  const request = loadConvexToken();
+  const request = loadAuthToken();
   const tracked = request.finally(() => {
     // A force refresh may have installed a newer account/session request while
     // this one was resolving. Its finalizer must not clear that newer owner.
@@ -66,40 +62,26 @@ export async function getConvexToken(
  * One forced refresh closes the common A→B cache transition; a second mismatch
  * fails closed instead of sending B-labelled work with A's bearer token.
  */
-export async function getConvexTokenForSubject(
+export async function getAuthTokenForSubject(
   expectedSubject: string,
 ): Promise<string> {
-  return (await getConvexTokenOwnerForSubject(expectedSubject)).token;
+  return (await getTokenOwnerForSubject(expectedSubject)).token;
 }
 
-export type { AuthenticatedConvexTokenOwner } from "./convex-token-owner";
+export type { AuthenticatedTokenOwner } from "./token-owner";
 
 /**
- * Resolves the exact `${iss}|${sub}` owner from the authenticated session JWT.
+ * Resolves the owner (the JWT `sub`) from the authenticated session JWT.
  * A stale cached A-token gets one forced refresh before the request fails
  * closed. The server remains the authority that verifies the JWT signature.
  */
-export async function getConvexTokenOwnerForSubject(
+export async function getTokenOwnerForSubject(
   expectedSubject: string,
-): Promise<AuthenticatedConvexTokenOwner> {
-  return await resolveConvexTokenOwner({
+): Promise<AuthenticatedTokenOwner> {
+  return await resolveTokenOwner({
     expectedSubject,
-    getToken: ({ forceRefresh }) => getConvexToken({ forceRefresh }),
+    getToken: ({ forceRefresh }) => getAuthToken({ forceRefresh }),
   });
-}
-
-/** Returns a token only while both raw subject and exact tokenIdentifier match. */
-export async function getConvexTokenForOwner(
-  expectedSubject: string,
-  expectedTokenIdentifier: string,
-): Promise<string> {
-  return (
-    await resolveConvexTokenOwner({
-      expectedSubject,
-      expectedTokenIdentifier,
-      getToken: ({ forceRefresh }) => getConvexToken({ forceRefresh }),
-    })
-  ).token;
 }
 
 export function clearCachedToken() {

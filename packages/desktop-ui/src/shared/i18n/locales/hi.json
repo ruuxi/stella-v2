@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "शुरू होते समय कुछ गड़बड़ हो गई",
       "missingConfigTitle": "मोबाइल एनवायरनमेंट वेरिएबल जोड़ें",
-      "missingConfigBody": "ऐप शुरू करने से पहले EXPO_PUBLIC_CONVEX_URL और वैकल्पिक रूप से EXPO_PUBLIC_CONVEX_SITE_URL सेट करें।",
+      "missingConfigBody": "ऐप शुरू करने से पहले EXPO_PUBLIC_STELLA_BACKEND_URL सेट करें।",
       "checkingSessionTitle": "आपका सेशन जाँचा जा रहा है",
       "checkingSessionBody": "Stella के तैयार होने तक थोड़ा इंतज़ार करें।"
     },

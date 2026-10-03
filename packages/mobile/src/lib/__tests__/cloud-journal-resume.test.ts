@@ -14,7 +14,7 @@ import { conversationStore } from "../cloud-conversation-store";
 // the bun runtime cannot load. It imports that module lazily when a socket
 // opens, so mocking it after the static imports still takes effect.
 mock.module("../auth-token", () => ({
-  getConvexToken: async () => "header.payload.signature",
+  getAuthToken: async () => "header.payload.signature",
 }));
 
 const originalWebSocket = globalThis.WebSocket;

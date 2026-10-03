@@ -68,7 +68,7 @@ import { useT } from "../../src/i18n";
 const STATUS_POLL_MS = 20_000;
 /**
  * Slow verification cadence while the activity push socket is connected — the
- * live socket itself proves the computer is reachable, so the Convex status
+ * live socket itself proves the computer is reachable, so the backend status
  * poll only needs to keep the platform label fresh.
  */
 const STATUS_POLL_LIVE_MS = 120_000;
@@ -363,7 +363,7 @@ function ChatSurface(props: {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
-      // While push is live the socket is the liveness signal; skip the Convex
+      // While push is live the socket is the liveness signal; skip the backend
       // round-trip (and never let a stale lease read downgrade the badge).
       if (livePushConnectedRef.current) {
         timer = setTimeout(() => void tick(), STATUS_POLL_LIVE_MS);

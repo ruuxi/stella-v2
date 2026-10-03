@@ -22,7 +22,7 @@ import { ScheduleRow, makeActivityRowStyles } from "./sidebar/activity-rows";
 
 /**
  * The Schedule tab: every schedule the owner has, whichever computer or the
- * cloud runs it, read live from Convex. Pause / resume / delete write back
+ * cloud runs it, read live from the backend. Pause / resume / delete write back
  * the same way, so the list updates on every device at once.
  */
 export function SchedulePage() {

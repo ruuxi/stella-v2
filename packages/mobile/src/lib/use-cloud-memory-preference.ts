@@ -25,7 +25,7 @@ import {
   syncedMobileCloudMemoryPreference,
   type MobileCloudMemoryPreferenceUiState,
 } from "./cloud-memory-preference-ui-state";
-import { useConvexTokenOwner } from "./use-convex-token-owner";
+import { useTokenOwner } from "./use-token-owner";
 
 const preferenceClient = createMobileCloudMemoryPreferenceClient({
   setMemoryEnabled: (input) =>
@@ -71,7 +71,7 @@ const belongsToAnotherOwner = (value: unknown, subject: string): boolean =>
 export const useCloudMemoryPreference = (
   sessionIdentity: CloudConversationIdentity | null,
 ): MobileCloudMemoryPreferenceView => {
-  const tokenOwner = useConvexTokenOwner(sessionIdentity);
+  const tokenOwner = useTokenOwner(sessionIdentity);
   const identity = useMemo((): PreferenceIdentity | null => {
     const owner = tokenOwner.identity;
     if (!owner) return null;

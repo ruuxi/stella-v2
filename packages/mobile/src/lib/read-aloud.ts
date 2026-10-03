@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import { Alert } from "react-native";
 import { VOICE_TTS_STREAM_CANCEL_PATH } from "@stella/contracts/backend/voice";
-import { getConvexToken } from "./auth-token";
+import { getAuthToken } from "./auth-token";
 import { getBackendClient } from "./backend";
 import { backendOrigin } from "./http";
 import { configurePlaybackAudioSession } from "./mobile-audio-session";
@@ -193,7 +193,7 @@ async function prepareReadAloudStream(
 function cancelStreamSession(ticket: string) {
   void (async () => {
     try {
-      const token = await getConvexToken();
+      const token = await getAuthToken();
       await fetch(`${backendOrigin()}${VOICE_TTS_STREAM_CANCEL_PATH}`, {
         method: "POST",
         headers: {

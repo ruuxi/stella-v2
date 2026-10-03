@@ -1,34 +1,34 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { getConvexTokenOwnerForSubject } from "./auth-token";
+import { getTokenOwnerForSubject } from "./auth-token";
 import type { CloudConversationIdentity } from "./cloud-conversation-auth";
 import {
-  isConvexTokenOwnerFenceCurrent,
-  type ConvexTokenOwnerFence,
-} from "./convex-token-owner";
+  isTokenOwnerFenceCurrent,
+  type TokenOwnerFence,
+} from "./token-owner";
 
-type OwnerSource = ConvexTokenOwnerFence;
+type OwnerSource = TokenOwnerFence;
 
-export type MobileConvexOwnerIdentity = OwnerSource &
+export type MobileOwnerIdentity = OwnerSource &
   Readonly<{
-    /** Exact `${JWT.iss}|${JWT.sub}` checked and echoed by owner APIs. */
+    /** The JWT `sub`, checked and echoed by owner APIs. */
     expectedSubject: string;
   }>;
 
 type OwnerResolutionState = Readonly<{
   source: OwnerSource | null;
-  identity: MobileConvexOwnerIdentity | null;
+  identity: MobileOwnerIdentity | null;
   failed: boolean;
 }>;
 
 /**
- * Resolves the issuer-qualified owner from the current authenticated JWT.
+ * Resolves the owner (JWT `sub`) from the current authenticated JWT.
  * Every async result is fenced by the immutable account/session revision that
  * requested it, so an A-token can never become B-labelled request authority.
  */
-export const useConvexTokenOwner = (
+export const useTokenOwner = (
   identity: CloudConversationIdentity | null,
 ): {
-  identity: MobileConvexOwnerIdentity | null;
+  identity: MobileOwnerIdentity | null;
   loading: boolean;
   unavailable: boolean;
 } => {
@@ -61,7 +61,7 @@ export const useConvexTokenOwner = (
   useLayoutEffect(() => {
     committedSourceRef.current = source;
     return () => {
-      if (isConvexTokenOwnerFenceCurrent(committedSourceRef.current, source)) {
+      if (isTokenOwnerFenceCurrent(committedSourceRef.current, source)) {
         committedSourceRef.current = null;
       }
     };
@@ -75,11 +75,11 @@ export const useConvexTokenOwner = (
     }
     let cancelled = false;
     setState({ source: requestedBy, identity: null, failed: false });
-    void getConvexTokenOwnerForSubject(requestedBy.userSubject).then(
+    void getTokenOwnerForSubject(requestedBy.userSubject).then(
       (owner) => {
         if (
           cancelled ||
-          !isConvexTokenOwnerFenceCurrent(
+          !isTokenOwnerFenceCurrent(
             requestedBy,
             committedSourceRef.current,
           )
@@ -90,7 +90,7 @@ export const useConvexTokenOwner = (
           source: requestedBy,
           identity: Object.freeze({
             ...requestedBy,
-            expectedSubject: owner.tokenIdentifier,
+            expectedSubject: owner.subject,
           }),
           failed: false,
         });
@@ -98,7 +98,7 @@ export const useConvexTokenOwner = (
       () => {
         if (
           cancelled ||
-          !isConvexTokenOwnerFenceCurrent(
+          !isTokenOwnerFenceCurrent(
             requestedBy,
             committedSourceRef.current,
           )
@@ -113,7 +113,7 @@ export const useConvexTokenOwner = (
     };
   }, [source]);
 
-  const stateIsCurrent = isConvexTokenOwnerFenceCurrent(state.source, source);
+  const stateIsCurrent = isTokenOwnerFenceCurrent(state.source, source);
   return {
     identity: stateIsCurrent ? state.identity : null,
     loading: Boolean(

@@ -1929,7 +1929,7 @@
     "boot": {
       "crashTitle": "Qualcosa si è rotto all'avvio",
       "missingConfigTitle": "Aggiungi le variabili d'ambiente mobile",
-      "missingConfigBody": "Imposta EXPO_PUBLIC_CONVEX_URL e, facoltativamente, EXPO_PUBLIC_CONVEX_SITE_URL prima di avviare l'app.",
+      "missingConfigBody": "Imposta EXPO_PUBLIC_STELLA_BACKEND_URL prima di avviare l'app.",
       "checkingSessionTitle": "Controllo della tua sessione",
       "checkingSessionBody": "Attendi un attimo mentre Stella si sveglia."
     },

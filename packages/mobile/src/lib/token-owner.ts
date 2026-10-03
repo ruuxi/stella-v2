@@ -4,26 +4,24 @@ const MAX_IDENTITY_CLAIM_CHARS = 1_024;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const COMPACT_JWT_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 
-export type ConvexTokenOwner = Readonly<{
-  issuer: string;
+export type TokenOwner = Readonly<{
+  /** The JWT `sub`: the owner id every backend API checks and echoes. */
   subject: string;
-  tokenIdentifier: string;
   expiresAtSeconds: number;
 }>;
 
-export type AuthenticatedConvexTokenOwner = ConvexTokenOwner &
-  Readonly<{ token: string }>;
+export type AuthenticatedTokenOwner = TokenOwner & Readonly<{ token: string }>;
 
-export type ConvexTokenOwnerFence = Readonly<{
+export type TokenOwnerFence = Readonly<{
   accountScope: string;
   identityKey: string;
   identityRevision: number;
   userSubject: string;
 }>;
 
-export const isConvexTokenOwnerFenceCurrent = (
-  originating: ConvexTokenOwnerFence | null,
-  current: ConvexTokenOwnerFence | null,
+export const isTokenOwnerFenceCurrent = (
+  originating: TokenOwnerFence | null,
+  current: TokenOwnerFence | null,
 ): boolean =>
   originating === current ||
   Boolean(
@@ -48,37 +46,13 @@ const readExactIdentityClaim = (value: unknown, label: string): string => {
   return value;
 };
 
-const readExactIssuer = (value: unknown): string => {
-  const issuer = readExactIdentityClaim(value, "issuer");
-  let url: URL;
-  try {
-    url = new URL(issuer);
-  } catch {
-    throw new Error("Token issuer is unavailable.");
-  }
-  const local =
-    url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1");
-  assert(
-    (url.protocol === "https:" || local) &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash &&
-      url.pathname === "/" &&
-      issuer === url.origin,
-    "Token issuer is unavailable.",
-  );
-  return issuer;
-};
-
 /**
- * Reads the owner claims carried by the current Convex JWT without changing
- * either value. This decode is not an authorization decision: the same bearer
- * token is sent to Convex/the worker, which verifies its signature and checks
- * the exact issuer-qualified subject before serving owner data.
+ * Reads the owner claims carried by the current JWT without changing them.
+ * This decode is not an authorization decision: the same bearer token is sent
+ * to the backend, which verifies its signature and checks the subject before
+ * serving owner data.
  */
-export const decodeConvexTokenOwner = (token: string): ConvexTokenOwner => {
+export const decodeTokenOwner = (token: string): TokenOwner => {
   assert(
     typeof token === "string" &&
       token.length <= 16 * 1_024 &&
@@ -109,44 +83,28 @@ export const decodeConvexTokenOwner = (token: string): ConvexTokenOwner => {
       parsed.exp > 0,
     "Token expiration is unavailable.",
   );
-  const issuer = readExactIssuer(parsed.iss);
   const subject = readExactIdentityClaim(parsed.sub, "subject");
-  return Object.freeze({
-    issuer,
-    subject,
-    tokenIdentifier: `${issuer}|${subject}`,
-    expiresAtSeconds: parsed.exp,
-  });
+  return Object.freeze({ subject, expiresAtSeconds: parsed.exp });
 };
 
 /**
- * Loads one current token-owner proof, refreshing once when a prior account or
- * issuer is still cached. Persistent disagreement fails closed.
+ * Loads one current token-owner proof, refreshing once when a prior account is
+ * still cached. Persistent disagreement fails closed.
  */
-export const resolveConvexTokenOwner = async (options: {
+export const resolveTokenOwner = async (options: {
   expectedSubject: string;
-  expectedTokenIdentifier?: string;
   getToken: (options: { forceRefresh: boolean }) => Promise<string>;
-}): Promise<AuthenticatedConvexTokenOwner> => {
+}): Promise<AuthenticatedTokenOwner> => {
   const expectedSubject = readExactIdentityClaim(
     options.expectedSubject,
     "expected subject",
   );
-  const expectedTokenIdentifier =
-    options.expectedTokenIdentifier === undefined
-      ? undefined
-      : readExactIdentityClaim(
-          options.expectedTokenIdentifier,
-          "expected token identifier",
-        );
   const load = async (forceRefresh: boolean) => {
     const token = await options.getToken({ forceRefresh });
-    return Object.freeze({ token, ...decodeConvexTokenOwner(token) });
+    return Object.freeze({ token, ...decodeTokenOwner(token) });
   };
-  const matches = (owner: ConvexTokenOwner): boolean =>
-    owner.subject === expectedSubject &&
-    (expectedTokenIdentifier === undefined ||
-      owner.tokenIdentifier === expectedTokenIdentifier);
+  const matches = (owner: TokenOwner): boolean =>
+    owner.subject === expectedSubject;
 
   let owner = await load(false);
   if (!matches(owner)) owner = await load(true);

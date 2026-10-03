@@ -1,6 +1,6 @@
 /**
  * Headless bridge between CarPlay's imperative templates and Stella's existing
- * mobile plumbing. It mounts once (inside the auth/Convex providers, so tokens
+ * mobile plumbing. It mounts once (inside the auth providers, so tokens
  * resolve) and stays mounted for the app's lifetime, but renders nothing.
  *
  * It deliberately reuses — never re-implements — the app's pipelines:

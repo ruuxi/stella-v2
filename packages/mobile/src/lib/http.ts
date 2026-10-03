@@ -1,6 +1,6 @@
 import { env } from "../config/env";
 import { assert } from "./assert";
-import { getConvexToken } from "./auth-token";
+import { getAuthToken } from "./auth-token";
 
 type JsonRequest =
   | {
@@ -85,15 +85,14 @@ async function requestJson(
     anonymous?: boolean;
     timeoutMs?: number;
     signal?: AbortSignal;
-    /** Absolute origin for a non-Convex service (the cloud builder). */
+    /** Absolute origin override; defaults to the backend worker. */
     origin?: string;
   },
 ) {
-  const origin = options?.origin?.replace(/\/+$/, "") || env.convexSiteUrl;
-  assert(origin, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  const origin = options?.origin?.replace(/\/+$/, "") || backendOrigin();
   const authHeader = options?.anonymous
     ? null
-    : `Bearer ${await getConvexToken()}`;
+    : `Bearer ${await getAuthToken()}`;
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(
@@ -147,7 +146,7 @@ async function requestJson(
   }
 }
 
-/** The backend worker's origin, for the routes it serves instead of Convex. */
+/** The backend worker's origin. */
 export const backendOrigin = (): string => {
   const origin = env.backendUrl?.trim();
   assert(origin, "EXPO_PUBLIC_STELLA_BACKEND_URL is not configured.");
@@ -244,7 +243,7 @@ export const postText = async (
     const response = await fetch(`${origin}${path}`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${await getConvexToken()}`,
+        Authorization: `Bearer ${await getAuthToken()}`,
         "Content-Type": "text/plain",
         ...options?.headers,
       },
@@ -284,11 +283,11 @@ function executeStream(
   authHeader: string | null,
   options?: StreamRequestOptions,
 ): Promise<void> {
-  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  const origin = backendOrigin();
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${env.convexSiteUrl}${path}`);
+    xhr.open("POST", `${origin}${path}`);
     if (authHeader) {
       xhr.setRequestHeader("Authorization", authHeader);
     }
@@ -407,7 +406,7 @@ export function postStream(
   onSegment: (text: string) => void,
   options?: StreamRequestOptions,
 ): Promise<void> {
-  return getConvexToken().then((token) =>
+  return getAuthToken().then((token) =>
     executeStream(path, body, onSegment, `Bearer ${token}`, options),
   );
 }

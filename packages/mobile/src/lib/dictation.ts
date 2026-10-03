@@ -7,7 +7,7 @@
  * before resolving so the caller can paste it into the composer.
  *
  * The microphone starts while the relay is still connecting (that handshake
- * is a couple of seconds through Convex and Meta; the recorder is ~100 ms).
+ * is a couple of seconds through the backend and Meta; the recorder is ~100 ms).
  * Audio captured before the provider acknowledges is held in a short pre-roll
  * and flushed on connect, so recording appears the moment the mic is live and
  * nothing said during the connect is lost.

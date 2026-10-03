@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Expo's module setup runs on import and expects the RN global.
 (globalThis as Record<string, unknown>).__DEV__ = false;
 
-// The placement client is HTTP-only; SecureStore and the Convex client are
+// The placement client is HTTP-only; SecureStore and the backend client are
 // only reachable through the pairing store and the builder-origin lookup.
 mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
 // The real pairing proof is exercised here, so expo-crypto's randomness is
@@ -19,7 +19,7 @@ mock.module("expo-secure-store", () => ({
   setItemAsync: async () => {},
 }));
 mock.module("../auth-token", () => ({
-  getConvexToken: async () => "jwt-account",
+  getAuthToken: async () => "jwt-account",
   clearCachedToken: () => {},
 }));
 class MockHttpRequestError extends Error {
@@ -45,9 +45,9 @@ mock.module("../http", () => ({
 }));
 // Backend traffic is recorded by function name so a test can assert which
 // call fenced an operation, not just that one did.
-let convexCalls: Array<{ kind: "call"; name: string }> = [];
+let backendCalls: Array<{ kind: "call"; name: string }> = [];
 const backendCall = (name: string, args: unknown) => {
-  convexCalls.push({ kind: "call", name });
+  backendCalls.push({ kind: "call", name });
   switch (name) {
     case "owner.identity":
       return { ownerId: "owner-1", ownerGeneration: "gen-1", isAnonymous: false };
@@ -136,7 +136,7 @@ const transport = async (call: Call) => {
 
 beforeEach(() => {
   calls = [];
-  convexCalls = [];
+  backendCalls = [];
   respond = () => ({ protocol: 1, dispatch: dispatch() });
 });
 
@@ -324,11 +324,11 @@ describe("mobile execution placement client", () => {
       title: "Chat",
     });
     expect(conversationId).toBe("conv:mobile-placement:cloud");
-    expect(convexCalls).toEqual([
+    expect(backendCalls).toEqual([
       { kind: "call", name: "owner.identity" },
       { kind: "call", name: "conversations.create" },
     ]);
-    expect(convexCalls.map((call) => call.name)).not.toContain(
+    expect(backendCalls.map((call) => call.name)).not.toContain(
       "execution_placement:getMyExecutionPlacementIdentity",
     );
   });

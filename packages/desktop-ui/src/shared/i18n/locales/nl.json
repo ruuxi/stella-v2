@@ -1912,7 +1912,7 @@
     "boot": {
       "crashTitle": "Er ging iets mis bij het starten",
       "missingConfigTitle": "Voeg de mobiele omgevingsvariabelen toe",
-      "missingConfigBody": "Stel EXPO_PUBLIC_CONVEX_URL en eventueel EXPO_PUBLIC_CONVEX_SITE_URL in voordat je de app start.",
+      "missingConfigBody": "Stel EXPO_PUBLIC_STELLA_BACKEND_URL in voordat je de app start.",
       "checkingSessionTitle": "Je sessie controleren",
       "checkingSessionBody": "Even geduld terwijl Stella wakker wordt."
     },

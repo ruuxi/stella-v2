@@ -67,7 +67,7 @@ const runPluginChain = async (url: string, original: AnyOptions) => {
 describe("native auth client through the better-fetch plugin chain", () => {
   test("expo-origin survives for a native idToken sign-in", async () => {
     const final = await runPluginChain(
-      "https://example.convex.site/api/auth/sign-in/social",
+      "https://backend.example/api/auth/sign-in/social",
       { body: { provider: "apple", idToken: { token: "t", nonce: "n" } } },
     );
     expect(final.headers?.["expo-origin"]).toBe("stella-mobile://");
@@ -76,7 +76,7 @@ describe("native auth client through the better-fetch plugin chain", () => {
 
   test("callbackURL is rewritten to the deep link for browser OAuth", async () => {
     const final = await runPluginChain(
-      "https://example.convex.site/api/auth/sign-in/social",
+      "https://backend.example/api/auth/sign-in/social",
       { body: { provider: "google", callbackURL: "/chat" } },
     );
     expect(final.headers?.["expo-origin"]).toBe("stella-mobile://");

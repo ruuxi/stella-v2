@@ -1892,7 +1892,7 @@
     "boot": {
       "crashTitle": "启动时出错",
       "missingConfigTitle": "添加移动端环境变量",
-      "missingConfigBody": "启动应用前，请设置 EXPO_PUBLIC_CONVEX_URL，并按需设置 EXPO_PUBLIC_CONVEX_SITE_URL。",
+      "missingConfigBody": "启动应用前，请设置 EXPO_PUBLIC_STELLA_BACKEND_URL。",
       "checkingSessionTitle": "正在检查您的会话",
       "checkingSessionBody": "Stella 正在启动，请稍候。"
     },

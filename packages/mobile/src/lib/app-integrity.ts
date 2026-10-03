@@ -55,7 +55,7 @@ const requestChallenge = async (
 ): Promise<AppIntegrityChallengeResponse> => {
   const body = { purpose } satisfies AppIntegrityChallengeRequest;
   const response = await fetch(
-    `${env.convexSiteUrl}${APP_INTEGRITY_CHALLENGE_PATH}`,
+    `${env.backendUrl}${APP_INTEGRITY_CHALLENGE_PATH}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -175,7 +175,7 @@ const createAndroidProof = async (
 export const getAppIntegrityProof = async (
   purpose: AppIntegrityPurpose,
 ): Promise<string | undefined> => {
-  if (!env.convexSiteUrl) return undefined;
+  if (!env.backendUrl) return undefined;
 
   if (Platform.OS === "ios") {
     if (!AppIntegrity.isSupported) return undefined;

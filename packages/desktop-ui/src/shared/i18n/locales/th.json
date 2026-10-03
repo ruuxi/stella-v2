@@ -1892,7 +1892,7 @@
     "boot": {
       "crashTitle": "เกิดข้อผิดพลาดตอนเปิดแอป",
       "missingConfigTitle": "เพิ่มตัวแปรสภาพแวดล้อมของแอปมือถือ",
-      "missingConfigBody": "ตั้งค่า EXPO_PUBLIC_CONVEX_URL และ EXPO_PUBLIC_CONVEX_SITE_URL (ถ้าต้องการ) ก่อนเริ่มใช้แอป",
+      "missingConfigBody": "ตั้งค่า EXPO_PUBLIC_STELLA_BACKEND_URL ก่อนเริ่มใช้แอป",
       "checkingSessionTitle": "กำลังตรวจสอบเซสชันของคุณ",
       "checkingSessionBody": "รอสักครู่ระหว่างที่ Stella กำลังตื่น"
     },

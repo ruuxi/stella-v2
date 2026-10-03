@@ -1,7 +1,7 @@
 /**
  * Serialization for persisted desktop-bridge sessions (pure — no Expo
  * imports, tested under `bun test`). Persisting the session lets an app
- * cold-start skip the challenge → Convex-mint → consume handshake (~3 RTTs)
+ * cold-start skip the challenge → backend-mint → consume handshake (~3 RTTs)
  * whenever the desktop still honors the session; the liveness probe before
  * reuse catches every case where it doesn't.
  */

@@ -564,6 +564,3 @@ describe("POST /owners/me/dispatches", () => {
     expect(submissions).toHaveLength(0);
   });
 });
-
-  });
-});

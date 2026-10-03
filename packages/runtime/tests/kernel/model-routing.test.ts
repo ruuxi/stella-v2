@@ -745,6 +745,7 @@ describe("resolveLlmRoute", () => {
         route,
         agentType: "general",
         site,
+        backendUrl: site.baseUrl,
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);

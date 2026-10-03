@@ -10,7 +10,6 @@ export type PublicApiType = {
   "agent": {
     "local_runtime": {
       "executeTool": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; agentType?: string | undefined; toolArgs?: Value | undefined; toolName: string; }, any, string | undefined>;
-      "webSearch": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; url?: string | undefined; category?: string | undefined; agentType?: string | undefined; prompt?: string | undefined; query?: string | undefined; format?: 'text' | 'markdown' | 'html' | undefined; }, any, string | undefined>;
     };
     "prompt_builder": {
       "fetchAgentContextForRuntime": FunctionReference<'action', 'public', { threadId?: Id<'threads'> | undefined; platform?: string | undefined; maxHistoryMessages?: number | undefined; timezone?: string | undefined; conversationId: Id<'conversations'>; agentType: string; runId: string; }, any, string | undefined>;
@@ -91,25 +90,6 @@ export type PublicApiType = {
     "desktop_releases": {
       "currentDesktopRelease": FunctionReference<'query', 'public', { platform: string; }, any, string | undefined>;
     };
-    "emoji_pack_generation": {
-      "generatePack": FunctionReference<'action', 'public', { prompt: string; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
-    };
-    "emoji_pack_grid": {
-      "getManifest": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    };
-    "emoji_pack_uploads": {
-      "createUploadUrl": FunctionReference<'action', 'public', { contentType?: string | undefined; packId: string; sheetSha256s: string[]; }, any, string | undefined>;
-    };
-    "emoji_packs": {
-      "listPublicPage": FunctionReference<'query', 'public', { search?: string | undefined; sort?: 'name' | 'installs' | undefined; tag?: string | undefined; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-      "listTagFacets": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getByPackId": FunctionReference<'query', 'public', { packId: string; }, any, string | undefined>;
-      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; ownerGeneration: string; packId: string; displayName: string; coverEmoji: string; sheetUrls: string[]; visibility: 'public' | 'unlisted' | 'private'; uploadId: string; }, any, string | undefined>;
-      "setVisibility": FunctionReference<'mutation', 'public', { packId: string; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
-      "deletePack": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
-      "recordInstall": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
-    };
     "integrations": {
       "listStoreIntegrations": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "createXConnectUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
@@ -131,15 +111,6 @@ export type PublicApiType = {
   };
   "gateway_capabilities": {
     "getModelGatewayConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
-  };
-  "media_jobs": {
-    "getByJobId": FunctionReference<'query', 'public', { jobId: string; }, any, string | undefined>;
-    "listSucceededSince": FunctionReference<'query', 'public', { limit?: number | undefined; includeLogs?: boolean | undefined; since: number; }, any, string | undefined>;
-    "listFailedSince": FunctionReference<'query', 'public', { limit?: number | undefined; includeLogs?: boolean | undefined; since: number; }, any, string | undefined>;
-  };
-  "r2_files": {
-    "generateUploadUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
-    "syncMetadata": FunctionReference<'mutation', 'public', { key: string; }, any, string | undefined>;
   };
   "scheduling": {
     "cron_jobs": {

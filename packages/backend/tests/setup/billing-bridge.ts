@@ -21,7 +21,6 @@ vi.mock("../../convex/billing_bridge", async (importOriginal) => {
       message: "",
       remainingMicroCents: 1_000_000_000_000,
     })),
-    recordBillingUsage: vi.fn(async () => ({ recorded: 1, duplicate: 0 })),
     setBillingPlan: vi.fn(async () => ({ ok: true })),
     closeBilling: vi.fn(async () => ({ ok: true })),
     closeDevices: vi.fn(async () => ({ ok: true })),

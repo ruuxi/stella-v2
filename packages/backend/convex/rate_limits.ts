@@ -70,10 +70,7 @@ export type WebhookRateLimitResult = {
   retryAfterMs: number;
 };
 
-// Reusable core so the same fixed-window logic can run either as its own
-// `internalMutation` (below) or inline inside a combined gate mutation that
-// wants to collapse several pre-checks into a single transaction/commit
-// (see `lib/gate_and_meter.ts`). Behaviour is identical either way.
+// The fixed-window logic behind the `internalMutation` below.
 export const runConsumeWebhookRateLimit = async (
   ctx: MutationCtx,
   args: WebhookRateLimitArgs,

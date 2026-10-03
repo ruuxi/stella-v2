@@ -8,25 +8,6 @@ import { ConvexError } from "convex/values";
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export const MEDIA_BILLING_UNITS = [
-  "request",
-  "image",
-  "second",
-  "minute",
-  "1000_characters",
-  "30_second_unit",
-] as const;
-
-export type MediaBillingUnit = (typeof MEDIA_BILLING_UNITS)[number];
-
-export const MEDIA_METERED_FROM_VALUES = [
-  "request",
-  "output",
-  "request_and_output",
-] as const;
-
-export type MediaMeteredFrom = (typeof MEDIA_METERED_FROM_VALUES)[number];
-
 export const requireBoundedString = (
   value: string,
   fieldName: string,

@@ -1,12 +1,5 @@
 export { OFFLINE_RESPONDER_SYSTEM_PROMPT } from "./offline_responder";
 export {
-  buildCategoryAnalysisUserMessage,
-  buildCoreSynthesisUserMessage,
-  buildOnboardingStartersPrompt,
-  buildWelcomeMessagePrompt,
-  buildWelcomeHtmlPrompt,
-} from "./synthesis";
-export {
   AGENT_INVOKE_SYSTEM_INSTRUCTIONS,
   buildAgentInvokeUserPrompt,
 } from "./invoke";

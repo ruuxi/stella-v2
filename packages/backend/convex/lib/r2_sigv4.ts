@@ -6,13 +6,8 @@
  * The backend signs its own R2 requests (rather than proxying bytes through a
  * component) so `"use node"` actions can PUT/DELETE objects directly with the
  * `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT` credentials.
- *
- * This module was lifted out of the copy-pasted `signR2Put` / `uploadR2Object`
- * helpers in `data/emoji_pack_uploads.ts` and `data/emoji_pack_generation.ts`
- * so there is a single implementation to reason about. It is intentionally
- * behavior-preserving for those callers (same canonical request, same signed
- * headers) and additionally supports custom object metadata (`x-amz-meta-*`)
- * and object deletes for the canvas-share feature.
+ * Used by canvas shares, with custom object metadata (`x-amz-meta-*`) and
+ * object deletes.
  */
 
 import { createHash, createHmac } from "node:crypto";

@@ -199,55 +199,6 @@ export const failCloudTurnInternal = internalMutation({
   },
 });
 
-/**
- * Last transaction-plane barrier before provider I/O made on behalf of a
- * cloud turn. The capability the caller presented is the authority (signed,
- * turn-bound, expiring); this only closes the window after Convex has seen
- * the turn end. The turn row is a projection that may not have landed yet
- * for a turn that just started, so its absence is not a refusal.
- */
-export const assertActiveTurnDispatchInternal = internalMutation({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    turnId: v.string(),
-    now: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await assertOwnerMigrationWriteAllowed(
-      ctx,
-      args.ownerId,
-      args.ownerGeneration,
-    );
-    if (!(await isTurnStillActive(ctx, args))) {
-      throw new ConvexError({
-        code: "TURN_NOT_ACTIVE",
-        message: "Cloud turn is no longer active.",
-      });
-    }
-    return null;
-  },
-});
-
-/** True unless Convex has a row for the turn that says it is over. */
-export const isTurnStillActive = async (
-  ctx: Pick<QueryCtx, "db">,
-  args: { ownerId: string; ownerGeneration: string; turnId: string },
-): Promise<boolean> => {
-  const turn = await ctx.db
-    .query("agent_turns")
-    .withIndex("by_turnId", (q) => q.eq("turnId", args.turnId))
-    .unique();
-  if (!turn) return true;
-  return (
-    turn.ownerId === args.ownerId &&
-    turn.ownerGeneration === args.ownerGeneration &&
-    turn.status === "running" &&
-    !turn.terminalKind
-  );
-};
-
 // ---------------------------------------------------------------------------
 // The conversation index. Everything below is a projection of the
 // OrchestratorSession DO's journal: the DO is the only writer, Convex is the

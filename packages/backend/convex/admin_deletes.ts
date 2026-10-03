@@ -1,8 +1,5 @@
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { filterDisplayableTags } from "./lib/content_tags";
-
-const BATCH = 100;
 
 const deletedResult = v.object({
   deleted: v.boolean(),
@@ -10,92 +7,6 @@ const deletedResult = v.object({
   id: v.string(),
   label: v.optional(v.string()),
   hasMore: v.optional(v.boolean()),
-});
-
-const normalizeSlug = (value: string): string => value.trim().toLowerCase();
-
-const applyEmojiFacetDelta = async (
-  ctx: MutationCtx,
-  tag: string,
-  delta: number,
-): Promise<void> => {
-  const existing = await ctx.db
-    .query("emoji_pack_tag_facets")
-    .withIndex("by_tag", (q) => q.eq("tag", tag))
-    .unique();
-  if (!existing) {
-    if (delta > 0) {
-      await ctx.db.insert("emoji_pack_tag_facets", { tag, count: delta });
-    }
-    return;
-  }
-  const next = existing.count + delta;
-  if (next <= 0) {
-    await ctx.db.delete(existing._id);
-  } else {
-    await ctx.db.patch(existing._id, { count: next });
-  }
-};
-
-export const deleteEmojiPack = internalMutation({
-  args: { packId: v.string() },
-  returns: deletedResult,
-  handler: async (ctx, args) => {
-    const packId = normalizeSlug(args.packId);
-    const row = await ctx.db
-      .query("emoji_packs")
-      .withIndex("by_packId", (q) => q.eq("packId", packId))
-      .unique();
-    if (!row) return { deleted: false, kind: "emoji_pack", id: packId };
-    const memberships = await ctx.db
-      .query("emoji_pack_tag_membership")
-      .withIndex("by_packRef", (q) => q.eq("packRef", row._id))
-      .take(BATCH);
-    for (const membership of memberships) {
-      await ctx.db.delete(membership._id);
-    }
-    if (row.visibility === "public") {
-      for (const tag of new Set(filterDisplayableTags(row.tags))) {
-        await applyEmojiFacetDelta(ctx, tag, -1);
-      }
-    }
-    await ctx.db.delete(row._id);
-    return {
-      deleted: true,
-      kind: "emoji_pack",
-      id: packId,
-      label: row.displayName,
-    };
-  },
-});
-
-export const deleteMediaJob = internalMutation({
-  args: { jobId: v.string() },
-  returns: deletedResult,
-  handler: async (ctx, args) => {
-    const job = await ctx.db
-      .query("media_jobs")
-      .withIndex("by_jobId", (q) => q.eq("jobId", args.jobId))
-      .unique();
-    if (!job) return { deleted: false, kind: "media_job", id: args.jobId };
-    const logs = await ctx.db
-      .query("media_job_logs")
-      .withIndex("by_jobId_and_ordinal", (q) => q.eq("jobId", args.jobId))
-      .take(BATCH);
-    for (const log of logs) {
-      await ctx.db.delete(log._id);
-    }
-    if (logs.length === BATCH) {
-      return {
-        deleted: false,
-        kind: "media_job",
-        id: args.jobId,
-        hasMore: true,
-      };
-    }
-    await ctx.db.delete(job._id);
-    return { deleted: true, kind: "media_job", id: args.jobId };
-  },
 });
 
 export const deleteDesktopRelease = internalMutation({

@@ -52,45 +52,6 @@ crons.interval(
 );
 
 crons.interval(
-  "fail stale media jobs",
-  { minutes: 3 },
-  internal.media_jobs.markStaleJobsFailed,
-  { staleMs: 3 * 60 * 60_000 + 15 * 60_000, limit: 200 },
-);
-
-crons.interval(
-  "reconcile image submissions",
-  { minutes: 1 },
-  internal.media_jobs.reconcilePendingImageSubmissions,
-  {
-    pendingStaleMs: 2 * 60_000,
-    dispatchStaleMs: 2 * 60_000,
-    unknownStaleMs: 3 * 60 * 60_000 + 15 * 60_000,
-    pendingRetentionMs: 24 * 60 * 60_000,
-    limit: 200,
-  },
-);
-
-crons.interval(
-  "media cleanup retry sweep",
-  { minutes: 5 },
-  // Cheap gating mutation replacing the three former per-minute drain-action
-  // crons (blob deletion, manifest deletion, provider cancellation). It only
-  // schedules a drain action when its retry queue has due rows. These queues
-  // are retries of already-failed cleanup with exponential backoff, so the
-  // relaxed cadence never delays first-attempt cleanup.
-  internal.media_jobs.sweepMediaCleanupQueues,
-  { limit: 100 },
-);
-
-crons.interval(
-  "retry terminal image connector delivery",
-  { minutes: 5 },
-  internal.media_jobs.retryStuckImageConnectorDeliveries,
-  { staleMs: 5 * 60_000, limit: 100, maxAttempts: 5 },
-);
-
-crons.interval(
   "secret encryption key rotation sweep",
   { hours: 6 },
   internal.data.secrets_rotation.rotateEncryptedMaterial,
@@ -158,20 +119,6 @@ crons.interval(
   { hours: 24 },
   internal.telemetry_retention.purgeOldUsageLogs,
   { batchSize: 500 },
-);
-
-crons.interval(
-  "purge old media job logs",
-  { hours: 24 },
-  internal.telemetry_retention.purgeOldMediaJobLogs,
-  { batchSize: 500 },
-);
-
-crons.interval(
-  "purge expired tts stream tickets",
-  { minutes: 5 },
-  internal.tts_stream.purgeExpired,
-  { maxBatches: 10 },
 );
 
 crons.interval(

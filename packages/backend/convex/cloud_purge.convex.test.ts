@@ -764,14 +764,6 @@ describe("owner purge adversarial invariants", () => {
         revokedAt: 1,
         expiresAt: 20_000,
       });
-      await ctx.db.insert("media_private_payload_chunks", {
-        ownerId,
-        manifestId: "missing-manifest",
-        jobId: "missing-job",
-        index: 0,
-        data: "encrypted-owner-payload",
-        createdAt: 1,
-      });
     });
 
     expect(
@@ -779,7 +771,7 @@ describe("owner purge adversarial invariants", () => {
         purgeFunctions.account_deletion.remainingOwnerAccountCoreStoresInternal,
         { ownerId },
       ),
-    ).toEqual(["auth_revoked_sessions", "media_private_payload_chunks"]);
+    ).toEqual(["auth_revoked_sessions"]);
   });
 
   it("includes ephemeral browser handoffs in the fenced core drain", async () => {

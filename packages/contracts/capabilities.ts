@@ -17,13 +17,6 @@
  * billing screen's presentational copy, not in this table. A matrix where
  * some rows gate and others are decorative is a trap: the next person to
  * read it cannot tell which is which, and wires up the wrong one.
- *
- * The Convex backend cannot import this package (it bundles only from
- * `convex/`), so it carries a byte-equivalent mirror in
- * `packages/backend/convex/capability_contract.ts` — the same arrangement
- * `stella-prompts.ts` has with `stella_prompt_contract.ts`. A parity test in
- * `packages/backend/tests/capability-contract.test.ts` fails the build if the
- * two drift.
  */
 
 export const CAPABILITIES = [

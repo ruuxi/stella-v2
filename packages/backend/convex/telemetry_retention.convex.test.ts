@@ -79,28 +79,4 @@ describe("telemetry retention", () => {
       ),
     ).toHaveLength(1);
   });
-
-  it("deletes old media_job_logs rows", async () => {
-    const t = convexTest(schema, modules);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("media_job_logs", {
-        ownerId: "owner-1",
-        jobId: "job-1",
-        ordinal: 0,
-        receivedAt: Date.now(),
-        entry: { message: "queued" },
-      });
-    });
-
-    const purged = await t.mutation(
-      internal.telemetry_retention.purgeOldMediaJobLogs,
-      { cutoffMs: Date.now() + 60_000 },
-    );
-    expect(purged).toEqual({ deleted: 1, hasMore: false });
-
-    const remaining = await t.run(
-      async (ctx) => await ctx.db.query("media_job_logs").collect(),
-    );
-    expect(remaining).toHaveLength(0);
-  });
 });

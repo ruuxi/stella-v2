@@ -32,15 +32,6 @@ export const constantTimeEqual = (a: string, b: string): boolean => {
 export const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-/** Convert a hex string to a Uint8Array. */
-export const hexToUint8Array = (hex: string): Uint8Array => {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  }
-  return bytes;
-};
-
 /** SHA-256 hash returning a lowercase hex string. */
 export async function hashSha256Hex(data: string): Promise<string> {
   const encoded = new TextEncoder().encode(data);

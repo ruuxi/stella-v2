@@ -75,54 +75,24 @@ const remainingOwnerComposioProvisioningRef = makeFunctionReference<
  * Owner-keyed tables not covered by `reset._deleteOwnerTableBatch` (whose
  * list doubles as the user-facing "reset my data" scope). Account deletion
  * must additionally wipe private/user-content tables: secrets, integrations,
- * media, and channel links. External media, billing, TTS, and social state
- * each have dedicated strict purge helpers because they require
- * external-object-first deletion or shared-resource attribution handling.
+ * and channel links.
  */
 const EXTRA_TABLES = [
   "secrets",
   "secret_access_audit",
   "agents",
-  "media_jobs",
-  "media_job_logs",
-  "media_request_cancellations",
-  "media_webhook_events",
 ] as const;
 
 type ExtraTable = (typeof EXTRA_TABLES)[number];
 
 const EXTRA_BATCH = 200;
-const AMBIGUOUS_MEDIA_PURGE_RETENTION_MS = 3 * 60 * 60_000 + 15 * 60_000;
-
-const queuePrivatePayloadManifestDeletion = async (
-  ctx: MutationCtx,
-  manifestId: string,
-  now: number,
-) => {
-  const manifest = await ctx.db
-    .query("media_private_payload_manifests")
-    .withIndex("by_manifestId", (q) => q.eq("manifestId", manifestId))
-    .unique();
-  if (manifest) {
-    await ctx.db.patch(manifest._id, {
-      state: "pending",
-      nextAttemptAt: now,
-      updatedAt: now,
-    });
-  }
-  await ctx.scheduler.runAfter(
-    0,
-    internal.media_image_submission.deletePrivatePayloadManifest,
-    { manifestId },
-  );
-};
 
 async function deleteOneExtraTableBatch(
   ctx: MutationCtx,
   ownerId: string,
   table: ExtraTable,
 ): Promise<boolean> {
-  let batch = EXTRA_BATCH;
+  const batch = EXTRA_BATCH;
   let ids: Id<TableNames>[] = [];
   switch (table) {
     case "secrets": {
@@ -145,185 +115,6 @@ async function deleteOneExtraTableBatch(
       const rows = await ctx.db
         .query("agents")
         .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "media_jobs": {
-      // Output payloads can be large — keep the per-transaction read small.
-      batch = 50;
-      const rows = await ctx.db
-        .query("media_jobs")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      // Scheduler writes commit atomically with this mutation. A transaction
-      // retry cannot orphan an encrypted blob or schedule cleanup for a row
-      // whose state change did not commit.
-      let deleted = 0;
-      for (const row of rows) {
-        const canceledAt = Date.now();
-        const ambiguousPurgeExpired =
-          row.status === "canceled" &&
-          row.error?.code === "OWNER_PURGED" &&
-          canceledAt - (row.submissionClaimedAt ?? row.updatedAt) >=
-            AMBIGUOUS_MEDIA_PURGE_RETENTION_MS;
-        if (
-          row.submissionState === "dispatching" &&
-          !row.providerRequestId &&
-          !ambiguousPurgeExpired
-        ) {
-          if (row.submissionPayloadStorageId) {
-            const cleanup = await ctx.db
-              .query("media_private_blob_cleanup")
-              .withIndex("by_storageId", (q) =>
-                q.eq("storageId", row.submissionPayloadStorageId!),
-              )
-              .unique();
-            const cleanupPatch = {
-              jobId: row.jobId,
-              state: "pending" as const,
-              nextAttemptAt: canceledAt,
-              updatedAt: canceledAt,
-            };
-            if (cleanup) {
-              await ctx.db.patch(cleanup._id, cleanupPatch);
-            } else {
-              await ctx.db.insert("media_private_blob_cleanup", {
-                ownerId,
-                storageId: row.submissionPayloadStorageId,
-                ...cleanupPatch,
-                attempts: 0,
-                createdAt: canceledAt,
-              });
-            }
-            await ctx.scheduler.runAfter(
-              0,
-              internal.media_image_submission.deleteSubmissionPayload,
-              { storageId: row.submissionPayloadStorageId },
-            );
-          }
-          if (row.submissionPayloadManifestId) {
-            await queuePrivatePayloadManifestDeletion(
-              ctx,
-              row.submissionPayloadManifestId,
-              canceledAt,
-            );
-          }
-          await ctx.db.patch(row._id, {
-            status: "canceled",
-            request: {},
-            submissionPayloadStorageId: undefined,
-            submissionPayloadManifestId: undefined,
-            upstreamStatus: "OWNER_PURGED",
-            queuePosition: null,
-            error: {
-              code: "OWNER_PURGED",
-              message: "Media generation canceled during account deletion.",
-            },
-            updatedAt: canceledAt,
-            completedAt: canceledAt,
-          });
-          continue;
-        }
-        if (row.providerRequestId) {
-          const existingCancellation = await ctx.db
-            .query("media_provider_cancellations")
-            .withIndex("by_jobId", (q) => q.eq("jobId", row.jobId))
-            .unique();
-          if (!existingCancellation) {
-            const cancellationAt = Date.now();
-            await ctx.db.insert("media_provider_cancellations", {
-              ownerId,
-              ownerGeneration: row.ownerGeneration ?? "legacy",
-              jobId: row.jobId,
-              endpointId: row.endpointId,
-              providerRequestId: row.providerRequestId,
-              attempts: 0,
-              nextAttemptAt: cancellationAt,
-              createdAt: cancellationAt,
-              updatedAt: cancellationAt,
-            });
-          }
-          await ctx.scheduler.runAfter(
-            0,
-            internal.media_image_submission.cancelPurgedProviderRequest,
-            { jobId: row.jobId },
-          );
-        }
-        const webhookEvents = await ctx.db
-          .query("media_webhook_events")
-          .withIndex("by_jobId_and_receivedAt", (q) => q.eq("jobId", row.jobId))
-          .take(200);
-        for (const event of webhookEvents) await ctx.db.delete(event._id);
-        if (webhookEvents.length === 200) continue;
-        if (row.submissionPayloadStorageId) {
-          const cleanup = await ctx.db
-            .query("media_private_blob_cleanup")
-            .withIndex("by_storageId", (q) =>
-              q.eq("storageId", row.submissionPayloadStorageId!),
-            )
-            .unique();
-          const cleanupPatch = {
-            jobId: row.jobId,
-            state: "pending" as const,
-            nextAttemptAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          if (cleanup) {
-            await ctx.db.patch(cleanup._id, cleanupPatch);
-          } else {
-            await ctx.db.insert("media_private_blob_cleanup", {
-              ownerId,
-              storageId: row.submissionPayloadStorageId,
-              ...cleanupPatch,
-              attempts: 0,
-              createdAt: Date.now(),
-            });
-          }
-          await ctx.scheduler.runAfter(
-            0,
-            internal.media_image_submission.deleteSubmissionPayload,
-            { storageId: row.submissionPayloadStorageId },
-          );
-        }
-        if (row.submissionPayloadManifestId) {
-          await queuePrivatePayloadManifestDeletion(
-            ctx,
-            row.submissionPayloadManifestId,
-            Date.now(),
-          );
-        }
-        await ctx.db.delete(row._id);
-        deleted += 1;
-      }
-      // A claimed POST with no provider response is irreducibly ambiguous.
-      // Leave its canceled tombstone for markSubmitted/a webhook to attach a
-      // provider id, but stop this drain instead of hot-looping until the
-      // action timeout. The outer purge fails closed and is safe to retry.
-      return deleted > 0;
-    }
-    case "media_webhook_events": {
-      const rows = await ctx.db
-        .query("media_webhook_events")
-        .withIndex("by_ownerId_and_receivedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((row) => row._id);
-      break;
-    }
-    case "media_job_logs": {
-      const rows = await ctx.db
-        .query("media_job_logs")
-        .withIndex("by_ownerId_and_jobId", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "media_request_cancellations": {
-      const rows = await ctx.db
-        .query("media_request_cancellations")
-        .withIndex("by_ownerId_and_clientRequestKey", (q) =>
-          q.eq("ownerId", ownerId),
-        )
         .take(batch);
       ids = rows.map((r) => r._id);
       break;
@@ -429,8 +220,6 @@ const drainExtraTable = async (
   }
 };
 
-// ─── Emoji packs (tag membership/facet cleanup per pack) ────────────────────
-
 const accountResidueCheck = async (
   name: string,
   read: () => Promise<{ length: number }>,
@@ -478,62 +267,6 @@ export const remainingOwnerAccountCoreStoresInternal = internalQuery({
           .withIndex("by_ownerId_and_updatedAt", (q) =>
             q.eq("ownerId", ownerId),
           )
-          .take(1),
-      ),
-      accountResidueCheck("media_jobs", () =>
-        ctx.db
-          .query("media_jobs")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("media_job_logs", () =>
-        ctx.db
-          .query("media_job_logs")
-          .withIndex("by_ownerId_and_jobId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("media_request_cancellations", () =>
-        ctx.db
-          .query("media_request_cancellations")
-          .withIndex("by_ownerId_and_clientRequestKey", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("media_webhook_events", () =>
-        ctx.db
-          .query("media_webhook_events")
-          .withIndex("by_ownerId_and_receivedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("media_private_blob_cleanup", () =>
-        ctx.db
-          .query("media_private_blob_cleanup")
-          .withIndex("by_ownerId_and_state", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("media_private_payload_manifests", () =>
-        ctx.db
-          .query("media_private_payload_manifests")
-          .withIndex("by_ownerId_and_state", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ),
-      accountResidueCheck("media_private_payload_chunks", () =>
-        ctx.db
-          .query("media_private_payload_chunks")
-          .withIndex("by_ownerId_and_manifestId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ),
-      accountResidueCheck("media_provider_cancellations", () =>
-        ctx.db
-          .query("media_provider_cancellations")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
           .take(1),
       ),
     ]);
@@ -630,40 +363,7 @@ export const purgeOwnerCloudData = internalAction({
     }
     let retryStage: "core" | "cloud" = "core";
     try {
-      // Open the media gate before any other deletion work or parallel drain.
-      // Reservations and dispatch claims observe this same durable row
-      // transactionally, so no new provider work can cross the purge boundary.
-      await ctx.runMutation(internal.media_jobs.beginOwnerMediaPurge, {
-        ownerId,
-        startedAt: Date.now(),
-      });
       await ensureExternalOwnerPurge(ctx, { ...fence, mode: "delete" });
-      await ctx.runMutation(
-        internal.media_jobs.cancelOwnerMediaProviderDispatchesInternal,
-        { ...fence, leaseId, mode: "delete", now: Date.now() },
-      );
-      await ctx.runAction(
-        internal.media_image_submission.drainOwnerProviderCancellations,
-        { ownerId, limit: 100 },
-      );
-      const mediaDispatches = await ctx.runMutation(
-        internal.media_jobs.cancelOwnerMediaProviderDispatchesInternal,
-        { ...fence, leaseId, mode: "delete", now: Date.now() },
-      );
-      if (!mediaDispatches.ready) {
-        throw new Error(
-          `Account deletion is waiting for media provider dispatch quiescence: ${mediaDispatches.pending.join(", ")}`,
-        );
-      }
-      const voiceDispatches = await ctx.runMutation(
-        internal.voice_dispatch.cancelOwnerVoiceProviderDispatchesInternal,
-        { ...fence, leaseId, mode: "delete", now: Date.now() },
-      );
-      if (!voiceDispatches.ready) {
-        throw new Error(
-          `Account deletion is waiting for voice provider dispatch quiescence: ${voiceDispatches.pending.join(", ")}`,
-        );
-      }
       const remoteTurns = await ctx.runMutation(
         internal.channels.connector_delivery
           .quiesceOwnerRemoteTurnsForPurgeInternal,
@@ -718,26 +418,6 @@ export const purgeOwnerCloudData = internalAction({
           `Account deletion is waiting for auth migration quiescence: ${authMigration.pending.join(", ")}`,
         );
       }
-      const externalMedia = await ctx.runAction(
-        internal.account_external_media.purgeOwnerExternalMediaInternal,
-        { ...fence, leaseId },
-      );
-      if (!externalMedia.ready) {
-        throw new Error(
-          `Account deletion is waiting for external media cleanup: ${externalMedia.pending.join(", ")}`,
-        );
-      }
-      // TTS owns its exact provider-attempt receipt. Quiesce/settle that
-      // authority before any general billing teardown can remove audit rows.
-      const tts = await ctx.runAction(
-        internal.account_tts_purge.purgeOwnerTtsInternal,
-        { ...fence, leaseId },
-      );
-      if (!tts.ready) {
-        throw new Error(
-          `Account deletion is waiting for TTS cleanup: ${tts.pending.join(", ")}`,
-        );
-      }
       // Billing and devices live in the owner's object on cloud-builder:
       // deleting the Stripe customer ends any subscription, and the owner's
       // Cloudflare tunnels go with the account.
@@ -778,43 +458,6 @@ export const purgeOwnerCloudData = internalAction({
         }),
       ]);
 
-      const privateBlobDrain = await ctx.runAction(
-        internal.media_image_submission.drainOwnerPrivateBlobCleanup,
-        { ownerId, limit: 100 },
-      );
-      if (privateBlobDrain.remaining > 0) {
-        throw new Error(
-          "Account deletion is waiting for encrypted media payload cleanup; the durable purge gate remains active.",
-        );
-      }
-      const privateManifestDrain = await ctx.runAction(
-        internal.media_image_submission.drainOwnerPrivatePayloadManifests,
-        { ownerId, limit: 100 },
-      );
-      if (privateManifestDrain.remaining > 0) {
-        throw new Error(
-          "Account deletion is waiting for encrypted media manifest cleanup; the durable purge gate remains active.",
-        );
-      }
-      const providerCancellationDrain = await ctx.runAction(
-        internal.media_image_submission.drainOwnerProviderCancellations,
-        { ownerId, limit: 100 },
-      );
-      if (providerCancellationDrain.remaining > 0) {
-        throw new Error(
-          "Account deletion is waiting for provider media cancellation; the durable purge gate remains active.",
-        );
-      }
-      const unresolvedMediaJobs = await ctx.runQuery(
-        internal.media_jobs.hasOwnerMediaJobs,
-        { ownerId },
-      );
-      if (unresolvedMediaJobs) {
-        throw new Error(
-          "Account deletion is waiting for an ambiguous in-flight media submission to reconcile; the durable purge gate remains active.",
-        );
-      }
-
       // Final external re-drain closes the window for a creator that reserved
       // its durable locator immediately before the deletion fence. Active
       // reservations remain retry debt until their bounded lease ends.
@@ -852,10 +495,6 @@ export const purgeOwnerCloudData = internalAction({
       const [
         remainingResetCore,
         remainingAccountCore,
-        remainingExternalMedia,
-        remainingTtsSocial,
-        remainingVoice,
-        remainingMedia,
         remainingComposio,
         remainingComposioProvisioning,
       ] = await Promise.all([
@@ -866,32 +505,12 @@ export const purgeOwnerCloudData = internalAction({
           internal.account_deletion.remainingOwnerAccountCoreStoresInternal,
           { ownerId },
         ),
-        ctx.runAction(
-          internal.account_external_media.remainingOwnerExternalMediaInternal,
-          { ownerId },
-        ),
-        ctx.runQuery(
-          internal.account_tts_purge.remainingOwnerTtsDeleteInternal,
-          { ownerId },
-        ),
-        ctx.runQuery(
-          internal.voice_dispatch.remainingOwnerVoiceProviderDispatchesInternal,
-          { ownerId },
-        ),
-        ctx.runQuery(
-          internal.media_jobs.remainingOwnerMediaProviderDispatchesInternal,
-          { ownerId },
-        ),
         ctx.runAction(remainingOwnerComposioSessionsRef, { ownerId }),
         ctx.runQuery(remainingOwnerComposioProvisioningRef, { ownerId }),
       ]);
       const remainingCore = [
         ...remainingResetCore,
         ...remainingAccountCore,
-        ...remainingExternalMedia,
-        ...remainingTtsSocial,
-        ...remainingVoice,
-        ...remainingMedia,
         ...remainingComposio,
         ...remainingComposioProvisioning,
       ];

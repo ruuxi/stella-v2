@@ -44,7 +44,6 @@ import {
 } from "./execution_policy";
 import {
   connectorMediaRefArrayValidator,
-  extractDeliveryMediaFromOutput,
   type ConnectorMediaRef,
 } from "./connector_media_types";
 import {
@@ -54,7 +53,6 @@ import {
 
 const BACKEND_FALLBACK_AGENT_TYPE = "offline_responder";
 const EMPTY_RESPONSE_TEXT = "(Stella had nothing to say.)";
-const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
 export const REMOTE_TURN_ATTEMPT_LEASE_MS = 120_000;
 export const REMOTE_TURN_PROVIDER_DEADLINE_MS = 60_000;
 export const REMOTE_TURN_ATTEMPT_HARD_MS = 8 * 60_000;
@@ -62,20 +60,6 @@ export const REMOTE_TURN_ATTEMPT_QUIESCENCE_GRACE_MS = 30_000;
 const REMOTE_TURN_PURGE_BATCH = 64;
 const REMOTE_TURN_PURGE_CONVERSATION_PAGE = 8;
 const REMOTE_TURN_PURGE_PER_CONVERSATION_BATCH = 4;
-
-const isOwnerDataFenceError = (error: unknown): boolean => {
-  const code =
-    error instanceof ConvexError &&
-    typeof error.data === "object" &&
-    error.data !== null
-      ? (error.data as { code?: unknown }).code
-      : undefined;
-  return (
-    code === "OWNER_DATA_PURGE_ACTIVE" ||
-    code === "OWNER_DATA_GENERATION_STALE" ||
-    code === "OWNERSHIP_MIGRATED"
-  );
-};
 
 /**
  * Look up the original `remote_turn_request` event by `requestId`. The
@@ -2366,111 +2350,6 @@ export const assertRemoteTurnBoundDeliveryAllowedInternal = internalMutation({
       provider: payload.provider,
       deliveryMeta,
     };
-  },
-});
-
-export const deliverMediaJobToConnector = internalAction({
-  args: {
-    ownerId: v.string(),
-    ownerGeneration: v.string(),
-    requestId: v.string(),
-    jobId: v.string(),
-    output: jsonValueValidator,
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const mediaInputs = extractDeliveryMediaFromOutput(args.output);
-    if (mediaInputs.length === 0) return null;
-
-    await ctx.runMutation(
-      internal.media_jobs.assertConnectorMediaDispatchAllowed,
-      {
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-        jobId: args.jobId,
-        requestId: args.requestId,
-      },
-    );
-    const target = await ctx.runMutation(
-      internal.channels.connector_delivery
-        .assertRemoteTurnBoundDeliveryAllowedInternal,
-      {
-        requestId: args.requestId,
-        ownerId: args.ownerId,
-        ownerGeneration: args.ownerGeneration,
-      },
-    );
-    if (!target) return null;
-
-    const media = (await ctx.runAction(
-      internal.channels.connector_media.materializeRemoteMedia,
-      {
-        scopeId: `out:${args.jobId}`,
-        media: mediaInputs,
-      },
-    )) as ConnectorMediaRef[];
-    if (media.length === 0) return null;
-
-    let transportStarted = false;
-    try {
-      // Materialization can fetch several remote objects. Close that
-      // preparation window before the connector transport receives the media.
-      await ctx.runMutation(
-        internal.media_jobs.assertConnectorMediaDispatchAllowed,
-        {
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-          jobId: args.jobId,
-          requestId: args.requestId,
-        },
-      );
-      const currentTarget = await ctx.runMutation(
-        internal.channels.connector_delivery
-          .assertRemoteTurnBoundDeliveryAllowedInternal,
-        {
-          requestId: args.requestId,
-          ownerId: args.ownerId,
-          ownerGeneration: args.ownerGeneration,
-        },
-      );
-      if (!currentTarget) return null;
-      transportStarted = true;
-      await dispatchConnectorDelivery(ctx, {
-        requestId: args.requestId,
-        conversationId: currentTarget.conversationId,
-        provider: currentTarget.provider,
-        deliveryMeta: currentTarget.deliveryMeta as Record<string, unknown>,
-        text: "",
-        media,
-      });
-      await ctx.runMutation(internal.media_jobs.markConnectorMediaDelivered, {
-        jobId: args.jobId,
-        ownerGeneration: args.ownerGeneration,
-        deliveredAt: Date.now(),
-      });
-    } catch (error) {
-      if (transportStarted) {
-        await ctx
-          .runMutation(internal.media_jobs.markConnectorMediaDeliveryFailed, {
-            jobId: args.jobId,
-            ownerGeneration: args.ownerGeneration,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          .catch((writeError) => {
-            if (!isOwnerDataFenceError(writeError)) throw writeError;
-          });
-      }
-      throw error;
-    } finally {
-      // Every retry materializes a fresh relay copy. Delete this attempt's
-      // copy whether delivery succeeds, fails, or is fenced after download.
-      await ctx.scheduler.runAfter(
-        RELAYED_MEDIA_DELETE_DELAY_MS,
-        internal.channels.connector_media.deleteRelayedMedia,
-        { media },
-      );
-    }
-    return null;
   },
 });
 

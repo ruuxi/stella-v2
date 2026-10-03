@@ -124,32 +124,6 @@ const runOwnerReset = async (
   let retryStage: "core" | "cloud" = "core";
   try {
     await ensureExternalOwnerPurge(ctx, { ...fence, mode: "reset" });
-    await ctx.runMutation(
-      internal.media_jobs.cancelOwnerMediaProviderDispatchesInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    await ctx.runAction(
-      internal.media_image_submission.drainOwnerProviderCancellations,
-      { ownerId: fence.ownerId, limit: 100 },
-    );
-    const mediaDispatches = await ctx.runMutation(
-      internal.media_jobs.cancelOwnerMediaProviderDispatchesInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    if (!mediaDispatches.ready) {
-      throw new Error(
-        `Owner reset is waiting for media provider dispatch quiescence: ${mediaDispatches.pending.join(", ")}`,
-      );
-    }
-    const voiceDispatches = await ctx.runMutation(
-      internal.voice_dispatch.cancelOwnerVoiceProviderDispatchesInternal,
-      { ...fence, leaseId, mode: "reset", now: Date.now() },
-    );
-    if (!voiceDispatches.ready) {
-      throw new Error(
-        `Owner reset is waiting for voice provider dispatch quiescence: ${voiceDispatches.pending.join(", ")}`,
-      );
-    }
     const remoteTurns = await ctx.runMutation(
       internal.channels.connector_delivery
         .quiesceOwnerRemoteTurnsForPurgeInternal,
@@ -192,16 +166,6 @@ const runOwnerReset = async (
         `Owner reset is waiting for auth migration quiescence: ${authMigration.pending.join(", ")}`,
       );
     }
-    const tts = await ctx.runAction(
-      internal.account_tts_purge.purgeOwnerTtsResetInternal,
-      { ...fence, leaseId },
-    );
-    if (!tts.ready) {
-      throw new Error(
-        `Owner reset is waiting for TTS quiescence: ${tts.pending.join(", ")}`,
-      );
-    }
-
     let cursor: string | null = null;
     while (true) {
       const page: { ids: Id<"conversations">[]; nextCursor: string | null } =
@@ -264,35 +228,17 @@ const runOwnerReset = async (
     }
     const [
       remainingResetCore,
-      remainingTts,
-      remainingVoice,
-      remainingMedia,
       remainingComposioProvisioning,
     ] = await Promise.all([
       ctx.runQuery(internal.reset.remainingOwnerResetStoresInternal, {
         ownerId: fence.ownerId,
       }),
-      ctx.runQuery(
-        internal.account_tts_purge.remainingOwnerTtsInternal,
-        { ownerId: fence.ownerId },
-      ),
-      ctx.runQuery(
-        internal.voice_dispatch.remainingOwnerVoiceProviderDispatchesInternal,
-        { ownerId: fence.ownerId },
-      ),
-      ctx.runQuery(
-        internal.media_jobs.remainingOwnerMediaProviderDispatchesInternal,
-        { ownerId: fence.ownerId },
-      ),
       ctx.runQuery(remainingOwnerComposioProvisioningRef, {
         ownerId: fence.ownerId,
       }),
     ]);
     const remainingCore = [
       ...remainingResetCore,
-      ...remainingTts,
-      ...remainingVoice,
-      ...remainingMedia,
       ...remainingComposioProvisioning,
     ];
     if (remainingCore.length > 0) {

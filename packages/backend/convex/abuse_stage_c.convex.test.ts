@@ -13,12 +13,6 @@ const modules = import.meta.glob("./**/*.ts");
 const DAY_MS = 24 * 60 * 60_000;
 const OWNER_GENERATION = "abuse-test-generation";
 
-const consumeTtsRef = makeFunctionReference<
-  "mutation",
-  { ownerId: string; characters: number; now: number },
-  { allowed: boolean; count: number; limit: number; retryAt: number }
->("owner_daily_counters:consumeTtsDailyCharactersInternal");
-
 const consumeCloudOperationRef = makeFunctionReference<
   "mutation",
   { ownerId: string; now: number },
@@ -62,7 +56,6 @@ const convexErrorCode = (error: unknown): string | null => {
 };
 
 afterEach(() => {
-  delete process.env.STELLA_TTS_DAILY_CHARS_FREE;
   delete process.env.STELLA_APP_ARTIFACT_QUOTA_MB_FREE;
   delete process.env.STELLA_RISK_WEIGHTS_JSON;
 });
@@ -190,31 +183,6 @@ describe("Sybil pressure", () => {
 });
 
 describe("daily cost counters", () => {
-  it("enforces the TTS character quota and resets at UTC midnight", async () => {
-    process.env.STELLA_TTS_DAILY_CHARS_FREE = "5";
-    const t = convexTest(schema, modules);
-    const now = Date.UTC(2026, 8, 2, 12);
-    expect(
-      await t.mutation(consumeTtsRef, {
-        ownerId: "tts-owner",
-        characters: 5,
-        now,
-      }),
-    ).toMatchObject({ allowed: true, count: 5, limit: 5 });
-    expect(
-      await t.mutation(consumeTtsRef, {
-        ownerId: "tts-owner",
-        characters: 1,
-        now,
-      }),
-    ).toEqual({
-      allowed: false,
-      count: 5,
-      limit: 5,
-      retryAt: Date.UTC(2026, 8, 3),
-    });
-  });
-
   it("caps cloud operations at 200 and X at 10 per author and 500 globally", async () => {
     const t = convexTest(schema, modules);
     const now = Date.UTC(2026, 8, 2, 12);

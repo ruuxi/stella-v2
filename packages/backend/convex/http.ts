@@ -8,20 +8,14 @@ import { corsPreflightHandler } from "./http_shared/cors";
 // Route modules
 import { registerAdminRoutes } from "./http_routes/admin";
 import { registerDesktopReleaseRoutes } from "./http_routes/desktop_releases";
-import { registerMediaRoutes } from "./http_routes/media";
 import { registerAuthHandoffRoutes } from "./http_routes/auth_handoff";
 import { registerNativeOAuthRoutes } from "./http_routes/native_oauth";
 
 import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
-import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
 import { registerCloudConnectorConnectRoutes } from "./http_routes/cloud_connector_connect";
 import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
 import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
-import { registerDictationRoutes } from "./http_routes/dictation";
-import { registerMusicRoutes } from "./http_routes/music";
 import { registerOutboxRoutes } from "./http_routes/outbox";
-import { registerSynthesisRoutes } from "./http_routes/synthesis";
-import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerXRoutes } from "./http_routes/x";
 import { registerXBotRoutes } from "./http_routes/x_bot";
 import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
@@ -56,17 +50,11 @@ authComponent.registerRoutes(http, createAuth, {
 // ---------------------------------------------------------------------------
 
 registerAdminRoutes(http);
-registerSynthesisRoutes(http);
 registerDesktopReleaseRoutes(http);
-registerMusicRoutes(http);
-registerMediaRoutes(http);
 registerAuthHandoffRoutes(http);
 registerNativeOAuthRoutes(http);
-registerVoiceRoutes(http);
-registerDictationRoutes(http);
 registerXRoutes(http);
 registerXBotRoutes(http);
-registerCloudAppRoutes(http);
 registerOutboxRoutes(http);
 registerCloudProjectRoutes(http);
 registerCloudIntegrationRoutes(http);

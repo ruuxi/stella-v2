@@ -16,11 +16,6 @@ const readRow = async (ctx: Pick<QueryCtx, "db">, ownerId: string) =>
     .withIndex("by_ownerId", (query) => query.eq("ownerId", ownerId))
     .unique();
 
-export const readOwnerPlan = async (
-  ctx: Pick<QueryCtx, "db">,
-  ownerId: string,
-): Promise<SubscriptionPlan> => (await readRow(ctx, ownerId))?.plan ?? "free";
-
 /** The plan plus whether the owner's usage is unlimited (test and staff accounts). */
 export const readOwnerBillingPlan = async (
   ctx: Pick<QueryCtx, "db">,

@@ -302,26 +302,6 @@ export const touchSecretUsage = internalMutation({
   },
 });
 
-export const getDecryptedLlmKey = internalQuery({
-  args: {
-    ownerId: v.string(),
-    provider: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const record = await ctx.db
-      .query("secrets")
-      .withIndex("by_ownerId_and_provider_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
-      )
-      .order("desc")
-      .first();
-    if (!record || record.status !== "active") {
-      return null;
-    }
-    return await decryptSecret(record.encryptedValue);
-  },
-});
-
 export const auditSecretAccess = internalMutation({
   args: {
     ownerId: v.string(),

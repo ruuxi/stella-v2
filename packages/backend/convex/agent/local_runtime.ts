@@ -7,12 +7,8 @@ import {
   AGENT_IDS,
   LOCAL_RUNTIME_BACKEND_TOOL_NAMES,
 } from "../lib/agent_constants";
-import {
-  enforceActionRateLimit,
-  RATE_EXPENSIVE,
-  RATE_STANDARD,
-} from "../lib/rate_limits";
-import { createBackendTools, executeWebSearch } from "../tools/backend";
+import { enforceActionRateLimit, RATE_STANDARD } from "../lib/rate_limits";
+import { createBackendTools } from "../tools/backend";
 import { jsonValueValidator } from "../shared_validators";
 import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 
@@ -107,84 +103,5 @@ export const executeTool = action({
       args.toolName,
       toolArgs,
     );
-  },
-});
-
-export const webSearch = action({
-  args: {
-    query: v.optional(v.string()),
-    url: v.optional(v.string()),
-    prompt: v.optional(v.string()),
-    category: v.optional(v.string()),
-    format: v.optional(
-      v.union(v.literal("text"), v.literal("markdown"), v.literal("html")),
-    ),
-    conversationId: v.optional(v.id("conversations")),
-    agentType: v.optional(v.string()),
-  },
-  returns: v.object({
-    text: v.string(),
-    results: v.array(
-      v.object({
-        title: v.string(),
-        url: v.string(),
-        snippet: v.string(),
-        image: v.optional(v.string()),
-        favicon: v.optional(v.string()),
-      }),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
-      ctx,
-      ownerId,
-    );
-    // Outbound HTTP on the user's behalf — without a cap, the backend
-    // becomes a free crawler.
-    await enforceActionRateLimit(
-      ctx,
-      "agent_local_runtime_web_search",
-      ownerId,
-      RATE_EXPENSIVE,
-      "Too many web requests. Please wait a moment and try again.",
-    );
-    if (args.conversationId) {
-      await requireConversationOwnerAction(ctx, args.conversationId);
-    }
-    const query = args.query?.trim() ?? "";
-    const url = args.url?.trim() ?? "";
-    if (!query && !url) {
-      throw new ConvexError("Either query or url is required.");
-    }
-    if (query && url) {
-      throw new ConvexError("Pass either query or url, not both.");
-    }
-    if (query) {
-      return await executeWebSearch(ctx, query, {
-        ownerId,
-        ownerGeneration,
-        signal: AbortSignal.timeout(BACKEND_TOOL_TIMEOUT_MS),
-        category: args.category,
-      });
-    }
-
-    const text = await executeBackendTool(
-      ctx,
-      {
-        ownerId,
-        ownerGeneration,
-        conversationId: args.conversationId,
-        agentType: args.agentType,
-        signal: AbortSignal.timeout(BACKEND_TOOL_TIMEOUT_MS),
-      },
-      "WebFetch",
-      {
-        url,
-        ...(args.prompt?.trim() ? { prompt: args.prompt.trim() } : {}),
-        ...(args.format ? { format: args.format } : {}),
-      },
-    );
-    return { text, results: [] };
   },
 });

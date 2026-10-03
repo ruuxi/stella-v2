@@ -1,17 +1,7 @@
 /**
- * Shared anonymous device identification helpers.
- *
- * Used by speech-to-text and AI proxy route modules to identify
- * unauthenticated callers via X-Device-ID header and handle missing salt errors.
+ * Handling for a missing ANON_DEVICE_ID_HASH_SALT in anonymous device
+ * hashing.
  */
-
-export const getAnonDeviceId = (request: Request): string | null => {
-  const deviceId = request.headers.get("X-Device-ID");
-  if (!deviceId) return null;
-  const trimmed = deviceId.trim();
-  if (trimmed.length === 0 || trimmed.length >= 256) return null;
-  return trimmed;
-};
 
 const ANON_DEVICE_HASH_SALT_MISSING_MESSAGE = "Missing ANON_DEVICE_ID_HASH_SALT";
 let didLogMissingSalt = false;

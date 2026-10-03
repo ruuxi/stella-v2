@@ -533,110 +533,6 @@ export const migrateAgentsBatch = internalMutation({
   },
 });
 
-export const migrateMediaJobsBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const toOwnerGeneration = migration.toOwnerGeneration!;
-    const rows = await ctx.db
-      .query("media_jobs")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    for (const row of rows) {
-      if (
-        !["succeeded", "failed", "canceled"].includes(row.status) ||
-        (row.submissionState !== undefined &&
-          !["submitted", "failed", "canceled"].includes(row.submissionState))
-      ) {
-        blockOwnershipMigration(
-          "A media job or its private submission is still in flight. Finish or cancel it before retrying account linking.",
-        );
-      }
-      const existing = row.clientRequestKey
-        ? await ctx.db
-            .query("media_jobs")
-            .withIndex("by_ownerId_and_clientRequestKey", (q) =>
-              q
-                .eq("ownerId", args.toOwnerId)
-                .eq("clientRequestKey", row.clientRequestKey),
-            )
-            .unique()
-        : null;
-      // Preserve both historical jobs, but keep only the destination row as
-      // the canonical reattachment target when owner linking collides.
-      await ctx.db.patch(row._id, {
-        ownerId: args.toOwnerId,
-        ownerGeneration: toOwnerGeneration,
-        ...(existing
-          ? { clientRequestKey: undefined, clientRequestHash: undefined }
-          : {}),
-      });
-    }
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
-export const migrateMediaRequestCancellationsBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const toOwnerGeneration = migration.toOwnerGeneration!;
-    const rows = await ctx.db
-      .query("media_request_cancellations")
-      .withIndex("by_ownerId_and_clientRequestKey", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    for (const row of rows) {
-      const existing = await ctx.db
-        .query("media_request_cancellations")
-        .withIndex("by_ownerId_and_clientRequestKey", (q) =>
-          q
-            .eq("ownerId", args.toOwnerId)
-            .eq("clientRequestKey", row.clientRequestKey),
-        )
-        .unique();
-      if (existing) {
-        await ctx.db.delete(row._id);
-      } else {
-        await ctx.db.patch(row._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: toOwnerGeneration,
-        });
-      }
-    }
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
-export const migrateMediaJobLogsBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const toOwnerGeneration = migration.toOwnerGeneration!;
-    const rows = await ctx.db
-      .query("media_job_logs")
-      .withIndex("by_ownerId_and_jobId", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) =>
-        ctx.db.patch(row._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: toOwnerGeneration,
-        }),
-      ),
-    );
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
 export const migrateUserCountersBatch = internalMutation({
   args: leasedOwnerArgs,
   returns: hasMoreReturn,
@@ -650,162 +546,6 @@ export const migrateUserCountersBatch = internalMutation({
       rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
     );
     return { hasMore: isFullPage(rows) };
-  },
-});
-
-const MAX_EXTERNAL_MEDIA_OBJECTS_PER_SOURCE = 8;
-type ExternalMediaSourceKind = "emoji_pack";
-
-const migrateCommittedExternalMediaLocators = async (
-  ctx: MutationCtx,
-  args: OwnerIds & {
-    sourceKind: ExternalMediaSourceKind;
-    sourceId: string;
-    toOwnerGeneration: string;
-    now: number;
-    requireLocator: boolean;
-  },
-): Promise<boolean> => {
-  const sourceKey = `${args.sourceKind}:${args.sourceId}`;
-  const rows = await ctx.db
-    .query("account_external_media_objects")
-    .withIndex("by_ownerId_and_sourceKey", (q) =>
-      q.eq("ownerId", args.fromOwnerId).eq("sourceKey", sourceKey),
-    )
-    .take(MAX_EXTERNAL_MEDIA_OBJECTS_PER_SOURCE + 1);
-  if (rows.length > MAX_EXTERNAL_MEDIA_OBJECTS_PER_SOURCE) {
-    blockOwnershipMigration(
-      "An external-media source has too many durable object locators.",
-    );
-  }
-  if (args.requireLocator && rows.length === 0) {
-    blockOwnershipMigration(
-      "Owned media is missing its exact durable object inventory.",
-    );
-  }
-  if (
-    rows.some(
-      (row) =>
-        row.state !== "committed" ||
-        row.sourceKind !== args.sourceKind ||
-        row.sourceId !== args.sourceId ||
-        row.sourceKey !== sourceKey,
-    )
-  ) {
-    blockOwnershipMigration(
-      "Owned media has an incomplete or inconsistent external object locator.",
-    );
-  }
-  if (rows.some((row) => row.uploadExpiresAt > args.now)) {
-    return false;
-  }
-  for (const row of rows) {
-    const collisions = await ctx.db
-      .query("account_external_media_objects")
-      .withIndex("by_ownerId_and_r2Key", (q) =>
-        q.eq("ownerId", args.toOwnerId).eq("r2Key", row.r2Key),
-      )
-      .take(2);
-    if (collisions.some((collision) => collision._id !== row._id)) {
-      blockOwnershipMigration(
-        "Both identities reference the same external media object through different inventories.",
-      );
-    }
-    await ctx.db.patch(row._id, {
-      ownerId: args.toOwnerId,
-      ownerGeneration: args.toOwnerGeneration,
-      updatedAt: Date.now(),
-    });
-  }
-  return true;
-};
-
-/**
- * Emoji packs and their exact external-object locators move in one
- * transaction. Raw keys remain immutable; only deletion authority changes.
- */
-export const migrateAccountExternalMediaContentBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const toOwnerGeneration = migration.toOwnerGeneration!;
-    const pack = (
-      await ctx.db
-        .query("emoji_packs")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (pack) {
-      const collision = await ctx.db
-        .query("emoji_packs")
-        .withIndex("by_ownerId_and_packId", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("packId", pack.packId),
-        )
-        .unique();
-      if (collision && collision._id !== pack._id) {
-        blockOwnershipMigration(
-          `Both identities own an emoji pack with id "${pack.packId}".`,
-        );
-      }
-      const locatorsReady = await migrateCommittedExternalMediaLocators(ctx, {
-        ...args,
-        sourceKind: "emoji_pack",
-        sourceId: String(pack._id),
-        toOwnerGeneration,
-        now: args.leaseNow,
-        requireLocator: true,
-      });
-      if (!locatorsReady) return { hasMore: true };
-      await ctx.db.patch(pack._id, { ownerId: args.toOwnerId });
-      return { hasMore: true };
-    }
-    const orphan = (
-      await ctx.db
-        .query("account_external_media_objects")
-        .withIndex("by_ownerId_and_state_and_uploadExpiresAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId).eq("state", "committed"),
-        )
-        .take(1)
-    )[0];
-    if (orphan) {
-      if (orphan.uploadExpiresAt > args.leaseNow) {
-        return { hasMore: true };
-      }
-      const collisions = await ctx.db
-        .query("account_external_media_objects")
-        .withIndex("by_ownerId_and_r2Key", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("r2Key", orphan.r2Key),
-        )
-        .take(2);
-      if (collisions.some((collision) => collision._id !== orphan._id)) {
-        blockOwnershipMigration(
-          "An orphan external media locator collides at the destination.",
-        );
-      }
-      await ctx.db.patch(orphan._id, {
-        ownerId: args.toOwnerId,
-        ownerGeneration: toOwnerGeneration,
-        updatedAt: Date.now(),
-      });
-      return { hasMore: true };
-    }
-    const externalDeleted = (
-      await ctx.db
-        .query("account_external_media_objects")
-        .withIndex("by_ownerId_and_state_and_uploadExpiresAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId).eq("state", "external_deleted"),
-        )
-        .take(1)
-    )[0];
-    if (externalDeleted) {
-      blockOwnershipMigration(
-        "External media deletion is incomplete and must reconcile before account linking.",
-      );
-    }
-    return { hasMore: false };
   },
 });
 
@@ -887,30 +627,6 @@ export const discardAnonymousTransientHandshakesBatch = internalMutation({
       return { hasMore: true };
     }
     return { hasMore: false };
-  },
-});
-
-export const migrateMediaWebhookEventsBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const toOwnerGeneration = migration.toOwnerGeneration!;
-    const rows = await ctx.db
-      .query("media_webhook_events")
-      .withIndex("by_ownerId_and_receivedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) =>
-        ctx.db.patch(row._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: toOwnerGeneration,
-        }),
-      ),
-    );
-    return { hasMore: isFullPage(rows) };
   },
 });
 
@@ -1208,42 +924,6 @@ const externalTransferAckValidator = v.object({
   toOwnerGeneration: v.string(),
   stage: v.string(),
   planRevision: v.number(),
-});
-
-/** Exact action-side callback fence for expired external-media reservations. */
-export const assertExternalMediaMigrationLeaseInternal = internalMutation({
-  args: {
-    ...ownerArgs,
-    migrationId: v.string(),
-    leaseId: v.string(),
-    leaseGeneration: v.number(),
-    fromOwnerGeneration: v.string(),
-    toOwnerGeneration: v.string(),
-    planRevision: v.number(),
-    now: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, {
-      fromOwnerId: args.fromOwnerId,
-      toOwnerId: args.toOwnerId,
-      leaseId: args.leaseId,
-      leaseGeneration: args.leaseGeneration,
-      leaseNow: args.now,
-    });
-    if (
-      String(migration._id) !== args.migrationId ||
-      migration.fromOwnerGeneration !== args.fromOwnerGeneration ||
-      migration.toOwnerGeneration !== args.toOwnerGeneration ||
-      (migration.planRevision ?? 1) !== args.planRevision
-    ) {
-      throw new ConvexError({
-        code: "STALE_OWNERSHIP_MIGRATION_LEASE",
-        message: "External-media cleanup no longer owns the migration lease.",
-      });
-    }
-    return null;
-  },
 });
 
 export const getReadyExternalTransferAck = internalQuery({
@@ -3663,153 +3343,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         ],
       ],
       [
-        "media_provider_dispatch_leases",
-        [
-          ...(await ctx.db
-            .query("media_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("media_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.toOwnerId),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "media_provider_cancellations",
-        [
-          ...(await ctx.db
-            .query("media_provider_cancellations")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-            .take(1)),
-          ...(await ctx.db
-            .query("media_provider_cancellations")
-            .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-            .take(1)),
-        ],
-      ],
-      [
-        "media_billing_disposition_debt",
-        [
-          ...(await ctx.db
-            .query("media_jobs")
-            .withIndex(
-              "by_ownerId_and_billingDispositionState_and_updatedAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.fromOwnerId)
-                  .eq("billingDispositionState", "pending"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("media_jobs")
-            .withIndex(
-              "by_ownerId_and_billingDispositionState_and_updatedAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.fromOwnerId)
-                  .eq("billingDispositionState", "unknown"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("media_jobs")
-            .withIndex(
-              "by_ownerId_and_billingDispositionState_and_updatedAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.toOwnerId)
-                  .eq("billingDispositionState", "pending"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("media_jobs")
-            .withIndex(
-              "by_ownerId_and_billingDispositionState_and_updatedAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.toOwnerId)
-                  .eq("billingDispositionState", "unknown"),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "voice_provider_dispatch_leases",
-        [
-          ...(await ctx.db
-            .query("voice_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_state", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("voice_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_state", (q) =>
-              q.eq("ownerId", args.toOwnerId),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "voice_realtime_authority",
-        [
-          ...(await ctx.db
-            .query("billing_voice_sessions")
-            .withIndex(
-              "by_ownerId_and_authorityState_and_authorityExpiresAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.fromOwnerId)
-                  .eq("authorityState", "active"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("billing_voice_sessions")
-            .withIndex(
-              "by_ownerId_and_authorityState_and_authorityExpiresAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.fromOwnerId)
-                  .eq("authorityState", "cancel_requested"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("billing_voice_sessions")
-            .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId).eq("status", "active"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("billing_voice_sessions")
-            .withIndex(
-              "by_ownerId_and_authorityState_and_authorityExpiresAt",
-              (q) =>
-                q.eq("ownerId", args.toOwnerId).eq("authorityState", "active"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("billing_voice_sessions")
-            .withIndex(
-              "by_ownerId_and_authorityState_and_authorityExpiresAt",
-              (q) =>
-                q
-                  .eq("ownerId", args.toOwnerId)
-                  .eq("authorityState", "cancel_requested"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("billing_voice_sessions")
-            .withIndex("by_ownerId_and_status_and_leaseExpiresAt", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("status", "active"),
-            )
-            .take(1)),
-        ],
-      ],
-      [
         "x_oauth_states",
         await ctx.db
           .query("x_oauth_states")
@@ -3833,122 +3366,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "media_private_blob_cleanup",
-        await ctx.db
-          .query("media_private_blob_cleanup")
-          .withIndex("by_ownerId_and_state", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "media_private_payload_manifests",
-        await ctx.db
-          .query("media_private_payload_manifests")
-          .withIndex("by_ownerId_and_state", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "media_private_payload_chunks",
-        await ctx.db
-          .query("media_private_payload_chunks")
-          .withIndex("by_ownerId_and_manifestId", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "media_provider_cancellations",
-        await ctx.db
-          .query("media_provider_cancellations")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "media_owner_purges",
-        await ctx.db
-          .query("media_owner_purges")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "tts_hls_segments",
-        [
-          ...(await ctx.db
-            .query("tts_hls_segments")
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("tts_hls_segments")
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.toOwnerId),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "tts_stream_tickets",
-        [
-          ...(await ctx.db
-            .query("tts_stream_tickets")
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.fromOwnerId),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("tts_stream_tickets")
-            .withIndex("by_ownerId_and_createdAt", (q) =>
-              q.eq("ownerId", args.toOwnerId),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "tts_provider_dispatch_leases",
-        [
-          ...(await ctx.db
-            .query("tts_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_state", (q) =>
-              q.eq("ownerId", args.fromOwnerId).eq("state", "active"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("tts_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_state", (q) =>
-              q.eq("ownerId", args.fromOwnerId).eq("state", "cancel_requested"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("tts_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_state", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("state", "active"),
-            )
-            .take(1)),
-          ...(await ctx.db
-            .query("tts_provider_dispatch_leases")
-            .withIndex("by_ownerId_and_state", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("state", "cancel_requested"),
-            )
-            .take(1)),
-        ],
-      ],
-      [
-        "emoji_packs",
-        await ctx.db
-          .query("emoji_packs")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "account_external_media_objects",
-        await ctx.db
-          .query("account_external_media_objects")
-          .withIndex("by_ownerId_and_uploadId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
         "canvas_shares",
         await ctx.db
           .query("canvas_shares")
@@ -3960,23 +3377,9 @@ export const auditOwnershipMigrationResidue = internalQuery({
       "billing_managed_dispatch_leases",
       "billing_managed_execution_leases",
       "billing_usage_reservations",
-      "voice_provider_dispatch_leases",
       "x_oauth_states",
       "cloud_engine_connects",
       "cloud_github_install_states",
-      "media_private_blob_cleanup",
-      "media_private_payload_manifests",
-      "media_private_payload_chunks",
-      "media_provider_cancellations",
-      "media_owner_purges",
-      "tts_hls_segments",
-      "tts_stream_tickets",
-      // Provider actions observe the permanent source fence, self-cancel, and
-      // release this exact-attempt lease. Migration waits for that release (or
-      // its hard reaper) and never transfers ephemeral provider authority.
-      "tts_provider_dispatch_leases",
-      "emoji_packs",
-      "account_external_media_objects",
     ]);
     for (const [table, rows] of blockedChecks) {
       if (rows.length > 0) {
@@ -4070,28 +3473,10 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "internal_tts_usage",
-        await ctx.db
-          .query("internal_tts_usage")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "x_oauth_tokens",
         await ctx.db
           .query("x_oauth_tokens")
           .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "media_jobs",
-        await ctx.db
-          .query("media_jobs")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
           .take(1),
       ],
       [
@@ -4214,58 +3599,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         await ctx.db
           .query("user_counters")
           .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "billing_voice_usage_receipts",
-        await ctx.db
-          .query("billing_voice_usage_receipts")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "billing_media_usage_receipts",
-        await ctx.db
-          .query("billing_media_usage_receipts")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "billing_voice_sessions",
-        await ctx.db
-          .query("billing_voice_sessions")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "media_job_logs",
-        await ctx.db
-          .query("media_job_logs")
-          .withIndex("by_ownerId_and_jobId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "media_request_cancellations",
-        await ctx.db
-          .query("media_request_cancellations")
-          .withIndex("by_ownerId_and_clientRequestKey", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "media_webhook_events",
-        await ctx.db
-          .query("media_webhook_events")
-          .withIndex("by_ownerId_and_receivedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
           .take(1),
       ],
       [
@@ -4435,12 +3768,7 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateUsageLogsBatch,
   internal.auth_migration.migrateConnectorTurnPayloadsBatch,
   internal.auth_migration.migrateAgentsBatch,
-  internal.auth_migration.migrateMediaJobsBatch,
-  internal.auth_migration.migrateMediaRequestCancellationsBatch,
-  internal.auth_migration.migrateMediaJobLogsBatch,
-  internal.auth_migration.migrateMediaWebhookEventsBatch,
   internal.auth_migration.migrateUserCountersBatch,
-  internal.auth_migration.migrateAccountExternalMediaContentBatch,
   internal.auth_migration.migrateXTokensBatch,
   internal.auth_migration.discardAnonymousTransientHandshakesBatch,
 ] as const;
@@ -4958,152 +4286,6 @@ export const migrateOwnership = internalAction({
       return null;
     }
 
-    await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runMutation(
-          internal.media_jobs
-            .cancelOwnerMediaProviderDispatchesForMigrationInternal,
-          { migrationId, ownerId, now: Date.now() },
-        ),
-      ),
-    );
-    await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runAction(
-          internal.media_image_submission.drainOwnerProviderCancellations,
-          { ownerId, limit: 100 },
-        ),
-      ),
-    );
-    const mediaDispatches = await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runMutation(
-          internal.media_jobs
-            .cancelOwnerMediaProviderDispatchesForMigrationInternal,
-          { migrationId, ownerId, now: Date.now() },
-        ),
-      ),
-    );
-    if (mediaDispatches.some((result) => !result.ready)) {
-      const retryAt = mediaDispatches
-        .map((result) => result.retryAt)
-        .filter((at): at is number => at !== null);
-      const now = Date.now();
-      await ctx.runMutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        {
-          ...ownerIds,
-          leaseId,
-          leaseGeneration,
-          outcome: "pending",
-          retryAfterMs:
-            retryAt.length === 0
-              ? 1_000
-              : Math.min(60_000, Math.max(1_000, Math.min(...retryAt) - now)),
-          error:
-            "Account linking is waiting for a media provider attempt to become quiescent.",
-          now,
-        },
-      );
-      return null;
-    }
-
-    // HLS segments are children of the short-lived read-aloud ticket. Neither
-    // is product state, and neither may regain provider authority after the
-    // migration fence clears. Drain both principals child-first before waiting
-    // on the durable provider-attempt receipts below.
-    const ttsSessions = await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runMutation(
-          internal.tts_hls.discardOwnerTtsSessionsForMigrationInternal,
-          { ownerId },
-        ),
-      ),
-    );
-    if (ttsSessions.some((result) => !result.ready)) {
-      const now = Date.now();
-      await ctx.runMutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        {
-          ...ownerIds,
-          leaseId,
-          leaseGeneration,
-          outcome: "pending",
-          retryAfterMs: 1_000,
-          error:
-            "Account linking is discarding transient TTS playback sessions.",
-          now,
-        },
-      );
-      return null;
-    }
-
-    const ttsDispatches = await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runMutation(
-          internal.tts_dispatch
-            .quiesceOwnerTtsProviderDispatchesForMigrationInternal,
-          { ownerId, now: Date.now() },
-        ),
-      ),
-    );
-    if (ttsDispatches.some((result) => !result.ready)) {
-      const retryAt = ttsDispatches
-        .map((result) => result.retryAt)
-        .filter((at): at is number => at !== null);
-      const now = Date.now();
-      await ctx.runMutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        {
-          ...ownerIds,
-          leaseId,
-          leaseGeneration,
-          outcome: "pending",
-          retryAfterMs:
-            retryAt.length === 0
-              ? 1_000
-              : Math.min(60_000, Math.max(1_000, Math.min(...retryAt) - now)),
-          error:
-            "Account linking is waiting for a TTS provider attempt to become quiescent.",
-          now,
-        },
-      );
-      return null;
-    }
-
-    const voiceDispatches = await Promise.all(
-      [args.fromOwnerId, args.toOwnerId].map((ownerId) =>
-        ctx.runMutation(
-          internal.voice_dispatch
-            .cancelOwnerVoiceProviderDispatchesForMigrationInternal,
-          { migrationId, ownerId, now: Date.now() },
-        ),
-      ),
-    );
-    if (voiceDispatches.some((result) => !result.ready)) {
-      const retryAt = voiceDispatches
-        .map((result) => result.retryAt)
-        .filter((at): at is number => at !== null);
-      const now = Date.now();
-      await ctx.runMutation(
-        internal.auth_migration.finishOwnershipMigrationPass,
-        {
-          ...ownerIds,
-          leaseId,
-          leaseGeneration,
-          outcome: "pending",
-          retryAfterMs:
-            retryAt.length === 0
-              ? 1_000
-              : Math.min(60_000, Math.max(1_000, Math.min(...retryAt) - now)),
-          error:
-            "Account linking is waiting for a voice provider attempt to become quiescent.",
-          now,
-        },
-      );
-      return null;
-    }
-
     // Code-safe calls and direct native integration actions share the same
     // durable provider-dispatch receipt. Fence both identities before any
     // conversation, credential, or integration ownership moves: an action
@@ -5498,67 +4680,46 @@ export const migrateOwnership = internalAction({
             );
           }
         } else {
-          const externalMediaCleanup = await ctx.runAction(
-            internal.account_external_media
-              .cleanupOwnerExternalMediaReservationsForMigrationInternal,
-            {
-              ...ownerIds,
-              migrationId: String(migrationId),
-              leaseId,
-              leaseGeneration,
-              fromOwnerGeneration,
-              toOwnerGeneration,
-              planRevision,
-              now: Date.now(),
-            },
+          const independentMigrations = await Promise.all(
+            PARALLEL_TABLE_MUTATIONS.map((mutation) =>
+              ctx.runMutation(mutation as OwnerBatchMutation, {
+                ...leaseForCommit(),
+              }),
+            ),
           );
-          if (!externalMediaCleanup.ready) {
-            retryAfterMs = Math.min(
-              60_000,
-              Math.max(1_000, externalMediaCleanup.retryAfterMs ?? 5_000),
-            );
+          if (independentMigrations.some((result) => result.hasMore)) {
+            retryAfterMs = 1_000;
           } else {
-            const independentMigrations = await Promise.all(
-              PARALLEL_TABLE_MUTATIONS.map((mutation) =>
-                ctx.runMutation(mutation as OwnerBatchMutation, {
+            // These depend on all source-owner rows having drained.
+            await Promise.all([
+              ctx.runMutation(
+                internal.auth_migration.deduplicateDefaultConversation,
+                {
                   ...leaseForCommit(),
-                }),
+                },
               ),
+              ctx.runMutation(
+                internal.auth_migration.deduplicateUserCounters,
+                {
+                  ...leaseForCommit(),
+                },
+              ),
+            ]);
+            const residue = await ctx.runQuery(
+              internal.auth_migration.auditOwnershipMigrationResidue,
+              ownerIds,
             );
-            if (independentMigrations.some((result) => result.hasMore)) {
+            if (residue.kind === "retry") {
               retryAfterMs = 1_000;
+              migrationError = `Source-owner state reappeared in ${residue.table ?? "an anonymous-usable table"}; another bounded pass is required.`;
+            } else if (residue.kind === "blocked") {
+              outcome = "failed";
+              migrationError = `Account linking is blocked by unresolved ${residue.table ?? "connected-only or in-flight"} state on the anonymous identity.`;
             } else {
-              // These depend on all source-owner rows having drained.
-              await Promise.all([
-                ctx.runMutation(
-                  internal.auth_migration.deduplicateDefaultConversation,
-                  {
-                    ...leaseForCommit(),
-                  },
-                ),
-                ctx.runMutation(
-                  internal.auth_migration.deduplicateUserCounters,
-                  {
-                    ...leaseForCommit(),
-                  },
-                ),
-              ]);
-              const residue = await ctx.runQuery(
-                internal.auth_migration.auditOwnershipMigrationResidue,
-                ownerIds,
+              outcome = "complete";
+              console.log(
+                `[auth_migration] Completed ownership migration ${String(migrationId)}.`,
               );
-              if (residue.kind === "retry") {
-                retryAfterMs = 1_000;
-                migrationError = `Source-owner state reappeared in ${residue.table ?? "an anonymous-usable table"}; another bounded pass is required.`;
-              } else if (residue.kind === "blocked") {
-                outcome = "failed";
-                migrationError = `Account linking is blocked by unresolved ${residue.table ?? "connected-only or in-flight"} state on the anonymous identity.`;
-              } else {
-                outcome = "complete";
-                console.log(
-                  `[auth_migration] Completed ownership migration ${String(migrationId)}.`,
-                );
-              }
             }
           }
         }

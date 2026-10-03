@@ -24,8 +24,6 @@ const ADMIN_TEST_ACCOUNT_SESSION_PATH = "/api/admin/test-accounts/session";
 const ADMIN_OWNER_ENFORCEMENT_PATH = "/api/admin/owners/enforcement";
 const ADMIN_OWNER_LOOKUP_PATH = "/api/admin/owners/lookup";
 const ADMIN_OWNER_TOP_PATH = "/api/admin/owners/top";
-const MEDIA_DELETE_MAX_STEPS = 200;
-
 type AdminDeleteBody = {
   kind?: string;
   id?: string;
@@ -517,29 +515,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
 
       const { kind, id } = parsed;
       switch (kind) {
-        case "emoji_pack":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.admin_deletes.deleteEmojiPack, {
-              packId: id,
-            }),
-          );
-        case "media_job": {
-          let result: { hasMore?: boolean } | null = null;
-          for (let step = 0; step < MEDIA_DELETE_MAX_STEPS; step += 1) {
-            result = await ctx.runMutation(
-              internal.admin_deletes.deleteMediaJob,
-              { jobId: id },
-            );
-            if (result && !result.hasMore) return jsonResponse(200, result);
-          }
-          return jsonResponse(409, {
-            error: "Media job delete needs another request.",
-            kind,
-            id,
-            hasMore: true,
-          });
-        }
         case "desktop_release":
           return jsonResponse(
             200,

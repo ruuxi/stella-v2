@@ -8,13 +8,15 @@
  *     Gemini), the graceful fallback when streaming is unavailable.
  */
 import type { ReadAloudVoiceProvider } from "@stella/contracts/local-preferences";
-import { createServiceRequest } from "@/platform/http/service-request";
+import {
+  VOICE_TTS_PATH,
+  VOICE_TTS_STREAM_PATH,
+} from "@stella/contracts/backend/voice";
+import { voiceBackendFetch } from "../voice-backend";
 
 export type ReadAloudVoiceFamily = ReadAloudVoiceProvider;
 
 export type ReadAloudRequest = {
-  /** Stable for one read invocation, including stream-to-buffered fallback. */
-  operationId: string;
   text: string;
   voice?: string;
   voiceProvider: ReadAloudVoiceFamily;
@@ -27,11 +29,6 @@ export type ReadAloudResponse = {
   contentType: string;
 };
 
-const TTS_PATH = "/api/voice/tts";
-const TTS_STREAM_PATH = "/api/voice/tts/stream";
-
-export const createReadAloudOperationId = (): string => crypto.randomUUID();
-
 /**
  * Open a progressive Gemini TTS stream. Resolves with the raw streaming
  * `Response` (an `audio/mpeg` body) so the player can feed it into Media
@@ -41,53 +38,25 @@ export const createReadAloudOperationId = (): string => crypto.randomUUID();
 export async function openReadAloudStream(
   req: Omit<ReadAloudRequest, "voiceProvider">,
 ): Promise<Response> {
-  const { endpoint, headers } = await createServiceRequest(TTS_STREAM_PATH, {
-    "Content-Type": "application/json",
-  });
-  const body: Record<string, unknown> = {
-    text: req.text,
-    operationId: req.operationId,
-  };
-  if (req.voice) body.voice = req.voice;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
+  return await voiceBackendFetch(VOICE_TTS_STREAM_PATH, {
+    body: JSON.stringify({ text: req.text, ...(req.voice ? { voice: req.voice } : {}) }),
+    contentType: "application/json",
     signal: req.signal,
   });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Read-aloud stream failed (${response.status})${detail ? `: ${detail}` : ""}`,
-    );
-  }
-  return response;
 }
 
 export async function fetchReadAloudAudio(
   req: ReadAloudRequest,
 ): Promise<ReadAloudResponse> {
-  const { endpoint, headers } = await createServiceRequest(TTS_PATH, {
-    "Content-Type": "application/json",
-  });
-  const body: Record<string, unknown> = {
-    text: req.text,
-    voiceProvider: req.voiceProvider,
-    operationId: req.operationId,
-  };
-  if (req.voice) body.voice = req.voice;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
+  const response = await voiceBackendFetch(VOICE_TTS_PATH, {
+    body: JSON.stringify({
+      text: req.text,
+      voiceProvider: req.voiceProvider,
+      ...(req.voice ? { voice: req.voice } : {}),
+    }),
+    contentType: "application/json",
     signal: req.signal,
   });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Read-aloud TTS failed (${response.status})${detail ? `: ${detail}` : ""}`,
-    );
-  }
   const contentType =
     response.headers.get("content-type")?.split(";")[0]?.trim() ?? "audio/mpeg";
   const audio = await response.arrayBuffer();

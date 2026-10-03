@@ -58,8 +58,10 @@ test("provider completion stops native recording and commits once across close, 
     mock.module(${JSON.stringify(resolve(lib, "dictation-transcript-preview.ts"))}, () => ({ resetDictationTranscriptPreview() {}, updateDictationTranscriptPreview() {} }));
     mock.module(${JSON.stringify(resolve(lib, "auth-token.ts"))}, () => ({ getConvexToken: async () => "fixture-token" }));
     mock.module(${JSON.stringify(resolve(lib, "http.ts"))}, () => ({
-      postJson: async () => ({ relayOrigin: "https://relay.example" }),
       HttpRequestError: class extends Error {},
+    }));
+    mock.module(${JSON.stringify(resolve(lib, "backend.ts"))}, () => ({
+      getBackendClient: () => ({ call: async () => ({ relayOrigin: "https://relay.example" }) }),
     }));
     class Socket {
       static OPEN = 1;

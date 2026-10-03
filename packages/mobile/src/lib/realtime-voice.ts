@@ -4,13 +4,18 @@ import type {
 } from "react-native-webrtc";
 import type { ChatMessage, MobileTask } from "../types";
 import type { StoredPhoneAccess } from "./phone-access";
-import { postJson, postText } from "./http";
+import {
+  VOICE_LEASE_HEADER,
+  VOICE_OPENAI_SDP_PATH,
+  type VoiceLeaseEvent,
+} from "@stella/contracts/backend/voice";
+import { getBackendClient } from "./backend";
+import { postText } from "./http";
 import {
   buildComputerVoiceInstructions,
   buildMobileRealtimeSessionUpdate,
   buildAttachedChatVoiceInstructions,
   findVoiceActionCompletion,
-  managedVoiceConversationId,
   mergeComputerVoiceTools,
   realtimeErrorMessage,
   type RealtimeVoiceActionDispatch,
@@ -32,128 +37,36 @@ import {
   type RecordingAudioLease,
 } from "./mobile-audio-session";
 
-const STELLA_OPENAI_REALTIME_SDP_PATH = "/api/voice/openai/sdp";
 const DATA_CHANNEL_OPEN_TIMEOUT_MS = 15_000;
 const LEASE_HEARTBEAT_MS = 2_000;
 const LEASE_REQUEST_TIMEOUT_MS = 1_500;
 const USAGE_REQUEST_TIMEOUT_MS = 1_500;
 const USAGE_DRAIN_TIMEOUT_MS = 2_000;
-const AUTHORITY_MAX_LOCAL_LIFETIME_MS = 10_000;
+const LEASE_MAX_LOCAL_LIFETIME_MS = 10_000;
 const LEASE_EXPIRY_SKEW_MS = 1_000;
+const SESSION_REQUEST_TIMEOUT_MS = 20_000;
 const SESSION_UPDATE_TIMEOUT_MS = 10_000;
 const SDP_NEGOTIATION_TIMEOUT_MS = 8_000;
 const DISCONNECTED_GRACE_MS = 10_000;
 const GOODBYE_DRAIN_FALLBACK_MS = 1_200;
 
-export const buildManagedOpenAiSdpRequest = (authority: {
-  stellaSessionId: string;
-  ownerGeneration: string;
-  providerDispatchId: string;
-  providerAttemptId: string;
-}) => ({
-  path: STELLA_OPENAI_REALTIME_SDP_PATH,
-  headers: {
-    "Content-Type": "application/sdp",
-    "X-Stella-Voice-Session-ID": authority.stellaSessionId,
-    "X-Stella-Owner-Generation": authority.ownerGeneration,
-    "X-Stella-Provider-Dispatch-ID": authority.providerDispatchId,
-    "X-Stella-Provider-Attempt-ID": authority.providerAttemptId,
-  },
-});
-
-type VoiceSessionToken = {
-  voiceProvider?: "openai";
-  transport?: "openai-webrtc";
-  clientSecret?: unknown;
-  expiresAt?: unknown;
-  sessionId?: unknown;
-  model?: unknown;
-  voice?: unknown;
-  stellaSessionId?: unknown;
-  leaseExpiresAt?: unknown;
-  ownerGeneration?: unknown;
-  providerDispatchId?: unknown;
-  providerAttemptId?: unknown;
-  authorityLeaseId?: unknown;
-  authorityEpoch?: unknown;
-  authorityExpiresAt?: unknown;
-};
-
-type VoiceLeaseEvent =
-  | "heartbeat"
-  | "ended"
-  | "expired"
-  | "lost"
-  | "cancel_ack";
-
-type VoiceUsageDisposition = "drained" | "unresolved";
-
-type VoiceTerminalMetadata = {
-  usageDisposition: VoiceUsageDisposition;
-  transportClosedAt: number;
-};
-
-type VoiceLeaseDirective =
-  | {
-      recorded: boolean;
-      directive: "invalid";
-      authorityEpoch: null;
-      authorityExpiresAt: null;
-      cancelReason: null;
-    }
-  | {
-      recorded: boolean;
-      directive: "continue" | "cancel" | "closed";
-      authorityEpoch: number;
-      authorityExpiresAt: number;
-      cancelReason: string | null;
-    };
-
-const parseVoiceLeaseDirective = (
-  value: unknown,
-): VoiceLeaseDirective | null => {
-  const record = asRecord(value);
-  if (!record || typeof record.recorded !== "boolean") return null;
-  if (record.directive === "invalid") {
-    if (
-      record.authorityEpoch !== null ||
-      record.authorityExpiresAt !== null ||
-      record.cancelReason !== null
-    ) {
-      return null;
-    }
-    return {
-      recorded: record.recorded,
-      directive: "invalid",
-      authorityEpoch: null,
-      authorityExpiresAt: null,
-      cancelReason: null,
-    };
-  }
-  if (
-    record.directive !== "continue" &&
-    record.directive !== "cancel" &&
-    record.directive !== "closed"
-  ) {
-    return null;
-  }
-  if (
-    !Number.isSafeInteger(record.authorityEpoch) ||
-    (record.authorityEpoch as number) < 1 ||
-    typeof record.authorityExpiresAt !== "number" ||
-    !Number.isFinite(record.authorityExpiresAt) ||
-    (record.cancelReason !== null && typeof record.cancelReason !== "string")
-  ) {
-    return null;
-  }
-  return {
-    recorded: record.recorded,
-    directive: record.directive,
-    authorityEpoch: record.authorityEpoch as number,
-    authorityExpiresAt: record.authorityExpiresAt,
-    cancelReason: record.cancelReason as string | null,
-  };
-};
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Request timed out. Try again.")),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 
 export type RealtimeVoiceSnapshot = {
   phase: RealtimeVoicePhase;
@@ -287,15 +200,8 @@ export class MobileRealtimeVoiceSession {
   private token: {
     model: string;
     voice: string;
-    clientSecret: string;
-    stellaSessionId: string;
-    leaseExpiresAt?: number;
-    ownerGeneration: string;
-    providerDispatchId: string;
-    providerAttemptId: string;
-    authorityLeaseId: string;
-    authorityEpoch: number;
-    authorityExpiresAt: number;
+    leaseId: string;
+    leaseExpiresAt: number;
   } | null = null;
   private desktopVoice: DesktopRealtimeVoice | null = null;
   private connectedAt: number | null = null;
@@ -309,11 +215,8 @@ export class MobileRealtimeVoiceSession {
   private audioLease: RecordingAudioLease | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private leaseExpiryTimer: ReturnType<typeof setTimeout> | null = null;
-  private authorityExpiryTimer: ReturnType<typeof setTimeout> | null = null;
-  private authorityCancelPromise: Promise<void> | null = null;
   private inFlightUsageReports = new Set<Promise<void>>();
   private usageReportingClosed = false;
-  private usageReportingFailed = false;
   private goodbyeTimer: ReturnType<typeof setTimeout> | null = null;
   private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   private sdpAbortController: AbortController | null = null;
@@ -423,71 +326,23 @@ export class MobileRealtimeVoiceSession {
           this.options.messages,
         );
       }
-      const managedConversationId = managedVoiceConversationId(
-        this.options.conversationId,
-      );
-      const raw = (await postJson(
-        "/api/voice/session",
-        {
-          ...(managedConversationId
-            ? { conversationId: managedConversationId }
-            : {}),
+      const session = await withTimeout(
+        getBackendClient().call("voice.session", {
           instructions,
           ...(this.options.execution === "computer" ? { tools } : {}),
           voiceProvider: "openai",
-        },
-        { timeoutMs: 20_000 },
-      )) as VoiceSessionToken;
-      const clientSecret = asString(raw.clientSecret);
-      const model = asString(raw.model);
-      const voice = asString(raw.voice);
-      const stellaSessionId = asString(raw.stellaSessionId).trim();
-      const ownerGeneration = asString(raw.ownerGeneration).trim();
-      const providerDispatchId = asString(raw.providerDispatchId).trim();
-      const providerAttemptId = asString(raw.providerAttemptId).trim();
-      const authorityLeaseId = asString(raw.authorityLeaseId).trim();
-      const authorityEpoch = raw.authorityEpoch;
-      const authorityExpiresAt = raw.authorityExpiresAt;
-      if (
-        !clientSecret ||
-        !model ||
-        !voice ||
-        !stellaSessionId ||
-        !ownerGeneration ||
-        !providerDispatchId ||
-        !providerAttemptId ||
-        !authorityLeaseId ||
-        !Number.isSafeInteger(authorityEpoch) ||
-        (authorityEpoch as number) < 1 ||
-        typeof authorityExpiresAt !== "number" ||
-        !Number.isFinite(authorityExpiresAt)
-      ) {
-        throw new Error(
-          "Stella did not return a complete realtime voice session.",
-        );
-      }
+        }),
+        SESSION_REQUEST_TIMEOUT_MS,
+      );
       this.token = {
-        clientSecret,
-        model,
-        voice,
-        stellaSessionId,
-        ownerGeneration,
-        providerDispatchId,
-        providerAttemptId,
-        authorityLeaseId,
-        authorityEpoch: authorityEpoch as number,
-        authorityExpiresAt,
-        ...(typeof raw.leaseExpiresAt === "number"
-          ? { leaseExpiresAt: raw.leaseExpiresAt }
-          : {}),
+        model: session.model,
+        voice: session.voice,
+        leaseId: session.leaseId,
+        leaseExpiresAt: session.leaseExpiresAt,
       };
       if (this.stopped) {
         const cleanup = this.releaseConnection();
-        const transportClosedAt = Date.now();
-        const terminalReport = this.reportLeaseTerminal(
-          this.stopEvent,
-          transportClosedAt,
-        );
+        const terminalReport = this.reportLeaseTerminal(this.stopEvent);
         await Promise.allSettled([cleanup, terminalReport]);
         return;
       }
@@ -521,14 +376,11 @@ export class MobileRealtimeVoiceSession {
       }, SDP_NEGOTIATION_TIMEOUT_MS);
       let sdpAnswer: string;
       try {
-        const sdpRequest = buildManagedOpenAiSdpRequest({
-          stellaSessionId,
-          ownerGeneration,
-          providerDispatchId,
-          providerAttemptId,
-        });
-        sdpAnswer = await postText(sdpRequest.path, localSdp, {
-          headers: sdpRequest.headers,
+        sdpAnswer = await postText(VOICE_OPENAI_SDP_PATH, localSdp, {
+          headers: {
+            "Content-Type": "application/sdp",
+            [VOICE_LEASE_HEADER]: session.leaseId,
+          },
           signal: sdpAbortController.signal,
           timeoutMs: SDP_NEGOTIATION_TIMEOUT_MS,
         });
@@ -596,11 +448,7 @@ export class MobileRealtimeVoiceSession {
         error: message,
       });
       const cleanup = this.releaseConnection();
-      const transportClosedAt = Date.now();
-      const terminalReport = this.reportLeaseTerminal(
-        "lost",
-        transportClosedAt,
-      );
+      const terminalReport = this.reportLeaseTerminal("lost");
       await Promise.allSettled([cleanup, terminalReport]);
     }
   }
@@ -610,8 +458,7 @@ export class MobileRealtimeVoiceSession {
     this.stopped = true;
     this.stopEvent = event;
     const cleanup = this.releaseConnection();
-    const transportClosedAt = Date.now();
-    const terminalReport = this.reportLeaseTerminal(event, transportClosedAt);
+    const terminalReport = this.reportLeaseTerminal(event);
     await Promise.allSettled([cleanup, terminalReport]);
   }
 
@@ -788,7 +635,6 @@ export class MobileRealtimeVoiceSession {
       case "response.done": {
         const response = asRecord(event.response);
         if (response) this.trackUsage(response);
-        else this.usageReportingFailed = true;
         this.responseActive = false;
         this.flushResponseQueue();
         return;
@@ -1085,44 +931,26 @@ export class MobileRealtimeVoiceSession {
 
   private startLeaseReporting() {
     if (!this.token) return;
-    this.scheduleAuthorityExpiry(this.token.authorityExpiresAt);
+    this.scheduleLeaseExpiry(this.token.leaseExpiresAt);
     void this.reportLeaseEvent("heartbeat");
     this.heartbeatTimer = setInterval(() => {
       void this.reportLeaseEvent("heartbeat");
     }, LEASE_HEARTBEAT_MS);
-
-    if (this.token.leaseExpiresAt) {
-      const delay = Math.max(
-        0,
-        this.token.leaseExpiresAt - Date.now() - LEASE_EXPIRY_SKEW_MS,
-      );
-      this.leaseExpiryTimer = setTimeout(() => {
-        if (this.stopped) return;
-        this.publish({
-          phase: "error",
-          isConnected: false,
-          error: "This voice session expired. Start a new one to keep talking.",
-        });
-        void this.stop("expired");
-      }, delay);
-    }
   }
 
-  private scheduleAuthorityExpiry(authorityExpiresAt: number) {
-    if (this.authorityExpiryTimer) {
-      clearTimeout(this.authorityExpiryTimer);
-    }
-    this.authorityExpiryTimer = null;
+  private scheduleLeaseExpiry(leaseExpiresAt: number) {
+    if (this.leaseExpiryTimer) clearTimeout(this.leaseExpiryTimer);
+    this.leaseExpiryTimer = null;
     if (this.stopped) return;
-    // Cap the absolute server timestamp to one authority lifetime so a device
+    // Cap the absolute server timestamp to one lease lifetime so a device
     // clock that is behind cannot accidentally keep the provider peer alive.
     const remainingMs = Math.min(
-      AUTHORITY_MAX_LOCAL_LIFETIME_MS,
-      authorityExpiresAt - Date.now(),
+      LEASE_MAX_LOCAL_LIFETIME_MS,
+      leaseExpiresAt - Date.now(),
     );
     const delay = Math.max(0, remainingMs - LEASE_EXPIRY_SKEW_MS);
-    this.authorityExpiryTimer = setTimeout(() => {
-      this.authorityExpiryTimer = null;
+    this.leaseExpiryTimer = setTimeout(() => {
+      this.leaseExpiryTimer = null;
       if (this.stopped) return;
       this.publish({
         phase: "error",
@@ -1140,246 +968,64 @@ export class MobileRealtimeVoiceSession {
   private trackUsage(response: Record<string, unknown>) {
     const responseId = asString(response.id);
     const usage = asRecord(response.usage);
-    if (!responseId || !usage) {
-      // A terminal provider response without an exact receipt is ambiguous:
-      // never tell the backend that the physical attempt was fully drained.
-      this.usageReportingFailed = true;
-      return;
-    }
     const token = this.token;
-    if (!token || this.usageReportingClosed) {
-      // A provider response with billable usage that cannot be bound to an
-      // open exact authority tuple must force conservative backend settlement.
-      this.usageReportingFailed = true;
-      return;
-    }
-
-    // Snapshot the complete physical-attempt tuple before an authority-cancel
-    // heartbeat can advance the live token's epoch. The server deliberately
-    // accepts this immediately previous epoch while the cancellation is open.
-    const authority = {
-      model: token.model,
-      stellaSessionId: token.stellaSessionId,
-      ownerGeneration: token.ownerGeneration,
-      providerDispatchId: token.providerDispatchId,
-      providerAttemptId: token.providerAttemptId,
-      authorityLeaseId: token.authorityLeaseId,
-      authorityEpoch: token.authorityEpoch,
-    };
+    if (!responseId || !usage || !token || this.usageReportingClosed) return;
+    const leaseId = token.leaseId;
     let tracked!: Promise<void>;
-    tracked = this.reportUsage(responseId, usage, authority)
-      .catch(() => {
-        // Terminal/cancel reporting still proceeds, but explicitly declares
-        // that exact provider usage could not be proven drained.
-        this.usageReportingFailed = true;
-      })
+    tracked = withTimeout(
+      getBackendClient().call("voice.usage", { leaseId, responseId, usage }),
+      USAGE_REQUEST_TIMEOUT_MS,
+    )
+      .then(() => undefined)
+      // The server charges what a lost report misses when the lease closes.
+      .catch(() => undefined)
       .finally(() => {
         this.inFlightUsageReports.delete(tracked);
       });
     this.inFlightUsageReports.add(tracked);
   }
 
-  private async reportUsage(
-    responseId: string,
-    usage: Record<string, unknown>,
-    authority: {
-      model: string;
-      stellaSessionId: string;
-      ownerGeneration: string;
-      providerDispatchId: string;
-      providerAttemptId: string;
-      authorityLeaseId: string;
-      authorityEpoch: number;
-    },
-  ) {
-    await postJson(
-      "/api/voice/usage",
-      {
-        responseId,
-        model: authority.model,
-        stellaSessionId: authority.stellaSessionId,
-        ownerGeneration: authority.ownerGeneration,
-        providerDispatchId: authority.providerDispatchId,
-        providerAttemptId: authority.providerAttemptId,
-        authorityLeaseId: authority.authorityLeaseId,
-        authorityEpoch: authority.authorityEpoch,
-        conversationId: this.options.conversationId,
-        usage,
-      },
-      { timeoutMs: USAGE_REQUEST_TIMEOUT_MS },
-    );
-  }
-
-  private async closeUsageReportingAndDrain(
-    transportClosedAt: number,
-  ): Promise<VoiceTerminalMetadata> {
+  /** Stop accepting usage, then give in-flight reports a bounded wait. */
+  private async closeUsageReportingAndDrain(): Promise<void> {
     this.usageReportingClosed = true;
     const pending = [...this.inFlightUsageReports];
-    if (pending.length > 0) {
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const drained = await Promise.race([
-        Promise.all(pending).then(() => true),
-        new Promise<false>((resolve) => {
-          timer = setTimeout(() => resolve(false), USAGE_DRAIN_TIMEOUT_MS);
-        }),
-      ]);
-      if (timer) clearTimeout(timer);
-      if (!drained) this.usageReportingFailed = true;
-    }
-    return {
-      usageDisposition: this.usageReportingFailed ? "unresolved" : "drained",
-      transportClosedAt,
-    };
+    if (pending.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    await Promise.race([
+      Promise.all(pending),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, USAGE_DRAIN_TIMEOUT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
   }
 
-  private async reportLeaseEvent(
-    event: VoiceLeaseEvent,
-    terminal?: VoiceTerminalMetadata,
-  ) {
+  private async reportLeaseEvent(event: VoiceLeaseEvent) {
     const token = this.token;
     if (!token) return;
-    const { stellaSessionId, authorityLeaseId, authorityEpoch } = token;
+    const { leaseId } = token;
     try {
-      const response = await postJson(
-        "/api/voice/lease",
-        {
-          stellaSessionId,
-          event,
-          authorityLeaseId,
-          authorityEpoch,
-          ...(terminal ?? {}),
-        },
-        { timeoutMs: LEASE_REQUEST_TIMEOUT_MS },
+      const response = await withTimeout(
+        getBackendClient().call("voice.lease", { leaseId, event }),
+        LEASE_REQUEST_TIMEOUT_MS,
       );
-      const raw = parseVoiceLeaseDirective(response);
-      if (!raw) {
-        if (event === "heartbeat") await this.closeForAuthorityLoss();
+      if (event !== "heartbeat" || this.stopped || this.token?.leaseId !== leaseId) {
         return;
       }
-      const directive = raw.directive;
-      const responseEpoch = raw.authorityEpoch;
-      if (directive === "cancel") {
-        if (
-          responseEpoch === authorityEpoch ||
-          responseEpoch === authorityEpoch + 1
-        ) {
-          await this.handleAuthorityCancellation({
-            stellaSessionId,
-            authorityLeaseId,
-            authorityEpoch: responseEpoch,
-            cancelReason: raw.cancelReason ?? "",
-          });
-        } else if (
-          event === "heartbeat" &&
-          this.token?.authorityLeaseId === authorityLeaseId &&
-          this.token.authorityEpoch === authorityEpoch
-        ) {
-          // The server can advance an active authority by exactly one epoch
-          // when it requests cancellation. Never adopt a forged or malformed
-          // future epoch; close the provider peer without acknowledging it.
-          await this.closeForAuthorityLoss();
-        }
+      if (response.directive === "continue" && response.leaseExpiresAt !== null) {
+        this.token.leaseExpiresAt = response.leaseExpiresAt;
+        this.scheduleLeaseExpiry(response.leaseExpiresAt);
         return;
       }
-      if (
-        event === "heartbeat" &&
-        raw.recorded === true &&
-        directive === "continue" &&
-        !this.stopped &&
-        this.token?.authorityLeaseId === authorityLeaseId &&
-        this.token.authorityEpoch === authorityEpoch &&
-        responseEpoch === authorityEpoch &&
-        typeof raw.authorityExpiresAt === "number" &&
-        Number.isFinite(raw.authorityExpiresAt)
-      ) {
-        this.token.authorityExpiresAt = raw.authorityExpiresAt;
-        this.scheduleAuthorityExpiry(raw.authorityExpiresAt);
-        return;
-      }
-      if (
-        event === "heartbeat" &&
-        (directive === "closed" || directive === "invalid") &&
-        this.token?.authorityLeaseId === authorityLeaseId &&
-        this.token.authorityEpoch === authorityEpoch
-      ) {
-        await this.closeForAuthorityLoss();
-      }
+      await this.closeForLeaseLoss(response.reason);
     } catch {
-      // The last successfully renewed authority expiry is still enforced by
-      // the local timer, so a black-holed poll cannot leave WebRTC alive.
+      // The last renewed lease expiry is still enforced by the local timer,
+      // so a black-holed poll cannot leave WebRTC alive.
     }
   }
 
-  private async handleAuthorityCancellation(args: {
-    stellaSessionId: string;
-    authorityLeaseId: string;
-    authorityEpoch: number;
-    cancelReason: string;
-  }) {
-    const token = this.token;
-    if (
-      !token ||
-      token.stellaSessionId !== args.stellaSessionId ||
-      token.authorityLeaseId !== args.authorityLeaseId ||
-      args.authorityEpoch < token.authorityEpoch
-    ) {
-      return;
-    }
-    token.authorityEpoch = args.authorityEpoch;
-    if (this.authorityCancelPromise) {
-      await this.authorityCancelPromise;
-      return;
-    }
-
-    const wasAlreadyStopped = this.stopped;
-    this.stopped = true;
-    this.stopEvent = "lost";
-    // No stale ended/lost event may race the server's exact cancellation ack.
-    this.leaseTerminalReported = true;
-    if (!wasAlreadyStopped) {
-      this.publish({
-        phase: "error",
-        isConnected: false,
-        isUserSpeaking: false,
-        isAssistantSpeaking: false,
-        micLevel: 0,
-        outputLevel: 0,
-        error: args.cancelReason
-          ? "This voice session was closed because its authorization changed."
-          : "This voice session was closed by Stella.",
-      });
-    }
-
-    this.authorityCancelPromise = (async () => {
-      // releaseConnection closes the data channel and peer synchronously before
-      // its first await. Start it first, then drain every response.done usage
-      // report before the exact cancellation ack closes billing authority.
-      const cleanup = this.releaseConnection();
-      const transportClosedAt = Date.now();
-      const terminal =
-        await this.closeUsageReportingAndDrain(transportClosedAt);
-      try {
-        await postJson(
-          "/api/voice/lease",
-          {
-            stellaSessionId: args.stellaSessionId,
-            event: "cancel_ack",
-            authorityLeaseId: args.authorityLeaseId,
-            authorityEpoch: args.authorityEpoch,
-            ...terminal,
-          },
-          { timeoutMs: LEASE_REQUEST_TIMEOUT_MS },
-        );
-      } catch {
-        // The backend still fences the session at authority expiry if the ack
-        // cannot cross a network boundary after the peer has been closed.
-      }
-      await cleanup;
-    })();
-    await this.authorityCancelPromise;
-  }
-
-  private async closeForAuthorityLoss() {
+  /** The server closed the lease: stop without reporting a terminal event. */
+  private async closeForLeaseLoss(reason: string | null) {
     if (this.stopped) return;
     this.stopped = true;
     this.stopEvent = "lost";
@@ -1392,23 +1038,21 @@ export class MobileRealtimeVoiceSession {
       micLevel: 0,
       outputLevel: 0,
       error:
-        "This voice session is no longer authorized. Start a new one to keep talking.",
+        reason === "session_expired"
+          ? "This voice session expired. Start a new one to keep talking."
+          : "This voice session was closed by Stella. Start a new one to keep talking.",
     });
     const cleanup = this.releaseConnection();
-    const transportClosedAt = Date.now();
-    await this.closeUsageReportingAndDrain(transportClosedAt);
+    await this.closeUsageReportingAndDrain();
     await cleanup;
   }
 
-  private async reportLeaseTerminal(
-    event: "ended" | "expired" | "lost",
-    transportClosedAt: number,
-  ) {
+  private async reportLeaseTerminal(event: "ended" | "expired" | "lost") {
     if (this.leaseTerminalReported) return;
     if (!this.token) return;
     this.leaseTerminalReported = true;
-    const terminal = await this.closeUsageReportingAndDrain(transportClosedAt);
-    await this.reportLeaseEvent(event, terminal);
+    await this.closeUsageReportingAndDrain();
+    await this.reportLeaseEvent(event);
   }
 
   private async failConnection(message: string) {
@@ -1425,22 +1069,19 @@ export class MobileRealtimeVoiceSession {
       error: message,
     });
     const cleanup = this.releaseConnection();
-    const transportClosedAt = Date.now();
-    const terminalReport = this.reportLeaseTerminal("lost", transportClosedAt);
+    const terminalReport = this.reportLeaseTerminal("lost");
     await Promise.allSettled([cleanup, terminalReport]);
   }
 
   private async releaseConnection() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.leaseExpiryTimer) clearTimeout(this.leaseExpiryTimer);
-    if (this.authorityExpiryTimer) clearTimeout(this.authorityExpiryTimer);
     if (this.goodbyeTimer) clearTimeout(this.goodbyeTimer);
     this.clearDisconnectedTimer();
     this.sdpAbortController?.abort();
     this.sdpAbortController = null;
     this.heartbeatTimer = null;
     this.leaseExpiryTimer = null;
-    this.authorityExpiryTimer = null;
     this.goodbyeTimer = null;
     this.sessionUpdateWaiter?.finish(
       new Error("The realtime voice session ended during setup."),

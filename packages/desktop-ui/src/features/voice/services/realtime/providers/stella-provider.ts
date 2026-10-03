@@ -1,55 +1,28 @@
 /**
  * Stella-managed realtime voice provider.
  *
- * The user picks a voice family (OpenAI, xAI, or Inworld) plus a voice
- * id; the Stella backend mints the right kind of session for that family
- * and the renderer dispatches to the right transport based on the
- * `voiceProvider` / `transport` fields in the response.
- *
- * Auth model varies by sub-family:
- *   - openai: renderer sends SDP to Stella. Stella creates the OpenAI call,
- *     captures its revocation locator, and returns only the SDP answer.
- *   - xai: backend mints a short-lived xAI Voice Agent
- *     `client_secret`. Renderer talks WebSocket directly to xAI.
- *   - inworld: Inworld has no ephemeral token concept (their API key is
- *     used as the Bearer for SDP exchange). To avoid leaking Stella's
- *     org Inworld key, the renderer routes SDP through Stella's backend
- *     SDP-proxy endpoint, authenticated by the user's normal Convex
- *     auth. The org key never enters the renderer.
- *
- * The user does not need a BYOK key in any of these sub-paths.
+ * The backend opens a lease on a server-created OpenAI call
+ * (`voice.session`); the renderer posts its SDP offer to the backend under
+ * that lease and only ever sees the SDP answer, so no provider key reaches
+ * the renderer. xAI and Inworld have no call revocation boundary, so the
+ * backend refuses them as managed families.
  */
 
-import { postServiceJson } from "@/platform/http/service-request";
+import type { CallArgs } from "@stella/contracts/backend/api";
 import {
-  DEFAULT_INWORLD_REALTIME_MODEL,
   DEFAULT_INWORLD_REALTIME_SPEED,
   DEFAULT_INWORLD_REALTIME_TTS_MODEL,
 } from "@stella/contracts/realtime-voice-catalog";
+import { backendClient } from "@/platform/backend/backend-client";
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
 import { stellaProxiedSdpFetcher } from "../transports/sdp-fetchers";
-import { XaiWebSocketTransport } from "../transports/xai-websocket-transport";
 import { buildOpenAIRealtimeSessionConfig } from "./openai-provider";
 import type {
   ProviderModule,
   ProviderTokenContext,
   RealtimeSessionTool,
-  RealtimeTransportKind,
   VoiceSessionToken,
 } from "./types";
-import { requireVoiceSessionAuthority } from "./types";
-
-const STELLA_INWORLD_SDP_PATH = "/api/voice/inworld/sdp";
-const STELLA_OPENAI_SDP_PATH = "/api/voice/openai/sdp";
-
-const CONVEX_CONVERSATION_ID_PATTERN = /^[a-z][a-z0-9]+$/;
-
-const toConvexConversationId = (value: unknown): string | null => {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  if (!CONVEX_CONVERSATION_ID_PATTERN.test(normalized)) return null;
-  return normalized;
-};
 
 /**
  * Read which voice family Stella should use and which voice id within
@@ -58,7 +31,6 @@ const toConvexConversationId = (value: unknown): string | null => {
 const readStellaVoicePrefs = async (): Promise<{
   voiceProvider: "openai" | "xai" | "inworld";
   voice?: string;
-  inworldSpeed?: number;
 }> => {
   try {
     const prefs =
@@ -67,16 +39,11 @@ const readStellaVoicePrefs = async (): Promise<{
     const voiceProvider: "openai" | "xai" | "inworld" =
       sub === "xai" ? "xai" : sub === "inworld" ? "inworld" : "openai";
     const voice = prefs?.realtimeVoice?.voices?.[voiceProvider];
-    const inworldSpeed = prefs?.realtimeVoice?.inworldSpeed;
     return {
       voiceProvider,
       voice:
         typeof voice === "string" && voice.trim().length > 0
           ? voice.trim()
-          : undefined,
-      inworldSpeed:
-        typeof inworldSpeed === "number" && Number.isFinite(inworldSpeed)
-          ? inworldSpeed
           : undefined,
     };
   } catch {
@@ -85,198 +52,44 @@ const readStellaVoicePrefs = async (): Promise<{
 };
 
 export const buildStellaVoiceSessionRequest = (
-  ctx: Pick<ProviderTokenContext, "conversationId" | "instructions" | "tools">,
+  ctx: Pick<ProviderTokenContext, "instructions" | "tools">,
   prefs: {
     voiceProvider: "openai" | "xai" | "inworld";
     voice?: string;
   },
-): Record<string, unknown> => {
-  const convexConversationId = toConvexConversationId(ctx.conversationId);
-  return {
-    ...(convexConversationId ? { conversationId: convexConversationId } : {}),
-    instructions: ctx.instructions,
-    ...(ctx.tools?.length ? { tools: ctx.tools } : {}),
-    voiceProvider: prefs.voiceProvider,
-    ...(prefs.voice ? { voice: prefs.voice } : {}),
-  };
-};
-
-type StellaSessionResponse = {
-  voiceProvider?: "openai" | "xai" | "inworld";
-  transport?: RealtimeTransportKind;
-  clientSecret?: unknown;
-  model?: unknown;
-  voice?: unknown;
-  /** Server-authoritative Inworld TTS model id (inworld path only). */
-  ttsModel?: unknown;
-  expiresAt?: unknown;
-  sessionId?: unknown;
-  ownerGeneration?: unknown;
-  stellaSessionId?: unknown;
-  providerDispatchId?: unknown;
-  providerAttemptId?: unknown;
-  authorityLeaseId?: unknown;
-  authorityEpoch?: unknown;
-  authorityExpiresAt?: unknown;
-  /** Provider-supplied STUN/TURN servers. Inworld returns these. */
-  iceServers?: unknown;
-};
-
-const normalizeIceServers = (value: unknown): RTCIceServer[] | undefined => {
-  if (!Array.isArray(value) || value.length === 0) return undefined;
-  return value as RTCIceServer[];
-};
-
-const inferTransport = (
-  raw: StellaSessionResponse,
-  voiceProvider: "openai" | "xai" | "inworld",
-): RealtimeTransportKind => {
-  if (
-    raw.transport === "xai-websocket" ||
-    raw.transport === "openai-webrtc" ||
-    raw.transport === "inworld-webrtc"
-  ) {
-    return raw.transport;
-  }
-  switch (raw.voiceProvider ?? voiceProvider) {
-    case "xai":
-      return "xai-websocket";
-    case "inworld":
-      return "inworld-webrtc";
-    default:
-      return "openai-webrtc";
-  }
-};
+): CallArgs<"voice.session"> => ({
+  instructions: ctx.instructions,
+  ...(ctx.tools?.length ? { tools: ctx.tools } : {}),
+  voiceProvider: prefs.voiceProvider,
+  ...(prefs.voice ? { voice: prefs.voice } : {}),
+});
 
 export const stellaProvider: ProviderModule = {
   async fetchToken(ctx): Promise<VoiceSessionToken> {
-    const { voiceProvider, voice, inworldSpeed } = await readStellaVoicePrefs();
-
-    const body = buildStellaVoiceSessionRequest(ctx, { voiceProvider, voice });
-
-    const raw = await postServiceJson<StellaSessionResponse>(
-      "/api/voice/session",
-      body,
-      {
-        // Preserve the backend's human message so the renderer can route the
-        // right toast/CTA. Auth failures return a JSON `{ error }` body like
-        // "Sign in to Stella to use realtime voice." — surface that verbatim so
-        // the voice-error toast offers "Sign in" rather than a generic 401.
-        errorMessage: async (response) => {
-          const detail = await response.text().catch(() => "");
-          let parsed = "";
-          try {
-            const json = JSON.parse(detail) as { error?: unknown };
-            if (typeof json?.error === "string") parsed = json.error.trim();
-          } catch {
-            parsed = detail.trim();
-          }
-          if (response.status === 401 || response.status === 403) {
-            return parsed || "Sign in to Stella to use voice.";
-          }
-          return `Failed to create voice session: ${response.status}${
-            parsed ? ` ${parsed}` : ""
-          }`;
-        },
-      },
+    const prefs = await readStellaVoicePrefs();
+    const session = await backendClient.call(
+      "voice.session",
+      buildStellaVoiceSessionRequest(ctx, prefs),
     );
-
-    const transport = inferTransport(raw, voiceProvider);
-
-    // Inworld via Stella has no clientSecret — SDP is proxied through
-    // the backend, so the renderer never holds the org key. All other
-    // paths must ship one.
-    const clientSecret =
-      transport === "inworld-webrtc"
-        ? ""
-        : typeof raw.clientSecret === "string"
-          ? raw.clientSecret
-          : "";
-    if (transport !== "inworld-webrtc" && !clientSecret) {
-      throw new Error(
-        "Stella voice session response did not include a client secret.",
-      );
-    }
-    const authority = requireVoiceSessionAuthority(raw);
-
     return {
       provider: "stella",
-      transport,
-      clientSecret,
-      model: typeof raw.model === "string" ? raw.model : "",
-      voice:
-        typeof raw.voice === "string" && raw.voice.length > 0
-          ? raw.voice
-          : (voice ?? ""),
-      expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
-      sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
-      ...authority,
-      iceServers: normalizeIceServers(raw.iceServers),
-      speed: inworldSpeed,
-      ttsModel:
-        typeof raw.ttsModel === "string" && raw.ttsModel.trim().length > 0
-          ? raw.ttsModel.trim()
-          : undefined,
+      transport: "openai-webrtc",
+      clientSecret: "",
+      model: session.model,
+      voice: session.voice,
+      leaseId: session.leaseId,
+      leaseExpiresAt: session.leaseExpiresAt,
     };
   },
 
   createTransport(token, ctx) {
-    if (token.transport === "xai-websocket") {
-      return new XaiWebSocketTransport({
-        clientSecret: token.clientSecret,
-        model: token.model,
-        voice: token.voice,
-        instructions: ctx.instructions,
-        tools: ctx.tools,
-      });
-    }
-
-    if (token.transport === "inworld-webrtc") {
-      // Stella's backend proxies the SDP exchange — auth is the user's
-      // existing Convex session, not the org Inworld key. ICE servers
-      // come from the session response (the backend fetched them from
-      // Inworld using the org key on the renderer's behalf).
-      return new OpenAIWebRTCTransport({
-        provider: "inworld",
-        model: token.model,
-        sdpFetch: stellaProxiedSdpFetcher(
-          STELLA_INWORLD_SDP_PATH,
-          token.stellaSessionId,
-        ),
-        initialSessionConfig: buildInworldSessionConfig({
-          model: token.model || DEFAULT_INWORLD_REALTIME_MODEL,
-          voice: token.voice,
-          instructions: ctx.instructions,
-          tools: ctx.tools,
-          speed: token.speed,
-          ttsModel: token.ttsModel,
-        }),
-        iceServers: token.iceServers,
-        waitForIceGathering: true,
-        acquireMicBeforeOffer: true,
-      });
-    }
-
-    if (
-      !token.stellaSessionId ||
-      !token.ownerGeneration ||
-      !token.providerDispatchId ||
-      !token.providerAttemptId
-    ) {
-      throw new Error("Stella voice session is missing its SDP authority tuple.");
+    if (!token.leaseId) {
+      throw new Error("Stella voice session is missing its lease.");
     }
     return new OpenAIWebRTCTransport({
       provider: "openai",
       model: token.model,
-      sdpFetch: stellaProxiedSdpFetcher(
-        STELLA_OPENAI_SDP_PATH,
-        token.stellaSessionId,
-        {
-          ownerGeneration: token.ownerGeneration,
-          providerDispatchId: token.providerDispatchId,
-          providerAttemptId: token.providerAttemptId,
-        },
-      ),
+      sdpFetch: stellaProxiedSdpFetcher(token.leaseId),
       initialSessionConfig: buildOpenAIRealtimeSessionConfig(ctx),
     });
   },
@@ -285,8 +98,8 @@ export const stellaProvider: ProviderModule = {
 /**
  * Inworld requires session config to be sent via `session.update` after
  * the data channel opens (their docs example). We assemble the standard
- * shape here so both BYOK and Stella-managed Inworld paths configure
- * the session identically.
+ * shape here so the BYOK Inworld path configures
+ * the session the way Inworld documents it.
  */
 export const buildInworldSessionConfig = (opts: {
   model: string;

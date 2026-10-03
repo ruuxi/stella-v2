@@ -13,7 +13,6 @@
 import { useSyncExternalStore } from "react";
 import { stripMarkdownForTts } from "./markdown-strip";
 import {
-  createReadAloudOperationId,
   fetchReadAloudAudio,
   openReadAloudStream,
 } from "./tts-client";
@@ -76,7 +75,6 @@ export async function toggleManualReadAloud(
     goIdle();
     return;
   }
-  const operationId = createReadAloudOperationId();
 
   setState({ key, status: "loading" });
   const onEnded = () => {
@@ -93,7 +91,6 @@ export async function toggleManualReadAloud(
     if (prefs.family === "gemini" && canStreamReadAloud()) {
       try {
         const response = await openReadAloudStream({
-          operationId,
           text: clean,
           voice: prefs.voice,
         });
@@ -114,7 +111,6 @@ export async function toggleManualReadAloud(
     }
 
     const { audio } = await fetchReadAloudAudio({
-      operationId,
       text: clean,
       voiceProvider: prefs.family,
       voice: prefs.voice,

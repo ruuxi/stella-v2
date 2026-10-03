@@ -8,11 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/global/auth/services/auth-token", () => ({
   getConvexToken: async () => "jwt-fixture",
 }));
-vi.mock("@/platform/http/service-request", () => ({
-  postServiceJson: async () => ({
-    relayOrigin: "https://relay.fixture",
-    modelId: "muse",
-  }),
+vi.mock("@/platform/backend/backend-client", () => ({
+  backendClient: {
+    call: async () => ({
+      relayOrigin: "https://relay.fixture",
+      modelId: "muse",
+    }),
+  },
 }));
 vi.mock("@/platform/interior/interior-bridge", () => ({
   getStellaInteriorBridge: () => null,

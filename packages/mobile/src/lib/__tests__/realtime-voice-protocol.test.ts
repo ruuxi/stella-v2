@@ -4,20 +4,11 @@ import {
   buildMobileRealtimeSessionUpdate,
   buildAttachedChatVoiceInstructions,
   findVoiceActionCompletion,
-  managedVoiceConversationId,
   mergeComputerVoiceTools,
   realtimeErrorMessage,
 } from "../realtime-voice-protocol";
 
 describe("realtime voice protocol", () => {
-  test("keeps local transcript keys out of managed voice requests", () => {
-    expect(managedVoiceConversationId("cloud")).toBe(undefined);
-    expect(managedVoiceConversationId("carplay")).toBe(undefined);
-    expect(managedVoiceConversationId("  jn7realconversationid  ")).toBe(
-      "jn7realconversationid",
-    );
-  });
-
   test("carries only the latest 16 attached chat messages", () => {
     const instructions = buildAttachedChatVoiceInstructions(
       Array.from({ length: 18 }, (_, index) => ({

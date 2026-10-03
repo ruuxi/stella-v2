@@ -8,13 +8,17 @@
  *     `Authorization: Bearer <secret>`. Used by OpenAI Realtime and by
  *     Inworld's WebRTC SDP endpoint (which accepts the same Bearer
  *     shape).
- *   - stellaProxiedSdpFetcher: POST SDP to a Stella backend SDP-proxy
- *     route with the renderer's normal Convex auth. The backend forwards
- *     the offer to the upstream provider using its org-side API key, so
- *     no org secret ever reaches the renderer.
+ *   - stellaProxiedSdpFetcher: POST SDP to the Stella backend under a
+ *     managed session's lease, with the renderer's normal auth. The
+ *     backend creates the provider call with its org-side API key, so no
+ *     org secret ever reaches the renderer.
  */
 
-import { createServiceRequest } from "@/platform/http/service-request";
+import {
+  VOICE_LEASE_HEADER,
+  VOICE_OPENAI_SDP_PATH,
+} from "@stella/contracts/backend/voice";
+import { voiceBackendFetch } from "../../voice-backend";
 import type { SdpAnswerFetcher } from "./types";
 
 /** POST SDP to a public endpoint using a Bearer token. */
@@ -39,48 +43,18 @@ export const bearerSdpFetcher =
   };
 
 /**
- * POST SDP to a Stella backend route using the user's normal Convex auth.
- * The backend proxies the offer to the upstream voice provider (e.g.
- * Inworld) so the org key never enters the renderer.
+ * POST SDP to the Stella backend for a managed session's lease. The backend
+ * creates the provider call with its own key, so no org secret ever reaches
+ * the renderer.
  */
 export const stellaProxiedSdpFetcher =
-  (
-    path: string,
-    stellaSessionId?: string,
-    authority?: {
-      ownerGeneration: string;
-      providerDispatchId: string;
-      providerAttemptId: string;
-    },
-  ): SdpAnswerFetcher =>
+  (leaseId: string): SdpAnswerFetcher =>
   async (sdpOffer, signal) => {
-    const requestHeaders: Record<string, string> = {
-      "Content-Type": "application/sdp",
-    };
-    if (stellaSessionId) {
-      requestHeaders["X-Stella-Voice-Session-ID"] = stellaSessionId;
-    }
-    if (authority) {
-      requestHeaders["X-Stella-Owner-Generation"] = authority.ownerGeneration;
-      requestHeaders["X-Stella-Provider-Dispatch-ID"] =
-        authority.providerDispatchId;
-      requestHeaders["X-Stella-Provider-Attempt-ID"] =
-        authority.providerAttemptId;
-    }
-    const { endpoint, headers } = await createServiceRequest(
-      path,
-      requestHeaders,
-    );
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers,
+    const response = await voiceBackendFetch(VOICE_OPENAI_SDP_PATH, {
       body: sdpOffer,
+      contentType: "application/sdp",
+      headers: { [VOICE_LEASE_HEADER]: leaseId },
       signal,
     });
-    if (!response.ok) {
-      throw new Error(
-        `SDP negotiation failed: ${response.status} ${await response.text()}`,
-      );
-    }
     return response.text();
   };

@@ -1,6 +1,6 @@
 import { getConvexToken } from "@/global/auth/services/auth-token";
 import { getStellaInteriorBridge } from "@/platform/interior/interior-bridge";
-import { postServiceJson } from "@/platform/http/service-request";
+import { backendClient } from "@/platform/backend/backend-client";
 
 type RealtimeConfig = { relayOrigin: string; modelId: string };
 type DictationTranscriptFrame = {
@@ -20,7 +20,7 @@ const CONFIG_TTL_MS = 10 * 60_000;
 let cachedConfig: { value: Promise<RealtimeConfig>; at: number } | null = null;
 
 /**
- * The realtime config (and the auth check behind it) is a Convex round trip
+ * The realtime config (and the auth check behind it) is a backend round trip
  * on the path to the socket. Reuse it across presses, and let callers warm it
  * before the user presses the mic.
  */
@@ -29,10 +29,7 @@ export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
     return cachedConfig.value;
   }
   const entry = {
-    value: postServiceJson<RealtimeConfig>(
-      "/api/dictation/realtime-config",
-      {},
-    ),
+    value: backendClient.call("dictation.realtimeConfig", {}),
     at: Date.now(),
   };
   cachedConfig = entry;
@@ -43,7 +40,7 @@ export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
 };
 
 /**
- * Fetch what a press needs before the socket (relay config and a fresh Convex
+ * Fetch what a press needs before the socket (relay config and a fresh
  * token) so the press itself goes straight to the handshake. Both are cached,
  * so calling this on hover, focus, or mount is cheap.
  */

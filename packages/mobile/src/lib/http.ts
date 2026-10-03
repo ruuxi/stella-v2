@@ -220,7 +220,7 @@ export const postJsonAnonymous = (
     },
   );
 
-/** Authenticated non-JSON POST used by Stella's SDP signaling boundary. */
+/** Authenticated non-JSON POST to the backend (the voice SDP route). */
 export const postText = async (
   path: string,
   body: string,
@@ -230,7 +230,7 @@ export const postText = async (
     signal?: AbortSignal;
   },
 ): Promise<string> => {
-  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  const origin = backendOrigin();
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -241,7 +241,7 @@ export const postText = async (
   if (options?.signal?.aborted) controller.abort();
   else options?.signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    const response = await fetch(`${env.convexSiteUrl}${path}`, {
+    const response = await fetch(`${origin}${path}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${await getConvexToken()}`,

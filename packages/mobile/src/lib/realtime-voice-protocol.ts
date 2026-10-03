@@ -1,23 +1,4 @@
 import type { ChatMessage, MobileTask } from "../types";
-import type { ChatThreadId } from "./offline-chat-storage";
-
-const LOCAL_CHAT_THREAD_IDS: ReadonlySet<string> = new Set<ChatThreadId>([
-  "cloud",
-  "carplay",
-]);
-
-/**
- * Local transcript keys are not Convex conversation IDs. Keep them out of
- * managed voice requests while preserving a real cloud/desktop conversation
- * ID when one is available.
- */
-export const managedVoiceConversationId = (
-  conversationId: string,
-): string | undefined => {
-  const normalized = conversationId.trim();
-  if (!normalized || LOCAL_CHAT_THREAD_IDS.has(normalized)) return undefined;
-  return normalized;
-};
 
 export type RealtimeVoicePhase =
   | "connecting"

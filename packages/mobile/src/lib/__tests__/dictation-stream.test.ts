@@ -15,7 +15,7 @@ test("dictation opening closes rejected and cancelled sockets without starting a
     import assert from "node:assert/strict";
     let config = async () => ({ relayOrigin: "https://relay.example" });
     let configCalls = 0;
-    mock.module(${JSON.stringify(resolve(lib, "http.ts"))}, () => ({ postJson: () => { configCalls++; return config(); } }));
+    mock.module(${JSON.stringify(resolve(lib, "backend.ts"))}, () => ({ getBackendClient: () => ({ call: () => { configCalls++; return config(); } }) }));
     mock.module(${JSON.stringify(resolve(lib, "auth-token.ts"))}, () => ({ getConvexToken: async () => "fixture-token" }));
     class Socket {
       static OPEN = 1;

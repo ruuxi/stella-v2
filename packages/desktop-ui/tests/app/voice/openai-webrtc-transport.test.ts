@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { createServiceRequestMock } = vi.hoisted(() => ({
-  createServiceRequestMock: vi.fn(),
+const { voiceBackendFetchMock } = vi.hoisted(() => ({
+  voiceBackendFetchMock: vi.fn(),
 }));
 
-vi.mock("@/platform/http/service-request", () => ({
-  createServiceRequest: createServiceRequestMock,
+vi.mock("@/features/voice/services/voice-backend", () => ({
+  voiceBackendFetch: voiceBackendFetchMock,
 }));
 
 import { OpenAIWebRTCTransport } from "@/features/voice/services/realtime/transports/openai-webrtc-transport";
@@ -173,10 +173,7 @@ describe("SDP fetchers", () => {
       text: async () => "answer-sdp",
     }));
     vi.stubGlobal("fetch", fetchMock);
-    createServiceRequestMock.mockResolvedValue({
-      endpoint: "https://voice.stella.test/sdp",
-      headers: { Authorization: "Bearer session" },
-    });
+    voiceBackendFetchMock.mockResolvedValue({ text: async () => "answer-sdp" });
     const controller = new AbortController();
 
     await expect(
@@ -186,41 +183,19 @@ describe("SDP fetchers", () => {
       ),
     ).resolves.toBe("answer-sdp");
     await expect(
-      stellaProxiedSdpFetcher("/api/voice/inworld/sdp", "voice-session-1")(
-        "offer-sdp",
-        controller.signal,
-      ),
-    ).resolves.toBe("answer-sdp");
-    await expect(
-      stellaProxiedSdpFetcher(
-        "/api/voice/openai/sdp",
-        "voice-session-2",
-        {
-          ownerGeneration: "generation-2",
-          providerDispatchId: "dispatch-2",
-          providerAttemptId: "attempt-2",
-        },
-      )("offer-sdp", controller.signal),
+      stellaProxiedSdpFetcher("voice-lease-2")("offer-sdp", controller.signal),
     ).resolves.toBe("answer-sdp");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://provider.test/sdp",
       expect.objectContaining({ signal: controller.signal }),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      "https://voice.stella.test/sdp",
-      expect.objectContaining({ signal: controller.signal }),
-    );
-    expect(createServiceRequestMock).toHaveBeenNthCalledWith(
-      2,
+    expect(voiceBackendFetchMock).toHaveBeenCalledWith(
       "/api/voice/openai/sdp",
       expect.objectContaining({
-        "X-Stella-Voice-Session-ID": "voice-session-2",
-        "X-Stella-Owner-Generation": "generation-2",
-        "X-Stella-Provider-Dispatch-ID": "dispatch-2",
-        "X-Stella-Provider-Attempt-ID": "attempt-2",
+        body: "offer-sdp",
+        headers: { "x-stella-voice-lease": "voice-lease-2" },
+        signal: controller.signal,
       }),
     );
   });

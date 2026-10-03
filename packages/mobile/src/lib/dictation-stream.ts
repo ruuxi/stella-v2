@@ -1,5 +1,5 @@
 import { getConvexToken } from "./auth-token";
-import { postJson } from "./http";
+import { getBackendClient } from "./backend";
 
 // The relay accepts at most one second of 16 kHz mono signed PCM per frame.
 const MAX_PCM_FRAME_BYTES = 16_000 * 2;
@@ -19,7 +19,7 @@ export const loadDictationRealtimeConfig = (): Promise<RealtimeConfig> => {
     return cachedConfig.value;
   }
   const entry = {
-    value: postJson("/api/dictation/realtime-config", {}) as Promise<RealtimeConfig>,
+    value: getBackendClient().call("dictation.realtimeConfig", {}),
     at: Date.now(),
   };
   cachedConfig = entry;

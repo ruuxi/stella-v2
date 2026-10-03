@@ -99,6 +99,30 @@ mock.module("../auth-token", () => ({
   getConvexToken: async () => "token",
 }));
 
+// `tts.prepare` goes through the backend client; route it through the fake
+// fetch so each scenario's `fetchImpl` still decides the outcome.
+mock.module("../backend", () => ({
+  getBackendClient: () => ({
+    call: async (_name: string, args: { text: string }) => {
+      const response = await fetch(
+        "https://backend.example/api/voice/tts/stream/prepare",
+        { method: "POST", body: JSON.stringify(args) },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const { ticket } = (await response.json()) as { ticket: string };
+      return {
+        ticket,
+        playlistPath: `/api/voice/tts/stream/hls/${ticket}/index.m3u8`,
+        expiresAt: 0,
+      };
+    },
+  }),
+}));
+
+mock.module("../http", () => ({
+  backendOrigin: () => "https://backend.example",
+}));
+
 mock.module("../mobile-audio-session", () => ({
   configurePlaybackAudioSession: () => configurePlayback(),
 }));

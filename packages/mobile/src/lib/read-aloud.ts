@@ -2,20 +2,16 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import { Alert } from "react-native";
-import * as Crypto from "expo-crypto";
-import { env } from "../config/env";
-import { assert } from "./assert";
+import { VOICE_TTS_STREAM_CANCEL_PATH } from "@stella/contracts/backend/voice";
 import { getConvexToken } from "./auth-token";
+import { getBackendClient } from "./backend";
+import { backendOrigin } from "./http";
 import { configurePlaybackAudioSession } from "./mobile-audio-session";
 
 const READ_ALOUD_KEY = "stella-mobile.read-aloud-enabled";
-const TTS_STREAM_PREPARE_PATH = "/api/voice/tts/stream/prepare";
-const TTS_STREAM_CANCEL_PATH = "/api/voice/tts/stream/cancel";
 // The mobile player streams a live HLS playlist so audio starts while Gemini
-// is still generating. The ticket authorizes the session; the playlist and its
-// segments live under this prefix.
-const ttsStreamHlsPlaylistPath = (ticket: string) =>
-  `/api/voice/tts/stream/hls/${encodeURIComponent(ticket)}/playlist.m3u8`;
+// is still generating. The signed ticket in the playlist path authorizes the
+// playlist and its segments: native players cannot send headers.
 // Voice and model for read-aloud are server-authoritative: the client omits
 // them so the backend applies its default (Kore / gemini-3.8-flash-lite-tts),
 // keeping mobile in lockstep with desktop. Only send an explicit value once
@@ -61,7 +57,6 @@ const clearHlsWatchdog = () => {
 // silently presented as finished.
 let hlsResume: {
   uri: string;
-  token: string;
   id: string | null;
   at: number;
 } | null = null;
@@ -96,12 +91,6 @@ const beginPlaybackWork = (): AbortSignal => {
   playbackAbort = controller;
   return controller.signal;
 };
-
-const fetchReadAloud = (
-  input: string,
-  init: RequestInit,
-  signal: AbortSignal,
-) => fetch(input, { ...init, signal });
 
 const speakingListeners = new Set<() => void>();
 const emitSpeaking = () => {
@@ -186,65 +175,26 @@ const stripForSpeech = (text: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const readErrorMessage = async (response: Response) => {
-  const text = await response.text().catch(() => "");
-  if (!text) return "Could not read that reply aloud.";
-  try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    const message = parsed.error ?? parsed.message;
-    return typeof message === "string" && message.trim()
-      ? message.trim()
-      : "Could not read that reply aloud.";
-  } catch {
-    return text.trim() || "Could not read that reply aloud.";
-  }
-};
-
-// Ask the backend to synthesize a read-aloud reply and hold it under an opaque
-// ticket, so the native audio player can progressively stream it from a GET
-// URL. The (long) assistant text is POSTed here and never appears in the URL.
+// Ask the backend to synthesize a read-aloud reply under a signed ticket, so
+// the native audio player can progressively stream it from a GET URL. The
+// (long) assistant text is posted here and never appears in the URL.
 async function prepareReadAloudStream(
   text: string,
-  operationId: string,
   signal: AbortSignal,
-): Promise<string> {
-  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
-  const token = await getConvexToken();
+): Promise<{ ticket: string; uri: string }> {
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-  const response = await fetchReadAloud(
-    `${env.convexSiteUrl}${TTS_STREAM_PREPARE_PATH}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text,
-        operationId,
-      }),
-    },
-    signal,
-  );
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-  const data = (await response.json()) as { ticket?: unknown };
-  if (typeof data.ticket !== "string" || !data.ticket) {
-    throw new Error("Read-aloud stream ticket missing.");
-  }
-  return data.ticket;
+  const prepared = await getBackendClient().call("tts.prepare", { text });
+  return { ticket: prepared.ticket, uri: `${backendOrigin()}${prepared.playlistPath}` };
 }
 
 // Best-effort stop beacon: tell the backend to end the background synthesis for
 // a ticket so provider spend stops when the user stops listening. Fire and
 // forget — a failure just means the synthesis runs to its (bounded) completion.
 function cancelStreamSession(ticket: string) {
-  if (!env.convexSiteUrl) return;
   void (async () => {
     try {
       const token = await getConvexToken();
-      await fetch(`${env.convexSiteUrl}${TTS_STREAM_CANCEL_PATH}`, {
+      await fetch(`${backendOrigin()}${VOICE_TTS_STREAM_CANCEL_PATH}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -321,7 +271,7 @@ export function resumeReadAloud() {
     const id = playbackState.messageId;
     const generation = playbackGeneration;
     setPlaybackState({ messageId: id, status: "loading" });
-    void playHlsResilient(resume.uri, resume.token, id, generation, resume.at);
+    void playHlsResilient(resume.uri, id, generation, resume.at);
     return;
   }
   if (!currentPlayer) return;
@@ -338,7 +288,6 @@ export async function speakReply(text: string, messageId?: string) {
   if (!spoken) return;
 
   stopReadAloud();
-  const operationId = Crypto.randomUUID();
   const generation = playbackGeneration;
   const signal = beginPlaybackWork();
   const id = messageId ?? null;
@@ -349,7 +298,7 @@ export async function speakReply(text: string, messageId?: string) {
 
   // Generate once. Playback retries reuse the ticket's existing audio.
   try {
-    await tryStreamReply(spoken, operationId, id, generation, signal);
+    await tryStreamReply(spoken, id, generation, signal);
   } catch (error) {
     if (generation !== playbackGeneration || signal.aborted) return;
     stopReadAloud();
@@ -364,12 +313,11 @@ export async function speakReply(text: string, messageId?: string) {
 // Start one generation session and play its growing playlist.
 async function tryStreamReply(
   text: string,
-  operationId: string,
   id: string | null,
   generation: number,
   signal: AbortSignal,
 ): Promise<boolean> {
-  const ticket = await prepareReadAloudStream(text, operationId, signal);
+  const { ticket, uri } = await prepareReadAloudStream(text, signal);
   if (generation !== playbackGeneration || signal.aborted) {
     // Superseded before playback began — end the background synthesis so it
     // does not run to completion unheard.
@@ -377,12 +325,9 @@ async function tryStreamReply(
     return true;
   }
 
-  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   currentStreamTicket = ticket;
-  const token = await getConvexToken();
-  // A live HLS playlist that grows as Gemini generates, so playback begins on
-  // the first segment instead of waiting for the whole clip.
-  const uri = `${env.convexSiteUrl}${ttsStreamHlsPlaylistPath(ticket)}`;
+  // `uri` is a live HLS playlist that grows as Gemini generates, so playback
+  // begins on the first segment instead of waiting for the whole clip.
 
   if (!(await configurePlaybackAudioSession())) {
     if (generation === playbackGeneration) stopReadAloud();
@@ -394,7 +339,7 @@ async function tryStreamReply(
     return true;
   }
 
-  return await playHlsResilient(uri, token, id, generation, 0);
+  return await playHlsResilient(uri, id, generation, 0);
 }
 
 // A player is disposable; the generation session is not. Both startup and
@@ -403,7 +348,6 @@ let disposeHlsPlayback: (() => void) | null = null;
 
 async function playHlsResilient(
   uri: string,
-  token: string,
   id: string | null,
   generation: number,
   startAt: number,
@@ -464,7 +408,7 @@ async function playHlsResilient(
     const giveUp = () => {
       dispose();
       if (superseded()) return;
-      hlsResume = { uri, token, id, at: lastTime };
+      hlsResume = { uri, id, at: lastTime };
       setPlaybackState({ messageId: id, status: "paused" });
       console.warn(
         `[read-aloud] playback stopped at ${lastTime.toFixed(1)}s after ${startRetries + recoverAttempts} retries`,
@@ -517,10 +461,7 @@ async function playHlsResilient(
       // Also covers native failures that never emit a playback error event.
       startTimer = setTimeout(retry, STREAM_START_TIMEOUT_MS);
       try {
-        const p = createAudioPlayer({
-          uri,
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const p = createAudioPlayer({ uri });
         player = p;
         currentPlayer = p;
         let seeked = at <= 0.25;

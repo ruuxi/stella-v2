@@ -26,14 +26,12 @@ describe("realtime provider tool contract", () => {
     expect(
       buildStellaVoiceSessionRequest(
         {
-          conversationId: "conversation123",
           instructions: "Help the user.",
           tools,
         },
         { voiceProvider: "openai", voice: "marin" },
       ),
     ).toEqual({
-      conversationId: "conversation123",
       instructions: "Help the user.",
       tools,
       voiceProvider: "openai",
@@ -71,36 +69,16 @@ describe("realtime provider tool contract", () => {
     });
   });
 
-  it("requires the complete managed-session authority tuple", () => {
+  it("requires the managed-session lease", () => {
     expect(() =>
-      requireVoiceSessionAuthority({
-        ownerGeneration: "owner-generation-1",
-        stellaSessionId: "voice-session-1",
-        providerDispatchId: "provider-dispatch-1",
-        providerAttemptId: "provider-attempt-1",
-        authorityLeaseId: "authority-lease-1",
-        authorityEpoch: 1,
-      }),
-    ).toThrow("did not include valid authority fields");
+      requireVoiceSessionAuthority({ leaseId: "voice-lease-1" }),
+    ).toThrow("did not include a valid lease");
 
     expect(
       requireVoiceSessionAuthority({
-        ownerGeneration: " owner-generation-1 ",
-        stellaSessionId: " voice-session-1 ",
-        providerDispatchId: " provider-dispatch-1 ",
-        providerAttemptId: " provider-attempt-1 ",
-        authorityLeaseId: " authority-lease-1 ",
-        authorityEpoch: 1,
-        authorityExpiresAt: 123_456,
+        leaseId: " voice-lease-1 ",
+        leaseExpiresAt: 1_000,
       }),
-    ).toEqual({
-      ownerGeneration: "owner-generation-1",
-      stellaSessionId: "voice-session-1",
-      providerDispatchId: "provider-dispatch-1",
-      providerAttemptId: "provider-attempt-1",
-      authorityLeaseId: "authority-lease-1",
-      authorityEpoch: 1,
-      authorityExpiresAt: 123_456,
-    });
+    ).toEqual({ leaseId: "voice-lease-1", leaseExpiresAt: 1_000 });
   });
 });

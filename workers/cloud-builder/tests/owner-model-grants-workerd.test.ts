@@ -1,10 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import {
-  MEMORY_POLICY_APPLY_PATH,
-  type MemoryPolicy,
-} from "@stella/contracts/turn-plane/memory-policy";
+import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import {
   startWorkerdDev,
   type JsonResponse,
@@ -13,10 +8,10 @@ import {
 
 const policy = (overrides: Partial<MemoryPolicy> = {}): MemoryPolicy => ({
   ownerGeneration: "owner-generation-1",
-  memoryEpoch: "epoch-1",
+  memoryEpoch: "initial",
   memoryEnabled: true,
   revision: 0,
-  updatedAt: 1,
+  updatedAt: 0,
   ...overrides,
 });
 
@@ -37,66 +32,7 @@ const grantFrom = (response: JsonResponse): Record<string, unknown> => {
   return grant as Record<string, unknown>;
 };
 
-/**
- * The Convex memory-policy endpoints the gate's transport calls: one policy
- * per owner, and every applied change is recorded by request id.
- */
-const startFakeConvex = async (): Promise<{
-  url: string;
-  applied: string[];
-  close(): Promise<void>;
-}> => {
-  const policies = new Map<string, MemoryPolicy>();
-  const applied: string[] = [];
-  const server: Server = createServer((request, response) => {
-    let raw = "";
-    request.on("data", (chunk: unknown) => {
-      raw += String(chunk);
-    });
-    request.on("end", () => {
-      const body = JSON.parse(raw || "{}") as Record<string, unknown>;
-      const ownerId = String(body.ownerId);
-      const reply = (status: number, payload: unknown): void => {
-        response.writeHead(status, { "content-type": "application/json" });
-        response.end(JSON.stringify(payload));
-      };
-      if (request.headers.authorization !== "Bearer fixture-secret") {
-        return reply(403, { error: "forbidden" });
-      }
-      if (request.url === "/api/cloud/home/memory/preference") {
-        return reply(200, policies.get(ownerId) ?? policy());
-      }
-      if (
-        request.url === MEMORY_POLICY_APPLY_PATH &&
-        body.kind === "preference"
-      ) {
-        const current = policies.get(ownerId) ?? policy();
-        policies.set(ownerId, {
-          ...current,
-          memoryEnabled: body.memoryEnabled === true,
-          revision: current.revision + 1,
-          updatedAt: current.updatedAt + 1,
-        });
-        applied.push(String(body.requestId));
-        return reply(200, { ok: true });
-      }
-      reply(404, { error: "not found" });
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${port}`,
-    applied,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      ),
-  };
-};
-
 describe("owner model grant protocol in real Workerd", () => {
-  let convex: Awaited<ReturnType<typeof startFakeConvex>>;
   let dev: WorkerdDev;
   const requestJson = (
     path: string,
@@ -104,20 +40,14 @@ describe("owner model grant protocol in real Workerd", () => {
   ): Promise<JsonResponse> => dev.requestJson(path, body);
 
   beforeAll(async () => {
-    convex = await startFakeConvex();
     dev = await startWorkerdDev({
       config: "tests/fixtures/owner-model-grants-workerd.wrangler.jsonc",
       prefix: "stella-owner-model-grants-workerd-",
-      vars: { STELLA_CONVEX_SITE_URL: convex.url },
     });
   }, 30_000);
 
   afterAll(async () => {
-    try {
-      await dev?.stop();
-    } finally {
-      await convex?.close();
-    }
+    await dev?.stop();
   }, 30_000);
 
   test("owner change freezes a reader grant without deadlocking and the old grant is unusable", async () => {
@@ -134,7 +64,10 @@ describe("owner model grant protocol in real Workerd", () => {
       status: 200,
       body: { ok: true },
     });
-    expect(convex.applied).toContain("change-normal");
+    expect(await requestJson("/applied", input)).toEqual({
+      status: 200,
+      body: { requestId: "change-normal", revision: 1 },
+    });
     expect(await requestJson("/use", { ...input, grant })).toMatchObject({
       status: 200,
       body: { ok: false },
@@ -161,7 +94,10 @@ describe("owner model grant protocol in real Workerd", () => {
       lostOnce: true,
     });
     expect(lost).toMatchObject({ status: 503, body: { ok: false } });
-    expect(convex.applied).not.toContain("change-lost");
+    expect((await requestJson("/applied", input)).body).toEqual({
+      requestId: null,
+      revision: 0,
+    });
 
     expect(await requestJson("/use", { ...input, grant })).toMatchObject({
       status: 200,
@@ -179,7 +115,10 @@ describe("owner model grant protocol in real Workerd", () => {
       status: 200,
       body: { ok: true },
     });
-    expect(convex.applied.filter((id) => id === "change-lost")).toHaveLength(1);
+    expect((await requestJson("/applied", input)).body).toEqual({
+      requestId: "change-lost",
+      revision: 1,
+    });
     grantFrom(
       await requestJson("/issue", {
         ...input,

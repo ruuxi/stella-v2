@@ -2,18 +2,14 @@ import { BoundedBodyError, readBoundedRequestJson } from "./bounded-body.js";
 import {
   CloudHomeProtocolError,
   CloudHomeStore,
+  gateHomeControl,
   type CloudMemoryKind,
   type CloudSkillUploadFile,
   utf8Bytes,
   utf8Text,
 } from "./cloud-home-store.js";
-import { convexSiteBase } from "./convex-site.js";
 
-type CloudHomeRouteEnv = {
-  AGENT_HOME?: R2Bucket;
-  BUILDER_SERVICE_SECRET: string;
-  STELLA_CONVEX_SITE_URL?: string;
-};
+type CloudHomeRouteEnv = Pick<Cloudflare.Env, "AGENT_HOME" | "OWNER_GATES">;
 
 export type CloudHomeLeaseRunner = <T>(
   ownerId: string,
@@ -43,13 +39,6 @@ const routeError = (error: unknown): Response => {
   return json({ error: "Cloud home request failed." }, 500);
 };
 
-const endpointBase = (env: CloudHomeRouteEnv): string => {
-  const base = convexSiteBase(env);
-  if (!base)
-    throw new CloudHomeProtocolError("Cloud home is unavailable.", 503);
-  return base;
-};
-
 const requireBucket = (env: CloudHomeRouteEnv): R2Bucket => {
   if (!env.AGENT_HOME) {
     throw new CloudHomeProtocolError("Cloud home storage is unavailable.", 503);
@@ -57,36 +46,19 @@ const requireBucket = (env: CloudHomeRouteEnv): R2Bucket => {
   return env.AGENT_HOME;
 };
 
+/**
+ * The owner's current generation, from the owner's own object. A user route
+ * acts for the caller it verified, so reading it there is safe.
+ */
 export const ownerAccess = async (
-  env: CloudHomeRouteEnv,
+  env: Pick<Cloudflare.Env, "OWNER_GATES">,
   ownerId: string,
 ): Promise<string> => {
-  const response = await fetch(`${endpointBase(env)}/api/cloud/home/access`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.BUILDER_SERVICE_SECRET}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ ownerId }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = (await response.json().catch(() => null)) as {
-    ownerGeneration?: unknown;
-    error?: unknown;
-  } | null;
-  const ownerGeneration =
-    typeof body?.ownerGeneration === "string"
-      ? body.ownerGeneration.trim()
-      : "";
-  if (!response.ok || !ownerGeneration) {
-    throw new CloudHomeProtocolError(
-      typeof body?.error === "string"
-        ? body.error
-        : "Account data is being migrated, deleted, or reset.",
-      response.status || 409,
-    );
+  try {
+    return (await env.OWNER_GATES.getByName(ownerId).snapshot()).ownerGeneration;
+  } catch {
+    throw new CloudHomeProtocolError("Account state is unavailable. Try again.", 503);
   }
-  return ownerGeneration;
 };
 
 const makeStore = (
@@ -96,8 +68,7 @@ const makeStore = (
   assertExternalWrite: () => Promise<void>,
 ) =>
   new CloudHomeStore(requireBucket(env), {
-    base: endpointBase(env),
-    bearer: env.BUILDER_SERVICE_SECRET,
+    control: gateHomeControl(env.OWNER_GATES, ownerId),
     ownerId,
     ownerGeneration,
     assertExternalWrite,
@@ -266,20 +237,6 @@ export const handleUserCloudHomeRoute = async (args: {
       }
     }
     const ownerGeneration = await ownerAccess(args.env, args.ownerId);
-    if (
-      args.request.method === "GET" &&
-      url.pathname === "/cloud-home/memory/wipe/status"
-    ) {
-      // Status is control-plane only and must stay reachable while the owner
-      // R2 activity fence is closed for the wipe itself.
-      const home = new CloudHomeStore(requireBucket(args.env), {
-        base: endpointBase(args.env),
-        bearer: args.env.BUILDER_SERVICE_SECRET,
-        ownerId: args.ownerId,
-        ownerGeneration,
-      });
-      return json(await home.getMemoryWipeStatus());
-    }
     return await args.withLease(
       args.ownerId,
       ownerGeneration,
@@ -292,31 +249,6 @@ export const handleUserCloudHomeRoute = async (args: {
           assertExternalWrite,
         );
         if (
-          args.request.method === "POST" &&
-          url.pathname === "/cloud-home/memory/wipe/start"
-        ) {
-          const body = await parseJsonObject(args.request, url.pathname);
-          if (
-            requiredString(body, "expectedOwnerGeneration", 512) !==
-            ownerGeneration
-          ) {
-            throw new CloudHomeProtocolError(
-              "This memory wipe request belongs to an older account reset.",
-              412,
-              "OWNER_DATA_GENERATION_STALE",
-            );
-          }
-          const status = await home.startMemoryWipe({
-            expectedMemoryEpoch: requiredString(
-              body,
-              "expectedMemoryEpoch",
-              512,
-            ),
-            requestId: requiredString(body, "requestId", 128),
-          });
-          return json(status, status.job?.stage === "completed" ? 200 : 202);
-        }
-        if (
           args.request.method === "GET" &&
           url.pathname === "/cloud-home/memory"
         ) {
@@ -327,9 +259,7 @@ export const handleUserCloudHomeRoute = async (args: {
           const documents = [];
           let total = 0;
           for (const head of heads) {
-            const bytes = head.sha256
-              ? await home.readMemoryHeadBytes(head)
-              : await home.readLegacyMemoryHeadBytes(head);
+            const bytes = await home.readMemoryHeadBytes(head);
             total += bytes.byteLength;
             if (total > 2 * 1024 * 1024) {
               throw new CloudHomeProtocolError(
@@ -358,32 +288,6 @@ export const handleUserCloudHomeRoute = async (args: {
               : {}),
             documents,
           });
-        }
-        if (
-          args.request.method === "POST" &&
-          url.pathname === "/cloud-home/memory/reimport/authorize"
-        ) {
-          const body = await parseJsonObject(args.request, url.pathname);
-          if (
-            requiredString(body, "expectedOwnerGeneration", 512) !==
-            ownerGeneration
-          ) {
-            throw new CloudHomeProtocolError(
-              "This reimport request belongs to an older account reset.",
-              412,
-              "OWNER_DATA_GENERATION_STALE",
-            );
-          }
-          return json(
-            await home.authorizeMemoryReimport({
-              expectedMemoryEpoch: requiredString(
-                body,
-                "expectedMemoryEpoch",
-                512,
-              ),
-              requestId: requiredString(body, "requestId", 128),
-            }),
-          );
         }
         if (
           args.request.method === "POST" &&

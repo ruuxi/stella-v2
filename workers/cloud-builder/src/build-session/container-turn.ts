@@ -10,7 +10,7 @@ import {
   parsePersistedAgentCompute,
 } from "../agent-compute-ladder.js";
 import { classifyAgentFailureDiagnostic } from "../agent-failure-diagnostic.js";
-import { CloudHomeStore } from "../cloud-home-store.js";
+import { CloudHomeStore, gateHomeControl } from "../cloud-home-store.js";
 import type { CloudSkillCatalogSnapshot } from "../cloud-home-store.js";
 import { materializeCloudSkillSnapshot } from "../cloud-skill-materializer.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
@@ -119,7 +119,6 @@ export type ContainerTurnHost = Pick<
   | "claimTerminalDecision"
   | "cleanupOwnerPurgedTurnStorage"
   | "confirmAgentTurnStateRestore"
-  | "controlPlaneCapability"
   | "deleteTurnStoragePreservingExactCancellations"
   | "deliverBrowserSuspension"
   | "deliverTerminal"
@@ -437,10 +436,7 @@ export const runContainerAgentTurn = async (
     // device-side skill edit that landed halfway through the turn.
     const cloudSkillHome = host.env.AGENT_HOME
       ? new CloudHomeStore(host.env.AGENT_HOME, {
-          base: host.env.STELLA_CONVEX_SITE_URL,
-          // Owner-scoped control-plane reads and writes, authorized by this
-          // turn rather than by the worker's shared secret.
-          bearer: await host.controlPlaneCapability(turn),
+          control: gateHomeControl(host.env.OWNER_GATES, turn.ownerId),
           ownerId: turn.ownerId,
           ownerGeneration: turn.ownerGeneration,
           assertExternalWrite: async () =>

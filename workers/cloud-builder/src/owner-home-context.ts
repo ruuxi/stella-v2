@@ -6,7 +6,8 @@ export type OwnerHomeContext = {
   /**
    * Fingerprint of the skills the worker adds in code (not owner data), so a
    * deploy that changes a built-in skill invalidates the durable snapshot.
-   * Convex never bumps `revision` for those: it only knows owner content.
+   * The home domain never bumps `revision` for those: it only knows owner
+   * content.
    */
   builtins?: string;
   memory: Awaited<ReturnType<CloudHomeStore["getMemoryContext"]>>;

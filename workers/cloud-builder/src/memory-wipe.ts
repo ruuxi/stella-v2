@@ -2,7 +2,6 @@ import { sha256Hex } from "./hash.js";
 
 const MEMORY_WIPE_PAGE_SIZE = 250;
 
-export const MEMORY_WIPE_PROTOCOL_VERSION = 2;
 export const MEMORY_WIPE_TARGET_COUNT = 9;
 
 export type MemoryWipeTarget =
@@ -51,8 +50,6 @@ export const memoryWipeTargets = async (
 };
 
 export type MemoryWipePageResult = {
-  protocolVersion: number;
-  targetCount: number;
   complete: boolean;
   cursor: number;
   startAfter?: string;
@@ -96,18 +93,12 @@ const isImportedMemoryObject = (prefix: string, key: string): boolean => {
   );
 };
 
-const result = (
-  value: Omit<MemoryWipePageResult, "protocolVersion" | "targetCount">,
-): MemoryWipePageResult => ({
-  protocolVersion: MEMORY_WIPE_PROTOCOL_VERSION,
-  targetCount: MEMORY_WIPE_TARGET_COUNT,
-  ...value,
-});
 
 /**
  * Deletes at most one bounded R2 page (or one exact legacy key), then reads the
- * same target back before advancing the durable cursor. The enclosing owner
- * activity fence guarantees no writer can recreate a key after readback.
+ * same target back before advancing the cursor. The wipe job
+ * (`home.memoryWipe`) keeps the cursor; writers are refused while it runs,
+ * and a reservation that uploads late is reclaimed by `home.intentSweep`.
  */
 export const sweepMemoryWipePage = async (
   bucket: R2Bucket,
@@ -130,7 +121,7 @@ export const sweepMemoryWipePage = async (
     if (args.startAfter !== undefined) {
       throw new Error("Invalid terminal memory wipe scan cursor.");
     }
-    return result({ complete: true, cursor: args.cursor, deleted: 0 });
+    return { complete: true, cursor: args.cursor, deleted: 0 };
   }
   const target = targets[args.cursor]!;
   if (target.kind === "key") {
@@ -140,14 +131,14 @@ export const sweepMemoryWipePage = async (
     const existing = await bucket.head(target.value);
     if (existing) await bucket.delete(target.value);
     if (await bucket.head(target.value)) {
-      return result({ complete: false, cursor: args.cursor, deleted: 0 });
+      return { complete: false, cursor: args.cursor, deleted: 0 };
     }
     const cursor = args.cursor + 1;
-    return result({
+    return {
       complete: cursor === targets.length,
       cursor,
       deleted: existing ? 1 : 0,
-    });
+    };
   }
 
   if (target.kind === "filtered-prefix") {
@@ -176,27 +167,27 @@ export const sweepMemoryWipePage = async (
     }
     const deleted = selected.length - remaining.size;
     if (remaining.size > 0) {
-      return result({
+      return {
         complete: false,
         cursor: args.cursor,
         ...(args.startAfter ? { startAfter: args.startAfter } : {}),
         deleted,
-      });
+      };
     }
     if (page.truncated) {
-      return result({
+      return {
         complete: false,
         cursor: args.cursor,
         startAfter: page.objects.at(-1)!.key,
         deleted,
-      });
+      };
     }
     const cursor = args.cursor + 1;
-    return result({
+    return {
       complete: cursor === targets.length,
       cursor,
       deleted,
-    });
+    };
   }
 
   if (args.startAfter !== undefined) {
@@ -211,16 +202,16 @@ export const sweepMemoryWipePage = async (
   if (keys.length > 0) await bucket.delete(keys);
   const readback = await bucket.list({ prefix: target.value, limit: 1 });
   if (readback.objects.length > 0) {
-    return result({
+    return {
       complete: false,
       cursor: args.cursor,
       deleted: keys.length,
-    });
+    };
   }
   const cursor = args.cursor + 1;
-  return result({
+  return {
     complete: cursor === targets.length,
     cursor,
     deleted: keys.length,
-  });
+  };
 };

@@ -3,6 +3,7 @@ import {
   CLOUD_APP_SKILL_ID,
   cloudAppSkillSource,
 } from "./builtin-cloud-app-skill.js";
+import type { BackendError, RpcResponse } from "@stella/contracts/backend/protocol";
 import { sha256BytesHex, sha256Hex } from "./hash.js";
 
 const textEncoder = new TextEncoder();
@@ -19,17 +20,26 @@ export const CLOUD_SKILL_RUNTIME_MAX_SKILLS = 20;
 export const CLOUD_SKILL_RUNTIME_MAX_FILES = 1_000;
 export const CLOUD_SKILL_RUNTIME_MAX_BYTES = 50 * 1024 * 1024;
 
+/**
+ * One cloud-home control operation (`memory.*`, `skills.*`) on the owner's
+ * object: `OwnerGate.homeControl` from a Worker route or another object, or
+ * the gate's own `homeControl` from inside it.
+ */
+export type HomeControl = (
+  op: string,
+  body: { ownerGeneration: string } & Record<string, unknown>,
+) => Promise<RpcResponse>;
+
+/** `HomeControl` through the owner's gate, for code outside the gate. */
+export const gateHomeControl =
+  (gates: Cloudflare.Env["OWNER_GATES"], ownerId: string): HomeControl =>
+  async (op, body) =>
+    await gates.getByName(ownerId).homeControl({ op, body });
+
 export type CloudHomeEndpoint = {
-  base: string;
-  /**
-   * The bearer presented to Convex: a turn's control-plane capability when
-   * a Durable Object calls during a turn, the builder service secret when a
-   * Worker route acts for a signed-in user outside any turn.
-   */
-  bearer: string;
+  control: HomeControl;
   ownerId: string;
   ownerGeneration: string;
-  fetch?: typeof fetch;
   /**
    * Proves that the caller still owns a registered worker-side owner activity
    * lease. The lease itself must remain held until the enclosing publication
@@ -65,9 +75,9 @@ export type CloudMemoryHead = {
   ownerGeneration: string;
   memoryEpoch: string;
   revision: number;
-  versionId?: string;
+  versionId: string;
   r2Key: string;
-  sha256?: string;
+  sha256: string;
   sizeBytes: number;
   updatedAt: number;
 };
@@ -304,13 +314,9 @@ const parseMemoryHead = (value: unknown): CloudMemoryHead => {
     ownerGeneration: exactString(row.ownerGeneration, "Owner generation"),
     memoryEpoch: exactString(row.memoryEpoch, "Memory epoch"),
     revision: exactInteger(row.revision, "Document revision"),
-    ...(row.versionId === undefined
-      ? {}
-      : { versionId: exactString(row.versionId, "Document version id") }),
+    versionId: exactString(row.versionId, "Document version id"),
     r2Key: exactString(row.r2Key, "Document object key", 1_024),
-    ...(row.sha256 === undefined
-      ? {}
-      : { sha256: exactSha256(row.sha256, "Document digest") }),
+    sha256: exactSha256(row.sha256, "Document digest"),
     sizeBytes: exactInteger(row.sizeBytes, "Document size"),
     updatedAt: exactInteger(row.updatedAt, "Document update time"),
   };
@@ -558,6 +564,27 @@ export const skillTreeSha256 = async (
   );
 };
 
+/** HTTP status a Worker route reports for a refused control operation. */
+const controlStatus = (error: BackendError): number => {
+  if (error.reason?.includes("STALE") || error.reason === "owner_generation_stale") return 412;
+  switch (error.code) {
+    case "CONFLICT":
+      return 409;
+    case "NOT_FOUND":
+      return 404;
+    case "RATE_LIMITED":
+      return 429;
+    case "UNAVAILABLE":
+    case "INTERNAL":
+      return 503;
+    default:
+      return 400;
+  }
+};
+
+const controlError = (error: BackendError): CloudHomeProtocolError =>
+  new CloudHomeProtocolError(error.message, controlStatus(error), error.reason ?? error.code);
+
 export class CloudHomeStore {
   private ownerHashPromise?: Promise<string>;
   private ownerGenerationHashPromise?: Promise<string>;
@@ -565,13 +592,7 @@ export class CloudHomeStore {
   constructor(
     private readonly bucket: R2Bucket,
     private readonly endpoint: CloudHomeEndpoint,
-  ) {
-    if (!endpoint.base.trim() || !endpoint.bearer.trim()) {
-      throw new CloudHomeProtocolError(
-        "Cloud-home control plane is unavailable.",
-      );
-    }
-  }
+  ) {}
 
   private ownerHash(): Promise<string> {
     this.ownerHashPromise ??= sha256Hex(this.endpoint.ownerId);
@@ -598,43 +619,18 @@ export class CloudHomeStore {
     }
   }
 
-  private async control(path: string, body: Record<string, unknown>) {
-    const fetcher = this.endpoint.fetch ?? fetch;
-    const response = await fetcher(
-      `${this.endpoint.base.replace(/\/+$/u, "")}${path}`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.endpoint.bearer}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          ...body,
-          ownerId: this.endpoint.ownerId,
-          ownerGeneration: this.endpoint.ownerGeneration,
-        }),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    const payload = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      const error = payload ? asRecord(payload, "Cloud-home error") : {};
-      throw new CloudHomeProtocolError(
-        typeof error.error === "string"
-          ? error.error
-          : `Cloud-home request failed (${response.status}).`,
-        response.status,
-        typeof error.code === "string" ? error.code : undefined,
-      );
-    }
-    return payload;
+  private async control(op: string, body: Record<string, unknown>) {
+    const response = await this.endpoint.control(op, {
+      ...body,
+      ownerGeneration: this.endpoint.ownerGeneration,
+    });
+    if (!response.ok) throw controlError(response.error);
+    return response.value;
   }
 
   private async assertMemoryEpoch(memoryEpoch: string): Promise<void> {
     const row = asRecord(
-      await this.control("/api/cloud/home/memory/epoch/assert", {
-        memoryEpoch,
-      }),
+      await this.control("memory.epochAssert", { memoryEpoch }),
       "Memory epoch assertion",
     );
     if (exactString(row.memoryEpoch, "Memory epoch") !== memoryEpoch) {
@@ -732,10 +728,7 @@ export class CloudHomeStore {
     name: string,
     kind: CloudMemoryKind,
   ): Promise<CloudMemoryHead | null> {
-    const payload = await this.control("/api/cloud/home/memory/head", {
-      name,
-      kind,
-    });
+    const payload = await this.control("memory.head", { name, kind });
     if (payload === null) return null;
     const head = parseMemoryHead(payload);
     if (head.ownerGeneration !== this.endpoint.ownerGeneration) {
@@ -745,21 +738,9 @@ export class CloudHomeStore {
     return head;
   }
 
-  async getMemoryPreference(): Promise<CloudMemoryPreference> {
-    const preference = parseMemoryPreference(
-      await this.control("/api/cloud/home/memory/preference", {}),
-    );
-    if (preference.ownerGeneration !== this.endpoint.ownerGeneration) {
-      throw new CloudHomeProtocolError("Cloud memory preference is stale.");
-    }
-    return preference;
-  }
-
   async getMemoryContext() {
     const payload = asRecord(
-      await this.control("/api/cloud/home/memory/preference", {
-        includeContext: true,
-      }),
+      await this.control("memory.context", {}),
       "Cloud memory context",
     );
     const preference = parseMemoryPreference(payload);
@@ -799,7 +780,7 @@ export class CloudHomeStore {
 
   async getMemoryWipeStatus(): Promise<CloudMemoryWipeStatus> {
     const status = parseMemoryWipeStatus(
-      await this.control("/api/cloud/home/memory/wipe/status", {}),
+      await this.control("memory.wipeStatus", {}),
     );
     if (
       status.subject !== this.endpoint.ownerId ||
@@ -810,46 +791,8 @@ export class CloudHomeStore {
     return status;
   }
 
-  async startMemoryWipe(args: {
-    expectedMemoryEpoch: string;
-    requestId: string;
-  }): Promise<CloudMemoryWipeStatus> {
-    const status = parseMemoryWipeStatus(
-      await this.control("/api/cloud/home/memory/wipe/start", args),
-    );
-    if (
-      status.subject !== this.endpoint.ownerId ||
-      status.ownerGeneration !== this.endpoint.ownerGeneration
-    ) {
-      throw new CloudHomeProtocolError("Cloud memory wipe receipt is stale.");
-    }
-    return status;
-  }
-
-  async authorizeMemoryReimport(args: {
-    expectedMemoryEpoch: string;
-    requestId: string;
-  }): Promise<CloudMemoryWipeStatus> {
-    const status = parseMemoryWipeStatus(
-      await this.control("/api/cloud/home/memory/reimport/authorize", args),
-    );
-    if (
-      status.subject !== this.endpoint.ownerId ||
-      status.ownerGeneration !== this.endpoint.ownerGeneration ||
-      status.memoryEpoch !== args.expectedMemoryEpoch ||
-      status.importDisposition !== "explicit_allowed"
-    ) {
-      throw new CloudHomeProtocolError(
-        "Cloud memory reimport authorization is stale.",
-      );
-    }
-    return status;
-  }
-
   async listMemoryHeads(limit = 100): Promise<CloudMemoryHead[]> {
-    const payload = await this.control("/api/cloud/home/memory/catalog", {
-      limit,
-    });
+    const payload = await this.control("memory.catalog", { limit });
     if (!Array.isArray(payload)) {
       throw new CloudHomeProtocolError("Cloud memory catalog was invalid.");
     }
@@ -869,51 +812,17 @@ export class CloudHomeStore {
   ): Promise<CloudMemoryDocument | null> {
     const head = await this.getMemoryHead(name, kind);
     if (!head) return null;
-    if (!head.sha256) {
-      throw new CloudHomeProtocolError(
-        "Legacy cloud memory must be migrated before authoritative reads.",
-      );
-    }
     const bytes = await this.readMemoryHeadBytes(head);
     return { ...head, bytes };
   }
 
   async readMemoryHeadBytes(head: CloudMemoryHead): Promise<Uint8Array> {
     await this.assertOwnedKey(head.r2Key);
-    if (!head.sha256) {
-      throw new CloudHomeProtocolError(
-        "Legacy cloud memory must be migrated before authoritative reads.",
-      );
-    }
     await this.assertMemoryEpoch(head.memoryEpoch);
     return await this.verifyObject(head.r2Key, {
       sha256: head.sha256,
       sizeBytes: head.sizeBytes,
     });
-  }
-
-  /**
-   * One-way bridge for rows written by the pre-versioned AgentHome. The owner
-   * locator is still verified, the body must match the registered byte count,
-   * and callers immediately republish it through the versioned CAS plane.
-   */
-  async readLegacyMemoryHeadBytes(head: CloudMemoryHead): Promise<Uint8Array> {
-    await this.assertOwnedKey(head.r2Key);
-    if (head.sha256) return await this.readMemoryHeadBytes(head);
-    await this.assertMemoryEpoch(head.memoryEpoch);
-    const object = await this.bucket.get(head.r2Key);
-    if (!object || object.size !== head.sizeBytes) {
-      throw new CloudHomeProtocolError(
-        "Legacy cloud memory contradicts its registered size.",
-      );
-    }
-    const bytes = await bodyBytes(object);
-    if (bytes.byteLength !== head.sizeBytes) {
-      throw new CloudHomeProtocolError(
-        "Legacy cloud memory body changed during migration.",
-      );
-    }
-    return bytes;
   }
 
   async publishMemory(args: {
@@ -929,7 +838,7 @@ export class CloudHomeStore {
     const bytes = cloneBytes(args.bytes);
     const sha256 = await sha256BytesHex(bytes);
     const prepared = parseMemoryReceipt(
-      await this.control("/api/cloud/home/memory/begin", {
+      await this.control("memory.begin", {
         name: args.name,
         kind: args.kind,
         source: args.source,
@@ -969,7 +878,7 @@ export class CloudHomeStore {
       prepared.memoryEpoch,
     );
     const committed = parseMemoryReceipt(
-      await this.control("/api/cloud/home/memory/commit", {
+      await this.control("memory.commit", {
         intentId: prepared.intentId,
         versionId: prepared.versionId,
         r2Key: prepared.r2Key,
@@ -993,10 +902,7 @@ export class CloudHomeStore {
   async loadSkillCatalog(
     agentType: "orchestrator" | "general",
   ): Promise<CloudSkillCatalogSnapshot> {
-    const payload = await this.control("/api/cloud/home/skills/catalog", {
-      agentType,
-      includeFiles: true,
-    });
+    const payload = await this.control("skills.catalog", { agentType });
     if (!Array.isArray(payload)) {
       throw new CloudHomeProtocolError("Cloud skill catalog was invalid.");
     }
@@ -1187,7 +1093,7 @@ export class CloudHomeStore {
     }
     const manifestSha256 = await sha256BytesHex(manifestBytes);
     const receiptRow = asRecord(
-      await this.control("/api/cloud/home/skills/begin", {
+      await this.control("skills.begin", {
         slug: args.slug,
         name: args.name,
         description: args.description,
@@ -1258,7 +1164,7 @@ export class CloudHomeStore {
     }
     return this.parseSkillWriteReceipt(
       asRecord(
-        await this.control("/api/cloud/home/skills/commit", {
+        await this.control("skills.commit", {
           intentId: prepared.intentId,
           versionId: prepared.versionId,
           manifestR2Key: prepared.manifestR2Key,

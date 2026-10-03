@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  MEMORY_WIPE_PROTOCOL_VERSION,
   MEMORY_WIPE_TARGET_COUNT,
   memoryWipeTargets,
   sweepMemoryWipePage,
@@ -239,11 +238,9 @@ describe("memory-only R2 wipe", () => {
       updatedAt: 1,
     };
     const home = new CloudHomeStore(state.bucket, {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerId,
       ownerGeneration,
-      fetch: async () => Response.json([catalogEntry]),
+      control: async () => ({ ok: true, value: [catalogEntry] }),
     });
     const snapshot = await home.loadSkillCatalog("general");
     expect(home.searchSkills(snapshot, "calendar")).toHaveLength(1);
@@ -307,8 +304,6 @@ describe("memory-only R2 wipe", () => {
       cursor: 0,
     });
     expect(first).toEqual({
-      protocolVersion: MEMORY_WIPE_PROTOCOL_VERSION,
-      targetCount: MEMORY_WIPE_TARGET_COUNT,
       complete: false,
       cursor: 0,
       deleted: 250,
@@ -320,8 +315,6 @@ describe("memory-only R2 wipe", () => {
       cursor: first.cursor,
     });
     expect(resumed).toEqual({
-      protocolVersion: MEMORY_WIPE_PROTOCOL_VERSION,
-      targetCount: MEMORY_WIPE_TARGET_COUNT,
       complete: false,
       cursor: 1,
       deleted: 1,
@@ -352,8 +345,6 @@ describe("memory-only R2 wipe", () => {
       cursor: 0,
     });
     expect(retried).toEqual({
-      protocolVersion: MEMORY_WIPE_PROTOCOL_VERSION,
-      targetCount: MEMORY_WIPE_TARGET_COUNT,
       complete: false,
       cursor: 1,
       deleted: 1,

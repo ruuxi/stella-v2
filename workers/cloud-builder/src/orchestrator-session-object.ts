@@ -3692,14 +3692,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           audience: turn.audience,
           budgetMicroCents: turn.budgetMicroCents,
           agentTypes: ["orchestrator"],
-        }).then((capabilities) =>
-          this.prepareCloudHomeContext(
-            turn,
-            convexSiteBase(this.env),
-            capabilities.controlPlane,
-            admittedHomeContext,
-          ),
-        );
+        }).then(() => this.prepareCloudHomeContext(turn, admittedHomeContext));
         void work.catch(() => undefined);
         this.cloudHomePreparations.set(turnId, {
           home: work,
@@ -4238,8 +4231,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   private async prepareCloudHomeContext(
     turn: ChatTurnRequest,
-    base: string,
-    controlPlane: Pick<MintedTurnCapability, "token">,
     admittedContext?: OwnerHomeContext,
   ) {
     const timings: Record<string, number> = {};
@@ -4249,8 +4240,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       turn.ownerId,
       turn.ownerGeneration,
       {
-        base,
-        bearer: controlPlane.token,
+        control: (op, body) => this.ownerGate(turn.ownerId).homeControl({ op, body }),
         ownerGeneration: turn.ownerGeneration,
       },
     );
@@ -4658,8 +4648,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         turn.ownerId,
         turn.ownerGeneration,
         {
-          base,
-          bearer: capabilities.controlPlane.token,
+          control: (op, body) => this.ownerGate(turn.ownerId).homeControl({ op, body }),
           ownerGeneration: turn.ownerGeneration,
           // The orchestrator turn holds this activity lease until its terminal
           // finally block. Reassert it immediately before each R2 PUT so reset
@@ -4731,7 +4720,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       const prefetchedHome = this.cloudHomePreparations.get(turn.turnId)?.home;
       const loadHome = () =>
-        this.prepareCloudHomeContext(turn, base, capabilities.controlPlane);
+        this.prepareCloudHomeContext(turn);
       const homePreparation = prefetchedHome
         ? prefetchedHome.catch(loadHome)
         : loadHome();

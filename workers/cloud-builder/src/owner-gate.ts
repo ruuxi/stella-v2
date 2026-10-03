@@ -151,7 +151,8 @@ import {
 import { enqueueOutbox } from "./outbox.js";
 import { OwnerFenceStore } from "./owner-fence-store.js";
 import { OwnerModelGrantStore, type OwnerModelGrant, type OwnerModelGrantRevokeAllInput } from "./owner-model-grants.js";
-import { OwnerMemoryPolicy, MemoryPolicyError, memoryPolicyTransport } from "./memory-policy.js";
+import { OwnerMemoryPolicy, MemoryPolicyError } from "./memory-policy.js";
+import { applyMemoryPolicyChange, readMemoryPolicy } from "./owner-store/domains/home.js";
 import type { MemoryPolicy, MemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
 import {
   HEADER_OWNER_FENCE_ID,
@@ -955,6 +956,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       submit: (input) => this.submit(input),
       homeChanged: (ownerGeneration, revision) =>
         this.homeContextCache().changed(ownerGeneration, revision),
+      changeMemoryPolicy: (change) => this.changeMemoryPolicyForCall(change),
       fence: (path, body) => this.ownerFenceCall(path, body),
       log,
     });
@@ -1293,9 +1295,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private memoryPolicyState?: OwnerMemoryPolicy;
   private homeContextState?: OwnerHomeContextCache;
   private homeContextCache() { return this.homeContextState ??= new OwnerHomeContextCache(this.ctx.storage); }
-  async homeContextChanged(ownerGeneration: string, revision: number): Promise<void> {
-    await this.homeContextCache().changed(ownerGeneration, revision);
-  }
   async homeContext(ownerGeneration: string, fenceGeneration: string): Promise<OwnerHomeContext> {
     return await this.homeContextCache().load({
       ownerGeneration,
@@ -1305,8 +1304,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         if (!this.env.AGENT_HOME) throw new Error("Cloud home bucket unavailable");
         const store = new CloudHomeStore(this.env.AGENT_HOME, {
           ownerId: this.ownerId(), ownerGeneration,
-          base: convexSiteBase(this.env),
-          bearer: this.env.BUILDER_SERVICE_SECRET ?? "",
+          control: (op, body) => this.homeControl({ op, body }),
         });
         const [memory, skills] = await Promise.all([store.getMemoryContext(), store.loadSkillCatalog("orchestrator")]);
         return { memory, skills };
@@ -1431,9 +1429,32 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     });
   }
 
+  /**
+   * The memory policy's transport is this object's own `home_state`. A
+   * refusal from the home domain is definitive (400); anything else leaves
+   * the change pending for the alarm to retry.
+   */
   private memoryPolicy(): OwnerMemoryPolicy {
     return this.memoryPolicyState ??= new OwnerMemoryPolicy(
-      this.ctx, this.ownerId(), memoryPolicyTransport(this.env, this.ownerId()), {
+      this.ctx, this.ownerId(), {
+        read: async (ownerGeneration) => {
+          try {
+            return readMemoryPolicy(this.ownerStore().context(null).db, ownerGeneration);
+          } catch (error) {
+            throw new MemoryPolicyError(error instanceof RpcError ? error.reason ?? error.code : "MEMORY_POLICY_UNAVAILABLE", 503);
+          }
+        },
+        apply: async (change) => {
+          try {
+            await this.billingWrite((ctx) => applyMemoryPolicyChange(ctx, change));
+          } catch (error) {
+            if (error instanceof RpcError && !error.retryable) {
+              throw new MemoryPolicyError(error.reason ?? error.code, 400, error.message);
+            }
+            throw new MemoryPolicyError("MEMORY_POLICY_UNAVAILABLE", 503);
+          }
+        },
+      }, {
         issuanceOpen: () => this.modelGrants().issuanceOpen(),
         revokeReaders: change => this.revokeModelReaders({
           operationId: change.requestId, ownerGeneration: change.expectedOwnerGeneration,
@@ -1443,8 +1464,25 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     );
   }
 
+  /** `memory.setEnabled` / `memory.startWipe`: a policy change, refusals as `RpcError`. */
+  private async changeMemoryPolicyForCall(change: MemoryPolicyChange): Promise<void> {
+    const result = await this.changeMemoryPolicy(change);
+    if (result.ok) return;
+    throw result.code === "BAD_REQUEST"
+      ? new RpcError("BAD_REQUEST", result.message)
+      : result.status === 400
+      ? new RpcError("CONFLICT", result.message, { reason: result.code, retryable: false })
+      : result.status === 503
+        ? new RpcError("UNAVAILABLE", "Cloud memory settings are still being applied. Try again.", { reason: result.code })
+        : new RpcError("CONFLICT", "Cloud memory settings are still being applied. Try again.", {
+            reason: result.code,
+            retryable: true,
+            retryAfterMs: 2_000,
+          });
+  }
+
   async changeMemoryPolicy(change: MemoryPolicyChange): Promise<
-    { ok: true } | { ok: false; code: string; status: number }
+    { ok: true } | { ok: false; code: string; status: number; message: string }
   > {
     try {
       await this.memoryPolicy().change(change);
@@ -1452,7 +1490,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     } catch (error) {
       return { ok: false,
         code: error instanceof MemoryPolicyError ? error.code : "MEMORY_POLICY_UNAVAILABLE",
-        status: error instanceof MemoryPolicyError ? error.status : 503 };
+        status: error instanceof MemoryPolicyError ? error.status : 503,
+        message: error instanceof MemoryPolicyError ? error.message : "MEMORY_POLICY_UNAVAILABLE" };
     }
   }
 

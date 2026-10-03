@@ -85,30 +85,26 @@ const harness = async (
     ownerId,
     ownerGeneration,
     {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerGeneration,
-      fetch: async (input) => {
-        const path = new URL(String(input)).pathname;
-        calls.push(path);
-        if (path.endsWith("/memory/preference")) {
-          return Response.json({
+      control: async (op) => {
+        calls.push(op);
+        const answer = (value: unknown) => ({ ok: true as const, value });
+        if (op === "memory.context") {
+          return answer({
             ownerGeneration,
             memoryEpoch,
             memoryEnabled,
             revision: memoryEnabled ? 0 : 1,
             updatedAt: memoryEnabled ? 0 : 5,
+            documentHeads: memoryEnabled && includeHead ? [head] : [],
+            personalityHead: null,
           });
         }
-        if (path.endsWith("/memory/epoch/assert")) {
-          return Response.json({ memoryEpoch });
-        }
-        if (path.endsWith("/memory/catalog")) {
-          return Response.json(includeHead ? [head] : []);
-        }
-        if (path.endsWith("/memory/head")) return Response.json(null);
-        if (path.endsWith("/skills/catalog")) return Response.json([]);
-        return Response.json({ error: "unexpected" }, { status: 500 });
+        if (op === "memory.epochAssert") return answer({ memoryEpoch });
+        if (op === "memory.catalog") return answer(includeHead ? [head] : []);
+        if (op === "memory.head") return answer(null);
+        if (op === "skills.catalog") return answer([]);
+        throw new Error(`unexpected control op: ${op}`);
       },
     },
   );
@@ -126,9 +122,10 @@ describe("authoritative Agent Home startup", () => {
       "",
     ].join("\n");
     const first = await harness(stored);
-    expect((await first.agentHome.getMemoryPreference()).memoryEnabled).toBe(
-      true,
-    );
+    expect(
+      (await first.agentHome.cloudStore().getMemoryContext()).preference
+        .memoryEnabled,
+    ).toBe(true);
     const documents = await first.agentHome.readDocuments();
     expect(buildResidentMemorySection(documents)).toContain(
       "exact restart receipt is durable and visible later",
@@ -158,9 +155,11 @@ describe("authoritative Agent Home startup", () => {
 
   test("re-reads the owner preference across restart and accepts true absence", async () => {
     const disabled = await harness("stored but disabled", false);
-    const first = await disabled.agentHome.getMemoryPreference();
+    const first = (await disabled.agentHome.cloudStore().getMemoryContext())
+      .preference;
     const restarted = await harness("stored but disabled", false);
-    const second = await restarted.agentHome.getMemoryPreference();
+    const second = (await restarted.agentHome.cloudStore().getMemoryContext())
+      .preference;
     expect(first).toMatchObject({ memoryEnabled: false, revision: 1 });
     expect(second).toEqual(first);
 

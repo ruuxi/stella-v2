@@ -23,7 +23,6 @@ import {
   CloudHomeStore,
   type CloudHomeEndpoint,
   type CloudMemoryHead,
-  type CloudMemoryPreference,
   type CloudSkillCatalogSnapshot,
   utf8Bytes,
   utf8Text,
@@ -229,11 +228,6 @@ export class AgentHome {
     return this.cloud;
   }
 
-  async getMemoryPreference(): Promise<CloudMemoryPreference> {
-    if (!this.cloud) throw new AgentHomeUnavailableError();
-    return await this.cloud.getMemoryPreference();
-  }
-
   private ownerRoot(): Promise<string> {
     this.ownerRootPromise ??= agentHomeOwnerRoot(this.ownerId);
     return this.ownerRootPromise;
@@ -299,12 +293,10 @@ export class AgentHome {
       let budget = INJECTED_TOTAL_MAX_CHARS;
       for (const head of candidates) {
         if (budget <= 0) break;
-        // Once Convex advertises an authoritative head, missing/corrupt bytes
-        // are a blocking integrity failure. Continuing with an apparently
-        // ordinary memoryless turn would hide data loss from the owner.
-        const bytes = head.sha256
-          ? await this.cloud.readMemoryHeadBytes(head)
-          : await this.readAndUpgradeLegacyHead(head);
+        // Once the owner's home advertises an authoritative head,
+        // missing/corrupt bytes are a blocking integrity failure. Continuing
+        // with an apparently ordinary memoryless turn would hide data loss.
+        const bytes = await this.cloud.readMemoryHeadBytes(head);
         const raw = utf8Text(bytes).trim();
         if (!raw) continue;
         const perDocumentMax =
@@ -402,9 +394,7 @@ export class AgentHome {
           ? snapshotHead
           : await this.cloud.getMemoryHead("PERSONALITY.md", "personality");
       if (head) {
-        const bytes = head.sha256
-          ? await this.cloud.readMemoryHeadBytes(head)
-          : await this.readAndUpgradeLegacyHead(head);
+        const bytes = await this.cloud.readMemoryHeadBytes(head);
         const content = redactMemoryText(utf8Text(bytes)).trim();
         return content ? truncateAtLineBoundary(content, 6_000) : null;
       }
@@ -423,41 +413,6 @@ export class AgentHome {
       // Legacy, control-plane-free readers retain their compatibility behavior.
       return null;
     }
-  }
-
-  private async readAndUpgradeLegacyHead(
-    head: CloudMemoryHead,
-  ): Promise<Uint8Array> {
-    if (!this.cloud) throw new AgentHomeUnavailableError();
-    const bytes = await this.cloud.readLegacyMemoryHeadBytes(head);
-    // Only known normalized paths can advance through the new plane. Imported
-    // rows from an older owner-transfer implementation remain safely readable
-    // until the migration batch gives them an `imports/...` name.
-    const normalized =
-      head.name === "profile.md"
-        ? { name: "memories/profile.md", kind: "profile" as const }
-        : head.name === "memory_map.md"
-          ? { name: "memories/memory_map.md", kind: "memory_map" as const }
-          : {
-              name: head.name,
-              kind: head.kind,
-            };
-    try {
-      const digest = await sha256Hex(utf8Text(bytes));
-      await this.cloud.publishMemory({
-        name: normalized.name,
-        kind: normalized.kind,
-        source: "legacy_local",
-        expectedRevision: head.revision,
-        bytes,
-        writer: "system_seed",
-        idempotencyKey: `legacy-${head.documentId}-${digest.slice(0, 24)}`,
-      });
-    } catch {
-      // The body was validated against its owner-scoped row and is safe to use
-      // for this turn. A later turn retries the one-way metadata upgrade.
-    }
-    return bytes;
   }
 
   /**
@@ -504,9 +459,7 @@ export class AgentHome {
           "profile",
         );
         const storedBytes = head
-          ? head.sha256
-            ? await this.cloud.readMemoryHeadBytes(head)
-            : await this.cloud.readLegacyMemoryHeadBytes(head)
+          ? await this.cloud.readMemoryHeadBytes(head)
           : null;
         const entries = storedBytes
           ? parseProfileEntries(utf8Text(storedBytes))

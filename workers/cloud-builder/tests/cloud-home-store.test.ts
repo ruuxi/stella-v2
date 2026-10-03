@@ -86,6 +86,14 @@ const fakeBucket = () => {
   };
 };
 
+/** A `HomeControl` answering each operation from `answer`. */
+const control =
+  (answer: (op: string, body: Record<string, unknown>) => unknown | Promise<unknown>) =>
+  async (op: string, body: Record<string, unknown>) => ({
+    ok: true as const,
+    value: await answer(op, body),
+  });
+
 const ownerId = "owner-1";
 const ownerGeneration = "generation-1";
 const memoryEpoch = "epoch-1";
@@ -133,8 +141,6 @@ describe("CloudHomeStore", () => {
       expiresAt: Date.now() + 60_000,
     };
     const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerId,
       ownerGeneration,
       assertExternalWrite: async () => {
@@ -142,22 +148,19 @@ describe("CloudHomeStore", () => {
         expect(purgeRequested).toBe(false);
         liveAssertions += 1;
       },
-      fetch: async (input) => {
-        const path = new URL(String(input)).pathname;
-        calls.push(path);
-        if (path.endsWith("/begin")) return Response.json(prepared);
-        if (path.endsWith("/epoch/assert")) {
-          return Response.json({ memoryEpoch });
-        }
-        if (path.endsWith("/commit")) {
+      control: control(async (op) => {
+        calls.push(op);
+        if (op === "memory.begin") return prepared;
+        if (op === "memory.epochAssert") return { memoryEpoch };
+        if (op === "memory.commit") {
           expect(leaseHeld).toBe(true);
           requestPurge();
           await Promise.resolve();
           expect(sweepStarted).toBe(false);
-          return Response.json({ ...prepared, status: "committed" });
+          return { ...prepared, status: "committed" };
         }
-        return Response.json({ error: "unexpected" }, { status: 500 });
-      },
+        throw new Error("unexpected");
+      }),
     });
 
     leaseHeld = true;
@@ -180,11 +183,7 @@ describe("CloudHomeStore", () => {
     await purgePromise;
 
     expect(receipt.status).toBe("committed");
-    expect(calls).toEqual([
-      "/api/cloud/home/memory/begin",
-      "/api/cloud/home/memory/epoch/assert",
-      "/api/cloud/home/memory/commit",
-    ]);
+    expect(calls).toEqual(["memory.begin", "memory.epochAssert", "memory.commit"]);
     expect(liveAssertions).toBe(1);
     expect(purgeRequested).toBe(true);
     expect(sweepStarted).toBe(true);
@@ -204,15 +203,12 @@ describe("CloudHomeStore", () => {
     const sha256 = await sha256BytesHex(bytes);
     const ownerHash = await sha256Hex(ownerId);
     const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerId,
       ownerGeneration,
       assertExternalWrite: async () => {
         throw new Error("owner purge began");
       },
-      fetch: async () =>
-        Response.json({
+      control: control(() => ({
           intentId: "memintent-reset-race",
           status: "prepared",
           ownerGeneration,
@@ -228,7 +224,7 @@ describe("CloudHomeStore", () => {
           sha256,
           sizeBytes: bytes.byteLength,
           expiresAt: Date.now() + 60_000,
-        }),
+        })),
     });
 
     await expect(
@@ -279,17 +275,12 @@ describe("CloudHomeStore", () => {
       expiresAt: Date.now() + 60_000,
     };
     const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerId,
       ownerGeneration,
       assertExternalWrite: async () => {
         throw new Error("must not be called for an existing object");
       },
-      fetch: async (input) => {
-        const path = new URL(String(input)).pathname;
-        return Response.json(path.endsWith("/commit") ? receipt : receipt);
-      },
+      control: control(() => receipt),
     });
     const replay = await store.publishMemory({
       name: "MEMORY.md",
@@ -308,12 +299,9 @@ describe("CloudHomeStore", () => {
     const r2 = fakeBucket();
     const otherHash = await sha256Hex("other-owner");
     const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerId,
       ownerGeneration,
-      fetch: async () =>
-        Response.json({
+      control: control(() => ({
           documentId: "doc-1",
           name: "MEMORY.md",
           displayPath: "~/.stella/memories/MEMORY.md",
@@ -327,7 +315,7 @@ describe("CloudHomeStore", () => {
           sha256: "0".repeat(64),
           sizeBytes: 1,
           updatedAt: 1,
-        }),
+        })),
     });
     await expect(
       store.readMemoryDocument("MEMORY.md", "memory"),
@@ -367,11 +355,9 @@ describe("CloudHomeStore", () => {
       updatedAt: 1,
     };
     const store = new CloudHomeStore(r2.bucket, {
-      base: "https://convex.example",
-      bearer: "secret",
       ownerId,
       ownerGeneration,
-      fetch: async () => Response.json([entry]),
+      control: control(() => [entry]),
     });
     const snapshot = await store.loadSkillCatalog("orchestrator");
     expect(
@@ -390,21 +376,21 @@ test("loads a bounded memory context in one request and rejects stale or incompl
   const r2 = fakeBucket();
   let calls = 0;
   let response: Record<string, unknown> = {
-    ownerGeneration, memoryEpoch: "legacy", memoryEnabled: false, revision: 1, updatedAt: 1,
+    ownerGeneration, memoryEpoch, memoryEnabled: false, revision: 1, updatedAt: 1,
     documentHeads: [], personalityHead: null,
   };
   const store = new CloudHomeStore(r2.bucket, {
-    base: "https://convex.example", bearer: "test", ownerId, ownerGeneration,
-    fetch: async (_input, init) => {
+    ownerId, ownerGeneration,
+    control: control((op) => {
       calls += 1;
-      expect(JSON.parse(String(init?.body)).includeContext).toBe(true);
-      return Response.json(response);
-    },
+      expect(op).toBe("memory.context");
+      return response;
+    }),
   });
   expect(await store.getMemoryContext()).toMatchObject({ preference: { memoryEnabled: false }, documentHeads: [], personalityHead: null });
   expect(calls).toBe(1);
   response = { ...response, ownerGeneration: "stale" };
   await expect(store.getMemoryContext()).rejects.toThrow("stale");
-  response = { ownerGeneration, memoryEpoch: "legacy", memoryEnabled: false, revision: 1, updatedAt: 1 };
+  response = { ownerGeneration, memoryEpoch, memoryEnabled: false, revision: 1, updatedAt: 1 };
   await expect(store.getMemoryContext()).rejects.toThrow("incomplete");
 });

@@ -1,23 +1,19 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   mintWorkspaceAppAccess,
   serveWorkspaceApp,
 } from "../src/workspace-app-access";
-const originalFetch = globalThis.fetch;
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
 
 describe("workspace app sessions", () => {
   test("scopes signed access, strips credentials, and invalidates access on reset", async () => {
     let generation = "generation-one";
-    globalThis.fetch = (async () =>
-      Response.json({ ownerGeneration: generation })) as typeof fetch;
     let calls = 0;
     let forwarded: Request | undefined;
     const env = {
       BUILDER_SERVICE_SECRET: "test-secret-only-for-workspace-app-tests",
-      STELLA_CONVEX_SITE_URL: "https://test.convex.site",
+      OWNER_GATES: {
+        getByName: () => ({ snapshot: async () => ({ ownerGeneration: generation }) }),
+      },
       APPS_HOST_BASE_URL: "https://apps.test",
       WORLDS: {
         getByName: () => ({

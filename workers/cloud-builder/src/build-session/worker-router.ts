@@ -16,10 +16,6 @@ import { worldName } from "../workspace.js";
 
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
-import {
-  MEMORY_POLICY_CHANGE_PATH,
-  parseMemoryPolicyChange,
-} from "@stella/contracts/turn-plane/memory-policy";
 import type {
   OwnerSnapshot,
   OwnerSnapshotChangedRequest,
@@ -80,12 +76,6 @@ import {
   parseDispatchSubmitRequest,
 } from "../dispatch-policy.js";
 import { sha256Hex } from "../hash.js";
-import { MemoryPolicyError } from "../memory-policy.js";
-import {
-  MEMORY_WIPE_PROTOCOL_VERSION,
-  MEMORY_WIPE_TARGET_COUNT,
-  sweepMemoryWipePage,
-} from "../memory-wipe.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
 import { deliverOutboxBatch, isOutboxEvent } from "../outbox.js";
 import type { OutboxEvent } from "@stella/contracts/turn-plane/outbox";
@@ -1825,62 +1815,6 @@ const router = {
         },
       );
     }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/owners/home-context/changed"
-    ) {
-      const body: unknown = await request.json().catch(() => null);
-      if (
-        !body ||
-        typeof body !== "object" ||
-        !("ownerId" in body) ||
-        typeof body.ownerId !== "string" ||
-        !body.ownerId ||
-        body.ownerId.length > 512 ||
-        !("ownerGeneration" in body) ||
-        typeof body.ownerGeneration !== "string" ||
-        !body.ownerGeneration ||
-        body.ownerGeneration.length > 128 ||
-        !("revision" in body) ||
-        typeof body.revision !== "number" ||
-        !Number.isSafeInteger(body.revision) ||
-        body.revision < 1
-      ) {
-        return json({ error: "Invalid context revision." }, 400);
-      }
-      await env.OWNER_GATES.getByName(body.ownerId).homeContextChanged(
-        body.ownerGeneration,
-        body.revision,
-      );
-      return json({ ok: true });
-    }
-    if (
-      request.method === "POST" &&
-      url.pathname === MEMORY_POLICY_CHANGE_PATH
-    ) {
-      const change = parseMemoryPolicyChange(
-        await request.json().catch(() => null),
-      );
-      if (!change) return json({ error: "Invalid memory policy change." }, 400);
-      try {
-        const result = await env.OWNER_GATES.getByName(
-          change.ownerId,
-        ).changeMemoryPolicy(change);
-        return result.ok
-          ? json({ ok: true })
-          : json({ error: result.code }, result.status);
-      } catch (error) {
-        return json(
-          {
-            error:
-              error instanceof MemoryPolicyError
-                ? error.code
-                : "MEMORY_POLICY_UNAVAILABLE",
-          },
-          error instanceof MemoryPolicyError ? error.status : 503,
-        );
-      }
-    }
     // Convex learned an owner's plan, generation, engines or pairing changed.
     // A complete push pre-warms the gate; a snapshot-less push marks it stale.
     if (
@@ -2110,91 +2044,6 @@ const router = {
         generation: body.purgeGeneration,
       });
       return released;
-    }
-    if (request.method === "POST" && url.pathname === "/owners/memory-wipe") {
-      const body = (await request.json().catch(() => null)) as {
-        ownerId?: unknown;
-        ownerGeneration?: unknown;
-        operationId?: unknown;
-        memoryEpoch?: unknown;
-        purgeGeneration?: unknown;
-        protocolVersion?: unknown;
-        cursor?: unknown;
-        startAfter?: unknown;
-      } | null;
-      const ownerId =
-        typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-      const ownerGeneration = normalizeOwnerGeneration(body?.ownerGeneration);
-      const operationId = normalizeOwnerGeneration(body?.operationId);
-      const memoryEpoch = normalizeOwnerGeneration(body?.memoryEpoch);
-      const purgeGeneration = normalizeOwnerGeneration(body?.purgeGeneration);
-      const cursor = body?.cursor;
-      if (
-        !ownerId ||
-        ownerId.length > 512 ||
-        !ownerGeneration ||
-        !operationId ||
-        !memoryEpoch ||
-        !purgeGeneration ||
-        body?.protocolVersion !== MEMORY_WIPE_PROTOCOL_VERSION ||
-        !Number.isSafeInteger(cursor) ||
-        (cursor as number) < 0 ||
-        (cursor as number) > MEMORY_WIPE_TARGET_COUNT ||
-        (body?.startAfter !== undefined &&
-          (typeof body.startAfter !== "string" ||
-            body.startAfter.length === 0 ||
-            body.startAfter.length > 1_024))
-      ) {
-        return json({ error: "Malformed memory wipe request." }, 400);
-      }
-      const fenced = await callOwnerFence(env, ownerId, "assert-blocked", {
-        generation: purgeGeneration,
-      });
-      const fenceState = (await fenced.json().catch(() => null)) as {
-        active?: OwnerPurgeFence["active"];
-        beginRequestId?: unknown;
-      } | null;
-      if (
-        !fenced.ok ||
-        fenceState?.beginRequestId !== `memory-wipe:${operationId}`
-      ) {
-        return json({ error: "Memory wipe fence is not active." }, 409);
-      }
-      if (Object.keys(fenceState.active ?? {}).length > 0) {
-        return json({ error: "Owner cloud activity is still active." }, 409);
-      }
-      if (!env.AGENT_HOME) {
-        return json({ error: "Cloud home storage is unavailable." }, 503);
-      }
-      try {
-        const result = await sweepMemoryWipePage(env.AGENT_HOME, {
-          ownerId,
-          ownerGeneration,
-          cursor: cursor as number,
-          ...(typeof body?.startAfter === "string"
-            ? { startAfter: body.startAfter }
-            : {}),
-        });
-        log("info", "cloud_memory_wipe_page", {
-          ownerId,
-          operationId,
-          memoryEpoch,
-          cursor: result.cursor,
-          deleted: result.deleted,
-          complete: result.complete,
-        });
-        return json(result, result.complete ? 200 : 202);
-      } catch {
-        log("error", "cloud_memory_wipe_page_failed", {
-          ownerId,
-          operationId,
-          cursor,
-          // R2 failures can contain internal URLs or object locators. Keep the
-          // durable retry observable without copying provider detail to logs.
-          errorCode: "MEMORY_WIPE_STORAGE_FAILURE",
-        });
-        return json({ error: "Cloud memory storage wipe failed." }, 502);
-      }
     }
     if (request.method === "POST" && url.pathname === "/owners/purge") {
       const body = (await request.json()) as OwnerPurgeRequest;

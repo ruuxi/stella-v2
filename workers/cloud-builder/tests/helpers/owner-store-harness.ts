@@ -85,6 +85,7 @@ export const createOwnerStoreHarness = (
       return await harness.editResponder(request);
     },
     homeChanged: async () => {},
+    changeMemoryPolicy: async () => {},
     startScheduledTurn: async () => {},
   };
   const store = new OwnerStore({

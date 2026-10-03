@@ -1,7 +1,5 @@
 import {
-  MEMORY_POLICY_APPLY_PATH,
   memoryPoliciesMatch,
-  parseMemoryPolicy,
   type MemoryPolicy,
   type MemoryPolicyChange,
 } from "@stella/contracts/turn-plane/memory-policy";
@@ -20,9 +18,9 @@ export type OwnerMemoryPolicyHooks = {
   /** Closes grant-backed local assertions during owner fence/purge barriers. */
   issuanceOpen?: () => Promise<boolean>;
   /**
-   * Called while a policy change is durably pending and before the authoritative
-   * Convex mutation. It must durably freeze local reader grants or throw; a
-   * throw leaves the pending change closed for alarm retry.
+   * Called while a policy change is durably pending and before it is applied
+   * to the owner's home state. It must durably freeze local reader grants or
+   * throw; a throw leaves the pending change closed for alarm retry.
    */
   revokeReaders?: (change: MemoryPolicyChange) => Promise<void>;
 };
@@ -31,16 +29,19 @@ export class MemoryPolicyError extends Error {
   constructor(
     readonly code: string,
     readonly status = 409,
+    message?: string,
   ) {
-    super(code);
+    super(message ?? code);
   }
 }
 
 /**
- * The owner gate receives permission changes before Convex applies them.
- * While a change is pending, provider admission is closed. Acknowledgement
- * follows the DB commit and durable cache replacement. Lost responses leave
- * the exact operation for alarm replay; expiry never silently reopens access.
+ * The owner gate's memory permission coordinator. A change is recorded as
+ * pending, reader grants are frozen, and only then is it applied to the
+ * owner's home state (`transport`). While a change is pending, provider
+ * admission is closed. A wipe stays pending until its new epoch opens.
+ * Failures leave the exact operation for alarm replay; expiry never silently
+ * reopens access.
  */
 export class OwnerMemoryPolicy {
   constructor(
@@ -221,63 +222,3 @@ export class OwnerMemoryPolicy {
     });
   }
 }
-
-export const memoryPolicyTransport = (
-  env: { STELLA_CONVEX_SITE_URL?: string; BUILDER_SERVICE_SECRET?: string },
-  ownerId: string,
-) => {
-  const request = async (
-    path: string,
-    body: unknown,
-    applying = false,
-  ): Promise<unknown> => {
-    if (!env.STELLA_CONVEX_SITE_URL || !env.BUILDER_SERVICE_SECRET) {
-      throw new MemoryPolicyError("MEMORY_POLICY_UNCONFIGURED", 503);
-    }
-    const response = await fetch(
-      `${env.STELLA_CONVEX_SITE_URL.replace(/\/+$/, "")}${path}`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.BUILDER_SERVICE_SECRET}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(8_000),
-      },
-    );
-    if (!response.ok) {
-      if (applying && response.status === 400) {
-        const body: unknown = await response.json().catch(() => null);
-        const code =
-          body &&
-          typeof body === "object" &&
-          "code" in body &&
-          typeof body.code === "string" &&
-          /^[A-Z_]{1,100}$/u.test(body.code)
-            ? body.code
-            : "MEMORY_POLICY_CHANGE_REFUSED";
-        throw new MemoryPolicyError(code, 400);
-      }
-      throw new MemoryPolicyError("MEMORY_POLICY_UNAVAILABLE", 503);
-    }
-    return await response.json();
-  };
-  return {
-    async read(ownerGeneration: string): Promise<MemoryPolicy> {
-      const policy = parseMemoryPolicy(
-        await request("/api/cloud/home/memory/preference", {
-          ownerId,
-          ownerGeneration,
-        }),
-      );
-      if (!policy || policy.ownerGeneration !== ownerGeneration) {
-        throw new MemoryPolicyError("MEMORY_POLICY_INVALID", 503);
-      }
-      return policy;
-    },
-    async apply(change: MemoryPolicyChange): Promise<void> {
-      await request(MEMORY_POLICY_APPLY_PATH, change, true);
-    },
-  };
-};

@@ -16,6 +16,7 @@ import type {
   ViewResult,
 } from "@stella/contracts/backend/api";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { MemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
 import type {
   ConversationEditRequest,
   ConversationEditResult,
@@ -89,6 +90,11 @@ export type OwnerHost = {
    * `ownerGeneration`, so cached home context must be rebuilt.
    */
   homeChanged(ownerGeneration: string, revision: number): Promise<void>;
+  /**
+   * Change the memory switch or start a wipe through the gate's memory
+   * policy, which closes model grants first. Throws `RpcError` on refusal.
+   */
+  changeMemoryPolicy(change: MemoryPolicyChange): Promise<void>;
   /** Start a scheduled prompt as a turn, in a cloud chat or on a named desktop. */
   startScheduledTurn(input: ScheduledTurnStart): Promise<void>;
 };

@@ -43,6 +43,8 @@ export type GateHostDependencies = {
   submit: (input: OwnerGateSubmitInput) => Promise<OwnerGateDispatchResult>;
   /** Invalidate the gate's cached home context. */
   homeChanged: (ownerGeneration: string, revision: number) => Promise<void>;
+  /** The gate's memory policy change, refusals as `RpcError`. */
+  changeMemoryPolicy: OwnerHost["changeMemoryPolicy"];
   /** This object's owner fence, called in-process. */
   fence: OwnerFenceCaller;
   log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
@@ -170,6 +172,8 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   },
 
   homeChanged: deps.homeChanged,
+
+  changeMemoryPolicy: deps.changeMemoryPolicy,
 
   startScheduledTurn: async (input) => await startScheduledTurn(deps, input),
 });

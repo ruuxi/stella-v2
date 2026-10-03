@@ -121,10 +121,20 @@ export class OwnerGrantProtocolReader extends DurableObject<Env> {
   }
 }
 
-/** Production OwnerGate; Convex is the test's loopback server. */
+/** Production OwnerGate; its memory policy lives in its own home state. */
 export class GrantTestOwnerGate extends OwnerGate {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env as never);
+  }
+
+  /** The last memory switch change applied to this owner's home state. */
+  appliedPolicy(): { requestId: string | null; revision: number } {
+    const row = this.ownerStore()
+      .context(null)
+      .db.one<{ requestId: string | null; revision: number }>(
+        "SELECT policy_request_id AS requestId, policy_revision AS revision FROM home_state WHERE id = 1",
+      );
+    return row ?? { requestId: null, revision: 0 };
   }
 
   /** Runs the production alarm now instead of waiting out the retry delay. */
@@ -194,6 +204,9 @@ export default {
           memoryEnabled: false,
         });
         return json(result, result.ok ? 200 : result.status);
+      }
+      if (url.pathname === "/applied") {
+        return json(await gate.appliedPolicy());
       }
       if (url.pathname === "/retry-change") {
         await gate.runAlarm();

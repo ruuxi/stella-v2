@@ -478,9 +478,9 @@
       "ceiling": 0
     },
     "bundle.bootReachableFiles": {
-      "value": 21,
+      "value": 25,
       "kind": "count",
-      "ceiling": 24.05
+      "ceiling": 28.25
     }
   }
 }

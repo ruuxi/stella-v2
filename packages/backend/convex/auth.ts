@@ -23,7 +23,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
-import type { DataModel, Id } from "./_generated/dataModel";
+import type { DataModel } from "./_generated/dataModel";
 import type { FunctionReference } from "convex/server";
 import authConfig from "./auth.config";
 import { ConvexError, v } from "convex/values";
@@ -1634,68 +1634,4 @@ export const requireSensitiveConnectedUserId = async (
 export const requireSensitiveConnectedUserIdAction = async (ctx: ActionCtx) => {
   const identity = await requireSensitiveConnectedUserIdentityAction(ctx);
   return identity.tokenIdentifier;
-};
-
-const loadConversation = async (
-  ctx: QueryCtx | MutationCtx,
-  conversationId: Id<"conversations">,
-) => {
-  return await ctx.db.get(conversationId);
-};
-
-const loadConversationAction = async (
-  ctx: ActionCtx,
-  conversationId: Id<"conversations">,
-) => {
-  return await ctx.runQuery(internal.conversations.getById, {
-    id: conversationId,
-  });
-};
-
-/**
- * Non-throwing variant: returns the conversation if the current user owns it,
- * or null when the conversation doesn't exist / belongs to someone else.
- * Use this in queries/mutations that intentionally return null for unauthorized access
- * instead of throwing (e.g. polling endpoints, optional lookups).
- */
-export const tryLoadOwnedConversation = async (
-  ctx: QueryCtx | MutationCtx,
-  conversationId: Id<"conversations">,
-) => {
-  const ownerId = await requireUserId(ctx);
-  const conversation = await loadConversation(ctx, conversationId);
-  if (!conversation || conversation.ownerId !== ownerId) {
-    return null;
-  }
-  return conversation;
-};
-
-export const requireConversationOwner = async (
-  ctx: QueryCtx | MutationCtx,
-  conversationId: Id<"conversations">,
-) => {
-  const ownerId = await requireUserId(ctx);
-  const conversation = await loadConversation(ctx, conversationId);
-  if (!conversation || conversation.ownerId !== ownerId) {
-    throw new ConvexError({
-      code: "NOT_FOUND",
-      message: "Conversation not found",
-    });
-  }
-  return conversation;
-};
-
-export const requireConversationOwnerAction = async (
-  ctx: ActionCtx,
-  conversationId: Id<"conversations">,
-) => {
-  const ownerId = await requireUserId(ctx);
-  const conversation = await loadConversationAction(ctx, conversationId);
-  if (!conversation || conversation.ownerId !== ownerId) {
-    throw new ConvexError({
-      code: "NOT_FOUND",
-      message: "Conversation not found",
-    });
-  }
-  return conversation;
 };

@@ -1,5 +1,5 @@
 import {
-  CONTROL_PLANE_CAPABILITY_AUDIENCE,
+
   GATEWAY_CAPABILITY_ALGORITHM,
   GATEWAY_CAPABILITY_AUDIENCE,
   GATEWAY_CAPABILITY_CLOCK_SKEW_S,
@@ -182,12 +182,7 @@ export const validateCapabilityClaims = (
   if (!isRecord(value)) return false;
   if (!isNonEmptyString(value.iss) || !KNOWN_ISSUERS.has(value.iss))
     return false;
-  if (
-    value.aud !== GATEWAY_CAPABILITY_AUDIENCE &&
-    value.aud !== CONTROL_PLANE_CAPABILITY_AUDIENCE
-  ) {
-    return false;
-  }
+  if (value.aud !== GATEWAY_CAPABILITY_AUDIENCE) return false;
   if (!isNonEmptyString(value.sub) || !isNonEmptyString(value.jti))
     return false;
   if (!isFiniteNumber(value.iat) || !isFiniteNumber(value.exp)) return false;

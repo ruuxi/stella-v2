@@ -4,7 +4,7 @@ import { makeFunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertOwnerArtifactQuota } from "./lib/artifact_quota";
+
 import { calculateRiskScore } from "./lib/risk";
 import { evaluateSybilPressure } from "./lib/sybil";
 import schema from "./schema";
@@ -201,33 +201,6 @@ describe("daily cost counters", () => {
         now,
       }),
     ).toMatchObject({ allowed: false, count: 200 });
-  });
-});
-
-describe("tunnel and artifact quotas", () => {
-
-  it("counts recorded mini-app bytes against the plan quota", async () => {
-    process.env.STELLA_APP_ARTIFACT_QUOTA_MB_FREE = "1";
-    const t = convexTest(schema, modules);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_app_builds", {
-        buildId: "mini-build",
-        appId: "app",
-        ownerId: "artifact-owner",
-        status: "active",
-        metricsJson: JSON.stringify({ uploadedBytes: 700_000 }),
-        createdAt: 1,
-        updatedAt: 1,
-      });
-      await expect(
-        assertOwnerArtifactQuota(ctx, {
-          ownerId: "artifact-owner",
-          additionalBytes: 400_000,
-        }),
-      ).rejects.toSatisfy(
-        (error: unknown) => convexErrorCode(error) === "ARTIFACT_QUOTA",
-      );
-    });
   });
 });
 

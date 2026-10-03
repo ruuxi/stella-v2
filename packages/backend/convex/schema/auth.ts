@@ -1,40 +1,7 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import { optionalJsonValueValidator } from "../shared_validators";
 
 export const authSchema = {
-  secrets: defineTable({
-    ownerId: v.string(),
-    provider: v.string(),
-    label: v.string(),
-    encryptedValue: v.string(),
-    keyVersion: v.number(),
-    status: v.string(),
-    metadata: optionalJsonValueValidator,
-    createdAt: v.number(),
-    updatedAt: v.number(),
-    lastUsedAt: v.optional(v.number()),
-  })
-    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
-    .index("by_ownerId_and_provider_and_updatedAt", [
-      "ownerId",
-      "provider",
-      "updatedAt",
-    ])
-    .index("by_keyVersion", ["keyVersion"]),
-
-  secret_access_audit: defineTable({
-    ownerId: v.string(),
-    secretId: v.id("secrets"),
-    toolName: v.string(),
-    requestId: v.string(),
-    status: v.string(),
-    reason: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
-    .index("by_secretId_and_createdAt", ["secretId", "createdAt"]),
-
   // Tombstones for Better Auth sessions killed by `revokeActiveSessions`.
   //
   // Real revocation is the deletion of the Better Auth `session` row: once it

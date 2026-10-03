@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import {
   BUILDER_OWNER_SNAPSHOT_CHANGED_PATH,
   OWNER_SNAPSHOT_VERSION,
+  type ControlPlaneOwnerSnapshot,
   type OwnerSnapshot,
   type OwnerSnapshotChangedRequest,
 } from "@stella/contracts/turn-plane/owner-snapshot";
@@ -9,17 +10,8 @@ import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { hasOwnerMigrationWriteFence, resolveOwnerAccountAction } from "./auth";
-import {
-  resolveCloudPlan,
-  resolveOwnerExecutionInMutation,
-} from "./cloud_apps";
-import { CLOUD_ENGINE_PROVIDERS } from "./cloud_engines";
 import { resolveBuilderEndpoint } from "./lib/builder_turns";
-import {
-  cloudExecutionSelectionValidator,
-  DEFAULT_CLOUD_EXECUTION,
-  type CloudExecutionSelection,
-} from "./lib/cloud_execution";
+import { readOwnerBillingPlan } from "./lib/owner_plan";
 import { readOwnerDataAccessState } from "./owner_lifecycle";
 import { readOwnerEnforcement } from "./owner_enforcement";
 import {
@@ -35,17 +27,12 @@ import {
  * The owner snapshot: the one control-plane read the cloud-builder's owner
  * gate performs (`@stella/contracts/turn-plane/owner-snapshot`). Everything a
  * turn admission needs to know about an owner — write fence and generation,
- * plan, model allowance and default execution — in one document the gate
- * caches for `ttlMs`; Convex pushes a fresh replacement on change. The gate
- * overlays the owner's own data (billing, devices) from its database.
+ * plan and model allowance — in one document the gate caches for `ttlMs`;
+ * Convex pushes a fresh replacement on change. The gate overlays the owner's
+ * own data (billing, engines, devices) from its database.
  */
 
 export const OWNER_SNAPSHOT_TTL_MS = 300_000;
-
-const connectedEngineValidator = v.union(
-  v.literal("anthropic"),
-  v.literal("openai-codex"),
-);
 
 export const ownerSnapshotValidator = v.object({
   v: v.literal(1),
@@ -61,8 +48,6 @@ export const ownerSnapshotValidator = v.object({
     budgetMicroCents: v.number(),
     maxRequests: v.optional(v.number()),
   }),
-  execution: cloudExecutionSelectionValidator,
-  connectedEngines: v.optional(v.array(connectedEngineValidator)),
   fetchedAt: v.number(),
   ttlMs: v.number(),
 });
@@ -76,8 +61,6 @@ type OwnerSnapshotFields = {
   enforcement?: OwnerSnapshot["enforcement"];
   plan: OwnerSnapshot["plan"];
   allowance: OwnerSnapshot["allowance"];
-  execution: CloudExecutionSelection;
-  connectedEngines: Array<"anthropic" | "openai-codex">;
 };
 
 const ownerSnapshotFieldsValidator = v.object({
@@ -93,8 +76,6 @@ const ownerSnapshotFieldsValidator = v.object({
     budgetMicroCents: v.number(),
     maxRequests: v.optional(v.number()),
   }),
-  execution: cloudExecutionSelectionValidator,
-  connectedEngines: v.array(connectedEngineValidator),
 });
 
 /** Reads every owner-gate field in one consistent query transaction. */
@@ -116,34 +97,11 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       access.allowed && !migrationFenced && enforcement.status !== "suspended";
     // Plan and allowance live in the owner's billing ledger on cloud-builder,
     // which overlays them on this snapshot; these keep the wire shape total.
-    const { plan } = await resolveCloudPlan(ctx, ownerId);
+    const { plan } = await readOwnerBillingPlan(ctx, ownerId);
     const allowance: OwnerSnapshot["allowance"] = {
       audience: args.isAnonymous ? "anonymous" : "free",
       budgetMicroCents: 0,
     };
-    let execution: CloudExecutionSelection;
-    try {
-      execution = await resolveOwnerExecutionInMutation(ctx, ownerId);
-    } catch (error) {
-      // The selected engine's credential is gone: the gate must still admit
-      // turns, on the managed engine, exactly as `disconnectEngine` falls back.
-      if (!(error instanceof ConvexError)) throw error;
-      execution = DEFAULT_CLOUD_EXECUTION;
-    }
-    const credentials = await Promise.all(
-      CLOUD_ENGINE_PROVIDERS.map(async (provider) => ({
-        provider,
-        row: await ctx.db
-          .query("cloud_llm_credentials")
-          .withIndex("by_ownerId_and_provider_and_importedFromOwnerId", (q) =>
-            q
-              .eq("ownerId", ownerId)
-              .eq("provider", provider)
-              .eq("importedFromOwnerId", undefined),
-          )
-          .unique(),
-      })),
-    );
     return {
       ownerId,
       ownerGeneration: access.generation,
@@ -153,10 +111,6 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
       ...(enforcement.status !== "ok" ? { enforcement } : {}),
       plan,
       allowance,
-      execution,
-      connectedEngines: credentials.flatMap(({ provider, row }) =>
-        row ? [provider] : [],
-      ),
     };
   },
 });
@@ -168,7 +122,7 @@ export const getOwnerSnapshotFieldsInternal = internalQuery({
 export const getOwnerSnapshotInternal = internalAction({
   args: { ownerId: v.string() },
   returns: ownerSnapshotValidator,
-  handler: async (ctx, args): Promise<OwnerSnapshot> => {
+  handler: async (ctx, args): Promise<ControlPlaneOwnerSnapshot> => {
     const account = await resolveOwnerAccountAction(ctx, args.ownerId);
     if (!account) {
       throw new ConvexError("Owner account is unknown.");
@@ -183,9 +137,6 @@ export const getOwnerSnapshotInternal = internalAction({
     return {
       v: OWNER_SNAPSHOT_VERSION,
       ...fields,
-      // Convex validates engine === provider at runtime; the wire shape is the
-      // contract's discriminated union.
-      execution: fields.execution as OwnerSnapshot["execution"],
       fetchedAt: Date.now(),
       ttlMs: OWNER_SNAPSHOT_TTL_MS,
     };
@@ -215,7 +166,7 @@ export const notifyOwnerSnapshotChanged = internalAction({
   handler: async (ctx, args) => {
     const endpoint = resolveBuilderEndpoint();
     if (!endpoint) return null;
-    let snapshot: OwnerSnapshot | undefined;
+    let snapshot: ControlPlaneOwnerSnapshot | undefined;
     try {
       snapshot = await ctx.runAction(
         internal.owner_snapshot.getOwnerSnapshotInternal,

@@ -4,7 +4,7 @@ import { v } from 'convex/values'
 export const telemetrySchema = {
   usage_logs: defineTable({
     ownerId: v.string(),
-    conversationId: v.id('conversations'),
+    conversationId: v.string(),
     agentType: v.string(),
     model: v.string(),
     inputTokens: v.optional(v.number()),

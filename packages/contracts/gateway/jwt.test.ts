@@ -8,7 +8,7 @@ import {
   validateCapabilityClaims,
 } from "./jwt.js";
 import {
-  CONTROL_PLANE_CAPABILITY_AUDIENCE,
+
   GATEWAY_BUDGET_UNLIMITED,
   GATEWAY_CAPABILITY_ISSUERS,
   type GatewayJwks,
@@ -87,43 +87,6 @@ describe("capability jwt", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.claims.turn?.execution.model).toBe("stella/light");
-  });
-
-  test("verifies a control-plane capability only against its own audience", async () => {
-    const { builderKey, verification } = await setup();
-    const signed = await signCapability(
-      {
-        iss: GATEWAY_CAPABILITY_ISSUERS.cloudBuilder,
-        aud: CONTROL_PLANE_CAPABILITY_AUDIENCE,
-        sub: "owner",
-        gen: "gen-1",
-        kind: "turn",
-        audience: "pro",
-        budgetMicroCents: GATEWAY_BUDGET_UNLIMITED,
-        turn: {
-          turnId: "turn-1",
-          conversationId: "conv-1",
-          execution: {
-            engine: "stella",
-            provider: "stella",
-            model: "stella/light",
-            reasoningEffort: "medium",
-          },
-        },
-      },
-      builderKey,
-      { ttlMs: 60_000 },
-    );
-    const asControlPlane = await verifyCapability(signed.token, verification, {
-      expectedAudience: CONTROL_PLANE_CAPABILITY_AUDIENCE,
-    });
-    expect(asControlPlane.ok).toBe(true);
-    if (!asControlPlane.ok) return;
-    expect(asControlPlane.claims.aud).toBe(CONTROL_PLANE_CAPABILITY_AUDIENCE);
-    // A control-plane token presented to the model gateway must fail on
-    // audience, never on claim shape: the gateway reports a precise refusal.
-    const asGateway = await verifyCapability(signed.token, verification);
-    expect(asGateway).toEqual({ ok: false, reason: "audience_mismatch" });
   });
 
   test("rejects a token signed by a key registered to another issuer", async () => {

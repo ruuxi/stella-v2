@@ -155,16 +155,19 @@ function formatHost() {
 }
 
 const body = renderApiObject(apiType);
+// Only declare what the rendered surface uses: consumers compile this file
+// with noUnusedLocals.
 const imports = [
   `import { anyApi } from "convex/server";`,
   `import type { ${[...functionReferenceNames].sort().join(", ")} } from "convex/server";`,
-  `import type { Value } from "convex/values";`,
+  ...(/\bValue\b/.test(body) ? [`import type { Value } from "convex/values";`] : []),
 ];
+const idDeclaration = /\bId</.test(body)
+  ? `\ntype Id<_TableName extends string> = string;\n`
+  : "";
 
 const source = `${imports.join("\n")}
-
-type Id<_TableName extends string> = string;
-
+${idDeclaration}
 export const api: PublicApiType = anyApi as unknown as PublicApiType;
 
 export type PublicApiType = ${body} & Record<string, any>;

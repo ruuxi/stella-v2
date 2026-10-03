@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { resolveBuilderEndpoint } from "./lib/builder_turns";
-import type { ManagedModelAudience } from "./agent/model";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
 /**
  * Convex's remaining calls into billing, which lives in each owner's object

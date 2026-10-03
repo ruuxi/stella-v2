@@ -3,26 +3,15 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
 const insertUsageLog = async (t: ReturnType<typeof convexTest>) =>
   await t.run(async (ctx) => {
-    const conversationId: Id<"conversations"> = await ctx.db.insert(
-      "conversations",
-      {
-        ownerId: "owner-1",
-        isDefault: false,
-        eventCount: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    );
     return await ctx.db.insert("usage_logs", {
       ownerId: "owner-1",
-      conversationId,
+      conversationId: "conversation-1",
       agentType: "orchestrator",
       model: "test-model",
       durationMs: 10,

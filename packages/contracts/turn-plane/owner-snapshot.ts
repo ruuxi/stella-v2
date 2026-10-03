@@ -42,8 +42,8 @@ export type OwnerSnapshot = {
     maxRequests?: number;
   };
   /**
-   * Owner default execution used when a turn does not pin one. The gate
-   * fills it from the owner's engines domain; Convex's copy is ignored.
+   * Owner default execution used when a turn does not pin one, filled by the
+   * gate from the owner's engines domain.
    */
   execution: CloudExecutionSelection;
   /**
@@ -90,6 +90,15 @@ export type OwnerSnapshot = {
   ttlMs: number;
 };
 
+/**
+ * What Convex serves and pushes. The gate fills `execution` and
+ * `connectedEngines` from the owner's engines domain.
+ */
+export type ControlPlaneOwnerSnapshot = Omit<
+  OwnerSnapshot,
+  "execution" | "connectedEngines"
+>;
+
 export type OwnerSnapshotChangedRequest = {
   ownerId: string;
   /**
@@ -97,7 +106,7 @@ export type OwnerSnapshotChangedRequest = {
    * one marks the existing copy stale so the gate refreshes it in the
    * background on its next read.
    */
-  snapshot?: OwnerSnapshot;
+  snapshot?: ControlPlaneOwnerSnapshot;
   reason:
     | "billing"
     | "generation"

@@ -5,7 +5,6 @@ import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
 
   CONVEX_GATEWAY_USAGE_PATH,
@@ -14,7 +13,6 @@ import {
 import { components, internal } from "./_generated/api";
 import { tokenIdentifierForBetterAuthUserId } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
-import { encryptEnginePayload } from "./cloud_engines";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -88,20 +86,6 @@ const createTest = async () => {
         updatedAt: now,
       });
     }
-    await ctx.db.insert("conversations", {
-      ownerId: OWNER_ID,
-      isDefault: true,
-      eventCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await ctx.db.insert("conversations", {
-      ownerId: ANON_OWNER_ID,
-      isDefault: true,
-      eventCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
   });
   return t;
 };
@@ -271,72 +255,6 @@ describe("POST /api/gateway/usage", () => {
     );
   });
 });
-
-describe("POST /api/gateway/engine-access", () => {
-  it("resolves a stored credential with its expiry and fails closed otherwise", async () => {
-    const t = await createTest();
-    const request = (body: unknown) =>
-      post(t, CONVEX_GATEWAY_ENGINE_ACCESS_PATH, body);
-
-    expect(
-      (
-        await request({
-          ownerId: OWNER_ID,
-          ownerGeneration: OWNER_GENERATION,
-          provider: "gemini",
-        })
-      ).status,
-    ).toBe(400);
-    expect(
-      (
-        await request({
-          ownerId: OWNER_ID,
-          ownerGeneration: "stale",
-          provider: "anthropic",
-        })
-      ).status,
-    ).toBe(409);
-    expect(
-      (
-        await request({
-          ownerId: OWNER_ID,
-          ownerGeneration: OWNER_GENERATION,
-          provider: "anthropic",
-        })
-      ).status,
-    ).toBe(404);
-
-    const expires = Date.now() + 3_600_000;
-    const payloadEncrypted = await encryptEnginePayload({
-      access: "codex-access-token",
-      refresh: "codex-refresh-token",
-      expires,
-      accountId: "acct-123",
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_llm_credentials", {
-        ownerId: OWNER_ID,
-        provider: "openai-codex",
-        payloadEncrypted,
-        label: "test",
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-    const resolved = await request({
-      ownerId: OWNER_ID,
-      ownerGeneration: OWNER_GENERATION,
-      provider: "openai-codex",
-    });
-    expect(resolved.status).toBe(200);
-    expect(await resolved.json()).toEqual({
-      accessToken: "codex-access-token",
-      accountId: "acct-123",
-      expiresAt: expires,
-    });
-  });
-});
-
 
 describe("owner enforcement admin routes", () => {
   it("sets enforcement by email and returns the owner control-plane summary", async () => {

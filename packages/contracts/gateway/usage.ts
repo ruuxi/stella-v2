@@ -84,9 +84,6 @@ export const CONVEX_GATEWAY_USAGE_PATH = "/api/gateway/usage" as const;
 /** Abuse admission for a session exchange; the owner object calls it before reserving budget. */
 export const CONVEX_GATEWAY_SESSION_ADMISSION_PATH =
   "/api/gateway/session-admission" as const;
-/** Dead: the native lane uses `BillingControl.engineAccess`. Removed with the Convex sweep. */
-export const CONVEX_GATEWAY_ENGINE_ACCESS_PATH =
-  "/api/gateway/engine-access" as const;
 export const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH =
   "/api/gateway/owner-enforcement" as const;
 
@@ -224,7 +221,3 @@ export type EngineAccessResponse = {
   /** Absolute ms timestamp; the gateway must not cache past this. */
   expiresAt: number;
 };
-
-/** The dead Convex `/api/gateway/engine-access` route's names, until its sweep. */
-export type ConvexEngineAccessRequest = EngineAccessRequest;
-export type ConvexEngineAccessResponse = EngineAccessResponse;

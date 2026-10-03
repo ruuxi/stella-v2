@@ -5,12 +5,10 @@ import type { NetworkClass } from "@stella/contracts/gateway/api";
 import { CONVEX_OWNER_RESET_PATH } from "@stella/contracts/backend/account";
 import { CONVEX_OWNER_SNAPSHOT_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
-  CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
   CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   GATEWAY_USAGE_EVENT_VERSION,
-  type ConvexEngineAccessResponse,
   type GatewayUsageBatchResult,
   type ConvexOwnerEnforcementState,
 } from "@stella/contracts/gateway/usage";
@@ -18,12 +16,7 @@ import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { FunctionArgs } from "convex/server";
 import { resolveOwnerAccountAction } from "../auth";
-import {
-  resolveEngineAccess,
-  type CloudEngineProvider,
-} from "../cloud_engines";
 import { constantTimeEqual } from "../lib/crypto_utils";
-import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import { postAlert } from "../lib/alerts";
 
 /**
@@ -455,47 +448,6 @@ const ownerEnforcement = httpAction(async (ctx, request) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/gateway/engine-access
-// ---------------------------------------------------------------------------
-
-const isEngineProvider = (value: unknown): value is CloudEngineProvider =>
-  value === "anthropic" || value === "openai-codex";
-
-const engineAccess = httpAction(async (ctx, request) => {
-  const denied = requireGatewayServiceRequest(request);
-  if (denied) return denied;
-  const body = await readJsonObject(request);
-  if (
-    !body ||
-    !isId(body.ownerId) ||
-    !isId(body.ownerGeneration) ||
-    !isEngineProvider(body.provider)
-  ) {
-    return json({ error: "bad_request" }, 400);
-  }
-  let generation: string;
-  try {
-    ({ generation } = await assertOwnerDataAccessActive(ctx, body.ownerId));
-  } catch (error) {
-    if (convexErrorCode(error) === "OWNER_DATA_PURGE_ACTIVE") {
-      return json({ error: "owner_unavailable" }, 404);
-    }
-    throw error;
-  }
-  if (generation !== body.ownerGeneration) {
-    return json({ error: "generation_stale" }, 409);
-  }
-  const access = await resolveEngineAccess(ctx, body.ownerId, body.provider);
-  if (!access) return json({ error: "credential_missing" }, 404);
-  const response: ConvexEngineAccessResponse = {
-    accessToken: access.accessToken,
-    ...(access.accountId ? { accountId: access.accountId } : {}),
-    expiresAt: access.expiresAt,
-  };
-  return json(response);
-});
-
-// ---------------------------------------------------------------------------
 // GET /api/gateway/owner-snapshot?ownerId=
 // ---------------------------------------------------------------------------
 
@@ -600,10 +552,5 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     path: CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
     method: "GET",
     handler: ownerEnforcement,
-  });
-  http.route({
-    path: CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
-    method: "POST",
-    handler: engineAccess,
   });
 };

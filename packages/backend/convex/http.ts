@@ -6,15 +6,7 @@ import { authComponent, createAuth } from "./auth";
 // Route modules
 import { registerAdminRoutes } from "./http_routes/admin";
 import { registerAuthHandoffRoutes } from "./http_routes/auth_handoff";
-import { registerNativeOAuthRoutes } from "./http_routes/native_oauth";
-
 import { registerAppIntegrityRoutes } from "./http_routes/app_integrity";
-import { registerCloudConnectorConnectRoutes } from "./http_routes/cloud_connector_connect";
-import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
-import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
-import { registerOutboxRoutes } from "./http_routes/outbox";
-import { registerXRoutes } from "./http_routes/x";
-
 import { registerGatewayRoutes } from "./http_routes/gateway";
 
 const http = httpRouter();
@@ -45,12 +37,6 @@ authComponent.registerRoutes(http, createAuth, {
 
 registerAdminRoutes(http);
 registerAuthHandoffRoutes(http);
-registerNativeOAuthRoutes(http);
-registerXRoutes(http);
-registerOutboxRoutes(http);
-registerCloudProjectRoutes(http);
-registerCloudIntegrationRoutes(http);
-registerCloudConnectorConnectRoutes(http);
 registerAppIntegrityRoutes(http);
 
 // ---------------------------------------------------------------------------

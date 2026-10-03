@@ -1,11 +1,9 @@
 /// <reference types="vite/client" />
 
-import { S3Client } from "@aws-sdk/client-s3";
 import { convexTest } from "convex-test";
 import type { FunctionReference } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { ensureExternalOwnerPurge } from "./cloud_purge";
 
@@ -81,44 +79,7 @@ const purgeFunctions = internal as unknown as {
       string[]
     >;
   };
-  cloud_purge: {
-    purgeOwnerCloudStack: FunctionReference<
-      "action",
-      "internal",
-      Fence,
-      { pending: string[] }
-    >;
-    deleteOwnerCloudBatch: FunctionReference<
-      "mutation",
-      "internal",
-      Fence & {
-        table:
-          | "cloud_app_storage"
-          | "agent_events"
-          | "cloud_integration_call_receipts";
-      },
-      { hasMore: boolean }
-    >;
-    getOwnerIntegrationCallQuiescenceInternal: FunctionReference<
-      "query",
-      "internal",
-      { ownerId: string; now: number },
-      { ready: boolean; nextCheckAt?: number }
-    >;
-    remainingOwnerStoresInternal: FunctionReference<
-      "query",
-      "internal",
-      { ownerId: string },
-      string[]
-    >;
-  };
   reset: {
-    _deleteConversationBatch: FunctionReference<
-      "mutation",
-      "internal",
-      Fence & { conversationId: Id<"conversations"> },
-      { hasMore: boolean }
-    >;
     _deleteOwnerTableBatch: FunctionReference<
       "mutation",
       "internal",
@@ -341,245 +302,6 @@ describe("owner purge adversarial invariants", () => {
     }
   });
 
-  it("drains app storage for both owner and user principals", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(t, "dual-principal", "reset", "cloud");
-    const rows = await t.run(async (ctx) => ({
-      owned: await ctx.db.insert("cloud_app_storage", {
-        appId: "owned-app",
-        ownerId: fence.ownerId,
-        userId: "another-user",
-        key: "owned",
-        valueJson: "{}",
-        sizeBytes: 2,
-        updatedAt: 1,
-      }),
-      used: await ctx.db.insert("cloud_app_storage", {
-        appId: "foreign-app",
-        ownerId: "another-owner",
-        userId: fence.ownerId,
-        key: "used",
-        valueJson: "{}",
-        sizeBytes: 2,
-        updatedAt: 2,
-      }),
-      unrelated: await ctx.db.insert("cloud_app_storage", {
-        appId: "other-app",
-        ownerId: "another-owner",
-        userId: "another-user",
-        key: "unrelated",
-        valueJson: "{}",
-        sizeBytes: 2,
-        updatedAt: 3,
-      }),
-    }));
-
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "cloud_app_storage",
-    });
-    expect(
-      await t.run(async (ctx) => ({
-        owned: await ctx.db.get(rows.owned),
-        used: await ctx.db.get(rows.used),
-        unrelated: await ctx.db.get(rows.unrelated),
-      })),
-    ).toMatchObject({
-      owned: null,
-      used: null,
-      unrelated: { key: "unrelated" },
-    });
-  });
-
-  it("finds and drains owner-attributed events even when the parent turn is missing", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "orphan-event-owner",
-      "delete",
-      "cloud",
-    );
-    const eventId = await t.run(async (ctx) =>
-      ctx.db.insert("agent_events", {
-        ownerId: fence.ownerId,
-        turnId: "missing-parent-turn",
-        sessionId: "missing-parent-session",
-        seq: 1,
-        kind: "tool",
-        payloadJson: '{"private":"owner-data"}',
-        createdAt: 1,
-      }),
-    );
-
-    expect(
-      await t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).toContain("agent_events");
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "agent_events",
-    });
-    expect(await t.run(async (ctx) => ctx.db.get(eventId))).toBeNull();
-  });
-
-  it("retains browser interaction debt until the fenced Gateway profile purge succeeds", async () => {
-    vi.stubEnv("CLOUD_BUILDER_URL", "https://builder.example.test");
-    vi.stubEnv("BUILDER_SERVICE_SECRET", "test-secret");
-    const purgeBodies: Array<Record<string, unknown>> = [];
-    let purgeAttempt = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      const url = String(input);
-      if (url.endsWith("/owners/purge/begin")) {
-        return Response.json({
-          generation: "worker-browser-purge-generation",
-          rejoined: false,
-        });
-      }
-      if (url.endsWith("/owners/purge")) {
-        purgeBodies.push(
-          JSON.parse(String(init?.body)) as Record<string, unknown>,
-        );
-        purgeAttempt += 1;
-        return Response.json({
-          pending: purgeAttempt === 1 ? ["browser-profile:default"] : [],
-        });
-      }
-      throw new Error(`Unexpected purge request: ${url}`);
-    });
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "browser-profile-purge-owner",
-      "delete",
-      "cloud",
-    );
-    await t.run(async (ctx) => {
-      await ctx.db.insert("cloud_browser_interactions", {
-        interactionId: "interaction:purge",
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        conversationId: "conversation:purge",
-        threadId: "thread:purge",
-        turnId: "turn:purge",
-        attemptGeneration: 1,
-        toolCallId: "tool-call:purge",
-        requestDigest: "b".repeat(64),
-        profileId: "default",
-        profileEpoch: 3,
-        kind: "login_takeover",
-        state: "pending",
-        displayOrigin: "https://accounts.example",
-        revision: 1,
-        expiresAt: 60_000,
-        suspensionEventPayloadHash: "d".repeat(64),
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-
-    await expect(
-      t.action(purgeFunctions.cloud_purge.purgeOwnerCloudStack, fence),
-    ).rejects.toThrow("browser-profile:default");
-    await expect(
-      t.run(async (ctx) =>
-        ctx.db
-          .query("cloud_browser_interactions")
-          .withIndex("by_interactionId", (q) =>
-            q.eq("interactionId", "interaction:purge"),
-          )
-          .unique(),
-      ),
-    ).resolves.not.toBeNull();
-
-    await expect(
-      t.action(purgeFunctions.cloud_purge.purgeOwnerCloudStack, fence),
-    ).resolves.toEqual({ pending: [] });
-    await expect(
-      t.run(async (ctx) =>
-        ctx.db
-          .query("cloud_browser_interactions")
-          .withIndex("by_interactionId", (q) =>
-            q.eq("interactionId", "interaction:purge"),
-          )
-          .unique(),
-      ),
-    ).resolves.toBeNull();
-    expect(purgeBodies).toHaveLength(2);
-    for (const body of purgeBodies) {
-      expect(body).toMatchObject({
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        purgeGeneration: "worker-browser-purge-generation",
-        browserProfiles: ["default"],
-        mode: "delete",
-      });
-      expect(body.ownerGeneration).not.toBe(body.purgeGeneration);
-    }
-  });
-
-  it("retains a live Code integration dispatch receipt until its bounded lease expires", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "integration-dispatch-owner",
-      "reset",
-      "cloud",
-    );
-    const liveUntil = Date.now() + 90_000;
-    const receiptId = await t.run(async (ctx) =>
-      ctx.db.insert("cloud_integration_call_receipts", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        requestId: "code-call-request",
-        fingerprint: "fingerprint",
-        toolName: "connected.read",
-        revision: "revision-1",
-        state: "dispatching",
-        leaseId: "dispatch-lease",
-        leaseExpiresAt: liveUntil,
-        attempts: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
-    );
-
-    await expect(
-      t.query(
-        purgeFunctions.cloud_purge.getOwnerIntegrationCallQuiescenceInternal,
-        { ownerId: fence.ownerId, now: liveUntil - 1 },
-      ),
-    ).resolves.toEqual({ ready: false, nextCheckAt: liveUntil });
-    await expect(
-      t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toContain("cloud_integration_call_receipts");
-
-    // The row mutation repeats the lease defense even if a caller skips the
-    // action-level preflight.
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "cloud_integration_call_receipts",
-    });
-    expect(await t.run(async (ctx) => ctx.db.get(receiptId))).not.toBeNull();
-
-    await t.run(async (ctx) => {
-      await ctx.db.patch(receiptId, { leaseExpiresAt: Date.now() - 1 });
-    });
-    await expect(
-      t.query(
-        purgeFunctions.cloud_purge.getOwnerIntegrationCallQuiescenceInternal,
-        { ownerId: fence.ownerId, now: Date.now() },
-      ),
-    ).resolves.toEqual({ ready: true });
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "cloud_integration_call_receipts",
-    });
-    expect(await t.run(async (ctx) => ctx.db.get(receiptId))).toBeNull();
-  });
-
   it("refuses account completion for owner-indexed orphan core rows", async () => {
     const t = createTest();
     const ownerId = "account-core-orphan-owner";
@@ -644,16 +366,7 @@ describe("owner purge adversarial invariants", () => {
     const t = createTest();
     const fence = await beginAndClaim(t, "reset-auth-owner", "reset", "core");
     const rows = await t.run(async (ctx) => {
-      const auditConversation = await ctx.db.insert("conversations", {
-        ownerId: fence.ownerId,
-        title: "Resettable conversation",
-        isDefault: false,
-        eventCount: 0,
-        createdAt: 1,
-        updatedAt: 1,
-      });
       return {
-        auditConversation,
         fromLink: await ctx.db.insert("auth_link_requests", {
           email: "from@example.test",
           requestId: "from-owner-request",
@@ -681,7 +394,7 @@ describe("owner purge adversarial invariants", () => {
         }),
         usageLog: await ctx.db.insert("usage_logs", {
           ownerId: fence.ownerId,
-          conversationId: auditConversation,
+          conversationId: "audit-conversation",
           agentType: "primary",
           model: "test-model",
           costMicroCents: 6,
@@ -702,10 +415,6 @@ describe("owner purge adversarial invariants", () => {
       };
     });
 
-    await t.mutation(purgeFunctions.reset._deleteConversationBatch, {
-      ...fence,
-      conversationId: rows.auditConversation,
-    });
 
     expect(
       await t.query(purgeFunctions.reset.remainingOwnerResetStoresInternal, {

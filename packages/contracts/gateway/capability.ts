@@ -20,16 +20,8 @@ import type { CloudExecutionSelection } from "../agent-engine.js";
  */
 
 export const GATEWAY_CAPABILITY_AUDIENCE = "stella-model-gateway" as const;
-/**
- * Control-plane audience: presented by cloud-builder Durable Objects to Convex
- * callback routes. Never handed to a sandbox or a client, so a leaked
- * model-gateway capability cannot be replayed against the control plane.
- */
-export const CONTROL_PLANE_CAPABILITY_AUDIENCE = "stella-control-plane" as const;
 
-export type CapabilityAudience =
-  | typeof GATEWAY_CAPABILITY_AUDIENCE
-  | typeof CONTROL_PLANE_CAPABILITY_AUDIENCE;
+export type CapabilityAudience = typeof GATEWAY_CAPABILITY_AUDIENCE;
 
 export const GATEWAY_CAPABILITY_ISSUERS = {
   convex: "stella-convex",

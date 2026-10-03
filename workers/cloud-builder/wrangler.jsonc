@@ -70,8 +70,8 @@
     // origin to derive it from.
     "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
     // S3 API origin of the account that owns the DRIVE bucket, for presigned
-    // drive uploads and downloads. Placeholder until the integrator sets it.
-    "R2_S3_ENDPOINT": "https://PENDING_CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com",
+    // drive uploads and downloads.
+    "R2_S3_ENDPOINT": "https://f34b91c9c7dc22f0aef0ba855a9f026f.r2.cloudflarestorage.com",
   },
   "secrets": {
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that
@@ -157,8 +157,7 @@
     {
       "binding": "DB",
       "database_name": "stella-v2-dev",
-      // Placeholder: replace with the id from `wrangler d1 create stella-v2-dev`.
-      "database_id": "PENDING_D1_ID",
+      "database_id": "a2cd9816-891c-4642-9f07-094251947a84",
       "migrations_dir": "migrations",
     },
   ],

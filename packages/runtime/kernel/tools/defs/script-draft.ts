@@ -38,6 +38,7 @@ export type ScriptDraftToolOptions = {
   /** Stella home root (e.g. `~/.stella`). Required. */
   stellaDataDir: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
 };
 
 const formatResult = (params: {
@@ -111,6 +112,7 @@ export const createScriptDraftTool = (
 
     const authEnv = createScheduleScriptAuthEnv(
       options.getStellaSiteAuth?.() ?? null,
+      options.getCloudBackendAuth?.()?.baseUrl ?? null,
     );
     const runResult = await runScheduleScript(
       scriptPath,

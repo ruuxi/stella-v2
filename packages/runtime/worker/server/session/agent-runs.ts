@@ -78,7 +78,6 @@ export interface Interface {
     conversationId: string;
     userPrompt: string;
     rejectIfBusy?: boolean;
-    remoteTurnAttemptId?: string;
     executionPlacementRunId?: string;
     ownerGeneration?: string;
     agentType?: string;
@@ -1228,38 +1227,10 @@ export const layer = Layer.effect(
         stellaDataDirPath: config.get().stellaDataDirPath,
         conversationId: payload.conversationId,
       });
-      const remoteTurnAttemptId = payload.remoteTurnAttemptId?.trim();
-      const remoteRequestId =
-        payload.connectorDeliveryTarget?.requestId?.trim();
       return await (
         await runnerHandle.ensureInitialized()
       ).runAutomationTurn({
         ...payload,
-        ...(remoteTurnAttemptId
-          ? {
-              onRemoteTurnAdmitted: async (args) => {
-                if (
-                  args.attemptId !== remoteTurnAttemptId ||
-                  !remoteRequestId ||
-                  args.requestId !== remoteRequestId
-                ) {
-                  return false;
-                }
-                const receipt = await hostBus.request<{
-                  accepted?: boolean;
-                  attemptId?: string;
-                  runId?: string;
-                }>(METHOD_NAMES.HOST_REMOTE_TURN_ADMIT, args, {
-                  retryOnDisconnect: false,
-                });
-                return (
-                  receipt?.accepted === true &&
-                  receipt.attemptId === args.attemptId &&
-                  receipt.runId === args.runId
-                );
-              },
-            }
-          : {}),
         ...(materializedImageAttachments.length > 0 || modelFileAttachments.length > 0
           ? {
               attachments: [

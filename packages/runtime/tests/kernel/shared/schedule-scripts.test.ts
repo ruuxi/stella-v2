@@ -21,16 +21,19 @@ afterEach(async () => {
 });
 
 describe("runScheduleScript", () => {
-  it("provides generic site auth and the existing X API aliases", () => {
+  it("provides generic site auth and the X API on the backend URL", () => {
     expect(
-      createScheduleScriptAuthEnv({
-        baseUrl: " https://example.convex.site/ ",
-        authToken: " test-token ",
-      }),
+      createScheduleScriptAuthEnv(
+        {
+          baseUrl: " https://example.convex.site/ ",
+          authToken: " test-token ",
+        },
+        "https://backend.example",
+      ),
     ).toEqual({
       STELLA_SITE_BASE_URL: "https://example.convex.site/",
       STELLA_SITE_AUTH_TOKEN: "test-token",
-      STELLA_X_API_BASE_URL: "https://example.convex.site/",
+      STELLA_X_API_BASE_URL: "https://backend.example",
       STELLA_X_API_AUTH_TOKEN: "test-token",
     });
   });
@@ -72,6 +75,10 @@ describe("runScheduleScript", () => {
       stellaDataDir: root,
       getStellaSiteAuth: () => ({
         baseUrl: "https://example.convex.site",
+        authToken: "draft-token",
+      }),
+      getCloudBackendAuth: () => ({
+        baseUrl: "https://backend.example",
         authToken: "draft-token",
       }),
     });

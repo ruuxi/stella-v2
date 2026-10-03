@@ -69,7 +69,6 @@ test("cloud hand-off balances the desktop start and ignores later dispatch updat
 test("private chats stay on this computer with a previously selected cloud or remote target", async () => {
   const requests: unknown[] = [];
   const host = {
-    resolveConnectorFollowupTarget: () => null,
     deviceIdentity: { deviceId: "this-computer" },
     startPlacedChat: () => {
       throw new Error("Private chat left this computer");

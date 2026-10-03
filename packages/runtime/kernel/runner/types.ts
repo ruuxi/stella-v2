@@ -534,15 +534,7 @@ export type RunnerPublicApi = {
   sendMessage: (input: RuntimeSendMessageInput) => Promise<void>;
   sendUserMessage: (input: RuntimeSendUserMessageInput) => Promise<void>;
   runAutomationTurn: (
-    payload: RuntimeAutomationTurnRequest & {
-      /** Worker-local callback; never crosses the JSON-RPC boundary. */
-      onRemoteTurnAdmitted?: (args: {
-        requestId: string;
-        attemptId: string;
-        conversationId: string;
-        runId: string;
-      }) => Promise<boolean>;
-    },
+    payload: RuntimeAutomationTurnRequest,
   ) => Promise<RuntimeAutomationTurnResult>;
   runBlockingLocalAgent: (
     request: Omit<AgentToolRequest, "storageMode">,
@@ -581,8 +573,7 @@ export type RunnerPublicApi = {
   /**
    * Cancel the active orchestrator run for the given local conversation,
    * if one exists. Resolves `true` (after the joining cancel) if a run was
-   * cancelled. Used by the remote-turn cancel path so callers don't need
-   * to track runIds.
+   * cancelled, so callers don't need to track runIds.
    */
   cancelLocalChatByConversation: (conversationId: string) => Promise<boolean>;
   getActiveOrchestratorRun: () => RuntimeActiveRun | null;

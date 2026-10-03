@@ -138,12 +138,6 @@ export const METHOD_NAMES = {
   HOST_WINDOW_SHOW: "host.window.show",
   HOST_WINDOW_FOCUS: "host.window.focus",
   HOST_RUNTIME_AUTH_REFRESH: "host.runtimeAuth.refresh",
-  /**
-   * Worker-to-host pre-execution fence for an exact leased remote turn. The
-   * worker has already reserved its run id, but cannot launch provider work
-   * until the live host positively acknowledges the matching attempt.
-   */
-  HOST_REMOTE_TURN_ADMIT: "host.remoteTurn.admit",
   INTERNAL_WORKER_INITIALIZE: "internal.worker.initialize",
   INTERNAL_WORKER_CONFIGURE: "internal.worker.configure",
   INTERNAL_WORKER_HEALTH: "internal.worker.health",
@@ -151,12 +145,7 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_GET_ACTIVE: "internal.worker.getActive",
   INTERNAL_WORKER_START_CHAT: "internal.worker.startChat",
   INTERNAL_WORKER_CANCEL: "internal.worker.cancel",
-  /**
-   * Cancel the active orchestrator automation/chat run for a given local
-   * conversation. Used by the host's remote-turn bridge when the
-   * originating connector (e.g. the Stella mobile app) issues a
-   * server-side cancel for its in-flight `requestId`.
-   */
+  /** Cancel the active orchestrator automation/chat run for a local conversation. */
   INTERNAL_WORKER_CANCEL_BY_CONVERSATION:
     "internal.worker.cancelByConversation",
   INTERNAL_WORKER_RESUME_EVENTS: "internal.worker.resumeEvents",
@@ -525,11 +514,6 @@ export type RuntimeAutomationTurnRequest = {
    * external authority cannot outlive an unobservable queued entry.
    */
   rejectIfBusy?: boolean;
-  /**
-   * Exact desktop remote-turn lease attempt. When present, the worker derives
-   * a stable run id and requires a positive host admission ACK before launch.
-   */
-  remoteTurnAttemptId?: string;
   /** Exact dispatch-scoped local owner for a desktop placement chat run. */
   executionPlacementRunId?: string;
   /** Transcript authority for this automation turn. */

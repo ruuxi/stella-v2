@@ -468,33 +468,6 @@ CREATE TABLE IF NOT EXISTS cloud_agent_tool_operations (
 CREATE INDEX IF NOT EXISTS idx_cloud_agent_tool_operations_updated
   ON cloud_agent_tool_operations(updated_at, operation_id);
 
-CREATE TABLE IF NOT EXISTS connector_followup_targets (
-  conversation_id TEXT PRIMARY KEY,
-  request_id TEXT NOT NULL,
-  backend_conversation_id TEXT NOT NULL,
-  initial_turn_completed INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_connector_followup_targets_request
-  ON connector_followup_targets(request_id);
-
-CREATE TABLE IF NOT EXISTS connector_followup_outbox (
-  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-  delivery_id TEXT NOT NULL UNIQUE,
-  request_id TEXT NOT NULL,
-  backend_conversation_id TEXT NOT NULL,
-  text TEXT NOT NULL,
-  eligible_at INTEGER,
-  attempts INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at INTEGER NOT NULL,
-  last_error TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_connector_followup_outbox_delivery
-  ON connector_followup_outbox(eligible_at, next_attempt_at, sequence);
-
 CREATE TABLE IF NOT EXISTS voice_transcript_inbox (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id TEXT NOT NULL UNIQUE,

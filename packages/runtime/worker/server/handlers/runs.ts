@@ -131,7 +131,6 @@ export const runsHandlers: WorkerRpcHandlers = {
             conversationId: string;
             userPrompt: string;
             rejectIfBusy?: boolean;
-            remoteTurnAttemptId?: string;
             executionPlacementRunId?: string;
             ownerGeneration?: string;
             agentType?: string;

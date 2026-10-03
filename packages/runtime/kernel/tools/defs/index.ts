@@ -149,6 +149,9 @@ export const buildBuiltinTools = (
       ...(options.getStellaSiteAuth
         ? { getStellaSiteAuth: options.getStellaSiteAuth }
         : {}),
+      ...(options.getCloudBackendAuth
+        ? { getCloudBackendAuth: options.getCloudBackendAuth }
+        : {}),
     }),
   );
 

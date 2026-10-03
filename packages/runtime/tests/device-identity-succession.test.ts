@@ -35,25 +35,17 @@ describe("runtime host device identity succession", () => {
 
   it("claims a retired identity whenever authenticated host services synchronize", () => {
     const host = createHost() as any;
-    const bridge = { start: vi.fn(), stop: vi.fn(), kick: vi.fn() };
     host.started = true;
     host.hostReady = true;
     host.configCache = { hasConnectedAccount: true };
     host.getConfiguredHostAuthToken = vi.fn(() => "token");
-    host.getConfiguredHostConvexUrl = vi.fn(
-      () => "https://example.convex.cloud",
-    );
-    host.ensureHostRemoteTurnBridge = vi.fn();
-    host.hostRemoteTurnBridge = bridge;
-    host.resetHostRemoteTurnAuthTracking = vi.fn();
-    host.ensureHostRemoteTurnCancelSubscription = vi.fn();
+    host.getConfiguredHostBackendUrl = vi.fn(() => "https://backend.example");
     host.claimDeviceIdentitySuccession = vi.fn(async () => undefined);
 
-    host.syncHostRemoteTurnBridge();
+    host.syncHostAccountServices();
+    host.syncHostAccountServices();
 
-    expect(host.claimDeviceIdentitySuccession).toHaveBeenCalledTimes(1);
-    expect(bridge.start).toHaveBeenCalledTimes(1);
-    expect(bridge.kick).toHaveBeenCalledTimes(1);
+    expect(host.claimDeviceIdentitySuccession).toHaveBeenCalledTimes(2);
   });
 
   it("clears the retired id only after the backend accepts the succession", async () => {

@@ -52,7 +52,6 @@ import {
   normalizeChatRunInput,
 } from "./orchestrator-policy.js";
 import { shouldPersistLocalChatTranscript } from "./conversation-storage-mode.js";
-import { remoteTurnWorkerRunId } from "../remote-turn-attempt.js";
 import {
   getPlacementCancellation,
   normalizePlacementExecutionId,
@@ -910,14 +909,7 @@ export const createOrchestratorController = (
       attachments?: StartPreparedRunArgs["attachments"];
       connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
       userMessageEventId?: string;
-      remoteTurnAttemptId?: string;
       executionPlacementRunId?: string;
-      onRemoteTurnAdmitted?: (args: {
-        requestId: string;
-        attemptId: string;
-        conversationId: string;
-        runId: string;
-      }) => Promise<boolean>;
     },
     resolveResult: (value: AutomationTurnResult) => void,
   ): Promise<{ runId: string }> => {
@@ -926,15 +918,9 @@ export const createOrchestratorController = (
         throw new Error("The orchestrator is already running.");
       }
 
-      const remoteTurnAttemptId = payload.remoteTurnAttemptId?.trim();
       const executionPlacementRunId = payload.executionPlacementRunId
         ? normalizePlacementExecutionId("chat", payload.executionPlacementRunId)
         : undefined;
-      if (remoteTurnAttemptId && executionPlacementRunId) {
-        throw new Error(
-          "An automation turn cannot have both remote-turn and execution-placement ownership.",
-        );
-      }
       const {
         conversationId,
         userPrompt,
@@ -956,9 +942,8 @@ export const createOrchestratorController = (
         return { runId: "" };
       }
 
-      const runId = remoteTurnAttemptId
-        ? remoteTurnWorkerRunId(remoteTurnAttemptId)
-        : (executionPlacementRunId ?? `local:auto:${crypto.randomUUID()}`);
+      const runId =
+        executionPlacementRunId ?? `local:auto:${crypto.randomUUID()}`;
       // Connector turns: the durable thread store is the single
       // model-context source, so the user timestamp tag the retired
       // local-events projection used to add at read time is stamped onto the
@@ -1022,37 +1007,16 @@ export const createOrchestratorController = (
           ),
         cleanupRun,
         onFatalError: createAutomationFatalErrorHandler(resolveResult),
-        ...(remoteTurnAttemptId || executionPlacementRunId
+        ...(executionPlacementRunId
           ? {
               onPrepared: async () => {
-                if (executionPlacementRunId) {
-                  const cancellationReason = getPlacementCancellation({
-                    store: context.runtimeStore,
-                    kind: "chat",
-                    executionId: executionPlacementRunId,
-                  });
-                  if (cancellationReason) {
-                    throw new Error(cancellationReason);
-                  }
-                }
-                if (remoteTurnAttemptId) {
-                  const requestId = connectorDeliveryTarget?.requestId?.trim();
-                  if (!requestId || !payload.onRemoteTurnAdmitted) {
-                    throw new Error(
-                      "Remote-turn worker admission callback is unavailable.",
-                    );
-                  }
-                  const accepted = await payload.onRemoteTurnAdmitted({
-                    requestId,
-                    attemptId: remoteTurnAttemptId,
-                    conversationId,
-                    runId,
-                  });
-                  if (!accepted) {
-                    throw new Error(
-                      "Remote-turn worker admission was denied before execution.",
-                    );
-                  }
+                const cancellationReason = getPlacementCancellation({
+                  store: context.runtimeStore,
+                  kind: "chat",
+                  executionId: executionPlacementRunId,
+                });
+                if (cancellationReason) {
+                  throw new Error(cancellationReason);
                 }
               },
             }
@@ -1085,14 +1049,7 @@ export const createOrchestratorController = (
     attachments?: StartPreparedRunArgs["attachments"];
     connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
     userMessageEventId?: string;
-    remoteTurnAttemptId?: string;
     executionPlacementRunId?: string;
-    onRemoteTurnAdmitted?: (args: {
-      requestId: string;
-      attemptId: string;
-      conversationId: string;
-      runId: string;
-    }) => Promise<boolean>;
   }): Promise<AutomationTurnResult> => {
     // Gate on the model this turn will actually run (a pinned override must
     // not be blocked because the default orchestrator route is unavailable).

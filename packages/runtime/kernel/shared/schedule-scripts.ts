@@ -44,20 +44,30 @@ const truncateOutput = (value: string): string => {
   return `${head}\n…[${dropped} bytes truncated]`
 }
 
+/**
+ * `stella-x-api` talks to the backend worker, so its base URL is the backend
+ * URL, not the auth site's.
+ */
 export const createScheduleScriptAuthEnv = (
   auth:
     | { baseUrl?: string | null; authToken?: string | null }
     | null
     | undefined,
+  backendUrl?: string | null,
 ): Record<string, string> | null => {
   const baseUrl = auth?.baseUrl?.trim() || null
   const authToken = auth?.authToken?.trim() || null
   if (!baseUrl || !authToken) return null
+  const xApiBaseUrl = backendUrl?.trim() || null
   return {
     STELLA_SITE_BASE_URL: baseUrl,
     STELLA_SITE_AUTH_TOKEN: authToken,
-    STELLA_X_API_BASE_URL: baseUrl,
-    STELLA_X_API_AUTH_TOKEN: authToken,
+    ...(xApiBaseUrl
+      ? {
+          STELLA_X_API_BASE_URL: xApiBaseUrl,
+          STELLA_X_API_AUTH_TOKEN: authToken,
+        }
+      : {}),
   }
 }
 

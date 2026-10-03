@@ -197,6 +197,8 @@ export type BillingControlRpc = {
     request: ConvexSessionCapabilityRequest,
   ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>>;
   ingestUsage(batch: GatewayUsageBatch): Promise<GatewayUsageBatchResult>;
+  /** Prices, anonymous ceilings and tier breakers; throws while unavailable. */
+  gatewayConfig(): Promise<GatewayConfigSnapshot>;
 };
 
 /** Convex answers the exchange with this when step-up is required and no valid token came. */

@@ -106,6 +106,7 @@ import {
 } from "../request-ingress.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { handleBillingRoute } from "../billing/routes.js";
+import { handleStellaModelsRoute } from "../catalog/models.js";
 import { handleDevicesRoute } from "../devices/routes.js";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import type { TurnAuthKind } from "../turn-start-request.js";
@@ -953,6 +954,9 @@ const router = {
     // the client sent under those names first.
     const backendResponse = await handleBackendRoute(request, env);
     if (backendResponse) return backendResponse;
+    // Public: the model catalog (an optional bearer picks the audience).
+    const modelsResponse = await handleStellaModelsRoute(request, env);
+    if (modelsResponse) return modelsResponse;
     // Public: upstream read access for callers without an account.
     const bootstrapResponse = await handleAppSourceBootstrap(request, env);
     if (bootstrapResponse) return bootstrapResponse;

@@ -1,4 +1,5 @@
 import type { Env } from "./build-session/shared/env.js";
+import { syncModelPrices } from "./catalog/prices.js";
 
 /**
  * The worker's one Cron Trigger (`17 3 * * *`). Each global sweep adds itself
@@ -6,10 +7,12 @@ import type { Env } from "./build-session/shared/env.js";
  */
 export async function runScheduled(
   _controller: ScheduledController,
-  _env: Env,
+  env: Env,
   _ctx: ExecutionContext,
 ): Promise<void> {
-  const sweeps: Array<[string, () => Promise<unknown>]> = [];
+  const sweeps: Array<[string, () => Promise<unknown>]> = [
+    ["model prices", () => syncModelPrices(env)],
+  ];
   for (const [name, sweep] of sweeps) {
     try {
       await sweep();

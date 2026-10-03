@@ -3,11 +3,25 @@ import type {
   BillingControlResult,
   BillingControlRpc,
   ConvexSessionCapabilityRequest,
+  GatewayConfigSnapshot,
   GatewayUsageBatch,
   GatewayUsageBatchResult,
   GatewayUsageEvent,
 } from "@stella/contracts/gateway/usage";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
+import { dollarsToMicroCents } from "@stella/model-catalog/pricing";
+import { readManagedModelPrices } from "../catalog/prices.js";
+import { billingConfig } from "./plans.js";
+
+/** A breaker in USD from the Worker's env, -1 meaning none; else the default. */
+const tierCeilingMicroCents = (env: Env, name: string, defaultUsd: number): number => {
+  const raw = (env as unknown as Record<string, unknown>)[name];
+  const value = typeof raw === "string" && raw.trim() ? Number(raw.trim()) : defaultUsd;
+  if (!Number.isFinite(value) || (value < 0 && value !== -1)) {
+    throw new Error(`${name} must be -1 or a non-negative USD amount.`);
+  }
+  return value === -1 ? -1 : dollarsToMicroCents(value);
+};
 
 /**
  * The model gateway's way into billing, over a service binding: session
@@ -33,6 +47,36 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
       );
       return { ok: false, status: null, code: null, retryable: true };
     }
+  }
+
+  /**
+   * The gateway's pricing and limits snapshot. Prices come from D1
+   * (`model_prices`, synced by the Cron Trigger); the gateway caches it.
+   */
+  async gatewayConfig(): Promise<GatewayConfigSnapshot> {
+    const { prices, updatedAt } = await readManagedModelPrices(this.env);
+    const config = billingConfig(this.env);
+    return {
+      v: 1,
+      prices,
+      anonymous: {
+        maxRequestsPerOwner: config.anonymousMaxRequests,
+        maxRequestsPerIp: config.anonymousMaxRequestsPerIp,
+      },
+      tierCeilings: [
+        {
+          audience: "anonymous",
+          hourlyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_ANON_HOURLY_USD", 20),
+          dailyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_ANON_DAILY_USD", 200),
+        },
+        {
+          audience: "free",
+          hourlyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_FREE_HOURLY_USD", 100),
+          dailyMicroCents: tierCeilingMicroCents(this.env, "STELLA_TIER_CEILING_FREE_DAILY_USD", 1_000),
+        },
+      ],
+      updatedAt: updatedAt || Date.now(),
+    };
   }
 
   /** Settle a batch. Throws when any owner's share should be redelivered. */

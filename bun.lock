@@ -414,6 +414,7 @@
         "@sinclair/typebox": "0.34.49",
         "@stella/contracts": "workspace:*",
         "@stella/executor-cloud": "workspace:*",
+        "@stella/model-catalog": "workspace:*",
         "@stella/runtime": "workspace:*",
         "effect": "4.0.0-beta.83",
         "just-bash": "3.4.2",

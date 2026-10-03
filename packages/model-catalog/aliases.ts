@@ -30,8 +30,8 @@ export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
-// Bump this whenever Stella default/model/mode mappings change. Desktop
-// subscribes to it and passes it to runtime as the model-catalog cache key.
+// Bump this whenever Stella default/model/mode mappings change. The catalog
+// route reports it as `updatedAt`; clients revalidate by ETag.
 export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 8, 2, 0, 0);
 
 export type StellaCatalogModel = {

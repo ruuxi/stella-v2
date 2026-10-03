@@ -1,7 +1,7 @@
 # canvas-share Worker
 
 Serves published canvas documents from the `stella-canvas-shares` R2 bucket at
-`GET /c/:slug`. The Convex backend (`convex/data/canvas_shares_actions.ts`)
+`GET /c/:slug`. cloud-builder's `shares` owner domain (`workers/cloud-builder/src/owner-store/domains/shares.ts`)
 writes and deletes the objects; this Worker is the read-only public serving
 layer.
 

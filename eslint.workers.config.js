@@ -7,7 +7,7 @@ export default tseslint.config({
     "workers/browser-gateway/src/**/*.ts",
     "workers/device-code-fixture/src/**/*.ts",
     "workers/model-gateway/src/**/*.ts",
-    "packages/backend/workers/canvas-share/src/**/*.ts",
+    "workers/canvas-share/src/**/*.ts",
   ],
   languageOptions: {
     parser: tseslint.parser,

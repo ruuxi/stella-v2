@@ -6,7 +6,6 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "packages/backend/workers/*",
     "workers/*"
   ],
   "main": "packages/desktop/electron/start.mjs",
@@ -105,10 +104,10 @@
     "device-code-fixture:lint:promises": "eslint --config eslint.workers.config.js workers/device-code-fixture/src",
     "device-code-fixture:test": "cd workers/device-code-fixture && bun run test",
     "device-code-fixture:build:dry-run": "cd workers/device-code-fixture && bun run build:dry-run:bn118",
-    "canvas-share:typecheck": "cd packages/backend/workers/canvas-share && bun run typecheck",
-    "canvas-share:lint:promises": "eslint --config eslint.workers.config.js packages/backend/workers/canvas-share/src",
-    "canvas-share:test": "cd packages/backend/workers/canvas-share && bun run test && bun run test:workerd",
-    "canvas-share:build:dry-run": "cd packages/backend/workers/canvas-share && bun run build:dry-run",
+    "canvas-share:typecheck": "cd workers/canvas-share && bun run typecheck",
+    "canvas-share:lint:promises": "eslint --config eslint.workers.config.js workers/canvas-share/src",
+    "canvas-share:test": "cd workers/canvas-share && bun run test && bun run test:workerd",
+    "canvas-share:build:dry-run": "cd workers/canvas-share && bun run build:dry-run",
     "check:ratchet": "node packages/runtime/scripts/check-effect-ratchet.mjs"
   },
   "dependencies": {

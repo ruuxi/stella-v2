@@ -142,14 +142,6 @@
         "vitest": "^4.1.10",
       },
     },
-    "packages/backend/workers/canvas-share": {
-      "name": "canvas-share-worker",
-      "version": "0.1.0",
-      "devDependencies": {
-        "typescript": "6.0.3",
-        "wrangler": "4.127.1",
-      },
-    },
     "packages/contracts": {
       "name": "@stella/contracts",
       "version": "0.0.0",
@@ -401,6 +393,14 @@
       "devDependencies": {
         "@cloudflare/workers-types": "5.20260830.1",
         "typescript": "^6.0.3",
+        "wrangler": "4.127.1",
+      },
+    },
+    "workers/canvas-share": {
+      "name": "canvas-share-worker",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "6.0.3",
         "wrangler": "4.127.1",
       },
     },
@@ -1954,7 +1954,7 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001791", "", {}, "sha512-yk0l/YSrOnFZk3UROpDLQD9+kC1l4meK/wed583AXrzoarMGJcbRi2Q4RaUYbKxYAsZ8sWmaSa/DsLmdBeI1vQ=="],
 
-    "canvas-share-worker": ["canvas-share-worker@workspace:packages/backend/workers/canvas-share"],
+    "canvas-share-worker": ["canvas-share-worker@workspace:workers/canvas-share"],
 
     "cbor": ["cbor@10.0.12", "", { "dependencies": { "nofilter": "^3.0.2" } }, "sha512-exQDevYd7ZQLP4moMQcZkKCVZsXLAtUSflObr3xTh4xzFIv/xBCdvCd6L259kQOUP2kcTC0jvC6PpZIf/WmRXA=="],
 

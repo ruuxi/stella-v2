@@ -2,26 +2,12 @@ import { cronJobs, makeFunctionReference } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
-crons.interval(
-  "retry cloud home context notifications",
-  { minutes: 1 },
-  makeFunctionReference<"mutation", {}, null>(
-    "cloud_home_context:retryPending",
-  ),
-  {},
-);
 
 const maintainAgentEventOwnershipRef = makeFunctionReference<
   "action",
   { maxBatches?: number },
   unknown
 >("agent_event_ownership:maintainAgentEventOwnershipInternal");
-
-const sweepMemoryWipesRef = makeFunctionReference<
-  "mutation",
-  { limit?: number },
-  { attempted: number }
->("cloud_memory_lifecycle:sweepDueMemoryWipesInternal");
 
 const sweepComposioSessionCleanupRef = makeFunctionReference<
   "mutation",
@@ -202,16 +188,6 @@ crons.interval(
   { maxBatches: 8 },
 );
 
-// Memory-only erasure is object-first and cursor-driven. This sweep recovers
-// killed actions while the memory epoch remains closed, so restart can never
-// turn a partial deletion into an apparently successful empty home.
-crons.interval(
-  "resume cloud memory wipes",
-  { minutes: 1 },
-  sweepMemoryWipesRef,
-  { limit: 10 },
-);
-
 // Retires the resurrection fences left by finished purges. They are a random
 // conversation id and a timestamp -- no owner, no content -- and only have to
 // outlive an index flush that was in flight when the purge ran.
@@ -229,20 +205,6 @@ crons.interval(
   { hours: 6 },
   internal.cloud_apps.sweepOrphanConversationsInternal,
   { limit: 25 },
-);
-
-crons.interval(
-  "dispatch due cloud schedules",
-  { minutes: 1 },
-  internal.cloud_schedule.dispatchDueSchedulesInternal,
-  {},
-);
-
-crons.interval(
-  "reclaim abandoned drive uploads",
-  { hours: 1 },
-  internal.cloud_drive.sweepStaleDriveUploadsInternal,
-  { limit: 100 },
 );
 
 // Destructive owner resets/deletions cross Convex, R2, Durable Objects, and

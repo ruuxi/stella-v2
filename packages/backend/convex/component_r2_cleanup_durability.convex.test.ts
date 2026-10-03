@@ -9,12 +9,6 @@ import { r2 } from "./r2_files";
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => convexTest(schema, modules);
 
-const cleanupCanceledDriveObject = makeFunctionReference<
-  "action",
-  { r2Key: string; attempt?: number },
-  { deleted: boolean }
->("cloud_drive:cleanupCanceledPendingUploadInternal");
-
 const deleteRelayedMedia = makeFunctionReference<
   "action",
   {
@@ -57,30 +51,6 @@ afterEach(() => {
 });
 
 describe("durable component-R2 cleanup chains", () => {
-  it("keeps a Drive orphan locator scheduled across response loss and converges on replay", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(100_000));
-    const t = createTest();
-    const r2Key = "drive/orphaned-finalization.bin";
-    stubComponentR2Env();
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValueOnce(new Error("delete response lost"))
-      .mockResolvedValueOnce(new Response(null, { status: 404 }));
-    const metadataSpy = vi
-      .spyOn(r2, "deleteObject")
-      .mockResolvedValue(undefined);
-
-    await expect(
-      t.action(cleanupCanceledDriveObject, { r2Key }),
-    ).resolves.toEqual({ deleted: false });
-    expect(await scheduledWithKey(t, r2Key)).toHaveLength(1);
-
-    await t.finishAllScheduledFunctions(vi.runAllTimers, 10);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(metadataSpy).toHaveBeenCalledTimes(1);
-  });
-
   it("keeps connector relay locators scheduled until every object is confirmed absent", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(200_000));

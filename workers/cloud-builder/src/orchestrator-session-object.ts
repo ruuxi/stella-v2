@@ -9583,12 +9583,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * tombstone stops new writes starting, `quiesce()` waits out the ones
    * already running, and only then is the key list taken.
    *
-   * Incomplete drains report `purged: false` and are retried by Convex's cron
+   * Incomplete drains report `purged: false` and are retried by the owner
+   * object's `conversations.purge` job (and its reset/delete purge hook)
    * rather than by a DO alarm: the alarm belongs to the turn lifecycle, and
    * borrowing it here would put a deletion bug inside the terminal-delivery
-   * ladder. The 202 is load-bearing on the Convex side —
-   * `purgeConversationInternal` reads this body's `purged`, never the status
-   * class, precisely because `response.ok` is true for it.
+   * ladder. The 202 is load-bearing in `owner-store/purge.ts`, which reads
+   * this body's `purged`, never the status class, precisely because
+   * `response.ok` is true for it.
    */
   private async handlePurge(): Promise<Response> {
     const now = Date.now();

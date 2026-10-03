@@ -8,7 +8,6 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { ensureExternalOwnerPurge } from "./cloud_purge";
-import { r2 } from "./r2_files";
 
 const modules = import.meta.glob("./**/*.ts");
 const createTest = () => convexTest(schema, modules);
@@ -89,23 +88,6 @@ const purgeFunctions = internal as unknown as {
       Fence,
       { pending: string[] }
     >;
-    deleteDriveRowsInternal: FunctionReference<
-      "mutation",
-      "internal",
-      Fence & {
-        rows: Array<
-          | { kind: "file"; id: Id<"cloud_drive_files">; r2Key: string }
-          | {
-              kind: "upload";
-              id: Id<"cloud_drive_uploads">;
-              r2Key: string;
-              expiresAt: number;
-            }
-        >;
-        now: number;
-      },
-      { deleted: number; deferred: number }
-    >;
     deleteOwnerCloudBatch: FunctionReference<
       "mutation",
       "internal",
@@ -113,9 +95,6 @@ const purgeFunctions = internal as unknown as {
         table:
           | "cloud_app_storage"
           | "agent_events"
-          | "cloud_memory_lifecycles"
-          | "cloud_memory_wipe_jobs"
-          | "cloud_agent_home_preferences"
           | "cloud_integration_call_receipts";
       },
       { hasMore: boolean }
@@ -219,36 +198,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
-
-const stubComponentR2Env = () => {
-  vi.stubEnv("R2_ACCESS_KEY_ID", "cloud-purge-test-access");
-  vi.stubEnv("R2_SECRET_ACCESS_KEY", "cloud-purge-test-secret");
-  vi.stubEnv(
-    "R2_ENDPOINT",
-    "https://cloud-purge-test.r2.cloudflarestorage.com",
-  );
-  vi.stubEnv("R2_BUCKET", "cloud-purge-test-bucket");
-  vi.stubEnv("CLOUD_BUILDER_URL", "https://builder.example.test");
-  vi.stubEnv("BUILDER_SERVICE_SECRET", "test-builder-secret");
-};
-
-const mockCloudAndR2Purge = () =>
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = String(input);
-    if (init?.method === "DELETE") {
-      return new Response(null, { status: 204 });
-    }
-    if (url.endsWith("/owners/purge/begin")) {
-      return Response.json({ generation: "worker-purge-generation" });
-    }
-    if (url.endsWith("/owners/purge")) {
-      return Response.json({ pending: [] });
-    }
-    if (url.endsWith("/owners/purge/release")) {
-      return Response.json({ released: true });
-    }
-    throw new Error(`Unexpected purge request: ${url}`);
-  });
 
 const beginAndClaim = async (
   t: TestHarness,
@@ -566,187 +515,6 @@ describe("owner purge adversarial invariants", () => {
     expect(await t.run(async (ctx) => ctx.db.get(publicationId))).toBeNull();
   });
 
-  it("uses exact-key CAS and retains live presigned upload locators", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(t, "drive-owner", "reset", "cloud");
-    const rows = await t.run(async (ctx) => ({
-      exactFile: await ctx.db.insert("cloud_drive_files", {
-        ownerId: fence.ownerId,
-        path: "exact.txt",
-        r2Key: "drive/exact",
-        name: "exact.txt",
-        sizeBytes: 1,
-        contentType: "text/plain",
-        source: "upload",
-        updatedAt: 1,
-        createdAt: 1,
-      }),
-      changedFile: await ctx.db.insert("cloud_drive_files", {
-        ownerId: fence.ownerId,
-        path: "changed.txt",
-        r2Key: "drive/current",
-        name: "changed.txt",
-        sizeBytes: 1,
-        contentType: "text/plain",
-        source: "upload",
-        updatedAt: 2,
-        createdAt: 2,
-      }),
-      liveUpload: await ctx.db.insert("cloud_drive_uploads", {
-        ownerId: fence.ownerId,
-        path: "live.txt",
-        r2Key: "drive/live",
-        claimedBytes: 1,
-        createdAt: 3,
-        expiresAt: 20_000,
-      }),
-      expiredUpload: await ctx.db.insert("cloud_drive_uploads", {
-        ownerId: fence.ownerId,
-        path: "expired.txt",
-        r2Key: "drive/expired",
-        claimedBytes: 1,
-        createdAt: 4,
-        expiresAt: 9_000,
-      }),
-    }));
-
-    expect(
-      await t.mutation(purgeFunctions.cloud_purge.deleteDriveRowsInternal, {
-        ...fence,
-        rows: [
-          { kind: "file", id: rows.exactFile, r2Key: "drive/exact" },
-          { kind: "file", id: rows.changedFile, r2Key: "drive/stale" },
-          {
-            kind: "upload",
-            id: rows.liveUpload,
-            r2Key: "drive/live",
-            expiresAt: 20_000,
-          },
-          {
-            kind: "upload",
-            id: rows.expiredUpload,
-            r2Key: "drive/expired",
-            expiresAt: 9_000,
-          },
-        ],
-        now: 10_000,
-      }),
-    ).toEqual({ deleted: 2, deferred: 1 });
-    expect(
-      await t.run(async (ctx) => ({
-        exactFile: await ctx.db.get(rows.exactFile),
-        changedFile: await ctx.db.get(rows.changedFile),
-        liveUpload: await ctx.db.get(rows.liveUpload),
-        expiredUpload: await ctx.db.get(rows.expiredUpload),
-      })),
-    ).toMatchObject({
-      exactFile: null,
-      changedFile: { r2Key: "drive/current" },
-      liveUpload: { r2Key: "drive/live" },
-      expiredUpload: null,
-    });
-  });
-
-  it("does no component delete while a Drive PUT URL can still replay", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "drive-live-write-authority",
-      "reset",
-      "cloud",
-    );
-    const uploadId = await t.run(async (ctx) =>
-      ctx.db.insert("cloud_drive_uploads", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        uploadId: "live-upload",
-        status: "pending",
-        path: "private/live.txt",
-        r2Key: "drive/live-write-authority",
-        claimedBytes: 7,
-        createdAt: Date.now(),
-        expiresAt: Date.now() + 60_000,
-      }),
-    );
-    stubComponentR2Env();
-    const fetchSpy = mockCloudAndR2Purge();
-    const metadataSpy = vi
-      .spyOn(r2, "deleteObject")
-      .mockResolvedValue(undefined);
-
-    await expect(
-      t.action(purgeFunctions.cloud_purge.purgeOwnerCloudStack, fence),
-    ).rejects.toThrow(/cloud_drive_objects|cloud_drive_uploads/u);
-    const directDeletes = fetchSpy.mock.calls.filter(
-      ([, init]) => init?.method === "DELETE",
-    );
-    expect(directDeletes).toEqual([]);
-    expect(metadataSpy).not.toHaveBeenCalled();
-    await expect(
-      t.run(async (ctx) => ctx.db.get(uploadId)),
-    ).resolves.toMatchObject({ r2Key: "drive/live-write-authority" });
-  });
-
-  it("confirms Drive object absence before exact row ACK and strict reset readback", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "drive-confirmed-object-purge",
-      "reset",
-      "cloud",
-    );
-    const rows = await t.run(async (ctx) => ({
-      file: await ctx.db.insert("cloud_drive_files", {
-        ownerId: fence.ownerId,
-        path: "private/report.txt",
-        r2Key: "drive/private-report",
-        name: "report.txt",
-        sizeBytes: 5,
-        contentType: "text/plain",
-        source: "agent",
-        origin: "agent",
-        updatedAt: 1,
-        createdAt: 1,
-      }),
-      upload: await ctx.db.insert("cloud_drive_uploads", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        uploadId: "expired-upload",
-        status: "pending",
-        path: "private/expired.txt",
-        r2Key: "drive/private-expired",
-        claimedBytes: 6,
-        createdAt: 1,
-        expiresAt: 0,
-      }),
-    }));
-    stubComponentR2Env();
-    const fetchSpy = mockCloudAndR2Purge();
-    const metadataSpy = vi
-      .spyOn(r2, "deleteObject")
-      .mockResolvedValue(undefined);
-
-    await expect(
-      t.action(purgeFunctions.cloud_purge.purgeOwnerCloudStack, fence),
-    ).resolves.toEqual({ pending: [] });
-    const directDeletes = fetchSpy.mock.calls.filter(
-      ([, init]) => init?.method === "DELETE",
-    );
-    expect(directDeletes).toHaveLength(2);
-    expect(metadataSpy).toHaveBeenCalledTimes(2);
-    await expect(
-      t.run(async (ctx) => ({
-        file: await ctx.db.get(rows.file),
-        upload: await ctx.db.get(rows.upload),
-      })),
-    ).resolves.toEqual({ file: null, upload: null });
-    await expect(
-      t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toEqual([]);
-  });
-
   it("drains app storage for both owner and user principals", async () => {
     const t = createTest();
     const fence = await beginAndClaim(t, "dual-principal", "reset", "cloud");
@@ -984,99 +752,6 @@ describe("owner purge adversarial invariants", () => {
       table: "cloud_integration_call_receipts",
     });
     expect(await t.run(async (ctx) => ctx.db.get(receiptId))).toBeNull();
-  });
-
-  it("strictly reads back and drains Memory lifecycle and preference rows", async () => {
-    const t = createTest();
-    const fence = await beginAndClaim(
-      t,
-      "memory-lifecycle-owner",
-      "reset",
-      "cloud",
-    );
-    const rows = await t.run(async (ctx) => ({
-      lifecycleId: await ctx.db.insert("cloud_memory_lifecycles", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        epoch: "memory-epoch-purge",
-        state: "wiping",
-        operationId: "memory-wipe-purge",
-        createdAt: 1,
-        updatedAt: 1,
-      }),
-      wipeJobId: await ctx.db.insert("cloud_memory_wipe_jobs", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        operationId: "memory-wipe-purge",
-        requestId: "memory-wipe-request-purge",
-        requestedEpoch: "memory-epoch-purge",
-        targetEpoch: "memory-epoch-purge",
-        nextEpoch: "memory-epoch-after-purge",
-        stage: "metadata",
-        externalGeneration: "external-memory-purge",
-        externalCursor: 3,
-        metadataStoreIndex: 2,
-        attempts: 1,
-        nextRetryAt: 2,
-        leaseId: "memory-wipe-lease-purge",
-        leaseExpiresAt: 3,
-        lastErrorCode: "retryable_test_error",
-        objectsDeleted: 4,
-        rowsDeleted: 5,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
-      preferenceId: await ctx.db.insert("cloud_agent_home_preferences", {
-        ownerId: fence.ownerId,
-        ownerGeneration: fence.generation,
-        memoryEnabled: false,
-        revision: 1,
-        lastRequestId: "memory-off-purge",
-        lastRequestExpectedRevision: 0,
-        lastRequestMemoryEnabled: false,
-        createdAt: 1,
-        updatedAt: 1,
-      }),
-    }));
-
-    await expect(
-      t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toContain("cloud_memory_lifecycles");
-    await expect(
-      t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toContain("cloud_memory_wipe_jobs");
-    await expect(
-      t.query(purgeFunctions.cloud_purge.remainingOwnerStoresInternal, {
-        ownerId: fence.ownerId,
-      }),
-    ).resolves.toContain("cloud_agent_home_preferences");
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "cloud_memory_lifecycles",
-    });
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "cloud_memory_wipe_jobs",
-    });
-    await t.mutation(purgeFunctions.cloud_purge.deleteOwnerCloudBatch, {
-      ...fence,
-      table: "cloud_agent_home_preferences",
-    });
-    expect(await t.run(async (ctx) => ctx.db.get(rows.lifecycleId))).toBeNull();
-    expect(await t.run(async (ctx) => ctx.db.get(rows.wipeJobId))).toBeNull();
-    expect(
-      await t.run(async (ctx) => ctx.db.get(rows.preferenceId)),
-    ).toBeNull();
-    const remaining = await t.query(
-      purgeFunctions.cloud_purge.remainingOwnerStoresInternal,
-      { ownerId: fence.ownerId },
-    );
-    expect(remaining).not.toContain("cloud_memory_lifecycles");
-    expect(remaining).not.toContain("cloud_memory_wipe_jobs");
   });
 
   it("refuses account completion for owner-indexed orphan core rows", async () => {

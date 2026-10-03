@@ -35,8 +35,8 @@ type I18nContextValue = {
   isRTL: boolean;
   /**
    * Update the locale. Persists to the shared UI state store immediately
-   * and, when the user is signed in, fan out to Convex `user_preferences`
-   * so it follows them across devices.
+   * and, when the user is signed in, fan out to the backend's
+   * `preferences.set` so it follows them across devices.
    */
   setLocale: (locale: Locale) => void;
   /**

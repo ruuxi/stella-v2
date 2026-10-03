@@ -56,85 +56,7 @@ export const importedProjectSlug = (
   return `${base}${suffix}`;
 };
 
-export const importedDrivePath = (
-  path: string,
-  rowId: string,
-  attempt = 0,
-): string => {
-  const prefix = "Imported from anonymous/";
-  const suffix = `-${rowId.replace(/[^a-zA-Z0-9]/g, "").slice(-8)}${
-    attempt > 0 ? `-${attempt + 1}` : ""
-  }`;
-  const available = Math.max(1, 400 - prefix.length - suffix.length);
-  return `${prefix}${path.slice(0, available)}${suffix}`;
-};
-
-export const importedAgentHomeDocumentName = (
-  name: string,
-  sourceId: string,
-): string => {
-  const identity =
-    sourceId
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .slice(-16) || "source";
-  const folder = `anonymous-${identity}`;
-  const rawSegments = name
-    .normalize("NFC")
-    .split(/[\\/]+/u)
-    .filter(Boolean);
-  const segments = rawSegments.map((segment) => {
-    const safe = segment
-      .replace(/[\u0000-\u001f\u007f]/gu, "-")
-      .replace(/[^a-zA-Z0-9._ -]/gu, "-")
-      .replace(/^\.+/u, "")
-      .slice(0, 96);
-    return safe || "memory";
-  });
-  if (segments.length === 0) segments.push("memory.md");
-  const last = segments[segments.length - 1]!;
-  if (!last.toLocaleLowerCase().endsWith(".md")) {
-    segments[segments.length - 1] = `${last.slice(0, 93)}.md`;
-  }
-  const prefix = `imports/${folder}/`;
-  let nested = segments.join("/");
-  if (prefix.length + nested.length > 240) {
-    const suffix = segments[segments.length - 1]!;
-    const available = Math.max(3, 240 - prefix.length);
-    nested = suffix.slice(0, available - 3).replace(/\.+$/u, "") + ".md";
-  }
-  return `${prefix}${nested}`;
-};
-
-export const importedSkillSlug = (
-  slug: string,
-  sourceId: string,
-  attempt = 0,
-): string => {
-  const identity =
-    sourceId
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .slice(-12) || "source";
-  const suffix = `-imported-${identity}${attempt > 0 ? `-${attempt + 1}` : ""}`;
-  const safeBase =
-    slug
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "") || "skill";
-  const base = safeBase
-    .slice(0, Math.max(1, 63 - suffix.length))
-    .replace(/-+$/u, "");
-  return `${base || "skill"}${suffix}`;
-};
-
-export const importedAgentHomePrefix = (
-  fromOwnerHash: string,
-  toOwnerHash: string,
-): string => `agent-home/${toOwnerHash}/__stella_imported__/${fromOwnerHash}/`;
-
 export type OwnershipMigrationTransientState =
-  | "cloud_drive_upload"
   | "cloud_engine_connect"
   | "cloud_github_install_state";
 export type OwnershipMigrationTransientDisposition = "discard" | "block";
@@ -147,32 +69,6 @@ export type OwnershipMigrationTransientDisposition = "discard" | "block";
 export const ownershipMigrationTransientStateDisposition = (
   _state: OwnershipMigrationTransientState,
 ): OwnershipMigrationTransientDisposition => "discard";
-
-/**
- * Clean an abandoned presigned upload once immediately and once after its URL
- * has expired. The late pass catches a PUT that raced after the first cleanup;
- * both passes independently prove no Drive row references the object key.
- */
-export const canceledPendingUploadCleanupDelays = (
-  now: number,
-  expiresAt: number,
-): [number, number] => [
-  0,
-  Math.max(0, Math.floor(expiresAt) - Math.floor(now)) + 60_000,
-];
-
-/**
- * Drive bytes live in the @convex-dev/r2 component, not the cloud-builder
- * worker's R2 bindings. Owner migration therefore re-owns metadata in place
- * and deliberately leaves the existing component object key untouched.
- */
-export const driveFileOwnershipPatch = (
-  toOwnerId: string,
-): { ownerId: string } => ({ ownerId: toOwnerId });
-
-export const shouldAdvanceOwnerNamespaceStage = (
-  remainingSourceDocuments: number,
-): boolean => remainingSourceDocuments === 0;
 
 export const ownerMigrationSourceFenceActive = (
   ownerId: string,
@@ -193,14 +89,6 @@ export const importedOwnerScopedKey = (
 
 export const isOwnershipMigrationBlockedMessage = (message: string): boolean =>
   message.startsWith("ownership_migration_blocked:");
-
-export const scheduleOwnershipClaimAllowed = (
-  rowOwnerId: string,
-  expectedOwnerId: string,
-  migrationStatuses: readonly string[],
-): boolean =>
-  rowOwnerId === expectedOwnerId &&
-  migrationStatuses.every((status) => status === "complete");
 
 type BillingUsageWindowSnapshot = {
   activeReservedMicroCents?: number;

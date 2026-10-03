@@ -199,7 +199,7 @@ export const localeDir = (locale: Locale): "ltr" | "rtl" =>
 export const LOCALE_STORAGE_KEY = "stella:locale";
 
 /**
- * Convex `user_preferences` key for the locale row. Mirrors the
- * `LOCALE_KEY` constant exported from `backend/convex/data/preferences.ts`.
+ * Backend preferences key for the locale row. Mirrors `LOCALE_KEY` in
+ * `workers/cloud-builder/src/owner-store/domains/preferences.ts`.
  */
 export const LOCALE_PREFERENCE_KEY = "locale";

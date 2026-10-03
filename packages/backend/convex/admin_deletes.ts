@@ -1,5 +1,4 @@
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import type { Id, TableNames } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { filterDisplayableTags } from "./lib/content_tags";
 
@@ -13,21 +12,7 @@ const deletedResult = v.object({
   hasMore: v.optional(v.boolean()),
 });
 
-const asId = <TableName extends TableNames>(id: string): Id<TableName> =>
-  id as Id<TableName>;
-
 const normalizeSlug = (value: string): string => value.trim().toLowerCase();
-
-const getByStringId = async <TableName extends TableNames>(
-  ctx: MutationCtx,
-  id: string,
-) => {
-  try {
-    return await ctx.db.get(asId<TableName>(id));
-  } catch {
-    return null;
-  }
-};
 
 const applyEmojiFacetDelta = async (
   ctx: MutationCtx,
@@ -110,18 +95,6 @@ export const deleteMediaJob = internalMutation({
     }
     await ctx.db.delete(job._id);
     return { deleted: true, kind: "media_job", id: args.jobId };
-  },
-});
-
-export const deleteFeedback = internalMutation({
-  args: { id: v.string() },
-  returns: deletedResult,
-  handler: async (ctx, args) => {
-    const id = asId<"user_feedback">(args.id);
-    const row = await getByStringId<"user_feedback">(ctx, args.id);
-    if (!row) return { deleted: false, kind: "feedback", id: args.id };
-    await ctx.db.delete(id);
-    return { deleted: true, kind: "feedback", id: args.id };
   },
 });
 

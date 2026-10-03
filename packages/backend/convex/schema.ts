@@ -8,7 +8,6 @@ import { usersSchema } from "./schema/users";
 import { telemetrySchema } from "./schema/telemetry";
 import { billingSchema } from "./schema/billing";
 import { mediaSchema } from "./schema/media";
-import { feedbackSchema } from "./schema/feedback";
 import { desktopReleasesSchema } from "./schema/desktop_releases";
 import { emojiPacksSchema } from "./schema/emoji_packs";
 import { canvasSharesSchema } from "./schema/canvas_shares";
@@ -16,10 +15,7 @@ import { promptsSchema } from "./schema/prompts";
 import { gatewaySchema } from "./schema/gateway";
 import { cloudAppsSchema } from "./schema/cloud_apps";
 import { cloudEnginesSchema } from "./schema/cloud_engines";
-import { cloudAgentHomeSchema } from "./schema/cloud_agent_home";
-import { cloudDriveSchema } from "./schema/cloud_drive";
 import { cloudProjectsSchema } from "./schema/cloud_projects";
-import { cloudScheduleSchema } from "./schema/cloud_schedule";
 import { ownerLifecycleSchema } from "./schema/owner_lifecycle";
 import { accountExternalMediaSchema } from "./schema/account_external_media";
 import { cloudBrowserSchema } from "./schema/cloud_browser";
@@ -38,7 +34,6 @@ export default defineSchema({
   ...telemetrySchema,
   ...billingSchema,
   ...mediaSchema,
-  ...feedbackSchema,
   ...desktopReleasesSchema,
   ...emojiPacksSchema,
   ...canvasSharesSchema,
@@ -46,10 +41,7 @@ export default defineSchema({
   ...gatewaySchema,
   ...cloudAppsSchema,
   ...cloudEnginesSchema,
-  ...cloudAgentHomeSchema,
-  ...cloudDriveSchema,
   ...cloudProjectsSchema,
-  ...cloudScheduleSchema,
   ...ownerLifecycleSchema,
   ...accountExternalMediaSchema,
   ...cloudBrowserSchema,

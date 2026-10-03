@@ -540,13 +540,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
             hasMore: true,
           });
         }
-        case "feedback":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.admin_deletes.deleteFeedback, {
-              id,
-            }),
-          );
         case "desktop_release":
           return jsonResponse(
             200,

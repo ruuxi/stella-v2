@@ -13,7 +13,6 @@ import { makeFunctionReference } from "convex/server";
 import {
   ensureExternalOwnerPurge,
   quiesceOwnerIntegrationCalls,
-  stopOwnerSchedules,
 } from "./cloud_purge";
 import { purgeOwnerMigrationSourceDependencies } from "./lib/owner_migration_purge";
 import { assertOwnerPurgeOperation } from "./owner_lifecycle";
@@ -58,7 +57,6 @@ const CONVERSATION_PAGE = 200;
  * without losing the strong typing on `ctx.db.query` / `withIndex`.
  */
 const OWNER_TABLES = [
-  ["user_preferences", "by_ownerId_and_key"],
   ["auth_revoked_sessions", "by_ownerId_and_sessionId"],
   ["auth_link_requests", "by_fromOwnerId_and_createdAt"],
   ["auth_browser_handoffs", "by_fromOwnerId"],
@@ -194,7 +192,6 @@ const runOwnerReset = async (
         `Owner reset is waiting for auth migration quiescence: ${authMigration.pending.join(", ")}`,
       );
     }
-    await stopOwnerSchedules(ctx, fence);
     const tts = await ctx.runAction(
       internal.account_tts_purge.purgeOwnerTtsResetInternal,
       { ...fence, leaseId },
@@ -409,12 +406,6 @@ export const remainingOwnerResetStoresInternal = internalQuery({
           .withIndex("by_ownerId_and_updatedAt", (q) =>
             q.eq("ownerId", ownerId),
           )
-          .first(),
-      ),
-      ownerResidueCheck("user_preferences", () =>
-        ctx.db
-          .query("user_preferences")
-          .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId))
           .first(),
       ),
       ownerResidueCheck("auth_link_requests.fromOwnerId", () =>
@@ -673,7 +664,6 @@ export const _deleteConversationBatch = internalMutation({
 });
 
 const ownerTableValidator = v.union(
-  v.literal("user_preferences"),
   v.literal("auth_revoked_sessions"),
   v.literal("auth_link_requests"),
   v.literal("auth_browser_handoffs"),
@@ -731,14 +721,6 @@ async function deleteOneOwnerTableBatch(
 ): Promise<number> {
   let ids: Id<OwnerTable>[] = [];
   switch (table) {
-    case "user_preferences": {
-      const rows = await ctx.db
-        .query("user_preferences")
-        .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((r) => r._id) as Id<OwnerTable>[];
-      break;
-    }
     case "auth_revoked_sessions": {
       const rows = await ctx.db
         .query("auth_revoked_sessions")

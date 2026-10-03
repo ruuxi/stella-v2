@@ -49,14 +49,6 @@ export type PublicApiType = {
     "listMyPendingConnectRequests": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "decideMyConnectRequest": FunctionReference<'action', 'public', { requestId: string; decision: 'connect' | 'decline'; decisionRequestId: string; expectedRevision: number; }, any, string | undefined>;
   };
-  "cloud_drive": {
-    "prepareDriveUpload": FunctionReference<'action', 'public', { contentType?: string | undefined; sizeBytes: number; path: string; }, any, string | undefined>;
-    "finalizeDriveUpload": FunctionReference<'action', 'public', { source?: string | undefined; contentType?: string | undefined; path: string; uploadId: string; }, any, string | undefined>;
-    "listMyDriveFiles": FunctionReference<'query', 'public', { limit?: number | undefined; prefix?: string | undefined; }, any, string | undefined>;
-    "getMyDriveUsage": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "getMyDriveFileUrl": FunctionReference<'action', 'public', { path: string; }, any, string | undefined>;
-    "deleteMyDriveFile": FunctionReference<'action', 'public', { path: string; }, any, string | undefined>;
-  };
   "cloud_engines": {
     "startEngineConnect": FunctionReference<'action', 'public', { provider: string; }, any, string | undefined>;
     "finishEngineConnect": FunctionReference<'action', 'public', { connectId: string; pastedInput: string; }, any, string | undefined>;
@@ -67,17 +59,6 @@ export type PublicApiType = {
     "setMyCloudEngine": FunctionReference<'mutation', 'public', { engine: string; }, any, string | undefined>;
     "setMyCloudExecution": FunctionReference<'mutation', 'public', { execution: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; }; }, any, string | undefined>;
     "listEngineModels": FunctionReference<'query', 'public', {}, any, string | undefined>;
-  };
-  "cloud_memory": {
-    "getMyMemoryPreference": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
-    "setMyMemoryEnabled": FunctionReference<'action', 'public', { requestId: string; memoryEnabled: boolean; expectedRevision: number; expectedSubject: string; expectedOwnerGeneration: string; }, any, string | undefined>;
-    "listMyMemoryDocuments": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
-    "getMyMemoryDocument": FunctionReference<'query', 'public', { kind: 'profile' | 'memory' | 'memory_map' | 'core_memory' | 'personality' | 'imported_markdown' | 'user_markdown' | 'archive'; name: string; }, any, string | undefined>;
-  };
-  "cloud_memory_lifecycle": {
-    "getMyMemoryWipeStatus": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
-    "startMyMemoryWipe": FunctionReference<'action', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
-    "authorizeMyMemoryReimport": FunctionReference<'mutation', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
   };
   "cloud_projects": {
     "listMyProjects": FunctionReference<'query', 'public', {}, any, string | undefined>;
@@ -91,17 +72,6 @@ export type PublicApiType = {
     "finishGithubConnect": FunctionReference<'mutation', 'public', { connectCode: string; }, any, string | undefined>;
     "disconnectGithubInstallation": FunctionReference<'mutation', 'public', { installationId: string; }, any, string | undefined>;
     "listMyGithubRepositories": FunctionReference<'action', 'public', { installationId?: string | undefined; }, any, string | undefined>;
-  };
-  "cloud_schedule": {
-    "listMySchedules": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "createMySchedule": FunctionReference<'mutation', 'public', { conversationId?: string | undefined; targetDeviceId?: string | undefined; description?: string | undefined; requestId: string; prompt: string; schedule: { kind: 'at'; atMs: number; } | { anchorMs?: number | undefined; kind: 'every'; everyMs: number; } | { tz?: string | undefined; kind: 'cron'; expr: string; }; }, any, string | undefined>;
-    "updateMySchedule": FunctionReference<'mutation', 'public', { status?: 'active' | 'paused' | undefined; description?: string | undefined; prompt?: string | undefined; schedule?: { kind: 'at'; atMs: number; } | { anchorMs?: number | undefined; kind: 'every'; everyMs: number; } | { tz?: string | undefined; kind: 'cron'; expr: string; } | undefined; requestId: string; scheduleId: string; }, any, string | undefined>;
-    "removeMySchedule": FunctionReference<'mutation', 'public', { requestId: string; scheduleId: string; }, any, string | undefined>;
-    "runMyScheduleNow": FunctionReference<'mutation', 'public', { scheduleId: string; }, any, string | undefined>;
-  };
-  "cloud_skills": {
-    "listMySkillHeads": FunctionReference<'query', 'public', { clientScope: string; }, any, string | undefined>;
-    "deleteMyMirroredSkill": FunctionReference<'mutation', 'public', { slug: string; expectedRevision: number; clientScope: string; }, any, string | undefined>;
   };
   "conversations": {
     "getOrCreateDefaultConversation": FunctionReference<'mutation', 'public', { title?: string | undefined; }, any, string | undefined>;
@@ -145,13 +115,6 @@ export type PublicApiType = {
       "createXConnectUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
       "listXConnections": FunctionReference<'query', 'public', {}, any, string | undefined>;
     };
-    "preferences": {
-      "getAccountMode": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "setAccountMode": FunctionReference<'mutation', 'public', { mode: 'connected' | 'private_local'; }, any, string | undefined>;
-      "setPreferredBrowser": FunctionReference<'mutation', 'public', { browser: 'none' | 'arc' | 'brave' | 'chrome' | 'edge' | 'firefox' | 'opera' | 'safari' | 'vivaldi'; }, any, string | undefined>;
-      "getLocale": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "setLocale": FunctionReference<'mutation', 'public', { locale: 'id' | 'en' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'nl' | 'ru' | 'ja' | 'zh-Hans' | 'zh-Hant' | 'ko' | 'pl' | 'sv' | 'nb' | 'da' | 'fi' | 'cs' | 'el' | 'tr' | 'ro' | 'hu' | 'ar' | 'hi' | 'vi' | 'th' | 'he'; }, any, string | undefined>;
-    };
     "secrets": {
       "createSecret": FunctionReference<'mutation', 'public', { metadata?: Value | undefined; provider: string; label: string; plaintext: string; }, any, string | undefined>;
       "listSecrets": FunctionReference<'query', 'public', { provider?: string | undefined; }, any, string | undefined>;
@@ -165,9 +128,6 @@ export type PublicApiType = {
     "subscribeRemoteTurnRequestsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "subscribeRemoteTurnCancelsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "isRemoteTurnClaimed": FunctionReference<'query', 'public', { requestId: string; }, any, string | undefined>;
-  };
-  "feedback": {
-    "submitFeedback": FunctionReference<'mutation', 'public', { platform?: string | undefined; appVersion?: string | undefined; message: string; }, any, string | undefined>;
   };
   "gateway_capabilities": {
     "getModelGatewayConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;

@@ -14,7 +14,6 @@ import { makeFunctionReference } from "convex/server";
 import {
   ensureExternalOwnerPurge,
   quiesceOwnerIntegrationCalls,
-  stopOwnerSchedules,
 } from "./cloud_purge";
 import {
   assertOwnerDataWriteAllowed,
@@ -24,7 +23,6 @@ import {
 import { purgeOwnerMigrationSourceDependencies } from "./lib/owner_migration_purge";
 
 const OWNER_TABLES = [
-  "user_preferences",
   "auth_revoked_sessions",
   "auth_link_requests",
   "auth_browser_handoffs",
@@ -566,8 +564,8 @@ const drainOwnerTable = async (
 
 /**
  * Removes Convex-owned data for an owner before Better Auth deletes the user
- * row. Mirrors `reset.resetAllUserData` but takes an explicit owner id (used
- * at account-deletion time, when there is no `ctx.auth.getUserIdentity()`).
+ * row. The delete-mode counterpart of `resumeOwnerResetInternal` in
+ * `reset.ts`, taking an explicit owner id.
  */
 export const purgeOwnerCloudData = internalAction({
   args: {
@@ -720,10 +718,6 @@ export const purgeOwnerCloudData = internalAction({
           `Account deletion is waiting for auth migration quiescence: ${authMigration.pending.join(", ")}`,
         );
       }
-      // Schedules are the only owner store that keeps creating conversations and
-      // spending model tokens while deletion runs. Stop them before any long
-      // table/R2 drain; the strict cloud-stack purge below repeats this guard.
-      await stopOwnerSchedules(ctx, fence);
       const externalMedia = await ctx.runAction(
         internal.account_external_media.purgeOwnerExternalMediaInternal,
         { ...fence, leaseId },

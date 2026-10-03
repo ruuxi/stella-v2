@@ -70,14 +70,6 @@ const post = (t: Harness, path: string, token: string | null, body: unknown) =>
 describe("control-plane capability verification on callback routes", () => {
   it("accepts a builder-issued control-plane turn capability", async () => {
     const t = await createTest();
-    const schedule = await post(t, "/api/cloud/schedule", await mint(), {
-      action: "list",
-      // The capability's subject wins over anything the body claims.
-      ownerId: "https://issuer.test|someone-else",
-      ownerGeneration: "not-mine",
-    });
-    expect(schedule.status).toBe(200);
-    expect(await schedule.json()).toEqual({ ok: true, schedules: [] });
     const search = await post(t, "/api/cloud/web-search", await mint(), {
       query: "stella",
     });
@@ -101,10 +93,10 @@ describe("control-plane capability verification on callback routes", () => {
 
   it("refuses missing, model-gateway, foreign-issuer, expired, and mis-bound capabilities", async () => {
     const t = await createTest();
-    expect((await post(t, "/api/cloud/schedule", null, {})).status).toBe(401);
+    expect((await post(t, "/api/cloud/web-search", null, {})).status).toBe(401);
     const gatewayAudience = await post(
       t,
-      "/api/cloud/schedule",
+      "/api/cloud/web-search",
       await mint({ audience: GATEWAY_CAPABILITY_AUDIENCE }),
       {},
     );
@@ -114,14 +106,14 @@ describe("control-plane capability verification on callback routes", () => {
     });
     const convexIssued = await post(
       t,
-      "/api/cloud/schedule",
+      "/api/cloud/web-search",
       await mint({ issuer: GATEWAY_CAPABILITY_ISSUERS.convex }),
       {},
     );
     expect(convexIssued.status).toBe(401);
     const expired = await post(
       t,
-      "/api/cloud/schedule",
+      "/api/cloud/web-search",
       await mint({ ttlMs: 1_000, now: Date.now() - 10 * 60_000 }),
       {},
     );
@@ -132,48 +124,15 @@ describe("control-plane capability verification on callback routes", () => {
       turnId: "another-turn",
     });
     expect(otherTurn.status).toBe(403);
-    expect((await post(t, "/api/cloud/schedule", "not.a.jwt", {})).status).toBe(
-      401,
-    );
-  });
-
-  it("lets a turn capability or the service secret reach cloud home routes", async () => {
-    const t = await createTest();
-    process.env.BUILDER_SERVICE_SECRET = "home-service-secret";
-    const viaCapability = await post(
-      t,
-      "/api/cloud/home/skills/catalog",
-      await mint(),
-      {
-        ownerId: "https://issuer.test|someone-else",
-        ownerGeneration: "x",
-        agentType: "orchestrator",
-      },
-    );
-    expect(viaCapability.status).toBe(200);
-    const viaSecret = await post(
-      t,
-      "/api/cloud/home/skills/catalog",
-      "home-service-secret",
-      {
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        agentType: "orchestrator",
-      },
-    );
-    expect(viaSecret.status).toBe(200);
-    expect(await viaSecret.json()).toEqual(await viaCapability.json());
     expect(
-      (await post(t, "/api/cloud/home/skills/catalog", "not-a-secret", {}))
-        .status,
+      (await post(t, "/api/cloud/web-search", "not.a.jwt", {})).status,
     ).toBe(401);
-    delete process.env.BUILDER_SERVICE_SECRET;
   });
 
   it("refuses a capability from before an owner reset and a fenced owner", async () => {
     const t = await createTest();
     const before = await mint({ ownerGeneration: "generation-before-reset" });
-    const stale = await post(t, "/api/cloud/schedule", before, {});
+    const stale = await post(t, "/api/cloud/web-search", before, {});
     expect(stale.status).toBe(409);
     await t.run(async (ctx) => {
       const lifecycle = await ctx.db
@@ -183,7 +142,7 @@ describe("control-plane capability verification on callback routes", () => {
       await ctx.db.patch(lifecycle!._id, { state: "deleting" });
     });
     expect(
-      (await post(t, "/api/cloud/schedule", await mint(), {})).status,
+      (await post(t, "/api/cloud/web-search", await mint(), {})).status,
     ).toBe(409);
   });
 
@@ -191,36 +150,12 @@ describe("control-plane capability verification on callback routes", () => {
     const t = await createTest();
     delete process.env.CAPABILITY_JWKS;
     expect(
-      (await post(t, "/api/cloud/schedule", await mint(), {})).status,
+      (await post(t, "/api/cloud/web-search", await mint(), {})).status,
     ).toBe(503);
     const other = await createControlPlaneSigner("other-kid");
     process.env.CAPABILITY_JWKS = other.jwksJson;
-    const unknownKey = await post(t, "/api/cloud/schedule", await mint(), {});
+    const unknownKey = await post(t, "/api/cloud/web-search", await mint(), {});
     expect(unknownKey.status).toBe(401);
     expect(await unknownKey.json()).toMatchObject({ reason: "unknown_key" });
-  });
-
-  it("closes the window once the projected turn row says the turn ended", async () => {
-    const t = await createTest();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("agent_turns", {
-        turnId: TURN_ID,
-        sessionId: "chat-capability",
-        ownerId: OWNER_ID,
-        ownerGeneration: GENERATION,
-        conversationId: CONVERSATION_ID,
-        prompt: "hello",
-        status: "completed",
-        terminalKind: "completed",
-        kind: "chat",
-        createdAt: 1,
-        updatedAt: 2,
-      });
-    });
-    const sync = await post(t, "/api/cloud/drive/sync", await mint(), {});
-    expect(sync.status).toBe(409);
-    expect(await sync.json()).toEqual({
-      error: "Cloud turn is no longer active.",
-    });
   });
 });

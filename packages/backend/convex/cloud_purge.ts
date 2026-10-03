@@ -42,7 +42,6 @@ import type { MutationCtx } from "./_generated/server";
 import { recordConversationTombstone } from "./cloud_apps";
 import { deleteGithubInstallationGrant } from "./cloud_projects";
 import { assertOwnerPurgeOperation } from "./owner_lifecycle";
-import { deleteComponentR2ObjectsRef } from "./lib/component_r2_deletion";
 
 /** Rows per transaction. */
 const BATCH = 100;
@@ -67,14 +66,9 @@ const logPurge = (event: string, fields: Record<string, unknown>): void => {
  * has to look like.
  *
  *  simple       — an owner index and nothing hanging off it. Delete the rows.
- *  bytes        — every row names an R2 object. Object first, row last: the row
- *                 is the only name the object has.
  *  external-ref — an owner index, but the row names state in the builder worker
- *                 (a KV checkpoint descriptor, a hosted route). Same rule as
- *                 `bytes`: the worker purge runs before the row is deleted.
- *  stopped      — must stop DOING something before it is drained. Schedules
- *                 spend money on a timer; a drain that merely gets there
- *                 eventually is not a fix.
+ *                 (a KV checkpoint descriptor, a hosted route). The worker
+ *                 purge runs before the row is deleted.
  *  child        — no owner index at all. Reachable only through a parent, which
  *                 means the parent's drain owns it and the completeness check
  *                 for the parent covers it.
@@ -82,9 +76,7 @@ const logPurge = (event: string, fields: Record<string, unknown>): void => {
  */
 type StoreStyle =
   | "simple"
-  | "bytes"
   | "external-ref"
-  | "stopped"
   | "leased"
   | "child"
   | "global";
@@ -106,20 +98,6 @@ const OWNER_STORES = {
   // Browser profile/session bytes live in the Gateway. Keep the interaction
   // receipts until the owner-level `default` profile purge is confirmed.
   cloud_browser_interactions: "external-ref",
-  // Memory/Skills metadata all names bytes under the owner-derived R2
-  // `agent-home/<hash>/` prefix. That whole prefix is swept first; every row
-  // below is retained as locator/control debt until the worker confirms it.
-  cloud_memory_lifecycles: "simple",
-  cloud_memory_wipe_jobs: "simple",
-  cloud_agent_home_docs: "external-ref",
-  cloud_agent_home_preferences: "simple",
-  cloud_home_context_updates: "simple",
-  cloud_agent_home_doc_versions: "external-ref",
-  cloud_agent_home_write_intents: "external-ref",
-  cloud_skills: "external-ref",
-  cloud_skill_versions: "external-ref",
-  cloud_skill_write_intents: "external-ref",
-  cloud_skill_files: "external-ref",
   // Dual principal: an account may be a user of another owner's app. The
   // drain and completeness check cover both ownerId and userId indexes.
   cloud_app_storage: "simple",
@@ -132,23 +110,10 @@ const OWNER_STORES = {
   cloud_app_builds: "external-ref",
   cloud_app_operations: "simple",
   cloud_app_op_invocations: "simple",
-  // Recurring and one-shot turns. Stopped before anything else is touched.
-  cloud_scheduled_turns: "stopped",
-  // Same-transaction replay receipts for Schedule mutations. These are owner
-  // data too: retaining one across reset would let a request from the old
-  // generation appear to replay successfully against the new account state.
-  cloud_schedule_receipts: "simple",
   // Exact-replay receipts for Code-safe connected reads. A current dispatch
   // lease means provider I/O is still in flight, so reset/delete waits for the
   // bounded lease instead of destroying the only ambiguity locator.
   cloud_integration_call_receipts: "leased",
-  // The per-user drive. Bytes are in the bucket bound to the Convex R2
-  // component — the builder worker has no binding for it, so unlike every
-  // other R2 store this one is deleted from here.
-  cloud_drive_files: "bytes",
-  cloud_drive_uploads: "bytes",
-  cloud_drive_usage: "simple",
-  cloud_drive_deletions: "simple",
   // Encrypted OAuth tokens for the owner's own Claude/ChatGPT subscription,
   // plus the pending connect flows that carry a PKCE verifier.
   cloud_llm_credentials: "simple",
@@ -189,16 +154,9 @@ const SIMPLE_TABLES = [
   "agent_turns",
   "cloud_agent_threads",
   "agent_events",
-  "cloud_memory_lifecycles",
-  "cloud_memory_wipe_jobs",
-  "cloud_agent_home_preferences",
-  "cloud_home_context_updates",
   "cloud_app_storage",
   "cloud_app_operations",
   "cloud_app_op_invocations",
-  "cloud_schedule_receipts",
-  "cloud_drive_usage",
-  "cloud_drive_deletions",
   "cloud_llm_credentials",
   "cloud_engine_connects",
   "cloud_engine_settings",
@@ -207,18 +165,6 @@ const SIMPLE_TABLES = [
 const LEASED_TABLES = ["cloud_integration_call_receipts"] as const;
 
 const OWNER_INDEXED_TABLES = [...SIMPLE_TABLES, ...LEASED_TABLES] as const;
-
-const AGENT_HOME_TABLES = [
-  "cloud_agent_home_docs",
-  "cloud_agent_home_doc_versions",
-  "cloud_agent_home_write_intents",
-  "cloud_skills",
-  "cloud_skill_versions",
-  "cloud_skill_write_intents",
-  "cloud_skill_files",
-] as const;
-
-type AgentHomeTable = (typeof AGENT_HOME_TABLES)[number];
 
 const purgeOperationArgs = {
   ownerId: v.string(),
@@ -296,38 +242,6 @@ const drainOwnerIndexedTable = async (
       ids = rows.map((r) => r._id) as Id<OwnerIndexedTable>[];
       break;
     }
-    case "cloud_memory_lifecycles": {
-      const rows = await ctx.db
-        .query("cloud_memory_lifecycles")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_memory_wipe_jobs": {
-      const rows = await ctx.db
-        .query("cloud_memory_wipe_jobs")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_home_context_updates": {
-      const rows = await ctx.db
-        .query("cloud_home_context_updates")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_agent_home_preferences": {
-      const rows = await ctx.db
-        .query("cloud_agent_home_preferences")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
     case "cloud_app_storage": {
       const owned = await ctx.db
         .query("cloud_app_storage")
@@ -362,14 +276,6 @@ const drainOwnerIndexedTable = async (
       ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
       break;
     }
-    case "cloud_schedule_receipts": {
-      const rows = await ctx.db
-        .query("cloud_schedule_receipts")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
     case "cloud_integration_call_receipts": {
       const now = Date.now();
       const rows = await ctx.db
@@ -385,22 +291,6 @@ const drainOwnerIndexedTable = async (
             (row.leaseExpiresAt !== undefined && row.leaseExpiresAt <= now),
         )
         .map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_drive_usage": {
-      const rows = await ctx.db
-        .query("cloud_drive_usage")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
-      break;
-    }
-    case "cloud_drive_deletions": {
-      const rows = await ctx.db
-        .query("cloud_drive_deletions")
-        .withIndex("by_ownerId_and_deletedAt", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((row) => row._id) as Id<OwnerIndexedTable>[];
       break;
     }
     case "cloud_llm_credentials": {
@@ -524,89 +414,6 @@ export const quiesceOwnerIntegrationCalls = async (
   );
   return result;
 };
-
-const drainAgentHomeTable = async (
-  ctx: MutationCtx,
-  ownerId: string,
-  table: AgentHomeTable,
-): Promise<number> => {
-  let ids: Id<AgentHomeTable>[] = [];
-  switch (table) {
-    case "cloud_agent_home_docs":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    case "cloud_agent_home_doc_versions":
-    case "cloud_skill_versions":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    case "cloud_agent_home_write_intents":
-    case "cloud_skill_write_intents":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_idempotencyKey", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    case "cloud_skills":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_name", (q) => q.eq("ownerId", ownerId))
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    case "cloud_skill_files":
-      ids = (
-        await ctx.db
-          .query(table)
-          .withIndex("by_ownerId_and_skillId", (q) => q.eq("ownerId", ownerId))
-          .take(BATCH)
-      ).map((row) => row._id) as Id<AgentHomeTable>[];
-      break;
-    default: {
-      const exhaustive: never = table;
-      throw new Error(`Unhandled agent-home table: ${String(exhaustive)}`);
-    }
-  }
-  await Promise.all(ids.map((id) => ctx.db.delete(id)));
-  return ids.length;
-};
-
-export const deleteOwnerAgentHomeBatch = internalMutation({
-  args: {
-    ...purgeOperationArgs,
-    table: v.union(
-      ...(AGENT_HOME_TABLES.map((table) => v.literal(table)) as [
-        VLiteral<AgentHomeTable>,
-        VLiteral<AgentHomeTable>,
-        ...VLiteral<AgentHomeTable>[],
-      ]),
-    ),
-  },
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    const deleted = await drainAgentHomeTable(ctx, args.ownerId, args.table);
-    return { hasMore: deleted === BATCH };
-  },
-});
 
 // ─── Mini apps ───────────────────────────────────────────────────────────────
 
@@ -953,105 +760,6 @@ export const deleteOwnerGithubHandlelessStatesInternal = internalMutation({
   },
 });
 
-// ─── Drive ───────────────────────────────────────────────────────────────────
-
-const driveObjectRow = v.union(
-  v.object({
-    kind: v.literal("file"),
-    id: v.id("cloud_drive_files"),
-    r2Key: v.string(),
-  }),
-  v.object({
-    kind: v.literal("upload"),
-    id: v.id("cloud_drive_uploads"),
-    r2Key: v.string(),
-    expiresAt: v.number(),
-  }),
-);
-
-/**
- * The drive is the one R2 store the builder worker cannot reach: its bucket is
- * bound to the Convex R2 component, not to the worker. So it is drained here,
- * row by row, object first — the row is the only record of the key, exactly as
- * with other component-owned R2 objects.
- *
- * Pending uploads are included: a presigned PUT that landed and was never
- * finalized has bytes in the bucket with only this row naming them.
- */
-export const listOwnerDriveObjectsInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.array(driveObjectRow),
-  handler: async (ctx, args) => {
-    const files = await ctx.db
-      .query("cloud_drive_files")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.ownerId),
-      )
-      .take(BATCH);
-    if (files.length > 0) {
-      return files.map((row) => ({
-        kind: "file" as const,
-        id: row._id,
-        r2Key: row.r2Key,
-      }));
-    }
-    const uploads = await ctx.db
-      .query("cloud_drive_uploads")
-      .withIndex("by_ownerId_and_path", (q) => q.eq("ownerId", args.ownerId))
-      .take(BATCH);
-    return uploads.map((row) => ({
-      kind: "upload" as const,
-      id: row._id,
-      r2Key: row.r2Key,
-      expiresAt: row.expiresAt,
-    }));
-  },
-});
-
-export const deleteDriveRowsInternal = internalMutation({
-  args: {
-    ...purgeOperationArgs,
-    rows: v.array(driveObjectRow),
-    now: v.number(),
-  },
-  returns: v.object({ deleted: v.number(), deferred: v.number() }),
-  handler: async (ctx, args) => {
-    await assertOwnerPurgeOperation(ctx, args);
-    let deleted = 0;
-    let deferred = 0;
-    for (const candidate of args.rows) {
-      if (candidate.kind === "file") {
-        const current = await ctx.db.get(candidate.id);
-        if (
-          current?.ownerId === args.ownerId &&
-          current.r2Key === candidate.r2Key
-        ) {
-          await ctx.db.delete(current._id);
-          deleted += 1;
-        }
-        continue;
-      }
-      const current = await ctx.db.get(candidate.id);
-      if (
-        current?.ownerId !== args.ownerId ||
-        current.r2Key !== candidate.r2Key
-      ) {
-        continue;
-      }
-      // A signed PUT cannot be revoked. Keep its locator and repeat object
-      // deletion until the URL has expired; deleting the row earlier would
-      // let a late PUT recreate bytes that no database row can name.
-      if (current.expiresAt > args.now) {
-        deferred += 1;
-        continue;
-      }
-      await ctx.db.delete(current._id);
-      deleted += 1;
-    }
-    return { deleted, deferred };
-  },
-});
-
 // ─── Completeness ────────────────────────────────────────────────────────────
 
 /**
@@ -1118,106 +826,6 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "cloud_memory_lifecycles":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_memory_lifecycles")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_memory_wipe_jobs":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_memory_wipe_jobs")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_home_context_updates":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_home_context_updates")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_agent_home_preferences":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_agent_home_preferences")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_agent_home_docs":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_agent_home_docs")
-              .withIndex("by_ownerId_and_updatedAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_agent_home_doc_versions":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_agent_home_doc_versions")
-              .withIndex("by_ownerId_and_createdAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_agent_home_write_intents":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_agent_home_write_intents")
-              .withIndex("by_ownerId_and_idempotencyKey", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_skills":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_skills")
-              .withIndex("by_ownerId_and_name", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_skill_versions":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_skill_versions")
-              .withIndex("by_ownerId_and_createdAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_skill_write_intents":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_skill_write_intents")
-              .withIndex("by_ownerId_and_idempotencyKey", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_skill_files":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_skill_files")
-              .withIndex("by_ownerId_and_skillId", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
         case "cloud_app_storage": {
           const [owned, used] = await Promise.all([
             ctx.db
@@ -1276,67 +884,11 @@ export const remainingOwnerStoresInternal = internalQuery({
               .take(1),
           );
           break;
-        case "cloud_scheduled_turns":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_scheduled_turns")
-              .withIndex("by_ownerId_and_updatedAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_schedule_receipts":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_schedule_receipts")
-              .withIndex("by_ownerId_and_createdAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
         case "cloud_integration_call_receipts":
           await check(store, () =>
             ctx.db
               .query("cloud_integration_call_receipts")
               .withIndex("by_ownerId_and_updatedAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_drive_files":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_drive_files")
-              .withIndex("by_ownerId_and_updatedAt", (q) =>
-                q.eq("ownerId", ownerId),
-              )
-              .take(1),
-          );
-          break;
-        case "cloud_drive_uploads":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_drive_uploads")
-              .withIndex("by_ownerId_and_path", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_drive_usage":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_drive_usage")
-              .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-              .take(1),
-          );
-          break;
-        case "cloud_drive_deletions":
-          await check(store, () =>
-            ctx.db
-              .query("cloud_drive_deletions")
-              .withIndex("by_ownerId_and_deletedAt", (q) =>
                 q.eq("ownerId", ownerId),
               )
               .take(1),
@@ -1769,44 +1321,19 @@ export const retireSupersededBuildArtifactsInternal = internalAction({
   },
 });
 
-// ─── Schedules ───────────────────────────────────────────────────────────────
-
-/**
- * Stop this owner's schedules. Exported as a plain helper because it has to
- * run at the TOP of every teardown, before the conversation drain that can
- * take minutes — a schedule fires every minute, spends model tokens, and
- * recreates conversations for the account being deleted, so "the sweep gets
- * there eventually" is not a fix. Idempotent; a retried purge runs it again.
- */
-export const stopOwnerSchedules = async (
-  ctx: ActionCtx,
-  args: { ownerId: string; operationId: string; generation: string },
-): Promise<void> => {
-  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const result: { stopped: number; hasMore: boolean } = await ctx.runMutation(
-      internal.cloud_schedule.stopOwnerSchedulesInternal,
-      { ...args, now: Date.now() },
-    );
-    if (!result.hasMore) return;
-  }
-  logPurge("owner_schedule_stop_truncated", { passes: MAX_PASSES });
-  throw new Error("Owner schedule stop exceeded its bounded drain budget.");
-};
-
 // ─── The whole cloud stack ───────────────────────────────────────────────────
 
 /**
  * The whole cloud stack for one owner.
  *
  * Order is not incidental:
- *  1. Schedules stop first — they are the only store that keeps ACTING while
- *     the rest is being deleted.
- *  2. Every store that names bytes outside Convex has those bytes purged
+ *  1. Every store that names bytes outside Convex has those bytes purged
  *     BEFORE its row is deleted, because the row is the only name they have.
- *  3. Everything else drains by owner index.
- *  4. The worker's owner-level pass purges everything outside Convex,
- *     including the owner object's data and each conversation's DO.
- *  5. A completeness check re-reads all of it.
+ *  2. Everything else drains by owner index.
+ *  3. The worker's owner-level pass purges everything outside Convex,
+ *     including the owner object's data (its schedules, drive, memory and
+ *     skills among them) and each conversation's DO.
+ *  4. A completeness check re-reads all of it.
  *
  * Reset and deletion share the same checked purge. Their durable lifecycle job
  * supplies the mode; both retain every fence and retry until strict
@@ -1872,7 +1399,6 @@ export const purgeOwnerCloudStack = internalAction({
         );
       };
 
-      await stopOwnerSchedules(ctx, fence);
       const integrationQuiescence = await quiesceOwnerIntegrationCalls(
         ctx,
         ownerId,
@@ -1881,7 +1407,7 @@ export const purgeOwnerCloudStack = internalAction({
         pending.push("cloud_integration_call_receipts");
       }
 
-      // 2. Mini apps. The hosted route and the built artifacts are dropped by
+      // 1. Mini apps. The hosted route and the built artifacts are dropped by
       //    the worker first; only then may the rows that name them go.
       //
       //    A pass that deletes nothing is not automatically a stall: a build or
@@ -1926,7 +1452,7 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 3. GitHub App grants. Deletion debt is committed before the remote call;
+      // 2. GitHub App grants. Deletion debt is committed before the remote call;
       //    every locator row remains on any non-terminal GitHub response.
       for (let githubPass = 0; githubPass < MAX_PASSES; githubPass += 1) {
         const manifest: { hasRows: boolean; installationIds: string[] } =
@@ -1960,7 +1486,7 @@ export const purgeOwnerCloudStack = internalAction({
         if (!manifest.hasRows && !handleless.hasMore) break;
       }
 
-      // 5. Projects. The checkout itself is inside the owner's world
+      // 3. Projects. The checkout itself is inside the owner's world
       //    checkpoint, dropped whole by the owner-level step below.
       let barrenProjectPasses = 0;
       for (let projectPass = 0; projectPass < MAX_PASSES; projectPass += 1) {
@@ -1979,73 +1505,10 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 6. The drive: object first, row last. Failed object deletions retain the
-      //    exact locator row; live presigned uploads are retained through expiry.
-      for (let drivePass = 0; drivePass < MAX_PASSES; drivePass += 1) {
-        const rows: Array<
-          | { kind: "file"; id: Id<"cloud_drive_files">; r2Key: string }
-          | {
-              kind: "upload";
-              id: Id<"cloud_drive_uploads">;
-              r2Key: string;
-              expiresAt: number;
-            }
-        > = await ctx.runQuery(
-          internal.cloud_purge.listOwnerDriveObjectsInternal,
-          { ownerId },
-        );
-        if (rows.length === 0) break;
-        const deleteStartedAt = Date.now();
-        const eligibleRows = rows.filter(
-          (row) => row.kind === "file" || row.expiresAt <= deleteStartedAt,
-        );
-        // A signed PUT cannot be revoked. Deleting current bytes before its
-        // full expiry would let a stale client recreate the object after the
-        // action had acknowledged absence. Keep the exact upload locator and
-        // retry the whole physical-delete/readback sequence after the barrier.
-        if (eligibleRows.length === 0) {
-          pending.push("cloud_drive_objects");
-          break;
-        }
-        await assertCloudLease();
-        const deletion = await ctx.runAction(deleteComponentR2ObjectsRef, {
-          objects: eligibleRows.map((row) => ({
-            locatorId: String(row.id),
-            r2Key: row.r2Key,
-          })),
-        });
-        const confirmedIds = new Set(deletion.confirmedLocatorIds);
-        const confirmed = eligibleRows.filter((row) =>
-          confirmedIds.has(String(row.id)),
-        );
-        if (deletion.failedLocatorIds.length > 0) {
-          logPurge("drive_object_delete_failed", {
-            failedCount: deletion.failedLocatorIds.length,
-          });
-        }
-        const rowDrain: { deleted: number; deferred: number } =
-          await ctx.runMutation(internal.cloud_purge.deleteDriveRowsInternal, {
-            ...fence,
-            rows: confirmed,
-            now: deleteStartedAt,
-          });
-        if (
-          eligibleRows.length !== rows.length ||
-          confirmed.length !== eligibleRows.length ||
-          rowDrain.deferred > 0
-        ) {
-          pending.push("cloud_drive_objects");
-          break;
-        }
-      }
-
-      // 8. Owner-indexed tables with nothing hanging off them. Independent —
+      // 4. Owner-indexed tables with nothing hanging off them. Independent —
       //    drain them concurrently.
       await Promise.all(
         SIMPLE_TABLES.map(async (table) => {
-          // A Schedule replay receipt can embed the schedule row. Retain it
-          // until the stopped schedule itself has been drained below.
-          if (table === "cloud_schedule_receipts") return;
           for (let p = 0; p < MAX_PASSES; p += 1) {
             const result: { hasMore: boolean } = await ctx.runMutation(
               internal.cloud_purge.deleteOwnerCloudBatch,
@@ -2077,40 +1540,9 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 10. Schedules: stopped in step 0, drained now that nothing can re-arm one.
-      let schedulesDrained = false;
-      for (let schedulePass = 0; schedulePass < MAX_PASSES; schedulePass += 1) {
-        const result: { deleted: number; hasMore: boolean } =
-          await ctx.runMutation(
-            internal.cloud_schedule.deleteOwnerSchedulesInternal,
-            fence,
-          );
-        if (!result.hasMore) {
-          schedulesDrained = true;
-          break;
-        }
-      }
-      if (!schedulesDrained) {
-        pending.push("cloud_scheduled_turns");
-      } else {
-        // Only after the authoritative schedule rows are gone may their exact
-        // replay results be retired.
-        for (let p = 0; p < MAX_PASSES; p += 1) {
-          const result: { hasMore: boolean } = await ctx.runMutation(
-            internal.cloud_purge.deleteOwnerCloudBatch,
-            { ...fence, table: "cloud_schedule_receipts" },
-          );
-          if (!result.hasMore) break;
-          if (p === MAX_PASSES - 1) {
-            pending.push("cloud_schedule_receipts");
-            logPurge("owner_schedule_receipt_drain_truncated", { ownerId });
-          }
-        }
-      }
-
-      // 11. Owner-level object storage the per-row steps cannot see: the
+      // 5. Owner-level object storage the per-row steps cannot see: the
       //    owner object's own data (conversations and each one's DO, agent
-      //    threads, and the other owner-object domains), the agent-home
+      //    threads, home, drive, schedules and preferences), the agent-home
       //    memory prefix, any archive segment whose conversation row was
       //    already gone, and the owner's world checkpoint, which exists
       //    without a row anywhere naming it.
@@ -2120,35 +1552,6 @@ export const purgeOwnerCloudStack = internalAction({
       });
       if (external.pending.length > 0) {
         pending.push(...external.pending.map((store) => `builder:${store}`));
-      }
-
-      // Memory/Skills rows are external locators/control receipts. The
-      // owner-derived agent-home prefix must be confirmed empty before any of
-      // them is retired; otherwise a failed R2 sweep would strand private bytes
-      // with no database record left to force a retry.
-      if (!external.pending.includes("agent-home")) {
-        const headTables = new Set<AgentHomeTable>([
-          "cloud_agent_home_docs",
-          "cloud_skills",
-        ]);
-        const phases: AgentHomeTable[][] = [
-          AGENT_HOME_TABLES.filter((table) => !headTables.has(table)),
-          AGENT_HOME_TABLES.filter((table) => headTables.has(table)),
-        ];
-        for (const phase of phases) {
-          await Promise.all(
-            phase.map(async (table) => {
-              for (let p = 0; p < MAX_PASSES; p += 1) {
-                const result: { hasMore: boolean } = await ctx.runMutation(
-                  internal.cloud_purge.deleteOwnerAgentHomeBatch,
-                  { ...fence, table },
-                );
-                if (!result.hasMore) return;
-              }
-              logPurge("owner_agent_home_table_drain_truncated", { table });
-            }),
-          );
-        }
       }
 
       // Interaction rows are secret-free, but they are the durable debt that
@@ -2167,7 +1570,7 @@ export const purgeOwnerCloudStack = internalAction({
         }
       }
 
-      // 11. The claim, checked. Everything above reports what it believes; this
+      // 6. The claim, checked. Everything above reports what it believes; this
       //    reads the database back and says what is actually left.
       const remaining: string[] = await ctx.runQuery(
         internal.cloud_purge.remainingOwnerStoresInternal,

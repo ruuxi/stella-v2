@@ -37,19 +37,12 @@ import {
   readMyOwnershipMigrationStatus,
 } from "./lib/ownership_migration_status";
 import {
-  canceledPendingUploadCleanupDelays,
-  driveFileOwnershipPatch,
-  importedAgentHomeDocumentName,
-  importedAgentHomePrefix,
-  importedDrivePath,
   importedOwnerScopedKey,
   importedProjectSlug,
-  importedSkillSlug,
   isOwnershipMigrationBlockedMessage,
   migratedSourceAuthDeletionOperationId,
   ownershipMigrationSourceDigest,
   ownershipMigrationTransientStateDisposition,
-  shouldAdvanceOwnerNamespaceStage,
 } from "./lib/auth_migration_paths";
 import {
   assertOwnerDataAccessActive,
@@ -62,7 +55,6 @@ import {
   managedDispatchOutcomeRequiresQuiescence,
 } from "./lib/managed_dispatch";
 import { quiesceOwnerComposioSessionProvisioning } from "./composio_session_dispatch";
-import { homeContextChanged } from "./lib/cloud_home_context_updates";
 
 const BATCH_SIZE = 500;
 const REMOTE_TURN_MIGRATION_BATCH = 32;
@@ -294,65 +286,6 @@ export const migrateConversationsBatch = internalMutation({
     await Promise.all(
       rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
     );
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
-export const migrateUserPreferencesBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    const migration = await requireActiveOwnershipMigrationLease(ctx, args);
-    const rows = await ctx.db
-      .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", args.fromOwnerId))
-      .take(BATCH_SIZE);
-    // (ownerId, key) is looked up with `.unique()` elsewhere. Preserve a
-    // colliding source value under a deterministic imported key rather than
-    // replacing the destination or silently deleting anonymous content.
-    for (const row of rows) {
-      const existing = await ctx.db
-        .query("user_preferences")
-        .withIndex("by_ownerId_and_key", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("key", row.key),
-        )
-        .unique();
-      if (existing) {
-        let importedKey: string | null = null;
-        for (let attempt = 0; attempt < 32; attempt += 1) {
-          const candidate = importedOwnerScopedKey(
-            row.key,
-            String(row._id),
-            attempt,
-          );
-          const occupied = await ctx.db
-            .query("user_preferences")
-            .withIndex("by_ownerId_and_key", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("key", candidate),
-            )
-            .unique();
-          if (!occupied) {
-            importedKey = candidate;
-            break;
-          }
-        }
-        if (!importedKey) {
-          blockOwnershipMigration(
-            `No collision-safe imported key is available for preference "${row.key}".`,
-          );
-        }
-        await ctx.db.patch(row._id, {
-          ownerId: args.toOwnerId,
-          key:
-            importedKey ??
-            blockOwnershipMigration(
-              `No collision-safe imported key is available for preference "${row.key}".`,
-            ),
-        });
-      } else {
-        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-      }
-    }
     return { hasMore: isFullPage(rows) };
   },
 });
@@ -909,30 +842,6 @@ export const discardAnonymousTransientHandshakesBatch = internalMutation({
   handler: async (ctx, args) => {
     const migration = await requireActiveOwnershipMigrationLease(ctx, args);
     const migrationOwnerIds = [args.fromOwnerId, args.toOwnerId] as const;
-    let upload: Doc<"cloud_drive_uploads"> | undefined;
-    for (const ownerId of migrationOwnerIds) {
-      upload = (
-        await ctx.db
-          .query("cloud_drive_uploads")
-          .withIndex("by_ownerId_and_path", (q) => q.eq("ownerId", ownerId))
-          .take(1)
-      )[0];
-      if (upload) break;
-    }
-    if (upload) {
-      await ctx.db.delete(upload._id);
-      for (const delay of canceledPendingUploadCleanupDelays(
-        Date.now(),
-        upload.expiresAt,
-      )) {
-        await ctx.scheduler.runAfter(
-          delay,
-          internal.cloud_drive.cleanupCanceledPendingUploadInternal,
-          { r2Key: upload.r2Key },
-        );
-      }
-      return { hasMore: true };
-    }
     let xState: Doc<"x_oauth_states"> | undefined;
     for (const ownerId of migrationOwnerIds) {
       xState = (
@@ -1490,84 +1399,14 @@ export const getCloudProductTransferWork = internalQuery({
 
 const ownerNamespaceBlockerReturn = v.union(v.null(), v.string());
 
-type MemoryMigrationState = {
-  sourceLifecycle: Doc<"cloud_memory_lifecycles"> | null;
-  destinationLifecycle: Doc<"cloud_memory_lifecycles"> | null;
-  sourceWipeJob: Doc<"cloud_memory_wipe_jobs"> | null;
-  destinationWipeJob: Doc<"cloud_memory_wipe_jobs"> | null;
-  targetEpoch: string;
-  blocker: string | null;
-};
-
 /**
- * Memory epochs are opaque capabilities, not counters. Account linking must
- * never guess an ordering between them: an existing destination epoch wins,
- * otherwise the source epoch moves with its data, and two legacy owners stay
- * on the implicit `legacy` epoch. A live wipe on either principal is a hard
- * transfer barrier because its object sweep and metadata phase deliberately
- * span multiple transactions.
- */
-const inspectMemoryMigrationState = async (
-  ctx: Pick<QueryCtx, "db">,
-  args: OwnerIds,
-): Promise<MemoryMigrationState> => {
-  const [
-    sourceLifecycle,
-    destinationLifecycle,
-    sourceWipeJob,
-    destinationWipeJob,
-  ] = await Promise.all([
-    ctx.db
-      .query("cloud_memory_lifecycles")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique(),
-    ctx.db
-      .query("cloud_memory_lifecycles")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-      .unique(),
-    ctx.db
-      .query("cloud_memory_wipe_jobs")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique(),
-    ctx.db
-      .query("cloud_memory_wipe_jobs")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-      .unique(),
-  ]);
-  let blocker: string | null = null;
-  if (sourceLifecycle?.state === "wiping") {
-    blocker = "The anonymous identity has a Memory wipe in progress.";
-  } else if (destinationLifecycle?.state === "wiping") {
-    blocker = "The connected identity has a Memory wipe in progress.";
-  } else if (sourceWipeJob && sourceWipeJob.stage !== "completed") {
-    blocker = "The anonymous identity has unfinished Memory wipe debt.";
-  } else if (destinationWipeJob && destinationWipeJob.stage !== "completed") {
-    blocker = "The connected identity has unfinished Memory wipe debt.";
-  }
-  return {
-    sourceLifecycle,
-    destinationLifecycle,
-    sourceWipeJob,
-    destinationWipeJob,
-    targetEpoch:
-      destinationLifecycle?.epoch ?? sourceLifecycle?.epoch ?? "legacy",
-    blocker,
-  };
-};
-
-/**
- * Preflight the bounded anonymous namespace before any metadata is re-owned.
- * A pending upload is an incomplete protocol row, not durable product state;
- * core migration cancels it and schedules guarded object cleanup. Agent-home
- * bytes are moved by cloud-builder, while Drive files keep their exact
- * immutable @convex-dev/r2 keys and only their Convex rows change owner.
+ * Preflight the anonymous owner namespace before cloud-builder copies the
+ * world checkpoint.
  */
 export const getOwnerNamespaceTransferBlocker = internalQuery({
   args: ownerArgs,
   returns: ownerNamespaceBlockerReturn,
   handler: async (ctx, args) => {
-    const memory = await inspectMemoryMigrationState(ctx, args);
-    if (memory.blocker) return memory.blocker;
     const browserInteraction = (
       await ctx.db
         .query("cloud_browser_interactions")
@@ -1578,21 +1417,6 @@ export const getOwnerNamespaceTransferBlocker = internalQuery({
     )[0];
     if (browserInteraction) {
       return "The anonymous identity has a browser session that must be reset before account linking.";
-    }
-    const pendingUpload = (
-      await ctx.db
-        .query("cloud_drive_uploads")
-        .withIndex("by_ownerId_and_path", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (pendingUpload) {
-      const disposition =
-        ownershipMigrationTransientStateDisposition("cloud_drive_upload");
-      if (disposition === "block") {
-        return `A Drive upload for "${pendingUpload.path}" cannot be migrated safely.`;
-      }
     }
     return null;
   },
@@ -3076,23 +2900,6 @@ export const commitCloudConversationTransferBatch = internalMutation({
       return await finish({ complete: false, progressed: true });
     }
 
-    const schedules = await ctx.db
-      .query("cloud_scheduled_turns")
-      .withIndex("by_conversationId_and_ownerId_and_updatedAt", (q) =>
-        q
-          .eq("conversationId", args.conversationId)
-          .eq("ownerId", args.fromOwnerId),
-      )
-      .take(CLOUD_PROJECTION_BATCH_SIZE);
-    if (schedules.length > 0) {
-      await Promise.all(
-        schedules.map((schedule) =>
-          ctx.db.patch(schedule._id, { ownerId: args.toOwnerId }),
-        ),
-      );
-      return await finish({ complete: false, progressed: true });
-    }
-
     await ctx.db.patch(conversation._id, { ownerId: args.toOwnerId });
     return await finish({ complete: true, progressed: true });
   },
@@ -3182,8 +2989,6 @@ const transferCloudAppStorageRow = async (
 export const commitOwnerNamespaceTransfer = internalMutation({
   args: {
     ...leasedOwnerArgs,
-    fromOwnerHash: v.string(),
-    toOwnerHash: v.string(),
     ...externalTransferReceiptArgs,
   },
   returns: cloudProductBatchReturn,
@@ -3206,366 +3011,10 @@ export const commitOwnerNamespaceTransfer = internalMutation({
     if (stage !== "owner-namespaces") {
       return await finish({ hasMore: false, progressed: stage === "apps" });
     }
-    if (!migration.toOwnerGeneration) {
-      blockOwnershipMigration(
-        "The destination owner generation is missing from account linking.",
-      );
-    }
-    const destinationGeneration = migration.toOwnerGeneration!;
-    const memoryMigration = await inspectMemoryMigrationState(ctx, args);
-    if (memoryMigration.blocker) {
-      blockOwnershipMigration(memoryMigration.blocker);
-    }
-    const destinationMemoryEpoch = memoryMigration.targetEpoch;
-    const sourceAgentHomePrefix = `agent-home/${args.fromOwnerHash}/`;
-    const destinationAgentHomePrefix = importedAgentHomePrefix(
-      args.fromOwnerHash,
-      args.toOwnerHash,
-    );
-    const importedObjectKey = (key: string, label: string): string => {
-      if (!key.startsWith(sourceAgentHomePrefix)) {
-        blockOwnershipMigration(
-          `${label} points outside the anonymous owner namespace.`,
-        );
-      }
-      return key.replace(sourceAgentHomePrefix, destinationAgentHomePrefix);
-    };
-    const progressed = async () =>
-      await finish({ hasMore: true, progressed: true });
-    // Notification receipts are operational debt, not imported product data.
-    // Destination heads below issue their own revision after each publication.
-    const contextNotifications = await ctx.db
-      .query("cloud_home_context_updates")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .take(20);
-    if (contextNotifications.length) {
-      await Promise.all(
-        contextNotifications.map((row) => ctx.db.delete(row._id)),
-      );
-      return await progressed();
-    }
-
-    // A completed wipe job is an operational replay receipt, not product
-    // state. Remove the source receipt instead of transferring it. An existing
-    // destination receipt remains intact so its own idempotency contract is
-    // not disturbed.
-    if (memoryMigration.sourceWipeJob) {
-      await ctx.db.delete(memoryMigration.sourceWipeJob._id);
-      return await progressed();
-    }
-
-    // Reservations and active leases cannot survive an owner-generation
-    // change. Their immutable bytes, if already uploaded, remain under the
-    // transferred owner prefix for the normal owner purge sweep; no stale
-    // source writer can publish them after this mutation.
-    const memoryIntents = await ctx.db
-      .query("cloud_agent_home_write_intents")
-      .withIndex("by_ownerId_and_status_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (memoryIntents.length > 0) {
-      await Promise.all(memoryIntents.map((row) => ctx.db.delete(row._id)));
-      return await progressed();
-    }
-    const skillIntents = await ctx.db
-      .query("cloud_skill_write_intents")
-      .withIndex("by_ownerId_and_status_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (skillIntents.length > 0) {
-      await Promise.all(skillIntents.map((row) => ctx.db.delete(row._id)));
-      return await progressed();
-    }
-    const memoryPreference = await ctx.db
-      .query("cloud_agent_home_preferences")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique();
-    if (memoryPreference) {
-      const destination = await ctx.db
-        .query("cloud_agent_home_preferences")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-        .unique();
-      if (destination) {
-        if (destination.memoryEnabled !== memoryPreference.memoryEnabled) {
-          blockOwnershipMigration(
-            "The anonymous and connected identities have conflicting Memory preferences.",
-          );
-        }
-        await ctx.db.patch(destination._id, {
-          ownerGeneration: destinationGeneration,
-          updatedAt: Math.max(
-            destination.updatedAt,
-            memoryPreference.updatedAt,
-          ),
-        });
-        await ctx.db.delete(memoryPreference._id);
-      } else {
-        await ctx.db.patch(memoryPreference._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: destinationGeneration,
-        });
-      }
-      await homeContextChanged(ctx, args.toOwnerId, destinationGeneration);
-      return await progressed();
-    }
-    const memoryVersions = await ctx.db
-      .query("cloud_agent_home_doc_versions")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (memoryVersions.length > 0) {
-      for (const version of memoryVersions) {
-        await ctx.db.patch(version._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: destinationGeneration,
-          memoryEpoch: destinationMemoryEpoch,
-          name: importedAgentHomeDocumentName(version.name, version.documentId),
-          r2Key: importedObjectKey(
-            version.r2Key,
-            "An Agent Home document version",
-          ),
-          writer: "owner_migration",
-        });
-      }
-      return await progressed();
-    }
-
-    const documents = await ctx.db
-      .query("cloud_agent_home_docs")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    for (const document of documents) {
-      const name = importedAgentHomeDocumentName(
-        document.name,
-        document.documentId ?? String(document._id),
-      );
-      const collision = await ctx.db
-        .query("cloud_agent_home_docs")
-        .withIndex("by_ownerId_and_name", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("name", name),
-        )
-        .unique();
-      if (collision && collision._id !== document._id) {
-        blockOwnershipMigration(
-          `An imported memory path is already occupied: "${name}".`,
-        );
-      }
-      await ctx.db.patch(document._id, {
-        ownerId: args.toOwnerId,
-        name,
-        displayPath: `~/.stella/${name}`,
-        kind: "imported_markdown",
-        source: "owner_migration",
-        ownerGeneration: destinationGeneration,
-        memoryEpoch: destinationMemoryEpoch,
-        r2Key: importedObjectKey(document.r2Key, "An Agent Home document"),
-      });
-    }
-    if (documents.length > 0) {
-      await homeContextChanged(ctx, args.toOwnerId, destinationGeneration);
-      return await progressed();
-    }
-
-    // The worker has already copied the complete Agent Home namespace, and
-    // every source Memory metadata row above has now moved or drained.
-    // Only at this point may the source epoch capability move/disappear.
-    if (memoryMigration.sourceLifecycle) {
-      if (memoryMigration.destinationLifecycle) {
-        const sourceRequiresExplicitImport =
-          memoryMigration.sourceLifecycle.importDisposition ===
-          "explicit_required";
-        const destinationRequiresExplicitImport =
-          memoryMigration.destinationLifecycle.importDisposition ===
-          "explicit_required";
-        await ctx.db.patch(memoryMigration.destinationLifecycle._id, {
-          ownerGeneration: destinationGeneration,
-          updatedAt: Math.max(
-            memoryMigration.destinationLifecycle.updatedAt,
-            memoryMigration.sourceLifecycle.updatedAt,
-          ),
-          ...(!destinationRequiresExplicitImport && sourceRequiresExplicitImport
-            ? {
-                // Import authorization is subject+epoch bound. The
-                // destination epoch survives, so a source wipe tombstone may
-                // tighten the destination policy but source authorization can
-                // never authorize that different epoch.
-                importDisposition: "explicit_required" as const,
-                lastWipedEpoch:
-                  memoryMigration.sourceLifecycle.lastWipedEpoch ??
-                  memoryMigration.destinationLifecycle.lastWipedEpoch,
-                importAuthorizationRequestId: undefined,
-                importAuthorizedAt: undefined,
-              }
-            : {}),
-        });
-        await ctx.db.delete(memoryMigration.sourceLifecycle._id);
-      } else {
-        await ctx.db.patch(memoryMigration.sourceLifecycle._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: destinationGeneration,
-          updatedAt: Date.now(),
-        });
-      }
-      return await progressed();
-    }
-
-    const skillFiles = await ctx.db
-      .query("cloud_skill_files")
-      .withIndex("by_ownerId_and_skillId", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (skillFiles.length > 0) {
-      for (const file of skillFiles) {
-        await ctx.db.patch(file._id, {
-          ownerId: args.toOwnerId,
-          r2Key: importedObjectKey(file.r2Key, "A cloud Skill file"),
-        });
-      }
-      return await progressed();
-    }
-
-    const skillVersions = await ctx.db
-      .query("cloud_skill_versions")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (skillVersions.length > 0) {
-      for (const version of skillVersions) {
-        await ctx.db.patch(version._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: destinationGeneration,
-          manifestR2Key: importedObjectKey(
-            version.manifestR2Key,
-            "A cloud Skill manifest",
-          ),
-          source: "owner_migration",
-        });
-      }
-      return await progressed();
-    }
-
-    const skills = await ctx.db
-      .query("cloud_skills")
-      .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    if (skills.length > 0) {
-      for (const skill of skills) {
-        let slug = skill.slug;
-        const directCollision = await ctx.db
-          .query("cloud_skills")
-          .withIndex("by_ownerId_and_slug", (q) =>
-            q.eq("ownerId", args.toOwnerId).eq("slug", slug),
-          )
-          .unique();
-        if (directCollision && directCollision._id !== skill._id) {
-          let importedSlug: string | null = null;
-          for (let attempt = 0; attempt < 32; attempt += 1) {
-            const candidate = importedSkillSlug(
-              skill.slug,
-              skill.skillId,
-              attempt,
-            );
-            const occupied = await ctx.db
-              .query("cloud_skills")
-              .withIndex("by_ownerId_and_slug", (q) =>
-                q.eq("ownerId", args.toOwnerId).eq("slug", candidate),
-              )
-              .unique();
-            if (!occupied) {
-              importedSlug = candidate;
-              break;
-            }
-          }
-          if (!importedSlug) {
-            blockOwnershipMigration(
-              `No imported cloud Skill slug is available for "${skill.slug}".`,
-            );
-          }
-          slug = importedSlug!;
-        }
-        await ctx.db.patch(skill._id, {
-          ownerId: args.toOwnerId,
-          slug,
-          source: "owner_migration",
-          updatedAt: Date.now(),
-        });
-      }
-      await homeContextChanged(ctx, args.toOwnerId, destinationGeneration);
-      return await progressed();
-    }
-
-    const driveFiles = await ctx.db
-      .query("cloud_drive_files")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(20);
-    for (const driveFile of driveFiles) {
-      const destination = await ctx.db
-        .query("cloud_drive_files")
-        .withIndex("by_ownerId_and_path", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("path", driveFile.path),
-        )
-        .unique();
-      let path = driveFile.path;
-      if (destination) {
-        for (let attempt = 0; attempt < 32; attempt += 1) {
-          const candidate = importedDrivePath(
-            driveFile.path,
-            String(driveFile._id),
-            attempt,
-          );
-          const occupied = await ctx.db
-            .query("cloud_drive_files")
-            .withIndex("by_ownerId_and_path", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("path", candidate),
-            )
-            .unique();
-          if (!occupied) {
-            path = candidate;
-            break;
-          }
-        }
-        if (path === driveFile.path) {
-          blockOwnershipMigration(
-            `No imported Drive path is available for "${driveFile.path}".`,
-          );
-        }
-      }
-      await ctx.db.patch(driveFile._id, {
-        ...driveFileOwnershipPatch(args.toOwnerId),
-        path,
-        ...(destination
-          ? {
-              name:
-                path.split("/")[path.split("/").length - 1] ?? driveFile.name,
-            }
-          : {}),
-      });
-    }
-    const remainingDriveFiles = await ctx.db
-      .query("cloud_drive_files")
-      .withIndex("by_ownerId_and_updatedAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(1);
-    if (shouldAdvanceOwnerNamespaceStage(remainingDriveFiles.length)) {
-      await ctx.db.patch(migration._id, { cloudProductStage: "apps" });
-      return await finish({ hasMore: false, progressed: true });
-    }
-    return await finish({
-      hasMore: true,
-      progressed: driveFiles.length > 0,
-    });
+    // The worker has copied the world checkpoint; no Convex row is rekeyed in
+    // this stage.
+    await ctx.db.patch(migration._id, { cloudProductStage: "apps" });
+    return await finish({ hasMore: false, progressed: true });
   },
 });
 
@@ -3771,54 +3220,6 @@ export const commitCloudProjectTransfer = internalMutation({
   },
 });
 
-/**
- * Schedule receipts embed the operation's exact response. Create/update
- * responses include the schedule row, so ownership migration must rewrite the
- * embedded owner together with the indexed receipt and schedule row. Keeping
- * the stale source owner in a replay would otherwise return data that
- * contradicts the canonical row after linking.
- */
-const migrateScheduleReceiptResultJson = (
-  receipt: Pick<Doc<"cloud_schedule_receipts">, "action" | "resultJson">,
-  fromOwnerId: string,
-  toOwnerId: string,
-): string => {
-  if (receipt.action === "remove") return receipt.resultJson;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(receipt.resultJson) as unknown;
-  } catch {
-    return blockOwnershipMigration(
-      "A Schedule request receipt contains an unreadable response.",
-    );
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return blockOwnershipMigration(
-      "A Schedule request receipt contains an invalid response.",
-    );
-  }
-  const result = parsed as Record<string, unknown>;
-  const schedule = result.schedule;
-  if (!schedule || typeof schedule !== "object" || Array.isArray(schedule)) {
-    return blockOwnershipMigration(
-      "A Schedule request receipt is missing its schedule response.",
-    );
-  }
-  const scheduleRecord = schedule as Record<string, unknown>;
-  if (
-    scheduleRecord.ownerId !== fromOwnerId &&
-    scheduleRecord.ownerId !== toOwnerId
-  ) {
-    return blockOwnershipMigration(
-      "A Schedule request receipt names an unexpected owner.",
-    );
-  }
-  return JSON.stringify({
-    ...result,
-    schedule: { ...scheduleRecord, ownerId: toOwnerId },
-  });
-};
-
 export const migrateCloudProductCoreBatch = internalMutation({
   args: leasedOwnerArgs,
   returns: cloudProductBatchReturn,
@@ -3861,137 +3262,6 @@ export const migrateCloudProductCoreBatch = internalMutation({
         );
       }
       if (liveLease) return { hasMore: true, progressed: false };
-    }
-    const driveFile = (
-      await ctx.db
-        .query("cloud_drive_files")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (driveFile) {
-      const collision = await ctx.db
-        .query("cloud_drive_files")
-        .withIndex("by_ownerId_and_path", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("path", driveFile.path),
-        )
-        .unique();
-      let path = driveFile.path;
-      if (collision) {
-        let available: string | null = null;
-        for (let attempt = 0; attempt < 32; attempt += 1) {
-          const candidate = importedDrivePath(
-            driveFile.path,
-            String(driveFile._id),
-            attempt,
-          );
-          const occupied = await ctx.db
-            .query("cloud_drive_files")
-            .withIndex("by_ownerId_and_path", (q) =>
-              q.eq("ownerId", args.toOwnerId).eq("path", candidate),
-            )
-            .unique();
-          if (!occupied) {
-            available = candidate;
-            break;
-          }
-        }
-        if (!available) {
-          throw new Error(
-            "No collision-safe destination path is available for a drive file.",
-          );
-        }
-        path = available;
-      }
-      await ctx.db.patch(driveFile._id, {
-        ownerId: args.toOwnerId,
-        path,
-        ...(collision
-          ? {
-              name:
-                path.split("/")[path.split("/").length - 1] ?? driveFile.name,
-            }
-          : {}),
-      });
-      return { hasMore: true, progressed: true };
-    }
-    const upload = (
-      await ctx.db
-        .query("cloud_drive_uploads")
-        .withIndex("by_ownerId_and_path", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (upload) {
-      if (
-        ownershipMigrationTransientStateDisposition("cloud_drive_upload") ===
-        "discard"
-      ) {
-        await ctx.db.delete(upload._id);
-        for (const delay of canceledPendingUploadCleanupDelays(
-          Date.now(),
-          upload.expiresAt,
-        )) {
-          await ctx.scheduler.runAfter(
-            delay,
-            internal.cloud_drive.cleanupCanceledPendingUploadInternal,
-            { r2Key: upload.r2Key },
-          );
-        }
-        console.info("[auth_migration] Canceled an incomplete Drive upload.");
-        return { hasMore: true, progressed: true };
-      }
-      blockOwnershipMigration("A pending Drive upload could not be canceled.");
-    }
-    const deletion = (
-      await ctx.db
-        .query("cloud_drive_deletions")
-        .withIndex("by_ownerId_and_deletedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (deletion) {
-      const collision = await ctx.db
-        .query("cloud_drive_deletions")
-        .withIndex("by_ownerId_and_path", (q) =>
-          q.eq("ownerId", args.toOwnerId).eq("path", deletion.path),
-        )
-        .unique();
-      if (collision) {
-        if (deletion.deletedAt > collision.deletedAt) {
-          await ctx.db.patch(collision._id, {
-            deletedAt: deletion.deletedAt,
-          });
-        }
-        await ctx.db.delete(deletion._id);
-      } else {
-        await ctx.db.patch(deletion._id, { ownerId: args.toOwnerId });
-      }
-      return { hasMore: true, progressed: true };
-    }
-    const usage = await ctx.db
-      .query("cloud_drive_usage")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
-      .unique();
-    if (usage) {
-      const destination = await ctx.db
-        .query("cloud_drive_usage")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", args.toOwnerId))
-        .unique();
-      if (destination) {
-        await ctx.db.patch(destination._id, {
-          fileCount: destination.fileCount + usage.fileCount,
-          totalBytes: destination.totalBytes + usage.totalBytes,
-          updatedAt: Math.max(destination.updatedAt, usage.updatedAt),
-        });
-        await ctx.db.delete(usage._id);
-      } else {
-        await ctx.db.patch(usage._id, { ownerId: args.toOwnerId });
-      }
-      return { hasMore: true, progressed: true };
     }
     const importedSourceDigest = await ownershipMigrationSourceDigest(
       args.fromOwnerId,
@@ -4288,54 +3558,6 @@ export const migrateCloudProductCoreBatch = internalMutation({
       await ctx.db.patch(thread._id, { ownerId: args.toOwnerId });
       return { hasMore: true, progressed: true };
     }
-    const scheduleReceipt = (
-      await ctx.db
-        .query("cloud_schedule_receipts")
-        .withIndex("by_ownerId_and_createdAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (scheduleReceipt) {
-      if (scheduleReceipt.ownerGeneration !== migration.fromOwnerGeneration) {
-        blockOwnershipMigration(
-          "A stale-generation Schedule request receipt survived an owner reset.",
-        );
-      }
-      const resultJson = migrateScheduleReceiptResultJson(
-        scheduleReceipt,
-        args.fromOwnerId,
-        args.toOwnerId,
-      );
-      const destination = await ctx.db
-        .query("cloud_schedule_receipts")
-        .withIndex("by_ownerId_and_ownerGeneration_and_requestId", (q) =>
-          q
-            .eq("ownerId", args.toOwnerId)
-            .eq("ownerGeneration", migration.toOwnerGeneration!)
-            .eq("requestId", scheduleReceipt.requestId),
-        )
-        .unique();
-      if (destination) {
-        if (
-          destination.action !== scheduleReceipt.action ||
-          destination.intentJson !== scheduleReceipt.intentJson ||
-          destination.resultJson !== resultJson
-        ) {
-          blockOwnershipMigration(
-            "Both identities contain conflicting Schedule request receipts.",
-          );
-        }
-        await ctx.db.delete(scheduleReceipt._id);
-      } else {
-        await ctx.db.patch(scheduleReceipt._id, {
-          ownerId: args.toOwnerId,
-          ownerGeneration: migration.toOwnerGeneration!,
-          resultJson,
-        });
-      }
-      return { hasMore: true, progressed: true };
-    }
     const integrationReceipt = (
       await ctx.db
         .query("cloud_integration_call_receipts")
@@ -4387,18 +3609,6 @@ export const migrateCloudProductCoreBatch = internalMutation({
           ownerGeneration: migration.toOwnerGeneration!,
         });
       }
-      return { hasMore: true, progressed: true };
-    }
-    const scheduledTurn = (
-      await ctx.db
-        .query("cloud_scheduled_turns")
-        .withIndex("by_ownerId_and_updatedAt", (q) =>
-          q.eq("ownerId", args.fromOwnerId),
-        )
-        .take(1)
-    )[0];
-    if (scheduledTurn) {
-      await ctx.db.patch(scheduledTurn._id, { ownerId: args.toOwnerId });
       return { hasMore: true, progressed: true };
     }
     return { hasMore: false, progressed: false };
@@ -4600,13 +3810,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         ],
       ],
       [
-        "cloud_drive_uploads",
-        await ctx.db
-          .query("cloud_drive_uploads")
-          .withIndex("by_ownerId_and_path", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
         "x_oauth_states",
         await ctx.db
           .query("x_oauth_states")
@@ -4758,7 +3961,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
       "billing_managed_execution_leases",
       "billing_usage_reservations",
       "voice_provider_dispatch_leases",
-      "cloud_drive_uploads",
       "x_oauth_states",
       "cloud_engine_connects",
       "cloud_github_install_states",
@@ -4850,13 +4052,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
           .take(1),
       ],
       [
-        "user_preferences",
-        await ctx.db
-          .query("user_preferences")
-          .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
         "usage_logs",
         await ctx.db
           .query("usage_logs")
@@ -4938,122 +4133,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         await ctx.db
           .query("cloud_projects")
           .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_drive_files",
-        await ctx.db
-          .query("cloud_drive_files")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_home_context_updates",
-        await ctx.db
-          .query("cloud_home_context_updates")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_agent_home_docs",
-        await ctx.db
-          .query("cloud_agent_home_docs")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_agent_home_preferences",
-        await ctx.db
-          .query("cloud_agent_home_preferences")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_memory_lifecycles",
-        await ctx.db
-          .query("cloud_memory_lifecycles")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_memory_wipe_jobs",
-        await ctx.db
-          .query("cloud_memory_wipe_jobs")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_agent_home_doc_versions",
-        await ctx.db
-          .query("cloud_agent_home_doc_versions")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_agent_home_write_intents",
-        await ctx.db
-          .query("cloud_agent_home_write_intents")
-          .withIndex("by_ownerId_and_status_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_skills",
-        await ctx.db
-          .query("cloud_skills")
-          .withIndex("by_ownerId_and_deletedAt_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_skill_versions",
-        await ctx.db
-          .query("cloud_skill_versions")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_skill_write_intents",
-        await ctx.db
-          .query("cloud_skill_write_intents")
-          .withIndex("by_ownerId_and_status_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_skill_files",
-        await ctx.db
-          .query("cloud_skill_files")
-          .withIndex("by_ownerId_and_skillId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_scheduled_turns",
-        await ctx.db
-          .query("cloud_scheduled_turns")
-          .withIndex("by_ownerId_and_updatedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_schedule_receipts",
-        await ctx.db
-          .query("cloud_schedule_receipts")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
             q.eq("ownerId", ownerId),
           )
           .take(1),
@@ -5185,22 +4264,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
         await ctx.db
           .query("media_webhook_events")
           .withIndex("by_ownerId_and_receivedAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "cloud_drive_usage",
-        await ctx.db
-          .query("cloud_drive_usage")
-          .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-          .take(1),
-      ],
-      [
-        "cloud_drive_deletions",
-        await ctx.db
-          .query("cloud_drive_deletions")
-          .withIndex("by_ownerId_and_deletedAt", (q) =>
             q.eq("ownerId", ownerId),
           )
           .take(1),
@@ -5364,7 +4427,6 @@ export const deduplicateUserCounters = internalMutation({
  */
 const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateConversationsBatch,
-  internal.auth_migration.migrateUserPreferencesBatch,
   internal.auth_migration.migrateAuthSessionPoliciesBatch,
   internal.auth_migration.migrateSecretsBatch,
   internal.auth_migration.migrateSecretAccessAuditBatch,
@@ -6331,7 +5393,7 @@ export const migrateOwnership = internalAction({
             toOwnerGeneration,
             stage: work.kind,
             planRevision,
-            agentHome: work.kind === "owner-namespaces",
+            agentHome: false,
             world: work.kind === "owner-namespaces",
             appSlugs: work.kind === "app" ? [work.slug] : [],
           };
@@ -6389,8 +5451,6 @@ export const migrateOwnership = internalAction({
                   internal.auth_migration.commitOwnerNamespaceTransfer,
                   {
                     ...leaseForCommit(),
-                    fromOwnerHash: verdict.fromOwnerHash,
-                    toOwnerHash: verdict.toOwnerHash,
                     transferOperationId: verdict.transferOperationId,
                     transferPlanFingerprint: verdict.transferPlanFingerprint,
                     transferStage: work.kind,

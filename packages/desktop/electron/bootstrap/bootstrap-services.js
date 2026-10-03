@@ -109,6 +109,7 @@ export const createBootstrapServices = (options) => {
     });
     const credentialService = new CredentialService({
         windowManagerTarget: lifecycle,
+        getStellaAppDir: () => lifecycle.getStellaDataDir(),
         getBroadcastToMobile: () => options.getMobileBroadcast(),
     });
     const connectorOAuthService = new ConnectorOAuthService();

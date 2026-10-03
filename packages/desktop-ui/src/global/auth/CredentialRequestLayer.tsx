@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/api";
 import { getElectronApi } from "@/platform/electron/electron";
 import { CredentialModal } from "@/global/integrations/CredentialModal";
 
@@ -12,7 +10,6 @@ type PendingCredentialRequest = {
   placeholder?: string;
 };
 export const CredentialRequestLayer = () => {
-  const createSecret = useMutation(api.data.secrets.createSecret);
   const [pending, setPending] = useState<PendingCredentialRequest | null>(null);
 
   const apiHandle = getElectronApi();
@@ -31,16 +28,11 @@ export const CredentialRequestLayer = () => {
   const handleSubmit = async ({ label, secret }: { label: string; secret: string }) => {
     if (!pending) return;
 
-    const result = await createSecret({
-      provider: pending.provider,
-      label,
-      plaintext: secret,
-    });
-    const secretId = (result as { secretId: string }).secretId;
-
+    // Electron stores the value in local protected storage and hands the
+    // agent only a local secretId; nothing leaves the machine.
     await apiHandle?.system.submitCredential?.({
       requestId: pending.requestId,
-      secretId,
+      secret,
       provider: pending.provider,
       label,
     });

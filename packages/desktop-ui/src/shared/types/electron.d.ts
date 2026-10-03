@@ -941,7 +941,7 @@ export type ElectronSystemApi = {
   ) => () => void;
   submitCredential: (payload: {
     requestId: string;
-    secretId: string;
+    secret: string;
     provider: string;
     label: string;
   }) => Promise<{ ok: boolean; error?: string }>;

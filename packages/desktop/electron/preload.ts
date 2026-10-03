@@ -1553,7 +1553,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }>("credential:request"),
     submitCredential: (payload: {
       requestId: string;
-      secretId: string;
+      secret: string;
       provider: string;
       label: string;
     }) => ipcRenderer.invoke("credential:submit", payload),

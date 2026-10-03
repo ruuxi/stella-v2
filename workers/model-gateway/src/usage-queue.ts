@@ -5,19 +5,15 @@ import {
 } from "@stella/contracts/gateway/usage";
 import type { BillingControlRpc } from "@stella/contracts/gateway/usage";
 import { billingControl } from "./billing-control.js";
-import { createConvexClient, type ConvexClient } from "./convex-client.js";
 
 /**
  * USAGE_QUEUE consumer. Each batch settles into the owners' billing ledgers
- * on cloud-builder (`BillingControl.ingestUsage`), then goes to Convex
- * `POST /api/gateway/usage` for abuse accounting only (risk signals and the
- * anonymous IP allowance) until that moves too. Both are idempotent on
- * `requestId`, so a retried batch is safe.
+ * on cloud-builder (`BillingControl.ingestUsage`), which also takes the
+ * owners' risk signals and the anonymous network allowance from it.
+ * Settlement is idempotent on `requestId`, so a retried batch is safe.
  *
- *   settled + 2xx  ack the whole batch (rejections are logged, never retried).
- *   a failure      retry the whole batch with a growing delay, unless Convex
- *                  refused it with a 4xx, which is logged and acked: a bad
- *                  batch must not poison the queue.
+ *   settled   ack the whole batch (rejections are logged, never retried).
+ *   a failure retry the whole batch with a growing delay.
  */
 const RETRY_DELAY_SECONDS = [5, 15, 60, 180, 600] as const;
 
@@ -37,8 +33,7 @@ export const isUsageEvent = (value: unknown): value is GatewayUsageEvent => {
 
 export const handleUsageBatch = async (
   batch: MessageBatch<unknown>,
-  env: Pick<Env, "STELLA_CONVEX_SITE_URL" | "GATEWAY_SERVICE_SECRET" | "BILLING">,
-  convex: ConvexClient = createConvexClient(env),
+  env: Pick<Env, "BILLING">,
   billing: BillingControlRpc = billingControl(env),
 ): Promise<void> => {
   const events: GatewayUsageEvent[] = [];
@@ -75,27 +70,5 @@ export const handleUsageBatch = async (
     batch.retryAll({ delaySeconds });
     return;
   }
-  const result = await convex.usage(payload);
-  if (result.ok) {
-    const body = result.body;
-    if (body && Array.isArray(body.rejected) && body.rejected.length > 0) {
-      console.error(
-        `[model-gateway:usage] convex rejected ${body.rejected.length}/${events.length} events: ${JSON.stringify(body.rejected).slice(0, 2_000)}`,
-      );
-    }
-    batch.ackAll();
-    return;
-  }
-  if (result.status === null || result.retryable) {
-    const delaySeconds = retryDelay();
-    console.warn(
-      `[model-gateway:usage] convex unavailable status=${result.status ?? "none"}; retrying ${events.length} events in ${delaySeconds}s`,
-    );
-    batch.retryAll({ delaySeconds });
-    return;
-  }
-  console.error(
-    `[model-gateway:usage] convex refused batch status=${result.status} body=${JSON.stringify(result.body).slice(0, 2_000)}; acking ${events.length} events`,
-  );
   batch.ackAll();
 };

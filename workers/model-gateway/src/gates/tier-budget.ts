@@ -46,7 +46,7 @@ export class TierBudget extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.audience = ctx.id.name ?? ctx.id.toString();
-    this.alertWebhookUrl = optionalString(env, "ALERT_WEBHOOK_URL");
+    this.alertWebhookUrl = optionalString(env, "STELLA_ALERT_WEBHOOK_URL");
     void ctx.blockConcurrencyWhile(async () => {
       for (const statement of SCHEMA) this.ctx.storage.sql.exec(statement);
     });

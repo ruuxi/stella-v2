@@ -3,20 +3,15 @@ import type {
 } from "@stella/contracts/gateway/api";
 import {
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
-  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
-  CONVEX_GATEWAY_USAGE_PATH,
   type ConvexEngineAccessRequest,
   type ConvexEngineAccessResponse,
-  type GatewayUsageBatch,
-  type GatewayUsageBatchResult,
-  type ConvexOwnerEnforcementState,
 } from "@stella/contracts/gateway/usage";
 
 /**
- * The gateway's only client of the control plane. Every call carries the
- * service secret as a bearer, times out after 10 s, and reports failures
- * as data rather than throwing so callers decide between "retry later" and
- * "refuse the request".
+ * The gateway's Convex client, left with the native lane's engine access
+ * only. The call carries the service secret as a bearer, times out after
+ * 10 s, and reports failures as data rather than throwing so callers decide
+ * between "retry later" and "refuse the request".
  *
  * Convex gateway routes fail with a `GatewayErrorBody`; when the body carries
  * a recognised `error.code` (e.g. `generation_stale` from engine-access) it
@@ -39,12 +34,6 @@ export type ConvexClient = {
   engineAccess(
     request: ConvexEngineAccessRequest,
   ): Promise<ConvexResult<ConvexEngineAccessResponse>>;
-  ownerEnforcement(
-    ownerId: string,
-  ): Promise<ConvexResult<ConvexOwnerEnforcementState>>;
-  usage(
-    batch: GatewayUsageBatch,
-  ): Promise<ConvexResult<GatewayUsageBatchResult>>;
 };
 
 const KNOWN_CODES = new Set<GatewayErrorCode>([
@@ -147,12 +136,5 @@ export const createConvexClient = (
         "POST",
         request,
       ),
-    ownerEnforcement: (ownerId) =>
-      call<ConvexOwnerEnforcementState>(
-        `${CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH}?ownerId=${encodeURIComponent(ownerId)}`,
-        "GET",
-      ),
-    usage: (batch) =>
-      call<GatewayUsageBatchResult>(CONVEX_GATEWAY_USAGE_PATH, "POST", batch),
   };
 };

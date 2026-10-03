@@ -321,7 +321,7 @@ describe("TierBudget", () => {
     try {
       const gate = new TierBudget(
         createDurableObjectState("anonymous") as never,
-        { ALERT_WEBHOOK_URL: "https://alerts.test/hook" } as never,
+        { STELLA_ALERT_WEBHOOK_URL: "https://alerts.test/hook" } as never,
       );
       await gate.reserve({
         estimateMicroCents: 100,

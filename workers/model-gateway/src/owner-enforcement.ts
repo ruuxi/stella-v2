@@ -3,9 +3,7 @@ import {
   type GatewayOwnerEnforcementRequest,
   type OwnerEnforcementStatus,
 } from "@stella/contracts/gateway/usage";
-import { GatewayError, jsonResponse } from "./errors.js";
-import { bearerToken } from "./capability.js";
-import { readJsonObject, type GatewayDeps } from "./request-util.js";
+import { GatewayError } from "./errors.js";
 
 export const DEFAULT_ENFORCEMENT_TTL_SECONDS = 7 * 24 * 60 * 60;
 const KV_MINIMUM_TTL_SECONDS = 60;
@@ -130,18 +128,6 @@ const parseRequest = (
   };
 };
 
-const secretsMatch = (presented: string | null, expected: string): boolean => {
-  if (!presented) return false;
-  const left = new TextEncoder().encode(presented);
-  const right = new TextEncoder().encode(expected);
-  let difference = left.length ^ right.length;
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
-};
-
 export const ownerEnforcementAdmission = async (
   env: Pick<Env, "OWNER_ENFORCEMENT">,
   ownerId: string,
@@ -155,51 +141,79 @@ export const ownerEnforcementAdmission = async (
   );
 };
 
-export const handleOwnerEnforcement = async (args: {
-  request: Request;
-  env: Env;
-  deps: GatewayDeps;
-  traceId: string;
-}): Promise<Response> => {
-  if (
-    !secretsMatch(bearerToken(args.request), args.env.GATEWAY_SERVICE_SECRET)
-  ) {
-    throw new GatewayError(
-      401,
-      "unauthorized",
-      "The gateway service bearer is invalid.",
-    );
-  }
-  const body = parseRequest(await readJsonObject(args.request));
-  const receivedAt = args.deps.now();
+/**
+ * Apply an owner's enforcement pushed by its owner object on cloud-builder
+ * (`ModelGatewayControl.applyOwnerEnforcement`): the relay gate orders it by
+ * `updatedAt`, KV mirrors it for session mints, and a status change posts
+ * `STELLA_ALERT_WEBHOOK_URL` when one is set.
+ */
+export const applyOwnerEnforcementPush = async (
+  env: Env,
+  input: unknown,
+  receivedAt: number,
+): Promise<void> => {
+  const body = parseRequest(
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {},
+  );
   const until = body.enforcement.until;
   const expiresAt =
     until ?? receivedAt + DEFAULT_ENFORCEMENT_TTL_SECONDS * 1_000;
-  const authoritative = await args.env.OWNER_RELAY_GATE.get(
-    args.env.OWNER_RELAY_GATE.idFromName(body.ownerId),
+  const previous = await env.OWNER_ENFORCEMENT.get(body.ownerId);
+  const authoritative = await env.OWNER_RELAY_GATE.get(
+    env.OWNER_RELAY_GATE.idFromName(body.ownerId),
   ).applyOwnerEnforcement({
     status: body.enforcement.status,
     ...(until !== undefined ? { until } : {}),
     updatedAt: body.updatedAt,
     expiresAt,
   });
-  // KV remains an eventual compatibility mirror for legacy/native routes.
-  // The owner DO is the ordered authority for owner-relay-v2 requests.
-  {
-    const expirationTtl =
-      authoritative.until === undefined
-        ? DEFAULT_ENFORCEMENT_TTL_SECONDS
-        : Math.max(
-            KV_MINIMUM_TTL_SECONDS,
-            Math.ceil((authoritative.until - receivedAt) / 1_000),
-          );
-    await args.env.OWNER_ENFORCEMENT.put(
-      body.ownerId,
-      JSON.stringify(authoritative),
-      {
-        expirationTtl,
-      },
+  // KV mirrors the owner object for session mints; the owner DO is the
+  // ordered authority for owner-relay-v2 requests.
+  const expirationTtl =
+    authoritative.until === undefined
+      ? DEFAULT_ENFORCEMENT_TTL_SECONDS
+      : Math.max(
+          KV_MINIMUM_TTL_SECONDS,
+          Math.ceil((authoritative.until - receivedAt) / 1_000),
+        );
+  await env.OWNER_ENFORCEMENT.put(
+    body.ownerId,
+    JSON.stringify(authoritative),
+    { expirationTtl },
+  );
+  const from =
+    (previous ? parseStoredOwnerEnforcement(previous)?.status : undefined) ??
+    "ok";
+  if (from !== authoritative.status) {
+    await postAlert(env, [
+      "Owner enforcement status changed",
+      `ownerId: ${body.ownerId}`,
+      `from: ${from}`,
+      `to: ${authoritative.status}`,
+      ...(body.enforcement.reason ? [`reason: ${body.enforcement.reason}`] : []),
+      ...(authoritative.until !== undefined
+        ? [`until: ${new Date(authoritative.until).toISOString()}`]
+        : []),
+    ].join("\n"));
+  }
+};
+
+/** Best effort: an alert never fails the change that raised it. */
+export const postAlert = async (env: object, text: string): Promise<void> => {
+  const url = Reflect.get(env, "STELLA_ALERT_WEBHOOK_URL");
+  if (typeof url !== "string" || !url.trim()) return;
+  try {
+    await fetch(url.trim(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    console.warn(
+      `[model-gateway] alert failed: ${error instanceof Error ? error.message : "unknown"}`,
     );
   }
-  return jsonResponse(200, { ok: true }, args.traceId);
 };

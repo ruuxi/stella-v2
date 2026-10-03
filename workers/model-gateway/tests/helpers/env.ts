@@ -636,6 +636,13 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
     },
     ingestUsage: async () => ({ accepted: [], duplicate: [], rejected: [] }),
     gatewayConfig: () => billingConfigLoader(billingFetch)(),
+    ownerEnforcement: async (ownerId: string) => {
+      const response = await billingFetch(
+        `${CONVEX_SITE}/api/gateway/owner-enforcement?ownerId=${encodeURIComponent(ownerId)}`,
+      );
+      if (!response.ok) throw new Error(`owner enforcement ${response.status}`);
+      return (await response.json()) as unknown;
+    },
   };
   const ledger = createLedgerNamespace(() => env);
   const ownerGate = createOwnerRelayGateNamespace(() => env);

@@ -6,8 +6,7 @@ import {
   getGatewayConfig,
   type GatewayConfigStorage,
 } from "../config-cache.js";
-import { createConvexClient } from "../convex-client.js";
-import { billingGatewayConfig } from "../billing-control.js";
+import { billingControl, billingGatewayConfig } from "../billing-control.js";
 import {
   DEFAULT_ENFORCEMENT_TTL_SECONDS,
   enforcementAdmissionForRecord,
@@ -264,10 +263,7 @@ export class OwnerRelayGate extends DurableObject<Env> {
     return applied;
   }
 
-  private async initializeOwnerEnforcement(
-    ownerId: string,
-    fetchImpl: typeof fetch = fetch,
-  ): Promise<void> {
+  private async initializeOwnerEnforcement(ownerId: string): Promise<void> {
     const initialized = this.ctx.storage.sql
       .exec<{
         initialized: number;
@@ -278,14 +274,15 @@ export class OwnerRelayGate extends DurableObject<Env> {
       initialized.initialized >= OWNER_ENFORCEMENT_INITIALIZATION_VERSION
     )
       return;
-    // KV is an eventual compatibility mirror. Bootstrap from Convex so a
-    // rollout read cannot permanently seed this durable owner state stale.
-    const result = await createConvexClient(
-      this.env,
-      fetchImpl,
-    ).ownerEnforcement(ownerId);
-    if (!result.ok) throw new Error("Owner enforcement bootstrap unavailable.");
-    const authoritative = parseAuthoritativeOwnerEnforcement(result.body);
+    // KV is an eventual mirror. Bootstrap from the owner's object on
+    // cloud-builder so a stale KV read can never seed this durable state.
+    let state: unknown;
+    try {
+      state = await billingControl(this.env).ownerEnforcement(ownerId);
+    } catch {
+      throw new Error("Owner enforcement bootstrap unavailable.");
+    }
+    const authoritative = parseAuthoritativeOwnerEnforcement(state);
     if (authoritative === undefined) {
       throw new Error("Owner enforcement bootstrap response is invalid.");
     }
@@ -301,7 +298,6 @@ export class OwnerRelayGate extends DurableObject<Env> {
   async admitOwnerEnforcement(
     ownerId: string,
     now: number,
-    fetchImpl: typeof fetch = fetch,
   ): Promise<OwnerEnforcementAdmission> {
     if (
       this.env.OWNER_RELAY_GATE.idFromName(ownerId).toString() !==
@@ -311,7 +307,6 @@ export class OwnerRelayGate extends DurableObject<Env> {
     }
     this.enforcementInitialization ??= this.initializeOwnerEnforcement(
       ownerId,
-      fetchImpl,
     ).catch((error) => {
       this.enforcementInitialization = undefined;
       throw error;

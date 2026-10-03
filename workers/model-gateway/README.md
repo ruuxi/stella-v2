@@ -6,7 +6,7 @@ requests on two lanes: the managed lane (Stella-billed, request/response,
 priced and metered here) and the native lane (forwarded byte-for-byte with the
 owner's connected subscription credential). Per-owner `OwnerRelayGate` Durable
 Objects hold admission, enforcement state and managed cancellation; usage
-events flow to Convex through `USAGE_QUEUE`.
+events flow to cloud-builder's `BillingControl` through `USAGE_QUEUE`.
 
 ## Routes
 
@@ -19,8 +19,12 @@ events flow to Convex through `USAGE_QUEUE`.
 - `POST /v1/relay/*` and `POST /v2/relay/*`: capability to the managed or
   native lane. `/v2` requires the client's model descriptor revision and
   refuses a stale one before any accounting.
-- `POST /internal/owners/enforcement`: service bearer pushes an owner's
-  enforcement status to its owner object, mirrored to `OWNER_ENFORCEMENT` KV.
+
+Cloud-builder's owner object pushes an owner's enforcement status over the
+`ModelGatewayControl.applyOwnerEnforcement` service-binding RPC; it lands in
+the owner's `OwnerRelayGate`, is mirrored to `OWNER_ENFORCEMENT` KV, and a
+status change posts `STELLA_ALERT_WEBHOOK_URL` when that is set. An owner
+object with no enforcement yet seeds it from `BillingControl.ownerEnforcement`.
 
 ## Capability accounting
 

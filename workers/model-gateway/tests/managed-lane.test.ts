@@ -183,7 +183,7 @@ const setup = (envOverrides: Record<string, unknown> = {}) => {
         matchesOwner: (candidate) => candidate === owner,
         accounting,
         ownerEnforcement: (ownerId, now) =>
-          accounting.admitOwnerEnforcement(ownerId, now, fetchMock.fetch),
+          accounting.admitOwnerEnforcement(ownerId, now),
         cancellation: {
           begin: (identity) => accounting.beginManagedRequest(identity),
           release: (key) => accounting.releaseManagedRequest(key),

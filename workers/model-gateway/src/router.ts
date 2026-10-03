@@ -3,7 +3,6 @@ import {
   GATEWAY_HEALTH_PATH,
   GATEWAY_MODEL_REVISION_HEADER,
   GATEWAY_NETWORK_POLICY,
-  GATEWAY_OWNER_ENFORCEMENT_PATH,
   GATEWAY_PREPARE_PATH,
   GATEWAY_RELAY_PREFIX,
   GATEWAY_REQUEST_ID_HEADER,
@@ -44,7 +43,6 @@ import { handleManagedRelay } from "./managed-lane.js";
 import { classifyNetwork } from "../../shared/network-class.js";
 import { handleNativeRelay } from "./native-lane.js";
 import {
-  handleOwnerEnforcement,
   ownerEnforcementAdmission,
   type OwnerEnforcementAdmission,
 } from "./owner-enforcement.js";
@@ -128,8 +126,8 @@ const releaseAfterBody = (
  *   POST /v1/capabilities/session    Better Auth JWT -> session capability
  *   POST /v1/models/resolve          capability -> GatewayModelResolution
  *   POST /v1/relay/*                 capability -> managed lane or native lane
- *   POST /internal/owners/enforcement service bearer -> owner status KV
  *
+ * Owner enforcement arrives over `ModelGatewayControl.applyOwnerEnforcement`.
  * Anything else is 404 `bad_request`; a wrong method is 405 `bad_request`.
  */
 const AGENT_TYPE_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/u;
@@ -609,11 +607,6 @@ export const handleRequest = async (
       if (request.method !== "POST")
         throw new GatewayError(405, "bad_request", "Method not allowed.");
       return await handleSessionCapability(request, env, deps, convex, traceId);
-    }
-    if (url.pathname === GATEWAY_OWNER_ENFORCEMENT_PATH) {
-      if (request.method !== "POST")
-        throw new GatewayError(405, "bad_request", "Method not allowed.");
-      return await handleOwnerEnforcement({ request, env, deps, traceId });
     }
     if (
       url.pathname === GATEWAY_RESOLVE_PATH ||

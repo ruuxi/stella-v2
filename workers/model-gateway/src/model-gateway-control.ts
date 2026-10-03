@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { authenticateCapability } from "./capability.js";
 import { GatewayError } from "./errors.js";
 import { managedCancellationIdentity } from "./managed-cancellation.js";
+import { applyOwnerEnforcementPush } from "./owner-enforcement.js";
 import { isGatewayRequestId } from "./request-util.js";
 
 export class ModelGatewayControl extends WorkerEntrypoint<Env> {
@@ -23,6 +24,11 @@ export class ModelGatewayControl extends WorkerEntrypoint<Env> {
     await this.env.OWNER_RELAY_GATE.get(
       this.env.OWNER_RELAY_GATE.idFromName(ownerId),
     ).prepare(ownerId);
+  }
+
+  /** An owner's enforcement, pushed by its owner object on cloud-builder. */
+  async applyOwnerEnforcement(input: unknown): Promise<void> {
+    await applyOwnerEnforcementPush(this.env, input, Date.now());
   }
 
   async cancelManagedRequest(args: {

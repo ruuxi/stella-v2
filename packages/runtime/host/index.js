@@ -1795,9 +1795,14 @@ export class StellaRuntimeHost {
             name: inferredName || "attachment",
         };
     }
-    async uploadPlacedAttachments(client, payload, idempotencyKey) {
+    async uploadPlacedAttachments(payload, idempotencyKey) {
         const attachments = Array.isArray(payload.attachments) ? payload.attachments.slice(0, 4) : [];
         if (attachments.length === 0) return [];
+        // The drive lives in the owner's object; the backend client reaches it.
+        const drive = this.ensureHostBackendClient();
+        if (!drive) {
+            throw new Error("Cross-device execution is not ready on this computer.");
+        }
         const scope = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 24);
         const uploaded = [];
         for (let index = 0; index < attachments.length; index += 1) {
@@ -1805,7 +1810,7 @@ export class StellaRuntimeHost {
             const rawExtension = path.extname(attachment.name).toLowerCase();
             const extension = /^\.[a-z0-9]{1,10}$/.test(rawExtension) ? rawExtension : "";
             const drivePath = `execution-attachments/${scope}/${String(index + 1).padStart(2, "0")}${extension}`;
-            const prepared = await client.action(anyApi.cloud_drive.prepareDriveUpload, {
+            const prepared = await drive.call("drive.prepareUpload", {
                 path: drivePath,
                 sizeBytes: attachment.bytes.byteLength,
                 contentType: attachment.contentType,
@@ -1818,7 +1823,7 @@ export class StellaRuntimeHost {
             if (!response.ok) {
                 throw new Error(`Remote attachment upload failed (${response.status}).`);
             }
-            await client.action(anyApi.cloud_drive.finalizeDriveUpload, {
+            await drive.call("drive.finalizeUpload", {
                 path: prepared.path,
                 uploadId: prepared.uploadId,
                 contentType: prepared.contentType,
@@ -1843,7 +1848,7 @@ export class StellaRuntimeHost {
         }
         const idempotencyKey = (payload.userMessageEventId?.trim() || payload.requestId?.trim() || `desktop:${crypto.randomUUID()}`).slice(0, 128);
         const attachmentAt = performance.now();
-        const attachments = await this.uploadPlacedAttachments(client, payload, idempotencyKey);
+        const attachments = await this.uploadPlacedAttachments(payload, idempotencyKey);
         const attachmentsMs = Math.round(performance.now() - attachmentAt);
         const selectedText = typeof payload.selectedText === "string" ? payload.selectedText.trim() : "";
         const userPrompt = typeof payload.userPrompt === "string" ? payload.userPrompt.trim() : "";

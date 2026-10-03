@@ -10,6 +10,11 @@ import { billingDomain } from "./domains/billing.js";
 import { conversationEditsDomain } from "./domains/conversation-edits.js";
 import { conversationsDomain } from "./domains/conversations.js";
 import { devicesDomain } from "./domains/devices.js";
+import { homeDomain } from "./domains/home.js";
+import { driveDomain } from "./domains/drive.js";
+import { schedulesDomain } from "./domains/schedules.js";
+import { preferencesDomain } from "./domains/preferences.js";
+import { accountDomain } from "./domains/account.js";
 import { RATE_LIMIT_MIGRATION } from "./rate-limit.js";
 import { createOwnerRegistry, type OwnerDomain } from "./registry.js";
 
@@ -33,6 +38,11 @@ export const ownerDomains: OwnerDomain[] = [
   billingDomain,
   devicesDomain,
   appSourceDomain,
+  homeDomain,
+  driveDomain,
+  schedulesDomain,
+  preferencesDomain,
+  accountDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

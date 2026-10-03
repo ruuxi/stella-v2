@@ -8,8 +8,9 @@ import { convexSiteBase } from "./convex-site.js";
 import { verifyConvexToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
 import { ownerRegistry } from "./owner-store/domains.js";
-import type { OwnerCaller, OwnerHost, OwnerRegistry } from "./owner-store/registry.js";
+import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./owner-store/registry.js";
 import { createGateHost } from "./owner-store/gate-host.js";
+import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerOutbox } from "./owner-store/outbox-apply.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
@@ -951,6 +952,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       snapshot: () => this.snapshot(),
       admit: (input) => this.admit(input),
       release: (input) => this.release(input),
+      submit: (input) => this.submit(input),
+      homeChanged: (ownerGeneration, revision) =>
+        this.homeContextCache().changed(ownerGeneration, revision),
       fence: (path, body) => this.ownerFenceCall(path, body),
       log,
     });
@@ -1016,6 +1020,68 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     const response = await this.ownerStore().call(input.name, input.args, input.caller);
     await this.scheduleAlarm(Date.now());
     return response;
+  }
+
+  /**
+   * A server-internal operation (agent tools, Worker routes, the turn
+   * broker), refused unless `ownerGeneration` is the owner's current one.
+   */
+  async ownerInternal(input: {
+    name: string;
+    args: unknown;
+    ownerGeneration: string;
+  }): Promise<RpcResponse> {
+    let current: string;
+    try {
+      current = (await this.snapshot()).ownerGeneration;
+    } catch (error) {
+      log("error", "owner_internal_snapshot_failed", {
+        name: input.name,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: toBackendError(new RpcError("UNAVAILABLE", "Owner state is unavailable.")),
+      };
+    }
+    if (current !== input.ownerGeneration) {
+      return {
+        ok: false,
+        error: toBackendError(
+          new RpcError("CONFLICT", "This request is from before your cloud data was reset.", {
+            reason: "owner_generation_stale",
+          }),
+        ),
+      };
+    }
+    const response = await this.ownerStore().internalCall(input.name, input.args);
+    await this.scheduleAlarm(Date.now());
+    return response;
+  }
+
+  /** Cloud home's control operations (`memory.*`, `skills.*`) for `CloudHomeStore`. */
+  async homeControl(input: {
+    op: string;
+    body: { ownerGeneration: string } & Record<string, unknown>;
+  }): Promise<RpcResponse> {
+    return await this.ownerInternal({
+      name: input.op,
+      args: input.body,
+      ownerGeneration: input.body.ownerGeneration,
+    });
+  }
+
+  /**
+   * Run every domain's purge hook for a reset or account deletion. Returns
+   * the domains that still have work and need another call.
+   */
+  async purgeOwnerData(input: { mode: OwnerPurgeMode }): Promise<{ pending: string[] }> {
+    const pending: string[] = [];
+    for (const [domain, purge] of this.backendRegistry().purges) {
+      const result = await this.billingWrite((ctx) => purge(ctx, input.mode));
+      if (result.pending) pending.push(domain);
+    }
+    return { pending };
   }
 
   // ── Billing ─────────────────────────────────────────────────────────────

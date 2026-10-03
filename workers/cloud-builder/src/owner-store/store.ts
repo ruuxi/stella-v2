@@ -271,6 +271,35 @@ export class OwnerStore {
   }
 
   /**
+   * Run a server-internal operation with a null caller. The owner gate
+   * checks the owner generation first. Never throws; errors become the
+   * response.
+   */
+  async internalCall(name: string, args: unknown): Promise<RpcResponse> {
+    const def = this.registry.internal.get(name);
+    if (!def) {
+      return {
+        ok: false,
+        error: toBackendError(new RpcError("NOT_FOUND", `Unknown internal operation ${name}.`)),
+      };
+    }
+    try {
+      const value = await def(this.context(null), args ?? {});
+      return { ok: true, value: value ?? null };
+    } catch (error) {
+      if (!(error instanceof RpcError)) {
+        this.log("error", "owner_internal_failed", {
+          name,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return { ok: false, error: toBackendError(error) };
+    } finally {
+      this.flush();
+    }
+  }
+
+  /**
    * Note a write made outside `call()` (another object, an alarm path) so the
    * views rerun. Coalesces to one recompute per turn of the event loop.
    */

@@ -69,14 +69,20 @@
     // spawned agent's sandbox the turn-broker endpoint; a DO has no request
     // origin to derive it from.
     "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+    // S3 API origin of the account that owns the DRIVE bucket, for presigned
+    // drive uploads and downloads. Placeholder until the integrator sets it.
+    "R2_S3_ENDPOINT": "https://PENDING_CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com",
   },
   "secrets": {
     // CAPABILITY_SIGNING_KEY is the PKCS8 PEM of the ES256 private key that
     // signs turn capabilities; it never leaves this Worker.
+    // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY sign presigned DRIVE URLs.
     "required": [
       "BUILDER_SERVICE_SECRET",
       "META_MODEL_API_KEY",
       "CAPABILITY_SIGNING_KEY",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
     ],
   },
   // The app's source: one upstream repo and a fork per owner (v3).
@@ -139,6 +145,21 @@
     {
       "binding": "WORLDS_BUCKET",
       "bucket_name": "stella-v2-worlds-dev",
+    },
+    {
+      // The owner's drive. Clients upload and download with presigned URLs.
+      "binding": "DRIVE",
+      "bucket_name": "stella-v2-drive-dev",
+    },
+  ],
+  // Global data (feedback first; later auth, routing indexes and catalogs).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stella-v2-dev",
+      // Placeholder: replace with the id from `wrangler d1 create stella-v2-dev`.
+      "database_id": "PENDING_D1_ID",
+      "migrations_dir": "migrations",
     },
   ],
   "kv_namespaces": [

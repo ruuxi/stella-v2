@@ -14,6 +14,7 @@ import {
   htmlCanvasSlug,
 } from "@stella/runtime/kernel/tools/defs/html-def.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
+import type { OwnerInternalCall } from "./owner-store/registry.js";
 
 /** Drive folder every cloud canvas lands in; mirrors the device layout. */
 export const CLOUD_HTML_DRIVE_DIR = "outputs/html";
@@ -24,6 +25,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export type CloudHtmlToolContext = Readonly<{
   turnId: string;
+  /** A server-internal operation on the owner's object, under the turn's generation. */
+  ownerInternal: OwnerInternalCall;
   convexFetch: (
     path: string,
     init: {

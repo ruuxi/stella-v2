@@ -235,6 +235,7 @@ import {
 } from "./cloud-code-tool.js";
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
+import { unwrapRpc } from "./owner-store/errors.js";
 import { createCloudReadTool } from "./cloud-read-tool.js";
 import { createCloudScheduleTools } from "./cloud-schedule-tools.js";
 import {
@@ -9892,6 +9893,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ownerGeneration: turn.ownerGeneration,
       conversationId: turn.conversationId,
       agentHome,
+      ownerInternal: async (name: string, args: unknown) =>
+        unwrapRpc(
+          await this.ownerGate(turn.ownerId).ownerInternal({
+            name,
+            args,
+            ownerGeneration: turn.ownerGeneration,
+          }),
+        ),
       post: (path: string, body: unknown, signal?: AbortSignal) =>
         this.convexPost(path, body, {
           capability: controlPlane.token,
@@ -10473,6 +10482,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ownerGeneration: turn.ownerGeneration,
         conversationId: turn.conversationId,
         turnId: turn.turnId,
+        ownerInternal: toolContext.ownerInternal,
         convexFetch: (path, init) =>
           this.convexRequest(path, init, controlPlane.token),
         publishFiles: (writerKey, files) =>
@@ -10481,6 +10491,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ...(memoryEnabled ? createMemoryTools(toolContext) : []),
       createCloudHtmlTool({
         turnId: turn.turnId,
+        ownerInternal: toolContext.ownerInternal,
         convexFetch: (path, init) =>
           this.convexRequest(path, init, controlPlane.token),
         publishFiles: (writerKey, files) =>

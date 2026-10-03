@@ -1,6 +1,7 @@
 import type {
   BackendError,
   BackendErrorCode,
+  RpcResponse,
 } from "@stella/contracts/backend/protocol";
 
 /** An error a backend function means to show its caller. */
@@ -47,3 +48,14 @@ export const toBackendError = (error: unknown): BackendError =>
         message: "Stella hit an error. Try again.",
         retryable: true,
       };
+
+/** The value of an owner-object response, or its error rethrown as an `RpcError`. */
+export const unwrapRpc = (response: RpcResponse): unknown => {
+  if (response.ok) return response.value;
+  const { code, message, retryable, retryAfterMs, reason } = response.error;
+  throw new RpcError(code, message, {
+    retryable,
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+    ...(reason !== undefined ? { reason } : {}),
+  });
+};

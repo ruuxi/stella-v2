@@ -17,9 +17,15 @@ import {
 } from "../conversation-edit-runner.js";
 import { withOwnerActivityLease, type OwnerFenceCaller } from "../owner-activity-lease.js";
 import { enqueueOutbox } from "../outbox.js";
-import type { OwnerGateAdmission, OwnerGateAdmitInput } from "../owner-gate.js";
+import type {
+  OwnerGateAdmission,
+  OwnerGateAdmitInput,
+  OwnerGateDispatchResult,
+  OwnerGateSubmitInput,
+} from "../owner-gate.js";
 import { RpcError } from "./errors.js";
 import { DispatchError, type AgentTurnDispatch, type OwnerHost } from "./registry.js";
+import { startScheduledTurn } from "./scheduled-turn.js";
 
 type GateHostEnv = Pick<
   Cloudflare.Env,
@@ -33,6 +39,10 @@ export type GateHostDependencies = {
   snapshot: () => Promise<OwnerSnapshot>;
   admit: (input: OwnerGateAdmitInput) => Promise<OwnerGateAdmission>;
   release: (input: { turnId: string }) => Promise<void>;
+  /** The gate's own desktop dispatch. */
+  submit: (input: OwnerGateSubmitInput) => Promise<OwnerGateDispatchResult>;
+  /** Invalidate the gate's cached home context. */
+  homeChanged: (ownerGeneration: string, revision: number) => Promise<void>;
   /** This object's owner fence, called in-process. */
   fence: OwnerFenceCaller;
   log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
@@ -158,4 +168,8 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       throw error;
     }
   },
+
+  homeChanged: deps.homeChanged,
+
+  startScheduledTurn: async (input) => await startScheduledTurn(deps, input),
 });

@@ -84,6 +84,24 @@ export type OwnerHost = {
    * owner activity lease. Throws `RpcError` when an orchestrator refuses.
    */
   runConversationEdit(request: ConversationEditRequest): Promise<ConversationEditResult>;
+  /**
+   * The owner's cloud home content moved to `revision` under
+   * `ownerGeneration`, so cached home context must be rebuilt.
+   */
+  homeChanged(ownerGeneration: string, revision: number): Promise<void>;
+  /** Start a scheduled prompt as a turn, in a cloud chat or on a named desktop. */
+  startScheduledTurn(input: ScheduledTurnStart): Promise<void>;
+};
+
+export type ScheduledTurnStart = {
+  ownerGeneration: string;
+  conversationId: string;
+  /** `schedule:<fireId>`, so a retried fire starts the same turn. */
+  clientMsgId: string;
+  prompt: string;
+  title: string;
+  /** Run on this desktop; absent runs in the cloud. */
+  targetDeviceId?: string;
 };
 
 export type AgentTurnDispatch = {
@@ -172,12 +190,36 @@ export type Migration = {
   statements: string[];
 };
 
+/**
+ * A server-internal operation: called by this Worker's own code (agent tools,
+ * Worker routes, the turn broker) through `OwnerGate.ownerInternal`, never by
+ * clients. Runs with a null caller; parse `args` before trusting them.
+ */
+export type InternalDef = (ctx: OwnerContext, args: unknown) => unknown;
+
+/** How an owner object is called from the rest of the Worker. */
+export type OwnerInternalCall = (name: string, args: unknown) => Promise<unknown>;
+
+export type OwnerPurgeMode = "reset" | "delete";
+
+/**
+ * Delete this domain's data for a reset or account deletion. Idempotent;
+ * `pending` asks to be called again (for example, an R2 sweep that stopped
+ * at its batch limit).
+ */
+export type PurgeDef = (
+  ctx: OwnerContext,
+  mode: OwnerPurgeMode,
+) => { pending: boolean } | Promise<{ pending: boolean }>;
+
 export type OwnerDomain = {
   name: string;
   migrations?: Migration[];
   calls?: { [K in CallName]?: CallDef<K> };
   views?: { [K in ViewName]?: ViewDef<K> };
   jobs?: Record<string, JobDef>;
+  internal?: Record<string, InternalDef>;
+  purge?: PurgeDef;
 };
 
 export type OwnerRegistry = {
@@ -185,6 +227,9 @@ export type OwnerRegistry = {
   calls: Map<string, CallDef<CallName>>;
   views: Map<string, ViewDef<ViewName>>;
   jobs: Map<string, JobDef>;
+  internal: Map<string, InternalDef>;
+  /** Purge hooks by domain name, in registration order. */
+  purges: Map<string, PurgeDef>;
 };
 
 export const createOwnerRegistry = (domains: OwnerDomain[]): OwnerRegistry => {
@@ -193,6 +238,8 @@ export const createOwnerRegistry = (domains: OwnerDomain[]): OwnerRegistry => {
     calls: new Map(),
     views: new Map(),
     jobs: new Map(),
+    internal: new Map(),
+    purges: new Map(),
   };
   const migrationIds = new Set<string>();
   for (const domain of domains) {
@@ -216,6 +263,14 @@ export const createOwnerRegistry = (domains: OwnerDomain[]): OwnerRegistry => {
     for (const [kind, def] of Object.entries(domain.jobs ?? {})) {
       if (registry.jobs.has(kind)) throw new Error(`Duplicate job ${kind}.`);
       registry.jobs.set(kind, def);
+    }
+    for (const [name, def] of Object.entries(domain.internal ?? {})) {
+      if (registry.internal.has(name)) throw new Error(`Duplicate internal operation ${name}.`);
+      registry.internal.set(name, def);
+    }
+    if (domain.purge) {
+      if (registry.purges.has(domain.name)) throw new Error(`Duplicate purge for ${domain.name}.`);
+      registry.purges.set(domain.name, domain.purge);
     }
   }
   return registry;

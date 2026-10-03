@@ -10,6 +10,11 @@ import type { AppSourceCalls } from "./app-source.js";
 import type { BillingCalls, BillingViews } from "./billing.js";
 import type { DeviceCalls, DeviceViews } from "./devices.js";
 import type { ConversationCalls, ConversationViews } from "./conversations.js";
+import type { HomeCalls, HomeViews } from "./home.js";
+import type { DriveCalls, DriveViews } from "./drive.js";
+import type { ScheduleCalls, ScheduleViews } from "./schedules.js";
+import type { PreferenceCalls, PreferenceViews } from "./preferences.js";
+import type { AccountCalls } from "./account.js";
 
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
@@ -21,8 +26,20 @@ export type BackendCalls = SystemCalls &
   AgentThreadCalls &
   BillingCalls &
   DeviceCalls &
-  AppSourceCalls;
-export type BackendViews = ConversationViews & AgentThreadViews & BillingViews & DeviceViews;
+  AppSourceCalls &
+  HomeCalls &
+  DriveCalls &
+  ScheduleCalls &
+  PreferenceCalls &
+  AccountCalls;
+export type BackendViews = ConversationViews &
+  AgentThreadViews &
+  BillingViews &
+  DeviceViews &
+  HomeViews &
+  DriveViews &
+  ScheduleViews &
+  PreferenceViews;
 
 export type CallName = keyof BackendCalls & string;
 export type ViewName = keyof BackendViews & string;

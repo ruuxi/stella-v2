@@ -24,11 +24,14 @@ import {
 } from "@stella/runtime/kernel/tools/defs/schedule-manage-def.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
 import { sha256Hex } from "./hash.js";
+import type { OwnerInternalCall } from "./owner-store/registry.js";
 
 export type CloudScheduleToolContext = Readonly<{
   ownerId: string;
   ownerGeneration: string;
   conversationId: string;
+  /** A server-internal operation on the owner's object, under `ownerGeneration`. */
+  ownerInternal: OwnerInternalCall;
   post: (path: string, body: unknown, signal?: AbortSignal) => Promise<Response>;
 }>;
 

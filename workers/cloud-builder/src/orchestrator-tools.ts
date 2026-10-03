@@ -17,6 +17,7 @@ import {
 } from "./agent-home.js";
 import { sha256Hex } from "./hash.js";
 import type { ReplayableAgentTool } from "./tool-replay.js";
+import type { OwnerInternalCall } from "./owner-store/registry.js";
 
 export type OrchestratorAgentTool = ReplayableAgentTool;
 
@@ -30,6 +31,8 @@ export type OrchestratorToolContext = {
    */
   conversationId: string;
   agentHome: AgentHome;
+  /** A server-internal operation on the owner's object, under `ownerGeneration`. */
+  ownerInternal: OwnerInternalCall;
   /** POST to a Convex HTTP route with the builder service secret. */
   post: (
     path: string,

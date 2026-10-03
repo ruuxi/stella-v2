@@ -21,6 +21,7 @@ import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import { readBoundedResponseBytes } from "./bounded-body.js";
 import { sha256Hex } from "./hash.js";
 import type { ReplayableAgentTool } from "./tool-replay.js";
+import type { OwnerInternalCall } from "./owner-store/registry.js";
 
 export const CLOUD_IMAGE_GEN_TOOL_NAME = "image_gen";
 
@@ -53,6 +54,8 @@ export type CloudImageGenToolContext = {
   ownerGeneration: string;
   conversationId: string;
   turnId: string;
+  /** A server-internal operation on the owner's object, under the turn's generation. */
+  ownerInternal: OwnerInternalCall;
   /**
    * A request against the Convex site carrying the turn capability as its
    * bearer. The media routes accept that capability when the caller marks

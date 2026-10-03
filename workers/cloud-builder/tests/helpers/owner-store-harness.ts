@@ -84,6 +84,8 @@ export const createOwnerStoreHarness = (
       host.edits.push(request);
       return await harness.editResponder(request);
     },
+    homeChanged: async () => {},
+    startScheduledTurn: async () => {},
   };
   const store = new OwnerStore({
     ctx: {

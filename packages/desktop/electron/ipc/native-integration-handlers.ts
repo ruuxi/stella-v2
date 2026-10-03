@@ -77,7 +77,7 @@ export type NativeIntegrationHandlersOptions = {
   >;
   disconnectGoogleWorkspace?: () => Promise<{ ok: boolean }>;
   getConvexAuthToken?: () => Promise<string | null>;
-  getConvexSiteUrl?: () => string | null;
+  getBackendUrl?: () => string | null;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -96,7 +96,7 @@ export type NativeCredentialFlowOptions = Pick<
   | "requestDeviceOAuth"
   | "requestExternalOAuthApproval"
   | "getConvexAuthToken"
-  | "getConvexSiteUrl"
+  | "getBackendUrl"
 > & {
   /**
    * Abort hook for the backend Composio completion wait (the in-chat
@@ -143,11 +143,11 @@ const emptyConfiguredOAuthProviders = (): ConfiguredOAuthProviderSets => ({
 export const loadConfiguredOAuthProviders = async (
   options: NativeCredentialFlowOptions,
 ) => {
-  const siteUrl = options.getConvexSiteUrl?.()?.trim().replace(/\/+$/u, "");
-  if (!siteUrl) return emptyConfiguredOAuthProviders();
+  const backendUrl = options.getBackendUrl?.()?.trim().replace(/\/+$/u, "");
+  if (!backendUrl) return emptyConfiguredOAuthProviders();
   const authToken = await options.getConvexAuthToken?.();
   if (!authToken) return emptyConfiguredOAuthProviders();
-  const response = await fetch(`${siteUrl}/api/native-oauth/providers`, {
+  const response = await fetch(`${backendUrl}/api/native-oauth/providers`, {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${authToken}`,
@@ -181,14 +181,14 @@ const createBackendIntegrationConnectLink = async (
   // Pre-resolved auth: the caller carries the SAME values into the
   // completion-status wait afterwards, so a transient auth loss between
   // link creation and polling can't silently skip the confirmation.
-  auth: { siteUrl: string; authToken: string },
+  auth: { backendUrl: string; authToken: string },
   id: string,
   signal?: AbortSignal,
 ) => {
-  const { siteUrl, authToken } = auth;
+  const { backendUrl, authToken } = auth;
   const timeout = AbortSignal.timeout(30_000);
   const response = await fetch(
-    `${siteUrl}/api/native-integrations/connect-link`,
+    `${backendUrl}/api/native-integrations/connect-link`,
     {
       method: "POST",
       headers: {
@@ -229,8 +229,8 @@ export const resolveDesktopNativeConnectorCatalog = async (
 ): Promise<ResolvedNativeCatalog> =>
   resolveNativeConnectorCatalog({
     stellaDataDir: stellaAppDir,
-    getStellaSiteAuth: async () => {
-      const baseUrl = options.getConvexSiteUrl?.()?.trim().replace(/\/+$/u, "");
+    getBackendAuth: async () => {
+      const baseUrl = options.getBackendUrl?.()?.trim().replace(/\/+$/u, "");
       const authToken = (await options.getConvexAuthToken?.())?.trim() ?? "";
       return baseUrl && authToken ? { baseUrl, authToken } : null;
     },
@@ -310,14 +310,14 @@ export const ensureNativeCredential = async (
     // completion wait below. Re-reading it after the browser hop could
     // silently come back empty (transient auth loss / sign-out) and must
     // not turn into an implicit "connected".
-    const siteUrl = options.getConvexSiteUrl?.()?.trim().replace(/\/+$/u, "");
-    if (!siteUrl) throw new Error("Stella backend is unavailable.");
+    const backendUrl = options.getBackendUrl?.()?.trim().replace(/\/+$/u, "");
+    if (!backendUrl) throw new Error("Stella backend is unavailable.");
     const authToken = await options.getConvexAuthToken?.();
     if (!authToken) {
       throw new Error(`Sign in to Stella before connecting ${entry.name}.`);
     }
     const url = await createBackendIntegrationConnectLink(
-      { siteUrl, authToken },
+      { backendUrl, authToken },
       id,
       options.abortSignal,
     );
@@ -339,7 +339,7 @@ export const ensureNativeCredential = async (
     // deployed yet, 404/405) may degrade to the previous optimistic
     // behavior; every other non-connected outcome fails the enable.
     const wait = await waitForBackendIntegrationConnection({
-      siteUrl,
+      backendUrl,
       authToken,
       id,
       ...(options.abortSignal ? { signal: options.abortSignal } : {}),

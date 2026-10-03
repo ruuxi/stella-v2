@@ -101,7 +101,7 @@ export const layer = Layer.effect(
       const runner = runnerCell.get();
       runner?.setAuthToken(result.authenticated ? result.token : null);
       runner?.setHasConnectedAccount(result.hasConnectedAccount);
-      const baseUrl = config.get().convexSiteUrl?.trim();
+      const baseUrl = config.get().backendUrl?.trim();
       const authToken = result.authenticated ? result.token?.trim() : null;
       return baseUrl && authToken ? { baseUrl, authToken } : null;
     };
@@ -109,7 +109,7 @@ export const layer = Layer.effect(
     const runBackendConnectorAction = createBackendConnectorActionBroker({
       stellaDataDir: init.stellaDataDirPath,
       getSiteAuth: () => {
-        const baseUrl = config.get().convexSiteUrl?.trim();
+        const baseUrl = config.get().backendUrl?.trim();
         const authToken = config.get().authToken?.trim();
         return baseUrl && authToken ? { baseUrl, authToken } : null;
       },
@@ -125,7 +125,7 @@ export const layer = Layer.effect(
     const listBackendConnectorActions = createBackendConnectorActionsBroker({
       stellaDataDir: init.stellaDataDirPath,
       getSiteAuth: () => {
-        const baseUrl = config.get().convexSiteUrl?.trim();
+        const baseUrl = config.get().backendUrl?.trim();
         const authToken = config.get().authToken?.trim();
         return baseUrl && authToken ? { baseUrl, authToken } : null;
       },

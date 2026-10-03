@@ -47,7 +47,7 @@ const hangingFetch = () => {
 };
 
 const baseOptions = {
-  siteUrl: "https://backend.example/",
+  backendUrl: "https://backend.example/",
   authToken: "token-1",
   id: "notion",
 };
@@ -161,7 +161,7 @@ describe("waitForBackendIntegrationConnection", () => {
     expect(
       await waitForBackendIntegrationConnection({
         ...baseOptions,
-        siteUrl: "   ",
+        backendUrl: "   ",
         fetchImpl,
         intervalMs: 1,
       }),

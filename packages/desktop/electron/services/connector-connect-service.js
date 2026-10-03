@@ -63,7 +63,7 @@ export class ConnectorConnectService {
         }
         const target = await resolveDesktopNativeConnectorEntry({
             getConvexAuthToken: this.options.getConvexAuthToken,
-            getConvexSiteUrl: this.options.getConvexSiteUrl,
+            getBackendUrl: this.options.getBackendUrl,
         }, stellaAppDir, payload.id.trim().toLowerCase());
         const { entry } = target;
         if (!isCanonicalConnectorConnectable(entry)) {
@@ -269,7 +269,7 @@ export class ConnectorConnectService {
         const credentialService = this.options.connectorCredentialService;
         const flowOptions = {
             getConvexAuthToken: this.options.getConvexAuthToken,
-            getConvexSiteUrl: this.options.getConvexSiteUrl,
+            getBackendUrl: this.options.getBackendUrl,
             // Cancels the backend Composio completion wait too, so a
             // dismissed/aborted card doesn't keep polling for minutes.
             abortSignal: meta.oauthAbort.signal,

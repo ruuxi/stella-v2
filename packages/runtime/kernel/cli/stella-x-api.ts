@@ -27,7 +27,7 @@ Usage:
   stella-x-api search "query" [-n 10] [--json]
 
 Environment:
-  STELLA_X_API_BASE_URL       Stella site base URL
+  STELLA_X_API_BASE_URL       Stella backend URL
   STELLA_X_API_AUTH_TOKEN     Stella bearer token
 `;
 
@@ -102,8 +102,7 @@ const parseArgs = (argv: string[]): CliOptions => {
 const getAuth = (): SiteAuth => {
   const baseUrl =
     process.env.STELLA_X_API_BASE_URL?.trim() ||
-    process.env.STELLA_SITE_URL?.trim() ||
-    process.env.STELLA_LLM_PROXY_URL?.trim() ||
+    process.env.STELLA_BACKEND_URL?.trim() ||
     "";
   const authToken =
     process.env.STELLA_X_API_AUTH_TOKEN?.trim() ||

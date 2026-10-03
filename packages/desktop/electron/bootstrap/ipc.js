@@ -366,7 +366,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaAppDir: lifecycle.getStellaDataDir,
         requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
         getConvexAuthToken: () => services.authService.getConvexAuthToken(),
-        getConvexSiteUrl: () => services.authService.getConvexSiteUrl(),
+        getBackendUrl: () => services.authService.getBackendUrl(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerUpdatesHandlers({

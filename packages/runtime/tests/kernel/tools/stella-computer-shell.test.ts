@@ -285,7 +285,7 @@ describe("stella-computer shell bootstrap", () => {
 
     const state = createShellState(tempDir, {
       stellaXApiCliPath: fakeXApiCliPath,
-      getStellaSiteAuth: () => ({
+      getCloudBackendAuth: () => ({
         baseUrl: "https://stella.example",
         authToken: "token-test",
       }),

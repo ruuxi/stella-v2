@@ -116,14 +116,14 @@ export const createBootstrapServices = (options) => {
         windowManagerTarget: lifecycle,
         getStellaAppDir: () => lifecycle.getStellaDataDir(),
         getConvexAuthToken: () => authService.getConvexAuthToken(),
-        getConvexSiteUrl: () => authService.getConvexSiteUrl(),
+        getBackendUrl: () => authService.getBackendUrl(),
     });
     const connectorConnectService = new ConnectorConnectService({
         windowManagerTarget: lifecycle,
         getStellaAppDir: () => lifecycle.getStellaDataDir(),
         connectorCredentialService,
         getConvexAuthToken: () => authService.getConvexAuthToken(),
-        getConvexSiteUrl: () => authService.getConvexSiteUrl(),
+        getBackendUrl: () => authService.getBackendUrl(),
     });
     const captureService = new CaptureService({
         window: {

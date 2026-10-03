@@ -248,17 +248,17 @@ export const buildMergedConnectorCatalog = (
  */
 export const resolveNativeConnectorCatalog = async (options: {
   stellaDataDir: string;
-  getStellaSiteAuth?: () =>
+  getBackendAuth?: () =>
     | { baseUrl: string; authToken: string }
     | null
     | Promise<{ baseUrl: string; authToken: string } | null>;
   fetchImpl?: typeof fetch;
 }): Promise<ResolvedNativeCatalog> => {
-  const siteAuth = (await options.getStellaSiteAuth?.()) ?? null;
-  if (siteAuth) {
+  const backendAuth = (await options.getBackendAuth?.()) ?? null;
+  if (backendAuth) {
     const liveEntries = await fetchServerNativeCatalog({
-      baseUrl: siteAuth.baseUrl,
-      authToken: siteAuth.authToken,
+      baseUrl: backendAuth.baseUrl,
+      authToken: backendAuth.authToken,
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     });
     if (liveEntries) {

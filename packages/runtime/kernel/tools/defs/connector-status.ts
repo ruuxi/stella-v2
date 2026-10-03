@@ -73,7 +73,8 @@ export type ConnectorConnectionRequester = (
 export type ConnectorStatusToolOptions = {
   /** `~/.stella` (durable state root — connector state + catalog cache). */
   stellaDataDir: string;
-  getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
+  /** The backend origin and auth token, for the live Store catalog. */
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
   /** Desktop hop that renders the inline connect card. */
   requestConnectorConnection?: ConnectorConnectionRequester;
 };
@@ -113,7 +114,10 @@ const loadCatalog = async (
       sources: catalogMemo.sources,
     };
   }
-  const resolved = await resolveNativeConnectorCatalog(options);
+  const resolved = await resolveNativeConnectorCatalog({
+    stellaDataDir: options.stellaDataDir,
+    ...(options.getCloudBackendAuth ? { getBackendAuth: options.getCloudBackendAuth } : {}),
+  });
   catalogMemo = {
     stellaDataDir: options.stellaDataDir,
     loadedAt: Date.now(),

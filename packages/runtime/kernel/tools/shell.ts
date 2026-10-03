@@ -2275,10 +2275,10 @@ const resolveManagedShellCommand = (
   }
 
   if (shouldUseStellaXApi(command)) {
-    const siteAuth = state.getStellaSiteAuth?.();
-    if (siteAuth) {
-      envOverrides.STELLA_X_API_BASE_URL = siteAuth.baseUrl;
-      envOverrides.STELLA_X_API_AUTH_TOKEN = siteAuth.authToken;
+    const backendAuth = state.getCloudBackendAuth?.();
+    if (backendAuth) {
+      envOverrides.STELLA_X_API_BASE_URL = backendAuth.baseUrl;
+      envOverrides.STELLA_X_API_AUTH_TOKEN = backendAuth.authToken;
     }
   }
 

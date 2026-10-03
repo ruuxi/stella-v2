@@ -13,11 +13,7 @@ import {
   setCatalogEntryBounded,
 } from "./composio-catalog-io.mjs";
 
-const siteUrl = (
-  process.env.STELLA_CONVEX_SITE_URL ||
-  process.env.CONVEX_SITE_URL ||
-  ""
-).replace(/\/+$/u, "");
+const siteUrl = (process.env.STELLA_BACKEND_URL || "").replace(/\/+$/u, "");
 const adminToken =
   process.env.STELLA_ADMIN_API_SECRET ||
   process.env.STELLA_ADMIN_TOKEN ||
@@ -529,7 +525,7 @@ if (!composioApiKey) {
         count: null,
         catalogSource: "Composio v3.1 toolkits API",
         actionSource: "Composio v3.1 tools API",
-        hint: "Set COMPOSIO_API_KEY to preview; also set STELLA_CONVEX_SITE_URL and STELLA_ADMIN_TOKEN, then pass --apply to publish.",
+        hint: "Set COMPOSIO_API_KEY to preview; also set STELLA_BACKEND_URL (the cloud-builder origin) and STELLA_ADMIN_API_SECRET, then pass --apply to publish.",
       },
       null,
       2,
@@ -548,7 +544,7 @@ if (!apply) {
         first: rows.slice(0, 5).map((row) => row.id),
         catalogSource: "Composio v3.1 toolkits API",
         actionSource: "Composio v3.1 tools API (resolved during --apply)",
-        hint: "Set STELLA_CONVEX_SITE_URL and STELLA_ADMIN_TOKEN, then pass --apply to validate and publish.",
+        hint: "Set STELLA_BACKEND_URL (the cloud-builder origin) and STELLA_ADMIN_API_SECRET, then pass --apply to validate and publish.",
       },
       null,
       2,
@@ -559,7 +555,7 @@ if (!apply) {
 
 if (!siteUrl || !adminToken) {
   process.stderr.write(
-    "Missing STELLA_CONVEX_SITE_URL/CONVEX_SITE_URL or STELLA_ADMIN_TOKEN/STELLA_ADMIN_SECRET.\n",
+    "Missing STELLA_BACKEND_URL or STELLA_ADMIN_TOKEN/STELLA_ADMIN_SECRET.\n",
   );
   process.exit(1);
 }

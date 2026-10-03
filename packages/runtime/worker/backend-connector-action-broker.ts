@@ -367,7 +367,7 @@ export const createBackendConnectorActionBroker =
       ? await options.resolveCatalog(auth)
       : await resolveNativeConnectorCatalog({
           stellaDataDir: options.stellaDataDir,
-          getStellaSiteAuth: () => auth,
+          getBackendAuth: () => auth,
           ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         });
     const entry = getNativeConnectorCatalogEntry(connectorId, catalog.entries);

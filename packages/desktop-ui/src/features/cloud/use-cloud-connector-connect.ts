@@ -1,16 +1,16 @@
 /**
  * Pending inline connect cards for the signed-in account: what a cloud
  * orchestrator turn is waiting on while its `connector_status` call holds.
- * Same subscription shape as cloud browser interactions.
+ * Watched through the backend's `connect.pending` view.
  */
 import { useCallback, useMemo } from "react";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
 import type {
   CloudConnectorConnectDecision,
   CloudConnectorConnectRequest,
 } from "@stella/contracts/cloud-connector-connect";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
-import { cloudConnectorConnectApi } from "./cloud-connector-connect-api";
+import { backendClient } from "@/platform/backend/backend-client";
+import { useBackendValue } from "@/platform/backend/use-backend-view";
 
 const EMPTY: readonly CloudConnectorConnectRequest[] = [];
 const decisionRequestIds = new Map<string, string>();
@@ -21,13 +21,8 @@ const newRequestId = (): string =>
     : `connect-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export function usePendingCloudConnectRequests(): readonly CloudConnectorConnectRequest[] {
-  const { isAuthenticated } = useConvexAuth();
   const { hasConnectedAccount } = useAuthSessionState();
-  const requests = useQuery(
-    cloudConnectorConnectApi.listMyPendingConnectRequests,
-    isAuthenticated && hasConnectedAccount ? {} : "skip",
-  );
-  return requests ?? EMPTY;
+  return useBackendValue("connect.pending", hasConnectedAccount ? {} : "skip") ?? EMPTY;
 }
 
 export function useCurrentConversationConnectRequest(
@@ -44,7 +39,6 @@ export function useCurrentConversationConnectRequest(
 }
 
 export function useCloudConnectRequestActions() {
-  const decideAction = useAction(cloudConnectorConnectApi.decideMyConnectRequest);
   const decide = useCallback(
     async (args: {
       requestId: string;
@@ -55,12 +49,12 @@ export function useCloudConnectRequestActions() {
       const decisionRequestId = decisionRequestIds.get(key) ?? newRequestId();
       decisionRequestIds.set(key, decisionRequestId);
       try {
-        return await decideAction({ ...args, decisionRequestId });
+        return await backendClient.call("connect.decide", { ...args, decisionRequestId });
       } finally {
         decisionRequestIds.delete(key);
       }
     },
-    [decideAction],
+    [],
   );
   return { decide };
 }

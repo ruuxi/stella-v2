@@ -28,7 +28,7 @@ export type BackendIntegrationWaitResult =
   | "cancelled"
   | "unsupported"
   /**
-   * siteUrl/authToken missing — completion cannot be confirmed. Callers
+   * backendUrl/authToken missing — completion cannot be confirmed. Callers
    * must treat this as a failure, never as an optimistic success (only
    * the explicit 404/405 "unsupported" rollout path may degrade).
    */
@@ -55,7 +55,7 @@ const probeSignal = (probeTimeoutMs: number, signal?: AbortSignal) => {
 };
 
 export const probeBackendIntegrationConnection = async (options: {
-  siteUrl: string;
+  backendUrl: string;
   authToken: string;
   id: string;
   /** Bounds a single request (default 10s); a slow probe is an "error". */
@@ -65,7 +65,7 @@ export const probeBackendIntegrationConnection = async (options: {
   fetchImpl?: typeof fetch;
 }): Promise<BackendIntegrationProbeResult> => {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const base = options.siteUrl.trim().replace(/\/+$/u, "");
+  const base = options.backendUrl.trim().replace(/\/+$/u, "");
   const response = await fetchImpl(
     `${base}/api/native-integrations/status?id=${encodeURIComponent(options.id)}`,
     {
@@ -106,7 +106,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
  * Transient probe errors are retried until the timeout.
  */
 export const waitForBackendIntegrationConnection = async (options: {
-  siteUrl: string;
+  backendUrl: string;
   authToken: string;
   id: string;
   timeoutMs?: number;
@@ -118,7 +118,7 @@ export const waitForBackendIntegrationConnection = async (options: {
   /** Injectable clock for tests. */
   now?: () => number;
 }): Promise<BackendIntegrationWaitResult> => {
-  if (!options.siteUrl.trim() || !options.authToken.trim()) {
+  if (!options.backendUrl.trim() || !options.authToken.trim()) {
     return "auth_unavailable";
   }
   const timeoutMs = options.timeoutMs ?? 4 * 60 * 1000;

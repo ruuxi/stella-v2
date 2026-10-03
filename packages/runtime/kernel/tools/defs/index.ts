@@ -159,8 +159,8 @@ export const buildBuiltinTools = (
   tools.push(
     createConnectorStatusTool({
       stellaDataDir: options.stellaDataDir,
-      ...(options.getStellaSiteAuth
-        ? { getStellaSiteAuth: options.getStellaSiteAuth }
+      ...(options.getCloudBackendAuth
+        ? { getCloudBackendAuth: options.getCloudBackendAuth }
         : {}),
       ...(options.requestConnectorConnection
         ? { requestConnectorConnection: options.requestConnectorConnection }

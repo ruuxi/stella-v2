@@ -292,11 +292,11 @@ export class ConnectorCredentialService {
         }
     }
     backendTokenExchangeEndpoint() {
-        const siteUrl = this.options
-            .getConvexSiteUrl?.()
+        const backendUrl = this.options
+            .getBackendUrl?.()
             ?.trim()
             .replace(/\/+$/u, "");
-        return siteUrl ? `${siteUrl}/api/native-oauth/token` : null;
+        return backendUrl ? `${backendUrl}/api/native-oauth/token` : null;
     }
     waitForExternalOAuthCallback = async (args) => {
         if (!args.redirectUri) {

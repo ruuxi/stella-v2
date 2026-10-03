@@ -1,81 +1,26 @@
 import type { HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
-import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
-import type { NetworkClass } from "@stella/contracts/gateway/api";
 import { CONVEX_OWNER_RESET_PATH } from "@stella/contracts/backend/account";
 import { CONVEX_OWNER_SNAPSHOT_PATH } from "@stella/contracts/turn-plane/owner-snapshot";
-import {
-  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
-  CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
-  CONVEX_GATEWAY_USAGE_PATH,
-  GATEWAY_USAGE_EVENT_VERSION,
-  type GatewayUsageBatchResult,
-  type ConvexOwnerEnforcementState,
-} from "@stella/contracts/gateway/usage";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { FunctionArgs } from "convex/server";
 import { resolveOwnerAccountAction } from "../auth";
 import { constantTimeEqual } from "../lib/crypto_utils";
-import { postAlert } from "../lib/alerts";
 
 /**
- * Service routes for the model gateway worker. They require
- * `Authorization: Bearer ${GATEWAY_SERVICE_SECRET}`; nothing here is reachable
- * by end users. Bodies follow `@stella/contracts/gateway/usage`.
- *
- * The cloud-builder owner object's routes take that worker's own
+ * The cloud-builder owner object's routes, taking that worker's
  * `BUILDER_SERVICE_SECRET`: the owner snapshot
- * (`@stella/contracts/turn-plane/owner-snapshot`), session admission, the
- * plan its billing ledger reports, and the start of an account reset.
+ * (`@stella/contracts/turn-plane/owner-snapshot`) and the start of an
+ * account reset.
  */
 
-export const GATEWAY_SERVICE_SECRET_ENV = "GATEWAY_SERVICE_SECRET";
-export const BUILDER_SERVICE_SECRET_ENV = "BUILDER_SERVICE_SECRET";
-/** Events per batch the route accepts; the queue consumer batches well below this. */
-export const GATEWAY_USAGE_MAX_BATCH_EVENTS = 500;
-/** Events per ledger transaction, so one batch never approaches mutation limits. */
-const GATEWAY_USAGE_INGEST_CHUNK = 50;
+const BUILDER_SERVICE_SECRET_ENV = "BUILDER_SERVICE_SECRET";
 const MAX_ID_LENGTH = 512;
-const MAX_IP_HASH_LENGTH = 64;
-const DEVICE_KEY_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const MAX_TURNSTILE_TOKEN_LENGTH = 4_096;
-const MAX_ALERT_TEXT_LENGTH = 8_000;
-const GATEWAY_ALERTS_PATH = "/api/gateway/alerts";
-
-type UsageEventInput = FunctionArgs<
-  typeof internal.gateway_usage.ingestGatewayUsageBatchInternal
->["events"][number];
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
 /** Bearer check with a constant-time compare; 503 when the secret is unset. */
-export const requireGatewayServiceRequest = (
-  request: Request,
-): Response | null => {
-  const expected = process.env[GATEWAY_SERVICE_SECRET_ENV]?.trim() ?? "";
-  if (!expected) {
-    return json(
-      {
-        error: "Gateway service routes are disabled.",
-        env: GATEWAY_SERVICE_SECRET_ENV,
-      },
-      503,
-    );
-  }
-  const provided =
-    request.headers
-      .get("authorization")
-      ?.replace(/^Bearer\s+/i, "")
-      .trim() ?? "";
-  if (!provided || !constantTimeEqual(provided, expected)) {
-    return json({ error: "unauthorized" }, 401);
-  }
-  return null;
-};
-
-/** Same shape as the gateway check, against the cloud-builder's secret. */
 const requireBuilderServiceRequest = (request: Request): Response | null => {
   const expected = process.env[BUILDER_SERVICE_SECRET_ENV]?.trim() ?? "";
   if (!expected) {
@@ -116,20 +61,6 @@ const isId = (value: unknown): value is string =>
   value.trim().length > 0 &&
   value.length <= MAX_ID_LENGTH;
 
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-const optionalNumber = (value: unknown): number | undefined =>
-  isFiniteNumber(value) ? value : undefined;
-
-const isNetworkClass = (value: unknown): value is NetworkClass =>
-  value === "hosting" ||
-  value === "vpn" ||
-  value === "residential" ||
-  value === "mobile" ||
-  value === "edu" ||
-  value === "unknown";
-
 const convexErrorCode = (error: unknown): string | null => {
   if (!(error instanceof ConvexError)) return null;
   const data = error.data as { code?: unknown } | string | undefined;
@@ -137,315 +68,6 @@ const convexErrorCode = (error: unknown): string | null => {
     ? data.code
     : null;
 };
-
-// ---------------------------------------------------------------------------
-// POST /api/gateway/session-admission (cloud-builder owner object)
-// ---------------------------------------------------------------------------
-
-const sessionAdmission = httpAction(async (ctx, request) => {
-  const denied = requireBuilderServiceRequest(request);
-  if (denied) return denied;
-  const body = await readJsonObject(request);
-  if (
-    !body ||
-    !isId(body.ownerId) ||
-    typeof body.isAnonymous !== "boolean" ||
-    typeof body.paying !== "boolean" ||
-    typeof body.deviceKeyHash !== "string" ||
-    !DEVICE_KEY_HASH_PATTERN.test(body.deviceKeyHash) ||
-    (body.ipHash !== undefined &&
-      (typeof body.ipHash !== "string" ||
-        body.ipHash.length > MAX_IP_HASH_LENGTH)) ||
-    (body.networkClass !== undefined && !isNetworkClass(body.networkClass)) ||
-    (body.turnstileToken !== undefined &&
-      (typeof body.turnstileToken !== "string" ||
-        body.turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH))
-  ) {
-    return json({ error: "bad_request" }, 400);
-  }
-  const ownerId = body.ownerId;
-  const account = await resolveOwnerAccountAction(ctx, ownerId);
-  if (!account) return json({ error: "owner_unknown" }, 404);
-  const ipHash =
-    typeof body.ipHash === "string" && body.ipHash.trim()
-      ? body.ipHash.trim()
-      : undefined;
-  const turnstileToken =
-    typeof body.turnstileToken === "string" && body.turnstileToken.trim()
-      ? body.turnstileToken.trim()
-      : undefined;
-  try {
-    return json(
-      await ctx.runAction(internal.gateway_capabilities.admitSessionInternal, {
-        ownerId,
-        // The account record is authoritative over the gateway's token flag.
-        isAnonymous: account.isAnonymous,
-        paying: body.paying,
-        deviceKeyHash: body.deviceKeyHash,
-        ...(ipHash ? { ipHash } : {}),
-        ...(isNetworkClass(body.networkClass)
-          ? { networkClass: body.networkClass }
-          : {}),
-        ...(turnstileToken ? { turnstileToken } : {}),
-      }),
-    );
-  } catch (error) {
-    switch (convexErrorCode(error)) {
-      case "OWNER_DATA_PURGE_ACTIVE":
-      case "OWNERSHIP_MIGRATED":
-        return json({ error: "owner_unavailable" }, 404);
-      case "OWNER_SUSPENDED":
-        return json({ error: "owner_suspended" }, 403);
-      case "CHALLENGE_REQUIRED":
-        return json({ error: "challenge_required" }, 403);
-      case "SIGN_IN_REQUIRED":
-        return json({ error: "sign_in_required" }, 403);
-      default:
-        throw error;
-    }
-  }
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/billing/owner-plan (cloud-builder owner object)
-// ---------------------------------------------------------------------------
-
-const ownerPlan = httpAction(async (ctx, request) => {
-  const denied = requireBuilderServiceRequest(request);
-  if (denied) return denied;
-  const body = await readJsonObject(request);
-  const plan = body?.plan;
-  if (
-    !body ||
-    !isId(body.ownerId) ||
-    (plan !== "free" && plan !== "go" && plan !== "pro") ||
-    typeof body.paying !== "boolean" ||
-    typeof body.unlimited !== "boolean"
-  ) {
-    return json({ error: "bad_request" }, 400);
-  }
-  await ctx.runMutation(internal.lib.owner_plan.setOwnerBillingPlanInternal, {
-    ownerId: body.ownerId,
-    plan,
-    paying: body.paying,
-    unlimited: body.unlimited,
-    now: Date.now(),
-  });
-  return json({ ok: true });
-});
-
-const alerts = httpAction(async (_ctx, request) => {
-  const denied = requireGatewayServiceRequest(request);
-  if (denied) return denied;
-  const body = await readJsonObject(request);
-  const alertText = typeof body?.text === "string" ? body.text.trim() : "";
-  if (!alertText || alertText.length > MAX_ALERT_TEXT_LENGTH) {
-    return json({ error: "bad_request" }, 400);
-  }
-  await postAlert(alertText);
-  return json({ ok: true });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/gateway/usage
-// ---------------------------------------------------------------------------
-
-type ParsedUsageEvent =
-  | { ok: true; event: UsageEventInput }
-  | { ok: false; requestId: string; reason: string };
-
-/** Project a wire event onto the ledger's validator; unknown fields are dropped. */
-const parseUsageEvent = (raw: unknown): ParsedUsageEvent => {
-  const record =
-    raw && typeof raw === "object" && !Array.isArray(raw)
-      ? (raw as Record<string, unknown>)
-      : null;
-  const requestId = record && isId(record.requestId) ? record.requestId : "";
-  const reject = (reason: string): ParsedUsageEvent => ({
-    ok: false,
-    requestId,
-    reason,
-  });
-  if (!record || !requestId) return reject("malformed_request_id");
-  if (record.v !== GATEWAY_USAGE_EVENT_VERSION)
-    return reject("unsupported_version");
-  if (!isId(record.capabilityId)) return reject("malformed_capability_id");
-  if (!isId(record.ownerId) || !isId(record.ownerGeneration)) {
-    return reject("malformed_owner");
-  }
-  if (!isManagedModelAudience(record.audience))
-    return reject("malformed_audience");
-  if (!isId(record.agentType) || !isId(record.resolvedModel)) {
-    return reject("malformed_model");
-  }
-  if (
-    record.outcome !== "succeeded" &&
-    record.outcome !== "failed" &&
-    record.outcome !== "aborted"
-  ) {
-    return reject("malformed_outcome");
-  }
-  const usage =
-    record.usage && typeof record.usage === "object"
-      ? (record.usage as Record<string, unknown>)
-      : null;
-  if (
-    !usage ||
-    !isFiniteNumber(usage.inputTokens) ||
-    !isFiniteNumber(usage.outputTokens) ||
-    typeof usage.reported !== "boolean"
-  ) {
-    return reject("malformed_usage");
-  }
-  if (
-    !isFiniteNumber(record.chargedMicroCents) ||
-    !isFiniteNumber(record.startedAt) ||
-    !isFiniteNumber(record.finishedAt) ||
-    typeof record.billable !== "boolean"
-  ) {
-    return reject("malformed_billing");
-  }
-  const anonymous =
-    record.anonymous && typeof record.anonymous === "object"
-      ? (record.anonymous as Record<string, unknown>)
-      : null;
-  if (
-    record.networkClass !== undefined &&
-    !isNetworkClass(record.networkClass)
-  ) {
-    return reject("malformed_network_class");
-  }
-  if (
-    record.deviceKeyHash !== undefined &&
-    (typeof record.deviceKeyHash !== "string" ||
-      !DEVICE_KEY_HASH_PATTERN.test(record.deviceKeyHash))
-  ) {
-    return reject("malformed_device_key_hash");
-  }
-  return {
-    ok: true,
-    event: {
-      requestId,
-      capabilityId: record.capabilityId,
-      ownerId: record.ownerId,
-      ownerGeneration: record.ownerGeneration,
-      audience: record.audience,
-      agentType: record.agentType,
-      ...(isId(record.conversationId)
-        ? { conversationId: record.conversationId }
-        : {}),
-      resolvedModel: record.resolvedModel,
-      usage: {
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        ...(optionalNumber(usage.cachedInputTokens) !== undefined
-          ? { cachedInputTokens: usage.cachedInputTokens as number }
-          : {}),
-        ...(optionalNumber(usage.cacheWriteTokens) !== undefined
-          ? { cacheWriteTokens: usage.cacheWriteTokens as number }
-          : {}),
-        ...(optionalNumber(usage.reasoningTokens) !== undefined
-          ? { reasoningTokens: usage.reasoningTokens as number }
-          : {}),
-        ...(optionalNumber(usage.costMicroCents) !== undefined
-          ? { costMicroCents: usage.costMicroCents as number }
-          : {}),
-        reported: usage.reported,
-      },
-      chargedMicroCents: record.chargedMicroCents,
-      outcome: record.outcome,
-      startedAt: record.startedAt,
-      finishedAt: record.finishedAt,
-      billable: record.billable,
-      ...(isNetworkClass(record.networkClass)
-        ? { networkClass: record.networkClass }
-        : {}),
-      ...(typeof record.deviceKeyHash === "string"
-        ? { deviceKeyHash: record.deviceKeyHash }
-        : {}),
-      ...(anonymous
-        ? {
-            anonymous: {
-              ...(typeof anonymous.ipHash === "string" &&
-              anonymous.ipHash.trim().length > 0 &&
-              anonymous.ipHash.length <= MAX_IP_HASH_LENGTH
-                ? { ipHash: anonymous.ipHash.trim() }
-                : {}),
-            },
-          }
-        : {}),
-    },
-  };
-};
-
-const usage = httpAction(async (ctx, request) => {
-  const denied = requireGatewayServiceRequest(request);
-  if (denied) return denied;
-  const body = await readJsonObject(request);
-  if (
-    !body ||
-    body.v !== GATEWAY_USAGE_EVENT_VERSION ||
-    !Array.isArray(body.events)
-  ) {
-    return json({ error: "bad_request" }, 400);
-  }
-  if (body.events.length > GATEWAY_USAGE_MAX_BATCH_EVENTS) {
-    return json(
-      { error: "batch_too_large", max: GATEWAY_USAGE_MAX_BATCH_EVENTS },
-      413,
-    );
-  }
-
-  const result: GatewayUsageBatchResult = {
-    accepted: [],
-    duplicate: [],
-    rejected: [],
-  };
-  const events: UsageEventInput[] = [];
-  for (const raw of body.events) {
-    const parsed = parseUsageEvent(raw);
-    if (parsed.ok) events.push(parsed.event);
-    else
-      result.rejected.push({
-        requestId: parsed.requestId,
-        reason: parsed.reason,
-      });
-  }
-  for (
-    let index = 0;
-    index < events.length;
-    index += GATEWAY_USAGE_INGEST_CHUNK
-  ) {
-    const chunk = await ctx.runMutation(
-      internal.gateway_usage.ingestGatewayUsageBatchInternal,
-      {
-        events: events.slice(index, index + GATEWAY_USAGE_INGEST_CHUNK),
-        now: Date.now(),
-      },
-    );
-    result.accepted.push(...chunk.accepted);
-    result.duplicate.push(...chunk.duplicate);
-    result.rejected.push(...chunk.rejected);
-  }
-  return json(result);
-});
-
-// ---------------------------------------------------------------------------
-// GET /api/gateway/owner-enforcement?ownerId=
-// ---------------------------------------------------------------------------
-
-const ownerEnforcement = httpAction(async (ctx, request) => {
-  const denied = requireGatewayServiceRequest(request);
-  if (denied) return denied;
-  const ownerId =
-    new URL(request.url).searchParams.get("ownerId")?.trim() ?? "";
-  if (!isId(ownerId)) return json({ error: "bad_request" }, 400);
-  const result: ConvexOwnerEnforcementState = await ctx.runQuery(
-    internal.owner_enforcement.getOwnerEnforcementStateInternal,
-    { ownerId },
-  );
-  return json(result);
-});
 
 // ---------------------------------------------------------------------------
 // GET /api/gateway/owner-snapshot?ownerId=
@@ -527,30 +149,5 @@ export const registerGatewayRoutes = (http: HttpRouter) => {
     path: CONVEX_OWNER_RESET_PATH,
     method: "POST",
     handler: ownerReset,
-  });
-  http.route({
-    path: CONVEX_GATEWAY_SESSION_ADMISSION_PATH,
-    method: "POST",
-    handler: sessionAdmission,
-  });
-  http.route({
-    path: "/api/billing/owner-plan",
-    method: "POST",
-    handler: ownerPlan,
-  });
-  http.route({
-    path: CONVEX_GATEWAY_USAGE_PATH,
-    method: "POST",
-    handler: usage,
-  });
-  http.route({
-    path: GATEWAY_ALERTS_PATH,
-    method: "POST",
-    handler: alerts,
-  });
-  http.route({
-    path: CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
-    method: "GET",
-    handler: ownerEnforcement,
   });
 };

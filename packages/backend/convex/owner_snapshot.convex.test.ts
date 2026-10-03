@@ -12,7 +12,6 @@ import {
 import { components, internal } from "./_generated/api";
 import { tokenIdentifierForBetterAuthUserId } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
-import { dollarsToMicroCents } from "./lib/billing_money";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -115,7 +114,6 @@ describe("GET /api/gateway/owner-snapshot", () => {
     expect(await response.json()).toMatchObject({
       isAnonymous: false,
       writable: false,
-      allowance: { audience: "free", budgetMicroCents: 0 },
     });
     expect((await fetchSnapshot(t, "https://convex.test|nobody")).status).toBe(
       404,

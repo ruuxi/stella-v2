@@ -79,13 +79,6 @@ export type GatewayUsageBatchResult = {
   rejected: Array<{ requestId: string; reason: string }>;
 };
 
-/** Convex HTTP routes the gateway talks to, all authenticated by GATEWAY_SERVICE_SECRET. */
-export const CONVEX_GATEWAY_USAGE_PATH = "/api/gateway/usage" as const;
-/** Abuse admission for a session exchange; the owner object calls it before reserving budget. */
-export const CONVEX_GATEWAY_SESSION_ADMISSION_PATH =
-  "/api/gateway/session-admission" as const;
-export const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH =
-  "/api/gateway/owner-enforcement" as const;
 
 // ---------------------------------------------------------------------------
 // Owner enforcement (suspension / throttling), pushed owner object -> gateway.

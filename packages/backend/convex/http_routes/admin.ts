@@ -1,91 +1,25 @@
-import { fetchBillingAccess, setBillingPlan } from "../billing_bridge";
-import { makeFunctionReference, type HttpRouter } from "convex/server";
-import {
-  type OwnerEnforcement,
-  type OwnerEnforcementStatus,
-} from "@stella/contracts/gateway/usage";
+import { setBillingPlan } from "../billing_bridge";
+import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
-import { components } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
 import {
   readBetterAuthResponseUserId,
   readBetterAuthSessionToken,
 } from "../http_shared/better_auth_response";
 import { requireTestAccountsEnabled } from "../http_shared/test_accounts";
-import {
-  createAuth,
-  resolveOwnerAccountAction,
-  tokenIdentifierForBetterAuthUserId,
-} from "../auth";
+import { createAuth, tokenIdentifierForBetterAuthUserId } from "../auth";
 
-const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
+/**
+ * The one admin route left in Convex: minting a Better Auth session for a
+ * test account. The rest of admin is served by cloud-builder.
+ */
 const ADMIN_TEST_ACCOUNT_SESSION_PATH = "/api/admin/test-accounts/session";
-const ADMIN_OWNER_ENFORCEMENT_PATH = "/api/admin/owners/enforcement";
-const ADMIN_OWNER_LOOKUP_PATH = "/api/admin/owners/lookup";
-const ADMIN_OWNER_TOP_PATH = "/api/admin/owners/top";
-
-type AdminBillingPlanBody = {
-  ownerId?: string;
-  plan?: string;
-  unlimited?: boolean;
-  usageMode?: string;
-  subscriptionStatus?: string;
-  resetUsage?: boolean;
-};
 
 type AdminTestAccountBody = {
   email?: unknown;
   plan?: unknown;
   usageMode?: unknown;
 };
-
-type AdminOwnerEnforcementBody = {
-  ownerId?: unknown;
-  email?: unknown;
-  status?: unknown;
-  until?: unknown;
-  reason?: unknown;
-};
-
-type AdminAuthUser = {
-  _id?: string;
-  email?: string;
-  isAnonymous?: boolean | null;
-};
-
-type AdminGatewayState = {
-  enforcement: OwnerEnforcement;
-  usageReceipts: unknown[];
-  riskSignals: unknown[];
-};
-
-const setOwnerEnforcementRef = makeFunctionReference<
-  "mutation",
-  {
-    ownerId: string;
-    status: OwnerEnforcementStatus;
-    until?: number;
-    reason: string;
-    actor: string;
-  },
-  unknown
->("owner_enforcement:setOwnerEnforcementInternal");
-
-const getOwnerGatewayAdminStateRef = makeFunctionReference<
-  "query",
-  { ownerId: string },
-  AdminGatewayState
->("owner_enforcement:getOwnerGatewayAdminStateInternal");
-
-const listTopOwnerRiskSignalsRef = makeFunctionReference<
-  "query",
-  {
-    window: "1h" | "24h";
-    by: "spend" | "requests" | "mints" | "score";
-    now: number;
-  },
-  unknown[]
->("risk:listTopOwnerRiskSignalsInternal");
 
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -184,122 +118,6 @@ const readTestAccountBody = async (
   };
 };
 
-const readBillingPlanBody = async (
-  request: Request,
-): Promise<
-  | {
-      ownerId: string;
-      plan?: "free" | "go" | "pro";
-      usageMode?: "default" | "unlimited";
-      subscriptionStatus?: string;
-      resetUsage?: boolean;
-    }
-  | Response
-> => {
-  const body = (await parseRequestJson(request)) as AdminBillingPlanBody | null;
-  const ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-  if (!ownerId) {
-    return jsonResponse(400, { error: "Missing ownerId." });
-  }
-
-  const rawPlan =
-    typeof body?.plan === "string" ? body.plan.trim().toLowerCase() : "";
-  let plan: "free" | "go" | "pro" | undefined;
-  if (rawPlan && isBillingPlan(rawPlan)) {
-    plan = rawPlan;
-  } else if (rawPlan) {
-    return jsonResponse(400, { error: `Unsupported plan: ${rawPlan}` });
-  }
-
-  const rawUsageMode =
-    typeof body?.usageMode === "string"
-      ? body.usageMode.trim().toLowerCase()
-      : "";
-  let usageMode: "default" | "unlimited" | undefined;
-  if (typeof body?.unlimited === "boolean") {
-    usageMode = body.unlimited ? "unlimited" : "default";
-  } else if (rawUsageMode === "default" || rawUsageMode === "unlimited") {
-    usageMode = rawUsageMode;
-  } else if (rawUsageMode) {
-    return jsonResponse(400, {
-      error: `Unsupported usageMode: ${rawUsageMode}`,
-    });
-  }
-
-  const subscriptionStatus =
-    typeof body?.subscriptionStatus === "string"
-      ? body.subscriptionStatus.trim()
-      : undefined;
-  const resetUsage =
-    typeof body?.resetUsage === "boolean" ? body.resetUsage : undefined;
-
-  return {
-    ownerId,
-    ...(plan ? { plan } : {}),
-    ...(usageMode ? { usageMode } : {}),
-    ...(subscriptionStatus ? { subscriptionStatus } : {}),
-    ...(resetUsage !== undefined ? { resetUsage } : {}),
-  };
-};
-
-const readOptionalLocator = (value: unknown): string | undefined => {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim();
-  return normalized || undefined;
-};
-
-const findAdminAuthUser = async (
-  ctx: Parameters<typeof resolveOwnerAccountAction>[0],
-  locator: { ownerId?: string; email?: string },
-): Promise<{ ownerId: string; user: AdminAuthUser } | null> => {
-  if (locator.ownerId) {
-    const account = await resolveOwnerAccountAction(ctx, locator.ownerId);
-    if (!account) return null;
-    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-      model: "user",
-      where: [{ field: "_id", value: account.userId }],
-    })) as AdminAuthUser | null;
-    return user ? { ownerId: locator.ownerId, user } : null;
-  }
-  if (!locator.email) return null;
-  const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-    model: "user",
-    where: [{ field: "email", value: locator.email }],
-  })) as AdminAuthUser | null;
-  return user?._id
-    ? { ownerId: tokenIdentifierForBetterAuthUserId(user._id), user }
-    : null;
-};
-
-const readOwnerLocator = (
-  ownerIdValue: unknown,
-  emailValue: unknown,
-): { ownerId?: string; email?: string } | Response => {
-  const ownerId = readOptionalLocator(ownerIdValue);
-  const email = readOptionalLocator(emailValue)?.toLowerCase();
-  if (Boolean(ownerId) === Boolean(email)) {
-    return jsonResponse(400, {
-      error: "Provide exactly one of ownerId or email.",
-    });
-  }
-  return { ...(ownerId ? { ownerId } : {}), ...(email ? { email } : {}) };
-};
-
-const isOwnerEnforcementStatus = (
-  value: string,
-): value is OwnerEnforcementStatus => {
-  switch (value) {
-    case "ok":
-    case "challenged":
-    case "throttled":
-    case "suspended":
-      return true;
-    default:
-      return false;
-  }
-};
-
 export const registerAdminRoutes = (http: HttpRouter) => {
   http.route({
     path: ADMIN_TEST_ACCOUNT_SESSION_PATH,
@@ -354,135 +172,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
         plan: activePlan,
         siteUrl: process.env.CONVEX_SITE_URL,
       });
-    }),
-  });
-
-  http.route({
-    path: ADMIN_OWNER_ENFORCEMENT_PATH,
-    method: "POST",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-      const body = (await parseRequestJson(
-        request,
-      )) as AdminOwnerEnforcementBody | null;
-      const locator = readOwnerLocator(body?.ownerId, body?.email);
-      if (locator instanceof Response) return locator;
-      const status =
-        typeof body?.status === "string"
-          ? body.status.trim().toLowerCase()
-          : "";
-      if (!isOwnerEnforcementStatus(status)) {
-        return jsonResponse(400, { error: "Invalid enforcement status." });
-      }
-      const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
-      if (!reason || reason.length > 1_000) {
-        return jsonResponse(400, {
-          error: "reason must be 1 to 1,000 characters.",
-        });
-      }
-      const until = body?.until;
-      if (
-        until !== undefined &&
-        (typeof until !== "number" || !Number.isFinite(until))
-      ) {
-        return jsonResponse(400, { error: "until must be a timestamp." });
-      }
-      const resolved = await findAdminAuthUser(ctx, locator);
-      if (!resolved) return jsonResponse(404, { error: "Owner not found." });
-      const result = await ctx.runMutation(setOwnerEnforcementRef, {
-        ownerId: resolved.ownerId,
-        status,
-        ...(typeof until === "number" ? { until } : {}),
-        reason,
-        actor: "admin-api",
-      });
-      return jsonResponse(200, result);
-    }),
-  });
-
-  http.route({
-    path: ADMIN_OWNER_LOOKUP_PATH,
-    method: "GET",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-      const url = new URL(request.url);
-      const locator = readOwnerLocator(
-        url.searchParams.get("ownerId") ?? undefined,
-        url.searchParams.get("email") ?? undefined,
-      );
-      if (locator instanceof Response) return locator;
-      const resolved = await findAdminAuthUser(ctx, locator);
-      if (!resolved) return jsonResponse(404, { error: "Owner not found." });
-      const isAnonymous = resolved.user.isAnonymous === true;
-      const [billing, gateway] = await Promise.all([
-        fetchBillingAccess(resolved.ownerId, { isAnonymous }),
-        ctx.runQuery(getOwnerGatewayAdminStateRef, {
-          ownerId: resolved.ownerId,
-        }),
-      ]);
-      return jsonResponse(200, {
-        ownerId: resolved.ownerId,
-        isAnonymous,
-        ...(resolved.user.email ? { email: resolved.user.email } : {}),
-        plan: billing.plan,
-        enforcement: gateway.enforcement,
-        billing,
-        usageReceipts: gateway.usageReceipts,
-        riskSignals: gateway.riskSignals,
-      });
-    }),
-  });
-
-  http.route({
-    path: ADMIN_OWNER_TOP_PATH,
-    method: "GET",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-      const url = new URL(request.url);
-      const window = url.searchParams.get("window");
-      const by = url.searchParams.get("by");
-      if (window !== "1h" && window !== "24h") {
-        return jsonResponse(400, { error: "window must be 1h or 24h." });
-      }
-      if (
-        by !== "spend" &&
-        by !== "requests" &&
-        by !== "mints" &&
-        by !== "score"
-      ) {
-        return jsonResponse(400, {
-          error: "by must be spend, requests, mints, or score.",
-        });
-      }
-      const owners = await ctx.runQuery(listTopOwnerRiskSignalsRef, {
-        window,
-        by,
-        now: Date.now(),
-      });
-      return jsonResponse(200, { window, by, owners });
-    }),
-  });
-
-  http.route({
-    path: ADMIN_BILLING_PLAN_PATH,
-    method: "POST",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-
-      const parsed = await readBillingPlanBody(request);
-      if (parsed instanceof Response) return parsed;
-
-      const { ownerId, plan, usageMode, resetUsage } = parsed;
-      await setBillingPlan(ownerId, {
-        ...(plan ? { plan } : {}),
-        ...(usageMode ? { usageMode } : {}),
-        ...(resetUsage !== undefined ? { resetUsage } : {}),
-      });
-      return jsonResponse(200, await fetchBillingAccess(ownerId));
     }),
   });
 };

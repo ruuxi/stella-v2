@@ -288,24 +288,6 @@ export const migrateAuthSessionPoliciesBatch = internalMutation({
   },
 });
 
-export const migrateUsageLogsBatch = internalMutation({
-  args: leasedOwnerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    await requireActiveOwnershipMigrationLease(ctx, args);
-    const rows = await ctx.db
-      .query("usage_logs")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
 const OWNERSHIP_MIGRATION_LEASE_MS = 9 * 60_000;
 const OWNERSHIP_MIGRATION_FAILED_RETRY_COOLDOWN_MS = 60_000;
 const OWNERSHIP_MIGRATION_COMPLETED_RAW_RETENTION_MS = 30 * 60_000;
@@ -1656,24 +1638,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
     const ownerId = args.fromOwnerId;
     const retryChecks = [
       [
-        "usage_logs",
-        await ctx.db
-          .query("usage_logs")
-          .withIndex("by_ownerId_and_createdAt", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
-        "usage_rollups",
-        await ctx.db
-          .query("usage_rollups")
-          .withIndex("by_ownerId_and_bucketStartMs", (q) =>
-            q.eq("ownerId", ownerId),
-          )
-          .take(1),
-      ],
-      [
         "auth_revoked_sessions",
         await ctx.db
           .query("auth_revoked_sessions")
@@ -1697,7 +1661,6 @@ export const auditOwnershipMigrationResidue = internalQuery({
  */
 const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateAuthSessionPoliciesBatch,
-  internal.auth_migration.migrateUsageLogsBatch,
 ] as const;
 
 type OwnerBatchMutation = FunctionReference<

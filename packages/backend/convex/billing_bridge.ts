@@ -1,29 +1,13 @@
 import { ConvexError } from "convex/values";
-import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import { resolveBuilderEndpoint } from "./lib/builder_turns";
-import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
 /**
  * Convex's remaining calls into billing, which lives in each owner's object
- * on cloud-builder: the admin plan override and lookup, and closing the
+ * on cloud-builder: the test-account plan override, and closing the
  * owner's Stripe customer and devices on account deletion. Over
  * `/internal/billing/*` and `/internal/devices/close` with the builder
  * service secret. Convex spends nothing itself any more.
  */
-
-export type BillingAccess = {
-  plan: "free" | "go" | "pro";
-  isAnonymous: boolean;
-  identityLevel: IdentityLevel;
-  unlimited: boolean;
-  allowed: boolean;
-  downgraded: boolean;
-  audience: ManagedModelAudience;
-  retryAfterMs: number;
-  message: string;
-  /** Spend available now; null when unlimited. */
-  remainingMicroCents: number | null;
-};
 
 const BILLING_TIMEOUT_MS = 10_000;
 
@@ -63,16 +47,6 @@ const callBuilder = async <T>(path: string, body: Record<string, unknown>): Prom
 
 const callBilling = <T>(action: string, body: Record<string, unknown>): Promise<T> =>
   callBuilder<T>(`/internal/billing/${action}`, body);
-
-/** What the owner may spend now: the admin lookup. Actions only. */
-export const fetchBillingAccess = (
-  ownerId: string,
-  options: { isAnonymous?: boolean } = {},
-): Promise<BillingAccess> =>
-  callBilling<BillingAccess>("access", {
-    ownerId,
-    ...(options.isAnonymous !== undefined ? { isAnonymous: options.isAnonymous } : {}),
-  });
 
 /** Admin and test accounts: set a plan outside Stripe. */
 export const setBillingPlan = (

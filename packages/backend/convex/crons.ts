@@ -3,13 +3,6 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-
-const recomputeRiskScoresRef = makeFunctionReference<
-  "mutation",
-  { now?: number },
-  unknown
->("risk:recomputeRiskScoresInternal");
-
 const purgeExpiredAppIntegrityNoncesRef = makeFunctionReference<
   "mutation",
   { now?: number; limit?: number },
@@ -24,31 +17,11 @@ crons.interval(
 );
 
 crons.interval(
-  "purge stale anon device usage",
-  { hours: 24 },
-  internal.ai_proxy_data.purgeStaleDeviceUsage,
-  { batchSize: 1000 },
-);
-crons.interval(
-  "recompute owner risk scores",
-  { minutes: 15 },
-  recomputeRiskScoresRef,
-  {},
-);
-
-crons.interval(
   "purge expired app integrity nonces",
   { hours: 1 },
   purgeExpiredAppIntegrityNoncesRef,
   {},
 );
-crons.interval(
-  "purge old usage logs",
-  { hours: 24 },
-  internal.telemetry_retention.purgeOldUsageLogs,
-  { batchSize: 500 },
-);
-
 
 // Destructive owner resets/deletions cross Convex, R2, Durable Objects, and
 // the cloud worker. A killed action must therefore resume from its durable

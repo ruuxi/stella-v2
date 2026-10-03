@@ -11,11 +11,10 @@ import {
   GATEWAY_TRACE_HEADER,
   type GatewayModelResolution,
 } from "@stella/contracts/gateway/api";
-import {
-  CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
-  type GatewayUsageEvent,
-} from "@stella/contracts/gateway/usage";
+import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import { resetCapabilityKeysForTests } from "../src/capability.js";
+/** The fake BillingControl's label for its ownerEnforcement read (helpers/env.ts). */
+const CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH = "/api/gateway/owner-enforcement";
 import { resetConfigCacheForTests } from "../src/config-cache.js";
 import type { RelayTiming } from "../src/relay-timing.js";
 import { GATEWAY_REPLAY_HEADER } from "../src/managed-lane.js";

@@ -91,12 +91,14 @@ export type OwnerSnapshot = {
 };
 
 /**
- * What Convex serves and pushes. The gate fills `execution` and
- * `connectedEngines` from the owner's engines domain.
+ * What Convex serves and pushes: the owner's identity, generation and write
+ * fence. The gate fills the plan and allowance from its billing ledger,
+ * enforcement from its abuse domain, and `execution` and `connectedEngines`
+ * from its engines domain.
  */
 export type ControlPlaneOwnerSnapshot = Omit<
   OwnerSnapshot,
-  "execution" | "connectedEngines"
+  "execution" | "connectedEngines" | "plan" | "allowance" | "enforcement"
 >;
 
 export type OwnerSnapshotChangedRequest = {

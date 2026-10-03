@@ -6,7 +6,6 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { components, internal } from "./_generated/api";
 import { tokenIdentifierForBetterAuthUserId } from "./auth";
 import betterAuthSchema from "./betterAuth/schema";
-import { dollarsToMicroCents } from "./lib/billing_money";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -97,31 +96,14 @@ const snapshotFields = (t: Harness, ownerId: string, isAnonymous = false) =>
   });
 
 describe("identity ladder", () => {
-  it("resolves anonymous, email, social, subscription, and credit owners", async () => {
+  it("resolves anonymous, email, and social owners", async () => {
     const t = createTest();
     const anonymous = await seedOwner(t, "anonymous", { anonymous: true });
     const email = await seedOwner(t, "email");
     const social = await seedOwner(t, "social", { providerId: "google" });
-    const subscriber = await seedOwner(t, "subscriber");
-    const credited = await seedOwner(t, "credited");
-    const now = Date.now();
-    // The owner's billing ledger reports who pays.
-    await t.run(async (ctx) => {
-      for (const ownerId of [subscriber, credited]) {
-        await ctx.db.insert("owner_billing_plans", {
-          ownerId,
-          plan: ownerId === subscriber ? "go" : "free",
-          paying: true,
-          unlimited: false,
-          updatedAt: now,
-        });
-      }
-    });
 
     expect((await snapshotFields(t, anonymous, true)).identityLevel).toBe(0);
     expect((await snapshotFields(t, email)).identityLevel).toBe(1);
     expect((await snapshotFields(t, social)).identityLevel).toBe(2);
-    expect((await snapshotFields(t, subscriber)).identityLevel).toBe(3);
-    expect((await snapshotFields(t, credited)).identityLevel).toBe(3);
   });
 });

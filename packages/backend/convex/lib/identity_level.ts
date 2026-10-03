@@ -3,7 +3,6 @@ import { v } from "convex/values";
 import { components } from "../_generated/api";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalQuery } from "../_generated/server";
-import { readOwnerPaying } from "./owner_plan";
 
 type IdentityReadCtx =
   | Pick<QueryCtx, "db" | "runQuery">
@@ -62,20 +61,19 @@ const readBetterAuthRows = async (
   }
 };
 
+/**
+ * The rung Better Auth can prove (0 anonymous, 1 email, 2 social). The paying
+ * rung (3) is the owner object's: its billing ledger raises it.
+ */
 export const resolveIdentityLevel = async (
   ctx: IdentityReadCtx,
   ownerId: string,
-  options: { paying?: boolean } = {},
 ): Promise<IdentityLevel> => {
   const userId = betterAuthUserIdFromOwnerId(ownerId);
-  const [auth, paying] = await Promise.all([
-    userId
-      ? readBetterAuthRows(ctx, userId)
-      : Promise.resolve({ anonymous: false, social: false }),
-    options.paying ?? readOwnerPaying(ctx, ownerId),
-  ]);
+  const auth = userId
+    ? await readBetterAuthRows(ctx, userId)
+    : { anonymous: false, social: false };
   if (auth.anonymous) return 0;
-  if (paying) return 3;
   if (auth.social) return 2;
   return 1;
 };

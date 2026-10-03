@@ -362,7 +362,7 @@ describe("owner purge adversarial invariants", () => {
     ).toMatchObject({ owned: null, unrelated: { requestId: "other-request" } });
   });
 
-  it("drains both auth-link principals while retaining reset security and quota state", async () => {
+  it("drains both auth-link principals while retaining reset security state", async () => {
     const t = createTest();
     const fence = await beginAndClaim(t, "reset-auth-owner", "reset", "core");
     const rows = await t.run(async (ctx) => {
@@ -392,26 +392,7 @@ describe("owner purge adversarial invariants", () => {
           revokedAt: 4,
           expiresAt: 50_000,
         }),
-        usageLog: await ctx.db.insert("usage_logs", {
-          ownerId: fence.ownerId,
-          conversationId: "audit-conversation",
-          agentType: "primary",
-          model: "test-model",
-          costMicroCents: 6,
-          durationMs: 10,
-          success: true,
-          createdAt: 4,
-        }),
-        usageRollup: await ctx.db.insert("usage_rollups", {
-          ownerId: fence.ownerId,
-          bucketStartMs: 0,
-          inputTokens: 1,
-          outputTokens: 2,
-          totalTokens: 3,
-          requestCount: 1,
-          toolCallCount: 0,
-          updatedAt: 4,
-        }),
+
       };
     });
 
@@ -436,12 +417,6 @@ describe("owner purge adversarial invariants", () => {
       }),
     ).toEqual([]);
     expect(await t.run(async (ctx) => ctx.db.get(rows.policy))).not.toBeNull();
-    expect(
-      await t.run(async (ctx) => ctx.db.get(rows.usageLog)),
-    ).not.toBeNull();
-    expect(
-      await t.run(async (ctx) => ctx.db.get(rows.usageRollup)),
-    ).not.toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(rows.fromLink))).toBeNull();
     expect(await t.run(async (ctx) => ctx.db.get(rows.toLink))).toBeNull();
   });

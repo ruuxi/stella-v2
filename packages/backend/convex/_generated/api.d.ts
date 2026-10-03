@@ -9,8 +9,6 @@
  */
 
 import type * as account_deletion from "../account_deletion.js";
-import type * as ai_proxy_data from "../ai_proxy_data.js";
-import type * as alerts from "../alerts.js";
 import type * as anon_cleanup from "../anon_cleanup.js";
 import type * as app_integrity from "../app_integrity.js";
 import type * as app_integrity_node from "../app_integrity_node.js";
@@ -20,26 +18,20 @@ import type * as auth_migration from "../auth_migration.js";
 import type * as billing_bridge from "../billing_bridge.js";
 import type * as cloud_purge from "../cloud_purge.js";
 import type * as crons from "../crons.js";
-import type * as gateway_capabilities from "../gateway_capabilities.js";
-import type * as gateway_usage from "../gateway_usage.js";
 import type * as http from "../http.js";
 import type * as http_routes_admin from "../http_routes/admin.js";
 import type * as http_routes_app_integrity from "../http_routes/app_integrity.js";
 import type * as http_routes_auth_handoff from "../http_routes/auth_handoff.js";
 import type * as http_routes_gateway from "../http_routes/gateway.js";
 import type * as http_shared_admin from "../http_shared/admin.js";
-import type * as http_shared_anon_device from "../http_shared/anon_device.js";
 import type * as http_shared_better_auth_response from "../http_shared/better_auth_response.js";
 import type * as http_shared_cors from "../http_shared/cors.js";
 import type * as http_shared_request from "../http_shared/request.js";
 import type * as http_shared_test_accounts from "../http_shared/test_accounts.js";
 import type * as http_shared_webhook_controls from "../http_shared/webhook_controls.js";
-import type * as lib_alerts from "../lib/alerts.js";
-import type * as lib_anonymous_usage from "../lib/anonymous_usage.js";
 import type * as lib_app_integrity from "../lib/app_integrity.js";
 import type * as lib_auth_ip_rate_limit from "../lib/auth_ip_rate_limit.js";
 import type * as lib_auth_migration_paths from "../lib/auth_migration_paths.js";
-import type * as lib_billing_money from "../lib/billing_money.js";
 import type * as lib_browser_auth_callback from "../lib/browser_auth_callback.js";
 import type * as lib_builder_turns from "../lib/builder_turns.js";
 import type * as lib_cloud_execution from "../lib/cloud_execution.js";
@@ -54,31 +46,20 @@ import type * as lib_http_utils from "../lib/http_utils.js";
 import type * as lib_identity_level from "../lib/identity_level.js";
 import type * as lib_mobile_auth_link from "../lib/mobile_auth_link.js";
 import type * as lib_native_ott_redirect from "../lib/native_ott_redirect.js";
-import type * as lib_number_utils from "../lib/number_utils.js";
 import type * as lib_owner_migration_purge from "../lib/owner_migration_purge.js";
-import type * as lib_owner_plan from "../lib/owner_plan.js";
 import type * as lib_owner_snapshot_notify from "../lib/owner_snapshot_notify.js";
 import type * as lib_ownership_migration_status from "../lib/ownership_migration_status.js";
 import type * as lib_rate_limits from "../lib/rate_limits.js";
-import type * as lib_risk from "../lib/risk.js";
-import type * as lib_sybil from "../lib/sybil.js";
 import type * as lib_turnstile from "../lib/turnstile.js";
 import type * as mobile_auth from "../mobile_auth.js";
-import type * as owner_daily_counters from "../owner_daily_counters.js";
-import type * as owner_enforcement from "../owner_enforcement.js";
 import type * as owner_lifecycle from "../owner_lifecycle.js";
 import type * as owner_origins from "../owner_origins.js";
 import type * as owner_snapshot from "../owner_snapshot.js";
 import type * as rate_limits from "../rate_limits.js";
 import type * as reset from "../reset.js";
-import type * as risk from "../risk.js";
 import type * as schema_abuse from "../schema/abuse.js";
 import type * as schema_auth from "../schema/auth.js";
-import type * as schema_devices from "../schema/devices.js";
-import type * as schema_gateway from "../schema/gateway.js";
 import type * as schema_owner_lifecycle from "../schema/owner_lifecycle.js";
-import type * as schema_telemetry from "../schema/telemetry.js";
-import type * as telemetry_retention from "../telemetry_retention.js";
 
 import type {
   ApiFromModules,
@@ -88,8 +69,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   account_deletion: typeof account_deletion;
-  ai_proxy_data: typeof ai_proxy_data;
-  alerts: typeof alerts;
   anon_cleanup: typeof anon_cleanup;
   app_integrity: typeof app_integrity;
   app_integrity_node: typeof app_integrity_node;
@@ -99,26 +78,20 @@ declare const fullApi: ApiFromModules<{
   billing_bridge: typeof billing_bridge;
   cloud_purge: typeof cloud_purge;
   crons: typeof crons;
-  gateway_capabilities: typeof gateway_capabilities;
-  gateway_usage: typeof gateway_usage;
   http: typeof http;
   "http_routes/admin": typeof http_routes_admin;
   "http_routes/app_integrity": typeof http_routes_app_integrity;
   "http_routes/auth_handoff": typeof http_routes_auth_handoff;
   "http_routes/gateway": typeof http_routes_gateway;
   "http_shared/admin": typeof http_shared_admin;
-  "http_shared/anon_device": typeof http_shared_anon_device;
   "http_shared/better_auth_response": typeof http_shared_better_auth_response;
   "http_shared/cors": typeof http_shared_cors;
   "http_shared/request": typeof http_shared_request;
   "http_shared/test_accounts": typeof http_shared_test_accounts;
   "http_shared/webhook_controls": typeof http_shared_webhook_controls;
-  "lib/alerts": typeof lib_alerts;
-  "lib/anonymous_usage": typeof lib_anonymous_usage;
   "lib/app_integrity": typeof lib_app_integrity;
   "lib/auth_ip_rate_limit": typeof lib_auth_ip_rate_limit;
   "lib/auth_migration_paths": typeof lib_auth_migration_paths;
-  "lib/billing_money": typeof lib_billing_money;
   "lib/browser_auth_callback": typeof lib_browser_auth_callback;
   "lib/builder_turns": typeof lib_builder_turns;
   "lib/cloud_execution": typeof lib_cloud_execution;
@@ -133,31 +106,20 @@ declare const fullApi: ApiFromModules<{
   "lib/identity_level": typeof lib_identity_level;
   "lib/mobile_auth_link": typeof lib_mobile_auth_link;
   "lib/native_ott_redirect": typeof lib_native_ott_redirect;
-  "lib/number_utils": typeof lib_number_utils;
   "lib/owner_migration_purge": typeof lib_owner_migration_purge;
-  "lib/owner_plan": typeof lib_owner_plan;
   "lib/owner_snapshot_notify": typeof lib_owner_snapshot_notify;
   "lib/ownership_migration_status": typeof lib_ownership_migration_status;
   "lib/rate_limits": typeof lib_rate_limits;
-  "lib/risk": typeof lib_risk;
-  "lib/sybil": typeof lib_sybil;
   "lib/turnstile": typeof lib_turnstile;
   mobile_auth: typeof mobile_auth;
-  owner_daily_counters: typeof owner_daily_counters;
-  owner_enforcement: typeof owner_enforcement;
   owner_lifecycle: typeof owner_lifecycle;
   owner_origins: typeof owner_origins;
   owner_snapshot: typeof owner_snapshot;
   rate_limits: typeof rate_limits;
   reset: typeof reset;
-  risk: typeof risk;
   "schema/abuse": typeof schema_abuse;
   "schema/auth": typeof schema_auth;
-  "schema/devices": typeof schema_devices;
-  "schema/gateway": typeof schema_gateway;
   "schema/owner_lifecycle": typeof schema_owner_lifecycle;
-  "schema/telemetry": typeof schema_telemetry;
-  telemetry_retention: typeof telemetry_retention;
 }>;
 
 /**

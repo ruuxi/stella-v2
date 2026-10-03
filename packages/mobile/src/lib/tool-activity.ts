@@ -131,7 +131,6 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
     phrase: plural("created a PDF", (n) => `created ${n} PDFs`),
   },
   html: { category: "create", phrase: plural("built a page", (n) => `built ${n} pages`) },
-  recall: { category: "memory", phrase: () => "checked memory" },
   remember: {
     category: "memory",
     phrase: plural("saved a note", (n) => `saved ${n} notes`),
@@ -184,8 +183,6 @@ const failedSummary = (step: ToolActivityStep): string => {
       return `PDF creation ${outcome}`;
     case "map":
       return `Map lookup ${outcome}`;
-    case "recall":
-      return `Memory lookup ${outcome}`;
     case "remember":
       return `Saving note ${outcome}`;
     case "forget":
@@ -263,8 +260,6 @@ const titleForCall = (
       return str(a.title) ?? "page";
     case "remember":
       return str(a.title) ?? str(a.name) ?? "note";
-    case "recall":
-      return str(a.query) ? `"${clamp(str(a.query)!, 40)}"` : "memory";
     default:
       return humanizeToolName(toolName);
   }
@@ -337,9 +332,7 @@ export function deriveToolActivity(
           ? "Creating PDF"
           : active.toolName.toLowerCase() === "map"
             ? "Looking up map"
-            : active.toolName.toLowerCase() === "recall"
-              ? "Checking memory"
-              : `Using ${humanizeToolName(active.toolName)}`
+            : `Using ${humanizeToolName(active.toolName)}`
     : failed
       ? failedSummary(failed)
       : summary;

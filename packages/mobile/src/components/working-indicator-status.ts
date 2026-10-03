@@ -76,21 +76,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Getting oriented",
     "Looking at what matters",
   ],
-  // Recall searches durable thread evidence and conversation transcripts -
-  // often the orchestrator's longest wait, so the copy must read as
-  // memory-digging rather than generic thinking.
-  recall: [
-    "Searching my memory",
-    "Digging through history",
-    "Jogging my memory",
-    "Thinking back",
-    "Retracing our steps",
-    "Flipping through old notes",
-    "Rummaging through the archives",
-    "Pulling up past threads",
-    "Checking what we did before",
-    "Dusting off the records",
-  ],
   remember: [
     "Making a note",
     "Filing that away",
@@ -405,7 +390,7 @@ const RAW_TOOL_STATUS_PATTERN =
 /**
  * Normalize a tool identifier to the snake_case keys used in
  * `TOOL_STATUS_BY_NAME`. Handles the runtime's mixed naming — snake_case
- * (`spawn_agent`), PascalCase (`Recall`, `RequestCredential`, `CronAdd`)
+ * (`spawn_agent`), PascalCase (`RequestCredential`, `CronAdd`)
  * and space-separated humanized labels (`Running Spawn Agent`).
  */
 const toToolStatusKey = (value: string): string =>

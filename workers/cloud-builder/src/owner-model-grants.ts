@@ -114,7 +114,6 @@ export type OwnerModelGrantRevokeReason =
   | "memory_policy_change"
   | "memory_wipe"
   | "owner_purge"
-  | "owner_transfer"
   | "manual";
 
 export type OwnerModelGrantFreezeGrant = Readonly<{
@@ -257,7 +256,6 @@ const revokeReason = (
   value === "memory_policy_change" ||
   value === "memory_wipe" ||
   value === "owner_purge" ||
-  value === "owner_transfer" ||
   value === "manual"
     ? value
     : undefined;

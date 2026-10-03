@@ -34,7 +34,7 @@ mock.restore();
 
 /**
  * The BuildSession half of an agent turn: who admits it through the owner
- * gate, what authority it runs under, what Convex learns about it, and when
+ * gate, what authority it runs under, what the owner learns about it, and when
  * the owner gets its agent slot back.
  */
 
@@ -145,7 +145,6 @@ const harness = async (
     env: {
       ...(await capabilitySignerEnv()),
       BUILDER_SERVICE_SECRET: "builder-secret",
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
       BUILD_SESSIONS: {
         getByName: (threadId: string) => ({
@@ -875,7 +874,7 @@ describe("the parent conversation wake", () => {
 });
 
 describe("the thread transcript a continuation reads", () => {
-  test("appends commit locally without a Convex message projection", async () => {
+  test("appends commit locally without a control-plane message projection", async () => {
     const h = await harness();
     await dispatch(h.instance, agentDispatch());
     const turn = h.values.get("turn") as Record<string, unknown>;

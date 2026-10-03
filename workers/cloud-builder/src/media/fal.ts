@@ -1,6 +1,5 @@
 /**
- * fal's queue API and webhooks. A port of the Convex `media_fal_webhooks.ts`
- * plus the webhook routing token: fal calls back to
+ * fal's queue API and webhooks, plus the webhook routing token: fal calls back to
  * `/api/media/v1/webhooks/fal?o=<owner>&j=<job>&e=<exp>&sig=<hmac>`, and the
  * HMAC (`MEDIA_SIGNING_SECRET`) over owner, job and expiry is what lets the
  * route address the owner's object without an index. fal's own ED25519

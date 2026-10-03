@@ -18,7 +18,7 @@ import {
 } from "../src/dispatch-policy.js";
 
 /**
- * The routing matrix ported from Convex's `decideServerExecutionPlacement`,
+ * The routing matrix of `decideServerExecutionPlacement`,
  * case for case. Reachability deliberately never appears here: an
  * `offer` decision is resolved later by a fenced claim, so this table stays
  * true whether or not a computer is online.

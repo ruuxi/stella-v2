@@ -13,7 +13,6 @@ const readyInput = (): CloudBuilderReadinessInput => ({
   APP_BUILD_SANDBOX: methods("getByName"),
   BUILD_SESSIONS: methods("getByName"),
   ORCHESTRATOR_SESSIONS: methods("getByName"),
-  OWNER_TRANSFER_COORDINATORS: methods("getByName"),
   OWNER_GATES: methods("getByName"),
   BROWSER_GATEWAY: methods("fetch"),
   APP_BUILDS: methods("get", "put", "delete", "list"),
@@ -28,8 +27,6 @@ const readyInput = (): CloudBuilderReadinessInput => ({
   SANDBOX_IDLE_TIMEOUT_MS: "600000",
   APPS_HOST_BASE_URL: "https://apps-untrusted.example",
   TRUSTED_APPS_HOST_BASE_URL: "https://apps-auth.example",
-  STELLA_CONVEX_SITE_URL: "https://deployment.convex.site",
-  STELLA_CONVEX_CLOUD_URL: "https://deployment.convex.cloud",
   MODEL_GATEWAY: methods("fetch"),
   MODEL_GATEWAY_URL: "https://model-gateway.example",
   CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
@@ -63,7 +60,7 @@ describe("Cloud Builder readiness evaluation", () => {
     input.SANDBOX_IDLE_TIMEOUT_MS = "0";
     input.APPS_HOST_BASE_URL = "https://same.example";
     input.TRUSTED_APPS_HOST_BASE_URL = "https://same.example/";
-    input.STELLA_CONVEX_SITE_URL = "https://user:secret@example.com/path";
+    input.MODEL_GATEWAY_URL = "https://user:secret@example.com/path";
     const result = evaluateCloudBuilderReadiness(input);
     expect(result).toEqual({
       ready: false,
@@ -72,7 +69,7 @@ describe("Cloud Builder readiness evaluation", () => {
         "BROWSER_GATEWAY",
         "TURN_TIMEOUT_MS",
         "SANDBOX_IDLE_TIMEOUT_MS",
-        "STELLA_CONVEX_SITE_URL",
+        "MODEL_GATEWAY_URL",
         "APPS_HOST_BASE_URL",
         "TRUSTED_APPS_HOST_BASE_URL",
       ],
@@ -82,7 +79,7 @@ describe("Cloud Builder readiness evaluation", () => {
   test("never includes secret or invalid configuration contents", () => {
     const input = readyInput();
     input.BUILDER_SERVICE_SECRET = "invalid secret must not leak";
-    input.STELLA_CONVEX_SITE_URL =
+    input.MODEL_GATEWAY_URL =
       "https://embedded-user:embedded-password@example.com/private-path?token=sensitive";
     const result = evaluateCloudBuilderReadiness(input);
     expect(result.invalid).toContain("BUILDER_SERVICE_SECRET");

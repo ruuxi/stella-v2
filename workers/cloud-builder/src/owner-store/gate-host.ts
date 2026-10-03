@@ -1,7 +1,7 @@
 /**
  * What `OwnerGate` lends the owner-store domains: its snapshot, and direct
  * calls into the BuildSession and OrchestratorSession objects the domains
- * start, stop and annotate. These used to be Convex callbacks over the
+ * start, stop and annotate. These used to be control-plane callbacks over the
  * service secret; now they are object-to-object calls.
  */
 

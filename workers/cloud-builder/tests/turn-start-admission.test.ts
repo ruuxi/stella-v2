@@ -156,7 +156,6 @@ const harness = (
     },
     env: {
       OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
     },
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     turnExecutions: new Map<string, unknown>(),

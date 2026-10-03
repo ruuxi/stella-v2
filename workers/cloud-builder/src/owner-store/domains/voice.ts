@@ -37,7 +37,7 @@ import { billingAccess, billingPlan, recordUsage } from "./billing.js";
 const VOICE_SESSION_RATE = { count: 10, windowMs: 60_000 };
 /** A heartbeat renews the lease this far ahead; clients poll every 2 s. */
 const LEASE_TTL_MS = 10_000;
-/** A realtime session ends after this, as it did on Convex. */
+/** A realtime session ends after this. */
 const SESSION_MAX_MS = 5 * 60_000;
 /** `voice.reap` closes open leases with no heartbeat for this long. */
 const IDLE_REAP_MS = 2 * 60_000;

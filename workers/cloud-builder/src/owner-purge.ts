@@ -2,11 +2,10 @@
  * One pass of an owner's reset or account deletion, run by the owner's own
  * object (`OwnerGate.closeOwner` and the `account.purge` job).
  *
- * It is the worker's `/owners/purge/begin` → `/owners/purge` →
- * `/owners/purge/release` sequence without Convex driving it: fence the owner
- * and cancel its running turns, purge durable turn state, the hosted browser
- * profile, every owner-store domain (`purgeOwnerData`) and the owner's R2 and
- * KV stores, then lift a reset's fence. Deletion keeps its fence for good.
+ * It fences the owner and cancels its running turns, purges durable turn
+ * state, the hosted browser profile, every owner-store domain
+ * (`purgeOwnerData`) and the owner's R2 and KV stores, then lifts a reset's
+ * fence. Deletion keeps its fence for good.
  *
  * Every step is "delete if present", so a pass with `pending` stores is
  * simply run again with the same `requestId`, which rejoins the same fence.

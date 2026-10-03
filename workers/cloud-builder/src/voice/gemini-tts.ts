@@ -6,7 +6,7 @@ import {
 } from "@stella/contracts/realtime-voice-catalog";
 
 // ---------------------------------------------------------------------------
-// Gemini TTS (Interactions API) for read-aloud. Ported from Convex.
+// Gemini TTS (Interactions API) for read-aloud.
 //
 // Streaming returns SSE events whose `step.delta` payloads carry headerless
 // 16-bit little-endian mono PCM at 24 kHz. Every read-aloud transport

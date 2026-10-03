@@ -333,7 +333,7 @@ export const retryOwnerEventDebt = async (host: SessionCoreHost): Promise<void> 
 };
 
 /**
- * One `turn.event`. The ordinal is assigned here — Convex used to do it —
+ * One `turn.event`. The ordinal is assigned here — the control plane used to do it —
  * and persisted in this object's SQLite, so a restarted isolate continues
  * the sequence instead of colliding with events already projected. Callers
  * that own an idempotent retry pass their own `eventSeq` back in.
@@ -908,7 +908,7 @@ const assertAgentTurnActive = async (
 /**
  * The turn's own identity, which is now the only authority there is.
  *
- * Convex used to be asked, on every side effect, whether this attempt was
+ * The control plane used to be asked, on every side effect, whether this attempt was
  * still the live one (`/api/cloud/agent-turn-authority`, resolved against a
  * reusable turn token). That question is answered locally now: the owner
  * gate admitted the attempt, this object holds the attempt, and its
@@ -949,7 +949,7 @@ export const assertAppTurnIdentity = (
  * This thread's transcript, from this object's own SQLite.
  *
  * It used to be a `GET /api/cloud/context` on the continuation's critical
- * path, which made Convex the authority for rows only this object ever
+ * path, which made the control plane the authority for rows only this object ever
  * writes and put a control-plane round trip in front of every send_input.
  */
 export const fetchCanonicalAgentHistory = (

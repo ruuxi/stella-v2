@@ -210,7 +210,6 @@ const builderHarness = async (
     },
     env: {
       BUILDER_SERVICE_SECRET: builderSecret,
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       APP_ROUTES: kv,
       BACKUP_BUCKET: {
         list: async () => ({ objects: [], truncated: false }),
@@ -220,7 +219,7 @@ const builderHarness = async (
         ? { BROWSER_GATEWAY: options.browserGateway }
         : {}),
     },
-    // The one route a sandbox still reaches through Convex authenticates with
+    // The one route a sandbox still reaches through the control plane authenticates with
     // this turn's control-plane capability; signing it is covered elsewhere.
     exactTurnCancellations: ledger,
     agentTurnExecutions:
@@ -729,7 +728,7 @@ describe("native state Builder integration", () => {
     expect(values.has(nativeKey)).toBe(false);
   });
 
-  test("owner-transfer retirement keeps the source pointer when native byte purge fails", async () => {
+  test("native purge keeps the checkpoint pointer when byte purge fails", async () => {
     const { values, kv } = kvHarness();
     const workspaceKey = "ws:" + "b".repeat(64);
     const nativeKey = await nativeStateCheckpointKey(workspaceKey, threadId);
@@ -771,9 +770,8 @@ describe("native state Builder integration", () => {
         workspaceKey,
       ),
     ).rejects.toThrow("injected R2 retirement failure");
-    // moveWorkspaceCheckpoint awaits this exact bytes-first primitive before
-    // deleting any source-owner checkpoint keys, so a transfer retry retains
-    // an attributable pointer instead of orphaning resumable authority.
+    // Bytes go first, so a purge retry still has an attributable pointer
+    // instead of orphaning the backup.
     expect(values.get(nativeKey)).toBe(sourceRecord);
     expect(objects.size).toBe(2);
   });

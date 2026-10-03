@@ -2,8 +2,8 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 
 /**
  * The orchestrator's `spawn_agent` model override, resolved inside the
- * Durable Object that admits the spawn. The grammar and the defaults mirror
- * `packages/backend/convex/lib/cloud_execution.ts` exactly: "claude[/model]"
+ * Durable Object that admits the spawn. The grammar and the defaults match
+ * the runtime's cloud execution selection exactly: "claude[/model]"
  * selects the connected Anthropic subscription, "codex[/model]" the
  * connected ChatGPT one, "stella/..." a managed route, and a trailing
  * ":effort" pins the reasoning effort. Whether a connected engine is actually

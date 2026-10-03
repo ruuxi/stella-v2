@@ -1,7 +1,7 @@
 /**
- * The Convex-side list projection of a DO-resident conversation.
+ * The owner object's list row for a DO-resident conversation.
  *
- * Convex keeps one derived row because a per-conversation Durable Object
+ * The owner keeps one derived row because a per-conversation Durable Object
  * cannot list an owner's conversations. Full-text search stays inside the
  * object. Each `conversation.index` event is fenced on `(epoch, lastSeq)` so
  * reordered delivery cannot move the row backwards. Once the durable owner
@@ -104,7 +104,7 @@ export class ConversationIndex {
       return idle;
     }
 
-    // A rewind may commit while the send is in flight. Convex drops the stale
+    // A rewind may commit while the send is in flight. The owner drops the stale
     // epoch, and the local cursor must not suppress the first row on the branch.
     if (this.journal.meta().epoch !== meta.epoch || this.deps.purged()) {
       return idle;

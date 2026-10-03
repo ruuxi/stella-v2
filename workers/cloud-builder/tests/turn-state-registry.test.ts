@@ -4,7 +4,6 @@ import {
   WORLD_REGISTRY_SEGMENT,
   TURN_STATE_OBJECT_FORMAT,
   TURN_STATE_SCHEMA_VERSION,
-  assertTurnStateTransferSourceEmpty,
   commitTurnStateOperation,
   confirmTurnStateRestore,
   drainTurnStateRetirements,
@@ -826,44 +825,6 @@ describe("strong turn state registry", () => {
     expect(retry.receipt).toMatch(/^[0-9a-f]{64}$/);
     expect(r2.keys(retry.prefix)).toEqual([]);
     expect(storage.entries("turn-state:v1:object:").size).toBe(0);
-  });
-
-  test("transfer source proof requires both registry records and the full prefix to be empty", async () => {
-    const storage = new FakeStrongStorage();
-    const r2 = new FakeR2(1);
-    await prepare(storage, 1, { native: true });
-
-    await expect(
-      assertTurnStateTransferSourceEmpty(storage, r2, {
-        ownerId: "owner-1",
-      }),
-    ).rejects.toThrow("Turn state transfer source is not empty");
-
-    const registryPurge = await purgeTurnState(storage, r2, {
-      ownerId: "owner-1",
-      ownerPurgeFence: "blocked",
-    });
-    expect(registryPurge.pending).toBe(false);
-
-    const orphanKey = `${registryPurge.prefix}orphan-after-upload.sqsh`;
-    r2.put(orphanKey);
-    await expect(
-      assertTurnStateTransferSourceEmpty(storage, r2, {
-        ownerId: "owner-1",
-      }),
-    ).rejects.toThrow("bytes are not empty");
-
-    const bytesPurge = await purgeTurnState(storage, r2, {
-      ownerId: "owner-1",
-      ownerPurgeFence: "blocked",
-    });
-    expect(bytesPurge.pending).toBe(false);
-    expect(bytesPurge.deleted).toBe(1);
-
-    const receipt = await assertTurnStateTransferSourceEmpty(storage, r2, {
-      ownerId: "owner-1",
-    });
-    expect(receipt).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("purge paginates through complete strong-registry and R2 prefixes", async () => {

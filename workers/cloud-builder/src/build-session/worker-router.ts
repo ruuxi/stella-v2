@@ -37,7 +37,6 @@ import {
   TURN_OWNER_ID_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
 import { classifyNetwork } from "../../../shared/network-class.js";
-import { isOwnerAppBuildPrefix } from "../app-build-artifacts.js";
 import { verifyUserToken } from "../auth-jwt.js";
 import { noteOwnerIdentity } from "../owner-identity.js";
 import { readBoundedRequestText } from "../bounded-body.js";
@@ -72,24 +71,14 @@ import {
   dispatchErrorResponse,
   parseDispatchSubmitRequest,
 } from "../dispatch-policy.js";
-import { sha256Hex } from "../hash.js";
 import { handleMuseTranscribeSocket } from "../muse-transcribe-socket.js";
 import { STELLA_PROMPTS_PATH } from "@stella/contracts/stella-api";
 import { stellaPromptsResponse } from "../prompts/route.js";
-import type { OwnerPurgeFence, OwnerPurgeMode } from "../owner-fence-do.js";
 import {
   HEADER_PRESENCE_DEVICE_ID,
   OwnerGate,
 } from "../owner-gate.js";
 import { normalizeOwnerGeneration } from "../owner-generation.js";
-import { parseOwnerProductTransferRequest } from "../owner-product-transfer.js";
-import {
-  createCoordinatorAttempt,
-  OWNER_TRANSFER_OPERATION_ID_PATTERN,
-  parseOwnerTransferControl,
-  stableValueMarker,
-} from "../owner-transfer-coordinator.js";
-import { parseOwnerTransferRequest } from "../owner-transfer.js";
 import { evaluateCloudBuilderReadiness } from "../readiness.js";
 import {
   boundedBodyStatus,
@@ -113,30 +102,14 @@ import {
 } from "../turn-start-request.js";
 import { previewSafeRequestLogPath } from "../vite-preview-access.js";
 import {
-  abortTransferCoordinator,
-  beginOwnerPurge,
   boundedIngressRequest,
-  callOwnerFence,
-  callTransferCoordinator,
   cloudHomeLeaseRunner,
-  createTransferCoordinatorContext,
   handleWorldRoute,
-  LEGACY_BUILD_PREFIX_PATTERN,
-  parseTransferReservationEnvelope,
-  purgeOwnerStorage,
-  transferControl,
-  transferOwnerProductStorage,
-  yieldTransferCoordinator,
 } from "./owner-purge-transfer.js";
 import { retireSandboxInstance } from "./session-sandbox.js";
 import type { Env } from "./shared/env.js";
 import {
-  OwnerProductTransferConfigurationError,
-  OwnerProductTransferConflictError,
-} from "./shared/errors.js";
-import {
   conversationName,
-  errorMessage,
   HEADER_BUILD_SESSION_NAME,
   HEADER_CONVERSATION_ID,
   HEADER_PREVIEW_BASE_URL,
@@ -144,21 +117,15 @@ import {
   json,
   log,
   ORCHESTRATOR_INTERNAL_ORIGIN,
-  sweepR2Prefix,
 } from "./shared/keys.js";
-import type {
-  ConversationCaller,
-  DispatchCaller,
-  OwnerPurgeReport,
-  OwnerPurgeRequest,
-} from "./shared/types.js";
+import type { ConversationCaller, DispatchCaller } from "./shared/types.js";
 
 // ---------------------------------------------------------------------------
 // The user-authenticated conversation surfaces
 //
 // Every other route on this worker is server-to-server and gated by the shared
 // service secret. These two are the exception: they carry a signed-in user's
-// Convex JWT, which is NOT the service secret, so they are matched before that
+// user JWT, which is NOT the service secret, so they are matched before that
 // gate. Verification happens here rather than in the Durable Object so an
 // unauthenticated connect never instantiates one, never takes a socket slot,
 // and never touches the agent's thread.
@@ -329,7 +296,7 @@ const handleTurnStartRoute = async (
   let ownerGeneration: string | null = null;
   let tokenExpiresAtMs: number | null = null;
   if (await verifyServiceBearerRequest(request, env.BUILDER_SERVICE_SECRET)) {
-    // Convex-originated: a schedule fire, placement's cloud branch, an
+    // Service-originated: a schedule fire, placement's cloud branch, an
     // agent-completion wake. It names the owner it acts for and pins the
     // generation it read; the gate refuses a stale one.
     const headerOwner = request.headers.get(TURN_OWNER_ID_HEADER)?.trim() ?? "";
@@ -948,7 +915,7 @@ const router = {
 
     // ── User-authenticated routes ─────────────────────────────────────────
     // These MUST stay above the service-secret gate below: a signed-in user
-    // presents a Convex JWT, not the shared secret, so matching them after the
+    // presents a user JWT, not the shared secret, so matching them after the
     // gate would 401 every client. Both verify the JWT themselves and forward
     // the proven identity to the DO in x-stella-* headers, stripping whatever
     // the client sent under those names first.
@@ -1223,7 +1190,7 @@ const router = {
         request,
         env,
         ownerId: auth.caller.ownerId,
-        // `ownerId` is the full Convex tokenIdentifier; the raw JWT `sub` is
+        // `ownerId` is the JWT `sub`; the raw JWT `sub` is
         // deliberately insufficient for a cross-issuer session fence.
         subject: auth.caller.ownerId,
         withLease: cloudHomeLeaseRunner(env),
@@ -1272,433 +1239,6 @@ const router = {
       if (bounded instanceof Response) return bounded;
       request = bounded;
     }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/owners/activity/register"
-    ) {
-      const body = (await request.json().catch(() => null)) as {
-        ownerId?: unknown;
-        activityId?: unknown;
-        ownerGeneration?: unknown;
-      } | null;
-      const ownerId =
-        typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-      const activityId =
-        typeof body?.activityId === "string" ? body.activityId.trim() : "";
-      const ownerGeneration =
-        normalizeOwnerGeneration(body?.ownerGeneration) ?? "";
-      if (
-        !ownerId ||
-        ownerId.length > 512 ||
-        !activityId ||
-        activityId.length > 512 ||
-        !ownerGeneration ||
-        ownerGeneration.length > 512
-      ) {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      const leaseId = crypto.randomUUID();
-      const sessionId = `control-plane:${activityId}`;
-      const turnId = activityId;
-      const expiresAt = Date.now() + 9 * 60_000;
-      const registered = await callOwnerFence(env, ownerId, "register", {
-        leaseId,
-        sessionId,
-        turnId,
-        ownerGeneration,
-        namespace: "activity",
-        role: "activity",
-        expiresAt,
-      });
-      const registration = (await registered.json().catch(() => null)) as {
-        generation?: string;
-      } | null;
-      if (!registered.ok || !registration?.generation) {
-        return json(
-          {
-            code: "owner_purge",
-            message: "Account data is being deleted or reset.",
-          },
-          409,
-        );
-      }
-      return json({
-        ownerId,
-        ownerGeneration,
-        generation: registration.generation,
-        leaseId,
-        sessionId,
-        turnId,
-        expiresAt,
-      });
-    }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/owners/activity/unregister"
-    ) {
-      const body = (await request.json().catch(() => null)) as {
-        ownerId?: unknown;
-        ownerGeneration?: unknown;
-        generation?: unknown;
-        leaseId?: unknown;
-        sessionId?: unknown;
-        turnId?: unknown;
-      } | null;
-      const ownerId =
-        typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-      const generation =
-        typeof body?.generation === "string" ? body.generation.trim() : "";
-      const ownerGeneration =
-        normalizeOwnerGeneration(body?.ownerGeneration) ?? "";
-      const leaseId =
-        typeof body?.leaseId === "string" ? body.leaseId.trim() : "";
-      const sessionId =
-        typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
-      const turnId = typeof body?.turnId === "string" ? body.turnId.trim() : "";
-      if (
-        !ownerId ||
-        !ownerGeneration ||
-        !generation ||
-        !leaseId ||
-        !sessionId ||
-        !turnId
-      ) {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      const unregistered = await callOwnerFence(env, ownerId, "unregister", {
-        generation,
-        ownerGeneration,
-        leaseId,
-        sessionId,
-        turnId,
-      });
-      return unregistered.ok
-        ? json({ unregistered: true })
-        : json(
-            {
-              code: "owner_purge",
-              message: "Account activity lease could not be released.",
-            },
-            409,
-          );
-    }
-    const ownerTransferMatch = url.pathname.match(
-      /^\/internal\/conversations\/([^/]+)\/transfer-owner$/,
-    );
-    if (request.method === "POST" && ownerTransferMatch) {
-      const conversationId = ownerTransferMatch[1]!;
-      const rawBody = await request.text();
-      const transfer = parseOwnerTransferRequest(
-        await new Response(rawBody).json().catch(() => null),
-      );
-      if (!transfer) {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      const coordinator = await createTransferCoordinatorContext({
-        env,
-        control: transferControl(transfer),
-        fromOwnerId: transfer.fromOwnerId,
-        toOwnerId: transfer.toOwnerId,
-        operationScope: `conversation:${conversationId}`,
-        plan: { kind: "conversation", conversationId },
-      });
-      try {
-        const reserved = await callTransferCoordinator(coordinator, "/reserve");
-        const reservation = (await reserved
-          .clone()
-          .json()
-          .catch(() => null)) as {
-          status?: string;
-          result?: unknown;
-        } | null;
-        if (!reserved.ok) return reserved;
-        if (
-          reservation?.status === "copy_complete" ||
-          reservation?.status === "acknowledged"
-        ) {
-          const replay = reservation.result as Record<string, unknown> | null;
-          return replay?.transferred === true
-            ? json(replay)
-            : json(
-                {
-                  code: "owner_transfer_failed",
-                  message:
-                    "The durable conversation transfer receipt is invalid.",
-                },
-                502,
-              );
-        }
-        const forwarded = await env.ORCHESTRATOR_SESSIONS.getByName(
-          conversationName(conversationId),
-        ).fetch("https://orchestrator-session/internal/transfer-owner", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: rawBody,
-        });
-        const verdict = (await forwarded
-          .clone()
-          .json()
-          .catch(() => null)) as {
-          transferred?: unknown;
-          code?: unknown;
-        } | null;
-        if (forwarded.ok && verdict?.transferred === true) {
-          const result = {
-            transferred: true,
-            transferOperationId: coordinator.operationId,
-            transferPlanFingerprint: coordinator.planFingerprint,
-            ackRequired: true,
-          };
-          const copied = await callTransferCoordinator(coordinator, "/copied", {
-            result,
-          });
-          if (!copied.ok) {
-            return copied;
-          }
-          return json(result);
-        }
-        if (
-          forwarded.status === 409 &&
-          (verdict?.code === "owner_mismatch" ||
-            verdict?.code === "owner_transfer_conflict")
-        ) {
-          await abortTransferCoordinator(coordinator, true);
-        } else {
-          await yieldTransferCoordinator(coordinator);
-        }
-        return forwarded;
-      } catch (error) {
-        await yieldTransferCoordinator(coordinator);
-        log("error", "conversation_owner_transfer_failed", {
-          requestId,
-          operationRef: coordinator.operationId.slice(0, 16),
-          message: errorMessage(error),
-        });
-        return json(
-          {
-            code: "transfer_unavailable",
-            message:
-              "Conversation ownership transfer is temporarily unavailable.",
-            retryAfterMs: 5_000,
-          },
-          503,
-        );
-      }
-    }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/owners/transfer-product-state"
-    ) {
-      const transfer = parseOwnerProductTransferRequest(
-        await request.json().catch(() => null),
-      );
-      if (!transfer) {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      const coordinator = await createTransferCoordinatorContext({
-        env,
-        control: transferControl(transfer),
-        fromOwnerId: transfer.fromOwnerId,
-        toOwnerId: transfer.toOwnerId,
-        operationScope: `product:${await stableValueMarker({
-          agentHome: transfer.agentHome,
-          world: transfer.world,
-          appSlugs: transfer.appSlugs,
-        })}`,
-        plan: {
-          kind: "product",
-          agentHome: transfer.agentHome,
-          world: transfer.world,
-          appSlugs: transfer.appSlugs,
-        },
-      });
-      try {
-        const reserved = await callTransferCoordinator(coordinator, "/reserve");
-        const reservation = (await reserved
-          .clone()
-          .json()
-          .catch(() => null)) as {
-          status?: string;
-          result?: unknown;
-          reservation?: unknown;
-        } | null;
-        if (!reserved.ok) return reserved;
-        if (
-          reservation?.status === "copy_complete" ||
-          reservation?.status === "acknowledged"
-        ) {
-          const replay = reservation.result as Record<string, unknown> | null;
-          return replay?.transferred === true
-            ? json(replay)
-            : json(
-                {
-                  code: "owner_transfer_failed",
-                  message: "The durable product transfer receipt is invalid.",
-                },
-                502,
-              );
-        }
-        coordinator.reservation =
-          parseTransferReservationEnvelope(
-            reservation?.reservation,
-            coordinator.operationId,
-          ) ?? undefined;
-        if (!coordinator.reservation) {
-          await yieldTransferCoordinator(coordinator);
-          return json(
-            {
-              code: "transfer_unavailable",
-              message: "The durable product transfer reservation is invalid.",
-              retryAfterMs: 5_000,
-            },
-            503,
-          );
-        }
-        const result = await transferOwnerProductStorage(
-          env,
-          transfer,
-          coordinator,
-        );
-        if (!result.complete) {
-          await yieldTransferCoordinator(coordinator);
-          return json(
-            {
-              transferred: false,
-              code: "copy_in_progress",
-              message: "Owner product state copy is still in progress.",
-              retryAfterMs: 1_000,
-            },
-            202,
-          );
-        }
-        const response = {
-          transferred: true,
-          ...result,
-          transferOperationId: coordinator.operationId,
-          transferPlanFingerprint: coordinator.planFingerprint,
-          ackRequired: true,
-        };
-        const copied = await callTransferCoordinator(coordinator, "/copied", {
-          result: response,
-        });
-        if (!copied.ok) {
-          return copied;
-        }
-        return json(response);
-      } catch (error) {
-        if (error instanceof OwnerProductTransferConfigurationError) {
-          await yieldTransferCoordinator(coordinator);
-          return json(
-            {
-              code: "missing_binding",
-              message: error.message,
-              retryAfterMs: 60_000,
-            },
-            503,
-          );
-        }
-        if (error instanceof OwnerProductTransferConflictError) {
-          const retryable =
-            error.code === "owner_purge_temporary" ||
-            error.code === "transfer_busy";
-          log("info", "owner_product_transfer_conflict", {
-            requestId,
-            operationRef: coordinator.operationId.slice(0, 16),
-            code: error.code,
-          });
-          if (retryable) {
-            await yieldTransferCoordinator(coordinator);
-          } else {
-            await abortTransferCoordinator(coordinator, true);
-          }
-          return json(
-            {
-              code: error.code,
-              message: error.message,
-              ...(retryable ? { retryAfterMs: 5_000 } : {}),
-            },
-            409,
-          );
-        }
-        await yieldTransferCoordinator(coordinator);
-        log("error", "owner_product_transfer_failed", {
-          requestId,
-          operationRef: coordinator.operationId.slice(0, 16),
-          message: errorMessage(error),
-        });
-        return json(
-          {
-            code: "transfer_unavailable",
-            message: "Owner product state transfer failed.",
-            retryAfterMs: 5_000,
-          },
-          503,
-        );
-      }
-    }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/owners/transfer-ack"
-    ) {
-      const body = (await request.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
-      const control = body ? parseOwnerTransferControl(body) : null;
-      const fromOwnerId =
-        typeof body?.fromOwnerId === "string" ? body.fromOwnerId.trim() : "";
-      const toOwnerId =
-        typeof body?.toOwnerId === "string" ? body.toOwnerId.trim() : "";
-      const operationId =
-        typeof body?.transferOperationId === "string"
-          ? body.transferOperationId
-          : "";
-      const planFingerprint =
-        typeof body?.transferPlanFingerprint === "string"
-          ? body.transferPlanFingerprint
-          : "";
-      if (
-        !control ||
-        !fromOwnerId ||
-        !toOwnerId ||
-        fromOwnerId === toOwnerId ||
-        fromOwnerId.length > 512 ||
-        toOwnerId.length > 512 ||
-        !OWNER_TRANSFER_OPERATION_ID_PATTERN.test(operationId) ||
-        !OWNER_TRANSFER_OPERATION_ID_PATTERN.test(planFingerprint)
-      ) {
-        return json(
-          { code: "bad_request", message: "Malformed request." },
-          400,
-        );
-      }
-      const attempt = await createCoordinatorAttempt({
-        control,
-        operationId,
-        planFingerprint,
-        fromOwnerId,
-        toOwnerId,
-      });
-      return await env.OWNER_TRANSFER_COORDINATORS.getByName(
-        `owner-transfer-${operationId}`,
-      ).fetch("https://owner-transfer-coordinator/ack", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ attempt }),
-      });
-    }
     const turnMatch = url.pathname.match(/^\/sessions\/([^/]+)\/turns$/);
     if (request.method === "POST" && turnMatch) {
       const buildSessionName = turnMatch[1]!;
@@ -1714,7 +1254,7 @@ const router = {
         url.origin,
       ).toString();
       const text = await request.text();
-      // Convex's desktop dispatch, execution placement's agent branch and a
+      // The desktop dispatch, execution placement's agent branch and a
       // hosted-browser resume all arrive here. Refuse a malformed agent body
       // at the edge rather than instantiating the session for it; the session
       // repeats the same parse, because it trusts nothing it did not check.
@@ -1768,21 +1308,6 @@ const router = {
         // Exact placement turn + cancellation identity must survive the
         // gateway. Dropping this body regresses to conversation-wide Stop and
         // can cancel a newer turn after a delayed retry.
-        body: await request.text(),
-      });
-    }
-    // Convex-driven writes into a conversation's journal, plus the operator
-    // surfaces. Pure pass-throughs: the DO owns every decision, this worker
-    // only proves the caller holds the service secret.
-    const conversationAdminMatch = url.pathname.match(
-      /^\/conversations\/([^/]+)\/(cards|purge)$/,
-    );
-    if (request.method === "POST" && conversationAdminMatch) {
-      return env.ORCHESTRATOR_SESSIONS.getByName(
-        conversationName(conversationAdminMatch[1]!),
-      ).fetch(`https://orchestrator-session/${conversationAdminMatch[2]!}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
         body: await request.text(),
       });
     }
@@ -1865,256 +1390,6 @@ const router = {
       url.pathname === "/internal/sandboxes/retire"
     ) {
       return await retireSandboxInstance(env, request);
-    }
-    // Owner-level object storage sweep, the storage half of account deletion.
-    // Convex holds no credential for any bucket here and cannot enumerate this
-    // worker's KV, so everything outside Convex is reached from this one route.
-    // See the store table above `OwnerPurgeRequest` for the list it walks and
-    // why each entry needs the shape it has.
-    //
-    // Contract with the caller (convex/cloud_purge.ts):
-    //   - It is idempotent. Every step is "delete if present".
-    //   - It never reports success it did not achieve: anything it could not
-    //     finish comes back in `pending`, and the caller keeps the Convex rows
-    //     that name those bytes until a later pass returns `pending: []`.
-    //   - The named stores (`appSlugs` and legacy
-    //     `buildPrefixes`) cannot all be derived from the owner id, so Convex
-    //     reads them off the rows and sends them here BEFORE deleting those
-    //     rows. New app builds are additionally swept by their owner-hash root
-    //     above, which catches uploads that never acquired a Convex row.
-    // Retire ONE superseded build's artifacts. Deliberately not the owner
-    // purge: that route fences the owner, refuses while turns run, and walks
-    // every store. Activating a new app build must not touch anything else.
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/apps/builds/retire"
-    ) {
-      const body = (await request.json().catch(() => null)) as {
-        ownerId?: unknown;
-        artifactPrefix?: unknown;
-      } | null;
-      const ownerId = typeof body?.ownerId === "string" ? body.ownerId : "";
-      const prefix =
-        typeof body?.artifactPrefix === "string" ? body.artifactPrefix : "";
-      if (!ownerId || !prefix) {
-        return json({ error: "ownerId and artifactPrefix required." }, 400);
-      }
-      const ownerHash = await sha256Hex(ownerId);
-      if (
-        !(
-          LEGACY_BUILD_PREFIX_PATTERN.test(prefix) ||
-          isOwnerAppBuildPrefix(prefix, ownerHash)
-        )
-      ) {
-        return json({ error: "artifactPrefix does not belong to owner." }, 403);
-      }
-      try {
-        const swept = await sweepR2Prefix(env.APP_BUILDS, `${prefix}/`);
-        return json({ ok: true, deleted: swept.deleted, done: swept.done });
-      } catch (error) {
-        return json({ error: errorMessage(error) }, 503);
-      }
-    }
-    if (request.method === "POST" && url.pathname === "/owners/purge/begin") {
-      const body = (await request.json()) as {
-        ownerId?: string;
-        mode?: OwnerPurgeMode;
-        requestId?: string;
-        expectedGeneration?: string;
-      };
-      const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
-      const requestId = normalizeOwnerGeneration(body.requestId);
-      if (!ownerId || !requestId) {
-        return json({ error: "ownerId and requestId required." }, 400);
-      }
-      try {
-        return json(
-          await beginOwnerPurge(
-            env,
-            ownerId,
-            body.mode === "permanent" ? "permanent" : "temporary",
-            requestId,
-            body.expectedGeneration,
-          ),
-        );
-      } catch (error) {
-        return json({ error: errorMessage(error) }, 409);
-      }
-    }
-    if (request.method === "POST" && url.pathname === "/owners/purge/release") {
-      const body = (await request.json()) as {
-        ownerId?: string;
-        purgeGeneration?: string;
-      };
-      const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
-      if (!ownerId || !body.purgeGeneration) {
-        return json({ error: "ownerId and purgeGeneration required." }, 400);
-      }
-      const released = await callOwnerFence(env, ownerId, "release", {
-        generation: body.purgeGeneration,
-      });
-      return released;
-    }
-    if (request.method === "POST" && url.pathname === "/owners/purge") {
-      const body = (await request.json()) as OwnerPurgeRequest;
-      const ownerId = typeof body.ownerId === "string" ? body.ownerId : "";
-      const browserProfiles = body.browserProfiles ?? [];
-      const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
-      if (!ownerId || !body.purgeGeneration) {
-        return json({ error: "ownerId and purgeGeneration required." }, 400);
-      }
-      if (
-        body.mode !== undefined &&
-        body.mode !== "reset" &&
-        body.mode !== "delete"
-      ) {
-        return json({ error: "Malformed owner purge mode." }, 400);
-      }
-      if (
-        !Array.isArray(browserProfiles) ||
-        browserProfiles.length > 1 ||
-        browserProfiles.some((profile) => profile !== "default") ||
-        new Set(browserProfiles).size !== browserProfiles.length ||
-        (browserProfiles.length > 0 && !ownerGeneration)
-      ) {
-        return json({ error: "Malformed browser profile purge request." }, 400);
-      }
-      const fenced = await callOwnerFence(env, ownerId, "assert-blocked", {
-        generation: body.purgeGeneration,
-      });
-      if (!fenced.ok) {
-        return json({ error: "Owner is not fenced for this purge." }, 409);
-      }
-      const fenceState = (await fenced.json()) as {
-        active?: OwnerPurgeFence["active"];
-      };
-      if (Object.keys(fenceState.active ?? {}).length > 0) {
-        return json({ error: "Owner cloud turns are still active." }, 409);
-      }
-      let turnStateDeleted = 0;
-      let turnStatePending = false;
-      try {
-        const turnStatePurge = await callOwnerFence(
-          env,
-          ownerId,
-          "turn-state/purge",
-          {
-            schemaVersion: 1,
-            generation: body.purgeGeneration,
-          },
-        );
-        const result = (await turnStatePurge.json().catch(() => null)) as {
-          deleted?: unknown;
-          pending?: unknown;
-        } | null;
-        if (
-          !turnStatePurge.ok ||
-          !result ||
-          !Number.isSafeInteger(result.deleted) ||
-          (result.deleted as number) < 0 ||
-          typeof result.pending !== "boolean"
-        ) {
-          turnStatePending = true;
-        } else {
-          turnStateDeleted = result.deleted as number;
-          turnStatePending = result.pending;
-        }
-      } catch (error) {
-        turnStatePending = true;
-        log("error", "owner_storage_purge_step_failed", {
-          store: "turn-state",
-          message: errorMessage(error),
-        });
-      }
-      let browserProfilesDeleted = 0;
-      const browserProfilePending: string[] = [];
-      if (browserProfiles.includes("default")) {
-        const browserPurgeRequestId = crypto.randomUUID();
-        if (!env.BROWSER_GATEWAY) {
-          browserProfilePending.push("browser-profile:default");
-        } else {
-          try {
-            const browserPurge = await env.BROWSER_GATEWAY.fetch(
-              "https://browser-gateway/internal/owners/purge",
-              {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  schemaVersion: 1,
-                  ownerId,
-                  requestId: browserPurgeRequestId,
-                }),
-              },
-            );
-            const result = (await browserPurge.json().catch(() => null)) as {
-              schemaVersion?: unknown;
-              requestId?: unknown;
-              profileId?: unknown;
-              purged?: unknown;
-            } | null;
-            if (
-              !browserPurge.ok ||
-              result?.schemaVersion !== 1 ||
-              result.requestId !== browserPurgeRequestId ||
-              result.profileId !== "default" ||
-              result.purged !== true
-            ) {
-              browserProfilePending.push("browser-profile:default");
-            } else {
-              browserProfilesDeleted = 1;
-            }
-          } catch {
-            browserProfilePending.push("browser-profile:default");
-            log("error", "owner_storage_purge_step_failed", {
-              store: "browser-profile:default",
-              errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
-            });
-          }
-        }
-      }
-      // The owner object's own data: conversations and their orchestrators,
-      // agent threads, and every other domain's purge hook. Only the
-      // owner-level pass names a mode; per-app passes leave it alone.
-      let ownerDataPending = false;
-      if (body.mode) {
-        try {
-          const ownerData = await env.OWNER_GATES.getByName(
-            ownerId,
-          ).purgeOwnerData({ mode: body.mode });
-          if (ownerData.pending.length > 0) {
-            ownerDataPending = true;
-            log("info", "owner_data_purge_pending", {
-              domains: ownerData.pending,
-            });
-          }
-        } catch (error) {
-          ownerDataPending = true;
-          log("error", "owner_storage_purge_step_failed", {
-            store: "owner-data",
-            message: errorMessage(error),
-          });
-        }
-      }
-      const legacyReport = await purgeOwnerStorage(env, ownerId, body);
-      const report: OwnerPurgeReport = {
-        ok: true,
-        deleted:
-          legacyReport.deleted + turnStateDeleted + browserProfilesDeleted,
-        pending: Array.from(
-          new Set([
-            ...legacyReport.pending,
-            ...(turnStatePending ? ["turn-state"] : []),
-            ...browserProfilePending,
-            ...(ownerDataPending ? ["owner-data"] : []),
-          ]),
-        ),
-      };
-      log("info", "owner_storage_purged", {
-        requestId,
-        deleted: report.deleted,
-        pending: report.pending,
-      });
-      return json(report);
     }
     return json({ error: "Not found." }, 404);
   },

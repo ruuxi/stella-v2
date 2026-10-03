@@ -40,7 +40,7 @@ mock.restore();
 
 // A distinct issuer and kid: the JWKS cache is module-global, so sharing
 // them with another suite would serve its keys to this one.
-const ISSUER = "https://placement.convex.site";
+const ISSUER = "https://placement.stella.test";
 const SERVICE_SECRET = "builder-service-secret";
 const PAIR_SECRET = "pair-secret-abcdefghijklmnop";
 const originalFetch = globalThis.fetch;

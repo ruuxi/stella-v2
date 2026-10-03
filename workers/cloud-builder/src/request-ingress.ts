@@ -5,7 +5,6 @@ const MiB = 1024 * KiB;
 
 export const CLOUD_BUILDER_BODY_LIMITS = {
   tinyControl: 64 * KiB,
-  control: 1 * MiB,
   turn: 2 * MiB,
   conversationAppend: 5 * MiB,
   localTurnFinish: 17 * MiB,
@@ -72,24 +71,10 @@ export const serviceJsonBodyLimit = (
     /^\/internal\/dev-acceptance\/conversations\/[^/]+\/probe$/u.test(
       pathname,
     ) ||
-    pathname === "/owners/purge/begin" ||
-    pathname === "/owners/purge/release" ||
     pathname === "/routes/activate" ||
-    pathname === "/routes/suspend" ||
-    pathname === "/internal/owners/activity/register" ||
-    pathname === "/internal/owners/activity/unregister"
+    pathname === "/routes/suspend"
   ) {
     return CLOUD_BUILDER_BODY_LIMITS.tinyControl;
-  }
-  if (
-    pathname === "/internal/owners/transfer-product-state" ||
-    pathname === "/internal/owners/transfer-ack" ||
-    /^\/internal\/conversations\/[^/]+\/transfer-owner$/u.test(pathname)
-  ) {
-    return CLOUD_BUILDER_BODY_LIMITS.control;
-  }
-  if (pathname === "/owners/purge") {
-    return CLOUD_BUILDER_BODY_LIMITS.conversationAppend;
   }
   return null;
 };

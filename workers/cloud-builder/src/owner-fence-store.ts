@@ -17,8 +17,7 @@ export type OwnerFenceLeaseRole =
   | "run"
   | "aux"
   | "orchestrator"
-  | "activity"
-  | "transfer";
+  | "activity";
 
 export type OwnerFenceLeaseState = "active" | "retired";
 
@@ -126,7 +125,7 @@ const DDL = [
      session_id               TEXT    NOT NULL,
      turn_id                  TEXT    NOT NULL,
      namespace                TEXT    NOT NULL CHECK (namespace IN ('build', 'orchestrator', 'activity')),
-     role                     TEXT    NOT NULL CHECK (role IN ('run', 'aux', 'orchestrator', 'activity', 'transfer')),
+     role                     TEXT    NOT NULL CHECK (role IN ('run', 'aux', 'orchestrator', 'activity')),
      state                    TEXT    NOT NULL CHECK (state IN ('active', 'retired')),
      expires_at               INTEGER NOT NULL,
      created_at               INTEGER NOT NULL,
@@ -148,7 +147,6 @@ const ROLES = new Set<OwnerFenceLeaseRole>([
   "aux",
   "orchestrator",
   "activity",
-  "transfer",
 ]);
 
 const assertSafeTime = (value: number, field: string): void => {

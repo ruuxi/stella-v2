@@ -1,4 +1,4 @@
-// Keep these aligned with the browser origins trusted by Convex auth.
+// Keep these aligned with the browser origins Better Auth trusts (src/auth).
 const BROWSER_ORIGINS = new Set([
   "https://stella.sh",
   // The desktop renderer, served from source (desktop/electron/source).

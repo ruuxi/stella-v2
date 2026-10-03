@@ -10,7 +10,7 @@
  *   live in `owner_live_subs` so they survive hibernation. After every write,
  *   each open subscription is rerun and its value is sent only when its hash
  *   moved.
- * - **Jobs:** `owner_jobs` replaces Convex's `runAfter`/`runAt`. The owner
+ * - **Jobs:** `owner_jobs` are the owner's scheduled work. The owner
  *   object's single alarm fires at `nextDeadline()` and calls `onAlarm()`.
  */
 

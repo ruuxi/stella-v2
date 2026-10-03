@@ -171,7 +171,7 @@ import type {
 } from "../general-agent-turn.js";
 import type { InstanceSize } from "../instance-size.js";
 import { normalizeOwnerGeneration } from "../owner-generation.js";
-import { stableValueMarker } from "../owner-transfer-coordinator.js";
+import { stableValueMarker } from "../hash.js";
 import type { SandboxTarget, SandboxWorkload } from "../sandbox-lifecycle.js";
 import type { ThreadMessageInput } from "../thread-transcript.js";
 import type {
@@ -245,9 +245,9 @@ export class BuildSessionObject extends DurableObject<Env> {
 
   // ── The turn plane: owner gate, capabilities, owner events, transcript ─
   //
-  // Everything below replaces a synchronous Convex round trip that used to sit
+  // Everything below replaces a synchronous control-plane round trip that used to sit
   // on a turn's critical path. Admission is the owner gate's, authority is a
-  // signed capability rather than a reusable token Convex has to look up, and
+  // signed capability rather than a reusable token the control plane has to look up, and
   // what the owner indexes is delivered to the owner gate instead of an HTTP
   // callback with its own retry ladder.
 
@@ -973,7 +973,7 @@ export class BuildSessionObject extends DurableObject<Env> {
     const raw = (await request.json().catch(() => null)) as unknown;
     // An agent attempt arrives in the turn-plane contract shape and is
     // validated by the same parser the public `/sessions/:id/turns` route
-    // uses, so the orchestrator's direct dispatch and Convex's service call
+    // uses, so the orchestrator's direct dispatch and a service call
     // are admitted by one rule.
     let turn: TurnRequest;
     if (
@@ -1277,9 +1277,9 @@ export class BuildSessionObject extends DurableObject<Env> {
 
   // Accept the dispatch immediately and run the turn in the background: a
   // sandbox turn takes minutes, and holding the POST open that long means a
-  // mid-turn transport failure makes Convex mark a still-running turn (and
+  // mid-turn transport failure makes the owner mark a still-running turn (and
   // its thread) failed while the agent goes on to finish. Outcomes reach
-  // Convex only through events/threads-complete callbacks.
+  // the owner only through events/threads-complete callbacks.
   /**
    * The placement this turn is admitted under, decided once and stored beside
    * it. A turn dispatched without an engine selection has nothing to place, so

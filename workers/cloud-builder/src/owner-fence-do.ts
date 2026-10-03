@@ -1,9 +1,4 @@
 import {
-  OWNER_PRODUCT_TRANSFER_LEASE_MS,
-  assertOwnerTransferReservation,
-  ownerTransferLeaseConflicts,
-} from "./owner-product-transfer.js";
-import {
   normalizeOwnerGeneration,
   ownerGenerationMatches,
   ownerPurgeBeginDisposition,
@@ -25,7 +20,7 @@ export type OwnerPurgeFence = {
   /** Bound on the first trusted direct call into this owner-named DO. */
   ownerId?: string;
   generation: string;
-  /** Convex lifecycle operation that created the current blocked fence. */
+  /** Owner lifecycle operation that created the current blocked fence. */
   beginRequestId?: string;
   /** Makes a durable retry of the last temporary release idempotent. */
   lastReleasedGeneration?: string;
@@ -42,8 +37,8 @@ export type OwnerPurgeFence = {
       sessionId: string;
       turnId: string;
       namespace: "build" | "orchestrator" | "activity";
-      role: "run" | "aux" | "orchestrator" | "activity" | "transfer";
-      /** Convex owner-lifecycle generation carried by the admitted activity. */
+      role: "run" | "aux" | "orchestrator" | "activity";
+      /** Owner-lifecycle generation carried by the admitted activity. */
       ownerGeneration?: string;
       /** Fence generation returned when this exact lease was admitted. */
       reservationGeneration?: string;
@@ -54,10 +49,7 @@ export type OwnerPurgeFence = {
   >;
 };
 
-type OwnerFenceHostEnv = Pick<
-  Cloudflare.Env,
-  "BACKUP_BUCKET" | "BUILDER_SERVICE_SECRET"
->;
+type OwnerFenceHostEnv = Pick<Cloudflare.Env, "BACKUP_BUCKET">;
 
 export type OwnerFenceHost = {
   fetch(path: string, request: Request): Promise<Response>;
@@ -67,11 +59,11 @@ export type OwnerFenceHost = {
 
 /**
  * A local owner-gate barrier that must complete before the fence commits an
- * authority-changing begin or transfer lease. It receives only parsed route
- * data, never request headers or credentials.
+ * authority-changing begin. It receives only parsed route data, never request
+ * headers or credentials.
  */
 export type OwnerFenceAuthorityChangeHook = (args: {
-  path: "begin" | "register";
+  path: "begin";
   body: Readonly<Record<string, unknown>>;
 }) => Promise<void>;
 
@@ -116,7 +108,7 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       sessionId?: string;
       turnId?: string;
       namespace?: "build" | "orchestrator" | "activity";
-      role?: "run" | "aux" | "orchestrator" | "activity" | "transfer";
+      role?: "run" | "aux" | "orchestrator" | "activity";
       workspace?: string;
       expiresAt?: number;
     };
@@ -214,36 +206,11 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
         },
         storage: this.ctx.storage,
         bucket: this.env.BACKUP_BUCKET,
-        nativeIntegritySecret: this.env.BUILDER_SERVICE_SECRET,
       });
       if (response) return response;
     }
     if (path === "register") {
       const ownerGeneration = normalizeOwnerGeneration(body.ownerGeneration);
-      const activeLeases = Object.values(current.active);
-      const isTransferControlActivity =
-        body.role === "activity" &&
-        (body.turnId?.startsWith("owner-product-transfer:") ||
-          body.turnId?.startsWith("owner-transfer:"));
-      const transferBusy =
-        body.role === "transfer"
-          ? activeLeases.some((lease) =>
-              lease.role === "transfer"
-                ? ownerTransferLeaseConflicts(lease, body)
-                : !(
-                    lease.role === "activity" &&
-                    (lease.turnId.startsWith("owner-product-transfer:") ||
-                      lease.turnId.startsWith("owner-transfer:"))
-                  ),
-            )
-          : activeLeases.some((lease) => lease.role === "transfer") &&
-            !isTransferControlActivity;
-      const invalidTransferExpiry =
-        body.role === "transfer" &&
-        (typeof body.expiresAt !== "number" ||
-          !Number.isFinite(body.expiresAt) ||
-          body.expiresAt <= now ||
-          body.expiresAt > now + OWNER_PRODUCT_TRANSFER_LEASE_MS);
       if (current.state !== "open") {
         return json(
           {
@@ -256,20 +223,13 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
           409,
         );
       }
-      if (transferBusy) {
-        return json(
-          { code: "transfer_busy", error: "Owner activity is busy." },
-          409,
-        );
-      }
       if (
         (body.generation !== undefined &&
           body.generation !== current.generation) ||
         !body.leaseId ||
         !body.sessionId ||
         !body.turnId ||
-        !ownerGeneration ||
-        invalidTransferExpiry
+        !ownerGeneration
       ) {
         return json(
           { code: "bad_request", error: "Invalid owner lease." },
@@ -287,11 +247,9 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
           ? "run"
           : body.role === "orchestrator"
             ? "orchestrator"
-            : body.role === "transfer"
-              ? "transfer"
-              : body.role === "activity"
-                ? "activity"
-                : "aux";
+            : body.role === "activity"
+              ? "activity"
+              : "aux";
       const expiresAt =
         typeof body.expiresAt === "number" &&
         Number.isFinite(body.expiresAt) &&
@@ -317,12 +275,6 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
           { code: "lease_capacity", error: "Owner lease capacity exceeded." },
           503,
         );
-      }
-      if (role === "transfer") {
-        await this.beforeAuthorityChange?.({
-          path: "register",
-          body: body as Readonly<Record<string, unknown>>,
-        });
       }
       let result!: ReturnType<OwnerFenceStore["registerLeaseExact"]>;
       await this.ctx.storage.transaction(async (txn) => {
@@ -484,23 +436,6 @@ class DurableObjectOwnerFenceHost implements OwnerFenceHost {
       return renewed.status === "renewed"
         ? json({ ok: true, expiresAt: renewed.lease.expiresAt })
         : json({ error: "Owner purge fence changed." }, 409);
-    }
-    if (path === "assert-transfer") {
-      const lease = body.leaseId ? current.active[body.leaseId] : undefined;
-      const assertion = assertOwnerTransferReservation(lease, body, current);
-      if (assertion.ok) {
-        // A purge that began after this reservation must wait for transfer
-        // acknowledgement (or its bounded expiry). Normal turn assertions
-        // still fail as soon as the purge fence closes.
-        return json({ ok: true, generation: current.generation });
-      }
-      return json(
-        {
-          code: assertion.code,
-          error: "Ownership-transfer reservation is no longer active.",
-        },
-        409,
-      );
     }
     if (path === "assert-blocked") {
       return current.state === "blocked" &&

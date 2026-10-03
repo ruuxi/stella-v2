@@ -2,8 +2,8 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import type {
   BillingControlResult,
   BillingControlRpc,
-  ConvexOwnerEnforcementState,
-  ConvexSessionCapabilityRequest,
+  OwnerEnforcementState,
+  SessionCapabilityRequest,
   EngineAccessRequest,
   EngineAccessResponse,
   GatewayConfigSnapshot,
@@ -35,7 +35,7 @@ const tierCeilingMicroCents = (env: Env, name: string, defaultUsd: number): numb
  */
 export class BillingControl extends WorkerEntrypoint<Env> implements BillingControlRpc {
   async issueSessionCapability(
-    request: ConvexSessionCapabilityRequest,
+    request: SessionCapabilityRequest,
   ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>> {
     if (typeof request?.ownerId !== "string" || !request.ownerId || request.ownerId.length > 512) {
       return { ok: false, status: 400, code: "bad_request", retryable: false };
@@ -84,7 +84,7 @@ export class BillingControl extends WorkerEntrypoint<Env> implements BillingCont
   }
 
   /** One owner's enforcement, from its abuse domain. Seeds the gateway's owner object. */
-  async ownerEnforcement(ownerId: string): Promise<ConvexOwnerEnforcementState> {
+  async ownerEnforcement(ownerId: string): Promise<OwnerEnforcementState> {
     if (typeof ownerId !== "string" || !ownerId || ownerId.length > 512) {
       throw new Error("The owner id is invalid.");
     }

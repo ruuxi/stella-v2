@@ -942,7 +942,7 @@ export const runContainerAgentTurn = async (
       })
       .catch(() => undefined);
     // Storage is the redelivery's only memory: clear it once the terminal
-    // state is in Convex, and leave it — with the alarm deliverTerminal
+    // state is delivered, and leave it — with the alarm deliverTerminal
     // re-armed — when it is not.
     if (delivered && (await host.ownsExactTurn(turn))) {
       if (await host.settleAgentTransientBackup(turn)) {

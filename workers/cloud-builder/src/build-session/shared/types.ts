@@ -1,4 +1,3 @@
-import type { LegacyDirectoryBackup as DirectoryBackup } from "../../sandbox-client.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type {
   CloudBrowserResumeReceipt,
@@ -10,11 +9,6 @@ import type {
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
 import type { InstanceSize } from "../../instance-size.js";
-import type { OwnerTransferCoordinator } from "../../owner-transfer-coordinator-do.js";
-import type {
-  OwnerTransferCoordinatorAttempt,
-  OwnerTransferReservationEnvelope,
-} from "../../owner-transfer-coordinator.js";
 
 export type Execution = {
   success: boolean;
@@ -44,7 +38,7 @@ export type TurnRequest = {
   /** One for conversation children, two for their children. */
   agentDepth: number;
   /**
-   * Desktop that owns this thread's delivery. Present means Convex's
+   * Desktop that owns this thread's delivery. Present means the owner's
    * projection wakes the parent conversation, so the session must not.
    */
   originDeviceId?: string;
@@ -58,13 +52,13 @@ export type TurnRequest = {
   threadId?: string;
   workspace?: "shared" | "new" | "fork";
   workspaceForkId?: string;
-  /** Exact immutable route selected by Convex for this turn. */
+  /** Exact immutable route selected by the owner gate for this turn. */
   execution?: CloudExecutionSelection;
-  /** Managed-model audience Convex resolved for the owner at dispatch. */
+  /** Managed-model audience the owner gate resolved for the owner at dispatch. */
   audience: ManagedModelAudience;
   /** Spend ceiling for this turn's model calls (`GATEWAY_BUDGET_UNLIMITED` allowed). */
   budgetMicroCents: number;
-  /** Convex owner-lifecycle generation captured before this dispatch. */
+  /** Owner-lifecycle generation captured before this dispatch. */
   ownerGeneration: string;
   /** Monotonic generation of this exact reused agent thread attempt. */
   attemptGeneration?: number;
@@ -241,7 +235,7 @@ export type AgentExecutorResult = {
 };
 
 /**
- * A terminal state that has been decided but may not have reached Convex yet.
+ * A terminal state that has been decided but may not have reached the owner yet.
  *
  * It is written to DO storage before the first delivery attempt so the alarm
  * can re-deliver exactly this, unchanged. Without it the success path was the
@@ -269,7 +263,7 @@ export type PendingTerminal = {
   /**
    * The turn-event ordinal this terminal reserved. Remembered with the
    * decision so a redelivery re-sends the same `turn.event` rather than
-   * minting a second one Convex would have to reconcile.
+   * minting a second one the owner would have to reconcile.
    */
   eventSeq?: number;
   /**
@@ -282,7 +276,7 @@ export type PendingTerminal = {
 };
 
 /**
- * Durable handoff from a finished executor to Convex's waiting projection.
+ * Durable handoff from a finished executor to the owner's waiting projection.
  * The descriptor is intentionally secret-free. It is committed before the
  * sandbox is destroyed so a Worker restart can redeliver the same interaction.
  */
@@ -338,7 +332,7 @@ export type ConversationCaller = {
  * Who may submit a dispatch, and as what.
  *
  * Three callers exist and they are told apart before anything is parsed: the
- * service secret (Convex schedules and cloud-originated work, any ingress), a
+ * service secret (the owner schedules and cloud-originated work, any ingress), a
  * signed-in user whose request carries a mobile pairing proof (ingress
  * `mobile`, bound to the phone and the desktop the proof names), and a plain
  * signed-in user (ingress `desktop` or `browser` only — nothing else has a
@@ -363,25 +357,11 @@ export type NativeTransientBackup = {
 
 export type WorkspaceBackupDebt = { backupIds: string[] };
 
-export type WorkspaceCheckpointImport = {
-  sourceWorkspaceKey: string;
-  sourceWorkspace: string;
-  descriptor?: DirectoryBackup;
-  backupIds: string[];
-  /** Finds pre-cleanup-debt backups during eventual account/workspace purge. */
-  historicalBackupName: string;
-};
-
-export type WorkspaceCheckpointImports = {
-  schemaVersion: 1;
-  imports: WorkspaceCheckpointImport[];
-};
-
-// ── Owner-scoped storage outside Convex ──────────────────────────────────────
+// ── Owner-scoped storage outside the owner object ───────────────────────────
 
 /**
- * THE LIST. Every store outside Convex that holds data belonging to one owner,
- * how it is addressed, and what deletes it. `POST /owners/purge` walks exactly
+ * THE LIST. Every store outside the owner object that holds data belonging to one owner,
+ * how it is addressed, and what deletes it. `purgeOwnerStorage` walks exactly
  * this list; a store that is not here is a store account deletion does not
  * reach, so adding one to the system without adding it here is the defect.
  *
@@ -411,9 +391,8 @@ export type WorkspaceCheckpointImports = {
  *    destroys that sandbox, which drops the handle. Cloudflare has no snapshot
  *    delete, so the unreferenced snapshot itself expires after 30 days.
  *    A workspace that must survive is a `backups/` archive, which IS here.
- *  - The per-user drive bucket is bound to Convex (the @convex-dev/r2
- *    component), not to this worker. Convex deletes it from its own file rows;
- *    see DRIVE in convex/cloud_purge.ts.
+ *  - The drive's R2 objects are deleted by the owner object's drive domain
+ *    purge hook, which knows its own file rows.
  *
  * The two hash prefixes are duplicated from their owners deliberately —
  * importing `ConversationArchive` or `AgentHome` here would pull a DO-shaped
@@ -423,9 +402,9 @@ export type WorkspaceCheckpointImports = {
  */
 export type OwnerPurgeRequest = {
   ownerId?: string;
-  /** Convex lifecycle generation; distinct from the external purge fence. */
+  /** Owner lifecycle generation; distinct from the external purge fence. */
   ownerGeneration?: string;
-  /** Issued by `/owners/purge/begin`; proves this owner is quiesced. */
+  /** Issued by `beginOwnerPurge`; proves this owner is quiesced. */
   purgeGeneration?: string;
   /** App slugs whose hosted route row must go. */
   appSlugs?: string[];
@@ -434,20 +413,11 @@ export type OwnerPurgeRequest = {
   /** Private browser profiles that must be confirmed gone before row drain. */
   browserProfiles?: string[];
   /**
-   * Reset or account deletion, from Convex's purge job. Present on the final
+   * Reset or account deletion, from the owner's `account.purge` job. Present on the final
    * owner-level pass, which also purges the owner object's own data
    * (`OwnerGate.purgeOwnerData`); per-app passes omit it.
    */
   mode?: "reset" | "delete";
-};
-
-export type OwnerTransferCoordinatorContext = {
-  operationId: string;
-  planFingerprint: string;
-  passId: string;
-  attempt: OwnerTransferCoordinatorAttempt;
-  stub: DurableObjectStub<OwnerTransferCoordinator>;
-  reservation?: OwnerTransferReservationEnvelope;
 };
 
 export type OwnerPurgeReport = {

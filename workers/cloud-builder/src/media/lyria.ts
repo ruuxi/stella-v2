@@ -1,6 +1,6 @@
 /**
- * Lyria 3 music clips through the Gemini REST API. A port of the Convex
- * `media_lyria.ts`, without the SDK: one `generateContent` request answers
+ * Lyria 3 music clips through the Gemini REST API, without the SDK: one
+ * `generateContent` request answers
  * with the clip inline.
  */
 

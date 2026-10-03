@@ -233,7 +233,7 @@ describe("authoritative history load", () => {
 });
 
 describe("turn events and web search", () => {
-  test("an event goes to the session's outbox transport, not Convex", async () => {
+  test("an event goes to the session's outbox transport", async () => {
     const { control, transport } = harness();
 
     await control.emit({

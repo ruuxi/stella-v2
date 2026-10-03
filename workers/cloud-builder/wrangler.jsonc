@@ -50,11 +50,6 @@
     "SANDBOX_SNAPSHOTS": "1",
     "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
     "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-dev.lolruuxi.workers.dev",
-    // Pinned issuer for the conversation socket's JWT verification, and the
-    // fallback Convex origin for index flushes that happen outside a turn.
-    // Never the JWKS env var: that is the PRIVATE key set and stays in Convex.
-    "STELLA_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
-    "STELLA_CONVEX_CLOUD_URL": "https://outgoing-bulldog-865.convex.cloud",
     // Strictly a dev-target proof seam. Production configs must omit both
     // values; the Worker and DO independently deny the route without them.
     "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
@@ -227,10 +222,6 @@
         "class_name": "OrchestratorSession",
       },
       {
-        "name": "OWNER_TRANSFER_COORDINATORS",
-        "class_name": "OwnerTransferCoordinator",
-      },
-      {
         // One object per owner: plan snapshot and running-turn replay registry.
         "name": "OWNER_GATES",
         "class_name": "OwnerGate",
@@ -290,6 +281,11 @@
       "tag": "v10",
       "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
     },
+    {
+      // Owner transfer is gone: Better Auth upgrades anonymous users in place.
+      "tag": "v11",
+      "deleted_classes": ["OwnerTransferCoordinator"],
+    },
   ],
   "env": {
     "bn118": {
@@ -305,8 +301,6 @@
         "SANDBOX_SNAPSHOTS": "1",
         "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
         "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-basic-nightingale-118.lolruuxi.workers.dev",
-        "STELLA_CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
-        "STELLA_CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
         "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
         "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
         "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway-dev.lolruuxi.workers.dev",
@@ -412,10 +406,6 @@
             "class_name": "OrchestratorSession",
           },
           {
-            "name": "OWNER_TRANSFER_COORDINATORS",
-            "class_name": "OwnerTransferCoordinator",
-          },
-          {
             "name": "OWNER_GATES",
             "class_name": "OwnerGate",
           },
@@ -472,6 +462,11 @@
           "tag": "v10",
           "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
         },
+        {
+          // Owner transfer is gone: Better Auth upgrades anonymous users in place.
+          "tag": "v11",
+          "deleted_classes": ["OwnerTransferCoordinator"],
+        },
       ],
     },
     "production": {
@@ -487,8 +482,6 @@
         "SANDBOX_SNAPSHOTS": "1",
         "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-prod.lolruuxi.workers.dev",
         "TRUSTED_APPS_HOST_BASE_URL": "https://stella-v2-apps-auth-prod.lolruuxi.workers.dev",
-        "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
-        "STELLA_CONVEX_CLOUD_URL": "https://intent-jackal-330.convex.cloud",
         "STELLA_DEPLOYMENT_IDENTITY": "prod:intent-jackal-330",
         "MODEL_GATEWAY_URL": "https://stella-v2-model-gateway.lolruuxi.workers.dev",
         "CAPABILITY_SIGNING_KID": "builder-prod-1",
@@ -593,10 +586,6 @@
             "class_name": "OrchestratorSession",
           },
           {
-            "name": "OWNER_TRANSFER_COORDINATORS",
-            "class_name": "OwnerTransferCoordinator",
-          },
-          {
             "name": "OWNER_GATES",
             "class_name": "OwnerGate",
           },
@@ -652,6 +641,11 @@
           // One Sandbox class serves both sizes and both workloads.
           "tag": "v10",
           "deleted_classes": ["SandboxSmall", "AppBuildSandbox"],
+        },
+        {
+          // Owner transfer is gone: Better Auth upgrades anonymous users in place.
+          "tag": "v11",
+          "deleted_classes": ["OwnerTransferCoordinator"],
         },
       ],
     },

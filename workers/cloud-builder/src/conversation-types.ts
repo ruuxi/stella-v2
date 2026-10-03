@@ -14,12 +14,13 @@ import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-life
  */
 
 /**
- * 2 adds `spills.bytes`; 3 adds owner-transfer object tracking; 4 adds durable
- * append receipts so an acknowledged foreign write remains idempotent after
- * its hot journal rows roll into R2; 5 adds retired writer fences so a delayed
- * pre-rewind writer cannot recreate a removed suffix in the new epoch; 6 adds
- * atomic edit receipts for crash-safe rewind replay; 7 adds retired turn
- * fences; 8 moves transcript search into a rollover-surviving FTS5 table.
+ * 2 adds `spills.bytes`; 3 added owner-move object tracking (since removed);
+ * 4 adds durable append receipts so an acknowledged foreign write remains
+ * idempotent after its hot journal rows roll into R2; 5 adds retired writer
+ * fences so a delayed pre-rewind writer cannot recreate a removed suffix in
+ * the new epoch; 6 adds atomic edit receipts for crash-safe rewind replay;
+ * 7 adds retired turn fences; 8 moves transcript search into a
+ * rollover-surviving FTS5 table.
  */
 export const JOURNAL_SCHEMA_VERSION = 8;
 export const PROTOCOL_VERSION = 1;
@@ -313,7 +314,7 @@ export const HEADER_ANONYMOUS = "x-stella-anonymous";
 export const HEADER_IDENTITY_LEVEL = "x-stella-identity-level";
 export const HEADER_TOKEN_IAT = "x-stella-token-iat";
 /**
- * The pinned Convex origin the worker verified against. It rides along so the
+ * The pinned backend origin the worker verified against. It rides along so the
  * DO can verify a mid-life `auth` frame without needing its own copy of the
  * issuer configuration — the worker's isolate globals are not the DO's.
  */
@@ -395,7 +396,7 @@ export interface ConversationHubDeps {
     identity: SocketIdentity,
   ) => Promise<ConversationOwnerRecord | null>;
   cancelTurn: (turnId: string) => Promise<void>;
-  /** Storage flushes a lagging Convex index projection on first connect. */
+  /** Storage flushes a lagging owner index row on first connect. */
   onConnect: () => void;
   conversationId: () => string;
   log: ConversationLogger;
@@ -411,7 +412,7 @@ export type ConversationHubFactory = (
  * A hub that accepts nothing. It is what runs before the socket half of this
  * migration lands, and what runs if that half is ever reverted: the DO keeps
  * its transcript and its turn lifecycle either way, and clients fall back to
- * the Convex event projection. Deliberately not an error — a missing socket
+ * the owner event projection. Deliberately not an error — a missing socket
  * layer must degrade, never break turns.
  */
 export class NullConversationHub implements ConversationHub {

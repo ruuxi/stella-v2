@@ -6,8 +6,7 @@ import type {
 
 /**
  * Plan catalog, from the Worker's secrets. Stella is open source, so prices
- * and limits never live in the repository; the variable names are the ones
- * the Convex billing module used.
+ * and limits never live in the repository.
  *
  * Required:
  *   STELLA_INCLUDED_USAGE_UTILIZATION_RATE   number in (0, 1]

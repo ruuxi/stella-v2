@@ -1,7 +1,6 @@
 /**
- * AWS SigV4 for this Worker's R2 buckets over their S3 API, on WebCrypto. A
- * port of `packages/backend/convex/lib/r2_sigv4.ts` (same canonical path
- * encoding, same header signing) plus query-string presigning, so clients
+ * AWS SigV4 for this Worker's R2 buckets over their S3 API, on WebCrypto,
+ * with header signing plus query-string presigning, so clients
  * PUT and GET bytes straight to R2 and the Worker never carries them.
  *
  * The R2 bindings (`DRIVE`, `MEDIA`) do everything else: HEAD, DELETE, LIST

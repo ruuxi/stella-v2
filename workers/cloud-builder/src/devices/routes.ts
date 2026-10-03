@@ -2,17 +2,14 @@
  * Devices' HTTP surface on the Worker.
  *
  *   /api/mobile/<route>             phones and the desktop's bridge service, user JWT
- *   POST /internal/devices/close    Convex account deletion: delete the owner's tunnels
  *
  * Desktop UI and runtime use backend calls (`devices.*`, `phone.*`) instead.
  */
 
-import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { verifyCaller } from "../owner-store/routes.js";
 
 const MOBILE_PREFIX = "/api/mobile/";
 const MAX_BODY_BYTES = 64 * 1024;
-const OWNER_ID_MAX = 512;
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -57,22 +54,9 @@ const mobileRoute = async (request: Request, env: Cloudflare.Env, url: URL): Pro
   });
 };
 
-const closeRoute = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
-  if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
-  if (!(await verifyServiceBearerRequest(request, env.BUILDER_SERVICE_SECRET))) {
-    return json({ error: "Unauthorized." }, 401);
-  }
-  const body = await readBody(request);
-  const ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-  if (!ownerId || ownerId.length > OWNER_ID_MAX) return json({ error: "ownerId is required." }, 400);
-  await env.OWNER_GATES.getByName(ownerId).closeDevices();
-  return json({ ok: true });
-};
-
 /** Devices routes, or null when the request is not one. */
 export const handleDevicesRoute = async (request: Request, env: Cloudflare.Env): Promise<Response | null> => {
   const url = new URL(request.url);
   if (url.pathname.startsWith(MOBILE_PREFIX)) return await mobileRoute(request, env, url);
-  if (url.pathname === "/internal/devices/close") return await closeRoute(request, env);
   return null;
 };

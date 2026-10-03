@@ -3,10 +3,6 @@ import {
   boundedBodyStatus,
   bufferBoundedJsonRequest,
 } from "../../src/request-ingress.js";
-import {
-  R2TransferTransformTooLargeError,
-  r2TransferBody,
-} from "../../src/r2-transfer-body.js";
 import { evaluateCloudBuilderReadiness } from "../../src/readiness.js";
 import { verifyServiceBearerRequest } from "../../src/service-bearer.js";
 
@@ -23,7 +19,6 @@ const readyInput = (env: FixtureEnv) => ({
   APP_BUILD_SANDBOX: methods("getByName"),
   BUILD_SESSIONS: methods("getByName"),
   ORCHESTRATOR_SESSIONS: methods("getByName"),
-  OWNER_TRANSFER_COORDINATORS: methods("getByName"),
   OWNER_GATES: methods("getByName"),
   BROWSER_GATEWAY: methods("fetch"),
   APP_BUILDS: env.OBJECTS,
@@ -38,8 +33,6 @@ const readyInput = (env: FixtureEnv) => ({
   SANDBOX_IDLE_TIMEOUT_MS: "600000",
   APPS_HOST_BASE_URL: "https://apps-untrusted.example",
   TRUSTED_APPS_HOST_BASE_URL: "https://apps-auth.example",
-  STELLA_CONVEX_SITE_URL: "https://deployment.convex.site",
-  STELLA_CONVEX_CLOUD_URL: "https://deployment.convex.cloud",
   MODEL_GATEWAY: methods("fetch"),
   MODEL_GATEWAY_URL: "https://model-gateway.example",
   CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
@@ -81,51 +74,6 @@ export default {
           },
           { status },
         );
-      }
-    }
-    if (url.pathname === "/r2-stream") {
-      const bytes = new Uint8Array(5 * 1024 * 1024);
-      bytes[0] = 17;
-      bytes[bytes.length - 1] = 29;
-      await env.OBJECTS.put("source/large.bin", bytes);
-      const source = await env.OBJECTS.get("source/large.bin");
-      if (!source)
-        return Response.json({ error: "source_missing" }, { status: 500 });
-      const prepared = await r2TransferBody({
-        source,
-        destinationKey: "destination/large.bin",
-      });
-      const streamed = prepared.body instanceof ReadableStream;
-      await env.OBJECTS.put("destination/large.bin", prepared.body);
-      const destination = await env.OBJECTS.get("destination/large.bin");
-      if (!destination) {
-        return Response.json({ error: "destination_missing" }, { status: 500 });
-      }
-      const copied = new Uint8Array(await destination.arrayBuffer());
-      return Response.json({
-        streamed,
-        size: copied.byteLength,
-        first: copied[0],
-        last: copied.at(-1),
-      });
-    }
-    if (url.pathname === "/r2-transform-too-large") {
-      await env.OBJECTS.put("source/large-meta.json", new Uint8Array(65));
-      const source = await env.OBJECTS.get("source/large-meta.json");
-      if (!source)
-        return Response.json({ error: "source_missing" }, { status: 500 });
-      try {
-        await r2TransferBody({
-          source,
-          destinationKey: "destination/meta.json",
-          transformMaxBytes: 64,
-          transform: async (body) => ({ body }),
-        });
-        return Response.json({ rejected: false }, { status: 500 });
-      } catch (error) {
-        return Response.json({
-          rejected: error instanceof R2TransferTransformTooLargeError,
-        });
       }
     }
     return Response.json({ ok: true });

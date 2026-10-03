@@ -524,7 +524,7 @@ export const prepareAgentBrokerHandoff = async (
  * A Stella turn whose agent loop runs right here.
  *
  * No container exists until a tool needs one. What that buys is on the
- * turn's critical path: a chat-only reply costs one Convex history read and
+ * turn's critical path: a chat-only reply costs one local history read and
  * the model call, with no cold start, no squashfs restore, and nothing to
  * tear down when the user stops it.
  */
@@ -548,8 +548,8 @@ export const runResidentAgentTurn = async (
   // Clear a predecessor before this resident attempt can attach; an exact
   // replay with a compute record keeps the mirror for its existing session.
   await host.clearUnattachedAgentSandboxTuple(turn);
-  // A resumed attempt already projected its start; Convex still reads it as
-  // running, which is exactly what it is.
+  // A resumed attempt already projected its start; the owner still reads it
+  // as running, which is exactly what it is.
   if (!resume) {
     await host.event(
       turn,

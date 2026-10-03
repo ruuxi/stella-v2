@@ -58,8 +58,8 @@ import {
 } from "./owner-store/domains/account.js";
 import {
   type BillingControlResult,
-  type ConvexOwnerEnforcementState,
-  type ConvexSessionCapabilityRequest,
+  type OwnerEnforcementState,
+  type SessionCapabilityRequest,
   type GatewayUsageEvent,
 } from "@stella/contracts/gateway/usage";
 import type { BillingPlan } from "@stella/contracts/backend/billing";
@@ -71,7 +71,6 @@ import {
   billingPaying,
   closeStripeCustomer,
   recordBillingIdentity,
-  recordUsage,
   reserveSessionGrant,
   setAdminPlan,
   turnAllowance,
@@ -170,7 +169,6 @@ import type {
 
 export type OwnerGateEnv = Pick<
   Cloudflare.Env,
-  | "STELLA_CONVEX_SITE_URL"
   | "BUILDER_SERVICE_SECRET"
   | "BACKUP_BUCKET"
   | "MODEL_GATEWAY_CONTROL"
@@ -288,9 +286,6 @@ const withTimeout = <T>(work: Promise<T>, ms: number, message: string): Promise<
   });
   return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 };
-
-const transferRegistration = (body: unknown): boolean =>
-  !!body && typeof body === "object" && "role" in body && body.role === "transfer";
 
 const ownerFenceRequest = (path: string, body: unknown, headers?: Record<string, string>): Request =>
   new Request(`https://owner-gate/owner-fence/${path}`, {
@@ -914,7 +909,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * budget, and this Worker signs the capability.
    */
   async issueSessionCapability(
-    request: ConvexSessionCapabilityRequest,
+    request: SessionCapabilityRequest,
   ): Promise<BillingControlResult<GatewaySessionCapabilityResponse>> {
     const now = Date.now();
     const paying = billingPaying(this.ownerStore().context(null, now));
@@ -981,12 +976,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** The owner's enforcement, for the model gateway's bootstrap read (`BillingControl`). */
-  async ownerEnforcement(): Promise<ConvexOwnerEnforcementState> {
+  async ownerEnforcement(): Promise<OwnerEnforcementState> {
     return readEnforcement(this.ownerStore().context(null));
   }
 
   /** Set the owner's enforcement (admin). Pushes it to the model gateway. */
-  async setOwnerEnforcement(input: SetEnforcementInput): Promise<ConvexOwnerEnforcementState> {
+  async setOwnerEnforcement(input: SetEnforcementInput): Promise<OwnerEnforcementState> {
     return await this.billingWrite((ctx) => setEnforcement(ctx, input));
   }
 
@@ -997,7 +992,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   /**
    * Charged model calls to analytics, under this owner's pseudonym: what
-   * Convex's usage ledger used to log. Best effort.
+   * the old usage ledger used to log. Best effort.
    */
   private async reportCharges(events: GatewayUsageEvent[]): Promise<void> {
     const telemetry = this.env.TELEMETRY as
@@ -1051,20 +1046,13 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     await this.billingWrite((ctx) => applyStripeEvent(ctx, event));
   }
 
-  /** What this owner may spend now, for Convex code that still meters. */
+  /** What this owner may spend now. */
   async billingAccess(identity?: { isAnonymous: boolean }): Promise<BillingAccess> {
     if (!identity) return billingAccess(this.ownerStore().context(null));
     return await this.billingWrite((ctx) => {
       recordBillingIdentity(ctx, identity);
       return billingAccess(ctx);
     });
-  }
-
-  /** Spend metered outside the gateway. Idempotent on each record's id. */
-  async recordBillingUsage(
-    records: Array<{ id: string; costMicroCents: number }>,
-  ): Promise<{ recorded: number; duplicate: number }> {
-    return await this.billingWrite((ctx) => recordUsage(ctx, records));
   }
 
   /** Admin and test accounts: set the plan outside Stripe. */
@@ -1786,8 +1774,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   /** `body` is `request`'s parsed JSON when the path can change authority. */
   private async fetchOwnerFence(path: string, request: Request, body: unknown): Promise<Response> {
-    const changesAuthority = path === "begin" || (path === "register" && transferRegistration(body));
-    if (!changesAuthority) return createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch(path, request);
+    if (path !== "begin") return createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch(path, request);
     // Owner admission and revocation share this section. Reader freeze RPCs
     // only touch local conversation state; they never call back into OwnerGate.
     const outcome = await this.ctx.blockConcurrencyWhile(async () => {
@@ -1796,8 +1783,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         const response = await createOwnerFenceHost({ ctx: this.ctx, env: this.env,
           beforeAuthorityChange: async change => {
             await this.modelGrants().beginFenceBarrier({ operationId, path: change.path, body: change.body });
-            await this.revokeModelReaders({ operationId,
-              reason: change.path === "begin" ? "owner_purge" : "owner_transfer" });
+            await this.revokeModelReaders({ operationId, reason: "owner_purge" });
           },
         }).fetch(path, request);
         // A definite result closes this exact replay marker, including a
@@ -1826,7 +1812,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         ? await request.clone().json() : undefined;
       const unregister = path === "unregister" ? body : undefined;
       const response = await this.fetchOwnerFence(path, request, body);
-      if (response.ok && path === "register" && transferRegistration(body)) await this.memoryPolicy().invalidate();
       if (response.ok && unregister && typeof unregister === "object" &&
           "turnId" in unregister && typeof unregister.turnId === "string" &&
           "leaseId" in unregister && typeof unregister.leaseId === "string") {
@@ -3067,7 +3052,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     // one admission governs it: the conversation object's own, when the
     // cloud branch starts the turn — and a run that lands on the owner's own
     // computer costs the cloud windows nothing at all, which is what the
-    // Convex implementation this replaces did too. An agent dispatch is the
+    // implementation this replaces did too. An agent dispatch is the
     // opposite: this gate admits it under the dispatch id and the build
     // session consumes that admission rather than taking a second one.
     let snapshot: OwnerSnapshot;

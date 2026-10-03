@@ -1,9 +1,9 @@
 /**
  * The per-turn write-ahead journal for a resident general-agent turn.
  *
- * Convex remains the authoritative transcript. This is a recovery buffer for
+ * The thread transcript remains authoritative. This is a recovery buffer for
  * one exact turn attempt: `Agent` produces a message, the subscriber appends
- * it here synchronously, and only a sealed journal is posted to Convex. A DO
+ * it here synchronously, and only a sealed journal is appended to the transcript. A DO
  * eviction at minute four of a five-minute turn therefore loses at most the
  * message still streaming, instead of losing the assistant tool call that is
  * the only record of why the workspace changed.

@@ -112,45 +112,6 @@ const issue = async (harness: GateHarness) => {
 };
 
 describe("OwnerGate model grants", () => {
-  test("invalid transfer registration does not evict the memory policy cache", async () => {
-    const harness = open();
-    const cache = { fenceGeneration: "fence-1", policy };
-    harness.values.set("memoryPolicy:cache:v1", cache);
-
-    expect(
-      (
-        await harness.instance.fetch(
-          jsonRequest("register", {
-            leaseId: "transfer-1",
-            sessionId: "transfer-session",
-            turnId: "owner-transfer:1",
-            ownerGeneration: policy.ownerGeneration,
-            namespace: "activity",
-            role: "transfer",
-          }),
-        )
-      ).status,
-    ).toBe(400);
-    expect(harness.values.get("memoryPolicy:cache:v1")).toEqual(cache);
-
-    expect(
-      (
-        await harness.instance.fetch(
-          jsonRequest("register", {
-            leaseId: "transfer-1",
-            sessionId: "transfer-session",
-            turnId: "owner-transfer:1",
-            ownerGeneration: policy.ownerGeneration,
-            namespace: "activity",
-            role: "transfer",
-            expiresAt: Date.now() + 60_000,
-          }),
-        )
-      ).status,
-    ).toBe(200);
-    expect(harness.values.has("memoryPolicy:cache:v1")).toBe(false);
-  });
-
   test("binds an admitted grant to the exact reader and lease, then deletes it on cloud handoff retirement", async () => {
     const harness = open();
     const { grant, lease } = await issue(harness);

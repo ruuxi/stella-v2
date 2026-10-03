@@ -15,8 +15,8 @@
  * - **Crash rule:** a row left in `submitting` with no provider request id
  *   (the object restarted mid-submit) is failed, never resubmitted.
  *
- * The object is single-threaded, so the Convex dispatch leases, payload
- * chunking and cleanup queues are not ported.
+ * The object is single-threaded, so the old dispatch leases, payload
+ * chunking and cleanup queues are not needed.
  */
 
 import type {

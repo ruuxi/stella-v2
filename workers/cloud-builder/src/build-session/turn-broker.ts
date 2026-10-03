@@ -710,7 +710,7 @@ const driveJson = (body: unknown, status = 200): Response =>
 /**
  * A turn's drive request, served by the owner's object under the turn's own
  * identity and owner generation. The sandbox still sends the paths and bodies
- * the Convex routes took, and gets their answers: 200 with the result, 413
+ * the old control-plane routes took, and gets their answers: 200 with the result, 413
  * when a write landed nothing (with the per-file reasons), and the owner
  * object's error status otherwise.
  *
@@ -1054,7 +1054,7 @@ export const handleTurnBroker = async (
     ) {
       // The turn's events and its thread transcript are this object's own
       // state now, and the drive and web search are the owner object's. The
-      // sandbox still asks for them by their old Convex paths — that is the
+      // sandbox still asks for them by their old control-plane paths — that is the
       // executor's stable contract — but the request stops here instead of
       // crossing to the control plane.
       await host.ctx.storage.put(recordKey, claimed.record);

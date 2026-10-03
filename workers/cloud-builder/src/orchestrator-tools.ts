@@ -1,9 +1,9 @@
 /**
  * The orchestrator's memory and scheduling tools.
  *
- * `Remember` writes the R2 agent home. Schedules remain in Convex so
- * owner-wide listing, billing, deletion, and dispatch share one control-plane
- * authority.
+ * `Remember` writes the R2 agent home. Schedules live in the owner object's
+ * schedules domain so owner-wide listing, billing, deletion, and dispatch
+ * share one authority.
  *
  * Tool definitions are pinned here in code and passed to the loop by the DO —
  * nothing about the orchestrator's execution surface is data-driven.

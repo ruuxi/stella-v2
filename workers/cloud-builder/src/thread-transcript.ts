@@ -1,23 +1,23 @@
 /**
  * The thread transcript a `BuildSession` owns.
  *
- * A spawned agent's conversation used to live in Convex (`/api/cloud/context`
+ * A spawned agent's conversation used to live in the control plane (`/api/cloud/context`
  * to read it, `/api/cloud/messages` to append). That put a synchronous
  * control-plane round trip on every continuation's critical path and made
- * Convex the authority for state only this Durable Object ever writes. The
+ * the control plane the authority for state only this Durable Object ever writes. The
  * rows now live in the object's own SQLite and continuations read them here.
  *
  * Ordering is the table's implicit `rowid`, which SQLite assigns in insertion
  * order and never reuses here because nothing deletes a row (owner purge drops
  * the whole table). That is the `seq` the executor's history contract wants,
- * so a continuation reads back exactly the shape the Convex route returned.
+ * so a continuation reads back exactly the shape the old context route returned.
  * The FTS rowid mirrors that same value. The composite primary key makes an
  * append idempotent, and the mirrored rowid stays stable for the object's
  * lifetime.
  *
  * `turn_counters` persists the per-attempt event sequence
  * (`turn.event.eventSeq`), so a restarted isolate continues the sequence
- * instead of colliding with events Convex has already projected.
+ * instead of colliding with events already projected.
  */
 
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
@@ -188,7 +188,7 @@ const nextCounter = (
 };
 
 /**
- * The per-attempt event ordinal Convex used to assign when the DO sent
+ * The per-attempt event ordinal the control plane used to assign when the DO sent
  * `seq: "auto"`. Monotonic from 1 and durable across isolate restarts.
  */
 export const nextTurnEventSeq = (
@@ -303,7 +303,7 @@ export const appendThreadMessages = (
 /**
  * The thread's history, oldest first, in the exact row shape the executor and
  * the resident loop already validate. Bounded to the newest
- * `AGENT_HISTORY_MAX_ROWS` rows, which is the same ceiling the Convex context
+ * `AGENT_HISTORY_MAX_ROWS` rows, which is the same ceiling the old context
  * route enforced, so a long-lived thread degrades by dropping its oldest turns
  * rather than failing the whole preflight.
  */

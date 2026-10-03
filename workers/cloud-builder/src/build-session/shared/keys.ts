@@ -46,7 +46,7 @@ export const OWNER_GATE_REFUSAL_STATUS: Record<OwnerGateRefusalCode, number> = {
   internal: 503,
 };
 
-/** Terminal event kind -> the status Convex projects onto the turn row. */
+/** Terminal event kind -> the status the owner projects onto the turn row. */
 export const TERMINAL_EVENT_STATUS: Record<
   string,
   NonNullable<TurnEventEvent["terminalStatus"]>
@@ -189,7 +189,7 @@ export const executionFailureFields = (
 /**
  * The single spelling of a conversation id, used as the Durable Object name.
  *
- * Four callers build these URLs — Convex (raw), the socket client, the runtime
+ * Four callers build these URLs — service callers (raw), the socket client, the runtime
  * journal writer, and the dev probe — and two of them percent-encode. Two
  * spellings of one id would address two DIFFERENT Durable Objects, which is a
  * split-brain no amount of downstream care recovers from. Decoding once here
@@ -309,13 +309,6 @@ export const agentRecoveryIdentity = (turn: TurnRequest): string =>
 
 export const pendingAppBuildPublicationKey = (turnId: string): string =>
   `pendingAppBuildPublication:${turnId}`;
-
-export const checkpointImportsKey = (workspaceKey: string): string =>
-  `${workspaceKey}:checkpoint-imports`;
-
-/** Legacy eventual-KV receipt key, retained only so purge removes old rows. */
-export const workspaceTransferReceiptsKey = (workspaceKey: string): string =>
-  `${workspaceKey}:owner-transfer-receipts`;
 
 export const ORCHESTRATOR_INTERNAL_ORIGIN = "https://orchestrator-session";
 export const HEADER_CONVERSATION_ID = "x-stella-conversation-id";
@@ -446,7 +439,7 @@ export const turnBrokerCredentialsPath = (): string =>
  * Mint the model-gateway capability for one admitted agent turn. It is the
  * only credential the sandbox or resident loop presents for model calls:
  * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
- * meaningless anywhere but the gateway. The reusable Convex turn token never
+ * meaningless anywhere but the gateway. The old reusable turn token never
  * accompanies model traffic.
  */
 export const mintAgentTurnModelGateway = async (

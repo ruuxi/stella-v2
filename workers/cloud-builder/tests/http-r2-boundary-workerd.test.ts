@@ -134,24 +134,4 @@ describe("HTTP and R2 boundaries in real Workerd", () => {
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({ code: "request_too_large" });
   });
-
-  test("copies a multi-megabyte R2 object as a stream and bounds transforms", async () => {
-    const streamed = await fetch(`${origin}/r2-stream`);
-    const streamedText = await streamed.text();
-    if (streamed.status !== 200) {
-      throw new Error(
-        `R2 stream proof returned ${streamed.status}: ${streamedText}\n${workerdOutput}`,
-      );
-    }
-    expect(JSON.parse(streamedText)).toEqual({
-      streamed: true,
-      size: 5 * 1024 * 1024,
-      first: 17,
-      last: 29,
-    });
-
-    const transformed = await fetch(`${origin}/r2-transform-too-large`);
-    expect(transformed.status).toBe(200);
-    expect(await transformed.json()).toEqual({ rejected: true });
-  });
 });

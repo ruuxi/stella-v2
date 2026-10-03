@@ -90,7 +90,7 @@ export type GeneralAgentTurnRequest = Readonly<{
    */
   brokerRoute: TrustedTurnBrokerRoute;
   execution: CloudExecutionSelection;
-  /** Managed-model audience Convex resolved for the owner at dispatch. */
+  /** Managed-model audience the owner gate resolved at dispatch. */
   audience: ManagedModelAudience;
   /** Spend ceiling for this turn's model calls (`GATEWAY_BUDGET_UNLIMITED` allowed). */
   budgetMicroCents: number;
@@ -750,7 +750,7 @@ export type ResidentStellaLoopInput = Readonly<{
   /**
    * Continue the journaled attempt a lost isolate left behind instead of
    * starting it. The prompt is already the journal's first row, so it is not
-   * appended again; the journal's rows follow the same Convex history the
+   * appended again; the journal's rows follow the same thread history the
    * first isolate read, which keeps the provider request prefix byte-identical
    * for prompt caching. Unanswered tool calls are answered by their replay
    * policy (`tool-replay.ts`) before the loop continues.
@@ -792,14 +792,14 @@ const journaledUsage = (messages: readonly AgentMessage[]): TurnUsage => {
 /**
  * The resident Stella agent loop.
  *
- * Convex history in, sealed transcript out, no sandbox touched. The prompt is
+ * Thread history in, sealed transcript out, no sandbox touched. The prompt is
  * the lazy workspace variant: nothing is on disk yet, and telling the model
  * otherwise is how it ends up reasoning about paths that do not exist.
  *
  * Every produced message is journaled synchronously from `Agent.subscribe`.
  * A journal write failure aborts the Agent rather than being swallowed,
  * because the in-memory context would otherwise diverge from what the next
- * turn reads back from Convex.
+ * turn reads back from the thread transcript.
  */
 export const runResidentStellaLoop = async (
   input: ResidentStellaLoopInput,

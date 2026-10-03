@@ -60,7 +60,7 @@ const authorized = async (request: Request, env: AdminEnv): Promise<Response | n
 
 /**
  * The owner's object and its current snapshot. A snapshot that cannot be
- * read (an unknown or purged owner, or Convex down) answers 404 with why.
+ * read (an unknown or purged owner) answers 404 with why.
  */
 const ownerGate = async (env: AdminEnv, ownerId: string) => {
   const gate = env.OWNER_GATES.getByName(ownerId);

@@ -701,7 +701,7 @@ export class CloudHomeStore {
         );
       }
       if (memoryEpoch) await this.assertMemoryEpoch(memoryEpoch);
-      // This is deliberately the last await before PUT. Convex generation
+      // This is deliberately the last await before PUT. Owner generation
       // fencing alone cannot make an external R2 write transactional with a
       // reset. The still-held worker lease makes purge wait for this operation
       // before its exhaustive owner-prefix sweep.

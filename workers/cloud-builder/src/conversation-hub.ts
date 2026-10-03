@@ -560,7 +560,7 @@ class ConversationHubImpl implements ConversationHub {
     }
     this.warned.delete(server);
 
-    // Storage flushes a lagging Convex index projection here: a connect is the
+    // Storage flushes a lagging owner index row here: a connect is the
     // only signal that arrives for a conversation whose last index write 5xx'd
     // and whose next turn may never come.
     try {

@@ -35,7 +35,7 @@ export const isOwnerAppBuildPrefix = (
 };
 
 /**
- * A lost/5xx/overload response is ambiguous: Convex may have committed the
+ * A lost/5xx/overload response is ambiguous: the receiver may have committed the
  * idempotent build row before the response disappeared, so the worker must
  * replay the callback and retain the bytes. A received permanent 4xx proves
  * that this callback did not commit and the transient prefix can be swept.

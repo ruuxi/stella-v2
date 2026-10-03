@@ -168,7 +168,6 @@ const recoveryHarness = () => {
     ctx,
     env: {
       BUILDER_SERVICE_SECRET: "builder-secret",
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
     },
     exactTurnCancellations: new ExactTurnCancellationLedger(storage),
     runningTurns: new Map<string, Set<Promise<unknown>>>(),

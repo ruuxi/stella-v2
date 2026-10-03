@@ -538,7 +538,7 @@ describe("Builder fallback recovery", () => {
 
     // The transcript is committed to the thread's own table now, so the lost
     // response this journal exists for is a failed local commit rather than a
-    // failed Convex callback. The rows still land exactly once.
+    // failed control-plane callback. The rows still land exactly once.
     let transcriptCalls = 0;
     instance["appendThreadTranscript"] = async () => {
       transcriptCalls += 1;

@@ -300,7 +300,7 @@ describe("resident Stella loop", () => {
     ]);
   });
 
-  test("carries pruned Convex history into the model context", async () => {
+  test("carries pruned thread history into the model context", async () => {
     const { contexts } = await run({
       script: [assistantText("done")],
       history: [

@@ -142,7 +142,7 @@ const cancelScheduleFires = (ctx: OwnerContext): void => {
 };
 
 const resetAccount = (ctx: OwnerContext): null => {
-  // Matches the old Convex action's sensitive limit: five a minute.
+  // The sensitive-action limit: five a minute.
   enforceOwnerRateLimit(
     ctx.db,
     ctx.now,

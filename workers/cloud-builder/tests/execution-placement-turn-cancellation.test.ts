@@ -174,7 +174,6 @@ const sessionHarness = (
     ctx,
     env: {
       OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       CLOUD_BUILDER_PUBLIC_URL: "https://builder.example",
     },
     eventSeqTail: Promise.resolve(),
@@ -334,7 +333,7 @@ const cloudAgentTool = async (
   return tool;
 };
 
-/** The turn-plane agent dispatch shape both the orchestrator and Convex send. */
+/** The turn-plane agent dispatch shape both the orchestrator and a service caller send. */
 const agentTurn = (turnId: string, ownerGeneration = "generation-1") => ({
   kind: "agent" as const,
   ownerId: "owner-1",
@@ -445,7 +444,6 @@ const buildSessionHarness = (values = new Map<string, unknown>()) => {
     ctx,
     env: {
       BUILDER_SERVICE_SECRET: "builder-secret",
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       OWNER_GATES: withOwnerEvents(gates.namespace, outbox),
     },
     // Signing is exercised in capability-signer tests; admission here only
@@ -1992,7 +1990,7 @@ describe("execution-placement exact cloud turn cancellation", () => {
       return Response.json({ ok: true });
     };
     // A dispatch that cannot name its session is refused at the boundary.
-    // There is no Convex authority round trip left to refuse it later: the
+    // There is no control-plane authority round trip left to refuse it later: the
     // owner-purge fence and this shape check are the whole gate.
     const stale: Partial<ReturnType<typeof appTurn>> = {
       ...appTurn("app-stale-after-purge", "owner-generation-old"),

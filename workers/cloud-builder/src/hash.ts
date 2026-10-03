@@ -16,3 +16,18 @@ export const sha256BytesHex = async (
 
 export const sha256Hex = async (value: string): Promise<string> =>
   sha256BytesHex(new TextEncoder().encode(value));
+
+const canonicalize = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.keys(source)
+      .sort()
+      .map((key) => [key, canonicalize(source[key])]),
+  );
+};
+
+/** Key-order-independent digest of a JSON value. */
+export const stableValueMarker = async (value: unknown): Promise<string> =>
+  `sha256:${await sha256Hex(JSON.stringify(canonicalize(value)))}`;

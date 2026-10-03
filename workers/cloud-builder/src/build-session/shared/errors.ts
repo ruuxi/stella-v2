@@ -6,7 +6,7 @@ export class AgentTurnError extends Error {
   }
 }
 
-/** Exact Convex attempt/token authority was revoked or could not be proven. */
+/** Exact attempt/token authority was revoked or could not be proven. */
 export class AgentTurnAuthorityLostError extends Error {
   constructor() {
     super("Cloud agent attempt authority was lost.");
@@ -14,7 +14,7 @@ export class AgentTurnAuthorityLostError extends Error {
   }
 }
 
-/** Exact Convex app-turn/token authority was revoked or could not be proven. */
+/** Exact app-turn/token authority was revoked or could not be proven. */
 export class AppTurnAuthorityLostError extends Error {
   constructor() {
     super("Cloud app attempt authority was lost.");
@@ -74,20 +74,3 @@ export class BrowserGatewayResponseTooLargeError extends Error {
     this.name = "BrowserGatewayResponseTooLargeError";
   }
 }
-
-export class OwnerProductTransferConflictError extends Error {
-  constructor(
-    message: string,
-    readonly code:
-      | "owner_transfer_conflict"
-      | "destination_checkpoint_changed"
-      | "owner_purge_permanent"
-      | "owner_purge_temporary"
-      | "transfer_busy" = "owner_transfer_conflict",
-  ) {
-    super(message);
-    this.name = "OwnerProductTransferConflictError";
-  }
-}
-
-export class OwnerProductTransferConfigurationError extends Error {}

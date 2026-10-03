@@ -332,7 +332,7 @@ export type ParsedAgentTurnStartRequest =
 
 /**
  * The one admission shape for an agent attempt, whether it arrived from the
- * orchestrator's direct dispatch or from Convex through the public service
+ * orchestrator's direct dispatch or from a service caller through the public service
  * route. Identity is in the body here (unlike a chat turn) because both
  * callers are already inside the service boundary; the Worker route proves
  * that with the shared secret before it forwards.

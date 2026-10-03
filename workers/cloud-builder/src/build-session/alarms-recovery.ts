@@ -356,7 +356,7 @@ export const runAlarm = async (
   }
   // A terminal state already decided is not a timeout: the run finished, its
   // workspace is checkpointed, and the only thing left is getting the result
-  // to Convex. Redelivering that is the whole point of the alarm here.
+  // delivered. Redelivering that is the whole point of the alarm here.
   const pending =
     await host.ctx.storage.get<PendingTerminal>("pendingTerminal");
   if (pending) {

@@ -1,8 +1,7 @@
 /**
- * Speech to text through OpenRouter's transcription endpoint. A port of the
- * Convex `media_openrouter_stt.ts`: the audio arrives as a URL (inline
- * sources were already staged in the media bucket), is fetched here and
- * sent as base64.
+ * Speech to text through OpenRouter's transcription endpoint. The audio
+ * arrives as a URL (inline sources were already staged in the media bucket),
+ * is fetched here and sent as base64.
  */
 
 const TRANSCRIPTIONS_URL = "https://openrouter.ai/api/v1/audio/transcriptions";

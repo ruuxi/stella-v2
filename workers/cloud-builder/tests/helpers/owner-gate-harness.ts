@@ -274,7 +274,6 @@ export const createGateHarness = (
           .map((entry) => entry.socket),
     },
     env: {
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: "900000",
       MODEL_GATEWAY_CONTROL: {

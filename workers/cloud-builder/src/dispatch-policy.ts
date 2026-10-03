@@ -1,12 +1,12 @@
 /**
- * Placement policy, ported verbatim from Convex's
- * `decideServerExecutionPlacement` and its eligibility predicates.
+ * Placement policy: `decideServerExecutionPlacement` and its eligibility
+ * predicates.
  *
  * Two things live here and nothing else: the pure routing decision (which
  * never consults reachability — an `offer` is resolved later by a fenced
  * claim) and the eligibility predicate that turns live presence rows into the
  * set of devices an offer may go to. Both are pure so the owner gate's state
- * machine can be tested against the same matrix the Convex implementation
+ * machine can be tested against the same matrix the original implementation
  * was, and so a routing change is a diff in one readable function.
  */
 
@@ -155,7 +155,7 @@ export const hasCapabilities = (
 /**
  * Online, ready, protocol-current, capable, and holding a free slot of the
  * kind — plus remote execution enabled on the registration. Every clause is
- * one Convex checked; dropping any of them offers work to a device that
+ * load-bearing; dropping any of them offers work to a device that
  * cannot run it and costs the user a four-second stall before the fallback.
  */
 export const isEligibleDevice = (args: {

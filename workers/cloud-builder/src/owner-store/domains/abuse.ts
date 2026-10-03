@@ -29,9 +29,9 @@ import {
 import {
   OWNER_ENFORCEMENT_STATUSES,
   type BillingControlResult,
-  type ConvexOwnerEnforcementState,
-  type ConvexSessionAdmissionResponse,
-  type ConvexSessionCapabilityRequest,
+  type OwnerEnforcementState,
+  type SessionAdmissionResponse,
+  type SessionCapabilityRequest,
   type GatewayOwnerEnforcementRequest,
   type GatewayUsageEvent,
   type OwnerEnforcement,
@@ -120,7 +120,7 @@ const isStatus = (value: unknown): value is OwnerEnforcementStatus =>
   typeof value === "string" && (OWNER_ENFORCEMENT_STATUSES as readonly string[]).includes(value);
 
 /** The owner's enforcement now. A status past its `until` reads as `ok`. */
-export const readEnforcement = (ctx: { db: OwnerDbReader; now: number }): ConvexOwnerEnforcementState => {
+export const readEnforcement = (ctx: { db: OwnerDbReader; now: number }): OwnerEnforcementState => {
   const row = readStateRow(ctx.db);
   if (!row) return { enforcement: { status: "ok" }, updatedAt: null };
   if (!isStatus(row.status) || row.status === "ok" || (row.until_at !== null && row.until_at <= ctx.now)) {
@@ -150,7 +150,7 @@ export type SetEnforcementInput = {
 };
 
 /** Set the owner's status, push it to the gateway, and arm its expiry. */
-export const setEnforcement = (ctx: OwnerContext, input: SetEnforcementInput): ConvexOwnerEnforcementState => {
+export const setEnforcement = (ctx: OwnerContext, input: SetEnforcementInput): OwnerEnforcementState => {
   const reason = input.reason.trim();
   const actor = input.actor.trim();
   if (!isStatus(input.status) || !reason || !actor) {
@@ -268,7 +268,7 @@ const addDistinct = (values: string[], candidates: string[] | undefined): string
 const count = (value: number | undefined): number =>
   typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 
-/** The Convex risk rules: each signal over its threshold adds its weight. */
+/** The risk rules: each signal over its threshold adds its weight. */
 const riskScore = (
   row: {
     requests: number;
@@ -608,7 +608,7 @@ const refuse = (
 const inClass = (classes: readonly NetworkClass[], networkClass: NetworkClass | undefined) =>
   networkClass !== undefined && classes.includes(networkClass);
 
-export type SessionAdmissionInput = ConvexSessionCapabilityRequest & {
+export type SessionAdmissionInput = SessionCapabilityRequest & {
   paying: boolean;
   snapshot: OwnerSnapshot;
 };
@@ -621,7 +621,7 @@ export type SessionAdmissionInput = ConvexSessionCapabilityRequest & {
 export const admitSession = async (
   ctx: OwnerContext,
   input: SessionAdmissionInput,
-): Promise<BillingControlResult<ConvexSessionAdmissionResponse>> => {
+): Promise<BillingControlResult<SessionAdmissionResponse>> => {
   const { snapshot } = input;
   const enforcement = readEnforcement(ctx).enforcement;
   if (enforcement.status === "suspended") return refuse("owner_suspended", 403);

@@ -154,12 +154,6 @@ const DDL = [
      created_at INTEGER NOT NULL,
      bytes      INTEGER NOT NULL DEFAULT 0
    )`,
-  `CREATE TABLE IF NOT EXISTS owner_transfer_objects (
-     old_key    TEXT PRIMARY KEY,
-     new_key    TEXT NOT NULL,
-     kind       TEXT NOT NULL CHECK (kind IN ('segment', 'spill')),
-     state      TEXT NOT NULL CHECK (state IN ('copying', 'cleanup'))
-   )`,
   // Fixed-window append budget. In SQLite rather than in memory because an
   // eviction between two requests must not hand out a fresh allowance.
   `CREATE TABLE IF NOT EXISTS append_window (
@@ -229,7 +223,6 @@ const CURRENT_SCHEMA_OBJECT_NAMES = [
   "segments",
   "purge_queue",
   "spills",
-  "owner_transfer_objects",
   "append_window",
   "append_receipts",
   "retired_writers",
@@ -255,17 +248,6 @@ const MIGRATIONS: Array<{
     to: 2,
     statements: [
       `ALTER TABLE spills ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`,
-    ],
-  },
-  {
-    to: 3,
-    statements: [
-      `CREATE TABLE IF NOT EXISTS owner_transfer_objects (
-         old_key TEXT PRIMARY KEY,
-         new_key TEXT NOT NULL,
-         kind TEXT NOT NULL CHECK (kind IN ('segment', 'spill')),
-         state TEXT NOT NULL CHECK (state IN ('copying', 'cleanup'))
-      )`,
     ],
   },
   {
@@ -437,13 +419,6 @@ export type SegmentRow = {
   r2_key: string;
   state: string;
   created_at: number;
-};
-
-export type OwnerTransferObjectRow = {
-  old_key: string;
-  new_key: string;
-  kind: "segment" | "spill";
-  state: "copying" | "cleanup";
 };
 
 /**
@@ -801,7 +776,7 @@ export class Journal {
   }
 
   /**
-   * Binds this DO to the conversation Convex says it is. Never called with a
+   * Binds this DO to the conversation the owner says it is. Never called with a
    * connector's self-asserted identity: `conversationId` would otherwise be a
    * bearer token, and anyone who guessed a UUID would own the object.
    */
@@ -2252,7 +2227,7 @@ export class Journal {
     this.sql.exec(`DELETE FROM inbox WHERE id = ?`, id);
   }
 
-  /** Last rendered text of the conversation, for the Convex index preview. */
+  /** Last rendered text of the conversation, for the owner index preview. */
   lastPreview(maxChars: number): { text: string; role: string } | null {
     const rows = this.sql
       .exec<{
@@ -2555,120 +2530,6 @@ export class Journal {
       .exec<{ r2_key: string }>(`SELECT r2_key FROM spills`)
       .toArray()
       .map((row) => row.r2_key);
-  }
-
-  ownerTransferSourceKeys(
-    sourcePrefix: string,
-    limit: number,
-  ): Array<{ key: string; kind: "segment" | "spill" }> {
-    const prefix = `${sourcePrefix}/%`;
-    return this.sql
-      .exec<{ key: string; kind: "segment" | "spill" }>(
-        `SELECT key, kind FROM (
-           SELECT r2_key AS key, 'spill' AS kind, 0 AS priority
-             FROM spills WHERE r2_key LIKE ?
-           UNION ALL
-           SELECT r2_key AS key, 'segment' AS kind, 1 AS priority
-             FROM segments WHERE r2_key LIKE ?
-         ) ORDER BY priority ASC, key ASC LIMIT ?`,
-        prefix,
-        prefix,
-        Math.max(1, Math.trunc(limit)),
-      )
-      .toArray();
-  }
-
-  enqueueOwnerTransferObject(
-    oldKey: string,
-    newKey: string,
-    kind: "segment" | "spill",
-  ): void {
-    this.sql.exec(
-      `INSERT OR IGNORE INTO owner_transfer_objects
-         (old_key, new_key, kind, state) VALUES (?, ?, ?, 'copying')`,
-      oldKey,
-      newKey,
-      kind,
-    );
-  }
-
-  ownerTransferObjects(
-    state: "copying" | "cleanup",
-    limit: number,
-  ): OwnerTransferObjectRow[] {
-    return this.sql
-      .exec<OwnerTransferObjectRow>(
-        `SELECT old_key, new_key, kind, state
-           FROM owner_transfer_objects
-          WHERE state = ? ORDER BY old_key ASC LIMIT ?`,
-        state,
-        Math.max(1, Math.trunc(limit)),
-      )
-      .toArray();
-  }
-
-  rewriteOwnerTransferObject(row: OwnerTransferObjectRow): void {
-    this.ctx.storage.transactionSync(() => {
-      if (row.kind === "spill") {
-        this.sql.exec(
-          `UPDATE spills SET r2_key = ? WHERE r2_key = ?`,
-          row.new_key,
-          row.old_key,
-        );
-        this.sql.exec(
-          `UPDATE journal SET spill_key = ? WHERE spill_key = ?`,
-          row.new_key,
-          row.old_key,
-        );
-      } else {
-        this.sql.exec(
-          `UPDATE segments SET r2_key = ? WHERE r2_key = ?`,
-          row.new_key,
-          row.old_key,
-        );
-      }
-      this.sql.exec(
-        `UPDATE owner_transfer_objects SET state = 'cleanup'
-          WHERE old_key = ?`,
-        row.old_key,
-      );
-    });
-  }
-
-  completeOwnerTransferObject(oldKey: string): void {
-    this.sql.exec(
-      `DELETE FROM owner_transfer_objects WHERE old_key = ?`,
-      oldKey,
-    );
-  }
-
-  ownerTransferPending(): number {
-    return this.sql
-      .exec<{
-        count: number;
-      }>(`SELECT COUNT(*) AS count FROM owner_transfer_objects`)
-      .one().count;
-  }
-
-  transferOwner(fromOwnerId: string, toOwnerId: string): boolean {
-    let transferred = false;
-    this.ctx.storage.transactionSync(() => {
-      const meta = this.meta();
-      if (meta.owner_id === toOwnerId) {
-        transferred = true;
-        return;
-      }
-      if (meta.owner_id !== "" && meta.owner_id !== fromOwnerId) return;
-      if (this.ownerTransferPending() > 0) return;
-      this.sql.exec(`UPDATE meta SET owner_id = ? WHERE id = 0`, toOwnerId);
-      this.sql.exec(
-        `UPDATE turns SET owner_id = ? WHERE owner_id = ?`,
-        toOwnerId,
-        fromOwnerId,
-      );
-      transferred = true;
-    });
-    return transferred;
   }
 
   /**

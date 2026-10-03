@@ -123,16 +123,16 @@ export const claimTerminalDecision = async (
 };
 
 /**
- * Decide a turn's terminal state and get it to Convex, durably.
+ * Decide a turn's terminal state and deliver it, durably.
  *
  * Delivery is two callbacks — the terminal event, then the thread's final
- * state — and either can fail on a transient Convex 5xx. Both are recorded
+ * state — and either can fail on a transient delivery error. Both are recorded
  * in DO storage before the first attempt and retried by a re-armed alarm:
  * the success path used to throw straight into the failure handler, which
  * reported "The agent hit a problem and stopped" over a completed,
  * checkpointed turn and discarded the agent's report with it.
  *
- * Redelivery is safe: Convex rejects every event after the first terminal
+ * Redelivery is safe: the thread record rejects every event after the first terminal
  * one (answering `terminalAccepted: false` rather than an error) and the
  * thread mutation is a no-op once the thread is terminal, so a retry can
  * never produce a second terminal state.
@@ -147,12 +147,12 @@ export const deliverTerminal = async (
   options: { preservePendingTerminal?: boolean } = {},
 ): Promise<boolean> => {
   let pending = pendingInput;
-  // Fencing: a stale turn may still deliver its own outcome (Convex sorts
-  // out which one is terminal), but it must not write over the successor's
+  // Fencing: a stale turn may still deliver its own outcome (the thread
+  // record sorts out which one is terminal), but it must not write over the successor's
   // storage or arm the successor's alarm.
   const owns = await host.ownsExactTurn(turn);
   // The second callback is *thread*-scoped, and the only thing that fences
-  // it Convex-side is the thread not being "running" — which a successor
+  // it on the receiving side is the thread not being "running" — which a successor
   // continuation has just undone. So a stale payload replayed here (the
   // orphan in acceptAgentTurn) would complete the thread out from under the
   // turn now running on it: the user is told the agent stopped, and the
@@ -208,7 +208,7 @@ export const deliverTerminal = async (
   }
   try {
     // Turn-scoped and unconditional: this is what gives the turn — orphaned
-    // or not — its one terminal state, and Convex rejects a second one.
+    // or not — its one terminal state, and the thread record rejects a second one.
     await host.event(
       turn,
       pending.eventSeq ?? "auto",
@@ -254,7 +254,7 @@ export const deliverTerminal = async (
           } satisfies ThreadCompletedEvent,
         ]);
         // The projection above is how the UI learns the thread ended; it is
-        // NOT how the parent conversation learns. Convex used to do both in
+        // NOT how the parent conversation learns. The control plane used to do both in
         // one mutation, so the wake rode on the callback's latency and its
         // retry ladder. The parent session lives one Durable Object away, so
         // it is woken directly.
@@ -442,7 +442,7 @@ export const wakeParentAgentOrConversation = async (
  * Wake the conversation that spawned this thread with the agent's report.
  *
  * This is the one delivery a projection cannot do: the parent needs a turn,
- * not a row. It used to be a Convex mutation reached through the thread
+ * not a row. It used to be a control-plane mutation reached through the thread
  * completion callback, which meant the report's latency was the control
  * plane's and a lost callback lost the wake. The parent's Durable Object is
  * one hop away, so it is called directly with exactly the trusted headers
@@ -454,7 +454,7 @@ export const wakeParentAgentOrConversation = async (
  * as a replay rather than refused as a different message under the same id.
  *
  * Desktop-origin threads are delivered by the originating device's own
- * subscription to Convex's projection; waking here as well would put the
+ * subscription to the owner's thread projection; waking here as well would put the
  * same report in two orchestrators. The dispatcher always sets
  * `originConversationId` alongside `originDeviceId`.
  */

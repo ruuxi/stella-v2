@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sha256BytesHex } from "../src/hash.js";
 import {
-  copyTurnStateArchive,
   restoreTurnStateArchive,
   TURN_STATE_MAX_ARCHIVE_BYTES,
   type TurnStateArchiveSession,
@@ -435,31 +434,6 @@ class FakeArchiveBucket {
 }
 
 describe("turn state archive", () => {
-  test("re-addresses a native archive independently of workspace head", async () => {
-    const bytes = encoder.encode("per-thread native squashfs");
-    const bucket = new FakeArchiveBucket();
-    const source = await uploadTurnStateArchive({
-      session: new FakeArchiveSession(bytes).asSession(),
-      bucket: bucket.asUploadBucket(),
-      key: archiveKey("native", "4"),
-      target: { kind: "native" },
-    });
-    const destinationKey = archiveKey("native", "5", "6", "7");
-    const copied = await copyTurnStateArchive({
-      bucket: bucket as unknown as Pick<R2Bucket, "get" | "head" | "put">,
-      source: source.archive,
-      destinationKey,
-      target: { kind: "native" },
-    });
-
-    expect(copied.replayed).toBe(false);
-    expect(copied.archive.key).toBe(destinationKey);
-    expect(bucket.objects.has(source.archive.key)).toBe(true);
-    expect(bucket.objects.get(destinationKey)?.customMetadata).toEqual(
-      turnStateArchiveMetadata(copied.archive, { kind: "native" }),
-    );
-  });
-
   test("fails closed when a reserved key already contains conflicting metadata", async () => {
     const bytes = encoder.encode("workspace squashfs");
     const bucket = new FakeArchiveBucket();

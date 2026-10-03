@@ -533,7 +533,7 @@ export const acceptAgentTurn = async (
       // A resident turn still starts without compute. If it attaches, it
       // uses the same owner-world container as the eager path.
       const sandboxId = resident ? undefined : sharedWorldSandboxId;
-      // A predecessor whose terminal state never reached Convex left it
+      // A predecessor whose terminal state was never delivered left it
       // here. Taking over the DO takes the alarm with it, so this is its last
       // chance; the stale delivery below cannot mutate this successor.
       const orphan =

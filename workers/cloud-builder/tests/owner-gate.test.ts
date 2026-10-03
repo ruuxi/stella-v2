@@ -47,7 +47,6 @@ const gateHarness = (
   Object.assign(instance, {
     ctx: { storage, id: { name: "owner-1", toString: () => "owner-1" } },
     env: {
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: String(TURN_TIMEOUT_MS),
     },

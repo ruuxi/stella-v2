@@ -1,9 +1,7 @@
 /**
  * The managed media catalog: what each capability runs on, how a request's
  * convenience fields map onto the provider's input, which plan surface it
- * needs, and what a finished job costs. Ported from the Convex modules
- * `media_catalog.ts`, `media_billing.ts`, `media_image_limits.ts` and the
- * request normalization in `http_routes/media.ts`.
+ * needs, and what a finished job costs.
  */
 
 import type {

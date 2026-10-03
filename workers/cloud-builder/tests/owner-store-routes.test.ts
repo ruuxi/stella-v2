@@ -128,7 +128,7 @@ describe("backend routes", () => {
     expect(missing.status).toBe(401);
     const [header, , signature] = (await mint()).split(".");
     const forgedPayload = encode(new TextEncoder().encode(JSON.stringify({
-      iss: issuer, aud: "convex", sub: "someone-else", exp: Math.floor(Date.now() / 1000) + 600,
+      iss: issuer, aud: "not-stella", sub: "someone-else", exp: Math.floor(Date.now() / 1000) + 600,
     })));
     const forged = `${header}.${forgedPayload}.${signature}`;
     expect((await handleRpc(post("test.owner", {}, forged), env, registry)).status).toBe(401);

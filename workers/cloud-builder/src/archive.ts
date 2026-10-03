@@ -39,17 +39,9 @@ import {
   type JournalRecord,
 } from "./conversation-types.js";
 import { sha256BytesHex, sha256Hex } from "./hash.js";
-import {
-  OwnerTransferArchiveConflictError,
-  archiveOwnerTransferMetadataMatches,
-  archiveOwnerTransferProof,
-  rewriteSegmentOwnership,
-  transferArchiveKey,
-} from "./owner-transfer.js";
 import type {
   Journal,
   JournalRow,
-  OwnerTransferObjectRow,
   SegmentRow,
 } from "./journal.js";
 import { collapseWhitespace, extractMessageText } from "./journal.js";
@@ -63,9 +55,8 @@ const SEGMENT_MAX_ROWS = 1_000;
 const SEGMENT_MAX_BYTES = 8 * 1024 * 1024;
 const ARCHIVE_READ_ROWS = 500;
 const PURGE_BATCH = 200;
-const OWNER_TRANSFER_BATCH = 4;
 /**
- * How many delete batches may fail before this pass gives up and lets Convex's
+ * How many delete batches may fail before this pass gives up and lets the owner's
  * sweep retry. Bounded rather than "until it works": the caller is holding an
  * HTTP request open, and the queue is durable.
  */
@@ -183,171 +174,6 @@ export class ConversationArchive {
   async quiesce(): Promise<void> {
     for (let pass = 0; pass < 4 && this.inFlight.size > 0; pass += 1) {
       await Promise.allSettled([...this.inFlight]);
-    }
-  }
-
-  async transferOwner(
-    fromPrefix: string,
-    toPrefix: string,
-    toOwnerId: string,
-  ): Promise<{ complete: boolean; pending: number }> {
-    await this.quiesce();
-    // A crash during rollover can leave a durable uploading row whose source
-    // object was never put. Recover it under the old owner prefix before the
-    // transfer enumerates archive keys, otherwise that missing source would
-    // make every transfer retry fail at the same row.
-    await this.finishPendingSegment();
-    let copying = this.journal.ownerTransferObjects(
-      "copying",
-      OWNER_TRANSFER_BATCH,
-    );
-    if (copying.length === 0) {
-      const sources = this.journal.ownerTransferSourceKeys(
-        fromPrefix,
-        OWNER_TRANSFER_BATCH,
-      );
-      for (const source of sources) {
-        const target = transferArchiveKey(source.key, fromPrefix, toPrefix);
-        if (!target) continue;
-        this.journal.enqueueOwnerTransferObject(
-          source.key,
-          target,
-          source.kind,
-        );
-      }
-      copying = this.journal.ownerTransferObjects(
-        "copying",
-        OWNER_TRANSFER_BATCH,
-      );
-    }
-
-    for (const row of copying) {
-      await this.copyOwnerTransferObject(row, toOwnerId, fromPrefix, toPrefix);
-      this.journal.rewriteOwnerTransferObject(row);
-    }
-    if (copying.length > 0) {
-      return {
-        complete: false,
-        pending:
-          this.journal.ownerTransferPending() +
-          this.journal.ownerTransferSourceKeys(fromPrefix, 1).length,
-      };
-    }
-    if (this.journal.ownerTransferSourceKeys(fromPrefix, 1).length > 0) {
-      return {
-        complete: false,
-        pending: this.journal.ownerTransferPending() + 1,
-      };
-    }
-
-    const cleanup = this.journal.ownerTransferObjects(
-      "cleanup",
-      OWNER_TRANSFER_BATCH,
-    );
-    if (cleanup.length > 0) {
-      if (!this.bucket) {
-        throw new Error("Conversation archive storage is unavailable.");
-      }
-      await withTimeout(
-        this.bucket.delete(cleanup.map((row) => row.old_key)),
-        R2_TIMEOUT_MS,
-      );
-      for (const row of cleanup) {
-        this.journal.completeOwnerTransferObject(row.old_key);
-      }
-    }
-    const pending = this.journal.ownerTransferPending();
-    return { complete: pending === 0, pending };
-  }
-
-  private async copyOwnerTransferObject(
-    row: OwnerTransferObjectRow,
-    toOwnerId: string,
-    fromPrefix: string,
-    toPrefix: string,
-  ): Promise<void> {
-    if (!this.bucket) {
-      throw new Error("Conversation archive storage is unavailable.");
-    }
-    const source = await withTimeout(
-      this.bucket.get(row.old_key),
-      R2_TIMEOUT_MS,
-    );
-    if (!source) {
-      throw new Error(
-        `Conversation archive source is missing (ref ${(await sha256Hex(row.old_key)).slice(0, 16)}).`,
-      );
-    }
-    const sourceBody = new Uint8Array(await source.arrayBuffer());
-    const destinationBody = new Uint8Array(
-      row.kind === "segment"
-        ? await rewriteSegmentOwnership(
-            sourceBody.buffer,
-            toOwnerId,
-            fromPrefix,
-            toPrefix,
-          )
-        : sourceBody.buffer,
-    );
-    const proof = await archiveOwnerTransferProof({
-      sourceKey: row.old_key,
-      sourceEtag: source.etag,
-      sourceBody,
-      destinationBody,
-    });
-    const destinationMatches = async (): Promise<boolean> => {
-      const existing = await withTimeout(
-        this.bucket!.get(row.new_key),
-        R2_TIMEOUT_MS,
-      );
-      if (
-        !existing ||
-        !archiveOwnerTransferMetadataMatches(existing.customMetadata, proof)
-      ) {
-        return false;
-      }
-      const actual = new Uint8Array(await existing.arrayBuffer());
-      const actualDigest = await sha256BytesHex(actual);
-      return actualDigest === proof.destinationDigest;
-    };
-    const existing = await withTimeout(
-      this.bucket.head(row.new_key),
-      R2_TIMEOUT_MS,
-    );
-    if (existing) {
-      if (await destinationMatches()) return;
-      throw new OwnerTransferArchiveConflictError(
-        (await sha256Hex(row.new_key)).slice(0, 16),
-      );
-    }
-    try {
-      await withTimeout(
-        this.bucket.put(row.new_key, destinationBody, {
-          onlyIf: { etagDoesNotMatch: "*" },
-          httpMetadata: source.httpMetadata,
-          customMetadata: {
-            ...(source.customMetadata ?? {}),
-            ...proof.customMetadata,
-          },
-        }),
-        R2_TIMEOUT_MS,
-      );
-    } catch (error) {
-      // A conditional put can lose to a concurrent retry of this exact
-      // operation. Accept only the byte-verified proof; otherwise preserve
-      // both objects and surface the original storage failure.
-      if (await destinationMatches()) return;
-      if (await this.bucket.head(row.new_key)) {
-        throw new OwnerTransferArchiveConflictError(
-          (await sha256Hex(row.new_key)).slice(0, 16),
-        );
-      }
-      throw error;
-    }
-    if (!(await destinationMatches())) {
-      throw new OwnerTransferArchiveConflictError(
-        (await sha256Hex(row.new_key)).slice(0, 16),
-      );
     }
   }
 

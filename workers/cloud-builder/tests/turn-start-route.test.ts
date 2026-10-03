@@ -26,7 +26,7 @@ mock.restore();
  * the conversation object is addressed at all.
  */
 
-const ISSUER = "https://deployment.convex.site";
+const ISSUER = "https://backend.stella.test";
 const SERVICE_SECRET = "builder-service-secret";
 const originalFetch = globalThis.fetch;
 
@@ -109,7 +109,6 @@ const environment = (
     submissions,
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
-      STELLA_CONVEX_SITE_URL: ISSUER,
       CLOUD_BUILDER_PUBLIC_URL: ISSUER,
       ORCHESTRATOR_SESSIONS: {
         getByName: (name: string) => ({

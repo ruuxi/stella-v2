@@ -51,7 +51,6 @@ const gateHarness = (
   Object.assign(instance, {
     ctx: { storage, id: { name: "owner-1", toString: () => "owner-1" } },
     env: {
-      STELLA_CONVEX_SITE_URL: "https://convex.example",
       BUILDER_SERVICE_SECRET: "secret",
       TURN_TIMEOUT_MS: "900000",
     },
@@ -138,7 +137,7 @@ describe("OwnerGate.snapshotWithFenceLease", () => {
     expect(harness.alarm()).toBe(expiresAt);
 
     // An exact replay of the same lease is idempotent and reads the cached
-    // snapshot: no second Convex fetch, no second lease.
+    // snapshot: no second snapshot fetch, no second lease.
     const replay = await harness.instance.snapshotWithFenceLease({
       lease: lease({ generation }),
       now: NOW + 1_000,

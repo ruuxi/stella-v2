@@ -6,7 +6,7 @@
  * already load-bearing somewhere in `index.ts` or `orchestrator-session.ts`;
  * this module is where a resident turn reaches them without importing either.
  *
- * None of them is a Convex call. The thread transcript and the turn event
+ * None of them is a control-plane call. The thread transcript and the turn event
  * stream belong to the `BuildSession` — the transcript lives in its SQLite
  * and the owner reads the events it needs — and web search is the owner
  * object's `search.web`, so all three arrive here as injected callbacks.
@@ -127,7 +127,7 @@ export const createAgentControlPlane = (deps: {
   /**
    * Commit, then verify. The rows are the authority, so "canonical" means
    * "what this thread's table says after the append" — the same check the
-   * Convex round trip used to make, minus the round trip. A retry that
+   * old control-plane round trip used to make, minus the round trip. A retry that
    * changed the batch would commit a different transcript than the one the
    * cursor was computed from, which is the failure this ordering prevents.
    */

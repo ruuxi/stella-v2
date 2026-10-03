@@ -15,8 +15,8 @@ What master already has on the cloud side (all in `workers/cloud-builder`):
 
 - `OrchestratorSession`, one Durable Object per conversation, owns the
   transcript in its SQLite journal (gapless `seq`, idempotent `writer_key`,
-  FTS transcript index, R2 rollover of cold segments). Convex holds only a
-  projection fed by the `TURN_OUTBOX` queue. Clients read history over one
+  FTS transcript index, R2 rollover of cold segments). The owner object holds
+  only the conversation's list row. Clients read history over one
   hibernatable WebSocket per conversation (`conversation-hub.ts`).
 - `BuildSession`, one per agent thread, runs the general-agent loop resident
   in the DO (`general-agent-turn.ts`). A Cloudflare Sandbox container attaches
@@ -156,11 +156,11 @@ Operational facts learned:
 - `wrangler tail` drops most log lines of long Durable Object invocations
   (an alarm-driven turn shows as one object with zero logs). Workers Logs
   are enabled, but the telemetry query API needs an observability scope
-  that neither the wrangler OAuth login nor the Convex-held API token has.
+  that neither the wrangler OAuth login nor the agent-held API token has.
 - There is no `lint:promises` script anywhere in the repo; `check:ratchet`
   runs from the repo root and scans `workers/cloud-builder/.image/` if a
   deploy is staging at the same time.
-- The Convex-held `CLOUDFLARE_API_TOKEN` cannot list containers; the wrangler
+- The agent-held `CLOUDFLARE_API_TOKEN` cannot list containers; the wrangler
   login can.
 
 Follow-ups worth a look, not done:
@@ -251,7 +251,7 @@ telemetry principal-scope test in desktop-ui.
 ## 3. Do these first, in order (needs Docker and dev credentials; done 2026-09-03, repeat after any deploy)
 
 1. Confirm no dev thread is `running`:
-   `cd packages/backend && bunx convex data cloud_agent_threads --limit 5 --order desc`.
+   check the owner's agent threads (`agentThreads.recent`) or the worker tail.
    Never deploy while one is; the deploy replaces the resident isolate.
 2. Deploy: `cd workers/cloud-builder && bun run deploy:dev` (about two
    minutes worker-only; the image is unchanged by this commit).

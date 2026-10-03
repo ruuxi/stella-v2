@@ -22,7 +22,7 @@ import {
  * PKCS8 PEM) and the model gateway verifies against the matching public JWK
  * under `CAPABILITY_SIGNING_KID`. A capability carries everything the gateway
  * needs to authorize and meter the turn's model calls without consulting
- * Convex: owner, generation, audience, budget, the exact admitted execution,
+ * a database: owner, generation, audience, budget, the exact admitted execution,
  * and (for connected subscriptions) which native credential lane to use.
  *
  * The imported CryptoKey is cached per isolate; PKCS8 import is not free and

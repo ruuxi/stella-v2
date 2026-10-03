@@ -69,7 +69,7 @@ export const ownerPurgeBeginDisposition = (args: {
       : { action: "reject" };
   }
 
-  // Before Convex has received and durably recorded the first generation, an
+  // Before the caller has durably recorded the first generation, an
   // initial begin response can be lost. The immutable lifecycle operation id
   // is the only authority available on that retry: exact replay returns the
   // same blocked fence, while another operation id cannot adopt it. A delete

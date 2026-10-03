@@ -121,7 +121,7 @@ const fail = (reason: string, retryable = false): VerifyResult => ({
 });
 
 /**
- * @param issuer the PINNED Convex site origin. Never the token's own `iss`.
+ * @param issuer the PINNED backend origin. Never the token's own `iss`.
  */
 
 type UserKeys = { keys: Map<string, CryptoKey>; fetchedAtMs: number };

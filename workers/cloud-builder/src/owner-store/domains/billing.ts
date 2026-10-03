@@ -233,7 +233,7 @@ const isPaying = (row: AccountRow): boolean =>
   (plan(row) !== "free" && ACTIVE_SUBSCRIPTION_STATUSES.has(row.subscription_status)) ||
   row.credit_balance > 0;
 
-/** The identity rung: Convex knows sign-in, this ledger knows payment. */
+/** The identity rung: the auth claims know sign-in, this ledger knows payment. */
 const identityLevel = (row: AccountRow): IdentityLevel =>
   row.is_anonymous ? 0 : isPaying(row) ? 3 : (Math.min(2, Math.max(1, row.identity_level)) as IdentityLevel);
 
@@ -404,7 +404,7 @@ const capabilityBudget = (access: BillingAccess, reserved: number): number => {
   return Math.min(Math.max(0, Math.floor(access.remainingMicroCents - reserved)), chunk);
 };
 
-/** Note who the owner is, as the latest sign-in or Convex snapshot says. */
+/** Note who the owner is, as the latest verified sign-in says. */
 export const recordBillingIdentity = (
   ctx: OwnerContext,
   identity: { isAnonymous: boolean; identityLevel?: IdentityLevel },

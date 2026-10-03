@@ -1,6 +1,6 @@
 /**
  * Integrations over HTTP, for the desktop runtime, Electron and the
- * `stella-x-api` CLI (same shapes the Convex routes had):
+ * `stella-x-api` CLI:
  *
  *   GET  /api/native-integrations/catalog        the executable Store catalog (public)
  *   GET  /api/native-integrations/actions        ?id&action|query&cursor&limit

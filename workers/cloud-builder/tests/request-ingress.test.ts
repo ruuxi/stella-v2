@@ -44,9 +44,6 @@ describe("Cloud Builder request ingress", () => {
     expect(
       serviceJsonBodyLimit("POST", "/conversations/conversation-1/turns"),
     ).toBeNull();
-    expect(serviceJsonBodyLimit("POST", "/owners/purge")).toBe(
-      CLOUD_BUILDER_BODY_LIMITS.conversationAppend,
-    );
     expect(serviceJsonBodyLimit("POST", "/not-a-route")).toBeNull();
     expect(serviceJsonBodyLimit("POST", "/m0/echo")).toBeNull();
     expect(CLOUD_BUILDER_BODY_LIMITS.localTurnBegin).toBe(8 * 1024 * 1024);

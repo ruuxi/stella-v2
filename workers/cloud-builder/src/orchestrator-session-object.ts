@@ -39,7 +39,7 @@ import { executionContextHistoryEntries } from "@stella/runtime/kernel/agent-run
  * immediately.
  *
  * This object OWNS its conversation. The transcript lives in its SQLite (see
- * `journal.ts`) and is the single source of truth for message content; Convex
+ * `journal.ts`) and is the single source of truth for message content; the owner
  * keeps only the derived conversation-list projection it alone can serve.
  * There is no per-turn transcript round trip left:
  * the loop reads its context from local storage and writes produced messages
@@ -262,7 +262,6 @@ import {
   BACKFILL_BATCH_RECORDS,
   CONVERSATION_MAX_STORED_BYTES,
   CLOSE_DELETED,
-  CLOSE_UNAUTHENTICATED,
   CONTEXT_MAX_SPILL_HYDRATIONS,
   HEADER_OWNER,
   INBOX_MAX_BYTES,
@@ -311,13 +310,6 @@ import {
   type ParsedLocalTurnRenewal,
   type LocalTerminalPhase,
 } from "./local-turn-protocol.js";
-import {
-  OwnerTransferArchiveConflictError,
-  conversationArchivePrefix,
-  parseOwnerTransferRequest,
-  retainedTurnBlocksOwnerTransfer,
-  type OwnerTransferRequest,
-} from "./owner-transfer.js";
 import { normalizeOwnerGeneration } from "./owner-generation.js";
 import { parseVoiceJournalRecords } from "./journal-append-protocol.js";
 import {
@@ -535,8 +527,6 @@ type LocalTurnFinishReceipt = {
   finishFingerprint?: string;
   externallyCanceled?: boolean;
 };
-
-const OWNER_TRANSFER_KEY = "conversationOwnerTransfer";
 
 class OwnerPurgeFenceError extends Error {}
 class OwnerFenceLeaseConflictError extends Error {}
@@ -812,7 +802,7 @@ const terminalNotice = (kind: string): string =>
 
 /**
  * A terminal state that is written to the transcript but not yet accepted by
- * Convex. It is what the re-armed alarm retries: the alarm is the retry vehicle
+ * the owner. It is what the re-armed alarm retries: the alarm is the retry vehicle
  * for EVERY terminal kind, and without a record of which one is owed it can
  * only ever report the one it invents itself.
  */
@@ -827,7 +817,7 @@ type OwedTerminal = {
   payload?: Record<string, unknown>;
   /**
    * The per-turn ordinal assigned to the terminal event when the terminal was
-   * decided. A retried enqueue reuses it, so Convex sees one terminal event
+   * decided. A retried enqueue reuses it, so the owner sees one terminal event
    * however many times the alarm has to resend it.
    */
   eventSeq?: number;
@@ -862,7 +852,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     restoreMs: number;
     totalMs: number;
   };
-  // Serializes turns: Convex can dispatch a wake turn while a user turn is
+  // Serializes turns: the owner can dispatch a wake turn while a user turn is
   // still streaming; the second waits its turn instead of interleaving.
   private queue: Promise<unknown> = Promise.resolve();
   /** Exact promises let Stop join only its target, never a newer queued turn. */
@@ -916,14 +906,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * moment it returns. Any request that checked the tombstone before the purge
    * and was still awaiting something when it landed would otherwise resume
    * against that empty journal and write rows — and R2 objects — into a
-   * conversation Convex has already recorded as deleted, where no purge, sweep
+   * conversation the owner has already recorded as deleted, where no purge, sweep
    * or manifest will ever name them again. The durable tombstone fences the
    * window before `deleteAll()`; this fences the window after it.
    */
   private sealed = false;
 
-  private ownerTransferWork: Promise<Response> | null = null;
-  private ownerTransferRequest: OwnerTransferRequest | null = null;
   /** Serializes `/turn` admission through durable replay classification. */
   private turnAdmissionTail: Promise<void> = Promise.resolve();
   /** Serializes per-turn event ordinal allocation (a get+put pair). */
@@ -969,7 +957,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
     // Accepted turns are persisted under queued:* before the 202 goes out;
     // an isolate restart wipes the in-memory queue, so re-enqueue whatever
-    // survived — otherwise an accepted turn (and its Convex "running" row)
+    // survived — otherwise an accepted turn (and its owner "running" row)
     // would be silently lost forever.
     const wake = this.ctx.blockConcurrencyWhile(async () => {
       const wakeStartedAt = performance.now();
@@ -1040,7 +1028,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   // -------------------------------------------------------------------------
-  // Identity and Convex endpoint
+  // Identity and backend endpoint
   // -------------------------------------------------------------------------
 
   private conversationId(): string {
@@ -1741,7 +1729,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * route answers 404 and confirms nothing). Unbound: adopt the caller. This
    * is what lets a client subscribe to a conversation it has just minted
    * before its first turn: the socket binds the prospective owner, and the
-   * first turn projects `conversation.created` to Convex. The generation
+   * first turn projects `conversation.created` to the owner. The generation
    * comes from the owner gate's snapshot; a write path passes
    * `refreshGeneration` because a new write capability must be fenced on the
    * generation that is current now, not the one cached with the last turn.
@@ -2539,7 +2527,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * What this turn still owes Convex, for a caller that did not terminate it
+   * What this turn still owes the owner, for a caller that did not terminate it
    * itself. `terminalOwed` is the authority — it is written in the same durable
    * put as `terminal` by every path that terminates a turn. The journal's
    * recorded kind is the fallback, and covers exactly one case: a turn that
@@ -2570,7 +2558,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * delivers it and never re-arms — so a watchdog that fires while a second
    * turn sits queued leaves that turn with no wake signal at all. The
    * in-memory queue still drains it, right up until the isolate is evicted;
-   * after that nothing in Cloudflare or Convex ever wakes this object on its
+   * after that nothing in Cloudflare ever wakes this object on its
    * own, and a turn that was accepted with a 202 and an `agent_turns` row
    * reading "running" is stranded until a user happens to open the
    * conversation, which may be days later or never.
@@ -2760,7 +2748,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   private async runAlarm(turn: ChatTurnRequest): Promise<void> {
     // The alarm is two jobs sharing one wake-up: the watchdog, and the retry
-    // ladder every other terminal path re-arms when its Convex delivery fails.
+    // ladder every other terminal path re-arms when its owner delivery fails.
     // Only the first job may terminate a turn. Running the timeout path over a
     // turn that is already canceled or failed writes a SECOND terminal row —
     // `recordTerminal` keys on the phase, so it is a distinct row, not a
@@ -2792,7 +2780,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         conversationId: turn.conversationId,
       });
       // Additive: the journal row a socket client needs to stop showing a
-      // spinner. It is written whether or not the Convex event below lands —
+      // spinner. It is written whether or not the owner event below lands —
       // the two deliveries are independent, and this one has no retry ladder
       // because it cannot fail transiently.
       this.recordTerminal(turn, "timeout", TERMINAL_NOTICE.timeout);
@@ -2834,7 +2822,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // either re-armed the alarm for its own retry or consumed it for good, so
     // this is the first moment the queue can be honestly re-fenced — and
     // `finalizeTerminalTurn` below is the window the finding turns on: an
-    // index flush (a Convex round trip with a 30 s timeout) and a possible R2
+    // index flush (an owner round trip with a 30 s timeout) and a possible R2
     // segment cut, during which the isolate can be evicted or redeployed. Arm
     // first and that eviction costs a wake-up; arm after and it costs the
     // queued turn.
@@ -2856,23 +2844,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       url.pathname.startsWith("/internal/edit/")
     ) {
       return this.handleConversationEditRoute(url.pathname, request);
-    }
-    if (
-      request.method === "POST" &&
-      url.pathname === "/internal/transfer-owner"
-    ) {
-      return this.handleOwnerTransfer(request);
-    }
-    const ownerTransfer =
-      await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY);
-    if (ownerTransfer) {
-      return json(
-        {
-          code: "owner_transfer_in_progress",
-          message: "Conversation ownership is being updated.",
-        },
-        409,
-      );
     }
     if (url.pathname === "/socket") return this.handleSocket(request);
     if (request.method === "GET") {
@@ -3193,7 +3164,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * order: request shape, service-only fields, ownership (adopting a fresh
    * conversation), idempotency on `clientMsgId`, the owner gate, the
    * execution, then the durable admission intent, the owner fence, and the
-   * queued turn — with the projections Convex needs going out last.
+   * queued turn — with the projections the owner needs going out last.
    */
   async startAdmittedChat(
     start: CloudTurnStartRequest,
@@ -3526,7 +3497,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // Adoption. Conversation ids are client-minted UUIDs, so the first
       // verified caller is the client that minted the id. A socket connect
       // may already have bound the owner; the conversation is "created" for
-      // Convex by whichever turn first projects it. Bound here, before the
+      // the owner by whichever turn first projects it. Bound here, before the
       // fence, so a crash between the two leaves an owned conversation with a
       // `registering` intent rather than an unowned turn.
       const now = Date.now();
@@ -3770,7 +3741,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const admissionCommitMs = Math.round(performance.now() - commitStarted);
       const projectionStarted = performance.now();
       // Projections, after the durable commit and before the 202: the queue
-      // is durable, so once these are enqueued (or debted) Convex will learn
+      // is durable, so once these are enqueued (or debted) the owner will learn
       // of the conversation and the turn no matter what this isolate does next.
       const projections: OwnerEvent[] = [];
       if (createdConversation) {
@@ -3836,207 +3807,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         202,
       );
     });
-  }
-
-  private async handleOwnerTransfer(request: Request): Promise<Response> {
-    const body = parseOwnerTransferRequest(
-      await request.json().catch(() => null),
-    );
-    if (!body) {
-      return json({ code: "bad_request", message: "Malformed request." }, 400);
-    }
-    if (this.ownerTransferWork) {
-      if (
-        this.ownerTransferRequest?.fromOwnerId !== body.fromOwnerId ||
-        this.ownerTransferRequest?.toOwnerId !== body.toOwnerId ||
-        this.ownerTransferRequest?.migrationId !== body.migrationId ||
-        this.ownerTransferRequest?.stage !== body.stage ||
-        this.ownerTransferRequest?.planRevision !== body.planRevision ||
-        this.ownerTransferRequest?.fromOwnerGeneration !==
-          body.fromOwnerGeneration ||
-        this.ownerTransferRequest?.toOwnerGeneration !== body.toOwnerGeneration
-      ) {
-        return json(
-          {
-            code: "owner_transfer_conflict",
-            message: "A different ownership update is already in progress.",
-          },
-          409,
-        );
-      }
-      return await this.ownerTransferWork;
-    }
-    this.ownerTransferRequest = body;
-    const work = this.runOwnerTransfer(body).finally(() => {
-      if (this.ownerTransferWork === work) {
-        this.ownerTransferWork = null;
-        this.ownerTransferRequest = null;
-      }
-    });
-    this.ownerTransferWork = work;
-    return await work;
-  }
-
-  private async runOwnerTransfer(
-    body: OwnerTransferRequest,
-  ): Promise<Response> {
-    const admission = await this.ctx.blockConcurrencyWhile(async () => {
-      const [pending, editLock] = await Promise.all([
-        this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY),
-        this.ctx.storage.get<ConversationEditLock>(CONVERSATION_EDIT_LOCK_KEY),
-      ]);
-      if (editLock && editLock.expiresAt > Date.now()) {
-        return {
-          response: json(
-            {
-              code: "conversation_edit_in_progress",
-              message: "A conversation fork or rewind is still in progress.",
-              retryAfterMs: Math.min(
-                5_000,
-                Math.max(250, editLock.expiresAt - Date.now()),
-              ),
-            },
-            409,
-          ),
-          pending: false,
-        };
-      }
-      if (
-        pending &&
-        (pending.fromOwnerId !== body.fromOwnerId ||
-          pending.toOwnerId !== body.toOwnerId ||
-          pending.migrationId !== body.migrationId ||
-          pending.stage !== body.stage ||
-          pending.planRevision !== body.planRevision ||
-          pending.fromOwnerGeneration !== body.fromOwnerGeneration ||
-          pending.toOwnerGeneration !== body.toOwnerGeneration)
-      ) {
-        return {
-          response: json(
-            {
-              code: "owner_transfer_conflict",
-              message: "A different ownership update is already in progress.",
-            },
-            409,
-          ),
-          pending: false,
-        };
-      }
-      const currentOwnerId = this.journal.ownerId();
-      if (currentOwnerId === body.toOwnerId) {
-        this.ownerGeneration = body.toOwnerGeneration;
-        await this.ctx.storage.put(
-          "ownerDataGeneration",
-          body.toOwnerGeneration,
-        );
-        await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
-        return {
-          response: json({ transferred: true, replayed: true }),
-          pending: false,
-        };
-      }
-      if (currentOwnerId && currentOwnerId !== body.fromOwnerId) {
-        return {
-          response: json(
-            {
-              code: "owner_mismatch",
-              message: "The conversation belongs to a different owner.",
-            },
-            409,
-          ),
-          pending: false,
-        };
-      }
-      if (!pending) {
-        const [turn, terminal, localLease, queued] = await Promise.all([
-          this.ctx.storage.get<ChatTurnRequest>("turn"),
-          this.ctx.storage.get<boolean>("terminal"),
-          this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
-          this.ctx.storage.list({ prefix: "queued:", limit: 1 }),
-        ]);
-        if (
-          retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
-          localLease ||
-          queued.size > 0 ||
-          this.live ||
-          this.activeTurnId ||
-          this.currentAgent ||
-          this.currentTurnCancellation ||
-          this.journal.inboxSize().rows > 0
-        ) {
-          return {
-            response: json(
-              {
-                code: "turn_in_progress",
-                message: "A conversation turn is still running.",
-                retryAfterMs: 5_000,
-              },
-              409,
-            ),
-            pending: false,
-          };
-        }
-        await this.ctx.storage.put(OWNER_TRANSFER_KEY, body);
-        this.hub.closeAll(CLOSE_UNAUTHENTICATED);
-      } else if (body.leaseGeneration >= pending.leaseGeneration) {
-        // The migration watchdog may hand the same durable operation to a new
-        // lease generation. The coordinator rejects stale/same-generation
-        // impostors before forwarding, so persist the current receipt here.
-        await this.ctx.storage.put(OWNER_TRANSFER_KEY, body);
-      }
-      return { response: null, pending: true };
-    });
-    if (admission.response) return admission.response;
-
-    const conversationId = this.conversationId();
-    if (!conversationId) {
-      await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
-      return json(
-        { code: "conversation_missing", message: "Conversation not found." },
-        404,
-      );
-    }
-    const [fromPrefix, toPrefix] = await Promise.all([
-      conversationArchivePrefix(body.fromOwnerId, conversationId),
-      conversationArchivePrefix(body.toOwnerId, conversationId),
-    ]);
-    let archive: { complete: boolean; pending: number };
-    try {
-      archive = await this.archive.transferOwner(
-        fromPrefix,
-        toPrefix,
-        body.toOwnerId,
-      );
-    } catch (error) {
-      if (error instanceof OwnerTransferArchiveConflictError) {
-        return json(
-          { code: "owner_transfer_conflict", message: error.message },
-          409,
-        );
-      }
-      throw error;
-    }
-    if (!archive.complete) {
-      return json({ transferred: false, pendingObjects: archive.pending }, 202);
-    }
-    if (!this.journal.transferOwner(body.fromOwnerId, body.toOwnerId)) {
-      return json(
-        {
-          code: "owner_mismatch",
-          message: "The conversation belongs to a different owner.",
-        },
-        409,
-      );
-    }
-    this.ownerGeneration = body.toOwnerGeneration;
-    await this.ctx.storage.put("ownerDataGeneration", body.toOwnerGeneration);
-    await this.ctx.storage.delete(OWNER_TRANSFER_KEY);
-    log("info", "conversation_owner_transferred", {
-      conversationId,
-      fromOwnerRef: fromPrefix.split("/")[1]?.slice(0, 16),
-      toOwnerRef: toPrefix.split("/")[1]?.slice(0, 16),
-    });
-    return json({ transferred: true, replayed: false });
   }
 
   // The in-flight loop, exposed so /cancel and the alarm can actually stop
@@ -4282,7 +4052,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // Queued turns survive DO eviction and may predate the worker generation
     // that introduced owner leases. Acquire (or re-acquire) before touching
     // the journal; a blocked owner drops the queued turn without callbacks,
-    // because the reset/account purge is about to delete its Convex row too.
+    // because the reset/account purge is about to delete its owner row too.
     try {
       const registrationAt = performance.now();
       turn.ownerPurgeGeneration = await this.registerOwnerTurn(turn);
@@ -4349,7 +4119,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       return json({ ok: false, duplicate: true });
     }
     // A prior turn that never delivered its terminal event (isolate restart
-    // mid-run) would otherwise stay "running" in Convex forever.
+    // mid-run) would otherwise stay "running" in the owner forever.
     const stale = await this.getTurnState<ChatTurnRequest>("turn");
     if (
       stale &&
@@ -4373,7 +4143,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // two writes is the only moment a restart can see this turn twice; before
     // the swap it saw it not at all, which is unrecoverable — an accepted turn
     // in neither durable record is a user message that never reaches the
-    // transcript and a Convex row stuck "running" forever. Seeing it twice
+    // transcript and a owner row stuck "running" forever. Seeing it twice
     // costs a re-run of a turn that has produced nothing yet.
     //
     // The stale-turn recovery above deliberately sits outside the window: it
@@ -5552,7 +5322,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // `terminal` and what is owed, in ONE durable write BEFORE delivery —
       // the same ordering the cancel and failed paths use. The watchdog reads
       // `terminal` to decide whether a turn is still owed one, so writing it
-      // after the Convex round trip left a window (widened by the retry
+      // after the owner round trip left a window (widened by the retry
       // ladder, which pushes completions toward the deadline) where an alarm
       // firing mid-delivery declared a finished turn timed out, and clients
       // group on the last row per turn — so the user saw "timed out" over a
@@ -6083,7 +5853,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /**
    * Raise the in-memory seal from outside `handlePurge`.
    *
-   * The only caller is the index flush learning from Convex that this
+   * The only caller is the index flush learning from the owner that this
    * conversation id is fenced as purged — which is the one fact this isolate
    * cannot derive for itself. A DO restarted after its purge has an empty
    * journal and a false `sealed`, and there is no request that would ever tell
@@ -6291,7 +6061,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       this.ctx.storage.list({ prefix: "queued:", limit: 1 }),
     ]);
     return Boolean(
-      retainedTurnBlocksOwnerTransfer(turn !== undefined, terminal) ||
+      (turn !== undefined && terminal !== true) ||
         localLease ||
         queued.size > 0 ||
         this.live ||
@@ -6432,17 +6202,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       );
     }
     const result = await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerTransfer =
-        await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY);
-      if (ownerTransfer) {
-        return json(
-          {
-            code: "owner_transfer_in_progress",
-            message: "Conversation ownership is being updated.",
-          },
-          409,
-        );
-      }
       const ownerError = await this.bindConversationEditOwner(
         request,
         request.sourceCreatedAt,
@@ -6682,17 +6441,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       );
     }
     return await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerTransfer =
-        await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY);
-      if (ownerTransfer) {
-        return json(
-          {
-            code: "owner_transfer_in_progress",
-            message: "Conversation ownership is being updated.",
-          },
-          409,
-        );
-      }
       const activeLock = await this.activeConversationEditLock();
       if (
         activeLock &&
@@ -7024,20 +6772,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       return json({ ...replay, replayed: true });
     }
     const admission = await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerTransfer =
-        await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY);
-      if (ownerTransfer) {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "owner_transfer_in_progress",
-              message: "Conversation ownership is being updated.",
-            },
-            409,
-          ),
-        } as const;
-      }
       const ownerError = await this.bindConversationEditOwner(
         request,
         meta.created_at,
@@ -9100,23 +8834,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       let finalResponse: Response | null = null;
       let appendFailure: unknown;
       // Everything below is one input-gate critical section. The storage reads
-      // may yield, but `blockConcurrencyWhile` prevents a queued text turn or an
-      // owner transfer from being admitted between the final checks and the
-      // synchronous journal transaction.
+      // may yield, but `blockConcurrencyWhile` prevents a queued text turn
+      // from being admitted between the final checks and the synchronous
+      // journal transaction.
       await this.ctx.blockConcurrencyWhile(async () => {
-        if (
-          await this.ctx.storage.get<OwnerTransferRequest>(OWNER_TRANSFER_KEY)
-        ) {
-          finalResponse = json(
-            {
-              code: "owner_transfer_in_progress",
-              message: "Conversation ownership is being updated.",
-              retryAfterMs: 3_000,
-            },
-            409,
-          );
-          return;
-        }
         if (await this.turnRunning()) {
           finalResponse = json(
             {
@@ -9272,7 +8993,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * Cards written by Convex on a non-chat terminal (build, operation) and on
+   * Cards written by the owner on a non-chat terminal (build, operation) and on
    * agent-thread completion (files). As journal rows they survive scrollback,
    * which an `agent_events` row inside a `take(100)` window never did.
    */
@@ -9300,7 +9021,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
     // A build- or operation-only conversation reaches this handler having never
     // run an orchestrator turn, so `meta.owner_id` is still empty and an index
-    // flush would be a no-op. Bind first (the caller is Convex, behind the
+    // flush would be a no-op. Bind first (the caller is the owner, behind the
     // service secret): without it the row keeps `lastSeq` null and the orphan
     // sweep eventually deletes a conversation that has real content.
     try {
@@ -9357,7 +9078,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           );
         }
         this.journal.stageInbox({
-          writer: "convex",
+          writer: "service",
           writerKey,
           kind: "card",
           turnId: sourceTurnId,
@@ -9368,7 +9089,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       const appended = this.journal.appendCard({
         turnId: sourceTurnId,
-        writer: "convex",
+        writer: "service",
         writerKey,
         card,
         createdAt: now,
@@ -9461,7 +9182,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // dispatch delivered while it was awaiting writes a fresh `queued:` key
     // behind it. In this isolate the seal drops that turn — but the seal is
     // in-memory, and a cold start after an eviction would re-enqueue it and run
-    // a turn against the empty journal of a conversation Convex has already
+    // a turn against the empty journal of a conversation the owner has already
     // recorded as deleted. Dropping the key is the durable half of the seal.
     //
     // The alarm goes with it rather than being left to `deleteAll()`: nothing
@@ -9497,7 +9218,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     await this.journal.bootstrap();
     if (this.ctx.id.name) this.journal.setConversationId(this.ctx.id.name);
     if (identity) {
-      // After the wipe, best-effort: Convex's own purge already tombstoned
+      // After the wipe, best-effort: The owner's own purge already tombstoned
       // the row before calling here; this closes the loop for a purge that
       // started on this side.
       await this.deferOwnerEvents([

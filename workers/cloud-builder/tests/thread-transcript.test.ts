@@ -220,7 +220,7 @@ describe("per-attempt ordinals", () => {
 
     // The counter lives in the object's storage, not the isolate: a fresh
     // isolate over the same SQLite reads it back instead of restarting at 1
-    // and colliding with events Convex has already projected.
+    // and colliding with events already projected.
     expect(nextTurnEventSeq(sql, "turn-1", 1)).toBe(3);
     close();
   });

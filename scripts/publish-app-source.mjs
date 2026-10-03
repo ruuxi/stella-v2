@@ -28,6 +28,7 @@ const EXCLUDED_PATHS = [
   ".agents",
   ".github",
   "infra",
+  "launcher",
   "workers",
   "packages/backend",
   "packages/executor-cloud",

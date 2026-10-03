@@ -30,6 +30,7 @@ import {
   applyDevHarnessOptions,
   resolveDevHarnessOptions,
 } from "./bootstrap/dev-harness-options.js";
+import { connectLauncher } from "./launcher-client.js";
 const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
@@ -41,10 +42,21 @@ const devHarnessOptions = resolveDevHarnessOptions({
   isPackaged: app.isPackaged,
   workspaceDir: stellaAppDir,
 });
+// The native launcher runs the source tree as the product: name, userData
+// and Stella home are Stella's, not the development app's.
+const isLauncherRun =
+  isDev && !devHarnessOptions && process.env.STELLA_LAUNCHER === "1";
 
 if (isDev) {
   if (devHarnessOptions) {
     applyDevHarnessOptions(app, devHarnessOptions);
+  } else if (isLauncherRun) {
+    app.setName(STELLA_APP_NAME);
+    app.setPath(
+      "userData",
+      process.env.STELLA_LAUNCHER_USER_DATA_DIR?.trim() ||
+        path.join(app.getPath("appData"), STELLA_APP_NAME),
+    );
   } else {
     // macOS derives safeStorage's Keychain service from app.name. Keep normal
     // unpackaged v2 development separate from both production and harnesses.
@@ -58,7 +70,8 @@ if (isDev) {
   app.setName(STELLA_APP_NAME);
 }
 
-const configuredStatePath = isDev
+const usesDevelopmentData = isDev && !isLauncherRun;
+const configuredStatePath = usesDevelopmentData
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
   : process.env.STELLA_DATA_DIR?.trim();
 // SQLite, bundled-skill reconciliation, the runtime worker, and prompt-facing
@@ -66,7 +79,7 @@ const configuredStatePath = isDev
 // durable home; Electron userData remains a second, replaceable profile for
 // Chromium/auth/runtime state.
 const stellaDataDirPath = resolveDesktopStellaDataDirPath({
-  mode: isDev ? "development" : "production",
+  mode: usesDevelopmentData ? "development" : "production",
   configuredStatePath,
 });
 // Establish the selected roots before logging or service construction. The
@@ -74,7 +87,7 @@ const stellaDataDirPath = resolveDesktopStellaDataDirPath({
 // logs also use the short isolated data root; Electron's Application Support
 // path is too long for macOS' bounded Unix-domain socket paths.
 process.env.STELLA_DATA_DIR = stellaDataDirPath;
-process.env.STELLA_TELEMETRY_ENVIRONMENT = isDev
+process.env.STELLA_TELEMETRY_ENVIRONMENT = usesDevelopmentData
   ? "development"
   : "production";
 if (isDev) {
@@ -103,6 +116,7 @@ export const bootstrapMainProcess = () => {
     return;
   }
 
+  connectLauncher();
   initMainProcessLogging(stellaAppDir);
   installDevBrokenPipeGuards();
   // Windows-only: keep DWM from putting Stella on MPO hardware overlay

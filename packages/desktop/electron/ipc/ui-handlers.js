@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { writeFileSync } from "node:fs";
 import { IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE } from "@stella/contracts/desktop/ipc-channels";
-import { restoreDevHarnessStorageKeyForRelaunch } from "../bootstrap/dev-harness-protected-storage.js";
+import { relaunchApp } from "../launcher-client.js";
 export const registerUiHandlers = (options) => {
     ipcMain.on("app:setReady", (_event, ready) => {
         options.setAppReady(!!ready);
@@ -86,8 +86,6 @@ export const registerUiHandlers = (options) => {
             app.quit();
             return;
         }
-        restoreDevHarnessStorageKeyForRelaunch();
-        app.relaunch();
-        app.quit();
+        relaunchApp();
     });
 };

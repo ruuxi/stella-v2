@@ -12,7 +12,7 @@ import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { BrowserWindow, ipcMain, shell } from "electron";
 import { toggleRealtimeVoice, } from "../services/realtime-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
@@ -48,7 +48,7 @@ import { AppSourceService } from "../services/app-source/app-source-service.js";
 import { buildAndUploadWebRenderer } from "../services/app-source/web-renderer.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { openDraftPreview } from "../services/app-source/draft-preview.js";
-import { restoreDevHarnessStorageKeyForRelaunch } from "./dev-harness-protected-storage.js";
+import { relaunchApp } from "../launcher-client.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
@@ -406,11 +406,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             isAnyWindowVisible: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isVisible() && !window.isMinimized()),
             requestRuntimeRestart: () => state.stellaHostRunner?.requestRuntimeRestart(),
             applyRendererChanges: (paths) => state.rendererSource?.applyChanges(paths),
-            relaunch: () => {
-                restoreDevHarnessStorageKeyForRelaunch();
-                app.relaunch();
-                app.quit();
-            },
+            relaunch: relaunchApp,
             hasConnectedAccount: () => services.authService.getHostHasConnectedAccount(),
             getBackendUrl: () => services.authService.getBackendUrl(),
             getAuthToken: () => services.authService.getConvexAuthToken(),

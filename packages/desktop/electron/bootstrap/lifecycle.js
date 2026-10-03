@@ -7,7 +7,7 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
 import { initializeBootstrapApplication } from "./runtime.js";
-import { restoreDevHarnessStorageKeyForRelaunch } from "./dev-harness-protected-storage.js";
+import { isLauncherPresent, launcherExitCode, relaunchApp, reportFailed, } from "../launcher-client.js";
 // Shutdown cleanup is best-effort, never a hostage. Squirrel's installer waits
 // for this process to exit before it swaps the bundle in, so a cleanup that
 // stalls reads to the user as "the update never restarted" — the app is gone
@@ -69,6 +69,12 @@ export const registerBootstrapLifecycle = (context) => {
             ? `${error.name}: ${error.message}\n\n${error.stack ?? ""}`
             : String(error);
         console.error("Fatal startup failure:", error);
+        if (isLauncherPresent()) {
+            // The launcher shows its recovery screen with this output.
+            reportFailed(detail);
+            app.exit(1);
+            return;
+        }
         try {
             const result = await dialog.showMessageBox({
                 type: "error",
@@ -84,9 +90,7 @@ export const registerBootstrapLifecycle = (context) => {
                 detail: t("desktop.dialog.startupFailure.detail", { detail }).slice(0, 12_000),
             });
             if (result.response === 0) {
-                restoreDevHarnessStorageKeyForRelaunch();
-                app.relaunch();
-                app.quit();
+                relaunchApp();
                 return;
             }
             app.quit();
@@ -175,7 +179,7 @@ export const registerBootstrapLifecycle = (context) => {
                 getMainLogger()?.process("main.quit-cleanup-elapsed", { elapsedMs });
             }
             quitAfterCleanup = true;
-            app.exit(0);
+            app.exit(launcherExitCode());
         })();
     });
 };

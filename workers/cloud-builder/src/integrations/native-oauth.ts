@@ -107,7 +107,7 @@ export const exchangeNativeOAuthToken = async (
   }
   const upstream = await fetch(client.tokenEndpoint, {
     method: "POST",
-    redirect: "error",
+    redirect: "manual",
     headers: {
       accept: "application/json",
       "content-type": "application/x-www-form-urlencoded",

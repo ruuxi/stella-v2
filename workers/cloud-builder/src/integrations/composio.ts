@@ -74,7 +74,7 @@ export const composioFetch = async (
 ): Promise<Record<string, unknown>> => {
   const response = await fetch(`${options.baseUrl ?? config.baseUrl}${path}`, {
     method: init.method,
-    redirect: "error",
+    redirect: "manual",
     headers: {
       accept: "application/json",
       "content-type": "application/json",

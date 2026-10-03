@@ -283,7 +283,7 @@ export const hydrateResidentDrive = async (input: {
     if (url.protocol !== "https:")
       throw new Error("Invalid drive download URL.");
     const bytes = await boundedBytes(
-      await (input.fetchImpl ?? fetch)(url, { signal, redirect: "error" }),
+      await (input.fetchImpl ?? fetch)(url, { signal, redirect: "manual" }),
       entry.sizeBytes,
     );
     const sha256 = await hash(bytes);

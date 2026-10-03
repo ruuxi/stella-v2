@@ -48,7 +48,9 @@ type RuntimeExecutableAgent = {
   finishAfterTurn: () => void;
 };
 
-const DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
+// Time to first agent activity. Slow routes and large prompts can take 20-30s
+// to the first token; 15s killed them (twice, with the retry) at ~30s.
+const DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 // Ceiling while tool calls are in flight. Deliberately above the agent-core
 // per-tool inactivity bound (10 min) so the tool-level cancellation — which

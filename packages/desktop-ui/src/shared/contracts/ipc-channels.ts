@@ -352,8 +352,3 @@ export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
   "localChat:threadActivityUpdated" as const;
 export const IPC_LOCAL_CHAT_TASK_DECORATION_UPDATED =
   "localChat:taskDecorationUpdated" as const;
-
-export const IPC_USER_APPS_LIST = "userApps:list" as const;
-export const IPC_USER_APPS_START = "userApps:start" as const;
-export const IPC_USER_APPS_STOP = "userApps:stop" as const;
-export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;

@@ -11,7 +11,6 @@ import { runsHandlers } from "./handlers/runs.js";
 import { localChatHandlers } from "./handlers/local-chat.js";
 import { voiceHandlers } from "./handlers/voice.js";
 import { runnerOpsHandlers } from "./handlers/runner-ops.js";
-import { projectsHandlers } from "./handlers/projects.js";
 import { discoveryHandlers } from "./handlers/discovery.js";
 
 /**
@@ -47,7 +46,6 @@ export const createRuntimeWorkerServer = (
     ...localChatHandlers,
     ...voiceHandlers,
     ...runnerOpsHandlers,
-    ...projectsHandlers,
     ...discoveryHandlers,
   });
 

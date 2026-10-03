@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Loading apps…",
-      "unsupportedTitle": "Apps are available on desktop.",
-      "unsupportedBody": "Open Stella on your computer to use locally installed apps.",
-      "errorTitle": "Couldn’t load apps",
-      "errorBody": "Stella couldn’t read your apps folder.",
-      "tryAgain": "Try again",
-      "heroTitleEmphasis": "Your",
-      "heroTitleRest": "apps",
-      "staleWarning": "Apps may be out of date.",
-      "searchPlaceholder": "Search apps",
-      "sortLabel": "Sort",
-      "createApp": "Create an app",
-      "noMatchPrefix": "No apps match",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Nothing here yet.",
-      "emptyBody": "Ask Stella to build a small app. It will show up here.",
-      "emptyAction": "Ask Stella to create an app",
-      "createAppPrompt": "Tell me what stella apps can you make for me?",
-      "sort": {
-        "recent": "Recent",
-        "name": "Name"
-      },
-      "frame": {
-        "startFailed": "The app failed to start.",
-        "timeout": "The app took too long to load.",
-        "loadFailed": "The app couldn’t be loaded.",
-        "loading": "Loading {name}…",
-        "openFailed": "Couldn’t open {name}"
-      }
+      "createAppPrompt": "Tell me what stella apps can you make for me?"
     },
     "chat": {
       "activityPill": {

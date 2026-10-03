@@ -30,8 +30,6 @@ DEV-CONTEXT.md
 # Worker shell Dynamic Worker bundle, rebuilt by scripts/build-worker-shell.mjs.
 /workers/cloud-builder/src/worker-shell/shell-modules.generated.js
 /packages/executor-cloud/node_modules/
-/packages/app-template/node_modules/
-/packages/app-template/dist/
 /packages/runtime/node_modules/
 /packages/desktop/node_modules/
 /.stella-runtime-reload-state.json

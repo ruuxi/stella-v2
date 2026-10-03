@@ -19,11 +19,6 @@ import {
 import { useDisplayTabList } from "@/features/workspace-display/tab-store";
 import type { DisplayTab } from "@/features/workspace-display/types";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
-import {
-  getServerSnapshot as getUserAppsServerSnapshot,
-  getSnapshot as getUserAppsSnapshot,
-  subscribe as subscribeToUserApps,
-} from "@/app/apps/user-apps-registry";
 import { cloudAppTitles } from "@/features/cloud/cloud-app-title-store";
 import { cloudAppIdFromLocation } from "@/features/cloud/open-cloud-app-panel";
 import { Plus, X } from "@/ui/icons";
@@ -35,11 +30,6 @@ export function SidebarTopNav() {
   const activeTabId = useSidebarActiveTabId();
   // `tab-store` is untyped JS (tabs infer as `never[]`); type the entries.
   const { tabs: displayTabs } = useDisplayTabList() as { tabs: DisplayTab[] };
-  const appsRegistry = useSyncExternalStore(
-    subscribeToUserApps,
-    getUserAppsSnapshot,
-    getUserAppsServerSnapshot,
-  );
   const cloudTitles = useSyncExternalStore(
     cloudAppTitles.subscribe,
     cloudAppTitles.getSnapshot,
@@ -59,9 +49,7 @@ export function SidebarTopNav() {
       case "apps": {
         if (!tab.location) return "Apps";
         const cloudAppId = cloudAppIdFromLocation(tab.location);
-        if (cloudAppId) return cloudTitles[cloudAppId] || "Cloud app";
-        const app = appsRegistry.apps.find((a) => a.slug === tab.location);
-        return app?.meta.label || tab.location;
+        return cloudAppId ? cloudTitles[cloudAppId] || "Cloud app" : "Apps";
       }
       case "files": {
         if (!tab.location) return "Files";

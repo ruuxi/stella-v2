@@ -11,7 +11,7 @@
  * sweep idiom) ticks every `intervalMs`. A tick does nothing unless the
  * caller's `isIdle()` holds — the worker wires the same `hasActiveWork`
  * signal the idle-shutdown logic uses (no orchestrator run, no agents, no
- * in-flight RPC handler, no voice/user-app work). Consecutive idle ticks form
+ * in-flight RPC handler, no voice work). Consecutive idle ticks form
  * an idle streak; heavier steps need a longer streak, and a tick runs at most
  * one heavy step:
  *   - every idle tick: `wal_checkpoint(PASSIVE)`, or `TRUNCATE` once the WAL
@@ -713,7 +713,7 @@ export type DatabaseMaintenanceOptions = {
 } & Partial<MaintenanceSettings>;
 
 export type MaintenanceStartOptions = {
-  /** No run/agent/voice/user-app work and no in-flight RPC. Cheap + sync. */
+  /** No run/agent/voice work and no in-flight RPC. Cheap + sync. */
   isIdle: () => boolean;
   /** RPC clients (Electron hosts) attached to the worker right now. */
   attachedClientCount: () => number;

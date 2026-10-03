@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "ऐप्स लोड हो रहे हैं…",
-      "unsupportedTitle": "ऐप्स डेस्कटॉप पर उपलब्ध हैं।",
-      "unsupportedBody": "स्थानीय रूप से इंस्टॉल किए गए ऐप्स उपयोग करने के लिए अपने कंप्यूटर पर Stella खोलें।",
-      "errorTitle": "ऐप्स लोड नहीं हो सके",
-      "errorBody": "Stella आपका ऐप्स फ़ोल्डर नहीं पढ़ सकी।",
-      "tryAgain": "फिर कोशिश करें",
-      "heroTitleEmphasis": "आपके",
-      "heroTitleRest": "ऐप्स",
-      "staleWarning": "ऐप्स पुराने हो सकते हैं।",
-      "searchPlaceholder": "ऐप्स खोजें",
-      "sortLabel": "क्रमबद्ध करें",
-      "createApp": "ऐप बनाएँ",
-      "noMatchPrefix": "कोई ऐप मेल नहीं खाता",
-      "noMatchSuffix": "।",
-      "emptyTitle": "यहाँ अभी कुछ नहीं है।",
-      "emptyBody": "Stella से एक छोटा ऐप बनाने को कहें। वह यहाँ दिखेगा।",
-      "emptyAction": "Stella से ऐप बनाने को कहें",
-      "createAppPrompt": "मुझे बताएँ कि आप मेरे लिए कौन-कौन से stella ऐप बना सकती हैं?",
-      "sort": {
-        "recent": "हाल के",
-        "name": "नाम"
-      },
-      "frame": {
-        "startFailed": "ऐप शुरू नहीं हो सका।",
-        "timeout": "ऐप को लोड होने में बहुत समय लगा।",
-        "loadFailed": "ऐप लोड नहीं हो सका।",
-        "loading": "{name} लोड हो रहा है…",
-        "openFailed": "{name} नहीं खुल सका"
-      }
+      "createAppPrompt": "मुझे बताएँ कि आप मेरे लिए कौन-कौन से stella ऐप बना सकती हैं?"
     },
     "chat": {
       "activityPill": {

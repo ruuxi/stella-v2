@@ -1016,35 +1016,7 @@
       }
     },
     "apps": {
-      "loading": "Se încarcă aplicațiile…",
-      "unsupportedTitle": "Aplicațiile sunt disponibile pe desktop.",
-      "unsupportedBody": "Deschide Stella pe computer pentru a folosi aplicațiile instalate local.",
-      "errorTitle": "Aplicațiile nu au putut fi încărcate",
-      "errorBody": "Stella nu a putut citi folderul tău de aplicații.",
-      "tryAgain": "Încearcă din nou",
-      "heroTitleEmphasis": "Aplicațiile",
-      "heroTitleRest": "tale",
-      "staleWarning": "Aplicațiile ar putea fi neactualizate.",
-      "searchPlaceholder": "Caută aplicații",
-      "sortLabel": "Sortează",
-      "createApp": "Creează o aplicație",
-      "noMatchPrefix": "Nicio aplicație nu corespunde cu",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Nimic aici deocamdată.",
-      "emptyBody": "Cere-i Stellei să construiască o aplicație mică. Va apărea aici.",
-      "emptyAction": "Cere-i Stellei să creeze o aplicație",
-      "createAppPrompt": "Spune-mi ce aplicații Stella poți crea pentru mine?",
-      "sort": {
-        "recent": "Recente",
-        "name": "Nume"
-      },
-      "frame": {
-        "startFailed": "Aplicația nu a putut porni.",
-        "timeout": "Aplicația a durat prea mult să se încarce.",
-        "loadFailed": "Aplicația nu a putut fi încărcată.",
-        "loading": "Se încarcă {name}…",
-        "openFailed": "{name} nu a putut fi deschisă"
-      }
+      "createAppPrompt": "Spune-mi ce aplicații Stella poți crea pentru mine?"
     },
     "chat": {
       "activityPill": {

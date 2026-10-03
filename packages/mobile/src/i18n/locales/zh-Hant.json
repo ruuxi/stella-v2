@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "正在載入 App…",
-      "unsupportedTitle": "App 可在桌面版使用。",
-      "unsupportedBody": "在電腦上開啟 Stella 以使用本機安裝的 App。",
-      "errorTitle": "無法載入 App",
-      "errorBody": "Stella 無法讀取你的 App 資料夾。",
-      "tryAgain": "重試",
-      "heroTitleEmphasis": "你的",
-      "heroTitleRest": "App",
-      "staleWarning": "App 可能已過期。",
-      "searchPlaceholder": "搜尋 App",
-      "sortLabel": "排序",
-      "createApp": "建立 App",
-      "noMatchPrefix": "沒有相符的 App",
-      "noMatchSuffix": "。",
-      "emptyTitle": "這裡還沒有東西。",
-      "emptyBody": "請 Stella 做一個小 App，它就會出現在這裡。",
-      "emptyAction": "請 Stella 建立一個 App",
-      "createAppPrompt": "告訴我，你能幫我做哪些 Stella App？",
-      "sort": {
-        "recent": "最近使用",
-        "name": "名稱"
-      },
-      "frame": {
-        "startFailed": "該 App 啟動失敗。",
-        "timeout": "該 App 載入時間過長。",
-        "loadFailed": "無法載入該 App。",
-        "loading": "正在載入 {name}…",
-        "openFailed": "無法開啟 {name}"
-      }
+      "createAppPrompt": "告訴我，你能幫我做哪些 Stella App？"
     },
     "chat": {
       "activityPill": {

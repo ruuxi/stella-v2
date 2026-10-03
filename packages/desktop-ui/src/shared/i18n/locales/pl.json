@@ -1017,35 +1017,7 @@
       }
     },
     "apps": {
-      "loading": "Ładowanie aplikacji…",
-      "unsupportedTitle": "Aplikacje są dostępne na komputerze.",
-      "unsupportedBody": "Otwórz Stellę na komputerze, aby korzystać z lokalnie zainstalowanych aplikacji.",
-      "errorTitle": "Nie udało się wczytać aplikacji",
-      "errorBody": "Stella nie mogła odczytać Twojego folderu aplikacji.",
-      "tryAgain": "Spróbuj ponownie",
-      "heroTitleEmphasis": "Twoje",
-      "heroTitleRest": "aplikacje",
-      "staleWarning": "Lista aplikacji może być nieaktualna.",
-      "searchPlaceholder": "Szukaj aplikacji",
-      "sortLabel": "Sortuj",
-      "createApp": "Utwórz aplikację",
-      "noMatchPrefix": "Brak aplikacji pasujących do",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Jeszcze nic tu nie ma.",
-      "emptyBody": "Poproś Stellę, aby zbudowała małą aplikację. Pojawi się tutaj.",
-      "emptyAction": "Poproś Stellę o stworzenie aplikacji",
-      "createAppPrompt": "Powiedz mi, jakie aplikacje Stelli możesz dla mnie zrobić?",
-      "sort": {
-        "recent": "Ostatnie",
-        "name": "Nazwa"
-      },
-      "frame": {
-        "startFailed": "Nie udało się uruchomić aplikacji.",
-        "timeout": "Aplikacja ładowała się zbyt długo.",
-        "loadFailed": "Nie udało się wczytać aplikacji.",
-        "loading": "Ładowanie {name}…",
-        "openFailed": "Nie udało się otworzyć {name}"
-      }
+      "createAppPrompt": "Powiedz mi, jakie aplikacje Stelli możesz dla mnie zrobić?"
     },
     "chat": {
       "activityPill": {

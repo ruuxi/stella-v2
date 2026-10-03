@@ -5,25 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withI18n } from "../../helpers/i18n";
 
-const localRegistry = vi.hoisted(() => {
-  const snapshot = {
-    phase: "ready",
-    apps: [
-      {
-        slug: "shared",
-        meta: { label: "Shared local", createdAt: "2026-01-01T00:00:00Z" },
-        status: "stopped",
-      },
-    ],
-    error: null,
-    refreshing: false,
-  };
-  return {
-    snapshot,
-    subscribe: () => () => undefined,
-  };
-});
-
 const cloud = vi.hoisted(() => ({
   state: {
     accountScope: "account:one",
@@ -42,18 +23,6 @@ const cloud = vi.hoisted(() => ({
     ],
     error: null,
   },
-}));
-
-vi.mock("@/app/apps/user-apps-registry", () => ({
-  getSnapshot: () => localRegistry.snapshot,
-  getServerSnapshot: () => localRegistry.snapshot,
-  subscribe: localRegistry.subscribe,
-  refreshUserApps: vi.fn(),
-  stopUserApp: vi.fn(),
-}));
-
-vi.mock("@/app/apps/PersistentUserAppsHost", () => ({
-  PersistentUserAppsHost: () => <div data-testid="local-host" />,
 }));
 
 vi.mock("@/features/cloud/use-cloud-apps", () => ({
@@ -127,26 +96,13 @@ describe("cloud app discovery in the modern Apps section", () => {
       );
     });
 
-  it("keeps colliding local and cloud apps distinct and retains the cloud frame", () => {
+  it("opens a cloud app and retains its frame", () => {
     render();
-    const buttons = Array.from(container.querySelectorAll("button"));
-    const localButton = buttons.find((button) =>
-      button.textContent?.includes("Shared local"),
+    const cloudButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Shared cloud"),
     );
-    const cloudButton = buttons.find((button) =>
-      button.textContent?.includes("Shared cloud"),
-    );
-    expect(localButton).toBeTruthy();
     expect(cloudButton).toBeTruthy();
-
-    act(() => localButton?.click());
-    expect(sidebarSections.getActiveTab()?.location).toBe("shared");
-
-    act(() => sidebarSections.openLocation("apps", null));
-    const refreshedCloudButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) => button.textContent?.includes("Shared cloud"));
-    act(() => refreshedCloudButton?.click());
+    act(() => cloudButton?.click());
     expect(sidebarSections.getActiveTab()?.location).toBe("cloud:shared");
     expect(container.textContent).toContain("Shared cloud");
     expect(

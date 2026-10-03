@@ -21,7 +21,7 @@ const harness = vi.hoisted(() => {
   const state = {
     order: [] as string[],
     initialized: null as null | (() => void),
-    failUserApps: false,
+    failVoice: false,
   };
   const makeRunner = () => ({
     setConvexUrl: () => undefined,
@@ -68,16 +68,19 @@ vi.mock("../../worker/runtime-paths.js", () => ({
   createSecureCliBridgeEndpoint: () => "/tmp/stella-test-boot-bridge.sock",
 }));
 
-// UserApps builds LAST in the session chain (after RunnerHandle), so failing
-// its start exercises a build failure after the runner build was scheduled.
-vi.mock("../../worker/user-apps/project-service.js", () => ({
-  UserAppProjectService: class {
-    async start() {
-      if (harness.state.failUserApps) throw new Error("apps root unavailable");
+// Voice builds LAST in the session chain (after RunnerHandle), so failing
+// its construction exercises a build failure after the runner build was
+// scheduled.
+vi.mock("../../worker/voice/service.js", () => ({
+  VoiceRuntimeService: class {
+    constructor() {
+      if (harness.state.failVoice) throw new Error("voice unavailable");
     }
-    async shutdown() {}
-    hasActiveWork() {
+    isBusy() {
       return false;
+    }
+    getPendingRequestCount() {
+      return 0;
     }
   },
 }));
@@ -172,7 +175,7 @@ describe("worker boot timing", () => {
     tempRoot = mkdtempSync(path.join(tmpdir(), "stella-boot-timing-"));
     harness.state.order.length = 0;
     harness.state.initialized = null;
-    harness.state.failUserApps = false;
+    harness.state.failVoice = false;
     reports = [];
     // No file logger in tests: the event goes to stderr as one JSON line.
     vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -221,7 +224,7 @@ describe("worker boot timing", () => {
       "layerBrokersMs",
       "layerCliBridgeMs",
       "layerRunnerHandleMs",
-      "layerUserAppsMs",
+      "layerVoiceMs",
       "sessionBuildMs",
       "runnerConstructMs",
       "initializedAtMs",
@@ -249,7 +252,7 @@ describe("worker boot timing", () => {
   });
 
   it("a session build failing after RunnerHandle never constructs a runner and reports the failed step", async () => {
-    harness.state.failUserApps = true;
+    harness.state.failVoice = true;
     const runtime = makeRuntime(() =>
       Promise.resolve({ ok: true, apiKeyProviders: [], oauthProviders: [] }),
     );

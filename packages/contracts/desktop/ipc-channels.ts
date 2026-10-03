@@ -429,13 +429,6 @@ export const IPC_CLOUD_CONVERSATION_CACHE_REPLACE =
 export const IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION =
   "cloudConversationCache:purgeConversation" as const;
 
-// ── Local user apps ────────────────────────────────────────────────────────
-
-export const IPC_USER_APPS_LIST = "userApps:list" as const;
-export const IPC_USER_APPS_START = "userApps:start" as const;
-export const IPC_USER_APPS_STOP = "userApps:stop" as const;
-export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;
-
 // ── Companion (floating desktop Stella) ────────────────────────────────────
 //
 // Two windows: the small always-on-top *mark* window (hover, click, drag) and

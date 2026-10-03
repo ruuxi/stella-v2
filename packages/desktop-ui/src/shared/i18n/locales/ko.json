@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "앱 불러오는 중…",
-      "unsupportedTitle": "앱은 데스크탑에서 사용할 수 있습니다.",
-      "unsupportedBody": "로컬에 설치된 앱을 사용하려면 컴퓨터에서 Stella를 여세요.",
-      "errorTitle": "앱을 불러오지 못했습니다",
-      "errorBody": "Stella가 앱 폴더를 읽지 못했습니다.",
-      "tryAgain": "다시 시도",
-      "heroTitleEmphasis": "나의",
-      "heroTitleRest": "앱",
-      "staleWarning": "앱이 최신 상태가 아닐 수 있습니다.",
-      "searchPlaceholder": "앱 검색",
-      "sortLabel": "정렬",
-      "createApp": "앱 만들기",
-      "noMatchPrefix": "일치하는 앱이 없습니다:",
-      "noMatchSuffix": ".",
-      "emptyTitle": "아직 아무것도 없습니다.",
-      "emptyBody": "Stella에게 작은 앱을 만들어 달라고 해보세요. 여기에 표시됩니다.",
-      "emptyAction": "Stella에게 앱 만들기 요청",
-      "createAppPrompt": "나를 위해 어떤 Stella 앱을 만들 수 있는지 알려줘",
-      "sort": {
-        "recent": "최근",
-        "name": "이름"
-      },
-      "frame": {
-        "startFailed": "앱을 시작하지 못했습니다.",
-        "timeout": "앱을 불러오는 데 너무 오래 걸렸습니다.",
-        "loadFailed": "앱을 불러올 수 없습니다.",
-        "loading": "{name} 불러오는 중…",
-        "openFailed": "{name}을(를) 열지 못했습니다"
-      }
+      "createAppPrompt": "나를 위해 어떤 Stella 앱을 만들 수 있는지 알려줘"
     },
     "chat": {
       "activityPill": {

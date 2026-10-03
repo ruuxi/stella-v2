@@ -41,7 +41,6 @@
   "kernel/tools/search.ts": 1,
   "kernel/tools/shell.ts": 2,
   "worker/cli-bridge-server.ts": 1,
-  "worker/user-apps/project-service.ts": 5,
   "workers/cloud-builder/src/archive.ts": {
     "setTimeout(": 1
   },

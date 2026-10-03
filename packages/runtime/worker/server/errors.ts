@@ -41,14 +41,6 @@ export class VoiceUnavailableError extends Data.TaggedError(
   }
 }
 
-export class UserAppProjectsUnavailableError extends Data.TaggedError(
-  "@stella/runtime/worker/UserAppProjectsUnavailableError",
-) {
-  override get message() {
-    return "User app project service is unavailable.";
-  }
-}
-
 export class ProtocolMismatchError extends Data.TaggedError(
   "@stella/runtime/worker/ProtocolMismatchError",
 )<{ readonly hostVersion: string }> {
@@ -67,8 +59,7 @@ export type SessionMissingError =
   | WorkerNotInitializedError
   | RunnerUnavailableError
   | ChatStoreUnavailableError
-  | VoiceUnavailableError
-  | UserAppProjectsUnavailableError;
+  | VoiceUnavailableError;
 
 /**
  * Recover the original failure from a Cause so the JSON-RPC adapter rethrows

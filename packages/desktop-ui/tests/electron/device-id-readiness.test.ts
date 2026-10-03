@@ -32,7 +32,6 @@ vi.mock("../../../desktop/electron/bootstrap/context.js", () => ({
   broadcastScheduleUpdated: vi.fn(),
   broadcastThreadActivityUpdated: vi.fn(),
   broadcastToWindows: vi.fn(),
-  broadcastUserAppsUpdated: vi.fn(),
 }));
 
 vi.mock("../../../desktop/electron/bootstrap/office-preview-bridge.js", () => ({

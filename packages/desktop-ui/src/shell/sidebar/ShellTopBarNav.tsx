@@ -1,15 +1,6 @@
 import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AppMetadata } from "@/app/_shared/app-metadata";
-import {
-  markAllUserAppsSeen,
-  useNewUserAppsHint,
-} from "@/app/apps/new-user-apps-hint";
 import { preloadNavSurfaceRoute } from "@/shell/topbar/nav-surface-preloads";
 import { useT } from "@/shared/i18n";
 import {
@@ -28,34 +19,27 @@ interface NavItemProps {
   /** Route-matched (drives re-entry click + selected text/aria). */
   active: boolean;
   badgeCount?: number;
-  showHintDot?: boolean;
-  onHintDismiss?: () => void;
 }
 
 const NavItem = ({
   app,
   active,
   badgeCount = 0,
-  showHintDot = false,
-  onHintDismiss,
 }: NavItemProps) => {
   const t = useT();
   const showBadge = badgeCount > 0;
   const badgeLabel = badgeCount > 99 ? "99+" : String(badgeCount);
-  const showHint = showHintDot && !showBadge;
   const router = useRouter();
 
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
       preloadNavSurfaceRoute(app.id);
-      if (showHint) onHintDismiss?.();
       if (active && app.onActiveClick) {
         event.preventDefault();
         app.onActiveClick();
         return;
       }
-      // Entering from outside: the app may redirect its nav click (e.g.
-      // Apps returning to the user's last-used app instead of the library).
+      // Entering from outside: the app may redirect its nav click.
       if (!active && app.resolveClickRoute) {
         const to = app.resolveClickRoute();
         if (to !== app.route) {
@@ -64,7 +48,7 @@ const NavItem = ({
         }
       }
     },
-    [active, app, router, showHint, onHintDismiss],
+    [active, app, router],
   );
 
   return (
@@ -99,9 +83,6 @@ const NavItem = ({
           {badgeLabel}
         </span>
       )}
-      {showHint && (
-        <span className="shell-topbar-nav-hint-dot" aria-hidden="true" />
-      )}
     </Link>
   );
 };
@@ -130,9 +111,7 @@ export const ShellTopBarPrimaryNav = ({
     [allApps, omitIds],
   );
 
-  const newAppsHint = useNewUserAppsHint();
   const matchRoute = useMatchRoute();
-  const onAppsRoute = Boolean(matchRoute({ to: "/apps", fuzzy: true }));
 
   // The route-matched app drives the re-entry click + the plain-text
   // selected state (stronger color + weight — deliberately no pill fill).
@@ -140,20 +119,6 @@ export const ShellTopBarPrimaryNav = ({
     Boolean(matchRoute({ to: a.route, fuzzy: true })),
   );
   const matchedId = matchedApp?.id ?? null;
-
-  useEffect(() => {
-    if (newAppsHint.active && onAppsRoute) {
-      markAllUserAppsSeen();
-    }
-  }, [newAppsHint.active, onAppsRoute]);
-
-  const hintFor = useCallback(
-    (app: AppMetadata) => {
-      if (app.id === "apps") return newAppsHint.active;
-      return false;
-    },
-    [newAppsHint.active],
-  );
 
   if (navApps.length === 0) {
     return null;
@@ -166,10 +131,6 @@ export const ShellTopBarPrimaryNav = ({
           key={app.id}
           app={app}
           active={matchedId === app.id}
-          showHintDot={hintFor(app)}
-          onHintDismiss={() => {
-            if (app.id === "apps") markAllUserAppsSeen();
-          }}
         />
       ))}
     </nav>

@@ -101,10 +101,6 @@ export const METHOD_NAMES = {
   SCHEDULE_LIST_HEARTBEATS: "schedule.listHeartbeats",
   SCHEDULE_LIST_EVENTS: "schedule.listConversationEvents",
   SCHEDULE_GET_EVENT_COUNT: "schedule.getConversationEventCount",
-  PROJECTS_LIST: "projects.list",
-  PROJECTS_REGISTER_DIRECTORY: "projects.registerDirectory",
-  PROJECTS_START: "projects.start",
-  PROJECTS_STOP: "projects.stop",
   SHELL_KILL_ALL: "shell.killAll",
   SHELL_KILL_BY_PORT: "shell.killByPort",
   DISCOVERY_COLLECT_BROWSER_DATA: "discovery.collectBrowserData",
@@ -211,11 +207,6 @@ export const METHOD_NAMES = {
     "internal.worker.schedule.listConversationEvents",
   INTERNAL_WORKER_SCHEDULE_GET_EVENT_COUNT:
     "internal.worker.schedule.getConversationEventCount",
-  INTERNAL_WORKER_PROJECTS_LIST: "internal.worker.projects.list",
-  INTERNAL_WORKER_PROJECTS_REGISTER_DIRECTORY:
-    "internal.worker.projects.registerDirectory",
-  INTERNAL_WORKER_PROJECTS_START: "internal.worker.projects.start",
-  INTERNAL_WORKER_PROJECTS_STOP: "internal.worker.projects.stop",
   INTERNAL_WORKER_ONE_SHOT_COMPLETION: "internal.worker.oneShotCompletion",
   INTERNAL_STORE_LOAD_THREAD_MESSAGES: "internal.store.loadThreadMessages",
   INTERNAL_STORE_LIST_ACTIVE_THREADS: "internal.store.listActiveThreads",
@@ -262,7 +253,6 @@ export const NOTIFICATION_NAMES = {
   THREAD_TRANSCRIPT_UPDATED: "localChat.threadTranscriptUpdated",
   SCHEDULE_UPDATED: "schedule.updated",
   MODEL_CATALOG_UPDATED: "modelCatalog.updated",
-  PROJECTS_UPDATED: "projects.updated",
   APPROVAL_REQUESTED: "approval.requested",
 } as const;
 

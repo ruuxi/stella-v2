@@ -1,6 +1,6 @@
 ---
 name: create-stella-cloud-app
-description: Create and update apps during cloud execution. Write app files in the cloud workspace; Stella builds, hosts, and displays them in Apps on desktop, web, and mobile. Use for cloud app requests instead of the local create-stella-app skill.
+description: Create and update apps during cloud execution. Write app files in the cloud workspace; Stella builds, hosts, and displays them in Apps on desktop, web, and mobile. Use for any request to build or update an app.
 ---
 
 # Create a Stella cloud app

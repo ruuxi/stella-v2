@@ -737,18 +737,6 @@ export class RuntimeHostAdapter {
     onThreadActivityUpdated(listener) {
         return this.host.on("thread-activity-updated", listener);
     }
-    onProjectsUpdated(listener) {
-        return this.host.on("projects-updated", listener);
-    }
-    listProjects() {
-        return this.host.listProjects();
-    }
-    startProject(slug) {
-        return this.host.startProject(slug);
-    }
-    stopProject(slug) {
-        return this.host.stopProject(slug);
-    }
     killAllShells() {
         return void this.host.killAllShells();
     }

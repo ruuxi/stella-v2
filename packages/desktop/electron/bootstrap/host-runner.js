@@ -8,7 +8,7 @@ import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences
 import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTokenPayload, } from "@stella/runtime/kernel/connectors/oauth";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 import { createStellaHostRunner, } from "../stella-host-runner.js";
-import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastUserAppsUpdated, broadcastToWindows, } from "./context.js";
+import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
 import { showStellaNotification } from "../services/notification-service.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
@@ -284,8 +284,6 @@ const clearHostRunnerSubscriptions = (context) => {
     state.threadActivityUpdateUnsubscribe = null;
     state.scheduleUpdateUnsubscribe?.();
     state.scheduleUpdateUnsubscribe = null;
-    state.userAppsUpdateUnsubscribe?.();
-    state.userAppsUpdateUnsubscribe = null;
 };
 const connectHostRunner = async (context) => {
     const { lifecycle, services, state } = context;
@@ -309,9 +307,6 @@ const connectHostRunner = async (context) => {
     });
     state.scheduleUpdateUnsubscribe = runner.onScheduleUpdated(() => {
         broadcastScheduleUpdated(context);
-    });
-    state.userAppsUpdateUnsubscribe = runner.onProjectsUpdated(() => {
-        broadcastUserAppsUpdated(context);
     });
     const logger = getMainLogger();
     const connectBeganAt = Math.round(process.uptime() * 1000);

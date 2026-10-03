@@ -1016,35 +1016,7 @@
       }
     },
     "apps": {
-      "loading": "טוען אפליקציות…",
-      "unsupportedTitle": "אפליקציות זמינות בשולחן העבודה.",
-      "unsupportedBody": "פתח את Stella במחשב שלך כדי להשתמש באפליקציות המותקנות מקומית.",
-      "errorTitle": "טעינת האפליקציות נכשלה",
-      "errorBody": "Stella לא הצליחה לקרוא את תיקיית האפליקציות שלך.",
-      "tryAgain": "נסה שוב",
-      "heroTitleEmphasis": "האפליקציות",
-      "heroTitleRest": "שלך",
-      "staleWarning": "ייתכן שהאפליקציות אינן מעודכנות.",
-      "searchPlaceholder": "חפש אפליקציות",
-      "sortLabel": "מיון",
-      "createApp": "צור אפליקציה",
-      "noMatchPrefix": "אין אפליקציות שתואמות ל-",
-      "noMatchSuffix": ".",
-      "emptyTitle": "אין כאן עדיין כלום.",
-      "emptyBody": "בקש מ-Stella לבנות אפליקציה קטנה. היא תופיע כאן.",
-      "emptyAction": "בקש מ-Stella ליצור אפליקציה",
-      "createAppPrompt": "ספרי לי אילו אפליקציות stella את יכולה לבנות בשבילי?",
-      "sort": {
-        "recent": "אחרונות",
-        "name": "שם"
-      },
-      "frame": {
-        "startFailed": "הפעלת האפליקציה נכשלה.",
-        "timeout": "טעינת האפליקציה ארכה זמן רב מדי.",
-        "loadFailed": "לא ניתן היה לטעון את האפליקציה.",
-        "loading": "טוען את {name}…",
-        "openFailed": "לא ניתן היה לפתוח את {name}"
-      }
+      "createAppPrompt": "ספרי לי אילו אפליקציות stella את יכולה לבנות בשבילי?"
     },
     "chat": {
       "activityPill": {

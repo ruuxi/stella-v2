@@ -46,10 +46,10 @@ import { useT } from "@/shared/i18n";
 import "./shell-topbar-full.css";
 
 /**
- * Nav entries the full-window bar suppresses. Apps lives in the right sidebar;
- * Home is rendered by the standalone workspace surface.
+ * Nav entries the full-window bar suppresses. Home is rendered by the
+ * standalone workspace surface.
  */
-const OMITTED_NAV_IDS = ["apps", "chat"] as const;
+const OMITTED_NAV_IDS = ["chat"] as const;
 
 type ShellTopBarFullProps = {
   onSignIn?: () => void;

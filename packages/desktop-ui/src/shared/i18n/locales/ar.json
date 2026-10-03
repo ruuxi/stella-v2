@@ -1019,35 +1019,7 @@
       }
     },
     "apps": {
-      "loading": "جارٍ تحميل التطبيقات…",
-      "unsupportedTitle": "التطبيقات متاحة على سطح المكتب.",
-      "unsupportedBody": "افتح Stella على حاسوبك لاستخدام التطبيقات المثبّتة محليًا.",
-      "errorTitle": "تعذّر تحميل التطبيقات",
-      "errorBody": "تعذّر على Stella قراءة مجلد تطبيقاتك.",
-      "tryAgain": "حاول مرة أخرى",
-      "heroTitleEmphasis": "تطبيقاتك",
-      "heroTitleRest": "الخاصة",
-      "staleWarning": "قد تكون التطبيقات غير محدّثة.",
-      "searchPlaceholder": "ابحث في التطبيقات",
-      "sortLabel": "ترتيب",
-      "createApp": "أنشئ تطبيقًا",
-      "noMatchPrefix": "لا توجد تطبيقات مطابقة لـ",
-      "noMatchSuffix": ".",
-      "emptyTitle": "لا شيء هنا بعد.",
-      "emptyBody": "اطلب من Stella بناء تطبيق صغير. سيظهر هنا.",
-      "emptyAction": "اطلب من Stella إنشاء تطبيق",
-      "createAppPrompt": "أخبرني ما تطبيقات stella التي يمكنك إنشاؤها لي؟",
-      "sort": {
-        "recent": "الأحدث",
-        "name": "الاسم"
-      },
-      "frame": {
-        "startFailed": "تعذّر بدء التطبيق.",
-        "timeout": "استغرق التطبيق وقتًا طويلًا للتحميل.",
-        "loadFailed": "تعذّر تحميل التطبيق.",
-        "loading": "جارٍ تحميل {name}…",
-        "openFailed": "تعذّر فتح {name}"
-      }
+      "createAppPrompt": "أخبرني ما تطبيقات stella التي يمكنك إنشاؤها لي؟"
     },
     "chat": {
       "activityPill": {

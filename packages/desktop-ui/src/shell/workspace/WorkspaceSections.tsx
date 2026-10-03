@@ -14,20 +14,10 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { AppWindowMac, ChevronRight } from "@/ui/icons";
-import {
-  getServerSnapshot as getUserAppsServerSnapshot,
-  getSnapshot as getUserAppsSnapshot,
-  subscribe as subscribeToUserApps,
-} from "@/app/apps/user-apps-registry";
-import {
-  formatUserAppCreatedAt,
-  listUserApps,
-} from "@/app/apps/user-app-library";
+import { ChevronRight } from "@/ui/icons";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useT, useTPlural } from "@/shared/i18n";
@@ -38,7 +28,6 @@ import {
 } from "@/global/schedule/use-conversation-schedules";
 import { formatNextRun } from "@/global/schedule/format-schedule";
 import { matchesQuery } from "@/features/workspace-display/display-search-store";
-import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import {
   sectionCollapseStore,
   useSectionCollapsed,
@@ -624,7 +613,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   query = "",
   variant = "strip",
   searchMode = "complete",
-  includeUserApps = false,
   renderEmpty,
   onNavigate,
 }: {
@@ -635,8 +623,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   /** Quick search stays within already-loaded data and renders a small result
    *  preview. Complete search pages through the full available history. */
   searchMode?: "complete" | "quick";
-  /** Include user-created apps as search results. */
-  includeUserApps?: boolean;
   /** Rendered when nothing matches; strip mode omits it and renders null. */
   renderEmpty?: () => ReactNode;
   /** Fired after a section item is opened/selected — lets a host surface
@@ -663,12 +649,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     loadOlder: loadOlderFiles,
   } = filesFeed;
   const schedules = useConversationSchedules(conversationId);
-  const userAppsRegistry = useSyncExternalStore(
-    subscribeToUserApps,
-    getUserAppsSnapshot,
-    getUserAppsServerSnapshot,
-  );
-  const userApps = userAppsRegistry.apps;
 
   const normalizedQuery = query.trim().toLowerCase();
   const searching = normalizedQuery.length > 0;
@@ -925,14 +905,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     return schedules.filter((entry) => matchesQuery(entry.name, query));
   }, [schedules, query]);
 
-  const visibleUserApps = useMemo(
-    () =>
-      includeUserApps && searching
-        ? listUserApps(userApps, query, "recent").slice(0, 8)
-        : [],
-    [includeUserApps, query, searching, userApps],
-  );
-
   // Ticks on a coarse cadence so terminal activity rows drop out ~30 minutes
   // after their last activity even when nothing else in the conversation is
   // changing. Only armed off-search, where the time-based auto-hide applies.
@@ -974,7 +946,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   const hasNeedsYou = visibleBrowserInteractions.length > 0;
   const hasFiles = searching && visibleFiles.length > 0;
   const hasSchedule = upNext.length > 0;
-  const hasUserApps = visibleUserApps.length > 0;
   const dialogAffected = useMemo<ScheduleToolAffectedRef[]>(() => {
     if (!openScheduleEntry || !conversationId) return [];
     return [scheduleEntryToAffectedRef(openScheduleEntry, conversationId)];
@@ -1009,8 +980,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     !hasNeedsYou &&
     !hasActivity &&
     !hasFiles &&
-    !hasSchedule &&
-    !hasUserApps
+    !hasSchedule
   ) {
     return renderEmpty ? <>{renderEmpty()}</> : null;
   }
@@ -1091,33 +1061,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
                     </span>
                     <span className="chat-workspace-strip__row-meta">
                       {formatNextRun(entry.nextRunAtMs, nowMs)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </WorkspaceSection>
-        )}
-
-        {hasUserApps && (
-          <WorkspaceSection title="Apps" sectionId="user-apps">
-            <ul className="chat-workspace-strip__list">
-              {visibleUserApps.map((app) => (
-                <li key={app.slug} className="chat-workspace-strip__row">
-                  <button
-                    type="button"
-                    className="chat-workspace-strip__file-button"
-                    onClick={() => {
-                      sidebarSections.openLocation("apps", app.slug);
-                      onNavigate?.();
-                    }}
-                  >
-                    <AppWindowMac size={15} strokeWidth={1.75} aria-hidden />
-                    <span className="chat-workspace-strip__file-name">
-                      {app.meta.label}
-                    </span>
-                    <span className="chat-workspace-strip__row-meta">
-                      {formatUserAppCreatedAt(app.meta.createdAt)}
                     </span>
                   </button>
                 </li>

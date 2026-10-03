@@ -1017,35 +1017,7 @@
       }
     },
     "apps": {
-      "loading": "Načítání aplikací…",
-      "unsupportedTitle": "Aplikace jsou dostupné na počítači.",
-      "unsupportedBody": "Otevřete Stellu na počítači, abyste mohli používat místně nainstalované aplikace.",
-      "errorTitle": "Nepodařilo se načíst aplikace",
-      "errorBody": "Stella nemohla přečíst vaši složku s aplikacemi.",
-      "tryAgain": "Zkusit znovu",
-      "heroTitleEmphasis": "Vaše",
-      "heroTitleRest": "aplikace",
-      "staleWarning": "Seznam aplikací může být zastaralý.",
-      "searchPlaceholder": "Hledat aplikace",
-      "sortLabel": "Řadit",
-      "createApp": "Vytvořit aplikaci",
-      "noMatchPrefix": "Žádné aplikace neodpovídají",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Zatím tu nic není.",
-      "emptyBody": "Požádejte Stellu, ať vytvoří malou aplikaci. Objeví se tady.",
-      "emptyAction": "Požádat Stellu o vytvoření aplikace",
-      "createAppPrompt": "Řekni mi, jaké aplikace Stella pro mě umíš vytvořit?",
-      "sort": {
-        "recent": "Nedávné",
-        "name": "Název"
-      },
-      "frame": {
-        "startFailed": "Aplikaci se nepodařilo spustit.",
-        "timeout": "Načítání aplikace trvalo příliš dlouho.",
-        "loadFailed": "Aplikaci se nepodařilo načíst.",
-        "loading": "Načítání {name}…",
-        "openFailed": "Nepodařilo se otevřít {name}"
-      }
+      "createAppPrompt": "Řekni mi, jaké aplikace Stella pro mě umíš vytvořit?"
     },
     "chat": {
       "activityPill": {

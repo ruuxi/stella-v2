@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Laddar appar…",
-      "unsupportedTitle": "Appar är tillgängliga på skrivbordet.",
-      "unsupportedBody": "Öppna Stella på din dator för att använda lokalt installerade appar.",
-      "errorTitle": "Det gick inte att läsa in appar",
-      "errorBody": "Stella kunde inte läsa din appmapp.",
-      "tryAgain": "Försök igen",
-      "heroTitleEmphasis": "Dina",
-      "heroTitleRest": "appar",
-      "staleWarning": "Apparna kan vara inaktuella.",
-      "searchPlaceholder": "Sök appar",
-      "sortLabel": "Sortera",
-      "createApp": "Skapa en app",
-      "noMatchPrefix": "Inga appar matchar",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Inget här ännu.",
-      "emptyBody": "Be Stella bygga en liten app. Den dyker upp här.",
-      "emptyAction": "Be Stella skapa en app",
-      "createAppPrompt": "Berätta vilka stella-appar du kan göra åt mig?",
-      "sort": {
-        "recent": "Senaste",
-        "name": "Namn"
-      },
-      "frame": {
-        "startFailed": "Appen kunde inte starta.",
-        "timeout": "Appen tog för lång tid att läsa in.",
-        "loadFailed": "Appen kunde inte läsas in.",
-        "loading": "Laddar {name}…",
-        "openFailed": "Det gick inte att öppna {name}"
-      }
+      "createAppPrompt": "Berätta vilka stella-appar du kan göra åt mig?"
     },
     "chat": {
       "activityPill": {

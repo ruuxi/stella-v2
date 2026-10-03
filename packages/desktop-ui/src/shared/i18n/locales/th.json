@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "กำลังโหลดแอป…",
-      "unsupportedTitle": "แอปใช้ได้บนเดสก์ท็อป",
-      "unsupportedBody": "เปิด Stella บนคอมพิวเตอร์ของคุณเพื่อใช้แอปที่ติดตั้งในเครื่อง",
-      "errorTitle": "โหลดแอปไม่สำเร็จ",
-      "errorBody": "Stella อ่านโฟลเดอร์แอปของคุณไม่ได้",
-      "tryAgain": "ลองอีกครั้ง",
-      "heroTitleEmphasis": "แอป",
-      "heroTitleRest": "ของคุณ",
-      "staleWarning": "แอปอาจไม่เป็นปัจจุบัน",
-      "searchPlaceholder": "ค้นหาแอป",
-      "sortLabel": "เรียงลำดับ",
-      "createApp": "สร้างแอป",
-      "noMatchPrefix": "ไม่มีแอปที่ตรงกับ",
-      "noMatchSuffix": ".",
-      "emptyTitle": "ยังไม่มีอะไรที่นี่",
-      "emptyBody": "ลองให้ Stella สร้างแอปเล็ก ๆ แล้วมันจะปรากฏที่นี่",
-      "emptyAction": "ขอให้ Stella สร้างแอป",
-      "createAppPrompt": "บอกหน่อยว่าคุณสร้างแอป Stella อะไรให้ฉันได้บ้าง?",
-      "sort": {
-        "recent": "ล่าสุด",
-        "name": "ชื่อ"
-      },
-      "frame": {
-        "startFailed": "แอปเริ่มทำงานไม่สำเร็จ",
-        "timeout": "แอปใช้เวลาโหลดนานเกินไป",
-        "loadFailed": "โหลดแอปไม่สำเร็จ",
-        "loading": "กำลังโหลด {name}…",
-        "openFailed": "เปิด {name} ไม่สำเร็จ"
-      }
+      "createAppPrompt": "บอกหน่อยว่าคุณสร้างแอป Stella อะไรให้ฉันได้บ้าง?"
     },
     "chat": {
       "activityPill": {

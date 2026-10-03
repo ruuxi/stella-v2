@@ -49,7 +49,11 @@ const writeSkill = async (
 describe("skill catalog", () => {
   it("omits configured skill ids from the prompt block", async () => {
     const stellaAppDir = await createStellaAppDir();
-    await writeSkill(stellaAppDir, "create-stella-app", "Create Stella apps.");
+    await writeSkill(
+      stellaAppDir,
+      "create-stella-cloud-app",
+      "Create cloud apps.",
+    );
     await writeSkill(stellaAppDir, "stella-browser", "Control browser tabs.");
     await writeSkill(stellaAppDir, "pdf", "Work with PDFs.");
 
@@ -62,9 +66,9 @@ describe("skill catalog", () => {
 
     expect(state.totalSkills).toBe(1);
     expect(state.entries.map((entry) => entry.id)).toEqual([
-      "create-stella-app",
+      "create-stella-cloud-app",
     ]);
-    expect(block).toContain("`create-stella-app`");
+    expect(block).toContain("`create-stella-cloud-app`");
     expect(block).not.toContain("stella-browser");
     expect(block).not.toContain("pdf");
   });

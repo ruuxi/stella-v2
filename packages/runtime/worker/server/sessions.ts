@@ -19,7 +19,6 @@ import {
   updateRuntimeTelemetryAuth,
 } from "../../observability/runtime-telemetry.js";
 import { forkDelayed, workerRuntime } from "../effect-runtime.js";
-import type { UserAppProjectService } from "../user-apps/project-service.js";
 import type { VoiceRuntimeService } from "../voice/service.js";
 import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
@@ -33,7 +32,6 @@ import * as CliBridge from "./session/cli-bridge.js";
 import * as RunnerCell from "./session/runner-cell.js";
 import * as RunnerHandle from "./session/runner.js";
 import * as AgentRuns from "./session/agent-runs.js";
-import * as UserAppProjects from "./session/user-apps.js";
 import * as VoiceRuntime from "./session/voice.js";
 import type { WorkerInitializationState } from "./types.js";
 
@@ -46,20 +44,18 @@ export type SessionServices =
   | RunnerCell.Service
   | RunnerHandle.Service
   | AgentRuns.Service
-  | UserAppProjects.Service
   | VoiceRuntime.Service;
 
 /**
  * The per-initialize session graph. Composition order is load-bearing:
  * `Layer.provideMerge` builds dependencies bottom-up (SessionConfig first,
- * UserAppProjects last) and scope finalizers run LIFO, reproducing the old
- * `stopWorkerServices` teardown order EXACTLY: user app projects shutdown →
- * voice → runner (await in-flight build, stop, drain
- * compactions) → runEventLog.stop → cli bridge stop → credential brokers
- * cleared → db.close.
+ * VoiceRuntime last) and scope finalizers run LIFO, reproducing the old
+ * `stopWorkerServices` teardown order EXACTLY: voice → runner (await
+ * in-flight build, stop, drain compactions) → runEventLog.stop → cli bridge
+ * stop → credential brokers cleared → db.close.
  *
- * Service-graph evaluation (M5 phase 4): 13 services across two tiers
- * (worker: ModelCatalog/HostBus/WorkerSessions; session: the ten below).
+ * Service-graph evaluation (M5 phase 4): 12 services across two tiers
+ * (worker: ModelCatalog/HostBus/WorkerSessions; session: the nine below).
  * A LayerNode-style DAG compiler was considered and REJECTED — one
  * hand-ordered chain per tier stays readable and the finalizer order is
  * documented here in one place. Revisit only if a tier
@@ -86,8 +82,7 @@ const sessionLayer = (
         );
       }),
     );
-  return timed("layerUserApps", UserAppProjects.layer).pipe(
-    Layer.provideMerge(timed("layerVoice", VoiceRuntime.layer)),
+  return timed("layerVoice", VoiceRuntime.layer).pipe(
     Layer.provideMerge(timed("layerAgentRuns", AgentRuns.layer)),
     Layer.provideMerge(
       timed("layerRunnerHandle", RunnerHandle.layer).pipe(
@@ -193,7 +188,6 @@ export type OpenSession = {
   readonly runnerCell: RunnerCell.Interface;
   readonly runner: RunnerHandle.Interface;
   readonly agentRuns: AgentRuns.Interface;
-  readonly userApps: UserAppProjectService;
   readonly voice: VoiceRuntimeService;
 };
 
@@ -503,7 +497,6 @@ export const layer = Layer.effect(
               runnerCell: Context.get(context, RunnerCell.Service),
               runner: Context.get(context, RunnerHandle.Service),
               agentRuns: Context.get(context, AgentRuns.Service),
-              userApps: Context.get(context, UserAppProjects.Service).service,
               voice: Context.get(context, VoiceRuntime.Service).service,
             };
             currentSession = session;
@@ -515,7 +508,7 @@ export const layer = Layer.effect(
             // its runner, exactly as when the build started mid-initialize.
             forkDelayed(0, runnerGate.open);
             // Idle = this exact session is still current and the worker has
-            // no run, agent, voice/user-app work or in-flight RPC. Teardown
+            // no run, agent, voice work or in-flight RPC. Teardown
             // clears currentSession first, so maintenance goes quiet before
             // the storage finalizer stops it.
             session.storage.maintenance.start({
@@ -633,15 +626,13 @@ export const layer = Layer.effect(
       const voicePinned =
         (session?.voice.isBusy() ?? false) ||
         (session?.voice.getPendingRequestCount() ?? 0) > 0;
-      const userAppPinned = session?.userApps.hasActiveWork() ?? false;
       const requestPinned = hostBus.activeRequestHandlerCount() > 0;
       const runner = session?.runnerCell.get() ?? null;
       return Boolean(
         runner?.getActiveOrchestratorRun() ||
           (runner?.getActiveAgentCount() ?? 0) > 0 ||
           requestPinned ||
-          voicePinned ||
-          userAppPinned,
+          voicePinned,
       );
     };
 

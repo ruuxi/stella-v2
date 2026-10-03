@@ -336,12 +336,3 @@ export type VoiceRuntimeSnapshot = {
   micLevel: number;
   outputLevel: number;
 };
-
-export type {
-  UserAppProjectDescriptor,
-  UserAppProjectListResult,
-  UserAppProjectMeta,
-  UserAppProjectStartResult,
-  UserAppProjectStatus,
-  UserAppProjectStopResult,
-} from "./user-app-projects.js";

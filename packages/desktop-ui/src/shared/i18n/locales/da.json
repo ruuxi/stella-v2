@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Indlæser apps…",
-      "unsupportedTitle": "Apps er tilgængelige på computeren.",
-      "unsupportedBody": "Åbn Stella på din computer for at bruge lokalt installerede apps.",
-      "errorTitle": "Kunne ikke indlæse apps",
-      "errorBody": "Stella kunne ikke læse din app-mappe.",
-      "tryAgain": "Prøv igen",
-      "heroTitleEmphasis": "Dine",
-      "heroTitleRest": "apps",
-      "staleWarning": "Apps er muligvis forældede.",
-      "searchPlaceholder": "Søg i apps",
-      "sortLabel": "Sortér",
-      "createApp": "Opret en app",
-      "noMatchPrefix": "Ingen apps matcher",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Der er ikke noget her endnu.",
-      "emptyBody": "Bed Stella om at bygge en lille app. Den dukker op her.",
-      "emptyAction": "Bed Stella om at oprette en app",
-      "createAppPrompt": "Fortæl mig, hvilke Stella-apps du kan lave til mig?",
-      "sort": {
-        "recent": "Seneste",
-        "name": "Navn"
-      },
-      "frame": {
-        "startFailed": "Appen kunne ikke starte.",
-        "timeout": "Appen var for længe om at indlæse.",
-        "loadFailed": "Appen kunne ikke indlæses.",
-        "loading": "Indlæser {name}…",
-        "openFailed": "Kunne ikke åbne {name}"
-      }
+      "createAppPrompt": "Fortæl mig, hvilke Stella-apps du kan lave til mig?"
     },
     "chat": {
       "activityPill": {

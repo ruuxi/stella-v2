@@ -14,7 +14,6 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as AppsRouteImport } from './routes/apps'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AppsIndexRouteImport } from './routes/apps.index'
 import { Route as AppsSlugRouteImport } from './routes/apps.$slug'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -42,11 +41,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppsIndexRoute = AppsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppsRoute,
-} as any).lazy(() => import('./routes/apps.index.lazy').then((d) => d.Route))
 const AppsSlugRoute = AppsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
@@ -60,15 +54,14 @@ export interface FileRoutesByFullPath {
   '/chat': typeof ChatRoute
   '/settings': typeof SettingsRoute
   '/apps/$slug': typeof AppsSlugRoute
-  '/apps/': typeof AppsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/apps': typeof AppsRouteWithChildren
   '/billing': typeof BillingRoute
   '/chat': typeof ChatRoute
   '/settings': typeof SettingsRoute
   '/apps/$slug': typeof AppsSlugRoute
-  '/apps': typeof AppsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,20 +71,12 @@ export interface FileRoutesById {
   '/chat': typeof ChatRoute
   '/settings': typeof SettingsRoute
   '/apps/$slug': typeof AppsSlugRoute
-  '/apps/': typeof AppsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/apps'
-    | '/billing'
-    | '/chat'
-    | '/settings'
-    | '/apps/$slug'
-    | '/apps/'
+  fullPaths: '/' | '/apps' | '/billing' | '/chat' | '/settings' | '/apps/$slug'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/billing' | '/chat' | '/settings' | '/apps/$slug' | '/apps'
+  to: '/' | '/apps' | '/billing' | '/chat' | '/settings' | '/apps/$slug'
   id:
     | '__root__'
     | '/'
@@ -100,7 +85,6 @@ export interface FileRouteTypes {
     | '/chat'
     | '/settings'
     | '/apps/$slug'
-    | '/apps/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -148,13 +132,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/apps/': {
-      id: '/apps/'
-      path: '/'
-      fullPath: '/apps/'
-      preLoaderRoute: typeof AppsIndexRouteImport
-      parentRoute: typeof AppsRoute
-    }
     '/apps/$slug': {
       id: '/apps/$slug'
       path: '/$slug'
@@ -167,12 +144,10 @@ declare module '@tanstack/react-router' {
 
 interface AppsRouteChildren {
   AppsSlugRoute: typeof AppsSlugRoute
-  AppsIndexRoute: typeof AppsIndexRoute
 }
 
 const AppsRouteChildren: AppsRouteChildren = {
   AppsSlugRoute: AppsSlugRoute,
-  AppsIndexRoute: AppsIndexRoute,
 }
 
 const AppsRouteWithChildren = AppsRoute._addFileChildren(AppsRouteChildren)

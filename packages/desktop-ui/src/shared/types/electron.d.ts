@@ -101,11 +101,6 @@ import type {
   CloudConversationCacheReplaceResult,
   CloudConversationCacheSnapshot,
 } from "@stella/contracts/cloud-conversation-cache";
-import type {
-  UserAppProjectListResult,
-  UserAppProjectStartResult,
-  UserAppProjectStopResult,
-} from "@stella/contracts/user-app-projects";
 
 type MobileAgentWorkPayloadForSync = {
   kind: "agent-work";
@@ -1187,14 +1182,6 @@ export type ElectronScheduleApi = {
   onUpdated: (callback: () => void) => () => void;
 };
 
-export type ElectronUserAppsApi = {
-  list: () => Promise<UserAppProjectListResult>;
-  start: (slug: string) => Promise<UserAppProjectStartResult>;
-  stop: (slug: string) => Promise<UserAppProjectStopResult>;
-  onUpdated: (callback: () => void) => () => void;
-  onChanged: (callback: () => void) => () => void;
-};
-
 export type ElectronLocalChatApi = {
   getOrCreateDefaultConversationId: () => Promise<string>;
   createNewDefaultConversationId: () => Promise<string>;
@@ -1752,7 +1739,6 @@ export type ElectronApi = {
     openFolder: (payload?: { sessionId?: string }) => Promise<{ ok: boolean }>;
   };
   schedule: ElectronScheduleApi;
-  userApps: ElectronUserAppsApi;
   localChat: ElectronLocalChatApi;
   nativeIntegrations: ElectronNativeIntegrationsApi;
   home: ElectronHomeApi;

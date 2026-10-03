@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Uygulamalar yükleniyor…",
-      "unsupportedTitle": "Uygulamalar masaüstünde kullanılabilir.",
-      "unsupportedBody": "Yerel olarak kurulu uygulamaları kullanmak için Stella'yı bilgisayarınızda açın.",
-      "errorTitle": "Uygulamalar yüklenemedi",
-      "errorBody": "Stella uygulama klasörünüzü okuyamadı.",
-      "tryAgain": "Tekrar deneyin",
-      "heroTitleEmphasis": "Sizin",
-      "heroTitleRest": "uygulamalarınız",
-      "staleWarning": "Uygulamalar güncel olmayabilir.",
-      "searchPlaceholder": "Uygulamalarda ara",
-      "sortLabel": "Sırala",
-      "createApp": "Uygulama oluştur",
-      "noMatchPrefix": "Eşleşen uygulama yok:",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Burada henüz bir şey yok.",
-      "emptyBody": "Stella'dan küçük bir uygulama oluşturmasını isteyin. Burada görünecek.",
-      "emptyAction": "Stella'dan uygulama oluşturmasını iste",
-      "createAppPrompt": "Söyle bakalım, benim için hangi stella uygulamalarını yapabilirsin?",
-      "sort": {
-        "recent": "Son kullanılanlar",
-        "name": "Ad"
-      },
-      "frame": {
-        "startFailed": "Uygulama başlatılamadı.",
-        "timeout": "Uygulamanın yüklenmesi çok uzun sürdü.",
-        "loadFailed": "Uygulama yüklenemedi.",
-        "loading": "{name} yükleniyor…",
-        "openFailed": "{name} açılamadı"
-      }
+      "createAppPrompt": "Söyle bakalım, benim için hangi stella uygulamalarını yapabilirsin?"
     },
     "chat": {
       "activityPill": {

@@ -42,9 +42,6 @@ export const broadcastThreadActivityUpdated = (context, payload) => {
 export const broadcastScheduleUpdated = (context) => {
     broadcastToWindowsAndMobile(context, "schedule:updated");
 };
-export const broadcastUserAppsUpdated = (context) => {
-    broadcastToWindows(context, "userApps:updated");
-};
 export const broadcastStellaBrowserBridgeStatus = (context, status) => {
     broadcastToWindows(context, "browser:bridgeStatus", status);
 };
@@ -67,7 +64,6 @@ export const createBootstrapContext = (config) => {
         meetingCaptureController: null,
         processRuntime,
         scheduleUpdateUnsubscribe: null,
-        userAppsUpdateUnsubscribe: null,
         globalInputHooksStarted: false,
         globalInputHooksStartScheduled: false,
         stellaAppDir: null,

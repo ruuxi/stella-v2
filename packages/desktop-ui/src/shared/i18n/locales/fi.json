@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Ladataan sovelluksia…",
-      "unsupportedTitle": "Sovellukset ovat käytettävissä työpöydällä.",
-      "unsupportedBody": "Avaa Stella tietokoneellasi käyttääksesi paikallisesti asennettuja sovelluksia.",
-      "errorTitle": "Sovelluksia ei voitu ladata",
-      "errorBody": "Stella ei voinut lukea sovelluskansiotasi.",
-      "tryAgain": "Yritä uudelleen",
-      "heroTitleEmphasis": "Sinun",
-      "heroTitleRest": "sovelluksesi",
-      "staleWarning": "Sovellukset voivat olla vanhentuneita.",
-      "searchPlaceholder": "Hae sovelluksia",
-      "sortLabel": "Järjestä",
-      "createApp": "Luo sovellus",
-      "noMatchPrefix": "Mikään sovellus ei vastaa hakua",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Täällä ei ole vielä mitään.",
-      "emptyBody": "Pyydä Stellaa rakentamaan pieni sovellus. Se ilmestyy tänne.",
-      "emptyAction": "Pyydä Stellaa luomaan sovellus",
-      "createAppPrompt": "Kerro, mitä stella-sovelluksia voit tehdä minulle?",
-      "sort": {
-        "recent": "Viimeisimmät",
-        "name": "Nimi"
-      },
-      "frame": {
-        "startFailed": "Sovelluksen käynnistys epäonnistui.",
-        "timeout": "Sovelluksen lataus kesti liian kauan.",
-        "loadFailed": "Sovellusta ei voitu ladata.",
-        "loading": "Ladataan: {name}…",
-        "openFailed": "Ei voitu avata: {name}"
-      }
+      "createAppPrompt": "Kerro, mitä stella-sovelluksia voit tehdä minulle?"
     },
     "chat": {
       "activityPill": {

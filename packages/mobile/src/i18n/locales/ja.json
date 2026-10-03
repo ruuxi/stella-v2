@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "アプリを読み込み中…",
-      "unsupportedTitle": "アプリはデスクトップで利用できます。",
-      "unsupportedBody": "ローカルにインストールされたアプリを使うには、コンピュータで Stella を開いてください。",
-      "errorTitle": "アプリを読み込めませんでした",
-      "errorBody": "Stella はアプリフォルダを読み取れませんでした。",
-      "tryAgain": "もう一度試す",
-      "heroTitleEmphasis": "あなたの",
-      "heroTitleRest": "アプリ",
-      "staleWarning": "アプリが最新でない可能性があります。",
-      "searchPlaceholder": "アプリを検索",
-      "sortLabel": "並べ替え",
-      "createApp": "アプリを作成",
-      "noMatchPrefix": "一致するアプリはありません:",
-      "noMatchSuffix": "。",
-      "emptyTitle": "ここにはまだ何もありません。",
-      "emptyBody": "Stella に小さなアプリを作ってもらいましょう。ここに表示されます。",
-      "emptyAction": "Stella にアプリの作成を依頼",
-      "createAppPrompt": "どんな Stella アプリを作れるか教えて",
-      "sort": {
-        "recent": "最近",
-        "name": "名前"
-      },
-      "frame": {
-        "startFailed": "アプリを起動できませんでした。",
-        "timeout": "アプリの読み込みに時間がかかりすぎました。",
-        "loadFailed": "アプリを読み込めませんでした。",
-        "loading": "{name} を読み込み中…",
-        "openFailed": "{name} を開けませんでした"
-      }
+      "createAppPrompt": "どんな Stella アプリを作れるか教えて"
     },
     "chat": {
       "activityPill": {

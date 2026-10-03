@@ -1306,7 +1306,7 @@ export class StellaRuntimeHost {
             getAuthToken: () => this.getConfiguredHostAuthToken(),
             getAvailability: async () => {
                 const platformCapabilities = process.platform === "darwin" || process.platform === "win32"
-                    ? ["computer-use", "local-apps"]
+                    ? ["computer-use"]
                     : [];
                 return {
                     ready: Boolean(this.started &&
@@ -2268,15 +2268,6 @@ export class StellaRuntimeHost {
     async getConversationEventCount(payload) {
         return this.ensureScheduler().getConversationEventCount(payload.conversationId);
     }
-    async listProjects() {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PROJECTS_LIST, undefined, { ensureWorker: true, recordActivity: false });
-    }
-    async startProject(slug) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PROJECTS_START, { slug }, { ensureWorker: true, recordActivity: true });
-    }
-    async stopProject(slug) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PROJECTS_STOP, { slug }, { ensureWorker: true, recordActivity: true });
-    }
     async killAllShells() {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_KILL_ALL_SHELLS, undefined, { ensureWorker: false, recordActivity: true });
     }
@@ -2739,9 +2730,6 @@ export class StellaRuntimeHost {
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.MODEL_CATALOG_UPDATED, (params) => {
             this.events.emit("model-catalog-updated", params);
-        });
-        peer.registerNotificationHandler(NOTIFICATION_NAMES.PROJECTS_UPDATED, () => {
-            this.events.emit("projects-updated", undefined);
         });
     }
 }

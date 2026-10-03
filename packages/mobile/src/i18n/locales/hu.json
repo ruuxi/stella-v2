@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Alkalmazások betöltése…",
-      "unsupportedTitle": "Az alkalmazások asztali gépen érhetők el.",
-      "unsupportedBody": "Nyisd meg a Stellát a számítógépeden a helyileg telepített alkalmazások használatához.",
-      "errorTitle": "Az alkalmazások betöltése sikertelen",
-      "errorBody": "A Stella nem tudta olvasni az alkalmazások mappádat.",
-      "tryAgain": "Újra",
-      "heroTitleEmphasis": "A te",
-      "heroTitleRest": "alkalmazásaid",
-      "staleWarning": "Az alkalmazások elavultak lehetnek.",
-      "searchPlaceholder": "Alkalmazások keresése",
-      "sortLabel": "Rendezés",
-      "createApp": "Alkalmazás létrehozása",
-      "noMatchPrefix": "Nincs találat erre:",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Itt még nincs semmi.",
-      "emptyBody": "Kérd meg a Stellát, hogy készítsen egy kis alkalmazást. Itt fog megjelenni.",
-      "emptyAction": "Kérd meg a Stellát alkalmazás készítésére",
-      "createAppPrompt": "Mondd el, milyen Stella-alkalmazásokat tudsz készíteni nekem?",
-      "sort": {
-        "recent": "Legutóbbi",
-        "name": "Név"
-      },
-      "frame": {
-        "startFailed": "Az alkalmazás nem indult el.",
-        "timeout": "Az alkalmazás betöltése túl sokáig tartott.",
-        "loadFailed": "Az alkalmazást nem sikerült betölteni.",
-        "loading": "Betöltés: {name}…",
-        "openFailed": "Nem sikerült megnyitni: {name}"
-      }
+      "createAppPrompt": "Mondd el, milyen Stella-alkalmazásokat tudsz készíteni nekem?"
     },
     "chat": {
       "activityPill": {

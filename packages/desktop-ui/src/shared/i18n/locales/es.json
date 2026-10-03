@@ -1016,35 +1016,7 @@
       }
     },
     "apps": {
-      "loading": "Cargando apps…",
-      "unsupportedTitle": "Las apps están disponibles en el escritorio.",
-      "unsupportedBody": "Abre Stella en tu ordenador para usar las apps instaladas localmente.",
-      "errorTitle": "No se pudieron cargar las apps",
-      "errorBody": "Stella no pudo leer tu carpeta de apps.",
-      "tryAgain": "Intentar de nuevo",
-      "heroTitleEmphasis": "Tus",
-      "heroTitleRest": "apps",
-      "staleWarning": "Puede que las apps no estén actualizadas.",
-      "searchPlaceholder": "Buscar apps",
-      "sortLabel": "Ordenar",
-      "createApp": "Crear una app",
-      "noMatchPrefix": "Ninguna app coincide con",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Aquí todavía no hay nada.",
-      "emptyBody": "Pídele a Stella que cree una app pequeña. Aparecerá aquí.",
-      "emptyAction": "Pedirle a Stella que cree una app",
-      "createAppPrompt": "Dime qué apps de Stella puedes crear para mí.",
-      "sort": {
-        "recent": "Recientes",
-        "name": "Nombre"
-      },
-      "frame": {
-        "startFailed": "La app no se pudo iniciar.",
-        "timeout": "La app tardó demasiado en cargar.",
-        "loadFailed": "No se pudo cargar la app.",
-        "loading": "Cargando {name}…",
-        "openFailed": "No se pudo abrir {name}"
-      }
+      "createAppPrompt": "Dime qué apps de Stella puedes crear para mí."
     },
     "chat": {
       "activityPill": {

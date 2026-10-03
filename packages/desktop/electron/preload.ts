@@ -180,10 +180,6 @@ import {
   IPC_UI_STATE_KV_CLEAR,
   IPC_UI_STATE_KV_SNAPSHOT,
   IPC_WEBSITE_GET_BASE_URL,
-  IPC_USER_APPS_LIST,
-  IPC_USER_APPS_START,
-  IPC_USER_APPS_STOP,
-  IPC_USER_APPS_UPDATED,
   IPC_VOICE_CREATE_OPENAI_SESSION,
   IPC_VOICE_EXECUTE_TOOL,
   IPC_VOICE_ORCHESTRATOR_CONFIG,
@@ -1965,15 +1961,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onThreadActivityUpdated: onIpc<ThreadActivityUpdatedPayload>(
       "localChat:threadActivityUpdated",
     ),
-  },
-
-  userApps: {
-    list: () => ipcRenderer.invoke(IPC_USER_APPS_LIST),
-    start: (slug: string) => ipcRenderer.invoke(IPC_USER_APPS_START, { slug }),
-    stop: (slug: string) => ipcRenderer.invoke(IPC_USER_APPS_STOP, { slug }),
-    onUpdated: onIpc<void>(IPC_USER_APPS_UPDATED),
-    // Alias retained for consumers that use the event-style naming convention.
-    onChanged: onIpc<void>(IPC_USER_APPS_UPDATED),
   },
 
   nativeIntegrations: {

@@ -1015,35 +1015,7 @@
       }
     },
     "apps": {
-      "loading": "Apps laden…",
-      "unsupportedTitle": "Apps zijn beschikbaar op desktop.",
-      "unsupportedBody": "Open Stella op je computer om lokaal geïnstalleerde apps te gebruiken.",
-      "errorTitle": "Kon apps niet laden",
-      "errorBody": "Stella kon je apps-map niet lezen.",
-      "tryAgain": "Opnieuw proberen",
-      "heroTitleEmphasis": "Jouw",
-      "heroTitleRest": "apps",
-      "staleWarning": "Apps zijn mogelijk verouderd.",
-      "searchPlaceholder": "Apps zoeken",
-      "sortLabel": "Sorteren",
-      "createApp": "Een app maken",
-      "noMatchPrefix": "Geen apps komen overeen met",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Hier is nog niets.",
-      "emptyBody": "Vraag Stella om een kleine app te bouwen. Die verschijnt hier.",
-      "emptyAction": "Vraag Stella om een app te maken",
-      "createAppPrompt": "Vertel me welke Stella-apps je voor me kunt maken?",
-      "sort": {
-        "recent": "Recent",
-        "name": "Naam"
-      },
-      "frame": {
-        "startFailed": "De app kon niet starten.",
-        "timeout": "Het laden van de app duurde te lang.",
-        "loadFailed": "De app kon niet worden geladen.",
-        "loading": "{name} laden…",
-        "openFailed": "Kon {name} niet openen"
-      }
+      "createAppPrompt": "Vertel me welke Stella-apps je voor me kunt maken?"
     },
     "chat": {
       "activityPill": {

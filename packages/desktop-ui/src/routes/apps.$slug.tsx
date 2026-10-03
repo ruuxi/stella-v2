@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { openCloudAppPanel } from "@/features/cloud/open-cloud-app-panel";
 import { useCloudApps } from "@/features/cloud/use-cloud-apps";
+import "@/app/apps/apps.css";
 
 export const Route = createFileRoute("/apps/$slug")({
   component: CloudAppDeepLink,

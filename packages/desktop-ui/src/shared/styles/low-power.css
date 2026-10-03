@@ -62,7 +62,7 @@ html[data-low-power] .obc-skeleton {
 }
 
 /* NOTE: the store / social / display-sidebar empty-state illustrations
-   (CanvasIllustration, AppCreationIllustration, CollaborationIllustration,
+   (CanvasIllustration, CollaborationIllustration,
    Store/Media/Trash) are intentionally NOT throttled here. They're a handful
    of GPU-composited transform/opacity keyframes inside one small bounded SVG —
    negligible cost even on the machines that trip this flag — and they already

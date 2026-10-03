@@ -4,9 +4,9 @@
  * Every open destination is its OWN tab — a `{ id, kind, location }` triple.
  * `kind` is which surface it renders (home launcher, quick chat, a file, an
  * app, the browser); `location` is the specific item (a display-tab id for a
- * file, a user-app slug for an app, `null` for a launcher/list/browser). Two
- * files, two quick chats, two launchers can all coexist as independent tabs,
- * exactly like browser tabs.
+ * file, a `cloud:<appId>` location for an app, `null` for a
+ * launcher/list/browser). Two files, two quick chats, two launchers can all
+ * coexist as independent tabs, exactly like browser tabs.
  *
  * This sits beside `tab-store` (the artifact viewer registry + panel width)
  * because the two answer different questions: `tab-store` owns *which artifact

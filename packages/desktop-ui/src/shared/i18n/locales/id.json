@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "Memuat aplikasi…",
-      "unsupportedTitle": "Aplikasi tersedia di desktop.",
-      "unsupportedBody": "Buka Stella di komputer Anda untuk memakai aplikasi yang terpasang secara lokal.",
-      "errorTitle": "Tidak dapat memuat aplikasi",
-      "errorBody": "Stella tidak dapat membaca folder aplikasi Anda.",
-      "tryAgain": "Coba lagi",
-      "heroTitleEmphasis": "Aplikasi",
-      "heroTitleRest": "Anda",
-      "staleWarning": "Aplikasi mungkin sudah usang.",
-      "searchPlaceholder": "Cari aplikasi",
-      "sortLabel": "Urutkan",
-      "createApp": "Buat aplikasi",
-      "noMatchPrefix": "Tidak ada aplikasi yang cocok",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Belum ada apa pun di sini.",
-      "emptyBody": "Minta Stella membuat aplikasi kecil. Aplikasinya akan muncul di sini.",
-      "emptyAction": "Minta Stella membuat aplikasi",
-      "createAppPrompt": "Beri tahu saya, aplikasi stella apa saja yang bisa kamu buatkan untuk saya?",
-      "sort": {
-        "recent": "Terbaru",
-        "name": "Nama"
-      },
-      "frame": {
-        "startFailed": "Aplikasi gagal dijalankan.",
-        "timeout": "Aplikasi terlalu lama dimuat.",
-        "loadFailed": "Aplikasi tidak dapat dimuat.",
-        "loading": "Memuat {name}…",
-        "openFailed": "Tidak dapat membuka {name}"
-      }
+      "createAppPrompt": "Beri tahu saya, aplikasi stella apa saja yang bisa kamu buatkan untuk saya?"
     },
     "chat": {
       "activityPill": {

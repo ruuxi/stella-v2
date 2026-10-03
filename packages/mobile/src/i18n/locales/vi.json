@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "Đang tải ứng dụng…",
-      "unsupportedTitle": "Ứng dụng khả dụng trên máy tính.",
-      "unsupportedBody": "Mở Stella trên máy tính của bạn để dùng các ứng dụng đã cài cục bộ.",
-      "errorTitle": "Không tải được ứng dụng",
-      "errorBody": "Stella không đọc được thư mục ứng dụng của bạn.",
-      "tryAgain": "Thử lại",
-      "heroTitleEmphasis": "Ứng dụng",
-      "heroTitleRest": "của bạn",
-      "staleWarning": "Ứng dụng có thể đã lỗi thời.",
-      "searchPlaceholder": "Tìm ứng dụng",
-      "sortLabel": "Sắp xếp",
-      "createApp": "Tạo một ứng dụng",
-      "noMatchPrefix": "Không có ứng dụng nào khớp",
-      "noMatchSuffix": ".",
-      "emptyTitle": "Chưa có gì ở đây.",
-      "emptyBody": "Hãy nhờ Stella dựng một ứng dụng nhỏ. Nó sẽ xuất hiện ở đây.",
-      "emptyAction": "Nhờ Stella tạo một ứng dụng",
-      "createAppPrompt": "Cho tôi biết bạn có thể tạo những ứng dụng Stella nào cho tôi?",
-      "sort": {
-        "recent": "Gần đây",
-        "name": "Tên"
-      },
-      "frame": {
-        "startFailed": "Ứng dụng không khởi động được.",
-        "timeout": "Ứng dụng tải quá lâu.",
-        "loadFailed": "Không thể tải ứng dụng.",
-        "loading": "Đang tải {name}…",
-        "openFailed": "Không mở được {name}"
-      }
+      "createAppPrompt": "Cho tôi biết bạn có thể tạo những ứng dụng Stella nào cho tôi?"
     },
     "chat": {
       "activityPill": {

@@ -1014,35 +1014,7 @@
       }
     },
     "apps": {
-      "loading": "正在加载应用…",
-      "unsupportedTitle": "应用可在桌面端使用。",
-      "unsupportedBody": "在电脑上打开 Stella 以使用本地安装的应用。",
-      "errorTitle": "无法加载应用",
-      "errorBody": "Stella 无法读取你的应用文件夹。",
-      "tryAgain": "重试",
-      "heroTitleEmphasis": "你的",
-      "heroTitleRest": "应用",
-      "staleWarning": "应用可能已过期。",
-      "searchPlaceholder": "搜索应用",
-      "sortLabel": "排序",
-      "createApp": "创建应用",
-      "noMatchPrefix": "没有应用匹配",
-      "noMatchSuffix": "。",
-      "emptyTitle": "这里还什么都没有。",
-      "emptyBody": "让 Stella 做一个小应用，它会显示在这里。",
-      "emptyAction": "让 Stella 创建一个应用",
-      "createAppPrompt": "告诉我，你能为我做哪些 Stella 应用？",
-      "sort": {
-        "recent": "最近",
-        "name": "名称"
-      },
-      "frame": {
-        "startFailed": "该应用启动失败。",
-        "timeout": "该应用加载时间过长。",
-        "loadFailed": "无法加载该应用。",
-        "loading": "正在加载 {name}…",
-        "openFailed": "无法打开 {name}"
-      }
+      "createAppPrompt": "告诉我，你能为我做哪些 Stella 应用？"
     },
     "chat": {
       "activityPill": {

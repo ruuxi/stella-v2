@@ -5,13 +5,13 @@ import {
   CONFIG_TTL_MS,
   resetConfigCacheForTests,
 } from "../src/config-cache.js";
-import { createConvexClient } from "../src/convex-client.js";
 import {
   completeConfigSnapshot,
   configSnapshot,
   createFetchMock,
   createTestEnv,
   json,
+  billingConfigLoader,
 } from "./helpers/env.js";
 import {
   gatewayConfigRevision,
@@ -59,7 +59,7 @@ describe("gateway config cache", () => {
         ),
     );
     const config = await getGatewayConfig(
-      createConvexClient(harness.env, fetchMock.fetch),
+      billingConfigLoader(fetchMock.fetch),
       () => undefined,
       () => 1_000,
     );
@@ -86,7 +86,7 @@ describe("gateway config cache", () => {
         }),
     );
     const config = await getGatewayConfig(
-      createConvexClient(harness.env, fetchMock.fetch),
+      billingConfigLoader(fetchMock.fetch),
       () => undefined,
     );
     expect(config.anonymous.maxRequestsPerOwner).toBeNull();
@@ -106,7 +106,7 @@ describe("gateway config cache", () => {
         saved = structuredClone(value);
       },
     };
-    const client = createConvexClient(harness.env, fetchMock.fetch);
+    const client = billingConfigLoader(fetchMock.fetch);
     const initial = await getGatewayConfig(
       client,
       () => undefined,
@@ -114,7 +114,7 @@ describe("gateway config cache", () => {
       storage,
     );
     resetConfigCacheForTests();
-    const offline = createConvexClient(harness.env, (async () => {
+    const offline = billingConfigLoader((async () => {
       throw new Error("No cold request expected");
     }) as typeof fetch);
     const restored = await getGatewayConfig(
@@ -133,7 +133,7 @@ describe("gateway config cache", () => {
 
   test("expired, future, wrong-source and malformed durable pricing require a fresh load", async () => {
     const harness = createTestEnv();
-    const offline = createConvexClient(harness.env, (async () => {
+    const offline = billingConfigLoader((async () => {
       throw new Error("offline");
     }) as typeof fetch);
     const base = await sharedRecord(completeConfigSnapshot());
@@ -176,9 +176,7 @@ describe("gateway config cache", () => {
         saved = structuredClone(value);
       },
     };
-    const client = createConvexClient(
-      harness.env,
-      createFetchMock().on(
+    const client = billingConfigLoader(createFetchMock().on(
         (call) => call.url.pathname === "/api/gateway/config",
         () => json(completeConfigSnapshot()),
       ).fetch,
@@ -207,7 +205,7 @@ describe("gateway config cache", () => {
     const snapshot = completeConfigSnapshot();
     const record = await sharedRecord(snapshot);
     let convexCalls = 0;
-    const client = createConvexClient(createTestEnv().env, (async () => {
+    const client = billingConfigLoader((async () => {
       convexCalls += 1;
       return json(configSnapshot());
     }) as typeof fetch);
@@ -244,7 +242,7 @@ describe("gateway config cache", () => {
     for (const value of cases) {
       resetConfigCacheForTests();
       let convexCalls = 0;
-      const client = createConvexClient(createTestEnv().env, (async () => {
+      const client = billingConfigLoader((async () => {
         convexCalls += 1;
         return json(complete);
       }) as typeof fetch);
@@ -272,7 +270,7 @@ describe("gateway config cache", () => {
         return record;
       },
     };
-    const offline = createConvexClient(createTestEnv().env, (async () => {
+    const offline = billingConfigLoader((async () => {
       throw new Error("No Convex request expected");
     }) as typeof fetch);
     const [first, second] = await Promise.all([
@@ -307,7 +305,7 @@ describe("gateway config cache", () => {
     const sharedBlocked = new Promise<void>((resolve) => {
       releaseShared = resolve;
     });
-    const offline = createConvexClient(createTestEnv().env, (async () => {
+    const offline = billingConfigLoader((async () => {
       throw new Error("No Convex request expected");
     }) as typeof fetch);
     const olderLoad = getGatewayConfig(
@@ -349,7 +347,7 @@ test("warm isolate seeds owner durable storage", async () => {
     (call) => call.url.pathname === "/api/gateway/config",
     () => json(completeConfigSnapshot()),
   );
-  const client = createConvexClient(harness.env, fetchMock.fetch);
+  const client = billingConfigLoader(fetchMock.fetch);
   await getGatewayConfig(
     client,
     () => undefined,
@@ -370,7 +368,7 @@ test("warm isolate seeds owner durable storage", async () => {
   );
   expect(saved?.originalFetchedAt).toBe(1_000);
   resetConfigCacheForTests();
-  const offline = createConvexClient(harness.env, async () => {
+  const offline = billingConfigLoader(async () => {
     throw new Error("A durable cache hit must not fetch configuration");
   });
   const restored = await getGatewayConfig(

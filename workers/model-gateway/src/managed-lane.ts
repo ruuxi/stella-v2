@@ -62,7 +62,7 @@ import {
   type AuthenticatedCapability,
 } from "./capability.js";
 import { getGatewayConfig, type GatewayConfigStorage } from "./config-cache.js";
-import type { ConvexClient } from "./convex-client.js";
+import { billingGatewayConfig } from "./billing-control.js";
 import {
   GatewayError,
   jsonResponse,
@@ -448,7 +448,6 @@ export const handleManagedRelay = async (args: {
   request: Request;
   env: Env;
   deps: GatewayDeps;
-  convex: ConvexClient;
   traceId: string;
   auth: AuthenticatedCapability;
   protocol: GatewayProtocol;
@@ -461,7 +460,7 @@ export const handleManagedRelay = async (args: {
     now: number,
   ) => Promise<OwnerEnforcementAdmission>;
 }): Promise<Response> => {
-  const { request, env, deps, convex, traceId, protocol, timing } = args;
+  const { request, env, deps, traceId, protocol, timing } = args;
   const { claims, probe } = args.auth;
   const startedAt = deps.now();
   const pathname = new URL(request.url).pathname;
@@ -478,7 +477,7 @@ export const handleManagedRelay = async (args: {
   const configWork = timing
     .measure("pricingConfigMs", () =>
       getGatewayConfig(
-        convex,
+        billingGatewayConfig(env),
         deps.waitUntil,
         deps.now,
         args.configStorage,

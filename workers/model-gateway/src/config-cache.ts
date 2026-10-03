@@ -5,7 +5,7 @@ import {
 import type { GatewayConfigSnapshot } from "@stella/contracts/gateway/usage";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type { TokenPriceConfig } from "@stella/model-catalog/pricing";
-import type { ConvexClient } from "./convex-client.js";
+import type { GatewayConfigLoader } from "./billing-control.js";
 import { GatewayError } from "./errors.js";
 import {
   sharedGatewayConfigRecord,
@@ -15,7 +15,7 @@ import {
 } from "./shared-config.js";
 
 /**
- * `GET /api/gateway/config` cached per isolate. Fresh for CONFIG_TTL_MS; after
+ * `BillingControl.gatewayConfig()` cached per isolate. Fresh for CONFIG_TTL_MS; after
  * that the stale copy keeps serving while one background refresh runs
  * (stale-while-revalidate), so the control plane is never on a request's
  * critical path except on a cold isolate.
@@ -120,13 +120,13 @@ const indexPrices = (
 };
 
 const refresh = (
-  client: ConvexClient,
+  load: GatewayConfigLoader,
   now: () => number,
 ): Promise<GatewayConfig> => {
   if (inflight) return inflight;
   inflight = (async () => {
-    const result = await client.config();
-    if (!result.ok || !isSnapshot(result.body)) {
+    const snapshot = await load().catch(() => null);
+    if (!isSnapshot(snapshot)) {
       throw new GatewayError(
         503,
         "internal",
@@ -136,7 +136,14 @@ const refresh = (
         },
       );
     }
-    cached = indexPrices(result.body, now());
+    console.info(
+      JSON.stringify({
+        event: "gateway_config_loaded",
+        source: "billing",
+        prices: snapshot.prices.length,
+      }),
+    );
+    cached = indexPrices(snapshot, now());
     return cached;
   })().finally(() => {
     inflight = null;
@@ -177,7 +184,7 @@ const persistConfig = async (
 };
 
 export const getGatewayConfig = async (
-  client: ConvexClient,
+  load: GatewayConfigLoader,
   waitUntil: (promise: Promise<unknown>) => void,
   now: () => number = Date.now,
   storage?: GatewayConfigStorage,
@@ -191,7 +198,7 @@ export const getGatewayConfig = async (
       try {
         return await restoreRecord(await shared.read(), shared.source, now());
       } catch {
-        // The authoritative Convex pull below remains the cold-path fallback.
+        // The authoritative billing pull below remains the cold-path fallback.
         return null;
       }
     })().finally(() => {
@@ -201,7 +208,7 @@ export const getGatewayConfig = async (
     if (cached) await persistConfig(cached, storage);
   }
   const refreshAndPersist = async (): Promise<GatewayConfig> => {
-    const config = await refresh(client, now);
+    const config = await refresh(load, now);
     await persistConfig(config, storage);
     return config;
   };

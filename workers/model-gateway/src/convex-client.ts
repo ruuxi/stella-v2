@@ -2,13 +2,11 @@ import type {
   GatewayErrorCode,
 } from "@stella/contracts/gateway/api";
 import {
-  CONVEX_GATEWAY_CONFIG_PATH,
   CONVEX_GATEWAY_ENGINE_ACCESS_PATH,
   CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH,
   CONVEX_GATEWAY_USAGE_PATH,
   type ConvexEngineAccessRequest,
   type ConvexEngineAccessResponse,
-  type GatewayConfigSnapshot,
   type GatewayUsageBatch,
   type GatewayUsageBatchResult,
   type ConvexOwnerEnforcementState,
@@ -41,7 +39,6 @@ export type ConvexClient = {
   engineAccess(
     request: ConvexEngineAccessRequest,
   ): Promise<ConvexResult<ConvexEngineAccessResponse>>;
-  config(): Promise<ConvexResult<GatewayConfigSnapshot>>;
   ownerEnforcement(
     ownerId: string,
   ): Promise<ConvexResult<ConvexOwnerEnforcementState>>;
@@ -150,8 +147,6 @@ export const createConvexClient = (
         "POST",
         request,
       ),
-    config: () =>
-      call<GatewayConfigSnapshot>(CONVEX_GATEWAY_CONFIG_PATH, "GET"),
     ownerEnforcement: (ownerId) =>
       call<ConvexOwnerEnforcementState>(
         `${CONVEX_GATEWAY_OWNER_ENFORCEMENT_PATH}?ownerId=${encodeURIComponent(ownerId)}`,

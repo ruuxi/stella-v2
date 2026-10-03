@@ -594,6 +594,14 @@ export const hangingSseResponse = (
 // Worker env
 // ---------------------------------------------------------------------------
 
+/** `BillingControl.gatewayConfig()`, served by a test's fetch mock at the old config path. */
+export const billingConfigLoader =
+  (fetchImpl: typeof fetch) => async (): Promise<GatewayConfigSnapshot> => {
+    const response = await fetchImpl(`${CONVEX_SITE}/api/gateway/config`);
+    if (!response.ok) throw new Error(`config ${response.status}`);
+    return (await response.json()) as GatewayConfigSnapshot;
+  };
+
 export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   const usageEvents: unknown[] = [];
   const pending: Promise<unknown>[] = [];
@@ -627,6 +635,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
       };
     },
     ingestUsage: async () => ({ accepted: [], duplicate: [], rejected: [] }),
+    gatewayConfig: () => billingConfigLoader(billingFetch)(),
   };
   const ledger = createLedgerNamespace(() => env);
   const ownerGate = createOwnerRelayGateNamespace(() => env);

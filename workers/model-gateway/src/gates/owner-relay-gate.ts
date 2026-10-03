@@ -7,6 +7,7 @@ import {
   type GatewayConfigStorage,
 } from "../config-cache.js";
 import { createConvexClient } from "../convex-client.js";
+import { billingGatewayConfig } from "../billing-control.js";
 import {
   DEFAULT_ENFORCEMENT_TTL_SECONDS,
   enforcementAdmissionForRecord,
@@ -348,7 +349,7 @@ export class OwnerRelayGate extends DurableObject<Env> {
           const pricingStartedAt = performance.now();
           try {
             const config = await getGatewayConfig(
-              createConvexClient(this.env),
+              billingGatewayConfig(this.env),
               (work) => this.ctx.waitUntil(work),
               Date.now,
               this.configStorage,

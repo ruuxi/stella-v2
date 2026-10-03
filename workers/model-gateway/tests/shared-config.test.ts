@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createConvexClient } from "../src/convex-client.js";
 import {
   gatewayConfigRevision,
   isCompleteGatewayConfigSnapshot,
@@ -13,6 +12,7 @@ import {
   createFetchMock,
   createTestEnv,
   json,
+  billingConfigLoader,
 } from "./helpers/env.js";
 
 describe("shared gateway config", () => {
@@ -82,7 +82,7 @@ describe("shared gateway config", () => {
     );
     const writes: Array<{ key: string; value: string }> = [];
     await publishSharedGatewayConfig({
-      client: createConvexClient(createTestEnv().env, fetchMock.fetch),
+      load: billingConfigLoader(fetchMock.fetch),
       store: {
         put: async (key, value) => {
           writes.push({ key, value: String(value) });
@@ -107,7 +107,7 @@ describe("shared gateway config", () => {
     );
     let writes = 0;
     await publishSharedGatewayConfig({
-      client: createConvexClient(createTestEnv().env, fetchMock.fetch),
+      load: billingConfigLoader(fetchMock.fetch),
       store: {
         put: async () => {
           writes += 1;
@@ -125,7 +125,7 @@ describe("shared gateway config", () => {
     );
     await expect(
       publishSharedGatewayConfig({
-        client: createConvexClient(createTestEnv().env, fetchMock.fetch),
+        load: billingConfigLoader(fetchMock.fetch),
         store: {
           put: async () => {
             throw new Error("KV unavailable");

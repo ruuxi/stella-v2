@@ -1,4 +1,4 @@
-import { billingControl } from "./billing-control.js";
+import { billingControl, billingGatewayConfig } from "./billing-control.js";
 import {
   GATEWAY_HEALTH_PATH,
   GATEWAY_MODEL_REVISION_HEADER,
@@ -369,7 +369,6 @@ const handleResolve = async (
   request: Request,
   env: Env,
   deps: GatewayDeps,
-  convex: ConvexClient,
   traceId: string,
   preparationMode: "background" | "await",
 ): Promise<Response> => {
@@ -410,7 +409,7 @@ const handleResolve = async (
         env.OWNER_RELAY_GATE.idFromName(auth.claims.sub),
       ).prepare(auth.claims.sub, traceId)
     : getGatewayConfig(
-        convex,
+        billingGatewayConfig(env),
         deps.waitUntil,
         deps.now,
         undefined,
@@ -537,7 +536,6 @@ const handleRelay = async (
       request,
       env,
       deps,
-      convex,
       traceId,
       auth,
       protocol,
@@ -627,7 +625,6 @@ export const handleRequest = async (
         request,
         env,
         deps,
-        convex,
         traceId,
         url.pathname === GATEWAY_PREPARE_PATH ? "await" : "background",
       );

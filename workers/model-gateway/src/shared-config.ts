@@ -1,6 +1,6 @@
 import type { GatewayConfigSnapshot } from "@stella/contracts/gateway/usage";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
-import type { ConvexClient } from "./convex-client.js";
+import type { GatewayConfigLoader } from "./billing-control.js";
 
 export const SHARED_GATEWAY_CONFIG_KEY = "gatewayConfig:v1";
 const SHARED_GATEWAY_CONFIG_RECORD_VERSION = 1;
@@ -195,20 +195,20 @@ export const sharedGatewayConfigRecord = async (args: {
 };
 
 export const publishSharedGatewayConfig = async (args: {
-  client: ConvexClient;
+  load: GatewayConfigLoader;
   store: Pick<KVNamespace, "put">;
   source: string;
   now?: () => number;
 }): Promise<void> => {
   const startedAt = performance.now();
-  const result = await args.client.config();
-  const built = result.ok
+  const snapshot = await args.load().catch(() => null);
+  const built = snapshot
     ? await sharedGatewayConfigRecord({
-        snapshot: result.body,
+        snapshot,
         source: args.source,
         originalFetchedAt: (args.now ?? Date.now)(),
       })
-    : { ok: false as const, reason: "convex_unavailable" as const };
+    : { ok: false as const, reason: "billing_unavailable" as const };
   if (!built.ok) {
     console.warn(
       JSON.stringify({

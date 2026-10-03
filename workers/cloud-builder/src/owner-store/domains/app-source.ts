@@ -7,10 +7,10 @@
  */
 
 import type { AppSourceCalls, AppSourceRemote } from "@stella/contracts/backend/app-source";
-import { empty } from "../args.js";
+import { empty, object, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
-import type { OwnerContext, OwnerDomain } from "../registry.js";
+import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
 
 const UPSTREAM_REPO = "upstream";
 const TOKEN_TTL_SECONDS = 60 * 60;
@@ -28,6 +28,23 @@ export const APP_SOURCE_MIGRATION = {
      )`,
   ],
 };
+
+/** The owner's browser renderer, by tree: the current one and the one before it. */
+export const APP_SOURCE_WEB_RENDERER_MIGRATION = {
+  id: "app-source.2-web-renderer",
+  statements: [
+    `CREATE TABLE web_renderer (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       tree_sha TEXT NOT NULL,
+       previous_tree_sha TEXT,
+       uploaded_at INTEGER NOT NULL
+     )`,
+  ],
+};
+
+/** R2 (`APP_BUILDS`) prefix of a fork's browser renderers. */
+export const webRendererPrefix = (forkName: string) => `web-renderers/${forkName}/`;
+export const TREE_SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 type ForkRow = { name: string; remote: string; default_branch: string };
 
@@ -126,10 +143,57 @@ const access = async (ctx: OwnerContext): Promise<AppSourceCalls["appSource.acce
   };
 };
 
+const forkNameOf = (db: OwnerDbReader) =>
+  db.one<{ name: string }>("SELECT name FROM app_source_fork WHERE id = 1")?.name ?? null;
+
+const webRenderer = (ctx: OwnerContext): AppSourceCalls["appSource.webRenderer"]["result"] => {
+  const fork = forkNameOf(ctx.db);
+  const row = ctx.db.one<{ tree_sha: string }>("SELECT tree_sha FROM web_renderer WHERE id = 1");
+  return fork && row ? { path: `u/${fork}/${row.tree_sha}/` } : null;
+};
+
+/** Record an uploaded renderer; returns the tree no longer kept, for the caller to delete. */
+const recordWebRenderer = (ctx: OwnerContext, args: unknown): { retired: string | null } => {
+  const { treeSha } = object({ treeSha: string({ pattern: TREE_SHA_PATTERN }) })(args);
+  const row = ctx.db.one<{ tree_sha: string; previous_tree_sha: string | null }>(
+    "SELECT tree_sha, previous_tree_sha FROM web_renderer WHERE id = 1",
+  );
+  if (row?.tree_sha === treeSha) return { retired: null };
+  ctx.db.run(
+    `INSERT INTO web_renderer (id, tree_sha, previous_tree_sha, uploaded_at) VALUES (1, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET tree_sha = excluded.tree_sha,
+       previous_tree_sha = excluded.previous_tree_sha, uploaded_at = excluded.uploaded_at`,
+    treeSha,
+    row?.tree_sha ?? null,
+    ctx.now,
+  );
+  const retired = row?.previous_tree_sha ?? null;
+  return { retired: retired && retired !== treeSha ? retired : null };
+};
+
 export const appSourceDomain = {
   name: "app-source",
-  migrations: [APP_SOURCE_MIGRATION],
+  migrations: [APP_SOURCE_MIGRATION, APP_SOURCE_WEB_RENDERER_MIGRATION],
+  internal: {
+    /** The fork renderers upload under; null before the owner has one. */
+    "appSource.webRendererFork": (ctx: OwnerContext) => ({ forkName: forkNameOf(ctx.db) }),
+    "appSource.recordWebRenderer": recordWebRenderer,
+  },
+  purge: async (ctx: OwnerContext) => {
+    const fork = forkNameOf(ctx.db);
+    ctx.db.run("DELETE FROM web_renderer");
+    if (!fork) return { pending: false };
+    const bucket = ctx.env.APP_BUILDS;
+    const listing = await bucket.list({ prefix: webRendererPrefix(fork), limit: 1000 });
+    if (listing.objects.length > 0) await bucket.delete(listing.objects.map((entry) => entry.key));
+    return { pending: listing.truncated };
+  },
   calls: {
+    "appSource.webRenderer": {
+      scope: "owner",
+      parse: empty(),
+      handler: (ctx: OwnerContext) => webRenderer(ctx),
+    },
     "appSource.access": {
       scope: "owner",
       requireAccount: true,

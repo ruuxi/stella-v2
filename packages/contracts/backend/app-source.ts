@@ -26,4 +26,16 @@ export type AppSourceCalls = {
       upstream: AppSourceRemote;
     };
   };
+  /**
+   * The owner's own browser renderer, built from their fork by their desktop
+   * and uploaded after a push that changed it: `path` is relative to the
+   * website's `/chat-app/` (`u/<fork>/<tree>/`). Null means the shared build.
+   */
+  "appSource.webRenderer": {
+    args: Record<string, never>;
+    result: { path: string } | null;
+  };
 };
+
+/** Where the desktop uploads a fork's browser renderer: `PUT <prefix><treeSha>`, an uncompressed tar. */
+export const WEB_RENDERER_UPLOAD_PREFIX = "/api/app-source/web-renderer/";

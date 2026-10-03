@@ -51,6 +51,7 @@ import {
 import { withBrowserCors } from "../browser-cors.js";
 import { handleBackendRoute } from "../owner-store/routes.js";
 import { handleAppSourceBootstrap } from "../app-source-bootstrap.js";
+import { handleWebRendererRoute } from "../web-renderer.js";
 import { handleUserCloudHomeRoute, ownerAccess } from "../cloud-home-routes.js";
 import {
   HEADER_ISSUER,
@@ -950,6 +951,9 @@ const router = {
     // Public: upstream read access for callers without an account.
     const bootstrapResponse = await handleAppSourceBootstrap(request, env);
     if (bootstrapResponse) return bootstrapResponse;
+    // Owner-uploaded browser renderers (signed-in PUT, public GET).
+    const webRendererResponse = await handleWebRendererRoute(request, env, (promise) => ctx.waitUntil(promise));
+    if (webRendererResponse) return webRendererResponse;
     // Stripe signs its webhooks; the internal billing routes check the
     // service secret themselves.
     const billingResponse = await handleBillingRoute(request, env);

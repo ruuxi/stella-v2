@@ -16,7 +16,7 @@ import { authClient } from "@/lib/auth-client";
 import { clearCachedToken } from "@/lib/auth-token";
 import { reportGoogleAdsSignup } from "@/components/google-ads-tag";
 import { useMagicLinkAuth } from "@/lib/use-magic-link-auth";
-import { isConvexConfigured } from "@/lib/convex-urls";
+import { isBackendConfigured } from "@/lib/backend-url";
 import formStyles from "@/app/sign-in/sign-in.module.css";
 import { SocialSignInButtons } from "./social-sign-in-buttons";
 import {
@@ -62,7 +62,7 @@ export function SignInDialogProvider({
   useOAuthReturnToken();
 
   const open = useCallback(() => {
-    if (!isConvexConfigured()) {
+    if (!isBackendConfigured()) {
       window.location.href = "/sign-in";
       return;
     }
@@ -142,7 +142,7 @@ export function SignInDialogProvider({
 
 function useOAuthReturnToken() {
   useEffect(() => {
-    if (!isConvexConfigured()) return;
+    if (!isBackendConfigured()) return;
     const url = new URL(window.location.href);
     const token = url.searchParams.get("ott");
     if (!token || !AUTH_TOKEN_PATTERN.test(token)) return;
@@ -157,7 +157,7 @@ function useOAuthReturnToken() {
     let cancelled = false;
     const verify = async () => {
       try {
-        await authClient.$fetch("/cross-domain/one-time-token/verify", {
+        await authClient.$fetch("/one-time-token/verify", {
           method: "POST",
           body: { token },
         });

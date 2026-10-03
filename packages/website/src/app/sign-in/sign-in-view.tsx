@@ -7,7 +7,7 @@ import { authClient } from "@/lib/auth-client";
 import { clearCachedToken } from "@/lib/auth-token";
 import { useDesktopBridgeAuthUser } from "@/lib/desktop-bridge-auth";
 import { useMagicLinkAuth } from "@/lib/use-magic-link-auth";
-import { isConvexConfigured } from "@/lib/convex-urls";
+import { isBackendConfigured } from "@/lib/backend-url";
 import { SocialSignInButtons } from "@/components/auth/social-sign-in-buttons";
 import styles from "./sign-in.module.css";
 import { StellaMark } from "@/components/stella-mark";
@@ -20,7 +20,7 @@ type SessionUser = {
 };
 
 export function SignInView() {
-  const configured = isConvexConfigured();
+  const configured = isBackendConfigured();
 
   if (!configured) {
     return (
@@ -35,8 +35,7 @@ export function SignInView() {
           <h1 className={styles.title}>Sign-in unavailable</h1>
           <p className={styles.subtitle}>
             This build of stella.sh isn&apos;t configured to talk to the Stella
-            backend. Set <code>NEXT_PUBLIC_CONVEX_URL</code> (and optionally{" "}
-            <code>NEXT_PUBLIC_CONVEX_SITE_URL</code>) and redeploy.
+            backend. Set <code>NEXT_PUBLIC_STELLA_BACKEND_URL</code> and redeploy.
           </p>
           <Link className={styles.homeLink} href="/">
             Back to stella.sh

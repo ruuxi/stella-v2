@@ -40,11 +40,12 @@ export function SocialSignInButtons({ callbackURL }: SocialSignInButtonsProps) {
       setPendingProvider(provider);
 
       try {
-        const nextURL =
-          callbackURL ??
-          (typeof window !== "undefined"
-            ? `${window.location.pathname}${window.location.search}${window.location.hash}`
-            : "/");
+        // Absolute: the auth server is on another origin and would resolve
+        // a relative path against itself.
+        const nextURL = new URL(
+          callbackURL ?? window.location.href,
+          window.location.origin,
+        ).toString();
         const result = (await authClient.signIn.social({
           provider,
           callbackURL: nextURL,

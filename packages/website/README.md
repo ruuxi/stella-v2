@@ -2,7 +2,7 @@
 
 The Stella product website is a Next.js application in the Stella monorepo. It
 contains the public marketing pages, the cloud-first Stella chat at `/chat`, and
-the account and billing surfaces backed by the shared Convex deployment.
+the account and billing surfaces backed by the Stella backend worker.
 
 ## Development
 
@@ -23,9 +23,9 @@ bun run website:lint
 ```
 
 The build falls back to the tracked public backend URLs from
-`packages/desktop-ui/.env`. Set `NEXT_PUBLIC_CONVEX_URL` and, optionally,
-`NEXT_PUBLIC_CONVEX_SITE_URL` in `packages/website/.env.local` to override them
-for a different deployment. These are public client endpoints, not secrets.
+`packages/desktop-ui/.env`. Set `NEXT_PUBLIC_STELLA_BACKEND_URL` in
+`packages/website/.env.local` to point at a different backend worker. It is a
+public client endpoint, not a secret.
 `NEXT_PUBLIC_X_BOT_URL` is the X bot worker's origin (`workers/x-bot`); the
 `/x/<handle>` pages read their runs from it and 404 when it is unset.
 

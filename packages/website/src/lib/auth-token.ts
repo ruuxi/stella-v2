@@ -1,13 +1,11 @@
 "use client";
 
 /**
- * Fetch and cache the Convex JWT used by `ConvexProviderWithAuth` to
- * authenticate websocket queries/mutations against the Convex backend.
- * Mirrors the desktop implementation in
- * `desktop/src/global/auth/services/auth-token.ts`.
+ * Fetch and cache the short-lived backend JWT (`GET /api/auth/token`) that
+ * authorizes the site's backend calls and views.
  */
 
-import { authClient } from "./auth-client";
+import { authClient, hasSessionToken } from "./auth-client";
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
@@ -15,14 +13,19 @@ let inflightTokenPromise: Promise<string | null> | null = null;
 
 const REFRESH_MARGIN_MS = 60_000;
 
-type GetConvexTokenOptions = {
+type GetAuthTokenOptions = {
   forceRefresh?: boolean;
 };
 
-export async function getConvexToken(
-  options: GetConvexTokenOptions = {},
+export async function getAuthToken(
+  options: GetAuthTokenOptions = {},
 ): Promise<string | null> {
   const forceRefresh = options.forceRefresh ?? false;
+
+  if (!hasSessionToken()) {
+    clearCachedToken();
+    return null;
+  }
 
   if (!forceRefresh && cachedToken && Date.now() < tokenExpiresAt) {
     return cachedToken;
@@ -39,13 +42,8 @@ export async function getConvexToken(
 
   inflightTokenPromise = (async () => {
     try {
-      const convex = (
-        authClient as unknown as {
-          convex: { token(): Promise<{ data?: { token?: string } }> };
-        }
-      ).convex;
-      const result = await convex.token();
-      const token = result?.data?.token;
+      const result = await authClient.token();
+      const token = result.data?.token;
       if (!token) {
         cachedToken = null;
         tokenExpiresAt = 0;
@@ -54,7 +52,9 @@ export async function getConvexToken(
 
       cachedToken = token;
       try {
-        const payload = JSON.parse(atob(token.split(".")[1] ?? ""));
+        const payload = JSON.parse(
+          atob((token.split(".")[1] ?? "").replace(/-/g, "+").replace(/_/g, "/")),
+        );
         if (typeof payload.exp !== "number") {
           throw new Error("Missing exp claim");
         }

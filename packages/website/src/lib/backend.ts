@@ -3,19 +3,17 @@
 import { useEffect, useState } from "react";
 import type { ViewArgs, ViewName, ViewResult } from "@stella/contracts/backend/api";
 import { BackendClient, stableStringify } from "@stella/contracts/backend/client";
-import { getConvexToken } from "./auth-token";
+import { getAuthToken } from "./auth-token";
+import { isBackendConfigured, readBackendUrl } from "./backend-url";
 
 /**
  * The site's connection to the Stella backend worker (calls over HTTP, live
- * views over one socket), authorized with the same sign-in JWT as Convex.
+ * views over one socket), authorized with the backend's sign-in JWT.
  */
-
-const readBackendUrl = (): string | null =>
-  process.env.NEXT_PUBLIC_STELLA_BACKEND_URL?.trim().replace(/\/+$/, "") || null;
 
 let cachedClient: BackendClient | null = null;
 
-export const isBackendConfigured = (): boolean => readBackendUrl() !== null;
+export { isBackendConfigured };
 
 export function getBackendClient(): BackendClient {
   if (cachedClient) return cachedClient;
@@ -24,7 +22,7 @@ export function getBackendClient(): BackendClient {
   cachedClient = new BackendClient({
     baseUrl,
     getToken: (options) =>
-      getConvexToken(options?.force ? { forceRefresh: true } : undefined),
+      getAuthToken(options?.force ? { forceRefresh: true } : undefined),
   });
   return cachedClient;
 }

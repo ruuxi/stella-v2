@@ -7,15 +7,9 @@ const desktopPublicEnv = loadEnv(
   path.resolve(__dirname, "../desktop-ui"),
   "VITE_",
 );
-const publicConvexUrl =
-  process.env.NEXT_PUBLIC_CONVEX_URL || desktopPublicEnv.VITE_CONVEX_URL;
-const publicConvexSiteUrl =
-  process.env.NEXT_PUBLIC_CONVEX_SITE_URL ||
-  (publicConvexUrl?.endsWith(".convex.cloud")
-    ? `${publicConvexUrl.slice(0, -".convex.cloud".length)}.convex.site`
-    : desktopPublicEnv.VITE_CONVEX_SITE_URL);
-// Owners' own browser renderers are served by the backend worker; the chat
-// iframe loads them through a rewrite so they stay on this origin.
+// The backend worker serves auth, billing and owners' own browser renderers;
+// the chat iframe loads those renderers through a rewrite so they stay on
+// this origin.
 const stellaBackendUrl = (
   process.env.NEXT_PUBLIC_STELLA_BACKEND_URL ||
   desktopPublicEnv.VITE_STELLA_BACKEND_URL ||
@@ -37,13 +31,21 @@ const nextConfig: NextConfig = {
     cssChunking: "strict",
   },
   env: {
-    ...(publicConvexUrl ? { NEXT_PUBLIC_CONVEX_URL: publicConvexUrl } : {}),
-    ...(publicConvexSiteUrl
-      ? { NEXT_PUBLIC_CONVEX_SITE_URL: publicConvexSiteUrl }
+    ...(stellaBackendUrl
+      ? { NEXT_PUBLIC_STELLA_BACKEND_URL: stellaBackendUrl }
       : {}),
     ...(publicTurnstileSiteKey
       ? { NEXT_PUBLIC_TURNSTILE_SITE_KEY: publicTurnstileSiteKey }
       : {}),
+  },
+  webpack(config) {
+    // Workspace TypeScript sources (`@stella/contracts`) import siblings as
+    // `./x.js`; resolve those to the `.ts` files.
+    config.resolve.extensionAlias = {
+      ...config.resolve.extensionAlias,
+      ".js": [".ts", ".tsx", ".js"],
+    };
+    return config;
   },
   turbopack: {
     // Dependencies and the lockfile live at the workspace root.

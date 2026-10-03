@@ -7,7 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 import { authClient } from "./auth-client";
-import { tryReadConvexSiteUrl } from "./convex-urls";
+import { isBackendConfigured } from "./backend-url";
 import { getWebsiteChallengeToken, turnstileHeader } from "./turnstile";
 
 export type MagicLinkStatus = "idle" | "sending" | "sent" | "error";
@@ -35,10 +35,10 @@ export const useMagicLinkAuth = (): UseMagicLinkAuthResult => {
       return;
     }
 
-    if (!tryReadConvexSiteUrl()) {
+    if (!isBackendConfigured()) {
       setStatus("error");
       setError(
-        "Sign-in isn't configured for this build. Contact the team or set NEXT_PUBLIC_CONVEX_URL.",
+        "Sign-in isn't configured for this build. Contact the team or set NEXT_PUBLIC_STELLA_BACKEND_URL.",
       );
       return;
     }

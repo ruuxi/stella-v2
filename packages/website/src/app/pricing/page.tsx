@@ -19,13 +19,13 @@ export const metadata: Metadata = {
 // describe the same plans. `PRICING_MD` in `src/lib/agent-pages.ts` mirrors
 // this page for agents — update all three together.
 //
-// When the Go intro promo runs in Convex
+// When the Go intro promo runs in the backend
 // (`STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS`), keep `introFirstMonthPriceUsd`
 // here in sync so marketing matches `/billing`.
 const plans: {
   name: string;
   price: number;
-  /** Shown alongside recurring `price`; must match Convex intro cents ÷ 100. */
+  /** Shown alongside recurring `price`; must match the backend intro cents ÷ 100. */
   introFirstMonthPriceUsd?: number;
   tagline: string;
   features: string[];

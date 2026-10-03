@@ -22,7 +22,7 @@
  *
  * Nothing here depends on Stella's runtime — the goal is just a
  * pixel-faithful, fully interactive showcase that can sit on the
- * marketing site without any Electron/IPC/Convex coupling.
+ * marketing site without any Electron/IPC/backend coupling.
  */
 
 import {

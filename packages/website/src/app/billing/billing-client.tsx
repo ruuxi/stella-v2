@@ -1,9 +1,12 @@
 "use client";
 
-import { getBackendClient, useBackendValue } from "@/lib/backend";
+import {
+  getBackendClient,
+  isBackendConfigured,
+  useBackendValue,
+} from "@/lib/backend";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { openSignInDialog } from "@/components/auth/sign-in-dialog";
-import { isConvexConfigured } from "@/lib/convex-urls";
 
 type BillingPlan = "free" | "go" | "pro";
 type PaidBillingPlan = Exclude<BillingPlan, "free">;
@@ -190,10 +193,10 @@ const openStripeCheckoutUrl = (url: string) => {
 };
 
 export function BillingClient() {
-  // Skip the Convex-bound interactive flow when no deployment is configured
+  // Skip the backend-bound interactive flow when no backend is configured
   // (e.g. preview builds without env vars). Lets `/billing` still SSG with a
-  // marketing-style hero instead of crashing on `useQuery`.
-  if (!isConvexConfigured()) {
+  // marketing-style hero.
+  if (!isBackendConfigured()) {
     return (
       <main className="billing-root">
         <div className="billing-shell">

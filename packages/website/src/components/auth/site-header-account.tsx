@@ -1,7 +1,7 @@
 "use client";
 
 import { lazy, Suspense, useEffect, useState } from "react";
-import { isConvexConfigured } from "@/lib/convex-urls";
+import { isBackendConfigured } from "@/lib/backend-url";
 import { SignInButton } from "./sign-in-button";
 
 const SiteHeaderAccountInner = lazy(() =>
@@ -12,7 +12,7 @@ const SiteHeaderAccountInner = lazy(() =>
 
 /**
  * Account/sign-in control rendered inside the existing `<nav className="site-nav">`
- * on every marketing page. Renders nothing when the Convex backend isn't
+ * on every marketing page. Renders nothing when the backend isn't
  * configured for this build (preview deploys without env vars).
  *
  * Sign-in opens a global dialog (see `SignInDialogProvider`) instead of
@@ -36,7 +36,7 @@ export function SiteHeaderAccount() {
     return () => window.clearTimeout(id);
   }, []);
 
-  if (!isConvexConfigured()) {
+  if (!isBackendConfigured()) {
     return null;
   }
   return loadSession ? (

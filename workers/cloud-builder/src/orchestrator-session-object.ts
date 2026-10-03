@@ -144,7 +144,7 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
 import { loadRuntimeAgent } from "./runtime-agent.js";
-
+import { verifyUserToken } from "./auth-jwt.js";
 import type {
   OwnerModelGrant,
   OwnerModelGrantFreezeRequest,
@@ -957,6 +957,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       onConnect: () => this.flushIndexIfLagging(),
       conversationId: () => this.conversationId(),
       log,
+      verifyToken: (token) => verifyUserToken(token, this.env as unknown as Cloudflare.Env),
     });
     // Set in the constructor rather than at accept time: whether an
     // auto-response survives DO eviction is not something the docs settle, and

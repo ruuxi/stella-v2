@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { verifyConvexToken } from "./auth-jwt.js";
+import { verifyUserToken } from "./auth-jwt.js";
 import {
   MAX_BODY_BYTES,
   MAX_EVENT_AGE_MS,
@@ -29,7 +29,7 @@ export type { TelemetryEventV1 } from "./schema.js";
 type TelemetryEnv = Pick<
   Env,
   | "ENVIRONMENT"
-  | "STELLA_CONVEX_SITE_URL"
+  | "STELLA_BACKEND_URL"
   | "ENABLE_SERVER_BEARER"
   | "TELEMETRY_PSEUDONYM_KEY"
   | "TELEMETRY_SERVER_SECRET"
@@ -119,7 +119,7 @@ const authenticate = async (
 > => {
   const token = bearerToken(request);
   if (token?.split(".").length === 3) {
-    const result = await verifyConvexToken(token, env.STELLA_CONVEX_SITE_URL);
+    const result = await verifyUserToken(token, env.STELLA_BACKEND_URL);
     if (result.ok)
       return {
         ok: true,

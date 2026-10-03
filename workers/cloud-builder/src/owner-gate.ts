@@ -4,8 +4,7 @@ import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-conte
 import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
 import { turnStartErrorResponse } from "./turn-start-request.js";
 import type { ModelGatewayControl } from "./managed-request-cancellation.js";
-import { convexSiteBase } from "./convex-site.js";
-import { verifyConvexToken } from "./auth-jwt.js";
+import { verifyUserToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
 import { ownerRegistry } from "./owner-store/domains.js";
 import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./owner-store/registry.js";
@@ -766,9 +765,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       registry: this.backendRegistry(),
       host: this.ownerHost(),
       verifyToken: async (token) => {
-        const issuer = convexSiteBase(this.env);
-        if (!issuer) return null;
-        const verified = await verifyConvexToken(token, issuer);
+        const verified = await verifyUserToken(token, this.env as unknown as Cloudflare.Env);
         return verified.ok ? verified.token : null;
       },
       log,

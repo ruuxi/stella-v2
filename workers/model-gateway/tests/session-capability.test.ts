@@ -67,11 +67,11 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 const validPayload = (overrides: Record<string, unknown> = {}) => ({
   iss: CONVEX_SITE,
-  aud: "convex",
+  aud: "stella",
   sub: "user_ba_1",
   iat: nowSeconds() - 5,
   exp: nowSeconds() + 600,
-  sessionId: "sess_1",
+  sid: "sess_1",
   ...overrides,
 });
 
@@ -87,7 +87,7 @@ const setup = () => {
   const harness = createTestEnv();
   const fetchMock = createFetchMock()
     .on(
-      (call) => call.url.pathname === "/api/auth/convex/jwks",
+      (call) => call.url.pathname === "/api/auth/jwks",
       () => json({ keys: [rsa.jwk] }),
     )
     .on(
@@ -105,7 +105,7 @@ const setup = () => {
 };
 
 const ownerIdFromJwt = (token: string | null): string => {
-  if (!token) return `${CONVEX_SITE}|user_ba_1`;
+  if (!token) return "user_ba_1";
   try {
     const encoded = token.split(".")[1] ?? "";
     const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
@@ -120,12 +120,12 @@ const ownerIdFromJwt = (token: string | null): string => {
       typeof parsed.iss === "string" &&
       typeof parsed.sub === "string"
     ) {
-      return `${parsed.iss}|${parsed.sub}`;
+      return parsed.sub;
     }
   } catch {
     // Authentication rejects a malformed token before the proof matters.
   }
-  return `${CONVEX_SITE}|user_ba_1`;
+  return "user_ba_1";
 };
 
 const sessionRequest = async (
@@ -172,14 +172,14 @@ describe("POST /v1/capabilities/session", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(issued);
     const jwksCall = ctx.fetchMock.calls.find(
-      (call) => call.url.pathname === "/api/auth/convex/jwks",
+      (call) => call.url.pathname === "/api/auth/jwks",
     )!;
     expect(jwksCall.url.origin).toBe(CONVEX_SITE);
     const convexCall = ctx.fetchMock.calls.find(
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
     expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
-      ownerId: `${CONVEX_SITE}|user_ba_1`,
+      ownerId: "user_ba_1",
       isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "unknown",
@@ -189,7 +189,7 @@ describe("POST /v1/capabilities/session", () => {
 
   test("anonymous accounts are flagged from the JWT and an empty body is fine", async () => {
     const token = await signJwt(
-      validPayload({ isAnonymous: true, sub: "anon_7" }),
+      validPayload({ anon: true, sub: "anon_7" }),
     );
     const response = await ctx.run(sessionRequest(token));
     expect(response.status).toBe(200);
@@ -197,7 +197,7 @@ describe("POST /v1/capabilities/session", () => {
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
     expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
-      ownerId: `${CONVEX_SITE}|anon_7`,
+      ownerId: "anon_7",
       isAnonymous: true,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "unknown",
@@ -208,7 +208,7 @@ describe("POST /v1/capabilities/session", () => {
 
   test("refuses an anonymous hosting network before any admission gate", async () => {
     const token = await signJwt(
-      validPayload({ isAnonymous: true, sub: "anon_hosting" }),
+      validPayload({ anon: true, sub: "anon_hosting" }),
     );
     const response = await ctx.run(
       sessionRequest(token, {}, { asn: 16_509, asOrganization: "Amazon" }),
@@ -245,7 +245,7 @@ describe("POST /v1/capabilities/session", () => {
       (call) => call.url.pathname === "/api/gateway/session-capability",
     )!;
     expect(JSON.parse(convexCall.body ?? "{}")).toEqual({
-      ownerId: `${CONVEX_SITE}|user_ba_1`,
+      ownerId: "user_ba_1",
       isAnonymous: false,
       ipHash: "631f08140b24b7274d12df3c37a1a80c",
       networkClass: "hosting",
@@ -282,7 +282,7 @@ describe("POST /v1/capabilities/session", () => {
 
   test("requires a fresh device proof for the public gateway origin", async () => {
     const token = await signJwt(validPayload());
-    const ownerId = `${CONVEX_SITE}|user_ba_1`;
+    const ownerId = "user_ba_1";
     const cases = [
       { deviceKey: null },
       {
@@ -337,7 +337,7 @@ describe("POST /v1/capabilities/session", () => {
 
     resetJwksCacheForTests();
     ctx.fetchMock.on(
-      (call) => call.url.pathname === "/api/auth/convex/jwks",
+      (call) => call.url.pathname === "/api/auth/jwks",
       () => new Response("down", { status: 500 }),
     );
     const noJwks = await ctx.run(
@@ -351,7 +351,7 @@ describe("POST /v1/capabilities/session", () => {
 
     resetJwksCacheForTests();
     ctx.fetchMock.on(
-      (call) => call.url.pathname === "/api/auth/convex/jwks",
+      (call) => call.url.pathname === "/api/auth/jwks",
       () => json({ keys: [rsa.jwk] }),
     );
     ctx.fetchMock.on(
@@ -370,7 +370,7 @@ describe("POST /v1/capabilities/session", () => {
 
   test("refuses a suspended owner from KV before mint admission or Convex", async () => {
     ctx.harness.enforcementValues.set(
-      `${CONVEX_SITE}|user_ba_1`,
+      "user_ba_1",
       JSON.stringify({ status: "suspended", updatedAt: Date.now() }),
     );
     const response = await ctx.run(
@@ -428,7 +428,7 @@ describe("POST /v1/capabilities/session", () => {
 
   test("passes throttled enforcement to the owner mint gate", async () => {
     ctx.harness.enforcementValues.set(
-      `${CONVEX_SITE}|user_ba_1`,
+      "user_ba_1",
       JSON.stringify({ status: "throttled", updatedAt: Date.now() }),
     );
     const token = await signJwt(validPayload());

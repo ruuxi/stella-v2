@@ -18,7 +18,7 @@ import {
   type GatewayDeviceKeyProof,
 } from "@stella/contracts/gateway/dpop";
 import { managedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
-import { verifyConvexToken } from "./auth-jwt.js";
+import { verifyUserToken } from "./auth-jwt.js";
 import {
   authenticateCapability,
   bearerToken,
@@ -186,9 +186,9 @@ const handleSessionCapability = async (
       "A Better Auth bearer token is required.",
     );
   }
-  const verified = await verifyConvexToken(
+  const verified = await verifyUserToken(
     token,
-    env.STELLA_CONVEX_SITE_URL,
+    env.STELLA_BACKEND_URL,
     deps.fetch,
   );
   if (!verified.ok) {

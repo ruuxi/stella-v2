@@ -17,7 +17,7 @@ export default {
       publishSharedGatewayConfig({
         load: billingGatewayConfig(env),
         store: env.CONFIG_SNAPSHOT,
-        source: env.STELLA_CONVEX_SITE_URL,
+        source: env.STELLA_BACKEND_URL,
       }),
     );
   },

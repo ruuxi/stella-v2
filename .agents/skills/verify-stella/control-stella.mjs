@@ -5,7 +5,7 @@
  * script did not start.
  */
 import { createRequire } from "node:module";
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   chmodSync,
   closeSync,
@@ -390,47 +390,27 @@ const seedDataDir = (dataDir) => {
 const ACCOUNT_MODES = ["anonymous", "signed-in", "go", "pro"];
 const TEST_ACCOUNT_EMAIL_DOMAIN = "test.stella.local";
 
-const readBackendEnvLocal = (name) => {
-  const envPath = path.join(repoRoot, "packages/backend/.env.local");
+const DEV_BACKEND_URL = "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+
+/** A value from the gitignored workers/cloud-builder/.dev.vars, if present. */
+const readDevVar = (name) => {
+  const envPath = path.join(repoRoot, "workers/cloud-builder/.dev.vars");
   if (!existsSync(envPath)) return "";
   const line = readFileSync(envPath, "utf8")
     .split("\n")
     .map((entry) => entry.trim())
     .find((entry) => entry.startsWith(`${name}=`));
-  return line ? line.slice(name.length + 1).split(" #")[0].trim() : "";
+  return line
+    ? line.slice(name.length + 1).split(" #")[0].trim().replace(/^"(.*)"$/, "$1")
+    : "";
 };
 
-const resolveAdminApiSecret = () => {
-  const fromEnv = process.env.STELLA_ADMIN_API_SECRET?.trim();
-  if (fromEnv) return fromEnv;
-  try {
-    return execFileSync(
-      "bunx",
-      ["convex", "env", "get", "STELLA_ADMIN_API_SECRET"],
-      {
-        cwd: path.join(repoRoot, "packages/backend"),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 60_000,
-      },
-    ).trim();
-  } catch {
-    return "";
-  }
-};
+const resolveAdminApiSecret = () =>
+  process.env.STELLA_ADMIN_API_SECRET?.trim() || readDevVar("STELLA_ADMIN_API_SECRET");
 
-const resolveSiteUrl = () => {
-  const siteUrl = (
-    process.env.CONVEX_SITE_URL?.trim() || readBackendEnvLocal("CONVEX_SITE_URL")
-  ).replace(/\/+$/, "");
-  if (!siteUrl)
-    fail("CONVEX_SITE_URL is not set and packages/backend/.env.local has none.", 2, {
-      errorCode: "TEST_ACCOUNT_SITE_URL_MISSING",
-      recovery:
-        "Export CONVEX_SITE_URL or write it to packages/backend/.env.local (see AGENTS.md).",
-    });
-  return siteUrl;
-};
+/** The backend (cloud-builder) origin: auth, test accounts and the API. */
+const resolveSiteUrl = () =>
+  (process.env.STELLA_BACKEND_URL?.trim() || DEV_BACKEND_URL).replace(/\/+$/, "");
 
 /**
  * One anonymous session per machine, kept for `--reuse`. A fresh profile
@@ -496,7 +476,7 @@ const mintAnonymousSession = async (siteUrl) => {
       {
         errorCode: "ANONYMOUS_SESSION_MINT_FAILED",
         recovery:
-          "Check that the backend at CONVEX_SITE_URL is deployed and allows anonymous sign-in without a Turnstile token (dev leaves TURNSTILE_SECRET_KEY unset).",
+          "Check that the backend at STELLA_BACKEND_URL is deployed and allows anonymous sign-in without a Turnstile token (dev leaves TURNSTILE_SECRET_KEY unset).",
       },
     );
   }
@@ -550,7 +530,7 @@ const mintTestAccount = async (runId, mode) => {
     fail("STELLA_ADMIN_API_SECRET is unavailable.", 2, {
       errorCode: "TEST_ACCOUNT_SECRET_MISSING",
       recovery:
-        "Export STELLA_ADMIN_API_SECRET, or make `bunx convex env get STELLA_ADMIN_API_SECRET` work from packages/backend (CONVEX_DEPLOY_KEY or a logged-in Convex CLI).",
+        "Export STELLA_ADMIN_API_SECRET, or set it in the gitignored workers/cloud-builder/.dev.vars.",
     });
   // STELLA_VERIFY_ACCOUNT_EMAIL reuses one test account across runs, e.g.
   // two checkouts acting as the same owner's two computers.
@@ -596,7 +576,7 @@ const mintTestAccount = async (runId, mode) => {
         recovery:
           response.status === 404
             ? "The deployment has no STELLA_TEST_ACCOUNTS=1; only the dev deployment enables test accounts."
-            : "Check STELLA_ADMIN_API_SECRET and that the backend at CONVEX_SITE_URL is deployed with the test-accounts route.",
+            : "Check STELLA_ADMIN_API_SECRET and that the backend at STELLA_BACKEND_URL is deployed with the test-accounts route.",
       },
     );
   }

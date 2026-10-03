@@ -20,12 +20,12 @@ export type SharedGatewayConfigStore = {
 };
 
 export const sharedGatewayConfigStore = (
-  env: Pick<Env, "CONFIG_SNAPSHOT" | "STELLA_CONVEX_SITE_URL">,
+  env: Pick<Env, "CONFIG_SNAPSHOT" | "STELLA_BACKEND_URL">,
 ): SharedGatewayConfigStore | undefined => {
   const store = env.CONFIG_SNAPSHOT;
   if (!store) return undefined;
   return {
-    source: env.STELLA_CONVEX_SITE_URL,
+    source: env.STELLA_BACKEND_URL,
     read: () => store.get(SHARED_GATEWAY_CONFIG_KEY, "json"),
   };
 };

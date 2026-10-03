@@ -1,3 +1,4 @@
+import { setUserJwksForTests } from "../src/auth-jwt.js";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import {
   TURN_OWNER_GENERATION_HEADER,
@@ -71,27 +72,21 @@ const signJwt = async (
 const userJwt = (overrides: Record<string, unknown> = {}) =>
   signJwt({
     iss: ISSUER,
-    aud: "convex",
+    aud: "stella",
     sub: "user_1",
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 3600,
-    sessionId: "session-1",
+    sid: "session-1",
     ...overrides,
   });
 
 let jwksAvailable = true;
-beforeAll(() => {
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input instanceof Request ? input.url : input);
-    if (url === `${ISSUER}/api/auth/convex/jwks`) {
-      if (!jwksAvailable) return new Response("down", { status: 503 });
-      return Response.json({ keys: [publicJwk] });
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  }) as typeof fetch;
+beforeAll(async () => {
+  await setUserJwksForTests({ keys: [publicJwk] });
 });
-afterAll(() => {
+afterAll(async () => {
   globalThis.fetch = originalFetch;
+  await setUserJwksForTests(null);
 });
 
 type Forwarded = { name: string; request: Request; body: string };
@@ -115,6 +110,7 @@ const environment = (
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
       STELLA_CONVEX_SITE_URL: ISSUER,
+      CLOUD_BUILDER_PUBLIC_URL: ISSUER,
       ORCHESTRATOR_SESSIONS: {
         getByName: (name: string) => ({
           fetch: async (input: string | Request, init?: RequestInit) => {
@@ -214,7 +210,7 @@ describe("POST /conversations/:id/turns", () => {
     const { name, request, body } = forwarded[0]!;
     expect(name).toBe("11111111-2222-4333-8444-555555555555");
     expect(request.url).toBe("https://orchestrator-session/turn");
-    expect(request.headers.get("x-stella-owner")).toBe(`${ISSUER}|user_1`);
+    expect(request.headers.get("x-stella-owner")).toBe("user_1");
     expect(request.headers.get(HEADER_TURN_AUTH_KIND)).toBe("user");
     expect(request.headers.get("x-stella-conversation-id")).toBe(
       "11111111-2222-4333-8444-555555555555",
@@ -233,7 +229,7 @@ describe("POST /conversations/:id/turns", () => {
     const { env, forwarded } = environment();
     const response = await worker.fetch(
       post(validBody(), {
-        authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+        authorization: `Bearer ${await userJwt({ anon: true })}`,
       }),
       env,
       {} as ExecutionContext,
@@ -250,7 +246,7 @@ describe("POST /conversations/:id/turns", () => {
     const response = await worker.fetch(
       withCf(
         post(validBody(), {
-          authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+          authorization: `Bearer ${await userJwt({ anon: true })}`,
         }),
         { asn: 16_509, asOrganization: "Amazon.com, Inc." },
       ),
@@ -359,7 +355,7 @@ describe("POST /conversations/:id/turns", () => {
       const rotated = await signJwt(
         {
           iss: ISSUER,
-          aud: "convex",
+          aud: "stella",
           sub: "user_1",
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + 3600,
@@ -507,7 +503,7 @@ describe("POST /owners/me/dispatches", () => {
         new Request("https://builder.example/owners/me/dispatches", {
           method: "POST",
           headers: {
-            authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+            authorization: `Bearer ${await userJwt({ anon: true })}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({ malformed: "body is not read" }),
@@ -532,7 +528,7 @@ describe("POST /owners/me/dispatches", () => {
       new Request("https://builder.example/owners/me/dispatches", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${await userJwt({ isAnonymous: true })}`,
+          authorization: `Bearer ${await userJwt({ anon: true })}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({

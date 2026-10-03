@@ -15,7 +15,7 @@ const inflight = new Map<string, Promise<Entry>>();
 const fail = (reason: string, retryable = false): VerifyResult => ({ ok: false, reason, retryable });
 
 export const jwksUrlFor = (issuer: string): string =>
-  `${issuer.replace(/\/+$/, "")}/api/auth/convex/jwks`;
+  `${issuer.replace(/\/+$/, "")}/api/auth/jwks`;
 
 const fetchKeys = async (url: string): Promise<Entry> => {
   const active = inflight.get(url);
@@ -82,9 +82,10 @@ const objectSegment = (value: string): Record<string, unknown> | null => {
 };
 
 const matchesAudience = (value: unknown): boolean =>
-  value === "convex" || (Array.isArray(value) && value.includes("convex"));
+  value === "stella" || (Array.isArray(value) && value.includes("stella"));
 
-export const verifyConvexToken = async (token: string, configuredIssuer: string): Promise<VerifyResult> => {
+/** A Stella JWT: RS256 from `${issuer}/api/auth/jwks`, aud "stella"; the owner id is `sub`. */
+export const verifyUserToken = async (token: string, configuredIssuer: string): Promise<VerifyResult> => {
   const issuer = configuredIssuer.replace(/\/+$/, "");
   if (!issuer) return fail("issuer_not_configured", true);
   const parts = token.split(".");
@@ -133,7 +134,7 @@ export const verifyConvexToken = async (token: string, configuredIssuer: string)
       decode(parts[2]!),
       new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
     );
-    return valid ? { ok: true, ownerId: `${issuer}|${subject}` } : fail("bad_signature");
+    return valid ? { ok: true, ownerId: subject } : fail("bad_signature");
   } catch {
     return fail("bad_signature");
   }

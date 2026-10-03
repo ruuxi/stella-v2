@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { resetJwksCacheForTests } from "../src/auth-jwt.js";
+import { setUserJwksForTests } from "../src/auth-jwt.js";
 import { handleBackendRoute, handleRpc } from "../src/owner-store/routes.js";
 import { object, string } from "../src/owner-store/args.js";
 import { createOwnerRegistry, type OwnerDomain } from "../src/owner-store/registry.js";
@@ -33,9 +33,9 @@ const mint = async (claims: Record<string, unknown> = {}) => {
   const text = (value: unknown) => encode(new TextEncoder().encode(JSON.stringify(value)));
   const body = `${text({ alg: "RS256", kid: "k" })}.${text({
     iss: issuer,
-    aud: "convex",
+    aud: "stella",
     sub: "user-1",
-    sessionId: "s-1",
+    sid: "s-1",
     exp: Math.floor(Date.now() / 1000) + 600,
     ...claims,
   })}`;
@@ -46,7 +46,7 @@ const mint = async (claims: Record<string, unknown> = {}) => {
 const ownerCalls: unknown[] = [];
 const forwardedLive: Request[] = [];
 const env = {
-  STELLA_CONVEX_SITE_URL: issuer,
+  CLOUD_BUILDER_PUBLIC_URL: issuer,
   OWNER_GATES: {
     getByName: (name: string) => ({
       ownerRpc: async (input: unknown) => {
@@ -92,15 +92,14 @@ const post = (name: string, args: unknown, token?: string) =>
   });
 
 describe("backend routes", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     ownerCalls.length = 0;
     forwardedLive.length = 0;
-    resetJwksCacheForTests();
-    globalThis.fetch = (async () => Response.json({ keys: [{ ...publicKey, kid: "k" }] })) as unknown as typeof fetch;
+    await setUserJwksForTests({ keys: [{ ...publicKey, kid: "k" }] });
   });
-  afterEach(() => {
+  afterEach(async () => {
     globalThis.fetch = originalFetch;
-    resetJwksCacheForTests();
+    await setUserJwksForTests(null);
   });
 
   test("routes owner calls to the caller's own object with the verified identity", async () => {
@@ -109,11 +108,11 @@ describe("backend routes", () => {
     expect(await response.json()).toEqual({ ok: true, value: "from-owner" });
     expect(ownerCalls).toEqual([
       {
-        name: `${issuer}|user-1`,
+        name: "user-1",
         input: {
           name: "test.owner",
           args: {},
-          caller: expect.objectContaining({ ownerId: `${issuer}|user-1`, subject: "user-1", sessionId: "s-1" }),
+          caller: expect.objectContaining({ ownerId: "user-1", subject: "user-1", sessionId: "s-1" }),
         },
       },
     ]);
@@ -133,7 +132,7 @@ describe("backend routes", () => {
     })));
     const forged = `${header}.${forgedPayload}.${signature}`;
     expect((await handleRpc(post("test.owner", {}, forged), env, registry)).status).toBe(401);
-    const anonymous = await handleRpc(post("test.accountOnly", {}, await mint({ isAnonymous: true })), env, registry);
+    const anonymous = await handleRpc(post("test.accountOnly", {}, await mint({ anon: true })), env, registry);
     expect(anonymous.status).toBe(403);
     expect(ownerCalls).toEqual([]);
   });
@@ -157,7 +156,7 @@ describe("backend routes", () => {
     const response = await handleBackendRoute(request, env);
     expect(await response!.text()).toBe("upgraded");
     const forwarded = forwardedLive[0]!;
-    expect(forwarded.headers.get("x-stella-owner")).toBe(`${issuer}|user-1`);
+    expect(forwarded.headers.get("x-stella-owner")).toBe("user-1");
     expect(forwarded.headers.get("x-stella-anonymous")).toBe("0");
     expect(forwarded.headers.get("sec-websocket-protocol")).toBe("stella.live.v1");
   });

@@ -19,8 +19,7 @@ import {
   rpcErrorStatus,
   type RpcResponse,
 } from "@stella/contracts/backend/protocol";
-import { verifyConvexToken } from "../auth-jwt.js";
-import { convexSiteBase } from "../convex-site.js";
+import { verifyUserToken } from "../auth-jwt.js";
 import { stripStellaHeaders } from "../conversation-hub.js";
 import {
   HEADER_ANONYMOUS,
@@ -37,21 +36,17 @@ import type { OwnerCaller, OwnerRegistry } from "./registry.js";
 
 const MAX_RPC_BODY_BYTES = 1024 * 1024;
 
-type RouteEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "STELLA_CONVEX_SITE_URL">;
+type RouteEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "CLOUD_BUILDER_PUBLIC_URL">;
 
 type Verified =
   | { ok: true; caller: OwnerCaller }
   | { ok: false; error: RpcError };
 
 export const verifyCaller = async (env: RouteEnv, token: string): Promise<Verified> => {
-  const issuer = convexSiteBase(env as unknown as Cloudflare.Env);
-  if (!issuer) {
-    return { ok: false, error: new RpcError("UNAVAILABLE", "Sign-in is not configured.") };
-  }
   if (!token) {
     return { ok: false, error: new RpcError("UNAUTHENTICATED", "Sign in to continue.") };
   }
-  const verified = await verifyConvexToken(token, issuer);
+  const verified = await verifyUserToken(token, env as unknown as Cloudflare.Env);
   if (verified.ok) return { ok: true, caller: verified.token };
   return {
     ok: false,

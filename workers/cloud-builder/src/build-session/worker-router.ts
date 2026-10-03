@@ -38,7 +38,7 @@ import {
 } from "@stella/contracts/turn-plane/turn-start";
 import { classifyNetwork } from "../../../shared/network-class.js";
 import { isOwnerAppBuildPrefix } from "../app-build-artifacts.js";
-import { verifyConvexToken } from "../auth-jwt.js";
+import { verifyUserToken } from "../auth-jwt.js";
 import { noteOwnerIdentity } from "../owner-identity.js";
 import { readBoundedRequestText } from "../bounded-body.js";
 import { withBrowserCors } from "../browser-cors.js";
@@ -67,7 +67,6 @@ import {
   CLOSE_INTERNAL,
   CLOSE_UNAUTHENTICATED,
 } from "../conversation-types.js";
-import { convexSiteBase } from "../convex-site.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import {
   dispatchErrorResponse,
@@ -180,7 +179,7 @@ const authenticateConversationCaller = async (
 ): Promise<
   { ok: true; caller: ConversationCaller } | { ok: false; response: Response }
 > => {
-  const issuer = convexSiteBase(env);
+  const issuer = (env.CLOUD_BUILDER_PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
   const deny = (
     closeCode: number,
     status: number,
@@ -231,7 +230,7 @@ const authenticateConversationCaller = async (
     );
   }
 
-  const verified = await verifyConvexToken(token, issuer);
+  const verified = await verifyUserToken(token, env);
   if (!verified.ok) {
     // The reason is a log-only discriminator; the caller is told one thing.
     log("error", "conversation_auth_rejected", {

@@ -26,7 +26,7 @@
   "vars": {
     "ENVIRONMENT": "development",
     // Canonical development deployment used by source builds and test traffic.
-    "STELLA_CONVEX_SITE_URL": "https://outgoing-bulldog-865.convex.site",
+    "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
     // JSON `GatewayJwks` holding the PUBLIC ES256 keys of both capability
     // issuers (Convex `CAPABILITY_SIGNING_KID` and cloud-builder's). Ops
     // Keep the public keys in deployment config so future deploys cannot
@@ -147,7 +147,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         // Pinned to the packaged desktop release authority.
-        "STELLA_CONVEX_SITE_URL": "https://intent-jackal-330.convex.site",
+        "STELLA_BACKEND_URL": "https://stella-v2-cloud-builder-prod.lolruuxi.workers.dev",
         // Public production keys for the Convex and cloud-builder issuers.
         "CAPABILITY_JWKS": "{\"keys\":[{\"kid\":\"convex-prod-1\",\"issuer\":\"stella-convex\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"LSAu5q_qmUxnER3kfeTUc61NiBoO_A8nk7srI9-EBNg\",\"y\":\"iK4eBIPxte1DlIdQLsLSVCCMapC5nBF-y6pTRSnDkvc\",\"alg\":\"ES256\",\"use\":\"sig\"}},{\"kid\":\"builder-prod-1\",\"issuer\":\"stella-cloud-builder\",\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"7OPXbcbubpfZqHAZEptNA8Bu1w9Y5D0pq547cg8rYuo\",\"y\":\"tv8_giBW3W4shXI5YPuZMneKHs22dSncE41399_mEmI\",\"alg\":\"ES256\",\"use\":\"sig\"}}]}",
       },

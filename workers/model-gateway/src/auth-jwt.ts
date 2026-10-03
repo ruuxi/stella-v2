@@ -1,19 +1,16 @@
 /**
- * Verifying a user's Convex (Better Auth) JWT inside workerd.
+ * Verifying a user's Stella JWT (Better Auth on cloud-builder) inside workerd.
  *
  * This is the only user-authenticated door into this worker (the session
  * capability exchange), so the rules it enforces are written out rather than
  * implied:
  *
- * - RS256 only, taken from the JWKS at `${issuer}/api/auth/convex/jwks`. That
- *   endpoint serves public keys; the `JWKS` Convex env var is the PRIVATE key
- *   set and must never be read from here or bound into this worker.
- * - The issuer is PINNED by the caller (STELLA_CONVEX_SITE_URL) and compared
- *   against the token's `iss`. The ownerId is then built from the pinned value,
- *   never from the token's self-asserted one — the same rule
- *   `tokenIdentifierForBetterAuthUserId` follows in convex/auth.ts.
- * - `aud` must be "convex" (the applicationID Better Auth's convex plugin
- *   signs with). A token minted for some other audience is not a login here.
+ * - RS256 only, taken from the public JWKS at `${issuer}/api/auth/jwks`.
+ * - The issuer is PINNED by the caller (STELLA_BACKEND_URL) and compared
+ *   against the token's `iss`.
+ * - `aud` must be "stella". A token minted for some other audience is not a
+ *   login here.
+ * - The owner id is `sub`, the Better Auth user id.
  *
  * The cache has an escape hatch the in-repo connector helper lacks: an unknown
  * `kid` triggers at most one refetch per JWKS_MIN_REFETCH_MS, single-flighted.
@@ -26,16 +23,12 @@ export const JWKS_MIN_REFETCH_MS = 60_000;
 export const CLOCK_SKEW_S = 60;
 
 export type VerifiedToken = {
-  /** `${issuer}|${sub}` — matches Convex's `identity.tokenIdentifier`. */
+  /** `sub`: the Better Auth user id, which is the owner id. */
   ownerId: string;
   subject: string;
   sessionId: string;
   expiresAtMs: number;
-  /**
-   * Better Auth's anonymous plugin stamps `isAnonymous` on the user record,
-   * which the Convex plugin copies into the JWT payload. Absent means a
-   * signed-in account.
-   */
+  /** The `anon` claim: an anonymous Better Auth user. Absent means an account. */
   isAnonymous: boolean;
 };
 
@@ -48,12 +41,12 @@ export type VerifyResult =
       /**
        * True when the failure is ours (JWKS unreachable), not the caller's.
        * A retryable failure must not be reported as "unauthenticated" — that
-       * would make every client give up permanently during a Convex blip.
+       * would make every client give up permanently during a backend blip.
        */
       retryable: boolean;
     };
 
-const JWKS_PATH = "/api/auth/convex/jwks";
+const JWKS_PATH = "/api/auth/jwks";
 
 export const jwksUrlFor = (issuer: string): string =>
   `${issuer.replace(/\/+$/, "")}${JWKS_PATH}`;
@@ -202,9 +195,9 @@ const fail = (reason: string, retryable = false): VerifyResult => ({
 });
 
 /**
- * @param issuer the PINNED Convex site origin. Never the token's own `iss`.
+ * @param issuer the PINNED backend origin. Never the token's own `iss`.
  */
-export const verifyConvexToken = async (
+export const verifyUserToken = async (
   token: string,
   issuer: string,
   fetchImpl: typeof fetch = fetch,
@@ -241,7 +234,7 @@ export const verifyConvexToken = async (
     return fail("issued_in_future");
   }
   if (payload.iss !== pinnedIssuer) return fail("wrong_issuer");
-  if (!audienceMatches(payload.aud, "convex")) return fail("wrong_audience");
+  if (!audienceMatches(payload.aud, "stella")) return fail("wrong_audience");
   const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
   if (!subject) return fail("no_subject");
 
@@ -281,11 +274,11 @@ export const verifyConvexToken = async (
   return {
     ok: true,
     token: {
-      ownerId: `${pinnedIssuer}|${subject}`,
+      ownerId: subject,
       subject,
-      sessionId: typeof payload.sessionId === "string" ? payload.sessionId : "",
+      sessionId: typeof payload.sid === "string" ? payload.sid : "",
       expiresAtMs: exp * 1000,
-      isAnonymous: payload.isAnonymous === true,
+      isAnonymous: payload.anon === true,
     },
   };
 };

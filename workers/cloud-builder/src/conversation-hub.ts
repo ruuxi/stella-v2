@@ -68,7 +68,6 @@ import {
   type SocketIdentity,
   type ToolInput,
 } from "./conversation-types.js";
-import { verifyConvexToken } from "./auth-jwt.js";
 import { sha256Hex } from "./hash.js";
 
 // ---------------------------------------------------------------------------
@@ -985,7 +984,7 @@ class ConversationHubImpl implements ConversationHub {
       );
       return;
     }
-    const verified = await verifyConvexToken(token, attachment.issuer);
+    const verified = await this.deps.verifyToken(token);
     if (!verified.ok) {
       this.deps.log("error", "conversation_reauth_rejected", {
         conversationId: this.deps.conversationId(),

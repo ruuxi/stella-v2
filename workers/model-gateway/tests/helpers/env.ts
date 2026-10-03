@@ -673,7 +673,7 @@ export const createTestEnv = (overrides: Record<string, unknown> = {}) => {
   > = [];
   env = {
     ENVIRONMENT: "development",
-    STELLA_CONVEX_SITE_URL: CONVEX_SITE,
+    STELLA_BACKEND_URL: CONVEX_SITE,
     CAPABILITY_JWKS: JSON.stringify(jwks),
     OPENROUTER_API_KEY: OPENROUTER_KEY,
     FIREWORKS_API_KEY: "fw-test",

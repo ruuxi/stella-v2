@@ -40,7 +40,7 @@ const environment = (
   rate = true,
 ) => ({
   ENVIRONMENT: "development" as const,
-  STELLA_CONVEX_SITE_URL: "https://issuer.convex.site" as const,
+  STELLA_BACKEND_URL: "https://issuer.convex.site" as const,
   ENABLE_SERVER_BEARER: "1" as const,
   TELEMETRY_PSEUDONYM_KEY: "long-test-pseudonym-secret",
   TELEMETRY_SERVER_SECRET: "service-secret",

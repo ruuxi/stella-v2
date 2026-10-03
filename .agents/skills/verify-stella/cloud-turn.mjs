@@ -1,52 +1,57 @@
 #!/usr/bin/env node
 // Headless cloud-turn harness: drives one cloud conversation turn against the
-// dev cloud-builder worker without launching the Electron verifier, then
-// polls the Convex event projection for the resulting agent events.
+// dev cloud-builder worker as a Pro test owner without launching the Electron
+// verifier, then polls the Convex event projection for the resulting agent
+// events.
 //
 //   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180]
 //
 // A follow-up into an existing conversation must arrive as the same owner, so
 // pass the `--email` the first run printed together with its `--conversation`.
 //
-// Needs, from the agent secret store or `bunx convex env get` in packages/backend:
-//   STELLA_ADMIN_API_SECRET   mints a Pro test owner (dev only)
-//   BUILDER_SERVICE_SECRET    the worker's service bearer (dev only)
-// and CONVEX_SITE_URL / CLOUD_BUILDER_URL (defaults below match the dev deployment).
+// Needs STELLA_ADMIN_API_SECRET (mints the test owner, dev only) from the
+// environment or the gitignored workers/cloud-builder/.dev.vars, and
+// STELLA_BACKEND_URL (defaults to the dev deployment).
 //
-// The route is `POST /conversations/:id/turns` with the service bearer and the
-// owner on the trusted headers, exactly what Convex itself sends. Nothing here
-// prints a secret; evidence is the JSON the worker and Convex return.
+// The route is `POST /conversations/:id/turns` with the test owner's JWT, as a
+// signed-in client sends it. Nothing here prints a secret; evidence is the
+// JSON the worker and Convex return.
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
   const at = args.indexOf(name);
   return at >= 0 ? args[at + 1] : fallback;
 };
-const siteUrl = process.env.CONVEX_SITE_URL ?? "https://outgoing-bulldog-865.convex.site";
-const builderUrl = process.env.CLOUD_BUILDER_URL ?? "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+const builderUrl = (
+  process.env.STELLA_BACKEND_URL ?? "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+).replace(/\/+$/, "");
 const prompt = flag("--prompt");
 if (!prompt) {
   console.error("--prompt is required");
   process.exit(2);
 }
 const waitSeconds = Number(flag("--wait", "180"));
-const convexEnv = (name) =>
-  process.env[name] ??
-  execFileSync("bunx", ["convex", "env", "get", name], {
-    cwd: new URL("../../../packages/backend/", import.meta.url).pathname,
-    encoding: "utf8",
-  })
-    .trim()
+const devVarsPath = new URL("../../../workers/cloud-builder/.dev.vars", import.meta.url).pathname;
+const devVar = (name) => {
+  if (!existsSync(devVarsPath)) return "";
+  const line = readFileSync(devVarsPath, "utf8")
     .split("\n")
-    .at(-1);
-const adminSecret = convexEnv("STELLA_ADMIN_API_SECRET");
-const serviceSecret = convexEnv("BUILDER_SERVICE_SECRET");
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(`${name}=`));
+  return line ? line.slice(name.length + 1).trim().replace(/^"(.*)"$/, "$1") : "";
+};
+const adminSecret = process.env.STELLA_ADMIN_API_SECRET?.trim() || devVar("STELLA_ADMIN_API_SECRET");
+if (!adminSecret) {
+  console.error("STELLA_ADMIN_API_SECRET is unavailable: export it or set it in workers/cloud-builder/.dev.vars.");
+  process.exit(2);
+}
 
 const email = flag("--email", `agent-headless-${randomUUID().slice(0, 8)}@test.stella.local`);
 const session = await (
-  await fetch(`${siteUrl}/api/admin/test-accounts/session`, {
+  await fetch(`${builderUrl}/api/admin/test-accounts/session`, {
     method: "POST",
     headers: { authorization: `Bearer ${adminSecret}`, "content-type": "application/json" },
     body: JSON.stringify({
@@ -61,10 +66,8 @@ const conversationId = flag("--conversation", randomUUID());
 const started = await fetch(`${builderUrl}/conversations/${conversationId}/turns`, {
   method: "POST",
   headers: {
-    authorization: `Bearer ${serviceSecret}`,
+    authorization: `Bearer ${session.token}`,
     "content-type": "application/json",
-    "x-stella-owner-id": ownerId,
-    "x-stella-owner-generation": "legacy",
   },
   body: JSON.stringify({
     protocol: 1,

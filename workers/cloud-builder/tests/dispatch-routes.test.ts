@@ -1,3 +1,4 @@
+import { setUserJwksForTests } from "../src/auth-jwt.js";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import {
   PLACEMENT_PROTOCOL,
@@ -70,11 +71,11 @@ const userJwt = async (): Promise<string> => {
   const header = { alg: "RS256", typ: "JWT", kid: "placement-kid-1" };
   const payload = {
     iss: ISSUER,
-    aud: "convex",
+    aud: "stella",
     sub: "user_1",
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 3600,
-    sessionId: "session-1",
+    sid: "session-1",
   };
   const signingInput = `${base64Url(encoder.encode(JSON.stringify(header)))}.${base64Url(
     encoder.encode(JSON.stringify(payload)),
@@ -89,17 +90,12 @@ const userJwt = async (): Promise<string> => {
   return `${signingInput}.${base64Url(signature)}`;
 };
 
-beforeAll(() => {
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input instanceof Request ? input.url : input);
-    if (url === `${ISSUER}/api/auth/convex/jwks`) {
-      return Response.json({ keys: [publicJwk] });
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  }) as typeof fetch;
+beforeAll(async () => {
+  await setUserJwksForTests({ keys: [publicJwk] });
 });
-afterAll(() => {
+afterAll(async () => {
   globalThis.fetch = originalFetch;
+  await setUserJwksForTests(null);
 });
 
 type Submitted = { ownerId: string; input: Record<string, unknown> };
@@ -131,7 +127,7 @@ const environment = async (
     snapshot,
     env: {
       BUILDER_SERVICE_SECRET: SERVICE_SECRET,
-      STELLA_CONVEX_SITE_URL: ISSUER,
+      CLOUD_BUILDER_PUBLIC_URL: ISSUER,
       OWNER_GATES: {
         getByName: (ownerId: string) => ({
           snapshot: async () => snapshot,
@@ -281,7 +277,7 @@ describe("POST /owners/me/dispatches", () => {
       expect(response.status).toBe(201);
     }
     expect(submits).toHaveLength(2);
-    expect(submits[0]!.ownerId).toBe(`${ISSUER}|user_1`);
+    expect(submits[0]!.ownerId).toBe("user_1");
     expect(submits[0]!.input).not.toHaveProperty("expectedGeneration");
     expect(submits[0]!.input).not.toHaveProperty("pairGrantDeviceId");
   });
@@ -523,7 +519,7 @@ describe("dispatch status and cancel", () => {
     );
     expect(response.status).toBe(200);
     expect(statuses).toEqual([
-      { ownerId: `${ISSUER}|user_1`, dispatchId: "dsp:abc" },
+      { ownerId: "user_1", dispatchId: "dsp:abc" },
     ]);
   });
 
@@ -542,7 +538,7 @@ describe("dispatch status and cancel", () => {
     );
     expect(status.status).toBe(200);
     expect(statuses).toEqual([
-      { ownerId: `${ISSUER}|user_1`, dispatchId: "dsp:abc" },
+      { ownerId: "user_1", dispatchId: "dsp:abc" },
     ]);
 
     const cancel = await worker.fetch(
@@ -611,7 +607,7 @@ describe("dispatch status and cancel", () => {
     expect(response.status).toBe(200);
     expect(cancels).toEqual([
       {
-        ownerId: `${ISSUER}|user_1`,
+        ownerId: "user_1",
         input: {
           dispatchId: "dsp:abc",
           cancelRequestId: "cancel-1",

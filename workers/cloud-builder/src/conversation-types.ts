@@ -399,6 +399,8 @@ export interface ConversationHubDeps {
   onConnect: () => void;
   conversationId: () => string;
   log: ConversationLogger;
+  /** Verifies a mid-life `auth` frame's token with the worker's own keys. */
+  verifyToken: (token: string) => Promise<import("./auth-jwt.js").VerifyResult>;
 }
 
 export type ConversationHubFactory = (

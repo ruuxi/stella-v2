@@ -191,7 +191,7 @@ export class OwnerRelayGate extends DurableObject<Env> {
 
   private get configStorage(): GatewayConfigStorage {
     return {
-      source: this.env.STELLA_CONVEX_SITE_URL,
+      source: this.env.STELLA_BACKEND_URL,
       read: () => this.ctx.storage.kv.get(SHARED_GATEWAY_CONFIG_KEY),
       write: (record) =>
         this.ctx.storage.kv.put(SHARED_GATEWAY_CONFIG_KEY, record),

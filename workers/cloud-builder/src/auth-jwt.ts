@@ -1,40 +1,31 @@
 /**
- * Verifying a user's Convex (Better Auth) JWT inside workerd.
+ * Verifying a user's Stella JWT inside workerd.
  *
- * This is the only user-authenticated door into this worker, so the rules it
+ * This is the user-authenticated door into this worker, so the rules it
  * enforces are written out rather than implied:
  *
- * - RS256 only, taken from the JWKS at `${issuer}/api/auth/convex/jwks`. That
- *   endpoint serves public keys; the `JWKS` Convex env var is the PRIVATE key
- *   set and must never be read from here or bound into this worker.
- * - The issuer is PINNED by the caller (STELLA_CONVEX_SITE_URL) and compared
- *   against the token's `iss`. The ownerId is then built from the pinned value,
- *   never from the token's self-asserted one — the same rule
- *   `tokenIdentifierForBetterAuthUserId` follows in convex/auth.ts.
- * - `aud` must be "convex" (the applicationID Better Auth's convex plugin
- *   signs with). A token minted for some other audience is not a login here.
+ * - RS256 only, under this worker's own Better Auth keys (src/auth/), read
+ *   in process with `auth.api.getJwks()`.
+ * - `iss` must equal this worker's public URL (CLOUD_BUILDER_PUBLIC_URL) and
+ *   `aud` must be "stella". A token minted for some other audience is not a
+ *   login here.
+ * - The owner id is `sub`, the Better Auth user id.
  *
- * The cache has an escape hatch the in-repo connector helper lacks: an unknown
- * `kid` triggers at most one refetch per JWKS_MIN_REFETCH_MS, single-flighted.
- * Without it a key rotation produces a full cache lifetime of 401s for every
- * signed-in user at once.
+ * An unknown `kid` refetches the keys at most once per JWKS_MIN_REFETCH_MS,
+ * single-flighted, so a key rotation does not lock out every signed-in user.
  */
 
 import type { IdentityLevel } from "@stella/contracts/gateway/api";
-import {
-  CLOCK_SKEW_S,
-  JWKS_MIN_REFETCH_MS,
-  JWKS_TTL_MS,
-} from "./conversation-types.js";
+import { CLOCK_SKEW_S, JWKS_MIN_REFETCH_MS } from "./conversation-types.js";
 
 export type VerifiedToken = {
-  /** The owner id: `sub` for Stella tokens, `${issuer}|${sub}` for Convex ones. */
+  /** The owner id: `sub`, the Better Auth user id. */
   ownerId: string;
   subject: string;
   sessionId: string;
   expiresAtMs: number;
   isAnonymous: boolean;
-  /** 0 anonymous, 1 email, 2 social; Convex tokens carry none, so 0 or 1. */
+  /** 0 anonymous, 1 email, 2 social. */
   identityLevel: IdentityLevel;
   /** `iat` in ms; 0 when absent. */
   issuedAtMs: number;
@@ -49,39 +40,12 @@ export type VerifyResult =
       /**
        * True when the failure is ours (JWKS unreachable), not the caller's.
        * A retryable failure must not be reported as "unauthenticated" — that
-       * would make every client give up permanently during a Convex blip.
+       * would make every client give up permanently during a blip.
        */
       retryable: boolean;
     };
 
-const JWKS_PATH = "/api/auth/convex/jwks";
-
-export const jwksUrlFor = (issuer: string): string =>
-  `${issuer.replace(/\/+$/, "")}${JWKS_PATH}`;
-
 type JwkEntry = { kid: string; jwk: JsonWebKey };
-
-type JwksCacheEntry = {
-  keys: JwkEntry[];
-  fetchedAtMs: number;
-  /** Imported CryptoKeys, keyed by kid, discarded whenever `keys` is replaced. */
-  imported: Map<string, CryptoKey>;
-};
-
-// Imported keys stay local to the isolate. Validated public key material also
-// survives isolate replacement in a named edge cache, with the original age.
-const jwksCache = new Map<string, JwksCacheEntry>();
-const jwksInflight = new Map<string, Promise<JwksCacheEntry>>();
-
-const publicJwksCache = async (): Promise<Cache | null> => {
-  try {
-    return typeof caches === "undefined"
-      ? null
-      : await caches.open("stella-public-jwks-v1");
-  } catch {
-    return null;
-  }
-};
 
 const parsePublicKeys = (body: unknown): JwkEntry[] => {
   if (
@@ -117,143 +81,6 @@ const parsePublicKeys = (body: unknown): JwkEntry[] => {
     keys.push({ kid: raw.kid, jwk: { kty: "RSA", n: raw.n, e: raw.e } });
   }
   return keys;
-};
-
-const readSharedJwks = async (
-  url: string,
-): Promise<JwksCacheEntry | undefined> => {
-  try {
-    const response = await (await publicJwksCache())?.match(url);
-    if (!response) return;
-    const fetchedAtMs = Number(
-      response.headers.get("x-stella-jwks-fetched-at"),
-    );
-    const age = Date.now() - fetchedAtMs;
-    if (
-      !Number.isFinite(fetchedAtMs) ||
-      fetchedAtMs <= 0 ||
-      age < 0 ||
-      age >= JWKS_TTL_MS
-    )
-      return;
-    const keys = parsePublicKeys(await response.json());
-    if (!keys.length) return;
-    return { keys, fetchedAtMs, imported: new Map() };
-  } catch {
-    return undefined;
-  }
-};
-
-const writeSharedJwks = async (
-  url: string,
-  entry: JwksCacheEntry,
-): Promise<void> => {
-  if (!entry.keys.length) return;
-  try {
-    await (
-      await publicJwksCache()
-    )?.put(
-      url,
-      Response.json(
-        { keys: entry.keys.map(({ kid, jwk }) => ({ kid, ...jwk })) },
-        {
-          headers: {
-            "cache-control": `public, max-age=${JWKS_TTL_MS / 1000}`,
-            "x-stella-jwks-fetched-at": String(entry.fetchedAtMs),
-          },
-        },
-      ),
-    );
-  } catch {
-    /* Cache availability never determines whether a signature is valid. */
-  }
-};
-
-export const resetJwksCacheForTests = (): void => {
-  jwksCache.clear();
-  jwksInflight.clear();
-};
-
-const fetchJwks = async (url: string): Promise<JwksCacheEntry> => {
-  const inflight = jwksInflight.get(url);
-  if (inflight) return inflight;
-  const pending = (async (): Promise<JwksCacheEntry> => {
-    const response = await fetch(url, {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      throw new Error(`JWKS fetch failed with ${response.status}.`);
-    }
-    const keys = parsePublicKeys(await response.json());
-    const entry: JwksCacheEntry = {
-      keys,
-      fetchedAtMs: Date.now(),
-      imported: new Map(),
-    };
-    jwksCache.set(url, entry);
-    await writeSharedJwks(url, entry);
-    return entry;
-  })().finally(() => {
-    jwksInflight.delete(url);
-  });
-  jwksInflight.set(url, pending);
-  return pending;
-};
-
-/**
- * Cached keys, refreshed when stale or when `wantedKid` is absent — the second
- * condition is the rotation escape hatch, rate-limited so an unknown kid from
- * a forged token cannot be used to hammer the JWKS endpoint.
- */
-const resolveJwks = async (
-  url: string,
-  wantedKid: string,
-): Promise<JwksCacheEntry> => {
-  let cached = jwksCache.get(url);
-  if (!cached) {
-    const shared = await readSharedJwks(url);
-    // A concurrent origin refresh may finish while the edge lookup is pending.
-    cached = jwksCache.get(url);
-    if (shared && (!cached || shared.fetchedAtMs > cached.fetchedAtMs))
-      cached = shared;
-    if (cached) jwksCache.set(url, cached);
-  }
-  const now = Date.now();
-  if (!cached) return await fetchJwks(url);
-  const stale = now - cached.fetchedAtMs >= JWKS_TTL_MS;
-  const missing = !cached.keys.some((key) => key.kid === wantedKid);
-  const mayRefetch = now - cached.fetchedAtMs >= JWKS_MIN_REFETCH_MS;
-  if (stale || (missing && mayRefetch)) {
-    try {
-      return await fetchJwks(url);
-    } catch (error) {
-      // A refresh failure must not invalidate keys that still work: an expired
-      // cache with a matching kid beats a hard 401 for every user.
-      if (!missing) return cached;
-      throw error;
-    }
-  }
-  return cached;
-};
-
-const importKey = async (
-  entry: JwksCacheEntry,
-  kid: string,
-): Promise<CryptoKey | null> => {
-  const existing = entry.imported.get(kid);
-  if (existing) return existing;
-  const found = entry.keys.find((key) => key.kid === kid);
-  if (!found) return null;
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    found.jwk,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
-  entry.imported.set(kid, key);
-  return key;
 };
 
 const base64UrlToBytes = (value: string): Uint8Array => {
@@ -296,114 +123,32 @@ const fail = (reason: string, retryable = false): VerifyResult => ({
 /**
  * @param issuer the PINNED Convex site origin. Never the token's own `iss`.
  */
-export const verifyConvexToken = async (
-  token: string,
-  issuer: string,
-): Promise<VerifyResult> => {
-  const pinnedIssuer = issuer.replace(/\/+$/, "");
-  if (!pinnedIssuer) return fail("no_issuer_configured", true);
-  const parts = token.split(".");
-  if (parts.length !== 3) return fail("malformed");
-
-  const header = decodeSegment(parts[0]!);
-  const payload = decodeSegment(parts[1]!);
-  if (!header || !payload) return fail("malformed");
-
-  // Checked before anything else: "alg":"none" and HMAC confusion both die
-  // here, before a key is ever selected.
-  if (header.alg !== "RS256") return fail("unsupported_alg");
-  const kid = typeof header.kid === "string" ? header.kid : "";
-  if (!kid) return fail("no_kid");
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const exp = typeof payload.exp === "number" ? payload.exp : null;
-  if (exp === null) return fail("no_exp");
-  if (nowSeconds > exp + CLOCK_SKEW_S) return fail("expired");
-  if (
-    typeof payload.nbf === "number" &&
-    nowSeconds < payload.nbf - CLOCK_SKEW_S
-  ) {
-    return fail("not_yet_valid");
-  }
-  if (
-    typeof payload.iat === "number" &&
-    nowSeconds < payload.iat - CLOCK_SKEW_S
-  ) {
-    return fail("issued_in_future");
-  }
-  if (payload.iss !== pinnedIssuer) return fail("wrong_issuer");
-  if (!audienceMatches(payload.aud, "convex")) return fail("wrong_audience");
-  const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
-  if (!subject) return fail("no_subject");
-
-  let key: CryptoKey | null;
-  try {
-    const jwks = await resolveJwks(jwksUrlFor(pinnedIssuer), kid);
-    key = await importKey(jwks, kid);
-  } catch (error) {
-    return fail(
-      `jwks_unavailable:${error instanceof Error ? error.message : "unknown"}`,
-      true,
-    );
-  }
-  // Retryable, deliberately. An unknown kid is far more often "our cache is
-  // one refetch behind a rotation" than "forged token", and JWKS_MIN_REFETCH_MS
-  // means that state can persist for a minute per isolate. Reporting it as
-  // unauthenticated would be terminal for the client, so a routine key roll
-  // would lock every signed-in user out until they reloaded. A forged kid pays
-  // only a backoff loop, and never triggers a JWKS fetch while throttled.
-  if (!key) return fail("unknown_kid", true);
-
-  const signature = base64UrlToBytes(parts[2]!);
-  const signed = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
-  let valid = false;
-  try {
-    valid = await crypto.subtle.verify(
-      "RSASSA-PKCS1-v1_5",
-      key,
-      signature.buffer as ArrayBuffer,
-      signed.buffer as ArrayBuffer,
-    );
-  } catch {
-    return fail("verify_threw");
-  }
-  if (!valid) return fail("bad_signature");
-
-  return {
-    ok: true,
-    token: {
-      ownerId: `${pinnedIssuer}|${subject}`,
-      subject,
-      sessionId: typeof payload.sessionId === "string" ? payload.sessionId : "",
-      expiresAtMs: exp * 1000,
-      isAnonymous: payload.isAnonymous === true,
-      identityLevel: payload.isAnonymous === true ? 0 : 1,
-      issuedAtMs: typeof payload.iat === "number" ? payload.iat * 1000 : 0,
-    },
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Stella's own tokens (src/auth/), verified with this worker's in-process keys
-// ---------------------------------------------------------------------------
 
 type UserKeys = { keys: Map<string, CryptoKey>; fetchedAtMs: number };
 
 let userKeys: UserKeys | null = null;
 let userKeysInflight: Promise<UserKeys> | null = null;
 
+const importUserKeys = async (jwks: unknown): Promise<UserKeys> => {
+  const keys = new Map<string, CryptoKey>();
+  for (const { kid, jwk } of parsePublicKeys(jwks)) {
+    keys.set(
+      kid,
+      await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]),
+    );
+  }
+  return { keys, fetchedAtMs: Date.now() };
+};
+
+/** Test seam: verify against these public keys instead of the worker's own. */
+export const setUserJwksForTests = async (jwks: unknown | null): Promise<void> => {
+  userKeys = jwks === null ? null : await importUserKeys(jwks);
+};
+
 const loadUserKeys = (env: Cloudflare.Env): Promise<UserKeys> =>
   (userKeysInflight ??= (async () => {
     const { createAuth } = await import("./auth/auth.js");
-    const jwks = await createAuth(env).api.getJwks();
-    const keys = new Map<string, CryptoKey>();
-    for (const { kid, jwk } of parsePublicKeys(jwks)) {
-      keys.set(
-        kid,
-        await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]),
-      );
-    }
-    return (userKeys = { keys, fetchedAtMs: Date.now() });
+    return (userKeys = await importUserKeys(await createAuth(env).api.getJwks()));
   })().finally(() => {
     userKeysInflight = null;
   }));
@@ -451,7 +196,9 @@ export const verifyUserToken = async (token: string, env: Cloudflare.Env): Promi
   } catch (error) {
     return fail(`jwks_unavailable:${error instanceof Error ? error.message : "unknown"}`, true);
   }
-  // Retryable for the same reason as above: usually a rotation we are behind.
+  // Retryable, deliberately: an unknown kid is far more often "our keys are
+  // one refetch behind a rotation" than a forged token, and reporting it as
+  // unauthenticated would be terminal for the client.
   if (!key) return fail("unknown_kid", true);
   let valid = false;
   try {

@@ -24,7 +24,7 @@ const MAX_FILES = 800;
 const PUT_CONCURRENCY = 16;
 const FORK_NAME_PATTERN = /^u-[0-9a-f]{24}$/;
 
-type WebRendererEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "STELLA_CONVEX_SITE_URL" | "APP_BUILDS">;
+type WebRendererEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "CLOUD_BUILDER_PUBLIC_URL" | "APP_BUILDS">;
 
 const CONTENT_TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8",

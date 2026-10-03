@@ -53,6 +53,7 @@ jobs:
         run: ditto -c -k --keepParent launcher/macos/build/Stella.app "$RUNNER_TEMP/Stella-macos.zip"
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: launcher-macos
           path: ${{ runner.temp }}/Stella-macos.zip
@@ -60,6 +61,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: launcher-macos-evidence
           path: |
@@ -84,7 +86,14 @@ jobs:
       - name: Build Stella.exe
         run: launcher/windows/build.sh
 
+      - uses: actions/cache/save@v4
+        with:
+          path: launcher/windows/build/Stella.exe
+          key: launcher-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: launcher-windows
           path: launcher/windows/build/Stella.exe
@@ -99,10 +108,12 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/cache/restore@v4
         with:
-          name: launcher-windows
-          path: ${{ runner.temp }}\launcher
+          path: launcher/windows/build/Stella.exe
+          key: launcher-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
 
       - name: Self-test
         shell: pwsh
@@ -110,7 +121,7 @@ jobs:
           $env:STELLA_LAUNCHER_ROOT = "$env:RUNNER_TEMP\stella-root"
           $env:STELLA_LAUNCHER_KEY_FILE = "$env:RUNNER_TEMP\test-key\signing.pem"
           # Stella.exe is a GUI-subsystem program: wait on it explicitly.
-          $p = Start-Process -FilePath "$env:RUNNER_TEMP\launcher\Stella.exe" -Wait -PassThru -ArgumentList @(
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE\launcher\windows\build\Stella.exe" -Wait -PassThru -ArgumentList @(
             '--self-test', '--source', "`"$env:GITHUB_WORKSPACE`"", '--capture-dir', "`"$env:RUNNER_TEMP\capture`"")
           Get-Content "$env:STELLA_LAUNCHER_ROOT\logs\launcher.log"
           Write-Host "self-test exit code: $($p.ExitCode)"
@@ -118,6 +129,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: launcher-windows-evidence
           path: |
@@ -162,6 +174,7 @@ jobs:
         run: cp launcher/linux/build/stella-launcher "$RUNNER_TEMP/stella-launcher-linux-${{ matrix.arch }}"
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: launcher-linux-${{ matrix.arch }}
           path: ${{ runner.temp }}/stella-launcher-linux-${{ matrix.arch }}
@@ -169,6 +182,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: launcher-linux-${{ matrix.arch }}-evidence
           path: |

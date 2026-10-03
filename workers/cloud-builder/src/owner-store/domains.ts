@@ -16,6 +16,7 @@ import { schedulesDomain } from "./domains/schedules.js";
 import { preferencesDomain } from "./domains/preferences.js";
 import { accountDomain } from "./domains/account.js";
 import { sharesDomain } from "./domains/shares.js";
+import { searchDomain } from "./domains/search.js";
 import { RATE_LIMIT_MIGRATION } from "./rate-limit.js";
 import { createOwnerRegistry, type OwnerDomain } from "./registry.js";
 
@@ -45,6 +46,7 @@ export const ownerDomains: OwnerDomain[] = [
   preferencesDomain,
   accountDomain,
   sharesDomain,
+  searchDomain,
 ];
 
 export const ownerRegistry = createOwnerRegistry(ownerDomains);

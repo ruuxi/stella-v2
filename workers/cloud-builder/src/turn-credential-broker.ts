@@ -13,10 +13,10 @@ import { sha256Hex } from "./hash.js";
  * No control-plane credential ever crosses the BuildSession boundary. A
  * sandbox gets this independently random, short-lived capability instead; it
  * can only ask the owning BuildSession to perform one of the bounded
- * turn-scoped requests below. Some the session performs itself — the turn's
- * event stream and its thread transcript are the session's own state, and the
- * drive is the owner object's — and the rest it forwards to Convex under the
- * turn's control-plane capability, which the sandbox never sees.
+ * turn-scoped requests below. The session performs each itself: the turn's
+ * event stream and its thread transcript are the session's own state, the
+ * drive and web search are the owner object's, and the browser gateway is a
+ * private Worker reached through a service binding.
  *
  * Model traffic does not pass through here. The sandbox holds a separate
  * turn capability that is only valid at the model gateway, and speaks to the
@@ -32,8 +32,8 @@ const MAX_CALLBACK_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_CONTROL_BODY_BYTES = 64 * 1024;
 const MAX_TURN_STATE_CHECKPOINT_BODY_BYTES = 5 * 1024 * 1024;
 
-/** Convex routes a sandbox may reach, forwarded under the turn capability. */
-const CONVEX_CALLBACK_PATHS = new Set(["/api/cloud/web-search"]);
+/** Web search, served by the owner's object and charged to the owner. */
+export const TURN_BROKER_SEARCH_PATH = "/api/cloud/web-search";
 
 /**
  * The owner's drive: the turn reports what it produced and reads what its
@@ -80,8 +80,8 @@ export type TurnBrokerTarget = {
   kind:
     | "browser-gateway"
     | "builder-callback"
-    | "callback"
     | "drive"
+    | "search"
     | "turn-event"
     | "thread-messages";
   method: "POST";
@@ -349,12 +349,12 @@ export const validateTurnBrokerTarget = (
   const parsed = exactPath(targetPath);
   if (!parsed || parsed.search) return null;
 
-  if (CONVEX_CALLBACK_PATHS.has(parsed.pathname)) {
+  if (parsed.pathname === TURN_BROKER_SEARCH_PATH) {
     return {
-      kind: "callback",
+      kind: "search",
       method: "POST",
       path: parsed.pathname,
-      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
+      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
     };
   }
   if (DRIVE_PATHS.has(parsed.pathname)) {
@@ -639,46 +639,6 @@ export const readTurnBrokerRequestBody = async (
   return body;
 };
 
-const forbiddenUpstreamHeader = (name: string): boolean => {
-  const lower = name.toLowerCase();
-  return (
-    lower === "authorization" ||
-    lower === "proxy-authorization" ||
-    lower === "x-api-key" ||
-    lower === "x-goog-api-key" ||
-    lower === "cookie" ||
-    lower === "set-cookie" ||
-    lower === "host" ||
-    lower === "content-length" ||
-    lower.startsWith("x-stella-") ||
-    lower.startsWith("cf-") ||
-    lower === "forwarded" ||
-    lower.startsWith("x-forwarded-") ||
-    lower === "x-real-ip" ||
-    lower === "connection" ||
-    lower === "transfer-encoding" ||
-    lower === "upgrade"
-  );
-};
-
-/**
- * Strip every caller credential and transport hop, then attach the turn's
- * control-plane capability. This is the only place it is written onto a
- * sandbox-originated request, and it is written after the strip so nothing
- * the sandbox sent can survive alongside it.
- */
-export const turnBrokerUpstreamHeaders = (
-  incoming: Headers,
-  controlPlaneCapability: string,
-): Headers => {
-  const headers = new Headers();
-  incoming.forEach((value, name) => {
-    if (!forbiddenUpstreamHeader(name)) headers.set(name, value);
-  });
-  headers.set("authorization", `Bearer ${controlPlaneCapability}`);
-  return headers;
-};
-
 /** Never send backend cookies or broker metadata back into the sandbox. */
 export const turnBrokerSandboxResponseHeaders = (
   incoming: Headers,
@@ -698,33 +658,6 @@ export const turnBrokerSandboxResponseHeaders = (
   return headers;
 };
 
-const finiteTurnBrokerUpstreamErrorResponse = (
-  upstream: Response,
-): Response => {
-  const headers = turnBrokerSandboxResponseHeaders(upstream.headers);
-  headers.delete("content-encoding");
-  headers.delete("content-length");
-  headers.delete("transfer-encoding");
-  headers.set("cache-control", "no-store");
-  headers.set("content-type", "application/json; charset=utf-8");
-  // A callback can publish its non-OK status before the upstream body reaches
-  // EOF. Do not carry that live body across the BuildSession Durable
-  // Object/service-binding boundary: the outer Worker (and therefore the
-  // sandbox fetch) can otherwise wait forever before the executor gets a
-  // chance to apply its own finite error-body guard.
-  void upstream.body?.cancel().catch(() => undefined);
-  return new Response(
-    JSON.stringify({
-      error: `Turn callback returned HTTP ${upstream.status}.`,
-    }),
-    {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers,
-    },
-  );
-};
-
 export const turnBrokerDenialResponse = (
   denied: TurnBrokerClaimFailure,
 ): Response =>
@@ -738,71 +671,3 @@ export const turnBrokerDenialResponse = (
       },
     },
   );
-
-export const turnBrokerUpstreamUrl = (
-  convexOrigin: string,
-  target: TurnBrokerTarget,
-): string => {
-  if (target.kind !== "callback") {
-    throw new Error("Only Convex broker callbacks have an upstream URL.");
-  }
-  const base = new URL(convexOrigin);
-  if (
-    base.protocol !== "https:" ||
-    base.username ||
-    base.password ||
-    base.search ||
-    base.hash ||
-    base.pathname !== "/"
-  ) {
-    throw new Error("Turn callback base must be a credential-free HTTPS URL.");
-  }
-  const upstream = new URL(target.path, base.origin);
-  if (upstream.origin !== base.origin) {
-    throw new Error("Turn broker target escaped the callback origin.");
-  }
-  return upstream.toString();
-};
-
-/**
- * The only place the turn's control-plane capability is attached to a
- * sandbox-originated call. It runs inside Builder after the durable claim and
- * final live revalidation, and the capability never travels the other way.
- */
-export const forwardTurnBrokerRequest = async (args: {
-  target: TurnBrokerTarget;
-  body: Uint8Array;
-  incomingHeaders: Headers;
-  convexOrigin: string;
-  controlPlaneCapability: string;
-  signal: AbortSignal;
-  fetchImpl?: typeof fetch;
-}): Promise<Response> => {
-  if (args.target.kind !== "callback") {
-    throw new Error("Builder-local callback cannot be forwarded to Convex.");
-  }
-  const upstream = await (args.fetchImpl ?? fetch)(
-    turnBrokerUpstreamUrl(args.convexOrigin, args.target),
-    {
-      method: args.target.method,
-      headers: turnBrokerUpstreamHeaders(
-        args.incomingHeaders,
-        args.controlPlaneCapability,
-      ),
-      ...(args.body.byteLength > 0 ? { body: args.body } : {}),
-      signal: args.signal,
-      // Never forward the reusable raw authority to a redirect target.
-      redirect: "manual",
-    },
-  );
-  if (upstream.status >= 300 && upstream.status < 400) {
-    await upstream.body?.cancel().catch(() => undefined);
-    throw new Error("Turn broker upstream redirect was refused.");
-  }
-  if (!upstream.ok) return finiteTurnBrokerUpstreamErrorResponse(upstream);
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: turnBrokerSandboxResponseHeaders(upstream.headers),
-  });
-};

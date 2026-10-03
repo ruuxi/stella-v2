@@ -7,6 +7,7 @@
  * instead of `this` and is delegated to from the class. See
  * `src/build-session/host.ts` for why the host is a structural type.
  */
+import type { WebSearchResult } from "@stella/contracts/backend/search";
 import { createAgentControlPlane } from "../agent-control-plane.js";
 import { retireTransientAppBuild } from "../app-build-artifacts.js";
 import { mintTurnCapability } from "../capability-signer.js";
@@ -17,6 +18,7 @@ import {
 } from "../native-state-checkpoint.js";
 import { enqueueOutbox } from "../outbox.js";
 import { HEADER_OWNER_FENCE_ID } from "../owner-fence-do.js";
+import { unwrapRpc } from "../owner-store/errors.js";
 import { isSandboxDestroyDebtKey } from "../sandbox-lifecycle.js";
 import {
   appendThreadMessages,
@@ -319,8 +321,7 @@ export const convexCall = async (
 
 /**
  * The resident loop's control plane, wired to this object's own transcript
- * table and outbox. The capability is resolved lazily so a long turn does
- * not hold an expiring token captured at construction.
+ * table and outbox, and to the owner object for web search.
  */
 export const agentControlPlane = (
   host: SessionCoreHost,
@@ -329,8 +330,6 @@ export const agentControlPlane = (
   sessionId: string,
 ): ReturnType<typeof createAgentControlPlane> => {
   return createAgentControlPlane({
-    convexSiteUrl: host.env.STELLA_CONVEX_SITE_URL,
-    capability: () => host.controlPlaneCapability(turn),
     identity: {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -353,6 +352,14 @@ export const agentControlPlane = (
           ...(args.signal ? { signal: args.signal } : {}),
         });
       },
+      webSearch: async (request) =>
+        unwrapRpc(
+          await host.env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+            name: "search.web",
+            args: request,
+            ownerGeneration: turn.ownerGeneration,
+          }),
+        ) as WebSearchResult,
     },
   });
 };

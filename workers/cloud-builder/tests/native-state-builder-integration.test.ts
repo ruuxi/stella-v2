@@ -1,9 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, mock, test } from "bun:test";
-import {
-  TURN_BROKER_HEADERS,
-  TURN_BROKER_RESPONSE_HEADERS,
-} from "@stella/contracts/turn-credential-broker";
+import { TURN_BROKER_RESPONSE_HEADERS } from "@stella/contracts/turn-credential-broker";
 import { ExactTurnCancellationLedger } from "../src/execution-placement-turn-cancellation.js";
 import { sha256Hex } from "../src/hash.js";
 import {
@@ -615,104 +612,6 @@ describe("native state Builder integration", () => {
     );
     expect(replayReceipt).toEqual(receipt);
     expect(harness.checkpointRuns()).toBe(1);
-  });
-
-  test("forwards callback authority only inside Builder and scrubs the sandbox response", async () => {
-    const harness = await builderHarness();
-    const client = new TurnCredentialBrokerClient(
-      harness.handoff,
-      brokerFetch(harness.instance),
-    );
-    const originalFetch = globalThis.fetch;
-    let upstreamUrl = "";
-    let upstreamHeaders = new Headers();
-    globalThis.fetch = (async (input, init) => {
-      upstreamUrl = String(input);
-      upstreamHeaders = new Headers(init?.headers);
-      expect(init?.redirect).toBe("manual");
-      expect(init?.signal).toBeInstanceOf(AbortSignal);
-      return new Response('{"accepted":true}', {
-        headers: {
-          "content-type": "application/json",
-          "set-cookie": "convex-session=secret",
-          "x-stella-broker-private": "secret",
-          "x-stella-response-id": "response-1",
-        },
-      });
-    }) as typeof fetch;
-    try {
-      const response = await client.postJson("/api/cloud/web-search", {
-        turnId,
-        query: "progress",
-      });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ accepted: true });
-      expect(response.headers.get("set-cookie")).toBeNull();
-      expect(response.headers.get("x-stella-broker-private")).toBeNull();
-      // Every x-stella-* response header is Builder/backend-private now that
-      // no model relay answers through the broker.
-      expect(response.headers.get("x-stella-response-id")).toBeNull();
-    } finally {
-      globalThis.fetch = originalFetch;
-      client.close();
-    }
-
-    expect(upstreamUrl).toBe("https://convex.example/api/cloud/web-search");
-    expect(upstreamHeaders.get("authorization")).toBe(
-      "Bearer control-plane-capability",
-    );
-    expect(upstreamHeaders.get(TURN_BROKER_HEADERS.ownerId)).toBeNull();
-    expect(
-      harness.values.get(turnBrokerStorageKey(harness.identity)),
-    ).toMatchObject({
-      nextSequence: 2,
-      requestCount: 1,
-    });
-  });
-
-  test("aborts an in-flight forwarded request with the exact turn execution", async () => {
-    const harness = await builderHarness();
-    const client = new TurnCredentialBrokerClient(
-      harness.handoff,
-      brokerFetch(harness.instance),
-    );
-    const originalFetch = globalThis.fetch;
-    let observeUpstream!: () => void;
-    const upstreamStarted = new Promise<void>((resolve) => {
-      observeUpstream = resolve;
-    });
-    globalThis.fetch = (async (_input, init) => {
-      observeUpstream();
-      await new Promise<never>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (!signal) {
-          reject(new Error("missing exact turn signal"));
-          return;
-        }
-        const onAbort = () =>
-          reject(signal.reason ?? new Error("forwarding aborted"));
-        if (signal.aborted) onAbort();
-        else signal.addEventListener("abort", onAbort, { once: true });
-      });
-      throw new Error("unreachable");
-    }) as typeof fetch;
-    try {
-      const pending = client.postJson("/api/cloud/web-search", {
-        turnId,
-        query: "progress",
-      });
-      await upstreamStarted;
-      harness.executionAbort.abort(new Error("exact turn stopped"));
-      const response = await pending;
-      expect(response.status).toBe(410);
-      expect(response.headers.get(TURN_BROKER_RESPONSE_HEADERS.denial)).toBe(
-        "1",
-      );
-      expect(client.closed).toBe(true);
-    } finally {
-      globalThis.fetch = originalFetch;
-      client.close();
-    }
   });
 
   test("rejects a valid capability after isolate restart leaves no live execution", async () => {

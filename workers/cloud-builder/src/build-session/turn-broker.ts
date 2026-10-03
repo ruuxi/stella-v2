@@ -24,7 +24,6 @@ import type { ThreadMessageInput } from "../thread-transcript.js";
 import {
   TurnBrokerBodyTooLargeError,
   claimTurnBrokerRequest,
-  forwardTurnBrokerRequest,
   preflightTurnBrokerRequest,
   readTurnBrokerRequestBody,
   turnBrokerDenialResponse,
@@ -101,7 +100,6 @@ export type TurnBrokerHost = Pick<
   | "assertAgentTurnIdentity"
   | "assertTurnWritable"
   | "callOwnerTurnState"
-  | "controlPlaneCapability"
   | "currentSandbox"
   | "emitTurnEvent"
   | "executeTurnStateCheckpoint"
@@ -769,6 +767,31 @@ export const serveTurnDriveRequest = async (
 };
 
 /**
+ * A turn's web search, run and charged by the owner's object. The sandbox
+ * sends `{query, category?}` and gets `{text, results}` back.
+ */
+export const serveTurnSearchRequest = async (
+  env: Pick<Cloudflare.Env, "OWNER_GATES">,
+  turn: Pick<TurnRequest, "ownerId" | "ownerGeneration">,
+  body: Record<string, unknown>,
+): Promise<Response> => {
+  const response = (await env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+    name: "search.web",
+    args: {
+      query: body.query,
+      ...(body.category !== undefined && body.category !== null
+        ? { category: body.category }
+        : {}),
+    },
+    ownerGeneration: turn.ownerGeneration,
+  })) as RpcResponse;
+  if (!response.ok) {
+    return driveJson({ error: response.error.message }, rpcErrorStatus(response.error.code));
+  }
+  return driveJson(response.value);
+};
+
+/**
  * The broker targets the BuildSession answers itself.
  *
  * `/api/cloud/events` and `/api/cloud/messages` are still the paths the
@@ -776,9 +799,10 @@ export const serveTurnDriveRequest = async (
  * but their destination moved here: the event stream is projected through
  * the outbox with an ordinal this object assigns, and the transcript is
  * committed to this thread's own table. Both are idempotent, which is what
- * lets the executor's unchanged single retry stay safe. The drive paths go
- * to the owner's object (see `serveTurnDriveRequest`); the claim's live
- * fence already proved this exact attempt is running.
+ * lets the executor's unchanged single retry stay safe. The drive paths and
+ * web search go to the owner's object (see `serveTurnDriveRequest` and
+ * `serveTurnSearchRequest`); the claim's live fence already proved this
+ * exact attempt is running.
  */
 const handleBrokerLocalRequest = async (
   host: TurnBrokerHost,
@@ -791,10 +815,15 @@ const handleBrokerLocalRequest = async (
     return brokerFailure(400);
   }
   const body = decoded as Record<string, unknown>;
-  if (typeof body.turnId !== "string" || body.turnId !== turn.turnId) {
-    return brokerFailure(403);
-  }
   try {
+    // The claim's live fence already bound this request to the turn; a
+    // search body names only its query.
+    if (target.kind === "search") {
+      return await serveTurnSearchRequest(host.env, turn, body);
+    }
+    if (typeof body.turnId !== "string" || body.turnId !== turn.turnId) {
+      return brokerFailure(403);
+    }
     if (target.kind === "drive") {
       return await serveTurnDriveRequest(host.env, turn, target.path, body);
     }
@@ -1020,13 +1049,14 @@ export const handleTurnBroker = async (
     if (
       claimed.target.kind === "turn-event" ||
       claimed.target.kind === "thread-messages" ||
-      claimed.target.kind === "drive"
+      claimed.target.kind === "drive" ||
+      claimed.target.kind === "search"
     ) {
       // The turn's events and its thread transcript are this object's own
-      // state now, and the drive is the owner object's. The sandbox still
-      // asks for them by their old Convex paths — that is the executor's
-      // stable contract — but the request stops here instead of crossing to
-      // the control plane.
+      // state now, and the drive and web search are the owner object's. The
+      // sandbox still asks for them by their old Convex paths — that is the
+      // executor's stable contract — but the request stops here instead of
+      // crossing to the control plane.
       await host.ctx.storage.put(recordKey, claimed.record);
       return {
         kind: "local" as const,
@@ -1190,28 +1220,7 @@ export const handleTurnBroker = async (
         return brokerFailure(admission.signal.aborted ? 410 : 502);
       }
     }
-    const convexOrigin = host.env.STELLA_CONVEX_SITE_URL?.trim();
-    if (!convexOrigin) return brokerFailure(503);
-    try {
-      const upstream = await forwardTurnBrokerRequest({
-        target: admission.target,
-        body,
-        incomingHeaders: request.headers,
-        convexOrigin,
-        controlPlaneCapability: await host.controlPlaneCapability(turn),
-        signal: admission.signal,
-      });
-      return upstream;
-    } catch {
-      log("error", "turn_broker_forward_failed", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        targetKind: admission.target.kind,
-        aborted: admission.signal.aborted,
-        errorCode: "TURN_BROKER_UPSTREAM_FAILURE",
-      });
-      return brokerFailure(admission.signal.aborted ? 410 : 502);
-    }
+    return brokerFailure(403);
   }
   let pendingOperation: Extract<
     TurnStateCheckpointOperation,

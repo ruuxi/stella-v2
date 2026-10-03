@@ -1,4 +1,5 @@
 import { ConvexClient } from "convex/browser";
+import type { WebSearchResult } from "@stella/contracts/backend/search";
 import { scheduleRemotePromptRevalidation } from "../prompts/remote-prompts.js";
 import type { RunnerContext } from "./types.js";
 import { sanitizeConvexDeploymentUrl, sanitizeStellaBase } from "./shared.js";
@@ -64,43 +65,12 @@ export const createConvexSession = (
   const webSearch = async (
     query: string,
     optionsArg?: { category?: string },
-  ): Promise<{
-    text: string;
-    results: Array<{
-      title: string;
-      url: string;
-      snippet: string;
-      image?: string;
-      favicon?: string;
-    }>;
-  }> => {
+  ): Promise<WebSearchResult> => {
     try {
-      const client = ensureConvexClient();
-      if (!client)
-        throw new Error(
-          "Not connected to Convex. Sign in or set STELLA_CONVEX_URL.",
-        );
-      const result = (await (client as any).action(
-        (
-          context.convexApi as {
-            agent: { local_runtime: { webSearch: unknown } };
-          }
-        ).agent.local_runtime.webSearch,
-        {
-          query,
-          ...(optionsArg?.category ? { category: optionsArg.category } : {}),
-        },
-      )) as {
-        text: string;
-        results: Array<{
-          title: string;
-          url: string;
-          snippet: string;
-          image?: string;
-          favicon?: string;
-        }>;
-      };
-
+      const result = await context.backend.require().call("search.web", {
+        query,
+        ...(optionsArg?.category ? { category: optionsArg.category } : {}),
+      });
       return {
         text: result.text || "WebSearch returned no response.",
         results: result.results,

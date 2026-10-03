@@ -6,15 +6,14 @@
  * already load-bearing somewhere in `index.ts` or `orchestrator-session.ts`;
  * this module is where a resident turn reaches them without importing either.
  *
- * Only one of them is still a Convex call. The thread transcript and the turn
- * event stream belong to the `BuildSession` now — the transcript lives in its
- * SQLite and the events leave through the outbox — so both arrive here as
- * injected callbacks rather than HTTP. What remains synchronous is web search,
- * which only the control plane can answer, and it authenticates with this
- * turn's control-plane capability rather than the worker's shared secret.
+ * None of them is a Convex call. The thread transcript and the turn event
+ * stream belong to the `BuildSession` — the transcript lives in its SQLite
+ * and the events leave through the outbox — and web search is the owner
+ * object's `search.web`, so all three arrive here as injected callbacks.
  */
 
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
+import type { WebSearchResult } from "@stella/contracts/backend/search";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { normalizeSafePublicUrl } from "@stella/runtime/kernel/tools/url-guard.js";
 import { fetchReadableText } from "@stella/runtime/kernel/tools/web-fetch-core.js";
@@ -24,8 +23,6 @@ import {
 } from "@stella/runtime/kernel/tools/safety.js";
 import type { SealedTurnTranscript } from "./agent-turn-journal.js";
 import { nativeHistoryCursorFromRows } from "./native-state-checkpoint.js";
-
-const CALLBACK_TIMEOUT_MS = 30_000;
 
 export type CanonicalTranscriptReceipt = Readonly<{
   kind: "canonical_transcript";
@@ -75,31 +72,12 @@ export interface GeneralAgentControlPlane {
   ): Promise<AgentToolResult<WebToolDetails>>;
 }
 
-export class AgentControlPlaneError extends Error {
-  constructor(
-    readonly path: string,
-    readonly status?: number,
-  ) {
-    super(
-      status === undefined
-        ? `Convex callback ${path} did not return a response.`
-        : `Convex callback ${path} failed with ${status}.`,
-    );
-    this.name = "AgentControlPlaneError";
-  }
-}
-
 export class TranscriptNotCanonicalError extends Error {
   constructor() {
     super("Resident agent transcript was not canonical.");
     this.name = "TranscriptNotCanonicalError";
   }
 }
-
-const boundedSignal = (signal?: AbortSignal): AbortSignal =>
-  signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(CALLBACK_TIMEOUT_MS)])
-    : AbortSignal.timeout(CALLBACK_TIMEOUT_MS);
 
 /**
  * The transcript and event transports the owning `BuildSession` supplies.
@@ -126,56 +104,15 @@ export type AgentControlPlaneTransport = Readonly<{
     terminal: boolean;
     signal?: AbortSignal;
   }): Promise<void>;
+  /** The owner's `search.web`, charged to the owner. */
+  webSearch(request: { query: string; category?: string }): Promise<WebSearchResult>;
 }>;
 
 export const createAgentControlPlane = (deps: {
-  /** Convex site origin for the one route that is still a Convex call. */
-  convexSiteUrl: string;
-  /** This turn's control-plane capability. Never leaves the Durable Object. */
-  capability: string | (() => Promise<string>);
   identity: AgentControlPlaneIdentity;
   storage: DurableObjectStorage;
   transport: AgentControlPlaneTransport;
-  fetch?: typeof fetch;
 }): GeneralAgentControlPlane => {
-  const base = deps.convexSiteUrl.replace(/\/+$/u, "");
-  const send = deps.fetch ?? fetch;
-  const capability = async (): Promise<string> =>
-    typeof deps.capability === "string"
-      ? deps.capability
-      : await deps.capability();
-
-  const convexCall = async (
-    path: string,
-    body: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<Record<string, unknown>> => {
-    let response: Response;
-    try {
-      response = await send(`${base}${path}`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${await capability()}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          ...body,
-          ownerId: deps.identity.ownerId,
-          ownerGeneration: deps.identity.ownerGeneration,
-        }),
-        signal: boundedSignal(signal),
-      });
-    } catch {
-      throw new AgentControlPlaneError(path);
-    }
-    if (!response.ok) {
-      throw new AgentControlPlaneError(path, response.status);
-    }
-    return await response
-      .json<Record<string, unknown>>()
-      .catch(() => ({}) as Record<string, unknown>);
-  };
-
   const loadAuthoritativeHistory = async (options: {
     excludeCurrentTurn: boolean;
     signal?: AbortSignal;
@@ -258,17 +195,12 @@ export const createAgentControlPlane = (deps: {
           details: { mode: "fetch", url },
         };
       }
-      const payload = await convexCall(
-        "/api/cloud/web-search",
-        {
-          query,
-          ...(request.category?.trim()
-            ? { category: request.category.trim() }
-            : {}),
-        },
-        signal,
-      );
-      const text = typeof payload.text === "string" ? payload.text : "";
+      signal?.throwIfAborted();
+      const category = request.category?.trim();
+      const { text } = await deps.transport.webSearch({
+        query,
+        ...(category ? { category } : {}),
+      });
       return {
         content: [{ type: "text", text: text || "No results found." }],
         details: { mode: "search", query, text },

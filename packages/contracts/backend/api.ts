@@ -16,6 +16,7 @@ import type { ScheduleCalls, ScheduleViews } from "./schedules.js";
 import type { PreferenceCalls, PreferenceViews } from "./preferences.js";
 import type { AccountCalls } from "./account.js";
 import type { ShareCalls, ShareViews } from "./shares.js";
+import type { SearchCalls } from "./search.js";
 
 type SystemCalls = {
   /** Round trip through the caller's owner object. */
@@ -33,7 +34,8 @@ export type BackendCalls = SystemCalls &
   ScheduleCalls &
   PreferenceCalls &
   AccountCalls &
-  ShareCalls;
+  ShareCalls &
+  SearchCalls;
 export type BackendViews = ConversationViews &
   AgentThreadViews &
   BillingViews &

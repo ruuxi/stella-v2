@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  AgentControlPlaneError,
   TranscriptNotCanonicalError,
   createAgentControlPlane,
   type AgentControlPlaneTransport,
@@ -21,16 +20,6 @@ const IDENTITY = {
   attemptGeneration: 3,
   sessionId: "session-1",
 } as const;
-
-const CAPABILITY = "control-plane-capability";
-const BASE = "https://convex.example.com";
-
-type Capture = {
-  readonly url: string;
-  readonly method: string;
-  readonly headers: Record<string, string>;
-  readonly body: string | undefined;
-};
 
 const fakeStorage = () => {
   const values = new Map<string, unknown>();
@@ -60,6 +49,7 @@ const fakeTransport = () => {
   const appends: Array<
     ReadonlyArray<{ ordinal: number; role: string; payloadJson: string }>
   > = [];
+  const searches: Array<{ query: string; category?: string }> = [];
   let failAppend: Error | null = null;
   const transport: AgentControlPlaneTransport = {
     readHistory: ({ excludeCurrentTurn }) =>
@@ -84,12 +74,17 @@ const fakeTransport = () => {
         terminal: args.terminal,
       });
     },
+    webSearch: async (request) => {
+      searches.push(request);
+      return { text: "results", results: [] };
+    },
   };
   return {
     sql,
     close,
     events,
     appends,
+    searches,
     transport,
     seed: (
       rows: ReadonlyArray<{
@@ -111,33 +106,16 @@ const fakeTransport = () => {
   };
 };
 
-const harness = (respond: (capture: Capture, index: number) => Response) => {
-  const captures: Capture[] = [];
+const harness = () => {
   const { values, storage } = fakeStorage();
   const transport = fakeTransport();
-  const send: typeof fetch = async (input, init) => {
-    const capture: Capture = {
-      url: String(input),
-      method: init?.method ?? "GET",
-      headers: Object.fromEntries(
-        Object.entries((init?.headers ?? {}) as Record<string, string>),
-      ),
-      body: typeof init?.body === "string" ? init.body : undefined,
-    };
-    captures.push(capture);
-    return respond(capture, captures.length - 1);
-  };
   return {
-    captures,
     values,
     transport,
     control: createAgentControlPlane({
-      convexSiteUrl: `${BASE}/`,
-      capability: CAPABILITY,
       identity: IDENTITY,
       storage,
       transport: transport.transport,
-      fetch: send,
     }),
   };
 };
@@ -159,9 +137,7 @@ const sealed = async (): Promise<SealedTurnTranscript> => ({
 describe("resident transcript append", () => {
   test("commits to the thread's own table and verifies the canonical cursor", async () => {
     const batch = await sealed();
-    const { captures, control, transport } = harness(() =>
-      Response.json({ ok: true }),
-    );
+    const { control, transport } = harness();
 
     const receipt = await control.appendAndVerifyTranscript(batch);
 
@@ -170,8 +146,6 @@ describe("resident transcript append", () => {
       historyCursor: batch.historyCursor,
       rowCount: 1,
     });
-    // The transcript is no longer a Convex round trip at all.
-    expect(captures).toHaveLength(0);
     expect(transport.appends).toEqual([
       [{ ordinal: 0, role: "assistant", payloadJson: PAYLOAD_JSON }],
     ]);
@@ -186,7 +160,7 @@ describe("resident transcript append", () => {
 
   test("a replayed commit writes the rows once", async () => {
     const batch = await sealed();
-    const { control, transport } = harness(() => Response.json({ ok: true }));
+    const { control, transport } = harness();
 
     await control.appendAndVerifyTranscript(batch);
     await control.appendAndVerifyTranscript(batch);
@@ -197,7 +171,7 @@ describe("resident transcript append", () => {
 
   test("refuses a transcript the thread's own rows did not make canonical", async () => {
     const batch = await sealed();
-    const { control, transport } = harness(() => Response.json({ ok: true }));
+    const { control, transport } = harness();
 
     // A cursor that does not name the last committed row means the sealed
     // batch and the thread's rows disagree; the commit must not be reported
@@ -213,7 +187,7 @@ describe("resident transcript append", () => {
 
   test("surfaces a failed commit rather than reporting a canonical transcript", async () => {
     const batch = await sealed();
-    const { control, transport } = harness(() => Response.json({ ok: true }));
+    const { control, transport } = harness();
     transport.failNextAppend(new Error("storage refused"));
 
     await expect(control.appendAndVerifyTranscript(batch)).rejects.toThrow(
@@ -225,9 +199,7 @@ describe("resident transcript append", () => {
 
 describe("authoritative history load", () => {
   test("reads this thread's rows and can exclude the current turn", async () => {
-    const { captures, control, transport } = harness(() =>
-      Response.json({ ok: true }),
-    );
+    const { control, transport } = harness();
     transport.seed([
       { ordinal: 0, role: "user", payloadJson: '{"role":"user"}' },
     ]);
@@ -247,13 +219,11 @@ describe("authoritative history load", () => {
       IDENTITY.turnId,
     ]);
     expect(prior.map((row) => row.turnId)).toEqual(["turn-earlier"]);
-    // No control-plane call is made to read a thread's own transcript.
-    expect(captures).toHaveLength(0);
     transport.close();
   });
 
   test("an empty thread loads no rows", async () => {
-    const { control, transport } = harness(() => Response.json({ ok: true }));
+    const { control, transport } = harness();
 
     expect(
       await control.loadAuthoritativeHistory({ excludeCurrentTurn: false }),
@@ -262,11 +232,9 @@ describe("authoritative history load", () => {
   });
 });
 
-describe("turn events and Convex-answerable calls", () => {
+describe("turn events and web search", () => {
   test("an event goes to the session's outbox transport, not Convex", async () => {
-    const { captures, control, transport } = harness(() =>
-      Response.json({ ok: true }),
-    );
+    const { control, transport } = harness();
 
     await control.emit({
       seq: 4,
@@ -275,7 +243,6 @@ describe("turn events and Convex-answerable calls", () => {
       terminal: false,
     });
 
-    expect(captures).toHaveLength(0);
     expect(transport.events).toEqual([
       {
         seq: 4,
@@ -287,20 +254,12 @@ describe("turn events and Convex-answerable calls", () => {
     transport.close();
   });
 
-  test("a web search presents the turn's control-plane capability", async () => {
-    const { captures, control, transport } = harness(() =>
-      Response.json({ text: "results" }),
-    );
+  test("a web search goes to the owner's search transport", async () => {
+    const { control, transport } = harness();
 
     const result = await control.web({ query: "effect fibers" });
 
-    expect(captures[0]?.url).toBe(`${BASE}/api/cloud/web-search`);
-    expect(captures[0]?.headers.authorization).toBe(`Bearer ${CAPABILITY}`);
-    expect(JSON.parse(captures[0]?.body ?? "null")).toEqual({
-      query: "effect fibers",
-      ownerId: IDENTITY.ownerId,
-      ownerGeneration: IDENTITY.ownerGeneration,
-    });
+    expect(transport.searches).toEqual([{ query: "effect fibers" }]);
     expect(result.details).toEqual({
       mode: "search",
       query: "effect fibers",
@@ -309,46 +268,8 @@ describe("turn events and Convex-answerable calls", () => {
     transport.close();
   });
 
-  test("a lazily resolved capability is fetched per call", async () => {
-    const { values, storage } = fakeStorage();
-    const transport = fakeTransport();
-    const seen: string[] = [];
-    let minted = 0;
-    const control = createAgentControlPlane({
-      convexSiteUrl: BASE,
-      capability: async () => `capability-${(minted += 1)}`,
-      identity: IDENTITY,
-      storage,
-      transport: transport.transport,
-      fetch: (async (_input, init) => {
-        seen.push(
-          (init?.headers as Record<string, string>).authorization as string,
-        );
-        return Response.json({});
-      }) as typeof fetch,
-    });
-
-    await control.web({ query: "one" });
-    await control.web({ query: "two" });
-
-    expect(seen).toEqual(["Bearer capability-1", "Bearer capability-2"]);
-    expect(values.size).toBe(0);
-    transport.close();
-  });
-
-  test("a failing Convex call surfaces its status", async () => {
-    const { control, transport } = harness(
-      () => new Response("no", { status: 401 }),
-    );
-
-    await expect(control.web({ query: "anything" })).rejects.toBeInstanceOf(
-      AgentControlPlaneError,
-    );
-    transport.close();
-  });
-
   test("the web tool takes a query or a url, never both and never neither", async () => {
-    const { control, transport } = harness(() => Response.json({}));
+    const { control, transport } = harness();
 
     await expect(control.web({})).rejects.toThrow(/Either query or url/u);
     await expect(

@@ -9,6 +9,7 @@ import {
   type CloudChatPreparation,
 } from "./cloud-chat-admission.js";
 import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import type { WebSearchResult } from "@stella/contracts/backend/search";
 import type { OwnerHomeContext } from "./owner-home-context.js";
 import {
   CONTEXT_CHECKPOINT_KEY,
@@ -10312,22 +10313,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               details: { mode: "fetch", url },
             };
           }
-          const response = await this.convexPost(
-            "/api/cloud/web-search",
-            {
-              query,
-              ownerId: turn.ownerId,
-              ownerGeneration: turn.ownerGeneration,
-              ...(args.category?.trim()
-                ? { category: args.category.trim() }
-                : {}),
-            },
-            { capability: controlPlane.token, ...(signal ? { signal } : {}) },
-          );
-          if (!response.ok) {
-            throw new Error(`Web search failed (${response.status}).`);
-          }
-          const payload = (await response.json()) as { text: string };
+          signal?.throwIfAborted();
+          const category = args.category?.trim();
+          const payload = (await toolContext.ownerInternal("search.web", {
+            query,
+            ...(category ? { category } : {}),
+          })) as WebSearchResult;
           return {
             content: [
               { type: "text", text: payload.text || "No results found." },

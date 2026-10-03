@@ -9,15 +9,12 @@ import { sha256Hex } from "../src/hash.js";
 import {
   TURN_BROKER_MAX_REQUESTS,
   claimTurnBrokerRequest,
-  forwardTurnBrokerRequest,
   issueTurnBrokerCredential,
   preflightTurnBrokerRequest,
   readTurnBrokerRequestBody,
   revokeTurnBrokerCredential,
   turnBrokerSandboxResponseHeaders,
   turnBrokerTargetMatchesEngine,
-  turnBrokerUpstreamHeaders,
-  turnBrokerUpstreamUrl,
   validateTurnBrokerTarget,
   type TurnBrokerLiveFence,
   type TurnBrokerRecord,
@@ -331,7 +328,7 @@ describe("BuildSession turn credential broker", () => {
       ),
     ).toMatchObject({ kind: "builder-callback" });
     // The turn's own event stream and thread transcript stop at the
-    // BuildSession; only the Convex-answerable routes are forwarded.
+    // BuildSession, and web search goes to the owner object.
     expect(validateTurnBrokerTarget("POST", "/api/cloud/messages")).toEqual({
       kind: "thread-messages",
       method: "POST",
@@ -339,10 +336,10 @@ describe("BuildSession turn credential broker", () => {
       maxBodyBytes: 16 * 1024 * 1024,
     });
     expect(validateTurnBrokerTarget("POST", "/api/cloud/web-search")).toEqual({
-      kind: "callback",
+      kind: "search",
       method: "POST",
       path: "/api/cloud/web-search",
-      maxBodyBytes: 16 * 1024 * 1024,
+      maxBodyBytes: 64 * 1024,
     });
   });
 
@@ -379,31 +376,7 @@ describe("BuildSession turn credential broker", () => {
     ).toMatchObject({ ok: false, status: 429, code: "limit_exceeded" });
   });
 
-  test("Builder strips caller credentials, injects the turn capability once, and scrubs the response", () => {
-    const upstream = turnBrokerUpstreamHeaders(
-      new Headers({
-        authorization: "Bearer attacker-controlled",
-        "x-api-key": "attacker-controlled",
-        cookie: "session=attacker-controlled",
-        [TURN_BROKER_HEADERS.sequence]: "99",
-        "x-stella-owner": "attacker-controlled",
-        "x-stella-agent-type": "orchestrator",
-        "x-stella-llm-credential": "anthropic",
-        "content-type": "application/json",
-      }),
-      "control-plane-capability",
-    );
-    expect(upstream.get("x-api-key")).toBeNull();
-    expect(upstream.get("cookie")).toBeNull();
-    expect(upstream.get(TURN_BROKER_HEADERS.sequence)).toBeNull();
-    expect(upstream.get("x-stella-owner")).toBeNull();
-    expect(upstream.get("x-stella-agent-type")).toBeNull();
-    expect(upstream.get("x-stella-llm-credential")).toBeNull();
-    expect(upstream.get("authorization")).toBe(
-      "Bearer control-plane-capability",
-    );
-    expect(upstream.get("content-type")).toBe("application/json");
-
+  test("scrubs backend credentials and broker metadata from responses", () => {
     const response = turnBrokerSandboxResponseHeaders(
       new Headers({
         "content-type": "application/json",
@@ -419,143 +392,5 @@ describe("BuildSession turn credential broker", () => {
     expect(response.get("x-stella-broker-debug")).toBeNull();
     expect(response.get("x-stella-response-id")).toBeNull();
     expect(response.get("x-request-id")).toBe("safe-request-id");
-  });
-
-  test("constructs upstream URLs only on the pinned Convex origin", () => {
-    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
-    if (!target) throw new Error("missing target");
-    expect(turnBrokerUpstreamUrl("https://tenant.convex.site", target)).toBe(
-      "https://tenant.convex.site/api/cloud/web-search",
-    );
-    expect(() =>
-      turnBrokerUpstreamUrl("http://tenant.convex.site", target),
-    ).toThrow("HTTPS");
-    expect(() =>
-      turnBrokerUpstreamUrl("https://tenant.convex.site/nested", target),
-    ).toThrow("HTTPS");
-    const local = validateTurnBrokerTarget("POST", "/api/cloud/events");
-    if (!local) throw new Error("missing target");
-    expect(() =>
-      turnBrokerUpstreamUrl("https://tenant.convex.site", local),
-    ).toThrow("upstream URL");
-  });
-
-  test("mediates the complete upstream call without returning raw authority", async () => {
-    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
-    if (!target) throw new Error("missing target");
-    let observedUrl = "";
-    let observedHeaders = new Headers();
-    const response = await forwardTurnBrokerRequest({
-      target,
-      body: new TextEncoder().encode("{}"),
-      incomingHeaders: new Headers({
-        authorization: "Bearer local-dummy",
-        "content-type": "application/json",
-      }),
-      convexOrigin: "https://tenant.convex.site",
-      controlPlaneCapability: "builder-only-authority",
-      signal: new AbortController().signal,
-      fetchImpl: (async (input, init) => {
-        observedUrl = String(input);
-        observedHeaders = new Headers(init?.headers);
-        return new Response('{"ok":true}', {
-          headers: {
-            "content-type": "application/json",
-            "set-cookie": "backend=secret",
-            "x-request-id": "request-1",
-          },
-        });
-      }) as typeof fetch,
-    });
-    expect(observedUrl).toBe("https://tenant.convex.site/api/cloud/web-search");
-    expect(observedHeaders.get("authorization")).toBe(
-      "Bearer builder-only-authority",
-    );
-    expect(response.headers.get("set-cookie")).toBeNull();
-    expect(response.headers.get("authorization")).toBeNull();
-    expect(await response.json()).toEqual({ ok: true });
-  });
-
-  test("terminates a non-OK upstream body before it crosses the service binding", async () => {
-    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
-    if (!target) throw new Error("missing target");
-    let canceled = false;
-    const response = await forwardTurnBrokerRequest({
-      target,
-      body: new TextEncoder().encode("{}"),
-      incomingHeaders: new Headers({
-        authorization: "Bearer local-dummy",
-        "content-type": "application/json",
-      }),
-      convexOrigin: "https://tenant.convex.site",
-      controlPlaneCapability: "builder-only-authority",
-      signal: new AbortController().signal,
-      fetchImpl: (async () =>
-        new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.enqueue(
-                new TextEncoder().encode("untrusted upstream prefix"),
-              );
-            },
-            cancel() {
-              canceled = true;
-            },
-          }),
-          {
-            status: 429,
-            headers: {
-              "content-encoding": "gzip",
-              "content-length": "999",
-              "content-type": "text/plain",
-              "retry-after": "7",
-              "set-cookie": "backend=secret",
-            },
-          },
-        )) as typeof fetch,
-    });
-    expect(response.status).toBe(429);
-    expect(response.headers.get("retry-after")).toBe("7");
-    expect(response.headers.get("content-encoding")).toBeNull();
-    expect(response.headers.get("content-length")).not.toBe("999");
-    expect(response.headers.get("set-cookie")).toBeNull();
-    expect(await response.json()).toEqual({
-      error: "Turn callback returned HTTP 429.",
-    });
-    await Promise.resolve();
-    expect(canceled).toBe(true);
-  });
-
-  test("never follows an upstream redirect carrying raw turn authority", async () => {
-    const target = validateTurnBrokerTarget("POST", "/api/cloud/web-search");
-    if (!target) throw new Error("missing target");
-    let observedRedirect: RequestRedirect | undefined;
-    let calls = 0;
-    await expect(
-      forwardTurnBrokerRequest({
-        target,
-        body: new TextEncoder().encode("{}"),
-        incomingHeaders: new Headers({
-          authorization: "Bearer local-only",
-          "content-type": "application/json",
-        }),
-        convexOrigin: "https://tenant.convex.site",
-        controlPlaneCapability: "builder-only-authority",
-        signal: new AbortController().signal,
-        fetchImpl: (async (_input, init) => {
-          calls += 1;
-          observedRedirect = init?.redirect;
-          expect(new Headers(init?.headers).get("authorization")).toBe(
-            "Bearer builder-only-authority",
-          );
-          return new Response(null, {
-            status: 307,
-            headers: { location: "https://attacker.example/stolen" },
-          });
-        }) as typeof fetch,
-      }),
-    ).rejects.toThrow("redirect");
-    expect(calls).toBe(1);
-    expect(observedRedirect).toBe("manual");
   });
 });
